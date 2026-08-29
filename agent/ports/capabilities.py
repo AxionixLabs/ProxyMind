@@ -2,7 +2,49 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from agent.protocol import SubmitTurnCommand
+from collections.abc import AsyncIterator, Awaitable, Callable
+from agent.protocol import (
+    ModelStreamEndReason,
+    ModelStreamRequest,
+    SubmitTurnCommand,
+)
+
+
+ReconnectStatusCallback: typing.TypeAlias = Callable[[bool], None]
+ApprovalSnapshotCallback: typing.TypeAlias = Callable[
+    [object],
+    Awaitable[None] | None,
+]
+
+
+class ModelEventStream(typing.Protocol):
+    """暴露模型事件迭代、恢复游标和显式关闭生命周期。"""
+
+    end_reason: ModelStreamEndReason | None
+    last_event_seq: int
+
+    def __aiter__(self) -> AsyncIterator[typing.Any]:
+        """返回类型化模型事件的异步迭代器。"""
+        ...
+
+    async def aclose(self) -> None:
+        """关闭当前传输及其重连资源。"""
+        ...
+
+
+@typing.runtime_checkable
+class ModelCapability(typing.Protocol):
+    """按冻结请求创建模型事件流，不持有 Session 或前端状态。"""
+
+    def stream(
+        self,
+        request: ModelStreamRequest,
+        *,
+        on_reconnect_status: ReconnectStatusCallback | None = None,
+        on_approval_snapshot: ApprovalSnapshotCallback | None = None,
+    ) -> ModelEventStream:
+        """创建可取消、可关闭且可报告服务端事件游标的流。"""
+        ...
 
 
 class TurnExecutorResult(typing.Protocol):

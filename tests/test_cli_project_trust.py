@@ -528,6 +528,8 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
     )
     preference = SimpleNamespace(load_pref=AsyncMock())
     config_service = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
+    model_capability = object()
+    runtime_services = SimpleNamespace(model_capability=model_capability)
 
     def build_controller(*_args, **kwargs):
         controller_arguments.update(kwargs)
@@ -596,6 +598,7 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
         output_mode="tui",
         permissions=SimpleNamespace(),
         startup_warnings=("ignored project setting",),
+        runtime_services=runtime_services,
     )
 
     assert events[:3] == ["preload", "warning", "open"]
@@ -604,6 +607,7 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
         controller_arguments["hook_status"],
         TuiHookStatusAdapter,
     )
+    assert controller_arguments["runtime_services"] is runtime_services
 
 
 @pytest.mark.anyio

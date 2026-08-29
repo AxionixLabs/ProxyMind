@@ -27,11 +27,15 @@ async def test_tui_uses_durable_runtime_composition_for_real_layout(
     open_application = Mock(return_value=application)
     run_loop = AsyncMock()
     db_path = tmp_path / "runtime.db"
-    monkeypatch.setattr(loop, "open_turn_application", open_application)
     monkeypatch.setattr(loop, "agent_runtime_db_path", lambda: db_path)
     monkeypatch.setattr(loop, "_run_tui_loop", run_loop)
 
-    await loop.run_tui_loop(SimpleNamespace(application_layout=object()))
+    await loop.run_tui_loop(SimpleNamespace(
+        application_layout=object(),
+        runtime_services=SimpleNamespace(
+            create_turn_application=open_application,
+        ),
+    ))
 
     open_application.assert_called_once_with(db_path)
     assert run_loop.await_args.kwargs["turn_application"] is application

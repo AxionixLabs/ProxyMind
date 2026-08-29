@@ -1,6 +1,6 @@
 # Agent Runtime 迁移计划
 
-状态：阶段 0、阶段 1、阶段 2 已完成；阶段 3 未开始（2026-08-28）
+状态：阶段 0、阶段 1、阶段 2 已完成；阶段 3 进行中（2026-08-29）
 
 这份计划配合 [Agent Runtime 架构基线](AGENT_RUNTIME_ARCHITECTURE.md) 使用。
 它把从历史包到 `agent` bounded context 的改造拆成可回滚阶段；每一阶段都必须
@@ -29,7 +29,7 @@
 | 0. 契约冻结 | 已完成 | 固定外部行为和依赖基线 | 导入图、协议清单、风险清单 | 全部阶段 0 退出条件通过 |
 | 1. Session 骨架 | 已完成 | 引入 Command/Event 和单写者 | `agent.protocol`、SessionLoop、事件游标 | 一个主动 turn 走完整闭环 |
 | 2. 持久化收束 | 已完成 | 迁移事件、快照、效果和 outbox | stores 实现及恢复测试 | 强制退出后可恢复或对账 |
-| 3. 能力解耦 | 未开始 | 模型、MCP、Helix、进程通过端口接入 | capabilities 和 adapters | runtime 不导入具体传输实现 |
+| 3. 能力解耦 | 进行中 | 模型、MCP、Helix、进程通过端口接入 | capabilities 和 adapters | runtime 不导入具体传输实现 |
 | 4. 多入口迁移 | 未开始 | CLI/TUI/MCP/订阅统一提交命令 | adapters 全量切换 | 四类入口共享同一 Run 语义 |
 | 5. 历史包退役 | 未开始 | 删除历史职责和过渡入口 | 旧包删除清单 | 生产导入图只剩 `agent` |
 
@@ -177,11 +177,38 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
 退出条件已全部满足：原子事务、版本门禁、四类恢复动作、超时与未知结果对账、
 重复/冲突身份、最终事实回读以及 CLI/TUI 真实组合路径均有定向测试；全量测试
 `2876 passed, 11 skipped`，导入图、语法检查和 `git diff --check` 通过。
-阶段 3 尚未启用。
+据此启用阶段 3；阶段 2 不再接受新的持久化职责扩张。
 
 ## 阶段 3：能力解耦
 
-状态：未开始
+状态：进行中（2026-08-29）
+
+当前切片：先将主动 Turn 的模型事件流从
+`mind_nova.requests.chat.stream_chat` 迁到具名 `ModelCapability`。请求数据必须
+冻结为协议对象，重连状态和审批恢复保持独立回调端口；`mind.py` 组合根创建
+进程级 `RuntimeServices`，CLI、TUI 和 MCP 入口只接收依赖。此切片通过前不创建
+未接入的 MCP、Helix、process 或 filesystem 空模块。
+
+### 当前证据
+
+- [x] `ModelStreamRequest` 位于 `agent.protocol`，只接收并冻结 JSON 兼容的模型
+  配置、消息、工具、附件和请求选项；重连状态和审批恢复 callback 不进入协议对象。
+- [x] `ModelCapability` 明确事件迭代、服务端水位和关闭生命周期；
+  `RemoteModelCapability` 是唯一把冻结请求翻译到现有远端传输的实现。
+- [x] `mind.py` 是唯一具体组合根，创建一次 `RuntimeServices` 并显式传给 CLI、
+  TUI 与 stdio MCP；主动 Turn、停止 Hook 续跑和子 Agent 从同一容器取得模型能力。
+- [x] `agent.application` 不再导入 `agent.composition`、stores 或 capabilities；
+  CLI/TUI 的 Turn application 与工具效果账本也通过注入工厂创建，不存在导入时
+  装载具体 adapter 或工具执行器自行查找全局工厂的路径。
+- [x] `mind_app` 已无 `mind_nova.requests.chat` 导入；TUI 使用的结束原因类型也已
+  迁入 `agent.protocol`。AST 边界测试禁止旧运行时重新直连模型传输。
+- [x] `agent.capabilities` 只允许依赖 `agent` 内部边界与迁移期协议传输包，禁止
+  导入 `mind_app`、`mind_core`、`engine`、`server` 或 `backend`。
+- [x] 全量测试 `2884 passed, 11 skipped`；导入图确认新增的顶层具体装配边仅为
+  `mind.py -> agent`，没有形成新的跨边界循环，语法、边界与 diff 检查通过。
+
+当前未满足阶段出口：模型事件类仍位于 `mind_nova`；capability 失败尚未转换为
+具名、可持久化错误；MCP、Helix、process 和 filesystem 尚未完成端口接管。
 
 ### 工作项
 
@@ -236,11 +263,12 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
 
 | 入口 | 保留原因 | 删除条件 | 所属阶段 |
 | --- | --- | --- | --- |
-| `mind.py` | 稳定启动方式 | 无需删除，改为组合根调用 | 4 |
+| `mind.py -> agent.composition` | 稳定启动方式和当前唯一具体组合根 | 保留稳定入口；阶段 4 只替换下游 adapter，不把具体装配退回旧包 | 3/4 |
 | 旧 CLI 导入路径 | 外部脚本兼容 | 所有内部调用改走 application，完成兼容窗口 | 4/5 |
 | 旧协议类型别名 | 数据和客户端迁移 | 新旧 schema 均有版本识别且无旧生产消费者 | 4/5 |
 | 旧历史读取器 | 读取存量会话 | 历史数据迁移并完成回读校验 | 2/5 |
 | `mind_app/cli/dispatch.py -> agent.application/protocol` | 首个主动 `exec` 入站切片 | CLI adapter 迁入 `agent.adapters.cli` 且入口只依赖公开组合根 | 4 |
+| `agent/capabilities/model.py -> mind_nova.requests.chat` | 复用已稳定的正式协议事件流、attach 和审批恢复实现 | 模型事件类型迁入 `agent.protocol`，传输细节迁入 capability adapter 且 `mind_app` 无旧类型消费者 | 最晚 5 |
 
 ## 风险与处理
 
@@ -299,3 +327,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-28 | 阶段 1 | 正式 `PROTOCOL.md` 已落地 Canonical Item 门禁、工具批次边界、`stream.gap` 和 Session 跨 Turn 事件水位；全量测试 `2853 passed, 13 skipped` | TUI Event Queue 投影和长生命周期 Session application 接管待完成 |
 | 2026-08-28 | 阶段 1 | TUI 普通 prompt 已接入 `TurnApplication`、长生命周期 SessionLoop 和 Event 终态投影；并发提交、取消重建及可取消关闭等待均有测试；全量测试 `2859 passed, 11 skipped`，导入图、语法和边界检查通过 | 阶段 1 无未决项；阶段 2 未开始 |
 | 2026-08-28 | 阶段 2 | `SQLiteRunStore` 落地事件、快照、outbox、最终事实原子提交与恢复门禁；效果账本迁入 `agent.stores`，CLI/TUI 生产组合接入独立 `runtime.db`；全量测试 `2876 passed, 11 skipped`，导入图、语法和边界检查通过 | 阶段 2 无未决项；阶段 3 未开始 |
+| 2026-08-29 | 阶段 3 | 模型请求、事件流生命周期与结束原因已进入 `agent.protocol/ports`，远端翻译收口到 capability；`mind.py` 通过 `RuntimeServices` 统一注入模型、Turn store 和效果账本工厂，application 不再反向加载具体组合；全量测试 `2884 passed, 11 skipped` | 模型事件类和具名持久错误仍待迁移；MCP、Helix、process、filesystem 端口尚未接管 |

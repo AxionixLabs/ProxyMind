@@ -47,6 +47,7 @@ from mind_app.runtime.hooks.models import (
     ToolCallRunResult,
 )
 from mind_app.runtime.tools.client_call import ClientToolCallRunner
+from agent.composition import open_effect_journal
 from mind_core.feature_config import FeatureSettings
 from mind_core.permissions import preset_permissions
 from mind_nova.requests.turn_control import TurnControlRequestError
@@ -1222,6 +1223,7 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
         tool_call_coordinator=SimpleNamespace(
             run_invocation=AsyncMock(side_effect=run_allowed),
         ),
+        effect_journal=open_effect_journal(tmp_path / "effects.db"),
     )
 
     try:

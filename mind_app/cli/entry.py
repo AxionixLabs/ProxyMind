@@ -7,6 +7,7 @@ import typing
 import asyncio
 import threading
 from types import FrameType
+from agent.application import RuntimeServices
 from engine.errors import AppError
 from mind_core.config import ConfigOverride
 from .commands import (
@@ -153,16 +154,21 @@ async def main(
     *,
     entry_file: str | None = None,
     config_overrides: tuple[ConfigOverride, ...] = (),
-    config_profile: str | None = None
+    config_profile: str | None = None,
+    runtime_services: RuntimeServices | None = None,
 ) -> int:
     """把已解析命令路由到对应的应用组合根。"""
     if isinstance(command, McpServerCommand):
         from mind_app.mcp.server import run_mind_mcp_server
 
+        if runtime_services is None:
+            raise AppError("Agent runtime services are required")
+
         return await run_mind_mcp_server(
             entry_file=entry_file,
             config_overrides=config_overrides,
             config_profile=config_profile,
+            runtime_services=runtime_services,
         )
 
     if isinstance(command, CompletionCommand):
@@ -202,11 +208,15 @@ async def main(
 
     from .bootstrap import run_application
 
+    if runtime_services is None:
+        raise AppError("Agent runtime services are required")
+
     return await run_application(
         command,
         entry_file=entry_file,
         config_overrides=config_overrides,
         config_profile=config_profile,
+        runtime_services=runtime_services,
     )
 
 
@@ -217,6 +227,7 @@ async def _run_main(
     entry_file: str | None,
     config_overrides: tuple[ConfigOverride, ...],
     config_profile: str | None,
+    runtime_services: RuntimeServices | None,
 ) -> int:
     """绑定主任务并进入命令路由。"""
     task = asyncio.current_task()
@@ -229,13 +240,15 @@ async def _run_main(
         entry_file=entry_file,
         config_overrides=config_overrides,
         config_profile=config_profile,
+        runtime_services=runtime_services,
     )
 
 
 def run(
     *,
     entry_file: str | None = None,
-    arguments: typing.Sequence[str] | None = None
+    arguments: typing.Sequence[str] | None = None,
+    runtime_services: RuntimeServices | None = None,
 ) -> int:
     """解析命令并运行统一的进程级异步生命周期。"""
     invocation = parse_cli_invocation(arguments)
@@ -258,6 +271,7 @@ def run(
                 entry_file=entry_file,
                 config_overrides=invocation.config_overrides,
                 config_profile=invocation.profile,
+                runtime_services=runtime_services,
             ))
     except AppError as error:
         emit_entry_failure(command, error, phase="runtime")

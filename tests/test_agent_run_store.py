@@ -7,8 +7,8 @@ import pytest
 from agent.application import (
     RunPersistenceConflict,
     RunRecoveryRequired,
-    open_turn_application,
 )
+from agent.composition import open_turn_application
 from agent.domain import RecoveryAction
 from agent.protocol import (
     RunEvent,

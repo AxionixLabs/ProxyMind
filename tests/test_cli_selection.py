@@ -497,6 +497,7 @@ def test_process_entry_parses_command_once(monkeypatch, tmp_path) -> None:
         entry_file=str(tmp_path / "mind.py"),
         config_overrides=(),
         config_profile=None,
+        runtime_services=None,
     )
 
 
@@ -918,12 +919,14 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
     derive_session = Mock(return_value="cli_session_stable")
     db_path = tmp_path / "runtime.db"
     coordinates = {"cid": "cid-online", "sid": "sid-online"}
-    monkeypatch.setattr(cli_dispatch, "open_turn_application", open_application)
     monkeypatch.setattr(cli_dispatch, "agent_runtime_db_path", lambda: db_path)
     monkeypatch.setattr(cli_dispatch, "derive_local_session_id", derive_session)
     mind = SimpleNamespace(
         application_layout=object(),
         conversation=SimpleNamespace(snapshot=Mock(return_value=coordinates)),
+        runtime_services=SimpleNamespace(
+            create_turn_application=open_application,
+        ),
         exit_code=0,
         permissions=preset_permissions("auto"),
     )

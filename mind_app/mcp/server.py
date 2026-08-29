@@ -6,6 +6,7 @@ import math
 import typing
 import asyncio
 import contextlib
+from agent.application import RuntimeServices
 from dataclasses import dataclass
 from pathlib import Path
 from mcp.server.fastmcp import (
@@ -97,7 +98,9 @@ class MindMcpRuntime(object):
         cls,
         layout: ApplicationLayout,
         config_overrides: tuple[ConfigOverride, ...] = (),
-        config_profile: str | None = None
+        config_profile: str | None = None,
+        *,
+        runtime_services: RuntimeServices,
     ) -> "MindMcpRuntime":
         """创建并启动 MCP 服务使用的应用运行时。"""
         home   = ensure_mind_home()
@@ -146,6 +149,7 @@ class MindMcpRuntime(object):
                 permissions=permissions,
                 hook_registry=hook_registry,
                 application_layout=layout,
+                runtime_services=runtime_services,
                 agent_settings=AgentSettings.from_config(
                     config_resolution.config
                 ),
@@ -314,7 +318,8 @@ def create_mind_mcp_server(
     entry_file: str | None = None,
     layout: ApplicationLayout | None = None,
     config_overrides: tuple[ConfigOverride, ...] = (),
-    config_profile: str | None = None
+    config_profile: str | None = None,
+    runtime_services: RuntimeServices,
 ) -> FastMCP[MindMcpRuntime]:
     """创建提供 agent 工具的 stdio MCP 服务。"""
     resolved_layout = layout or resolve_application_layout(entry_file=entry_file)
@@ -327,6 +332,7 @@ def create_mind_mcp_server(
             resolved_layout,
             config_overrides,
             config_profile,
+            runtime_services=runtime_services,
         )
         try:
             yield runtime
@@ -382,13 +388,15 @@ async def run_mind_mcp_server(
     *,
     entry_file: str | None = None,
     config_overrides: tuple[ConfigOverride, ...] = (),
-    config_profile: str | None = None
+    config_profile: str | None = None,
+    runtime_services: RuntimeServices,
 ) -> int:
     """通过 stdio 运行 MCP 服务直至客户端断开。"""
     server = create_mind_mcp_server(
         entry_file=entry_file,
         config_overrides=config_overrides,
         config_profile=config_profile,
+        runtime_services=runtime_services,
     )
     await server.run_stdio_async()
     return 0

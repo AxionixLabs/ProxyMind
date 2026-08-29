@@ -4,10 +4,14 @@
 import time
 import typing
 import asyncio
-from agent.application import LocalEffectReconciliationRequired
+from agent.application import (
+    LocalEffectReconciliationRequired,
+    ModelCapability,
+    ModelStreamRequest,
+)
 from mind_app.approval.ledger import ApprovalCallLedger
 from mind_app.mcp.contracts import McpSessionLike
-from mind_nova.requests.chat import stream_chat
+from mind_app.paths import effect_journal_db_path
 from mind_nova.identifiers import stable_request_id
 from mind_nova.requests.turn_control import (
     TurnControlRequestError,
@@ -237,6 +241,10 @@ async def stream_turn(
 ) -> RunResult:
     """处理流式事件、工具调用和输出上报。"""
     prepared = prepare_stream_turn(mind, turn_execution, kwargs)
+    runtime_services = getattr(mind, "runtime_services", None)
+    model_capability = getattr(runtime_services, "model_capability", None)
+    if not isinstance(model_capability, ModelCapability):
+        raise RuntimeError("model capability is required")
     callbacks = prepared.callbacks
     reentry_kwargs = prepared.continuation_kwargs
     ev_report = prepared.event_report
@@ -351,7 +359,7 @@ async def stream_turn(
             message=message,
             pref_config=pref_config,
             workdir=str(getattr(mind, "history_workspace", "") or ""),
-            permissions=kwargs["permissions"],
+            permissions=turn_context.permissions,
             turn_id=str(kwargs.get("turn_id") or ""),
             hook_warnings=(
                 getattr(mind, "hook_startup_warnings", ())
@@ -413,6 +421,9 @@ async def stream_turn(
             tools=tools,
             pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
+            effect_journal=runtime_services.create_effect_journal(
+                effect_journal_db_path()
+            ),
             patch_preview=getattr(
                 mind.workspace_runtime.coding,
                 "preview_patch",
@@ -451,17 +462,35 @@ async def stream_turn(
             interrupt_turn=interrupt_nested_turn,
         )
 
-        event_stream = stream_chat(
-            pref_config,
-            message,
-            tools,
+        request_options = dict(kwargs)
+        raw_attachments = request_options.pop("attachments", ())
+        attachments = (
+            tuple(raw_attachments)
+            if isinstance(raw_attachments, (tuple, list))
+            else ()
+        )
+        timeout = request_options.pop("timeout", 60.0)
+        request_options["permissions"] = {
+            "sandbox_mode": turn_context.permissions.sandbox_mode,
+            "approval_policy": turn_context.permissions.approval_policy,
+            "approvals_reviewer": turn_context.permissions.approvals_reviewer,
+        }
+        model_request = ModelStreamRequest(
+            pref_config=pref_config,
+            message=message,
+            tools=tuple(tools),
+            attachments=attachments,
+            options=request_options,
+            timeout=timeout,
             initial_event_seq=session_event_cursors.current(
                 cid=turn_context.cid,
                 sid=turn_context.sid,
             ),
+        )
+        event_stream = model_capability.stream(
+            model_request,
             on_reconnect_status=retrying_status.set_transport,
             on_approval_snapshot=approval_handler.restore_snapshot,
-            **kwargs,
         )
 
         async for event in event_stream:

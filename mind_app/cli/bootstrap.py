@@ -4,6 +4,7 @@
 import os
 import typing
 import asyncio
+from agent.application import RuntimeServices
 from pathlib import Path
 from engine.animation import AsyncAnimManager
 from engine.manage import ServerManage
@@ -207,7 +208,8 @@ async def _run_application(
     entry_file: str | None,
     animation: AsyncAnimManager,
     config_overrides: tuple[ConfigOverride, ...],
-    config_profile: str | None
+    config_profile: str | None,
+    runtime_services: RuntimeServices | None = None,
 ) -> int:
     """执行普通应用运行时的完整生命周期。"""
     output_mode = resolve_cli_output_mode(command)
@@ -423,6 +425,7 @@ async def _run_application(
             hook_startup_warnings=hook_startup_warnings,
             agent_settings=agent_settings,
             feature_settings=feature_settings,
+            runtime_services=runtime_services,
             startup_warnings=(
                 *config_resolution.startup_warnings,
                 *(
@@ -466,7 +469,8 @@ async def _run_controller(
     hook_startup_warnings: tuple[str, ...] = (),
     agent_settings: AgentSettings | None = None,
     feature_settings: FeatureSettings | None = None,
-    startup_warnings: tuple[str, ...] = ()
+    startup_warnings: tuple[str, ...] = (),
+    runtime_services: RuntimeServices | None = None,
 ) -> int:
     """创建 Controller 并运行用户命令。"""
     hook_status = None
@@ -504,6 +508,7 @@ async def _run_controller(
             hook_startup_warnings=hook_startup_warnings,
             hook_status=hook_status,
             application_layout=application_layout,
+            runtime_services=runtime_services,
             agent_settings=agent_settings or AgentSettings(),
             feature_settings=feature_settings or FeatureSettings(),
         )
@@ -745,7 +750,8 @@ async def run_application(
     *,
     entry_file: str | None,
     config_overrides: tuple[ConfigOverride, ...] = (),
-    config_profile: str | None = None
+    config_profile: str | None = None,
+    runtime_services: RuntimeServices,
 ) -> int:
     """装配并运行需要本地应用资源的命令。"""
     animation = AsyncAnimManager()
@@ -756,6 +762,7 @@ async def run_application(
             animation,
             config_overrides,
             config_profile,
+            runtime_services,
         )
     finally:
         await _await_cleanup(animation.stop())

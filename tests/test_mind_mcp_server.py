@@ -44,8 +44,20 @@ def _runtime(mind: typing.Any, turn_runner: AsyncMock) -> MindMcpRuntime:
     )
 
 
+def _runtime_services(model_capability: object | None = None) -> SimpleNamespace:
+    """构造 MCP 入口测试使用的进程级依赖。"""
+    return SimpleNamespace(model_capability=(
+        object()
+        if model_capability is None
+        else model_capability
+    ))
+
+
 def test_mind_mcp_server_exposes_one_structured_tool(tmp_path) -> None:
-    server = create_mind_mcp_server(layout=_source_layout(tmp_path))
+    server = create_mind_mcp_server(
+        layout=_source_layout(tmp_path),
+        runtime_services=_runtime_services(),
+    )
 
     tools = server._tool_manager.list_tools()
 
@@ -175,9 +187,70 @@ async def test_mind_mcp_runtime_closes_report_when_configuration_fails(
     monkeypatch.setattr(mcp_server, "ConfigSession", FailingConfigSession)
 
     with pytest.raises(RuntimeError, match="configuration failed"):
-        await MindMcpRuntime.open(_source_layout(tmp_path))
+        await MindMcpRuntime.open(
+            _source_layout(tmp_path),
+            runtime_services=_runtime_services(),
+        )
 
     report.close.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_mind_mcp_runtime_injects_model_capability(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    report = SimpleNamespace(close=Mock())
+    config_session = SimpleNamespace(
+        resolve=Mock(return_value=SimpleNamespace(config={})),
+    )
+    pref = SimpleNamespace(load_pref=AsyncMock())
+    model_capability = object()
+    runtime_services = _runtime_services(model_capability)
+    captured: dict[str, typing.Any] = {}
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        external_mcp=SimpleNamespace(start=AsyncMock()),
+        end_conversation=AsyncMock(),
+        close_runtime_resources=AsyncMock(),
+    )
+
+    def build_controller(*_args, **kwargs):
+        captured.update(kwargs)
+        return mind
+
+    monkeypatch.setattr(mcp_server, "ensure_mind_home", lambda: tmp_path)
+    monkeypatch.setattr(mcp_server, "mind_reports_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        mcp_server,
+        "mind_config_path",
+        lambda: tmp_path / "config.toml",
+    )
+    monkeypatch.setattr(mcp_server, "RunReport", lambda *_args, **_kwargs: report)
+    monkeypatch.setattr(mcp_server, "ConfigStore", lambda _path: object())
+    monkeypatch.setattr(
+        mcp_server,
+        "ConfigSession",
+        lambda *_args, **_kwargs: config_session,
+    )
+    monkeypatch.setattr(mcp_server, "Preferences", lambda _session: pref)
+    monkeypatch.setattr(mcp_server, "Mind", build_controller)
+    monkeypatch.setattr(mcp_server, "route_shell_tools", Mock())
+    monkeypatch.setattr(mcp_server, "clear_exec_env_cache", Mock())
+    monkeypatch.setattr(
+        mcp_server,
+        "ServiceConfig",
+        lambda _session: SimpleNamespace(load_domain=AsyncMock(return_value="")),
+    )
+    monkeypatch.setattr(mcp_server.service_endpoints, "configure", Mock())
+
+    runtime = await MindMcpRuntime.open(
+        _source_layout(tmp_path),
+        runtime_services=runtime_services,
+    )
+
+    assert captured["runtime_services"] is runtime_services
+    await runtime.close()
 
 
 @pytest.mark.anyio

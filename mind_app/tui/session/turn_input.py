@@ -4,13 +4,13 @@
 import time
 import typing
 import asyncio
+from agent.application import ModelStreamEndReason
 from dataclasses import replace
 from engine.observability import (
     observe,
     observe_exception
 )
 from mind_nova.identifiers import new_request_id
-from mind_nova.requests.chat import TurnStreamEndReason
 from mind_nova.requests.turn_control import (
     TurnControlRequestError,
     interrupt_turn,
@@ -57,7 +57,7 @@ class TuiTurnInputControl(object):
 
         self._ready_turn_id: str = ""
 
-        self._stream_end_reason: TurnStreamEndReason = "cancelled"
+        self._stream_end_reason: ModelStreamEndReason = "cancelled"
 
         self._ledger: PendingSteerLedger = PendingSteerLedger()
 
@@ -153,7 +153,7 @@ class TuiTurnInputControl(object):
 
         return None
 
-    def handle_stream_end(self, reason: TurnStreamEndReason) -> None:
+    def handle_stream_end(self, reason: ModelStreamEndReason) -> None:
         """记录当前远端事件传输的最终结束原因。"""
         if reason not in {
             "settled",

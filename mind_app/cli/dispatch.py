@@ -7,7 +7,6 @@ import asyncio
 from agent.application import (
     SubmitTurnCommand,
     TurnApplication,
-    open_turn_application,
 )
 from engine.errors import AppError
 from mind_core.preference import apply_primary_model_override
@@ -79,7 +78,9 @@ async def run_selected_command(
 
             durable_runtime = getattr(mind, "application_layout", None) is not None
             turn_application = (
-                open_turn_application(agent_runtime_db_path())
+                mind.runtime_services.create_turn_application(
+                    agent_runtime_db_path()
+                )
                 if durable_runtime
                 else TurnApplication()
             )

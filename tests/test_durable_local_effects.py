@@ -6,8 +6,8 @@ import pytest
 
 from agent.application import (
     EffectJournalPersistenceError,
-    open_effect_journal,
 )
+from agent.composition import open_effect_journal
 from mind_nova.stream_events import ExecutionEffect
 
 

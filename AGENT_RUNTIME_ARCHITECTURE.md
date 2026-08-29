@@ -1,6 +1,6 @@
 # Agent Runtime 架构基线
 
-状态：已采纳（Architecture Decision Record）；阶段 2 已完成，阶段 3 未开始
+状态：已采纳（Architecture Decision Record）；阶段 2 已完成，阶段 3 进行中
 
 这份文档是 ProxyMind 下一代 Agent Runtime 的目标架构。它解决的是
 `mind_app`、`mind_core`、`mind_nova` 三个历史包职责交叉、状态所有权不清和
@@ -16,9 +16,10 @@
   不能自动计入后续阶段。
 - `AGENTS.md` 定义当前可执行的生产依赖规则。迁移计划没有启用
   相应阶段时，继续遵守 `mind_app -> mind_core -> mind_nova` 边界。
-- 阶段 0、阶段 1、阶段 2 已于 2026-08-28 通过；主动 `exec` 和 TUI 普通
-  prompt 已使用顶层 `agent` 包、持久化 `SessionLoop` 和 `RunActor`，其他入口
-  仍遵守当前包边界。
+- 阶段 0、阶段 1、阶段 2 已于 2026-08-28 通过；阶段 3 已于 2026-08-29
+  启用。主动 `exec` 和 TUI 普通 prompt 已使用顶层 `agent` 包、持久化
+  `SessionLoop`、`RunActor` 和注入式模型能力；`mind.py` 已成为唯一具体组合根，
+  CLI、TUI 与 stdio MCP 只接收 application 层公开的 `RuntimeServices`。
 
 ### 本地运行时与线上协议身份
 
@@ -272,7 +273,9 @@ running -> cancelled
 
 ### 出站能力
 
-- Model capability 返回类型化的流事件，不返回 UI 对象。
+- Model capability 接收冻结、可序列化的 `ModelStreamRequest`，返回具有明确关闭
+  和事件水位生命周期的流，不返回 UI 对象；重连展示和审批恢复通过独立 callback
+  端口接入，不写入请求协议对象。
 - MCP/Helix capability 只暴露工具发现、调用和生命周期结果。
 - Process/filesystem capability 复用现有 `engine.ports` 等低层能力；端口探测和
   进程清理不下沉到协议包。
@@ -282,7 +285,8 @@ running -> cancelled
 
 | 当前位置 | 目标归属 | 迁移要求 |
 | --- | --- | --- |
-| `mind_app/controller.py` | `composition.py`、application 公开门面 | 不再新增长期运行状态，已有所有权按完整生命周期迁出 |
+| `mind.py`、`agent/composition.py` | `composition.py` | `mind.py` 已创建单个 `RuntimeServices` 并注入全部进程入口；具体 store 和 capability 只能在 `agent/composition.py` 装配 |
+| `mind_app/controller.py` | application 公开门面 | 只借用入口注入的 `RuntimeServices`，不复制能力引用、不选择具体实现；已有可变状态按完整生命周期迁出 |
 | `mind_app/runtime/turns/root.py` | `application/commands.py` | CLI `exec` 和 TUI 普通 prompt 已由类型化 Command 驱动；现有根轮次仍作为注入 executor，MCP 和 Subscription 尚未迁移 |
 | `mind_app/runtime/turns/stream.py` | `runtime/session_loop.py`、`application/turn_pipeline.py` | 输入准备、终态、模型投影、工具交付、资源收尾和回合展示已拆到六个 `stream_*` 所有者；`stream.py` 暂留事件路由与旧控制器组合，待 application pipeline 接管后删除 |
 | `mind_app/runtime/mcp/*`、`subscription/lifecycle.py`、`runtime/environment/coding_lifecycle.py` | capabilities、adapters、runtime supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
@@ -291,9 +295,10 @@ running -> cancelled
 | `agent/stores/effect_journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `stores/effect_journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |
 | `agent/stores/run_store.py`、`_run_schema.py`、`_run_records.py` | `stores/session_store.py`、`event_store.py`、`outbox.py` 的首个事务切片 | 已原子提交事件、快照、outbox 和最终事实；只有出现独立生命周期或规模压力时再物理拆 store，避免单次转发 facade |
 | `mind_nova/requests`、`stream_events.py` | `protocol/`、`capabilities/model.py` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；后续继续把请求/事件类型与传输实现分开，协议不得导入 `engine` |
+| `mind_nova/requests/chat.py` | `agent/protocol/model.py`、`agent/capabilities/model.py` | `mind_app` 已改为只调用 `RuntimeServices` 中的 `ModelCapability`；当前 capability adapter 临时复用既有事件流，待事件类型和传输实现完成迁移后删除该导入 |
 | `mind_app/runtime/turns/delivery.py` | `runtime/session_loop.py` | 当前持有线上 Session 跨 Turn 的 `event_seq` 水位；长生命周期 Session 接管时整体迁入，不与本地 Run sequence 合并 |
 | `mind_core` 配置、权限、hooks、skills | `domain/policies.py`、`stores/`、capability adapters | 配置读取和策略判断拆开，禁止形成新的共享杂物包 |
-| `mind_app/cli`、`tui`、`mcp`、`subscription` | `adapters/` | CLI `exec` 与 TUI 普通 prompt 已只调用 application 公开入口；其他操作后续只做边界翻译和生命周期接入 |
+| `mind_app/cli`、`tui`、`mcp`、`subscription` | `adapters/` | CLI、TUI 与 stdio MCP 已从进程入口接收 application 依赖；CLI `exec` 与 TUI 普通 prompt 已只调用公开用例，其他操作后续只做边界翻译和生命周期接入 |
 | `engine` | capability 的基础实现 | 保持平台基础设施定位，禁止反向依赖 Agent 业务 |
 | `server` | 独立入站/服务适配器 | 只依赖协议和显式 application API |
 | `backend` | 独立打包 | 本次和后续迁移均不修改其目录和依赖边界 |

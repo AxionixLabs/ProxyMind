@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .capabilities import TurnExecutor, TurnExecutorResult
+from .capabilities import (
+    ApprovalSnapshotCallback,
+    ModelCapability,
+    ModelEventStream,
+    ReconnectStatusCallback,
+    TurnExecutor,
+    TurnExecutorResult,
+)
 from .persistence import (
     EffectIntent,
     EffectJournal,
@@ -21,6 +28,10 @@ __all__ = (
     "EffectJournalDecision",
     "EffectJournalPersistenceError",
     "LocalEffectReconciliationRequired",
+    "ApprovalSnapshotCallback",
+    "ModelCapability",
+    "ModelEventStream",
+    "ReconnectStatusCallback",
     "RunFact",
     "RunPersistence",
     "RunPersistenceConflict",

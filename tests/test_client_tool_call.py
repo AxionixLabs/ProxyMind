@@ -15,8 +15,8 @@ from agent.application import (
     EffectJournalDecision,
     EffectJournalPersistenceError,
     LocalEffectReconciliationRequired,
-    open_effect_journal,
 )
+from agent.composition import open_effect_journal
 
 from mind_app.runtime.execution import (
     AgentContext,
@@ -73,6 +73,15 @@ def _runner(
         end_status=AsyncMock(),
     )
     presentation = SimpleNamespace(emit=AsyncMock())
+    if effect_journal is None:
+        effect_journal = SimpleNamespace(
+            inspect=AsyncMock(),
+            begin=AsyncMock(),
+            commit=AsyncMock(),
+            mark_unknown=AsyncMock(),
+            reconciliation_result=AsyncMock(),
+            mark_reconciled=AsyncMock(),
+        )
     runner = ClientToolCallRunner(
         session=SimpleNamespace(),
         output_control=output,

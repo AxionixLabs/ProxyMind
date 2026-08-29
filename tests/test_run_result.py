@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import tempfile
 import typing
 from pathlib import Path
 from types import SimpleNamespace
@@ -55,8 +56,8 @@ from mind_app.runtime.tools.client_call import (
     ClientToolCallOutcome,
     ClientToolCallResult,
 )
-from mind_app.runtime.tools import client_call
-from agent.application import open_effect_journal
+from agent.application import ModelStreamRequest
+from agent.composition import open_effect_journal
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from mind_core.hook_discovery import resolve_hook_definitions
 from mind_core.permissions import PermissionSettings, preset_permissions
@@ -316,16 +317,16 @@ def _durable_tool_call(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
     return current
 
 
-def _install_effect_journal(monkeypatch, db_path: Path) -> None:
+def _open_effect_journal(db_path: Path):
     """让流测试使用隔离的本地效果账本。"""
-    monkeypatch.setattr(
-        client_call,
-        "open_effect_journal",
-        lambda _path: open_effect_journal(db_path),
-    )
+    return open_effect_journal(db_path)
 
 
-def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
+def _mind(
+    *,
+    frontend_active: bool = True,
+    effect_journal=None,
+) -> SimpleNamespace:
     remembered: list[str] = []
     queued_context: list[tuple[str, ...]] = []
 
@@ -345,6 +346,12 @@ def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
         rules_paths=(),
         writable_rules_path=Path.cwd() / ".pytest_cache" / "test-exec-policy.rules",
     )
+    effect_directory = None
+    if effect_journal is None:
+        effect_directory = tempfile.TemporaryDirectory()
+        effect_journal = open_effect_journal(
+            Path(effect_directory.name) / "effects.db"
+        )
     return SimpleNamespace(
         report=SimpleNamespace(output_record_path=""),
         transcripts=transcripts,
@@ -371,6 +378,10 @@ def _mind(*, frontend_active: bool = True) -> SimpleNamespace:
             ),
         ),
         queued_context=queued_context,
+        runtime_services=SimpleNamespace(
+            create_effect_journal=Mock(return_value=effect_journal),
+        ),
+        _effect_directory=effect_directory,
     )
 
 
@@ -399,6 +410,7 @@ async def _run_stream(
     mind_state: SimpleNamespace | None = None,
     show_hook_lifecycle: bool = False,
     permissions: PermissionSettings | None = None,
+    effect_journal=None,
 ) -> tuple[RunResult, SimpleNamespace]:
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
@@ -407,13 +419,40 @@ async def _run_stream(
     else:
         stream_chat = stream_factory
 
-    monkeypatch.setattr(stream, "stream_chat", stream_chat)
     monkeypatch.setattr(
         stream,
         "interrupt_turn",
         AsyncMock(return_value=SimpleNamespace(status="accepted")),
     )
-    mind = mind_state or _mind(frontend_active=frontend_active)
+    mind = mind_state or _mind(
+        frontend_active=frontend_active,
+        effect_journal=effect_journal,
+    )
+
+    class ModelCapabilityStub:
+        """把测试流工厂适配到正式模型能力端口。"""
+
+        def stream(
+            self,
+            request: ModelStreamRequest,
+            *,
+            on_reconnect_status=None,
+            on_approval_snapshot=None,
+        ):
+            """按旧测试工厂签名展开冻结请求。"""
+            return stream_chat(
+                request.pref_config_value(),
+                request.message,
+                request.tool_values(),
+                attachments=request.attachment_values() or None,
+                timeout=request.timeout,
+                initial_event_seq=request.initial_event_seq,
+                on_reconnect_status=on_reconnect_status,
+                on_approval_snapshot=on_approval_snapshot,
+                **request.option_values(),
+            )
+
+    mind.runtime_services.model_capability = ModelCapabilityStub()
     output_session = _output_session(
         show_hook_lifecycle=show_hook_lifecycle
     )
@@ -2366,7 +2405,7 @@ async def test_stream_reports_plan_result_after_local_execution(
     tmp_path,
 ) -> None:
     posted = []
-    _install_effect_journal(monkeypatch, tmp_path / "effects.db")
+    effect_journal = _open_effect_journal(tmp_path / "effects.db")
 
     async def handle(_runner, *, invocation):
         assert invocation.name == PLAN_STEPS_TOOL
@@ -2387,17 +2426,21 @@ async def test_stream_reports_plan_result_after_local_execution(
     monkeypatch.setattr(stream.PlanToolCallRunner, "handle", handle)
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
 
-    result, _mind_state = await _run_stream(monkeypatch, [
-        _durable_tool_call({
-            "type": "tool.call",
-            "cid": "untrusted-cid",
-            "sid": "untrusted-sid",
-            "call_id": "call-plan",
-            "name": PLAN_STEPS_TOOL,
-            "arguments": {"steps": []},
-        }),
-        {"type": "turn.done"},
-    ])
+    result, _mind_state = await _run_stream(
+        monkeypatch,
+        [
+            _durable_tool_call({
+                "type": "tool.call",
+                "cid": "untrusted-cid",
+                "sid": "untrusted-sid",
+                "call_id": "call-plan",
+                "name": PLAN_STEPS_TOOL,
+                "arguments": {"steps": []},
+            }),
+            {"type": "turn.done"},
+        ],
+        effect_journal=effect_journal,
+    )
 
     assert result.status == "completed"
     assert posted[0][0][:5] == (
@@ -2416,7 +2459,7 @@ async def test_stream_queues_pre_tool_context_after_operation_error(
     monkeypatch,
     tmp_path,
 ) -> None:
-    _install_effect_journal(monkeypatch, tmp_path / "effects.db")
+    effect_journal = _open_effect_journal(tmp_path / "effects.db")
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
             return SimpleNamespace(data={
@@ -2451,6 +2494,7 @@ async def test_stream_queues_pre_tool_context_after_operation_error(
             "arguments": {"steps": []},
         })],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+        effect_journal=effect_journal,
     )
 
     assert result.status == "failed"
@@ -2463,7 +2507,7 @@ async def test_post_tool_hook_replaces_plan_result_for_model(
     monkeypatch,
     tmp_path,
 ) -> None:
-    _install_effect_journal(monkeypatch, tmp_path / "effects.db")
+    effect_journal = _open_effect_journal(tmp_path / "effects.db")
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
             return SimpleNamespace(data={
@@ -2516,6 +2560,7 @@ async def test_post_tool_hook_replaces_plan_result_for_model(
             {"type": "turn.done"},
         ],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+        effect_journal=effect_journal,
     )
 
     assert result.status == "completed"

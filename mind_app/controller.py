@@ -114,6 +114,9 @@ class Mind(object):
         self.application_layout: ApplicationLayout | None = kwargs.get(
             "application_layout"
         )
+        self.runtime_services = kwargs.get("runtime_services")
+        if self.runtime_services is None:
+            raise ValueError("Agent runtime services are required")
 
         self.pref: Preferences               = kwargs["pref"]
         self.config_session: ConfigSession   = kwargs["config_session"]

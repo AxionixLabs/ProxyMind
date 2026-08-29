@@ -32,6 +32,34 @@ def _forbidden_imports(
     return violations
 
 
+def _forbidden_module_imports(
+    package: str,
+    forbidden_modules: set[str],
+) -> list[str]:
+    package_root = PROJECT_ROOT / package
+    violations: list[str] = []
+
+    for path in package_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            imported: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                imported = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                imported = (node.module or "",)
+
+            for module in imported:
+                if any(
+                    module == forbidden
+                    or module.startswith(f"{forbidden}.")
+                    for forbidden in forbidden_modules
+                ):
+                    relative = path.relative_to(PROJECT_ROOT)
+                    violations.append(f"{relative}:{node.lineno} -> {module}")
+
+    return violations
+
+
 def test_transport_protocol_package_is_independent() -> None:
     violations = _forbidden_imports(
         "mind_nova",
@@ -92,6 +120,50 @@ def test_agent_runtime_core_does_not_import_legacy_packages() -> None:
 
     assert not violations, "agent runtime imports legacy code:\n" + "\n".join(
         violations
+    )
+
+
+def test_agent_capabilities_depend_only_on_protocol_transport() -> None:
+    violations = _forbidden_imports(
+        "agent/capabilities",
+        {
+            "applications",
+            "backend",
+            "engine",
+            "mind_app",
+            "mind_core",
+            "server",
+        },
+    )
+
+    assert not violations, "agent capabilities cross adapter boundaries:\n" + (
+        "\n".join(violations)
+    )
+
+
+def test_agent_application_does_not_load_concrete_composition() -> None:
+    violations = _forbidden_module_imports(
+        "agent/application",
+        {
+            "agent.capabilities",
+            "agent.composition",
+            "agent.stores",
+        },
+    )
+
+    assert not violations, "agent application loads concrete adapters:\n" + (
+        "\n".join(violations)
+    )
+
+
+def test_legacy_application_does_not_import_model_transport() -> None:
+    violations = _forbidden_module_imports(
+        "mind_app",
+        {"mind_nova.requests.chat"},
+    )
+
+    assert not violations, "legacy application imports model transport:\n" + (
+        "\n".join(violations)
     )
 
 
