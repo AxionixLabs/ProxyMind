@@ -20,6 +20,7 @@ from mind_app.mcp.server import (
     create_mind_mcp_server,
 )
 from mind_app.mcp import server as mcp_server
+from agent.application import TurnApplication
 from mind_app.runtime.turns.result import RunResult
 from mind_core.application_paths import ApplicationLayout
 from mind_core.permissions import PermissionSettings
@@ -41,6 +42,7 @@ def _runtime(mind: typing.Any, turn_runner: AsyncMock) -> MindMcpRuntime:
         mind,
         report=SimpleNamespace(close=Mock()),
         turn_runner=turn_runner,
+        turn_application=TurnApplication(),
     )
 
 
@@ -50,7 +52,7 @@ def _runtime_services(model_capability: object | None = None) -> SimpleNamespace
         object()
         if model_capability is None
         else model_capability
-    ))
+    ), create_turn_application=lambda _path: TurnApplication())
 
 
 def test_mind_mcp_server_exposes_one_structured_tool(tmp_path) -> None:
@@ -100,6 +102,7 @@ async def test_mind_mcp_runtime_closes_report_after_runtime_resources(
         typing.cast(typing.Any, mind),
         report=report,
         turn_runner=AsyncMock(),
+        turn_application=TurnApplication(),
     )
 
     await runtime.close()
@@ -126,6 +129,7 @@ async def test_mind_mcp_runtime_releases_resources_when_session_close_fails(
         typing.cast(typing.Any, mind),
         report=report,
         turn_runner=AsyncMock(),
+        turn_application=TurnApplication(),
     )
 
     with pytest.raises(RuntimeError, match="session failed"):
@@ -153,6 +157,7 @@ async def test_mind_mcp_runtime_closes_report_when_resource_cleanup_fails(
         typing.cast(typing.Any, mind),
         report=report,
         turn_runner=AsyncMock(),
+        turn_application=TurnApplication(),
     )
 
     with pytest.raises(RuntimeError, match="cleanup failed"):
@@ -289,6 +294,66 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
         message="inspect",
         permissions=PermissionSettings("read-only", "on-request"),
     )
+
+
+@pytest.mark.anyio
+async def test_mind_mcp_runtime_submits_typed_command_to_application(
+    tmp_path,
+) -> None:
+    result = RunResult(status="completed", assistant_text="done")
+    metadata = {
+        "cid": "cid_test_12345678",
+        "sid": "sid_test_1_abcdef",
+    }
+    turn_runner = AsyncMock(return_value=result)
+
+    class RecordingApplication:
+        def __init__(self) -> None:
+            self.command = None
+            self.closed = False
+
+        async def submit(self, command, executor):
+            self.command = command
+            return SimpleNamespace(value=await executor(command))
+
+        async def close(self, *, cancel_running: bool = False) -> None:
+            self.closed = cancel_running
+
+    application = RecordingApplication()
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        set_history_workspace=Mock(),
+        reset_conversation=AsyncMock(return_value=metadata),
+        find_conversation_session=Mock(return_value=None),
+        resume_conversation=AsyncMock(),
+        end_conversation=AsyncMock(),
+        close_runtime_resources=AsyncMock(),
+    )
+    runtime = MindMcpRuntime(
+        mind,
+        report=SimpleNamespace(close=Mock()),
+        turn_runner=turn_runner,
+        turn_application=application,
+    )
+
+    actual = await runtime.execute(
+        prompt="inspect",
+        sandbox_mode="read-only",
+        approval_policy="on-request",
+        working_directory=str(tmp_path),
+    )
+
+    assert actual.run is result
+    assert application.command.session_id == metadata["sid"]
+    assert application.command.message == "inspect"
+    assert application.command.extras_value() == {
+        "working_directory": str(tmp_path.resolve()),
+        "sandbox_mode": "read-only",
+        "approval_policy": "on-request",
+        "approvals_reviewer": "user",
+    }
+    await runtime.close()
+    assert application.closed is True
 
 
 @pytest.mark.anyio

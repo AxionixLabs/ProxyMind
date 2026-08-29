@@ -1,6 +1,6 @@
 # Agent Runtime 迁移计划
 
-状态：阶段 0、阶段 1、阶段 2、阶段 3 已完成；阶段 4 未开始（2026-08-29）
+状态：阶段 0、阶段 1、阶段 2、阶段 3 已完成；阶段 4 进行中（2026-08-29）
 
 这份计划配合 [Agent Runtime 架构基线](AGENT_RUNTIME_ARCHITECTURE.md) 使用。
 它把从历史包到 `agent` bounded context 的改造拆成可回滚阶段；每一阶段都必须
@@ -30,7 +30,7 @@
 | 1. Session 骨架 | 已完成 | 引入 Command/Event 和单写者 | `agent.protocol`、SessionLoop、事件游标 | 一个主动 turn 走完整闭环 |
 | 2. 持久化收束 | 已完成 | 迁移事件、快照、效果和 outbox | stores 实现及恢复测试 | 强制退出后可恢复或对账 |
 | 3. 能力解耦 | 已完成 | 模型、MCP、Helix、进程通过端口接入 | capabilities 和 adapters | runtime 不导入具体传输实现 |
-| 4. 多入口迁移 | 未开始 | CLI/TUI/MCP/订阅统一提交命令 | adapters 全量切换 | 四类入口共享同一 Run 语义 |
+| 4. 多入口迁移 | 进行中 | CLI/TUI/MCP/订阅统一提交命令 | adapters 全量切换 | 四类入口共享同一 Run 语义 |
 | 5. 历史包退役 | 未开始 | 删除历史职责和过渡入口 | 旧包删除清单 | 生产导入图只剩 `agent` |
 
 ## 阶段 0：契约冻结
@@ -271,7 +271,28 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
 
 ## 阶段 4：多入口迁移
 
-状态：未开始
+状态：进行中（2026-08-29）
+
+当前切片：stdio MCP 的 `mind_exec` 请求层已经改为通过注入的
+`TurnApplication` 提交 `SubmitTurnCommand`。请求层只负责请求校验、工作区和
+权限解析；Session 状态、取消、事件投影和 application 关闭由统一入口拥有。旧
+`run_root_turn` 仅作为显式执行器适配，下一切片迁移 TUI 与 subscription 的同一
+Command Gateway。
+
+### 当前证据
+
+- [x] `MindMcpRuntime.open()` 从 `RuntimeServices.create_turn_application()` 创建
+  长驻 application；测试替身仍可显式注入 application，不再让 MCP 入口自行装配
+  store 或模型能力。
+- [x] `mind_exec` 为每次请求创建冻结的 `SubmitTurnCommand`，使用远端会话 `sid`
+  作为本地 Session identity；根轮次执行器只接收已解析的消息、权限和附件。
+- [x] MCP runtime 关闭时先关闭 application，再释放控制器资源和报告；超时或取消
+  通过 application 的 Session runtime 收束，不释放调用锁前留下活动 Run。
+- [x] 新增 application 边界测试，验证命令坐标、执行器适配和关闭顺序；MCP 与
+  architecture 定向测试通过。
+
+当前未满足阶段 4 出口：CLI/TUI/Subscription 尚未全部切换到同一 Command Gateway，
+旧根轮次和 legacy Helix/process adapter 仍需在后续切片迁移。
 
 ### 工作项
 
@@ -381,3 +402,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-29 | 阶段 3 | 协议层统一模型事件坐标与序号校验，adapter 仅负责传输错误转换；新增非法字段关闭路径测试；全量测试 `2914 passed, 11 skipped`，定向、语法和边界检查通过 | 具体模型事件类仍位于 `mind_nova`；MCP、Helix、process、filesystem 尚未接管 |
 | 2026-08-29 | 阶段 3 | 冻结 JSON 的解冻边界改为具名类型和运行时对象校验，清除 `agent` 生产代码中的强制类型断言；全量测试 `2914 passed, 11 skipped`，定向测试 `96 passed`，语法检查通过 | 具体模型事件类仍位于 `mind_nova`；MCP、Helix、process、filesystem 尚未接管 |
 | 2026-08-29 | 阶段 3 | 完成 model/MCP/Helix/process/filesystem capability ports；新增协议值对象、统一 `CapabilityError`、本地进程/文件实现和四类内存替身；定向 capability 测试 30 项、全量测试 `2926 passed, 11 skipped` | 旧 `mind_nova` wire decoder、`ServerManage`、`ProcessSessionManager` 和 `SandboxClient` 作为 legacy adapters 转入阶段 4/5；模型轮次不隐式触发 Helix |
+| 2026-08-29 | 阶段 4 | stdio MCP `mind_exec` 通过注入的 `TurnApplication` 提交冻结 `SubmitTurnCommand`；MCP 不再直接拥有 Turn application 生命周期；定向 MCP/架构测试 `24 passed` | CLI、TUI、Subscription 仍待统一 Command Gateway；旧根轮次仅保留为显式执行器 adapter |

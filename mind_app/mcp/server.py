@@ -6,7 +6,11 @@ import math
 import typing
 import asyncio
 import contextlib
-from agent.application import RuntimeServices
+from agent.application import (
+    RuntimeServices,
+    SubmitTurnCommand,
+    TurnApplication,
+)
 from dataclasses import dataclass
 from pathlib import Path
 from mcp.server.fastmcp import (
@@ -21,6 +25,7 @@ from mind_app.runtime.turns.result import RunResult
 from mind_app.runtime.turns.root import RootTurnRunner, run_root_turn
 from mind_app.output.silent import create_silent_output_session
 from mind_app.paths import (
+    agent_runtime_db_path,
     ensure_mind_home,
     mind_config_path,
     mind_reports_dir
@@ -84,12 +89,14 @@ class MindMcpRuntime(object):
         *,
         report: RunReport,
         turn_runner: RootTurnRunner = run_root_turn,
+        turn_application: TurnApplication[RunResult],
     ) -> None:
-        """绑定主控制器、运行报告和串行调用锁。"""
+        """绑定主控制器、主动 Turn application 和串行调用锁。"""
         self.mind              = mind
         self.default_workspace = Path(mind.history_workspace).resolve()
         self._report           = report
         self._turn_runner      = turn_runner
+        self._turn_application = turn_application
 
         self._call_lock = asyncio.Lock()
 
@@ -167,7 +174,14 @@ class MindMcpRuntime(object):
                 await ServiceConfig(config_session).load_domain()
             )
             await mind.external_mcp.start()
-            return cls(mind, report=report)
+            turn_application = runtime_services.create_turn_application(
+                agent_runtime_db_path()
+            )
+            return cls(
+                mind,
+                report=report,
+                turn_application=turn_application,
+            )
         except BaseException:
             try:
                 await mind.close_runtime_resources()
@@ -181,9 +195,12 @@ class MindMcpRuntime(object):
             await self.mind.end_conversation(reason="exit")
         finally:
             try:
-                await self.mind.close_runtime_resources()
+                await self._turn_application.close(cancel_running=True)
             finally:
-                self._report.close()
+                try:
+                    await self.mind.close_runtime_resources()
+                finally:
+                    self._report.close()
 
     async def execute(
         self,
@@ -292,13 +309,42 @@ class MindMcpRuntime(object):
 
         request.session_id = metadata["sid"]
 
-        run = await self._turn_runner(
-            self.mind,
+        command = SubmitTurnCommand.create(
+            session_id=request.session_id,
             message=message,
-            permissions=permissions,
+            extras={
+                "working_directory": str(workspace),
+                "sandbox_mode": permissions.sandbox_mode,
+                "approval_policy": permissions.approval_policy,
+                "approvals_reviewer": permissions.approvals_reviewer,
+            },
         )
 
-        return MindMcpExecutionResult(run=run, session_id=request.session_id)
+        async def execute_root_turn(
+            submitted: SubmitTurnCommand,
+        ) -> RunResult:
+            """将 application 命令适配到旧根轮次执行器。"""
+            root_kwargs: dict[str, typing.Any] = {
+                "permissions": permissions,
+            }
+            attachments = submitted.attachment_values()
+            if attachments:
+                root_kwargs["attachments"] = attachments
+            return await self._turn_runner(
+                self.mind,
+                message=submitted.message,
+                **root_kwargs,
+            )
+
+        execution = await self._turn_application.submit(
+            command,
+            execute_root_turn,
+        )
+
+        return MindMcpExecutionResult(
+            run=execution.value,
+            session_id=request.session_id,
+        )
 
     @staticmethod
     def _failed(

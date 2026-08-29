@@ -1,6 +1,6 @@
 # Agent Runtime 架构基线
 
-状态：已采纳（Architecture Decision Record）；阶段 3 已完成，阶段 4 未开始
+状态：已采纳（Architecture Decision Record）；阶段 3 已完成，阶段 4 进行中
 
 这份文档是 ProxyMind 下一代 Agent Runtime 的目标架构。它解决的是
 `mind_app`、`mind_core`、`mind_nova` 三个历史包职责交叉、状态所有权不清和
@@ -17,7 +17,7 @@
 - `AGENTS.md` 定义当前可执行的生产依赖规则。迁移计划没有启用
   相应阶段时，继续遵守 `mind_app -> mind_core -> mind_nova` 边界。
 - 阶段 0、阶段 1、阶段 2 已于 2026-08-28 通过；阶段 3 已于 2026-08-29
-  通过。主动 `exec` 和 TUI 普通 prompt 已使用顶层 `agent` 包、持久化
+  通过，阶段 4 已于同日启动。主动 `exec` 和 TUI 普通 prompt 已使用顶层 `agent` 包、持久化
   `SessionLoop`、`RunActor` 和注入式模型能力；`mind.py` 已成为唯一具体组合根，
   CLI、TUI 与 stdio MCP 只接收 application 层公开的 `RuntimeServices`。
 
@@ -307,6 +307,7 @@ running -> cancelled
 | `mind_app/runtime/turns/delivery.py` | `runtime/session_loop.py` | 当前持有线上 Session 跨 Turn 的 `event_seq` 水位；长生命周期 Session 接管时整体迁入，不与本地 Run sequence 合并 |
 | `mind_core` 配置、权限、hooks、skills | `domain/policies.py`、`stores/`、capability adapters | 配置读取和策略判断拆开，禁止形成新的共享杂物包 |
 | `mind_app/cli`、`tui`、`mcp`、`subscription` | `adapters/` | CLI、TUI 与 stdio MCP 已从进程入口接收 application 依赖；CLI `exec` 与 TUI 普通 prompt 已只调用公开用例，其他操作后续只做边界翻译和生命周期接入 |
+| `mind_app/mcp/server.py` | `adapters/mcp_server.py` | `mind_exec` 已通过注入的 `TurnApplication` 提交 `SubmitTurnCommand`；`MindMcpRuntime` 仍保留控制器配置和旧根轮次执行器，待 CLI/TUI/Subscription 共用 Gateway 后迁入 |
 | `engine` | capability 的基础实现 | 保持平台基础设施定位，禁止反向依赖 Agent 业务 |
 | `server` | 独立入站/服务适配器 | 只依赖协议和显式 application API |
 | `backend` | 独立打包 | 本次和后续迁移均不修改其目录和依赖边界 |
