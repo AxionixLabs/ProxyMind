@@ -218,6 +218,9 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
 - [x] `agent.protocol.ModelEvent` 固化模型事件跨 capability 边界的最小坐标契约，
   `ModelEventStream` 不再以 `Any` 暴露事件；具体传输事件仍由 `mind_nova` adapter
   解析和返回，runtime 只依赖协议形状。
+- [x] `RemoteModelEventStream` 在 adapter 边界执行 `ModelEvent` 运行时门禁，
+  非协议对象统一转换为 `model_protocol_error` 并完成流关闭，不再使用
+  `typing.cast()` 绕过真实契约。
 - [x] 全量测试 `2892 passed, 11 skipped`；导入图确认新增的顶层具体装配边仅为
   `mind.py -> agent`，没有形成新的跨边界循环，语法、边界与 diff 检查通过。
 
@@ -346,3 +349,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-29 | 阶段 3 | `RemoteModelEventStream` 统一模型能力异常，`RunResult` 与 `run_failed` 事件保留稳定错误码、重试性和 JSON 细节；全量测试 `2890 passed, 11 skipped`，定向异常/持久化测试通过 | 模型事件类仍位于 `mind_nova`；MCP、Helix、process、filesystem 端口尚未接管 |
 | 2026-08-29 | 阶段 3 | 客户端事件模型接收新的 provider retry/failure 元数据并校验错误类型一致性；失败分类进入 `RunResult`，`Retrying` 展示状态机保持不变；全量测试 `2892 passed, 11 skipped` | 模型事件类整体仍位于 `mind_nova`；MCP、Helix、process、filesystem 端口尚未接管 |
 | 2026-08-29 | 阶段 3 | `agent.protocol.ModelEvent` 固化 capability 事件坐标，`ModelEventStream` 从 `Any` 收窄为协议事件迭代器；全量测试 `2912 passed, 11 skipped`，导入边界、语法和文档检查通过 | 具体模型事件类仍位于 `mind_nova`；MCP、Helix、process、filesystem 尚未接管 |
+| 2026-08-29 | 阶段 3 | 模型 adapter 将 `ModelEvent` 声明升级为运行时门禁，非法传输对象收敛为 `model_protocol_error` 并关闭流；全量测试 `2913 passed, 11 skipped`，定向、语法、文档和 diff 检查通过 | 具体模型事件类仍位于 `mind_nova`；MCP、Helix、process、filesystem 尚未接管 |

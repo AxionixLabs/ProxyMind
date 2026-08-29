@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -10,6 +11,18 @@ from agent.application import (
 )
 from agent.capabilities import model as model_adapter
 from agent.composition import open_model_capability
+
+
+def _model_event(event_type: str = "turn.start") -> SimpleNamespace:
+    return SimpleNamespace(
+        type=event_type,
+        proto="mind.chat",
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        event_seq=1,
+        presentation_epoch=1,
+    )
 
 
 def _request() -> ModelStreamRequest:
@@ -113,7 +126,7 @@ async def test_remote_model_event_stream_normalizes_iteration_failure_and_closes
             return self._iterate()
 
         async def _iterate(self):
-            yield {"type": "turn.start"}
+            yield _model_event()
             raise TimeoutError("read timed out")
 
         async def aclose(self) -> None:
@@ -132,6 +145,38 @@ async def test_remote_model_event_stream_normalizes_iteration_failure_and_closes
     assert error.details == {"exception_type": "TimeoutError"}
     assert raw.closed is True
     assert stream.last_event_seq == 9
+
+
+@pytest.mark.anyio
+async def test_remote_model_event_stream_rejects_invalid_event_and_closes() -> None:
+    class RawStream:
+        end_reason = "protocol_error"
+        last_event_seq = 0
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        def __aiter__(self):
+            return self._iterate()
+
+        async def _iterate(self):
+            yield {"type": "turn.start"}
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    raw = RawStream()
+    stream = model_adapter.RemoteModelEventStream(raw)
+
+    with pytest.raises(ModelCapabilityError) as captured:
+        async for _event in stream:
+            pass
+
+    error = captured.value
+    assert error.code == "model_protocol_error"
+    assert error.retryable is False
+    assert error.details == {"exception_type": "TypeError"}
+    assert raw.closed is True
 
 
 def test_model_capability_error_freezes_details() -> None:
