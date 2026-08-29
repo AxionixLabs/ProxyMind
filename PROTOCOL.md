@@ -32,7 +32,7 @@
 
 `item_kind` 取值为 `message`、`text`、`reasoning`、`tool_call`、`tool_output`、`builtin_tool`、`approval` 或 `custom`；`item_status` 取值为 `registered`、`in_progress`、`waiting_result`、`waiting_approval`、`result_received`、`completed`、`failed`、`cancelled` 或 `reconciliation_required`。canonical Transcript 使用同一规则保存内部 `_mind_item_id`、`_mind_item_kind` 和 `_mind_item_status` 元数据，发送给供应商前必须剥离这些服务端字段。
 
-阶段 0 已冻结 `review` Item 扩展，但在阶段 1 的模型、路由、持久化和 OpenAPI 同步完成前，客户端不得发送 `item_kind=review` 或 `review.*` 事件。启用后，`review` 将成为独立 Item 类型，不得退化为 `custom` 或通过普通消息文本推断。
+`review` 是独立 Item 类型，不得退化为 `custom` 或通过普通消息文本推断。
 
 可展示事件的身份映射如下；控制事件不创建 Item：
 
@@ -141,6 +141,7 @@ Hosted 工具通过 `hosted_tools.enabled_groups` 按组启用。启用 `sandbox
 - `turn_already_active` 的错误详情会尽量返回当前活动 Turn 的 `active_turn_id` 和 `active_status`；客户端应使用该 ID 进行 attach 或 interrupt，避免盲目重复提交。
 - 若历史数据存在终态但尚未写入 `settled` 标记，新的 `/mind-chat` 会在预留事务中补写唯一 `turn.logical_settled` 并释放会话占用，再创建新轮次。
 - `AgentRequest.approval_policy` 接受 `untrusted`、`on-request`、`never`，或 `{"granular": {...}}`；细粒度对象必须声明 `sandbox_approval`、`rules`、`mcp_elicitations`，`skill_approval` 和 `request_permissions` 缺省时均为 `false`。`approval_policy` 和 `approvals_reviewer` 只描述调用侧工具的权限选择，服务端不据此执行工具或作出安全裁决。
+- `AgentRequest.network_access` 只允许 `restricted` 或 `enabled`，缺省为 `restricted`；它与 `sandbox_mode`、`approval_policy`、`approvals_reviewer` 一起用于生成当前 Turn 的模型权限指令，客户端本地策略仍是执行权威。
 - 断线后使用 `POST /mind-attach`，请求只包含 `cid`、`sid`、`turn_id`、`after_seq`。
 - 审批恢复时先调用 `POST /turn/approval-snapshot`，请求体携带 `cid/sid/turn_id`；服务端完成审批状态对账后返回权威 `last_event_seq`、Turn 状态和与实时事件同构的审批信封数组。随后仍使用原客户端确认游标调用 `POST /mind-attach`，不得把快照水位直接当作已确认游标。
 - 快照中的审批信封按持久创建顺序返回，使用 `approval_id + call_id` 合并。快照状态对所有 `event_seq <= last_event_seq` 的重放审批事件具有优先级；客户端只展示 `status=pending`，不得用较旧的 pending 事件重新打开 `resolved` 或 `cancelled` 审批。
@@ -148,6 +149,68 @@ Hosted 工具通过 `hosted_tools.enabled_groups` 按组启用。启用 `sandbox
 - SSE 在检测到历史裁剪或权威内部缺口时发送非持久 `stream.gap` 控制事件；前者可继续回放，后者必须进入可重试的对账路径。实时通知仅提供唤醒，最终顺序始终由 `event_seq` 回放裁决。
 - 客户端收到 `turn.logical_settled` 后才结束该逻辑轮次；连接关闭、`turn.done` 或 `turn.failed` 均不能替代结算事件。
 - `turn.logical_settled`、Turn 终态和 Session idle 状态由 Worker 在同一数据库事务内提交；`settled=true` 的 Turn 不得再次被领取。
+
+## Permission And Environment Context
+
+`AgentRequest.exec_env` 是可选的客户端环境事实快照，使用固定结构且拒绝未知字段。请求结构如下：
+
+```json
+{
+  "snapshot_id": "envsnap_01JABCDEF",
+  "source": "client",
+  "captured_at": "2026-08-29T12:00:00Z",
+  "environment_id": "local",
+  "status": "available",
+  "platform": {
+    "system": "Windows",
+    "machine": "AMD64",
+    "path_separator": "\\"
+  },
+  "shell": {
+    "name": "powershell",
+    "syntax": "powershell",
+    "executable": "pwsh.exe",
+    "prefix": ["pwsh.exe", "-Command"]
+  },
+  "workspace": {
+    "root": "D:\\PycharmProjects\\AppServer",
+    "allowed_roots": [],
+    "markers": [".git", "pyproject.toml"],
+    "projects": {
+      "python": {
+        "markers": ["pyproject.toml"],
+        "virtual_environments": []
+      }
+    },
+    "source": "client"
+  },
+  "runtimes": {
+    "python": {"available": true, "version": "3.13"}
+  },
+  "tools": {
+    "rg": {"available": true, "command": "rg"}
+  },
+  "providers": {},
+  "env": {"names": ["VIRTUAL_ENV"]},
+  "extensions": {}
+}
+```
+
+- `snapshot_id` 使用 `envsnap_` 前缀；`source` 固定为 `client`；`captured_at` 必须携带时区；`status` 只允许 `available`、`starting`、`unavailable`。
+- `platform`、`shell`、`workspace` 为必填对象；`runtimes`、`tools`、`providers`、`env` 和 `extensions` 可省略并使用空值。
+- runtime/tool capability 固定包含 `available`，并可携带 `command`、`executable`、`path`、`version`、`source`。未知结构只能位于显式 `extensions` 中；扩展不会投影给模型。
+- `env` 只允许 `names`，不得发送环境变量值。凭据、token、cookie、Authorization、密码和密钥不得进入快照或扩展字段。
+- 完整快照最大 131072 UTF-8 字节；各映射、列表和扩展深度还受 OpenAPI 模型限制。空路径、重复 `allowed_roots`、重复环境变量名和未知字段返回 `422`。
+- 服务端对规范化快照计算 `sha256:` 指纹并写入不可变 `TurnExecutionSpec`。指纹必须与其中的 `agent_request.exec_env` 一致；Worker 接管从同一执行规格重建上下文，不读取接管机器的当前环境。
+
+每次模型采样前，服务端从已校验的 Turn 请求生成两个独立的瞬态 canonical item：
+
+1. `permissions.instructions` 使用 `developer` 角色和 `<permissions instructions>` 标记，描述有效 `sandbox_mode`、`network_access`、可写根目录、审批策略、审查者和 `request_permissions` 工具可用性。
+2. `environment.context` 使用 `user` 角色和 `<environment_context>` 标记，描述客户端声明的环境身份、状态、平台、shell、workspace、运行时、工具、provider 能力和环境变量名称。没有 `exec_env` 时不生成该 item。
+
+两个 item 参与模型上下文预算、历史裁剪后的重新测量和 provider 请求构造，但不写入 canonical Transcript、摘要、fork prompt 或工具参数。内部内容类型元数据在发送给 provider 前剥离。`additional_context` 仍只位于当前用户任务正文之前，不承载权限或环境快照。
+
+权限指令只能由服务端从结构化请求生成，客户端不得提交自然语言权限指令。环境事实不能成为服务端鉴权或沙箱授权；服务端不生成、覆盖或删除客户端工具的 `arguments`，也不注入 `justification`、`reason`、`environment_id` 或云沙箱参数。
 
 ## Event Ingress
 

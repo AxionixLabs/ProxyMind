@@ -99,7 +99,7 @@ def test_packaged_backend_is_self_contained() -> None:
     )
 
 
-def test_agent_runtime_core_does_not_import_legacy_packages() -> None:
+def test_agent_harness_core_does_not_import_legacy_packages() -> None:
     forbidden = {
         "applications",
         "backend",
@@ -113,12 +113,12 @@ def test_agent_runtime_core_does_not_import_legacy_packages() -> None:
         *_forbidden_imports("agent/protocol", forbidden),
         *_forbidden_imports("agent/domain", forbidden),
         *_forbidden_imports("agent/ports", forbidden),
-        *_forbidden_imports("agent/runtime", forbidden),
+        *_forbidden_imports("agent/harness", forbidden),
         *_forbidden_imports("agent/application", forbidden),
         *_forbidden_imports("agent/stores", forbidden),
     ]
 
-    assert not violations, "agent runtime imports legacy code:\n" + "\n".join(
+    assert not violations, "agent harness imports legacy code:\n" + "\n".join(
         violations
     )
 

@@ -155,7 +155,7 @@ def render_import_graph(repository_root: Path) -> str:
     )
 
     lines = [
-        "# Agent Runtime 第一方导入图",
+        "# Agent Harness 第一方导入图",
         "",
         "> 由 `scripts/agent_runtime_import_graph.py` 根据当前源码生成，请勿手工编辑。",
         "",
@@ -165,6 +165,7 @@ def render_import_graph(repository_root: Path) -> str:
         "- 仅记录第一方边界之间的绝对 Python 导入；包内相对导入不展开。",
         "- `backend/` 按独立打包边界单独验收，不纳入本图。",
         "- `tests/`、`website/`、`schematic/`、`codex-main/` 和 `venv/` 不是运行时边界，不纳入本图。",
+        "- 根目录 `server/` 是客户端内置的 `ConfigServiceRuntime`，只提供配置 UI/健康检查；它不是 `mind.chat` 线上服务端，也不拥有 Harness 状态。",
         "",
         "## 边界图",
         "",
@@ -262,11 +263,11 @@ def main() -> int:
 
     current = graph_path.read_text(encoding="utf-8") if graph_path.exists() else ""
     if current == rendered:
-        print("agent runtime import graph is current")
+        print("agent harness import graph is current")
         return 0
 
     print(
-        "agent runtime import graph is stale; run "
+        "agent harness import graph is stale; run "
         r".\venv\Scripts\python.exe scripts\agent_runtime_import_graph.py --write"
     )
     return 1

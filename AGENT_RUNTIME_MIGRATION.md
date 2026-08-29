@@ -1,14 +1,14 @@
-# Agent Runtime 迁移计划
+# Agent Harness 迁移计划
 
 状态：阶段 0、阶段 1、阶段 2、阶段 3 已完成；阶段 4 进行中（2026-08-29）
 
-这份计划配合 [Agent Runtime 架构基线](AGENT_RUNTIME_ARCHITECTURE.md) 使用。
+这份计划配合 [Agent Harness 架构基线](AGENT_RUNTIME_ARCHITECTURE.md) 使用。
 它把从历史包到 `agent` bounded context 的改造拆成可回滚阶段；每一阶段都必须
 有代码、测试和导入边界证据，不能以“目录已经移动”作为完成标准。
 
 ## 范围与状态权威
 
-- 本计划只管理 ProxyMind 客户端内部 Agent Runtime 迁移。
+- 本计划只管理 ProxyMind 客户端内部 Agent Harness 迁移。
 - 阶段号只在本文档内有效，不与任何外部服务计划共用进度。
 - 架构拆分、协议兼容或生命周期所有权收敛只是准备性工作；未满足
   本阶段退出条件时，不得标记为该阶段完成，也不得计入后续阶段。
@@ -20,6 +20,11 @@
 - 每个阶段保持 `mind.py`、CLI、MCP 和订阅入口可验证。
 - `backend/` 是独立打包，整个计划不修改它、不改变它的依赖。
 - 只保留必要的过渡入口，并在本文件登记删除条件和截止阶段。
+- 线上 `mind.chat` Protocol Client 与本地 Agent Harness 分开验收；不能因为
+  `agent.application` 已接入就宣称 TUI、桌面端和 Web 已共享前端协议实现。
+- Agent Harness 是主线名称；`agent.harness` 是本地编排内核的正式包名，阶段 4B
+  已完成首个包迁移切片。该迁移不改变 `mind.chat` 线上协议，也不把客户端内置
+  `server/` 配置服务误认为协议服务端。
 - 任何状态所有权不清的代码先停止扩散，不通过共享工具函数掩盖边界问题。
 
 ## 阶段总览
@@ -29,9 +34,9 @@
 | 0. 契约冻结 | 已完成 | 固定外部行为和依赖基线 | 导入图、协议清单、风险清单 | 全部阶段 0 退出条件通过 |
 | 1. Session 骨架 | 已完成 | 引入 Command/Event 和单写者 | `agent.protocol`、SessionLoop、事件游标 | 一个主动 turn 走完整闭环 |
 | 2. 持久化收束 | 已完成 | 迁移事件、快照、效果和 outbox | stores 实现及恢复测试 | 强制退出后可恢复或对账 |
-| 3. 能力解耦 | 已完成 | 模型、MCP、Helix、进程通过端口接入 | capabilities 和 adapters | runtime 不导入具体传输实现 |
-| 4. 多入口迁移 | 进行中 | CLI/TUI/MCP/订阅统一提交命令 | adapters 全量切换 | 四类入口共享同一 Run 语义 |
-| 5. 历史包退役 | 未开始 | 删除历史职责和过渡入口 | 旧包删除清单 | 生产导入图只剩 `agent` |
+| 3. 能力解耦 | 已完成 | 模型、MCP、Helix、进程通过端口接入 | capabilities 和 adapters | 当前 runtime 子层不导入具体传输实现 |
+| 4. 多入口与协议前端迁移 | 进行中 | 将运行时子层收敛为 Agent Harness，统一入口提交命令，并建立可复用的 `mind.chat` Protocol Client | `agent.harness`、application 接入、Protocol Client、Canonical Event/Item reducer 和前端适配器 | 本地入口共享 Harness 语义；TUI/桌面/Web 可消费同一线上事件 |
+| 5. 历史包退役 | 未开始 | 删除已迁移的历史职责和过渡入口 | 旧包删除清单、协议 SDK 保留/迁移决策 | 生产导入图不再指向历史实现；必要的协议客户端可作为明确公共边界保留 |
 
 ## 阶段 0：契约冻结
 
@@ -61,7 +66,7 @@
 - [x] 固化 CLI、MCP、Subscription、工具结果和历史记录的外部 schema 目录。
 - [x] 为四类入站入口补齐 Command/Event 映射草图，明确身份、幂等键和终态。
 - [x] 将主动 Turn、工具、审批、取消和断线恢复测试整理为可重复执行的基线矩阵。
-- [x] 记录 `backend/` 的目录、导入和构建基线，证明 Agent Runtime 迁移没有改变其边界。
+- [x] 记录 `backend/` 的目录、导入和构建基线，证明 Agent Harness 迁移没有改变其边界。
 
 ### 出口条件
 
@@ -116,8 +121,9 @@
 - [x] `stream.gap` 已建模为非持久控制事件：`retained_prefix` 只推进到服务端给出的
   回放下界，`internal` 立即停止交付；`SessionEventCursorStore` 按 `cid + sid`
   跨 Turn 持有线上 `event_seq`，不与本地 Run sequence 混用。
-- [x] 新 runtime 核心没有导入 `mind_app`、`mind_core`、`mind_nova`、`engine`
-  或 `server`；生成导入图只新增 `mind_app -> agent`。
+- [x] `agent.harness` 核心没有导入 `mind_app`、`mind_core`、`mind_nova`、
+  `engine` 或 `server`；生成导入图只新增 `mind_app -> agent`。原
+  `agent.runtime` 已在完整用例迁移后删除。
 - [x] TUI 普通 prompt 已从 Event Queue 投影读取终态；`TurnApplication` 通过
   `SessionRuntimeOwner` 管理长生命周期 SessionLoop，关闭、并发提交和取消均由
   application 公开入口收束。TUI 流式展示仍使用现有 OutputSession。
@@ -262,24 +268,29 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
 
 ### 出口条件
 
-- `protocol`、`domain`、`runtime` 可脱离网络和 TUI 执行测试；
+- `protocol`、`domain` 和当前 `agent.runtime` 编排核心可脱离网络和 TUI 执行测试；
 - capability 失败能转换为具名、可持久化的错误事件；
 - Helix 的启动、连接和回收不被模型轮次代码隐式触发。
 
 阶段 3 复核结论：上述出口均已满足；旧入口的 adapter 迁移不再阻塞能力层，
 转入阶段 4 的多入口接管。
 
-## 阶段 4：多入口迁移
+## 阶段 4：多入口与协议前端迁移
 
 状态：进行中（2026-08-29）
 
-当前切片：stdio MCP、subscription 和 CLI `exec` 已通过注入的
+阶段 4A（入口接入）当前切片：stdio MCP、subscription 和 CLI `exec` 已通过注入的
 `TurnApplication` 提交 `SubmitTurnCommand`，并以 `RunResultProjection` 作为终态
 观测或回执的权威来源。入口只负责请求校验、工作区、权限、WebSocket mailbox
 和前端生命周期；Session 状态、取消、事件序列和 application 关闭由统一入口拥有。
 TUI 已在中断收束处优先读取同一 projection，但正文展示仍由既有 EventReport
-生命周期承载。旧 `run_root_turn` 仅作为显式执行器适配，下一切片将收口 TUI 的
-展示结果边界并继续清理 legacy 执行器依赖。
+生命周期承载。旧 `run_root_turn` 仅作为显式执行器适配。
+
+阶段 4B（Harness 与协议前端边界）已启动：SessionLoop、RunActor 和 Session 所有者
+已从 `agent.runtime` 迁移到 `agent.harness`，并通过完整用例、恢复/取消/并发测试。
+下一切片建立与 `Mind`、TUI 和 `prompt_toolkit` 无关的 Protocol Client，之后 TUI
+消费该客户端的 Canonical Event/Item 投影，桌面端和 Web 复用同一客户端语义，不
+复刻 Harness 状态机。
 
 ### 当前证据
 
@@ -308,37 +319,58 @@ TUI 已在中断收束处优先读取同一 projection，但正文展示仍由�
   保留兼容错误文本。
 - [x] CLI `exec` 的 `command.complete` 观测使用 projection 的终态，不再从原始
   `RunResult.status` 重新解释命令结果；退出码和结构化结果继续保持原有兼容入口。
+- [x] `agent.runtime` 已重命名为 `agent.harness`，`session_runtime.py` 已重命名为
+  `session_owner.py`；`agent.application`、架构边界测试和 SessionLoop 测试均已切换，
+  旧包没有生产导入。
 
 当前未满足阶段 4 出口：四类入口尚未共享同一套完整的结果/展示投影，旧根轮次和
-legacy Helix/process adapter 仍需在后续切片迁移。
+legacy Helix/process adapter 仍需在后续切片迁移；阶段 4B 的 Protocol Client 和
+TUI 迁移尚未完成。
 
 ### 工作项
 
 1. CLI 将参数、stdin、resume 和退出处理映射到 application command。
-2. TUI 只订阅事件投影，保留现有窄 capability port 约束。
-3. MCP server 将每个请求交给 Command Gateway，不直接构造控制器或模型。
-4. Subscription handler 只处理 open/ws/resume、去重、mailbox 和确认；任务执行
+2. 建立独立 Protocol Client：封装 `mind-chat`、`mind-attach`、`mind-replay`、
+   turn control、工具结果、审批、游标和 Canonical Item reducer；不得依赖
+   `Mind`、`prompt_toolkit` 或 `OutputSession`。
+3. [x] 将 `agent.runtime` 的完整生产切片迁移到 `agent.harness`，同步更新
+   `RuntimeServices` 的内部依赖和测试导入；旧包已删除，没有兼容 facade。
+4. TUI 改为 Protocol Client 的一个渲染/交互适配器；本地工具继续通过窄
+   capability port 注入，不能由 TUI 重新拥有服务端 Run 状态。
+5. MCP server 将每个请求交给 Command Gateway，不直接构造控制器或模型。
+6. Subscription handler 只处理 open/ws/resume、去重、mailbox 和确认；任务执行
    通过同一个 application command。
-5. server 若继续独立运行，只依赖协议与 application 的公开入口。
+7. 用同一组 Canonical Event/Item fixture 验证 TUI、桌面端和 Web 的去重、回放、
+   `turn.logical_settled`、审批和工具结果命令。
+8. 根目录 `server/` 只作为客户端内置 `ConfigServiceRuntime` 保留，提供配置 UI
+   和健康检查；它不拥有 Harness 状态，也不承载 `mind.chat` 线上服务端职责。
 
 ### 出口条件
 
 - 主动执行和订阅执行共享 Run、Tool、Approval、Effect 语义；
 - WebSocket 回调中没有模型轮次或工具调用；
-- TUI、CLI、MCP 和 subscription 的结果都可从 Event 游标重放。
+- TUI、CLI、MCP 和 subscription 的结果都可从 Event 游标重放；
+- Protocol Client 可以在没有 `Mind`、TUI 和本地 Python UI 的环境中运行；
+- TUI、桌面端和 Web 消费同一组正式 `mind.chat` 事件和命令语义；
+- TUI 的模型、工具、审批和效果编排不再绕过 Protocol Client。
+- `agent.harness` 成为本地 Session/Run 编排的唯一实现包，旧 `agent.runtime`
+  已删除且不再有生产导入。
 
 ## 阶段 5：历史包退役
 
 状态：未开始
 
 只有全部条件满足后才能删除 `mind_app`、`mind_core`、`mind_nova` 中已经迁移的
-职责：
+职责。`mind_nova` 若继续承载正式 `mind.chat` 的 Python Protocol Client，则作为
+明确的协议 SDK 边界保留；只有其内部 legacy runtime 适配职责满足删除条件后才
+允许移除，不能为了让导入图只剩 `agent` 而删除仍被桌面端/Web SDK 需要的协议实现：
 
-- 非测试生产代码不再导入待删除模块；
+- 非测试生产代码不再导入待删除的历史实现模块；
 - `mind.py` 和所有外部入口已经切换到 `agent.composition`；
 - 旧配置、历史、报告和订阅数据完成版本迁移；
 - 主流程、失败路径、恢复、协议兼容和构建测试通过；
-- 每个过渡入口都有删除记录，没有长期转发 facade。
+- 每个过渡入口都有删除记录，没有长期转发 facade；保留的 Protocol Client
+  必须有独立版本、兼容测试和明确的 wire contract 所有权。
 
 历史包的物理目录可以分批删除，但每一批都必须保持可构建、可启动、可恢复。
 不得用一次性 `Move-Item` 或批量改名替代上述出口条件。
@@ -352,7 +384,9 @@ legacy Helix/process adapter 仍需在后续切片迁移。
 | 旧协议类型别名 | 数据和客户端迁移 | 新旧 schema 均有版本识别且无旧生产消费者 | 4/5 |
 | 旧历史读取器 | 读取存量会话 | 历史数据迁移并完成回读校验 | 2/5 |
 | `mind_app/cli/dispatch.py -> agent.application/protocol` | 首个主动 `exec` 入站切片 | CLI adapter 迁入 `agent.adapters.cli` 且入口只依赖公开组合根 | 4 |
-| `agent/capabilities/model.py -> mind_nova.requests.chat` | 复用已稳定的正式协议事件流、attach 和审批恢复实现 | 模型事件类型迁入 `agent.protocol`，传输细节迁入 capability adapter 且 `mind_app` 无旧类型消费者 | 最晚 5 |
+| `agent.runtime` -> `agent.harness` | SessionLoop、RunActor 和 Session 所有者的 Harness 编排内核 | 已完成完整用例迁移、恢复/取消/并发测试和导入图收敛；旧包已删除且不保留兼容 facade | 4B |
+| `agent/capabilities/model.py -> mind_nova.requests.chat` | 复用已稳定的正式协议事件流、attach 和审批恢复实现 | capability 改为依赖明确的 Protocol Client port；可以移除对 legacy module 的直接导入，但不得删除仍承担公共 `mind.chat` SDK 职责的实现 | 4B/5 |
+| `mind_nova.requests.chat`、`stream_events.py` | 过渡期的 Python Protocol Client，承载正式事件解析、游标和恢复语义 | Protocol Client 完成独立边界、跨前端兼容测试和版本所有权；实现可迁入 `agent.adapters.protocol_client`，或保留为明确的 `mind.chat` SDK | 4B/5 |
 
 ## 风险与处理
 
@@ -375,6 +409,14 @@ legacy Helix/process adapter 仍需在后续切片迁移。
 风险：旧包 facade 逐渐成为新的共享杂物层。
 
 处理：每个过渡入口必须有删除条件、负责人和阶段；新代码禁止反向依赖旧包。
+
+### 前端协议分叉
+
+风险：TUI、桌面端和 Web 各自解释 `event_seq`、Canonical Item、审批或工具结果，
+导致同一 Turn 在不同前端出现不同状态。
+
+处理：先建立唯一 Protocol Client 和 Canonical Event/Item reducer；前端只实现
+渲染、输入和平台工具能力，并使用同一组协议 fixture 验证恢复与终态。
 
 ### 文档与实现漂移
 
@@ -423,3 +465,5 @@ python website/mind/scripts/check_docs.py
 | 2026-08-29 | 阶段 4 | stdio MCP `mind_exec` 通过注入的 `TurnApplication` 提交冻结 `SubmitTurnCommand`，structured content 优先来自 `RunResultProjection`；MCP 不再直接拥有 Turn application 生命周期；定向 MCP/架构测试 `24 passed` | CLI、TUI、Subscription 仍待统一 Command Gateway；旧根轮次仅保留为显式执行器 adapter |
 | 2026-08-29 | 阶段 4 | Subscription `AgentExecutor` 接入长驻 `TurnApplication`，稳定冻结远端身份、metadata、附件和 extras，并在取消/关闭时收束 Session；终态分类改用 Event projection；定向 Subscription 测试 `49 passed`，全量测试 `2929 passed, 11 skipped` | 四类入口的完整结果/展示投影仍待统一；旧根轮次和 legacy Helix/process adapter 待迁移 |
 | 2026-08-29 | 阶段 4 | CLI `exec` 的完成观测改用 `RunResultProjection.status`，补齐结果投影权威性测试；CLI/架构定向测试 `107 passed` | 四类入口仍保留兼容性原始结果对象；旧根轮次和 legacy Helix/process adapter 待迁移 |
+| 2026-08-29 | 阶段 4 规划修订 | 根据多前端目标补充 Protocol Client 与 Canonical Event/Item reducer 边界；明确 `mind.chat` 是 TUI、桌面端和 Web 的公共 wire contract，`agent.protocol` 仅为本地 Harness 事件 | 阶段 4B 尚未开始；TUI 仍依赖 `Mind`、`stream_turn` 和 EventReport，协议 SDK 的最终归属待确定 |
+| 2026-08-29 | 阶段 4 规划修订 | 将主线名称从 Agent Runtime 提升为 Agent Harness；目标编排包确定为 `agent.harness`，根目录 `server/` 明确为客户端内置 ConfigServiceRuntime，仅提供配置 UI/健康检查 | 已完成 `agent.runtime` -> `agent.harness` 的首个完整切片；Protocol Client/TUI 迁移仍待开始，server 仍出现在当前导入图中但不属于 Harness 状态边界 |

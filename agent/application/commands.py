@@ -15,7 +15,7 @@ from agent.protocol import (
     RunEvent,
     SubmitTurnCommand
 )
-from agent.runtime.session_runtime import SessionRuntimeOwner
+from agent.harness.session_owner import SessionRuntimeOwner
 from .projections import (
     RunResultProjection,
     project_run_result
