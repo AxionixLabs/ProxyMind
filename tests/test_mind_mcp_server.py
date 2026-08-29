@@ -20,7 +20,10 @@ from mind_app.mcp.server import (
     create_mind_mcp_server,
 )
 from mind_app.mcp import server as mcp_server
-from agent.application import TurnApplication
+from agent.application import (
+    RunResultProjection,
+    TurnApplication,
+)
 from mind_app.runtime.turns.result import RunResult
 from mind_core.application_paths import ApplicationLayout
 from mind_core.permissions import PermissionSettings
@@ -284,6 +287,8 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
 
     assert actual.run is result
     assert actual.session_id == metadata["sid"]
+    assert actual.projection is not None
+    assert actual.to_dict()["assistant_text"] == "done"
     mind.set_history_workspace.assert_called_once_with(tmp_path.resolve())
     mind.reset_conversation.assert_called_once_with(
         reason="mcp_tool_call",
@@ -314,7 +319,15 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
 
         async def submit(self, command, executor):
             self.command = command
-            return SimpleNamespace(value=await executor(command))
+            value = await executor(command)
+            return SimpleNamespace(
+                value=value,
+                projection=RunResultProjection(
+                    status=value.status,
+                    exit_code=value.exit_code,
+                    result=value.to_dict(),
+                ),
+            )
 
         async def close(self, *, cancel_running: bool = False) -> None:
             self.closed = cancel_running

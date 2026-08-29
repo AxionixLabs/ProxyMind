@@ -8,6 +8,7 @@ import asyncio
 import contextlib
 from agent.application import (
     RuntimeServices,
+    RunResultProjection,
     SubmitTurnCommand,
     TurnApplication,
 )
@@ -65,10 +66,15 @@ class MindMcpExecutionResult(object):
     """描述一次 MCP 工具调用及其可续接会话。"""
     run: RunResult
     session_id: str | None = None
+    projection: RunResultProjection | None = None
 
     def to_dict(self) -> dict[str, typing.Any]:
         """返回 MCP structured content 使用的字典。"""
-        result = self.run.to_dict()
+        result = (
+            dict(self.projection.result)
+            if self.projection is not None
+            else self.run.to_dict()
+        )
         result["session_id"] = self.session_id
         return result
 
@@ -344,6 +350,7 @@ class MindMcpRuntime(object):
         return MindMcpExecutionResult(
             run=execution.value,
             session_id=request.session_id,
+            projection=execution.projection,
         )
 
     @staticmethod
