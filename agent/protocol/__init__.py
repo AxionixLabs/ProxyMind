@@ -2,11 +2,18 @@
 # Notes: ==== Mind™ ====
 
 from .commands import SubmitTurnCommand
-from .events import RunEvent
-from .model import ModelStreamEndReason, ModelStreamRequest
+from .events import (
+    ModelEvent,
+    RunEvent
+)
+from .model import (
+    ModelStreamEndReason,
+    ModelStreamRequest
+)
 
 __all__ = (
     "RunEvent",
+    "ModelEvent",
     "ModelStreamRequest",
     "ModelStreamEndReason",
     "SubmitTurnCommand",

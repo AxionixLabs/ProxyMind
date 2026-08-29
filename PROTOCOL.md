@@ -118,6 +118,8 @@ reconciliation_required -> queued | interrupted | cancelled
 
 `client_message_id`、`call_id` 和 `approval_id` 是领域对象 ID，不得替代传输命令的 `request_id`。
 
+Hosted 工具通过 `hosted_tools.enabled_groups` 按组启用。启用 `sandbox_cloud` 后，模型可以调用 `sandbox_cloud_start`、`sandbox_cloud_status` 和 `sandbox_cloud_terminate`；`shell_command`、`exec_command` 与 `/tool-result` 属于客户端本地工具链。
+
 ## Event Delivery
 
 - `event_seq` 是同一 `cid/sid` 下跨 Turn 的唯一单调事件序列。
@@ -235,7 +237,7 @@ reconciliation_required -> queued | interrupted | cancelled
 #### `tool.output` and `/tool-result`
 
 - `tool.output.status` 只允许 `completed`、`failed`、`declined` 或 `cancelled`。`declined` 表示工具未执行且仅拒绝当前调用；`cancelled` 表示 Ctrl-C 或全局中断取消。
-- `/tool-result` 只接受顶层 `request_id`、`cid`、`sid`、`call_id`、`name`、`ok`、`result` 和同级 `additional_context`。`result` 必须严格包含 `ok`、`tool`、`source`、`args`、`text`、`attachments`、`data`，不得携带旧的扁平 `stdout`、`stderr`、`exit_code`、`status`、`session_id` 或 `path` 字段。
+- `/tool-result` 请求包含顶层 `request_id`、`cid`、`sid`、`call_id`、`name`、`ok`、`result` 和同级 `additional_context`。`result` 使用统一结果信封，包含 `ok`、`tool`、`source`、`args`、`text`、`attachments` 和 `data`；进程、补丁、图片和子代理等工具的业务字段放在 `result.data`。
 - `result.ok` 必须等于外层 `ok`，`result.tool` 必须等于外层 `name`。进程、补丁、图片和子代理等工具的业务字段只能放在 `result.data`。
 - PostToolUse 上下文必须与工具结果在同一次 `/tool-result` 请求中提交到同级 `additional_context`；禁止第二次请求单独补交 Hook 内容，也不接受工具级 `system_message`。
 - `request_id` 只承担传输幂等；`cid + sid + call_id` 是业务唯一身份。同一 request_id 和内容重试返回 `already_received`；不同内容返回 `409 request_id_conflict`；不同 request_id 不得覆盖首个结果。
@@ -254,7 +256,7 @@ reconciliation_required -> queued | interrupted | cancelled
 
 - `tool.builtin.call` / `tool.builtin.done` 描述 provider built-in tool（如 `web_search_call`、`file_search_call`、`code_interpreter_call`）的过程和完成状态，常见字段包括 `builtin_call_id`、`builtin_type`、`status`、`action`、`queries`、`domains`、`sources`、`code`、`container_id`、`output_count` 和 `error`。
 - `turn.done` 表示当前轮次完成，通常为 `status=completed`，控制接口取消时为 `interrupted`。
-- `turn.failed` 表示确认的轮次失败；工具投递未知、外部 effect 未核对或 reconciliation 等状态不得伪装为该事件。
+- `turn.failed` 表示确认的轮次失败；事件必须携带 `error_type`，并在可用时携带 `error_source`、`status_code`、`request_id` 和 `retryable`。工具投递未知、外部 effect 未核对或 reconciliation 等状态不得伪装为该事件。
 - `turn.input.accepted` 表示 mailbox 输入已在一次模型采样前写入 canonical Transcript；每个被消费的 `client_message_id` 都必须在 `turn.logical_settled` 前收到该事件。
 - `turn.reconciliation_required` 表示外部 effect 可能已发生但结果不可判定。它不是普通工具失败，服务端暂停 finalization/settlement，待 `/effect/reconcile` 得到确定结论。
 - `turn.logical_settled` 是唯一逻辑结算事实；它、Turn 终态和 Session idle 在同一事务内提交，每个逻辑轮次恰好一次。`next_input` 返回未赶上采样的第一项，其余输入通过 `/turn/reconcile` 恢复。

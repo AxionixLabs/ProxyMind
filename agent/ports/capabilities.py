@@ -8,6 +8,7 @@ from collections.abc import (
     Callable
 )
 from agent.protocol import (
+    ModelEvent,
     ModelStreamEndReason,
     ModelStreamRequest,
     SubmitTurnCommand,
@@ -93,8 +94,8 @@ class ModelEventStream(typing.Protocol):
     end_reason: ModelStreamEndReason | None
     last_event_seq: int
 
-    def __aiter__(self) -> AsyncIterator[typing.Any]:
-        """返回类型化模型事件的异步迭代器。"""
+    def __aiter__(self) -> AsyncIterator[ModelEvent]:
+        """返回满足模型事件坐标契约的异步迭代器。"""
         ...
 
     async def aclose(self) -> None:

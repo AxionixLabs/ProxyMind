@@ -15,6 +15,23 @@ from .json_value import (
     thaw_json
 )
 
+
+@typing.runtime_checkable
+class ModelEvent(typing.Protocol):
+    """定义模型事件跨 capability 边界共享的最小坐标契约。
+
+    传输 adapter 可以使用自己的具体事件类；实现方必须提供稳定事件类型、线上
+    会话坐标和展示代次，runtime 不得依赖具体网络传输包。
+    """
+
+    type: str
+    proto: str
+    cid: str
+    sid: str
+    turn_id: str
+    event_seq: int | None
+    presentation_epoch: int
+
 RunEventKind = typing.Literal[
     "run_queued",
     "run_started",

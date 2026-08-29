@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import asyncio
-import typing
-
 import httpx
+import typing
+import asyncio
 from mind_nova.requests.chat import (
     TurnEventStream,
     stream_chat
@@ -15,7 +14,7 @@ from agent.ports import (
     ModelEventStream,
     ReconnectStatusCallback,
 )
-from agent.protocol import ModelStreamRequest
+from agent.protocol import ModelEvent, ModelStreamRequest
 
 
 class RemoteModelEventStream:
@@ -36,15 +35,15 @@ class RemoteModelEventStream:
         """返回旧传输确认的最新事件序号。"""
         return int(getattr(self._stream, "last_event_seq", 0))
 
-    def __aiter__(self) -> typing.AsyncIterator[typing.Any]:
+    def __aiter__(self) -> typing.AsyncIterator[ModelEvent]:
         """返回捕获并归一化传输异常的异步事件迭代器。"""
         return self._iterate()
 
-    async def _iterate(self) -> typing.AsyncIterator[typing.Any]:
+    async def _iterate(self) -> typing.AsyncIterator[ModelEvent]:
         """转发事件并确保迭代结束时关闭远端资源。"""
         try:
             async for event in self._stream:
-                yield event
+                yield typing.cast(ModelEvent, event)
         except asyncio.CancelledError:
             raise
         except ModelCapabilityError:
