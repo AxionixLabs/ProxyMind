@@ -231,6 +231,8 @@ Hosted 工具通过 `hosted_tools.enabled_groups` 按组启用。启用 `sandbox
 
 - `tool.calls.start` 表示服务端已经在一个事务中完成本批所有 `call_id` 的 pending、effect、事件和 outbox 登记。字段包括 `batch_id`、`call_ids`、`count`、`ready=true`，可选的 `timeout_sec` 只表示工具自身执行预算，不是结果投递期限。
 - `tool.call` 字段固定包含 `cid`、`sid`、`turn_id`、`call_id`、`name` 和 `arguments`。普通客户端工具必须位于同一 `batch_id` 的 start/done 边界内。
+- 普通 `tool.call` 不携带通用 `reason`。客户端工具的审批说明使用 `arguments.justification`；策略、审批、重试和失败原因只出现在对应的限定事件中。
+- 客户端工具的权限参数属于 `arguments`，包括 `sandbox_permissions`、`additional_permissions` 和 `justification`；服务端按原值透传，客户端在本地执行前完成校验、过滤和审批。
 - `tool.calls.done` 表示批次事件已经全部提交。客户端应校验收到的 `call_ids` 和 `count` 后再执行工具；不得在只收到单个 `tool.call` 时提前执行。
 - 同一 `turn_id + call_ids` 派生稳定 `batch_id` 和事件幂等键。Worker 恢复可以重新进入准备流程，但不得创建第二组权威 `tool.call` 事实。
 

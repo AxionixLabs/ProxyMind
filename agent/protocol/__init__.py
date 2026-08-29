@@ -2,6 +2,10 @@
 # Notes: ==== Mind™ ====
 
 from .commands import SubmitTurnCommand
+from .capabilities import (
+    McpToolDefinition,
+    McpToolResult,
+)
 from .events import (
     ModelEvent,
     RunEvent,
@@ -19,6 +23,8 @@ __all__ = (
     "ModelStreamRequest",
     "ModelStreamEndReason",
     "SubmitTurnCommand",
+    "McpToolDefinition",
+    "McpToolResult",
 )
 
 

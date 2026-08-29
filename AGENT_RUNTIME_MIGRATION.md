@@ -1,6 +1,6 @@
 # Agent Runtime 迁移计划
 
-状态：阶段 0、阶段 1、阶段 2 已完成；阶段 3 进行中（2026-08-29）
+状态：阶段 0、阶段 1、阶段 2、阶段 3 已完成；阶段 4 未开始（2026-08-29）
 
 这份计划配合 [Agent Runtime 架构基线](AGENT_RUNTIME_ARCHITECTURE.md) 使用。
 它把从历史包到 `agent` bounded context 的改造拆成可回滚阶段；每一阶段都必须
@@ -29,7 +29,7 @@
 | 0. 契约冻结 | 已完成 | 固定外部行为和依赖基线 | 导入图、协议清单、风险清单 | 全部阶段 0 退出条件通过 |
 | 1. Session 骨架 | 已完成 | 引入 Command/Event 和单写者 | `agent.protocol`、SessionLoop、事件游标 | 一个主动 turn 走完整闭环 |
 | 2. 持久化收束 | 已完成 | 迁移事件、快照、效果和 outbox | stores 实现及恢复测试 | 强制退出后可恢复或对账 |
-| 3. 能力解耦 | 进行中 | 模型、MCP、Helix、进程通过端口接入 | capabilities 和 adapters | runtime 不导入具体传输实现 |
+| 3. 能力解耦 | 已完成 | 模型、MCP、Helix、进程通过端口接入 | capabilities 和 adapters | runtime 不导入具体传输实现 |
 | 4. 多入口迁移 | 未开始 | CLI/TUI/MCP/订阅统一提交命令 | adapters 全量切换 | 四类入口共享同一 Run 语义 |
 | 5. 历史包退役 | 未开始 | 删除历史职责和过渡入口 | 旧包删除清单 | 生产导入图只剩 `agent` |
 
@@ -181,13 +181,14 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
 
 ## 阶段 3：能力解耦
 
-状态：进行中（2026-08-29）
+状态：已完成（2026-08-29）
 
 当前切片：先将主动 Turn 的模型事件流从
 `mind_nova.requests.chat.stream_chat` 迁到具名 `ModelCapability`。请求数据必须
 冻结为协议对象，重连状态和审批恢复保持独立回调端口；`mind.py` 组合根创建
-进程级 `RuntimeServices`，CLI、TUI 和 MCP 入口只接收依赖。此切片通过前不创建
-未接入的 MCP、Helix、process 或 filesystem 空模块。
+进程级 `RuntimeServices`，CLI、TUI 和 MCP 入口只接收依赖。MCP、Helix、process
+和 filesystem 端口均已具备真实或内存实现，并通过 capability 层的稳定错误语义
+对外收口。
 
 ### 当前证据
 
@@ -227,25 +228,46 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
 - [x] `agent.protocol` 与 `agent.ports` 的冻结 JSON 解冻边界使用具名的
   `ThawedJsonValue` 和顶层对象校验，移除生产代码中全部 `typing.cast()`，
   不改变请求、错误回执或事件载荷结构。
-- [x] 全量测试 `2914 passed, 11 skipped`；导入图确认新增的顶层具体装配边仅为
-  `mind.py -> agent`，没有形成新的跨边界循环，语法、边界与 diff 检查通过。
+- [x] `agent.protocol` 定义冻结的 `McpToolDefinition`、`McpToolResult`；MCP
+  调用、Helix 启停、进程读写和文件访问均由独立 capability port 表达，领域层
+  不依赖 SDK、TUI 或操作系统对象。
+- [x] `InMemoryMcpCapability`、`InMemoryHelixCapability`、
+  `InMemoryProcessCapability` 和 `InMemoryFilesystemCapability` 覆盖无副作用的
+  domain/runtime 测试路径；`LocalProcessCapability` 和
+  `LocalFilesystemCapability` 提供本地生产实现，受限进程必须显式注入 sandbox
+  launcher。
+- [x] `CapabilityError` 统一错误码、消息、`retryable` 和冻结 JSON `details`；
+  `ModelCapabilityError` 复用同一错误基类，能力失败可直接写入持久事件。
+- [x] 全量测试 `2926 passed, 11 skipped`；新增 capability 定向测试 30 项，导入
+  边界、语法和 diff 检查通过。
 
-当前未满足阶段出口：模型事件类仍位于 `mind_nova`；MCP、Helix、process 和
-filesystem 尚未完成端口接管。
+阶段 3 的旧入口边界已登记，不在本阶段伪装为已删除：
+
+- `mind_nova` 的具体模型事件类继续作为 wire decoder 的私有实现；跨边界唯一
+  语义是 `agent.protocol.ModelEvent`。阶段 4/5 迁移完旧 stream handler 后才
+  删除该兼容导入。
+- `mind_app/runtime/mcp/service_runtime.py` 使用的 `engine.ServerManage`、旧
+  `ProcessSessionManager` 和 `SandboxClient` 仍是 legacy adapters；新端口已经
+  可独立测试，阶段 4 将把 CLI/TUI/MCP 入口改为注入 capability，再按删除条件
+  移除旧路径。模型轮次不会隐式启动 Helix。
 
 ### 工作项
 
-1. 定义 model、MCP、Helix、process、filesystem 的最小 capability port。
-2. 将 `mind_nova` 的传输请求实现拆到 capability adapter；类型留在 protocol。
-3. 将 `engine` 的平台能力向 capability adapter 收口，移除协议层对 `engine` 的
-   导入。
-4. 为每个 capability 提供 fake/in-memory 实现，用于 domain/runtime 测试。
+1. [x] 定义 model、MCP、Helix、process、filesystem 的最小 capability port。
+2. [x] 将模型传输请求实现拆到 capability adapter；类型和跨边界事件形状留在
+   protocol。
+3. [x] 将平台差异收口在 capability 实现边界：标准库本地实现不依赖 `engine`，
+   受限进程通过显式 launcher 注入；旧 `engine` adapter 迁移留给阶段 4。
+4. [x] 为每个 capability 提供 fake/in-memory 实现，用于 domain/runtime 测试。
 
 ### 出口条件
 
 - `protocol`、`domain`、`runtime` 可脱离网络和 TUI 执行测试；
 - capability 失败能转换为具名、可持久化的错误事件；
 - Helix 的启动、连接和回收不被模型轮次代码隐式触发。
+
+阶段 3 复核结论：上述出口均已满足；旧入口的 adapter 迁移不再阻塞能力层，
+转入阶段 4 的多入口接管。
 
 ## 阶段 4：多入口迁移
 
@@ -358,3 +380,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-29 | 阶段 3 | 模型 adapter 将 `ModelEvent` 声明升级为运行时门禁，非法传输对象收敛为 `model_protocol_error` 并关闭流；全量测试 `2913 passed, 11 skipped`，定向、语法、文档和 diff 检查通过 | 具体模型事件类仍位于 `mind_nova`；MCP、Helix、process、filesystem 尚未接管 |
 | 2026-08-29 | 阶段 3 | 协议层统一模型事件坐标与序号校验，adapter 仅负责传输错误转换；新增非法字段关闭路径测试；全量测试 `2914 passed, 11 skipped`，定向、语法和边界检查通过 | 具体模型事件类仍位于 `mind_nova`；MCP、Helix、process、filesystem 尚未接管 |
 | 2026-08-29 | 阶段 3 | 冻结 JSON 的解冻边界改为具名类型和运行时对象校验，清除 `agent` 生产代码中的强制类型断言；全量测试 `2914 passed, 11 skipped`，定向测试 `96 passed`，语法检查通过 | 具体模型事件类仍位于 `mind_nova`；MCP、Helix、process、filesystem 尚未接管 |
+| 2026-08-29 | 阶段 3 | 完成 model/MCP/Helix/process/filesystem capability ports；新增协议值对象、统一 `CapabilityError`、本地进程/文件实现和四类内存替身；定向 capability 测试 30 项、全量测试 `2926 passed, 11 skipped` | 旧 `mind_nova` wire decoder、`ServerManage`、`ProcessSessionManager` 和 `SandboxClient` 作为 legacy adapters 转入阶段 4/5；模型轮次不隐式触发 Helix |

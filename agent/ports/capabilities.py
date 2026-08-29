@@ -5,9 +5,15 @@ import typing
 from collections.abc import (
     AsyncIterator,
     Awaitable,
-    Callable
+    Callable,
+    Mapping,
 )
+from dataclasses import dataclass, field
+from pathlib import Path
+from types import MappingProxyType
 from agent.protocol import (
+    McpToolDefinition,
+    McpToolResult,
     ModelEvent,
     ModelStreamEndReason,
     ModelStreamRequest,
@@ -22,18 +28,31 @@ from agent.protocol.json_value import (
 
 ReconnectStatusCallback: typing.TypeAlias = Callable[[bool], None]
 
-ApprovalSnapshotCallback: typing.TypeAlias = Callable[
-    [object],
-    Awaitable[None] | None,
+HelixState: typing.TypeAlias = typing.Literal[
+    "stopped",
+    "starting",
+    "ready",
+    "restarting",
+    "failed",
+    "closed",
+]
+
+SandboxMode: typing.TypeAlias = typing.Literal[
+    "danger-full-access",
+    "read-only",
+    "workspace-read",
+    "workspace-write",
+]
+
+SandboxPermission: typing.TypeAlias = typing.Literal[
+    "use_default",
+    "require_escalated",
+    "with_additional_permissions",
 ]
 
 
-class ModelCapabilityError(RuntimeError):
-    """表示模型能力边界已经将传输或协议失败归一化。
-
-    capability adapter 负责创建此异常并提供稳定错误码；runtime 只读取公开字段，
-    将其写入本轮终态和持久事件，不得依赖具体 HTTP 客户端异常类型。
-    """
+class CapabilityError(RuntimeError):
+    """表示模型、MCP、Helix、进程或文件能力已经归一化的失败。"""
 
     def __init__(
         self,
@@ -41,27 +60,26 @@ class ModelCapabilityError(RuntimeError):
         message: str,
         *,
         retryable: bool = False,
-        details: typing.Mapping[str, JsonValue] | None = None,
+        details: Mapping[str, JsonValue] | None = None,
     ) -> None:
-        """校验并保存可序列化的模型能力错误快照。"""
+        """校验并保存跨能力边界的稳定错误快照。"""
         normalized_code = str(code or "").strip()
-        if not normalized_code:
-            raise ValueError("model capability error code is required")
         normalized_message = str(message or "").strip()
+        if not normalized_code:
+            raise ValueError("capability error code is required")
         if not normalized_message:
-            raise ValueError("model capability error message is required")
+            raise ValueError("capability error message is required")
         if not isinstance(retryable, bool):
-            raise TypeError("model capability error retryable must be boolean")
-        if details is None:
-            details = {}
-        if not isinstance(details, typing.Mapping):
-            raise TypeError("model capability error details must be an object")
+            raise TypeError("capability error retryable must be boolean")
+        raw_details: Mapping[str, JsonValue] = details or {}
+        if not isinstance(raw_details, Mapping):
+            raise TypeError("capability error details must be an object")
         frozen_details = freeze_json(
-            dict(details),
-            field_name="model capability error details",
+            dict(raw_details),
+            field_name="capability error details",
         )
-        if not isinstance(frozen_details, typing.Mapping):
-            raise TypeError("model capability error details must be an object")
+        if not isinstance(frozen_details, Mapping):
+            raise TypeError("capability error details must be an object")
 
         self.code = normalized_code
         self.retryable = retryable
@@ -70,25 +88,231 @@ class ModelCapabilityError(RuntimeError):
 
     @property
     def message(self) -> str:
-        """返回已经清洗的稳定错误消息。"""
+        """返回稳定的错误消息。"""
         return str(self)
 
     @property
     def details(self) -> dict[str, ThawedJsonValue]:
-        """返回错误细节的独立可变副本。"""
-        return thaw_object(
-            self._details,
-            field_name="model capability error details",
-        )
+        """返回错误细节的独立副本。"""
+        return thaw_object(self._details, field_name="capability error details")
 
-    def to_dict(self) -> dict[str, typing.Any]:
-        """返回可写入终态事件的错误对象。"""
+    def to_dict(self) -> dict[str, ThawedJsonValue]:
+        """返回可写入事件或日志的错误快照。"""
         return {
             "code": self.code,
             "message": self.message,
             "retryable": self.retryable,
             "details": self.details,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessSpec:
+    """描述受控进程能力的一次启动请求。"""
+
+    argv: tuple[str, ...]
+    cwd: str | Path
+    env: Mapping[str, str] = field(default_factory=dict)
+    sandbox_mode: SandboxMode = "danger-full-access"
+    sandbox_permissions: SandboxPermission = "use_default"
+    additional_permissions: Mapping[str, JsonValue] | None = None
+    stdin_open: bool = True
+
+    def __post_init__(self) -> None:
+        """校验进程参数并冻结环境快照。"""
+        if isinstance(self.argv, (str, bytes)):
+            raise TypeError("process argv must be a sequence of strings")
+        argv = tuple(self.argv)
+        if not argv or not isinstance(argv[0], str) or not argv[0].strip():
+            raise ValueError("process argv is required")
+        if any(not isinstance(item, str) or not item for item in argv):
+            raise TypeError("process argv must contain only strings")
+        cwd = str(self.cwd or "").strip()
+        if not cwd:
+            raise ValueError("process cwd is required")
+        if self.sandbox_mode not in {
+            "danger-full-access",
+            "read-only",
+            "workspace-read",
+            "workspace-write",
+        }:
+            raise ValueError("process sandbox_mode is invalid")
+        if self.sandbox_permissions not in {
+            "use_default",
+            "require_escalated",
+            "with_additional_permissions",
+        }:
+            raise ValueError("process sandbox_permissions is invalid")
+        if self.sandbox_permissions == "with_additional_permissions":
+            if not isinstance(self.additional_permissions, Mapping):
+                raise ValueError(
+                    "process additional_permissions are required for the selected permission"
+                )
+        elif self.additional_permissions is not None:
+            raise ValueError(
+                "process additional_permissions require with_additional_permissions"
+            )
+        if not isinstance(self.stdin_open, bool):
+            raise TypeError("process stdin_open must be boolean")
+        if not isinstance(self.env, Mapping):
+            raise TypeError("process env must be an object")
+        env: dict[str, str] = {}
+        for key, value in self.env.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("process env contains an empty name")
+            if not isinstance(value, str):
+                raise TypeError("process env values must be strings")
+            env[key.strip()] = value
+        object.__setattr__(self, "argv", argv)
+        object.__setattr__(self, "cwd", cwd)
+        object.__setattr__(self, "env", MappingProxyType(env))
+        if self.additional_permissions is not None:
+            additional_permissions = freeze_json(
+                dict(self.additional_permissions),
+                field_name="process additional_permissions",
+            )
+            if not isinstance(additional_permissions, Mapping):
+                raise TypeError("process additional_permissions must be an object")
+            object.__setattr__(
+                self,
+                "additional_permissions",
+                additional_permissions,
+            )
+
+
+@typing.runtime_checkable
+class McpCapability(typing.Protocol):
+    """提供 MCP 工具发现、调用和关闭生命周期。"""
+
+    async def list_tools(self) -> tuple[McpToolDefinition, ...]:
+        """返回当前可用的工具定义快照。"""
+        ...
+
+    async def call_tool(
+        self,
+        name: str,
+        *,
+        arguments: Mapping[str, JsonValue] | None = None,
+        call_id: str | None = None,
+    ) -> McpToolResult:
+        """调用一个已发现工具并返回稳定结果。"""
+        ...
+
+    async def aclose(self) -> None:
+        """关闭能力持有的会话和连接。"""
+        ...
+
+
+@typing.runtime_checkable
+class HelixCapability(typing.Protocol):
+    """提供 Helix 执行面的串行启停和就绪生命周期。"""
+
+    @property
+    def state(self) -> HelixState:
+        """返回当前生命周期状态。"""
+        ...
+
+    async def ensure_ready(self, *, wait_sec: float = 10.0) -> None:
+        """确保执行面就绪。"""
+        ...
+
+    async def restart(self, *, wait_sec: float = 10.0) -> None:
+        """重启执行面并等待再次就绪。"""
+        ...
+
+    async def stop(self) -> None:
+        """停止执行面但保留能力对象。"""
+        ...
+
+    async def aclose(self) -> None:
+        """关闭执行面并释放所有资源。"""
+        ...
+
+
+@typing.runtime_checkable
+class ProcessHandle(typing.Protocol):
+    """提供受控进程的读写、等待和终止生命周期。"""
+
+    session_id: str
+    pid: int | None
+    returncode: int | None
+
+    async def read_stdout(self) -> AsyncIterator[str]:
+        """按顺序读取标准输出文本片段。"""
+        ...
+
+    async def read_stderr(self) -> AsyncIterator[str]:
+        """按顺序读取标准错误文本片段。"""
+        ...
+
+    async def write(self, data: str, *, eof: bool = False) -> None:
+        """向标准输入写入文本或发送 EOF。"""
+        ...
+
+    async def wait(self) -> int:
+        """等待进程退出并返回退出码。"""
+        ...
+
+    async def terminate(self, *, force: bool = False) -> None:
+        """请求进程优雅退出或强制终止。"""
+        ...
+
+    async def aclose(self) -> None:
+        """关闭句柄并回收底层进程。"""
+        ...
+
+
+@typing.runtime_checkable
+class ProcessCapability(typing.Protocol):
+    """提供受控进程的创建和全局回收能力。"""
+
+    async def spawn(self, spec: ProcessSpec) -> ProcessHandle:
+        """按不可变启动参数创建一个进程句柄。"""
+        ...
+
+    async def aclose(self) -> None:
+        """回收该能力创建的全部进程。"""
+        ...
+
+
+@typing.runtime_checkable
+class FilesystemCapability(typing.Protocol):
+    """提供限定根目录内的受控文件读写能力。"""
+
+    async def read_text(self, path: str) -> str:
+        """读取根目录内的 UTF-8 文本文件。"""
+        ...
+
+    async def write_text(self, path: str, content: str) -> None:
+        """写入根目录内的 UTF-8 文本文件。"""
+        ...
+
+    async def exists(self, path: str) -> bool:
+        """判断根目录内的路径是否存在。"""
+        ...
+
+    async def list_files(self, path: str = ".") -> tuple[str, ...]:
+        """列出根目录内指定目录的直接文件项。"""
+        ...
+
+    async def aclose(self) -> None:
+        """释放文件能力持有的资源。"""
+        ...
+
+ApprovalSnapshotCallback: typing.TypeAlias = Callable[
+    [object],
+    Awaitable[None] | None,
+]
+
+
+class ModelCapabilityError(CapabilityError):
+    """表示模型能力边界已经将传输或协议失败归一化。
+
+    capability adapter 负责创建此异常并提供稳定错误码；runtime 只读取公开字段，
+    将其写入本轮终态和持久事件，不得依赖具体 HTTP 客户端异常类型。
+    """
+
+    pass
 
 
 @typing.runtime_checkable

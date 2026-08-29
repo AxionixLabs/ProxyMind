@@ -1,6 +1,6 @@
 # Agent Runtime 架构基线
 
-状态：已采纳（Architecture Decision Record）；阶段 2 已完成，阶段 3 进行中
+状态：已采纳（Architecture Decision Record）；阶段 3 已完成，阶段 4 未开始
 
 这份文档是 ProxyMind 下一代 Agent Runtime 的目标架构。它解决的是
 `mind_app`、`mind_core`、`mind_nova` 三个历史包职责交叉、状态所有权不清和
@@ -17,7 +17,7 @@
 - `AGENTS.md` 定义当前可执行的生产依赖规则。迁移计划没有启用
   相应阶段时，继续遵守 `mind_app -> mind_core -> mind_nova` 边界。
 - 阶段 0、阶段 1、阶段 2 已于 2026-08-28 通过；阶段 3 已于 2026-08-29
-  启用。主动 `exec` 和 TUI 普通 prompt 已使用顶层 `agent` 包、持久化
+  通过。主动 `exec` 和 TUI 普通 prompt 已使用顶层 `agent` 包、持久化
   `SessionLoop`、`RunActor` 和注入式模型能力；`mind.py` 已成为唯一具体组合根，
   CLI、TUI 与 stdio MCP 只接收 application 层公开的 `RuntimeServices`。
 
@@ -279,9 +279,11 @@ running -> cancelled
   传输、协议和适配器失败统一为 `ModelCapabilityError`，以稳定 `code`、
   `retryable` 和 JSON `details` 进入 Run 终态结果与持久事件，不把 HTTP 客户端
   异常类型泄漏到 runtime。
-- MCP/Helix capability 只暴露工具发现、调用和生命周期结果。
-- Process/filesystem capability 复用现有 `engine.ports` 等低层能力；端口探测和
-  进程清理不下沉到协议包。
+- MCP/Helix capability 只暴露工具发现、调用和生命周期结果；协议值对象不携带
+  MCP SDK 会话或 Helix 进程句柄。
+- Process/filesystem capability 通过受控 `ProcessSpec` 和根目录相对路径暴露；
+  本地实现可使用标准库，受限模式必须显式注入 sandbox launcher。端口探测和
+  进程清理不下沉到协议包，旧 `engine` adapter 在阶段 4 接入后再退役。
 - Observability capability 接收结构化事件，不要求 domain 直接写 stdout/stderr。
 
 ## 当前实现映射
@@ -300,6 +302,8 @@ running -> cancelled
 | `mind_nova/requests`、`stream_events.py` | `protocol/`、`capabilities/model.py` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；后续继续把请求/事件类型与传输实现分开，协议不得导入 `engine` |
 | `mind_nova/requests/chat.py` | `agent/protocol/model.py`、`agent/capabilities/model.py` | `mind_app` 已改为只调用 `RuntimeServices` 中的 `ModelCapability`；当前 capability adapter 临时复用既有事件流，待事件类型和传输实现完成迁移后删除该导入 |
 | `agent/ports/capabilities.py`、`agent/capabilities/model.py` | `ports`、`capabilities/model.py` | `ModelCapabilityError` 统一传输/协议失败，`RemoteModelEventStream` 负责异步迭代和幂等关闭；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
+| `agent/protocol/capabilities.py`、`agent/ports/capabilities.py` | `protocol`、`ports` | MCP 工具值对象、Helix 生命周期、受控进程/文件和本地 sandbox 权限只通过具名 port 表达；不把 SDK 会话、进程句柄或操作系统路径带入 domain |
+| `agent/capabilities/mcp.py`、`helix.py`、`process.py`、`filesystem.py` | `capabilities` | MCP/Helix 内存替身和本地进程/文件实现均可脱离网络、TUI 和 legacy runtime 测试；受限进程只接受显式 sandbox launcher，旧 `engine` adapter 在阶段 4 接管 |
 | `mind_app/runtime/turns/delivery.py` | `runtime/session_loop.py` | 当前持有线上 Session 跨 Turn 的 `event_seq` 水位；长生命周期 Session 接管时整体迁入，不与本地 Run sequence 合并 |
 | `mind_core` 配置、权限、hooks、skills | `domain/policies.py`、`stores/`、capability adapters | 配置读取和策略判断拆开，禁止形成新的共享杂物包 |
 | `mind_app/cli`、`tui`、`mcp`、`subscription` | `adapters/` | CLI、TUI 与 stdio MCP 已从进程入口接收 application 依赖；CLI `exec` 与 TUI 普通 prompt 已只调用公开用例，其他操作后续只做边界翻译和生命周期接入 |

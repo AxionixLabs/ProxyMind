@@ -1,9 +1,26 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+from .helix import InMemoryHelixCapability
+from .mcp import InMemoryMcpCapability
 from .model import RemoteModelCapability
+from .filesystem import InMemoryFilesystemCapability, LocalFilesystemCapability
+from .process import (
+    InMemoryProcessCapability,
+    InMemoryProcessHandle,
+    LocalProcessCapability,
+)
 
-__all__ = ("RemoteModelCapability",)
+__all__ = (
+    "InMemoryHelixCapability",
+    "InMemoryFilesystemCapability",
+    "InMemoryMcpCapability",
+    "InMemoryProcessCapability",
+    "InMemoryProcessHandle",
+    "LocalFilesystemCapability",
+    "LocalProcessCapability",
+    "RemoteModelCapability",
+)
 
 
 if __name__ == '__main__':
