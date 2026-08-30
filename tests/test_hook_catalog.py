@@ -8,7 +8,7 @@ import pytest
 from metadata import const
 
 from mind_app.controller import Mind
-from mind_app.runtime.hooks.catalog import HookCatalogStaleError
+from agent.application.hook_catalog import HookCatalogStaleError
 from mind_app.runtime.hooks.registry import HookRegistry
 from mind_app.runtime.hooks.scope import HookExecutionContext
 from infrastructure.config.layers import PROJECT_CONFIG_DIR

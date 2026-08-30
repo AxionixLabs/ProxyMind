@@ -13,7 +13,7 @@ from dataclasses import (
 from mind_app.runtime.execution import ToolInvocation
 from mind_app.history.contracts import TranscriptSink
 from metadata import const
-from .matching import hook_tool_name
+from agent.domain.hook_matching import hook_tool_name
 from .results import apply_tool_result_effect
 from agent.application.hook_models import (
     HookDecision,

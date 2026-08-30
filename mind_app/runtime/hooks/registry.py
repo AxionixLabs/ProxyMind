@@ -16,7 +16,7 @@ from agent.application import (
     HookDefinitionConfig,
     HookStateTable
 )
-from .catalog import (
+from agent.application.hook_catalog import (
     HookCatalogEntry,
     HookCatalogSnapshot,
     HookEventSummary

@@ -21,7 +21,7 @@ from agent.application import (
 from .command import HookCommandExecutor
 from .effects import normalize_business_block
 from .events import hook_event_spec
-from .matching import (
+from agent.domain.hook_matching import (
     HookMatcher,
     compile_hook_matcher,
     hook_match_candidates

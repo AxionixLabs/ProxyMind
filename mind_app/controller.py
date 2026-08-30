@@ -67,7 +67,7 @@ from .runtime.hooks.scope import (
 )
 from .runtime.hooks.session import SessionLifecycleGateway
 from .runtime.hooks.tool import CommandHookSessionStore
-from .runtime.hooks.catalog import (
+from agent.application.hook_catalog import (
     HookCatalogSnapshot,
     HookCatalogStaleError
 )
