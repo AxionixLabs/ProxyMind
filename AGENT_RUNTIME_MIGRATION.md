@@ -906,6 +906,20 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   11 skipped`，全量回归 `2988 passed, 11 skipped`；`compileall`、导入图和差异
   检查通过。
 
+### 已完成切片：JavaScript REPL 平台归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将 Node 内核进程、会话隔离、临时目录、超时/取消重置、工具消息桥接和图片
+  附件校验从 `mind_app/native_coding/js_repl/` 重组到
+  `infrastructure/platform/javascript_repl.py`；native coding 仅保留工具入口和
+  调用策略。
+- [x] `JavaScriptReplPool` 以显式 `application_root` 注入静态资源目录，平台模块
+  不再依赖自身文件路径推断应用布局；删除旧包和导入，不保留兼容 facade，并加入
+  平台归属架构守卫。
+- [x] JavaScript REPL 定向回归 `28 passed`，架构守卫回归 `37 passed`，全量回归
+  `2989 passed, 11 skipped`；`compileall`、导入图和差异检查通过。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -1090,3 +1104,5 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 工作区进程与 Git 平台切片 | 将进程树管理、无 shell 工作区命令和 Git 差异探测从 `mind_app` 下沉到 `infrastructure/platform`，清除进程工具 `typing.cast()` 并切换 Hook/native coding/TUI 消费者 | 进程/工作区/Git/TUI/native coding/架构定向回归 `123 passed`，全量回归 `2986 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互/历史/客户端工具和完整入口边界 |
 | 2026-08-31 | 阶段 5 命令安全平台切片 | 将危险命令递归识别、PowerShell/cmd 删除与外部 URL 启动检测从 `mind_app/native_coding/exec/command_safety/` 重组到 `infrastructure/platform/command_safety/`；执行策略仅消费平台分类结果，删除旧安全包并加入架构守卫 | 命令安全/执行策略/平台/架构定向回归 `147 passed`，全量回归 `2987 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
 | 2026-08-31 | 阶段 5 本地进程执行基座切片 | 将进程捕获、输出解码、本地 Sandbox sidecar 客户端和 shell 运行时解析从 `mind_app/native_coding/exec/` 重组到 `infrastructure/platform/`，native coding 仅保留工具业务与执行策略；删除旧模块并加入平台归属守卫 | 进程捕获/解码、Sandbox、shell、执行策略/平台/架构定向回归 `146 passed, 11 skipped`，全量回归 `2988 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
+| 2026-08-31 | 阶段 5 JavaScript REPL 平台切片 | 将 Node 内核进程、会话隔离、临时目录、消息桥接和内核重置从 `mind_app/native_coding/js_repl/` 重组到 `infrastructure/platform/javascript_repl.py`，资源根改为显式应用布局注入并删除旧包 | JavaScript REPL 定向回归 `28 passed`，架构守卫 `37 passed`，全量回归 `2989 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
+| 2026-08-31 | 阶段 5 JavaScript REPL 平台切片 | 将 Node 内核进程、会话隔离、临时目录、消息桥接和内核重置从 `mind_app/native_coding/js_repl/` 重组到 `infrastructure/platform/javascript_repl.py`，资源根改为显式应用布局注入并删除旧包 | JavaScript REPL/native coding/工具/TUI/架构定向回归待补，全量回归待补；完成验证后继续审计交互、历史、客户端工具和完整入口边界 |

@@ -15,7 +15,7 @@ from mind_app.native_coding.exec.user_shell import UserShellExecution
 from mind_app.native_coding.exec.command_policy import CommandPolicy
 from mind_app.native_coding.exec.file_audit import FileAudit
 from mind_app.native_coding.edit.turn_diff import TurnDiffTracker
-from mind_app.native_coding.js_repl import (
+from infrastructure.platform.javascript_repl import (
     JavaScriptReplPool,
     ReplRuntimeError
 )
@@ -61,7 +61,12 @@ class NativeCoding(NativeCodingBase):
             relative_path=self.relative_path,
         )
 
-        self._javascript_repls = JavaScriptReplPool(self.root)
+        self._javascript_repls = JavaScriptReplPool(
+            self.root,
+            application_root=(
+                application_layout.root if application_layout is not None else None
+            ),
+        )
 
         self._patch_engine   = PatchEngine(self)
         self._command_policy = CommandPolicy(self)

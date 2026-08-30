@@ -16,7 +16,6 @@ from dataclasses import (
     field
 )
 from pathlib import Path
-from infrastructure.config.paths import resolve_application_layout
 from metadata import const
 
 ToolCallback = typing.Callable[
@@ -46,18 +45,6 @@ REPL_ACCESS_MODES = {
     "workspace-write",
     "danger-full-access",
 }
-
-
-def _asset_root() -> Path:
-    """返回 JavaScript 内核静态资源目录。"""
-    source_root = Path(__file__).resolve().parents[3]
-    try:
-        application_root = resolve_application_layout(
-            entry_file=source_root / "mind.py"
-        ).root
-    except ValueError:
-        application_root = source_root
-    return application_root / "js_repl"
 
 
 class ReplRuntimeError(RuntimeError):
@@ -158,7 +145,14 @@ def _append_stderr_tail(lines: deque[str], value: str) -> None:
 class JavaScriptReplManager:
     """维护单个会话的持久 JavaScript 内核。"""
 
-    def __init__(self, *, cwd: Path, session_id: str, access_mode: str) -> None:
+    def __init__(
+        self,
+        *,
+        cwd: Path,
+        session_id: str,
+        access_mode: str,
+        asset_root: Path,
+    ) -> None:
         """保存工作目录和内核会话标识。"""
         if access_mode not in REPL_ACCESS_MODES:
             raise ReplRuntimeError(f"unsupported js_repl access mode: {access_mode}")
@@ -166,6 +160,7 @@ class JavaScriptReplManager:
         self.cwd         = cwd.resolve()
         self.session_id  = session_id
         self.access_mode = access_mode
+        self.asset_root  = asset_root.resolve()
         self._temp_dir   = tempfile.TemporaryDirectory(prefix="js-repl-")
 
         self._process: asyncio.subprocess.Process | None = None
@@ -278,7 +273,7 @@ class JavaScriptReplManager:
             return
 
         node_path   = await self._resolve_node_path()
-        asset_root  = _asset_root()
+        asset_root  = self.asset_root
         kernel_path = asset_root / "kernel.js"
 
         meriyah_path = asset_root / "vendor" / "meriyah.umd.min.js"
@@ -659,9 +654,19 @@ class JavaScriptReplManager:
 class JavaScriptReplPool:
     """按对话会话隔离并管理持久内核。"""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        application_root: str | Path | None = None,
+    ) -> None:
         """保存默认工作区并初始化内核表。"""
         self.root = Path(root).resolve()
+        self.application_root = (
+            Path(application_root).resolve()
+            if application_root is not None
+            else Path(__file__).resolve().parents[2]
+        )
 
         self._sessions: dict[str, JavaScriptReplManager] = {}
         self._lock: asyncio.Lock = asyncio.Lock()
@@ -697,6 +702,7 @@ class JavaScriptReplPool:
                     cwd=target_cwd,
                     session_id=key,
                     access_mode=access_mode,
+                    asset_root=self.application_root / "js_repl",
                 )
                 self._sessions[key] = manager
 

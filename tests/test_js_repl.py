@@ -30,11 +30,9 @@ from mind_app.client_tools.types import ClientToolRuntime
 from mind_app.runtime.mcp.session_adapter import CompositeToolSession
 from mind_app.native_coding import NativeCoding
 from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
-from mind_app.native_coding.js_repl import (
+from infrastructure.platform.javascript_repl import (
     JavaScriptReplPool,
     ReplRuntimeError,
-)
-from mind_app.native_coding.js_repl.runtime import (
     STDERR_TAIL_MAX_BYTES,
     STDOUT_FRAME_MAX_BYTES,
     _append_stderr_tail,
