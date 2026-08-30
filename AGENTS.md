@@ -54,9 +54,12 @@ from collections.abc import (
 
 - `Mind`/`mind` 是既有品牌和包名，不要扩展为新的领域语义。
 - 新增的类、函数、方法、属性和常量按实际职责命名，不包含 `Mind` 或 `mind`。
-- 展示字符串中的应用名称引用 `mind_nova.const.APP_NAME` 或 `APP_DESC`，不要硬编码。
-- 在依赖边界允许导入 `mind_nova.const` 且调用方兼容大写 `UTF-8` 的位置，编码参数一律
-  使用 `const.CHARSET`；只有协议要求特定大小写或包边界禁止该依赖时才保留字面量。
+- 迁移期展示字符串中的应用名称可引用现有 `mind_nova.const.APP_NAME` 或 `APP_DESC`，
+  不要硬编码；阶段 5 将版本、编码和展示常量迁入职责化的顶层 `metadata`，完成后
+  新代码不得新增 `mind_nova.const` 依赖。
+- 迁移期在依赖边界允许导入 `mind_nova.const` 且调用方兼容大写 `UTF-8` 的位置，编码
+  参数一律使用 `const.CHARSET`；阶段 5 迁入 `metadata` 后沿用同一常量契约，只有协议
+  要求特定大小写或包边界禁止该依赖时才保留字面量。
 - 既有包路径、稳定入口和外部契约中的 `Mind`/`mind` 保持不变。
 - 非测试函数的 docstring 使用中文中性描述；新增 `Protocol`、ABC 或跨层契约时，
   说明其职责、生命周期和实现方约束。

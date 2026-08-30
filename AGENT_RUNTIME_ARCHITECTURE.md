@@ -3,7 +3,7 @@
 状态：已采纳（Architecture Decision Record）；阶段 4 已完成，阶段 5 未开始
 
 这份文档是 ProxyMind 下一代 Agent Harness 的目标架构。它解决的是
-`mind_app`、`mind_core`、`mind_nova` 三个历史包职责交叉、状态所有权不清和
+`mind_app`、`mind_core`、`mind_nova` 和 `engine` 四个历史包职责交叉、状态所有权不清和
 副作用难以恢复的问题；它不改变 Mind/Helix 的产品边界，也不改动独立打包的
 `backend/`。
 
@@ -19,6 +19,11 @@
 - 线上协议客户端与本地 Agent Harness 是两个不同的边界：`PROTOCOL.md` 定义
   TUI、桌面端和 Web 可以共用的 `mind.chat` wire contract；`agent.protocol`
   只定义进程内 Harness 的 Command/Event，不作为跨进程或浏览器 SDK。
+- 当前 `mind_nova` 是正式 `mind.chat` Python wire SDK 的过渡实现，不是最终产品包；
+  阶段 5 将把 endpoint schema、HTTP/认证、事件解析、SSE、attach/replay 和协议错误
+  迁入独立的 `protocol` 公共 SDK。`agent.adapters.protocol_client` 只把冻结的
+  Harness 请求映射到该 SDK，并拥有本地 Session 游标、Canonical Item 投影和能力错误
+  归一化，不复制线上 schema。迁移完成后生产代码不得继续导入 `mind_nova`。
 - Agent Harness 是产品架构主线，`agent.harness` 是本地编排内核的正式包名；
   `agent.runtime` 已在阶段 4B 的首个切片中删除，不得重新创建兼容 facade。
   `RuntimeServices` 等既有技术名称暂不随包名机械重命名，必须在对应职责完成
@@ -40,8 +45,9 @@
 本地 Command/Event 必须显式携带所属的线上坐标，并在 adapter 边界完成
 本地 `run_id` 与线上 `turn_id` / `attempt` 的映射。
 
-客户端执行环境也是 Turn 输入事实，而不是进程级可变配置。`PROTOCOL.md` 和
-`mind_nova.requests.environment` 拥有线上 `exec_env` schema 与规范化；Harness
+客户端执行环境也是 Turn 输入事实，而不是进程级可变配置。`PROTOCOL.md` 和当前
+过渡实现 `mind_nova.requests.environment` 拥有线上 `exec_env` schema 与规范化；迁移
+完成后由顶层 `protocol` 负责，Harness
 只保存已经校验的不可变快照，不复制字段模型。每个新 Turn 采集新 `snapshot_id`，
 同一 Turn 的 continuation、重试和安全 redispatch 必须复用原快照，且快照必须在
 持久 queued 命令的幂等指纹内。当前实现由注入的 environment capability 捕获，
@@ -49,7 +55,7 @@
 只读取命令快照，不再按当前进程环境重新采集。
 
 线上 `event_seq` 的客户端水位按 `cid + sid` 归属 Session，而不是归属单次
-Turn 或连接。`mind_nova` 继续提供正式事件解析、去重和 attach 传输原语；跨 Turn
+Turn 或连接。过渡期由 `mind_nova` 提供的事件解析、去重和 attach 传输原语最终迁入 `protocol`；跨 Turn
 水位由进程级 `MindChatProtocolClient` 的 `ProtocolEventCursorStore` 持有，并且
 只在逻辑结算后提交。控制器和具体前端不再拥有该状态。本地 `RunEvent.sequence`
 仍只在单个本地 Run 内递增，两者不得互相赋值或比较。
@@ -79,7 +85,7 @@ Protocol Client 的职责是构造冻结命令、维护 `cid/sid/turn_id` 和 `e
 的权威生命周期仍由服务端拥有。
 
 当前 Python 实现中的 `mind_nova.requests` / `stream_events` 是该 Protocol Client
-边界的过渡传输实现。`agent.adapters.item_reducer` 已在传输交付前把 Item 事件归约
+边界的过渡传输实现，最终归属为独立 `protocol` SDK。`agent.adapters.item_reducer` 已在传输交付前把 Item 事件归约
 为不可变 `CanonicalItem`，并同时保留 active 视图和被 retry/presentation 替换的
 审计视图。重连审批快照先在同一 reducer 中按服务端 `last_event_seq` 归约，再通知
 前端审批处理器；快照水位只裁决旧审批事件，不能推进客户端已确认事件游标。
@@ -103,9 +109,9 @@ delta 自建最终正文、attempt 或来源归属。
   Session 单一状态所有者、独立存储包和小型公开 API。
 - 保留 ProxyMind 的端侧确定性执行、Helix MCP、外部 MCP、审批、订阅和
   `LocalEffectJournal`，并将副作用统一纳入效果日志与事务性 Outbox。
-- 用一个 `agent` bounded context 取代 `mind_app / mind_core / mind_nova` 的
-  本地运行语义分层。`mind_nova` 若保留正式 `mind.chat` Protocol Client，按
-  独立 wire SDK 管理，不把它重新当作 Harness 的共享业务层。
+- 用一个 `agent` bounded context 取代 `mind_app / mind_core / mind_nova / engine` 的
+  本地运行语义分层。正式 `mind.chat` wire SDK 独立归属 `protocol`，不把它
+  重新当作 Harness 的共享业务层；迁移完成后四个历史包均从生产源码和发行包中移除。
 - `mind.py` 仍是稳定入口；`backend/` 仍是独立打包边界。二者不是 Agent Harness
   的内部模块。
 
@@ -146,10 +152,39 @@ ProxyMind 需要在此基础上额外保证：
 - Helix 是执行面，不被模型编排逻辑反向吸收；
 - 流式 token 可以丢失，最终事件、计划和证据不能无故丢失。
 
+## 最终终态与退役原则
+
+最终目标不是批量改名，而是让每个职责只有一个真实所有者，并在删除旧包后仍能独立
+验证启动、恢复和协议兼容。`mind.py` 保留为稳定可执行入口，但不再意味着保留
+`mind_app` 包。`server/` 仍是客户端内置的可选配置服务，不属于 Harness 状态边界。
+
+```text
+mind.py                         # 稳定启动入口，只负责调用组合根
+agent/                          # 本地 Agent Harness bounded context
+protocol/                       # 独立 mind.chat wire SDK，供所有前端复用
+frontends/                      # CLI、TUI、MCP、Subscription 及未来桌面/Web adapter
+infrastructure/                 # 配置、平台进程、Helix 和持久化的具体外部实现
+metadata/                       # 版本、编码和产品展示元数据，不承载运行时状态
+server/                         # 可选 ConfigServiceRuntime，不拥有 Harness 状态
+```
+
+四个历史包的最终去向固定如下：
+
+| 历史包 | 最终职责去向 | 退役约束 |
+| --- | --- | --- |
+| `mind_app` | `agent.application`/`agent.harness` 的运行用例；`frontends/` 的入口和 UI；`agent.capabilities` 的本地能力 | 每个入口先完成一个可启动、可恢复的完整用例，再删除对应旧模块；最后移除包目录和启动依赖 |
+| `mind_core` | `agent.domain.policies` 的领域规则、`agent.application` 的用例配置、`infrastructure/config` 的文件与环境适配 | 配置读取、策略判断、skills/hooks 分开迁移；禁止以新的 `core` 或 `shared` 包承接杂项 |
+| `mind_nova` | `protocol` 的请求/响应 schema、传输、认证、事件解码和恢复 API；`metadata/` 的版本与展示常量 | 先拆分 wire SDK 与产品元数据，再迁移 SDK 与跨前端 fixture，最后清除全部生产导入、打包元数据和兼容别名 |
+| `engine` | `agent.capabilities` 的进程/Helix 端口实现；可复用的纯平台代码进入 `infrastructure/platform` | 先切断反向业务依赖和循环，再逐项删除 `engine` 模块；不得保留只转发一次调用的 facade |
+
+目标目录中的新模块只在迁移计划启用对应切片且能承载完整用例时创建；不为“未来可能
+使用”预建空目录。
+
 ## 目标目录
 
-目标是一个顶层 `agent` 包。下面的文件名是职责边界，不要求一次性全部创建；
-迁移时应按阶段启用，避免建立未接入主链路的空壳模块。
+`agent` 是本地 Harness bounded context；顶层 `protocol` 是独立线上 SDK，
+`frontends` 和 `infrastructure` 是其外部适配边界。下面的文件名是职责边界，
+不要求一次性全部创建；迁移时应按阶段启用，避免建立未接入主链路的空壳模块。
 
 ```text
 agent/
@@ -204,6 +239,16 @@ agent/
 └── composition.py           # 唯一组合根
 ```
 
+顶层 `protocol/` 只承载正式 `mind.chat` wire contract，不依赖 `agent`、配置或 UI：
+
+```text
+protocol/
+├── schema.py                 # 请求、响应和错误信封
+├── transport.py              # HTTP、SSE、attach/replay 传输
+├── events.py                 # wire 事件解码与坐标校验
+└── client.py                 # 面向前端的命令与观察 API
+```
+
 ### 依赖方向
 
 ```text
@@ -214,12 +259,16 @@ adapters ───────────────> application ──> harn
 capabilities ──> ports <── harness / application
 stores ────────> ports <── harness / application
 composition.py ──────────> all concrete implementations
+
+frontends ──────────────> application / protocol
+agent.adapters.protocol_client ─────────────> protocol
+infrastructure ────────> ports
 ```
 
 具体规则：
 
-- `protocol` 只使用标准库类型和可序列化值，不导入 `engine`、配置、网络客户端或
-  任意适配器。
+- `agent.protocol` 只使用标准库类型和可序列化值，不导入 `engine`、配置、网络客户端
+  或任意适配器；顶层 `protocol` 可以实现线上传输，但不得导入 `agent`、配置或 UI。
 - `domain` 是纯状态和规则，不执行 IO，不启动任务，不读取环境变量。
 - `harness` 只负责并发、生命周期和状态提交；模型、MCP、Helix 等均通过
   `ports` 的具名端口进入，`capabilities` 只提供这些端口的实现。
@@ -233,7 +282,8 @@ composition.py ──────────> all concrete implementations
 - `adapters.tui`、桌面端和 Web 适配器只消费 Protocol Client 的事件投影，并把用户
   操作翻译为协议命令；它们不得各自复制 Turn、Tool、Approval 或 Effect 状态机。
 - `composition.py` 是唯一允许组装配置、端口、存储和运行时的模块。
-- `engine` 只能作为低层平台能力被 capability adapter 使用，不能成为新的业务层。
+- 迁移期间 `engine` 只能作为低层平台能力被 capability adapter 使用，不能成为新的
+  业务层；阶段 5 完成后该包必须删除。
 - 根目录 `server/` 只是客户端内置配置服务，只能通过显式配置服务入口被组合，
   不得拥有 Harness 状态或实现 `mind.chat` 线上服务端语义。
 - `backend/` 只能依赖自身、标准库和第三方库；Agent Harness 不得导入它。
@@ -398,26 +448,27 @@ running -> cancelled
 | `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 保留检查点语义，存储实现不得进入 domain |
 | `agent/stores/effect_journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `stores/effect_journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |
 | `agent/stores/run_store.py`、`_run_schema.py`、`_run_records.py` | `stores/session_store.py`、`event_store.py`、`outbox.py` 的首个事务切片 | 已原子提交事件、快照、outbox 和最终事实；只有出现独立生命周期或规模压力时再物理拆 store，避免单次转发 facade |
-| `mind_nova/requests`、`stream_events.py` | `protocol/`、`adapters/protocol_client.py` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；请求/事件类型、传输和前端投影继续分开，协议不得导入 `engine` |
-| `mind_nova/requests/chat.py`、`stream_events.py`、`requests/tools.py`、`requests/effects.py` | `adapters/protocol_client.py`、`item_reducer.py` | 既有模块承担正式事件解析、SSE、attach 和 wire 传输；Protocol Client 独立拥有请求坐标、结算游标、Canonical Item 状态、审批快照优先级以及 steer/status/fork/renew/tool/approval/effect 命令端口，由 TUI、桌面端和 Web 共用 |
-| `mind_nova/requests/chat.py` | `agent/protocol/model.py`、`agent/adapters/protocol_client.py` | `ModelStreamRequest` 显式冻结 Turn 坐标、metadata 和环境快照；`MindChatProtocolClient` 临时复用既有 wire 流，待命令与传输原语形成独立公共 SDK 边界后消除对 legacy request module 的直接依赖 |
+| `mind_nova/requests`、`stream_events.py` | `protocol/`、`adapters/protocol_client.py` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；迁入后请求/事件类型、传输和前端投影继续分开，协议不得导入 `engine` |
+| `mind_nova/requests/chat.py`、`stream_events.py`、`requests/tools.py`、`requests/effects.py` | `protocol/`；`adapters/protocol_client.py`、`item_reducer.py` | `protocol` 是最终 wire schema、HTTP、认证、事件解析、SSE、attach 和恢复原语的唯一所有者；Protocol Client 独立拥有 Harness 请求坐标、结算游标、Canonical Item 状态、审批快照优先级以及 steer/status/fork/renew/tool/approval/effect 命令端口，由 TUI、桌面端和 Web 共用 |
+| `mind_nova/requests/chat.py` | `agent/protocol/model.py`、`protocol/`、`agent/adapters/protocol_client.py` | `ModelStreamRequest` 显式冻结 Turn 坐标、metadata 和环境快照；`MindChatProtocolClient` 通过 `protocol` 完成 wire 映射，不在 `agent.protocol` 复制 endpoint schema 或传输实现 |
 | `agent/ports/capabilities.py`、`agent/adapters/protocol_client.py` | `ports`、`adapters/protocol_client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
-| 已删除的 `mind_app/runtime/environment/exec_env.py`、`mind_nova/requests/environment.py` | `capabilities/environment.py`、正式协议 SDK | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化继续由 `mind_nova` 拥有。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |
+| 已删除的 `mind_app/runtime/environment/exec_env.py`、`mind_nova/requests/environment.py` | `capabilities/environment.py`、`protocol/` | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化迁入 `protocol`。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |
 | `agent/protocol/capabilities.py`、`agent/ports/capabilities.py` | `protocol`、`ports` | MCP 工具值对象、Helix 生命周期、受控进程/文件和本地 sandbox 权限只通过具名 port 表达；不把 SDK 会话、进程句柄或操作系统路径带入 domain |
 | `agent/capabilities/mcp.py`、`helix.py`、`process.py`、`filesystem.py` | `capabilities` | MCP/Helix 内存替身和本地进程/文件实现均可脱离网络、TUI 和 legacy runtime 测试；完整权限进程与 Helix 已由显式 adapter 接入，受限进程继续接受显式 sandbox launcher |
 | 已删除的 `mind_app/runtime/turns/delivery.py` | `adapters/protocol_client.py` | Session 跨 Turn 的 `event_seq` 水位已迁入独立 Protocol Client；控制器和前端不再持有，也不与本地 Run sequence 合并 |
-| `mind_core` 配置、权限、hooks、skills | `domain/policies.py`、`stores/`、capability adapters | 配置读取和策略判断拆开，禁止形成新的共享杂物包 |
-| `mind_app/cli`、`tui`、`mcp`、`subscription` | `adapters/`、Protocol Client | 四类入口均通过 `RuntimeServices` 接收 application；CLI/TUI/MCP/Subscription 的执行命令已冻结并提交统一入口，终态观测和回执优先使用 Run/Canonical Event projection；TUI 作为 Protocol Client 前端 adapter，桌面/Web 通过同一 fixture 校验协议投影 |
+| `mind_core` 配置、权限、hooks、skills | `domain/policies.py`、`application/`、`infrastructure/config`、capability adapters | 配置读取、策略判断和技能/Hook 生命周期拆开，禁止形成新的共享杂物包；完成后删除 `mind_core` |
+| `mind_app/cli`、`tui`、`mcp`、`subscription` | `frontends/`、`application/`、Protocol Client | 四类入口均通过 `RuntimeServices` 接收 application；CLI/TUI/MCP/Subscription 的执行命令已冻结并提交统一入口，终态观测和回执优先使用 Run/Canonical Event projection；TUI 作为 Protocol Client 前端 adapter，桌面/Web 通过同一 fixture 校验协议投影；完整用例迁出后删除 `mind_app` |
 | `mind_app/mcp/server.py` | `adapters/mcp_server.py` | `mind_exec` 已通过注入的 `TurnApplication` 和 `RootTurnCommandExecutor` 提交 `SubmitTurnCommand`，structured content 优先使用 `RunResultProjection`；MCP runtime 不拥有控制器或模型生命周期 |
 | `mind_app/subscription/forwarding.py`、`subscription/runtime.py` | `adapters/subscription.py`、`application` | `AgentExecutor` 将远端 forward 冻结为稳定 `SubmitTurnCommand`，长驻 application 由 `AgentRuntime` 拥有并在 shutdown 关闭；完成/失败/中断分类使用 application 的 Event projection |
-| `engine` | capability 的基础实现 | 保持平台基础设施定位，禁止反向依赖 Agent 业务 |
+| `engine` | `agent.capabilities` 与 `infrastructure/platform` 的具体实现 | 迁移所有消费者后删除 `engine`；平台实现不得反向依赖 Agent 业务，也不得通过 facade 继续隐藏旧包 |
 | `server` | 客户端内置配置服务 | `ConfigServiceRuntime` 只提供配置 UI/健康检查；不承载 Harness 状态、不拥有线上事件，也不是 `mind.chat` 服务端 |
 | `backend` | 独立打包 | 本次和后续迁移均不修改其目录和依赖边界 |
 
 ## 不采用的方案
 
 - 不把 `mind_app`、`mind_core`、`mind_nova` 简单改名为 `control_plane`、
-  `shared`、`protocol`。这只改变目录，不解决状态所有权和副作用恢复。
+  `shared` 或 `protocol`。顶层 `protocol` 只有在完成 wire SDK 职责迁移并具备独立
+  测试、版本和所有权后才能建立；改名本身不解决状态所有权和副作用恢复。
 - 不建立一个新的万能 `core` 或 `services` 包。跨域代码必须归属到明确的 domain、
   runtime、store 或 capability。
 - 不用事件总线替代 Session 单写者。事件总线用于传播事实，不能让多个消费者
