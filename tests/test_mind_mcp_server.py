@@ -25,7 +25,7 @@ from agent.application import (
     TurnApplication,
 )
 from mind_app.runtime.turns.result import RunResult
-from mind_core.application_paths import ApplicationLayout
+from infrastructure.config.paths import ApplicationLayout
 from mind_core.permissions import PermissionSettings
 
 

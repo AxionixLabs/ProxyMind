@@ -32,7 +32,7 @@ from mind_core.config import (
 )
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
-from mind_core.application_paths import (
+from infrastructure.config.paths import (
     ApplicationMode,
     resolve_application_layout
 )

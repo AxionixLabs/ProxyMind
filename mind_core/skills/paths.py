@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from pathlib import Path
-from mind_core.application_paths import resolve_application_layout
+from infrastructure.config.paths import resolve_application_layout
 
 AGENTS_DIR = ".agents"
 SKILLS_DIR = "skills"

@@ -23,7 +23,7 @@ from observability import (
     observe,
     observe_exception
 )
-from mind_core.application_paths import (
+from infrastructure.config.paths import (
     ApplicationLayout,
     resolve_application_layout
 )

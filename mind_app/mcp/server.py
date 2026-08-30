@@ -38,7 +38,7 @@ from mind_app.paths import (
 from mind_app.reporting import RunReport
 from mind_app.runtime.environment.snapshot import capture_turn_environment
 from mind_app.runtime.environment.shell_tools import route_shell_tools
-from mind_core.application_paths import (
+from infrastructure.config.paths import (
     ApplicationLayout,
     resolve_application_layout
 )

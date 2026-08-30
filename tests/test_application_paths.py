@@ -2,7 +2,7 @@
 
 import pytest
 
-from mind_core.application_paths import (
+from infrastructure.config.paths import (
     is_packaged_executable,
     resolve_application_layout,
 )

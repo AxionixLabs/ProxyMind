@@ -25,7 +25,7 @@ from mind_app.frontend.contracts import ApplicationView
 from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
 from mind_app.tui.adapters.hooks import TuiHookStatusAdapter
 from mind_app.tui.core.runtime import TuiRuntime
-from mind_core.application_paths import ApplicationLayout
+from infrastructure.config.paths import ApplicationLayout
 from mind_core.config_layers import PROJECT_CONFIG_DIR
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore

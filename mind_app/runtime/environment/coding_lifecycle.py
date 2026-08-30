@@ -6,7 +6,7 @@ import typing
 import asyncio
 import contextlib
 from agent.application import ProcessCapability
-from mind_core.application_paths import ApplicationLayout
+from infrastructure.config.paths import ApplicationLayout
 from mind_app.native_coding import NativeCoding
 from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
 from mind_app.native_coding.exec.user_shell import UserShellExecution

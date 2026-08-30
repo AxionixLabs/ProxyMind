@@ -12,7 +12,7 @@ from mind_app.native_coding.exec.process_session import (
     ProcessSessionSpec,
 )
 from mind_app.native_coding.native_coding import NativeCoding
-from mind_core.application_paths import ApplicationLayout
+from infrastructure.config.paths import ApplicationLayout
 
 
 def test_source_windows_sidecar_path_is_platform_specific(tmp_path, monkeypatch) -> None:

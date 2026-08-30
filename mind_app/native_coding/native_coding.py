@@ -4,7 +4,7 @@
 import os
 import typing
 from agent.application import ProcessCapability
-from mind_core.application_paths import ApplicationLayout
+from infrastructure.config.paths import ApplicationLayout
 from mind_app.native_coding.base import NativeCodingBase
 from mind_app.native_coding.edit.patch_engine import PatchEngine
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools

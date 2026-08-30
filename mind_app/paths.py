@@ -5,7 +5,7 @@ import os
 import contextlib
 from pathlib import Path
 from infrastructure.errors import AppError
-from mind_core.application_paths import (
+from infrastructure.config.paths import (
     APP_HOME_ENV,
     default_application_home
 )

@@ -14,7 +14,7 @@ from typing import (
     Literal,
     Sequence
 )
-from mind_core.application_paths import default_application_home
+from infrastructure.config.paths import default_application_home
 from metadata import const
 from .command_safety.is_dangerous_command import (
     DangerousCommandMatch,

@@ -8,7 +8,7 @@ import base64
 import typing
 import asyncio
 from pathlib import Path
-from mind_core.application_paths import is_packaged_executable
+from infrastructure.config.paths import is_packaged_executable
 
 
 class SandboxUnavailable(RuntimeError):

@@ -11,7 +11,7 @@ from pathlib import Path
 from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.errors import AppError
 from mind_core.preference import Preferences
-from mind_core.application_paths import ApplicationLayout
+from infrastructure.config.paths import ApplicationLayout
 from mind_core.config_session import ConfigSession
 from mind_core.agent_config import AgentSettings
 from mind_core.feature_config import FeatureSettings

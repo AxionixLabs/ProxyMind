@@ -19,7 +19,7 @@ from tomlkit.items import (
 )
 from tomlkit.toml_document import TOMLDocument
 from metadata import const
-from mind_core.application_paths import default_application_home
+from infrastructure.config.paths import default_application_home
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_ID,
     DEFAULT_PROVIDER_KIND,
