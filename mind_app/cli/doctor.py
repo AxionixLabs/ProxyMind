@@ -31,7 +31,7 @@ from mind_core.config import (
     ConfigOverride
 )
 from mind_core.config_session import ConfigSession
-from mind_core.config_store import ConfigStore
+from infrastructure.config.store import ConfigStore
 from infrastructure.config.paths import (
     ApplicationMode,
     resolve_application_layout

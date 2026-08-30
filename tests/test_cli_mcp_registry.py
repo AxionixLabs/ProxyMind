@@ -5,7 +5,7 @@ from io import StringIO
 from mind_app.cli import mcp_registry
 from mind_app.cli.commands import McpAddCommand, McpGetCommand
 from mind_app.cli.parser import parse_cli_command
-from mind_core.config_store import ConfigStore
+from infrastructure.config.store import ConfigStore
 
 
 def test_mcp_add_parses_runtime_policy_fields() -> None:

@@ -14,7 +14,7 @@ from prompt_toolkit.document import Document
 
 from infrastructure.errors import AppError
 from mind_core.config_session import ConfigSession
-from mind_core.config_store import ConfigStore
+from infrastructure.config.store import ConfigStore
 from mind_core.design.terminal_capabilities import DEGRADED_TERMINAL_CAPABILITIES
 from infrastructure.skills import SkillSpec
 from metadata import const

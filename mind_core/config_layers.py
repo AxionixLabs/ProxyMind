@@ -16,7 +16,7 @@ from mind_core.config import (
     normalize_config,
     validate_config,
 )
-from mind_core.config_store import (
+from infrastructure.config.store import (
     ConfigStore,
     ConfigStoreError,
 )

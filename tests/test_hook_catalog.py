@@ -13,7 +13,7 @@ from mind_app.runtime.hooks.registry import HookRegistry
 from mind_app.runtime.hooks.scope import HookExecutionContext
 from mind_core.config_layers import PROJECT_CONFIG_DIR
 from mind_core.config_session import ConfigSession
-from mind_core.config_store import ConfigStore
+from infrastructure.config.store import ConfigStore
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.application import HOOK_EVENT_NAMES
 

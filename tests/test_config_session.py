@@ -12,7 +12,10 @@ from mind_core.config import (
     parse_config_override,
 )
 from mind_core.config_session import ConfigSession
-from mind_core.config_store import ConfigStore, ConfigStoreError
+from infrastructure.config.store import (
+    ConfigStore,
+    ConfigStoreError,
+)
 from mind_core.config_layers import PROJECT_CONFIG_DIR
 from infrastructure.hooks.discovery import HOOKS_FILE_NAME
 from agent.application import HOOK_EVENT_CONFIG_SPECS

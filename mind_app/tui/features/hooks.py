@@ -4,7 +4,7 @@
 import typing
 from pathlib import Path
 from mind_core.config import ConfigValidationError
-from mind_core.config_store import ConfigStoreError
+from infrastructure.config.store import ConfigStoreError
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView

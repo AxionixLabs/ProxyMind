@@ -16,7 +16,7 @@ from mind_app.mcp.registry import McpServerRegistry
 from mind_app.paths import mind_config_path
 from mind_core.config import ConfigOverride
 from mind_core.config_session import ConfigSession
-from mind_core.config_store import ConfigStore
+from infrastructure.config.store import ConfigStore
 from mind_app.cli.commands import (
     McpAddCommand,
     McpGetCommand,

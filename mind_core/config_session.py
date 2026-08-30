@@ -12,7 +12,7 @@ from mind_core.config_layers import (
     ConfigResolution,
     ConfigResolver
 )
-from mind_core.config_store import (
+from infrastructure.config.store import (
     ConfigStore,
     ConfigStoreError
 )

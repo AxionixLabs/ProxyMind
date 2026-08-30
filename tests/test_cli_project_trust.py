@@ -28,7 +28,7 @@ from mind_app.tui.core.runtime import TuiRuntime
 from infrastructure.config.paths import ApplicationLayout
 from mind_core.config_layers import PROJECT_CONFIG_DIR
 from mind_core.config_session import ConfigSession
-from mind_core.config_store import ConfigStore
+from infrastructure.config.store import ConfigStore
 
 
 class _TrustRuntime(object):

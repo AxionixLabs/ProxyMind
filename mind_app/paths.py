@@ -9,7 +9,7 @@ from infrastructure.config.paths import (
     APP_HOME_ENV,
     default_application_home
 )
-from mind_core.config_store import default_config_path
+from infrastructure.config.store import default_config_path
 from metadata import const
 
 HX_HOME_ENV = "HELIX_HOME"
