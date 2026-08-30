@@ -8,6 +8,7 @@ import pytest
 from agent.application import (
     ModelCapabilityError,
     ModelStreamRequest,
+    ProtocolCommandError,
 )
 from agent.adapters import protocol_client as model_adapter
 from agent.composition import open_model_capability
@@ -15,6 +16,11 @@ from mind_nova.tool_approval import (
     ToolApprovalSnapshot,
     ToolApprovalSnapshotItem,
 )
+from mind_nova.requests.tools import (
+    ToolApprovalRequestError,
+    ToolResultRequestError,
+)
+from mind_nova.requests.turn_control import TurnControlRequestError
 
 
 def _model_event(event_type: str = "turn.start") -> SimpleNamespace:
@@ -315,6 +321,101 @@ async def test_protocol_client_owns_command_transport_boundary(monkeypatch) -> N
         error="denied",
         metadata={"source": "test"},
     )
+
+
+@pytest.mark.anyio
+async def test_protocol_client_normalizes_command_errors(monkeypatch) -> None:
+    async def fail_result(*_args, **_kwargs):
+        raise ToolResultRequestError(
+            "tool_call_not_ready",
+            "tool call is not registered yet",
+            retryable=True,
+            details={"call_id": "call_test"},
+        )
+
+    async def fail_status(**_kwargs):
+        raise ToolResultRequestError(
+            "tool_result_status_transport_error",
+            "status unavailable",
+            retryable=True,
+        )
+
+    async def fail_approval(*_args, **_kwargs):
+        raise ToolApprovalRequestError(
+            "approval_not_pending",
+            "approval already resolved",
+        )
+
+    async def fail_interrupt(**_kwargs):
+        raise TurnControlRequestError("turn control unavailable")
+
+    async def fail_reconcile(**_kwargs):
+        raise OSError("effect service unavailable")
+
+    monkeypatch.setattr(model_adapter, "_post_tool_result", fail_result)
+    monkeypatch.setattr(model_adapter, "_get_tool_result_status", fail_status)
+    monkeypatch.setattr(model_adapter, "_post_tool_approval", fail_approval)
+    monkeypatch.setattr(model_adapter, "_interrupt_turn", fail_interrupt)
+    monkeypatch.setattr(
+        model_adapter,
+        "_post_effect_reconciliation",
+        fail_reconcile,
+    )
+    client = model_adapter.MindChatProtocolClient()
+
+    with pytest.raises(ProtocolCommandError) as result_error:
+        await client.post_tool_result(
+            "cid_test",
+            "sid_test",
+            "call_test",
+            "test_tool",
+            True,
+            {"ok": True},
+        )
+    assert result_error.value.code == "tool_call_not_ready"
+    assert result_error.value.retryable is True
+    assert result_error.value.details == {"call_id": "call_test"}
+
+    with pytest.raises(ProtocolCommandError) as status_error:
+        await client.get_tool_result_status(
+            cid="cid_test",
+            sid="sid_test",
+            call_id="call_test",
+        )
+    assert status_error.value.code == "tool_result_status_transport_error"
+    assert status_error.value.retryable is True
+
+    with pytest.raises(ProtocolCommandError) as approval_error:
+        await client.post_tool_approval(
+            "cid_test",
+            "sid_test",
+            "call_test",
+            "approval_test",
+            "decline",
+            turn_id="turn_test",
+        )
+    assert approval_error.value.code == "approval_not_pending"
+    assert approval_error.value.retryable is False
+
+    with pytest.raises(ProtocolCommandError) as interrupt_error:
+        await client.interrupt_turn(
+            cid="cid_test",
+            sid="sid_test",
+            turn_id="turn_test",
+        )
+    assert interrupt_error.value.code == "turn_control_request_failed"
+    assert interrupt_error.value.retryable is True
+
+    with pytest.raises(ProtocolCommandError) as reconcile_error:
+        await client.post_effect_reconciliation(
+            effect_id="effect_test",
+            request_id="reconcile_test",
+            resolution="failed",
+        )
+    assert reconcile_error.value.code == (
+        "effect_reconciliation_transport_error"
+    )
+    assert reconcile_error.value.retryable is True
 
 
 @pytest.mark.anyio

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from agent.application import ProtocolCommandError
 from mind_app.runtime.turns.stream_effects import ToolResultDelivery
 from mind_nova.requests.tools import ToolResultRequestError
 
@@ -144,6 +145,40 @@ async def test_delivery_retries_unknown_ack_with_same_request_id() -> None:
     assert len(request_ids) == 2
     assert request_ids[0] == request_ids[1]
     assert sleeps == [0.1]
+    get_status.assert_awaited_once_with(
+        cid="cid-test",
+        sid="sid-test",
+        call_id="call-test",
+    )
+
+
+@pytest.mark.anyio
+async def test_delivery_retries_protocol_command_error() -> None:
+    post_result = AsyncMock(side_effect=(
+        ProtocolCommandError(
+            "tool_call_not_ready",
+            "tool call is not registered yet",
+            retryable=True,
+        ),
+        None,
+    ))
+    get_status = AsyncMock(return_value={
+        "tool_status": "waiting_result",
+        "result_received": False,
+        "reconciliation_required": False,
+    })
+
+    async def sleep(_delay: float) -> None:
+        return None
+
+    delivery = _delivery(
+        post_result=post_result,
+        get_status=get_status,
+        sleep=sleep,
+    )
+    await _deliver(delivery)
+
+    assert post_result.await_count == 2
     get_status.assert_awaited_once_with(
         cid="cid-test",
         sid="sid-test",

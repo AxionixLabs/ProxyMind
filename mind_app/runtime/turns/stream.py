@@ -12,6 +12,7 @@ from agent.application import (
     ModelEventStream,
     ModelStreamRequest,
     ProtocolCommandClient,
+    ProtocolCommandError,
     TurnControlReceipt,
 )
 from mind_app.approval.ledger import ApprovalCallLedger
@@ -197,7 +198,7 @@ async def _cancel_reconciliation_turn(
                 request_id=request_id,
             )
             return response.status in {"accepted", "turn_not_active"}
-        except TurnControlRequestError:
+        except (TurnControlRequestError, ProtocolCommandError):
             if attempt == 0:
                 continue
             return False
@@ -229,7 +230,7 @@ async def _interrupt_approval_cancelled_turn(
                 request_id=request_id,
             )
             return response.status in {"accepted", "turn_not_active"}
-        except TurnControlRequestError:
+        except (TurnControlRequestError, ProtocolCommandError):
             if attempt == 0:
                 continue
             return False
@@ -735,7 +736,7 @@ async def stream_turn(
 
             continue
 
-    except ToolResultRequestError as error:
+    except (ToolResultRequestError, ProtocolCommandError) as error:
         if error.is_deterministic_terminal:
             outcome.interrupt(f"{error.code}: {error}")
             failure_phase = "turn.tool_result_delivery_stopped"

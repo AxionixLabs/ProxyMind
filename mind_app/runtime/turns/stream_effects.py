@@ -6,6 +6,7 @@ import httpx
 import typing
 import asyncio
 from dataclasses import dataclass
+from agent.application import ProtocolCommandError
 from mind_nova.identifiers import stable_request_id
 from mind_nova.requests.tools import (
     ToolResultEnvelope,
@@ -14,6 +15,7 @@ from mind_nova.requests.tools import (
 )
 
 _AsyncCall = typing.Callable[..., typing.Awaitable[typing.Any]]
+_CommandError = ToolResultRequestError | ProtocolCommandError
 
 _RETRYABLE_DELIVERY_CODES = frozenset({
     "tool_call_missing",
@@ -194,11 +196,11 @@ class ToolResultDelivery:
 
     async def _deliver_frozen(self, frozen: _FrozenToolResult) -> None:
         """投递冻结结果并在暂态登记窗口内按原请求重试。"""
-        first_error: ToolResultRequestError | None = None
+        first_error: _CommandError | None = None
         try:
             await self._post(frozen)
             return
-        except ToolResultRequestError as delivery_error:
+        except (ToolResultRequestError, ProtocolCommandError) as delivery_error:
             first_error = delivery_error
             if (
                 delivery_error.is_deterministic_terminal
@@ -222,13 +224,13 @@ class ToolResultDelivery:
                     sid=frozen.sid,
                     call_id=frozen.call_id,
                 )
-            except ToolResultRequestError as status_error:
+            except (ToolResultRequestError, ProtocolCommandError) as status_error:
                 last_error = status_error
                 if self._can_retry_delivery(first_error):
                     try:
                         await self._post(frozen)
                         return
-                    except ToolResultRequestError as retry_error:
+                    except (ToolResultRequestError, ProtocolCommandError) as retry_error:
                         last_error = retry_error
                         if not (
                             retry_error.retryable
@@ -278,7 +280,7 @@ class ToolResultDelivery:
             try:
                 await self._post(frozen)
                 return
-            except ToolResultRequestError as retry_error:
+            except (ToolResultRequestError, ProtocolCommandError) as retry_error:
                 last_error = retry_error
                 if not (
                     retry_error.retryable
@@ -304,9 +306,9 @@ class ToolResultDelivery:
         self,
         frozen: _FrozenToolResult,
         *,
-        first_error: ToolResultRequestError,
+        first_error: _CommandError,
         status: dict[str, typing.Any],
-    ) -> ToolResultRequestError | None:
+    ) -> _CommandError | None:
         """尝试核对权威状态并返回仍需继续处理的错误。"""
         effect_id = str(status.get("effect_id") or "").strip()
         if not effect_id:
@@ -321,6 +323,8 @@ class ToolResultDelivery:
                 return None
         except asyncio.CancelledError:
             raise
+        except ProtocolCommandError as error:
+            return error
         except (
             httpx.HTTPError,
             OSError,
@@ -395,7 +399,7 @@ class ToolResultDelivery:
         return True
 
     @staticmethod
-    def _can_retry_delivery(first_error: ToolResultRequestError) -> bool:
+    def _can_retry_delivery(first_error: _CommandError) -> bool:
         """返回首次交付错误是否允许使用原请求再次提交。"""
         return (
             first_error.retryable

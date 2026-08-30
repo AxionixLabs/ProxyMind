@@ -340,6 +340,20 @@ class ModelCapabilityError(CapabilityError):
     pass
 
 
+class ProtocolCommandError(CapabilityError):
+    """表示 Protocol Client 命令已归一化的传输或协议失败。"""
+
+    @property
+    def is_deterministic_terminal(self) -> bool:
+        """返回工具结果是否已经确定不能再次提交。"""
+        return self.code in {
+            "tool_call_already_completed",
+            "tool_call_execution_timed_out",
+            "tool_call_cancelled",
+            "tool_call_turn_closed",
+        }
+
+
 @typing.runtime_checkable
 class ModelEventStream(typing.Protocol):
     """暴露模型事件、Canonical Item 投影、游标和关闭生命周期。"""

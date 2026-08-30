@@ -7,6 +7,7 @@ import asyncio
 from agent.ports import (
     ApprovalSnapshotCallback,
     ModelCapabilityError,
+    ProtocolCommandError,
     ModelEventStream,
     ReconnectStatusCallback,
 )
@@ -23,11 +24,14 @@ from mind_nova.requests.effects import (
     post_effect_reconciliation as _post_effect_reconciliation,
 )
 from mind_nova.requests.tools import (
+    ToolApprovalRequestError,
+    ToolResultRequestError,
     get_tool_result_status as _get_tool_result_status,
     post_tool_approval as _post_tool_approval,
     post_tool_result as _post_tool_result,
 )
 from mind_nova.requests.turn_control import (
+    TurnControlRequestError,
     interrupt_turn as _interrupt_turn,
 )
 from .item_reducer import CanonicalItemReducer
@@ -299,12 +303,24 @@ class MindChatProtocolClient:
         request_id: str | None = None,
     ) -> TurnControlReceipt:
         """提交匹配活动轮次的中断命令并隐藏 wire 回执类型。"""
-        response = await _interrupt_turn(
-            cid=cid,
-            sid=sid,
-            turn_id=turn_id,
-            request_id=request_id,
-        )
+        try:
+            response = await _interrupt_turn(
+                cid=cid,
+                sid=sid,
+                turn_id=turn_id,
+                request_id=request_id,
+            )
+        except TurnControlRequestError as error:
+            raise ProtocolCommandError(
+                "turn_control_request_failed",
+                str(error) or "turn control request failed",
+                retryable=True,
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise ProtocolCommandError(
+                "protocol_command_validation_error",
+                str(error) or "turn control request is invalid",
+            ) from error
         status = str(response.status or "").strip()
         if status == "accepted":
             normalized_status = "accepted"
@@ -340,16 +356,29 @@ class MindChatProtocolClient:
         request_id: str | None = None,
     ) -> None:
         """提交客户端工具结果并隐藏 wire ACK 结构。"""
-        await _post_tool_result(
-            cid,
-            sid,
-            call_id,
-            name,
-            ok,
-            result,
-            additional_context=additional_context,
-            request_id=request_id,
-        )
+        try:
+            await _post_tool_result(
+                cid,
+                sid,
+                call_id,
+                name,
+                ok,
+                result,
+                additional_context=additional_context,
+                request_id=request_id,
+            )
+        except ToolResultRequestError as error:
+            raise ProtocolCommandError(
+                error.code,
+                str(error) or "tool result delivery failed",
+                retryable=error.retryable,
+                details=error.details,
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise ProtocolCommandError(
+                "protocol_command_validation_error",
+                str(error) or "tool result request is invalid",
+            ) from error
 
     async def get_tool_result_status(
         self,
@@ -359,11 +388,24 @@ class MindChatProtocolClient:
         call_id: str,
     ) -> dict[str, ThawedJsonValue]:
         """读取工具结果权威状态并返回已校验的数据快照。"""
-        return await _get_tool_result_status(
-            cid=cid,
-            sid=sid,
-            call_id=call_id,
-        )
+        try:
+            return await _get_tool_result_status(
+                cid=cid,
+                sid=sid,
+                call_id=call_id,
+            )
+        except ToolResultRequestError as error:
+            raise ProtocolCommandError(
+                error.code,
+                str(error) or "tool result status failed",
+                retryable=error.retryable,
+                details=error.details,
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise ProtocolCommandError(
+                "protocol_command_validation_error",
+                str(error) or "tool result status request is invalid",
+            ) from error
 
     async def post_tool_approval(
         self,
@@ -382,20 +424,31 @@ class MindChatProtocolClient:
         additional_context: typing.Sequence[str] = (),
     ) -> None:
         """提交审批决定并隐藏具体 wire ACK 类型。"""
-        await _post_tool_approval(
-            cid,
-            sid,
-            call_id,
-            approval_id,
-            decision,
-            turn_id=turn_id,
-            kind=kind,
-            approval=approval,
-            request_id=request_id,
-            execpolicy_amendment_id=execpolicy_amendment_id,
-            reason=reason,
-            additional_context=additional_context,
-        )
+        try:
+            await _post_tool_approval(
+                cid,
+                sid,
+                call_id,
+                approval_id,
+                decision,
+                turn_id=turn_id,
+                kind=kind,
+                approval=approval,
+                request_id=request_id,
+                execpolicy_amendment_id=execpolicy_amendment_id,
+                reason=reason,
+                additional_context=additional_context,
+            )
+        except ToolApprovalRequestError as error:
+            raise ProtocolCommandError(
+                error.code,
+                str(error) or "tool approval request failed",
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise ProtocolCommandError(
+                "protocol_command_validation_error",
+                str(error) or "tool approval request is invalid",
+            ) from error
 
     async def post_effect_reconciliation(
         self,
@@ -408,16 +461,28 @@ class MindChatProtocolClient:
         metadata: typing.Mapping[str, typing.Any] | None = None,
     ) -> None:
         """提交外部效果核对结论并隐藏 wire 响应结构。"""
-        await _post_effect_reconciliation(
-            effect_id=effect_id,
-            request_id=request_id,
-            resolution=resolution,
-            result_payload=(
-                dict(result_payload) if result_payload is not None else None
-            ),
-            error=error,
-            metadata=dict(metadata) if metadata is not None else None,
-        )
+        try:
+            await _post_effect_reconciliation(
+                effect_id=effect_id,
+                request_id=request_id,
+                resolution=resolution,
+                result_payload=(
+                    dict(result_payload) if result_payload is not None else None
+                ),
+                error=error,
+                metadata=dict(metadata) if metadata is not None else None,
+            )
+        except (httpx.HTTPError, OSError) as error:
+            raise ProtocolCommandError(
+                "effect_reconciliation_transport_error",
+                str(error) or "effect reconciliation transport failed",
+                retryable=True,
+            ) from error
+        except (RuntimeError, TypeError, ValueError) as error:
+            raise ProtocolCommandError(
+                "effect_reconciliation_error",
+                str(error) or "effect reconciliation failed",
+            ) from error
 
 
 def _classify_model_error(error: BaseException) -> ModelCapabilityError:

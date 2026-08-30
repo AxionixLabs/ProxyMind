@@ -445,7 +445,7 @@ legacy Helix/process adapter 仍需在后续切片迁移；TUI 的工具/审批�
 | `mind_app/cli/dispatch.py -> agent.application/protocol` | 首个主动 `exec` 入站切片 | CLI adapter 迁入 `agent.adapters.cli` 且入口只依赖公开组合根 | 4 |
 | `agent.runtime` -> `agent.harness` | SessionLoop、RunActor 和 Session 所有者的 Harness 编排内核 | 已完成完整用例迁移、恢复/取消/并发测试和导入图收敛；旧包已删除且不保留兼容 facade | 4B |
 | `agent/adapters/protocol_client.py -> mind_nova.requests.chat` | 首个 Protocol Client 切片复用已稳定的正式事件解析、SSE、attach 和审批恢复传输原语 | 命令与传输原语形成独立公共 SDK 边界，或明确 `mind_nova` 为正式跨前端 SDK 后改为只依赖该公共入口；最晚阶段 5 消除对 legacy request module 的直接依赖 | 4B/5 |
-| `agent/ports.ProtocolCommandClient -> mind_nova.requests.*` | Protocol Client 统一提供中断、工具结果、审批和效果核对命令；运行流不再直接调用 wire 函数 | attach/replay、steer/status/renew 等剩余命令纳入同一端口，并完成错误类型从 legacy request module 的隔离 | 4B/5 |
+| `agent/ports.ProtocolCommandClient -> mind_nova.requests.*` | Protocol Client 统一提供中断、工具结果、审批和效果核对命令，并将这些命令的 wire 错误归一化为 `ProtocolCommandError` | TUI 输入控制及 attach/replay、steer/status/renew 等剩余命令纳入同一端口，并清除运行流对 legacy 错误类型的兼容导入 | 4B/5 |
 | `mind_nova.requests.chat`、`stream_events.py` | 过渡期的 Python Protocol Client，承载正式事件解析、游标和恢复语义 | Protocol Client 完成独立边界、跨前端兼容测试和版本所有权；实现可迁入 `agent.adapters.protocol_client`，或保留为明确的 `mind.chat` SDK | 4B/5 |
 
 ## 风险与处理
@@ -534,4 +534,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-30 | 阶段 4B | 审批恢复快照接入 `CanonicalItemReducer`：Protocol Client 在旧前端 callback 前按快照水位提交 pending/resolved/cancelled 状态，旧 pending 回放不得重开终态审批，并独立公开 `pending_approval_items`；定向测试 `199 passed`、全量测试 `2964 passed, 11 skipped` | TUI 尚未消费 Canonical Item 投影；协议命令面和旧审批交互 adapter 待迁移 |
 | 2026-08-30 | 阶段 4B | 最终正文所有权迁入 Protocol Client：`ModelEventStream.assistant_text` 统一驱动 RunResult、Stop Hook 和最后回复记忆，删除旧 handler/tracker 聚合 API；运行流测试接入真实 reducer，并修复 retry 后迟到旧 Item 污染新 attempt 的问题；定向测试 `231 passed`、全量测试 `2965 passed, 11 skipped` | TUI delta、sources 和 Transcript presenter 仍待消费 Canonical Items；协议命令面尚待迁移 |
 | 2026-08-30 | 阶段 4B | 模型输出 presenter 完成 Canonical Item 迁移：`current_item` 驱动 delta/完成展示，active text/builtin Items 聚合 sources，audit Items 幂等提交 Transcript revision；删除 `SegmentTracker` 及重复状态机；定向测试 `246 passed`、全量测试 `2955 passed, 11 skipped` | TUI 工具/审批交互仍直接消费具体事件并调用 legacy 请求函数；Protocol Client 命令面尚待迁移 |
-| 2026-08-30 | 阶段 4B | 建立 `ProtocolCommandClient` 端口并由 `MindChatProtocolClient` 实现；运行流的中断、工具结果/状态、审批和效果核对统一经 Protocol Client 交付，保留稳定坐标和 ACK 语义；定向测试 `98 passed`、全量测试 `2956 passed, 11 skipped` | TUI 本地工具/审批策略与 UI 交互仍在 `mind_app/runtime/turns`，legacy 请求错误类型、attach/replay 和其余命令尚待纳入同一公共端口 |
+| 2026-08-30 | 阶段 4B | 建立 `ProtocolCommandClient` 端口并由 `MindChatProtocolClient` 实现；运行流的中断、工具结果/状态、审批和效果核对统一经 Protocol Client 交付，wire 错误归一化为 `ProtocolCommandError`；定向测试 `100 passed`、全量测试 `2958 passed, 11 skipped` | TUI 本地工具/审批策略与 UI 交互仍在 `mind_app/runtime/turns`，TUI 输入控制、attach/replay 和其余命令尚待纳入同一公共端口 |
