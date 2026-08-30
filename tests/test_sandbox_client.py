@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 from agent.capabilities import InMemoryProcessCapability
-from mind_app.native_coding.exec.sandbox_client import (
+from infrastructure.platform.sandbox import (
     SandboxClient,
     _SidecarStream,
     sandbox_backend_name,

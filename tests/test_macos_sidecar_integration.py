@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from mind_app.native_coding.exec.sandbox_client import (
+from infrastructure.platform.sandbox import (
     SandboxClient,
     SandboxProtocolError,
 )

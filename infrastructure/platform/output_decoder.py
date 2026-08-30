@@ -10,7 +10,7 @@ from infrastructure.platform.encoding import (
     decode_process_output_details,
     normalize_process_output_encoding
 )
-from .process_capture import CapturedProcessResult
+from infrastructure.platform.process_capture import CapturedProcessResult
 
 OUTPUT_STREAMS = ("stdout", "stderr")
 UTF8_BOM       = b"\xef\xbb\xbf"

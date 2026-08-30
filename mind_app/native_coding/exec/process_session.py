@@ -24,11 +24,11 @@ from infrastructure.platform.processes import (
     wait_for_process
 )
 from infrastructure.platform.encoding import decode_process_output
-from mind_app.native_coding.exec.process_capture import (
+from infrastructure.platform.process_capture import (
     OrderedOutputBuffer,
     ProcessCapture
 )
-from mind_app.native_coding.exec.sandbox_client import (
+from infrastructure.platform.sandbox import (
     SandboxClient,
     SandboxUnavailable,
     SidecarProcess,

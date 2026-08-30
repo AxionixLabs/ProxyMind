@@ -18,13 +18,13 @@ from mind_app.native_coding.exec.process_session import (
     ProcessSessionSpec
 )
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
-from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
+from infrastructure.platform.shell_runtime import ShellRuntimeResolver
 from mind_app.native_coding.exec.exec_policy import (
     effective_sandbox_mode,
     normalize_sandbox_permission
 )
 from agent.stores.permission_grants import normalize_permission_profile
-from mind_app.native_coding.exec.sandbox_client import (
+from infrastructure.platform.sandbox import (
     SandboxProtocolError,
     SandboxUnavailable,
     SidecarProcess,

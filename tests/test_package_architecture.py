@@ -655,6 +655,50 @@ def test_command_safety_has_platform_ownership() -> None:
     )
 
 
+def test_process_execution_substrate_has_platform_ownership() -> None:
+    """确保进程捕获、解码、沙箱 sidecar 和 shell 解析由平台基础设施持有。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "process_capture.py",
+        PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "output_decoder.py",
+        PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "sandbox_client.py",
+        PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "shell_runtime.py",
+    )
+    assert not any(path.is_file() for path in legacy_paths), (
+        "legacy process execution sources still exist: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_paths
+            if path.is_file()
+        )
+    )
+
+    legacy_prefix = "mind_app.native_coding.exec."
+    legacy_modules = {
+        f"{legacy_prefix}process_capture",
+        f"{legacy_prefix}output_decoder",
+        f"{legacy_prefix}sandbox_client",
+        f"{legacy_prefix}shell_runtime",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, (
+        "legacy process execution imports remain:\n" + "\n".join(violations)
+    )
+
+
 def test_terminal_presentation_has_no_legacy_design_sources_or_imports() -> None:
     """确保终端展示能力只由 presentation/terminal 持有。"""
     legacy_design_root = PROJECT_ROOT / "mind_core" / "design"

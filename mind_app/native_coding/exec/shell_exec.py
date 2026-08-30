@@ -11,9 +11,9 @@ from mind_app.native_coding.base import (
     NativeCodingComponent
 )
 from infrastructure.platform.encoding import normalize_process_output_encoding
-from mind_app.native_coding.exec.output_decoder import CapturedOutputDecoder
-from mind_app.native_coding.exec.process_capture import ProcessCapture
-from mind_app.native_coding.exec.process_capture import (
+from infrastructure.platform.output_decoder import CapturedOutputDecoder
+from infrastructure.platform.process_capture import ProcessCapture
+from infrastructure.platform.process_capture import (
     CapturedOutputLine,
     CapturedProcessResult
 )
@@ -21,12 +21,12 @@ from mind_app.native_coding.exec.process_session import (
     ProcessSessionManager,
     ProcessSessionSpec
 )
-from mind_app.native_coding.exec.sandbox_client import (
+from infrastructure.platform.sandbox import (
     SandboxProtocolError,
     SandboxUnavailable,
     sandbox_backend_name,
 )
-from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
+from infrastructure.platform.shell_runtime import ShellRuntimeResolver
 from mind_app.native_coding.exec.exec_policy import (
     effective_sandbox_mode,
     normalize_sandbox_permission,

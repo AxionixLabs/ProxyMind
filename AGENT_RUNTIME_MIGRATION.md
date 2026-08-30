@@ -892,6 +892,20 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] 命令安全/执行策略/平台/架构定向回归 `147 passed`，全量回归
   `2987 passed, 11 skipped`；`compileall`、导入图和差异检查通过。
 
+### 已完成切片：本地进程执行基座归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将 `ProcessCapture`、`CapturedOutputDecoder`、本地 Sandbox sidecar 客户端和
+  `ShellRuntimeResolver` 从 `mind_app/native_coding/exec/` 重组到
+  `infrastructure/platform/`；平台层统一持有进程捕获、输出编码、sidecar 协议和
+  shell 运行时解析，native coding 保留工具业务和执行策略。
+- [x] 切换 shell/exec/ProcessSession/native coding 及 sidecar、shell 测试消费者，
+  删除四个旧模块，不增加别名或转发 facade；新增平台归属架构守卫。
+- [x] 进程捕获/解码、Sandbox、shell、执行策略/平台/架构定向回归 `146 passed,
+  11 skipped`，全量回归 `2988 passed, 11 skipped`；`compileall`、导入图和差异
+  检查通过。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -943,6 +957,7 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `mind_app/native_coding/encoding.py` -> `infrastructure/platform/encoding.py` | 进程输出解码统一由平台基础设施持有 | 编码/进程/shell/终端回归通过，旧模块删除，平台边界守卫通过 | 5 |
 | `mind_app/runtime/processes.py`、`native_coding/workspace_command.py`、`git_diff.py` -> `infrastructure/platform/` | 进程树、工作区命令和 Git 差异统一归入平台基础设施 | 进程/工作区/Git/TUI 回归通过，旧模块删除，基础设施边界守卫通过 | 5 |
 | `mind_app/native_coding/exec/command_safety/` -> `infrastructure/platform/command_safety/` | 危险命令与外部启动识别归入跨平台安全边界 | 安全/执行策略回归通过，旧安全包删除，平台边界守卫通过 | 5 |
+| `mind_app/native_coding/exec/process_capture.py`、`output_decoder.py`、`sandbox_client.py`、`shell_runtime.py` -> `infrastructure/platform/` | 本地进程捕获、输出解码、Sandbox sidecar 和 shell 解析归入平台执行基座 | 进程/shell/Sandbox/执行策略回归通过，旧模块删除，平台边界守卫通过 | 5 |
 | `mind_core/application_paths.py` -> `infrastructure/config/paths.py` | 应用入口和本地资源路径解析归入配置基础设施 | 所有路径消费者切换、路径回归通过、旧源模块删除 | 5 |
 | `mind_core/agent_config.py`、`feature_config.py` -> `agent/application/settings.py` | Agent 运行设置与能力开关归入 application | application 公开入口、配置/设置/Subagent 回归通过，旧源模块删除 | 5 |
 | `mind_core/provider_config.py` -> `infrastructure/config/providers.py` | Provider 默认值、路由和 Profile 标识约束归入配置基础设施 | 配置服务/偏好/Provider 选择回归通过，旧源模块删除 | 5 |
@@ -1074,3 +1089,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 进程输出编码切片 | 将完整进程输出解码器从 `mind_app/native_coding/encoding.py` 提升到 `infrastructure/platform/encoding.py`，终端与 native coding 共用唯一平台实现并删除旧模块 | 进程/shell/终端/native coding/架构定向回归 `137 passed`，全量回归 `2985 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互/历史/客户端工具和完整入口边界 |
 | 2026-08-31 | 阶段 5 工作区进程与 Git 平台切片 | 将进程树管理、无 shell 工作区命令和 Git 差异探测从 `mind_app` 下沉到 `infrastructure/platform`，清除进程工具 `typing.cast()` 并切换 Hook/native coding/TUI 消费者 | 进程/工作区/Git/TUI/native coding/架构定向回归 `123 passed`，全量回归 `2986 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互/历史/客户端工具和完整入口边界 |
 | 2026-08-31 | 阶段 5 命令安全平台切片 | 将危险命令递归识别、PowerShell/cmd 删除与外部 URL 启动检测从 `mind_app/native_coding/exec/command_safety/` 重组到 `infrastructure/platform/command_safety/`；执行策略仅消费平台分类结果，删除旧安全包并加入架构守卫 | 命令安全/执行策略/平台/架构定向回归 `147 passed`，全量回归 `2987 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
+| 2026-08-31 | 阶段 5 本地进程执行基座切片 | 将进程捕获、输出解码、本地 Sandbox sidecar 客户端和 shell 运行时解析从 `mind_app/native_coding/exec/` 重组到 `infrastructure/platform/`，native coding 仅保留工具业务与执行策略；删除旧模块并加入平台归属守卫 | 进程捕获/解码、Sandbox、shell、执行策略/平台/架构定向回归 `146 passed, 11 skipped`，全量回归 `2988 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |

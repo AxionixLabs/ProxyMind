@@ -1,6 +1,6 @@
 import os
 
-from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
+from infrastructure.platform.shell_runtime import ShellRuntimeResolver
 
 
 def test_requested_shell_overrides_platform_and_environment_defaults() -> None:
