@@ -3,7 +3,7 @@
 
 from fastapi import APIRouter
 from fastapi.responses import Response
-from mind_nova import const
+from metadata import const
 from ..page import render_page
 
 basic_router = APIRouter(tags=["MindConfig"])

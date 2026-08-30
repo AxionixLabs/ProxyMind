@@ -3,7 +3,7 @@
 
 from pathlib import Path
 from fastapi.responses import Response
-from mind_nova import const
+from metadata import const
 
 
 def web_dir() -> Path:

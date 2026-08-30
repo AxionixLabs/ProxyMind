@@ -3,6 +3,7 @@
 import httpx
 import pytest
 
+from metadata import const
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.config import config_to_preferences
@@ -58,6 +59,21 @@ def test_anthropic_provider_is_available_in_config_and_page() -> None:
     assert "static/pref.js" not in page
     assert "requestConfirmation" in page
     assert "if (!confirm(" not in page
+
+
+@pytest.mark.anyio
+async def test_configuration_version_uses_product_metadata(tmp_path) -> None:
+    app = create_app(ConfigSession(ConfigStore(tmp_path / "config.toml")))
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/version")
+
+    assert response.status_code == 200
+    assert response.json()["version"] == const.APP_VERSION
 
 
 def test_provider_profiles_are_independent_and_secrets_are_redacted(tmp_path) -> None:

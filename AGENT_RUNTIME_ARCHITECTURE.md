@@ -1,6 +1,6 @@
 # Agent Harness 架构基线
 
-状态：已采纳（Architecture Decision Record）；阶段 4 已完成，阶段 5 未开始
+状态：已采纳（Architecture Decision Record）；阶段 4 已完成，阶段 5 进行中
 
 这份文档是 ProxyMind 下一代 Agent Harness 的目标架构。它解决的是
 `mind_app`、`mind_core`、`mind_nova` 和 `engine` 四个历史包职责交叉、状态所有权不清和
@@ -451,6 +451,7 @@ running -> cancelled
 | `mind_nova/requests`、`stream_events.py` | `protocol/`、`adapters/protocol_client.py` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；迁入后请求/事件类型、传输和前端投影继续分开，协议不得导入 `engine` |
 | `mind_nova/requests/chat.py`、`stream_events.py`、`requests/tools.py`、`requests/effects.py` | `protocol/`；`adapters/protocol_client.py`、`item_reducer.py` | `protocol` 是最终 wire schema、HTTP、认证、事件解析、SSE、attach 和恢复原语的唯一所有者；Protocol Client 独立拥有 Harness 请求坐标、结算游标、Canonical Item 状态、审批快照优先级以及 steer/status/fork/renew/tool/approval/effect 命令端口，由 TUI、桌面端和 Web 共用 |
 | `mind_nova/requests/chat.py` | `agent/protocol/model.py`、`protocol/`、`agent/adapters/protocol_client.py` | `ModelStreamRequest` 显式冻结 Turn 坐标、metadata 和环境快照；`MindChatProtocolClient` 通过 `protocol` 完成 wire 映射，不在 `agent.protocol` 复制 endpoint schema 或传输实现 |
+| `mind_nova/const.py` | `metadata/const.py` | 产品版本、展示、编码和构建元数据已抽出；`setup.py` 与内置配置服务已切换，服务端点、认证和运行时路径仍按职责在后续切片迁移 |
 | `agent/ports/capabilities.py`、`agent/adapters/protocol_client.py` | `ports`、`adapters/protocol_client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | 已删除的 `mind_app/runtime/environment/exec_env.py`、`mind_nova/requests/environment.py` | `capabilities/environment.py`、`protocol/` | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化迁入 `protocol`。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |
 | `agent/protocol/capabilities.py`、`agent/ports/capabilities.py` | `protocol`、`ports` | MCP 工具值对象、Helix 生命周期、受控进程/文件和本地 sandbox 权限只通过具名 port 表达；不把 SDK 会话、进程句柄或操作系统路径带入 domain |

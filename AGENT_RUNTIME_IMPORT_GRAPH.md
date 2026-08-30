@@ -30,8 +30,6 @@ flowchart LR
     mind_core --> mind_nova
     server --> engine
     server --> mind_core
-    server --> mind_nova
-    setup --> mind_nova
 ```
 
 ## 直接跨边界依赖
@@ -54,8 +52,6 @@ flowchart LR
 | `mind_core` | `mind_nova` | 12 | 14 | `mind_core/application_paths.py`<br>`mind_core/config_layers.py`<br>`mind_core/config_store.py`<br>`mind_core/design/terminal_progress.py`<br>`mind_core/hook_discovery.py`<br>`mind_core/hooks.py`<br>`mind_core/licensing.py`<br>`mind_core/permissions.py`<br>`mind_core/preference.py`<br>`mind_core/project_trust.py`<br>`mind_core/remote_services.py`<br>`mind_core/service_config.py` |
 | `server` | `engine` | 1 | 2 | `server/lifecycle.py` |
 | `server` | `mind_core` | 5 | 8 | `server/app.py`<br>`server/lifecycle.py`<br>`server/routers/pref.py`<br>`server/routers/services.py`<br>`server/storage.py` |
-| `server` | `mind_nova` | 2 | 2 | `server/page.py`<br>`server/routers/basic.py` |
-| `setup` | `mind_nova` | 1 | 1 | `setup.py` |
 
 ## 循环与反向依赖
 

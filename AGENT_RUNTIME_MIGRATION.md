@@ -1,6 +1,6 @@
 # Agent Harness 迁移计划
 
-状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4 已完成；阶段 5 未开始（2026-08-30）
+状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4 已完成；阶段 5 进行中（2026-08-30）
 
 这份计划配合 [Agent Harness 架构基线](AGENT_RUNTIME_ARCHITECTURE.md) 使用。
 它把从历史包到 `agent` bounded context 的改造拆成可回滚阶段；每一阶段都必须
@@ -51,8 +51,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 | `mind_nova` | 请求/响应 schema、认证、HTTP、事件解码、SSE、attach/replay 进入顶层 `protocol/`；版本和展示常量进入 `metadata/` | 跨前端 fixture 和版本兼容测试通过；`setup.py`、运行时和测试生产路径均不再导入旧包 |
 | `engine` | 进程/Helix 端口实现进入 `agent.capabilities`；纯平台复用代码进入 `infrastructure/platform` | 先消除反向业务依赖和循环；所有消费者切换后删除旧模块，不保留转发 facade |
 
-这些目录只在对应迁移切片有完整生产用例时创建。阶段 5 未开始前只做职责审计、
-导入清单和删除条件登记，不进行批量改名或预建空目录。
+这些目录只在对应迁移切片有完整生产用例时创建。阶段 5 未启用相应切片前只做职责
+审计、导入清单和删除条件登记，不进行批量改名或预建空目录。
 
 ## 阶段总览
 
@@ -63,7 +63,7 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 | 2. 持久化收束 | 已完成 | 迁移事件、快照、效果和 outbox | stores 实现及恢复测试 | 强制退出后可恢复或对账 |
 | 3. 能力解耦 | 已完成 | 模型、MCP、Helix、进程通过端口接入 | capabilities 和 adapters | 当前 runtime 子层不导入具体传输实现 |
 | 4. 多入口与协议前端迁移 | 已完成 | 将运行时子层收敛为 Agent Harness，统一入口提交命令，并建立可复用的 `mind.chat` Protocol Client | `agent.harness`、application 接入、Protocol Client、Canonical Event/Item reducer 和前端适配器 | 本地入口共享 Harness 语义；TUI/桌面/Web 可消费同一线上事件 |
-| 5. 历史包退役 | 未开始 | 按职责迁出并删除 `engine`、`mind_nova`、`mind_core`、`mind_app` 四个历史包 | 独立 `protocol/` SDK、前端/基础设施边界、旧包删除清单和导入图证据 | 生产导入图不再指向四个历史包；`mind.py` 可启动、可恢复，协议 SDK 和所有前端仍可复用 |
+| 5. 历史包退役 | 进行中 | 按职责迁出并删除 `engine`、`mind_nova`、`mind_core`、`mind_app` 四个历史包 | 独立 `protocol/` SDK、前端/基础设施边界、旧包删除清单和导入图证据 | 生产导入图不再指向四个历史包；`mind.py` 可启动、可恢复，协议 SDK 和所有前端仍可复用 |
 
 ## 阶段 0：契约冻结
 
@@ -423,7 +423,7 @@ Protocol Client 边界提交或观察运行；运行结果和 Canonical Item 均
 游标重放；WebSocket 回调不启动模型或工具；环境快照在 queued、continuation、provider
 retry 和 redispatch 中复用同一 `snapshot_id`。迁移期仍在使用的 `mind_nova` wire decoder、
 legacy 错误类型兼容导入、Sandbox sidecar 和根轮次显式 executor 都已登记为阶段 5
-的退役/保留决策，不构成阶段 4 的状态所有权或协议绕过。
+的退役路径，不构成阶段 4 的状态所有权或协议绕过。
 
 ### 工作项
 
@@ -465,11 +465,12 @@ legacy 错误类型兼容导入、Sandbox sidecar 和根轮次显式 executor �
 阶段 4 出口证据：`agent.harness` 是本地 Session/Run 编排的唯一实现包；四类入口
 共享 application command、Run/Tool/Approval/Effect 语义；Protocol Client 在无
 `Mind`、TUI 或本地 UI 的环境中可独立运行；Canonical Event/Item fixture 和运行流
-测试覆盖正式事件、审批、工具结果、重试、回放游标与结算。阶段 5 尚未开始。
+测试覆盖正式事件、审批、工具结果、重试、回放游标与结算；该阶段记录时阶段 5 尚未
+开始，当前状态以本计划顶部和阶段 5 小节为准。
 
 ## 阶段 5 前置：`agent/` 与外围目录职责审计
 
-状态：规划完成，迁移未开始（2026-08-30）
+状态：规划完成，迁移进行中（2026-08-30）
 
 阶段 4 出口已经证明当前 `agent/` 分层可以承载 Harness 主线；本节同时冻结
 `protocol/`、`frontends/` 和 `infrastructure/` 的外围边界，避免阶段 5 以“目录更整齐”
@@ -493,20 +494,23 @@ legacy 错误类型兼容导入、Sandbox sidecar 和根轮次显式 executor �
 
 ### 阶段 5 执行顺序
 
-1. **公共边界冻结**：核对 `agent.protocol`、`agent.application`、`agent.ports` 的
+1. **元数据边界拆分（已完成首个切片）**：将版本、编码和展示常量从协议传输中
+   抽出到顶层 `metadata/`，先切换打包信息和内置配置服务；端点、认证和运行时路径
+   不混入该包。
+2. **公共边界冻结**：核对 `agent.protocol`、`agent.application`、`agent.ports` 的
    导出面和依赖方向；禁止新增只转发一次调用的入口。
-2. **Protocol SDK 迁移**：以顶层 `protocol/` 作为正式 `mind.chat` Python wire SDK
+3. **Protocol SDK 迁移**：以顶层 `protocol/` 作为正式 `mind.chat` Python wire SDK
    的最终所有者，负责请求/响应 schema、HTTP、认证、事件解析和 endpoint 错误；
    `agent.adapters.protocol_client` 只负责冻结请求映射、Session 游标、Canonical Item
    投影和 `ProtocolCommandError` 归一化。先迁移完整模型流与命令用例，再删除
    `mind_nova` 的对应模块；不得把 wire schema 复制到 `agent.protocol`。
-3. **历史副作用适配器退役**：按完整权限进程、Helix、Sandbox sidecar、根轮次
+4. **历史副作用适配器退役**：按完整权限进程、Helix、Sandbox sidecar、根轮次
    executor 的实际消费者逐项处理；每项必须先由 capability/application 接管，再删除
    旧调用路径和 `engine` 模块。
-4. **配置与入口迁移**：将 `mind_core` 的配置、权限、hooks、skills 按职责拆入
+5. **配置与入口迁移**：将 `mind_core` 的配置、权限、hooks、skills 按职责拆入
    `agent.domain`、`agent.application` 和 `infrastructure/config`；CLI、TUI、MCP、
    Subscription 的完整用例迁入 `frontends/`，不以批量目录改名代替边界迁移。
-5. **历史包删除和收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
+6. **历史包删除和收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`；完成历史数据回读、启动/恢复、打包元数据和删除证据后再关闭阶段 5。
 
 每个切片的最低准入是：一个完整生产用例、旧路径可删除、定向失败路径测试、导入图
@@ -514,7 +518,21 @@ legacy 错误类型兼容导入、Sandbox sidecar 和根轮次显式 executor �
 
 ## 阶段 5：历史包退役
 
-状态：未开始
+状态：进行中
+
+### 首个切片：产品元数据边界
+
+状态：已完成（2026-08-30）
+
+- [x] 新增顶层 `metadata/`，只承载版本、展示、编码和构建元数据，不承载协议端点、
+  认证密钥或 Harness 状态。
+- [x] `setup.py` 改为从 `metadata.const` 读取打包名称、版本、描述、许可证和作者信息。
+- [x] 内置 `server` 的页面渲染与 `/version` 响应改为从 `metadata.const` 读取展示元数据。
+- [x] 为配置服务版本响应补充元数据边界测试；导入图已移除 `setup/server -> mind_nova`
+  的对应边，未创建空的协议迁移目录。
+
+该切片只迁移了已确认的元数据职责。`build.py` 和运行时仍使用旧包中的路径、端点或
+认证常量，待对应职责具备完整用例后分别迁移，不把它们继续扩散到 `metadata`。
 
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
@@ -633,3 +651,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-30 | 阶段 4B | 建立 `ProtocolCommandClient` 端口并由 `MindChatProtocolClient` 实现；运行流的中断、工具结果/状态、审批和效果核对统一经 Protocol Client 交付，wire 错误归一化为 `ProtocolCommandError`；定向测试 `100 passed`、全量测试 `2958 passed, 11 skipped` | TUI 本地工具/审批策略与 UI 交互仍在 `mind_app/runtime/turns`，TUI 输入控制、attach/replay 和其余命令尚待纳入同一公共端口 |
 | 2026-08-30 | 阶段 4 出口 | 完成多入口与 Protocol Client 收口：CLI/MCP/Subscription 使用 `RootTurnCommandExecutor`，TUI 输入、fork、模型/工具/审批/效果命令经统一 Protocol Client；Process/Helix 生命周期通过显式 capability 注入；跨前端 Canonical fixture 覆盖文本、工具批次、审批、工具输出、来源和结算；全量测试 `2961 passed, 11 skipped`，语法、架构边界和文档检查通过 | 阶段 5 再处理 legacy wire 错误兼容导入、attach/replay 独立 SDK 归属、根轮次 executor 和 Sandbox sidecar 的物理退役；阶段 5 未开始 |
 | 2026-08-30 | 阶段 5 前置规划 | 完成 `agent/` 与外围目录职责审计并将最终目标修订为退役 `engine`、`mind_nova`、`mind_core`、`mind_app`；正式 wire SDK 迁入职责化的顶层 `protocol/`，前端和基础设施边界单独规划，不创建空目录或进行机械搬迁 | 阶段 5 仍未启动；下一切片从 `protocol/` SDK 所有权、公共 API 导出面和四个 legacy 消费者清单开始 |
+| 2026-08-30 | 阶段 5 首个切片 | 将产品版本、展示和编码常量抽出到顶层 `metadata/`；`setup.py`、配置服务页面和 `/version` 响应已切换，补充元数据边界测试；导入图、文档检查、语法检查和定向测试 `12 passed` | `mind_nova` 的端点、认证和运行时路径常量仍待按职责迁移；Protocol SDK 切片尚未开始 |

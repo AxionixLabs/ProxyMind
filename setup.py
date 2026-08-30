@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_nova import const
+from metadata import const
 from setuptools import (
     setup, find_packages
 )
