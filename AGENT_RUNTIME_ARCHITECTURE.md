@@ -209,6 +209,9 @@ agent/
 ├── application/
 │   ├── commands.py          # submit、resume、approve、cancel、retry
 │   ├── environment.py       # 环境快照采集用例与能力失败收敛
+│   ├── session_identity.py  # 远端坐标到本地 Session 身份的确定性派生
+│   ├── run_result.py        # 单次 Run 的不可变结果值对象
+│   ├── stream_outcome.py    # 流式 Turn 终态聚合与结果构建
 │   ├── hook_catalog.py      # Hook 管理目录、状态快照和变更冲突
 │   ├── hook_events.py       # Hook 生命周期事件规格目录
 │   ├── hook_models.py       # Hook 生命周期快照、决定和工具结果值对象
@@ -523,6 +526,11 @@ running -> cancelled
 | `mind_app/runtime/hooks/output_spill.py` | `infrastructure/platform/hook_output_spill.py` | Hook 流输出读取、临时文件 spill、预览和会话清理属于本机平台文件能力；Hook command 只依赖平台适配器 |
 | `mind_app/runtime/environment/coding_lifecycle.py` | `agent/harness/workspace_runtime.py` | 工作区编码、Shell、执行策略和进程能力的替换/关闭属于 Harness 生命周期；具体 NativeCoding/策略工厂只由根组合注入，Harness 不导入 legacy 或平台实现 |
 | `mind_app/runtime/environment/snapshot.py` | `agent/application/environment.py`、`mind_app/interaction/environment.py` | 环境能力调用与失败收敛属于 application 用例；Controller/Helix 上下文聚合属于 interaction adapter，不让 runtime 持有环境采集逻辑 |
+| `mind_app/runtime/support/session_identity.py` | `agent/application/session_identity.py` | 远端 `cid/sid` 到本地持久化 Session 身份的确定性派生属于 application 身份用例；不让 CLI/TUI 各自复制哈希规则，也不把本地语义塞入线上 `protocol` |
+| `mind_app/runtime/turns/result.py` | `agent/application/run_result.py` | 单次模型 Run 的稳定结果值对象属于 application 出站契约；前端和 Subagent 只消费公开结果，不从 runtime turns 导入 |
+| `mind_app/runtime/turns/stream_outcome.py` | `agent/application/stream_outcome.py` | 流式终态优先级、协议终态归并和 `RunResult` 构建属于 application 结果聚合；协议事件只在边界输入，不持有 UI 或执行副作用 |
+| `mind_app/runtime/support/idle_status.py` | `infrastructure/platform/idle_status.py` | asyncio 延迟状态计时器只管理平台任务生命周期；stream runtime 通过显式平台实现使用，不让 support 目录继续承接无归属基础设施 |
+| `mind_app/runtime/support/rwlock.py` | 已删除 | 全仓库无生产或测试调用者；删除死代码，避免保留未接入 Harness 的并发抽象和伪迁移入口 |
 | `mind_app/runtime/hooks/models.py` | `agent/application/hook_models.py` | Hook 生命周期快照、决定、输出和工具结果是跨 runtime/TUI 的 application contract；Hook 执行器、注册器和 scope 仍由 runtime 持有，不把执行副作用放入值对象 |
 | `mind_app/runtime/hooks/protocol.py` | `agent/application/hook_protocol.py` | Hook 进程 stdin/stdout schema、构建和校验属于 application boundary；runtime 只调用已校验的契约，不把内部 Hook 协议误并入线上 `protocol/` |
 | `mind_app/runtime/hooks/catalog.py` | `agent/application/hook_catalog.py` | Hook 管理目录、不可变状态快照和内容冲突错误属于 application contract；Controller/TUI 只消费该契约，注册器仍负责运行时装配 |

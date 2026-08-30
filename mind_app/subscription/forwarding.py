@@ -6,6 +6,7 @@ import typing
 import asyncio
 from collections.abc import Mapping
 from agent.application import (
+    RunResult,
     TurnApplication,
     SubmitTurnResult,
     SubmitTurnCommand,
@@ -20,7 +21,6 @@ from ..runtime.turns.root import (
     RootTurnRunner,
     run_root_turn,
 )
-from ..runtime.turns.result import RunResult
 from .models import (
     AgentInboxItem,
     AgentForwardRequest,

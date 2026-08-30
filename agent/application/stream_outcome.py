@@ -2,16 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from collections.abc import Mapping
 from dataclasses import (
     dataclass,
     field,
 )
-from protocol.schema.stream_events import (
-    TurnDoneEvent,
-    TurnFailedEvent,
-    TurnTerminalEvent,
-)
-from .result import (
+from .run_result import (
     RunResult,
     RunStatus,
 )
@@ -24,6 +20,37 @@ _STATUS_PRIORITY: tuple[RunStatus, ...] = (
     "completed",
     "incomplete",
 )
+
+
+class _TerminalEvent(typing.Protocol):
+    """定义结果聚合所需的终态字段；协议适配器负责提供已校验事件。"""
+
+    response_id: str
+    model: str
+    route: str
+    request_id: str
+    service_tier: str
+    usage: Mapping[str, typing.Any]
+    stop_reason: str | None
+    stop_sequence: str | None
+
+
+class _FailedEvent(_TerminalEvent, typing.Protocol):
+    """定义失败终态事件的错误字段。"""
+
+    error: str
+    error_type: str
+    error_source: str
+    status_code: int | None
+    retryable: bool | None
+
+
+class _DoneEvent(_TerminalEvent, typing.Protocol):
+    """定义正常终态事件的续跑字段。"""
+
+    status: RunStatus
+    reason: str
+    can_continue: bool | None
 
 
 @dataclass(slots=True)
@@ -93,7 +120,7 @@ class StreamTurnOutcome:
         """返回兼容现有观测事件的终态名称。"""
         return "complete" if self.status == "completed" else self.status
 
-    def record_failed_event(self, event: TurnFailedEvent) -> None:
+    def record_failed_event(self, event: _FailedEvent) -> None:
         """合并服务端失败终态及其用量和响应元数据。"""
         self._terminal_statuses.add("failed")
         self.error = event.error
@@ -109,13 +136,17 @@ class StreamTurnOutcome:
         }
         self._record_terminal(event)
 
-    def record_done_event(self, event: TurnDoneEvent) -> None:
+    def record_done_event(self, event: _DoneEvent) -> None:
         """合并服务端正常、未完整或中断终态。"""
         self._terminal_statuses.add(event.status)
         self.can_continue = event.can_continue is True
         if event.status == "incomplete":
             self.error = event.reason or None
-        self._record_terminal(event)
+        self._record_terminal(
+            event,
+            reason=event.reason,
+            can_continue=event.can_continue,
+        )
 
     def interrupt(self, error: str | None = None) -> None:
         """记录本地取消或工具处理产生的中断。"""
@@ -167,32 +198,45 @@ class StreamTurnOutcome:
             **self.terminal_meta,
         )
 
-    def _record_terminal(self, event: TurnTerminalEvent) -> None:
+    def _record_terminal(
+        self,
+        event: _TerminalEvent,
+        *,
+        reason: str = "",
+        can_continue: bool | None = None,
+    ) -> None:
         """替换最近一次协议终态携带的用量和响应元数据。"""
         self.usage = dict(event.usage)
-        self.terminal_meta = _terminal_metadata(event)
+        self.terminal_meta = _terminal_metadata(
+            event,
+            reason=reason,
+            can_continue=can_continue,
+        )
 
 
-def _terminal_metadata(event: TurnTerminalEvent) -> dict[str, typing.Any]:
+def _terminal_metadata(
+    event: _TerminalEvent,
+    *,
+    reason: str = "",
+    can_continue: bool | None = None,
+) -> dict[str, typing.Any]:
     """提取需要保留到运行结果和会话记录的终态字段。"""
     fields: dict[str, typing.Any] = {}
-    for field_name in (
-        "response_id",
-        "model",
-        "route",
-        "request_id",
-        "service_tier",
-        "stop_reason",
-        "stop_sequence",
+    for field_name, value in (
+        ("response_id", event.response_id),
+        ("model", event.model),
+        ("route", event.route),
+        ("request_id", event.request_id),
+        ("service_tier", event.service_tier),
+        ("stop_reason", event.stop_reason),
+        ("stop_sequence", event.stop_sequence),
     ):
-        value = getattr(event, field_name)
         if value not in {None, ""}:
             fields[field_name] = value
-    if isinstance(event, TurnDoneEvent):
-        if event.reason:
-            fields["reason"] = event.reason
-        if event.can_continue is not None:
-            fields["can_continue"] = event.can_continue
+    if reason:
+        fields["reason"] = reason
+    if can_continue is not None:
+        fields["can_continue"] = can_continue
     return fields
 
 

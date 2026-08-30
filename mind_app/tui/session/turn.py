@@ -30,8 +30,8 @@ from ..core.styles import (
 )
 
 if typing.TYPE_CHECKING:
+    from agent.application import RunResult
     from ...controller import Mind
-    from ...runtime.turns.result import RunResult
 
 TurnValue = typing.TypeVar("TurnValue")
 

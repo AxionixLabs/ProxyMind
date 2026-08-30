@@ -5,7 +5,7 @@ import time
 import typing
 from collections.abc import Mapping
 from protocol.transport.events import EventReport
-from agent.application import SubmitTurnCommand
+from agent.application import RunResult, SubmitTurnCommand
 from mind_app.runtime.execution import (
     AgentContext,
     TurnContext,
@@ -16,7 +16,6 @@ from mind_app.runtime.turns.executor import (
     execute_turn,
     resolve_turn_hook_scope,
 )
-from mind_app.runtime.turns.result import RunResult
 from mind_app.runtime.turns.stream import stream_turn
 from mind_app.presentation.stream.worked import emit_worked_footer
 from agent.application import PermissionSettings

@@ -2,11 +2,11 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from agent.application import RunResult
 from protocol.transport.events import EventReport
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
 from mind_app.runtime.mcp.contracts import McpSessionLike
-from mind_app.runtime.turns.result import RunResult
 from mind_app.presentation.output.silent import create_silent_output_session
 from mind_app.runtime.turns.executor import TurnExecution
 

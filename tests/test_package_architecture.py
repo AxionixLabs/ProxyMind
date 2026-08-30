@@ -1287,6 +1287,97 @@ def test_tool_mode_policy_belongs_to_domain() -> None:
     )
 
 
+def test_turn_result_and_session_identity_boundaries_are_explicit() -> None:
+    """确保运行结果、会话身份和空闲计时器不再由 runtime support 持有。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "result.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "stream_outcome.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "support" / "session_identity.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "support" / "idle_status.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "support" / "rwlock.py",
+    )
+    assert not any(path.is_file() for path in legacy_paths), (
+        "legacy turn/support sources still exist: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_paths
+            if path.is_file()
+        )
+    )
+
+    legacy_modules = {
+        "mind_app.runtime.turns.result",
+        "mind_app.runtime.turns.stream_outcome",
+        "mind_app.runtime.support.session_identity",
+        "mind_app.runtime.support.idle_status",
+        "mind_app.runtime.support.rwlock",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy turn/support imports remain:\n" + "\n".join(violations)
+
+    for relative_path in (
+        "run_result.py",
+        "stream_outcome.py",
+        "session_identity.py",
+    ):
+        application_path = PROJECT_ROOT / "agent" / "application" / relative_path
+        assert application_path.is_file(), (
+            f"application source is missing: {relative_path}"
+        )
+        tree = ast.parse(
+            application_path.read_text(encoding="utf-8-sig"),
+            filename=str(application_path),
+        )
+        forbidden = {
+            "infrastructure",
+            "mind_app",
+            "mind_core",
+            "observability",
+            "protocol",
+        }
+        application_violations: list[str] = []
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module.partition(".")[0] in forbidden:
+                    application_violations.append(
+                        f"{application_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+        assert not application_violations, (
+            f"application turn module crosses its boundary: {relative_path}\n"
+            + "\n".join(application_violations)
+        )
+
+    platform_path = PROJECT_ROOT / "infrastructure" / "platform" / "idle_status.py"
+    assert platform_path.is_file(), "platform idle status source is missing"
+    platform_violations = _forbidden_imports(
+        "infrastructure/platform",
+        {"engine", "mind_app", "mind_core", "server"},
+    )
+    assert not platform_violations, (
+        "platform idle status crosses its boundary:\n"
+        + "\n".join(platform_violations)
+    )
+
+
 def test_execution_policy_is_split_between_domain_and_config() -> None:
     """确保执行策略值对象与规则文件解析分别归属 domain/config。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "execpolicy"

@@ -24,7 +24,7 @@ from agent.application import (
     RunResultProjection,
     TurnApplication,
 )
-from mind_app.runtime.turns.result import RunResult
+from agent.application import RunResult
 from infrastructure.config.paths import ApplicationLayout
 from agent.application import PermissionSettings
 

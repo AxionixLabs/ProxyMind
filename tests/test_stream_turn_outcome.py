@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.runtime.turns.result import RunResult
-from mind_app.runtime.turns.stream_outcome import StreamTurnOutcome
+from agent.application import RunResult, StreamTurnOutcome
 from protocol.schema.stream_events import (
     TurnDoneEvent,
     TurnFailedEvent,

@@ -5,6 +5,8 @@ import time
 import typing
 import asyncio
 from agent.application import (
+    RunResult,
+    derive_local_session_id,
     SubmitTurnCommand,
     TurnApplication,
 )
@@ -25,14 +27,12 @@ from ..history import (
     HISTORY_LIMIT,
     INTERACTIVE_HISTORY_SOURCES
 )
-from ..runtime.turns.result import RunResult
 from ..runtime.turns.root import (
     RootTurnCommandExecutor,
     run_root_turn,
 )
 from infrastructure.config.runtime_paths import agent_runtime_db_path
 from ..interaction.environment import capture_active_turn_environment
-from ..runtime.support.session_identity import derive_local_session_id
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind

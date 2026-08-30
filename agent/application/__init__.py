@@ -92,6 +92,7 @@ from .projections import (
     RunResultProjection,
     project_run_result
 )
+from .run_result import RunResult
 from .services import RuntimeServices
 from .settings import (
     AgentConfigError,
@@ -104,6 +105,8 @@ from .settings import (
     normalize_agent_table,
     normalize_feature_table,
 )
+from .session_identity import derive_local_session_id
+from .stream_outcome import StreamTurnOutcome
 
 __all__ = (
     "EffectJournal",
@@ -168,6 +171,8 @@ __all__ = (
     "SandboxPermission",
     "SandboxMode",
     "RunResultProjection",
+    "RunResult",
+    "StreamTurnOutcome",
     "RunFact",
     "RunPersistenceConflict",
     "RunRecoveryRequired",
@@ -181,6 +186,7 @@ __all__ = (
     "TurnStatusSnapshot",
     "TurnApplication",
     "capture_environment_snapshot",
+    "derive_local_session_id",
     "project_run_result",
     "normalize_agent_table",
     "normalize_feature_table",

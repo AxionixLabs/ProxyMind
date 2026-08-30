@@ -5,10 +5,9 @@ import typing
 import asyncio
 import sqlite3
 from observability import observe_exception
-from agent.application import AgentSettings
+from agent.application import AgentSettings, RunResult
 from infrastructure.skills import skills_payload
 from protocol.transport.events import EventReport
-from mind_app.runtime.turns.result import RunResult
 from mind_app.runtime.mcp.contracts import McpSessionLike
 from mind_app.runtime.execution import (
     AgentContext,

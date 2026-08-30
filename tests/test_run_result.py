@@ -18,7 +18,7 @@ from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.approval.models import ApprovalOutcome
 from mind_app.interaction.noninteractive import NonInteractiveInteraction
 from mind_app.runtime.turns import stream
-from mind_app.runtime.turns.result import RunResult
+from agent.application import RunResult
 from mind_app.presentation.output.content import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,

@@ -10,7 +10,7 @@ from unittest.mock import (
 
 import pytest
 
-from mind_app.runtime.turns.result import RunResult
+from agent.application import RunResult
 from mind_app.runtime.execution import (
     AgentContext,
     TurnContext

@@ -5,8 +5,10 @@ import typing
 import asyncio
 from agent.application import (
     ProtocolCommandClient,
+    RunResult,
     SubmitTurnCommand,
     TurnApplication,
+    derive_local_session_id,
 )
 from mind_app.presentation.application import ApplicationSink, ApplicationView
 from protocol.schema.identifiers import short_uid
@@ -47,11 +49,9 @@ from .turn import (
 from .turn_input import TuiTurnInputControl
 from infrastructure.config.runtime_paths import agent_runtime_db_path
 from ...interaction.environment import capture_active_turn_environment
-from ...runtime.support.session_identity import derive_local_session_id
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
-    from ...runtime.turns.result import RunResult
 
 
 @typing.runtime_checkable

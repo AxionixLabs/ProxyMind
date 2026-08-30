@@ -11,7 +11,7 @@ from mind_app.presentation.models import (
     RunIncompleteView,
     RunStartedView,
 )
-from mind_app.runtime.turns.stream_outcome import StreamTurnOutcome
+from agent.application import StreamTurnOutcome
 from mind_app.runtime.turns.stream_presentation import (
     FailureProjectionMode,
     StreamTurnPresentation,

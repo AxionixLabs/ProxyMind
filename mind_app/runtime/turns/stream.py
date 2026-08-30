@@ -13,6 +13,8 @@ from agent.application import (
     ModelStreamRequest,
     ProtocolCommandClient,
     ProtocolCommandError,
+    RunResult,
+    StreamTurnOutcome,
     TurnControlReceipt,
 )
 from agent.stores.approval_ledger import ApprovalCallLedger
@@ -46,7 +48,6 @@ from protocol.client.tools import (
 )
 from protocol.client.effects import post_effect_reconciliation
 from mind_app.presentation.output import OutputControlPort
-from .result import RunResult
 from ..hooks.tool import ToolCallCoordinator
 from agent.application.hook_models import StopHookDecision
 from ..hooks.turn import (
@@ -63,14 +64,13 @@ from .executor import (
     record_turn_started,
     turn_continuation_count
 )
-from ..support.idle_status import IdleStatusTimer
+from infrastructure.platform.idle_status import IdleStatusTimer
 from .stream_approval import ApprovalEventHandler
 from .stream_tools import (
     ToolCallBatchBuffer,
     ToolEventHandler,
 )
 from .stream_setup import prepare_stream_turn
-from .stream_outcome import StreamTurnOutcome
 from .stream_model import ModelStreamEventHandler
 from .stream_effects import ToolResultDelivery
 from .stream_finalize import StreamTurnFinalizer

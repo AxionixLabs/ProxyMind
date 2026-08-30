@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mind_app.runtime.turns.result import RunResult
+from agent.application import RunResult
 from mind_app.history.transcript import ConversationTranscriptStore
 from mind_app.presentation.output.silent import create_silent_output_session
 from mind_app.runtime.execution import AgentContext, TurnContext

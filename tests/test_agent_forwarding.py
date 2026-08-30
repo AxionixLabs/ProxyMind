@@ -27,7 +27,7 @@ from mind_app.subscription.ws import (
 )
 from agent.application import TurnApplication
 from mind_app.runtime.agent.client import AgentClient
-from mind_app.runtime.turns.result import RunResult
+from agent.application import RunResult
 
 
 @pytest.fixture(autouse=True)

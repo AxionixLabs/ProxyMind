@@ -1067,6 +1067,25 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] 工具策略/架构定向回归 `4 passed`，全量回归 `3003 passed, 11 skipped, 35 warnings`；
   导入图、`compileall` 和差异检查通过。
 
+### 已完成切片：运行结果与平台计时器归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将单次模型运行的不可变 `RunResult` 从
+  `mind_app/runtime/turns/result.py` 重组到 `agent/application/run_result.py`，将流式终态
+  优先级、协议终态归并和结果构建从 `stream_outcome.py` 重组到
+  `agent/application/stream_outcome.py`；application 公开入口统一提供两类结果契约，前端、
+  Subagent、MCP 和 Subscription 不再直接依赖 runtime turns。
+- [x] 将远端 `cid/sid` 到本地 Session 身份的确定性派生从
+  `mind_app/runtime/support/session_identity.py` 重组到 `agent/application/session_identity.py`；
+  身份哈希规则由 application 统一持有，不进入线上 `protocol` 或各前端私有实现。
+- [x] 将 asyncio 空闲状态计时器从 `mind_app/runtime/support/idle_status.py` 下沉到
+  `infrastructure/platform/idle_status.py`；删除全仓库无调用者的 `AsyncRWLock`，避免保留未接入
+  Harness 的并发抽象和 runtime support 杂物入口。
+- [x] 切换所有生产与测试消费者，删除旧模块和旧导入，不保留兼容 facade；新增 application、
+  platform 归属及死代码删除守卫。结果/流式/TUI/CLI/架构定向回归 `263 passed, 36 warnings`，
+  全量回归 `3004 passed, 11 skipped, 36 warnings`，导入图、`compileall` 和差异检查通过。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -1275,3 +1294,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 Hook 输出 spill 平台切片 | 将 Hook 流输出读取、临时文件 spill、预览和会话清理从 `mind_app/runtime/hooks/output_spill.py` 重组到 `infrastructure/platform/hook_output_spill.py`，切换 Hook command/测试消费者并删除旧模块 | Hook 执行/平台/架构定向回归 `20 passed`，旧模块/旧导入及平台边界守卫通过；全量回归 `3001 passed, 11 skipped, 33 warnings`，导入图、`compileall` 和差异检查通过 |
 | 2026-08-31 | 阶段 5 Hook 工具结果投影切片 | 将后置 Hook 工具结果替换、反馈、阻断和上下文投影从 `mind_app/runtime/hooks/results.py` 重组到 `agent/application/hook_result.py`，切换 ToolHookEvents/工具测试消费者并删除旧模块 | Hook 工具/架构定向回归 `61 passed`，旧路径/旧导入及 application 边界守卫通过；全量回归 `3002 passed, 11 skipped, 34 warnings`，导入图、`compileall` 和差异检查通过 |
 | 2026-08-31 | 阶段 5 工具模式策略切片 | 将 app/api 工具可见性、隐藏规则和元数据过滤从 `mind_app/runtime/tools/mode_policy.py` 重组到 `agent/domain/tool_policy.py`，切换 Controller/CLI/MCP/Turn/TUI 消费者并删除旧模块 | 工具策略/架构定向回归 `4 passed`，旧路径/旧导入及 domain 边界守卫通过；全量回归 `3003 passed, 11 skipped, 35 warnings`，导入图、`compileall` 和差异检查通过 |
+| 2026-08-31 | 阶段 5 运行结果与平台计时器切片 | 将 `RunResult`、流式终态聚合和本地 Session 身份派生重组到 `agent/application`，将空闲状态计时器下沉到 `infrastructure/platform`，删除无调用者的 `AsyncRWLock` 并清除旧 runtime/support 导入 | 定向结果/流式/TUI/CLI/架构回归 `263 passed, 36 warnings`；全量回归 `3004 passed, 11 skipped, 36 warnings`，旧路径守卫、导入图、`compileall` 和 `git diff --check` 通过 |

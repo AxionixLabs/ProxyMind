@@ -48,7 +48,7 @@ from mind_app.cli.parser import (
 )
 from mind_app.cli.selection import OutputMode, resolve_cli_output_mode
 from mind_app.cli.dispatch import run_selected_command
-from mind_app.runtime.turns.result import RunResult
+from agent.application import RunResult
 from mind_app.presentation.application import PassiveFrontendRuntime
 from mind_app.presentation.application_sinks import ConsoleApplicationSink
 from mind_app.presentation.application_sinks import JsonApplicationSink

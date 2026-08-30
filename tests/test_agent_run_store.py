@@ -21,7 +21,7 @@ from infrastructure.config.runtime_paths import (
     effect_journal_db_path,
     mind_history_db_path,
 )
-from mind_app.runtime.support.session_identity import derive_local_session_id
+from agent.application import derive_local_session_id
 
 
 @dataclass(frozen=True, slots=True)

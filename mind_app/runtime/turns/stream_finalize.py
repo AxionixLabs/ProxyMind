@@ -5,11 +5,11 @@ import typing
 from observability import observe_exception
 from mind_app.history.contracts import TranscriptSink
 from mind_app.presentation.output import OutputControlPort
+from agent.application import StreamTurnOutcome
 from agent.application.hook_models import StopHookDecision
 from mind_app.runtime.hooks.turn import TurnHookEvents
-from mind_app.runtime.support.idle_status import IdleStatusTimer
+from infrastructure.platform.idle_status import IdleStatusTimer
 from .executor import record_turn_finished
-from .stream_outcome import StreamTurnOutcome
 
 
 class _TurnStateStore(typing.Protocol):

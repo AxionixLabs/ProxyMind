@@ -4,7 +4,7 @@
 import enum
 import time
 import typing
-from agent.application import PermissionSettings
+from agent.application import PermissionSettings, StreamTurnOutcome
 from protocol.transport.events import EventReport
 from mind_app.presentation.output import (
     ContentSink,
@@ -18,7 +18,6 @@ from mind_app.presentation.run_views import (
     build_run_incomplete_view,
     build_run_started_view,
 )
-from .stream_outcome import StreamTurnOutcome
 
 
 class FailureProjectionMode(enum.Enum):
