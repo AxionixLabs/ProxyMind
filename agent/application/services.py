@@ -12,6 +12,7 @@ from agent.ports import (
     ModelCapability,
     ProcessCapability,
 )
+from agent.harness import WorkspaceRuntimeFactory
 from .commands import TurnApplication
 
 TurnApplicationFactory: typing.TypeAlias = Callable[
@@ -33,6 +34,7 @@ class RuntimeServices:
     environment_capability: EnvironmentSnapshotCapability
     create_turn_application: TurnApplicationFactory
     create_effect_journal: EffectJournalFactory
+    create_workspace_runtime: WorkspaceRuntimeFactory | None = None
     process_capability: ProcessCapability | None = None
     helix_capability: HelixCapability | None = None
 
@@ -52,6 +54,11 @@ class RuntimeServices:
             raise TypeError("turn application factory must be callable")
         if not callable(self.create_effect_journal):
             raise TypeError("effect journal factory must be callable")
+        if (
+            self.create_workspace_runtime is not None
+            and not callable(self.create_workspace_runtime)
+        ):
+            raise TypeError("workspace runtime factory must be callable")
         if (
             self.process_capability is not None
             and not isinstance(self.process_capability, ProcessCapability)

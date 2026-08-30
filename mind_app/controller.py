@@ -34,7 +34,6 @@ from observability import (
 from .interaction.attachments import Attach
 from .runtime.mcp.lifecycle import ExternalMcpRuntimeOwner
 from .runtime.mcp.service_lifecycle import ServiceRuntimeOwner
-from .runtime.environment.coding_lifecycle import WorkspaceCodingRuntimeOwner
 from .runtime.turns.event_reporting import EventReportRuntimeOwner
 from .runtime.support.conversation import (
     ConversationState,
@@ -175,7 +174,14 @@ class Mind(object):
             kwargs.get("feature_settings") or FeatureSettings()
         )
 
-        self.workspace_runtime = WorkspaceCodingRuntimeOwner(
+        workspace_runtime_factory = getattr(
+            self.runtime_services,
+            "create_workspace_runtime",
+            None,
+        )
+        if not callable(workspace_runtime_factory):
+            raise TypeError("workspace runtime factory is required")
+        self.workspace_runtime = workspace_runtime_factory(
             self.history_workspace,
             application_layout=self.application_layout,
             process_capability=getattr(

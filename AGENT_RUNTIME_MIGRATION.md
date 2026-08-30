@@ -946,6 +946,21 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] 执行策略专项回归 `19 passed`，架构守卫专项 `2 passed`，全量回归
   `2991 passed, 11 skipped`；`compileall`、导入图和差异检查通过。
 
+### 已完成切片：工作区运行时生命周期归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将工作区编码、Shell、执行策略和共享进程能力的替换、退役和关闭逻辑从
+  `mind_app/runtime/environment/coding_lifecycle.py` 重组到
+  `agent/harness/workspace_runtime.py`；Harness 只依赖最小生命周期 Protocol，不导入
+  `mind_app`、`infrastructure` 或具体本机实现。
+- [x] `RuntimeServices` 新增可选的工作区运行时工厂端口，`mind.py` 作为唯一具体组合根
+  注入 `NativeCoding`、`ExecPolicyManager` 和 `ProcessCapability`；Controller 不再
+  隐式创建具体能力，缺少工厂时在组装边界明确失败。
+- [x] 删除旧生命周期模块和导入，补充旧路径/旧导入架构守卫；工作区替换、无事件循环
+  延迟回收、幂等关闭和组合接线定向回归 `20 passed`，旧路径/旧导入守卫 `2 passed`；
+  全量回归 `2992 passed, 11 skipped`，导入图、`compileall` 和差异检查通过。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -999,6 +1014,7 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `mind_app/native_coding/exec/command_safety/` -> `infrastructure/platform/command_safety/` | 危险命令与外部启动识别归入跨平台安全边界 | 安全/执行策略回归通过，旧安全包删除，平台边界守卫通过 | 5 |
 | `mind_app/native_coding/exec/process_capture.py`、`output_decoder.py`、`sandbox_client.py`、`shell_runtime.py` -> `infrastructure/platform/` | 本地进程捕获、输出解码、Sandbox sidecar 和 shell 解析归入平台执行基座 | 进程/shell/Sandbox/执行策略回归通过，旧模块删除，平台边界守卫通过 | 5 |
 | `mind_app/native_coding/exec/execpolicy/` -> `agent/domain/execution_policy/`、`infrastructure/config/execution_policy.py` | 执行策略领域值对象与规则文件解析分离 | 执行策略/审批/工具/配置回归通过，旧策略包删除，domain/config 边界守卫通过 | 5 |
+| `mind_app/runtime/environment/coding_lifecycle.py` -> `agent/harness/workspace_runtime.py` | 工作区编码/Shell/策略/进程能力生命周期由 Harness 持有，具体工厂由唯一组合根注入 | 生命周期/组合接线回归通过，旧模块删除，Harness legacy-import 守卫通过 | 5 |
 | `mind_core/application_paths.py` -> `infrastructure/config/paths.py` | 应用入口和本地资源路径解析归入配置基础设施 | 所有路径消费者切换、路径回归通过、旧源模块删除 | 5 |
 | `mind_core/agent_config.py`、`feature_config.py` -> `agent/application/settings.py` | Agent 运行设置与能力开关归入 application | application 公开入口、配置/设置/Subagent 回归通过，旧源模块删除 | 5 |
 | `mind_core/provider_config.py` -> `infrastructure/config/providers.py` | Provider 默认值、路由和 Profile 标识约束归入配置基础设施 | 配置服务/偏好/Provider 选择回归通过，旧源模块删除 | 5 |
@@ -1134,3 +1150,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 JavaScript REPL 平台切片 | 将 Node 内核进程、会话隔离、临时目录、消息桥接和内核重置从 `mind_app/native_coding/js_repl/` 重组到 `infrastructure/platform/javascript_repl.py`，资源根改为显式应用布局注入并删除旧包 | JavaScript REPL 定向回归 `28 passed`，架构守卫 `37 passed`，全量回归 `2989 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
 | 2026-08-31 | 阶段 5 平台环境助手切片 | 将 shell 工具 PATH 路由和工作区根探测从 `mind_app/runtime/environment/` 重组到 `infrastructure/platform/`，runtime/CLI/MCP/TUI 只消费平台结果并删除旧模块 | 平台环境/CLI/MCP/TUI/架构定向回归 `179 passed`，全量回归 `2990 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
 | 2026-08-31 | 阶段 5 执行策略领域切片 | 将执行策略决定、规则和值对象从 `mind_app/native_coding/exec/execpolicy/` 重组到 `agent/domain/execution_policy/`，将 AST/文件解析重组到 `infrastructure/config/execution_policy.py`，删除旧策略包 | 执行策略专项回归 `19 passed`，架构守卫专项 `2 passed`，全量回归 `2991 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
+| 2026-08-31 | 阶段 5 工作区运行时生命周期切片 | 将工作区编码/Shell/执行策略/进程能力的生命周期所有者从 `mind_app/runtime/environment/coding_lifecycle.py` 重组到 `agent/harness/workspace_runtime.py`；`RuntimeServices` 提供工厂端口，`mind.py` 注入具体实现，Controller 不再隐式装配 | 生命周期与组合接线定向回归 `20 passed`，旧路径/旧导入守卫 `2 passed`，全量回归 `2992 passed, 11 skipped`，旧模块删除，导入图、`compileall` 和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |

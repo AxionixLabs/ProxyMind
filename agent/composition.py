@@ -3,6 +3,7 @@
 
 import typing
 from pathlib import Path
+from agent.harness import WorkspaceRuntimeFactory
 from agent.application.commands import TurnApplication
 from agent.application.services import RuntimeServices
 from agent.ports import (
@@ -50,13 +51,17 @@ def open_process_capability() -> LocalProcessCapability:
     return LocalProcessCapability()
 
 
-def create_runtime_services() -> RuntimeServices:
+def create_runtime_services(
+    *,
+    create_workspace_runtime: WorkspaceRuntimeFactory | None = None,
+) -> RuntimeServices:
     """创建供单个进程入口共享的 Agent Harness 依赖。"""
     return RuntimeServices(
         model_capability=open_model_capability(),
         environment_capability=open_environment_capability(),
         create_turn_application=open_turn_application,
         create_effect_journal=open_effect_journal,
+        create_workspace_runtime=create_workspace_runtime,
         process_capability=open_process_capability(),
     )
 

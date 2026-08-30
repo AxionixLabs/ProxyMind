@@ -473,7 +473,7 @@ running -> cancelled
 | `mind_app/controller.py` | application 公开门面 | 只借用入口注入的 `RuntimeServices`，不复制能力引用、不选择具体实现；已有可变状态按完整生命周期迁出 |
 | `mind_app/runtime/turns/root.py` | `application/commands.py` | CLI、TUI、MCP 和 Subscription 已由类型化 Command 驱动；`RootTurnCommandExecutor` 作为显式 composition adapter 保留，统一根轮次调用和结果投影，不拥有 Session/Run 状态 |
 | `mind_app/runtime/turns/stream.py`、`stream_model.py` | `harness/session_loop.py`、`application/turn_pipeline.py`、TUI adapter | 输入准备、终态、工具交付、资源收尾和回合展示已拆到具名所有者；模型 presenter 只消费 Protocol Client current/active/audit Item 投影并持有 Transcript 交付水位，RunResult、Stop Hook、最后回复和 sources 均读取 canonical 投影；`stream.py` 暂留迁移期事件路由，所有模型/工具/审批/效果命令均走 Protocol Client |
-| `mind_app/runtime/mcp/*`、`subscription/lifecycle.py`、`runtime/environment/coding_lifecycle.py` | capabilities、adapters、harness supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
+| `mind_app/runtime/mcp/*`、`subscription/lifecycle.py` | capabilities、adapters、harness supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
 | `mind_app/runtime/subagents/control.py` | `harness/scheduler.py`、`domain/agents.py` | 将 mailbox、生命周期和图持久化分开 |
 | `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 保留检查点语义，存储实现不得进入 domain |
 | `agent/stores/effect_journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `stores/effect_journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |
@@ -511,6 +511,7 @@ running -> cancelled
 | `mind_app/native_coding/exec/process_capture.py`、`output_decoder.py`、`sandbox_client.py`、`shell_runtime.py` | `infrastructure/platform/` | 进程捕获/输出解码、Sandbox sidecar 协议和 shell 运行时解析属于本机平台执行基座；native coding 只消费其能力，不拥有跨平台生命周期实现 |
 | `mind_app/native_coding/js_repl/` | `infrastructure/platform/javascript_repl.py` | Node 内核进程、临时目录、消息桥接和内核重置属于平台执行基座；native coding 只负责工具入口和权限/调用策略，并显式注入应用资源根 |
 | `mind_app/runtime/environment/shell_tools.py`、`workspace.py` | `infrastructure/platform/shell_tools.py`、`workspace_context.py` | 本机支持工具 PATH 路由和当前工作区探测属于平台环境助手；runtime/MCP/TUI 只消费结果，不拥有进程环境事实 |
+| `mind_app/runtime/environment/coding_lifecycle.py` | `agent/harness/workspace_runtime.py` | 工作区编码、Shell、执行策略和进程能力的替换/关闭属于 Harness 生命周期；具体 NativeCoding/策略工厂只由根组合注入，Harness 不导入 legacy 或平台实现 |
 | `mind_app/native_coding/exec/execpolicy/` | `agent/domain/execution_policy/` 与 `infrastructure/config/execution_policy.py` | 执行策略决定、规则和值对象属于纯 domain；规则文件 AST/文件读取属于配置基础设施，native coding 只组合二者，不让策略域持有 IO |
 | `mind_core/application_paths.py` | `infrastructure/config/paths.py` | 应用入口、打包模式、本地资源目录和用户数据目录解析属于配置基础设施；不把路径环境事实放入策略模块 |
 | `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |

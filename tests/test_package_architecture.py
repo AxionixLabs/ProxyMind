@@ -777,6 +777,40 @@ def test_runtime_environment_helpers_have_platform_ownership() -> None:
     )
 
 
+def test_workspace_runtime_owner_belongs_to_harness() -> None:
+    """确保工作区资源生命周期不再由 legacy runtime 或 Controller 隐式装配。"""
+    legacy_path = (
+        PROJECT_ROOT
+        / "mind_app"
+        / "runtime"
+        / "environment"
+        / "coding_lifecycle.py"
+    )
+    assert not legacy_path.is_file(), "legacy workspace runtime owner still exists"
+
+    legacy_modules = {
+        "mind_app.runtime.environment.coding_lifecycle",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, (
+        "legacy workspace runtime imports remain:\n" + "\n".join(violations)
+    )
+
+
 def test_execution_policy_is_split_between_domain_and_config() -> None:
     """确保执行策略值对象与规则文件解析分别归属 domain/config。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "execpolicy"

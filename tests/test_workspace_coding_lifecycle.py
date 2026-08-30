@@ -3,9 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mind_app.runtime.environment.coding_lifecycle import (
-    WorkspaceCodingRuntimeOwner,
-)
+from agent.harness import WorkspaceRuntimeOwner
 
 
 class _CodingRuntime:
@@ -30,7 +28,7 @@ def _runtime_owner(closed):
         policies.append(policy)
         return policy
 
-    owner = WorkspaceCodingRuntimeOwner(
+    owner = WorkspaceRuntimeOwner(
         "workspace-a",
         application_layout=SimpleNamespace(root="application"),
         coding_factory=create_coding,
