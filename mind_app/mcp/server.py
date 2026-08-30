@@ -53,7 +53,7 @@ from agent.application import (
     resolve_permissions
 )
 from mind_app.runtime.hooks.registry import HookRegistry
-from mind_core.service_config import ServiceConfig
+from infrastructure.services.service_config import ServiceConfig
 from protocol.schema.permissions import (
     ApprovalPolicy,
     ApprovalReviewer,

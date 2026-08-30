@@ -683,6 +683,17 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] 删除旧权限模块；权限、执行上下文、TUI/MCP/Subagent 和架构测试通过，下一切片
   继续拆分 hooks 生命周期。
 
+### 已完成切片：服务配置基础设施归位
+
+状态：已完成（2026-08-30）
+
+- [x] 将服务域名规范化、远程配置读取和观测事件从 `mind_core/service_config.py` 迁入
+  `infrastructure/services/service_config.py`，CLI、MCP 和内置配置服务切换到新的服务边界。
+- [x] `ServiceConfig` 改为接收最小 `ConfigReader` 协议，不再在基础设施内部隐式创建
+  `ConfigSession`/`ConfigStore`；配置生命周期由组合调用方显式拥有。
+- [x] 删除旧服务配置模块；服务域名、CLI/MCP 启动和架构测试通过，下一切片继续拆分
+  偏好配置与剩余 `mind_core` 状态。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -725,6 +736,7 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `mind_core/skills/` -> `infrastructure/skills/` | 技能发现、解析、过滤和 payload 归入本地资源基础设施 | Skills/TUI/流式/Subagent 回归通过，旧目录删除 | 5 |
 | `mind_core/project_trust.py` -> `infrastructure/config/trust.py` | 项目根、Git 和信任登记解析归入配置基础设施 | 配置层/CLI 信任回归通过，旧源模块删除 | 5 |
 | `mind_core/permissions.py` -> `agent/domain/policies.py` | 沙箱、审批、网络访问和预设策略归入 Harness domain | 权限/执行上下文/TUI/MCP/Subagent 回归通过，旧源模块删除 | 5 |
+| `mind_core/service_config.py` -> `infrastructure/services/service_config.py` | 服务域名读取和规范化归入服务基础设施 | CLI/MCP/配置服务回归通过，旧源模块删除 | 5 |
 
 ## 风险与处理
 
@@ -828,3 +840,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-30 | 阶段 5 项目边界信任切片 | 将 `mind_core/project_trust.py` 迁入 `infrastructure/config/trust.py`，切换配置层/会话消费者，收窄信任级别类型并删除旧模块 | 项目配置/CLI 信任定向回归 `138 passed`，架构测试 `17 passed`，全量回归 `2969 passed, 11 skipped`，`compileall` 和导入图检查通过；下一切片处理权限策略和 hooks |
 | 2026-08-30 | 阶段 5 权限领域策略切片 | 将 `mind_core/permissions.py` 迁入 `agent/domain/policies.py`，通过 application 公开入口切换执行、TUI、MCP 和 Subagent 消费者并删除旧模块 | 权限/执行上下文/TUI/MCP/Subagent 定向回归 `134 passed`，架构测试 `18 passed`，全量回归 `2970 passed, 11 skipped`，`compileall` 和导入图检查通过；下一切片处理 hooks 生命周期 |
 | 2026-08-30 | 阶段 5 Hooks 领域/发现切片 | 将 Hook 类型和信任状态迁入 `agent/domain`，将配置与 `hooks.json` 发现迁入 `infrastructure/hooks/discovery.py`，切换所有配置/执行/TUI 消费者并删除旧模块 | Hook/配置/执行定向回归 `301 passed`，架构测试 `19 passed`，全量回归 `2971 passed, 11 skipped`，`compileall` 和导入图检查通过；下一切片处理前端入口与剩余 `mind_core` 配置职责 |
+| 2026-08-30 | 阶段 5 服务配置切片 | 将 `mind_core/service_config.py` 迁入 `infrastructure/services/service_config.py`，引入 `ConfigReader` 端口并切换 CLI/MCP/配置服务消费者 | 服务域名和启动定向回归 `159 passed`，架构测试 `20 passed`，全量回归 `2972 passed, 11 skipped`，`compileall` 和导入图检查通过；下一切片处理偏好配置和剩余 `mind_core` 状态 |

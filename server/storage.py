@@ -13,7 +13,7 @@ from infrastructure.config.providers import (
     is_valid_provider_id,
     supported_routes_for_kind
 )
-from mind_core.service_config import normalize_domain
+from infrastructure.services.service_config import normalize_domain
 
 HOSTED_TOOL_GROUPS  = ("perf_engine", "sandbox_cloud")
 

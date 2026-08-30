@@ -30,7 +30,7 @@ from infrastructure.config.paths import (
     resolve_application_layout
 )
 from mind_core.preference import Preferences
-from mind_core.service_config import ServiceConfig
+from infrastructure.services.service_config import ServiceConfig
 from protocol.transport.endpoints import service_endpoints
 from metadata import const
 from ..controller import Mind

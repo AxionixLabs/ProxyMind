@@ -8,8 +8,6 @@ from observability import (
     observe,
     observe_exception
 )
-from mind_core.config_session import ConfigSession
-from mind_core.config_store import ConfigStore, default_config_path
 from metadata import const
 
 
@@ -26,17 +24,22 @@ def normalize_domain(value: typing.Any) -> str:
     return domain
 
 
+class ConfigReader(typing.Protocol):
+    """定义服务配置读取所需的最小配置端口。"""
+
+    def load(self, *, create: bool = True) -> dict[str, typing.Any]:
+        """读取当前有效配置快照。"""
+
+
 class ServiceConfig(object):
     """管理服务域名配置的读取。"""
 
     def __init__(
         self,
-        config_session: ConfigSession | None = None,
+        config_reader: ConfigReader,
     ) -> None:
         """初始化配置来源。"""
-        self.config_session = config_session or ConfigSession(
-            ConfigStore(default_config_path())
-        )
+        self._config_reader = config_reader
 
     @property
     def service_config_api(self) -> str:
@@ -46,7 +49,7 @@ class ServiceConfig(object):
     def load_local_domain(self) -> str:
         """读取本地配置中的服务域名。"""
         try:
-            config = self.config_session.load()
+            config = self._config_reader.load()
         except (OSError, TypeError, ValueError) as error:
             observe_exception(
                 "service_domain.local.failed",
