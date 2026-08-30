@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.stream_events.failure_display import render_failure_block
-from mind_app.stream_events.lifecycle_display import render_lifecycle_display_parts
+from mind_app.presentation.stream.failure_display import render_failure_block
+from mind_app.presentation.stream.lifecycle_display import render_lifecycle_display_parts
 from ..models import (
     FailureView,
     LifecycleView,

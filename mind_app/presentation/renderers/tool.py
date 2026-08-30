@@ -3,12 +3,12 @@
 
 import json
 import typing
-from mind_app.stream_events.command_preview import command_text
-from mind_app.stream_events.tool_traces.native import (
+from mind_app.presentation.stream.command_preview import command_text
+from mind_app.presentation.stream.tool_traces.native import (
     render_tool_start_trace,
     render_tool_trace
 )
-from mind_app.stream_events.tool_traces.render import render_tool_trace_parts
+from mind_app.presentation.stream.tool_traces.render import render_tool_trace_parts
 from ..tool_policy import (
     ToolDisplayKind,
     tool_display_spec

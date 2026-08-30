@@ -6,7 +6,7 @@ from mind_app.presentation.application import (
     ApplicationView
 )
 from mind_app.presentation.models import StyledBlock, TextSpan, TextStyle
-from mind_app.stream_events.compact_rule import full_rule_width
+from mind_app.presentation.stream.compact_rule import full_rule_width
 from mind_app.presentation.formatting import format_elapsed
 
 WORKED_RULE_STYLE  = TextStyle(foreground="#414A54")

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from ...stream_io.output_record import StreamRecordWriter
+from .recording import StreamRecordWriter
 from .session import OutputSession
 from .text import (
     TextContentSink,

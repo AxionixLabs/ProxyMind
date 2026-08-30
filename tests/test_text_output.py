@@ -35,7 +35,7 @@ from mind_app.presentation.models import (
 )
 from mind_app.presentation.run_views import build_run_started_view
 from mind_app.runtime.turns.root import run_foreground_turn
-from mind_app.stream_events.worked import (
+from mind_app.presentation.stream.worked import (
     emit_worked_footer,
     worked_footer_text,
 )

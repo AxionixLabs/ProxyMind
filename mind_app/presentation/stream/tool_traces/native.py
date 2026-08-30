@@ -3,7 +3,7 @@
 
 import typing
 import textwrap
-from mind_app.stream_events.command_preview import command_text
+from mind_app.presentation.stream.command_preview import command_text
 from mind_app.presentation.text_layout import (
     clip_display_text,
     text_display_width

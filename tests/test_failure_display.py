@@ -10,7 +10,7 @@ from mind_app.presentation.renderers.dispatch import (
     render_presentation_view,
 )
 from mind_app.presentation.text_layout import text_display_width
-from mind_app.stream_events.failure_display import (
+from mind_app.presentation.stream.failure_display import (
     render_failure_block,
     render_failure_display_parts,
     render_failure_text

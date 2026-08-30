@@ -78,7 +78,7 @@ from .stream_presentation import (
     FailureProjectionMode,
     StreamTurnPresentation,
 )
-from ...stream_events.lifecycle import handle_lifecycle_event
+from mind_app.presentation.stream.lifecycle import handle_lifecycle_event
 from observability import (
     observe,
     observe_exception

@@ -23,7 +23,7 @@ from mind_app.approval.policy import (
     DECISION_SHORTCUT_LABELS,
     approval_decision_label,
 )
-from mind_app.stream_events.tool_traces.command_parts import render_command_parts
+from mind_app.presentation.stream.tool_traces.command_parts import render_command_parts
 from mind_app.presentation.models import (
     StyledBlock
 )

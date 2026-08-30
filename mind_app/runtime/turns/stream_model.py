@@ -22,7 +22,7 @@ from mind_app.presentation.output import (
     OutputStatusPort,
     ResponseIdentity,
 )
-from mind_app.stream_events.assistant_boundary import (
+from mind_app.presentation.stream.assistant_boundary import (
     is_assistant_output_boundary,
 )
 

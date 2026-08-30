@@ -31,7 +31,7 @@ from mind_app.presentation.tool_views import (
     build_native_tool_result_view,
     build_tool_start_view
 )
-from mind_app.stream_events.tool_trace import coding_trace_tool
+from mind_app.presentation.stream.tool_traces import coding_trace_tool
 from ..adapters.markdown import render_tui_assistant_markdown
 from ..adapters.presentation import render_presentation_fragment_block
 from ..core.document import TranscriptBlock

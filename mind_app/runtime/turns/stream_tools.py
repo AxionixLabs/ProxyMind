@@ -23,7 +23,7 @@ from mind_app.runtime.tools.client_call import ClientToolCallRunner
 from mind_app.runtime.tools.display import show_tool_result
 from mind_app.runtime.tools.plan_call import PlanToolCallRunner
 from mind_app.runtime.tools.run import server_tool_output_result
-from mind_app.stream_events.tool_trace import coding_trace_tool
+from mind_app.presentation.stream.tool_traces import coding_trace_tool
 from protocol.client.tools import build_tool_result_envelope
 from protocol.client.turn_control import TurnControlRequestError
 from protocol.schema.stream_events import (

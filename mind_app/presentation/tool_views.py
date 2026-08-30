@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.stream_events.tool_traces.generic import render_generic_tool_result_preview
-from mind_app.stream_events.tool_traces.native import (
+from mind_app.presentation.stream.tool_traces.generic import render_generic_tool_result_preview
+from mind_app.presentation.stream.tool_traces.native import (
     render_tool_result_entries,
     render_tool_start_preview,
     render_tool_start_trace

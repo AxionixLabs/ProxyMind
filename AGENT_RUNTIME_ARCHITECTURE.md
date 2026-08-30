@@ -495,6 +495,8 @@ running -> cancelled
 | `mind_app/runtime/design.py` | `mind_app/presentation/terminal/contracts.py` | 下载进度渲染端口与终端实现放在同一展示边界；删除 runtime 级一次转发协议文件 |
 | `mind_app/frontend/` | `mind_app/presentation/application.py`、`application_sinks.py` | 应用级展示值、前端运行期端口和 CLI/JSON sink 属于 presentation 边界；顶层 `frontends/` 仅在完整入口用例迁移时启用 |
 | `mind_app/output/` | `mind_app/presentation/output/` | 单轮输出端口、结构化正文、文本/JSONL/静默 sink 属于 presentation 适配器；不把输出生命周期放入 Harness |
+| `mind_app/stream_events/` | `mind_app/presentation/stream/` | 流事件到展示视图的投影、工具 trace 和生命周期渲染归入 presentation；运行时只消费公开投影函数 |
+| `mind_app/stream_io/`、`stream_state/` | `mind_app/presentation/output/recording.py`、`boundary.py` | 输出记录和段间边界状态归入输出适配器；单调用者 spacing 逻辑内聚到 boundary，不保留平铺状态包 |
 | `mind_core/application_paths.py` | `infrastructure/config/paths.py` | 应用入口、打包模式、本地资源目录和用户数据目录解析属于配置基础设施；不把路径环境事实放入策略模块 |
 | `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |
 | `mind_core/provider_config.py` | `infrastructure/config/providers.py` | Provider Profile 默认值、路由和标识校验属于配置基础设施；不把供应商连接规则放入 Harness domain |

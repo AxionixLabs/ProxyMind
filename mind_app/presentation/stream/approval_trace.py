@@ -11,7 +11,7 @@ from mind_app.presentation.models import (
     TextStyle
 )
 from .command_preview import command_preview
-from .tool_trace import (
+from .tool_traces import (
     TITLE_STYLE,
     ERROR_STYLE
 )

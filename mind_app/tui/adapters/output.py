@@ -14,7 +14,7 @@ from mind_app.presentation.terminal_text import (
     sanitize_styled_block,
     sanitize_terminal_text
 )
-from mind_app.stream_io.output_record import StreamRecordWriter
+from mind_app.presentation.output.recording import StreamRecordWriter
 from mind_app.stream_sanitize import sanitize_value
 from ..core.assistant import TuiAssistantStream
 from ..core.document import (

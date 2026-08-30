@@ -6,7 +6,7 @@ import copy
 from dataclasses import dataclass
 from mind_app.presentation.models import PatchView
 from mind_app.presentation.patch_views import build_patch_start_view
-from mind_app.stream_events.approval_trace import (
+from mind_app.presentation.stream.approval_trace import (
     approval_shell_commands,
     approval_summary
 )
