@@ -518,6 +518,7 @@ running -> cancelled
 | `mind_app/native_coding/exec/process_capture.py`、`output_decoder.py`、`sandbox_client.py`、`shell_runtime.py` | `infrastructure/platform/` | 进程捕获/输出解码、Sandbox sidecar 协议和 shell 运行时解析属于本机平台执行基座；native coding 只消费其能力，不拥有跨平台生命周期实现 |
 | `mind_app/native_coding/js_repl/` | `infrastructure/platform/javascript_repl.py` | Node 内核进程、临时目录、消息桥接和内核重置属于平台执行基座；native coding 只负责工具入口和权限/调用策略，并显式注入应用资源根 |
 | `mind_app/runtime/environment/shell_tools.py`、`workspace.py` | `infrastructure/platform/shell_tools.py`、`workspace_context.py` | 本机支持工具 PATH 路由和当前工作区探测属于平台环境助手；runtime/MCP/TUI 只消费结果，不拥有进程环境事实 |
+| `mind_app/runtime/hooks/output_spill.py` | `infrastructure/platform/hook_output_spill.py` | Hook 流输出读取、临时文件 spill、预览和会话清理属于本机平台文件能力；Hook command 只依赖平台适配器 |
 | `mind_app/runtime/environment/coding_lifecycle.py` | `agent/harness/workspace_runtime.py` | 工作区编码、Shell、执行策略和进程能力的替换/关闭属于 Harness 生命周期；具体 NativeCoding/策略工厂只由根组合注入，Harness 不导入 legacy 或平台实现 |
 | `mind_app/runtime/environment/snapshot.py` | `agent/application/environment.py`、`mind_app/interaction/environment.py` | 环境能力调用与失败收敛属于 application 用例；Controller/Helix 上下文聚合属于 interaction adapter，不让 runtime 持有环境采集逻辑 |
 | `mind_app/runtime/hooks/models.py` | `agent/application/hook_models.py` | Hook 生命周期快照、决定、输出和工具结果是跨 runtime/TUI 的 application contract；Hook 执行器、注册器和 scope 仍由 runtime 持有，不把执行副作用放入值对象 |

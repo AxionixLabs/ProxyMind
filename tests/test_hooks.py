@@ -28,7 +28,7 @@ from agent.application.hook_models import (
     ToolOperationResult,
     ToolResultSnapshot
 )
-from mind_app.runtime.hooks.output_spill import HookOutputSpillStore
+from infrastructure.platform.hook_output_spill import HookOutputSpillStore
 from mind_app.runtime.hooks.registry import HookRegistry
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import (

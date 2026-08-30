@@ -699,6 +699,56 @@ def test_process_execution_substrate_has_platform_ownership() -> None:
     )
 
 
+def test_hook_output_spill_has_platform_ownership() -> None:
+    """确保 Hook 大输出的临时文件生命周期由平台基础设施持有。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "output_spill.py"
+    assert not legacy_path.is_file(), "legacy Hook output spill source still exists"
+
+    legacy_modules = {"mind_app.runtime.hooks.output_spill"}
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, (
+        "legacy Hook output spill imports remain:\n" + "\n".join(violations)
+    )
+
+    platform_path = PROJECT_ROOT / "infrastructure" / "platform" / "hook_output_spill.py"
+    tree = ast.parse(
+        platform_path.read_text(encoding="utf-8-sig"),
+        filename=str(platform_path),
+    )
+    forbidden = {"agent", "mind_app", "mind_core", "observability"}
+    platform_violations: list[str] = []
+    for node in ast.walk(tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in forbidden:
+                platform_violations.append(
+                    f"{platform_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+
+    assert not platform_violations, (
+        "Hook output spill platform adapter crosses its boundary:\n"
+        + "\n".join(platform_violations)
+    )
+
+
 def test_javascript_repl_has_platform_ownership() -> None:
     """确保 JavaScript 内核进程生命周期由平台基础设施持有。"""
     legacy_paths = (

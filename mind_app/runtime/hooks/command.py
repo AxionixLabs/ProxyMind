@@ -15,7 +15,7 @@ from infrastructure.platform.processes import (
     subprocess_process_group_kwargs,
     terminate_process_tree
 )
-from .output_spill import (
+from infrastructure.platform.hook_output_spill import (
     CapturedHookOutput,
     HookOutputSpillStore
 )
