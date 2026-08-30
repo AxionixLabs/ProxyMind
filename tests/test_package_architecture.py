@@ -1075,6 +1075,63 @@ def test_hook_matching_belongs_to_domain() -> None:
     assert domain_path.is_file(), "domain hook matching source is missing"
 
 
+def test_hook_output_and_events_have_application_ownership() -> None:
+    """确保 Hook 输出归一化和事件目录不再由 runtime 持有。"""
+    legacy_modules = {
+        "mind_app.runtime.hooks.effects",
+        "mind_app.runtime.hooks.events",
+    }
+    for legacy_name in legacy_modules:
+        legacy_path = PROJECT_ROOT / Path(*legacy_name.split("."))
+        assert not legacy_path.with_suffix(".py").is_file(), (
+            f"legacy Hook module still exists: {legacy_name}"
+        )
+
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, (
+        "legacy Hook output/event imports remain:\n" + "\n".join(violations)
+    )
+
+    forbidden = {"infrastructure", "mind_app", "mind_core", "observability"}
+    for relative_path in ("hook_output.py", "hook_events.py"):
+        application_path = PROJECT_ROOT / "agent" / "application" / relative_path
+        tree = ast.parse(
+            application_path.read_text(encoding="utf-8-sig"),
+            filename=str(application_path),
+        )
+        application_violations: list[str] = []
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module.partition(".")[0] in forbidden:
+                    application_violations.append(
+                        f"{application_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+        assert not application_violations, (
+            f"Hook application module crosses its boundary: {relative_path}\n"
+            + "\n".join(application_violations)
+        )
+
+
 def test_execution_policy_is_split_between_domain_and_config() -> None:
     """确保执行策略值对象与规则文件解析分别归属 domain/config。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "execpolicy"
@@ -1353,8 +1410,10 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
     allowed_modules = {
         "agent.application",
         "agent.application.hook_catalog",
+        "agent.application.hook_events",
         "agent.application.hook_protocol",
         "agent.application.hook_models",
+        "agent.application.hook_output",
         "agent.domain.hook_matching",
         "agent.domain.execution_policy",
         "agent.ports",

@@ -19,8 +19,8 @@ from agent.application import (
     HookEventName
 )
 from .command import HookCommandExecutor
-from .effects import normalize_business_block
-from .events import hook_event_spec
+from agent.application.hook_events import hook_event_spec
+from agent.application.hook_output import normalize_business_block
 from agent.domain.hook_matching import (
     HookMatcher,
     compile_hook_matcher,

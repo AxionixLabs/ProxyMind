@@ -2,11 +2,11 @@
 
 import pytest
 
-from mind_app.runtime.hooks.effects import (
+from agent.application.hook_output import (
     normalize_business_block,
     normalize_hook_output,
 )
-from mind_app.runtime.hooks.events import HOOK_EVENT_SPECS
+from agent.application.hook_events import HOOK_EVENT_SPECS
 from agent.application.hook_protocol import (
     HOOK_INPUT_SCHEMAS,
     HOOK_OUTPUT_SCHEMAS,

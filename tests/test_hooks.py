@@ -21,7 +21,7 @@ from mind_app.runtime.hooks.command import (
     HookCommandError,
     HookCommandExecutor
 )
-from mind_app.runtime.hooks.events import HOOK_EVENT_SPECS
+from agent.application.hook_events import HOOK_EVENT_SPECS
 from agent.application.hook_models import (
     HookEventRequest,
     HookOutputEntry,
