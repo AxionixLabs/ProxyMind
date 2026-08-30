@@ -498,6 +498,7 @@ running -> cancelled
 | `mind_app/stream_events/` | `mind_app/presentation/stream/` | 流事件到展示视图的投影、工具 trace 和生命周期渲染归入 presentation；运行时只消费公开投影函数 |
 | `mind_app/stream_io/`、`stream_state/` | `mind_app/presentation/output/recording.py`、`boundary.py` | 输出记录和段间边界状态归入输出适配器；单调用者 spacing 逻辑内聚到 boundary，不保留平铺状态包 |
 | `mind_app/approval/permission_grants.py`、`ledger.py` | `agent/stores/permission_grants.py`、`approval_ledger.py` | 会话权限授权和审批消费状态由 stores 持有；协调器、策略和展示模型不随状态存储迁移 |
+| `mind_app/reporting.py` | `observability/reporting.py` | 单次运行报告目录、诊断日志 sink 和输出记录路径由可观测性基础设施统一管理；控制器只持有注入的报告对象 |
 | `mind_core/application_paths.py` | `infrastructure/config/paths.py` | 应用入口、打包模式、本地资源目录和用户数据目录解析属于配置基础设施；不把路径环境事实放入策略模块 |
 | `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |
 | `mind_core/provider_config.py` | `infrastructure/config/providers.py` | Provider Profile 默认值、路由和标识校验属于配置基础设施；不把供应商连接规则放入 Harness domain |

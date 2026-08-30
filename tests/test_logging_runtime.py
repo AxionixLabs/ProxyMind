@@ -6,7 +6,7 @@ import pytest
 from loguru import logger
 from metadata import const
 
-from mind_app.reporting import RunReport
+from observability.reporting import RunReport
 from observability import observe, observe_exception
 from mind_app.presentation.output.recording import StreamRecordWriter
 

@@ -49,7 +49,7 @@ from ..presentation.models import (
     TextSpan,
     TextStyle
 )
-from ..reporting import RunReport
+from observability.reporting import RunReport
 from ..runtime.environment.shell_tools import route_shell_tools
 from ..runtime.environment.workspace import fetch_runtime_workspace_root
 from ..runtime.mcp.service_runtime import (

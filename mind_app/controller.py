@@ -26,7 +26,7 @@ from agent.application import (
     SessionEndReason
 )
 from protocol.schema.identifiers import short_uid
-from .reporting import RunReport
+from observability.reporting import RunReport
 from observability import (
     observe,
     observe_exception
