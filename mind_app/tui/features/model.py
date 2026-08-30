@@ -16,7 +16,7 @@ from ..core.models import (
     STANDARD_MENU_FOOTER_HINT
 )
 from infrastructure.config.providers import DEFAULT_REASONING_EFFORT
-from mind_core.config import config_to_preferences
+from infrastructure.config.preferences import config_to_preferences
 from mind_core.config_session import ConfigSession
 from .context import (
     normalize_reasoning_effort,

@@ -47,7 +47,7 @@ from mind_core.config import ConfigOverride
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from agent.application import FeatureSettings
-from mind_core.preference import Preferences
+from infrastructure.config.preferences import Preferences
 from agent.application import (
     PermissionSettings,
     resolve_permissions

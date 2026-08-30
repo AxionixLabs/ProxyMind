@@ -1066,36 +1066,6 @@ def model_config_field_values(
     return {("model_providers", provider_id, provider_field): value}
 
 
-def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """把有效配置转换为 Preferences 运行时结构。"""
-    cfg    = copy.deepcopy(config)
-    model  = _as_dict(cfg.get("model"))
-    hosted = _as_dict(cfg.get("hosted_tools"))
-
-    def convert_slot(slot: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        return {
-            "provider": _as_str(slot.get("provider")),
-            "name": _as_str(slot.get("name")),
-            "kind": _as_str(slot.get("kind"), DEFAULT_PROVIDER_KIND),
-            "route": _as_str(slot.get("route"), DEFAULT_ROUTE_NAME),
-            "model": _as_str(slot.get("model")),
-            "apikey": _as_str(slot.get("apikey")),
-            "base_url": _as_str(slot.get("base_url")),
-            "reasoning_effort": _normalize_reasoning_effort(
-                slot.get("reasoning_effort"),
-                default=DEFAULT_REASONING_EFFORT
-            ),
-            "enabled": _as_bool(slot.get("enabled"), False)
-        }
-
-    primary = _as_dict(model.get("primary"))
-
-    return {
-        "primary"      : convert_slot(primary),
-        "hosted_tools" : _normalize_hosted_tools(hosted)
-    }
-
-
 def _normalize_reasoning_effort(value: typing.Any, *, default: str = "") -> str:
     """规范化推理强度档位。"""
     text = _as_str(value).strip().lower()

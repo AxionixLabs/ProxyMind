@@ -8,7 +8,7 @@ from copy import deepcopy
 from mind_app.interaction import PromptContext
 from mind_app.runtime.environment.workspace import fetch_runtime_workspace_root
 from infrastructure.skills import configured_skills
-from mind_core.preference import apply_primary_model_override
+from infrastructure.config.preferences import apply_primary_model_override
 from agent.application import (
     PermissionSettings,
     permission_label

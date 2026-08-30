@@ -9,7 +9,7 @@ from agent.application import (
     TurnApplication,
 )
 from infrastructure.errors import AppError
-from mind_core.preference import apply_primary_model_override
+from infrastructure.config.preferences import apply_primary_model_override
 from observability import (
     observe,
     observe_exception

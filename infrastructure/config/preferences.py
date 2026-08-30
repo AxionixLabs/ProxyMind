@@ -8,8 +8,6 @@ from observability import (
     observe,
     observe_exception
 )
-from mind_core.config import config_to_preferences
-from mind_core.config_session import ConfigSession
 from infrastructure.config.providers import (
     DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,
@@ -18,6 +16,25 @@ from infrastructure.config.providers import (
     default_route_for_kind
 )
 from metadata import const
+
+
+class ConfigReader(typing.Protocol):
+    """定义偏好投影所需的最小配置读取端口。"""
+
+    def load(self, *, create: bool = True) -> dict[str, typing.Any]:
+        """读取当前有效配置快照。"""
+
+
+def _as_dict(value: typing.Any) -> dict[str, typing.Any]:
+    """返回配置表副本；非表值转换为空表。"""
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _as_str(value: typing.Any, default: str = "") -> str:
+    """把配置值规范化为字符串。"""
+    if value is None:
+        return default
+    return str(value)
 
 
 def _default_slot() -> dict[str, typing.Any]:
@@ -40,6 +57,34 @@ def _default_prefs() -> dict[str, typing.Any]:
     return {
         "primary"      : _default_slot(),
         "hosted_tools" : _default_hosted_tools()
+    }
+
+
+def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """把有效配置转换为偏好运行时结构。"""
+    cfg = copy.deepcopy(config)
+    model = _as_dict(cfg.get("model"))
+    hosted = _as_dict(cfg.get("hosted_tools"))
+
+    def convert_slot(slot: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        return {
+            "provider": _as_str(slot.get("provider")),
+            "name": _as_str(slot.get("name")),
+            "kind": _as_str(slot.get("kind"), DEFAULT_PROVIDER_KIND),
+            "route": _as_str(slot.get("route"), DEFAULT_ROUTE_NAME),
+            "model": _as_str(slot.get("model")),
+            "apikey": _as_str(slot.get("apikey")),
+            "base_url": _as_str(slot.get("base_url")),
+            "reasoning_effort": _normalize_reasoning_effort(
+                slot.get("reasoning_effort")
+            ),
+            "enabled": _as_bool(slot.get("enabled"), False),
+        }
+
+    primary = _as_dict(model.get("primary"))
+    return {
+        "primary": convert_slot(primary),
+        "hosted_tools": _normalize_hosted_tools(hosted),
     }
 
 
@@ -110,10 +155,10 @@ class Preferences(object):
 
     def __init__(
         self,
-        config_session: ConfigSession,
+        config_reader: ConfigReader,
     ):
         """初始化配置来源和默认配置。"""
-        self.config_session = config_session
+        self._config_reader = config_reader
         self.prefs          = _default_prefs()
 
     def __getstate__(self):
@@ -268,7 +313,7 @@ class Preferences(object):
     async def _load_config_pref(self) -> dict[str, typing.Any]:
         """读取本地 config.toml 并转换为运行时偏好结构。"""
         try:
-            preferences = config_to_preferences(self.config_session.load())
+            preferences = config_to_preferences(self._config_reader.load())
             observe("preferences.source.loaded", source="local")
             return preferences
         except (OSError, TypeError, ValueError) as error:

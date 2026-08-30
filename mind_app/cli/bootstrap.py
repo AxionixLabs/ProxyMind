@@ -29,7 +29,7 @@ from infrastructure.config.paths import (
     ApplicationLayout,
     resolve_application_layout
 )
-from mind_core.preference import Preferences
+from infrastructure.config.preferences import Preferences
 from infrastructure.services.service_config import ServiceConfig
 from protocol.transport.endpoints import service_endpoints
 from metadata import const

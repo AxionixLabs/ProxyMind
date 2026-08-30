@@ -6,8 +6,8 @@ from pathlib import (
     Path,
     PurePath
 )
+from infrastructure.config.preferences import config_to_preferences
 from mind_core.config import (
-    config_to_preferences,
     ModelConfigField,
     model_config_field_values
 )

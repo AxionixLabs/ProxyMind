@@ -498,6 +498,7 @@ running -> cancelled
 | `mind_core/project_trust.py` | `infrastructure/config/trust.py` | 项目根、Git checkout、信任登记和配置目录边界依赖本地文件系统；配置解析只消费已解析的信任上下文 |
 | `mind_core/permissions.py` | `agent/domain/policies.py` | 沙箱、审批、网络访问和用户预设是 Harness 领域策略值对象；通过 application 公开入口提供，不让前端或配置核心拥有策略实现 |
 | `mind_core/service_config.py` | `infrastructure/services/service_config.py` | 服务域名规范化和远程配置读取属于服务基础设施；通过最小 `ConfigReader` 端口注入配置，不在基础设施内部创建配置存储 |
+| `mind_core/preference.py`、`config_to_preferences` | `infrastructure/config/preferences.py` | 本地配置到运行时偏好的投影、远程偏好读取和偏好覆盖属于配置基础设施；不把配置存储或 HTTP 细节带入 Harness domain |
 | `mind_nova/const.py` | `metadata/const.py` | 产品版本、展示、编码和构建元数据已抽出；`setup.py` 与内置配置服务已切换，服务端点、认证和运行时路径仍按职责在后续切片迁移 |
 | `agent/ports/capabilities.py`、`agent/adapters/protocol_client.py` | `ports`、`adapters/protocol_client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | 已删除的 `mind_app/runtime/environment/exec_env.py`、旧 environment 请求模块 | `capabilities/environment.py`、`protocol/schema/environment.py` | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化归属 `protocol.schema`。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |
