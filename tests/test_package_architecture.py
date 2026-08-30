@@ -738,6 +738,45 @@ def test_javascript_repl_has_platform_ownership() -> None:
     )
 
 
+def test_runtime_environment_helpers_have_platform_ownership() -> None:
+    """确保 shell 工具路由和工作区探测不再由 runtime 持有。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "environment" / "shell_tools.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "environment" / "workspace.py",
+    )
+    assert not any(path.is_file() for path in legacy_paths), (
+        "legacy runtime environment sources still exist: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_paths
+            if path.is_file()
+        )
+    )
+
+    legacy_modules = {
+        "mind_app.runtime.environment.shell_tools",
+        "mind_app.runtime.environment.workspace",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, (
+        "legacy runtime environment imports remain:\n" + "\n".join(violations)
+    )
+
+
 def test_terminal_presentation_has_no_legacy_design_sources_or_imports() -> None:
     """确保终端展示能力只由 presentation/terminal 持有。"""
     legacy_design_root = PROJECT_ROOT / "mind_core" / "design"

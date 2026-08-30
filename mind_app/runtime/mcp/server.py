@@ -37,7 +37,7 @@ from infrastructure.config.runtime_paths import (
 )
 from observability.reporting import RunReport
 from mind_app.runtime.environment.snapshot import capture_turn_environment
-from mind_app.runtime.environment.shell_tools import route_shell_tools
+from infrastructure.platform.shell_tools import route_shell_tools
 from infrastructure.config.paths import (
     ApplicationLayout,
     resolve_application_layout

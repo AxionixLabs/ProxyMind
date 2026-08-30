@@ -920,6 +920,19 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] JavaScript REPL 定向回归 `28 passed`，架构守卫回归 `37 passed`，全量回归
   `2989 passed, 11 skipped`；`compileall`、导入图和差异检查通过。
 
+### 已完成切片：平台环境助手归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将支持工具 PATH 路由和当前工作区根探测从
+  `mind_app/runtime/environment/shell_tools.py`、`workspace.py` 重组到
+  `infrastructure/platform/shell_tools.py`、`workspace_context.py`；runtime、CLI、
+  MCP 和 TUI 只消费平台结果。
+- [x] 删除旧 runtime 环境助手及导入，不增加兼容 facade；新增旧路径/旧导入平台归属
+  架构守卫，保留 shell 工具路由和工作区探测的现有行为。
+- [x] 平台环境/CLI/MCP/TUI/架构定向回归 `179 passed`，全量回归
+  `2990 passed, 11 skipped`；`compileall`、导入图和差异检查通过。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -1105,4 +1118,5 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 命令安全平台切片 | 将危险命令递归识别、PowerShell/cmd 删除与外部 URL 启动检测从 `mind_app/native_coding/exec/command_safety/` 重组到 `infrastructure/platform/command_safety/`；执行策略仅消费平台分类结果，删除旧安全包并加入架构守卫 | 命令安全/执行策略/平台/架构定向回归 `147 passed`，全量回归 `2987 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
 | 2026-08-31 | 阶段 5 本地进程执行基座切片 | 将进程捕获、输出解码、本地 Sandbox sidecar 客户端和 shell 运行时解析从 `mind_app/native_coding/exec/` 重组到 `infrastructure/platform/`，native coding 仅保留工具业务与执行策略；删除旧模块并加入平台归属守卫 | 进程捕获/解码、Sandbox、shell、执行策略/平台/架构定向回归 `146 passed, 11 skipped`，全量回归 `2988 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
 | 2026-08-31 | 阶段 5 JavaScript REPL 平台切片 | 将 Node 内核进程、会话隔离、临时目录、消息桥接和内核重置从 `mind_app/native_coding/js_repl/` 重组到 `infrastructure/platform/javascript_repl.py`，资源根改为显式应用布局注入并删除旧包 | JavaScript REPL 定向回归 `28 passed`，架构守卫 `37 passed`，全量回归 `2989 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
-| 2026-08-31 | 阶段 5 JavaScript REPL 平台切片 | 将 Node 内核进程、会话隔离、临时目录、消息桥接和内核重置从 `mind_app/native_coding/js_repl/` 重组到 `infrastructure/platform/javascript_repl.py`，资源根改为显式应用布局注入并删除旧包 | JavaScript REPL/native coding/工具/TUI/架构定向回归待补，全量回归待补；完成验证后继续审计交互、历史、客户端工具和完整入口边界 |
+| 2026-08-31 | 阶段 5 平台环境助手切片 | 将 shell 工具 PATH 路由和工作区根探测从 `mind_app/runtime/environment/` 重组到 `infrastructure/platform/`，runtime/CLI/MCP/TUI 只消费平台结果并删除旧模块 | 平台环境/CLI/MCP/TUI/架构定向回归 `179 passed`，全量回归 `2990 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
+| 2026-08-31 | 阶段 5 平台环境助手切片 | 将 shell 工具 PATH 路由和工作区根探测从 `mind_app/runtime/environment/` 重组到 `infrastructure/platform/`，runtime/CLI/MCP/TUI 只消费平台结果并删除旧模块 | 平台环境/CLI/MCP/TUI/架构定向回归待补，全量回归待补；完成验证后继续审计交互、历史、客户端工具和完整入口边界 |

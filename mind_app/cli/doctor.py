@@ -14,7 +14,7 @@ from mind_app.presentation.models import (
     TextSpan,
     TextStyle
 )
-from mind_app.runtime.environment.shell_tools import (
+from infrastructure.platform.shell_tools import (
     SHELL_TOOL_LAYOUT,
     executable_name
 )
