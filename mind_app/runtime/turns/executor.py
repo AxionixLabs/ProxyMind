@@ -20,7 +20,7 @@ from protocol.transport.events import EventReport
 from protocol.schema.identifiers import short_uid
 from mind_app.history.contracts import TranscriptSink
 from mind_app.runtime.execution import TurnContext
-from mind_app.runtime.turns.event_reporting import (
+from protocol.client.reports import (
     EventReportLifetime,
     TurnEventReportHandle,
 )

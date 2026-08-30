@@ -1870,6 +1870,43 @@ def test_run_report_has_observability_ownership() -> None:
     assert not violations, "legacy reporting imports remain:\n" + "\n".join(violations)
 
 
+def test_event_report_lifecycle_has_protocol_client_ownership() -> None:
+    """确保事件报告生命周期不再由 runtime turns 持有。"""
+    legacy_path = (
+        PROJECT_ROOT
+        / "mind_app"
+        / "runtime"
+        / "turns"
+        / "event_reporting.py"
+    )
+    client_path = PROJECT_ROOT / "protocol" / "client" / "reports.py"
+
+    assert not legacy_path.is_file(), "legacy event reporting source still exists"
+    assert client_path.is_file(), "protocol client report lifecycle is missing"
+
+    legacy_modules = {
+        "mind_app.runtime.turns.event_reporting",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy event reporting imports remain:\n" + "\n".join(
+        violations
+    )
+
+
 def test_controller_does_not_expose_runtime_facades() -> None:
     controller_path = PROJECT_ROOT / "mind_app" / "controller.py"
     tree = ast.parse(

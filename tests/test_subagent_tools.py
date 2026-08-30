@@ -16,7 +16,7 @@ from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.turns import stream as turn_stream
-from mind_app.runtime.turns.event_reporting import EventReportRuntimeOwner
+from protocol.client.reports import EventReportRuntimeOwner
 from agent.application import AgentSettings
 from agent.application import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid

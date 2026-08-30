@@ -34,7 +34,7 @@ from observability import (
 from .interaction.attachments import Attach
 from .runtime.mcp.lifecycle import ExternalMcpRuntimeOwner
 from .runtime.mcp.service_lifecycle import ServiceRuntimeOwner
-from .runtime.turns.event_reporting import EventReportRuntimeOwner
+from protocol.client.reports import EventReportRuntimeOwner
 from .runtime.support.conversation import (
     ConversationState,
     ConversationTurn

@@ -28,7 +28,7 @@ from mind_app.runtime.turns.executor import (
     execute_turn,
     resolve_turn_hook_scope,
 )
-from mind_app.runtime.turns.event_reporting import EventReportRuntimeOwner
+from protocol.client.reports import EventReportRuntimeOwner
 from mind_app.history.transcript import (
     ConversationTranscriptStore,
     TranscriptReader,

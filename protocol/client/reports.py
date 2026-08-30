@@ -3,6 +3,7 @@
 
 import enum
 import typing
+
 from protocol.transport.events import (
     EventReport,
     EventReportPool,
@@ -31,7 +32,7 @@ class TurnEventReportHandle(object):
         sid: str,
         lifetime: EventReportLifetime,
     ) -> None:
-        """绑定报告、会话标识和生命周期。"""
+        """绑定报告、会话标识和释放策略。"""
         self.report = report
         self._owner = owner
         self._cid = cid
