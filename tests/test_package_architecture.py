@@ -1418,6 +1418,53 @@ def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     ).is_file(), "MCP tool progress source is missing"
 
 
+def test_hook_execution_ports_are_owned_by_agent_ports() -> None:
+    """确保 Hook 执行端口不由具体 runtime 模块定义或携带实现依赖。"""
+    ports_path = PROJECT_ROOT / "agent" / "ports" / "hooks.py"
+    assert ports_path.is_file(), "Hook execution ports source is missing"
+
+    tree = ast.parse(
+        ports_path.read_text(encoding="utf-8-sig"),
+        filename=str(ports_path),
+    )
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {
+                "infrastructure",
+                "mind_app",
+                "mind_core",
+                "observability",
+                "protocol",
+            }:
+                violations.append(
+                    f"{ports_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+
+    assert not violations, "Hook ports cross their boundary:\n" + "\n".join(violations)
+
+    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "runtime.py"
+    runtime_tree = ast.parse(
+        runtime_path.read_text(encoding="utf-8-sig"),
+        filename=str(runtime_path),
+    )
+    local_protocols = {
+        node.name
+        for node in runtime_tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name in {"HookCommandRunner", "HookContextSpiller"}
+    }
+    assert not local_protocols, (
+        "Hook execution ports remain defined in runtime: "
+        + ", ".join(sorted(local_protocols))
+    )
+
+
 def test_execution_policy_is_split_between_domain_and_config() -> None:
     """确保执行策略值对象与规则文件解析分别归属 domain/config。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "execpolicy"

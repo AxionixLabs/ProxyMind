@@ -26,8 +26,10 @@ from agent.application.hook_models import (
     HookRuntimeEntry,
     HookRuntimeStatus
 )
-from .runtime import (
+from agent.ports import (
     HookCommandRunner,
+)
+from .runtime import (
     HookRuntime,
     HookStatusPort
 )

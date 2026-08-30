@@ -14,6 +14,10 @@ from observability import (
     observe,
     observe_exception
 )
+from agent.ports import (
+    HookCommandRunner,
+    HookContextSpiller,
+)
 from agent.application import (
     HookDefinitionConfig,
     HookEventName
@@ -36,33 +40,6 @@ from agent.application.hook_models import (
     HookRunSummary,
     HookRuntimeStatus
 )
-
-
-class HookCommandRunner(typing.Protocol):
-    """定义生命周期分发器使用的命令执行接口。"""
-
-    async def execute(
-        self,
-        definition: HookDefinitionConfig,
-        payload: dict[str, typing.Any],
-    ) -> typing.Any:
-        """执行命令并返回带 data 字段的结果。"""
-        ...
-
-
-class HookContextSpiller(typing.Protocol):
-    """定义过大 Hook 上下文的会话级落盘接口。"""
-
-    async def spill_context(
-        self,
-        text: str,
-        *,
-        session_id: str,
-        channel: str = "additional-context",
-        preview_chars: int | None = None
-    ) -> str:
-        """写入完整上下文并返回模型可见的恢复摘要。"""
-        ...
 
 
 class HookStatusPort(typing.Protocol):

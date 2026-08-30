@@ -224,6 +224,7 @@ agent/
 │   └── services.py          # 用例编排，不持有长期运行状态
 ├── ports/
 │   ├── capabilities.py      # 模型、MCP、Helix、进程和文件端口
+│   ├── hooks.py              # Hook 执行器和超限上下文 spill 端口
 │   ├── persistence.py       # 事件、快照、历史和 outbox 端口
 │   └── observability.py     # 日志、指标和 tracing 端口
 ├── stores/
@@ -533,6 +534,7 @@ running -> cancelled
 | `mind_app/runtime/support/rwlock.py` | 已删除 | 全仓库无生产或测试调用者；删除死代码，避免保留未接入 Harness 的并发抽象和伪迁移入口 |
 | `mind_app/runtime/tools/notify.py` | `mind_app/runtime/mcp/tool_progress.py` | MCP 工具进度通知依赖 MCP 调用生命周期，归入 MCP runtime 适配边界；工具路由只调用该边界，不在平铺 tools 包维护通知实现 |
 | `mind_app/runtime/tools/policy.py` | 已删除 | 全仓库无生产或测试调用者；不迁移无归属的并行策略死代码，避免形成新的兼容入口 |
+| `mind_app/runtime/hooks/runtime.py` 中的 `HookCommandRunner`、`HookContextSpiller` | `agent/ports/hooks.py` | Hook 命令执行和上下文 spill 是 runtime 调用具体实现的端口；协议值对象只声明已校验结果字段，状态展示端口仍由 runtime 持有 |
 | `mind_app/runtime/hooks/models.py` | `agent/application/hook_models.py` | Hook 生命周期快照、决定、输出和工具结果是跨 runtime/TUI 的 application contract；Hook 执行器、注册器和 scope 仍由 runtime 持有，不把执行副作用放入值对象 |
 | `mind_app/runtime/hooks/protocol.py` | `agent/application/hook_protocol.py` | Hook 进程 stdin/stdout schema、构建和校验属于 application boundary；runtime 只调用已校验的契约，不把内部 Hook 协议误并入线上 `protocol/` |
 | `mind_app/runtime/hooks/catalog.py` | `agent/application/hook_catalog.py` | Hook 管理目录、不可变状态快照和内容冲突错误属于 application contract；Controller/TUI 只消费该契约，注册器仍负责运行时装配 |

@@ -23,6 +23,11 @@ from .capabilities import (
     TurnExecutor,
     TurnExecutorResult,
 )
+from .hooks import (
+    HookCommandResult,
+    HookCommandRunner,
+    HookContextSpiller,
+)
 from .persistence import (
     EffectIntent,
     EffectJournal,
@@ -67,6 +72,9 @@ __all__ = (
     "RunSnapshot",
     "TurnExecutor",
     "TurnExecutorResult",
+    "HookCommandResult",
+    "HookCommandRunner",
+    "HookContextSpiller",
 )
 
 
