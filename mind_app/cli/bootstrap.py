@@ -38,7 +38,7 @@ from mind_app.presentation.application import (
     ApplicationView,
     Frontend
 )
-from ..paths import (
+from infrastructure.config.runtime_paths import (
     ensure_mind_home,
     mind_config_path,
     mind_reports_dir,

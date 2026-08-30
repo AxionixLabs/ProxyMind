@@ -6,7 +6,7 @@ import asyncio
 import platform
 from dataclasses import dataclass
 from agent.application import TurnApplication
-from mind_app.paths import agent_runtime_db_path
+from infrastructure.config.runtime_paths import agent_runtime_db_path
 from observability import observe_exception
 from ..runtime.agent.client import AgentClient
 from .forwarding import (

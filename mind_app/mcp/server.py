@@ -29,7 +29,7 @@ from mind_app.runtime.turns.root import (
     run_root_turn,
 )
 from mind_app.presentation.output.silent import create_silent_output_session
-from mind_app.paths import (
+from infrastructure.config.runtime_paths import (
     agent_runtime_db_path,
     ensure_mind_home,
     mind_config_path,

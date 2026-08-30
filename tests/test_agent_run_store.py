@@ -15,7 +15,7 @@ from agent.protocol import (
     SubmitTurnCommand,
 )
 from agent.stores import SQLiteRunStore
-from mind_app.paths import (
+from infrastructure.config.runtime_paths import (
     agent_graph_db_path,
     agent_runtime_db_path,
     effect_journal_db_path,

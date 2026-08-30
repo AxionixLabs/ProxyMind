@@ -7,7 +7,7 @@ import time
 import typing
 import sqlite3
 from pathlib import Path
-from mind_app.paths import mind_history_db_path
+from infrastructure.config.runtime_paths import mind_history_db_path
 from .ids import valid_session_ids
 
 TABLE_SESSION_CURSORS = "conversation_session_cursors"

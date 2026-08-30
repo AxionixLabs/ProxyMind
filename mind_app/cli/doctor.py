@@ -19,7 +19,7 @@ from mind_app.runtime.environment.shell_tools import (
     executable_name
 )
 from mind_app.presentation.application import ApplicationView
-from mind_app.paths import (
+from infrastructure.config.runtime_paths import (
     mind_config_path,
     mind_home
 )

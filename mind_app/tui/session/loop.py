@@ -45,7 +45,7 @@ from .turn import (
     run_tui_model_turn
 )
 from .turn_input import TuiTurnInputControl
-from ...paths import agent_runtime_db_path
+from infrastructure.config.runtime_paths import agent_runtime_db_path
 from ...runtime.environment.snapshot import capture_active_turn_environment
 from ...runtime.support.session_identity import derive_local_session_id
 

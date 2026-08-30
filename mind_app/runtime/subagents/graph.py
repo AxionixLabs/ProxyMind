@@ -15,7 +15,7 @@ from protocol.schema.permissions import (
     normalize_network_access,
     normalize_sandbox_mode,
 )
-from mind_app.paths import agent_graph_db_path
+from infrastructure.config.runtime_paths import agent_graph_db_path
 from mind_app.runtime.execution import AgentContext
 from mind_app.runtime.subagents.context import ForkContextSnapshot
 from mind_app.runtime.subagents.control import (

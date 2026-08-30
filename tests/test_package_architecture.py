@@ -460,6 +460,29 @@ def test_configuration_layers_have_no_legacy_sources_or_imports() -> None:
     )
 
 
+def test_runtime_paths_have_no_legacy_application_module() -> None:
+    """确保用户数据目录和运行时数据库路径由配置基础设施持有。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "paths.py"
+    assert not legacy_path.is_file(), "legacy application paths module still exists"
+
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module == "mind_app.paths" or module.startswith("mind_app.paths."):
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy application path imports remain:\n" + "\n".join(violations)
+
+
 def test_terminal_presentation_has_no_legacy_design_sources_or_imports() -> None:
     """确保终端展示能力只由 presentation/terminal 持有。"""
     legacy_design_root = PROJECT_ROOT / "mind_core" / "design"

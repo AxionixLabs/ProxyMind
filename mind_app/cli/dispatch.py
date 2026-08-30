@@ -30,7 +30,7 @@ from ..runtime.turns.root import (
     RootTurnCommandExecutor,
     run_root_turn,
 )
-from ..paths import agent_runtime_db_path
+from infrastructure.config.runtime_paths import agent_runtime_db_path
 from ..runtime.environment.snapshot import capture_active_turn_environment
 from ..runtime.support.session_identity import derive_local_session_id
 

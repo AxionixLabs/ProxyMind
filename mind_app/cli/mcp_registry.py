@@ -13,7 +13,7 @@ from urllib.parse import (
 )
 from infrastructure.errors import AppError
 from mind_app.mcp.registry import McpServerRegistry
-from mind_app.paths import mind_config_path
+from infrastructure.config.runtime_paths import mind_config_path
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore

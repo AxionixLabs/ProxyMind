@@ -16,7 +16,7 @@ from datetime import (
 from pathlib import Path
 from mind_app.presentation.tool_policy import merges_tool_start_event
 from observability import observe_exception
-from mind_app.paths import sessions_dir
+from infrastructure.config.runtime_paths import sessions_dir
 from metadata import const
 from .contracts import (
     TranscriptActor,
