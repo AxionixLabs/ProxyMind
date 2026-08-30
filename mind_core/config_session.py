@@ -16,7 +16,7 @@ from mind_core.config_store import (
     ConfigStore,
     ConfigStoreError
 )
-from mind_core.project_trust import (
+from infrastructure.config.trust import (
     ProjectTrustDecision,
     ProjectTrustLevel
 )

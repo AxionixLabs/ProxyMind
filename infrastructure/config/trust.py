@@ -276,13 +276,17 @@ def _project_trust_records(
         if not isinstance(value, dict):
             continue
         level = value.get("trust_level")
-        if level not in {"trusted", "untrusted"}:
+        if level == "trusted":
+            normalized_level: ProjectTrustLevel = "trusted"
+        elif level == "untrusted":
+            normalized_level = "untrusted"
+        else:
             continue
         key = str(raw_path)
         records.append(_ProjectTrustRecord(
             key=key,
             lookup_key=os.path.normcase(key),
-            level=typing.cast(ProjectTrustLevel, level),
+            level=normalized_level,
         ))
 
     records.sort(key=lambda record: record.key)

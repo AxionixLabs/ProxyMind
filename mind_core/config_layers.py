@@ -32,7 +32,7 @@ from mind_core.hooks import (
     HookDefinitionConfig,
     HookStateTable,
 )
-from mind_core.project_trust import (
+from infrastructure.config.trust import (
     ProjectTrustContext,
     ProjectTrustDecision,
 )
