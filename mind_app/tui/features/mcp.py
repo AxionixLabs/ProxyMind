@@ -5,13 +5,13 @@ import typing
 from collections import defaultdict
 from prompt_toolkit.utils import get_cwidth
 from mind_app.frontend import ApplicationView
-from mind_app.presentation.mcp_status import render_mcp_status_block
-from mind_app.presentation.models import TextSpan, TextStyle
-from mind_core.mcp_status import (
+from mind_app.presentation.mcp_status import (
     McpStatusDetail,
     McpStatusView,
-    external_mcp_status_view
+    external_mcp_status_view,
+    render_mcp_status_block,
 )
+from mind_app.presentation.models import TextSpan, TextStyle
 from ..core.models import (
     MenuDescriptionLayout,
     MenuOption,

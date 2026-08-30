@@ -4,12 +4,12 @@
 import typing
 from infrastructure.errors import AppError
 from mind_app.frontend import ApplicationView
-from mind_app.presentation.mcp_status import render_mcp_status_block
-from mind_app.presentation.models import TextSpan
-from mind_core.mcp_status import (
+from mind_app.presentation.mcp_status import (
     McpStatusDetail,
-    McpStatusView
+    McpStatusView,
+    render_mcp_status_block,
 )
+from mind_app.presentation.models import TextSpan
 from ..core.models import (
     MenuDescriptionLayout,
     MenuOption,

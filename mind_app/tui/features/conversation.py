@@ -13,7 +13,10 @@ from observability import (
     observe,
     observe_exception
 )
-from mind_app.presentation.mcp_status import render_mcp_status_block
+from mind_app.presentation.mcp_status import (
+    external_mcp_status_view,
+    render_mcp_status_block,
+)
 from mind_app.presentation.models import (
     StyledBlock,
     TextSpan
@@ -23,7 +26,6 @@ from mind_app.runtime.support.clipboard import (
     copy_text_to_clipboard
 )
 from mind_app.history.ids import valid_session_ids
-from mind_core.mcp_status import external_mcp_status_view
 from protocol.client.fork import ResubmittablePrompt
 from metadata import const
 from ...runtime.conversation import (

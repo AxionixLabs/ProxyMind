@@ -6,7 +6,12 @@ import functools
 from infrastructure.errors import AppError
 from infrastructure.platform.file_assist import FileAssist
 from mind_app.frontend import ApplicationView
-from mind_app.presentation.mcp_status import render_mcp_status_block
+from mind_app.presentation.mcp_status import (
+    McpStatusDetail,
+    McpStatusView,
+    inbuild_status_view,
+    render_mcp_status_block,
+)
 from mind_app.presentation.models import (
     StyledBlock,
     TextSpan
@@ -18,11 +23,6 @@ from mind_app.runtime.mcp.service_runtime import (
     service_runtime_asset_missing
 )
 from mind_app.runtime.tools.mode_policy import ToolFilterMode
-from mind_core.mcp_status import (
-    McpStatusDetail,
-    McpStatusView,
-    inbuild_status_view
-)
 from metadata import const
 from ..core.models import (
     FragmentBlock,

@@ -36,7 +36,7 @@ from mind_app.tui.features.helix import TuiUpgradeProgress
 from mind_app.tui.session.barriers import TuiForegroundTasks
 from mind_app.runtime.turns.root import run_foreground_turn
 from mind_app.stream_events.worked import emit_worked_footer
-from mind_core.mcp_status import (
+from mind_app.presentation.mcp_status import (
     external_mcp_status_view,
     inbuild_status_view,
 )

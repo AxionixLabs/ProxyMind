@@ -10,7 +10,7 @@ from mind_core.design.terminal_capabilities import (
     TerminalKind,
     TerminalTheme,
 )
-from mind_core.mcp_status import (
+from mind_app.presentation.mcp_status import (
     McpStatusDetail,
     McpStatusView,
 )

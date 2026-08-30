@@ -21,7 +21,7 @@ from mind_app.presentation.renderers.download import (
     download_progress_block,
     download_summary_block
 )
-from mind_core.mcp_status import (
+from mind_app.presentation.mcp_status import (
     McpStatusView,
     external_mcp_status_view,
     inbuild_status_view,
