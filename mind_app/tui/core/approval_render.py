@@ -5,7 +5,7 @@ import re
 import typing
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
-from mind_core.design.terminal_capabilities import (
+from mind_app.presentation.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
 )

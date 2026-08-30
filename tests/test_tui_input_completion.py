@@ -14,7 +14,7 @@ from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.approval.coordinator import ApprovalCoordinator
-from mind_core.design.terminal_capabilities import (
+from mind_app.presentation.terminal.capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,
     TerminalIdentity,

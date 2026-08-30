@@ -13,11 +13,11 @@ from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.eventloop.utils import call_soon_threadsafe
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.output.base import Output
-from mind_core.design.terminal_capabilities import (
+from mind_app.presentation.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
 )
-from mind_core.design.terminal_progress import (
+from mind_app.presentation.terminal.progress import (
     PassiveTerminalProgress,
     TerminalProgress
 )

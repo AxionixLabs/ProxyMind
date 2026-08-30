@@ -3,13 +3,13 @@
 
 import typing
 from dataclasses import dataclass, replace
-from mind_core.design.terminal_capabilities import (
+from mind_app.presentation.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     RgbColor,
     TerminalCapabilities,
     TerminalColorLevel
 )
-from mind_core.design.terminal_palette import best_color, is_light_color
+from mind_app.presentation.terminal.palette import best_color, is_light_color
 from mind_app.presentation.code_highlight import highlight_code_lines
 from mind_app.presentation.models import (
     PatchFileView,

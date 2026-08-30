@@ -4,7 +4,7 @@
 import re
 import typing
 from functools import partial
-from mind_core.design.terminal_capabilities import (
+from mind_app.presentation.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
 )

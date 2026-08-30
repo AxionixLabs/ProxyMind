@@ -460,6 +460,47 @@ def test_configuration_layers_have_no_legacy_sources_or_imports() -> None:
     )
 
 
+def test_terminal_presentation_has_no_legacy_design_sources_or_imports() -> None:
+    """确保终端展示能力只由 presentation/terminal 持有。"""
+    legacy_design_root = PROJECT_ROOT / "mind_core" / "design"
+    legacy_paths = (
+        *legacy_design_root.rglob("*.py"),
+        PROJECT_ROOT / "mind_app" / "runtime" / "design.py",
+    )
+    assert not any(path.is_file() for path in legacy_paths), (
+        "legacy terminal design sources still exist: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_paths
+            if path.is_file()
+        )
+    )
+
+    legacy_modules = {
+        "mind_core.design",
+        "mind_app.runtime.design",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if any(
+                    module == legacy or module.startswith(f"{legacy}.")
+                    for legacy in legacy_modules
+                ):
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy terminal design imports remain:\n" + "\n".join(violations)
+
+
 def test_agent_application_does_not_load_concrete_composition() -> None:
     violations = _forbidden_module_imports(
         "agent/application",

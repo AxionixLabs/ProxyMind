@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
-from mind_core.design.intro import (
+from mind_app.presentation.terminal.intro import (
     IntroFrame,
     intro_frames
 )

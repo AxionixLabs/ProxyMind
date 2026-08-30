@@ -3,7 +3,7 @@
 import difflib
 import pytest
 from prompt_toolkit.utils import get_cwidth
-from mind_core.design.terminal_capabilities import (
+from mind_app.presentation.terminal.capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,
     TerminalIdentity,

@@ -8,8 +8,8 @@ import pytest
 
 from infrastructure.update import runtime as upgrade_module
 from infrastructure.update.runtime import Upgrade
-from mind_core.design import Design
-from mind_core.design import facade as design_facade
+from mind_app.presentation.terminal import TerminalDownloadRenderer
+from mind_app.presentation.terminal import download_renderer
 
 
 @pytest.mark.anyio
@@ -20,9 +20,12 @@ async def test_download_animation_remains_the_terminal_design_boundary(
     console = object()
     stop_event = asyncio.Event()
     state = {"stage": "downloading"}
-    monkeypatch.setattr(design_facade, "design_download_animation", render)
+    monkeypatch.setattr(download_renderer, "download_animation", render)
 
-    await Design(console=console).download_animation(state, stop_event)
+    await TerminalDownloadRenderer(console=console).download_animation(
+        state,
+        stop_event,
+    )
 
     render.assert_awaited_once_with(
         console=console,

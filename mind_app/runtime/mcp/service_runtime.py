@@ -15,7 +15,7 @@ from infrastructure.platform.terminal import Terminal
 from infrastructure.errors import AppError
 from infrastructure.update.runtime import UpgradeProgress
 from mind_app.assets import ensure_asset
-from mind_app.runtime.design import TerminalDesign
+from mind_app.presentation.terminal.contracts import TerminalDesign
 from observability import (
     observe,
     observe_exception

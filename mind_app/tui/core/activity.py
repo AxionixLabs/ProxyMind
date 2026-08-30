@@ -26,7 +26,7 @@ from mind_app.presentation.mcp_status import (
     external_mcp_status_view,
     inbuild_status_view,
 )
-from mind_core.design.terminal_capabilities import TerminalColorLevel
+from mind_app.presentation.terminal.capabilities import TerminalColorLevel
 from .models import FragmentBlock
 from ..rendering.fragments import clip_fragments
 from .styles import (

@@ -1,5 +1,5 @@
-from mind_core.design.terminal_capabilities import TerminalColorLevel
-from mind_core.design.terminal_palette import best_color, blend_color, semantic_color
+from mind_app.presentation.terminal.capabilities import TerminalColorLevel
+from mind_app.presentation.terminal.palette import best_color, blend_color, semantic_color
 
 
 def test_best_color_matches_codex_diff_xterm_targets() -> None:

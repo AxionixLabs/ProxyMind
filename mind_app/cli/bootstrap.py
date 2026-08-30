@@ -60,7 +60,7 @@ from ..runtime.mcp.service_runtime import (
     resolve_service_runtime
 )
 from ..runtime.mcp.service_lifecycle import ServerManageHelixCapability
-from ..runtime.design import TerminalDesign
+from ..presentation.terminal.contracts import TerminalDesign
 from ..runtime.hooks.registry import HookRegistry
 from ..runtime.tools.mode_policy import ToolFilterMode
 from .commands import (

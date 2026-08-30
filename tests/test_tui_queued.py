@@ -10,7 +10,7 @@ from unittest.mock import Mock
 
 from mind_app.frontend import ApplicationView
 from mind_app.interaction.contracts import PromptContext
-from mind_core.design.terminal_capabilities import (
+from mind_app.presentation.terminal.capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,
     TerminalIdentity,

@@ -732,6 +732,20 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   `2975 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片进入
   TUI/Presentation 设计基础设施归位。
 
+### 已完成切片：终端展示基础设施归位
+
+状态：已完成（2026-08-30）
+
+- [x] 将 `mind_core/design/` 重组为 `mind_app/presentation/terminal/`：终端探测进入
+  `capabilities.py`，颜色语义进入 `palette.py`，标题状态进入 `progress.py`，启动帧进入
+  `intro.py`，下载动画进入 `download.py`。
+- [x] 将下载渲染端口迁入 `terminal/contracts.py`，具体实现命名为
+  `TerminalDownloadRenderer`；删除 `mind_app/runtime/design.py` 和旧 `Design` facade，
+  CLI、TUI、资产升级和 MCP 生命周期只依赖展示端口。
+- [x] 终端能力、颜色、进度、TUI、升级定向回归通过，架构守卫 `24 passed`；旧设计包/
+  协议守卫、`compileall`、导入图和差异检查通过，全量回归 `2976 passed, 11 skipped`；
+  下一切片继续收敛前端目录和剩余历史入口。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -768,6 +782,8 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `engine/animation.py`、`signals.py` -> `infrastructure/platform/` | 通用异步动画和任务中断检测进入平台基础设施 | 全部消费者切换、语法和回归测试通过；旧模块删除 | 5 |
 | `mind_core/licensing.py`、`remote_services.py` -> `infrastructure/services/` | 授权验证和远程服务元数据归入服务基础设施 | 唯一消费者切换、旧源模块删除、远程服务/增强回归通过 | 5 |
 | `mind_core/mcp_status.py` -> `mind_app/presentation/mcp_status.py` | MCP 状态值对象与快照归约归入展示边界 | TUI/presentation 消费者切换、展示回归通过、旧源模块删除 | 5 |
+| `mind_core/design/` -> `mind_app/presentation/terminal/` | 终端能力、颜色、进度、启动帧和下载渲染归入展示边界 | 终端/TUI/升级回归通过，旧设计包删除 | 5 |
+| `mind_app/runtime/design.py` -> `mind_app/presentation/terminal/contracts.py` | 下载渲染协议归入终端展示端口 | 资产/升级/CLI/MCP 消费者切换，旧协议文件删除 | 5 |
 | `mind_core/application_paths.py` -> `infrastructure/config/paths.py` | 应用入口和本地资源路径解析归入配置基础设施 | 所有路径消费者切换、路径回归通过、旧源模块删除 | 5 |
 | `mind_core/agent_config.py`、`feature_config.py` -> `agent/application/settings.py` | Agent 运行设置与能力开关归入 application | application 公开入口、配置/设置/Subagent 回归通过，旧源模块删除 | 5 |
 | `mind_core/provider_config.py` -> `infrastructure/config/providers.py` | Provider 默认值、路由和 Profile 标识约束归入配置基础设施 | 配置服务/偏好/Provider 选择回归通过，旧源模块删除 | 5 |
@@ -887,3 +903,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-30 | 阶段 5 偏好配置切片 | 将 `mind_core/preference.py` 与 `config_to_preferences` 重组到 `infrastructure/config/preferences.py`，引入 `ConfigReader` 并切换 CLI/TUI/MCP/测试消费者 | 偏好/Provider/CLI/MCP 定向回归 `145 passed`，架构测试 `21 passed`，全量回归 `2973 passed, 11 skipped`，`compileall` 和导入图检查通过；下一切片处理配置层/存储边界和前端入口 |
 | 2026-08-30 | 阶段 5 配置存储切片 | 将 `mind_core/config_store.py` 迁入 `infrastructure/config/store.py`，切换配置层、CLI、MCP、TUI、Server 和测试消费者 | 配置会话/服务/CLI/TUI/架构定向回归 `314 passed`，全量回归 `2974 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片处理配置解析/分层状态和前端入口 |
 | 2026-08-30 | 阶段 5 配置 schema/分层/会话切片 | 将 `mind_core/config.py`、`config_layers.py`、`config_session.py` 迁入 `infrastructure/config/schema.py`、`layers.py`、`session.py`，删除旧配置入口并切换全部消费者 | 配置/CLI/TUI/Server 定向回归 `459 passed`，架构守卫 `23 passed`，全量回归 `2975 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片处理 TUI/Presentation 设计基础设施 |
+| 2026-08-30 | 阶段 5 终端展示切片 | 将 `mind_core/design/` 重组到 `mind_app/presentation/terminal/`，迁移终端能力/颜色/进度/启动帧/下载渲染，删除 runtime 设计协议和 `Design` facade | 终端/TUI/升级定向回归通过，架构守卫 `24 passed`，全量回归 `2976 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续收敛前端目录和剩余历史入口 |

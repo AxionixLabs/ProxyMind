@@ -8,7 +8,7 @@ from infrastructure.errors import AppError
 from metadata import const
 from mind_app.frontend.contracts import Frontend
 from mind_app.interaction import NonInteractiveInteraction
-from mind_app.runtime.design import TerminalDesign
+from mind_app.presentation.terminal.contracts import TerminalDesign
 from .selection import OutputMode
 
 
@@ -44,8 +44,8 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
         from mind_app.tui.core.runtime import TuiRuntime
         from mind_app.tui.features.transcript_export import TranscriptExporter
         from prompt_toolkit.input import create_input
-        from mind_core.design.terminal_capabilities import detect_terminal_capabilities
-        from mind_core.design.terminal_progress import create_terminal_progress
+        from mind_app.presentation.terminal.capabilities import detect_terminal_capabilities
+        from mind_app.presentation.terminal.progress import create_terminal_progress
 
         transcript_exporter = TranscriptExporter()
         application_input = create_input(sys.stdin)
@@ -112,9 +112,9 @@ def resolve_cli_design(
     """按输出模式创建非 TUI 终端设计能力。"""
     if output_mode == "tui":
         return None
-    from mind_core.design import Design
+    from mind_app.presentation.terminal import TerminalDownloadRenderer
 
-    return Design()
+    return TerminalDownloadRenderer()
 
 
 if __name__ == '__main__':

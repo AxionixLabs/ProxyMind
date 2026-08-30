@@ -491,6 +491,8 @@ running -> cancelled
 | `mind_core/licensing.py` | `infrastructure/services/licensing.py` | 签名验证、设备指纹、授权续期和网络授时属于基础设施服务；配置/策略包不直接拥有外部网络或平台进程依赖 |
 | `mind_core/remote_services.py` | `infrastructure/services/remote_services.py` | 远程服务元数据和授权状态查询归服务基础设施；工具增强只依赖该服务边界，不读取 `mind_core` 内部实现 |
 | `mind_core/mcp_status.py` | `mind_app/presentation/mcp_status.py` | MCP 状态值对象、快照归约和渲染器共同归入展示边界；配置核心不持有 UI 状态语义 |
+| `mind_core/design/` | `mind_app/presentation/terminal/` | 终端能力探测、颜色调色板、标题进度、启动动画和下载渲染属于可替换前端展示基础设施；不让配置或 Harness 持有终端句柄 |
+| `mind_app/runtime/design.py` | `mind_app/presentation/terminal/contracts.py` | 下载进度渲染端口与终端实现放在同一展示边界；删除 runtime 级一次转发协议文件 |
 | `mind_core/application_paths.py` | `infrastructure/config/paths.py` | 应用入口、打包模式、本地资源目录和用户数据目录解析属于配置基础设施；不把路径环境事实放入策略模块 |
 | `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |
 | `mind_core/provider_config.py` | `infrastructure/config/providers.py` | Provider Profile 默认值、路由和标识校验属于配置基础设施；不把供应商连接规则放入 Harness domain |

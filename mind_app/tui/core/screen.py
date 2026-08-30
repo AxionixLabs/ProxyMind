@@ -51,7 +51,7 @@ from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.widgets import TextArea
 from mind_app.interaction.contracts import PromptContext
 from mind_app.presentation.terminal_text import sanitize_terminal_text
-from mind_core.design.terminal_capabilities import (
+from mind_app.presentation.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
 )

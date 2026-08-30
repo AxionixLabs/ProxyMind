@@ -12,7 +12,7 @@ from mind_app.runtime.turns.root import run_foreground_turn
 from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.runtime import TuiRuntime
-from mind_core.design.terminal_progress import (
+from mind_app.presentation.terminal.progress import (
     OscTerminalProgress,
     PassiveTerminalProgress,
     TERMINAL_TITLE_ACTION_PREFIXES,
@@ -153,7 +153,7 @@ async def test_osc_terminal_progress_animates_title() -> None:
 @pytest.mark.anyio
 async def test_osc_terminal_progress_blinks_action_title(monkeypatch) -> None:
     monkeypatch.setattr(
-        "mind_core.design.terminal_progress.TERMINAL_TITLE_ACTION_INTERVAL",
+        "mind_app.presentation.terminal.progress.TERMINAL_TITLE_ACTION_INTERVAL",
         0.01,
     )
     stream = TerminalStream()

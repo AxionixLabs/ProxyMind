@@ -2,12 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_core.design.terminal_capabilities import (
+from mind_app.presentation.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     RgbColor,
     TerminalCapabilities
 )
-from mind_core.design.terminal_palette import (
+from mind_app.presentation.terminal.palette import (
     best_color,
     is_light_color,
     selection_color,

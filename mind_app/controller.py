@@ -60,7 +60,7 @@ from .frontend.contracts import (
     ActivityStatusKind,
     Frontend
 )
-from .runtime.design import TerminalDesign
+from .presentation.terminal.contracts import TerminalDesign
 from .runtime.hooks.registry import HookRegistry
 from .runtime.hooks.scope import (
     HookExecutionContext,
