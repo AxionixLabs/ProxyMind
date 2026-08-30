@@ -6,7 +6,7 @@ import typing
 import httpx
 
 from observability import observe_exception
-from mind_core.licensing import verify_signature
+from .licensing import verify_signature
 from metadata import const
 from protocol.transport.auth import (
     build_service_headers,

@@ -487,6 +487,8 @@ running -> cancelled
 | `engine/manage.py` | `infrastructure/services/server_manager.py` | 本地后台服务探测、启动、重启和关闭由服务基础设施持有；Helix capability 只适配生命周期，不复制服务状态机 |
 | `engine/upgrade.py` | `infrastructure/update/runtime.py` | 运行时下载、归档校验、安装替换和升级进度由更新基础设施持有；入口只注入进度端口 |
 | `engine/animation.py`、`engine/signals.py` | `infrastructure/platform/` | 通用异步动画与任务中断检测属于平台运行时；不向 Harness 或协议层暴露平台句柄 |
+| `mind_core/licensing.py` | `infrastructure/services/licensing.py` | 签名验证、设备指纹、授权续期和网络授时属于基础设施服务；配置/策略包不直接拥有外部网络或平台进程依赖 |
+| `mind_core/remote_services.py` | `infrastructure/services/remote_services.py` | 远程服务元数据和授权状态查询归服务基础设施；工具增强只依赖该服务边界，不读取 `mind_core` 内部实现 |
 | `mind_nova/const.py` | `metadata/const.py` | 产品版本、展示、编码和构建元数据已抽出；`setup.py` 与内置配置服务已切换，服务端点、认证和运行时路径仍按职责在后续切片迁移 |
 | `agent/ports/capabilities.py`、`agent/adapters/protocol_client.py` | `ports`、`adapters/protocol_client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | 已删除的 `mind_app/runtime/environment/exec_env.py`、旧 environment 请求模块 | `capabilities/environment.py`、`protocol/schema/environment.py` | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化归属 `protocol.schema`。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |
