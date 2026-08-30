@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind™ ==== 
+# Notes: ==== Mind™ ====
 
 import typing
 from agent.domain.hooks import (
