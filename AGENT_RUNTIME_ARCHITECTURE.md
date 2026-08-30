@@ -213,6 +213,7 @@ agent/
 │   ├── hook_models.py       # Hook 生命周期快照、决定和工具结果值对象
 │   ├── hook_output.py       # Hook 输出语义校验与归一化
 │   ├── hook_protocol.py     # Hook stdin/stdout schema、构建和边界校验
+│   ├── hook_result.py       # 后置 Hook 对模型可见工具结果的投影
 │   ├── queries.py           # 历史、状态、计划和证据读取
 │   ├── projections.py       # Event Queue 到入口稳定结果的投影
 │   ├── settings.py          # Harness 并发和可选能力的启动时设置
@@ -527,6 +528,7 @@ running -> cancelled
 | `mind_app/runtime/hooks/matching.py` | `agent/domain/hook_matching.py` | Hook matcher、工具 canonical 名称和别名候选属于纯领域规则；不依赖 application、runtime 或平台实现 |
 | `mind_app/runtime/hooks/events.py` | `agent/application/hook_events.py` | Hook 生命周期事件规格和目录一致性校验属于 application contract；规范化实现通过同层 `hook_output` 注入，不反向依赖 runtime |
 | `mind_app/runtime/hooks/effects.py` | `agent/application/hook_output.py` | Hook 输出 schema 后的语义校验、决定归一化和业务阻断结果属于 application contract；不持有外部效果或执行器副作用 |
+| `mind_app/runtime/hooks/results.py` | `agent/application/hook_result.py` | 后置 Hook 的工具结果替换、反馈和上下文投影属于 application contract；runtime tool 只负责协调调用 |
 | `mind_app/native_coding/exec/execpolicy/` | `agent/domain/execution_policy/` 与 `infrastructure/config/execution_policy.py` | 执行策略决定、规则和值对象属于纯 domain；规则文件 AST/文件读取属于配置基础设施，native coding 只组合二者，不让策略域持有 IO |
 | `mind_core/application_paths.py` | `infrastructure/config/paths.py` | 应用入口、打包模式、本地资源目录和用户数据目录解析属于配置基础设施；不把路径环境事实放入策略模块 |
 | `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |

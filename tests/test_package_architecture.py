@@ -1182,6 +1182,57 @@ def test_hook_output_and_events_have_application_ownership() -> None:
         )
 
 
+def test_hook_result_projection_has_application_ownership() -> None:
+    """确保后置 Hook 工具结果投影不再由 runtime 持有。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "results.py"
+    assert not legacy_path.is_file(), "legacy Hook result projection still exists"
+
+    legacy_modules = {"mind_app.runtime.hooks.results"}
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, (
+        "legacy Hook result projection imports remain:\n"
+        + "\n".join(violations)
+    )
+
+    application_path = PROJECT_ROOT / "agent" / "application" / "hook_result.py"
+    tree = ast.parse(
+        application_path.read_text(encoding="utf-8-sig"),
+        filename=str(application_path),
+    )
+    forbidden = {"infrastructure", "mind_app", "mind_core", "observability"}
+    application_violations: list[str] = []
+    for node in ast.walk(tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in forbidden:
+                application_violations.append(
+                    f"{application_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+
+    assert not application_violations, (
+        "Hook application result projection crosses its boundary:\n"
+        + "\n".join(application_violations)
+    )
+
+
 def test_execution_policy_is_split_between_domain_and_config() -> None:
     """确保执行策略值对象与规则文件解析分别归属 domain/config。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "execpolicy"
@@ -1464,6 +1515,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.hook_protocol",
         "agent.application.hook_models",
         "agent.application.hook_output",
+        "agent.application.hook_result",
         "agent.domain.hook_matching",
         "agent.domain.execution_policy",
         "agent.ports",

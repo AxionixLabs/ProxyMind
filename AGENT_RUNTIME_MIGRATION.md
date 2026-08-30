@@ -1043,6 +1043,18 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] Hook 执行/平台定向回归 `20 passed`，全量回归 `3001 passed, 11 skipped, 33 warnings`；
   导入图、`compileall` 和差异检查通过。
 
+### 已完成切片：Hook 工具结果投影归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将后置 Hook 的工具结果替换、反馈、阻断和追加上下文投影从
+  `mind_app/runtime/hooks/results.py` 重组到 `agent/application/hook_result.py`；该模块
+  只处理已归一化的 application 值，不执行 IO 或持有 runtime 生命周期。
+- [x] 切换 `ToolHookEvents` 和工具结果测试消费者，删除旧模块与旧导入，不保留兼容
+  facade；新增 application 归属与旧路径架构守卫。
+- [x] Hook 工具/架构定向回归 `61 passed`，全量回归 `3002 passed, 11 skipped, 34 warnings`；
+  导入图、`compileall` 和差异检查通过。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -1105,6 +1117,7 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `mind_app/runtime/hooks/events.py` -> `agent/application/hook_events.py` | Hook 生命周期事件规格和目录一致性归入 application contract | Hook 事件/架构定向回归 `32 passed`，旧模块/旧导入及 application 边界守卫通过 | 5 |
 | `mind_app/runtime/hooks/effects.py` -> `agent/application/hook_output.py` | Hook 输出语义校验、决定归一化和业务阻断归入 application contract | Hook 输出/架构定向回归 `32 passed`，旧模块/旧导入及 application 边界守卫通过 | 5 |
 | `mind_app/runtime/hooks/output_spill.py` -> `infrastructure/platform/hook_output_spill.py` | Hook 大输出临时文件和流读取归入平台基础设施 | Hook 执行/平台/架构定向回归通过，旧模块/旧导入及平台边界守卫通过 | 5 |
+| `mind_app/runtime/hooks/results.py` -> `agent/application/hook_result.py` | 后置 Hook 工具结果替换、反馈和上下文投影归入 application contract | Hook 工具/架构定向回归通过，旧模块/旧导入及 application 边界守卫通过 | 5 |
 | `mind_core/application_paths.py` -> `infrastructure/config/paths.py` | 应用入口和本地资源路径解析归入配置基础设施 | 所有路径消费者切换、路径回归通过、旧源模块删除 | 5 |
 | `mind_core/agent_config.py`、`feature_config.py` -> `agent/application/settings.py` | Agent 运行设置与能力开关归入 application | application 公开入口、配置/设置/Subagent 回归通过，旧源模块删除 | 5 |
 | `mind_core/provider_config.py` -> `infrastructure/config/providers.py` | Provider 默认值、路由和 Profile 标识约束归入配置基础设施 | 配置服务/偏好/Provider 选择回归通过，旧源模块删除 | 5 |
@@ -1247,3 +1260,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 Hook 目录与匹配规则切片 | 将 Hook 管理目录从 `mind_app/runtime/hooks/catalog.py` 重组到 `agent/application/hook_catalog.py`，将 matcher 与工具别名规则从 `matching.py` 重组到 `agent/domain/hook_matching.py`，切换 Controller/TUI/runtime 消费者并删除旧模块 | Hook 目录/TUI/执行/架构定向回归 `22 passed`，旧路径/旧导入及 application/domain 边界守卫通过；全量回归 `2999 passed, 11 skipped`，导入图、`compileall` 和差异检查通过 |
 | 2026-08-31 | 阶段 5 Hook 输出与事件规格切片 | 将 Hook 输出归一化从 `mind_app/runtime/hooks/effects.py` 重组到 `agent/application/hook_output.py`，将事件规格从 `events.py` 重组到 `agent/application/hook_events.py`，切换 runtime/协议测试消费者并删除旧模块 | Hook 输出/事件/架构定向回归 `32 passed`，旧路径/旧导入及 application 边界守卫通过；全量回归 `3000 passed, 11 skipped`，导入图、`compileall` 和差异检查通过 |
 | 2026-08-31 | 阶段 5 Hook 输出 spill 平台切片 | 将 Hook 流输出读取、临时文件 spill、预览和会话清理从 `mind_app/runtime/hooks/output_spill.py` 重组到 `infrastructure/platform/hook_output_spill.py`，切换 Hook command/测试消费者并删除旧模块 | Hook 执行/平台/架构定向回归 `20 passed`，旧模块/旧导入及平台边界守卫通过；全量回归 `3001 passed, 11 skipped, 33 warnings`，导入图、`compileall` 和差异检查通过 |
+| 2026-08-31 | 阶段 5 Hook 工具结果投影切片 | 将后置 Hook 工具结果替换、反馈、阻断和上下文投影从 `mind_app/runtime/hooks/results.py` 重组到 `agent/application/hook_result.py`，切换 ToolHookEvents/工具测试消费者并删除旧模块 | Hook 工具/架构定向回归 `61 passed`，旧路径/旧导入及 application 边界守卫通过；全量回归 `3002 passed, 11 skipped, 34 warnings`，导入图、`compileall` 和差异检查通过 |
