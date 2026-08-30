@@ -206,6 +206,7 @@ agent/
 │   └── recovery.py          # 快照恢复、未完成命令和效果对账
 ├── application/
 │   ├── commands.py          # submit、resume、approve、cancel、retry
+│   ├── environment.py       # 环境快照采集用例与能力失败收敛
 │   ├── queries.py           # 历史、状态、计划和证据读取
 │   ├── projections.py       # Event Queue 到入口稳定结果的投影
 │   ├── settings.py          # Harness 并发和可选能力的启动时设置
@@ -512,6 +513,7 @@ running -> cancelled
 | `mind_app/native_coding/js_repl/` | `infrastructure/platform/javascript_repl.py` | Node 内核进程、临时目录、消息桥接和内核重置属于平台执行基座；native coding 只负责工具入口和权限/调用策略，并显式注入应用资源根 |
 | `mind_app/runtime/environment/shell_tools.py`、`workspace.py` | `infrastructure/platform/shell_tools.py`、`workspace_context.py` | 本机支持工具 PATH 路由和当前工作区探测属于平台环境助手；runtime/MCP/TUI 只消费结果，不拥有进程环境事实 |
 | `mind_app/runtime/environment/coding_lifecycle.py` | `agent/harness/workspace_runtime.py` | 工作区编码、Shell、执行策略和进程能力的替换/关闭属于 Harness 生命周期；具体 NativeCoding/策略工厂只由根组合注入，Harness 不导入 legacy 或平台实现 |
+| `mind_app/runtime/environment/snapshot.py` | `agent/application/environment.py`、`mind_app/interaction/environment.py` | 环境能力调用与失败收敛属于 application 用例；Controller/Helix 上下文聚合属于 interaction adapter，不让 runtime 持有环境采集逻辑 |
 | `mind_app/native_coding/exec/execpolicy/` | `agent/domain/execution_policy/` 与 `infrastructure/config/execution_policy.py` | 执行策略决定、规则和值对象属于纯 domain；规则文件 AST/文件读取属于配置基础设施，native coding 只组合二者，不让策略域持有 IO |
 | `mind_core/application_paths.py` | `infrastructure/config/paths.py` | 应用入口、打包模式、本地资源目录和用户数据目录解析属于配置基础设施；不把路径环境事实放入策略模块 |
 | `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |

@@ -44,6 +44,7 @@ from .commands import (
     TurnApplication,
     submit_turn
 )
+from .environment import capture_environment_snapshot
 from agent.domain.policies import (
     PermissionPreset,
     PermissionSettings,
@@ -179,6 +180,7 @@ __all__ = (
     "TurnReconcileReceipt",
     "TurnStatusSnapshot",
     "TurnApplication",
+    "capture_environment_snapshot",
     "project_run_result",
     "normalize_agent_table",
     "normalize_feature_table",

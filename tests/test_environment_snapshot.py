@@ -5,7 +5,9 @@ import backend.utilities.runtime.exec_env
 
 import pytest
 
+from agent.application import capture_environment_snapshot
 from agent.capabilities import LocalEnvironmentSnapshotCapability
+from agent.ports import CapabilityError
 from protocol.schema.environment import (
     normalize_client_environment_snapshot,
     normalize_environment_provider,
@@ -81,6 +83,49 @@ def test_runtime_snapshot_separates_cwd_and_workspace_root(tmp_path) -> None:
 
     assert snapshot["cwd"] == str(current_directory.resolve())
     assert snapshot["workspace"]["root"] == str(workspace.resolve())
+
+
+def test_application_environment_capture_reports_capability_failure() -> None:
+    class _FailingCapability:
+        def capture(self, *, cwd, workspace_root, providers=None):
+            raise CapabilityError(
+                "environment_capture_failed",
+                "unavailable",
+                retryable=True,
+            )
+
+        def clear_cache(self) -> None:
+            return None
+
+    failures: list[CapabilityError] = []
+
+    snapshot = capture_environment_snapshot(
+        _FailingCapability(),
+        cwd=".",
+        workspace_root=".",
+        on_failure=failures.append,
+    )
+
+    assert snapshot is None
+    assert [failure.code for failure in failures] == [
+        "environment_capture_failed"
+    ]
+
+
+def test_application_environment_capture_rejects_invalid_result() -> None:
+    class _InvalidCapability:
+        def capture(self, *, cwd, workspace_root, providers=None):
+            return []
+
+        def clear_cache(self) -> None:
+            return None
+
+    with pytest.raises(TypeError, match="must return an object"):
+        capture_environment_snapshot(
+            _InvalidCapability(),
+            cwd=".",
+            workspace_root=".",
+        )
 
 
 def test_helix_provider_keeps_tools_without_runtimes(tmp_path) -> None:

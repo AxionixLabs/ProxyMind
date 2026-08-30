@@ -46,7 +46,7 @@ from .turn import (
 )
 from .turn_input import TuiTurnInputControl
 from infrastructure.config.runtime_paths import agent_runtime_db_path
-from ...runtime.environment.snapshot import capture_active_turn_environment
+from ...interaction.environment import capture_active_turn_environment
 from ...runtime.support.session_identity import derive_local_session_id
 
 if typing.TYPE_CHECKING:

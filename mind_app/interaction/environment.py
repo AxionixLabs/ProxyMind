@@ -4,11 +4,10 @@
 import typing
 from collections.abc import Mapping
 from pathlib import Path
-from agent.application import (
-    CapabilityError,
-    EnvironmentSnapshotCapability,
-    JsonValue,
-)
+
+from agent.application import capture_environment_snapshot
+from agent.protocol.json_value import JsonValue
+from agent.ports import CapabilityError
 from observability import observe_exception
 
 if typing.TYPE_CHECKING:
@@ -33,15 +32,7 @@ def capture_turn_environment(
     cwd: str | Path,
     workspace_root: str | Path,
 ) -> dict[str, JsonValue] | None:
-    """通过注入能力捕获一个主动 Turn 的完整环境快照。"""
-    runtime_services = controller.runtime_services
-    capability = runtime_services.environment_capability
-    if not isinstance(capability, EnvironmentSnapshotCapability):
-        raise TypeError(
-            "environment capability does not implement "
-            "EnvironmentSnapshotCapability"
-        )
-
+    """收集服务执行面后调用应用环境快照用例。"""
     providers: dict[str, Mapping[str, JsonValue]] = {}
     if controller.is_service_mcp_linked():
         service_environment = controller.service_exec_env_snapshot()
@@ -50,24 +41,19 @@ def capture_turn_environment(
                 raise TypeError("service environment snapshot must be an object")
             providers["helix"] = service_environment
 
-    try:
-        snapshot = capability.capture(
-            cwd=cwd,
-            workspace_root=workspace_root,
-            providers=providers,
-        )
-    except CapabilityError as error:
-        observe_exception(
-            "exec_env.capture.failed",
-            error,
-            level="WARNING",
-        )
-        return None
-
-    if not isinstance(snapshot, Mapping):
-        raise TypeError("environment capability must return an object")
-    return dict(snapshot)
+    return capture_environment_snapshot(
+        controller.runtime_services.environment_capability,
+        cwd=cwd,
+        workspace_root=workspace_root,
+        providers=providers,
+        on_failure=_observe_capture_failure,
+    )
 
 
-if __name__ == '__main__':
-    pass
+def _observe_capture_failure(error: CapabilityError) -> None:
+    """记录环境快照能力失败并让命令继续使用无快照路径。"""
+    observe_exception(
+        "exec_env.capture.failed",
+        error,
+        level="WARNING",
+    )

@@ -14,7 +14,7 @@ from agent.application import (
 from infrastructure.errors import AppError
 from observability import observe
 from ..runtime.agent.client import AgentClient
-from ..runtime.environment.snapshot import capture_active_turn_environment
+from ..interaction.environment import capture_active_turn_environment
 from ..runtime.turns.root import (
     RootTurnCommandExecutor,
     RootTurnRunner,

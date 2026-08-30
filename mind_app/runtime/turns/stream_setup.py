@@ -13,7 +13,7 @@ from mind_app.presentation.output import (
     OutputSession,
     SessionFactory,
 )
-from mind_app.runtime.environment.snapshot import capture_turn_environment
+from mind_app.interaction.environment import capture_turn_environment
 from mind_app.runtime.execution import TurnContext
 from mind_app.runtime.hooks.presentation import HookPresentationAdapter
 from mind_app.runtime.hooks.scope import HookExecutionScope

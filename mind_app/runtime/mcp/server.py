@@ -36,7 +36,7 @@ from infrastructure.config.runtime_paths import (
     mind_reports_dir
 )
 from observability.reporting import RunReport
-from mind_app.runtime.environment.snapshot import capture_turn_environment
+from mind_app.interaction.environment import capture_turn_environment
 from infrastructure.platform.shell_tools import route_shell_tools
 from infrastructure.config.paths import (
     ApplicationLayout,
