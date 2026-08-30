@@ -28,6 +28,9 @@ from agent.application.hook_models import (
 )
 from agent.ports import (
     HookCommandRunner,
+    HookContextSpiller,
+    HookResourceClose,
+    HookSessionCleanup,
 )
 from .runtime import (
     HookRuntime,
@@ -51,9 +54,26 @@ class HookRegistry:
         self,
         *,
         command_runner: HookCommandRunner | None = None,
+        context_spiller: HookContextSpiller | None = None,
+        cleanup_session: HookSessionCleanup | None = None,
+        close: HookResourceClose | None = None,
         bypass_hook_trust: bool = False
     ) -> None:
-        self._command_runner    = command_runner or HookCommandExecutor()
+        if command_runner is None:
+            default_runner = HookCommandExecutor()
+            self._command_runner: HookCommandRunner = default_runner
+            self._context_spiller: HookContextSpiller | None = (
+                context_spiller or default_runner
+            )
+            self._cleanup_session: HookSessionCleanup | None = (
+                cleanup_session or default_runner.cleanup_session
+            )
+            self._close: HookResourceClose | None = close or default_runner.close
+        else:
+            self._command_runner = command_runner
+            self._context_spiller = context_spiller
+            self._cleanup_session = cleanup_session
+            self._close = close
         self._bypass_hook_trust = bool(bypass_hook_trust)
 
         self._observed_warnings: set[str] = set()
@@ -236,11 +256,7 @@ class HookRegistry:
         return HookRuntime(
             active,
             command_runner=self._command_runner,
-            context_spiller=(
-                self._command_runner
-                if isinstance(self._command_runner, HookCommandExecutor)
-                else None
-            ),
+            context_spiller=self._context_spiller,
             status_port=status_port,
             status=status,
         )
@@ -299,13 +315,15 @@ class HookRegistry:
 
     async def cleanup_session(self, session_id: str) -> None:
         """清理指定会话产生的 Hook 临时输出。"""
-        if isinstance(self._command_runner, HookCommandExecutor):
-            await self._command_runner.cleanup_session(session_id)
+        cleanup_session = self._cleanup_session
+        if cleanup_session is not None:
+            await cleanup_session(session_id)
 
     async def close(self) -> None:
         """关闭 Hook 命令执行器持有的临时资源。"""
-        if isinstance(self._command_runner, HookCommandExecutor):
-            await self._command_runner.close()
+        close = self._close
+        if close is not None:
+            await close()
 
 
 if __name__ == '__main__':

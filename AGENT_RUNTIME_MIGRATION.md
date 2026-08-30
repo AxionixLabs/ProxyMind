@@ -1110,6 +1110,18 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] 新增 ports 归属和 runtime 重复定义架构守卫；Hook/工具/架构定向回归
   `171 passed, 37 warnings`，导入图、`compileall` 和差异检查通过。
 
+### 已完成切片：Hook 生命周期显式注入
+
+状态：已完成（2026-08-31）
+
+- [x] 将 Hook runtime/registry 对 `HookCommandExecutor` 的能力推断改为显式资源绑定：调用方可
+  注入 `context_spiller`、`cleanup_session` 和 `close`，自定义 runner 不再通过类型反射获得隐式
+  生命周期能力；默认执行器只在构造分支绑定一次，保持默认入口可用。
+- [x] 保留 `HookStatusPort` 作为 runtime 展示回调，不把前端状态生命周期混入 `agent.ports`；
+  超限上下文、会话清理和关闭路径均通过明确端口执行，支持后续由唯一组合根创建执行器。
+- [x] 新增显式资源生命周期回归和 `isinstance(HookCommandExecutor)` 架构守卫；Hook/工具/架构
+  定向回归 `172 passed, 37 warnings`，导入图、`compileall` 和差异检查通过。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -1321,3 +1333,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 运行结果与平台计时器切片 | 将 `RunResult`、流式终态聚合和本地 Session 身份派生重组到 `agent/application`，将空闲状态计时器下沉到 `infrastructure/platform`，删除无调用者的 `AsyncRWLock` 并清除旧 runtime/support 导入 | 定向结果/流式/TUI/CLI/架构回归 `263 passed, 36 warnings`；全量回归 `3004 passed, 11 skipped, 36 warnings`，旧路径守卫、导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 MCP 工具进度边界切片 | 将 MCP 进度通知从 `mind_app/runtime/tools/notify.py` 重组到 `mind_app/runtime/mcp/tool_progress.py`，删除无调用者的 `runtime/tools/policy.py` 并清除旧导入 | MCP/工具/架构定向回归 `108 passed, 37 warnings`，旧路径守卫、导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 Hook 执行端口切片 | 将 `HookCommandRunner`、`HookCommandResult` 和 `HookContextSpiller` 从 runtime 重组到 `agent/ports/hooks.py`，保留展示状态端口在 runtime 并删除重复 Protocol 定义 | Hook/工具/架构定向回归 `171 passed, 37 warnings`，旧 runtime 定义守卫、导入图、`compileall` 和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 Hook 生命周期显式注入切片 | 将 Hook spill、会话清理和关闭从执行器类型推断改为显式端口参数，默认执行器仅在构造分支绑定并删除 runtime/registry 的 `isinstance` 能力判断 | Hook/工具/架构定向回归 `172 passed, 37 warnings`，显式资源回归、旧类型反射守卫、导入图、`compileall` 和 `git diff --check` 通过 |

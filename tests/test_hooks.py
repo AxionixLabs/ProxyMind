@@ -486,6 +486,30 @@ def test_registry_keeps_non_command_hooks_in_catalog_but_out_of_runtime() -> Non
     assert [item.handler_type for item in snapshot.hooks] == ["mcp_tool", "command"]
 
 
+@pytest.mark.anyio
+async def test_registry_uses_explicit_hook_resource_lifecycle() -> None:
+    cleanup_calls: list[str] = []
+    close_calls: list[str] = []
+
+    async def cleanup_session(session_id: str) -> None:
+        cleanup_calls.append(session_id)
+
+    async def close() -> None:
+        close_calls.append("closed")
+
+    registry = HookRegistry(
+        command_runner=_CommandRunner(),
+        cleanup_session=cleanup_session,
+        close=close,
+    )
+
+    await registry.cleanup_session("sid_test")
+    await registry.close()
+
+    assert cleanup_calls == ["sid_test"]
+    assert close_calls == ["closed"]
+
+
 def test_registry_reports_each_unsupported_mcp_hook_source_once(tmp_path) -> None:
     first_path = tmp_path / "first.toml"
     second_path = tmp_path / "second.toml"
@@ -2381,9 +2405,11 @@ async def test_command_executor_exit_two_is_business_block(tmp_path) -> None:
         )],
     })[0]
 
+    executor = HookCommandExecutor()
     result = await HookRuntime(
         (definition,),
-        command_runner=HookCommandExecutor(),
+        command_runner=executor,
+        context_spiller=executor,
     ).dispatch(HookEventRequest(
         event="PreToolUse",
         payload={"cwd": str(tmp_path), "session_id": "sid"},
@@ -2433,6 +2459,7 @@ async def test_stop_exit_two_spills_full_stderr_continuation(tmp_path) -> None:
     runtime = HookRuntime(
         (definition,),
         command_runner=executor,
+        context_spiller=executor,
     )
 
     result = await runtime.dispatch(HookEventRequest(

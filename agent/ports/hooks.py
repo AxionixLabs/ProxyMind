@@ -2,9 +2,16 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from collections.abc import (
+    Awaitable,
+    Callable,
+)
 from agent.domain.hooks import (
     HookDefinitionConfig,
 )
+
+HookSessionCleanup: typing.TypeAlias = Callable[[str], Awaitable[None]]
+HookResourceClose: typing.TypeAlias = Callable[[], Awaitable[None]]
 
 
 class HookCommandResult(typing.Protocol):

@@ -27,6 +27,8 @@ from .hooks import (
     HookCommandResult,
     HookCommandRunner,
     HookContextSpiller,
+    HookResourceClose,
+    HookSessionCleanup,
 )
 from .persistence import (
     EffectIntent,
@@ -75,6 +77,8 @@ __all__ = (
     "HookCommandResult",
     "HookCommandRunner",
     "HookContextSpiller",
+    "HookResourceClose",
+    "HookSessionCleanup",
 )
 
 

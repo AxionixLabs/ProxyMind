@@ -1464,6 +1464,30 @@ def test_hook_execution_ports_are_owned_by_agent_ports() -> None:
         + ", ".join(sorted(local_protocols))
     )
 
+    for relative_path in (
+        "mind_app/runtime/hooks/runtime.py",
+        "mind_app/runtime/hooks/registry.py",
+    ):
+        source_path = PROJECT_ROOT / relative_path
+        source_tree = ast.parse(
+            source_path.read_text(encoding="utf-8-sig"),
+            filename=str(source_path),
+        )
+        reflected_executor_checks = [
+            node
+            for node in ast.walk(source_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "isinstance"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Name)
+            and node.args[1].id == "HookCommandExecutor"
+        ]
+        assert not reflected_executor_checks, (
+            "Hook lifecycle must use explicit ports: "
+            + relative_path
+        )
+
 
 def test_execution_policy_is_split_between_domain_and_config() -> None:
     """确保执行策略值对象与规则文件解析分别归属 domain/config。"""

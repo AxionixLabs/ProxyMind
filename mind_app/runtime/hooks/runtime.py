@@ -118,18 +118,21 @@ class HookRuntime:
             for definition in active_definitions
         )
 
-        resolved_runner = command_runner or HookCommandExecutor()
+        if command_runner is None:
+            default_runner = HookCommandExecutor()
+            resolved_runner: HookCommandRunner = default_runner
+            resolved_spiller: HookContextSpiller | None = (
+                context_spiller or default_runner
+            )
+        else:
+            resolved_runner = command_runner
+            resolved_spiller = context_spiller
+
         object.__setattr__(self, "command_runner", resolved_runner)
         object.__setattr__(
             self,
             "context_spiller",
-            (
-                context_spiller
-                if context_spiller is not None
-                else resolved_runner
-                if isinstance(resolved_runner, HookCommandExecutor)
-                else None
-            ),
+            resolved_spiller,
         )
         object.__setattr__(self, "status_port", status_port)
         object.__setattr__(self, "_definitions", active_definitions)
