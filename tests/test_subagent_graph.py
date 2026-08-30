@@ -21,7 +21,7 @@ from mind_app.runtime.subagents.graph import (
 )
 from mind_app.runtime.subagents.mailbox import AgentMailboxStore
 from mind_app.runtime.subagents.thread import AgentThreadContext
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid
 
 

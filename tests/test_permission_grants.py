@@ -16,7 +16,7 @@ from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.turns.stream_policy import (
     local_exec_policy_requirement,
 )
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 from mind_app.runtime.turns.stream_approval import approval_report_kwargs
 
 

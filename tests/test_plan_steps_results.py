@@ -19,7 +19,7 @@ from mind_app.runtime.hooks.scope import (
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from mind_core.hook_discovery import resolve_hook_definitions
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 
 
 class _PlanSession(object):

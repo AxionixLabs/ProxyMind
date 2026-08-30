@@ -10,7 +10,10 @@ from mind_app.runtime.execution import (
     TurnContext,
 )
 from mind_app.runtime.hooks.scope import HookExecutionContext
-from mind_core.permissions import PermissionSettings, preset_permissions
+from agent.application import (
+    PermissionSettings,
+    preset_permissions,
+)
 
 
 def test_root_agent_and_turn_context_share_session_identity() -> None:

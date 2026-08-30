@@ -33,7 +33,7 @@ from mind_app.history.transcript import (
     ConversationTranscriptStore,
     TranscriptReader,
 )
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 
 
 class _Report(object):

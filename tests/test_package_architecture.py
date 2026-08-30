@@ -117,22 +117,22 @@ def test_packaged_backend_is_self_contained() -> None:
 
 
 def test_agent_harness_core_does_not_import_legacy_packages() -> None:
-    forbidden = {
+    legacy_forbidden = {
         "applications",
         "backend",
         "engine",
         "mind_app",
         "mind_core",
-        "protocol",
         "server",
     }
+    protocol_forbidden = {*legacy_forbidden, "protocol"}
     violations = [
-        *_forbidden_imports("agent/protocol", forbidden),
-        *_forbidden_imports("agent/domain", forbidden),
-        *_forbidden_imports("agent/ports", forbidden),
-        *_forbidden_imports("agent/harness", forbidden),
-        *_forbidden_imports("agent/application", forbidden),
-        *_forbidden_imports("agent/stores", forbidden),
+        *_forbidden_imports("agent/protocol", protocol_forbidden),
+        *_forbidden_imports("agent/domain", legacy_forbidden),
+        *_forbidden_imports("agent/ports", legacy_forbidden),
+        *_forbidden_imports("agent/harness", legacy_forbidden),
+        *_forbidden_imports("agent/application", legacy_forbidden),
+        *_forbidden_imports("agent/stores", legacy_forbidden),
     ]
 
     assert not violations, "agent harness imports legacy code:\n" + "\n".join(
@@ -286,6 +286,29 @@ def test_project_trust_has_no_legacy_source_or_imports() -> None:
                     )
 
     assert not violations, "legacy project trust imports remain:\n" + "\n".join(violations)
+
+
+def test_permission_policy_has_no_legacy_source_or_imports() -> None:
+    """确保权限策略只由 Harness domain 持有。"""
+    legacy_path = PROJECT_ROOT / "mind_core" / "permissions.py"
+    assert not legacy_path.exists(), "legacy permission policy source still exists"
+
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module == "mind_core.permissions":
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy permission policy imports remain:\n" + "\n".join(violations)
 
 
 def test_agent_application_does_not_load_concrete_composition() -> None:

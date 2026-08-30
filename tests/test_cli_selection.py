@@ -56,7 +56,7 @@ from mind_app.tui.core.runtime import TuiRuntime
 from infrastructure.config.paths import ApplicationLayout
 from mind_core.config import ConfigOverride
 from mind_core.design.terminal_capabilities import DEGRADED_TERMINAL_CAPABILITIES
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 from infrastructure.errors import AppError
 
 

@@ -30,7 +30,7 @@ from mind_app.runtime.execution import (
 )
 from mind_app.runtime.hooks.models import HookDecision
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
-from mind_core.permissions import (
+from agent.application import (
     PermissionSettings,
     permission_label,
     preset_permissions,

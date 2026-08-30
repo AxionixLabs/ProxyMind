@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from mind_core.permissions import PermissionSettings
+from agent.application import PermissionSettings
 from protocol.schema.identifiers import new_cid, new_sid
 from mind_app.runtime.execution import AgentContext
 from mind_app.runtime.subagents.control import (

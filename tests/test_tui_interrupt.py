@@ -20,7 +20,7 @@ from mind_app.tui.core.queued import TuiSubmission
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.submission import TuiInterruptRequested
 from mind_app.tui.session import loop
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 from mind_app.tui.session.turn import execute_tui_model_turn
 
 

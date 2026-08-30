@@ -8,7 +8,7 @@ import asyncio
 import sqlite3
 from pathlib import Path
 from observability import observe_exception
-from mind_core.permissions import PermissionSettings
+from agent.application import PermissionSettings
 from protocol.schema.permissions import (
     normalize_approval_policy,
     normalize_approval_reviewer,

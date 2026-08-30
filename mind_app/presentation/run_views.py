@@ -4,7 +4,7 @@
 import re
 import copy
 import typing
-from mind_core.permissions import PermissionSettings
+from agent.application import PermissionSettings
 from .models import (
     RunCompletedView,
     RunIncompleteView,

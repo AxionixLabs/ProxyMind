@@ -23,7 +23,7 @@ from mind_app.tui.features.agents import (
     agent_snapshot_block,
     manage_agents,
 )
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid
 
 

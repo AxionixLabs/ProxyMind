@@ -670,6 +670,19 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] 删除旧项目策略模块；项目配置/CLI 信任回归、架构守卫、语法检查和导入图检查通过。
   下一切片继续处理权限策略和 hooks 生命周期。
 
+### 已完成切片：权限领域策略归位
+
+状态：已完成（2026-08-30）
+
+- [x] 将沙箱模式、审批策略、网络访问、用户预设和权限展示标签从
+  `mind_core/permissions.py` 迁入 `agent/domain/policies.py`，由
+  `agent.application` 作为唯一公开入口提供；执行、TUI、MCP 和 Subagent 消费者不再
+  直接依赖配置核心。
+- [x] domain 仅依赖无副作用的权限 schema 类型和规范化规则，不读取环境、不启动进程、
+  不调用具体工具；架构守卫继续禁止 legacy runtime 和具体 adapter 依赖。
+- [x] 删除旧权限模块；权限、执行上下文、TUI/MCP/Subagent 和架构测试通过，下一切片
+  继续拆分 hooks 生命周期。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -711,6 +724,7 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `mind_core/provider_config.py` -> `infrastructure/config/providers.py` | Provider 默认值、路由和 Profile 标识约束归入配置基础设施 | 配置服务/偏好/Provider 选择回归通过，旧源模块删除 | 5 |
 | `mind_core/skills/` -> `infrastructure/skills/` | 技能发现、解析、过滤和 payload 归入本地资源基础设施 | Skills/TUI/流式/Subagent 回归通过，旧目录删除 | 5 |
 | `mind_core/project_trust.py` -> `infrastructure/config/trust.py` | 项目根、Git 和信任登记解析归入配置基础设施 | 配置层/CLI 信任回归通过，旧源模块删除 | 5 |
+| `mind_core/permissions.py` -> `agent/domain/policies.py` | 沙箱、审批、网络访问和预设策略归入 Harness domain | 权限/执行上下文/TUI/MCP/Subagent 回归通过，旧源模块删除 | 5 |
 
 ## 风险与处理
 
@@ -812,3 +826,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-30 | 阶段 5 应用设置/Provider 配置切片 | 将 Agent/Feature 设置合并到 `agent/application/settings.py`，将 Provider 规则迁入 `infrastructure/config/providers.py`，切换所有消费者并删除三个旧模块 | 设置/配置服务/Subagent 定向测试 `244 passed`，架构测试 `15 passed`，全量回归 `2967 passed, 11 skipped`，`compileall` 和导入图检查通过；下一切片处理权限、项目策略、hooks/skills |
 | 2026-08-30 | 阶段 5 Skills 资源切片 | 将 `mind_core/skills/` 重组到 `infrastructure/skills/`，切换 TUI、模型流和 Subagent 消费者并删除旧目录 | Skills/TUI/流式定向回归 `326 passed`，架构测试 `16 passed`，全量回归 `2968 passed, 11 skipped`，`compileall` 和导入图检查通过；下一切片处理权限、项目信任和 hooks |
 | 2026-08-30 | 阶段 5 项目边界信任切片 | 将 `mind_core/project_trust.py` 迁入 `infrastructure/config/trust.py`，切换配置层/会话消费者，收窄信任级别类型并删除旧模块 | 项目配置/CLI 信任定向回归 `138 passed`，架构测试 `17 passed`，全量回归 `2969 passed, 11 skipped`，`compileall` 和导入图检查通过；下一切片处理权限策略和 hooks |
+| 2026-08-30 | 阶段 5 权限领域策略切片 | 将 `mind_core/permissions.py` 迁入 `agent/domain/policies.py`，通过 application 公开入口切换执行、TUI、MCP 和 Subagent 消费者并删除旧模块 | 权限/执行上下文/TUI/MCP/Subagent 定向回归 `134 passed`，架构测试 `18 passed`，全量回归 `2970 passed, 11 skipped`，`compileall` 和导入图检查通过；下一切片处理 hooks 生命周期 |

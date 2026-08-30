@@ -10,7 +10,7 @@ from prompt_toolkit.output import DummyOutput
 
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.session.state import preload_tui_prompt_context
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 
 
 @pytest.mark.anyio

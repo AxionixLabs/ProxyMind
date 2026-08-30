@@ -7,7 +7,7 @@ from dataclasses import (
     replace
 )
 from protocol.schema.stream_events import ExecutionEffect
-from mind_core.permissions import PermissionSettings
+from agent.application import PermissionSettings
 from protocol.schema.identifiers import (
     normalize_turn_id,
     short_uid

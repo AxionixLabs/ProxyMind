@@ -32,7 +32,7 @@ from mind_app.runtime.subagents.mailbox import (
 )
 from mind_app.runtime.subagents.thread import AgentThreadContext
 from agent.application import AgentSettings
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid
 from protocol.schema.stream_events import MarkerEvent
 from protocol.schema.turn_inputs import TurnInput

@@ -10,7 +10,7 @@ from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.tui.features import conversation
 from mind_core.hook_discovery import resolve_hook_definitions
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 
 
 def _compact_hooks():

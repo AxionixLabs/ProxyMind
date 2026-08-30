@@ -26,7 +26,7 @@ from agent.application import (
 )
 from mind_app.runtime.turns.result import RunResult
 from infrastructure.config.paths import ApplicationLayout
-from mind_core.permissions import PermissionSettings
+from agent.application import PermissionSettings
 
 
 def _source_layout(tmp_path: Path) -> ApplicationLayout:

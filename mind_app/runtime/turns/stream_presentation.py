@@ -4,7 +4,7 @@
 import enum
 import time
 import typing
-from mind_core.permissions import PermissionSettings
+from agent.application import PermissionSettings
 from protocol.transport.events import EventReport
 from mind_app.output import (
     ContentSink,

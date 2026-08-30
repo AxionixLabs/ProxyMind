@@ -17,7 +17,7 @@ from mind_app.runtime.hooks.scope import (
 )
 from mind_app.runtime.turns import stream_setup
 from mind_app.runtime.turns.executor import TurnExecution
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 
 
 def _output_session() -> OutputSession:

@@ -49,7 +49,7 @@ from mind_app.presentation.approval_views import build_approval_view
 from mind_app.presentation.renderers.approval import render_approval_view
 from mind_core.hook_discovery import resolve_hook_definitions
 from mind_core.hooks import HOOK_EVENT_NAMES
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 
 
 class _CommandRunner:

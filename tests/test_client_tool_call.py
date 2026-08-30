@@ -37,7 +37,7 @@ from mind_app.runtime.tools.client_call import (
     ClientToolCallRunner,
 )
 from mind_app.runtime.tools.run import ToolRunResult, hook_tool_response
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 from protocol.schema.stream_events import ExecutionEffect
 
 

@@ -3,7 +3,7 @@
 
 import sys
 import typing
-from mind_core.permissions import (
+from agent.application import (
     PermissionSettings,
     permission_label,
     preset_permissions

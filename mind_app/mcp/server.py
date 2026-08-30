@@ -48,7 +48,7 @@ from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from agent.application import FeatureSettings
 from mind_core.preference import Preferences
-from mind_core.permissions import (
+from agent.application import (
     PermissionSettings,
     resolve_permissions
 )

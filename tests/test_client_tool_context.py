@@ -14,7 +14,7 @@ from mind_app.runtime.execution import (
     AgentContext,
     TurnContext,
 )
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 
 
 def _result() -> mcp_types.CallToolResult:

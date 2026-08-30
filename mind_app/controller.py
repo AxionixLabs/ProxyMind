@@ -17,7 +17,7 @@ from agent.application import (
     AgentSettings,
     FeatureSettings,
 )
-from mind_core.permissions import (
+from agent.application import (
     PermissionSettings,
     resolve_permissions
 )

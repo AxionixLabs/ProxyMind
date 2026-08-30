@@ -17,7 +17,7 @@ from agent.application import (
 )
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
-from mind_core.permissions import (
+from agent.application import (
     PermissionSettings,
     resolve_permissions
 )

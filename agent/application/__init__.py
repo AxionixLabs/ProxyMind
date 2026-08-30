@@ -44,6 +44,13 @@ from .commands import (
     TurnApplication,
     submit_turn
 )
+from agent.domain.policies import (
+    PermissionPreset,
+    PermissionSettings,
+    permission_label,
+    preset_permissions,
+    resolve_permissions,
+)
 from .projections import (
     RunResultProjection,
     project_run_result
@@ -74,6 +81,8 @@ __all__ = (
     "ForkPrompt",
     "FeatureConfigError",
     "FeatureSettings",
+    "PermissionPreset",
+    "PermissionSettings",
     "EnvironmentSnapshotCapability",
     "FilesystemCapability",
     "EffectJournalDecision",
@@ -111,6 +120,9 @@ __all__ = (
     "project_run_result",
     "normalize_agent_table",
     "normalize_feature_table",
+    "permission_label",
+    "preset_permissions",
+    "resolve_permissions",
     "submit_turn",
 )
 

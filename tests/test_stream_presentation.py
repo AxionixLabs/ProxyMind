@@ -16,7 +16,7 @@ from mind_app.runtime.turns.stream_presentation import (
     FailureProjectionMode,
     StreamTurnPresentation,
 )
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 from protocol.schema.stream_events import (
     TurnDoneEvent,
     TurnFailedEvent,

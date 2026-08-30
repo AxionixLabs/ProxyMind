@@ -49,7 +49,7 @@ from mind_app.runtime.hooks.models import (
 from mind_app.runtime.tools.client_call import ClientToolCallRunner
 from agent.composition import open_effect_journal
 from agent.application import FeatureSettings
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 from protocol.client.turn_control import TurnControlRequestError
 
 

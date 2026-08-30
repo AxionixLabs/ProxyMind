@@ -19,7 +19,7 @@ from mind_app.runtime.turns.executor import (
 from mind_app.runtime.turns.result import RunResult
 from mind_app.runtime.turns.stream import stream_turn
 from mind_app.stream_events.worked import emit_worked_footer
-from mind_core.permissions import PermissionSettings
+from agent.application import PermissionSettings
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind

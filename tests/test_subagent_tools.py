@@ -18,7 +18,7 @@ from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.turns import stream as turn_stream
 from mind_app.runtime.turns.event_reporting import EventReportRuntimeOwner
 from agent.application import AgentSettings
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid
 
 

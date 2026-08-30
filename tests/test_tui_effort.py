@@ -14,7 +14,7 @@ from mind_app.tui.core.models import (
 from mind_app.tui.features.model import choose_model_effort
 from mind_app.tui.session import dispatch
 from mind_app.tui.session import loop
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 
 
 @pytest.fixture(autouse=True)

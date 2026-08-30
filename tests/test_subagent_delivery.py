@@ -13,7 +13,7 @@ from mind_app.runtime.subagents.delivery import (
     SteeringMessageDelivery,
 )
 from mind_app.runtime.subagents.mailbox import AgentMailboxStore
-from mind_core.permissions import preset_permissions
+from agent.application import preset_permissions
 from protocol.client.turn_control import (
     TurnControlRequestError,
     TurnControlResponse,

@@ -12,7 +12,7 @@ from mind_app.mcp.contracts import McpSessionLike
 from mind_app.presentation.models import TextSpan
 from protocol.transport.events import EventReport
 from metadata import const
-from mind_core.permissions import PermissionSettings
+from agent.application import PermissionSettings
 from ...runtime.turns.executor import (
     TurnExecution,
     execute_turn,
