@@ -4,9 +4,9 @@
 import os
 import re
 import shlex
+import typing
 from enum import Enum
 from pathlib import PurePath
-from typing import Sequence
 
 
 class DangerousCommandMatch(Enum):
@@ -21,7 +21,7 @@ _SHELL_NAMES = {"sh", "bash", "zsh", "ksh", "dash", "fish", "ash"}
 _SHELL_SWITCHES = {"-c", "-lc", "-ic", "--command", "/c"}
 
 
-def dangerous_command_match(command: Sequence[str]) -> DangerousCommandMatch | None:
+def dangerous_command_match(command: typing.Sequence[str]) -> DangerousCommandMatch | None:
     """判断命令是否包含需要拦截的危险操作。"""
     words = tuple(str(word) for word in command)
     result = dangerous_command_match_with_depth(words, depth=0)
@@ -36,7 +36,7 @@ def dangerous_command_match(command: Sequence[str]) -> DangerousCommandMatch | N
 
 
 def dangerous_command_match_with_depth(
-    command: Sequence[str],
+    command: typing.Sequence[str],
     *,
     depth: int,
 ) -> DangerousCommandMatch | None:
@@ -67,7 +67,7 @@ def dangerous_command_match_with_depth(
 
 
 def dangerous_command_match_for_exec(
-    command: Sequence[str],
+    command: typing.Sequence[str],
     *,
     depth: int = 0,
 ) -> DangerousCommandMatch | None:
@@ -89,7 +89,7 @@ def dangerous_command_match_for_exec(
 
 
 def dangerous_command_match_for_env(
-    args: Sequence[str],
+    args: typing.Sequence[str],
     *,
     depth: int,
 ) -> DangerousCommandMatch | None:
@@ -118,7 +118,7 @@ def dangerous_command_match_for_env(
 
 
 def dangerous_command_match_for_trap(
-    args: Sequence[str],
+    args: typing.Sequence[str],
     *,
     depth: int,
 ) -> DangerousCommandMatch | None:
@@ -129,7 +129,7 @@ def dangerous_command_match_for_trap(
     return _scan_shell_script(action, depth=depth)
 
 
-def rm_args_include_force_option(args: Sequence[str]) -> bool:
+def rm_args_include_force_option(args: typing.Sequence[str]) -> bool:
     """判断 rm 参数是否包含强制删除选项。"""
     for arg in args:
         value = str(arg)
@@ -142,7 +142,7 @@ def rm_args_include_force_option(args: Sequence[str]) -> bool:
     return False
 
 
-def dangerous_powershell_words_match(command: Sequence[str]) -> DangerousCommandMatch | None:
+def dangerous_powershell_words_match(command: typing.Sequence[str]) -> DangerousCommandMatch | None:
     """判断 PowerShell 词元是否包含 Windows 危险命令。"""
     from .windows_dangerous_commands import is_dangerous_powershell_words
 
@@ -173,7 +173,7 @@ def _scan_shell_script(script: str, *, depth: int) -> DangerousCommandMatch | No
     return None
 
 
-def _shell_scripts(args: Sequence[str]) -> tuple[str, ...]:
+def _shell_scripts(args: typing.Sequence[str]) -> tuple[str, ...]:
     scripts: list[str] = []
     for index, arg in enumerate(args):
         if str(arg).casefold() in _SHELL_SWITCHES and index + 1 < len(args):
@@ -186,7 +186,7 @@ def _nested_shell_expressions(word: str) -> tuple[str, ...]:
     return tuple(left or right for left, right in values)
 
 
-def _skip_wrapper_options(args: Sequence[str]) -> tuple[str, ...]:
+def _skip_wrapper_options(args: typing.Sequence[str]) -> tuple[str, ...]:
     remaining = list(args)
     options_with_value = {
         "-u", "--user", "-g", "--group", "-h", "--host",

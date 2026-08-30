@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.native_coding.exec.command_safety.is_dangerous_command import (
+from infrastructure.platform.command_safety.is_dangerous_command import (
     DangerousCommandMatch,
     dangerous_command_match,
 )
-from mind_app.native_coding.exec.command_safety.windows_dangerous_commands import (
+from infrastructure.platform.command_safety.windows_dangerous_commands import (
     is_dangerous_command_windows,
 )
 

@@ -620,6 +620,41 @@ def test_workspace_process_boundaries_have_no_legacy_sources() -> None:
     )
 
 
+def test_command_safety_has_platform_ownership() -> None:
+    """确保跨平台危险命令识别不再由 native coding 包持有。"""
+    legacy_root = PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "command_safety"
+    legacy_sources = tuple(legacy_root.rglob("*.py"))
+    assert not legacy_sources, (
+        "legacy command safety sources still exist: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_sources
+        )
+    )
+
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if (
+                    module == "mind_app.native_coding.exec.command_safety"
+                    or module.startswith("mind_app.native_coding.exec.command_safety.")
+                ):
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, (
+        "legacy command safety imports remain:\n" + "\n".join(violations)
+    )
+
+
 def test_terminal_presentation_has_no_legacy_design_sources_or_imports() -> None:
     """确保终端展示能力只由 presentation/terminal 持有。"""
     legacy_design_root = PROJECT_ROOT / "mind_core" / "design"
