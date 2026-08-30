@@ -8,7 +8,7 @@ from agent.application import (
     SubmitTurnCommand,
     TurnApplication,
 )
-from mind_app.frontend import ApplicationSink, ApplicationView
+from mind_app.presentation.application import ApplicationSink, ApplicationView
 from protocol.schema.identifiers import short_uid
 from protocol.client.fork import ResubmittablePrompt
 from ..core.runtime import (

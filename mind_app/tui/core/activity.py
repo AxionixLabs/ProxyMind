@@ -7,7 +7,7 @@ import asyncio
 import contextlib
 from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
-from mind_app.frontend.contracts import (
+from mind_app.presentation.application import (
     ActivityStatusKind,
     WaitRetryState
 )

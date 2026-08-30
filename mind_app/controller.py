@@ -56,7 +56,7 @@ from .approval.ledger import ApprovalCallLedger
 from .runtime.subagents.runtime import SubagentRuntime
 from .runtime.subagents.graph import AgentGraphStore
 from .subscription.lifecycle import SubscriptionRuntimeOwner
-from .frontend.contracts import (
+from .presentation.application import (
     ActivityStatusKind,
     Frontend
 )

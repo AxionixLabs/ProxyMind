@@ -4,7 +4,7 @@
 import typing
 from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
-from mind_app.frontend import (
+from mind_app.presentation.application import (
     ApplicationSink,
     ApplicationView
 )

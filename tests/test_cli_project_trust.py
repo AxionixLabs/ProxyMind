@@ -17,11 +17,11 @@ from mind_app.cli.commands import (
     InteractiveCommand,
 )
 from mind_app.cli.bootstrap import _confirm_tui_project_trust
-from mind_app.frontend.sinks import (
+from mind_app.presentation.application_sinks import (
     ConsoleApplicationSink,
     JsonApplicationSink,
 )
-from mind_app.frontend.contracts import ApplicationView
+from mind_app.presentation.application import ApplicationView
 from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
 from mind_app.tui.adapters.hooks import TuiHookStatusAdapter
 from mind_app.tui.core.runtime import TuiRuntime

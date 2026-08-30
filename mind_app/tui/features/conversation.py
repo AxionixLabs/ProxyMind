@@ -8,7 +8,7 @@ from agent.application import (
     ProtocolCommandClient,
     ProtocolCommandError,
 )
-from mind_app.frontend import ApplicationView
+from mind_app.presentation.application import ApplicationView
 from observability import (
     observe,
     observe_exception

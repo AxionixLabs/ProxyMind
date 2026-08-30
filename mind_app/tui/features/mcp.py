@@ -4,7 +4,7 @@
 import typing
 from collections import defaultdict
 from prompt_toolkit.utils import get_cwidth
-from mind_app.frontend import ApplicationView
+from mind_app.presentation.application import ApplicationView
 from mind_app.presentation.mcp_status import (
     McpStatusDetail,
     McpStatusView,

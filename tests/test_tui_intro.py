@@ -8,7 +8,7 @@ import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mind_app.frontend.contracts import ApplicationView
+from mind_app.presentation.application import ApplicationView
 from mind_app.tui.adapters import application as tui_application
 from mind_app.tui.adapters.application import TuiApplicationSink
 from mind_app.tui.core.render import fragments_text

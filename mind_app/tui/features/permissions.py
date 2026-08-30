@@ -12,7 +12,7 @@ from mind_app.presentation.models import (
     TextSpan,
     TextStyle
 )
-from mind_app.frontend import (
+from mind_app.presentation.application import (
     ApplicationSink,
     ApplicationView
 )

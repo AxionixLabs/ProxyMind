@@ -19,8 +19,8 @@ from mcp.server.fastmcp import (
     FastMCP
 )
 from mind_app.controller import Mind
-from mind_app.frontend.contracts import Frontend
-from mind_app.frontend.sinks import NullApplicationSink
+from mind_app.presentation.application import Frontend
+from mind_app.presentation.application_sinks import NullApplicationSink
 from mind_app.interaction import NonInteractiveInteraction
 from mind_app.runtime.turns.result import RunResult
 from mind_app.runtime.turns.root import (

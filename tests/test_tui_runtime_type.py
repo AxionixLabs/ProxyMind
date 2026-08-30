@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from prompt_toolkit.output.plain_text import PlainTextOutput
 
-from mind_app.frontend.contracts import PassiveFrontendRuntime
+from mind_app.presentation.application import PassiveFrontendRuntime
 from mind_app.tui.core.models import (
     FragmentBlock,
     MenuActionKind,

@@ -11,7 +11,7 @@ from ..contracts.resume import (
     ResumePickerResult
 )
 from ..contracts.text import FragmentBlock
-from mind_app.frontend.contracts import ActivityStatusKind
+from mind_app.presentation.application import ActivityStatusKind
 from ..core.document import TuiBlockKind
 from ..core.interrupt import InterruptDisposition
 from ..core.queued import TuiSubmission

@@ -18,7 +18,7 @@ from mind_app.runtime.environment.shell_tools import (
     SHELL_TOOL_LAYOUT,
     executable_name
 )
-from mind_app.frontend.contracts import ApplicationView
+from mind_app.presentation.application import ApplicationView
 from mind_app.paths import (
     mind_config_path,
     mind_home

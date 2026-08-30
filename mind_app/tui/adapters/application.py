@@ -6,7 +6,7 @@ from mind_app.presentation.terminal.intro import (
     IntroFrame,
     intro_frames
 )
-from mind_app.frontend.contracts import (
+from mind_app.presentation.application import (
     ApplicationSink,
     ApplicationView,
     Viewport

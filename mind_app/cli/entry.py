@@ -27,7 +27,7 @@ from .commands import (
 from .parser import parse_cli_invocation
 
 if typing.TYPE_CHECKING:
-    from mind_app.frontend.contracts import ApplicationSink
+    from mind_app.presentation.application import ApplicationSink
 
 InterruptHandler: typing.TypeAlias = (
     typing.Callable[[int, FrameType | None], typing.Any]
@@ -90,7 +90,7 @@ class _InterruptController(object):
 
 def _entry_application(command: ParsedCommand) -> "ApplicationSink":
     """创建入口异常和退场展示使用的输出端。"""
-    from mind_app.frontend.sinks import (
+    from mind_app.presentation.application_sinks import (
         ConsoleApplicationSink,
         JsonApplicationSink
     )
@@ -126,7 +126,7 @@ def emit_entry_failure(
     phase: str
 ) -> None:
     """按照命令输出契约发送入口失败。"""
-    from mind_app.frontend.contracts import ApplicationView
+    from mind_app.presentation.application import ApplicationView
 
     application = _entry_application(command)
 

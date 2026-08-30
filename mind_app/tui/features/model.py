@@ -4,7 +4,7 @@
 import re
 import typing
 from mind_app.presentation.models import TextSpan
-from mind_app.frontend import (
+from mind_app.presentation.application import (
     ApplicationSink,
     ApplicationView
 )

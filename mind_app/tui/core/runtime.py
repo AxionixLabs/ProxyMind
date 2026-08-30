@@ -26,7 +26,7 @@ from mind_app.approval.models import (
     ApprovalQueueSnapshot,
     ApprovalRequest
 )
-from mind_app.frontend.contracts import (
+from mind_app.presentation.application import (
     ActivityStatusKind,
     FrontendRuntime,
     WaitRetryState

@@ -24,7 +24,7 @@ from protocol.client.turn_control import (
     interrupt_turn
 )
 from protocol.schema.turn_inputs import TurnInput
-from mind_app.frontend.contracts import WaitRetryState
+from mind_app.presentation.application import WaitRetryState
 from protocol.schema.stream_events import (
     ToolApprovalRequiredEvent,
     ToolBuiltinDoneEvent,

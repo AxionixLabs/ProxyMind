@@ -49,9 +49,9 @@ from mind_app.cli.parser import (
 from mind_app.cli.selection import OutputMode, resolve_cli_output_mode
 from mind_app.cli.dispatch import run_selected_command
 from mind_app.runtime.turns.result import RunResult
-from mind_app.frontend.contracts import PassiveFrontendRuntime
-from mind_app.frontend.sinks import ConsoleApplicationSink
-from mind_app.frontend.sinks import JsonApplicationSink
+from mind_app.presentation.application import PassiveFrontendRuntime
+from mind_app.presentation.application_sinks import ConsoleApplicationSink
+from mind_app.presentation.application_sinks import JsonApplicationSink
 from mind_app.tui.core.runtime import TuiRuntime
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.schema import ConfigOverride

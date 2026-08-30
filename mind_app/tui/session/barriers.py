@@ -10,7 +10,7 @@ from observability import (
     observe_exception
 )
 from infrastructure.errors import AppError
-from mind_app.frontend.contracts import ActivityStatusKind
+from mind_app.presentation.application import ActivityStatusKind
 from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
 from ..runtime.ports import ForegroundRuntimePort
 from ..core.interrupt import InterruptDisposition

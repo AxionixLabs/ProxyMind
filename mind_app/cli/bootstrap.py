@@ -34,7 +34,7 @@ from infrastructure.services.service_config import ServiceConfig
 from protocol.transport.endpoints import service_endpoints
 from metadata import const
 from ..controller import Mind
-from ..frontend.contracts import (
+from mind_app.presentation.application import (
     ApplicationView,
     Frontend
 )

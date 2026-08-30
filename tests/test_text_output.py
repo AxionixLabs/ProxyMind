@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mind_app.frontend.contracts import PassiveFrontendRuntime
+from mind_app.presentation.application import PassiveFrontendRuntime
 from mind_app.output.text import (
     ANSI_BOLD,
     ANSI_CYAN,

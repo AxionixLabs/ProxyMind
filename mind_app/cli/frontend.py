@@ -6,7 +6,7 @@ import functools
 import operator
 from infrastructure.errors import AppError
 from metadata import const
-from mind_app.frontend.contracts import Frontend
+from mind_app.presentation.application import Frontend
 from mind_app.interaction import NonInteractiveInteraction
 from mind_app.presentation.terminal.contracts import TerminalDesign
 from .selection import OutputMode
@@ -82,7 +82,7 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
             runtime=runtime,
         )
 
-    from mind_app.frontend.sinks import (
+    from mind_app.presentation.application_sinks import (
         ConsoleApplicationSink,
         JsonApplicationSink,
     )
