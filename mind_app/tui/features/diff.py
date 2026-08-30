@@ -5,7 +5,7 @@ import os
 import typing
 from pathlib import Path
 from prompt_toolkit.formatted_text import ANSI
-from mind_app.native_coding.git_diff import (
+from infrastructure.platform.git_diff import (
     WorkspaceDiffError,
     WorkspaceDiffService,
     WorkspaceDiffState

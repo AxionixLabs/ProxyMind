@@ -16,7 +16,7 @@ from observability import (
     observe,
     observe_exception
 )
-from mind_app.runtime.processes import (
+from infrastructure.platform.processes import (
     close_process_stdin,
     interrupt_process_tree,
     subprocess_process_group_kwargs,

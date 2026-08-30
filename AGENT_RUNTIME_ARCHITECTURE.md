@@ -504,6 +504,9 @@ running -> cancelled
 | `mind_app/attach.py` | `mind_app/interaction/attachments.py` | 待发送附件的路径解析、分类、快照和消费属于交互输入状态；不把一次输入状态伪装成持久化 Store 或协议模型 |
 | `mind_app/mcp/` | `mind_app/runtime/mcp/` | MCP 配置、外部连接、会话组合、工具结果和 stdio 服务同属运行时适配边界；不在应用根保留平铺包或转发 facade |
 | `mind_app/native_coding/encoding.py` | `infrastructure/platform/encoding.py` | 进程输出编码探测、规范化和解码是跨能力的平台事实；native coding 只消费平台端口，不拥有第二套解码器 |
+| `mind_app/runtime/processes.py` | `infrastructure/platform/processes.py` | 进程组创建、stdin 收束、树级中断/终止和 Windows/POSIX 差异属于平台生命周期能力 |
+| `mind_app/native_coding/workspace_command.py` | `infrastructure/platform/workspace.py` | 无 shell 工作区命令、超时和输出上限属于平台命令执行能力；native coding 不拥有进程树实现 |
+| `mind_app/native_coding/git_diff.py` | `infrastructure/platform/git_diff.py` | Git worktree 探测、安全配置和差异采集属于平台工作区能力；TUI 只消费差异结果 |
 | `mind_core/application_paths.py` | `infrastructure/config/paths.py` | 应用入口、打包模式、本地资源目录和用户数据目录解析属于配置基础设施；不把路径环境事实放入策略模块 |
 | `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |
 | `mind_core/provider_config.py` | `infrastructure/config/providers.py` | Provider Profile 默认值、路由和标识校验属于配置基础设施；不把供应商连接规则放入 Harness domain |

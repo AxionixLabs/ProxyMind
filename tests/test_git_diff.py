@@ -8,14 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from mind_app.native_coding.git_diff import (
+from infrastructure.platform.git_diff import (
     DIFF_COMMAND_TIMEOUT_SEC,
     SAFE_BARE_REPOSITORY_CONFIG,
     WorkspaceDiffError,
     WorkspaceDiffService,
     WorkspaceDiffState,
 )
-from mind_app.native_coding.workspace_command import (
+from infrastructure.platform.workspace import (
     WorkspaceCommand,
     WorkspaceCommandOutput,
 )

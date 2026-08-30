@@ -32,7 +32,7 @@ from mind_app.native_coding.exec.exec_policy import (
     normalize_sandbox_permission,
 )
 from agent.stores.permission_grants import normalize_permission_profile
-from mind_app.runtime.processes import wait_for_process
+from infrastructure.platform.processes import wait_for_process
 
 
 class ShellCommandTools(NativeCodingComponent):

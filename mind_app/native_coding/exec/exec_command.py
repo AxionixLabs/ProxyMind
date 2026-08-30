@@ -8,7 +8,7 @@ from mind_app.native_coding.base import (
     NativeCodingBase,
     NativeCodingComponent
 )
-from mind_app.runtime.processes import (
+from infrastructure.platform.processes import (
     terminate_process_tree,
     wait_for_process
 )

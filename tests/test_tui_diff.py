@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from mind_app.native_coding.git_diff import (
+from infrastructure.platform.git_diff import (
     WorkspaceDiffError,
     WorkspaceDiffResult,
     WorkspaceDiffState,

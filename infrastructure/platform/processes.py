@@ -36,14 +36,9 @@ async def close_process_stdin(
     if not callable(wait_closed):
         return None
 
-    wait_closed_call = typing.cast(
-        typing.Callable[[], typing.Awaitable[None]],
-        wait_closed
-    )
-
     try:
         await asyncio.wait_for(
-            wait_closed_call(),
+            wait_closed(),
             timeout=max(0.0, float(timeout_sec)),
         )
     except (BrokenPipeError, ConnectionResetError, RuntimeError, ValueError):

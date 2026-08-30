@@ -7,7 +7,7 @@ import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from infrastructure.platform.encoding import decode_process_output
-from mind_app.runtime.processes import (
+from infrastructure.platform.processes import (
     subprocess_process_group_kwargs,
     terminate_process_tree
 )

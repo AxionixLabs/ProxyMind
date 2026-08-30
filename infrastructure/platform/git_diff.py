@@ -6,7 +6,7 @@ import enum
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from .workspace_command import (
+from .workspace import (
     LocalWorkspaceCommandRunner,
     WorkspaceCommand,
     WorkspaceCommandError,

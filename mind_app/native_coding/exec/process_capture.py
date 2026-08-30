@@ -4,7 +4,7 @@
 import time
 import asyncio
 from dataclasses import dataclass
-from mind_app.runtime.processes import (
+from infrastructure.platform.processes import (
     subprocess_process_group_kwargs,
     terminate_process_tree
 )

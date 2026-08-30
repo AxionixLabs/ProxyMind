@@ -11,7 +11,7 @@ from agent.application import (
     HookEventName
 )
 from metadata import const
-from mind_app.runtime.processes import (
+from infrastructure.platform.processes import (
     subprocess_process_group_kwargs,
     terminate_process_tree
 )
