@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.output.session import OutputSession
+from mind_app.presentation.output.session import OutputSession
 from ..core.runtime import TuiRuntime
 from .content import TuiContentSink
 from .output import TuiOutputControl

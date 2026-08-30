@@ -31,7 +31,7 @@ from mind_app.presentation.models import (
     RunStartedView,
     ToolStartView
 )
-from ..stream_io.output_record import StreamRecordWriter
+from ...stream_io.output_record import StreamRecordWriter
 from .content import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,

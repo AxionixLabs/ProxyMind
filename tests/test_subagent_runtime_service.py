@@ -9,7 +9,7 @@ import pytest
 
 from mind_app.runtime.turns.result import RunResult
 from mind_app.history.transcript import ConversationTranscriptStore
-from mind_app.output.silent import create_silent_output_session
+from mind_app.presentation.output.silent import create_silent_output_session
 from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.scope import (
     HookExecutionScope,

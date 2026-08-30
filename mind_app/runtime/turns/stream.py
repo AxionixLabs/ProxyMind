@@ -45,7 +45,7 @@ from protocol.client.tools import (
     post_tool_result
 )
 from protocol.client.effects import post_effect_reconciliation
-from ...output import OutputControlPort
+from mind_app.presentation.output import OutputControlPort
 from .result import RunResult
 from ..hooks.tool import ToolCallCoordinator
 from ..hooks.models import StopHookDecision

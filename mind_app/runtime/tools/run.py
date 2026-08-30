@@ -22,7 +22,7 @@ from mind_app.mcp.tool_store import meta_for_tool
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.tool_policy import is_approval_only_tool
 from .enhancement import enhance_result
-from ...output import OutputStatusPort
+from mind_app.presentation.output import OutputStatusPort
 from .enhance_reporter import ToolEnhanceReporter
 from .progress import show_tool_progress
 from .router import execute_tool

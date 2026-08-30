@@ -13,7 +13,7 @@ from mind_app.runtime.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
 )
-from mind_app.output import (
+from mind_app.presentation.output import (
     OutputControlPort,
     OutputStatusPort
 )

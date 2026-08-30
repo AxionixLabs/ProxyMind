@@ -5,14 +5,14 @@ import json
 
 import pytest
 
-from mind_app.output.content import (
+from mind_app.presentation.output.content import (
     AssistantPresentationSuperseded,
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ResponseIdentity,
 )
-from mind_app.output.jsonl import (
+from mind_app.presentation.output.jsonl import (
     JsonContentSink,
     JsonPresentationSink,
     JsonOutputControl,

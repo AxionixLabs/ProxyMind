@@ -38,7 +38,7 @@ from mind_app.presentation.terminal.capabilities import (
 from infrastructure.skills import SkillSpec
 from metadata import const
 from mind_app.interaction.contracts import PromptContext
-from mind_app.output.content import (
+from mind_app.presentation.output.content import (
     AssistantOutputBoundary,
     AssistantSegmentCompleted,
     AssistantTextDelta,

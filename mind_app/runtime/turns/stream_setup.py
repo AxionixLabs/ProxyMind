@@ -9,7 +9,7 @@ from observability import observe_exception
 from infrastructure.skills import skills_payload
 from protocol.transport.events import EventReport
 from protocol.schema.environment import normalize_client_environment_snapshot
-from mind_app.output import (
+from mind_app.presentation.output import (
     OutputSession,
     SessionFactory,
 )

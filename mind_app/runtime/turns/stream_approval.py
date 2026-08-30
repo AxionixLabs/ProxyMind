@@ -16,7 +16,7 @@ from mind_app.approval.policy import (
     approval_from_snapshot,
     approval_id_from_event
 )
-from mind_app.output import OutputStatusPort
+from mind_app.presentation.output import OutputStatusPort
 from mind_app.presentation.approval_views import build_approval_view
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.models import ApprovalSource

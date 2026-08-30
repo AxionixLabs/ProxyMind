@@ -6,7 +6,7 @@ import time
 import typing
 from agent.application import PermissionSettings
 from protocol.transport.events import EventReport
-from mind_app.output import (
+from mind_app.presentation.output import (
     ContentSink,
     OutputStatusPort,
     SourcesOutput,

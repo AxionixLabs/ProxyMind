@@ -4,7 +4,7 @@ import typing
 
 import pytest
 
-from mind_app.output import SourcesOutput
+from mind_app.presentation.output import SourcesOutput
 from mind_app.presentation.models import (
     FailureView,
     RunCompletedView,

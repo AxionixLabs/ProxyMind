@@ -531,6 +531,36 @@ def test_frontend_contracts_have_no_legacy_package_or_imports() -> None:
     assert not violations, "legacy frontend imports remain:\n" + "\n".join(violations)
 
 
+def test_presentation_output_has_no_legacy_package_or_imports() -> None:
+    """确保单轮输出会话和 sink 已归入 presentation/output 边界。"""
+    legacy_root = PROJECT_ROOT / "mind_app" / "output"
+    legacy_sources = tuple(legacy_root.rglob("*.py"))
+    assert not legacy_sources, (
+        "legacy output sources still exist: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_sources
+        )
+    )
+
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module == "mind_app.output" or module.startswith("mind_app.output."):
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy output imports remain:\n" + "\n".join(violations)
+
+
 def test_agent_application_does_not_load_concrete_composition() -> None:
     violations = _forbidden_module_imports(
         "agent/application",

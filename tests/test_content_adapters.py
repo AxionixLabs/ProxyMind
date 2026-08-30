@@ -8,13 +8,13 @@ from unittest.mock import (
 
 import pytest
 
-from mind_app.output.content import (
+from mind_app.presentation.output.content import (
     AssistantOutputBoundary,
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     ResponseIdentity,
 )
-from mind_app.output.terminal_content import TerminalContentSink
+from mind_app.presentation.output.terminal_content import TerminalContentSink
 from mind_app.tui.adapters.content import TuiContentSink
 
 

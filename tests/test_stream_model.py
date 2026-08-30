@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from agent.protocol import CanonicalItem
-from mind_app.output import (
+from mind_app.presentation.output import (
     AssistantOutputBoundary,
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,

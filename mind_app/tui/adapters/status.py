@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.output import OutputStatusPort
+from mind_app.presentation.output import OutputStatusPort
 
 
 class TuiStreamStatusControl(OutputStatusPort):

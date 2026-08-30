@@ -28,7 +28,7 @@ from mind_app.runtime.turns.root import (
     RootTurnRunner,
     run_root_turn,
 )
-from mind_app.output.silent import create_silent_output_session
+from mind_app.presentation.output.silent import create_silent_output_session
 from mind_app.paths import (
     agent_runtime_db_path,
     ensure_mind_home,

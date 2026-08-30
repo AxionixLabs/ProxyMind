@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.output.content import (
+from mind_app.presentation.output.content import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
     AssistantResponseSuperseded,
@@ -12,7 +12,7 @@ from mind_app.output.content import (
     ContentSink,
     SourcesOutput
 )
-from mind_app.output.source_text import render_sources_text
+from mind_app.presentation.output.source_text import render_sources_text
 from .output import TuiOutputControl
 
 

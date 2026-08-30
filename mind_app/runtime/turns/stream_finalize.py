@@ -4,7 +4,7 @@
 import typing
 from observability import observe_exception
 from mind_app.history.contracts import TranscriptSink
-from mind_app.output import OutputControlPort
+from mind_app.presentation.output import OutputControlPort
 from mind_app.runtime.hooks.models import StopHookDecision
 from mind_app.runtime.hooks.turn import TurnHookEvents
 from mind_app.runtime.support.idle_status import IdleStatusTimer

@@ -11,7 +11,7 @@ from dataclasses import (
     field
 )
 from mind_app.interaction.contracts import InteractionPort
-from mind_app.output.session import SessionFactory
+from mind_app.presentation.output.session import SessionFactory
 
 ActivityStatusKind = typing.Literal[
     "wait",

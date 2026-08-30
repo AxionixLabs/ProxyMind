@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from mind_app.presentation.application import PassiveFrontendRuntime
-from mind_app.output.text import (
+from mind_app.presentation.output.text import (
     ANSI_BOLD,
     ANSI_CYAN,
     ANSI_DIM,
@@ -19,7 +19,7 @@ from mind_app.output.text import (
     TextOutputState,
     TextPresentationSink,
 )
-from mind_app.output.content import (
+from mind_app.presentation.output.content import (
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ResponseIdentity,
