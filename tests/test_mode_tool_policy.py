@@ -6,7 +6,7 @@ import pytest
 from mcp import types as mcp_types
 
 from mind_app.runtime.mcp.tools import build_tool_context
-from mind_app.runtime.tools.mode_policy import filter_mode_tools
+from agent.domain.tool_policy import filter_mode_tools
 
 
 def _tool(name: str, **meta):

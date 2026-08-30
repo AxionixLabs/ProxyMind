@@ -22,7 +22,7 @@ from mind_app.runtime.mcp.service_runtime import (
     prepare_and_start_service_runtime,
     service_runtime_asset_missing
 )
-from mind_app.runtime.tools.mode_policy import ToolFilterMode
+from agent.domain.tool_policy import ToolFilterMode
 from metadata import const
 from ..core.models import (
     FragmentBlock,

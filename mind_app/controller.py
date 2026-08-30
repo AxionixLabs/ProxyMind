@@ -43,7 +43,7 @@ from .runtime.mcp.tool_runtime import (
     CompositeToolRuntime,
     ToolRuntime
 )
-from .runtime.tools.mode_policy import ToolFilterMode
+from agent.domain.tool_policy import ToolFilterMode
 from .client_tools import (
     ClientToolRegistry,
     default_registry as default_client_tool_registry

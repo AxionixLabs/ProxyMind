@@ -24,7 +24,7 @@ from mind_app.runtime.turns.event_reporting import (
     EventReportLifetime,
     TurnEventReportHandle,
 )
-from mind_app.runtime.tools.mode_policy import (
+from agent.domain.tool_policy import (
     ToolFilterMode,
     filter_mode_tools
 )

@@ -1233,6 +1233,60 @@ def test_hook_result_projection_has_application_ownership() -> None:
     )
 
 
+def test_tool_mode_policy_belongs_to_domain() -> None:
+    """确保工具可见性策略归入 domain 且不反向依赖 runtime。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "mode_policy.py"
+    assert not legacy_path.is_file(), "legacy tool mode policy source still exists"
+
+    legacy_modules = {"mind_app.runtime.tools.mode_policy"}
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, (
+        "legacy tool mode policy imports remain:\n" + "\n".join(violations)
+    )
+
+    domain_path = PROJECT_ROOT / "agent" / "domain" / "tool_policy.py"
+    tree = ast.parse(
+        domain_path.read_text(encoding="utf-8-sig"),
+        filename=str(domain_path),
+    )
+    domain_violations: list[str] = []
+    forbidden_roots = {"infrastructure", "mind_app", "mind_core", "observability"}
+    for node in ast.walk(tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module == "agent.application" or module.startswith("agent.application."):
+                domain_violations.append(
+                    f"{domain_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+            elif module.partition(".")[0] in forbidden_roots:
+                domain_violations.append(
+                    f"{domain_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+
+    assert not domain_violations, (
+        "tool mode policy crosses its domain boundary:\n"
+        + "\n".join(domain_violations)
+    )
+
+
 def test_execution_policy_is_split_between_domain_and_config() -> None:
     """确保执行策略值对象与规则文件解析分别归属 domain/config。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "execpolicy"
@@ -1517,6 +1571,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.hook_output",
         "agent.application.hook_result",
         "agent.domain.hook_matching",
+        "agent.domain.tool_policy",
         "agent.domain.execution_policy",
         "agent.ports",
         "agent.protocol.json_value",

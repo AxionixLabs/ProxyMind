@@ -198,6 +198,7 @@ agent/
 │   ├── approvals.py         # 审批请求、决定和策略
 │   ├── agents.py            # 子 Agent 身份、关系和状态
 │   ├── hook_matching.py     # Hook matcher 解析、工具别名和候选值规则
+│   ├── tool_policy.py       # app/api 工具可见性和元数据过滤规则
 │   └── policies.py          # 权限、预算、取消和重试规则
 ├── harness/
 │   ├── session_loop.py      # 一个 Session 的单写者事件循环
@@ -526,6 +527,7 @@ running -> cancelled
 | `mind_app/runtime/hooks/protocol.py` | `agent/application/hook_protocol.py` | Hook 进程 stdin/stdout schema、构建和校验属于 application boundary；runtime 只调用已校验的契约，不把内部 Hook 协议误并入线上 `protocol/` |
 | `mind_app/runtime/hooks/catalog.py` | `agent/application/hook_catalog.py` | Hook 管理目录、不可变状态快照和内容冲突错误属于 application contract；Controller/TUI 只消费该契约，注册器仍负责运行时装配 |
 | `mind_app/runtime/hooks/matching.py` | `agent/domain/hook_matching.py` | Hook matcher、工具 canonical 名称和别名候选属于纯领域规则；不依赖 application、runtime 或平台实现 |
+| `mind_app/runtime/tools/mode_policy.py` | `agent/domain/tool_policy.py` | app/api 工具可见性、隐藏规则和内联元数据过滤属于纯领域策略；入口与 runtime 只消费策略函数 |
 | `mind_app/runtime/hooks/events.py` | `agent/application/hook_events.py` | Hook 生命周期事件规格和目录一致性校验属于 application contract；规范化实现通过同层 `hook_output` 注入，不反向依赖 runtime |
 | `mind_app/runtime/hooks/effects.py` | `agent/application/hook_output.py` | Hook 输出 schema 后的语义校验、决定归一化和业务阻断结果属于 application contract；不持有外部效果或执行器副作用 |
 | `mind_app/runtime/hooks/results.py` | `agent/application/hook_result.py` | 后置 Hook 的工具结果替换、反馈和上下文投影属于 application contract；runtime tool 只负责协调调用 |

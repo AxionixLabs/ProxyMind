@@ -21,7 +21,7 @@ from observability import (
     observe,
     observe_exception
 )
-from ..tools.mode_policy import ToolFilterMode
+from agent.domain.tool_policy import ToolFilterMode
 from .service_exec_env import fetch_service_exec_env
 
 if typing.TYPE_CHECKING:
