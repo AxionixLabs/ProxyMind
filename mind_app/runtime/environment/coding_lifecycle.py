@@ -5,6 +5,7 @@ import os
 import typing
 import asyncio
 import contextlib
+from agent.application import ProcessCapability
 from mind_core.application_paths import ApplicationLayout
 from mind_app.native_coding import NativeCoding
 from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
@@ -24,11 +25,13 @@ class WorkspaceCodingRuntimeOwner(object):
         application_layout: ApplicationLayout | None = None,
         coding_factory: CodingFactory = NativeCoding,
         execution_policy_factory: ExecutionPolicyFactory = ExecPolicyManager,
+        process_capability: ProcessCapability | None = None,
     ) -> None:
         """为初始工作区创建运行时资源并绑定实例工厂。"""
         self._application_layout = application_layout
         self._coding_factory = coding_factory
         self._execution_policy_factory = execution_policy_factory
+        self._process_capability = process_capability
         self._retired_codings: set[NativeCoding] = set()
         self._close_tasks: set[asyncio.Task[None]] = set()
         self._closed = False
@@ -72,6 +75,9 @@ class WorkspaceCodingRuntimeOwner(object):
         if close_tasks:
             await asyncio.gather(*close_tasks, return_exceptions=True)
 
+        if self._process_capability is not None:
+            await self._process_capability.aclose()
+
         self._closed = True
 
     def _create_coding(
@@ -79,10 +85,13 @@ class WorkspaceCodingRuntimeOwner(object):
         workspace_root: str | os.PathLike[str],
     ) -> NativeCoding:
         """创建绑定指定工作区的编码运行时。"""
-        return self._coding_factory(
-            root=workspace_root,
-            application_layout=self._application_layout,
-        )
+        kwargs: dict[str, typing.Any] = {
+            "root": workspace_root,
+            "application_layout": self._application_layout,
+        }
+        if self._process_capability is not None:
+            kwargs["process_capability"] = self._process_capability
+        return self._coding_factory(**kwargs)
 
     def _create_execution_policy(
         self,

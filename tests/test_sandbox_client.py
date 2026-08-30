@@ -1,9 +1,15 @@
 import asyncio
 
+import pytest
+from agent.capabilities import InMemoryProcessCapability
 from mind_app.native_coding.exec.sandbox_client import (
     SandboxClient,
     _SidecarStream,
     sandbox_backend_name,
+)
+from mind_app.native_coding.exec.process_session import (
+    ProcessSessionManager,
+    ProcessSessionSpec,
 )
 from mind_app.native_coding.native_coding import NativeCoding
 from mind_core.application_paths import ApplicationLayout
@@ -142,3 +148,37 @@ def test_sidecar_stream_read_without_size_collects_until_eof() -> None:
         assert await stream.read() == b"firstsecond"
 
     asyncio.run(run())
+
+
+@pytest.mark.anyio
+async def test_process_session_manager_uses_injected_process_capability() -> None:
+    """验证完整权限进程通过 capability 端口完成输出和回收。"""
+    capability = InMemoryProcessCapability(
+        stdout="capability output",
+        stderr="capability warning",
+    )
+    manager = ProcessSessionManager(process_capability=capability)
+    spec = ProcessSessionSpec(
+        command="echo",
+        args=("echo", "capability"),
+        cwd=".",
+        display_cwd=".",
+        runtime={},
+        origin="test",
+        timeout_sec=30,
+        idle_timeout_sec=30,
+    )
+
+    session = await manager.start(spec)
+    await session.process.wait()
+    snapshot = await manager.output_snapshot(
+        session.session_id,
+        max_output_chars=12000,
+    )
+
+    assert snapshot["status"] == "exited"
+    assert snapshot["stdout"] == "capability output"
+    assert snapshot["stderr"] == "capability warning"
+
+    await manager.close()
+    await capability.aclose()

@@ -583,6 +583,55 @@ async def _run_stream(
             """把控制命令测试替身连接到当前协议请求替身。"""
             return await stream.interrupt_turn(**kwargs)
 
+        async def steer_turn(self, **kwargs):
+            """提供完整协议端口所需的引导命令形状。"""
+            del kwargs
+            return SimpleNamespace(status="accepted")
+
+        async def reconcile_turn_inputs(self, **kwargs):
+            """提供完整协议端口所需的输入对账命令形状。"""
+            del kwargs
+            return SimpleNamespace(
+                turn_id="turn_test",
+                turn_status="running",
+                committed_ids=(),
+                pending_ids=(),
+                retry_ids=(),
+                unknown_ids=(),
+            )
+
+        async def get_turn_status(self, **kwargs):
+            """提供完整协议端口所需的轮次状态查询形状。"""
+            del kwargs
+            return SimpleNamespace(
+                cid="cid_test",
+                sid="sid_test",
+                turn_id="turn_test",
+                run_id="run_test",
+                status="running",
+                terminal=False,
+                attempt=1,
+                version=1,
+                last_event_seq=0,
+                created_at=0.0,
+                updated_at=0.0,
+                error="",
+            )
+
+        async def fork_session(self, **kwargs):
+            """提供完整协议端口所需的会话分支命令形状。"""
+            del kwargs
+            return SimpleNamespace(
+                request_id="request_test",
+                source_cid="cid_test",
+                source_sid="sid_test",
+                prompt_source="none",
+                cid="cid_forked",
+                sid="sid_forked",
+                copied_items=0,
+                copied_turns=0,
+            )
+
         async def post_tool_result(self, *args, **kwargs):
             """把工具结果命令测试替身连接到当前协议请求替身。"""
             return await stream.post_tool_result(*args, **kwargs)
@@ -590,6 +639,11 @@ async def _run_stream(
         async def get_tool_result_status(self, **kwargs):
             """把工具状态查询测试替身连接到当前协议请求替身。"""
             return await stream.get_tool_result_status(**kwargs)
+
+        async def renew_tool_result(self, **kwargs):
+            """把托管工具续期命令测试替身连接到当前协议请求替身。"""
+            del kwargs
+            return {"status": "renewed"}
 
         async def post_tool_approval(self, *args, **kwargs):
             """把审批命令测试替身连接到当前协议请求替身。"""

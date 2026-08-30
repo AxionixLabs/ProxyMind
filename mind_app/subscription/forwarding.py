@@ -15,7 +15,11 @@ from engine.errors import AppError
 from engine.observability import observe
 from ..runtime.agent.client import AgentClient
 from ..runtime.environment.snapshot import capture_active_turn_environment
-from ..runtime.turns.root import RootTurnRunner, run_root_turn
+from ..runtime.turns.root import (
+    RootTurnCommandExecutor,
+    RootTurnRunner,
+    run_root_turn,
+)
 from ..runtime.turns.result import RunResult
 from .models import (
     AgentInboxItem,
@@ -181,29 +185,10 @@ class AgentExecutor(object):
                 environment_snapshot=environment_snapshot,
             )
 
-            async def execute_root_turn(
-                submitted: SubmitTurnCommand,
-            ) -> RunResult:
-                """把冻结命令适配为现有根轮次执行器。"""
-                values = submitted.extras_value() or {}
-                root_kwargs: dict[str, typing.Any] = {
-                    "exec_env": submitted.environment_snapshot_value(),
-                    "metadata": dict(values.get("metadata", metadata)),
-                }
-                attachments = submitted.attachment_values()
-                if attachments:
-                    root_kwargs["attachments"] = attachments
-                request_extras = values.get("request_extras")
-                if isinstance(request_extras, Mapping) and request_extras:
-                    root_kwargs["extras"] = dict(request_extras)
-                submitted_turn_id = values.get("turn_id")
-                if isinstance(submitted_turn_id, str) and submitted_turn_id:
-                    root_kwargs["turn_id"] = submitted_turn_id
-                return await self._turn_runner(
-                    mind,
-                    message=submitted.message,
-                    **root_kwargs,
-                )
+            execute_root_turn = RootTurnCommandExecutor(
+                mind,
+                turn_runner=self._turn_runner,
+            )
 
             execution: SubmitTurnResult[RunResult]
             submitted = (

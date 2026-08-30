@@ -3,6 +3,7 @@
 
 import os
 import typing
+from agent.application import ProcessCapability
 from mind_core.application_paths import ApplicationLayout
 from mind_app.native_coding.base import NativeCodingBase
 from mind_app.native_coding.edit.patch_engine import PatchEngine
@@ -28,6 +29,7 @@ class NativeCoding(NativeCodingBase):
         root: str | os.PathLike[str] | None = None,
         *,
         application_layout: ApplicationLayout | None = None,
+        process_capability: ProcessCapability | None = None,
     ) -> None:
         """初始化共享运行时状态并装配各能力组件。"""
         super().__init__(root=root)
@@ -48,7 +50,10 @@ class NativeCoding(NativeCodingBase):
                 else None
             ),
         )
-        self._process_sessions = ProcessSessionManager(self._sandbox_client)
+        self._process_sessions = ProcessSessionManager(
+            self._sandbox_client,
+            process_capability=process_capability,
+        )
 
         self.user_shell = UserShellExecution(
             root=self.root,

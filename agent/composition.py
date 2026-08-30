@@ -13,7 +13,10 @@ from agent.stores import (
     LocalEffectJournal,
     SQLiteRunStore,
 )
-from agent.capabilities import LocalEnvironmentSnapshotCapability
+from agent.capabilities import (
+    LocalEnvironmentSnapshotCapability,
+    LocalProcessCapability,
+)
 from agent.adapters import MindChatProtocolClient
 from agent.ports import EnvironmentSnapshotCapability, ModelCapability
 
@@ -42,6 +45,11 @@ def open_environment_capability() -> EnvironmentSnapshotCapability:
     return LocalEnvironmentSnapshotCapability()
 
 
+def open_process_capability() -> LocalProcessCapability:
+    """组合标准库实现的本地进程能力。"""
+    return LocalProcessCapability()
+
+
 def create_runtime_services() -> RuntimeServices:
     """创建供单个进程入口共享的 Agent Harness 依赖。"""
     return RuntimeServices(
@@ -49,6 +57,7 @@ def create_runtime_services() -> RuntimeServices:
         environment_capability=open_environment_capability(),
         create_turn_application=open_turn_application,
         create_effect_journal=open_effect_journal,
+        process_capability=open_process_capability(),
     )
 
 

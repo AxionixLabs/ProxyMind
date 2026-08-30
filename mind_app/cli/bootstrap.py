@@ -57,6 +57,7 @@ from ..runtime.mcp.service_runtime import (
     prepare_and_start_service_runtime,
     resolve_service_runtime
 )
+from ..runtime.mcp.service_lifecycle import ServerManageHelixCapability
 from ..runtime.design import TerminalDesign
 from ..runtime.hooks.registry import HookRegistry
 from ..runtime.tools.mode_policy import ToolFilterMode
@@ -527,7 +528,17 @@ async def _run_controller(
     config_service = None
 
     try:
-        controller.service_runtime.bind(server, service_context)
+        configured_helix = getattr(runtime_services, "helix_capability", None)
+        helix_capability = (
+            configured_helix
+            if configured_helix is not None
+            else ServerManageHelixCapability(server)
+        )
+        controller.service_runtime.bind(
+            server,
+            service_context,
+            capability=helix_capability,
+        )
 
         if output_mode == "tui":
             from ..tui.core.runtime import require_tui_runtime

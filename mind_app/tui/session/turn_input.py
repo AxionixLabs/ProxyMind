@@ -4,19 +4,18 @@
 import time
 import typing
 import asyncio
-from agent.application import ModelStreamEndReason
+from agent.application import (
+    ModelStreamEndReason,
+    ProtocolCommandClient,
+    ProtocolCommandError,
+    SteerTurnInput,
+)
 from dataclasses import replace
 from engine.observability import (
     observe,
     observe_exception
 )
 from mind_nova.identifiers import new_request_id
-from mind_nova.requests.turn_control import (
-    TurnControlRequestError,
-    interrupt_turn,
-    reconcile_turn_inputs,
-    steer_turn
-)
 from mind_nova.stream_events import (
     StreamEvent,
     TurnInputAcceptedEvent,
@@ -33,6 +32,14 @@ if typing.TYPE_CHECKING:
     from .state import TuiSessionState
 
 
+# These names are intentionally unbound in production. They remain a narrow
+# test seam for the legacy unit tests while real TUI construction injects the
+# ProtocolCommandClient from RuntimeServices.
+steer_turn: typing.Any = None
+interrupt_turn: typing.Any = None
+reconcile_turn_inputs: typing.Any = None
+
+
 class TuiTurnInputControl(object):
     """协调活动轮次的即时输入、下一轮输入和远端中断。"""
 
@@ -47,13 +54,24 @@ class TuiTurnInputControl(object):
         *,
         cid: str,
         sid: str,
-        turn_id: str
+        turn_id: str,
+        protocol_client: ProtocolCommandClient | None = None,
     ) -> None:
         """绑定当前会话坐标并初始化输入对账状态。"""
         self._controller = controller
-        self._runtime    = runtime
-        self._state      = state
-        self._target     = (cid, sid, turn_id)
+        self._runtime = runtime
+        self._state = state
+        self._target = (cid, sid, turn_id)
+        candidate = protocol_client
+        if candidate is None:
+            services = getattr(controller, "runtime_services", None)
+            candidate = getattr(services, "model_capability", None)
+        if candidate is not None and not isinstance(
+            candidate,
+            ProtocolCommandClient,
+        ):
+            raise TypeError("TUI turn input requires ProtocolCommandClient")
+        self._protocol_client = candidate
 
         self._ready_turn_id: str = ""
 
@@ -254,14 +272,35 @@ class TuiTurnInputControl(object):
                 break
             try:
                 async with asyncio.timeout_at(deadline):
-                    response = await reconcile_turn_inputs(
-                        cid=cid,
-                        sid=sid,
-                        turn_id=turn_id,
-                        client_message_ids=pending_ids,
-                        timeout=remaining,
-                    )
-            except (TurnControlRequestError, TimeoutError) as error:
+                    if self._protocol_client is not None:
+                        response = await self._protocol_client.reconcile_turn_inputs(
+                            cid=cid,
+                            sid=sid,
+                            turn_id=turn_id,
+                            client_message_ids=pending_ids,
+                        )
+                    else:
+                        if not callable(reconcile_turn_inputs):
+                            raise RuntimeError(
+                                "TUI turn input ProtocolCommandClient is required"
+                            )
+                        response = await reconcile_turn_inputs(
+                            cid=cid,
+                            sid=sid,
+                            turn_id=turn_id,
+                            client_message_ids=pending_ids,
+                            timeout=remaining,
+                        )
+            except (ProtocolCommandError, TimeoutError) as error:
+                observe_exception(
+                    "turn.reconcile.failed",
+                    error,
+                    level="WARNING",
+                )
+                break
+            except Exception as error:
+                if self._protocol_client is not None:
+                    raise
                 observe_exception(
                     "turn.reconcile.failed",
                     error,
@@ -368,17 +407,42 @@ class TuiTurnInputControl(object):
         request_id = new_request_id("steer")
 
         response = None
+        wire_input = SteerTurnInput(
+            client_message_id=turn_input.client_message_id,
+            text=turn_input.text,
+            attachments=tuple(turn_input.attachments),
+            extras=turn_input.extras,
+        )
         for attempt in range(2):
             try:
-                response = await steer_turn(
-                    cid=cid,
-                    sid=sid,
-                    turn_id=turn_id,
-                    turn_input=turn_input,
-                    request_id=request_id,
-                )
+                if self._protocol_client is not None:
+                    response = await self._protocol_client.steer_turn(
+                        cid=cid,
+                        sid=sid,
+                        turn_id=turn_id,
+                        turn_input=wire_input,
+                        request_id=request_id,
+                    )
+                else:
+                    if not callable(steer_turn):
+                        raise RuntimeError(
+                            "TUI turn input ProtocolCommandClient is required"
+                        )
+                    response = await steer_turn(
+                        cid=cid,
+                        sid=sid,
+                        turn_id=turn_id,
+                        turn_input=turn_input,
+                        request_id=request_id,
+                    )
                 break
-            except TurnControlRequestError as error:
+            except ProtocolCommandError as error:
+                if attempt == 0:
+                    continue
+                observe_exception("turn.steer.failed", error, level="WARNING")
+            except Exception as error:
+                if self._protocol_client is not None:
+                    raise
                 if attempt == 0:
                     continue
                 observe_exception("turn.steer.failed", error, level="WARNING")
@@ -398,8 +462,8 @@ class TuiTurnInputControl(object):
 
         return True
 
-    @staticmethod
     async def _send_interrupt(
+        self,
         cid: str,
         sid: str,
         turn_id: str,
@@ -410,12 +474,24 @@ class TuiTurnInputControl(object):
 
         for attempt in range(2):
             try:
-                response = await interrupt_turn(
-                    cid=cid,
-                    sid=sid,
-                    turn_id=turn_id,
-                    request_id=request_id,
-                )
+                if self._protocol_client is not None:
+                    response = await self._protocol_client.interrupt_turn(
+                        cid=cid,
+                        sid=sid,
+                        turn_id=turn_id,
+                        request_id=request_id,
+                    )
+                else:
+                    if not callable(interrupt_turn):
+                        raise RuntimeError(
+                            "TUI turn input ProtocolCommandClient is required"
+                        )
+                    response = await interrupt_turn(
+                        cid=cid,
+                        sid=sid,
+                        turn_id=turn_id,
+                        request_id=request_id,
+                    )
                 observe(
                     "turn.interrupt.remote",
                     cid=cid,
@@ -428,7 +504,24 @@ class TuiTurnInputControl(object):
                     ),
                 )
                 return None
-            except TurnControlRequestError as error:
+            except ProtocolCommandError as error:
+                if attempt == 0:
+                    continue
+                observe_exception(
+                    "turn.interrupt.failed",
+                    error,
+                    level="WARNING",
+                    cid=cid,
+                    sid=sid,
+                    turn_id=turn_id,
+                    request_id=request_id,
+                    elapsed_ms=int(
+                        (time.perf_counter() - started_at) * 1000
+                    ),
+                )
+            except Exception as error:
+                if self._protocol_client is not None:
+                    raise
                 if attempt == 0:
                     continue
                 observe_exception(

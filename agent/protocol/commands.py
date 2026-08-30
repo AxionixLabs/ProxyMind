@@ -26,6 +26,22 @@ TurnControlStatus: typing.TypeAlias = typing.Literal[
     "duplicate",
 ]
 
+TurnRuntimeStatus: typing.TypeAlias = typing.Literal[
+    "queued",
+    "running",
+    "waiting_tool",
+    "waiting_approval",
+    "waiting_user",
+    "reconciliation_required",
+    "finalizing",
+    "completed",
+    "failed",
+    "interrupted",
+    "cancelled",
+]
+
+PromptSource: typing.TypeAlias = typing.Literal["none", "server", "client"]
+
 
 @dataclass(frozen=True, slots=True)
 class TurnControlReceipt:
@@ -35,6 +51,160 @@ class TurnControlReceipt:
     request_id: str
     turn_id: str
     client_message_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SteerTurnInput:
+    """描述一项可幂等提交到活动 Turn 的引导输入。"""
+
+    client_message_id: str
+    text: str = ""
+    attachments: tuple[Mapping[str, JsonValue], ...] = ()
+    extras: Mapping[str, JsonValue] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """校验并冻结输入正文、附件和扩展字段。"""
+        client_message_id = str(self.client_message_id or "").strip()
+        if not client_message_id:
+            raise ValueError("steer input client_message_id is required")
+        if not isinstance(self.text, str):
+            raise TypeError("steer input text must be a string")
+        if not isinstance(self.attachments, (tuple, list)):
+            raise TypeError("steer input attachments must be a sequence")
+        if not isinstance(self.extras, Mapping):
+            raise TypeError("steer input extras must be an object")
+
+        frozen_attachments: list[Mapping[str, JsonValue]] = []
+        for attachment in self.attachments:
+            if not isinstance(attachment, Mapping):
+                raise TypeError("steer input attachment must be an object")
+            frozen = freeze_json(
+                dict(attachment),
+                field_name="steer input attachments",
+            )
+            if not isinstance(frozen, Mapping):
+                raise TypeError("steer input attachment must be an object")
+            frozen_attachments.append(frozen)
+
+        frozen_extras = freeze_json(
+            dict(self.extras),
+            field_name="steer input extras",
+        )
+        if not isinstance(frozen_extras, Mapping):
+            raise TypeError("steer input extras must be an object")
+
+        if not self.text.strip() and not frozen_attachments:
+            raise ValueError("steer input text or attachments is required")
+
+        object.__setattr__(self, "client_message_id", client_message_id)
+        object.__setattr__(self, "attachments", tuple(frozen_attachments))
+        object.__setattr__(self, "extras", frozen_extras)
+
+    def request_values(self) -> dict[str, typing.Any]:
+        """返回发送到 Protocol Client 的独立输入副本。"""
+        return {
+            "client_message_id": self.client_message_id,
+            "text": self.text,
+            "attachments": [
+                thaw_object(item, field_name="steer input attachments")
+                for item in self.attachments
+            ],
+            "extras": thaw_object(self.extras, field_name="steer input extras"),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TurnReconcileReceipt:
+    """描述未确认引导输入在服务端的权威归属。"""
+
+    turn_id: str
+    turn_status: str
+    committed_ids: tuple[str, ...] = ()
+    pending_ids: tuple[str, ...] = ()
+    retry_ids: tuple[str, ...] = ()
+    unknown_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TurnStatusSnapshot:
+    """描述服务端持久化 Turn 的稳定状态快照。"""
+
+    cid: str
+    sid: str
+    turn_id: str
+    run_id: str
+    status: TurnRuntimeStatus
+    terminal: bool
+    attempt: int
+    version: int
+    last_event_seq: int
+    created_at: float
+    updated_at: float
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
+class ForkPrompt:
+    """描述分支接口返回的可重新提交输入。"""
+
+    message: str
+    attachments: tuple[Mapping[str, JsonValue], ...] = ()
+    extras: Mapping[str, JsonValue] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """校验并冻结分支输入。"""
+        if not isinstance(self.message, str):
+            raise TypeError("fork prompt message must be a string")
+        if not isinstance(self.attachments, (tuple, list)):
+            raise TypeError("fork prompt attachments must be a sequence")
+        if not isinstance(self.extras, Mapping):
+            raise TypeError("fork prompt extras must be an object")
+        frozen_attachments: list[Mapping[str, JsonValue]] = []
+        for attachment in self.attachments:
+            if not isinstance(attachment, Mapping):
+                raise TypeError("fork prompt attachment must be an object")
+            frozen = freeze_json(
+                dict(attachment),
+                field_name="fork prompt attachments",
+            )
+            if not isinstance(frozen, Mapping):
+                raise TypeError("fork prompt attachment must be an object")
+            frozen_attachments.append(frozen)
+        frozen_extras = freeze_json(
+            dict(self.extras),
+            field_name="fork prompt extras",
+        )
+        if not isinstance(frozen_extras, Mapping):
+            raise TypeError("fork prompt extras must be an object")
+        object.__setattr__(self, "attachments", tuple(frozen_attachments))
+        object.__setattr__(self, "extras", frozen_extras)
+
+    def values(self) -> dict[str, typing.Any]:
+        """返回可重建本地输入状态的独立副本。"""
+        return {
+            "message": self.message,
+            "attachments": [
+                thaw_object(item, field_name="fork prompt attachments")
+                for item in self.attachments
+            ],
+            "extras": thaw_object(self.extras, field_name="fork prompt extras"),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationForkReceipt:
+    """描述服务端会话分支命令的稳定结果。"""
+
+    request_id: str
+    source_cid: str
+    source_sid: str
+    prompt_source: PromptSource
+    cid: str
+    sid: str
+    copied_items: int
+    copied_turns: int | None = None
+    before_turn_id: str | None = None
+    prompt: ForkPrompt | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -13,10 +13,15 @@ from agent.ports import (
 )
 from agent.protocol import (
     CanonicalItem,
+    ConversationForkReceipt,
+    ForkPrompt,
     ModelEvent,
     ModelStreamEndReason,
     ModelStreamRequest,
+    SteerTurnInput,
     TurnControlReceipt,
+    TurnReconcileReceipt,
+    TurnStatusSnapshot,
     validate_model_event,
 )
 from agent.protocol.json_value import ThawedJsonValue
@@ -29,11 +34,22 @@ from mind_nova.requests.tools import (
     get_tool_result_status as _get_tool_result_status,
     post_tool_approval as _post_tool_approval,
     post_tool_result as _post_tool_result,
+    renew_tool_result as _renew_tool_result,
 )
 from mind_nova.requests.turn_control import (
     TurnControlRequestError,
+    TurnStatusRequestError,
+    get_turn_status as _get_turn_status,
     interrupt_turn as _interrupt_turn,
+    reconcile_turn_inputs as _reconcile_turn_inputs,
+    steer_turn as _steer_turn,
 )
+from mind_nova.requests.fork import (
+    ConversationForkRequestError,
+    ResubmittablePrompt as _WireResubmittablePrompt,
+    request_conversation_fork as _request_conversation_fork,
+)
+from mind_nova.turn_inputs import TurnInput as _WireTurnInput
 from .item_reducer import CanonicalItemReducer
 from mind_nova.requests.chat import stream_chat
 
@@ -321,28 +337,214 @@ class MindChatProtocolClient:
                 "protocol_command_validation_error",
                 str(error) or "turn control request is invalid",
             ) from error
-        status = str(response.status or "").strip()
-        if status == "accepted":
-            normalized_status = "accepted"
-        elif status == "turn_not_active":
-            normalized_status = "turn_not_active"
-        elif status == "turn_not_steerable":
-            normalized_status = "turn_not_steerable"
-        elif status == "turn_mismatch":
-            normalized_status = "turn_mismatch"
-        elif status == "duplicate":
-            normalized_status = "duplicate"
-        else:
-            raise ModelCapabilityError(
-                "protocol_command_error",
-                "turn interrupt returned an invalid status",
+        return _control_receipt(response)
+
+    async def steer_turn(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+        turn_input: SteerTurnInput,
+        request_id: str | None = None,
+    ) -> TurnControlReceipt:
+        """提交一项引导输入并返回不透明的稳定控制回执。"""
+        if not isinstance(turn_input, SteerTurnInput):
+            raise ProtocolCommandError(
+                "protocol_command_validation_error",
+                "steer turn input is invalid",
             )
-        return TurnControlReceipt(
-            status=normalized_status,
-            request_id=response.request_id,
+        try:
+            values = turn_input.request_values()
+            response = await _steer_turn(
+                cid=cid,
+                sid=sid,
+                turn_id=turn_id,
+                turn_input=_WireTurnInput(
+                    client_message_id=values["client_message_id"],
+                    text=values["text"],
+                    attachments=tuple(values["attachments"]),
+                    extras=values["extras"],
+                ),
+                request_id=request_id,
+            )
+        except TurnControlRequestError as error:
+            raise ProtocolCommandError(
+                "turn_control_request_failed",
+                str(error) or "turn steer request failed",
+                retryable=True,
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise ProtocolCommandError(
+                "protocol_command_validation_error",
+                str(error) or "turn steer request is invalid",
+            ) from error
+        return _control_receipt(response)
+
+    async def reconcile_turn_inputs(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+        client_message_ids: typing.Sequence[str],
+    ) -> TurnReconcileReceipt:
+        """查询未确认引导输入的权威归属。"""
+        try:
+            response = await _reconcile_turn_inputs(
+                cid=cid,
+                sid=sid,
+                turn_id=turn_id,
+                client_message_ids=client_message_ids,
+            )
+        except TurnControlRequestError as error:
+            raise ProtocolCommandError(
+                "turn_reconciliation_failed",
+                str(error) or "turn reconciliation request failed",
+                retryable=True,
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise ProtocolCommandError(
+                "protocol_command_validation_error",
+                str(error) or "turn reconciliation request is invalid",
+            ) from error
+        return TurnReconcileReceipt(
             turn_id=response.turn_id,
-            client_message_id=response.client_message_id,
+            turn_status=response.turn_status,
+            committed_ids=tuple(response.committed_ids),
+            pending_ids=tuple(response.pending_ids),
+            retry_ids=tuple(response.retry_ids),
+            unknown_ids=tuple(response.unknown_ids),
         )
+
+    async def get_turn_status(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+    ) -> TurnStatusSnapshot:
+        """读取服务端持久化 Turn 的权威状态快照。"""
+        try:
+            response = await _get_turn_status(
+                cid=cid,
+                sid=sid,
+                turn_id=turn_id,
+            )
+        except TurnStatusRequestError as error:
+            details: dict[str, typing.Any] = {}
+            if error.status_code is not None:
+                details["status_code"] = error.status_code
+            raise ProtocolCommandError(
+                "turn_status_request_failed",
+                str(error) or "turn status request failed",
+                retryable=bool(
+                    error.status_code is None
+                    or error.status_code >= 500
+                    or error.status_code in {408, 425, 429}
+                ),
+                details=details,
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise ProtocolCommandError(
+                "protocol_command_validation_error",
+                str(error) or "turn status request is invalid",
+            ) from error
+        return TurnStatusSnapshot(
+            cid=response.cid,
+            sid=response.sid,
+            turn_id=response.turn_id,
+            run_id=response.run_id,
+            status=response.status,
+            terminal=response.terminal,
+            attempt=response.attempt,
+            version=response.version,
+            last_event_seq=response.last_event_seq,
+            created_at=response.created_at,
+            updated_at=response.updated_at,
+            error=response.error,
+        )
+
+    async def fork_session(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        request_id: str,
+        prompt_source: typing.Literal["none", "server", "client"],
+        before_turn_id: str | None = None,
+    ) -> ConversationForkReceipt:
+        """原子复制会话上下文并返回已校验的分支回执。"""
+        try:
+            response = await _request_conversation_fork(
+                cid=cid,
+                sid=sid,
+                request_id=request_id,
+                prompt_source=prompt_source,
+                before_turn_id=before_turn_id,
+            )
+        except ConversationForkRequestError as error:
+            details: dict[str, typing.Any] = {}
+            if error.status_code:
+                details["status_code"] = error.status_code
+            raise ProtocolCommandError(
+                error.code or "conversation_fork_failed",
+                str(error) or "conversation fork request failed",
+                retryable=error.retryable,
+                details=details,
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise ProtocolCommandError(
+                "protocol_command_validation_error",
+                str(error) or "conversation fork request is invalid",
+            ) from error
+
+        raw_prompt = response.get("prompt")
+        prompt: ForkPrompt | None = None
+        if raw_prompt is not None:
+            if not isinstance(raw_prompt, _WireResubmittablePrompt):
+                raise ProtocolCommandError(
+                    "protocol_command_error",
+                    "conversation fork returned an invalid prompt",
+                )
+            prompt = ForkPrompt(
+                message=raw_prompt.message,
+                attachments=tuple(raw_prompt.attachments),
+                extras=raw_prompt.extras,
+            )
+
+        raw_prompt_source = str(response.get("prompt_source") or "").strip()
+        if raw_prompt_source not in {"none", "server", "client"}:
+            raise ProtocolCommandError(
+                "protocol_command_error",
+                "conversation fork returned an invalid prompt source",
+            )
+        try:
+            return ConversationForkReceipt(
+                request_id=str(response["request_id"]),
+                source_cid=str(response["source_cid"]),
+                source_sid=str(response["source_sid"]),
+                prompt_source=raw_prompt_source,
+                cid=str(response["cid"]),
+                sid=str(response["sid"]),
+                copied_items=int(response["copied_items"]),
+                copied_turns=(
+                    int(response["copied_turns"])
+                    if response.get("copied_turns") is not None
+                    else None
+                ),
+                before_turn_id=(
+                    str(response["before_turn_id"])
+                    if response.get("before_turn_id") is not None
+                    else None
+                ),
+                prompt=prompt,
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ProtocolCommandError(
+                "protocol_command_error",
+                "conversation fork returned an incomplete receipt",
+            ) from error
 
     async def post_tool_result(
         self,
@@ -368,11 +570,16 @@ class MindChatProtocolClient:
                 request_id=request_id,
             )
         except ToolResultRequestError as error:
+            details = dict(error.details)
+            if error.status_code:
+                details.setdefault("status_code", error.status_code)
+            if error.trace_id:
+                details.setdefault("trace_id", error.trace_id)
             raise ProtocolCommandError(
                 error.code,
                 str(error) or "tool result delivery failed",
                 retryable=error.retryable,
-                details=error.details,
+                details=details,
             ) from error
         except (TypeError, ValueError) as error:
             raise ProtocolCommandError(
@@ -395,17 +602,68 @@ class MindChatProtocolClient:
                 call_id=call_id,
             )
         except ToolResultRequestError as error:
+            details = dict(error.details)
+            if error.status_code:
+                details.setdefault("status_code", error.status_code)
+            if error.trace_id:
+                details.setdefault("trace_id", error.trace_id)
             raise ProtocolCommandError(
                 error.code,
                 str(error) or "tool result status failed",
                 retryable=error.retryable,
-                details=error.details,
+                details=details,
             ) from error
         except (TypeError, ValueError) as error:
             raise ProtocolCommandError(
                 "protocol_command_validation_error",
                 str(error) or "tool result status request is invalid",
             ) from error
+
+    async def renew_tool_result(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+        call_id: str,
+        name: str,
+        extension_seconds: int = 60,
+        request_id: str | None = None,
+    ) -> dict[str, ThawedJsonValue]:
+        """续期托管工具执行预算并归一化 wire 错误。"""
+        try:
+            response = await _renew_tool_result(
+                cid=cid,
+                sid=sid,
+                turn_id=turn_id,
+                call_id=call_id,
+                name=name,
+                extension_seconds=extension_seconds,
+                request_id=request_id,
+            )
+        except ToolResultRequestError as error:
+            details = dict(error.details)
+            if error.status_code:
+                details.setdefault("status_code", error.status_code)
+            if error.trace_id:
+                details.setdefault("trace_id", error.trace_id)
+            raise ProtocolCommandError(
+                error.code,
+                str(error) or "tool result renewal failed",
+                retryable=error.retryable,
+                details=details,
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise ProtocolCommandError(
+                "protocol_command_validation_error",
+                str(error) or "tool result renewal request is invalid",
+            ) from error
+        if not isinstance(response, dict):
+            raise ProtocolCommandError(
+                "protocol_command_error",
+                "tool result renewal returned an invalid response",
+            )
+        return dict(response)
 
     async def post_tool_approval(
         self,
@@ -440,9 +698,13 @@ class MindChatProtocolClient:
                 additional_context=additional_context,
             )
         except ToolApprovalRequestError as error:
+            details: dict[str, typing.Any] = {}
+            if error.status_code:
+                details["status_code"] = error.status_code
             raise ProtocolCommandError(
                 error.code,
                 str(error) or "tool approval request failed",
+                details=details,
             ) from error
         except (TypeError, ValueError) as error:
             raise ProtocolCommandError(
@@ -528,6 +790,41 @@ def _classify_model_error(error: BaseException) -> ModelCapabilityError:
         "model_capability_error",
         str(error).strip() or "model capability failed",
         details=details,
+    )
+
+
+def _control_receipt(response: typing.Any) -> TurnControlReceipt:
+    """校验并转换轮次控制 wire 回执。"""
+    status = str(getattr(response, "status", "") or "").strip()
+    if status not in {
+        "accepted",
+        "turn_not_active",
+        "turn_not_steerable",
+        "turn_mismatch",
+        "duplicate",
+    }:
+        raise ProtocolCommandError(
+            "protocol_command_error",
+            "turn control returned an invalid status",
+        )
+    request_id = str(getattr(response, "request_id", "") or "").strip()
+    response_turn_id = str(getattr(response, "turn_id", "") or "").strip()
+    raw_message_id = getattr(response, "client_message_id", None)
+    message_id = (
+        str(raw_message_id or "").strip()
+        if raw_message_id is not None
+        else None
+    )
+    if not request_id or not response_turn_id:
+        raise ProtocolCommandError(
+            "protocol_command_error",
+            "turn control returned an incomplete receipt",
+        )
+    return TurnControlReceipt(
+        status=status,
+        request_id=request_id,
+        turn_id=response_turn_id,
+        client_message_id=message_id,
     )
 
 

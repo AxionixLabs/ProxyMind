@@ -8,7 +8,9 @@ from pathlib import Path
 from agent.ports import (
     EffectJournal,
     EnvironmentSnapshotCapability,
+    HelixCapability,
     ModelCapability,
+    ProcessCapability,
 )
 from .commands import TurnApplication
 
@@ -31,6 +33,8 @@ class RuntimeServices:
     environment_capability: EnvironmentSnapshotCapability
     create_turn_application: TurnApplicationFactory
     create_effect_journal: EffectJournalFactory
+    process_capability: ProcessCapability | None = None
+    helix_capability: HelixCapability | None = None
 
     def __post_init__(self) -> None:
         """拒绝缺失能力，确保组合错误在启动边界暴露。"""
@@ -48,6 +52,16 @@ class RuntimeServices:
             raise TypeError("turn application factory must be callable")
         if not callable(self.create_effect_journal):
             raise TypeError("effect journal factory must be callable")
+        if (
+            self.process_capability is not None
+            and not isinstance(self.process_capability, ProcessCapability)
+        ):
+            raise TypeError("process capability is invalid")
+        if (
+            self.helix_capability is not None
+            and not isinstance(self.helix_capability, HelixCapability)
+        ):
+            raise TypeError("Helix capability is invalid")
 
 
 if __name__ == '__main__':

@@ -4,6 +4,7 @@
 import typing
 import asyncio
 from agent.application import (
+    ProtocolCommandClient,
     SubmitTurnCommand,
     TurnApplication,
 )
@@ -288,6 +289,11 @@ async def _run_tui_loop(
 
         turn_id = short_uid(12)
 
+        runtime_services = getattr(mind, "runtime_services", None)
+        protocol_client = getattr(runtime_services, "model_capability", None)
+        if not isinstance(protocol_client, ProtocolCommandClient):
+            protocol_client = None
+
         turn_input_control = TuiTurnInputControl(
             mind,
             runtime,
@@ -295,6 +301,7 @@ async def _run_tui_loop(
             cid="",
             sid="",
             turn_id=turn_id,
+            protocol_client=protocol_client,
         )
 
         attachment_snapshot = _pending_attachment_snapshot(attachment_state)

@@ -8,7 +8,10 @@ import pytest
 
 from engine.errors import AppError
 from mind_app.runtime.mcp import service_lifecycle
-from mind_app.runtime.mcp.service_lifecycle import ServiceRuntimeOwner
+from mind_app.runtime.mcp.service_lifecycle import (
+    ServerManageHelixCapability,
+    ServiceRuntimeOwner,
+)
 
 
 @pytest.mark.anyio
@@ -150,6 +153,37 @@ async def test_service_runtime_owner_closes_keepalive_before_manager(
     assert owner.manager is None
     with pytest.raises(AppError, match="context is not bound"):
         owner.require_context()
+
+
+@pytest.mark.anyio
+async def test_server_manage_helix_capability_owns_lifecycle_port(monkeypatch) -> None:
+    terminated: list[int] = []
+    manager = SimpleNamespace(
+        port=9123,
+        ensure_running=AsyncMock(),
+        restart=AsyncMock(),
+        wait_until_ready=AsyncMock(return_value=True),
+        close=AsyncMock(),
+    )
+
+    async def terminate(port: int) -> None:
+        terminated.append(port)
+
+    monkeypatch.setattr(service_lifecycle, "terminate_port_process", terminate)
+    capability = ServerManageHelixCapability(manager)
+
+    await capability.ensure_ready(wait_sec=2.0)
+    assert capability.state == "ready"
+    await capability.restart(wait_sec=2.0)
+    await capability.stop()
+    await capability.aclose()
+
+    manager.ensure_running.assert_awaited_once_with(wait_sec=2.0)
+    manager.restart.assert_awaited_once_with()
+    manager.wait_until_ready.assert_awaited_once_with(2.0, 0.3)
+    manager.close.assert_awaited_once_with()
+    assert terminated == [9123]
+    assert capability.state == "closed"
 
 
 async def _ready_result() -> bool:

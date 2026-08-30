@@ -248,7 +248,11 @@ async def start_service_runtime(
     await mind.start_inbuild_startup_anim(lambda: dict(status))
 
     try:
-        await ensure_runtime_started(mind.service_runtime.manager)
+        ensure_ready = getattr(mind.service_runtime, "ensure_ready", None)
+        if callable(ensure_ready):
+            await ensure_ready(wait_sec=10.0)
+        else:
+            await ensure_runtime_started(mind.service_runtime.manager)
         status["state"] = "ready"
     except Exception as error:
         status["state"] = "failed"

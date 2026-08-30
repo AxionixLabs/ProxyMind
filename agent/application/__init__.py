@@ -3,8 +3,13 @@
 
 from agent.protocol import (
     CanonicalItem,
+    ConversationForkReceipt,
+    ForkPrompt,
     SubmitTurnCommand,
+    SteerTurnInput,
     TurnControlReceipt,
+    TurnReconcileReceipt,
+    TurnStatusSnapshot,
 )
 from agent.protocol import ModelStreamEndReason, ModelStreamRequest
 from agent.protocol.json_value import JsonValue
@@ -49,6 +54,8 @@ __all__ = (
     "EffectJournal",
     "CapabilityError",
     "CanonicalItem",
+    "ConversationForkReceipt",
+    "ForkPrompt",
     "EnvironmentSnapshotCapability",
     "FilesystemCapability",
     "EffectJournalDecision",
@@ -78,7 +85,10 @@ __all__ = (
     "RuntimeServices",
     "SubmitTurnResult",
     "SubmitTurnCommand",
+    "SteerTurnInput",
     "TurnControlReceipt",
+    "TurnReconcileReceipt",
+    "TurnStatusSnapshot",
     "TurnApplication",
     "project_run_result",
     "submit_turn",

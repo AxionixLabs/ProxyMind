@@ -117,10 +117,10 @@ class Mind(object):
         if self.runtime_services is None:
             raise ValueError("Agent runtime services are required")
 
-        self.pref: Preferences               = kwargs["pref"]
-        self.config_session: ConfigSession   = kwargs["config_session"]
+        self.pref: Preferences = kwargs["pref"]
+        self.config_session: ConfigSession = kwargs["config_session"]
         self.permissions: PermissionSettings = kwargs["permissions"]
-        self.frontend: Frontend              = kwargs["frontend"]
+        self.frontend: Frontend = kwargs["frontend"]
 
         self.hook_registry: HookRegistry = (
             kwargs.get("hook_registry") or HookRegistry()
@@ -133,7 +133,7 @@ class Mind(object):
 
         self.command_hook_sessions = CommandHookSessionStore()
 
-        self.pref_refreshed_at: float    = time.monotonic()
+        self.pref_refreshed_at: float = time.monotonic()
         self.pref_refresh_ttl_sec: float = 1.0
 
         self.task_event: asyncio.Event = asyncio.Event()
@@ -176,6 +176,11 @@ class Mind(object):
         self.workspace_runtime = WorkspaceCodingRuntimeOwner(
             self.history_workspace,
             application_layout=self.application_layout,
+            process_capability=getattr(
+                self.runtime_services,
+                "process_capability",
+                None,
+            ),
         )
         self.permission_grants = PermissionGrantStore()
 
@@ -197,7 +202,7 @@ class Mind(object):
             )
         )
 
-        self.service_exec_env: typing.Optional[dict[str, typing.Any]]          = None
+        self.service_exec_env: typing.Optional[dict[str, typing.Any]] = None
 
         self.external_mcp = ExternalMcpRuntimeOwner(self)
         self.service_runtime = ServiceRuntimeOwner()
@@ -211,7 +216,7 @@ class Mind(object):
 
         self.exit_code: int = 0
 
-        self.service_mcp_linked: bool                    = False
+        self.service_mcp_linked: bool = False
         self.service_tool_profile: ToolFilterMode | None = None
 
         self.last_assistant_reply: str = ""
@@ -320,7 +325,7 @@ class Mind(object):
     ) -> tuple[Path, HookDefinitionConfig]:
         """解析并校验允许修改用户状态的 Hook。"""
         target_workspace = self._hook_workspace(workspace)
-        resolution       = self.config_session.resolve(workspace=target_workspace)
+        resolution = self.config_session.resolve(workspace=target_workspace)
 
         definition = next(
             (
@@ -479,7 +484,7 @@ class Mind(object):
         """把本地服务 MCP 挂入当前工具会话。"""
         normalized = _normalize_tool_profile(tool_profile)
 
-        self.service_mcp_linked   = True
+        self.service_mcp_linked = True
         self.service_tool_profile = normalized
 
         self.service_exec_env = (
@@ -521,9 +526,9 @@ class Mind(object):
         """从当前工具会话移除本地服务 MCP，不停止后台进程。"""
         was_linked = self.service_mcp_linked
 
-        self.service_mcp_linked   = False
+        self.service_mcp_linked = False
         self.service_tool_profile = None
-        self.service_exec_env     = None
+        self.service_exec_env = None
 
         if was_linked:
             observe("helix.unlinked")
@@ -617,7 +622,7 @@ class Mind(object):
     ) -> HookCatalogSnapshot:
         """校验并批量信任多个 Hook 的当前内容。"""
         target_workspace = self._hook_workspace(workspace)
-        resolution       = self.config_session.resolve(workspace=target_workspace)
+        resolution = self.config_session.resolve(workspace=target_workspace)
 
         definitions: dict[str, HookDefinitionConfig] = {}
 

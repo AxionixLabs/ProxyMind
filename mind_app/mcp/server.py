@@ -23,7 +23,11 @@ from mind_app.frontend.contracts import Frontend
 from mind_app.frontend.sinks import NullApplicationSink
 from mind_app.interaction import NonInteractiveInteraction
 from mind_app.runtime.turns.result import RunResult
-from mind_app.runtime.turns.root import RootTurnRunner, run_root_turn
+from mind_app.runtime.turns.root import (
+    RootTurnCommandExecutor,
+    RootTurnRunner,
+    run_root_turn,
+)
 from mind_app.output.silent import create_silent_output_session
 from mind_app.paths import (
     agent_runtime_db_path,
@@ -342,22 +346,11 @@ class MindMcpRuntime(object):
             },
         )
 
-        async def execute_root_turn(
-            submitted: SubmitTurnCommand,
-        ) -> RunResult:
-            """将 application 命令适配到旧根轮次执行器。"""
-            root_kwargs: dict[str, typing.Any] = {
-                "exec_env": submitted.environment_snapshot_value(),
-                "permissions": permissions,
-            }
-            attachments = submitted.attachment_values()
-            if attachments:
-                root_kwargs["attachments"] = attachments
-            return await self._turn_runner(
-                self.mind,
-                message=submitted.message,
-                **root_kwargs,
-            )
+        execute_root_turn = RootTurnCommandExecutor(
+            self.mind,
+            turn_runner=self._turn_runner,
+            permissions=permissions,
+        )
 
         execution = await self._turn_application.submit(
             command,

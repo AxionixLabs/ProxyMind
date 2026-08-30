@@ -7,6 +7,11 @@ import asyncio
 import secrets
 from collections import deque
 from dataclasses import dataclass
+from agent.application import (
+    ProcessCapability,
+    ProcessHandle,
+    ProcessSpec,
+)
 from engine.observability import (
     observe,
     observe_exception
@@ -53,6 +58,29 @@ class ProcessSessionSpec(object):
     additional_permissions: dict[str, typing.Any] | None = None
 
 
+class _CapabilityProcess:
+    """把 ProcessCapability 句柄纳入既有进程会话生命周期。"""
+
+    def __init__(self, handle: ProcessHandle) -> None:
+        """绑定能力句柄并保留退出状态快照。"""
+        self.handle = handle
+        self.pid = handle.pid
+        self.returncode: int | None = handle.returncode
+
+    async def wait(self) -> int:
+        """等待能力句柄退出并同步退出码。"""
+        self.returncode = int(await self.handle.wait())
+        return self.returncode
+
+    async def terminate(self, *, force: bool = False) -> None:
+        """通过能力端口终止进程。"""
+        await self.handle.terminate(force=force)
+
+    async def close(self) -> None:
+        """关闭能力句柄并回收进程。"""
+        await self.handle.aclose()
+
+
 class ProcessSession(object):
     """保存一个可持续读取和控制的本地进程会话。"""
 
@@ -61,7 +89,7 @@ class ProcessSession(object):
         *,
         session_id: str,
         spec: ProcessSessionSpec,
-        process: asyncio.subprocess.Process | SidecarProcess,
+        process: asyncio.subprocess.Process | SidecarProcess | _CapabilityProcess,
     ) -> None:
         """初始化进程会话及有限输出缓冲区。"""
         self.session_id       = session_id
@@ -119,12 +147,18 @@ class ProcessSessionManager(object):
     BUFFER_LIMIT_BYTES   = 1_000_000
     IO_DRAIN_TIMEOUT_SEC = 2.0
 
-    def __init__(self, sandbox_client: SandboxClient | None = None) -> None:
+    def __init__(
+        self,
+        sandbox_client: SandboxClient | None = None,
+        *,
+        process_capability: ProcessCapability | None = None,
+    ) -> None:
         """初始化进程会话表。"""
         self.sessions: dict[str, ProcessSession] = {}
         self._change_revision: int = 0
         self._change_event = asyncio.Event()
         self._sandbox_client = sandbox_client
+        self._process_capability = process_capability
 
     @property
     def change_revision(self) -> int:
@@ -185,7 +219,26 @@ class ProcessSessionManager(object):
             raise ValueError(f"sandbox_mode_invalid: {spec.sandbox_mode}")
         await self.cleanup()
 
-        if spec.sandbox_mode in {"read-only", "workspace-read", "workspace-write"}:
+        if (
+            self._process_capability is not None
+            and spec.sandbox_mode == "danger-full-access"
+        ):
+            process_spec = ProcessSpec(
+                argv=spec.args,
+                cwd=spec.cwd,
+                env=spec.env or {},
+                sandbox_mode=spec.sandbox_mode,
+                sandbox_permissions=(
+                    "with_additional_permissions"
+                    if spec.additional_permissions is not None
+                    else "use_default"
+                ),
+                additional_permissions=spec.additional_permissions,
+                stdin_open=spec.stdin_enabled,
+            )
+            handle = await self._process_capability.spawn(process_spec)
+            process = _CapabilityProcess(handle)
+        elif spec.sandbox_mode in {"read-only", "workspace-read", "workspace-write"}:
             if self._sandbox_client is None:
                 raise SandboxUnavailable("sandbox client is not configured")
             spawn_kwargs: dict[str, typing.Any] = {
@@ -527,6 +580,26 @@ class ProcessSessionManager(object):
             )
             return None
 
+        if isinstance(process, _CapabilityProcess):
+            if control in {"terminate", "kill"}:
+                await process.terminate(force=control == "kill")
+                return None
+            if control == "interrupt":
+                await process.terminate(force=False)
+                return None
+            if control == "eof":
+                await process.handle.write("", eof=True)
+                return None
+            if not input_text:
+                return None
+            if process.returncode is not None:
+                return "exec_session_exited"
+            try:
+                await process.handle.write(input_text)
+            except (OSError, RuntimeError, ValueError):
+                return "exec_stdin_closed"
+            return None
+
         if control == "terminate":
             await terminate_process_tree(process, force=False)
             return None
@@ -599,6 +672,8 @@ class ProcessSessionManager(object):
                         session.process.process_id,
                         signal="terminate" if not expired else "kill",
                     )
+                elif isinstance(session.process, _CapabilityProcess):
+                    await session.process.terminate(force=expired)
                 else:
                     await terminate_process_tree(
                         session.process,
@@ -654,6 +729,8 @@ class ProcessSessionManager(object):
                         session.process.process_id,
                         signal="terminate",
                     )
+                elif isinstance(session.process, _CapabilityProcess):
+                    await session.process.terminate(force=False)
                 else:
                     await terminate_process_tree(
                         session.process,
@@ -711,6 +788,8 @@ class ProcessSessionManager(object):
                         session.process.process_id,
                         signal="kill",
                     )
+                elif isinstance(session.process, _CapabilityProcess):
+                    await session.process.terminate(force=True)
                 else:
                     await terminate_process_tree(session.process, force=True)
             await self.finalize_if_exited(session)
@@ -724,7 +803,13 @@ class ProcessSessionManager(object):
         if session.finalized or session.process.returncode is None:
             return None
 
-        await close_process_stdin(session.process)
+        if isinstance(session.process, _CapabilityProcess):
+            try:
+                await session.process.handle.write("", eof=True)
+            except (OSError, RuntimeError, ValueError):
+                pass
+        else:
+            await close_process_stdin(session.process)
 
         tasks = [
             task
@@ -743,7 +828,9 @@ class ProcessSessionManager(object):
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
 
-        if not isinstance(session.process, SidecarProcess):
+        if isinstance(session.process, _CapabilityProcess):
+            await session.process.close()
+        elif not isinstance(session.process, SidecarProcess):
             ProcessCapture.close_process_transport(session.process)
 
         session.finalized = True
@@ -763,6 +850,17 @@ class ProcessSessionManager(object):
 
     async def _read_stream(self, session: ProcessSession, name: str) -> None:
         """持续读取会话输出流。"""
+        if isinstance(session.process, _CapabilityProcess):
+            stream_reader = (
+                session.process.handle.read_stdout
+                if name == "stdout"
+                else session.process.handle.read_stderr
+            )
+            async for text in stream_reader():
+                chunk = str(text).encode("utf-8", errors="replace")
+                await self._record_output(session, name, chunk)
+            return None
+
         stream = session.process.stdout if name == "stdout" else session.process.stderr
 
         if stream is None:
@@ -772,29 +870,38 @@ class ProcessSessionManager(object):
             chunk = await stream.read(4096)
             if not chunk:
                 return None
-            async with session.lock:
-                target = session.stdout if name == "stdout" else session.stderr
-                target.extend(chunk)
-                if len(target) > self.BUFFER_LIMIT_BYTES:
-                    overflow = len(target) - self.BUFFER_LIMIT_BYTES
-                    del target[:overflow]
-                    if name == "stdout":
-                        session.stdout_dropped += overflow
-                    else:
-                        session.stderr_dropped += overflow
+            await self._record_output(session, name, chunk)
 
-                await session.output_buffer.append(name, chunk)
-                await session.display_output_buffer.append(name, chunk)
+    async def _record_output(
+        self,
+        session: ProcessSession,
+        name: str,
+        chunk: bytes,
+    ) -> None:
+        """把任一进程后端的输出写入统一会话缓冲。"""
+        async with session.lock:
+            target = session.stdout if name == "stdout" else session.stderr
+            target.extend(chunk)
+            if len(target) > self.BUFFER_LIMIT_BYTES:
+                overflow = len(target) - self.BUFFER_LIMIT_BYTES
+                del target[:overflow]
+                if name == "stdout":
+                    session.stdout_dropped += overflow
+                else:
+                    session.stderr_dropped += overflow
 
-                session.last_activity = time.time()
-                session.output_revision += 1
-                session.output_events.append((
-                    session.output_revision,
-                    name,
-                    bytes(chunk),
-                ))
-                session.update_event.set()
-                self._notify_change()
+            await session.output_buffer.append(name, chunk)
+            await session.display_output_buffer.append(name, chunk)
+
+            session.last_activity = time.time()
+            session.output_revision += 1
+            session.output_events.append((
+                session.output_revision,
+                name,
+                bytes(chunk),
+            ))
+            session.update_event.set()
+            self._notify_change()
 
     async def _watch_process_exit(self, session: ProcessSession) -> None:
         """在本地进程退出时发出一次会话更新事件。"""

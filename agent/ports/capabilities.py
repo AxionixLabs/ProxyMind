@@ -13,13 +13,18 @@ from pathlib import Path
 from types import MappingProxyType
 from agent.protocol import (
     CanonicalItem,
+    ConversationForkReceipt,
+    ForkPrompt,
     McpToolDefinition,
     McpToolResult,
     ModelEvent,
     ModelStreamEndReason,
     ModelStreamRequest,
     SubmitTurnCommand,
+    SteerTurnInput,
     TurnControlReceipt,
+    TurnReconcileReceipt,
+    TurnStatusSnapshot,
 )
 from agent.protocol.json_value import (
     JsonValue,
@@ -344,6 +349,17 @@ class ProtocolCommandError(CapabilityError):
     """表示 Protocol Client 命令已归一化的传输或协议失败。"""
 
     @property
+    def status_code(self) -> int | None:
+        """返回底层协议错误的 HTTP 状态码（如有）。"""
+        value = self.details.get("status_code")
+        return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+
+    @property
+    def trace_id(self) -> str:
+        """返回底层协议错误的追踪标识。"""
+        return str(self.details.get("trace_id") or "").strip()
+
+    @property
     def is_deterministic_terminal(self) -> bool:
         """返回工具结果是否已经确定不能再次提交。"""
         return self.code in {
@@ -439,6 +455,51 @@ class ProtocolCommandClient(typing.Protocol):
         """提交匹配活动轮次的中断命令。"""
         ...
 
+    async def steer_turn(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+        turn_input: SteerTurnInput,
+        request_id: str | None = None,
+    ) -> TurnControlReceipt:
+        """向活动逻辑轮次提交一项引导输入。"""
+        ...
+
+    async def reconcile_turn_inputs(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+        client_message_ids: typing.Sequence[str],
+    ) -> TurnReconcileReceipt:
+        """查询未确认引导输入的服务端归属。"""
+        ...
+
+    async def get_turn_status(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+    ) -> TurnStatusSnapshot:
+        """读取服务端持久化 Turn 状态。"""
+        ...
+
+    async def fork_session(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        request_id: str,
+        prompt_source: typing.Literal["none", "server", "client"],
+        before_turn_id: str | None = None,
+    ) -> ConversationForkReceipt:
+        """原子复制会话上下文并返回目标会话身份。"""
+        ...
+
     async def post_tool_result(
         self,
         cid: str,
@@ -461,6 +522,20 @@ class ProtocolCommandClient(typing.Protocol):
         call_id: str,
     ) -> Mapping[str, ThawedJsonValue]:
         """读取工具结果的权威状态快照。"""
+        ...
+
+    async def renew_tool_result(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+        call_id: str,
+        name: str,
+        extension_seconds: int = 60,
+        request_id: str | None = None,
+    ) -> Mapping[str, ThawedJsonValue]:
+        """续期仍在执行中的托管工具预算。"""
         ...
 
     async def post_tool_approval(

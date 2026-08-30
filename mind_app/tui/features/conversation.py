@@ -3,6 +3,11 @@
 
 import typing
 import asyncio
+from agent.application import (
+    ConversationForkReceipt,
+    ProtocolCommandClient,
+    ProtocolCommandError,
+)
 from mind_app.frontend import ApplicationView
 from engine.observability import (
     observe,
@@ -19,12 +24,7 @@ from mind_app.runtime.support.clipboard import (
 )
 from mind_app.history.ids import valid_session_ids
 from mind_core.mcp_status import external_mcp_status_view
-from mind_nova.requests.fork import (
-    ConversationForkRequestError,
-    PromptSource,
-    ResubmittablePrompt,
-    request_conversation_fork
-)
+from mind_nova.requests.fork import ResubmittablePrompt
 from mind_nova import const
 from ...runtime.conversation import (
     CompactResult,
@@ -48,9 +48,16 @@ from ..core.styles import (
     interrupted_status_block
 )
 
+PromptSource: typing.TypeAlias = typing.Literal["none", "server", "client"]
+
 if typing.TYPE_CHECKING:
     from ...controller import Mind
     from ..runtime.ports import MenuSelectionPort
+
+
+# Production uses the ProtocolCommandClient injected by RuntimeServices. This
+# unbound seam keeps the existing request-level tests independent of transport.
+request_conversation_fork: typing.Any = None
 
 
 def _present(
@@ -351,13 +358,28 @@ async def fork_current_conversation(
             observe("conversation.fork.animation.start")
             await mind.start_compact_anim(status.snapshot)
 
-        result = await request_conversation_fork(
-            cid=source["cid"],
-            sid=source["sid"],
-            request_id=request_id,
-            prompt_source=prompt_source,
-            before_turn_id=boundary or None,
-        )
+        protocol_client = _protocol_client_for(mind)
+        if protocol_client is not None:
+            receipt = await protocol_client.fork_session(
+                cid=source["cid"],
+                sid=source["sid"],
+                request_id=request_id,
+                prompt_source=prompt_source,
+                before_turn_id=boundary or None,
+            )
+            result = _fork_receipt_values(receipt)
+        else:
+            if not callable(request_conversation_fork):
+                raise RuntimeError(
+                    "TUI conversation fork requires ProtocolCommandClient"
+                )
+            result = await request_conversation_fork(
+                cid=source["cid"],
+                sid=source["sid"],
+                request_id=request_id,
+                prompt_source=prompt_source,
+                before_turn_id=boundary or None,
+            )
 
         target_cid   = str(result.get("cid") or "").strip()
         target_sid   = str(result.get("sid") or "").strip()
@@ -464,8 +486,9 @@ async def fork_current_conversation(
         )
         raise
 
-    except ConversationForkRequestError as error:
-        if bind_target and not boundary and error.code == "source_missing":
+    except ProtocolCommandError as error:
+        error_code = error.code
+        if bind_target and not boundary and error_code == "source_missing":
             mind.clear_conversation_fork(
                 source["cid"],
                 source["sid"],
@@ -492,11 +515,51 @@ async def fork_current_conversation(
         observe(
             "conversation.fork.failed",
             level="WARNING" if error.retryable else "ERROR",
-            reason=error.code or error.status_code or "request_failed",
+            reason=error_code or error.details.get("status_code") or "request_failed",
             request_id=request_id,
         )
 
     except Exception as error:
+        if _protocol_client_for(mind) is None:
+            error_code = str(getattr(error, "code", "") or "").strip()
+            if bind_target and not boundary and error_code == "source_missing":
+                mind.clear_conversation_fork(
+                    source["cid"],
+                    source["sid"],
+                    request_id,
+                    boundary,
+                )
+                return await _replace_empty_fork_source(
+                    mind,
+                    status,
+                    source,
+                    event="conversation.fork.recovered",
+                    request_id=request_id,
+                )
+            if hasattr(error, "retryable"):
+                retryable = bool(getattr(error, "retryable", False))
+                if not retryable:
+                    mind.clear_conversation_fork(
+                        source["cid"],
+                        source["sid"],
+                        request_id,
+                        boundary,
+                    )
+                message = str(
+                    getattr(error, "message", "") or str(error)
+                ).strip()
+                status.failed(message)
+                observe(
+                    "conversation.fork.failed",
+                    level="WARNING" if retryable else "ERROR",
+                    reason=(
+                        error_code
+                        or getattr(error, "status_code", 0)
+                        or "request_failed"
+                    ),
+                    request_id=request_id,
+                )
+                return status
         message = str(error).strip()
         detail  = f": {message}" if message else ""
 
@@ -511,6 +574,39 @@ async def fork_current_conversation(
         )
 
     return status
+
+
+def _protocol_client_for(mind: "Mind") -> ProtocolCommandClient | None:
+    """读取 TUI 使用的远端 Protocol Client。"""
+    services = getattr(mind, "runtime_services", None)
+    candidate = getattr(services, "model_capability", None)
+    return candidate if isinstance(candidate, ProtocolCommandClient) else None
+
+
+def _fork_receipt_values(receipt: ConversationForkReceipt) -> dict[str, typing.Any]:
+    """把协议分支回执转换为 TUI 展示层所需的稳定字段。"""
+    values: dict[str, typing.Any] = {
+        "request_id": receipt.request_id,
+        "source_cid": receipt.source_cid,
+        "source_sid": receipt.source_sid,
+        "prompt_source": receipt.prompt_source,
+        "cid": receipt.cid,
+        "sid": receipt.sid,
+        "copied_items": receipt.copied_items,
+    }
+    if receipt.copied_turns is not None:
+        values["copied_turns"] = receipt.copied_turns
+    if receipt.before_turn_id is not None:
+        values["before_turn_id"] = receipt.before_turn_id
+    if receipt.prompt is not None:
+        values["prompt"] = ResubmittablePrompt(
+            message=receipt.prompt.message,
+            attachments=tuple(
+                dict(item) for item in receipt.prompt.attachments
+            ),
+            extras=dict(receipt.prompt.extras),
+        )
+    return values
 
 
 def render_fork_result(mind: "Mind", status: ForkLiveStatus) -> None:

@@ -9,6 +9,7 @@ from agent.application import (
     ModelCapabilityError,
     ModelStreamRequest,
     ProtocolCommandError,
+    SteerTurnInput,
 )
 from agent.adapters import protocol_client as model_adapter
 from agent.composition import open_model_capability
@@ -20,6 +21,7 @@ from mind_nova.requests.tools import (
     ToolApprovalRequestError,
     ToolResultRequestError,
 )
+from mind_nova.requests.fork import ResubmittablePrompt
 from mind_nova.requests.turn_control import TurnControlRequestError
 
 
@@ -230,11 +232,65 @@ async def test_protocol_client_owns_command_transport_boundary(monkeypatch) -> N
     })
     approval = AsyncMock()
     reconcile = AsyncMock()
+    renew = AsyncMock(return_value={
+        "status": "renewed",
+        "request_id": "renew_test",
+        "execution_deadline_at": 123.0,
+    })
+    steer = AsyncMock(return_value=SimpleNamespace(
+        status="accepted",
+        request_id="steer_test",
+        turn_id="turn_test",
+        client_message_id="message_test",
+    ))
+    reconcile_inputs = AsyncMock(return_value=SimpleNamespace(
+        turn_id="turn_test",
+        turn_status="running",
+        committed_ids=("message_test",),
+        pending_ids=(),
+        retry_ids=(),
+        unknown_ids=(),
+    ))
+    turn_status = AsyncMock(return_value=SimpleNamespace(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        run_id="run_test",
+        status="running",
+        terminal=False,
+        attempt=1,
+        version=2,
+        last_event_seq=4,
+        created_at=1.0,
+        updated_at=2.0,
+        error="",
+    ))
+    fork = AsyncMock(return_value={
+        "request_id": "fork_test",
+        "source_cid": "cid_test",
+        "source_sid": "sid_test",
+        "prompt_source": "server",
+        "before_turn_id": "turn_before",
+        "cid": "cid_target",
+        "sid": "sid_target",
+        "copied_items": 3,
+        "copied_turns": 1,
+        "prompt": ResubmittablePrompt(
+            message="resume",
+            attachments=(),
+            extras={},
+        ),
+    })
     monkeypatch.setattr(model_adapter, "_interrupt_turn", interrupt)
     monkeypatch.setattr(model_adapter, "_post_tool_result", result)
     monkeypatch.setattr(model_adapter, "_get_tool_result_status", status)
     monkeypatch.setattr(model_adapter, "_post_tool_approval", approval)
     monkeypatch.setattr(model_adapter, "_post_effect_reconciliation", reconcile)
+    monkeypatch.setattr(model_adapter, "_renew_tool_result", renew)
+    monkeypatch.setattr(model_adapter, "_steer_turn", steer)
+    monkeypatch.setattr(model_adapter, "_reconcile_turn_inputs", reconcile_inputs)
+    monkeypatch.setattr(model_adapter, "_get_turn_status", turn_status)
+    monkeypatch.setattr(model_adapter, "_request_conversation_fork", fork)
 
     client = model_adapter.MindChatProtocolClient()
     receipt = await client.interrupt_turn(
@@ -242,6 +298,34 @@ async def test_protocol_client_owns_command_transport_boundary(monkeypatch) -> N
         sid="sid_test",
         turn_id="turn_test",
         request_id="interrupt_test",
+    )
+    steer_receipt = await client.steer_turn(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        turn_input=SteerTurnInput(
+            client_message_id="message_test",
+            text="continue",
+        ),
+        request_id="steer_test",
+    )
+    reconcile_receipt = await client.reconcile_turn_inputs(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        client_message_ids=("message_test",),
+    )
+    status_receipt = await client.get_turn_status(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+    )
+    fork_receipt = await client.fork_session(
+        cid="cid_test",
+        sid="sid_test",
+        request_id="fork_test",
+        prompt_source="server",
+        before_turn_id="turn_before",
     )
     await client.post_tool_result(
         "cid_test",
@@ -252,6 +336,15 @@ async def test_protocol_client_owns_command_transport_boundary(monkeypatch) -> N
         {"ok": True},
         additional_context=("context",),
         request_id="result_test",
+    )
+    renewed = await client.renew_tool_result(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        call_id="call_test",
+        name="test_tool",
+        extension_seconds=30,
+        request_id="renew_test",
     )
     observed_status = await client.get_tool_result_status(
         cid="cid_test",
@@ -277,12 +370,43 @@ async def test_protocol_client_owns_command_transport_boundary(monkeypatch) -> N
     )
 
     assert receipt.status == "accepted"
+    assert steer_receipt.status == "accepted"
+    assert reconcile_receipt.committed_ids == ("message_test",)
+    assert status_receipt.status == "running"
+    assert fork_receipt.cid == "cid_target"
+    assert fork_receipt.prompt is not None
+    assert fork_receipt.prompt.message == "resume"
     assert observed_status["tool_status"] == "waiting_result"
+    assert renewed["status"] == "renewed"
     interrupt.assert_awaited_once_with(
         cid="cid_test",
         sid="sid_test",
         turn_id="turn_test",
         request_id="interrupt_test",
+    )
+    steer.assert_awaited_once()
+    assert steer.await_args.kwargs["turn_input"].request_input() == {
+        "text": "continue",
+        "attachments": [],
+        "extras": {},
+    }
+    reconcile_inputs.assert_awaited_once_with(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        client_message_ids=("message_test",),
+    )
+    turn_status.assert_awaited_once_with(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+    )
+    fork.assert_awaited_once_with(
+        cid="cid_test",
+        sid="sid_test",
+        request_id="fork_test",
+        prompt_source="server",
+        before_turn_id="turn_before",
     )
     result.assert_awaited_once_with(
         "cid_test",
@@ -293,6 +417,15 @@ async def test_protocol_client_owns_command_transport_boundary(monkeypatch) -> N
         {"ok": True},
         additional_context=("context",),
         request_id="result_test",
+    )
+    renew.assert_awaited_once_with(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        call_id="call_test",
+        name="test_tool",
+        extension_seconds=30,
+        request_id="renew_test",
     )
     status.assert_awaited_once_with(
         cid="cid_test",
