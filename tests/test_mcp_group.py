@@ -10,10 +10,10 @@ import anyio
 import pytest
 from mcp import types as mcp_types
 
-from mind_app.mcp import group as mcp_group
-from mind_app.mcp import config as mcp_config
-from mind_app.mcp.group import ExternalMcpGroup
-from mind_app.mcp.status import ExternalMcpStatus
+from mind_app.runtime.mcp import group as mcp_group
+from mind_app.runtime.mcp import config as mcp_config
+from mind_app.runtime.mcp.group import ExternalMcpGroup
+from mind_app.runtime.mcp.status import ExternalMcpStatus
 
 
 def _servers(count: int, *, startup_timeout_sec: float = 1.0) -> list[dict]:

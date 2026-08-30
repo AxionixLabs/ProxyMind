@@ -10,7 +10,7 @@ from mind_app.client_tools.registry import (
     default_registry,
 )
 from mind_app.client_tools.subagents import subagent_tools
-from mind_app.mcp.session_adapter import CompositeToolSession
+from mind_app.runtime.mcp.session_adapter import CompositeToolSession
 from mind_app.runtime.turns.result import RunResult
 from mind_app.runtime.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.scope import HookExecutionScope

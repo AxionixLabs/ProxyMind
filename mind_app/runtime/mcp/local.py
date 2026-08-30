@@ -9,7 +9,7 @@ from observability import observe_exception
 from contextlib import asynccontextmanager
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mind_app.mcp.errors import flatten_exceptions
+from mind_app.runtime.mcp.errors import flatten_exceptions
 from ..support.session_policy import is_transport_close_exception
 from metadata import const
 from protocol.transport.streaming import cap_response

@@ -160,7 +160,7 @@ async def main(
 ) -> int:
     """把已解析命令路由到对应的应用组合根。"""
     if isinstance(command, McpServerCommand):
-        from mind_app.mcp.server import run_mind_mcp_server
+        from mind_app.runtime.mcp.server import run_mind_mcp_server
 
         if runtime_services is None:
             raise AppError("Agent runtime services are required")

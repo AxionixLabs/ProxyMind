@@ -6,8 +6,8 @@ import inspect
 import asyncio
 import contextlib
 from observability import observe_exception
-from mind_app.mcp.contracts import McpSessionLike
-from mind_app.mcp.tools import build_tool_context
+from mind_app.runtime.mcp.contracts import McpSessionLike
+from mind_app.runtime.mcp.tools import build_tool_context
 from .local import open_local_mcp_session
 
 if typing.TYPE_CHECKING:

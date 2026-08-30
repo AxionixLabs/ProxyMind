@@ -82,7 +82,7 @@ from .history.transcript import (
     ConversationTranscriptStore,
     TranscriptEntry
 )
-from .mcp.contracts import McpSessionLike
+from .runtime.mcp.contracts import McpSessionLike
 
 SessionResult = typing.TypeVar("SessionResult")
 CleanupResult = typing.TypeVar("CleanupResult")

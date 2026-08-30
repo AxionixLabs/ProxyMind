@@ -20,7 +20,7 @@ from mind_app.client_tools.types import (
     NESTED_TOOL_DISPATCH_META_KEY,
     TURN_INTERRUPT_META_KEY,
 )
-from mind_app.mcp.contracts import McpSessionLike
+from mind_app.runtime.mcp.contracts import McpSessionLike
 from protocol.client.effects import post_effect_reconciliation
 from protocol.client.tools import (
     ToolResultEnvelope,

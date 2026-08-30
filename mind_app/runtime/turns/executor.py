@@ -35,7 +35,7 @@ from mind_app.runtime.hooks.scope import (
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
-    from mind_app.mcp.contracts import McpSessionLike
+    from mind_app.runtime.mcp.contracts import McpSessionLike
 
 
 class _UnspecifiedToolFilterMode(object):

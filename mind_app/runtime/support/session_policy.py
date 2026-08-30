@@ -4,7 +4,7 @@
 import json
 import httpx
 import contextlib
-from mind_app.mcp.errors import (
+from mind_app.runtime.mcp.errors import (
     exception_type_name, flatten_exceptions
 )
 from metadata import const

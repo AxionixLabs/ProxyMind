@@ -3,7 +3,7 @@
 
 import typing
 from infrastructure.config.session import ConfigSession
-from mind_app.mcp.config import McpConfigError
+from mind_app.runtime.mcp.config import McpConfigError
 
 
 class McpServerRegistry(object):

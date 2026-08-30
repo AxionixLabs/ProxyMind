@@ -3,7 +3,7 @@
 
 import typing
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
-from mind_app.mcp.contracts import McpSessionLike
+from mind_app.runtime.mcp.contracts import McpSessionLike
 from mind_app.runtime.execution import (
     ToolInvocation,
     TurnContext

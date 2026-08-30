@@ -524,6 +524,36 @@ def test_runtime_asset_and_attachment_boundaries_have_no_legacy_sources() -> Non
     )
 
 
+def test_mcp_runtime_has_no_legacy_root_package_or_imports() -> None:
+    """确保 MCP 配置、连接、会话和结果工具统一归入 runtime/mcp。"""
+    legacy_root = PROJECT_ROOT / "mind_app" / "mcp"
+    legacy_sources = tuple(legacy_root.rglob("*.py"))
+    assert not legacy_sources, (
+        "legacy MCP sources still exist: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_sources
+        )
+    )
+
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module == "mind_app.mcp" or module.startswith("mind_app.mcp."):
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy MCP imports remain:\n" + "\n".join(violations)
+
+
 def test_terminal_presentation_has_no_legacy_design_sources_or_imports() -> None:
     """确保终端展示能力只由 presentation/terminal 持有。"""
     legacy_design_root = PROJECT_ROOT / "mind_core" / "design"

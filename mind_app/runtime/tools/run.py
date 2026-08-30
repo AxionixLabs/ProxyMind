@@ -7,18 +7,18 @@ import asyncio
 import functools
 from dataclasses import dataclass
 from mcp import types as mcp_types
-from mind_app.mcp.contracts import McpSessionLike
+from mind_app.runtime.mcp.contracts import McpSessionLike
 from mind_app.runtime.execution import ToolInvocation
 from protocol.schema.tool_approval import (
     TOOL_LIFECYCLE_STATUSES,
     ToolLifecycleStatus,
 )
-from mind_app.mcp.tool_result import (
+from mind_app.runtime.mcp.tool_result import (
     normalize_call_tool_result,
     normalize_tool_fields,
     serialize_call_tool_result
 )
-from mind_app.mcp.tool_store import meta_for_tool
+from mind_app.runtime.mcp.tool_store import meta_for_tool
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.tool_policy import is_approval_only_tool
 from .enhancement import enhance_result

@@ -3,7 +3,7 @@
 import pytest
 from mcp import types as mcp_types
 
-from mind_app.mcp.tool_result import (
+from mind_app.runtime.mcp.tool_result import (
     normalize_call_tool_result,
     normalize_tool_fields,
 )

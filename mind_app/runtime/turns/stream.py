@@ -16,7 +16,7 @@ from agent.application import (
     TurnControlReceipt,
 )
 from agent.stores.approval_ledger import ApprovalCallLedger
-from mind_app.mcp.contracts import McpSessionLike
+from mind_app.runtime.mcp.contracts import McpSessionLike
 from infrastructure.config.runtime_paths import effect_journal_db_path
 from protocol.schema.identifiers import stable_request_id
 from protocol.client.turn_control import (

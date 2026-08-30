@@ -4,9 +4,9 @@
 import typing
 import asyncio
 from infrastructure.errors import AppError
-from mind_app.mcp.config import normalize_mcp_servers
-from mind_app.mcp.group import ExternalMcpGroup
-from mind_app.mcp.status import (
+from mind_app.runtime.mcp.config import normalize_mcp_servers
+from mind_app.runtime.mcp.group import ExternalMcpGroup
+from mind_app.runtime.mcp.status import (
     ExternalMcpStatus,
     external_status_detail_from_exception
 )

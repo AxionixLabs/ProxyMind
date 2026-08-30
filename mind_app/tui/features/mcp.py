@@ -18,7 +18,7 @@ from ..core.models import (
     MenuRequest,
     STANDARD_MENU_FOOTER_HINT
 )
-from mind_app.mcp.config import normalize_mcp_servers
+from mind_app.runtime.mcp.config import normalize_mcp_servers
 from ..core.styles import (
     ACCENT_STYLE,
     BODY_STYLE,

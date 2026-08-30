@@ -8,7 +8,7 @@ from mind_app.presentation.application import (
     ApplicationSink,
     ApplicationView
 )
-from mind_app.mcp.contracts import McpSessionLike
+from mind_app.runtime.mcp.contracts import McpSessionLike
 from mind_app.presentation.models import TextSpan
 from protocol.transport.events import EventReport
 from metadata import const
