@@ -3,7 +3,7 @@
 
 import typing
 import asyncio
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_app.mcp.config import normalize_mcp_servers
 from mind_app.mcp.group import ExternalMcpGroup
 from mind_app.mcp.status import (

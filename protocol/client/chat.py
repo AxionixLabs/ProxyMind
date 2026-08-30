@@ -9,10 +9,7 @@ import typing
 import asyncio
 import contextlib
 from protocol.transport.auth import build_service_headers
-from protocol.client.payload import (
-    build_chat_payload,
-    request_llm_conf
-)
+from protocol.client.payload import build_chat_payload
 from protocol.transport.streaming import streaming
 from protocol.client.turn_control import (
     TurnStatusRequestError,
@@ -32,7 +29,6 @@ from protocol.client.tools import (
     ToolApprovalSnapshotRequestError,
     reconcile_tool_approval_snapshot,
 )
-from protocol.transport import config
 
 ATTACH_BACKOFF_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
     0.0,
@@ -587,43 +583,6 @@ def stream_chat(
         on_approval_snapshot,
         initial_event_seq,
     )
-
-
-async def stream_heal(
-    pref_config: dict[str, typing.Any],
-    page_id: str,
-    station: str,
-    locator: str,
-    page_dump: str,
-    screenshot_base64: str,
-    wm_size: dict,
-    timeout: float = 60.0,
-    *_,
-    **kwargs
-) -> typing.AsyncGenerator[dict, None]:
-    """流式获取修复链路事件。"""
-    headers = build_service_headers()
-
-    payload = {
-        "llm_conf"   : request_llm_conf(pref_config),
-        "app_id"     : config.CLIENT_DESCRIPTION,
-        "page_id"    : page_id,
-        "platform"   : station,
-        "locator"    : locator,
-        "page_dump"  : page_dump,
-        "screenshot" : f"data:image/png;base64,{screenshot_base64}",
-        "wm_size"    : wm_size,
-        "context"    : kwargs
-    }
-
-    async for event in streaming(service_endpoints.endpoint("/mind-heal"), headers, payload, timeout):
-        if event.get("type") == "ping":
-            continue
-
-        if event.get("type") == "heal.step" and not str(event.get("message") or ""):
-            continue
-
-        yield event
 
 
 if __name__ == '__main__':

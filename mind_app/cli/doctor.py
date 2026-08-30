@@ -7,7 +7,7 @@ import shutil
 import typing
 from dataclasses import dataclass
 from pathlib import Path
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_app.mcp.config import normalize_mcp_servers
 from mind_app.presentation.models import (
     StyledBlock,

@@ -481,6 +481,9 @@ running -> cancelled
 | 旧 chat/tool/effect 请求模块 | `protocol/client`；`agent/adapters/protocol_client.py`、`item_reducer.py` | `protocol` 是最终 wire schema、HTTP、认证、事件解析、SSE、attach 和恢复原语的唯一所有者；Protocol Client 独立拥有 Harness 请求坐标、结算游标、Canonical Item 状态、审批快照优先级以及 steer/status/fork/renew/tool/approval/effect 命令端口，由 TUI、桌面端和 Web 共用 |
 | 旧模型请求模块 | `agent/protocol/model.py`、`protocol/client/chat.py`、`agent/adapters/protocol_client.py` | `ModelStreamRequest` 显式冻结 Turn 坐标、metadata 和环境快照；`MindChatProtocolClient` 通过 `protocol` 完成 wire 映射，不在 `agent.protocol` 复制 endpoint schema 或传输实现 |
 | `engine/observability.py` 及业务 logger | `observability/` | 结构化观测和第三方日志适配拥有唯一实现；迁移所有消费者后删除旧模块，并由 AST 守卫禁止标准 logging 回流 |
+| `engine/enhance/` | `mind_app/runtime/tools/enhancement/`（迁移期运行工具 adapter） | 结果增强依赖工具执行与远端自愈协议，不能留在低层 engine；完整调用者切换后删除旧目录，后续随 `mind_app` 工具 adapter 一并迁入目标前端/能力边界 |
+| `engine/encoding.py`、`engine/terminal.py`、`engine/ports.py`、`engine/file_assist.py` | `infrastructure/platform/` | 进程输出编码、终端进程、端口探测/清理和文件打开属于平台实现；消费者切换后删除旧模块，平台实现不得反向导入 legacy runtime |
+| `engine/errors.py` | `infrastructure/errors.py` | 入口可展示异常由独立基础设施边界持有；所有消费者切换后删除旧错误模块，不在 `engine` 保留别名 |
 | `mind_nova/const.py` | `metadata/const.py` | 产品版本、展示、编码和构建元数据已抽出；`setup.py` 与内置配置服务已切换，服务端点、认证和运行时路径仍按职责在后续切片迁移 |
 | `agent/ports/capabilities.py`、`agent/adapters/protocol_client.py` | `ports`、`adapters/protocol_client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | 已删除的 `mind_app/runtime/environment/exec_env.py`、旧 environment 请求模块 | `capabilities/environment.py`、`protocol/schema/environment.py` | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化归属 `protocol.schema`。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |

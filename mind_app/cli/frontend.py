@@ -4,7 +4,7 @@
 import sys
 import functools
 import operator
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from metadata import const
 from mind_app.frontend.contracts import Frontend
 from mind_app.interaction import NonInteractiveInteraction

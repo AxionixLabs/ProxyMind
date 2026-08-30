@@ -9,7 +9,7 @@ from observability import (
     observe,
     observe_exception
 )
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_app.frontend.contracts import ActivityStatusKind
 from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
 from ..runtime.ports import ForegroundRuntimePort

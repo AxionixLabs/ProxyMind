@@ -8,7 +8,7 @@ import mimetypes
 from copy import deepcopy
 from collections.abc import Mapping
 from pathlib import Path
-from engine.errors import AppError
+from infrastructure.errors import AppError
 
 _RESTORED_ATTACHMENT_KEY = "_restored_attachment"
 

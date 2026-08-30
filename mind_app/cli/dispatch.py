@@ -8,7 +8,7 @@ from agent.application import (
     SubmitTurnCommand,
     TurnApplication,
 )
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_core.preference import apply_primary_model_override
 from observability import (
     observe,

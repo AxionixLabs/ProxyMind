@@ -57,7 +57,7 @@ from mind_core.application_paths import ApplicationLayout
 from mind_core.config import ConfigOverride
 from mind_core.design.terminal_capabilities import DEGRADED_TERMINAL_CAPABILITIES
 from mind_core.permissions import preset_permissions
-from engine.errors import AppError
+from infrastructure.errors import AppError
 
 
 @pytest.fixture

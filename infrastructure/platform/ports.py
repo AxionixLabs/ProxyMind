@@ -5,7 +5,7 @@ import sys
 import typing
 import shutil
 import asyncio
-from engine.terminal import Terminal
+from infrastructure.platform.terminal import Terminal
 
 
 async def port_available(port: int, *, host: str = "127.0.0.1") -> bool:

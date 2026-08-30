@@ -10,6 +10,7 @@ RUNTIME_PACKAGE_ROOTS = (
     "agent",
     "applications",
     "engine",
+    "infrastructure",
     "mind_app",
     "mind_core",
     "protocol",

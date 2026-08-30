@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_app.runtime.mcp import service_lifecycle
 from mind_app.runtime.mcp.service_lifecycle import (
     ServerManageHelixCapability,

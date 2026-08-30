@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_app.runtime.turns.result import RunResult
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.render import fragments_text

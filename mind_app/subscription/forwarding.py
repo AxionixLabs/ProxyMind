@@ -11,7 +11,7 @@ from agent.application import (
     SubmitTurnCommand,
     submit_turn,
 )
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from observability import observe
 from ..runtime.agent.client import AgentClient
 from ..runtime.environment.snapshot import capture_active_turn_environment

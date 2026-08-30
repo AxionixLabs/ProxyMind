@@ -21,7 +21,7 @@ from mind_app.mcp.tool_result import (
 from mind_app.mcp.tool_store import meta_for_tool
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.tool_policy import is_approval_only_tool
-from engine.enhance import enhance_result
+from .enhancement import enhance_result
 from ...output import OutputStatusPort
 from .enhance_reporter import ToolEnhanceReporter
 from .progress import show_tool_progress

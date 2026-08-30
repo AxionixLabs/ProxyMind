@@ -8,7 +8,7 @@ import shutil
 import typing
 import asyncio
 import webbrowser
-from engine.terminal import Terminal
+from infrastructure.platform.terminal import Terminal
 from metadata import const
 
 

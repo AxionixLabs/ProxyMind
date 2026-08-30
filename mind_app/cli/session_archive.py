@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_app.history import (
     ConversationHistoryStore,
     HISTORY_LIMIT

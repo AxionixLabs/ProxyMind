@@ -8,7 +8,7 @@ import asyncio
 import threading
 from types import FrameType
 from agent.application import RuntimeServices
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_core.config import ConfigOverride
 from observability import reset_sinks
 from .commands import (

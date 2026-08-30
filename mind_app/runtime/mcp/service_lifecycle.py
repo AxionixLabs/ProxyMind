@@ -9,13 +9,13 @@ from agent.application import (
     HelixCapability,
     HelixState,
 )
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from engine.manage import ServerManage
 from observability import (
     observe,
     observe_exception,
 )
-from engine.ports import terminate_port_process
+from infrastructure.platform.ports import terminate_port_process
 from .keepalive import run_keepalive
 
 if typing.TYPE_CHECKING:

@@ -8,7 +8,7 @@ from agent.application import RuntimeServices
 from pathlib import Path
 from engine.animation import AsyncAnimManager
 from engine.manage import ServerManage
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_core.config import ConfigOverride
 from mind_core.config_layers import ConfigResolution
 from mind_core.agent_config import AgentSettings

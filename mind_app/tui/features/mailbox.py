@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_app.frontend import ApplicationView
 from mind_app.presentation.mcp_status import render_mcp_status_block
 from mind_app.presentation.models import TextSpan

@@ -13,13 +13,13 @@ import zipfile
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from observability import (
     observe,
     observe_exception
 )
 from engine import signals
-from engine.ports import (
+from infrastructure.platform.ports import (
     port_available,
     terminate_port_process
 )

@@ -9,7 +9,7 @@ import sqlite3
 import contextlib
 from pathlib import Path
 from engine.animation import AsyncAnimManager
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_core.preference import Preferences
 from mind_core.application_paths import ApplicationLayout
 from mind_core.config_session import ConfigSession

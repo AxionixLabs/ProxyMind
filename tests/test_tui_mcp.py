@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_app.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,

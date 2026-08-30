@@ -8,7 +8,7 @@ import contextlib
 from datetime import timedelta
 from dataclasses import dataclass
 from mcp import ClientSession, types as mcp_types
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from observability import observe, observe_exception
 from observability.third_party import route_session_termination_warnings
 from mcp.client.sse import sse_client

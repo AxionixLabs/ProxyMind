@@ -4,7 +4,7 @@
 import typing
 from observability import observe
 from mind_core.remote_services import RemoteServices
-from protocol.client.chat import stream_heal
+from protocol.client.heal import stream_heal
 from .fields import (
     tool_payload,
     tool_target

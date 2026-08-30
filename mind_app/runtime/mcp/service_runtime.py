@@ -11,8 +11,8 @@ from pathlib import Path
 from dataclasses import dataclass
 from engine.animation import AsyncAnimManager
 from engine.manage import ServerManage
-from engine.terminal import Terminal
-from engine.errors import AppError
+from infrastructure.platform.terminal import Terminal
+from infrastructure.errors import AppError
 from engine.upgrade import UpgradeProgress
 from mind_app.assets import ensure_asset
 from mind_app.runtime.design import TerminalDesign

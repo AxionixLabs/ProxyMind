@@ -556,6 +556,34 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 本切片的目录重组是后续历史包退役的强制模板：先建立真实职责边界，再迁移完整用例，
 最后删除旧路径；不得恢复扁平兼容导入或以一次性 facade 隐藏依赖。
 
+### 已完成切片：运行工具增强边界与循环依赖拆除
+
+状态：已完成（2026-08-30）
+
+- [x] 将 `engine/enhance` 的结果增强实现迁入
+  `mind_app/runtime/tools/enhancement`，保留字段提取、增强过程 reporter 和远端
+  自愈结果汇总的完整用例，不在旧包中保留兼容转发。
+- [x] 运行工具执行器和增强测试改用新的职责路径；`engine` 不再反向导入
+  `mind_core.remote_services`，历史 `engine -> mind_core -> engine` 循环的反向边已
+  消除，低层平台包不再承载工具业务编排。
+- [x] 导入图、增强用例、架构边界和全量测试复核通过；后续可继续按同一规则迁移
+  `engine` 的平台实现与 `mind_core` 的配置/策略职责，完成消费者切换后再删除历史包。
+
+### 已完成切片：平台基础设施边界与 legacy 错误退役
+
+状态：已完成（2026-08-30）
+
+- [x] 将进程输出编码、终端进程、端口探测/清理和文件辅助迁入
+  `infrastructure/platform`，所有构建、服务管理、Server、MCP 和 TUI 消费者均已
+  切换；旧 `engine/encoding.py`、`terminal.py`、`ports.py`、`file_assist.py` 已删除。
+- [x] 将入口可展示的 `AppError` 迁入 `infrastructure/errors.py`，切换全部应用、
+  Server、构建和测试消费者并删除 `engine/errors.py`。`mind_core/licensing.py` 不再
+  依赖 `engine`，导入图中的历史反向边已清零。
+- [x] 新增平台边界架构测试，验证 `infrastructure/platform` 不得导入
+  `engine`、`mind_app`、`mind_core` 或 `server`；定向测试 295 项、语法检查和导入图
+  生成通过；全量测试 `2965 passed, 11 skipped`。下一切片继续迁移
+  `engine/manage`、`engine/upgrade` 的服务/升级职责。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -584,6 +612,9 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `agent/ports.ProtocolCommandClient -> protocol.client.*` | Protocol Client 统一提供中断、输入控制/对账、状态、fork、工具结果/状态/续期、审批和效果核对命令，并将 wire 错误归一化为 `ProtocolCommandError` | `protocol.client` 接管全部 endpoint；旧请求路径删除 | 4B/5 |
 | 旧 wire 模块 -> `protocol/schema`、`protocol/transport`、`protocol/client` | 按职责重组 schema、HTTP/SSE/认证/事件投递和命令操作 | 三层边界测试、导入图和全量兼容测试通过；不保留 `protocol.requests` facade | 5 |
 | `engine/observability.py` 及业务 logger -> `observability/` | 结构化观测和第三方 SDK 日志适配统一归属独立基础设施 | 业务包不再导入标准 `logging`、创建 `_LOGGER` 或调用 `getLogger`；AST 守卫持续通过 | 5 |
+| `engine/enhance/` -> `mind_app/runtime/tools/enhancement/` | 运行工具结果增强和远端自愈结果汇总归属工具执行 adapter | 所有生产/测试消费者切换，导入图不再出现 `engine -> mind_core` 反向业务边；旧目录删除 | 5 |
+| `engine/encoding.py`、`terminal.py`、`ports.py`、`file_assist.py` -> `infrastructure/platform/` | 进程、终端、端口和文件系统平台能力集中到独立基础设施边界 | 所有消费者切换且平台边界测试通过；旧模块删除 | 5 |
+| `engine/errors.py` -> `infrastructure/errors.py` | 入口展示异常脱离历史 engine 包 | 全部消费者切换、异常行为回归通过、旧模块删除 | 5 |
 
 ## 风险与处理
 
@@ -676,3 +707,5 @@ python website/mind/scripts/check_docs.py
 | 2026-08-30 | 阶段 5 前置规划 | 完成 `agent/` 与外围目录职责审计并将最终目标修订为退役 `engine`、`mind_nova`、`mind_core`、`mind_app`；正式 wire SDK 迁入职责化的顶层 `protocol/`，前端和基础设施边界单独规划，不创建空目录或进行机械搬迁 | 阶段 5 从元数据切片启动；下一切片为协议 SDK 分层与可观测性边界 |
 | 2026-08-30 | 阶段 5 首个切片 | 将产品版本、展示和编码常量抽出到顶层 `metadata/`；`setup.py`、配置服务页面和 `/version` 响应已切换，补充元数据边界测试；导入图、文档检查、语法检查和定向测试 `12 passed` | 端点、认证和运行时路径已在后续 Protocol/Observability 切片按职责归位；`mind_app`、`mind_core`、`engine` 仍待重组 |
 | 2026-08-30 | 阶段 5 Protocol/Observability 切片 | 将 wire SDK 按 `schema/transport/client` 重组，删除 `protocol/requests`；结构化观测从 `engine` 提取到顶层 `observability/`，第三方日志过滤集中管理；新增日志 AST 守卫，协议/日志定向测试 `103 passed` | 全量测试 `2964 passed, 11 skipped`，导入图 `--check`、语法和 diff 检查通过；下一切片处理 `mind_app`、`mind_core`、`engine` 职责重组 |
+| 2026-08-30 | 阶段 5 运行工具增强切片 | 将 `engine/enhance` 迁入 `mind_app/runtime/tools/enhancement`，并把远程自愈流拆到 `protocol/client/heal.py`；旧增强路径删除，`engine -> mind_core` 反向业务依赖消除；定向增强/架构测试 `13 passed` | 全量测试 `2965 passed, 11 skipped`，导入图显示无跨边界循环；平台和许可职责仍待迁移 |
+| 2026-08-30 | 阶段 5 平台基础设施切片 | 将编码、终端、端口、文件辅助和 `AppError` 迁入 `infrastructure`，全部消费者切换并删除旧 `engine` 模块；新增平台边界守卫 | 全量测试 `2965 passed, 11 skipped`，`compileall`、`git diff --check` 和导入图 `--check` 通过；`engine/manage`、`engine/upgrade` 仍待退役 |

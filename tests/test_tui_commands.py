@@ -12,7 +12,7 @@ import pytest
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.design.terminal_capabilities import DEGRADED_TERMINAL_CAPABILITIES

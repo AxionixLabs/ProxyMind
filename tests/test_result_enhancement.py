@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from engine.enhance import enhance_result
+from mind_app.runtime.tools.enhancement import enhance_result
 
 
 @pytest.mark.anyio

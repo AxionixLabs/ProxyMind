@@ -3,8 +3,8 @@
 
 import typing
 import functools
-from engine.errors import AppError
-from engine.file_assist import FileAssist
+from infrastructure.errors import AppError
+from infrastructure.platform.file_assist import FileAssist
 from mind_app.frontend import ApplicationView
 from mind_app.presentation.mcp_status import render_mcp_status_block
 from mind_app.presentation.models import (

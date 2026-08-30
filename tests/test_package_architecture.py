@@ -158,6 +158,18 @@ def test_agent_capabilities_depend_only_on_protocol_transport() -> None:
     )
 
 
+def test_platform_infrastructure_does_not_depend_on_legacy_runtime() -> None:
+    """平台实现不能重新依赖已进入退役流程的业务包。"""
+    violations = _forbidden_imports(
+        "infrastructure/platform",
+        {"engine", "mind_app", "mind_core", "server"},
+    )
+
+    assert not violations, "platform infrastructure imports legacy runtime:\n" + (
+        "\n".join(violations)
+    )
+
+
 def test_agent_application_does_not_load_concrete_composition() -> None:
     violations = _forbidden_module_imports(
         "agent/application",

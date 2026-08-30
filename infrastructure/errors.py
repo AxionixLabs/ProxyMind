@@ -4,11 +4,11 @@
 import typing
 
 
-class _AppBaseError(BaseException):
+class _ApplicationBaseError(BaseException):
     """作为可预期入口错误的基础类型。"""
 
 
-class AppError(_AppBaseError):
+class AppError(_ApplicationBaseError):
     """描述可直接展示给调用方的应用错误。"""
 
     def __init__(self, message: typing.Any) -> None:
@@ -20,5 +20,5 @@ class AppError(_AppBaseError):
     __repr__ = __str__
 
 
-if __name__ == '__main__':
-    pass
+__all__ = ("AppError",)
+

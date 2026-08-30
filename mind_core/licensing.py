@@ -25,8 +25,8 @@ from cryptography.hazmat.primitives import (
     serialization
 )
 from cryptography.hazmat.primitives.asymmetric import padding
-from engine.terminal import Terminal
-from engine.errors import AppError
+from infrastructure.platform.terminal import Terminal
+from infrastructure.errors import AppError
 from metadata import const
 from protocol.transport.auth import (
     build_service_headers,

@@ -11,7 +11,7 @@ from urllib.parse import (
     urlsplit,
     urlunsplit
 )
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from mind_app.mcp.registry import McpServerRegistry
 from mind_app.paths import mind_config_path
 from mind_core.config import ConfigOverride

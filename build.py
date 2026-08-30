@@ -21,8 +21,8 @@ from rich.progress import (
     SpinnerColumn,
     TextColumn
 )
-from engine.errors import AppError
-from engine.terminal import Terminal
+from infrastructure.errors import AppError
+from infrastructure.platform.terminal import Terminal
 from metadata import const
 
 nuitka_version = "2.8.9"  # 编译器版本

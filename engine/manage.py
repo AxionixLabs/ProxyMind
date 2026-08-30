@@ -12,12 +12,12 @@ import subprocess
 import contextlib
 from urllib.parse import urlparse
 from mcp import types as mcp_types
-from engine.errors import AppError
+from infrastructure.errors import AppError
 from observability import (
     observe,
     observe_exception
 )
-from engine.ports import terminate_port_process
+from infrastructure.platform.ports import terminate_port_process
 from protocol.transport.auth import manufacture_token
 from metadata import const
 from protocol.transport import config

@@ -5,7 +5,7 @@ import os
 import sys
 import typing
 import asyncio
-from engine.encoding import decode_process_output
+from infrastructure.platform.encoding import decode_process_output
 
 
 class Terminal(object):
