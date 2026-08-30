@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from mind_core.hooks import HookEventName
+from agent.application import HookEventName
 from mind_app.runtime.execution import TurnContext
 from .models import (
     HookDispatchResult,

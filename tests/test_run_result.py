@@ -65,7 +65,7 @@ from agent.application import ModelCapabilityError, ModelStreamRequest
 from agent.adapters.item_reducer import CanonicalItemReducer
 from agent.composition import open_effect_journal
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
-from mind_core.hook_discovery import resolve_hook_definitions
+from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.application import (
     PermissionSettings,
     preset_permissions,

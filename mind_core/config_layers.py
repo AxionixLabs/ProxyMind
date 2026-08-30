@@ -20,7 +20,7 @@ from mind_core.config_store import (
     ConfigStore,
     ConfigStoreError,
 )
-from mind_core.hook_discovery import (
+from infrastructure.hooks.discovery import (
     HOOKS_FILE_NAME,
     HookSourceResolution,
     normalize_hook_table,
@@ -28,7 +28,7 @@ from mind_core.hook_discovery import (
     resolve_hook_file_source,
     resolve_hook_source,
 )
-from mind_core.hooks import (
+from agent.application import (
     HookDefinitionConfig,
     HookStateTable,
 )

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_core.hooks import (
+from agent.application import (
     CompactResultSource,
     CompactTriggerReason,
     CompactTriggerSource

@@ -6,7 +6,7 @@ import json
 import typing
 import asyncio
 from dataclasses import dataclass
-from mind_core.hooks import (
+from agent.application import (
     HookDefinitionConfig,
     HookEventName
 )

@@ -9,7 +9,7 @@ from mind_app.runtime import conversation as compact_mode
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.tui.features import conversation
-from mind_core.hook_discovery import resolve_hook_definitions
+from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.application import preset_permissions
 
 

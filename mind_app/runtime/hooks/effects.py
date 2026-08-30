@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_core.hooks import HookEventName
+from agent.application import HookEventName
 from .protocol import validate_hook_output
 from .models import (
     HookNormalizedOutput,

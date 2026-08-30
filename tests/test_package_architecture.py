@@ -311,6 +311,45 @@ def test_permission_policy_has_no_legacy_source_or_imports() -> None:
     assert not violations, "legacy permission policy imports remain:\n" + "\n".join(violations)
 
 
+def test_hook_modules_have_no_legacy_sources_or_imports() -> None:
+    """确保 Hook domain 和发现基础设施不回到 mind_core。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_core" / "hooks.py",
+        PROJECT_ROOT / "mind_core" / "hook_trust.py",
+        PROJECT_ROOT / "mind_core" / "hook_discovery.py",
+    )
+    assert not any(path.exists() for path in legacy_paths), (
+        "legacy hook source still exists: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_paths
+            if path.exists()
+        )
+    )
+
+    legacy_modules = {
+        "mind_core.hooks",
+        "mind_core.hook_trust",
+        "mind_core.hook_discovery",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy hook imports remain:\n" + "\n".join(violations)
+
+
 def test_agent_application_does_not_load_concrete_composition() -> None:
     violations = _forbidden_module_imports(
         "agent/application",

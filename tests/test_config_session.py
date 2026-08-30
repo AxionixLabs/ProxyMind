@@ -14,8 +14,8 @@ from mind_core.config import (
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore, ConfigStoreError
 from mind_core.config_layers import PROJECT_CONFIG_DIR
-from mind_core.hook_discovery import HOOKS_FILE_NAME
-from mind_core.hooks import HOOK_EVENT_CONFIG_SPECS
+from infrastructure.hooks.discovery import HOOKS_FILE_NAME
+from agent.application import HOOK_EVENT_CONFIG_SPECS
 
 
 def _command_handler(command, *, timeout=None):

@@ -14,7 +14,7 @@ from observability import (
     observe,
     observe_exception
 )
-from mind_core.hooks import (
+from agent.application import (
     HookDefinitionConfig,
     HookEventName
 )

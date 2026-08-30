@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from mind_core.hooks import (
+from agent.domain.hooks import (
     HookDefinitionConfig,
     HookStateTable
 )

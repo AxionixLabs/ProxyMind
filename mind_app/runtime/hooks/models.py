@@ -6,8 +6,8 @@ from dataclasses import (
     dataclass,
     field
 )
-from mind_core.hook_trust import HookTrustState
-from mind_core.hooks import (
+from agent.application import HookTrustState
+from agent.application import (
     HookEventName,
     HookTrustPolicy
 )

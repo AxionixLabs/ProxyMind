@@ -18,7 +18,7 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionScope
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
-from mind_core.hook_discovery import resolve_hook_definitions
+from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.application import preset_permissions
 
 

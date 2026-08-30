@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from mind_core.hooks import (
+from agent.application import (
     HOOK_EVENT_CONFIG_SPECS,
     HOOK_EVENT_NAMES,
     HookControlPolicy,

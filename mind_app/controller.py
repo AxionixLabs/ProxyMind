@@ -21,7 +21,7 @@ from agent.application import (
     PermissionSettings,
     resolve_permissions
 )
-from mind_core.hooks import (
+from agent.application import (
     HookDefinitionConfig,
     SessionEndReason
 )

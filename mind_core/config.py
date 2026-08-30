@@ -16,8 +16,8 @@ from infrastructure.config.providers import (
     is_valid_provider_id,
     supported_routes_for_kind
 )
-from mind_core.hook_discovery import normalize_hook_table
-from mind_core.hooks import (
+from infrastructure.hooks.discovery import normalize_hook_table
+from agent.application import (
     HookConfigError,
     normalize_hook_state_table
 )

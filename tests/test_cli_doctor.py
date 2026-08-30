@@ -15,7 +15,7 @@ from mind_app.cli.doctor import (
 )
 from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
 from infrastructure.config.paths import ApplicationLayout
-from mind_core.hook_discovery import HOOKS_FILE_NAME
+from infrastructure.hooks.discovery import HOOKS_FILE_NAME
 from mind_core.config_store import ConfigStore
 from mind_core.config_layers import PROJECT_CONFIG_DIR
 

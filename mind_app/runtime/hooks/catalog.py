@@ -2,14 +2,14 @@
 # Notes: ==== Mind™ ====
 
 from dataclasses import dataclass
-from mind_core.hook_trust import (
+from agent.application import (
     HookTrustState,
     hook_is_active,
     hook_is_toggleable,
     hook_is_trusted,
     hook_needs_review
 )
-from mind_core.hooks import (
+from agent.application import (
     HookControlPolicy,
     HookEventName,
     HookMatcherSubject,

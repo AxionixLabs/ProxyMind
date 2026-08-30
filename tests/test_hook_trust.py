@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from mind_app.runtime.hooks.registry import HookRegistry
-from mind_core.hook_discovery import resolve_hook_definitions
+from infrastructure.hooks.discovery import resolve_hook_definitions
 
 
 def _definition(

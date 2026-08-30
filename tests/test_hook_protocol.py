@@ -13,7 +13,7 @@ from mind_app.runtime.hooks.protocol import (
     validate_hook_input,
     validate_hook_output,
 )
-from mind_core.hooks import HOOK_EVENT_NAMES
+from agent.application import HOOK_EVENT_NAMES
 
 
 def _prompt_input(**overrides):

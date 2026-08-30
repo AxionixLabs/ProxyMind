@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_core.hooks import (
+from agent.application import (
     HOOK_EVENT_NAMES,
     HookEventName
 )

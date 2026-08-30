@@ -4,7 +4,7 @@
 import typing
 import asyncio
 from dataclasses import replace
-from mind_core.hooks import (
+from agent.application import (
     SESSION_END_REASONS,
     SessionEndReason
 )

@@ -7,7 +7,7 @@ from dataclasses import (
     dataclass,
     replace
 )
-from mind_core.hooks import (
+from agent.application import (
     CompactOutcome,
     CompactResultSource,
     CompactTriggerReason,

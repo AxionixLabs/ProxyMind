@@ -5,12 +5,12 @@ import typing
 from pathlib import Path
 from dataclasses import dataclass
 from observability import observe
-from mind_core.hook_trust import (
+from agent.application import (
     HookTrustState,
     hook_needs_review,
     resolve_hook_state
 )
-from mind_core.hooks import (
+from agent.application import (
     HOOK_EVENT_CONFIG_SPECS,
     HOOK_EVENT_NAMES,
     HookDefinitionConfig,

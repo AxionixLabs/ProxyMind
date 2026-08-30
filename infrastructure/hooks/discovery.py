@@ -8,7 +8,7 @@ import typing
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from mind_core.hooks import (
+from agent.domain.hooks import (
     HOOK_EVENT_CONFIG_SPECS,
     HOOK_EVENT_NAMES,
     _DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT,
