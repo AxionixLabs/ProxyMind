@@ -19,6 +19,7 @@ from agent.protocol import (
     ModelStreamEndReason,
     ModelStreamRequest,
     SubmitTurnCommand,
+    TurnControlReceipt,
 )
 from agent.protocol.json_value import (
     JsonValue,
@@ -401,6 +402,83 @@ class ModelCapability(typing.Protocol):
         on_approval_snapshot: ApprovalSnapshotCallback | None = None,
     ) -> ModelEventStream:
         """创建可取消、可关闭且可报告服务端事件游标的流。"""
+        ...
+
+
+@typing.runtime_checkable
+class ProtocolCommandClient(typing.Protocol):
+    """提供 mind.chat 控制命令、工具结果和审批命令的传输端口。
+
+    实现方负责校验并提交稳定的 Session/Turn/Call 身份；前端和运行流只依赖该
+    端口，不直接导入 HTTP 请求模块或拼接协议载荷。命令结果必须保持幂等，未知
+    的工具结果交付由调用方依据返回错误继续对账。
+    """
+
+    async def interrupt_turn(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+        request_id: str | None = None,
+    ) -> TurnControlReceipt:
+        """提交匹配活动轮次的中断命令。"""
+        ...
+
+    async def post_tool_result(
+        self,
+        cid: str,
+        sid: str,
+        call_id: str,
+        name: str,
+        ok: bool,
+        result: Mapping[str, typing.Any],
+        additional_context: typing.Sequence[str] = (),
+        request_id: str | None = None,
+    ) -> None:
+        """提交一个不可覆盖的客户端工具结果。"""
+        ...
+
+    async def get_tool_result_status(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        call_id: str,
+    ) -> Mapping[str, ThawedJsonValue]:
+        """读取工具结果的权威状态快照。"""
+        ...
+
+    async def post_tool_approval(
+        self,
+        cid: str,
+        sid: str,
+        call_id: str,
+        approval_id: str,
+        decision: str,
+        *,
+        turn_id: str,
+        kind: str = "command",
+        approval: Mapping[str, typing.Any] | None = None,
+        request_id: str | None = None,
+        execpolicy_amendment_id: str | None = None,
+        reason: str | None = None,
+        additional_context: typing.Sequence[str] = (),
+    ) -> None:
+        """提交一个结构化审批决定并等待服务端确认。"""
+        ...
+
+    async def post_effect_reconciliation(
+        self,
+        *,
+        effect_id: str,
+        request_id: str,
+        resolution: typing.Literal["committed", "failed", "retry"],
+        result_payload: Mapping[str, typing.Any] | None = None,
+        error: str = "",
+        metadata: Mapping[str, typing.Any] | None = None,
+    ) -> None:
+        """提交外部效果的确定核对结论。"""
         ...
 
 

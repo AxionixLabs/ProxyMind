@@ -579,6 +579,26 @@ async def _run_stream(
             self.last_stream = self._EventStream(iterator, request)
             return self.last_stream
 
+        async def interrupt_turn(self, **kwargs):
+            """把控制命令测试替身连接到当前协议请求替身。"""
+            return await stream.interrupt_turn(**kwargs)
+
+        async def post_tool_result(self, *args, **kwargs):
+            """把工具结果命令测试替身连接到当前协议请求替身。"""
+            return await stream.post_tool_result(*args, **kwargs)
+
+        async def get_tool_result_status(self, **kwargs):
+            """把工具状态查询测试替身连接到当前协议请求替身。"""
+            return await stream.get_tool_result_status(**kwargs)
+
+        async def post_tool_approval(self, *args, **kwargs):
+            """把审批命令测试替身连接到当前协议请求替身。"""
+            return await stream.post_tool_approval(*args, **kwargs)
+
+        async def post_effect_reconciliation(self, **kwargs):
+            """把效果核对命令测试替身连接到当前协议请求替身。"""
+            return await stream.post_effect_reconciliation(**kwargs)
+
     mind.runtime_services.model_capability = ModelCapabilityStub()
     output_session = _output_session(
         show_hook_lifecycle=show_hook_lifecycle

@@ -18,6 +18,24 @@ from .json_value import (
     thaw_object,
 )
 
+TurnControlStatus: typing.TypeAlias = typing.Literal[
+    "accepted",
+    "turn_not_active",
+    "turn_not_steerable",
+    "turn_mismatch",
+    "duplicate",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class TurnControlReceipt:
+    """描述 Protocol Client 对中断等轮次控制命令的稳定回执。"""
+
+    status: TurnControlStatus
+    request_id: str
+    turn_id: str
+    client_message_id: str | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class SubmitTurnCommand:

@@ -15,9 +15,21 @@ from agent.protocol import (
     ModelEvent,
     ModelStreamEndReason,
     ModelStreamRequest,
+    TurnControlReceipt,
     validate_model_event,
 )
 from agent.protocol.json_value import ThawedJsonValue
+from mind_nova.requests.effects import (
+    post_effect_reconciliation as _post_effect_reconciliation,
+)
+from mind_nova.requests.tools import (
+    get_tool_result_status as _get_tool_result_status,
+    post_tool_approval as _post_tool_approval,
+    post_tool_result as _post_tool_result,
+)
+from mind_nova.requests.turn_control import (
+    interrupt_turn as _interrupt_turn,
+)
 from .item_reducer import CanonicalItemReducer
 from mind_nova.requests.chat import stream_chat
 
@@ -276,6 +288,135 @@ class MindChatProtocolClient:
             turn_id=request.turn_id,
             event_cursors=self._event_cursors,
             item_reducer=item_reducer,
+        )
+
+    async def interrupt_turn(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+        request_id: str | None = None,
+    ) -> TurnControlReceipt:
+        """提交匹配活动轮次的中断命令并隐藏 wire 回执类型。"""
+        response = await _interrupt_turn(
+            cid=cid,
+            sid=sid,
+            turn_id=turn_id,
+            request_id=request_id,
+        )
+        status = str(response.status or "").strip()
+        if status == "accepted":
+            normalized_status = "accepted"
+        elif status == "turn_not_active":
+            normalized_status = "turn_not_active"
+        elif status == "turn_not_steerable":
+            normalized_status = "turn_not_steerable"
+        elif status == "turn_mismatch":
+            normalized_status = "turn_mismatch"
+        elif status == "duplicate":
+            normalized_status = "duplicate"
+        else:
+            raise ModelCapabilityError(
+                "protocol_command_error",
+                "turn interrupt returned an invalid status",
+            )
+        return TurnControlReceipt(
+            status=normalized_status,
+            request_id=response.request_id,
+            turn_id=response.turn_id,
+            client_message_id=response.client_message_id,
+        )
+
+    async def post_tool_result(
+        self,
+        cid: str,
+        sid: str,
+        call_id: str,
+        name: str,
+        ok: bool,
+        result: typing.Mapping[str, typing.Any],
+        additional_context: typing.Sequence[str] = (),
+        request_id: str | None = None,
+    ) -> None:
+        """提交客户端工具结果并隐藏 wire ACK 结构。"""
+        await _post_tool_result(
+            cid,
+            sid,
+            call_id,
+            name,
+            ok,
+            result,
+            additional_context=additional_context,
+            request_id=request_id,
+        )
+
+    async def get_tool_result_status(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        call_id: str,
+    ) -> dict[str, ThawedJsonValue]:
+        """读取工具结果权威状态并返回已校验的数据快照。"""
+        return await _get_tool_result_status(
+            cid=cid,
+            sid=sid,
+            call_id=call_id,
+        )
+
+    async def post_tool_approval(
+        self,
+        cid: str,
+        sid: str,
+        call_id: str,
+        approval_id: str,
+        decision: str,
+        *,
+        turn_id: str,
+        kind: str = "command",
+        approval: typing.Mapping[str, typing.Any] | None = None,
+        request_id: str | None = None,
+        execpolicy_amendment_id: str | None = None,
+        reason: str | None = None,
+        additional_context: typing.Sequence[str] = (),
+    ) -> None:
+        """提交审批决定并隐藏具体 wire ACK 类型。"""
+        await _post_tool_approval(
+            cid,
+            sid,
+            call_id,
+            approval_id,
+            decision,
+            turn_id=turn_id,
+            kind=kind,
+            approval=approval,
+            request_id=request_id,
+            execpolicy_amendment_id=execpolicy_amendment_id,
+            reason=reason,
+            additional_context=additional_context,
+        )
+
+    async def post_effect_reconciliation(
+        self,
+        *,
+        effect_id: str,
+        request_id: str,
+        resolution: typing.Literal["committed", "failed", "retry"],
+        result_payload: typing.Mapping[str, typing.Any] | None = None,
+        error: str = "",
+        metadata: typing.Mapping[str, typing.Any] | None = None,
+    ) -> None:
+        """提交外部效果核对结论并隐藏 wire 响应结构。"""
+        await _post_effect_reconciliation(
+            effect_id=effect_id,
+            request_id=request_id,
+            resolution=resolution,
+            result_payload=(
+                dict(result_payload) if result_payload is not None else None
+            ),
+            error=error,
+            metadata=dict(metadata) if metadata is not None else None,
         )
 
 

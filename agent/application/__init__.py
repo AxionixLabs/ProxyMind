@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from agent.protocol import CanonicalItem, SubmitTurnCommand
+from agent.protocol import (
+    CanonicalItem,
+    SubmitTurnCommand,
+    TurnControlReceipt,
+)
 from agent.protocol import ModelStreamEndReason, ModelStreamRequest
 from agent.protocol.json_value import JsonValue
 from agent.ports import (
@@ -18,6 +22,7 @@ from agent.ports import (
     ModelCapability,
     ModelCapabilityError,
     ModelEventStream,
+    ProtocolCommandClient,
     ProcessCapability,
     ProcessHandle,
     ProcessSpec,
@@ -55,6 +60,7 @@ __all__ = (
     "ModelCapability",
     "ModelCapabilityError",
     "ModelEventStream",
+    "ProtocolCommandClient",
     "ModelStreamRequest",
     "ModelStreamEndReason",
     "ProcessCapability",
@@ -70,6 +76,7 @@ __all__ = (
     "RuntimeServices",
     "SubmitTurnResult",
     "SubmitTurnCommand",
+    "TurnControlReceipt",
     "TurnApplication",
     "project_run_result",
     "submit_turn",

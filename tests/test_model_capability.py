@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from types import SimpleNamespace
-from unittest.mock import ANY, Mock
+from unittest.mock import ANY, AsyncMock, Mock
 
 import pytest
 
@@ -204,6 +204,117 @@ def test_protocol_client_translates_frozen_request(monkeypatch) -> None:
     snapshot_callback = stream_chat.call_args.kwargs["on_approval_snapshot"]
     assert callable(snapshot_callback)
     assert snapshot_callback is not approval
+
+
+@pytest.mark.anyio
+async def test_protocol_client_owns_command_transport_boundary(monkeypatch) -> None:
+    interrupt = AsyncMock(return_value=SimpleNamespace(
+        status="accepted",
+        request_id="interrupt_test",
+        turn_id="turn_test",
+        client_message_id=None,
+    ))
+    result = AsyncMock(return_value={"ok": True})
+    status = AsyncMock(return_value={
+        "cid": "cid_test",
+        "sid": "sid_test",
+        "call_id": "call_test",
+        "tool_status": "waiting_result",
+        "result_received": False,
+    })
+    approval = AsyncMock()
+    reconcile = AsyncMock()
+    monkeypatch.setattr(model_adapter, "_interrupt_turn", interrupt)
+    monkeypatch.setattr(model_adapter, "_post_tool_result", result)
+    monkeypatch.setattr(model_adapter, "_get_tool_result_status", status)
+    monkeypatch.setattr(model_adapter, "_post_tool_approval", approval)
+    monkeypatch.setattr(model_adapter, "_post_effect_reconciliation", reconcile)
+
+    client = model_adapter.MindChatProtocolClient()
+    receipt = await client.interrupt_turn(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        request_id="interrupt_test",
+    )
+    await client.post_tool_result(
+        "cid_test",
+        "sid_test",
+        "call_test",
+        "test_tool",
+        True,
+        {"ok": True},
+        additional_context=("context",),
+        request_id="result_test",
+    )
+    observed_status = await client.get_tool_result_status(
+        cid="cid_test",
+        sid="sid_test",
+        call_id="call_test",
+    )
+    await client.post_tool_approval(
+        "cid_test",
+        "sid_test",
+        "call_test",
+        "approval_test",
+        "decline",
+        turn_id="turn_test",
+        reason="denied",
+    )
+    await client.post_effect_reconciliation(
+        effect_id="effect_test",
+        request_id="reconcile_test",
+        resolution="failed",
+        result_payload={"ok": False},
+        error="denied",
+        metadata={"source": "test"},
+    )
+
+    assert receipt.status == "accepted"
+    assert observed_status["tool_status"] == "waiting_result"
+    interrupt.assert_awaited_once_with(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        request_id="interrupt_test",
+    )
+    result.assert_awaited_once_with(
+        "cid_test",
+        "sid_test",
+        "call_test",
+        "test_tool",
+        True,
+        {"ok": True},
+        additional_context=("context",),
+        request_id="result_test",
+    )
+    status.assert_awaited_once_with(
+        cid="cid_test",
+        sid="sid_test",
+        call_id="call_test",
+    )
+    approval.assert_awaited_once_with(
+        "cid_test",
+        "sid_test",
+        "call_test",
+        "approval_test",
+        "decline",
+        turn_id="turn_test",
+        kind="command",
+        approval=None,
+        request_id=None,
+        execpolicy_amendment_id=None,
+        reason="denied",
+        additional_context=(),
+    )
+    reconcile.assert_awaited_once_with(
+        effect_id="effect_test",
+        request_id="reconcile_test",
+        resolution="failed",
+        result_payload={"ok": False},
+        error="denied",
+        metadata={"source": "test"},
+    )
 
 
 @pytest.mark.anyio

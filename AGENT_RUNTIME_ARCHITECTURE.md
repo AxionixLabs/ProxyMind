@@ -87,6 +87,11 @@ Protocol Client 的职责是构造冻结命令、维护 `cid/sid/turn_id` 和 `e
 Hook 和最后回复记忆的唯一正文来源；`current_item` 为当前事件提供已裁决的 Item
 revision，`sources` 从 active text/builtin Items 聚合。展示 adapter 不得再从收到的
 delta 自建最终正文、attempt 或来源归属。
+`ProtocolCommandClient` 与模型流共用同一 Protocol Client 身份，但职责单独收敛为
+`turn/interrupt`、`tool-result`、`tool-result/status`、`tool-approval` 和
+`effect/reconcile` 命令；它返回已校验的控制回执或状态快照，TUI 不得直接调用
+`mind_nova.requests` 的 wire 函数。这样桌面端和 Web 可以复用同一命令语义而不引入
+`Mind` 或本地 UI 生命周期。
 迁移期间可以复用既有传输，但不能把 `agent.application` 的本地
 `SubmitTurnCommand` 或 `agent.protocol.RunEvent` 暴露为桌面/Web 公共协议。
 
@@ -392,7 +397,7 @@ running -> cancelled
 | `agent/stores/effect_journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `stores/effect_journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |
 | `agent/stores/run_store.py`、`_run_schema.py`、`_run_records.py` | `stores/session_store.py`、`event_store.py`、`outbox.py` 的首个事务切片 | 已原子提交事件、快照、outbox 和最终事实；只有出现独立生命周期或规模压力时再物理拆 store，避免单次转发 facade |
 | `mind_nova/requests`、`stream_events.py` | `protocol/`、`adapters/protocol_client.py` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；请求/事件类型、传输和前端投影继续分开，协议不得导入 `engine` |
-| `mind_nova/requests/chat.py`、`stream_events.py` | `adapters/protocol_client.py`、`item_reducer.py` | 既有模块暂时承担正式事件解析、SSE、attach 和审批快照传输；Protocol Client 已独立拥有请求坐标、结算游标、Canonical Item 状态和审批快照优先级，后续继续迁移命令面并由 TUI、桌面端和 Web 共用 |
+| `mind_nova/requests/chat.py`、`stream_events.py`、`requests/tools.py`、`requests/effects.py` | `adapters/protocol_client.py`、`item_reducer.py` | 既有模块暂时承担正式事件解析、SSE、attach 和 wire 传输；Protocol Client 已独立拥有请求坐标、结算游标、Canonical Item 状态、审批快照优先级和工具/审批/效果命令端口，后续继续迁移 attach/replay 命令面并由 TUI、桌面端和 Web 共用 |
 | `mind_nova/requests/chat.py` | `agent/protocol/model.py`、`agent/adapters/protocol_client.py` | `ModelStreamRequest` 显式冻结 Turn 坐标、metadata 和环境快照；`MindChatProtocolClient` 临时复用既有 wire 流，待命令与传输原语形成独立公共 SDK 边界后消除对 legacy request module 的直接依赖 |
 | `agent/ports/capabilities.py`、`agent/adapters/protocol_client.py` | `ports`、`adapters/protocol_client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | 已删除的 `mind_app/runtime/environment/exec_env.py`、`mind_nova/requests/environment.py` | `capabilities/environment.py`、正式协议 SDK | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化继续由 `mind_nova` 拥有。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |

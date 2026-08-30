@@ -38,7 +38,7 @@ flowchart LR
 
 | 源边界 | 目标边界 | 导入文件数 | 导入语句数 | 证据文件 |
 | --- | --- | ---: | ---: | --- |
-| `agent` | `mind_nova` | 2 | 3 | `agent/adapters/protocol_client.py`<br>`agent/capabilities/environment.py` |
+| `agent` | `mind_nova` | 2 | 6 | `agent/adapters/protocol_client.py`<br>`agent/capabilities/environment.py` |
 | `build` | `engine` | 1 | 2 | `build.py` |
 | `build` | `mind_nova` | 1 | 1 | `build.py` |
 | `engine` | `mind_core` | 1 | 1 | `engine/enhance/handlers.py` |

@@ -11,6 +11,8 @@ from agent.application import (
     ModelCapabilityError,
     ModelEventStream,
     ModelStreamRequest,
+    ProtocolCommandClient,
+    TurnControlReceipt,
 )
 from mind_app.approval.ledger import ApprovalCallLedger
 from mind_app.mcp.contracts import McpSessionLike
@@ -175,7 +177,8 @@ async def _cancel_reconciliation_turn(
     cid: str,
     sid: str,
     turn_id: str,
-    effect_id: str
+    effect_id: str,
+    interrupt_command: typing.Callable[..., typing.Awaitable[TurnControlReceipt]],
 ) -> bool:
     """使用稳定中断命令释放无法自动核对的持久轮次。"""
     request_id = stable_request_id(
@@ -187,7 +190,7 @@ async def _cancel_reconciliation_turn(
     )
     for attempt in range(2):
         try:
-            response = await interrupt_turn(
+            response = await interrupt_command(
                 cid=cid,
                 sid=sid,
                 turn_id=turn_id,
@@ -207,6 +210,7 @@ async def _interrupt_approval_cancelled_turn(
     sid: str,
     turn_id: str,
     call_id: str,
+    interrupt_command: typing.Callable[..., typing.Awaitable[TurnControlReceipt]],
 ) -> bool:
     """中断本地审批取消对应的逻辑轮次。"""
     request_id = stable_request_id(
@@ -218,7 +222,7 @@ async def _interrupt_approval_cancelled_turn(
     )
     for attempt in range(2):
         try:
-            response = await interrupt_turn(
+            response = await interrupt_command(
                 cid=cid,
                 sid=sid,
                 turn_id=turn_id,
@@ -247,6 +251,9 @@ async def stream_turn(
     model_capability = getattr(runtime_services, "model_capability", None)
     if not isinstance(model_capability, ModelCapability):
         raise RuntimeError("model capability is required")
+    if not isinstance(model_capability, ProtocolCommandClient):
+        raise RuntimeError("protocol command client is required")
+    protocol_client = model_capability
     callbacks = prepared.callbacks
     reentry_kwargs = prepared.continuation_kwargs
     ev_report = prepared.event_report
@@ -379,7 +386,7 @@ async def stream_turn(
             coordinator=tool_call_coordinator,
             status_control=status_control,
             presentation=presentation,
-            post_approval=post_tool_approval,
+            post_approval=protocol_client.post_tool_approval,
         )
 
         active_turn_hook_events = TurnHookEvents(hook_scope)
@@ -407,6 +414,7 @@ async def stream_turn(
                 sid=turn_context.sid,
                 turn_id=turn_context.turn_id,
                 call_id=call_id,
+                interrupt_command=protocol_client.interrupt_turn,
             )
 
         client_tool_runner = ClientToolCallRunner(
@@ -420,6 +428,7 @@ async def stream_turn(
             effect_journal=runtime_services.create_effect_journal(
                 effect_journal_db_path()
             ),
+            effect_reconciler=protocol_client.post_effect_reconciliation,
             patch_preview=getattr(
                 mind.workspace_runtime.coding,
                 "preview_patch",
@@ -429,9 +438,9 @@ async def stream_turn(
         )
         tool_result_delivery = ToolResultDelivery(
             reconcile_known_effect=client_tool_runner.reconcile_known_effect,
-            post_result=post_tool_result,
-            get_status=get_tool_result_status,
-            post_reconciliation=post_effect_reconciliation,
+            post_result=protocol_client.post_tool_result,
+            get_status=protocol_client.get_tool_result_status,
+            post_reconciliation=protocol_client.post_effect_reconciliation,
         )
         plan_tool_runner = PlanToolCallRunner(
             session=session,
@@ -605,6 +614,7 @@ async def stream_turn(
                     sid=str(metadata.get("sid") or ""),
                     turn_id=turn_context.turn_id,
                     effect_id=event.effect_id,
+                    interrupt_command=protocol_client.interrupt_turn,
                 )
 
                 reconciliation_error = (

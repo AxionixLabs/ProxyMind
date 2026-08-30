@@ -142,6 +142,11 @@ MCP adapter 必须通过同一个 Command Gateway 执行，但不能改变工具
 | 工具审批 | `request_id`、`cid`、`sid`、`turn_id`、`call_id`、`approval_id`、kind、decision | ack 必须匹配全部坐标、审批种类和生命周期状态 |
 | `POST /turn/approval-snapshot` | `cid`、`sid`、`turn_id` | 返回 turn 状态、结算标记、`last_event_seq` 和 pending/resolved 审批信封 |
 
+Protocol Client 的 `ProtocolCommandClient` 端口负责上述控制面命令的 wire 交付：
+`interrupt_turn` 返回已校验的 `TurnControlReceipt`，工具结果、审批和效果核对
+命令只在服务端确认后返回；`get_tool_result_status` 返回与请求坐标匹配的状态
+快照。前端和运行流不得直接依赖 `mind_nova.requests` 的请求函数。
+
 阶段 1 的 `approve`、`append_input` 和 `cancel_run` 只封装上述意图；外部请求的
 `request_id`、`client_message_id`、`call_id` 和审批身份必须原样保留以支持重试与对账。
 审批快照必须先进入 Protocol Client 的 Canonical Item reducer，再调用具体前端的
