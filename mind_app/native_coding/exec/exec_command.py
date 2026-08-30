@@ -23,7 +23,7 @@ from mind_app.native_coding.exec.exec_policy import (
     effective_sandbox_mode,
     normalize_sandbox_permission
 )
-from mind_app.approval.permission_grants import normalize_permission_profile
+from agent.stores.permission_grants import normalize_permission_profile
 from mind_app.native_coding.exec.sandbox_client import (
     SandboxProtocolError,
     SandboxUnavailable,

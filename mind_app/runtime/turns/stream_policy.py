@@ -5,7 +5,7 @@ import time
 import typing
 from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.approval.policy import approval_execpolicy_amendment
-from mind_app.approval.permission_grants import normalize_permission_profile
+from agent.stores.permission_grants import normalize_permission_profile
 from mind_app.native_coding.exec.exec_policy import (
     ExecApprovalRequirement,
     ExecPolicyManager,

@@ -14,7 +14,7 @@ from protocol.schema.identifiers import (
 )
 
 if typing.TYPE_CHECKING:
-    from mind_app.approval.permission_grants import PermissionGrantStore
+    from agent.stores.permission_grants import PermissionGrantStore
 
 ROOT_AGENT_ID   = "root"
 ROOT_AGENT_TYPE = "root"

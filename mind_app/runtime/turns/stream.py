@@ -15,7 +15,7 @@ from agent.application import (
     ProtocolCommandError,
     TurnControlReceipt,
 )
-from mind_app.approval.ledger import ApprovalCallLedger
+from agent.stores.approval_ledger import ApprovalCallLedger
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.paths import effect_journal_db_path
 from protocol.schema.identifiers import stable_request_id

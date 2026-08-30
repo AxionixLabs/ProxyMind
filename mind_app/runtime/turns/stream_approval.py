@@ -7,7 +7,7 @@ from observability import (
     observe,
     observe_exception
 )
-from mind_app.approval.ledger import ApprovalCallLedger
+from agent.stores.approval_ledger import ApprovalCallLedger
 from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.approval.policy import (
     approval_decisions,

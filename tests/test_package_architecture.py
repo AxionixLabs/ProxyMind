@@ -610,6 +610,43 @@ def test_presentation_stream_has_no_legacy_packages_or_facades() -> None:
     )
 
 
+def test_approval_state_stores_have_no_legacy_package_or_imports() -> None:
+    """确保审批调用账本和权限授权存储由 agent/stores 持有。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "approval" / "ledger.py",
+        PROJECT_ROOT / "mind_app" / "approval" / "permission_grants.py",
+    )
+    assert not any(path.is_file() for path in legacy_paths), (
+        "legacy approval state sources still exist: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_paths
+            if path.is_file()
+        )
+    )
+
+    legacy_modules = {
+        "mind_app.approval.ledger",
+        "mind_app.approval.permission_grants",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy approval state imports remain:\n" + "\n".join(violations)
+
+
 def test_agent_application_does_not_load_concrete_composition() -> None:
     violations = _forbidden_module_imports(
         "agent/application",
@@ -636,7 +673,13 @@ def test_legacy_application_does_not_import_model_transport() -> None:
     )
 
 
-def test_legacy_application_uses_only_agent_application_entry() -> None:
+def test_legacy_application_uses_application_or_owned_state_entry() -> None:
+    """限制旧应用只能使用 application 用例或明确归属的 state store。"""
+    allowed_modules = {
+        "agent.application",
+        "agent.stores.approval_ledger",
+        "agent.stores.permission_grants",
+    }
     violations: list[str] = []
     package_root = PROJECT_ROOT / "mind_app"
 
@@ -651,14 +694,14 @@ def test_legacy_application_uses_only_agent_application_entry() -> None:
 
             for module in imported:
                 if module == "agent" or module.startswith("agent."):
-                    if module != "agent.application":
+                    if module not in allowed_modules:
                         relative = path.relative_to(PROJECT_ROOT)
                         violations.append(
                             f"{relative}:{node.lineno} -> {module}"
                         )
 
     assert not violations, (
-        "legacy application bypasses agent.application:\n"
+        "legacy application imports an unowned agent boundary:\n"
         + "\n".join(violations)
     )
 

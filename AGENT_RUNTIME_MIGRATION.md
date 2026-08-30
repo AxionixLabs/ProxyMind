@@ -765,7 +765,7 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 
 - [x] 将 `mind_app/output/` 重组为 `mind_app/presentation/output/`，统一承载
   `OutputSession`、正文内容协议、文本/JSONL/静默输出以及终端内容 sink；移动后只
-  通过 presentation 的结构化契约依赖 `stream_io`，不引入新的业务状态所有权。
+  通过 presentation 的结构化契约依赖输出记录器，不引入新的业务状态所有权。
 - [x] 流式 Turn、工具执行、Subagent、CLI、MCP、TUI 和测试消费者全部切换到新路径，
   旧输出目录源码与导入删除；`mind_app/interaction` 保留为审批协调器使用的输入/审批
   端口，待完整入口迁移时再决定其最终归属。
@@ -784,6 +784,21 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   spacing 函数内聚；删除 `tool_trace.py` 一次性导出 facade 以及三个旧平铺包入口。
 - [x] 流事件/输出/TUI 定向回归 `174 passed`，架构守卫 `27 passed`，全量回归
   `2979 passed, 11 skipped`；`compileall`、导入图和差异检查通过。
+
+### 已完成切片：审批状态存储归位
+
+状态：已完成（2026-08-30）
+
+- [x] 将 `mind_app/approval/permission_grants.py` 和 `ledger.py` 重组为
+  `agent/stores/permission_grants.py` 与 `approval_ledger.py`，由 stores 统一持有
+  会话权限授权和工具审批消费状态；审批 coordinator、策略和展示模型仍保留在
+  `mind_app.approval`，不把 UI 生命周期混入状态存储。
+- [x] 控制器、流式 Turn、工具策略、native coding、内置工具、执行上下文和测试消费
+  者均切换到明确的 `agent.stores` 模块；旧审批状态源码删除，应用架构守卫只允许这
+  两个显式 state store 入口，其他 `agent.*` 直连仍被拒绝。
+- [x] 账本 key 规范化改为显式类型收窄并移除 `typing.cast()`；审批/权限定向回归
+  `179 passed`，架构与基线回归 `29 passed`，全量回归 `2980 passed, 11 skipped`；
+  `compileall`、导入图和差异检查通过。
 
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
@@ -827,6 +842,7 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `mind_app/output/` -> `mind_app/presentation/output/` | 单轮输出端口、正文内容与文本/JSONL/静默适配器归入 presentation | 流式/TUI/CLI/MCP/Subagent 消费者切换，旧目录源码删除，架构守卫通过 | 5 |
 | `mind_app/stream_events/` -> `mind_app/presentation/stream/` | 流事件展示投影、trace 和生命周期渲染归入 presentation | 流事件/输出/TUI 消费者切换，旧目录源码和 `tool_trace` facade 删除，架构守卫通过 | 5 |
 | `mind_app/stream_io/`、`stream_state/` -> `mind_app/presentation/output/` | 输出记录、边界和 spacing 状态归入输出适配器 | `StreamRecordWriter` 消费者切换，旧平铺包删除，输出回归通过 | 5 |
+| `mind_app/approval/permission_grants.py`、`ledger.py` -> `agent/stores/` | 会话权限授权与审批消费状态由 stores 持有 | 控制器/流式/工具消费者切换，旧状态模块删除，state store 守卫通过 | 5 |
 | `mind_core/application_paths.py` -> `infrastructure/config/paths.py` | 应用入口和本地资源路径解析归入配置基础设施 | 所有路径消费者切换、路径回归通过、旧源模块删除 | 5 |
 | `mind_core/agent_config.py`、`feature_config.py` -> `agent/application/settings.py` | Agent 运行设置与能力开关归入 application | application 公开入口、配置/设置/Subagent 回归通过，旧源模块删除 | 5 |
 | `mind_core/provider_config.py` -> `infrastructure/config/providers.py` | Provider 默认值、路由和 Profile 标识约束归入配置基础设施 | 配置服务/偏好/Provider 选择回归通过，旧源模块删除 | 5 |
@@ -950,3 +966,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-30 | 阶段 5 应用级展示契约切片 | 将 `mind_app/frontend` 重组为 `mind_app/presentation/application.py` 与 `application_sinks.py`，切换 CLI/TUI/MCP/运行时事件消费者并修正导入图边界；顶层 `frontends/` 延后至完整入口迁移 | 前端契约/TUI/CLI 定向回归 `949 passed`，架构守卫 `25 passed`，全量回归 `2977 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续迁移完整 CLI/TUI 入口 |
 | 2026-08-30 | 阶段 5 单轮输出适配器切片 | 将 `mind_app/output` 重组到 `mind_app/presentation/output`，切换流式 Turn、工具、Subagent、CLI、MCP、TUI 和测试消费者，删除旧输出目录源码并补充遗留导入守卫 | 输出/流式/TUI 定向回归 `98 passed`，架构守卫 `26 passed`，全量回归 `2978 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片进入流事件展示投影迁移 |
 | 2026-08-30 | 阶段 5 流事件展示投影切片 | 将 `mind_app/stream_events` 重组到 `mind_app/presentation/stream`，将 `stream_io`、`stream_state` 内聚到 `presentation/output`，删除 `tool_trace` 导出 facade 并更新运行时/TUI/渲染器消费者 | 流事件/输出/TUI 定向回归 `174 passed`，架构守卫 `27 passed`，全量回归 `2979 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续完整入口边界迁移 |
+| 2026-08-30 | 阶段 5 审批状态存储切片 | 将权限授权与审批调用账本从 `mind_app/approval` 重组到 `agent/stores`，切换控制器/流式/工具执行消费者，收紧旧应用对 agent 边界的允许集合并移除账本 `typing.cast()` | 审批/权限定向回归 `179 passed`，架构与基线回归 `29 passed`，全量回归 `2980 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续完整入口边界迁移 |

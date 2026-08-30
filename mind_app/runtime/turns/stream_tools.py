@@ -4,7 +4,7 @@
 import typing
 from dataclasses import dataclass
 from observability import observe
-from mind_app.approval.ledger import ApprovalCallLedger
+from agent.stores.approval_ledger import ApprovalCallLedger
 from mind_app.approval.models import ApprovalOutcome
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.history.contracts import TranscriptSink

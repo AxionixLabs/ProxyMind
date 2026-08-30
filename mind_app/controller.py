@@ -50,9 +50,9 @@ from .client_tools import (
     default_registry as default_client_tool_registry
 )
 from .builtin_tools import BuiltinToolRegistry, permission_tools
-from .approval.permission_grants import PermissionGrantStore
+from agent.stores.permission_grants import PermissionGrantStore
 from .approval.coordinator import ApprovalCoordinator
-from .approval.ledger import ApprovalCallLedger
+from agent.stores.approval_ledger import ApprovalCallLedger
 from .runtime.subagents.runtime import SubagentRuntime
 from .runtime.subagents.graph import AgentGraphStore
 from .subscription.lifecycle import SubscriptionRuntimeOwner

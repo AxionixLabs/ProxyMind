@@ -28,13 +28,18 @@ class ApprovalCallLedger(object):
         call_id: str
     ) -> tuple[str, str, str, str]:
         """规范化账本键。"""
-        values = tuple(
-            str(value or "").strip()
-            for value in (cid, sid, turn_id, call_id)
-        )
-        if not all(values):
+        normalized_cid = str(cid or "").strip()
+        normalized_sid = str(sid or "").strip()
+        normalized_turn_id = str(turn_id or "").strip()
+        normalized_call_id = str(call_id or "").strip()
+        if not all((normalized_cid, normalized_sid, normalized_turn_id, normalized_call_id)):
             raise ValueError("approval ledger key is incomplete")
-        return typing.cast(tuple[str, str, str, str], values)
+        return (
+            normalized_cid,
+            normalized_sid,
+            normalized_turn_id,
+            normalized_call_id,
+        )
 
     def record_approved(
         self,
