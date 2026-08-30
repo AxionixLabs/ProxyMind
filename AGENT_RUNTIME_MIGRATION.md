@@ -107,8 +107,9 @@
   装配已收敛到 `stream_setup.py`，当前请求与停止 Hook 续跑参数分开持有。
 - [x] `stream_turn` 的协议终态、工具中断、对账要求和本地异常已统一写入
   `StreamTurnOutcome`；会话记录、Stop Hook、观测和 `RunResult` 使用同一终态优先级。
-- [x] `ModelStreamEventHandler` 独占 `SegmentTracker`，统一消费 retry、正文增量/完成、
-  展示代次替换和 assistant 输出边界，并负责正文 transcript 投影。
+- [x] `ModelStreamEventHandler` 消费 Protocol Client 的 current/active/audit Item 投影，
+  只拥有展示交付与 Transcript revision 水位；retry、正文、attempt、展示替换和
+  sources 的业务状态由 Canonical Item reducer 统一裁决，旧 `SegmentTracker` 已删除。
 - [x] `ToolResultDelivery` 独占单轮工具结果冻结快照和同键并发去重，统一执行
   权威状态查询、原请求重试以及本地/服务端 Effect 对账。
 - [x] `StreamTurnFinalizer` 独占临时授权/审批清除、流结束通知、模型缓冲提交、
@@ -298,8 +299,9 @@ Helix provider 聚合由进程级注入的 capability 负责；CLI、TUI、MCP �
 reducer 的首个生产切片也已接入事件交付：正文/工具 Item、状态单向收敛、provider
 retry 和 presentation supersede 形成统一 active/audit 投影。下一切片让 TUI 消费
 该投影。审批快照已由同一 reducer 按权威水位收口；RunResult、Stop Hook 和最后回复
-记忆也已改读 `ModelEventStream.assistant_text`，旧 `SegmentTracker` 不再拥有最终
-正文。后续继续迁移增量展示、Transcript 交付和协议命令面，不复刻 Harness 状态机。
+记忆已改读 `ModelEventStream.assistant_text`；delta、sources 和 Transcript presenter
+也已改为消费 current/active/audit Item 投影，旧 `SegmentTracker` 已删除。后续继续
+迁移工具/审批交互与协议命令面，不复刻 Harness 状态机。
 
 ### 当前证据
 
@@ -360,14 +362,19 @@ retry 和 presentation supersede 形成统一 active/audit 投影。下一切片
   `ApprovalEventHandler` 仅在归约完成后处理交互和决定提交。
 - [x] `ModelEventStream.assistant_text` 成为最终正文端口；Turn 收尾显式把它传给
   RunResult 和 Stop Hook，根会话最后回复记忆读取同一快照。旧
-  `ModelStreamEventHandler`/`SegmentTracker` 的正文聚合 API 已删除，只保留尚未迁移
-  的流式展示、来源关联和 Transcript 交付职责。
+  `ModelStreamEventHandler`/`SegmentTracker` 的正文聚合 API 已删除。
 - [x] 运行流测试替身接入真实 `CanonicalItemReducer`，并修复 provider retry 后迟到
   的旧 Item 被误归入新 attempt 的问题；旧 Item 现保留审计但不会污染 canonical 正文。
+- [x] `ModelEventStream.current_item` 暴露最近事件已归约的 Item revision，忽略或控制
+  事件返回空；模型 presenter 只据此生成 delta/完成展示，并按 audit Items 幂等提交
+  Transcript created/updated/superseded，不再复制 Item/attempt 状态机。
+- [x] canonical sources 从 active text/builtin Items 按首次出现去重，TUI 结果展示直接
+  消费该投影；旧 built-in source 回填和 `mind_app/stream_state/segment.py` 已删除，
+  reducer 与端到端运行流测试覆盖 metadata、替换过滤和来源去重。
 
 当前未满足阶段 4 出口：四类入口尚未共享同一套完整的结果/展示投影，旧根轮次和
 legacy Helix/process adapter 仍需在后续切片迁移；Protocol Client 尚缺命令面，
-TUI 的增量展示、sources 和 Transcript presenter 尚未改为消费 Canonical Items。
+TUI 的工具/审批交互仍直接消费具体事件并调用 legacy request functions。
 
 ### 工作项
 
@@ -378,10 +385,9 @@ TUI 的增量展示、sources 和 Transcript presenter 尚未改为消费 Canoni
    `Mind`、`prompt_toolkit` 或 `OutputSession`。
 3. [x] 将 `agent.runtime` 的完整生产切片迁移到 `agent.harness`，同步更新
    `RuntimeServices` 的内部依赖和测试导入；旧包已删除，没有兼容 facade。
-4. TUI 改为 Protocol Client 的一个渲染/交互适配器；最终正文消费者已接管，继续
-   迁移 delta、sources 和 Transcript presenter 后删除 `SegmentTracker` 的重复
-   attempt/Item 状态。本地工具继续通过窄 capability port 注入，不能由 TUI 重新
-   拥有服务端 Run 状态。
+4. TUI 改为 Protocol Client 的一个渲染/交互适配器；模型正文、delta、sources 和
+   Transcript presenter 已接管且 `SegmentTracker` 已删除，继续迁移工具/审批交互。
+   本地工具通过窄 capability port 注入，不能由 TUI 重新拥有服务端 Run 状态。
 5. MCP server 将每个请求交给 Command Gateway，不直接构造控制器或模型。
 6. Subscription handler 只处理 open/ws/resume、去重、mailbox 和确认；任务执行
    通过同一个 application command。
@@ -522,3 +528,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-30 | 阶段 4B | `CanonicalItemReducer` 接入 Protocol Client 的事件交付门禁，统一正文/工具 Item、状态收敛、provider retry 和 presentation supersede，提供 active/audit 快照；同时修复非持久 `stream.gap` 被 capability 误拒绝的问题；定向测试 `197 passed`，全量测试 `2962 passed, 11 skipped` | reducer 尚未归约审批快照，TUI 仍使用旧 `SegmentTracker` 解释正文和展示边界；协议命令面尚待迁移 |
 | 2026-08-30 | 阶段 4B | 审批恢复快照接入 `CanonicalItemReducer`：Protocol Client 在旧前端 callback 前按快照水位提交 pending/resolved/cancelled 状态，旧 pending 回放不得重开终态审批，并独立公开 `pending_approval_items`；定向测试 `199 passed`、全量测试 `2964 passed, 11 skipped` | TUI 尚未消费 Canonical Item 投影；协议命令面和旧审批交互 adapter 待迁移 |
 | 2026-08-30 | 阶段 4B | 最终正文所有权迁入 Protocol Client：`ModelEventStream.assistant_text` 统一驱动 RunResult、Stop Hook 和最后回复记忆，删除旧 handler/tracker 聚合 API；运行流测试接入真实 reducer，并修复 retry 后迟到旧 Item 污染新 attempt 的问题；定向测试 `231 passed`、全量测试 `2965 passed, 11 skipped` | TUI delta、sources 和 Transcript presenter 仍待消费 Canonical Items；协议命令面尚待迁移 |
+| 2026-08-30 | 阶段 4B | 模型输出 presenter 完成 Canonical Item 迁移：`current_item` 驱动 delta/完成展示，active text/builtin Items 聚合 sources，audit Items 幂等提交 Transcript revision；删除 `SegmentTracker` 及重复状态机；定向测试 `246 passed`、全量测试 `2955 passed, 11 skipped` | TUI 工具/审批交互仍直接消费具体事件并调用 legacy 请求函数；Protocol Client 命令面尚待迁移 |

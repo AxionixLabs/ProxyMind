@@ -37,7 +37,9 @@ provider retry 或 `presentation.superseded` 替换的版本，审计视图保�
 resolved/cancelled Item 不得被该水位内的旧 pending 事件重新打开，也不得用快照
 水位替换客户端实际确认游标。最终 `assistant_text` 只从 active canonical text Items
 按首次事件顺序派生；provider retry 或 presentation 替换后的旧正文只保留审计，
-不得进入 RunResult、Stop Hook 或下一轮最后回复记忆。
+不得进入 RunResult、Stop Hook 或下一轮最后回复记忆。事件交付期间
+`current_item` 表示当前事件归约后的 revision，忽略或控制事件为 `null`；最终来源
+从 active text/builtin Items 按首次出现去重，前端不得另建来源归属状态。
 
 ## CLI 契约
 

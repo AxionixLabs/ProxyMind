@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from agent.protocol import SubmitTurnCommand
+from agent.protocol import CanonicalItem, SubmitTurnCommand
 from agent.protocol import ModelStreamEndReason, ModelStreamRequest
 from agent.protocol.json_value import JsonValue
 from agent.ports import (
@@ -42,6 +42,7 @@ from .services import RuntimeServices
 __all__ = (
     "EffectJournal",
     "CapabilityError",
+    "CanonicalItem",
     "EnvironmentSnapshotCapability",
     "FilesystemCapability",
     "EffectJournalDecision",

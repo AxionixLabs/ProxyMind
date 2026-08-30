@@ -13,6 +13,7 @@ from agent.protocol import (
     CanonicalItem,
     ModelEvent
 )
+from agent.protocol.json_value import ThawedJsonValue
 
 _TERMINAL_ITEM_STATUSES = frozenset({
     "completed",
@@ -179,6 +180,21 @@ class CanonicalItemReducer:
             if not state.superseded and state.item_kind == "text"
         ]
         return _join_text(parts).strip()
+
+    @property
+    def sources(self) -> tuple[ThawedJsonValue, ...]:
+        """返回 active 正文和内置工具 Item 中按首次出现去重的来源。"""
+        collected: list[ThawedJsonValue] = []
+        for item in self.canonical_items:
+            if item.item_kind not in {"text", "builtin_tool"}:
+                continue
+            sources = item.payload_value().get("sources")
+            if not isinstance(sources, list):
+                continue
+            for source in sources:
+                if source not in collected:
+                    collected.append(source)
+        return tuple(collected)
 
     def apply(self, event: ModelEvent) -> CanonicalItem | None:
         """应用一条已完成公共字段校验的正式协议事件。"""

@@ -364,6 +364,86 @@ def test_reducer_merges_builtin_tool_lifecycle() -> None:
     ]
 
 
+def test_reducer_aggregates_active_text_and_builtin_sources() -> None:
+    reducer = _reducer()
+    reducer.apply(parse_stream_event(_payload(
+        "tool.builtin.done",
+        event_seq=1,
+        item_id="builtin_test",
+        item_kind="builtin_tool",
+        item_status="completed",
+        builtin_call_id="builtin_test",
+        builtin_type="web_search_call",
+        status="completed",
+        sources=[{"url": "https://example.com/tool"}],
+        source_count=1,
+    )))
+    reducer.apply(parse_stream_event(_payload(
+        "text.delta",
+        event_seq=2,
+        segment_id="segment_test",
+        text="answer",
+    )))
+    reducer.apply(parse_stream_event(_payload(
+        "text.meta",
+        event_seq=3,
+        segment_id="segment_test",
+        sources=[
+            {"url": "https://example.com/tool"},
+            {"url": "https://example.com/text"},
+        ],
+        source_count=2,
+    )))
+
+    assert reducer.sources == (
+        {"url": "https://example.com/tool"},
+        {"url": "https://example.com/text"},
+    )
+
+
+def test_reducer_excludes_sources_from_superseded_presentation() -> None:
+    reducer = _reducer()
+    reducer.apply(parse_stream_event(_payload(
+        "text.meta",
+        event_seq=1,
+        presentation_epoch=1,
+        segment_id="old_item",
+        sources=[{"url": "https://old.example"}],
+        source_count=1,
+    )))
+    reducer.apply(parse_stream_event(_payload(
+        "text.delta",
+        event_seq=2,
+        presentation_epoch=1,
+        segment_id="old_item",
+        text="old",
+    )))
+    reducer.apply(parse_stream_event(_payload(
+        "presentation.superseded",
+        event_seq=3,
+        presentation_epoch=2,
+        superseded_epoch=1,
+        reason="attempt_restarted",
+    )))
+    reducer.apply(parse_stream_event(_payload(
+        "text.meta",
+        event_seq=4,
+        presentation_epoch=2,
+        segment_id="new_item",
+        sources=[{"url": "https://new.example"}],
+        source_count=1,
+    )))
+    reducer.apply(parse_stream_event(_payload(
+        "text.delta",
+        event_seq=5,
+        presentation_epoch=2,
+        segment_id="new_item",
+        text="new",
+    )))
+
+    assert reducer.sources == ({"url": "https://new.example"},)
+
+
 def test_approval_snapshot_precedes_replayed_pending_event() -> None:
     reducer = _reducer()
     pending = reducer.apply_approval_snapshot(_approval_snapshot(

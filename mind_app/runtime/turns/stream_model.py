@@ -2,13 +2,13 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from agent.application import CanonicalItem, ModelEventStream
 from mind_nova.stream_events import (
     PresentationSupersededEvent,
     StreamEvent,
     TextDeltaEvent,
     TextDoneEvent,
     TextMetaEvent,
-    ToolBuiltinDoneEvent,
     TurnRetryingEvent,
 )
 from mind_app.history.contracts import TranscriptSink
@@ -25,11 +25,12 @@ from mind_app.output import (
 from mind_app.stream_events.assistant_boundary import (
     is_assistant_output_boundary,
 )
-from mind_app.stream_state.segment import SegmentTracker
+
+_ItemRevision: typing.TypeAlias = tuple[str, int, int, int]
 
 
 class ModelStreamEventHandler:
-    """在单轮生命周期内投影模型正文、重试和展示替换事件。"""
+    """把 Protocol Client 的 Canonical Item 投影交付给展示和 Transcript。"""
 
     def __init__(
         self,
@@ -40,76 +41,74 @@ class ModelStreamEventHandler:
         provider_retry_sink: typing.Callable[[bool], None],
         idle_reschedule: typing.Callable[[], None],
     ) -> None:
-        """绑定单轮输出端口并创建专属正文状态。"""
+        """绑定输出端口并初始化 Transcript 交付水位。"""
         self.transcript = transcript
         self.content = content
         self.status_control = status_control
         self.provider_retry_sink = provider_retry_sink
         self.idle_reschedule = idle_reschedule
-        self._tracker = SegmentTracker()
+        self._item_history: tuple[CanonicalItem, ...] = ()
+        self._delivered_text: dict[_ItemRevision, str] = {}
+        self._completed_presentations: set[_ItemRevision] = set()
+        self._presented_text_revision: _ItemRevision | None = None
 
-    @property
-    def sources(self) -> tuple[typing.Any, ...]:
-        """返回未被取代正文关联的来源快照。"""
-        return tuple(self._tracker.iter_sources())
+    async def handle(
+        self,
+        event: StreamEvent,
+        *,
+        projection: ModelEventStream,
+    ) -> bool:
+        """交付一条已归约事件，并返回事件是否已被完整消费。"""
+        self._item_history = projection.canonical_item_history
+        current_item = projection.current_item
 
-    async def handle(self, event: StreamEvent) -> bool:
-        """处理模型输出事件，并返回事件是否已经被完整消费。"""
         if not isinstance(event, TurnRetryingEvent):
             self.provider_retry_sink(False)
 
         if is_assistant_output_boundary(event):
             self.flush_pending()
+            self._presented_text_revision = None
             await self.content.emit(AssistantOutputBoundary())
 
         if isinstance(event, TurnRetryingEvent):
             await self._handle_retrying(event)
             return True
         if isinstance(event, TextDeltaEvent):
-            await self._handle_text_delta(event)
+            await self._handle_text_delta(event, current_item=current_item)
             return True
         if isinstance(event, PresentationSupersededEvent):
             await self._handle_presentation_superseded(event)
             return True
         if isinstance(event, TextDoneEvent):
-            await self._handle_text_done(event)
+            await self._handle_text_done(event, current_item=current_item)
             return True
         if isinstance(event, TextMetaEvent):
-            self._tracker.on_text_meta(event)
             return True
         return False
 
-    def record_builtin_sources(self, event: ToolBuiltinDoneEvent) -> None:
-        """把内置工具来源关联到当前或下一正文段。"""
-        self._tracker.on_builtin_done(event)
-
     def flush_pending(self, *, complete_only: bool = False) -> None:
-        """把待提交的 assistant item 按稳定身份写入会话记录。"""
-        for identity, item_id, output in self._tracker.drain_assistant_outputs(
-            complete_only=complete_only,
-        ):
-            if not output:
+        """把 Canonical text Items 幂等同步到 Transcript。"""
+        for item in self._item_history:
+            if item.item_kind != "text":
                 continue
-            epoch, round_no, attempt = identity
-            self.transcript.append(
-                "message.created",
-                actor="assistant",
-                payload={
-                    "content": output,
-                    "item_id": item_id,
-                    "presentation_epoch": epoch,
-                    "round": round_no,
-                    "attempt": attempt,
-                },
-            )
+            if complete_only and item.item_status != "completed":
+                continue
+            self._synchronize_transcript_item(item)
 
     async def _handle_retrying(self, event: TurnRetryingEvent) -> None:
-        """淘汰旧 provider attempt 并恢复回复等待状态。"""
+        """提交旧 attempt 的审计正文并投影替换边界。"""
         self.provider_retry_sink(True)
         self.flush_pending()
-        had_assistant_output = self._tracker.on_turn_retrying(event)
+        replaced_items = tuple(
+            item
+            for item in self._item_history
+            if item.item_kind == "text"
+            and item.superseded_by_attempt == event.attempt
+            and bool(str(item.payload_value().get("text") or "").strip())
+        )
+        self._presented_text_revision = None
 
-        if had_assistant_output:
+        if replaced_items:
             payload: dict[str, typing.Any] = {
                 "scope": "response",
                 "presentation_epoch": event.presentation_epoch,
@@ -133,27 +132,28 @@ class ModelStreamEventHandler:
             ))
         await self.status_control.begin_reply_wait_status()
 
-    async def _handle_text_delta(self, event: TextDeltaEvent) -> None:
-        """追加一个正文增量并在 item 切换时提交上一项。"""
-        event_identity = self._tracker.response_identity(event)
-        if self._tracker.should_ignore_item(
-            event.item_id,
-            identity=event_identity,
-        ):
+    async def _handle_text_delta(
+        self,
+        event: TextDeltaEvent,
+        *,
+        current_item: CanonicalItem | None,
+    ) -> None:
+        """把当前 canonical text Item 的新增 delta 交给展示层。"""
+        item = _matching_text_item(event, current_item)
+        if item is None or not event.text:
             return
-
-        identity = self._response_identity(event)
-        item_changed = self._tracker.on_text_delta(event)
-
-        if item_changed:
-            self._tracker.defer_current_output()
+        revision = _item_revision(item)
+        if (
+            self._presented_text_revision is not None
+            and self._presented_text_revision != revision
+        ):
             self.flush_pending(complete_only=True)
-            self._tracker.remember_current_output()
             await self.content.emit(AssistantOutputBoundary())
+        self._presented_text_revision = revision
         await self.content.emit(AssistantTextDelta(
             event.text,
-            identity,
-            item_id=event.item_id,
+            _response_identity(item),
+            item_id=item.item_id,
         ))
         self.idle_reschedule()
 
@@ -161,7 +161,7 @@ class ModelStreamEventHandler:
         self,
         event: PresentationSupersededEvent,
     ) -> None:
-        """提交旧展示输出并把对应代次移出规范正文。"""
+        """提交旧展示正文并投影 Worker 展示代次替换边界。"""
         self.flush_pending()
         self.transcript.append(
             "message.superseded",
@@ -173,54 +173,90 @@ class ModelStreamEventHandler:
                 "reason": event.reason,
             },
         )
-        self._tracker.on_presentation_superseded(event)
+        self._presented_text_revision = None
         await self.content.emit(AssistantPresentationSuperseded(
             turn_id=event.turn_id,
             superseded_epoch=event.superseded_epoch,
             presentation_epoch=event.presentation_epoch,
         ))
 
-    async def _handle_text_done(self, event: TextDoneEvent) -> None:
-        """完成正文 item，并在需要时修正已提交的最终文本。"""
-        event_identity = self._tracker.response_identity(event)
-        if self._tracker.should_ignore_item(
-            event.item_id,
-            identity=event_identity,
-        ):
+    async def _handle_text_done(
+        self,
+        event: TextDoneEvent,
+        *,
+        current_item: CanonicalItem | None,
+    ) -> None:
+        """完成当前 canonical text Item 并同步已交付文本的修订。"""
+        item = _matching_text_item(event, current_item)
+        if item is None:
             return
-
-        identity = self._response_identity(event)
-        output_was_drained = self._tracker.was_output_drained(event.item_id)
-        self._tracker.on_text_done(event)
-
-        if output_was_drained and event.final_text is not None:
-            self.transcript.append(
-                "message.updated",
-                actor="assistant",
-                payload={
-                    "content": event.final_text,
-                    "item_id": event.item_id,
-                    "presentation_epoch": identity.presentation_epoch,
-                    "round": identity.round,
-                    "attempt": identity.attempt,
-                },
-            )
+        revision = _item_revision(item)
+        if revision in self._completed_presentations:
+            return
+        if revision in self._delivered_text and event.final_text is not None:
+            self._synchronize_transcript_item(item)
+        self._completed_presentations.add(revision)
+        self._presented_text_revision = None
         await self.content.emit(AssistantSegmentCompleted(
-            identity,
+            _response_identity(item),
             final_text=event.final_text,
-            item_id=event.item_id,
+            item_id=item.item_id,
         ))
         await self.status_control.begin_reply_wait_status()
 
-    def _response_identity(self, event: StreamEvent) -> ResponseIdentity:
-        """把模型事件映射为机器输出使用的稳定响应身份。"""
-        epoch, round_no, attempt = self._tracker.response_identity(event)
-        return ResponseIdentity(
-            turn_id=event.turn_id,
-            presentation_epoch=epoch,
-            round=round_no,
-            attempt=attempt,
+    def _synchronize_transcript_item(self, item: CanonicalItem) -> None:
+        """按 Item revision 创建或更新一条 Transcript assistant 消息。"""
+        text = str(item.payload_value().get("text") or "").strip()
+        if not text:
+            return
+        revision = _item_revision(item)
+        previous = self._delivered_text.get(revision)
+        if previous == text:
+            return
+        self.transcript.append(
+            "message.created" if previous is None else "message.updated",
+            actor="assistant",
+            payload={
+                "content": text,
+                "item_id": item.item_id,
+                "presentation_epoch": item.presentation_epoch,
+                "round": item.round_no,
+                "attempt": item.attempt,
+            },
         )
+        self._delivered_text[revision] = text
+
+
+def _matching_text_item(
+    event: TextDeltaEvent | TextDoneEvent,
+    item: CanonicalItem | None,
+) -> CanonicalItem | None:
+    """校验最近投影确实属于当前正文事件。"""
+    if item is None:
+        return None
+    if item.item_kind != "text" or item.item_id != event.item_id:
+        raise ValueError("canonical text projection does not match event")
+    return item
+
+
+def _item_revision(item: CanonicalItem) -> _ItemRevision:
+    """返回 Transcript 与展示交付使用的稳定 Item revision。"""
+    return (
+        item.item_id,
+        item.presentation_epoch,
+        item.round_no,
+        item.attempt,
+    )
+
+
+def _response_identity(item: CanonicalItem) -> ResponseIdentity:
+    """把 Canonical Item 身份映射为机器输出响应身份。"""
+    return ResponseIdentity(
+        turn_id=item.turn_id,
+        presentation_epoch=item.presentation_epoch,
+        round=item.round_no,
+        attempt=item.attempt,
+    )
 
 
 if __name__ == '__main__':

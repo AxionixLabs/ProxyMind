@@ -297,13 +297,24 @@ async def test_protocol_stream_exposes_canonical_item_projection(monkeypatch) ->
 
     monkeypatch.setattr(model_adapter, "stream_chat", Mock(return_value=RawStream()))
     stream = model_adapter.MindChatProtocolClient().stream(_request())
+    observed_items = []
+    observed_sequences = []
+    async for event in stream:
+        observed_sequences.append(event.event_seq)
+        observed_items.append(
+            stream.current_item.item_id
+            if stream.current_item is not None
+            else None
+        )
 
-    assert [event.event_seq async for event in stream] == [1, 2, 3]
+    assert observed_sequences == [1, 2, 3]
+    assert observed_items == ["segment_test", "segment_test", None]
 
     assert stream.assistant_text == "complete"
     assert len(stream.canonical_items) == 1
     assert stream.canonical_items[0].payload_value() == {"text": "complete"}
     assert stream.canonical_item_history == stream.canonical_items
+    assert stream.sources == ()
 
 
 @pytest.mark.anyio

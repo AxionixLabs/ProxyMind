@@ -505,6 +505,7 @@ async def _run_stream(
                 )
                 self.end_reason = getattr(iterator, "end_reason", None)
                 self.last_event_seq = getattr(iterator, "last_event_seq", 0)
+                self.current_item = None
                 self.closed = False
 
             @property
@@ -523,6 +524,10 @@ async def _run_stream(
             def assistant_text(self) -> str:
                 return self._reducer.assistant_text
 
+            @property
+            def sources(self):
+                return self._reducer.sources
+
             def __aiter__(self):
                 return self._events()
 
@@ -537,7 +542,7 @@ async def _run_stream(
                         )
                     else:
                         projected_event = event
-                    self._reducer.apply(projected_event)
+                    self.current_item = self._reducer.apply(projected_event)
                     yield event
 
             async def aclose(self) -> None:
@@ -842,6 +847,41 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         },
     }
     assert not hasattr(mind, "hook_scope")
+
+
+@pytest.mark.anyio
+async def test_stream_projects_deduplicated_canonical_sources(monkeypatch) -> None:
+    _result, mind = await _run_stream(monkeypatch, [
+        {
+            "type": "tool.builtin.done",
+            "builtin_call_id": "builtin-source",
+            "builtin_type": "web_search_call",
+            "status": "completed",
+            "sources": [{"url": "https://example.com/tool"}],
+            "source_count": 1,
+        },
+        {
+            "type": "text.delta",
+            "segment_id": "answer-item",
+            "text": "answer",
+        },
+        {
+            "type": "text.meta",
+            "segment_id": "answer-item",
+            "sources": [
+                {"url": "https://example.com/tool"},
+                {"url": "https://example.com/text"},
+            ],
+            "source_count": 2,
+        },
+        {"type": "text.done", "segment_id": "answer-item"},
+        {"type": "turn.done"},
+    ])
+
+    assert mind.output_session.content.items[-1] == SourcesOutput((
+        {"url": "https://example.com/tool"},
+        {"url": "https://example.com/text"},
+    ))
 
 
 @pytest.mark.anyio

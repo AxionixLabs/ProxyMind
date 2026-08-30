@@ -366,6 +366,16 @@ class ModelEventStream(typing.Protocol):
         """返回当前未被展示替换的 canonical 正文。"""
         ...
 
+    @property
+    def current_item(self) -> CanonicalItem | None:
+        """返回最近交付事件归约后的 Item；控制或忽略事件返回空。"""
+        ...
+
+    @property
+    def sources(self) -> tuple[ThawedJsonValue, ...]:
+        """返回 active 正文和内置工具 Item 聚合后的来源。"""
+        ...
+
     def __aiter__(self) -> AsyncIterator[ModelEvent]:
         """返回满足模型事件坐标契约的异步迭代器。"""
         ...

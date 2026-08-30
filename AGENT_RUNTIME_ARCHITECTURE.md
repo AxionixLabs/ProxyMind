@@ -84,7 +84,9 @@ Protocol Client 的职责是构造冻结命令、维护 `cid/sid/turn_id` 和 `e
 审计视图。重连审批快照先在同一 reducer 中按服务端 `last_event_seq` 归约，再通知
 前端审批处理器；快照水位只裁决旧审批事件，不能推进客户端已确认事件游标。
 `ModelEventStream.assistant_text` 由 active Canonical Items 派生，是 Turn 结果、Stop
-Hook 和最后回复记忆的唯一正文来源；展示 adapter 不得再从收到的 delta 自建最终正文。
+Hook 和最后回复记忆的唯一正文来源；`current_item` 为当前事件提供已裁决的 Item
+revision，`sources` 从 active text/builtin Items 聚合。展示 adapter 不得再从收到的
+delta 自建最终正文、attempt 或来源归属。
 迁移期间可以复用既有传输，但不能把 `agent.application` 的本地
 `SubmitTurnCommand` 或 `agent.protocol.RunEvent` 暴露为桌面/Web 公共协议。
 
@@ -349,8 +351,8 @@ running -> cancelled
   投影并发送协议命令，不拥有服务端 Run 状态；本地工具执行通过平台能力端口完成。
 - TUI 当前的 `Mind`、`stream_turn` 和 `EventReport` 组合仍是迁移期实现，只有在
   Protocol Client 与 Canonical Item reducer 完整接管后，才能满足上述目标边界。
-  当前最终正文已切换到 canonical 投影；delta 渲染、来源关联和 Transcript 交付仍
-  由旧 presenter 暂管，不得再扩展其业务状态。
+  模型输出 presenter 已改为消费 `current_item`、active/audit Items 和 canonical
+  sources，只保留 Transcript 已交付 revision 水位；旧 `SegmentTracker` 已删除。
 - MCP Server 只做协议解析和响应流控制；每个请求进入同一 Command Gateway。
 - Subscription 只负责 open、WebSocket、resume、去重和 mailbox；收到远端任务后
   入队，不在 WebSocket 回调里启动模型轮次。
@@ -364,8 +366,8 @@ running -> cancelled
   只在 wire 边界将其映射回 `exec_env`。审批 callback 调用前，Protocol Client 必须
   已完成快照优先级归约，并只向前端公开仍为 `waiting_approval` 的 Item；不得把
   快照 `last_event_seq` 当作客户端确认游标。`assistant_text` 必须由 active canonical
-  text Items 派生，provider retry 后迟到的旧 Item 不得重新进入正文。Harness 必须
-  在回合收尾中校验并等待流关闭。
+  text Items 派生，provider retry 后迟到的旧 Item 不得重新进入正文；sources 只从
+  active text/builtin Items 聚合。Harness 必须在回合收尾中校验并等待流关闭。
   传输、协议和适配器失败统一为 `ModelCapabilityError`，以稳定 `code`、
   `retryable` 和 JSON `details` 进入 Run 终态结果与持久事件，不把 HTTP 客户端
   异常类型泄漏到 runtime。
@@ -383,7 +385,7 @@ running -> cancelled
 | `mind.py`、`agent/composition.py` | `composition.py` | `mind.py` 已创建单个 `RuntimeServices` 并注入全部进程入口；具体 store 和 capability 只能在 `agent/composition.py` 装配 |
 | `mind_app/controller.py` | application 公开门面 | 只借用入口注入的 `RuntimeServices`，不复制能力引用、不选择具体实现；已有可变状态按完整生命周期迁出 |
 | `mind_app/runtime/turns/root.py` | `application/commands.py` | CLI、TUI、MCP 和 Subscription 已由类型化 Command 驱动；现有根轮次仍作为显式注入 executor，待统一结果投影和旧执行器退役 |
-| `mind_app/runtime/turns/stream.py` | `harness/session_loop.py`、`application/turn_pipeline.py` | 输入准备、终态、模型投影、工具交付、资源收尾和回合展示已拆到六个 `stream_*` 所有者；RunResult、Stop Hook 和最后回复记忆已改读 Protocol Client canonical 正文，`stream.py` 暂留事件路由与旧控制器组合，待 application pipeline 接管后删除 |
+| `mind_app/runtime/turns/stream.py`、`stream_model.py` | `harness/session_loop.py`、`application/turn_pipeline.py`、TUI adapter | 输入准备、终态、工具交付、资源收尾和回合展示已拆到具名所有者；模型 presenter 只消费 Protocol Client current/active/audit Item 投影并持有 Transcript 交付水位，RunResult、Stop Hook、最后回复和 sources 均读取 canonical 投影；`stream.py` 暂留事件路由与旧控制器组合，待 application pipeline 接管后删除 |
 | `mind_app/runtime/mcp/*`、`subscription/lifecycle.py`、`runtime/environment/coding_lifecycle.py` | capabilities、adapters、harness supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
 | `mind_app/runtime/subagents/control.py` | `harness/scheduler.py`、`domain/agents.py` | 将 mailbox、生命周期和图持久化分开 |
 | `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 保留检查点语义，存储实现不得进入 domain |
@@ -392,7 +394,7 @@ running -> cancelled
 | `mind_nova/requests`、`stream_events.py` | `protocol/`、`adapters/protocol_client.py` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；请求/事件类型、传输和前端投影继续分开，协议不得导入 `engine` |
 | `mind_nova/requests/chat.py`、`stream_events.py` | `adapters/protocol_client.py`、`item_reducer.py` | 既有模块暂时承担正式事件解析、SSE、attach 和审批快照传输；Protocol Client 已独立拥有请求坐标、结算游标、Canonical Item 状态和审批快照优先级，后续继续迁移命令面并由 TUI、桌面端和 Web 共用 |
 | `mind_nova/requests/chat.py` | `agent/protocol/model.py`、`agent/adapters/protocol_client.py` | `ModelStreamRequest` 显式冻结 Turn 坐标、metadata 和环境快照；`MindChatProtocolClient` 临时复用既有 wire 流，待命令与传输原语形成独立公共 SDK 边界后消除对 legacy request module 的直接依赖 |
-| `agent/ports/capabilities.py`、`agent/adapters/protocol_client.py` | `ports`、`adapters/protocol_client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、Canonical Items/正文、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
+| `agent/ports/capabilities.py`、`agent/adapters/protocol_client.py` | `ports`、`adapters/protocol_client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | 已删除的 `mind_app/runtime/environment/exec_env.py`、`mind_nova/requests/environment.py` | `capabilities/environment.py`、正式协议 SDK | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化继续由 `mind_nova` 拥有。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |
 | `agent/protocol/capabilities.py`、`agent/ports/capabilities.py` | `protocol`、`ports` | MCP 工具值对象、Helix 生命周期、受控进程/文件和本地 sandbox 权限只通过具名 port 表达；不把 SDK 会话、进程句柄或操作系统路径带入 domain |
 | `agent/capabilities/mcp.py`、`helix.py`、`process.py`、`filesystem.py` | `capabilities` | MCP/Helix 内存替身和本地进程/文件实现均可脱离网络、TUI 和 legacy runtime 测试；受限进程只接受显式 sandbox launcher，旧 `engine` adapter 在阶段 4 接管 |

@@ -4,6 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from agent.protocol import CanonicalItem
 from mind_app.output import (
     AssistantOutputBoundary,
     AssistantResponseSuperseded,
@@ -68,8 +69,27 @@ class _Status(OutputStatusPort):
         return None
 
 
+class _Projection:
+    def __init__(self) -> None:
+        self.current_item: CanonicalItem | None = None
+        self.canonical_items: tuple[CanonicalItem, ...] = ()
+        self.canonical_item_history: tuple[CanonicalItem, ...] = ()
+
+    def update(
+        self,
+        current_item: CanonicalItem | None,
+        *history: CanonicalItem,
+    ) -> None:
+        self.current_item = current_item
+        self.canonical_item_history = tuple(history)
+        self.canonical_items = tuple(
+            item for item in history if not item.superseded
+        )
+
+
 def _handler() -> tuple[
     ModelStreamEventHandler,
+    _Projection,
     _Transcript,
     _Content,
     _Status,
@@ -89,7 +109,39 @@ def _handler() -> tuple[
         provider_retry_sink=retry,
         idle_reschedule=idle,
     )
-    return handler, transcript, content, status, retry, idle
+    return handler, _Projection(), transcript, content, status, retry, idle
+
+
+def _item(
+    item_id: str,
+    text: str,
+    *,
+    status: str = "in_progress",
+    attempt: int = 1,
+    last_event_seq: int = 1,
+    superseded: bool = False,
+    superseded_by_attempt: int | None = None,
+) -> CanonicalItem:
+    """构造 presenter 使用的不可变正文 Item。"""
+    return CanonicalItem(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        item_id=item_id,
+        item_kind="text",
+        item_status=status,
+        presentation_epoch=1,
+        round_no=1,
+        attempt=attempt,
+        first_event_seq=1,
+        last_event_seq=last_event_seq,
+        last_event_type=(
+            "text.done" if status == "completed" else "text.delta"
+        ),
+        payload={"text": text},
+        superseded=superseded,
+        superseded_by_attempt=superseded_by_attempt,
+    )
 
 
 def _identity(*, attempt: int = 1) -> ResponseIdentity:
@@ -104,24 +156,32 @@ def _identity(*, attempt: int = 1) -> ResponseIdentity:
 
 @pytest.mark.anyio
 async def test_model_handler_projects_text_and_commits_transcript() -> None:
-    handler, transcript, content, status, retry, idle = _handler()
+    handler, projection, transcript, content, status, retry, idle = _handler()
+    partial = _item("item-1", "answer")
+    projection.update(partial, partial)
 
     delta_handled = await handler.handle(TextDeltaEvent(
         type="text.delta",
         turn_id="turn_test",
         segment_id="item-1",
         text="answer",
-    ))
+    ), projection=projection)
+    completed = _item(
+        "item-1",
+        "answer",
+        status="completed",
+        last_event_seq=2,
+    )
+    projection.update(completed, completed)
     done_handled = await handler.handle(TextDoneEvent(
         type="text.done",
         turn_id="turn_test",
         segment_id="item-1",
-    ))
+    ), projection=projection)
     handler.flush_pending()
 
     assert delta_handled is True
     assert done_handled is True
-    assert handler.sources == ()
     assert content.items == [
         AssistantTextDelta("answer", _identity(), item_id="item-1"),
         AssistantSegmentCompleted(_identity(), item_id="item-1"),
@@ -143,15 +203,43 @@ async def test_model_handler_projects_text_and_commits_transcript() -> None:
 
 
 @pytest.mark.anyio
-async def test_model_handler_supersedes_partial_provider_attempt() -> None:
-    handler, transcript, content, status, retry, _idle = _handler()
+async def test_model_handler_completes_each_item_revision_once() -> None:
+    handler, projection, _transcript, content, _status, _retry, _idle = _handler()
+    completed = _item("item-1", "answer", status="completed")
+    projection.update(completed, completed)
+    event = TextDoneEvent(
+        type="text.done",
+        turn_id="turn_test",
+        segment_id="item-1",
+    )
 
+    await handler.handle(event, projection=projection)
+    await handler.handle(event, projection=projection)
+
+    assert content.items == [
+        AssistantSegmentCompleted(_identity(), item_id="item-1"),
+    ]
+
+
+@pytest.mark.anyio
+async def test_model_handler_supersedes_partial_provider_attempt() -> None:
+    handler, projection, transcript, content, status, retry, _idle = _handler()
+    old = _item("attempt-1", "old partial")
+    projection.update(old, old)
     await handler.handle(TextDeltaEvent(
         type="text.delta",
         turn_id="turn_test",
         segment_id="attempt-1",
         text="old partial",
-    ))
+    ), projection=projection)
+
+    superseded = _item(
+        "attempt-1",
+        "old partial",
+        superseded=True,
+        superseded_by_attempt=2,
+    )
+    projection.update(None, superseded)
     await handler.handle(TurnRetryingEvent(
         type="turn.retrying",
         turn_id="turn_test",
@@ -160,18 +248,29 @@ async def test_model_handler_supersedes_partial_provider_attempt() -> None:
         max_attempts=3,
         retry_in_ms=20,
         reason="stream_reset",
-    ))
+    ), projection=projection)
+
+    new = _item("attempt-2", "new answer", attempt=2, last_event_seq=3)
+    projection.update(new, superseded, new)
     await handler.handle(TextDeltaEvent(
         type="text.delta",
         turn_id="turn_test",
         segment_id="attempt-2",
         text="new answer",
-    ))
+    ), projection=projection)
+    completed = _item(
+        "attempt-2",
+        "new answer",
+        status="completed",
+        attempt=2,
+        last_event_seq=4,
+    )
+    projection.update(completed, superseded, completed)
     await handler.handle(TextDoneEvent(
         type="text.done",
         turn_id="turn_test",
         segment_id="attempt-2",
-    ))
+    ), projection=projection)
     handler.flush_pending()
 
     assert content.items == [
@@ -208,18 +307,21 @@ async def test_model_handler_supersedes_partial_provider_attempt() -> None:
 
 @pytest.mark.anyio
 async def test_model_handler_flushes_output_at_structured_boundary() -> None:
-    handler, transcript, content, _status, _retry, _idle = _handler()
+    handler, projection, transcript, content, _status, _retry, _idle = _handler()
+    partial = _item("item-1", "partial")
+    projection.update(partial, partial)
     await handler.handle(TextDeltaEvent(
         type="text.delta",
         turn_id="turn_test",
         segment_id="item-1",
         text="partial",
-    ))
+    ), projection=projection)
+    projection.update(None, partial)
 
     handled = await handler.handle(StreamEvent(
         type="tool.builtin.call",
         turn_id="turn_test",
-    ))
+    ), projection=projection)
 
     assert handled is False
     assert content.items == [
@@ -237,3 +339,7 @@ async def test_model_handler_flushes_output_at_structured_boundary() -> None:
             "attempt": 1,
         },
     }]
+
+
+if __name__ == '__main__':
+    pass

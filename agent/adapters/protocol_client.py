@@ -17,6 +17,7 @@ from agent.protocol import (
     ModelStreamRequest,
     validate_model_event,
 )
+from agent.protocol.json_value import ThawedJsonValue
 from .item_reducer import CanonicalItemReducer
 from mind_nova.requests.chat import stream_chat
 
@@ -98,6 +99,7 @@ class ProtocolModelEventStream:
             if item_reducer is not None
             else CanonicalItemReducer(cid=cid, sid=sid, turn_id=turn_id)
         )
+        self._current_item: CanonicalItem | None = None
         self._closed = False
 
     @property
@@ -136,6 +138,16 @@ class ProtocolModelEventStream:
         """返回 reducer 归约后的当前 canonical 正文。"""
         return self._item_reducer.assistant_text
 
+    @property
+    def current_item(self) -> CanonicalItem | None:
+        """返回最近交付事件对应的归约 Item；控制或忽略事件返回空。"""
+        return self._current_item
+
+    @property
+    def sources(self) -> tuple[ThawedJsonValue, ...]:
+        """返回当前 active Canonical Items 聚合后的来源。"""
+        return self._item_reducer.sources
+
     def __aiter__(self) -> typing.AsyncIterator[ModelEvent]:
         """返回捕获并归一化协议失败的异步事件迭代器。"""
         return self._iterate()
@@ -146,7 +158,7 @@ class ProtocolModelEventStream:
             async for event in self._stream:
                 validated = validate_model_event(event)
                 self._validate_identity(validated)
-                self._item_reducer.apply(validated)
+                self._current_item = self._item_reducer.apply(validated)
                 yield validated
         except asyncio.CancelledError:
             raise

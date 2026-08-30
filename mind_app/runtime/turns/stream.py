@@ -537,7 +537,7 @@ async def stream_turn(
 
             event_type = event.type
 
-            if await model_events.handle(event):
+            if await model_events.handle(event, projection=event_stream):
                 continue
 
             if event_type == "turn.start":
@@ -678,7 +678,6 @@ async def stream_turn(
                 continue
 
             if isinstance(event, ToolBuiltinDoneEvent):
-                model_events.record_builtin_sources(event)
                 await status_control.end_status()
                 continue
 
@@ -842,7 +841,7 @@ async def stream_turn(
             assistant_text = event_stream.assistant_text
             mind.remember_last_assistant_reply(assistant_text)
 
-        await run_presentation.emit_result(model_events.sources)
+        await run_presentation.emit_result(event_stream.sources)
 
         observe(
             "stream.complete",
