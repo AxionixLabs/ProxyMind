@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from mind_app.mcp.config import McpConfigError
 
 

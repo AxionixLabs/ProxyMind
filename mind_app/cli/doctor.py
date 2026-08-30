@@ -27,10 +27,10 @@ from mind_app.runtime.mcp.service_runtime import (
     ServiceRuntimeSpec,
     resolve_service_runtime
 )
-from mind_core.config import (
+from infrastructure.config.schema import (
     ConfigOverride
 )
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from infrastructure.config.paths import (
     ApplicationMode,

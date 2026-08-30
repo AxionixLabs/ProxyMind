@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from infrastructure.skills import (
     SkillSpec,
     available_skills,

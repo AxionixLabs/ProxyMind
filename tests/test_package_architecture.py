@@ -419,6 +419,47 @@ def test_config_store_has_no_legacy_source_or_imports() -> None:
     assert not violations, "legacy config store imports remain:\n" + "\n".join(violations)
 
 
+def test_configuration_layers_have_no_legacy_sources_or_imports() -> None:
+    """确保配置 schema、分层和会话只由基础设施配置包持有。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_core" / "config.py",
+        PROJECT_ROOT / "mind_core" / "config_layers.py",
+        PROJECT_ROOT / "mind_core" / "config_session.py",
+    )
+    assert not any(path.exists() for path in legacy_paths), (
+        "legacy configuration sources still exist: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_paths
+            if path.exists()
+        )
+    )
+
+    legacy_modules = {
+        "mind_core.config",
+        "mind_core.config_layers",
+        "mind_core.config_session",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, (
+        "legacy configuration imports remain:\n" + "\n".join(violations)
+    )
+
+
 def test_agent_application_does_not_load_concrete_composition() -> None:
     violations = _forbidden_module_imports(
         "agent/application",

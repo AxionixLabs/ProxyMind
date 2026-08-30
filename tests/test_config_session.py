@@ -5,18 +5,18 @@ import os
 
 import pytest
 
-from mind_core.config import (
+from infrastructure.config.schema import (
     ConfigValidationError,
     config_override,
     normalize_config,
     parse_config_override,
 )
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import (
     ConfigStore,
     ConfigStoreError,
 )
-from mind_core.config_layers import PROJECT_CONFIG_DIR
+from infrastructure.config.layers import PROJECT_CONFIG_DIR
 from infrastructure.hooks.discovery import HOOKS_FILE_NAME
 from agent.application import HOOK_EVENT_CONFIG_SPECS
 

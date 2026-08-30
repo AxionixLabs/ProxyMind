@@ -13,7 +13,7 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.output import DummyOutput
 
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from infrastructure.skills import SkillSpec
 from mind_app.tui.core.input import TuiInputModel

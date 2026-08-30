@@ -2,12 +2,12 @@ import pytest
 
 from mind_app.builtin_tools import BuiltinToolRegistry, permission_tools
 from mind_app.client_tools.registry import default_registry
-from mind_core.config import (
+from infrastructure.config.schema import (
     ConfigValidationError,
     normalize_config,
     parse_config_override,
 )
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from agent.application import FeatureSettings
 

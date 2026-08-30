@@ -718,6 +718,20 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] 配置会话、服务路由、CLI/TUI 和架构测试通过；下一切片继续拆分配置解析/分层状态
   与前端入口。
 
+### 已完成切片：配置 schema、分层与会话归位
+
+状态：已完成（2026-08-30）
+
+- [x] 将 `mind_core/config.py`、`config_layers.py` 和 `config_session.py` 分别迁入
+  `infrastructure/config/schema.py`、`layers.py` 和 `session.py`，删除旧配置入口并切换
+  CLI、TUI、MCP、Server 及测试消费者。
+- [x] schema 负责原始配置校验、规范化、覆盖表达式和字段投影；layers 负责用户/Profile/
+  项目/CLI 合并与项目信任；session 负责持久更新和 CAS 前置校验，三者均通过
+  `infrastructure.config.store` 读写 TOML，不互相复制存储逻辑。
+- [x] 配置/CLI/TUI/Server 定向回归 `459 passed`，架构守卫 `23 passed`，全量回归
+  `2975 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片进入
+  TUI/Presentation 设计基础设施归位。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -763,6 +777,9 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `mind_core/service_config.py` -> `infrastructure/services/service_config.py` | 服务域名读取和规范化归入服务基础设施 | CLI/MCP/配置服务回归通过，旧源模块删除 | 5 |
 | `mind_core/preference.py`、`config_to_preferences` -> `infrastructure/config/preferences.py` | 偏好投影、覆盖和远程读取归入配置基础设施 | 偏好/Provider/CLI/MCP 回归通过，旧源模块删除 | 5 |
 | `mind_core/config_store.py` -> `infrastructure/config/store.py` | TOML 文件存储和原子更新归入配置基础设施 | 配置会话/服务/CLI/TUI 回归通过，旧源模块删除 | 5 |
+| `mind_core/config.py` -> `infrastructure/config/schema.py` | 配置 schema、规范化和覆盖校验归入配置基础设施 | 配置/CLI/TUI 回归通过，旧源模块删除 | 5 |
+| `mind_core/config_layers.py` -> `infrastructure/config/layers.py` | 配置优先级合并和项目层解析归入配置基础设施 | 配置层/项目信任/CLI 回归通过，旧源模块删除 | 5 |
+| `mind_core/config_session.py` -> `infrastructure/config/session.py` | 配置更新、覆盖校验和信任提交归入配置基础设施 | 配置服务/CLI/TUI/Server 回归通过，旧源模块删除 | 5 |
 
 ## 风险与处理
 
@@ -869,3 +886,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-30 | 阶段 5 服务配置切片 | 将 `mind_core/service_config.py` 迁入 `infrastructure/services/service_config.py`，引入 `ConfigReader` 端口并切换 CLI/MCP/配置服务消费者 | 服务域名和启动定向回归 `159 passed`，架构测试 `20 passed`，全量回归 `2972 passed, 11 skipped`，`compileall` 和导入图检查通过；下一切片处理偏好配置和剩余 `mind_core` 状态 |
 | 2026-08-30 | 阶段 5 偏好配置切片 | 将 `mind_core/preference.py` 与 `config_to_preferences` 重组到 `infrastructure/config/preferences.py`，引入 `ConfigReader` 并切换 CLI/TUI/MCP/测试消费者 | 偏好/Provider/CLI/MCP 定向回归 `145 passed`，架构测试 `21 passed`，全量回归 `2973 passed, 11 skipped`，`compileall` 和导入图检查通过；下一切片处理配置层/存储边界和前端入口 |
 | 2026-08-30 | 阶段 5 配置存储切片 | 将 `mind_core/config_store.py` 迁入 `infrastructure/config/store.py`，切换配置层、CLI、MCP、TUI、Server 和测试消费者 | 配置会话/服务/CLI/TUI/架构定向回归 `314 passed`，全量回归 `2974 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片处理配置解析/分层状态和前端入口 |
+| 2026-08-30 | 阶段 5 配置 schema/分层/会话切片 | 将 `mind_core/config.py`、`config_layers.py`、`config_session.py` 迁入 `infrastructure/config/schema.py`、`layers.py`、`session.py`，删除旧配置入口并切换全部消费者 | 配置/CLI/TUI/Server 定向回归 `459 passed`，架构守卫 `23 passed`，全量回归 `2975 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片处理 TUI/Presentation 设计基础设施 |

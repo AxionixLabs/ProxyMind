@@ -43,8 +43,8 @@ from infrastructure.config.paths import (
     resolve_application_layout
 )
 from agent.application import AgentSettings
-from mind_core.config import ConfigOverride
-from mind_core.config_session import ConfigSession
+from infrastructure.config.schema import ConfigOverride
+from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from agent.application import FeatureSettings
 from infrastructure.config.preferences import Preferences

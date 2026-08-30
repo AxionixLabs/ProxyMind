@@ -7,11 +7,11 @@ from pathlib import (
     PurePath
 )
 from infrastructure.config.preferences import config_to_preferences
-from mind_core.config import (
+from infrastructure.config.schema import (
     ModelConfigField,
     model_config_field_values
 )
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from infrastructure.config.providers import (
     DEFAULT_REASONING_EFFORT,
     SUPPORTED_REASONING_EFFORTS

@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from metadata import const
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from infrastructure.config.preferences import config_to_preferences
 from protocol.client.payload import request_llm_conf

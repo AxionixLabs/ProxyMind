@@ -3,11 +3,11 @@
 
 import typing
 from pathlib import Path
-from mind_core.config import (
+from infrastructure.config.schema import (
     ConfigOverride,
     config_override,
 )
-from mind_core.config_layers import (
+from infrastructure.config.layers import (
     ConfigLayer,
     ConfigResolution,
     ConfigResolver

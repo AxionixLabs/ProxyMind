@@ -17,7 +17,7 @@ from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.hooks.discovery import HOOKS_FILE_NAME
 from infrastructure.config.store import ConfigStore
-from mind_core.config_layers import PROJECT_CONFIG_DIR
+from infrastructure.config.layers import PROJECT_CONFIG_DIR
 
 
 def _doctor_context(tmp_path, *, packaged: bool = False) -> DoctorContext:

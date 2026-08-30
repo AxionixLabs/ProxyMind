@@ -3,7 +3,7 @@
 
 import typing
 from fastapi import APIRouter, Request
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from ..storage import (
     load_service_config,
     save_service_config

@@ -8,7 +8,7 @@ from fastapi import (
     Request
 )
 from fastapi.responses import Response
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from ..page import render_page
 from ..storage import (
     create_provider,

@@ -9,7 +9,7 @@ import threading
 from types import FrameType
 from agent.application import RuntimeServices
 from infrastructure.errors import AppError
-from mind_core.config import ConfigOverride
+from infrastructure.config.schema import ConfigOverride
 from observability import reset_sinks
 from .commands import (
     CompletionCommand,

@@ -3,7 +3,7 @@
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from .page import web_dir
 from .routers import register_routers
 

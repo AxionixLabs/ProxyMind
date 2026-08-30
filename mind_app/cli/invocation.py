@@ -3,11 +3,11 @@
 
 import typing
 import argparse
-from mind_core.config import (
+from infrastructure.config.schema import (
     ConfigOverride,
     parse_config_override
 )
-from mind_core.config_layers import normalize_profile_name
+from infrastructure.config.layers import normalize_profile_name
 from metadata import const
 
 CONFIG_FLAGS   = ("-c", "--config")

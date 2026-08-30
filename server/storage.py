@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_core.config import provider_profile_values
-from mind_core.config_session import ConfigSession
+from infrastructure.config.schema import provider_profile_values
+from infrastructure.config.session import ConfigSession
 from infrastructure.config.providers import (
     DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,

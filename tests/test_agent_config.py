@@ -3,7 +3,7 @@
 import pytest
 
 from agent.application import AgentSettings
-from mind_core.config import ConfigValidationError, normalize_config
+from infrastructure.config.schema import ConfigValidationError, normalize_config
 
 
 def test_agent_settings_use_normalized_defaults() -> None:

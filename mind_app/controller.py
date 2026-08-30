@@ -12,7 +12,7 @@ from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.errors import AppError
 from infrastructure.config.preferences import Preferences
 from infrastructure.config.paths import ApplicationLayout
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from agent.application import (
     AgentSettings,
     FeatureSettings,

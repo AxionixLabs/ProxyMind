@@ -10,7 +10,7 @@ from dataclasses import (
     field,
 )
 from pathlib import Path
-from mind_core.config import (
+from infrastructure.config.schema import (
     ConfigOverride,
     apply_config_overrides,
     normalize_config,

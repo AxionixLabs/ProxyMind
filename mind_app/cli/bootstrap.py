@@ -9,13 +9,13 @@ from pathlib import Path
 from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.services.server_manager import ServerManage
 from infrastructure.errors import AppError
-from mind_core.config import ConfigOverride
-from mind_core.config_layers import ConfigResolution
+from infrastructure.config.schema import ConfigOverride
+from infrastructure.config.layers import ConfigResolution
 from agent.application import (
     AgentSettings,
     FeatureSettings,
 )
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from agent.application import (
     PermissionSettings,

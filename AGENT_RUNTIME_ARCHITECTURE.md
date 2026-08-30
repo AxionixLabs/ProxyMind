@@ -500,6 +500,9 @@ running -> cancelled
 | `mind_core/service_config.py` | `infrastructure/services/service_config.py` | 服务域名规范化和远程配置读取属于服务基础设施；通过最小 `ConfigReader` 端口注入配置，不在基础设施内部创建配置存储 |
 | `mind_core/preference.py`、`config_to_preferences` | `infrastructure/config/preferences.py` | 本地配置到运行时偏好的投影、远程偏好读取和偏好覆盖属于配置基础设施；不把配置存储或 HTTP 细节带入 Harness domain |
 | `mind_core/config_store.py` | `infrastructure/config/store.py` | TOML 文件读写、原子更新和配置文档保真保存属于配置存储基础设施；配置解析/会话只依赖其公开存储契约 |
+| `mind_core/config.py` | `infrastructure/config/schema.py` | 配置 schema、规范化、点路径覆盖和 Provider/MCP/TUI 校验属于配置基础设施；不让前端直接解释原始 TOML |
+| `mind_core/config_layers.py` | `infrastructure/config/layers.py` | 用户、Profile、项目和 CLI 的优先级合并及信任边界解析属于配置基础设施；只消费存储、信任和 schema 契约 |
+| `mind_core/config_session.py` | `infrastructure/config/session.py` | 配置读取、原子更新、覆盖校验和项目信任提交属于配置会话基础设施；应用入口只依赖会话公开接口 |
 | `mind_nova/const.py` | `metadata/const.py` | 产品版本、展示、编码和构建元数据已抽出；`setup.py` 与内置配置服务已切换，服务端点、认证和运行时路径仍按职责在后续切片迁移 |
 | `agent/ports/capabilities.py`、`agent/adapters/protocol_client.py` | `ports`、`adapters/protocol_client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | 已删除的 `mind_app/runtime/environment/exec_env.py`、旧 environment 请求模块 | `capabilities/environment.py`、`protocol/schema/environment.py` | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化归属 `protocol.schema`。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |

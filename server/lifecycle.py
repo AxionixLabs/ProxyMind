@@ -8,7 +8,7 @@ import uvicorn
 import contextlib
 from infrastructure.errors import AppError
 from infrastructure.platform.ports import port_available
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from observability import observe_exception
 from .app import create_app
 from .endpoints import (

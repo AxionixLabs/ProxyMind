@@ -11,7 +11,7 @@ from prompt_toolkit.application import (
     in_terminal
 )
 from prompt_toolkit.layout.containers import WindowRenderInfo
-from mind_core.config import DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT
+from infrastructure.config.schema import DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT
 from .document import TuiDocument
 from .models import FormattedText
 from ..rendering.fragments import (

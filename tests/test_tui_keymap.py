@@ -7,7 +7,7 @@ import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mind_core.config import (
+from infrastructure.config.schema import (
     ConfigValidationError,
     normalize_config,
 )

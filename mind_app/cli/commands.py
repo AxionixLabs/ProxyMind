@@ -4,7 +4,7 @@
 import typing
 from dataclasses import dataclass
 from mind_app.runtime.tools.mode_policy import ToolFilterMode
-from mind_core.config import ConfigOverride
+from infrastructure.config.schema import ConfigOverride
 
 OutputFormat = typing.Literal[
     "text",

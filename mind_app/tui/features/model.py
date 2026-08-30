@@ -17,7 +17,7 @@ from ..core.models import (
 )
 from infrastructure.config.providers import DEFAULT_REASONING_EFFORT
 from infrastructure.config.preferences import config_to_preferences
-from mind_core.config_session import ConfigSession
+from infrastructure.config.session import ConfigSession
 from .context import (
     normalize_reasoning_effort,
     save_primary_pref_field

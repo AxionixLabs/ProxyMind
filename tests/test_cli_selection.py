@@ -54,7 +54,7 @@ from mind_app.frontend.sinks import ConsoleApplicationSink
 from mind_app.frontend.sinks import JsonApplicationSink
 from mind_app.tui.core.runtime import TuiRuntime
 from infrastructure.config.paths import ApplicationLayout
-from mind_core.config import ConfigOverride
+from infrastructure.config.schema import ConfigOverride
 from mind_core.design.terminal_capabilities import DEGRADED_TERMINAL_CAPABILITIES
 from agent.application import preset_permissions
 from infrastructure.errors import AppError
