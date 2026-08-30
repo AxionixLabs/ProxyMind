@@ -579,10 +579,23 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] 将入口可展示的 `AppError` 迁入 `infrastructure/errors.py`，切换全部应用、
   Server、构建和测试消费者并删除 `engine/errors.py`。`mind_core/licensing.py` 不再
   依赖 `engine`，导入图中的历史反向边已清零。
-- [x] 新增平台边界架构测试，验证 `infrastructure/platform` 不得导入
+- [x] 新增基础设施边界架构测试，验证 `infrastructure` 不得导入
   `engine`、`mind_app`、`mind_core` 或 `server`；定向测试 295 项、语法检查和导入图
-  生成通过；全量测试 `2965 passed, 11 skipped`。下一切片继续迁移
-  `engine/manage`、`engine/upgrade` 的服务/升级职责。
+  生成通过；全量测试 `2965 passed, 11 skipped`。服务/升级职责迁移见下一已完成切片。
+
+### 已完成切片：服务生命周期与升级职责归位
+
+状态：已完成（2026-08-30）
+
+- [x] 将 `ServerManage` 迁入 `infrastructure/services/server_manager.py`，将升级
+  流程迁入 `infrastructure/update/runtime.py`；异步动画和任务中断检测归入
+  `infrastructure/platform`，所有 CLI、MCP、资源和测试消费者均已切换。
+- [x] 删除 `engine` 源包，不保留旧模块 facade；服务生命周期仍由
+  `ServerManageHelixCapability` 适配，升级进度仍通过 `UpgradeProgress` 端口注入，
+  没有把平台进程句柄或升级状态带入 Harness/Protocol。
+- [x] 导入图已移除 `engine` 运行时节点并增加残留引用检测；基础设施边界测试、
+  服务/升级定向测试和全量回归均通过。阶段 5 下一切片进入 `mind_core` 配置、策略、
+  hooks/skills 的职责化拆分。
 
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
@@ -615,6 +628,9 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `engine/enhance/` -> `mind_app/runtime/tools/enhancement/` | 运行工具结果增强和远端自愈结果汇总归属工具执行 adapter | 所有生产/测试消费者切换，导入图不再出现 `engine -> mind_core` 反向业务边；旧目录删除 | 5 |
 | `engine/encoding.py`、`terminal.py`、`ports.py`、`file_assist.py` -> `infrastructure/platform/` | 进程、终端、端口和文件系统平台能力集中到独立基础设施边界 | 所有消费者切换且平台边界测试通过；旧模块删除 | 5 |
 | `engine/errors.py` -> `infrastructure/errors.py` | 入口展示异常脱离历史 engine 包 | 全部消费者切换、异常行为回归通过、旧模块删除 | 5 |
+| `engine/manage.py` -> `infrastructure/services/server_manager.py` | 本地后台服务生命周期进入服务基础设施 | CLI/MCP/Helix adapter 和服务测试切换；旧模块删除 | 5 |
+| `engine/upgrade.py` -> `infrastructure/update/runtime.py` | 运行时下载、安装和升级进度进入更新基础设施 | 资源/入口升级测试切换；旧模块删除 | 5 |
+| `engine/animation.py`、`signals.py` -> `infrastructure/platform/` | 通用异步动画和任务中断检测进入平台基础设施 | 全部消费者切换、语法和回归测试通过；旧模块删除 | 5 |
 
 ## 风险与处理
 
@@ -709,3 +725,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-30 | 阶段 5 Protocol/Observability 切片 | 将 wire SDK 按 `schema/transport/client` 重组，删除 `protocol/requests`；结构化观测从 `engine` 提取到顶层 `observability/`，第三方日志过滤集中管理；新增日志 AST 守卫，协议/日志定向测试 `103 passed` | 全量测试 `2964 passed, 11 skipped`，导入图 `--check`、语法和 diff 检查通过；下一切片处理 `mind_app`、`mind_core`、`engine` 职责重组 |
 | 2026-08-30 | 阶段 5 运行工具增强切片 | 将 `engine/enhance` 迁入 `mind_app/runtime/tools/enhancement`，并把远程自愈流拆到 `protocol/client/heal.py`；旧增强路径删除，`engine -> mind_core` 反向业务依赖消除；定向增强/架构测试 `13 passed` | 全量测试 `2965 passed, 11 skipped`，导入图显示无跨边界循环；平台和许可职责仍待迁移 |
 | 2026-08-30 | 阶段 5 平台基础设施切片 | 将编码、终端、端口、文件辅助和 `AppError` 迁入 `infrastructure`，全部消费者切换并删除旧 `engine` 模块；新增平台边界守卫 | 全量测试 `2965 passed, 11 skipped`，`compileall`、`git diff --check` 和导入图 `--check` 通过；`engine/manage`、`engine/upgrade` 仍待退役 |
+| 2026-08-30 | 阶段 5 服务/升级基础设施切片 | 将 `engine/manage`、`engine/upgrade`、`animation`、`signals` 按职责迁入 `infrastructure/services`、`infrastructure/update` 和 `infrastructure/platform`；删除整个 `engine` 源包并加入生产残留引用守卫 | 定向架构/服务/升级测试 `17 passed`，全量测试 `2965 passed, 11 skipped`，`compileall`、`git diff --check` 和导入图 `--check` 通过；下一切片处理 `mind_core` 职责拆分 |

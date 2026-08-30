@@ -9,11 +9,11 @@ import typing
 import asyncio
 from pathlib import Path
 from dataclasses import dataclass
-from engine.animation import AsyncAnimManager
-from engine.manage import ServerManage
+from infrastructure.platform.animation import AsyncAnimManager
+from infrastructure.services.server_manager import ServerManage
 from infrastructure.platform.terminal import Terminal
 from infrastructure.errors import AppError
-from engine.upgrade import UpgradeProgress
+from infrastructure.update.runtime import UpgradeProgress
 from mind_app.assets import ensure_asset
 from mind_app.runtime.design import TerminalDesign
 from observability import (

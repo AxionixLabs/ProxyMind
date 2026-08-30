@@ -158,15 +158,46 @@ def test_agent_capabilities_depend_only_on_protocol_transport() -> None:
     )
 
 
-def test_platform_infrastructure_does_not_depend_on_legacy_runtime() -> None:
-    """平台实现不能重新依赖已进入退役流程的业务包。"""
+def test_infrastructure_does_not_depend_on_legacy_runtime() -> None:
+    """基础设施实现不能重新依赖已进入退役流程的业务包。"""
     violations = _forbidden_imports(
-        "infrastructure/platform",
+        "infrastructure",
         {"engine", "mind_app", "mind_core", "server"},
     )
 
-    assert not violations, "platform infrastructure imports legacy runtime:\n" + (
+    assert not violations, "infrastructure imports legacy runtime:\n" + (
         "\n".join(violations)
+    )
+
+
+def test_retired_packages_have_no_production_imports() -> None:
+    """已退役的历史包不能从生产代码重新进入导入图。"""
+    ignored_roots = {
+        "backend",
+        "codex-main",
+        "schematic",
+        "tests",
+        "venv",
+        "website",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        relative = path.relative_to(PROJECT_ROOT)
+        if relative.parts and relative.parts[0] in ignored_roots:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module.partition(".")[0] in {"engine", "mind_nova"}:
+                    violations.append(f"{relative}:{node.lineno} -> {module}")
+
+    assert not violations, "production imports retired package:\n" + "\n".join(
+        violations
     )
 
 

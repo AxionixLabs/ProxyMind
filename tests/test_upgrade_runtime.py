@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from engine import upgrade as upgrade_module
-from engine.upgrade import Upgrade
+from infrastructure.update import runtime as upgrade_module
+from infrastructure.update.runtime import Upgrade
 from mind_core.design import Design
 from mind_core.design import facade as design_facade
 

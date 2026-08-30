@@ -6,8 +6,8 @@ import typing
 import asyncio
 from agent.application import RuntimeServices
 from pathlib import Path
-from engine.animation import AsyncAnimManager
-from engine.manage import ServerManage
+from infrastructure.platform.animation import AsyncAnimManager
+from infrastructure.services.server_manager import ServerManage
 from infrastructure.errors import AppError
 from mind_core.config import ConfigOverride
 from mind_core.config_layers import ConfigResolution

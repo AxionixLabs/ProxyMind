@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 from pathlib import Path
-from engine.animation import AsyncAnimManager
-from engine.upgrade import (
+from infrastructure.platform.animation import AsyncAnimManager
+from infrastructure.update.runtime import (
     Upgrade,
     UpgradeProgress
 )

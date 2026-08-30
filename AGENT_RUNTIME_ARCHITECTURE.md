@@ -484,6 +484,9 @@ running -> cancelled
 | `engine/enhance/` | `mind_app/runtime/tools/enhancement/`（迁移期运行工具 adapter） | 结果增强依赖工具执行与远端自愈协议，不能留在低层 engine；完整调用者切换后删除旧目录，后续随 `mind_app` 工具 adapter 一并迁入目标前端/能力边界 |
 | `engine/encoding.py`、`engine/terminal.py`、`engine/ports.py`、`engine/file_assist.py` | `infrastructure/platform/` | 进程输出编码、终端进程、端口探测/清理和文件打开属于平台实现；消费者切换后删除旧模块，平台实现不得反向导入 legacy runtime |
 | `engine/errors.py` | `infrastructure/errors.py` | 入口可展示异常由独立基础设施边界持有；所有消费者切换后删除旧错误模块，不在 `engine` 保留别名 |
+| `engine/manage.py` | `infrastructure/services/server_manager.py` | 本地后台服务探测、启动、重启和关闭由服务基础设施持有；Helix capability 只适配生命周期，不复制服务状态机 |
+| `engine/upgrade.py` | `infrastructure/update/runtime.py` | 运行时下载、归档校验、安装替换和升级进度由更新基础设施持有；入口只注入进度端口 |
+| `engine/animation.py`、`engine/signals.py` | `infrastructure/platform/` | 通用异步动画与任务中断检测属于平台运行时；不向 Harness 或协议层暴露平台句柄 |
 | `mind_nova/const.py` | `metadata/const.py` | 产品版本、展示、编码和构建元数据已抽出；`setup.py` 与内置配置服务已切换，服务端点、认证和运行时路径仍按职责在后续切片迁移 |
 | `agent/ports/capabilities.py`、`agent/adapters/protocol_client.py` | `ports`、`adapters/protocol_client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | 已删除的 `mind_app/runtime/environment/exec_env.py`、旧 environment 请求模块 | `capabilities/environment.py`、`protocol/schema/environment.py` | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化归属 `protocol.schema`。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |
@@ -494,7 +497,7 @@ running -> cancelled
 | `mind_app/cli`、`tui`、`mcp`、`subscription` | `frontends/`、`application/`、Protocol Client | 四类入口均通过 `RuntimeServices` 接收 application；CLI/TUI/MCP/Subscription 的执行命令已冻结并提交统一入口，终态观测和回执优先使用 Run/Canonical Event projection；TUI 作为 Protocol Client 前端 adapter，桌面/Web 通过同一 fixture 校验协议投影；完整用例迁出后删除 `mind_app` |
 | `mind_app/mcp/server.py` | `adapters/mcp_server.py` | `mind_exec` 已通过注入的 `TurnApplication` 和 `RootTurnCommandExecutor` 提交 `SubmitTurnCommand`，structured content 优先使用 `RunResultProjection`；MCP runtime 不拥有控制器或模型生命周期 |
 | `mind_app/subscription/forwarding.py`、`subscription/runtime.py` | `adapters/subscription.py`、`application` | `AgentExecutor` 将远端 forward 冻结为稳定 `SubmitTurnCommand`，长驻 application 由 `AgentRuntime` 拥有并在 shutdown 关闭；完成/失败/中断分类使用 application 的 Event projection |
-| `engine` | `agent.capabilities` 与 `infrastructure/platform` 的具体实现 | 迁移所有消费者后删除 `engine`；平台实现不得反向依赖 Agent 业务，也不得通过 facade 继续隐藏旧包 |
+| `engine` | `agent.capabilities` 与 `infrastructure/` 的具体实现 | 已完成全部生产消费者切换并删除 `engine` 源包；后续只允许从导入图和退役守卫确认无残留引用，不恢复兼容 facade |
 | `server` | 客户端内置配置服务 | `ConfigServiceRuntime` 只提供配置 UI/健康检查；不承载 Harness 状态、不拥有线上事件，也不是 `mind.chat` 服务端 |
 | `backend` | 独立打包 | 本次和后续迁移均不修改其目录和依赖边界 |
 

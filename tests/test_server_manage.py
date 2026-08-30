@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from engine import manage
-from engine.manage import ServerManage
+from infrastructure.services import server_manager
+from infrastructure.services.server_manager import ServerManage
 
 
 @pytest.mark.anyio
@@ -20,7 +20,7 @@ async def test_spawn_uses_configured_working_directory(
         return SimpleNamespace(pid=1234)
 
     monkeypatch.setattr(
-        manage.asyncio,
+        server_manager.asyncio,
         "create_subprocess_exec",
         create_subprocess,
     )

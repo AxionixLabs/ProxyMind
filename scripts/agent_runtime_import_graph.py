@@ -9,7 +9,6 @@ from pathlib import Path
 RUNTIME_PACKAGE_ROOTS = (
     "agent",
     "applications",
-    "engine",
     "infrastructure",
     "mind_app",
     "mind_core",
@@ -19,6 +18,7 @@ RUNTIME_PACKAGE_ROOTS = (
     "observability",
     "server",
 )
+LEGACY_PACKAGE_ROOTS = ("engine", "mind_nova")
 ENTRY_FILES = (
     "build.py",
     "mind.py",
@@ -80,7 +80,10 @@ def _imported_roots(tree: ast.AST) -> tuple[tuple[str, int], ...]:
 
 def collect_import_edges(repository_root: Path) -> tuple[ImportEdge, ...]:
     """汇总第一方运行时边界之间的绝对导入。"""
-    known_roots = frozenset((*RUNTIME_PACKAGE_ROOTS, *(Path(name).stem for name in ENTRY_FILES)))
+    known_roots = frozenset(
+        (*RUNTIME_PACKAGE_ROOTS, *LEGACY_PACKAGE_ROOTS,
+         *(Path(name).stem for name in ENTRY_FILES))
+    )
     evidence: dict[tuple[str, str], list[tuple[str, int]]] = {}
 
     for path in _source_files(repository_root):
@@ -151,10 +154,10 @@ def render_import_graph(repository_root: Path) -> str:
     nodes = tuple(sorted({*RUNTIME_PACKAGE_ROOTS, *(Path(name).stem for name in ENTRY_FILES)}))
     edges = collect_import_edges(repository_root)
     cycles = _cyclic_groups(nodes, edges)
-    reverse_engine = tuple(
+    legacy_engine = tuple(
         edge
         for edge in edges
-        if edge.source == "engine" and edge.target in RUNTIME_PACKAGE_ROOTS
+        if edge.target == "engine"
     )
 
     lines = [
@@ -217,18 +220,18 @@ def render_import_graph(repository_root: Path) -> str:
 
     lines.extend([
         "",
-        "### `engine` 反向依赖",
+        "### `engine` 残留引用",
         "",
     ])
-    if reverse_engine:
+    if legacy_engine:
         lines.extend(
-            f"- `engine -> {edge.target}`：" + "、".join(
+            f"- `{edge.source} -> engine`：" + "、".join(
                 f"`{path}`" for path in edge.files
             )
-            for edge in reverse_engine
+            for edge in legacy_engine
         )
     else:
-        lines.append("- 未发现 `engine` 导入上层运行时包。")
+        lines.append("- 未发现 `engine` 残留导入；旧源包已删除。")
 
     lines.extend([
         "",

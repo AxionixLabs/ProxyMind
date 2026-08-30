@@ -9,7 +9,7 @@ from observability import observe_exception
 from metadata import const
 
 if typing.TYPE_CHECKING:
-    from engine.manage import ServerManage
+    from infrastructure.services.server_manager import ServerManage
 
 
 def _should_raise(exc: BaseException) -> bool:
