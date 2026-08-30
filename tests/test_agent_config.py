@@ -2,7 +2,7 @@
 
 import pytest
 
-from mind_core.agent_config import AgentSettings
+from agent.application import AgentSettings
 from mind_core.config import ConfigValidationError, normalize_config
 
 

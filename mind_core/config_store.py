@@ -20,7 +20,7 @@ from tomlkit.items import (
 from tomlkit.toml_document import TOMLDocument
 from metadata import const
 from infrastructure.config.paths import default_application_home
-from mind_core.provider_config import (
+from infrastructure.config.providers import (
     DEFAULT_PROVIDER_ID,
     DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,

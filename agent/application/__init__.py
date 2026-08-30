@@ -49,13 +49,31 @@ from .projections import (
     project_run_result
 )
 from .services import RuntimeServices
+from .settings import (
+    AgentConfigError,
+    AgentSettings,
+    DEFAULT_FORK_TURNS,
+    DEFAULT_MAX_FORK_CONTEXT_CHARS,
+    FEATURE_CONFIG_FIELDS,
+    FeatureConfigError,
+    FeatureSettings,
+    normalize_agent_table,
+    normalize_feature_table,
+)
 
 __all__ = (
     "EffectJournal",
+    "AgentConfigError",
+    "AgentSettings",
+    "DEFAULT_FORK_TURNS",
+    "DEFAULT_MAX_FORK_CONTEXT_CHARS",
+    "FEATURE_CONFIG_FIELDS",
     "CapabilityError",
     "CanonicalItem",
     "ConversationForkReceipt",
     "ForkPrompt",
+    "FeatureConfigError",
+    "FeatureSettings",
     "EnvironmentSnapshotCapability",
     "FilesystemCapability",
     "EffectJournalDecision",
@@ -91,6 +109,8 @@ __all__ = (
     "TurnStatusSnapshot",
     "TurnApplication",
     "project_run_result",
+    "normalize_agent_table",
+    "normalize_feature_table",
     "submit_turn",
 )
 

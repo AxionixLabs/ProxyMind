@@ -8,7 +8,7 @@ from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.config import config_to_preferences
 from protocol.client.payload import request_llm_conf
-from mind_core.provider_config import (
+from infrastructure.config.providers import (
     SUPPORTED_PROVIDER_OPTIONS,
     SUPPORTED_ROUTE_NAMES,
     default_route_for_kind,

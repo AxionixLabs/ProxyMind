@@ -6,7 +6,7 @@ import math
 import typing
 import tomllib
 from dataclasses import dataclass
-from mind_core.provider_config import (
+from infrastructure.config.providers import (
     DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_ROUTE_NAME,
@@ -21,11 +21,11 @@ from mind_core.hooks import (
     HookConfigError,
     normalize_hook_state_table
 )
-from mind_core.agent_config import (
+from agent.application import (
     AgentConfigError,
     normalize_agent_table
 )
-from mind_core.feature_config import (
+from agent.application import (
     FEATURE_CONFIG_FIELDS,
     FeatureConfigError,
     normalize_feature_table

@@ -6,7 +6,7 @@ import typing
 from dataclasses import dataclass
 from types import MappingProxyType
 from mind_core.permissions import PermissionSettings
-from mind_core.agent_config import DEFAULT_FORK_TURNS
+from agent.application import DEFAULT_FORK_TURNS
 from protocol.schema.identifiers import (
     new_cid,
     new_sid

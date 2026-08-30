@@ -42,11 +42,11 @@ from infrastructure.config.paths import (
     ApplicationLayout,
     resolve_application_layout
 )
-from mind_core.agent_config import AgentSettings
+from agent.application import AgentSettings
 from mind_core.config import ConfigOverride
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
-from mind_core.feature_config import FeatureSettings
+from agent.application import FeatureSettings
 from mind_core.preference import Preferences
 from mind_core.permissions import (
     PermissionSettings,

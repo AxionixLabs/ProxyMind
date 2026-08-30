@@ -208,6 +208,7 @@ agent/
 │   ├── commands.py          # submit、resume、approve、cancel、retry
 │   ├── queries.py           # 历史、状态、计划和证据读取
 │   ├── projections.py       # Event Queue 到入口稳定结果的投影
+│   ├── settings.py          # Harness 并发和可选能力的启动时设置
 │   └── services.py          # 用例编排，不持有长期运行状态
 ├── ports/
 │   ├── capabilities.py      # 模型、MCP、Helix、进程和文件端口
@@ -491,6 +492,8 @@ running -> cancelled
 | `mind_core/remote_services.py` | `infrastructure/services/remote_services.py` | 远程服务元数据和授权状态查询归服务基础设施；工具增强只依赖该服务边界，不读取 `mind_core` 内部实现 |
 | `mind_core/mcp_status.py` | `mind_app/presentation/mcp_status.py` | MCP 状态值对象、快照归约和渲染器共同归入展示边界；配置核心不持有 UI 状态语义 |
 | `mind_core/application_paths.py` | `infrastructure/config/paths.py` | 应用入口、打包模式、本地资源目录和用户数据目录解析属于配置基础设施；不把路径环境事实放入策略模块 |
+| `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |
+| `mind_core/provider_config.py` | `infrastructure/config/providers.py` | Provider Profile 默认值、路由和标识校验属于配置基础设施；不把供应商连接规则放入 Harness domain |
 | `mind_nova/const.py` | `metadata/const.py` | 产品版本、展示、编码和构建元数据已抽出；`setup.py` 与内置配置服务已切换，服务端点、认证和运行时路径仍按职责在后续切片迁移 |
 | `agent/ports/capabilities.py`、`agent/adapters/protocol_client.py` | `ports`、`adapters/protocol_client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | 已删除的 `mind_app/runtime/environment/exec_env.py`、旧 environment 请求模块 | `capabilities/environment.py`、`protocol/schema/environment.py` | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化归属 `protocol.schema`。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |

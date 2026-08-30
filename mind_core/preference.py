@@ -10,7 +10,7 @@ from observability import (
 )
 from mind_core.config import config_to_preferences
 from mind_core.config_session import ConfigSession
-from mind_core.provider_config import (
+from infrastructure.config.providers import (
     DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_ROUTE_NAME,

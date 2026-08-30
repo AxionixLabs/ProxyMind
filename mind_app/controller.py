@@ -13,8 +13,10 @@ from infrastructure.errors import AppError
 from mind_core.preference import Preferences
 from infrastructure.config.paths import ApplicationLayout
 from mind_core.config_session import ConfigSession
-from mind_core.agent_config import AgentSettings
-from mind_core.feature_config import FeatureSettings
+from agent.application import (
+    AgentSettings,
+    FeatureSettings,
+)
 from mind_core.permissions import (
     PermissionSettings,
     resolve_permissions

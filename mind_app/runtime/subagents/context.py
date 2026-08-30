@@ -4,7 +4,7 @@
 import json
 import typing
 from dataclasses import dataclass
-from mind_core.agent_config import (
+from agent.application import (
     DEFAULT_FORK_TURNS,
     DEFAULT_MAX_FORK_CONTEXT_CHARS
 )

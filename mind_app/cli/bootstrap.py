@@ -11,8 +11,10 @@ from infrastructure.services.server_manager import ServerManage
 from infrastructure.errors import AppError
 from mind_core.config import ConfigOverride
 from mind_core.config_layers import ConfigResolution
-from mind_core.agent_config import AgentSettings
-from mind_core.feature_config import FeatureSettings
+from agent.application import (
+    AgentSettings,
+    FeatureSettings,
+)
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.permissions import (

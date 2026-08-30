@@ -15,7 +15,7 @@ from ..core.models import (
     MenuRequest,
     STANDARD_MENU_FOOTER_HINT
 )
-from mind_core.provider_config import DEFAULT_REASONING_EFFORT
+from infrastructure.config.providers import DEFAULT_REASONING_EFFORT
 from mind_core.config import config_to_preferences
 from mind_core.config_session import ConfigSession
 from .context import (

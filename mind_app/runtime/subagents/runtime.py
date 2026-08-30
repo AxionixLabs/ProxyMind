@@ -5,7 +5,7 @@ import typing
 import asyncio
 import sqlite3
 from observability import observe_exception
-from mind_core.agent_config import AgentSettings
+from agent.application import AgentSettings
 from mind_core.skills import skills_payload
 from protocol.transport.events import EventReport
 from mind_app.runtime.turns.result import RunResult

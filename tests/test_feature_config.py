@@ -9,7 +9,7 @@ from mind_core.config import (
 )
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
-from mind_core.feature_config import FeatureSettings
+from agent.application import FeatureSettings
 
 
 def test_feature_settings_use_normalized_defaults() -> None:

@@ -12,7 +12,7 @@ from mind_core.config import (
     model_config_field_values
 )
 from mind_core.config_session import ConfigSession
-from mind_core.provider_config import (
+from infrastructure.config.providers import (
     DEFAULT_REASONING_EFFORT,
     SUPPORTED_REASONING_EFFORTS
 )

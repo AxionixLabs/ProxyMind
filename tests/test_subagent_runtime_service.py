@@ -31,7 +31,7 @@ from mind_app.runtime.subagents.mailbox import (
     format_mailbox_context,
 )
 from mind_app.runtime.subagents.thread import AgentThreadContext
-from mind_core.agent_config import AgentSettings
+from agent.application import AgentSettings
 from mind_core.permissions import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid
 from protocol.schema.stream_events import MarkerEvent

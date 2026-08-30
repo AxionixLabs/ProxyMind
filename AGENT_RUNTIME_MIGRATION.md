@@ -633,6 +633,19 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] 应用路径定向测试、架构测试、语法检查和导入图检查通过。下一切片继续拆分
   `mind_core` 的配置、权限、策略和 hooks/skills 生命周期。
 
+### 已完成切片：应用设置与 Provider 配置边界归位
+
+状态：已完成（2026-08-30）
+
+- [x] 将 `mind_core/agent_config.py` 与 `mind_core/feature_config.py` 合并迁入
+  `agent/application/settings.py`，由 application 公开入口提供 Agent 并发设置、能力
+  开关、规范化函数和校验错误；切换 CLI、MCP、TUI、Subagent、工具注册和配置校验消费者。
+- [x] 将 `mind_core/provider_config.py` 迁入 `infrastructure/config/providers.py`，切换
+  配置存储、偏好服务、内置配置服务和 TUI Provider 选择消费者；Provider 默认值、路由
+  约束和标识校验不再属于 `mind_core`。
+- [x] 删除三个旧源模块，不保留兼容 facade；架构测试、设置/配置定向测试、语法检查和
+  导入图检查通过。下一切片继续拆分权限、项目策略以及 hooks/skills 生命周期。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -670,6 +683,8 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `mind_core/licensing.py`、`remote_services.py` -> `infrastructure/services/` | 授权验证和远程服务元数据归入服务基础设施 | 唯一消费者切换、旧源模块删除、远程服务/增强回归通过 | 5 |
 | `mind_core/mcp_status.py` -> `mind_app/presentation/mcp_status.py` | MCP 状态值对象与快照归约归入展示边界 | TUI/presentation 消费者切换、展示回归通过、旧源模块删除 | 5 |
 | `mind_core/application_paths.py` -> `infrastructure/config/paths.py` | 应用入口和本地资源路径解析归入配置基础设施 | 所有路径消费者切换、路径回归通过、旧源模块删除 | 5 |
+| `mind_core/agent_config.py`、`feature_config.py` -> `agent/application/settings.py` | Agent 运行设置与能力开关归入 application | application 公开入口、配置/设置/Subagent 回归通过，旧源模块删除 | 5 |
+| `mind_core/provider_config.py` -> `infrastructure/config/providers.py` | Provider 默认值、路由和 Profile 标识约束归入配置基础设施 | 配置服务/偏好/Provider 选择回归通过，旧源模块删除 | 5 |
 
 ## 风险与处理
 
@@ -768,3 +783,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-30 | 阶段 5 许可/远程服务切片 | 将 `mind_core/licensing.py`、`remote_services.py` 迁入 `infrastructure/services`，增强工具改用新服务边界，删除旧源模块并清除 `mind_core -> infrastructure` 许可反向边 | 定向架构/增强测试通过，导入图和语法检查通过；下一切片处理 `mind_core` 配置、策略、hooks/skills |
 | 2026-08-30 | 阶段 5 MCP 展示切片 | 将 `mind_core/mcp_status.py` 合并到 `mind_app/presentation/mcp_status.py`，切换 TUI/presentation/test 消费者并删除旧 UI 状态模块 | 定向 MCP/TUI/架构测试 `208 passed`，语法检查通过；下一切片处理 `mind_core` 配置、策略、hooks/skills |
 | 2026-08-30 | 阶段 5 应用路径切片 | 将 `mind_core/application_paths.py` 迁入 `infrastructure/config/paths.py`，切换应用、MCP、native coding、配置存储和测试消费者并删除旧路径模块 | 路径/架构定向测试、`compileall` 和导入图检查通过；下一切片处理 `mind_core` 配置、策略、hooks/skills |
+| 2026-08-30 | 阶段 5 应用设置/Provider 配置切片 | 将 Agent/Feature 设置合并到 `agent/application/settings.py`，将 Provider 规则迁入 `infrastructure/config/providers.py`，切换所有消费者并删除三个旧模块 | 设置/配置服务/Subagent 定向测试 `244 passed`，架构测试 `15 passed`，全量回归 `2967 passed, 11 skipped`，`compileall` 和导入图检查通过；下一切片处理权限、项目策略、hooks/skills |
