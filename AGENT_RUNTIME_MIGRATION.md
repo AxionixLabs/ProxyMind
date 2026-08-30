@@ -943,9 +943,8 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] 将规则文件 AST 解析和文件读取重组到
   `infrastructure/config/execution_policy.py`，native coding 的执行策略管理器只
   组合领域策略与配置解析，不在策略域持有 IO；删除旧包和导入，不保留 facade。
-- [x] 执行策略/审批/工具/配置回归 `209 passed`，执行策略专项 `19 passed`，架构
-  守卫专项 `2 passed`，全量回归 `2991 passed, 11 skipped`；`compileall`、导入图和
-  差异检查通过。
+- [x] 执行策略专项回归 `19 passed`，架构守卫专项 `2 passed`，全量回归
+  `2991 passed, 11 skipped`；`compileall`、导入图和差异检查通过。
 
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
@@ -1134,4 +1133,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 本地进程执行基座切片 | 将进程捕获、输出解码、本地 Sandbox sidecar 客户端和 shell 运行时解析从 `mind_app/native_coding/exec/` 重组到 `infrastructure/platform/`，native coding 仅保留工具业务与执行策略；删除旧模块并加入平台归属守卫 | 进程捕获/解码、Sandbox、shell、执行策略/平台/架构定向回归 `146 passed, 11 skipped`，全量回归 `2988 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
 | 2026-08-31 | 阶段 5 JavaScript REPL 平台切片 | 将 Node 内核进程、会话隔离、临时目录、消息桥接和内核重置从 `mind_app/native_coding/js_repl/` 重组到 `infrastructure/platform/javascript_repl.py`，资源根改为显式应用布局注入并删除旧包 | JavaScript REPL 定向回归 `28 passed`，架构守卫 `37 passed`，全量回归 `2989 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
 | 2026-08-31 | 阶段 5 平台环境助手切片 | 将 shell 工具 PATH 路由和工作区根探测从 `mind_app/runtime/environment/` 重组到 `infrastructure/platform/`，runtime/CLI/MCP/TUI 只消费平台结果并删除旧模块 | 平台环境/CLI/MCP/TUI/架构定向回归 `179 passed`，全量回归 `2990 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
-| 2026-08-31 | 阶段 5 执行策略领域切片 | 将执行策略决定、规则和值对象从 `mind_app/native_coding/exec/execpolicy/` 重组到 `agent/domain/execution_policy/`，将 AST/文件解析重组到 `infrastructure/config/execution_policy.py`，删除旧策略包 | 执行策略/审批/工具/配置定向回归 `209 passed`，执行策略专项 `19 passed`，架构守卫专项 `2 passed`，全量回归 `2991 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
+| 2026-08-31 | 阶段 5 执行策略领域切片 | 将执行策略决定、规则和值对象从 `mind_app/native_coding/exec/execpolicy/` 重组到 `agent/domain/execution_policy/`，将 AST/文件解析重组到 `infrastructure/config/execution_policy.py`，删除旧策略包 | 执行策略专项回归 `19 passed`，架构守卫专项 `2 passed`，全量回归 `2991 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
