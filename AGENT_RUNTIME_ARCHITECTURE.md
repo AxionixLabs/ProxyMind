@@ -531,6 +531,8 @@ running -> cancelled
 | `mind_app/runtime/turns/stream_outcome.py` | `agent/application/stream_outcome.py` | 流式终态优先级、协议终态归并和 `RunResult` 构建属于 application 结果聚合；协议事件只在边界输入，不持有 UI 或执行副作用 |
 | `mind_app/runtime/support/idle_status.py` | `infrastructure/platform/idle_status.py` | asyncio 延迟状态计时器只管理平台任务生命周期；stream runtime 通过显式平台实现使用，不让 support 目录继续承接无归属基础设施 |
 | `mind_app/runtime/support/rwlock.py` | 已删除 | 全仓库无生产或测试调用者；删除死代码，避免保留未接入 Harness 的并发抽象和伪迁移入口 |
+| `mind_app/runtime/tools/notify.py` | `mind_app/runtime/mcp/tool_progress.py` | MCP 工具进度通知依赖 MCP 调用生命周期，归入 MCP runtime 适配边界；工具路由只调用该边界，不在平铺 tools 包维护通知实现 |
+| `mind_app/runtime/tools/policy.py` | 已删除 | 全仓库无生产或测试调用者；不迁移无归属的并行策略死代码，避免形成新的兼容入口 |
 | `mind_app/runtime/hooks/models.py` | `agent/application/hook_models.py` | Hook 生命周期快照、决定、输出和工具结果是跨 runtime/TUI 的 application contract；Hook 执行器、注册器和 scope 仍由 runtime 持有，不把执行副作用放入值对象 |
 | `mind_app/runtime/hooks/protocol.py` | `agent/application/hook_protocol.py` | Hook 进程 stdin/stdout schema、构建和校验属于 application boundary；runtime 只调用已校验的契约，不把内部 Hook 协议误并入线上 `protocol/` |
 | `mind_app/runtime/hooks/catalog.py` | `agent/application/hook_catalog.py` | Hook 管理目录、不可变状态快照和内容冲突错误属于 application contract；Controller/TUI 只消费该契约，注册器仍负责运行时装配 |

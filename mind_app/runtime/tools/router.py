@@ -10,7 +10,7 @@ from mind_app.runtime.mcp.contracts import McpSessionLike
 from mind_app.runtime.mcp.tool_store import has_tool
 from mind_app.runtime.execution import ToolInvocation
 from mcp.types import CallToolResult
-from .notify import (
+from ..mcp.tool_progress import (
     emit_tool_progress,
     supports_tool_progress
 )

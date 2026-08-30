@@ -1086,6 +1086,18 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   platform 归属及死代码删除守卫。结果/流式/TUI/CLI/架构定向回归 `263 passed, 36 warnings`，
   全量回归 `3004 passed, 11 skipped, 36 warnings`，导入图、`compileall` 和差异检查通过。
 
+### 已完成切片：MCP 工具进度边界归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将 MCP 工具进度通知从 `mind_app/runtime/tools/notify.py` 重组到
+  `mind_app/runtime/mcp/tool_progress.py`；通知策略和观测回退与 MCP 调用生命周期同属 runtime
+  MCP 适配边界，工具路由不再持有平铺通知实现。
+- [x] 确认 `mind_app/runtime/tools/policy.py` 全仓库无生产或测试调用者并删除，不迁移死代码或
+  增加兼容 facade；新增旧路径/旧导入和 MCP 归属架构守卫。
+- [x] 切换工具路由并通过 MCP/工具/架构定向回归 `108 passed, 37 warnings`，导入图、
+  `compileall` 和差异检查通过。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -1295,3 +1307,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 Hook 工具结果投影切片 | 将后置 Hook 工具结果替换、反馈、阻断和上下文投影从 `mind_app/runtime/hooks/results.py` 重组到 `agent/application/hook_result.py`，切换 ToolHookEvents/工具测试消费者并删除旧模块 | Hook 工具/架构定向回归 `61 passed`，旧路径/旧导入及 application 边界守卫通过；全量回归 `3002 passed, 11 skipped, 34 warnings`，导入图、`compileall` 和差异检查通过 |
 | 2026-08-31 | 阶段 5 工具模式策略切片 | 将 app/api 工具可见性、隐藏规则和元数据过滤从 `mind_app/runtime/tools/mode_policy.py` 重组到 `agent/domain/tool_policy.py`，切换 Controller/CLI/MCP/Turn/TUI 消费者并删除旧模块 | 工具策略/架构定向回归 `4 passed`，旧路径/旧导入及 domain 边界守卫通过；全量回归 `3003 passed, 11 skipped, 35 warnings`，导入图、`compileall` 和差异检查通过 |
 | 2026-08-31 | 阶段 5 运行结果与平台计时器切片 | 将 `RunResult`、流式终态聚合和本地 Session 身份派生重组到 `agent/application`，将空闲状态计时器下沉到 `infrastructure/platform`，删除无调用者的 `AsyncRWLock` 并清除旧 runtime/support 导入 | 定向结果/流式/TUI/CLI/架构回归 `263 passed, 36 warnings`；全量回归 `3004 passed, 11 skipped, 36 warnings`，旧路径守卫、导入图、`compileall` 和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 MCP 工具进度边界切片 | 将 MCP 进度通知从 `mind_app/runtime/tools/notify.py` 重组到 `mind_app/runtime/mcp/tool_progress.py`，删除无调用者的 `runtime/tools/policy.py` 并清除旧导入 | MCP/工具/架构定向回归 `108 passed, 37 warnings`，旧路径守卫、导入图、`compileall` 和 `git diff --check` 通过 |

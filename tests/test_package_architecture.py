@@ -1378,6 +1378,46 @@ def test_turn_result_and_session_identity_boundaries_are_explicit() -> None:
     )
 
 
+def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
+    """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "notify.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "policy.py",
+    )
+    assert not any(path.is_file() for path in legacy_paths), (
+        "legacy tool support sources still exist: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_paths
+            if path.is_file()
+        )
+    )
+
+    legacy_modules = {
+        "mind_app.runtime.tools.notify",
+        "mind_app.runtime.tools.policy",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy tool support imports remain:\n" + "\n".join(violations)
+    assert (
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "tool_progress.py"
+    ).is_file(), "MCP tool progress source is missing"
+
+
 def test_execution_policy_is_split_between_domain_and_config() -> None:
     """确保执行策略值对象与规则文件解析分别归属 domain/config。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "execpolicy"
