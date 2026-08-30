@@ -19,7 +19,7 @@ from mind_core.permissions import (
     PermissionSettings,
     resolve_permissions
 )
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )
@@ -29,8 +29,8 @@ from mind_core.application_paths import (
 )
 from mind_core.preference import Preferences
 from mind_core.service_config import ServiceConfig
-from mind_nova.services import service_endpoints
-from mind_nova import const
+from protocol.transport.endpoints import service_endpoints
+from metadata import const
 from ..controller import Mind
 from ..frontend.contracts import (
     ApplicationView,

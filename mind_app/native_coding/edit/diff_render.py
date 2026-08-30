@@ -5,7 +5,7 @@ import time
 import difflib
 import hashlib
 from dataclasses import dataclass
-from mind_nova import const
+from metadata import const
 
 
 @dataclass(frozen=True, slots=True)

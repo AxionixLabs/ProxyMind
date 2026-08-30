@@ -7,7 +7,7 @@ import pytest
 
 from agent.application import ProtocolCommandError
 from mind_app.runtime.turns.stream_effects import ToolResultDelivery
-from mind_nova.requests.tools import ToolResultRequestError
+from protocol.client.tools import ToolResultRequestError
 
 
 def _delivery(

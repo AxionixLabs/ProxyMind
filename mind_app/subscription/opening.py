@@ -10,13 +10,13 @@ import typing
 import asyncio
 import hashlib
 import platform
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )
 from ..runtime.agent.client import AgentClient
 from .models import AgentConfig
-from mind_nova import const
+from metadata import const
 
 
 def iter_exception_chain(exc: BaseException) -> typing.Iterator[BaseException]:

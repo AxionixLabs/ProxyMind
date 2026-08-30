@@ -6,7 +6,7 @@ import time
 import typing
 from collections import deque
 from dataclasses import dataclass
-from mind_nova.identifiers import short_uid
+from protocol.schema.identifiers import short_uid
 from mind_app.runtime.execution import AgentContext
 
 AgentMailboxEventKind = typing.Literal["message", "queue", "status"]

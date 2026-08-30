@@ -4,7 +4,7 @@
 import sys
 import typing
 import argparse
-from mind_nova import const
+from metadata import const
 from .arguments import (
     HELIX_FLAGS,
     PROMPT_SHORT_VALUE_PREFIXES,

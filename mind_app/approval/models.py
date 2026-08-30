@@ -5,7 +5,7 @@ import copy
 import time
 import typing
 from dataclasses import dataclass
-from mind_nova.tool_approval import (
+from protocol.schema.tool_approval import (
     ToolApprovalDecision,
     ToolApprovalKind
 )

@@ -4,10 +4,10 @@
 import typing
 import asyncio
 import contextlib
-from engine.observability import observe
+from observability import observe
 from websockets.asyncio.client import ClientConnection
 from ..runtime.agent.client import AgentClient
-from mind_nova.requests.payload import request_llm_conf
+from protocol.client.payload import request_llm_conf
 from .models import (
     AgentForwardRequest,
     AgentSessionRuntime,

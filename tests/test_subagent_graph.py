@@ -22,7 +22,7 @@ from mind_app.runtime.subagents.graph import (
 from mind_app.runtime.subagents.mailbox import AgentMailboxStore
 from mind_app.runtime.subagents.thread import AgentThreadContext
 from mind_core.permissions import preset_permissions
-from mind_nova.identifiers import new_cid, new_sid
+from protocol.schema.identifiers import new_cid, new_sid
 
 
 def _thread() -> AgentThreadContext:

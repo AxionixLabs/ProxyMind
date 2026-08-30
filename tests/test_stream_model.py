@@ -15,7 +15,7 @@ from mind_app.output import (
 )
 from mind_app.history.contracts import TranscriptSink
 from mind_app.runtime.turns.stream_model import ModelStreamEventHandler
-from mind_nova.stream_events import (
+from protocol.schema.stream_events import (
     StreamEvent,
     TextDeltaEvent,
     TextDoneEvent,

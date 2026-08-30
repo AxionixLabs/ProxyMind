@@ -19,7 +19,7 @@ from mind_core.hooks import (
     HookStateTable,
     HookTrustPolicy
 )
-from mind_nova import const
+from metadata import const
 
 _MATCHER_GROUP_FIELDS = frozenset({
     "matcher",

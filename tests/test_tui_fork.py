@@ -7,8 +7,8 @@ import httpx
 import pytest
 
 from mind_app.tui.features import conversation
-from mind_nova.requests import fork as fork_request
-from mind_nova.requests.fork import (
+from protocol.client import fork as fork_request
+from protocol.client.fork import (
     ConversationForkRequestError,
     ResubmittablePrompt,
 )

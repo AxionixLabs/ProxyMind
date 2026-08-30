@@ -14,16 +14,16 @@ from mind_app.runtime.subagents.delivery import (
 )
 from mind_app.runtime.subagents.mailbox import AgentMailboxStore
 from mind_core.permissions import preset_permissions
-from mind_nova.requests.turn_control import (
+from protocol.client.turn_control import (
     TurnControlRequestError,
     TurnControlResponse,
 )
-from mind_nova.stream_events import (
+from protocol.schema.stream_events import (
     MarkerEvent,
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent,
 )
-from mind_nova.turn_inputs import TurnInput
+from protocol.schema.turn_inputs import TurnInput
 
 
 class _Delivery:

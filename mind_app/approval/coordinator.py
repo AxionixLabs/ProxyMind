@@ -9,7 +9,7 @@ import contextlib
 from collections.abc import Mapping
 from collections import deque
 from dataclasses import dataclass
-from engine.observability import observe_exception
+from observability import observe_exception
 from mind_app.approval.models import (
     ApprovalDecisionSource,
     ApprovalDecisionValue,

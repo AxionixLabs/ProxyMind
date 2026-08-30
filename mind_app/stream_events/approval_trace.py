@@ -3,7 +3,7 @@
 
 import typing
 import unicodedata
-from mind_nova import const
+from metadata import const
 from mind_app.approval.policy import approval_execpolicy_amendment
 from mind_app.presentation.models import (
     ApprovalSource,

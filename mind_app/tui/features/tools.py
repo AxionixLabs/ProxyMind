@@ -4,7 +4,7 @@
 import typing
 from collections import defaultdict
 from prompt_toolkit.utils import get_cwidth
-from mind_nova import const
+from metadata import const
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView

@@ -11,7 +11,7 @@ from mind_app.presentation.models import (
     TextStyle
 )
 from mind_app.presentation.terminal_text import sanitize_styled_block
-from mind_nova import const
+from metadata import const
 from .contracts import (
     ApplicationSink,
     ApplicationView,

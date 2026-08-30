@@ -6,10 +6,11 @@ import time
 import httpx
 import typing
 import asyncio
-import logging
 from urllib.parse import urlsplit
-
-_LOGGER = logging.getLogger(__name__)
+from observability import (
+    observe,
+    observe_exception,
+)
 
 
 class StreamDecodeError(httpx.DecodingError):
@@ -39,28 +40,22 @@ async def streaming(
     event_count   = 0
     invalid_lines = 0
 
-    _LOGGER.debug(
+    observe(
         "http.stream.start",
-        extra={
-            "event": "http.stream.start",
-            "method": "POST",
-            "route": route,
-            "timeout_sec": timeout,
-        },
+        method="POST",
+        route=route,
+        timeout_sec=timeout,
     )
 
     try:
         async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [cap_response]}) as client:
             async with client.stream("POST", url, headers=headers, json=payload) as resp:
-                _LOGGER.debug(
+                observe(
                     "http.stream.response",
-                    extra={
-                        "event": "http.stream.response",
-                        "method": "POST",
-                        "route": route,
-                        "status": resp.status_code,
-                        "request_id": resp.headers.get("x-request-id"),
-                    },
+                    method="POST",
+                    route=route,
+                    status=resp.status_code,
+                    request_id=resp.headers.get("x-request-id"),
                 )
                 resp.raise_for_status()
 
@@ -80,40 +75,33 @@ async def streaming(
                     event_count += 1
                     yield event
     except asyncio.CancelledError:
-        _LOGGER.warning(
+        observe(
             "http.stream.interrupted",
-            extra={
-                "event": "http.stream.interrupted",
-                "method": "POST",
-                "route": route,
-                "events": event_count,
-                "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
-            },
+            level="WARNING",
+            method="POST",
+            route=route,
+            events=event_count,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
         raise
-    except Exception:
-        _LOGGER.exception(
+    except Exception as error:
+        observe_exception(
             "http.stream.failed",
-            extra={
-                "event": "http.stream.failed",
-                "method": "POST",
-                "route": route,
-                "events": event_count,
-                "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
-            },
+            error,
+            method="POST",
+            route=route,
+            events=event_count,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
         raise
     else:
-        _LOGGER.debug(
+        observe(
             "http.stream.complete",
-            extra={
-                "event": "http.stream.complete",
-                "method": "POST",
-                "route": route,
-                "events": event_count,
-                "invalid_lines": invalid_lines,
-                "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
-            },
+            method="POST",
+            route=route,
+            events=event_count,
+            invalid_lines=invalid_lines,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
 
 

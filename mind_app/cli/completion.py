@@ -6,7 +6,7 @@ import sys
 import typing
 import argparse
 from dataclasses import dataclass
-from mind_nova import const
+from metadata import const
 from .commands import (
     CompletionCommand,
     CompletionShell

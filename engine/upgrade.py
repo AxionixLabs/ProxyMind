@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 from engine.errors import AppError
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )
@@ -23,7 +23,7 @@ from engine.ports import (
     port_available,
     terminate_port_process
 )
-from mind_nova.requests.manifest import fetch_manifest
+from protocol.client.manifest import fetch_manifest
 
 UpgradeProgressStarter = typing.Callable[
     [], typing.Coroutine[typing.Any, typing.Any, None]

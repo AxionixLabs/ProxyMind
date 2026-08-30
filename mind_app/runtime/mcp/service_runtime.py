@@ -16,7 +16,7 @@ from engine.errors import AppError
 from engine.upgrade import UpgradeProgress
 from mind_app.assets import ensure_asset
 from mind_app.runtime.design import TerminalDesign
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )

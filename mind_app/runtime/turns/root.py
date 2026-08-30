@@ -4,7 +4,7 @@
 import time
 import typing
 from collections.abc import Mapping
-from mind_nova.events import EventReport
+from protocol.transport.events import EventReport
 from agent.application import SubmitTurnCommand
 from mind_app.runtime.execution import (
     AgentContext,

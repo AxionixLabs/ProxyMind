@@ -10,7 +10,7 @@ from mind_core.hooks import (
     HookDefinitionConfig,
     HookEventName
 )
-from mind_nova import const
+from metadata import const
 from mind_app.runtime.processes import (
     subprocess_process_group_kwargs,
     terminate_process_tree

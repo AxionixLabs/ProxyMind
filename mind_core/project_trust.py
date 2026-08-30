@@ -5,7 +5,7 @@ import os
 import typing
 from dataclasses import dataclass
 from pathlib import Path
-from mind_nova import const
+from metadata import const
 
 ProjectTrustLevel = typing.Literal[
     "trusted",

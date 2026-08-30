@@ -17,7 +17,7 @@ from dataclasses import (
 )
 from pathlib import Path
 from mind_core.application_paths import resolve_application_layout
-from mind_nova import const
+from metadata import const
 
 ToolCallback = typing.Callable[
     [str, dict[str, typing.Any], str],

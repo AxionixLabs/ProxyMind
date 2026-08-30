@@ -8,7 +8,7 @@ from agent.application import (
     EffectJournalPersistenceError,
 )
 from agent.composition import open_effect_journal
-from mind_nova.stream_events import ExecutionEffect
+from protocol.schema.stream_events import ExecutionEffect
 
 
 def _effect(

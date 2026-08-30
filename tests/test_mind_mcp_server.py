@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, Mock
 
 import anyio
 import pytest
-from mind_nova import const
+from metadata import const
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 

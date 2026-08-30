@@ -6,7 +6,7 @@ from dataclasses import (
     dataclass,
     field,
 )
-from mind_nova.requests.permissions import (
+from protocol.schema.permissions import (
     ApprovalPolicy,
     ApprovalReviewer,
     NetworkAccess,

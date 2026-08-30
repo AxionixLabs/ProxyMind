@@ -5,7 +5,7 @@ import os
 import typing
 import hashlib
 from pathlib import Path
-from mind_nova import const
+from metadata import const
 from mind_app.native_coding.encoding import (
     decode_process_output,
     process_output_encodings

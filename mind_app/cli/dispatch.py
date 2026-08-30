@@ -10,7 +10,7 @@ from agent.application import (
 )
 from engine.errors import AppError
 from mind_core.preference import apply_primary_model_override
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )

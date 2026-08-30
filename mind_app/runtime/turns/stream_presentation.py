@@ -5,7 +5,7 @@ import enum
 import time
 import typing
 from mind_core.permissions import PermissionSettings
-from mind_nova.events import EventReport
+from protocol.transport.events import EventReport
 from mind_app.output import (
     ContentSink,
     OutputStatusPort,

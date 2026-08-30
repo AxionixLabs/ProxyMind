@@ -36,9 +36,9 @@ from mind_core.permissions import (
     preset_permissions,
     resolve_permissions,
 )
-from mind_nova import const
-from mind_nova.requests.payload import build_chat_payload
-from mind_nova.stream_events import (
+from metadata import const
+from protocol.client.payload import build_chat_payload
+from protocol.schema.stream_events import (
     ToolApprovalRequiredEvent,
     ToolCallEvent,
     parse_stream_event,

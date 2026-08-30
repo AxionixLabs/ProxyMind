@@ -2,12 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_nova.identifiers import (
+from protocol.schema.identifiers import (
     normalize_turn_id,
     short_uid,
 )
-from .environment import normalize_client_environment_snapshot
-from .permissions import permission_payload
+from protocol.schema.environment import normalize_client_environment_snapshot
+from protocol.schema.permissions import permission_payload
 
 
 _AGENT_REQUEST_OPTION_FIELDS = frozenset({

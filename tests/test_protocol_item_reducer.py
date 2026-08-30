@@ -3,11 +3,11 @@
 import pytest
 
 from agent.adapters.item_reducer import CanonicalItemReducer
-from mind_nova.stream_events import (
+from protocol.schema.stream_events import (
     ToolApprovalRequiredEvent,
     parse_stream_event,
 )
-from mind_nova.tool_approval import (
+from protocol.schema.tool_approval import (
     ToolApprovalSnapshot,
     ToolApprovalSnapshotItem,
 )

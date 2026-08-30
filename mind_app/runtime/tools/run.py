@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from mcp import types as mcp_types
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.runtime.execution import ToolInvocation
-from mind_nova.tool_approval import (
+from protocol.schema.tool_approval import (
     TOOL_LIFECYCLE_STATUSES,
     ToolLifecycleStatus,
 )
@@ -26,7 +26,7 @@ from ...output import OutputStatusPort
 from .enhance_reporter import ToolEnhanceReporter
 from .progress import show_tool_progress
 from .router import execute_tool
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )

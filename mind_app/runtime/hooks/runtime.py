@@ -10,7 +10,7 @@ from dataclasses import (
     dataclass,
     replace
 )
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )

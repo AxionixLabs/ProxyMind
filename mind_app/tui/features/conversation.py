@@ -9,7 +9,7 @@ from agent.application import (
     ProtocolCommandError,
 )
 from mind_app.frontend import ApplicationView
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )
@@ -24,8 +24,8 @@ from mind_app.runtime.support.clipboard import (
 )
 from mind_app.history.ids import valid_session_ids
 from mind_core.mcp_status import external_mcp_status_view
-from mind_nova.requests.fork import ResubmittablePrompt
-from mind_nova import const
+from protocol.client.fork import ResubmittablePrompt
+from metadata import const
 from ...runtime.conversation import (
     CompactResult,
     compact_conversation

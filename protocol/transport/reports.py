@@ -3,8 +3,8 @@
 
 import httpx
 import typing
-from mind_nova.service_auth import build_service_headers
-from mind_nova.services import service_endpoints
+from protocol.transport.auth import build_service_headers
+from protocol.transport.endpoints import service_endpoints
 
 
 async def post_stream_event(

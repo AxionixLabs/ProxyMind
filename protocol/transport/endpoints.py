@@ -4,7 +4,7 @@
 import os
 import typing
 from urllib.parse import urlparse
-from mind_nova import const
+from protocol.transport import config
 
 SERVICE_DOMAIN_ENV = "MIND_SERVICE_DOMAIN"
 
@@ -46,7 +46,7 @@ class ServiceEndpoints(object):
             self.configured
             or normalize_domain(os.environ.get(self.env_name))
             or self.default_domain
-            or const.DOMAIN.rstrip("/")
+            or config.DOMAIN.rstrip("/")
         )
 
     def endpoint(self, path: typing.Any) -> str:
@@ -54,7 +54,7 @@ class ServiceEndpoints(object):
         return f"{self.domain()}/{str(path or '').lstrip('/')}"
 
 
-service_endpoints = ServiceEndpoints(default_domain=const.DOMAIN)
+service_endpoints = ServiceEndpoints(default_domain=config.DOMAIN)
 
 
 if __name__ == '__main__':

@@ -18,7 +18,7 @@ from tomlkit.items import (
     Whitespace,
 )
 from tomlkit.toml_document import TOMLDocument
-from mind_nova import const
+from metadata import const
 from mind_core.application_paths import default_application_home
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_ID,

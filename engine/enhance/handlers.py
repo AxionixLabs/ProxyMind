@@ -2,9 +2,9 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from engine.observability import observe
+from observability import observe
 from mind_core.remote_services import RemoteServices
-from mind_nova.requests.chat import stream_heal
+from protocol.client.chat import stream_heal
 from .fields import (
     tool_payload,
     tool_target

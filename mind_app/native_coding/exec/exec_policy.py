@@ -15,7 +15,7 @@ from typing import (
     Sequence
 )
 from mind_core.application_paths import default_application_home
-from mind_nova import const
+from metadata import const
 from .command_safety.is_dangerous_command import (
     DangerousCommandMatch,
     dangerous_command_match as _dangerous_command_match,

@@ -13,16 +13,16 @@ from agent.application import (
 )
 from agent.adapters import protocol_client as model_adapter
 from agent.composition import open_model_capability
-from mind_nova.tool_approval import (
+from protocol.schema.tool_approval import (
     ToolApprovalSnapshot,
     ToolApprovalSnapshotItem,
 )
-from mind_nova.requests.tools import (
+from protocol.client.tools import (
     ToolApprovalRequestError,
     ToolResultRequestError,
 )
-from mind_nova.requests.fork import ResubmittablePrompt
-from mind_nova.requests.turn_control import TurnControlRequestError
+from protocol.client.fork import ResubmittablePrompt
+from protocol.client.turn_control import TurnControlRequestError
 
 
 def _model_event(event_type: str = "turn.start") -> SimpleNamespace:

@@ -3,7 +3,7 @@
 
 import typing
 from agent.application import CanonicalItem, ModelEventStream
-from mind_nova.stream_events import (
+from protocol.schema.stream_events import (
     PresentationSupersededEvent,
     StreamEvent,
     TextDeltaEvent,

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from mind_app.stream_events.assistant_boundary import is_assistant_output_boundary
-from mind_nova.stream_events import StreamEvent
+from protocol.schema.stream_events import StreamEvent
 
 
 def test_display_text_is_not_an_assistant_identity_boundary() -> None:

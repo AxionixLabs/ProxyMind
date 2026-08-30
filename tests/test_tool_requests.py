@@ -3,8 +3,8 @@
 import httpx
 import pytest
 
-from mind_nova.requests import tools
-from mind_nova.tool_approval import ToolApprovalAck
+from protocol.client import tools
+from protocol.schema.tool_approval import ToolApprovalAck
 
 
 def _install_client(monkeypatch, response, captured) -> None:

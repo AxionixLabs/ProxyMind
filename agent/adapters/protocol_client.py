@@ -25,10 +25,10 @@ from agent.protocol import (
     validate_model_event,
 )
 from agent.protocol.json_value import ThawedJsonValue
-from mind_nova.requests.effects import (
+from protocol.client.effects import (
     post_effect_reconciliation as _post_effect_reconciliation,
 )
-from mind_nova.requests.tools import (
+from protocol.client.tools import (
     ToolApprovalRequestError,
     ToolResultRequestError,
     get_tool_result_status as _get_tool_result_status,
@@ -36,7 +36,7 @@ from mind_nova.requests.tools import (
     post_tool_result as _post_tool_result,
     renew_tool_result as _renew_tool_result,
 )
-from mind_nova.requests.turn_control import (
+from protocol.client.turn_control import (
     TurnControlRequestError,
     TurnStatusRequestError,
     get_turn_status as _get_turn_status,
@@ -44,14 +44,14 @@ from mind_nova.requests.turn_control import (
     reconcile_turn_inputs as _reconcile_turn_inputs,
     steer_turn as _steer_turn,
 )
-from mind_nova.requests.fork import (
+from protocol.client.fork import (
     ConversationForkRequestError,
     ResubmittablePrompt as _WireResubmittablePrompt,
     request_conversation_fork as _request_conversation_fork,
 )
-from mind_nova.turn_inputs import TurnInput as _WireTurnInput
+from protocol.schema.turn_inputs import TurnInput as _WireTurnInput
 from .item_reducer import CanonicalItemReducer
-from mind_nova.requests.chat import stream_chat
+from protocol.client.chat import stream_chat
 
 SessionIdentity: typing.TypeAlias = tuple[str, str]
 

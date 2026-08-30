@@ -36,7 +36,7 @@ from mind_core.design.terminal_capabilities import (
     TerminalTheme,
 )
 from mind_core.skills import SkillSpec
-from mind_nova import const
+from metadata import const
 from mind_app.interaction.contracts import PromptContext
 from mind_app.output.content import (
     AssistantOutputBoundary,

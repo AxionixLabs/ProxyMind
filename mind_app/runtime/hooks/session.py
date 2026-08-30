@@ -8,7 +8,7 @@ from mind_core.hooks import (
     SESSION_END_REASONS,
     SessionEndReason
 )
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )

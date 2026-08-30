@@ -5,9 +5,12 @@ import os
 import time
 import typing
 from pathlib import Path
-from loguru import logger
-from mind_nova import const
-from engine.observability import observe
+from metadata import const
+from observability import (
+    add_file_sink,
+    observe,
+    remove_sink,
+)
 
 DEBUG_LOG_FILE = f"{const.APP_NAME}.debug.log"
 
@@ -44,15 +47,11 @@ class RunReport(object):
             DEBUG_LOG_FILE,
         )
 
-        self.__log_sink_id: int | None = logger.add(
+        self.__log_sink_id: int | None = add_file_sink(
             self.__debug_log,
             level=const.NOTE_LEVEL,
-            format=DEBUG_LOG_FORMAT,
+            output_format=DEBUG_LOG_FORMAT,
             encoding=const.CHARSET,
-            colorize=False,
-            enqueue=True,
-            backtrace=False,
-            diagnose=False,
         )
         self.run_id = tender
         observe("report.open", run_id=self.run_id)
@@ -64,7 +63,7 @@ class RunReport(object):
             return None
         observe("report.close", run_id=self.run_id)
         self.__log_sink_id = None
-        logger.remove(sink_id)
+        remove_sink(sink_id)
 
     @property
     def output_record_path(self) -> str:

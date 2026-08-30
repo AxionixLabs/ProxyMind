@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from engine.observability import observe
+from observability import observe
 from mind_app.approval.ledger import ApprovalCallLedger
 from mind_app.approval.models import ApprovalOutcome
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
@@ -24,9 +24,9 @@ from mind_app.runtime.tools.display import show_tool_result
 from mind_app.runtime.tools.plan_call import PlanToolCallRunner
 from mind_app.runtime.tools.run import server_tool_output_result
 from mind_app.stream_events.tool_trace import coding_trace_tool
-from mind_nova.requests.tools import build_tool_result_envelope
-from mind_nova.requests.turn_control import TurnControlRequestError
-from mind_nova.stream_events import (
+from protocol.client.tools import build_tool_result_envelope
+from protocol.client.turn_control import TurnControlRequestError
+from protocol.schema.stream_events import (
     ToolApprovalRequiredEvent,
     ToolCallEvent,
     ToolCallsDoneEvent,
@@ -34,7 +34,7 @@ from mind_nova.stream_events import (
     ToolEvent,
     ToolOutputEvent,
 )
-from mind_nova.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
+from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from .stream_policy import (
     apply_local_exec_policy_approval,
     apply_local_patch_approval,

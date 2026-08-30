@@ -5,7 +5,7 @@ import sys
 import functools
 import operator
 from engine.errors import AppError
-from mind_nova import const
+from metadata import const
 from mind_app.frontend.contracts import Frontend
 from mind_app.interaction import NonInteractiveInteraction
 from mind_app.runtime.design import TerminalDesign

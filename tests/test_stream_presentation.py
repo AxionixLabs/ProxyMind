@@ -17,7 +17,7 @@ from mind_app.runtime.turns.stream_presentation import (
     StreamTurnPresentation,
 )
 from mind_core.permissions import preset_permissions
-from mind_nova.stream_events import (
+from protocol.schema.stream_events import (
     TurnDoneEvent,
     TurnFailedEvent,
 )

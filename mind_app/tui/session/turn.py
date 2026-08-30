@@ -3,15 +3,15 @@
 
 import typing
 import asyncio
-from engine.observability import observe
+from observability import observe
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.presentation.models import TextSpan
-from mind_nova.events import EventReport
-from mind_nova import const
+from protocol.transport.events import EventReport
+from metadata import const
 from mind_core.permissions import PermissionSettings
 from ...runtime.turns.executor import (
     TurnExecution,

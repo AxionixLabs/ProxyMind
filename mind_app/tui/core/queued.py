@@ -9,7 +9,7 @@ from dataclasses import (
     field
 )
 from prompt_toolkit.utils import get_cwidth
-from mind_nova.identifiers import short_uid
+from protocol.schema.identifiers import short_uid
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from .models import FormattedText
 from ..rendering.fragments import (

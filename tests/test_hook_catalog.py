@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from mind_nova import const
+from metadata import const
 
 from mind_app.controller import Mind
 from mind_app.runtime.hooks.catalog import HookCatalogStaleError

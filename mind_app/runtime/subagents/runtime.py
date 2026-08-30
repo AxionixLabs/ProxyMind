@@ -4,10 +4,10 @@
 import typing
 import asyncio
 import sqlite3
-from engine.observability import observe_exception
+from observability import observe_exception
 from mind_core.agent_config import AgentSettings
 from mind_core.skills import skills_payload
-from mind_nova.events import EventReport
+from protocol.transport.events import EventReport
 from mind_app.runtime.turns.result import RunResult
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.runtime.execution import (

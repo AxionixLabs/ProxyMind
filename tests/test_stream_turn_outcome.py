@@ -2,7 +2,7 @@
 
 from mind_app.runtime.turns.result import RunResult
 from mind_app.runtime.turns.stream_outcome import StreamTurnOutcome
-from mind_nova.stream_events import (
+from protocol.schema.stream_events import (
     TurnDoneEvent,
     TurnFailedEvent,
 )

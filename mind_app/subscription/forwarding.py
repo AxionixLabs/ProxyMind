@@ -12,7 +12,7 @@ from agent.application import (
     submit_turn,
 )
 from engine.errors import AppError
-from engine.observability import observe
+from observability import observe
 from ..runtime.agent.client import AgentClient
 from ..runtime.environment.snapshot import capture_active_turn_environment
 from ..runtime.turns.root import (

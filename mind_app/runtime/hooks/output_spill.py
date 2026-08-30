@@ -10,7 +10,7 @@ import tempfile
 import contextlib
 from dataclasses import dataclass
 from pathlib import Path
-from mind_nova import const
+from metadata import const
 
 DEFAULT_OUTPUT_THRESHOLD_BYTES = 256 * 1024
 OUTPUT_PREVIEW_BYTES           = 8 * 1024

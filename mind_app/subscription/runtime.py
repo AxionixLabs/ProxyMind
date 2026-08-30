@@ -7,7 +7,7 @@ import platform
 from dataclasses import dataclass
 from agent.application import TurnApplication
 from mind_app.paths import agent_runtime_db_path
-from engine.observability import observe_exception
+from observability import observe_exception
 from ..runtime.agent.client import AgentClient
 from .forwarding import (
     AgentExecutor,
@@ -28,8 +28,8 @@ from .models import (
 )
 from .opening import build_device_id
 from .status import AgentStatusOutbox
-from mind_nova import const
-from mind_nova.services import service_endpoints
+from metadata import const
+from protocol.transport.endpoints import service_endpoints
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind

@@ -14,7 +14,7 @@ from mind_app.tui.adapters.application import TuiApplicationSink
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_core.design.intro import intro_frames
-from mind_nova import const
+from metadata import const
 
 
 @pytest.mark.anyio

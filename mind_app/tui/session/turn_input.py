@@ -11,17 +11,17 @@ from agent.application import (
     SteerTurnInput,
 )
 from dataclasses import replace
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )
-from mind_nova.identifiers import new_request_id
-from mind_nova.stream_events import (
+from protocol.schema.identifiers import new_request_id
+from protocol.schema.stream_events import (
     StreamEvent,
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent
 )
-from mind_nova.turn_inputs import TurnInput
+from protocol.schema.turn_inputs import TurnInput
 from ...runtime.execution import TurnContext
 from ..core.queued import TuiSubmission
 from ..runtime.ports import TurnInputRuntimePort

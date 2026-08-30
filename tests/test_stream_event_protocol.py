@@ -2,7 +2,7 @@
 
 import pytest
 
-from mind_nova.stream_events import (
+from protocol.schema.stream_events import (
     PresentationSupersededEvent,
     StreamGapEvent,
     TextMetaEvent,

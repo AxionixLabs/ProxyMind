@@ -15,14 +15,14 @@ from dataclasses import (
     replace
 )
 from mcp import types as mcp_types
-from engine.observability import observe_exception
+from observability import observe_exception
 from mind_app.client_tools.types import (
     NESTED_TOOL_DISPATCH_META_KEY,
     TURN_INTERRUPT_META_KEY,
 )
 from mind_app.mcp.contracts import McpSessionLike
-from mind_nova.requests.effects import post_effect_reconciliation
-from mind_nova.requests.tools import (
+from protocol.client.effects import post_effect_reconciliation
+from protocol.client.tools import (
     ToolResultEnvelope,
     build_tool_result_envelope,
     build_tool_result_payload,
@@ -36,7 +36,7 @@ from mind_app.runtime.execution import (
     ToolInvocation,
     TurnContext
 )
-from mind_nova.requests.turn_control import TurnControlRequestError
+from protocol.client.turn_control import TurnControlRequestError
 from mind_app.runtime.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
@@ -47,7 +47,7 @@ from mind_app.presentation.tool_policy import (
     is_two_stage_tool,
     tool_status_text
 )
-from mind_nova import const
+from metadata import const
 from .display import (
     show_tool_result,
     show_tool_start

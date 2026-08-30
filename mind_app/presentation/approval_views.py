@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_nova.tool_approval import (
+from protocol.schema.tool_approval import (
     TOOL_APPROVAL_ACCEPT_DECISIONS,
     TOOL_APPROVAL_DECISIONS,
 )

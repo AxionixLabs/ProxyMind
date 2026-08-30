@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from engine.observability import observe_exception
+from observability import observe_exception
 from mind_app.history.contracts import TranscriptSink
 from mind_app.output import OutputControlPort
 from mind_app.runtime.hooks.models import StopHookDecision

@@ -3,7 +3,7 @@
 
 import time
 import typing
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )
@@ -25,8 +25,8 @@ from mind_app.runtime.execution import (
     TurnContext
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
-from mind_nova.stream_events import ToolApprovalRequiredEvent
-from mind_nova.tool_approval import (
+from protocol.schema.stream_events import ToolApprovalRequiredEvent
+from protocol.schema.tool_approval import (
     TOOL_APPROVAL_ACCEPT_DECISIONS,
     ToolApprovalSnapshot
 )

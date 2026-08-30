@@ -6,11 +6,11 @@ import backend.utilities.runtime.exec_env
 import pytest
 
 from agent.capabilities import LocalEnvironmentSnapshotCapability
-from mind_nova.requests.environment import (
+from protocol.schema.environment import (
     normalize_client_environment_snapshot,
     normalize_environment_provider,
 )
-from mind_nova.requests.payload import build_chat_payload
+from protocol.client.payload import build_chat_payload
 
 
 def _snapshot() -> dict:

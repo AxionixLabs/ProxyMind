@@ -7,7 +7,7 @@ import contextlib
 from mind_app.mcp.errors import (
     exception_type_name, flatten_exceptions
 )
-from mind_nova import const
+from metadata import const
 
 
 def is_transport_close_exception(exc: BaseException) -> bool:

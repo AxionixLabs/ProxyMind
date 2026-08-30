@@ -8,7 +8,7 @@ import typing
 import difflib
 from pathlib import Path
 from mind_app.native_coding.base import NativeCodingComponent
-from mind_nova import const
+from metadata import const
 
 
 class PatchDiagnostics(NativeCodingComponent):

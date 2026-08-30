@@ -21,7 +21,7 @@ from mcp.client.session_group import (
     SseServerParameters,
     StreamableHttpParameters
 )
-from mind_nova import const
+from metadata import const
 
 DEFAULT_MCP_TRANSPORT         = "streamable_http"
 DEFAULT_MCP_START_TIMEOUT_SEC = 10.0

@@ -36,7 +36,7 @@ from mind_core.application_paths import (
     ApplicationMode,
     resolve_application_layout
 )
-from mind_nova import const
+from metadata import const
 from .commands import DoctorCommand
 from .frontend import resolve_cli_frontend
 from .selection import resolve_cli_output_mode

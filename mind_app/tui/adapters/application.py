@@ -16,7 +16,7 @@ from mind_app.presentation.models import (
     TextSpan,
     TextStyle
 )
-from mind_nova import const
+from metadata import const
 from ..core.document import TuiBlockKind
 from ..core.models import (
     FragmentBlock,

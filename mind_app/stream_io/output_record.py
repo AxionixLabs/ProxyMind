@@ -3,8 +3,8 @@
 
 import os
 import typing
-from engine.observability import observe_exception
-from mind_nova import const
+from observability import observe_exception
+from metadata import const
 from mind_app.stream_state.boundary import OutputBoundaryState
 
 

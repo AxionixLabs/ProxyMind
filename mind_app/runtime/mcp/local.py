@@ -5,15 +5,15 @@ import time
 import httpx
 import typing
 from datetime import timedelta
-from engine.observability import observe_exception
+from observability import observe_exception
 from contextlib import asynccontextmanager
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mind_app.mcp.errors import flatten_exceptions
 from ..support.session_policy import is_transport_close_exception
-from mind_nova import const
-from mind_nova.requests.streaming import cap_response
-from mind_nova.service_auth import manufacture_token
+from metadata import const
+from protocol.transport.streaming import cap_response
+from protocol.transport.auth import manufacture_token
 
 LOCAL_MCP_READ_TIMEOUT: timedelta = timedelta(minutes=30)
 

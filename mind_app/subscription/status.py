@@ -4,7 +4,7 @@
 import typing
 import asyncio
 from dataclasses import dataclass
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )

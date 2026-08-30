@@ -12,7 +12,7 @@ import hashlib
 import platform
 from pathlib import Path
 from copy import deepcopy
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )
@@ -27,8 +27,8 @@ from cryptography.hazmat.primitives import (
 from cryptography.hazmat.primitives.asymmetric import padding
 from engine.terminal import Terminal
 from engine.errors import AppError
-from mind_nova import const
-from mind_nova.service_auth import (
+from metadata import const
+from protocol.transport.auth import (
     build_service_headers,
     build_service_query,
 )

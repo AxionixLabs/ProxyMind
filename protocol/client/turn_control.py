@@ -4,14 +4,14 @@
 import httpx
 import typing
 from dataclasses import dataclass
-from mind_nova.identifiers import (
+from protocol.schema.identifiers import (
     normalize_turn_id,
     resolve_request_id
 )
-from mind_nova.service_auth import build_service_headers
-from mind_nova.services import service_endpoints
-from mind_nova.requests.reliable import post_json_reliably
-from mind_nova.turn_inputs import TurnInput
+from protocol.transport.auth import build_service_headers
+from protocol.transport.endpoints import service_endpoints
+from protocol.transport.reliable import post_json_reliably
+from protocol.schema.turn_inputs import TurnInput
 
 TurnControlStatus = typing.Literal[
     "accepted",

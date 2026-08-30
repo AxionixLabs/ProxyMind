@@ -5,8 +5,8 @@ import json
 import httpx
 import pytest
 
-from mind_nova.requests import turn_control
-from mind_nova.turn_inputs import TurnInput
+from protocol.client import turn_control
+from protocol.schema.turn_inputs import TurnInput
 
 
 @pytest.mark.anyio

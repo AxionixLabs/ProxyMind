@@ -3,18 +3,18 @@
 
 import httpx
 import typing
-from mind_nova.identifiers import (
+from protocol.schema.identifiers import (
     normalize_turn_id,
     resolve_request_id,
     stable_request_id,
 )
-from mind_nova.service_auth import build_service_headers
-from mind_nova.requests.reliable import (
+from protocol.transport.auth import build_service_headers
+from protocol.transport.reliable import (
     get_json_reliably,
     post_json_reliably,
 )
-from mind_nova.services import service_endpoints
-from mind_nova.tool_approval import (
+from protocol.transport.endpoints import service_endpoints
+from protocol.schema.tool_approval import (
     TOOL_APPROVAL_DECISIONS_BY_KIND,
     ToolApprovalAck,
     ToolApprovalDecision,

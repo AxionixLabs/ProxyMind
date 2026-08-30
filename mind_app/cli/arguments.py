@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import argparse
-from mind_nova import const
+from metadata import const
 from .commands import (
     COMPLETION_SHELLS,
     HELIX_PROFILES

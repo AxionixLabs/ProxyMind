@@ -6,7 +6,7 @@ from dataclasses import (
     dataclass,
     field,
 )
-from mind_nova.stream_events import (
+from protocol.schema.stream_events import (
     TurnDoneEvent,
     TurnFailedEvent,
     TurnTerminalEvent,

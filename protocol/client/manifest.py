@@ -5,15 +5,13 @@ import sys
 import httpx
 import typing
 import asyncio
-import logging
 import platform
-from mind_nova.service_auth import (
+from protocol.transport.auth import (
     build_service_headers,
     build_service_query,
 )
-from mind_nova.services import service_endpoints
-
-_LOGGER = logging.getLogger(__name__)
+from protocol.transport.endpoints import service_endpoints
+from observability import observe_exception
 
 
 async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:
@@ -41,7 +39,7 @@ async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:
         task = asyncio.current_task()
         if task is not None and task.cancelling():
             raise asyncio.CancelledError from error
-        _LOGGER.warning("manifest.fetch.failed", exc_info=True)
+        observe_exception("manifest.fetch.failed", error, level="WARNING")
         return None
 
     if not isinstance(data, dict) or not data.get("ok"):

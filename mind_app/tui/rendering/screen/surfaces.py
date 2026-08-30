@@ -3,7 +3,7 @@
 
 from enum import Enum
 from mind_app.presentation.terminal_text import sanitize_terminal_text
-from mind_nova import const
+from metadata import const
 from prompt_toolkit.utils import get_cwidth
 from ...contracts.text import FormattedText
 from ..fragments import clip_fragments

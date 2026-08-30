@@ -7,7 +7,7 @@ import pytest
 
 from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.keys import Keys
-from mind_nova import const
+from metadata import const
 
 from mind_app.tui.core.menu import (
     TUI_MENU_STYLE,

@@ -3,9 +3,9 @@
 
 import httpx
 import typing
-from mind_nova.services import service_endpoints
-from mind_nova.requests.reliable import post_json_reliably
-from mind_nova.service_auth import build_service_headers
+from protocol.transport.endpoints import service_endpoints
+from protocol.transport.reliable import post_json_reliably
+from protocol.transport.auth import build_service_headers
 
 
 async def post_effect_reconciliation(

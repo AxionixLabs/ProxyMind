@@ -5,8 +5,9 @@ import hashlib
 import hmac
 import json
 
-from mind_nova import const
-from mind_nova import service_auth
+from metadata import const
+from protocol.transport import config
+from protocol.transport import auth as service_auth
 
 
 def _decode_token_part(value: str) -> dict[str, object]:
@@ -33,7 +34,7 @@ def test_service_headers_preserve_signed_wire_contract(monkeypatch) -> None:
         "jti": "a" * 16,
     }
     expected_signature = hmac.new(
-        const.SHARED_SECRET.encode(),
+        config.SHARED_SECRET.encode(),
         f"{header_part}.{payload_part}".encode(),
         hashlib.sha256,
     ).digest()

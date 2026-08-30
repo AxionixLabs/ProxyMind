@@ -9,14 +9,14 @@ from unittest.mock import (
 import httpx
 import pytest
 
-from mind_nova.requests import chat
-from mind_nova.stream_events import (
+from protocol.client import chat
+from protocol.schema.stream_events import (
     TextDeltaEvent,
     TurnDoneEvent,
     TurnFailedEvent,
     TurnLogicalSettledEvent,
 )
-from mind_nova.tool_approval import ToolApprovalSnapshot
+from protocol.schema.tool_approval import ToolApprovalSnapshot
 
 
 @pytest.fixture(autouse=True)

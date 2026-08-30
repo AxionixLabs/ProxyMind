@@ -5,8 +5,8 @@ import httpx
 import typing
 import asyncio
 import contextlib
-from engine.observability import observe_exception
-from mind_nova import const
+from observability import observe_exception
+from metadata import const
 
 if typing.TYPE_CHECKING:
     from engine.manage import ServerManage

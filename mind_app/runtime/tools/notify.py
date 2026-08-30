@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from engine.observability import observe
+from observability import observe
 
 
 def supports_tool_progress(name: str) -> bool:

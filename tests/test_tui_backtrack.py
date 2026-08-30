@@ -27,7 +27,7 @@ from mind_app.tui.features.conversation import ForkLiveStatus
 from mind_app.tui.session import loop
 from mind_app.tui.session.state import TuiSessionState
 from mind_core.permissions import preset_permissions
-from mind_nova.requests.fork import ResubmittablePrompt
+from protocol.client.fork import ResubmittablePrompt
 
 
 def _block(text: str) -> FragmentBlock:

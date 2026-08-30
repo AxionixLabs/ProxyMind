@@ -4,7 +4,7 @@
 import json
 import typing
 from mcp import types as mcp_types
-from mind_nova.requests.turn_control import TurnControlRequestError
+from protocol.client.turn_control import TurnControlRequestError
 from mind_app.approval.permission_grants import normalize_permission_profile
 from mind_app.client_tools.coding.schemas import REQUEST_PERMISSIONS_INPUT_SCHEMA
 from mind_app.client_tools.types import ClientToolRuntime

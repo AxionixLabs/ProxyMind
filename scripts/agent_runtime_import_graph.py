@@ -12,8 +12,10 @@ RUNTIME_PACKAGE_ROOTS = (
     "engine",
     "mind_app",
     "mind_core",
-    "mind_nova",
+    "protocol",
     "mind_npm",
+    "metadata",
+    "observability",
     "server",
 )
 ENTRY_FILES = (

@@ -8,7 +8,7 @@ from unittest.mock import (
 import httpx
 import pytest
 
-from mind_nova.requests import reliable
+from protocol.transport import reliable
 
 
 class _ClientFactory(object):
@@ -130,7 +130,7 @@ async def test_malformed_sse_data_raises_transport_decode_error(
             return ResponseStub()
 
     monkeypatch.setattr(reliable.httpx, "AsyncClient", ClientStub)
-    from mind_nova.requests import streaming as streaming_module
+    from protocol.transport import streaming as streaming_module
     monkeypatch.setattr(streaming_module.httpx, "AsyncClient", ClientStub)
 
     stream = streaming_module.streaming(

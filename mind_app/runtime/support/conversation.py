@@ -4,7 +4,7 @@
 import time
 import typing
 from dataclasses import dataclass
-from mind_nova.identifiers import (
+from protocol.schema.identifiers import (
     new_cid,
     new_sid
 )

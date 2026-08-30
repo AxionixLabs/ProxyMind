@@ -4,19 +4,19 @@
 import typing
 import asyncio
 from dataclasses import dataclass
-from engine.observability import observe_exception
-from mind_nova.identifiers import new_request_id
-from mind_nova.requests.turn_control import (
+from observability import observe_exception
+from protocol.schema.identifiers import new_request_id
+from protocol.client.turn_control import (
     TurnControlRequestError,
     TurnControlStatus,
     steer_turn
 )
-from mind_nova.stream_events import (
+from protocol.schema.stream_events import (
     StreamEvent,
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent
 )
-from mind_nova.turn_inputs import TurnInput
+from protocol.schema.turn_inputs import TurnInput
 from mind_app.runtime.execution import TurnContext
 from mind_app.runtime.subagents.mailbox import AgentMailboxEvent
 

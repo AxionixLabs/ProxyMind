@@ -4,7 +4,7 @@
 import os
 import sys
 import typing
-from mind_nova import const
+from metadata import const
 from mind_app.presentation.terminal_text import (
     sanitize_terminal_line,
     sanitize_terminal_text

@@ -15,7 +15,7 @@ from pygments.token import (
     Whitespace
 )
 from pygments.util import ClassNotFound
-from mind_nova import const
+from metadata import const
 from .models import (
     TextSpan,
     TextStyle

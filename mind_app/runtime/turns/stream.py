@@ -18,14 +18,14 @@ from agent.application import (
 from mind_app.approval.ledger import ApprovalCallLedger
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.paths import effect_journal_db_path
-from mind_nova.identifiers import stable_request_id
-from mind_nova.requests.turn_control import (
+from protocol.schema.identifiers import stable_request_id
+from protocol.client.turn_control import (
     TurnControlRequestError,
     interrupt_turn
 )
-from mind_nova.turn_inputs import TurnInput
+from protocol.schema.turn_inputs import TurnInput
 from mind_app.frontend.contracts import WaitRetryState
-from mind_nova.stream_events import (
+from protocol.schema.stream_events import (
     ToolApprovalRequiredEvent,
     ToolBuiltinDoneEvent,
     ToolCallEvent,
@@ -38,13 +38,13 @@ from mind_nova.stream_events import (
     TurnLogicalSettledEvent,
     TurnReconciliationRequiredEvent
 )
-from mind_nova.requests.tools import (
+from protocol.client.tools import (
     ToolResultRequestError,
     get_tool_result_status,
     post_tool_approval,
     post_tool_result
 )
-from mind_nova.requests.effects import post_effect_reconciliation
+from protocol.client.effects import post_effect_reconciliation
 from ...output import OutputControlPort
 from .result import RunResult
 from ..hooks.tool import ToolCallCoordinator
@@ -79,7 +79,7 @@ from .stream_presentation import (
     StreamTurnPresentation,
 )
 from ...stream_events.lifecycle import handle_lifecycle_event
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )

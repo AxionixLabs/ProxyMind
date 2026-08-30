@@ -12,12 +12,12 @@ from dataclasses import (
     replace
 )
 from types import MappingProxyType
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )
-from mind_nova.events import EventReport
-from mind_nova.identifiers import short_uid
+from protocol.transport.events import EventReport
+from protocol.schema.identifiers import short_uid
 from mind_app.history.contracts import TranscriptSink
 from mind_app.runtime.execution import TurnContext
 from mind_app.runtime.turns.event_reporting import (

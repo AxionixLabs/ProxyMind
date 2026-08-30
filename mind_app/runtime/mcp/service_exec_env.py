@@ -3,8 +3,8 @@
 
 import httpx
 import typing
-from engine.observability import observe_exception
-from mind_nova import const
+from observability import observe_exception
+from metadata import const
 
 
 async def fetch_service_exec_env(timeout: float = 1.5) -> dict[str, typing.Any] | None:

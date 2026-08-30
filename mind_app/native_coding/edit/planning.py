@@ -6,7 +6,7 @@ from mind_app.native_coding.base import (
     NativeCodingBase,
     NativeCodingComponent
 )
-from mind_nova import const
+from metadata import const
 from mind_app.native_coding.edit.types import PatchHunk
 
 

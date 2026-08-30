@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from mind_app.runtime.support.conversation import ConversationState
-from mind_nova.identifiers import new_cid, new_sid
+from protocol.schema.identifiers import new_cid, new_sid
 
 
 def test_conversation_turn_marks_only_initial_boundary() -> None:

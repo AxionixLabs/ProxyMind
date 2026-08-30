@@ -3,13 +3,13 @@
 
 import typing
 from pathlib import Path
-from mind_nova.stream_events import ToolApprovalRequiredEvent
-from mind_nova.tool_approval import (
+from protocol.schema.stream_events import ToolApprovalRequiredEvent
+from protocol.schema.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
     TOOL_APPROVAL_DECISIONS_BY_KIND
 )
-from mind_nova.identifiers import stable_request_id
-from mind_nova import const
+from protocol.schema.identifiers import stable_request_id
+from metadata import const
 from .models import (
     ApprovalDecisionValue,
     ExecPolicyAmendmentProposal

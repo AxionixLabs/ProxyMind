@@ -13,7 +13,8 @@ from websockets.asyncio.client import ClientConnection
 from .protocol import (
     build_envelope, ensure_ws_base
 )
-from mind_nova import const
+from metadata import const
+from protocol.transport import config
 
 
 class AgentClient(object):
@@ -58,10 +59,10 @@ class AgentClient(object):
 
         if token_kind == "client":
             header_name = "X-Agent-Token"
-            token_value = const.AGENT_CLIENT_SECRET
+            token_value = config.AGENT_CLIENT_SECRET
         else:
             header_name = "X-Agent-Admin-Token"
-            token_value = const.AGENT_ADMIN_SECRET
+            token_value = config.AGENT_ADMIN_SECRET
 
         verify: str | bool = True
         if self.base_url.startswith("https://"):

@@ -4,16 +4,13 @@
 import httpx
 import typing
 import asyncio
-import logging
 import contextlib
 from datetime import timedelta
 from dataclasses import dataclass
 from mcp import ClientSession, types as mcp_types
 from engine.errors import AppError
-from engine.observability import (
-    observe,
-    observe_exception
-)
+from observability import observe, observe_exception
+from observability.third_party import route_session_termination_warnings
 from mcp.client.sse import sse_client
 from mcp.client.stdio import (
     StdioServerParameters,
@@ -45,38 +42,6 @@ EXTERNAL_MCP_CONNECT_CONCURRENCY   = 2
 EXTERNAL_MCP_STDIO_CONCURRENCY     = 1
 EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC = 2.0
 EXTERNAL_MCP_TOOL_YIELD_INTERVAL   = 32
-
-_STREAMABLE_HTTP_LOGGER_NAME = "mcp.client.streamable_http"
-_SESSION_TERMINATION_WARNING = "Session termination failed:"
-
-
-class _SessionTerminationLogFilter(logging.Filter):
-    """把 SDK 已处理的会话关闭失败转入诊断日志。"""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        """过滤关闭期 warning，并保留其它 SDK 日志。"""
-        message = record.getMessage()
-        if not message.startswith(_SESSION_TERMINATION_WARNING):
-            return True
-        observe(
-            "external_mcp.cleanup.warning",
-            level="WARNING",
-            detail=message,
-        )
-        return False
-
-
-@contextlib.contextmanager
-def _route_session_termination_warnings() -> typing.Iterator[None]:
-    """在外接会话关闭期间临时接管 SDK 关闭 warning。"""
-    sdk_logger = logging.getLogger(_STREAMABLE_HTTP_LOGGER_NAME)
-    log_filter = _SessionTerminationLogFilter()
-    sdk_logger.addFilter(log_filter)
-    try:
-        yield
-    finally:
-        sdk_logger.removeFilter(log_filter)
-
 
 @dataclass(frozen=True, slots=True)
 class _ExternalMcpConnectionReady(object):
@@ -480,7 +445,7 @@ class ExternalMcpGroup(object):
 
         finally:
             if session_stack is not None:
-                with _route_session_termination_warnings():
+                with route_session_termination_warnings():
                     await session_stack.aclose()
 
     async def _retire_connection(

@@ -4,9 +4,9 @@
 import json
 import httpx
 import typing
-from mind_nova.requests.payload import request_llm_conf
-from mind_nova.service_auth import build_service_headers
-from mind_nova.services import service_endpoints
+from protocol.client.payload import request_llm_conf
+from protocol.transport.auth import build_service_headers
+from protocol.transport.endpoints import service_endpoints
 
 COMPACT_DEFAULT_STRATEGY = "memento"
 

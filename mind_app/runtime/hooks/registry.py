@@ -4,7 +4,7 @@
 import typing
 from pathlib import Path
 from dataclasses import dataclass
-from engine.observability import observe
+from observability import observe
 from mind_core.hook_trust import (
     HookTrustState,
     hook_needs_review,

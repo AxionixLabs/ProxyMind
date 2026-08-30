@@ -9,7 +9,7 @@ import subprocess
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from engine.observability import observe_exception
+from observability import observe_exception
 from prompt_toolkit.completion import Completion
 from .skills import skill_query_token
 

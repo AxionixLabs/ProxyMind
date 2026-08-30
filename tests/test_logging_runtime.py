@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 from loguru import logger
-from mind_nova import const
+from metadata import const
 
 from mind_app.reporting import RunReport
-from engine.observability import observe, observe_exception
+from observability import observe, observe_exception
 from mind_app.stream_io.output_record import StreamRecordWriter
 
 

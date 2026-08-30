@@ -24,7 +24,7 @@ from mind_app.tui.features.agents import (
     manage_agents,
 )
 from mind_core.permissions import preset_permissions
-from mind_nova.identifiers import new_cid, new_sid
+from protocol.schema.identifiers import new_cid, new_sid
 
 
 def _snapshot(

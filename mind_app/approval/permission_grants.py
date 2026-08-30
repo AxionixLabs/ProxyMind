@@ -8,7 +8,7 @@ import hashlib
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from mind_nova import const
+from metadata import const
 
 __all__ = [
     "PermissionGrant",

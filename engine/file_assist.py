@@ -9,7 +9,7 @@ import typing
 import asyncio
 import webbrowser
 from engine.terminal import Terminal
-from mind_nova import const
+from metadata import const
 
 
 class FileAssist(object):

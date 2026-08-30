@@ -7,9 +7,9 @@ import httpx
 import typing
 import mimetypes
 from pathlib import Path
-from mind_nova.service_auth import build_service_headers
-from mind_nova.services import service_endpoints
-from mind_nova import const
+from protocol.transport.auth import build_service_headers
+from protocol.transport.endpoints import service_endpoints
+from protocol.transport import config
 
 
 async def upload_file_stream(
@@ -36,20 +36,20 @@ async def upload_file_stream(
     ) -> dict[str, typing.Any]:
 
         elapsed_sec = max(0.0, time.monotonic() - progress_started_at)
-        speed       = (float(current_uploaded_bytes) / elapsed_sec) if elapsed_sec > 0 else 0.0
+        speed = (float(current_uploaded_bytes) / elapsed_sec) if elapsed_sec > 0 else 0.0
 
         percent = 1.0 if current_total_bytes <= 0 and done else (
             min(1.0, float(current_uploaded_bytes) / float(current_total_bytes)) if current_total_bytes > 0 else 0.0
         )
 
         return {
-            "uploaded_bytes"      : int(current_uploaded_bytes),
-            "total_bytes"         : int(current_total_bytes),
-            "percent"             : percent,
-            "elapsed_sec"         : elapsed_sec,
-            "speed_bytes_per_sec" : speed,
-            "phase"               : phase,
-            "done"                : done
+            "uploaded_bytes": int(current_uploaded_bytes),
+            "total_bytes": int(current_total_bytes),
+            "percent": percent,
+            "elapsed_sec": elapsed_sec,
+            "speed_bytes_per_sec": speed,
+            "phase": phase,
+            "done": done
         }
 
     def multipart_field(
@@ -61,7 +61,7 @@ async def upload_file_stream(
             f"--{part_boundary}\r\n"
             f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
             f"{value}\r\n"
-        ).encode(const.CHARSET)
+        ).encode(config.CHARSET)
 
     def multipart_file_header(
         part_boundary: str,
@@ -73,12 +73,12 @@ async def upload_file_stream(
             f"--{part_boundary}\r\n"
             f'Content-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
             f"Content-Type: {content_type}\r\n\r\n"
-        ).encode(const.CHARSET)
+        ).encode(config.CHARSET)
 
     def multipart_closing(
         part_boundary: str
     ) -> bytes:
-        return f"\r\n--{part_boundary}--\r\n".encode(const.CHARSET)
+        return f"\r\n--{part_boundary}--\r\n".encode(config.CHARSET)
 
     async def body() -> typing.AsyncGenerator[bytes, None]:
         yield field_agent

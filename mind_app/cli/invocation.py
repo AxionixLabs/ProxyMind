@@ -8,7 +8,7 @@ from mind_core.config import (
     parse_config_override
 )
 from mind_core.config_layers import normalize_profile_name
-from mind_nova import const
+from metadata import const
 
 CONFIG_FLAGS   = ("-c", "--config")
 PROFILE_FLAGS  = ("-p", "--profile")

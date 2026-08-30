@@ -13,7 +13,7 @@ from mind_core.hooks import (
     CompactTriggerReason,
     CompactTriggerSource
 )
-from mind_nova.requests.compact import (
+from protocol.client.compact import (
     build_compact_payload,
     stream_compact_events
 )
@@ -27,7 +27,7 @@ from .hooks.scope import (
     HookExecutionScope
 )
 from .hooks.turn import TurnHookEvents
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )

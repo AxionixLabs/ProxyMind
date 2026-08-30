@@ -67,12 +67,12 @@ from agent.composition import open_effect_journal
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from mind_core.hook_discovery import resolve_hook_definitions
 from mind_core.permissions import PermissionSettings, preset_permissions
-from mind_nova.stream_events import (
+from protocol.schema.stream_events import (
     TurnInputAcceptedEvent,
     parse_stream_event as _parse_stream_event,
 )
-from mind_nova.requests.tools import ToolResultRequestError
-from mind_nova.turn_inputs import TurnInput
+from protocol.client.tools import ToolResultRequestError
+from protocol.schema.turn_inputs import TurnInput
 
 
 def parse_stream_event(payload):

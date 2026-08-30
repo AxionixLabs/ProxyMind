@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_nova.stream_events import StreamEvent
+from protocol.schema.stream_events import StreamEvent
 
 ASSISTANT_OUTPUT_BOUNDARY_EVENTS: frozenset[str] = frozenset({
     "turn.input.accepted",

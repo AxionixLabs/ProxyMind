@@ -18,7 +18,7 @@ from mind_app.presentation.models import (
     TextSpan,
     TextStyle
 )
-from mind_nova import const
+from metadata import const
 from prompt_toolkit.styles import (
     BaseStyle,
     Style,

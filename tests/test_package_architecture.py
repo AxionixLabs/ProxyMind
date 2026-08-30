@@ -62,11 +62,28 @@ def _forbidden_module_imports(
 
 def test_transport_protocol_package_is_independent() -> None:
     violations = _forbidden_imports(
-        "mind_nova",
+        "protocol",
         {"backend", "engine", "mind_app", "mind_core", "server"},
     )
 
-    assert not violations, "mind_nova crosses its package boundary:\n" + "\n".join(
+    assert not violations, "protocol crosses its package boundary:\n" + "\n".join(
+        violations
+    )
+
+
+def test_protocol_layers_remain_one_directional() -> None:
+    """约束 wire SDK 的 schema、transport、client 依赖方向。"""
+    schema_violations = _forbidden_module_imports(
+        "protocol/schema",
+        {"protocol.client", "protocol.transport", "agent", "mind_app", "mind_core", "engine"},
+    )
+    transport_violations = _forbidden_module_imports(
+        "protocol/transport",
+        {"protocol.client", "agent", "mind_app", "mind_core", "engine"},
+    )
+
+    violations = [*schema_violations, *transport_violations]
+    assert not violations, "protocol layer direction is invalid:\n" + "\n".join(
         violations
     )
 
@@ -91,7 +108,7 @@ def test_application_does_not_import_packaged_backend() -> None:
 def test_packaged_backend_is_self_contained() -> None:
     violations = _forbidden_imports(
         "backend",
-        {"engine", "mind_app", "mind_core", "mind_nova", "server"},
+        {"engine", "mind_app", "mind_core", "protocol", "server"},
     )
 
     assert not violations, "backend imports application code:\n" + "\n".join(
@@ -106,7 +123,7 @@ def test_agent_harness_core_does_not_import_legacy_packages() -> None:
         "engine",
         "mind_app",
         "mind_core",
-        "mind_nova",
+        "protocol",
         "server",
     }
     violations = [
@@ -159,7 +176,7 @@ def test_agent_application_does_not_load_concrete_composition() -> None:
 def test_legacy_application_does_not_import_model_transport() -> None:
     violations = _forbidden_module_imports(
         "mind_app",
-        {"mind_nova.requests.chat"},
+        {"protocol.client.chat"},
     )
 
     assert not violations, "legacy application imports model transport:\n" + (
@@ -192,6 +209,47 @@ def test_legacy_application_uses_only_agent_application_entry() -> None:
         "legacy application bypasses agent.application:\n"
         + "\n".join(violations)
     )
+
+
+def test_product_logging_enters_observability_boundary() -> None:
+    """禁止业务包重新拥有标准 logging logger。"""
+    violations: list[str] = []
+    excluded_parts = {"tests", "venv", "codex-main", "backend", "observability"}
+
+    for path in PROJECT_ROOT.rglob("*.py"):
+        relative_parts = set(path.relative_to(PROJECT_ROOT).parts)
+        if relative_parts & excluded_parts:
+            continue
+
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                if any(alias.name == "logging" for alias in node.names):
+                    violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> logging")
+                if any(alias.name == "loguru" for alias in node.names):
+                    violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> loguru")
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                if (node.module or "").partition(".")[0] == "logging":
+                    violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> logging")
+                if (node.module or "").partition(".")[0] == "loguru":
+                    violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> loguru")
+
+            if isinstance(node, ast.Assign):
+                targets = [*node.targets]
+                if any(
+                    isinstance(target, ast.Name) and target.id == "_LOGGER"
+                    for target in targets
+                ):
+                    violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> _LOGGER")
+
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "getLogger"
+            ):
+                violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> getLogger")
+
+    assert not violations, "production logging bypasses observability:\n" + "\n".join(violations)
 
 
 def test_controller_does_not_expose_runtime_facades() -> None:

@@ -5,13 +5,14 @@ import time
 import typing
 import asyncio
 import contextlib
-import logging
-from mind_nova.identifiers import short_uid
-from mind_nova.requests.reports import post_stream_event
-from mind_nova.stream_events import StreamEvent
-from mind_nova import const
-
-_LOGGER = logging.getLogger(__name__)
+from protocol.schema.identifiers import short_uid
+from protocol.transport.reports import post_stream_event
+from protocol.schema.stream_events import StreamEvent
+from protocol.transport import config
+from observability import (
+    observe_exception,
+    observe,
+)
 
 
 class EventReport(object):
@@ -20,7 +21,7 @@ class EventReport(object):
     @staticmethod
     def default_proto() -> str:
         """返回默认事件协议名。"""
-        return f"{const.APP_NAME}.stream"
+        return f"{config.CLIENT_NAME}.stream"
 
     def __init__(
         self,
@@ -92,23 +93,19 @@ class EventReport(object):
             self.q.put_nowait(ev)
 
         except asyncio.QueueFull:
-            _LOGGER.warning(
+            observe(
                 "event_report.dropped",
-                extra={
-                    "event": "event_report.dropped",
-                    "reason": "queue_full",
-                    "event_type": event.get("type"),
-                },
+                level="WARNING",
+                reason="queue_full",
+                event_type=event.get("type"),
             )
 
         except RuntimeError:
-            _LOGGER.warning(
+            observe(
                 "event_report.dropped",
-                extra={
-                    "event": "event_report.dropped",
-                    "reason": "no_loop",
-                    "event_type": event.get("type"),
-                },
+                level="WARNING",
+                reason="no_loop",
+                event_type=event.get("type"),
             )
 
     async def open(self) -> None:
@@ -128,10 +125,10 @@ class EventReport(object):
         if error is None or isinstance(error, (KeyboardInterrupt, SystemExit)):
             return None
 
-        _LOGGER.warning(
+        observe_exception(
             "event_report.worker_failed",
-            exc_info=error,
-            extra={"event": "event_report.worker_failed"},
+            error,
+            level="WARNING",
         )
 
     async def work(self) -> None:
@@ -158,14 +155,12 @@ class EventReport(object):
                 task = asyncio.current_task()
                 if task is not None and task.cancelling():
                     raise asyncio.CancelledError from error
-                _LOGGER.warning(
+                observe_exception(
                     "event_report.post_failed",
-                    exc_info=True,
-                    extra={
-                        "event": "event_report.post_failed",
-                        "event_type": ev.get("type"),
-                        "seq": ev.get("seq"),
-                    },
+                    error,
+                    level="WARNING",
+                    event_type=ev.get("type"),
+                    seq=ev.get("seq"),
                 )
             finally:
                 self.q.task_done()

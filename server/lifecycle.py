@@ -6,10 +6,10 @@ import httpx
 import asyncio
 import uvicorn
 import contextlib
-from loguru import logger
 from engine.errors import AppError
 from engine.ports import port_available
 from mind_core.config_session import ConfigSession
+from observability import observe_exception
 from .app import create_app
 from .endpoints import (
     DEFAULT_CONFIG_SERVICE_HOST,
@@ -143,7 +143,11 @@ class ConfigServiceRuntime(object):
         except asyncio.CancelledError:
             return None
         if error is not None:
-            logger.debug(f"[ConfigService] stopped: {type(error).__name__}: {error}")
+            observe_exception(
+                "config_service.stopped",
+                error,
+                level="WARNING",
+            )
 
 
 if __name__ == "__main__":

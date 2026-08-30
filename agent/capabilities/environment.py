@@ -10,8 +10,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from agent.ports import CapabilityError
 from agent.protocol.json_value import JsonValue
-from mind_nova.identifiers import short_uid
-from mind_nova.requests.environment import (
+from protocol.schema.identifiers import short_uid
+from protocol.schema.environment import (
     ClientEnvironmentSnapshot,
     EnvironmentCapability,
     EnvironmentProvider,

@@ -4,7 +4,7 @@
 import copy
 import httpx
 import typing
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )
@@ -17,7 +17,7 @@ from mind_core.provider_config import (
     SUPPORTED_REASONING_EFFORTS,
     default_route_for_kind
 )
-from mind_nova import const
+from metadata import const
 
 
 def _default_slot() -> dict[str, typing.Any]:

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from mind_nova import const
+from metadata import const
 
 from mind_app.cli import bootstrap
 from mind_app.cli.commands import (

@@ -8,18 +8,18 @@ import random
 import typing
 import asyncio
 import contextlib
-from mind_nova.service_auth import build_service_headers
-from mind_nova.requests.payload import (
+from protocol.transport.auth import build_service_headers
+from protocol.client.payload import (
     build_chat_payload,
     request_llm_conf
 )
-from mind_nova.requests.streaming import streaming
-from mind_nova.requests.turn_control import (
+from protocol.transport.streaming import streaming
+from protocol.client.turn_control import (
     TurnStatusRequestError,
     get_turn_status
 )
-from mind_nova.services import service_endpoints
-from mind_nova.stream_events import (
+from protocol.transport.endpoints import service_endpoints
+from protocol.schema.stream_events import (
     ChatStreamEvent,
     StreamGapEvent,
     TurnDoneEvent,
@@ -27,12 +27,12 @@ from mind_nova.stream_events import (
     TurnLogicalSettledEvent,
     parse_stream_event
 )
-from mind_nova.tool_approval import ToolApprovalSnapshot
-from mind_nova.requests.tools import (
+from protocol.schema.tool_approval import ToolApprovalSnapshot
+from protocol.client.tools import (
     ToolApprovalSnapshotRequestError,
     reconcile_tool_approval_snapshot,
 )
-from mind_nova import const
+from protocol.transport import config
 
 ATTACH_BACKOFF_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
     0.0,
@@ -606,7 +606,7 @@ async def stream_heal(
 
     payload = {
         "llm_conf"   : request_llm_conf(pref_config),
-        "app_id"     : const.APP_DESC,
+        "app_id"     : config.CLIENT_DESCRIPTION,
         "page_id"    : page_id,
         "platform"   : station,
         "locator"    : locator,

@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import re
 import json
+import re
 import typing
+
 from loguru import logger
 
 _SAFE_VALUE = re.compile(r"^[A-Za-z0-9._:/@+\\-]+$")
-
 _MAX_FIELD_LENGTH = 320
 
 
@@ -64,5 +64,44 @@ def observe_exception(
     )
 
 
-if __name__ == '__main__':
-    pass
+def reset_sinks() -> None:
+    """清理当前进程的全部日志 sink。"""
+    logger.remove()
+
+
+def add_file_sink(
+    path: str,
+    *,
+    level: str,
+    output_format: str,
+    encoding: str,
+    colorize: bool = False,
+    enqueue: bool = True,
+    backtrace: bool = False,
+    diagnose: bool = False,
+) -> int:
+    """注册结构化文件 sink 并返回其句柄。"""
+    return logger.add(
+        path,
+        level=level,
+        format=output_format,
+        encoding=encoding,
+        colorize=colorize,
+        enqueue=enqueue,
+        backtrace=backtrace,
+        diagnose=diagnose,
+    )
+
+
+def remove_sink(sink_id: int) -> None:
+    """移除指定的日志 sink。"""
+    logger.remove(sink_id)
+
+
+__all__ = [
+    "add_file_sink",
+    "observe",
+    "observe_exception",
+    "remove_sink",
+    "reset_sinks",
+]

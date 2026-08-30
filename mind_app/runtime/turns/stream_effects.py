@@ -7,8 +7,8 @@ import typing
 import asyncio
 from dataclasses import dataclass
 from agent.application import ProtocolCommandError
-from mind_nova.identifiers import stable_request_id
-from mind_nova.requests.tools import (
+from protocol.schema.identifiers import stable_request_id
+from protocol.client.tools import (
     ToolResultEnvelope,
     ToolResultRequestError,
     build_tool_result_payload,

@@ -54,14 +54,14 @@ from mind_core.permissions import (
 )
 from mind_app.runtime.hooks.registry import HookRegistry
 from mind_core.service_config import ServiceConfig
-from mind_nova.requests.permissions import (
+from protocol.schema.permissions import (
     ApprovalPolicy,
     ApprovalReviewer,
     SandboxMode,
     normalize_network_access,
 )
-from mind_nova.services import service_endpoints
-from mind_nova import const
+from protocol.transport.endpoints import service_endpoints
+from metadata import const
 
 DEFAULT_MCP_EXEC_TIMEOUT_SEC = 900.0
 

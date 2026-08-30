@@ -6,7 +6,7 @@ import sys
 import shutil
 import typing
 import asyncio
-from mind_nova import const
+from metadata import const
 
 
 class ClipboardError(RuntimeError):

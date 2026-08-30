@@ -23,7 +23,7 @@ from mind_core.mcp_status import (
     McpStatusView,
     inbuild_status_view
 )
-from mind_nova import const
+from metadata import const
 from ..core.models import (
     FragmentBlock,
     MenuDescriptionLayout,

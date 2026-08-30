@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from engine.observability import observe
+from observability import observe
 from mcp import ClientSession
 from mcp import types as mcp_types
 from .contracts import McpSessionLike

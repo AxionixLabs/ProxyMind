@@ -6,7 +6,7 @@ import sys
 import typing
 from dataclasses import dataclass
 from pathlib import Path
-from mind_nova import const
+from metadata import const
 
 ApplicationMode      = typing.Literal["source", "packaged"]
 PACKAGED_ENTRY_NAMES = {const.APP_NAME, f"{const.APP_NAME}.exe"}

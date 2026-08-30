@@ -10,6 +10,7 @@ from types import FrameType
 from agent.application import RuntimeServices
 from engine.errors import AppError
 from mind_core.config import ConfigOverride
+from observability import reset_sinks
 from .commands import (
     CompletionCommand,
     DoctorCommand,
@@ -254,9 +255,7 @@ def run(
     invocation = parse_cli_invocation(arguments)
     command    = invocation.command
 
-    from loguru import logger
-
-    logger.remove()
+    reset_sinks()
 
     interrupts: _InterruptController | None = None
     previous_interrupt_handler: InterruptHandler = None

@@ -5,10 +5,10 @@ import typing
 
 import httpx
 
-from engine.observability import observe_exception
+from observability import observe_exception
 from mind_core.licensing import verify_signature
-from mind_nova import const
-from mind_nova.service_auth import (
+from metadata import const
+from protocol.transport.auth import (
     build_service_headers,
     build_service_query,
 )

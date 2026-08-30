@@ -12,7 +12,7 @@ from mind_app.history.transcript import (
     TranscriptWriter,
 )
 from mind_app.history.contracts import TranscriptSink
-from mind_nova.identifiers import new_cid, new_sid
+from protocol.schema.identifiers import new_cid, new_sid
 
 
 def test_store_uses_session_creation_date_and_stable_path(tmp_path) -> None:

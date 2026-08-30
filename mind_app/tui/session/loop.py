@@ -9,8 +9,8 @@ from agent.application import (
     TurnApplication,
 )
 from mind_app.frontend import ApplicationSink, ApplicationView
-from mind_nova.identifiers import short_uid
-from mind_nova.requests.fork import ResubmittablePrompt
+from protocol.schema.identifiers import short_uid
+from protocol.client.fork import ResubmittablePrompt
 from ..core.runtime import (
     TuiRuntime,
     require_tui_runtime

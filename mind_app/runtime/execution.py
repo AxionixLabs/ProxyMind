@@ -6,9 +6,9 @@ from dataclasses import (
     dataclass,
     replace
 )
-from mind_nova.stream_events import ExecutionEffect
+from protocol.schema.stream_events import ExecutionEffect
 from mind_core.permissions import PermissionSettings
-from mind_nova.identifiers import (
+from protocol.schema.identifiers import (
     normalize_turn_id,
     short_uid
 )

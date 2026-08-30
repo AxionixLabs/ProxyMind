@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from engine.observability import observe_exception
+from observability import observe_exception
 from mcp import ClientSession, types as mcp_types
 from mind_app.client_tools import ClientToolRegistry
 from mind_app.builtin_tools import BuiltinToolRegistry

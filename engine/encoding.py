@@ -5,7 +5,7 @@ import os
 import sys
 import locale
 import typing
-from mind_nova import const
+from metadata import const
 
 
 def decode_process_output(data: bytes) -> str:

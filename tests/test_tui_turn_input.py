@@ -14,13 +14,13 @@ from mind_app.tui.core.styles import query_block, text_block
 from mind_app.tui.session import turn_input as turn_input_session
 from mind_app.tui.session.turn import execute_tui_model_turn
 from mind_app.tui.session.turn_input import TuiTurnInputControl
-from mind_nova.requests.turn_control import TurnControlRequestError
-from mind_nova.stream_events import (
+from protocol.client.turn_control import TurnControlRequestError
+from protocol.schema.stream_events import (
     MarkerEvent,
     TurnInputAcceptedEvent,
     TurnLogicalSettledEvent,
 )
-from mind_nova.turn_inputs import TurnInput
+from protocol.schema.turn_inputs import TurnInput
 
 
 @pytest.fixture(autouse=True)

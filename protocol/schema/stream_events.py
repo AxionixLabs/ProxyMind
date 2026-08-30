@@ -8,7 +8,7 @@ from dataclasses import (
     field
 )
 from collections.abc import Mapping
-from mind_nova.item_projection import (
+from protocol.schema.item_projection import (
     ItemKind,
     ItemStatus,
     builtin_done_item_status as _builtin_done_item_status,
@@ -17,8 +17,8 @@ from mind_nova.item_projection import (
     tool_output_item_status as _tool_output_item_status,
     validate_item_fields as _item_fields,
 )
-from mind_nova.turn_inputs import TurnInput
-from mind_nova.tool_approval import (
+from protocol.schema.turn_inputs import TurnInput
+from protocol.schema.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
     TOOL_APPROVAL_DECISIONS_BY_KIND,
     ToolApprovalDecision,

@@ -4,12 +4,12 @@ import asyncio
 
 import pytest
 
-from mind_nova import events
-from mind_nova.events import (
+from protocol.transport import events
+from protocol.transport.events import (
     EventReport,
     EventReportPool,
 )
-from mind_nova.stream_events import parse_stream_event
+from protocol.schema.stream_events import parse_stream_event
 
 
 def test_report_binds_typed_stream_metadata() -> None:

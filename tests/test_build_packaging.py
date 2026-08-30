@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import build
-from mind_nova import const
+from metadata import const
 
 
 async def _empty_stream():

@@ -5,7 +5,7 @@ import os
 import shlex
 import time
 import typing
-from engine.observability import observe
+from observability import observe
 from mind_app.native_coding.base import (
     NativeCodingBase,
     NativeCodingComponent

@@ -12,7 +12,7 @@ from agent.application import (
     ProcessHandle,
     ProcessSpec,
 )
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )

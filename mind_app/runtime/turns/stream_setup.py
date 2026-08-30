@@ -5,10 +5,10 @@ import copy
 import time
 import typing
 from dataclasses import dataclass
-from engine.observability import observe_exception
+from observability import observe_exception
 from mind_core.skills import skills_payload
-from mind_nova.events import EventReport
-from mind_nova.requests.environment import normalize_client_environment_snapshot
+from protocol.transport.events import EventReport
+from protocol.schema.environment import normalize_client_environment_snapshot
 from mind_app.output import (
     OutputSession,
     SessionFactory,

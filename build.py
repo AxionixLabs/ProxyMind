@@ -23,7 +23,7 @@ from rich.progress import (
 )
 from engine.errors import AppError
 from engine.terminal import Terminal
-from mind_nova import const
+from metadata import const
 
 nuitka_version = "2.8.9"  # 编译器版本
 

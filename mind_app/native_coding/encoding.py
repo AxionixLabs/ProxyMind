@@ -8,7 +8,7 @@ import locale
 import typing
 import unicodedata
 from dataclasses import dataclass
-from mind_nova import const
+from metadata import const
 
 UTF8_ENCODING     = codecs.lookup("utf-8").name
 UTF8_SIG_ENCODING = codecs.lookup("utf-8-sig").name

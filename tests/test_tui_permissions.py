@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from mind_nova import const
+from metadata import const
 
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.models import (

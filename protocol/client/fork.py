@@ -5,8 +5,8 @@ import httpx
 import typing
 from copy import deepcopy
 from dataclasses import dataclass
-from mind_nova.service_auth import build_service_headers
-from mind_nova.services import service_endpoints
+from protocol.transport.auth import build_service_headers
+from protocol.transport.endpoints import service_endpoints
 
 PromptSource = typing.Literal[
     "none",

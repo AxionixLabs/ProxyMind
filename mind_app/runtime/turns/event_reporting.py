@@ -3,7 +3,7 @@
 
 import enum
 import typing
-from mind_nova.events import (
+from protocol.transport.events import (
     EventReport,
     EventReportPool,
 )

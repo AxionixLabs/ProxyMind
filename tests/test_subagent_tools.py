@@ -19,7 +19,7 @@ from mind_app.runtime.turns import stream as turn_stream
 from mind_app.runtime.turns.event_reporting import EventReportRuntimeOwner
 from mind_core.agent_config import AgentSettings
 from mind_core.permissions import preset_permissions
-from mind_nova.identifiers import new_cid, new_sid
+from protocol.schema.identifiers import new_cid, new_sid
 
 
 @pytest.fixture(autouse=True)

@@ -8,7 +8,7 @@ from dataclasses import (
     field
 )
 from pathlib import Path
-from mind_nova import const
+from metadata import const
 from .decision import Decision
 from .policy import Policy
 from .rule import (

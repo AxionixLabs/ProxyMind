@@ -4,13 +4,13 @@
 import httpx
 import typing
 from urllib.parse import urlparse
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore, default_config_path
-from mind_nova import const
+from metadata import const
 
 
 def normalize_domain(value: typing.Any) -> str:

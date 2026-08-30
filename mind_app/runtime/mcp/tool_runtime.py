@@ -5,7 +5,7 @@ import typing
 import inspect
 import asyncio
 import contextlib
-from engine.observability import observe_exception
+from observability import observe_exception
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tools import build_tool_context
 from .local import open_local_mcp_session

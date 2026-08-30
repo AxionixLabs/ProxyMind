@@ -4,11 +4,11 @@
 import typing
 import asyncio
 from dataclasses import replace
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )
-from mind_nova.events import EventReport
+from protocol.transport.events import EventReport
 from mind_app.runtime.hooks.models import SubagentStopDecision
 from mind_app.runtime.hooks.subagent import SubagentHookEvents
 from mind_app.runtime.turns.executor import (

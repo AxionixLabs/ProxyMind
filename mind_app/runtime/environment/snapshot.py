@@ -9,7 +9,7 @@ from agent.application import (
     EnvironmentSnapshotCapability,
     JsonValue,
 )
-from engine.observability import observe_exception
+from observability import observe_exception
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind

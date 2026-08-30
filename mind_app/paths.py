@@ -10,7 +10,7 @@ from mind_core.application_paths import (
     default_application_home
 )
 from mind_core.config_store import default_config_path
-from mind_nova import const
+from metadata import const
 
 HX_HOME_ENV = "HELIX_HOME"
 

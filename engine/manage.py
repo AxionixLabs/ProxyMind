@@ -13,13 +13,14 @@ import contextlib
 from urllib.parse import urlparse
 from mcp import types as mcp_types
 from engine.errors import AppError
-from engine.observability import (
+from observability import (
     observe,
     observe_exception
 )
 from engine.ports import terminate_port_process
-from mind_nova.service_auth import manufacture_token
-from mind_nova import const
+from protocol.transport.auth import manufacture_token
+from metadata import const
+from protocol.transport import config
 
 
 class ServerManage(object):
@@ -36,7 +37,7 @@ class ServerManage(object):
         self.cmd = cmd
         self.env = dict(env or {})
         self.cwd = os.fspath(cwd) if cwd is not None else None
-        self.url = const.BASE_URL.rstrip("/")
+        self.url = config.BASE_URL.rstrip("/")
 
         parsed    = urlparse(self.url)
         self.port = int(parsed.port or 80)
@@ -120,7 +121,7 @@ class ServerManage(object):
         try:
             init_resp = await self._client.request(
                 "POST",
-                const.MCP_ED,
+                config.MCP_ED,
                 headers=headers,
                 json=initialize_payload,
                 timeout=3.0
@@ -147,7 +148,7 @@ class ServerManage(object):
 
             list_resp = await self._client.request(
                 "POST",
-                const.MCP_ED,
+                config.MCP_ED,
                 headers={
                     **headers,
                     "mcp-session-id"       : session_id,
@@ -209,7 +210,7 @@ class ServerManage(object):
                 with contextlib.suppress(Exception):
                     await self._client.request(
                         "DELETE",
-                        const.MCP_ED,
+                        config.MCP_ED,
                         headers={
                             "accept"               : "application/json",
                             "authorization"        : f"Bearer {manufacture_token()}",

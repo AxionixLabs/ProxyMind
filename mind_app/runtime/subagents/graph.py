@@ -7,9 +7,9 @@ import typing
 import asyncio
 import sqlite3
 from pathlib import Path
-from engine.observability import observe_exception
+from observability import observe_exception
 from mind_core.permissions import PermissionSettings
-from mind_nova.requests.permissions import (
+from protocol.schema.permissions import (
     normalize_approval_policy,
     normalize_approval_reviewer,
     normalize_network_access,

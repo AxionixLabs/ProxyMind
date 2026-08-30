@@ -11,7 +11,7 @@ from agent.application import (
 )
 from engine.errors import AppError
 from engine.manage import ServerManage
-from engine.observability import (
+from observability import (
     observe,
     observe_exception,
 )

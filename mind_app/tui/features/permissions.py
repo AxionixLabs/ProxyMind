@@ -16,7 +16,7 @@ from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
-from mind_nova import const
+from metadata import const
 from ..core.models import (
     MenuActionKind,
     MenuDescriptionLayout,

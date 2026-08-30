@@ -11,7 +11,7 @@ import typing
 
 import jwt
 
-from mind_nova import const
+from protocol.transport import config
 
 
 def derive_hs256_secret(*, step_sec: int = 300, ts: int | None = None) -> str:
@@ -21,11 +21,11 @@ def derive_hs256_secret(*, step_sec: int = 300, ts: int | None = None) -> str:
 
     bucket = ts // step_sec
 
-    msg = str(bucket).encode(const.CHARSET)
-    key = const.MASTER.encode(const.CHARSET)
+    msg = str(bucket).encode(config.CHARSET)
+    key = config.MASTER.encode(config.CHARSET)
 
     digest = hmac.new(key, msg, hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(digest).decode(const.CHARSET).rstrip("=")
+    return base64.urlsafe_b64encode(digest).decode(config.CHARSET).rstrip("=")
 
 
 def manufacture_token(ttl_sec: int = 3600) -> str:
@@ -34,8 +34,8 @@ def manufacture_token(ttl_sec: int = 3600) -> str:
     secret = derive_hs256_secret(ts=now)
 
     payload = {
-        "iss"   : const.ISSUER,
-        "aud"   : const.AUDIENCE,
+        "iss"   : config.ISSUER,
+        "aud"   : config.AUDIENCE,
         "sub"   : "local-user",
         "scope" : "user",
         "iat"   : now,
@@ -57,7 +57,7 @@ def build_service_headers() -> dict[str, str]:
         "typ": "JWT",
     }
     payload = {
-        "app": const.APP_DESC,
+        "app": config.CLIENT_DESCRIPTION,
         "iat": now,
         "exp": now + 300,
         "jti": secrets.token_hex(8),
@@ -70,27 +70,27 @@ def build_service_headers() -> dict[str, str]:
     )
     signing_input = f"{header_part}.{payload_part}".encode()
     signature = hmac.new(
-        const.SHARED_SECRET.encode(),
+        config.SHARED_SECRET.encode(),
         signing_input,
         hashlib.sha256,
     ).digest()
 
     return {
-        "User-Agent": f"{const.APP_DESC}@{const.APP_VERSION}",
+        "User-Agent": f"{config.CLIENT_DESCRIPTION}@{config.CLIENT_VERSION}",
         "Content-Type": "application/json",
-        "X-App-ID": const.PUBLISHER,
+        "X-App-ID": config.CLIENT_PUBLISHER,
         "X-App-Token": (
             f"{header_part}.{payload_part}.{encode_part(signature)}"
         ),
         "X-App-Region": "Global",
-        "X-App-Version": f"v{const.APP_VERSION}",
+        "X-App-Version": f"v{config.CLIENT_VERSION}",
     }
 
 
 def build_service_query() -> dict[str, str | int]:
     """构建远端服务请求使用的公共查询参数。"""
     return {
-        "a": const.APP_DESC,
+        "a": config.CLIENT_DESCRIPTION,
         "t": int(time.time()),
         "n": secrets.token_hex(8),
     }

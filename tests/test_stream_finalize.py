@@ -7,7 +7,7 @@ import pytest
 from mind_app.runtime.hooks.models import StopHookDecision
 from mind_app.runtime.turns.stream_finalize import StreamTurnFinalizer
 from mind_app.runtime.turns.stream_outcome import StreamTurnOutcome
-from mind_nova.stream_events import TurnDoneEvent
+from protocol.schema.stream_events import TurnDoneEvent
 
 
 class _TurnStateStore:

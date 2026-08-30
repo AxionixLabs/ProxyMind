@@ -4,7 +4,7 @@
 import time
 import typing
 from dataclasses import dataclass
-from engine.observability import observe
+from observability import observe
 from mind_app.client_tools.planning import normalize_plan_arguments
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tool_result import normalize_call_tool_result

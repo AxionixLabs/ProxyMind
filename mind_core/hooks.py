@@ -4,7 +4,7 @@
 import re
 import typing
 from dataclasses import dataclass
-from mind_nova import const
+from metadata import const
 
 HookEventName = typing.Literal[
     "PreToolUse",

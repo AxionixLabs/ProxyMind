@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from mind_app.paths import mind_reports_dir
-from mind_nova import const
+from metadata import const
 from ..core.document import TranscriptBlock
 from ..core.models import (
     TranscriptExportFormat,

@@ -4,7 +4,7 @@
 import os
 import typing
 import asyncio
-from mind_nova import const
+from metadata import const
 
 TERMINAL_TITLE_SPINNER_FRAMES = (
     "⠋", "⠙", "⠹", "⠸", "⠼",

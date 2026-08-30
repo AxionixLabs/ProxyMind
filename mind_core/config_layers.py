@@ -36,7 +36,7 @@ from mind_core.project_trust import (
     ProjectTrustContext,
     ProjectTrustDecision,
 )
-from mind_nova import const
+from metadata import const
 
 ConfigScope = typing.Literal["user", "profile", "project", "cli"]
 
