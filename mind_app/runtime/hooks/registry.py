@@ -22,7 +22,7 @@ from .catalog import (
     HookEventSummary
 )
 from .command import HookCommandExecutor
-from .models import (
+from agent.application.hook_models import (
     HookRuntimeEntry,
     HookRuntimeStatus
 )

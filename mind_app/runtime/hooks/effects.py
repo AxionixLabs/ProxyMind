@@ -4,7 +4,7 @@
 import typing
 from agent.application import HookEventName
 from .protocol import validate_hook_output
-from .models import (
+from agent.application.hook_models import (
     HookNormalizedOutput,
     HookOutputEffect
 )

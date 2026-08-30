@@ -26,7 +26,7 @@ from .matching import (
     compile_hook_matcher,
     hook_match_candidates
 )
-from .models import (
+from agent.application.hook_models import (
     HookDispatchResult,
     HookEventRequest,
     HookExecutionRecord,

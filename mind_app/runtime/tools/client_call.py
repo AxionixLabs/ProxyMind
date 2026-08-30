@@ -37,7 +37,7 @@ from mind_app.runtime.execution import (
     TurnContext
 )
 from protocol.client.turn_control import TurnControlRequestError
-from mind_app.runtime.hooks.models import (
+from agent.application.hook_models import (
     ToolOperationResult,
     ToolResultSnapshot
 )

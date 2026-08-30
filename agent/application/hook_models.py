@@ -6,11 +6,11 @@ from dataclasses import (
     dataclass,
     field
 )
-from agent.application import HookTrustState
-from agent.application import (
+from agent.domain.hooks import (
     HookEventName,
     HookTrustPolicy
 )
+from agent.domain.hook_trust import HookTrustState
 
 ToolValue = typing.TypeVar("ToolValue")
 

@@ -5,7 +5,7 @@ import typing
 from dataclasses import dataclass
 from agent.application import HookEventName
 from mind_app.runtime.execution import TurnContext
-from .models import (
+from agent.application.hook_models import (
     HookDispatchResult,
     HookEventRequest
 )

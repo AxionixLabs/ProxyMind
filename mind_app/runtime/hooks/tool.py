@@ -15,7 +15,7 @@ from mind_app.history.contracts import TranscriptSink
 from metadata import const
 from .matching import hook_tool_name
 from .results import apply_tool_result_effect
-from .models import (
+from agent.application.hook_models import (
     HookDecision,
     HookDispatchResult,
     HookPermissionDecision,

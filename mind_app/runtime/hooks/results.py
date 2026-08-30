@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from .models import HookVisibleToolResult
+from agent.application.hook_models import HookVisibleToolResult
 
 
 def apply_tool_result_effect(

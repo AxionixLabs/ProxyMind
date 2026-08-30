@@ -9,7 +9,7 @@ from mind_app.runtime.execution import (
     TurnContext
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
-from mind_app.runtime.hooks.models import (
+from agent.application.hook_models import (
     ToolOperationResult,
     ToolResultSnapshot
 )

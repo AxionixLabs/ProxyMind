@@ -22,7 +22,7 @@ from mind_app.runtime.hooks.command import (
     HookCommandExecutor
 )
 from mind_app.runtime.hooks.events import HOOK_EVENT_SPECS
-from mind_app.runtime.hooks.models import (
+from agent.application.hook_models import (
     HookEventRequest,
     HookOutputEntry,
     ToolOperationResult,

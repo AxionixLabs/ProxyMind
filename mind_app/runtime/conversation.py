@@ -34,7 +34,7 @@ from observability import (
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
-    from .hooks.models import HookDecision
+    from agent.application.hook_models import HookDecision
 
 CompactProgress = typing.Callable[[str], None]
 

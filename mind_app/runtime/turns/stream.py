@@ -48,7 +48,7 @@ from protocol.client.effects import post_effect_reconciliation
 from mind_app.presentation.output import OutputControlPort
 from .result import RunResult
 from ..hooks.tool import ToolCallCoordinator
-from ..hooks.models import StopHookDecision
+from agent.application.hook_models import StopHookDecision
 from ..hooks.turn import (
     PromptHookBlockedError,
     TurnHookEvents

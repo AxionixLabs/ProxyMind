@@ -10,7 +10,7 @@ from agent.application import (
     HookEventName
 )
 from .effects import normalize_hook_output
-from .models import HookNormalizedOutput
+from agent.application.hook_models import HookNormalizedOutput
 from .protocol import (
     JsonSchema,
     hook_input_schema,

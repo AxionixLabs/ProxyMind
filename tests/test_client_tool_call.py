@@ -23,7 +23,7 @@ from mind_app.runtime.execution import (
     ToolInvocation,
     TurnContext,
 )
-from mind_app.runtime.hooks.models import (
+from agent.application.hook_models import (
     HookVisibleToolResult,
     ToolCallRunResult,
     ToolOperationResult,

@@ -9,7 +9,7 @@ from observability import (
     observe_exception
 )
 from protocol.transport.events import EventReport
-from mind_app.runtime.hooks.models import SubagentStopDecision
+from agent.application.hook_models import SubagentStopDecision
 from mind_app.runtime.hooks.subagent import SubagentHookEvents
 from mind_app.runtime.turns.executor import (
     TurnExecution,
