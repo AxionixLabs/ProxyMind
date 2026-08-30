@@ -35,7 +35,7 @@ from mind_core.design.terminal_capabilities import (
     TerminalKind,
     TerminalTheme,
 )
-from mind_core.skills import SkillSpec
+from infrastructure.skills import SkillSpec
 from metadata import const
 from mind_app.interaction.contracts import PromptContext
 from mind_app.output.content import (

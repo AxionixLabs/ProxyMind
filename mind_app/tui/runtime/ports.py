@@ -15,7 +15,7 @@ from mind_app.frontend.contracts import ActivityStatusKind
 from ..core.document import TuiBlockKind
 from ..core.interrupt import InterruptDisposition
 from ..core.queued import TuiSubmission
-from mind_core.skills import SkillSpec
+from infrastructure.skills import SkillSpec
 
 
 class MenuSelectionPort(typing.Protocol):

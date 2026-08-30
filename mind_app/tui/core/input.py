@@ -25,7 +25,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.bindings.named_commands import get_by_name
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
-from mind_core.skills import SkillSpec
+from infrastructure.skills import SkillSpec
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from .interrupt import InterruptDisposition
 from .token_menu import (

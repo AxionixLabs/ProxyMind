@@ -16,7 +16,7 @@ from infrastructure.errors import AppError
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
 from mind_core.design.terminal_capabilities import DEGRADED_TERMINAL_CAPABILITIES
-from mind_core.skills import SkillSpec
+from infrastructure.skills import SkillSpec
 from metadata import const
 from mind_app.history.transcript import TranscriptEntry
 from mind_app.tui.core.models import (

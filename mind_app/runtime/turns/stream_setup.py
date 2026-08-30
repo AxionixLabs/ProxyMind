@@ -6,7 +6,7 @@ import time
 import typing
 from dataclasses import dataclass
 from observability import observe_exception
-from mind_core.skills import skills_payload
+from infrastructure.skills import skills_payload
 from protocol.transport.events import EventReport
 from protocol.schema.environment import normalize_client_environment_snapshot
 from mind_app.output import (

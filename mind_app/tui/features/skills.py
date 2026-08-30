@@ -3,7 +3,7 @@
 
 import typing
 from mind_core.config_session import ConfigSession
-from mind_core.skills import (
+from infrastructure.skills import (
     SkillSpec,
     available_skills,
     configured_skills

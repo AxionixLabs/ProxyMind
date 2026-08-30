@@ -15,7 +15,7 @@ from prompt_toolkit.output import DummyOutput
 
 from mind_core.config_session import ConfigSession
 from mind_core.config_store import ConfigStore
-from mind_core.skills import SkillSpec
+from infrastructure.skills import SkillSpec
 from mind_app.tui.core.input import TuiInputModel
 from mind_app.tui.core.menu import TUI_MENU_STYLE, TuiMenu
 from mind_app.tui.core.models import MenuEmptyAcceptAction

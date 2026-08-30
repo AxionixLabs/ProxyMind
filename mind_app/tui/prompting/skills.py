@@ -8,7 +8,7 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.utils import get_cwidth
-from mind_core.skills import SkillSpec
+from infrastructure.skills import SkillSpec
 from .paste import iter_paste_placeholders
 
 SKILL_NAME_TRUNCATE_WIDTH = 28

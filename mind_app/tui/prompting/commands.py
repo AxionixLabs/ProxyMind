@@ -4,7 +4,7 @@
 import typing
 from dataclasses import dataclass
 from pathlib import Path
-from mind_core.skills import SkillSpec
+from infrastructure.skills import SkillSpec
 from prompt_toolkit.completion import (
     Completer,
     Completion

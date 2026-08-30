@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from mind_core.skills import registry
-from mind_core.skills import SkillSpec
+from infrastructure.skills import registry
+from infrastructure.skills import SkillSpec
 
 
 def _skill(name: str, source: str) -> SkillSpec:

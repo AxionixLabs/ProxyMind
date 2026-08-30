@@ -21,7 +21,7 @@ from mind_core.design.terminal_capabilities import (
     TerminalKind,
     TerminalTheme,
 )
-from mind_core.skills import SkillSpec
+from infrastructure.skills import SkillSpec
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.adapters.output import TuiOutputControl
 from mind_app.tui.core.models import (
