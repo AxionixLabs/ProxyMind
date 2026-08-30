@@ -15,6 +15,7 @@ from .model import (
     ModelStreamEndReason,
     ModelStreamRequest
 )
+from .items import CanonicalItem
 
 __all__ = (
     "RunEvent",
@@ -22,6 +23,7 @@ __all__ = (
     "validate_model_event",
     "ModelStreamRequest",
     "ModelStreamEndReason",
+    "CanonicalItem",
     "SubmitTurnCommand",
     "McpToolDefinition",
     "McpToolResult",

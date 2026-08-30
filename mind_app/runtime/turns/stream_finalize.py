@@ -38,13 +38,8 @@ class _TranscriptLifecycle(typing.Protocol):
         ...
 
 
-class _ModelProjection(typing.Protocol):
-    """定义单轮模型投影收尾端口；实现方必须只持有当前轮次的正文状态。"""
-
-    @property
-    def assistant_text(self) -> str:
-        """返回当前轮次未被取代的模型正文。"""
-        ...
+class _ModelOutputLifecycle(typing.Protocol):
+    """定义单轮模型展示记录的收尾端口。"""
 
     def flush_pending(self, *, complete_only: bool = False) -> None:
         """提交尚未写入会话记录的模型正文。"""
@@ -69,7 +64,7 @@ class StreamTurnFinalizer:
         outcome: StreamTurnOutcome,
         turn_state_stores: typing.Iterable[_TurnStateStore],
         transcript: _TranscriptLifecycle,
-        model_projection: _ModelProjection,
+        model_output: _ModelOutputLifecycle,
         retry_state_close: typing.Callable[[], None],
         stream_end: typing.Callable[[str], None] | None,
         idle_wait: IdleStatusTimer,
@@ -84,7 +79,7 @@ class StreamTurnFinalizer:
         self._outcome = outcome
         self._turn_state_stores = tuple(turn_state_stores)
         self._transcript = transcript
-        self._model_projection = model_projection
+        self._model_output = model_output
         self._retry_state_close = retry_state_close
         self._stream_end = stream_end
         self._idle_wait = idle_wait
@@ -98,6 +93,7 @@ class StreamTurnFinalizer:
         stream_end_reason: str | None,
         hook_events: TurnHookEvents | None,
         prompt_blocked: bool,
+        assistant_text: str,
     ) -> StopHookDecision:
         """按既定顺序收束当前轮次并返回可选的停止 Hook 续跑决定。"""
         self._clear_turn_state()
@@ -106,7 +102,7 @@ class StreamTurnFinalizer:
         if self._stream_end is not None and stream_end_reason is not None:
             self._stream_end(stream_end_reason or "cancelled")
 
-        self._model_projection.flush_pending()
+        self._model_output.flush_pending()
         record_turn_finished(
             typing.cast(TranscriptSink, self._transcript),
             status=self._outcome.status,
@@ -118,6 +114,7 @@ class StreamTurnFinalizer:
         stop_decision = await self._run_stop_hook(
             hook_events,
             prompt_blocked=prompt_blocked,
+            assistant_text=assistant_text,
         )
 
         self._transcript.close()
@@ -141,6 +138,7 @@ class StreamTurnFinalizer:
         hook_events: TurnHookEvents | None,
         *,
         prompt_blocked: bool,
+        assistant_text: str,
     ) -> StopHookDecision:
         """执行允许的停止 Hook，并隔离其失败和中断态续跑决定。"""
         stop_decision = StopHookDecision.stop()
@@ -152,7 +150,7 @@ class StreamTurnFinalizer:
                 outcome=self._outcome.status,
                 error=self._outcome.error,
                 usage=self._outcome.usage,
-                last_assistant_message=self._model_projection.assistant_text,
+                last_assistant_message=assistant_text,
                 continuation_count=self._continuation_count,
             )
             if self._outcome.is_interrupted:

@@ -119,7 +119,7 @@
   `item_id/item_kind/item_status`，控制事件拒绝 Item 字段；`tool.calls.done` 不再
   继承 start 的 `ready/timeout_sec` 语义，旧 `tool` 名称别名已移除。
 - [x] `stream.gap` 已建模为非持久控制事件：`retained_prefix` 只推进到服务端给出的
-  回放下界，`internal` 立即停止交付；`SessionEventCursorStore` 按 `cid + sid`
+  回放下界，`internal` 立即停止交付；当前 `ProtocolEventCursorStore` 按 `cid + sid`
   跨 Turn 持有线上 `event_seq`，不与本地 Run sequence 混用。
 - [x] `agent.harness` 核心没有导入 `mind_app`、`mind_core`、`mind_nova`、
   `engine` 或 `server`；生成导入图只新增 `mind_app -> agent`。原
@@ -199,9 +199,10 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
 ### 当前证据
 
 - [x] `ModelStreamRequest` 位于 `agent.protocol`，只接收并冻结 JSON 兼容的模型
-  配置、消息、工具、附件和请求选项；重连状态和审批恢复 callback 不进入协议对象。
+  坐标、配置、消息、工具、附件、环境快照、metadata 和请求选项；重连状态和审批
+  恢复 callback 不进入协议对象。
 - [x] `ModelCapability` 明确事件迭代、服务端水位和关闭生命周期；
-  `RemoteModelCapability` 是唯一把冻结请求翻译到现有远端传输的实现。
+  当前 `MindChatProtocolClient` 是唯一把冻结请求翻译到现有远端传输的实现。
 - [x] `stream_turn` 在进入事件处理前校验 `ModelEventStream` 的异步迭代、关闭、
   终止原因和服务端游标端口，并在 `finally` 中等待 `aclose()` 完成，关闭失败只
   进入结构化观测，不跳过本轮终态收尾。
@@ -212,9 +213,10 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
   装载具体 adapter 或工具执行器自行查找全局工厂的路径。
 - [x] `mind_app` 已无 `mind_nova.requests.chat` 导入；TUI 使用的结束原因类型也已
   迁入 `agent.protocol`。AST 边界测试禁止旧运行时重新直连模型传输。
-- [x] `agent.capabilities` 只允许依赖 `agent` 内部边界与迁移期协议传输包，禁止
-  导入 `mind_app`、`mind_core`、`engine`、`server` 或 `backend`。
-- [x] `RemoteModelEventStream` 覆盖远端流异步迭代和幂等关闭，将 HTTP、超时、
+- [x] `agent.capabilities` 只依赖 `agent` 内部边界；迁移期正式协议传输依赖已集中到
+  `agent.adapters.protocol_client`，两者均禁止导入 `mind_app`、`mind_core`、`engine`、
+  `server` 或 `backend`。
+- [x] `ProtocolModelEventStream` 覆盖远端流异步迭代和幂等关闭，将 HTTP、超时、
   协议及未知异常转换为稳定的 `ModelCapabilityError`；`RunResult` 保留
   `error_code/error_details`，`RunActor` 直接收到能力异常时也写入具名 `run_failed`
   事件，避免错误只停留在 UI 文本。
@@ -225,7 +227,7 @@ CLI 既有成功、工具失败和用户取消路径继续通过，据此启用�
 - [x] `agent.protocol.ModelEvent` 固化模型事件跨 capability 边界的最小坐标契约，
   `ModelEventStream` 不再以 `Any` 暴露事件；具体传输事件仍由 `mind_nova` adapter
   解析和返回，runtime 只依赖协议形状。
-- [x] `RemoteModelEventStream` 在 adapter 边界执行 `ModelEvent` 运行时门禁，
+- [x] `ProtocolModelEventStream` 在 adapter 边界执行 `ModelEvent` 运行时门禁，
   非协议对象统一转换为 `model_protocol_error` 并完成流关闭，不再使用
   `typing.cast()` 绕过真实契约。
 - [x] `agent.protocol.validate_model_event` 统一校验模型事件公共字段：普通事件
@@ -290,9 +292,14 @@ TUI 已在中断收束处优先读取同一 projection，但正文展示仍由�
 已从 `agent.runtime` 迁移到 `agent.harness`，并通过完整用例、恢复/取消/并发测试。
 最新 `exec_env` 契约插入切片已收口：模型请求使用显式不可变环境快照，本机采集和
 Helix provider 聚合由进程级注入的 capability 负责；CLI、TUI、MCP 和 subscription
-均在 queued 命令持久化前冻结快照。下一切片建立与 `Mind`、TUI 和
-`prompt_toolkit` 无关的 Protocol Client；TUI、桌面端和 Web 复用同一客户端语义，
-不复刻 Harness 状态机。
+均在 queued 命令持久化前冻结快照。Protocol Client 的首个生产切片已经建立：
+模型请求显式携带 Session/Turn 坐标，wire 映射、协议事件坐标门禁和结算后 Session
+游标提交已从 `Mind`/控制器迁入 `agent.adapters.protocol_client`。Canonical Item
+reducer 的首个生产切片也已接入事件交付：正文/工具 Item、状态单向收敛、provider
+retry 和 presentation supersede 形成统一 active/audit 投影。下一切片让 TUI 消费
+该投影。审批快照已由同一 reducer 按权威水位收口；RunResult、Stop Hook 和最后回复
+记忆也已改读 `ModelEventStream.assistant_text`，旧 `SegmentTracker` 不再拥有最终
+正文。后续继续迁移增量展示、Transcript 交付和协议命令面，不复刻 Harness 状态机。
 
 ### 当前证据
 
@@ -333,21 +340,48 @@ Helix provider 聚合由进程级注入的 capability 负责；CLI、TUI、MCP �
 - [x] CLI、TUI、MCP 和 subscription 在创建 `SubmitTurnCommand` 前捕获环境；命令
   深冻结快照并将其纳入序列化和 SHA-256 意图指纹，SQLite queued redispatch 测试
   证明执行器读取持久命令中的原快照，不在恢复进程重新采集。
+- [x] `MindChatProtocolClient` 已作为 `ModelCapability` 的生产 adapter 接入组合根；
+  `ModelStreamRequest` 显式冻结 `cid/sid/turn_id` 并拒绝 options/metadata 重复声明
+  协议坐标，wire 参数翻译不再依赖控制器隐式状态。
+- [x] `ProtocolEventCursorStore` 和坐标校验进入 Protocol Client；只有结束原因为
+  `settled` 的流提交 Session 水位，fatal/cancelled/protocol_error 均保留原确认点。
+  旧 `mind_app/runtime/turns/delivery.py` 和单独的 model capability facade 已删除。
+- [x] `CanonicalItem` 是冻结、JSON 安全且不包含 UI/Transcript/工具句柄的前端快照；
+  `ModelEventStream` 公开 active 与 audit 两种 Item 投影，具体 reducer 不依赖
+  `mind_app`、`mind_nova` 事件类、`prompt_toolkit` 或 `OutputSession`。
+- [x] reducer 已接入 `ProtocolModelEventStream` 的 yield 前门禁：正文 delta/done/meta
+  聚合、工具调用/输出分离、Item 状态回退拒绝、同 round provider retry 和跨 Worker
+  presentation supersede 使用一套规则。旧展示版本保留审计但不进入 canonical 正文。
+- [x] capability 公共事件校验已接受无 `event_seq` 的 `stream.gap` 非持久控制信号，
+  retained-prefix 可以继续交付且不创建 Item；内部缺口仍由底层传输停止连接。
+- [x] Protocol Client 在 attach 前始终接收审批快照并先写入 Canonical Item reducer；
+  `pending_approval_items` 只暴露权威状态仍为 pending 的审批，旧 pending 回放不能
+  重开 resolved/cancelled Item。快照 `last_event_seq` 不推进 Session 确认游标，旧
+  `ApprovalEventHandler` 仅在归约完成后处理交互和决定提交。
+- [x] `ModelEventStream.assistant_text` 成为最终正文端口；Turn 收尾显式把它传给
+  RunResult 和 Stop Hook，根会话最后回复记忆读取同一快照。旧
+  `ModelStreamEventHandler`/`SegmentTracker` 的正文聚合 API 已删除，只保留尚未迁移
+  的流式展示、来源关联和 Transcript 交付职责。
+- [x] 运行流测试替身接入真实 `CanonicalItemReducer`，并修复 provider retry 后迟到
+  的旧 Item 被误归入新 attempt 的问题；旧 Item 现保留审计但不会污染 canonical 正文。
 
 当前未满足阶段 4 出口：四类入口尚未共享同一套完整的结果/展示投影，旧根轮次和
-legacy Helix/process adapter 仍需在后续切片迁移；阶段 4B 的 Protocol Client 和
-TUI 迁移尚未完成。
+legacy Helix/process adapter 仍需在后续切片迁移；Protocol Client 尚缺命令面，
+TUI 的增量展示、sources 和 Transcript presenter 尚未改为消费 Canonical Items。
 
 ### 工作项
 
 1. CLI 将参数、stdin、resume 和退出处理映射到 application command。
-2. 建立独立 Protocol Client：封装 `mind-chat`、`mind-attach`、`mind-replay`、
-   turn control、工具结果、审批、游标和 Canonical Item reducer；不得依赖
+2. 建立独立 Protocol Client：模型流、坐标门禁和结算游标已接管；继续封装
+   `mind-attach`、`mind-replay`、turn control、工具结果和审批命令；Canonical Item
+   reducer 的正文/工具、展示替换和审批快照切片已接入；不得依赖
    `Mind`、`prompt_toolkit` 或 `OutputSession`。
 3. [x] 将 `agent.runtime` 的完整生产切片迁移到 `agent.harness`，同步更新
    `RuntimeServices` 的内部依赖和测试导入；旧包已删除，没有兼容 facade。
-4. TUI 改为 Protocol Client 的一个渲染/交互适配器；本地工具继续通过窄
-   capability port 注入，不能由 TUI 重新拥有服务端 Run 状态。
+4. TUI 改为 Protocol Client 的一个渲染/交互适配器；最终正文消费者已接管，继续
+   迁移 delta、sources 和 Transcript presenter 后删除 `SegmentTracker` 的重复
+   attempt/Item 状态。本地工具继续通过窄 capability port 注入，不能由 TUI 重新
+   拥有服务端 Run 状态。
 5. MCP server 将每个请求交给 Command Gateway，不直接构造控制器或模型。
 6. Subscription handler 只处理 open/ws/resume、去重、mailbox 和确认；任务执行
    通过同一个 application command。
@@ -400,7 +434,7 @@ TUI 迁移尚未完成。
 | 旧历史读取器 | 读取存量会话 | 历史数据迁移并完成回读校验 | 2/5 |
 | `mind_app/cli/dispatch.py -> agent.application/protocol` | 首个主动 `exec` 入站切片 | CLI adapter 迁入 `agent.adapters.cli` 且入口只依赖公开组合根 | 4 |
 | `agent.runtime` -> `agent.harness` | SessionLoop、RunActor 和 Session 所有者的 Harness 编排内核 | 已完成完整用例迁移、恢复/取消/并发测试和导入图收敛；旧包已删除且不保留兼容 facade | 4B |
-| `agent/capabilities/model.py -> mind_nova.requests.chat` | 复用已稳定的正式协议事件流、attach 和审批恢复实现 | capability 改为依赖明确的 Protocol Client port；可以移除对 legacy module 的直接导入，但不得删除仍承担公共 `mind.chat` SDK 职责的实现 | 4B/5 |
+| `agent/adapters/protocol_client.py -> mind_nova.requests.chat` | 首个 Protocol Client 切片复用已稳定的正式事件解析、SSE、attach 和审批恢复传输原语 | 命令与传输原语形成独立公共 SDK 边界，或明确 `mind_nova` 为正式跨前端 SDK 后改为只依赖该公共入口；最晚阶段 5 消除对 legacy request module 的直接依赖 | 4B/5 |
 | `mind_nova.requests.chat`、`stream_events.py` | 过渡期的 Python Protocol Client，承载正式事件解析、游标和恢复语义 | Protocol Client 完成独立边界、跨前端兼容测试和版本所有权；实现可迁入 `agent.adapters.protocol_client`，或保留为明确的 `mind.chat` SDK | 4B/5 |
 
 ## 风险与处理
@@ -484,3 +518,7 @@ python website/mind/scripts/check_docs.py
 | 2026-08-29 | 阶段 4 规划修订 | 将主线名称从 Agent Runtime 提升为 Agent Harness；目标编排包确定为 `agent.harness`，根目录 `server/` 明确为客户端内置 ConfigServiceRuntime，仅提供配置 UI/健康检查 | 已完成 `agent.runtime` -> `agent.harness` 的首个完整切片；Protocol Client/TUI 迁移仍待开始，server 仍出现在当前导入图中但不属于 Harness 状态边界 |
 | 2026-08-29 | 阶段 4 插入切片 | 复核新的客户端 `exec_env` 快照契约；将环境快照提升为 `ModelStreamRequest.environment_snapshot` 一等冻结字段，通用 options 拒绝夹带，model adapter 在 wire 边界映射回 `exec_env`；定向测试 `93 passed`、全量测试 `2951 passed, 11 skipped` | 本机采集和 Helix provider 聚合仍位于 legacy runtime；持久 queued 命令尚未冻结环境快照，跨进程 redispatch 仍需收口 |
 | 2026-08-29 | 阶段 4 插入切片 | 完成环境输入所有权收口：新增进程级 `EnvironmentSnapshotCapability`，删除 legacy `exec_env.py`；四类主动入口在提交前捕获，`SubmitTurnCommand` 深冻结、序列化并纳入指纹，stream/model adapter 只消费命令快照；补齐 SQLite 重启恢复证据，全量测试 `2951 passed, 11 skipped` | 环境切片完成；阶段 4 下一项恢复为 Protocol Client 与 TUI Canonical Event/Item 投影迁移 |
+| 2026-08-30 | 阶段 4B | 建立首个独立 `MindChatProtocolClient` 生产切片：请求坐标、wire 映射、事件坐标门禁和 Session 结算游标迁出控制器；删除旧 model capability facade 与 `turns/delivery.py`，更新临时依赖登记和导入图；定向测试 `197 passed` | Canonical Event/Item reducer、命令面和 TUI adapter 待迁移；全量两轮均为 `2953 passed, 11 skipped, 1 failed`，失败分别是既有 TUI 120ms scrollback 和 Windows Hook 2s 时序上限，两个失败用例单独复跑均通过 |
+| 2026-08-30 | 阶段 4B | `CanonicalItemReducer` 接入 Protocol Client 的事件交付门禁，统一正文/工具 Item、状态收敛、provider retry 和 presentation supersede，提供 active/audit 快照；同时修复非持久 `stream.gap` 被 capability 误拒绝的问题；定向测试 `197 passed`，全量测试 `2962 passed, 11 skipped` | reducer 尚未归约审批快照，TUI 仍使用旧 `SegmentTracker` 解释正文和展示边界；协议命令面尚待迁移 |
+| 2026-08-30 | 阶段 4B | 审批恢复快照接入 `CanonicalItemReducer`：Protocol Client 在旧前端 callback 前按快照水位提交 pending/resolved/cancelled 状态，旧 pending 回放不得重开终态审批，并独立公开 `pending_approval_items`；定向测试 `199 passed`、全量测试 `2964 passed, 11 skipped` | TUI 尚未消费 Canonical Item 投影；协议命令面和旧审批交互 adapter 待迁移 |
+| 2026-08-30 | 阶段 4B | 最终正文所有权迁入 Protocol Client：`ModelEventStream.assistant_text` 统一驱动 RunResult、Stop Hook 和最后回复记忆，删除旧 handler/tracker 聚合 API；运行流测试接入真实 reducer，并修复 retry 后迟到旧 Item 污染新 attempt 的问题；定向测试 `231 passed`、全量测试 `2965 passed, 11 skipped` | TUI delta、sources 和 Transcript presenter 仍待消费 Canonical Items；协议命令面尚待迁移 |

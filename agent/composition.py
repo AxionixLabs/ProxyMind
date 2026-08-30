@@ -13,10 +13,8 @@ from agent.stores import (
     LocalEffectJournal,
     SQLiteRunStore,
 )
-from agent.capabilities import (
-    LocalEnvironmentSnapshotCapability,
-    RemoteModelCapability,
-)
+from agent.capabilities import LocalEnvironmentSnapshotCapability
+from agent.adapters import MindChatProtocolClient
 from agent.ports import EnvironmentSnapshotCapability, ModelCapability
 
 ResultValue = typing.TypeVar("ResultValue", bound=TurnExecutorResult)
@@ -35,8 +33,8 @@ def open_effect_journal(db_path: str | Path) -> EffectJournal:
 
 
 def open_model_capability() -> ModelCapability:
-    """组合正式协议模型事件流的远端能力实现。"""
-    return RemoteModelCapability()
+    """组合拥有 Session 水位的 mind.chat Protocol Client。"""
+    return MindChatProtocolClient()
 
 
 def open_environment_capability() -> EnvironmentSnapshotCapability:

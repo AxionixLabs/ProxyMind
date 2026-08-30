@@ -25,9 +25,19 @@
 `event_seq`、订阅 `seq` 和未来本地 Event `sequence` 也不得混用。
 
 线上 `event_seq` 是 `cid + sid` 范围内跨 Turn 的持久水位。客户端通过
-`SessionEventCursorStore` 保存已处理水位，单 Turn 传输从该值开始去重并用
+`ProtocolEventCursorStore` 保存已完整确认的水位，单 Turn 传输从该值开始去重并用
 `after_seq` attach；`turn.done`、`turn.failed` 和连接关闭都不推进本地 FIFO，
 只有 `turn.logical_settled` 是逻辑轮次结算事实。
+
+正式 Item 事件在交给前端前由 `CanonicalItemReducer` 归约。active 视图只包含未被
+provider retry 或 `presentation.superseded` 替换的版本，审计视图保留全部展示版本；
+正文、工具、审批等前端不得各自重新定义 Item 状态转换。`stream.gap` 是无
+`event_seq` 的非持久控制信号，不创建 Item，也不能被 capability 公共门禁误判为
+普通持久事件。重连审批快照的 `last_event_seq` 只定义审批状态对旧回放事件的优先级；
+resolved/cancelled Item 不得被该水位内的旧 pending 事件重新打开，也不得用快照
+水位替换客户端实际确认游标。最终 `assistant_text` 只从 active canonical text Items
+按首次事件顺序派生；provider retry 或 presentation 替换后的旧正文只保留审计，
+不得进入 RunResult、Stop Hook 或下一轮最后回复记忆。
 
 ## CLI 契约
 
@@ -132,6 +142,8 @@ MCP adapter 必须通过同一个 Command Gateway 执行，但不能改变工具
 
 阶段 1 的 `approve`、`append_input` 和 `cancel_run` 只封装上述意图；外部请求的
 `request_id`、`client_message_id`、`call_id` 和审批身份必须原样保留以支持重试与对账。
+审批快照必须先进入 Protocol Client 的 Canonical Item reducer，再调用具体前端的
+审批恢复处理器；前端只从归约结果展示 `waiting_approval` Item。
 
 ## 历史与 Transcript 契约
 

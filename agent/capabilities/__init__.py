@@ -4,7 +4,6 @@
 from .helix import InMemoryHelixCapability
 from .environment import LocalEnvironmentSnapshotCapability
 from .mcp import InMemoryMcpCapability
-from .model import RemoteModelCapability
 from .filesystem import InMemoryFilesystemCapability, LocalFilesystemCapability
 from .process import (
     InMemoryProcessCapability,
@@ -21,7 +20,6 @@ __all__ = (
     "InMemoryProcessHandle",
     "LocalFilesystemCapability",
     "LocalProcessCapability",
-    "RemoteModelCapability",
 )
 
 

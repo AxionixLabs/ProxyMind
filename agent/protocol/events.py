@@ -49,13 +49,23 @@ def validate_model_event(event: ModelEvent) -> ModelEvent:
         if not isinstance(value, str):
             raise TypeError(f"model event {field_name} must be a string")
 
-    if event.type == "ping":
+    if event.type in {"ping", "stream.gap"}:
+        if event.type == "stream.gap":
+            for field_name, value in (
+                ("cid", event.cid),
+                ("sid", event.sid),
+                ("turn_id", event.turn_id),
+            ):
+                if not value.strip():
+                    raise ValueError(f"model event {field_name} is required")
+            if event.event_seq is not None:
+                raise ValueError("model event stream.gap must not have event_seq")
         if event.event_seq is not None and (
             isinstance(event.event_seq, bool)
             or not isinstance(event.event_seq, int)
             or event.event_seq <= 0
         ):
-            raise ValueError("model event ping event_seq must be positive")
+            raise ValueError(f"model event {event.type} event_seq must be positive")
         if (
             isinstance(event.presentation_epoch, bool)
             or not isinstance(event.presentation_epoch, int)

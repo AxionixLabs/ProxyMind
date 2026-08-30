@@ -615,15 +615,6 @@ class SegmentTracker(object):
             for source in sources:
                 yield source
 
-    def assistant_text(self) -> str:
-        """返回当前回合模型正文原文。"""
-        parts = [
-            str((self.segments_by_key.get(key) or {}).get("text") or "")
-            for key in self.segment_order
-            if not bool((self.segments_by_key.get(key) or {}).get("superseded"))
-        ]
-        return _join_text_segments(parts).strip()
-
     def response_identity(
         self,
         event: StreamEvent

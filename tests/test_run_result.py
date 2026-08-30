@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import dataclasses
 import tempfile
 import typing
 from pathlib import Path
@@ -61,6 +62,7 @@ from mind_app.runtime.tools.client_call import (
     ClientToolCallResult,
 )
 from agent.application import ModelCapabilityError, ModelStreamRequest
+from agent.adapters.item_reducer import CanonicalItemReducer
 from agent.composition import open_effect_journal
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from mind_core.hook_discovery import resolve_hook_definitions
@@ -494,14 +496,49 @@ async def _run_stream(
         class _EventStream(object):
             """为测试迭代器补齐模型流关闭端口。"""
 
-            def __init__(self, iterator) -> None:
+            def __init__(self, iterator, request: ModelStreamRequest) -> None:
                 self._iterator = iterator
+                self._reducer = CanonicalItemReducer(
+                    cid=request.cid,
+                    sid=request.sid,
+                    turn_id=request.turn_id,
+                )
                 self.end_reason = getattr(iterator, "end_reason", None)
                 self.last_event_seq = getattr(iterator, "last_event_seq", 0)
                 self.closed = False
 
+            @property
+            def canonical_items(self):
+                return self._reducer.canonical_items
+
+            @property
+            def canonical_item_history(self):
+                return self._reducer.item_history
+
+            @property
+            def pending_approval_items(self):
+                return self._reducer.pending_approval_items
+
+            @property
+            def assistant_text(self) -> str:
+                return self._reducer.assistant_text
+
             def __aiter__(self):
-                return self._iterator.__aiter__()
+                return self._events()
+
+            async def _events(self):
+                projected_event_seq = 0
+                async for event in self._iterator:
+                    if event.type not in {"ping", "stream.gap"}:
+                        projected_event_seq += 1
+                        projected_event = dataclasses.replace(
+                            event,
+                            event_seq=projected_event_seq,
+                        )
+                    else:
+                        projected_event = event
+                    self._reducer.apply(projected_event)
+                    yield event
 
             async def aclose(self) -> None:
                 self.closed = True
@@ -518,18 +555,23 @@ async def _run_stream(
         ):
             """按旧测试工厂签名展开冻结请求。"""
             self.last_request = request
+            request_options = request.option_values()
+            metadata = request.metadata_value()
+            metadata.update({"cid": request.cid, "sid": request.sid})
+            request_options["metadata"] = metadata
+            request_options["turn_id"] = request.turn_id
             iterator = stream_chat(
                 request.pref_config_value(),
                 request.message,
                 request.tool_values(),
                 attachments=request.attachment_values() or None,
                 timeout=request.timeout,
-                initial_event_seq=request.initial_event_seq,
+                initial_event_seq=0,
                 on_reconnect_status=on_reconnect_status,
                 on_approval_snapshot=on_approval_snapshot,
-                **request.option_values(),
+                **request_options,
             )
-            self.last_stream = self._EventStream(iterator)
+            self.last_stream = self._EventStream(iterator, request)
             return self.last_stream
 
     mind.runtime_services.model_capability = ModelCapabilityStub()
@@ -551,6 +593,7 @@ async def _run_stream(
         pref_config={},
         cwd=".",
         permissions=permissions,
+        turn_id="turn_test",
         session_started=session_started,
         session_start_reason="initial" if session_started else "",
     )
@@ -893,7 +936,7 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
 
 @pytest.mark.anyio
 async def test_provider_retry_ignores_late_old_item_events(monkeypatch) -> None:
-    _result, mind = await _run_stream(monkeypatch, [
+    result, mind = await _run_stream(monkeypatch, [
         {
             "type": "text.delta",
             "segment_id": "item-old",
@@ -929,6 +972,7 @@ async def test_provider_retry_ignores_late_old_item_events(monkeypatch) -> None:
         AssistantTextDelta("old", response_identity()),
         AssistantTextDelta("new", response_identity(attempt=2)),
     ]
+    assert result.assistant_text == "new"
 
 
 @pytest.mark.anyio
@@ -2034,9 +2078,13 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
         request_kwargs.append(kwargs)
         yield parse_stream_event({
             "type": "text.delta",
+            "turn_id": kwargs["turn_id"],
             "text": f"reply {len(messages)}",
         })
-        yield parse_stream_event({"type": "turn.done"})
+        yield parse_stream_event({
+            "type": "turn.done",
+            "turn_id": kwargs["turn_id"],
+        })
 
     result, _mind_state = await _run_stream(
         monkeypatch,
@@ -2086,15 +2134,17 @@ async def test_incomplete_turn_gates_stop_hook_continuation(
     )
     messages = []
 
-    async def terminal_stream(_pref, message, _tools, **_kwargs):
+    async def terminal_stream(_pref, message, _tools, **kwargs):
         messages.append(message)
         if len(messages) == 1:
             yield parse_stream_event({
                 "type": "text.delta",
+                "turn_id": kwargs["turn_id"],
                 "text": "partial answer",
             })
             yield parse_stream_event({
                 "type": "turn.done",
+                "turn_id": kwargs["turn_id"],
                 "status": "incomplete",
                 "reason": "max_output_tokens",
                 "can_continue": can_continue,
@@ -2104,7 +2154,11 @@ async def test_incomplete_turn_gates_stop_hook_continuation(
                 "stop_reason": "max_tokens",
             })
             return
-        yield parse_stream_event({"type": "turn.done", "status": "completed"})
+        yield parse_stream_event({
+            "type": "turn.done",
+            "turn_id": kwargs["turn_id"],
+            "status": "completed",
+        })
 
     result, mind = await _run_stream(
         monkeypatch,
@@ -2405,8 +2459,8 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
     result, _mind_state = await _run_stream(monkeypatch, [
         _durable_tool_call({
             "type": "tool.call",
-            "cid": "untrusted-cid",
-            "sid": "untrusted-sid",
+            "cid": "cid_test",
+            "sid": "sid_test",
             "call_id": "call-client",
             "name": "test_tool",
             "arguments": {"value": 1},
@@ -2668,8 +2722,8 @@ async def test_stream_reports_plan_result_after_local_execution(
         [
             _durable_tool_call({
                 "type": "tool.call",
-                "cid": "untrusted-cid",
-                "sid": "untrusted-sid",
+                "cid": "cid_test",
+                "sid": "sid_test",
                 "call_id": "call-plan",
                 "name": PLAN_STEPS_TOOL,
                 "arguments": {"steps": []},
@@ -3468,7 +3522,7 @@ async def test_cancelled_approval_drains_interrupted_turn_settlement(
         [
             {
                 "type": "tool.approval_required",
-                "turn_id": "turn_cancelled",
+                "turn_id": "turn_test",
                 "call_id": "call-cancelled",
                 "approval_id": "approval-cancelled",
                 "kind": "command",
@@ -3478,7 +3532,7 @@ async def test_cancelled_approval_drains_interrupted_turn_settlement(
             },
             {
                 "type": "tool.output",
-                "turn_id": "turn_cancelled",
+                "turn_id": "turn_test",
                 "call_id": "call-cancelled",
                 "name": "test_tool",
                 "status": "cancelled",
@@ -3487,12 +3541,12 @@ async def test_cancelled_approval_drains_interrupted_turn_settlement(
             },
             {
                 "type": "turn.done",
-                "turn_id": "turn_cancelled",
+                "turn_id": "turn_test",
                 "status": "interrupted",
             },
             {
                 "type": "turn.logical_settled",
-                "turn_id": "turn_cancelled",
+                "turn_id": "turn_test",
             },
         ],
         on_turn_input_event=input_events.append,
@@ -3565,8 +3619,8 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
         [
             _durable_tool_call({
                 "type": "tool.call",
-                "cid": "untrusted-cid",
-                "sid": "untrusted-sid",
+                "cid": "cid_test",
+                "sid": "sid_test",
                 "call_id": "call_test",
                 "name": "test_tool",
                 "arguments": {"value": 1},

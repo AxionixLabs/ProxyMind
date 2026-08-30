@@ -83,7 +83,10 @@ def test_superseded_epoch_is_excluded_from_canonical_text_and_sources() -> None:
         presentation_epoch=2,
     ))
 
-    assert tracker.assistant_text() == "new"
+    old_key = tracker.segments_by_remote_id["old-segment"]
+    new_key = tracker.segments_by_remote_id["new-segment"]
+    assert tracker.segments_by_key[old_key]["superseded"] is True
+    assert tracker.segments_by_key[new_key]["superseded"] is False
     assert list(tracker.iter_sources()) == []
 
 
@@ -115,7 +118,9 @@ def test_retry_supersedes_already_committed_output_in_same_epoch() -> None:
     ))
 
     assert replaced is True
-    assert tracker.assistant_text() == "new"
+    assert tracker.drain_assistant_outputs() == [
+        ((1, 1, 2), "attempt-2", "new"),
+    ]
 
 
 def test_retry_only_supersedes_current_model_round() -> None:
@@ -156,11 +161,13 @@ def test_retry_only_supersedes_current_model_round() -> None:
     ))
 
     assert replaced is True
-    assert tracker.assistant_text() == "round one\nround two final"
     assert [
         segment["superseded"]
         for segment in tracker.segments_by_key.values()
     ] == [False, True, False]
+    assert tracker.drain_assistant_outputs() == [
+        ((1, 2, 2), "round-2-attempt-2", "round two final"),
+    ]
 
 
 def test_pending_outputs_are_drained_per_response_identity() -> None:
@@ -373,4 +380,5 @@ def test_explicit_retry_supersedes_named_item_across_round_metadata() -> None:
         supersedes_item_id="item-old",
     ))
 
-    assert tracker.assistant_text() == "keep"
+    assert tracker.segments_by_key["segment-1"]["superseded"] is True
+    assert tracker.segments_by_key["segment-2"]["superseded"] is False

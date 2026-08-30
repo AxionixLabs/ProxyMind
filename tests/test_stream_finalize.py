@@ -39,7 +39,6 @@ class _Transcript:
 class _Projection:
     def __init__(self, operations: list[typing.Any]) -> None:
         self.operations = operations
-        self.assistant_text = "final answer"
 
     def flush_pending(self, *, complete_only: bool = False) -> None:
         self.operations.append(("model.flush", complete_only))
@@ -116,7 +115,7 @@ def _finalizer(
             _TurnStateStore("approvals.clear", operations),
         ),
         transcript=transcript,
-        model_projection=_Projection(operations),
+        model_output=_Projection(operations),
         retry_state_close=lambda: operations.append("retry.close"),
         stream_end=(
             lambda reason: operations.append(("stream.end", reason))
@@ -146,6 +145,7 @@ async def test_finalizer_closes_completed_turn_in_lifecycle_order() -> None:
         stream_end_reason="settled",
         hook_events=hooks,
         prompt_blocked=False,
+        assistant_text="final answer",
     )
 
     assert decision == continuation
@@ -201,6 +201,7 @@ async def test_finalizer_discards_interrupted_stop_hook_decision() -> None:
         stream_end_reason=None,
         hook_events=hooks,
         prompt_blocked=False,
+        assistant_text="interrupted answer",
     )
 
     assert decision == StopHookDecision.stop()
@@ -232,6 +233,7 @@ async def test_finalizer_isolates_stop_hook_failure_from_resource_cleanup() -> N
         stream_end_reason=None,
         hook_events=hooks,
         prompt_blocked=False,
+        assistant_text="failed answer",
     )
 
     assert decision == StopHookDecision.stop()

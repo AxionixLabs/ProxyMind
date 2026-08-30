@@ -49,11 +49,6 @@ class ModelStreamEventHandler:
         self._tracker = SegmentTracker()
 
     @property
-    def assistant_text(self) -> str:
-        """返回未被取代的完整模型正文。"""
-        return self._tracker.assistant_text()
-
-    @property
     def sources(self) -> tuple[typing.Any, ...]:
         """返回未被取代正文关联的来源快照。"""
         return tuple(self._tracker.iter_sources())

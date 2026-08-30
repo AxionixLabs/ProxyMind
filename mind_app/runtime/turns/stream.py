@@ -62,7 +62,6 @@ from .executor import (
 )
 from ..support.idle_status import IdleStatusTimer
 from .stream_approval import ApprovalEventHandler
-from .delivery import SessionEventCursorStore
 from .stream_tools import (
     ToolCallBatchBuffer,
     ToolEventHandler,
@@ -282,13 +281,6 @@ async def stream_turn(
 
     tool_batch_buffer = ToolCallBatchBuffer()
 
-    configured_event_cursors = getattr(mind, "session_event_cursors", None)
-    if isinstance(configured_event_cursors, SessionEventCursorStore):
-        session_event_cursors = configured_event_cursors
-    else:
-        session_event_cursors = SessionEventCursorStore()
-        setattr(mind, "session_event_cursors", session_event_cursors)
-
     configured_approval_ledger = getattr(mind, "approval_call_ledger", None)
     if isinstance(configured_approval_ledger, ApprovalCallLedger):
         approval_ledger = configured_approval_ledger
@@ -302,6 +294,7 @@ async def stream_turn(
 
     stop_decision = StopHookDecision.stop()
     event_stream  = None
+    assistant_text = ""
 
     transcript = mind.transcripts.writer(
         turn_context.transcript_path,
@@ -332,7 +325,7 @@ async def stream_turn(
         outcome=outcome,
         turn_state_stores=turn_state_stores,
         transcript=transcript,
-        model_projection=model_events,
+        model_output=model_events,
         retry_state_close=retrying_status.close,
         stream_end=callbacks.stream_end,
         idle_wait=idle_wait,
@@ -485,18 +478,34 @@ async def stream_turn(
             "approvals_reviewer": turn_context.permissions.approvals_reviewer,
             "network_access": turn_context.permissions.network_access,
         }
+        raw_turn_id = request_options.pop("turn_id", turn_context.turn_id)
+        if raw_turn_id != turn_context.turn_id:
+            raise ValueError("model request turn_id does not match Turn context")
+        raw_metadata = request_options.pop("metadata", {})
+        if not isinstance(raw_metadata, Mapping):
+            raise TypeError("model request metadata must be an object")
+        request_metadata = dict(raw_metadata)
+        for field_name, expected in (
+            ("cid", turn_context.cid),
+            ("sid", turn_context.sid),
+        ):
+            existing = request_metadata.pop(field_name, expected)
+            if existing != expected:
+                raise ValueError(
+                    f"model request {field_name} does not match Turn context"
+                )
         model_request = ModelStreamRequest(
+            cid=turn_context.cid,
+            sid=turn_context.sid,
+            turn_id=turn_context.turn_id,
             pref_config=pref_config,
             message=message,
             tools=tuple(tools),
             attachments=attachments,
             environment_snapshot=environment_snapshot,
+            metadata=request_metadata,
             options=request_options,
             timeout=timeout,
-            initial_event_seq=session_event_cursors.current(
-                cid=turn_context.cid,
-                sid=turn_context.sid,
-            ),
         )
         event_stream = model_capability.stream(
             model_request,
@@ -830,7 +839,8 @@ async def stream_turn(
 
         if outcome.is_completed and turn_context.agent.depth == 0:
             model_events.flush_pending()
-            mind.remember_last_assistant_reply(model_events.assistant_text)
+            assistant_text = event_stream.assistant_text
+            mind.remember_last_assistant_reply(assistant_text)
 
         await run_presentation.emit_result(model_events.sources)
 
@@ -850,27 +860,23 @@ async def stream_turn(
                 raise
             except Exception as error:
                 observe_exception("stream.model_close_failed", error)
+            assistant_text = event_stream.assistant_text
 
         stream_end_reason = (
             getattr(event_stream, "end_reason", None)
             if event_stream is not None
             else None
         )
-        if event_stream is not None and stream_end_reason == "settled":
-            session_event_cursors.advance(
-                cid=turn_context.cid,
-                sid=turn_context.sid,
-                event_seq=int(getattr(event_stream, "last_event_seq", 0)),
-            )
         stop_decision = await turn_finalizer.finalize(
             stream_end_reason=stream_end_reason or (
                 "cancelled" if event_stream is not None else None
             ),
             hook_events=turn_hook_events,
             prompt_blocked=prompt_blocked,
+            assistant_text=assistant_text,
         )
 
-    result = outcome.build_result(model_events.assistant_text)
+    result = outcome.build_result(assistant_text)
 
     if stop_decision.should_continue and outcome.continuation_allowed:
         continuation_count = turn_continuation_count(turn_execution)

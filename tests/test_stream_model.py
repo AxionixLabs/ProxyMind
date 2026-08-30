@@ -121,7 +121,6 @@ async def test_model_handler_projects_text_and_commits_transcript() -> None:
 
     assert delta_handled is True
     assert done_handled is True
-    assert handler.assistant_text == "answer"
     assert handler.sources == ()
     assert content.items == [
         AssistantTextDelta("answer", _identity(), item_id="item-1"),
@@ -175,7 +174,6 @@ async def test_model_handler_supersedes_partial_provider_attempt() -> None:
     ))
     handler.flush_pending()
 
-    assert handler.assistant_text == "new answer"
     assert content.items == [
         AssistantTextDelta("old partial", _identity(), item_id="attempt-1"),
         AssistantResponseSuperseded(

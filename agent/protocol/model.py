@@ -21,17 +21,27 @@ ModelStreamEndReason: typing.TypeAlias = typing.Literal[
     "cancelled",
     "protocol_error",
 ]
+
 _RESERVED_MODEL_OPTIONS = frozenset({
     "attachments",
+    "cid",
     "environment_snapshot",
     "exec_env",
-    "initial_event_seq",
     "message",
+    "metadata",
     "on_approval_snapshot",
     "on_reconnect_status",
     "pref_config",
+    "sid",
     "timeout",
     "tools",
+    "turn_id",
+})
+
+_RESERVED_MODEL_METADATA = frozenset({
+    "cid",
+    "sid",
+    "turn_id"
 })
 
 
@@ -39,17 +49,25 @@ _RESERVED_MODEL_OPTIONS = frozenset({
 class ModelStreamRequest:
     """描述一次不携带运行时回调的可序列化模型流请求。"""
 
+    cid: str
+    sid: str
+    turn_id: str
     pref_config: Mapping[str, JsonValue]
     message: str
     tools: tuple[Mapping[str, JsonValue], ...]
     attachments: tuple[Mapping[str, JsonValue], ...] = ()
     environment_snapshot: Mapping[str, JsonValue] | None = None
+    metadata: Mapping[str, JsonValue] = field(default_factory=dict)
     options: Mapping[str, JsonValue] = field(default_factory=dict)
     timeout: float = 60.0
-    initial_event_seq: int = 0
 
     def __post_init__(self) -> None:
         """校验请求字段并冻结全部 JSON 兼容输入。"""
+        for field_name in ("cid", "sid", "turn_id"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"model {field_name} is required")
+            object.__setattr__(self, field_name, value.strip())
         if not isinstance(self.message, str):
             raise TypeError("model message must be a string")
         if not isinstance(self.pref_config, Mapping):
@@ -65,10 +83,16 @@ class ModelStreamRequest:
             raise TypeError("model environment snapshot must be an object")
         if not isinstance(self.options, Mapping):
             raise TypeError("model options must be an object")
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("model metadata must be an object")
         reserved_options = _RESERVED_MODEL_OPTIONS.intersection(self.options)
         if reserved_options:
             names = ", ".join(sorted(reserved_options))
             raise ValueError(f"model options contain reserved fields: {names}")
+        reserved_metadata = _RESERVED_MODEL_METADATA.intersection(self.metadata)
+        if reserved_metadata:
+            names = ", ".join(sorted(reserved_metadata))
+            raise ValueError(f"model metadata contains reserved fields: {names}")
         if (
             isinstance(self.timeout, bool)
             or not isinstance(self.timeout, (int, float))
@@ -76,13 +100,6 @@ class ModelStreamRequest:
             or float(self.timeout) <= 0
         ):
             raise ValueError("model timeout must be a positive finite number")
-        if (
-            isinstance(self.initial_event_seq, bool)
-            or not isinstance(self.initial_event_seq, int)
-            or self.initial_event_seq < 0
-        ):
-            raise ValueError("initial_event_seq must be a non-negative integer")
-
         frozen_config = freeze_json(
             dict(self.pref_config),
             field_name="pref_config",
@@ -90,6 +107,10 @@ class ModelStreamRequest:
         frozen_options = freeze_json(
             dict(self.options),
             field_name="model options",
+        )
+        frozen_metadata = freeze_json(
+            dict(self.metadata),
+            field_name="model metadata",
         )
         frozen_environment: Mapping[str, JsonValue] | None = None
         if self.environment_snapshot is not None:
@@ -104,6 +125,8 @@ class ModelStreamRequest:
             raise TypeError("model pref_config must be an object")
         if not isinstance(frozen_options, Mapping):
             raise TypeError("model options must be an object")
+        if not isinstance(frozen_metadata, Mapping):
+            raise TypeError("model metadata must be an object")
 
         object.__setattr__(self, "pref_config", frozen_config)
         object.__setattr__(
@@ -122,6 +145,7 @@ class ModelStreamRequest:
             frozen_environment,
         )
         object.__setattr__(self, "options", frozen_options)
+        object.__setattr__(self, "metadata", frozen_metadata)
         object.__setattr__(self, "timeout", float(self.timeout))
 
     def pref_config_value(self) -> dict[str, ThawedJsonValue]:
@@ -156,6 +180,10 @@ class ModelStreamRequest:
     def option_values(self) -> dict[str, ThawedJsonValue]:
         """返回远端 adapter 可消费的独立扩展参数。"""
         return thaw_object(self.options, field_name="model options")
+
+    def metadata_value(self) -> dict[str, ThawedJsonValue]:
+        """返回不包含协议坐标的独立请求元数据。"""
+        return thaw_object(self.metadata, field_name="model metadata")
 
 
 def _freeze_objects(

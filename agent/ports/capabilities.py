@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from agent.protocol import (
+    CanonicalItem,
     McpToolDefinition,
     McpToolResult,
     ModelEvent,
@@ -340,10 +341,30 @@ class ModelCapabilityError(CapabilityError):
 
 @typing.runtime_checkable
 class ModelEventStream(typing.Protocol):
-    """暴露模型事件迭代、恢复游标和显式关闭生命周期。"""
+    """暴露模型事件、Canonical Item 投影、游标和关闭生命周期。"""
 
     end_reason: ModelStreamEndReason | None
     last_event_seq: int
+
+    @property
+    def canonical_items(self) -> tuple[CanonicalItem, ...]:
+        """返回当前未被展示替换的 Item 快照。"""
+        ...
+
+    @property
+    def canonical_item_history(self) -> tuple[CanonicalItem, ...]:
+        """返回包含旧展示版本的 Item 审计快照。"""
+        ...
+
+    @property
+    def pending_approval_items(self) -> tuple[CanonicalItem, ...]:
+        """返回快照对账后仍等待客户端决定的审批 Item。"""
+        ...
+
+    @property
+    def assistant_text(self) -> str:
+        """返回当前未被展示替换的 canonical 正文。"""
+        ...
 
     def __aiter__(self) -> AsyncIterator[ModelEvent]:
         """返回满足模型事件坐标契约的异步迭代器。"""
@@ -356,7 +377,11 @@ class ModelEventStream(typing.Protocol):
 
 @typing.runtime_checkable
 class ModelCapability(typing.Protocol):
-    """按冻结请求创建模型事件流，不持有 Session 或前端状态。"""
+    """按冻结请求创建模型事件流并持有协议 Session 恢复状态。
+
+    实现方不得持有 Harness Run 或前端组件状态；跨 Turn 事件水位和协议投影属于
+    Protocol Client，可在同一进程的多个入口之间共享。
+    """
 
     def stream(
         self,
