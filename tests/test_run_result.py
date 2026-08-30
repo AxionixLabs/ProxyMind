@@ -51,7 +51,7 @@ from mind_app.runtime.turns.executor import (
     build_turn_input_payload,
 )
 from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
-from mind_app.native_coding.exec.execpolicy import (
+from agent.domain.execution_policy import (
     Decision,
     Policy,
     PrefixPattern,

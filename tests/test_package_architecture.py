@@ -777,6 +777,66 @@ def test_runtime_environment_helpers_have_platform_ownership() -> None:
     )
 
 
+def test_execution_policy_is_split_between_domain_and_config() -> None:
+    """确保执行策略值对象与规则文件解析分别归属 domain/config。"""
+    legacy_root = PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "execpolicy"
+    legacy_sources = tuple(legacy_root.rglob("*.py"))
+    assert not legacy_sources, (
+        "legacy execution policy sources still exist: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_sources
+        )
+    )
+
+    legacy_modules = {
+        "mind_app.native_coding.exec.execpolicy",
+        "mind_app.native_coding.exec.execpolicy.decision",
+        "mind_app.native_coding.exec.execpolicy.rule",
+        "mind_app.native_coding.exec.execpolicy.policy",
+        "mind_app.native_coding.exec.execpolicy.parser",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, (
+        "legacy execution policy imports remain:\n" + "\n".join(violations)
+    )
+
+    domain_root = PROJECT_ROOT / "agent" / "domain" / "execution_policy"
+    domain_violations: list[str] = []
+    for path in domain_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module.startswith(("mind_app", "infrastructure")):
+                    domain_violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not domain_violations, (
+        "execution policy domain imports infrastructure/application code:\n"
+        + "\n".join(domain_violations)
+    )
+
+
 def test_terminal_presentation_has_no_legacy_design_sources_or_imports() -> None:
     """确保终端展示能力只由 presentation/terminal 持有。"""
     legacy_design_root = PROJECT_ROOT / "mind_core" / "design"
@@ -994,6 +1054,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
     """限制旧应用只能使用 application 用例或明确归属的 state store。"""
     allowed_modules = {
         "agent.application",
+        "agent.domain.execution_policy",
         "agent.stores.approval_ledger",
         "agent.stores.permission_grants",
     }

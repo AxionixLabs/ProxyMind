@@ -1,16 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import typing
 from dataclasses import (
     dataclass,
     field
 )
 from pathlib import Path
-from typing import (
-    Callable,
-    Iterable,
-    Sequence
-)
 from urllib.parse import urlparse
 from .decision import Decision
 from .rule import (
@@ -62,16 +58,16 @@ class Policy:
     @classmethod
     def from_parts(
         cls,
-        prefix_rules: Iterable[PrefixRule] = (),
-        network_rules: Iterable[NetworkRule] = (),
-        host_executables: Iterable[HostExecutable] = ()
+        prefix_rules: typing.Iterable[PrefixRule] = (),
+        network_rules: typing.Iterable[NetworkRule] = (),
+        host_executables: typing.Iterable[HostExecutable] = ()
     ) -> "Policy":
         """从各类规则创建策略。"""
         return cls(list(prefix_rules), list(network_rules), list(host_executables))
 
     def _network_matches(
         self,
-        command: Sequence[str],
+        command: typing.Sequence[str],
         options: MatchOptions
     ) -> list[NetworkRule]:
         candidates: list[tuple[str, NetworkRuleProtocol]] = []
@@ -107,7 +103,7 @@ class Policy:
         """追加一条网络规则。"""
         self.network_rules.append(rule)
 
-    def set_host_executable_paths(self, paths: Iterable[str | Path]) -> None:
+    def set_host_executable_paths(self, paths: typing.Iterable[str | Path]) -> None:
         """替换宿主可执行文件列表。"""
         self.host_executables = [HostExecutable(Path(path)) for path in paths]
 
@@ -120,7 +116,7 @@ class Policy:
 
     def matches_for_command_with_options(
         self,
-        command: Sequence[str],
+        command: typing.Sequence[str],
         options: MatchOptions | None = None
     ) -> tuple[object, ...]:
         """返回命令匹配的所有规则。"""
@@ -137,13 +133,13 @@ class Policy:
         matches.extend(self._network_matches(normalized, network_options))
         return tuple(matches)
 
-    def matches_for_command(self, command: Sequence[str]) -> tuple[object, ...]:
+    def matches_for_command(self, command: typing.Sequence[str]) -> tuple[object, ...]:
         """返回命令匹配的所有规则。"""
         return self.matches_for_command_with_options(command)
 
     def check_with_options(
         self,
-        command: Sequence[str],
+        command: typing.Sequence[str],
         options: MatchOptions | None = None,
         *,
         heuristics_fallback: Decision | None = None
@@ -161,7 +157,7 @@ class Policy:
 
     def check(
         self,
-        command: Sequence[str],
+        command: typing.Sequence[str],
         *,
         heuristics_fallback: Decision | None = None
     ) -> Evaluation:
@@ -173,12 +169,12 @@ class Policy:
 
     def check_multiple_with_options(
         self,
-        commands: Iterable[Sequence[str]],
+        commands: typing.Iterable[typing.Sequence[str]],
         options: MatchOptions | None = None,
         *,
         heuristics_fallback: (
             Decision
-            | Callable[[Sequence[str]], Decision | None]
+            | typing.Callable[[typing.Sequence[str]], Decision | None]
             | None
         ) = None
     ) -> Evaluation:
@@ -206,11 +202,11 @@ class Policy:
 
     def check_multiple(
         self,
-        commands: Iterable[Sequence[str]],
+        commands: typing.Iterable[typing.Sequence[str]],
         *,
         heuristics_fallback: (
             Decision
-            | Callable[[Sequence[str]], Decision | None]
+            | typing.Callable[[typing.Sequence[str]], Decision | None]
             | None
         ) = None
     ) -> Evaluation:

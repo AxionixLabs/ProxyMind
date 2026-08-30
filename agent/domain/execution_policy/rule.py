@@ -1,16 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import typing
 from dataclasses import (
     dataclass,
     field
 )
 from enum import Enum
 from pathlib import Path
-from typing import (
-    Iterable,
-    Sequence
-)
 from .decision import Decision
 
 
@@ -36,12 +33,12 @@ class PatternToken:
         return cls.single(value)
 
     @classmethod
-    def alts(cls, values: Iterable[str]) -> "PatternToken":
+    def alts(cls, values: typing.Iterable[str]) -> "PatternToken":
         """创建候选值模式令牌。"""
         return cls(alternatives=tuple(_normalise_token(item) for item in values))
 
     @classmethod
-    def Alts(cls, values: Iterable[str]) -> "PatternToken":
+    def Alts(cls, values: typing.Iterable[str]) -> "PatternToken":
         """使用枚举变体名称创建候选令牌。"""
         return cls.alts(values)
 
@@ -66,7 +63,7 @@ class PrefixPattern:
     tokens: tuple[PatternToken, ...]
 
     @classmethod
-    def from_values(cls, values: Sequence[object]) -> "PrefixPattern":
+    def from_values(cls, values: typing.Sequence[object]) -> "PrefixPattern":
         """从字符串和字符串候选列表构建前缀模式。"""
         tokens: list[PatternToken] = []
         for value in values:
@@ -78,10 +75,10 @@ class PrefixPattern:
 
     def matches_prefix(
         self,
-        command: Sequence[str],
+        command: typing.Sequence[str],
         *,
         resolve_host_executables: bool = False,
-        host_executable_paths: Sequence[str] = (),
+        host_executable_paths: typing.Sequence[str] = (),
     ) -> bool:
         """判断命令是否以当前模式开头。"""
         if len(command) < len(self.tokens):
@@ -145,10 +142,10 @@ class PrefixRule:
 
     def matches(
         self,
-        command: Sequence[str],
+        command: typing.Sequence[str],
         *,
         resolve_host_executables: bool = False,
-        host_executable_paths: Sequence[str] = (),
+        host_executable_paths: typing.Sequence[str] = (),
     ) -> bool:
         """判断规则是否匹配命令。"""
         return self.pattern.matches_prefix(

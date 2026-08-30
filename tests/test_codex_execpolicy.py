@@ -8,7 +8,8 @@ from mind_app.native_coding.exec.exec_policy import (
     normalize_sandbox_permission,
     render_decision_for_unmatched_command,
 )
-from mind_app.native_coding.exec.execpolicy import Decision, PolicyParser
+from agent.domain.execution_policy import Decision
+from infrastructure.config.execution_policy import PolicyParser
 
 
 def test_rules_parser_uses_strictest_matching_decision() -> None:

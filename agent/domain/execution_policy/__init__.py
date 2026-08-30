@@ -1,24 +1,23 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .decision import Decision
-from .rule import (
+from agent.domain.execution_policy.decision import Decision
+from agent.domain.execution_policy.policy import (
+    Evaluation,
+    MatchOptions,
+    Policy,
+)
+from agent.domain.execution_policy.rule import (
     HostExecutable,
     NetworkRule,
     NetworkRuleProtocol,
     PatternToken,
     PrefixPattern,
     PrefixRule,
-    RuleMatch
+    RuleMatch,
 )
-from .policy import (
-    Evaluation,
-    MatchOptions,
-    Policy
-)
-from .parser import PolicyParser
 
-__all__ = [
+__all__ = (
     "Decision",
     "Evaluation",
     "HostExecutable",
@@ -27,12 +26,7 @@ __all__ = [
     "NetworkRuleProtocol",
     "PatternToken",
     "Policy",
-    "PolicyParser",
     "PrefixPattern",
     "PrefixRule",
     "RuleMatch",
-]
-
-
-if __name__ == '__main__':
-    pass
+)

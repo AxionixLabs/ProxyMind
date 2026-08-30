@@ -11,7 +11,7 @@ from .exec_policy import (
     load_exec_policy_with_warning,
     render_decision_for_unmatched_command
 )
-from .execpolicy import Decision
+from agent.domain.execution_policy import Decision
 
 __all__ = [
     "Decision",

@@ -9,9 +9,11 @@ from dataclasses import (
 )
 from pathlib import Path
 from metadata import const
-from .decision import Decision
-from .policy import Policy
-from .rule import (
+from agent.domain.execution_policy import (
+    Decision,
+    Policy,
+)
+from agent.domain.execution_policy.rule import (
     NetworkRule,
     NetworkRuleProtocol,
     PrefixRule,

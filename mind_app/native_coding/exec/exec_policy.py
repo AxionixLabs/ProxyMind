@@ -20,15 +20,15 @@ from infrastructure.platform.command_safety.is_dangerous_command import (
     DangerousCommandMatch,
     dangerous_command_match as _dangerous_command_match,
 )
-from .execpolicy import (
+from agent.domain.execution_policy import (
     Decision,
     Evaluation,
     MatchOptions,
     Policy,
-    PolicyParser,
     PrefixPattern,
     PrefixRule
 )
+from infrastructure.config.execution_policy import PolicyParser
 
 SandboxPermission = Literal[
     "use_default",
