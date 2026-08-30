@@ -9,7 +9,7 @@ from agent.application.hook_models import (
     HookDispatchResult,
     HookEventRequest
 )
-from .protocol import (
+from agent.application.hook_protocol import (
     build_hook_input,
     validate_hook_input
 )

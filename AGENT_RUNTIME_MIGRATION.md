@@ -988,6 +988,19 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   导入图、`compileall` 和差异检查通过。Hook/工具/Turn/TUI 定向回归 `421 passed`，全量
   回归 `2996 passed, 11 skipped`。
 
+### 已完成切片：Hook 协议边界归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将 Hook 进程 stdin/stdout schema、事件输入构建和输出校验从
+  `mind_app/runtime/hooks/protocol.py` 重组到 `agent/application/hook_protocol.py`；该模块
+  只依赖 application 可用的 Hook 事件类型和标准库，不依赖 runtime、UI、基础设施或线上
+  `protocol/`。
+- [x] 切换 Hook scope、事件目录、效果归一化和协议测试消费者，删除旧模块与相对导入；新增
+  旧路径/旧导入及 application 边界守卫，不保留兼容 facade。
+- [x] Hook 协议与架构定向回归 `31 passed`，全量回归 `2997 passed, 11 skipped`，导入图、
+  `compileall` 和差异检查通过。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -1044,6 +1057,7 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `mind_app/runtime/environment/coding_lifecycle.py` -> `agent/harness/workspace_runtime.py` | 工作区编码/Shell/策略/进程能力生命周期由 Harness 持有，具体工厂由唯一组合根注入 | 生命周期/组合接线回归通过，旧模块删除，Harness legacy-import 守卫通过 | 5 |
 | `mind_app/runtime/environment/snapshot.py` -> `agent/application/environment.py`、`mind_app/interaction/environment.py` | 环境能力采集用例与 Controller/Helix 上下文适配分离 | 环境/入口回归通过，旧模块删除，application 边界守卫通过 | 5 |
 | `mind_app/runtime/hooks/models.py` -> `agent/application/hook_models.py` | Hook 生命周期快照、决定、输出和工具结果值对象归入 application contract；执行器/注册器仍由 runtime 持有 | Hook/工具/Turn/TUI 定向回归 `421 passed`，旧模块/旧导入守卫和 application 边界守卫通过 | 5 |
+| `mind_app/runtime/hooks/protocol.py` -> `agent/application/hook_protocol.py` | Hook stdin/stdout schema、构建和校验归入 application boundary；不与线上 `protocol/` 混淆 | Hook 协议/架构定向回归 `31 passed`，旧模块/旧导入及 application 边界守卫通过 | 5 |
 | `mind_core/application_paths.py` -> `infrastructure/config/paths.py` | 应用入口和本地资源路径解析归入配置基础设施 | 所有路径消费者切换、路径回归通过、旧源模块删除 | 5 |
 | `mind_core/agent_config.py`、`feature_config.py` -> `agent/application/settings.py` | Agent 运行设置与能力开关归入 application | application 公开入口、配置/设置/Subagent 回归通过，旧源模块删除 | 5 |
 | `mind_core/provider_config.py` -> `infrastructure/config/providers.py` | Provider 默认值、路由和 Profile 标识约束归入配置基础设施 | 配置服务/偏好/Provider 选择回归通过，旧源模块删除 | 5 |
@@ -1182,3 +1196,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 工作区运行时生命周期切片 | 将工作区编码/Shell/执行策略/进程能力的生命周期所有者从 `mind_app/runtime/environment/coding_lifecycle.py` 重组到 `agent/harness/workspace_runtime.py`；`RuntimeServices` 提供工厂端口，`mind.py` 注入具体实现，Controller 不再隐式装配 | 生命周期与组合接线定向回归 `20 passed`，旧路径/旧导入守卫 `2 passed`，全量回归 `2992 passed, 11 skipped`，旧模块删除，导入图、`compileall` 和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
 | 2026-08-31 | 阶段 5 环境快照用例切片 | 将环境能力调用与失败收敛从 `mind_app/runtime/environment/snapshot.py` 提取到 `agent/application/environment.py`，将工作区/Helix 上下文聚合放入 `mind_app/interaction/environment.py`，切换 CLI/TUI/MCP/Subscription/Turn setup 并删除旧模块 | 环境与入口定向回归 `180 passed`，旧路径/旧导入及 application 边界守卫 `2 passed`，全量回归 `2995 passed, 11 skipped`，旧模块删除，导入图、`compileall` 和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
 | 2026-08-31 | 阶段 5 Hook 运行模型切片 | 将纯 Hook 生命周期快照、决定、输出和工具结果值对象从 `mind_app/runtime/hooks/models.py` 重组到 `agent/application/hook_models.py`，切换 runtime/TUI/工具/Subagent 消费者并删除旧模块 | Hook/工具/Turn/TUI 定向回归 `421 passed`，旧路径/旧导入及 application 边界守卫通过；全量回归 `2996 passed, 11 skipped`，导入图、`compileall` 和差异检查通过；下一切片继续审计交互、历史、客户端工具和完整入口边界 |
+| 2026-08-31 | 阶段 5 Hook 协议边界切片 | 将 Hook stdin/stdout schema、事件输入构建和输出校验从 `mind_app/runtime/hooks/protocol.py` 重组到 `agent/application/hook_protocol.py`，切换 scope/事件/效果消费者并删除旧模块 | Hook 协议/架构定向回归 `31 passed`，旧路径/旧导入及 application 边界守卫通过；全量回归 `2997 passed, 11 skipped`，导入图、`compileall` 和差异检查通过 |

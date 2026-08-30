@@ -11,7 +11,7 @@ from agent.application import (
 )
 from .effects import normalize_hook_output
 from agent.application.hook_models import HookNormalizedOutput
-from .protocol import (
+from agent.application.hook_protocol import (
     JsonSchema,
     hook_input_schema,
     hook_output_schema

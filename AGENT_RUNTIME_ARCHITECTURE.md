@@ -208,6 +208,7 @@ agent/
 │   ├── commands.py          # submit、resume、approve、cancel、retry
 │   ├── environment.py       # 环境快照采集用例与能力失败收敛
 │   ├── hook_models.py       # Hook 生命周期快照、决定和工具结果值对象
+│   ├── hook_protocol.py     # Hook stdin/stdout schema、构建和边界校验
 │   ├── queries.py           # 历史、状态、计划和证据读取
 │   ├── projections.py       # Event Queue 到入口稳定结果的投影
 │   ├── settings.py          # Harness 并发和可选能力的启动时设置
@@ -516,6 +517,7 @@ running -> cancelled
 | `mind_app/runtime/environment/coding_lifecycle.py` | `agent/harness/workspace_runtime.py` | 工作区编码、Shell、执行策略和进程能力的替换/关闭属于 Harness 生命周期；具体 NativeCoding/策略工厂只由根组合注入，Harness 不导入 legacy 或平台实现 |
 | `mind_app/runtime/environment/snapshot.py` | `agent/application/environment.py`、`mind_app/interaction/environment.py` | 环境能力调用与失败收敛属于 application 用例；Controller/Helix 上下文聚合属于 interaction adapter，不让 runtime 持有环境采集逻辑 |
 | `mind_app/runtime/hooks/models.py` | `agent/application/hook_models.py` | Hook 生命周期快照、决定、输出和工具结果是跨 runtime/TUI 的 application contract；Hook 执行器、注册器和 scope 仍由 runtime 持有，不把执行副作用放入值对象 |
+| `mind_app/runtime/hooks/protocol.py` | `agent/application/hook_protocol.py` | Hook 进程 stdin/stdout schema、构建和校验属于 application boundary；runtime 只调用已校验的契约，不把内部 Hook 协议误并入线上 `protocol/` |
 | `mind_app/native_coding/exec/execpolicy/` | `agent/domain/execution_policy/` 与 `infrastructure/config/execution_policy.py` | 执行策略决定、规则和值对象属于纯 domain；规则文件 AST/文件读取属于配置基础设施，native coding 只组合二者，不让策略域持有 IO |
 | `mind_core/application_paths.py` | `infrastructure/config/paths.py` | 应用入口、打包模式、本地资源目录和用户数据目录解析属于配置基础设施；不把路径环境事实放入策略模块 |
 | `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |

@@ -7,7 +7,7 @@ from mind_app.runtime.hooks.effects import (
     normalize_hook_output,
 )
 from mind_app.runtime.hooks.events import HOOK_EVENT_SPECS
-from mind_app.runtime.hooks.protocol import (
+from agent.application.hook_protocol import (
     HOOK_INPUT_SCHEMAS,
     HOOK_OUTPUT_SCHEMAS,
     validate_hook_input,
