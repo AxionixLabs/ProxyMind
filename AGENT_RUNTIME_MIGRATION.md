@@ -825,6 +825,22 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] 路径/历史/配置/CLI/TUI 定向回归 `101 passed`，架构守卫 `30 passed`，全量
   回归 `2982 passed, 11 skipped`；`compileall`、导入图和差异检查通过。
 
+### 已完成切片：升级资产与交互附件边界归位
+
+状态：已完成（2026-08-30）
+
+- [x] 将资产存在性判断和升级触发从 `mind_app/assets.py` 重组到
+  `infrastructure/update/assets.py`；更新基础设施只接收 `UpgradeProgress` 端口，
+  不再依赖动画管理器或终端设计。`TerminalDownloadProgress` 留在
+  `mind_app/presentation/terminal/download_renderer.py`，负责把入口动画管理器和
+  终端下载设计适配为更新进度端口。
+- [x] 将待发送附件的路径清洗、glob/目录展开、MIME 分类、快照恢复、去重和消费从
+  `mind_app/attach.py` 迁入 `mind_app/interaction/attachments.py`；控制器及 TUI
+  测试切换到交互输入边界，未创建新的持久化或协议状态副本。
+- [x] 删除两个旧根模块并新增架构守卫，禁止 `mind_app.assets`、`mind_app.attach`
+  导入回流；附件/Helix/CLI/TUI/架构定向回归 `295 passed`，全量回归
+  `2983 passed, 11 skipped`，导入图、`compileall` 与差异检查通过。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -870,6 +886,8 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 | `mind_app/approval/permission_grants.py`、`ledger.py` -> `agent/stores/` | 会话权限授权与审批消费状态由 stores 持有 | 控制器/流式/工具消费者切换，旧状态模块删除，state store 守卫通过 | 5 |
 | `mind_app/reporting.py` -> `observability/reporting.py` | 运行报告目录和诊断日志 sink 归入可观测性基础设施 | CLI/MCP/控制器消费者切换，旧模块删除，observability 反向依赖守卫通过 | 5 |
 | `mind_app/paths.py` -> `infrastructure/config/runtime_paths.py` | 用户数据目录和运行时数据库路径归入配置基础设施 | CLI/MCP/Subscription/TUI/History/Runtime 消费者切换，旧模块删除，路径守卫通过 | 5 |
+| `mind_app/assets.py` -> `infrastructure/update/assets.py`；终端进度适配 -> `mind_app/presentation/terminal/download_renderer.py` | 升级资产判断下沉到更新基础设施，UI 适配停留在展示边界 | 更新/MCP/CLI/TUI 升级回归通过，旧模块删除，基础设施无 UI 反向依赖 | 5 |
+| `mind_app/attach.py` -> `mind_app/interaction/attachments.py` | 待发送附件状态归入交互输入边界 | 控制器/TUI/附件回归通过，旧模块和导入删除，架构守卫通过 | 5 |
 | `mind_core/application_paths.py` -> `infrastructure/config/paths.py` | 应用入口和本地资源路径解析归入配置基础设施 | 所有路径消费者切换、路径回归通过、旧源模块删除 | 5 |
 | `mind_core/agent_config.py`、`feature_config.py` -> `agent/application/settings.py` | Agent 运行设置与能力开关归入 application | application 公开入口、配置/设置/Subagent 回归通过，旧源模块删除 | 5 |
 | `mind_core/provider_config.py` -> `infrastructure/config/providers.py` | Provider 默认值、路由和 Profile 标识约束归入配置基础设施 | 配置服务/偏好/Provider 选择回归通过，旧源模块删除 | 5 |
@@ -996,3 +1014,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-30 | 阶段 5 审批状态存储切片 | 将权限授权与审批调用账本从 `mind_app/approval` 重组到 `agent/stores`，切换控制器/流式/工具执行消费者，收紧旧应用对 agent 边界的允许集合并移除账本 `typing.cast()` | 审批/权限定向回归 `179 passed`，架构与基线回归 `29 passed`，全量回归 `2980 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续完整入口边界迁移 |
 | 2026-08-30 | 阶段 5 运行报告观测切片 | 将 `mind_app/reporting` 重组到 `observability/reporting`，切换 CLI/MCP/控制器/日志测试消费者并补充旧路径守卫 | 观测/CLI/MCP 定向回归 `66 passed`，架构守卫 `29 passed`，基线 `1 passed`，全量行为回归 `2980 passed, 11 skipped`，导入图、`compileall` 和差异检查通过；下一切片继续完整入口边界迁移 |
 | 2026-08-30 | 阶段 5 运行时路径基础设施切片 | 将 `mind_app/paths` 重组到 `infrastructure/config/runtime_paths`，切换 CLI/MCP/Subscription/TUI/History/Runtime/native coding 和配置存储消费者并删除旧模块 | 路径/历史/配置/CLI/TUI 定向回归 `101 passed`，架构守卫 `30 passed`，全量回归 `2982 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续完整入口边界迁移 |
+| 2026-08-30 | 阶段 5 升级资产与交互附件切片 | 将 `mind_app/assets.py` 重组到 `infrastructure/update/assets.py`，终端进度适配留在 `presentation/terminal`；将 `mind_app/attach.py` 重组到 `mind_app/interaction/attachments.py`，删除旧根模块并加入双路径架构守卫 | 附件/Helix/CLI/TUI/架构定向回归 `295 passed`，全量回归 `2983 passed, 11 skipped`，`compileall`、导入图和差异检查通过；下一切片继续审计交互/历史/客户端工具和完整入口边界 |

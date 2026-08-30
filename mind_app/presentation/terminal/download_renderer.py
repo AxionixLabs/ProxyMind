@@ -4,7 +4,28 @@
 import asyncio
 import typing
 from rich.console import Console
+from infrastructure.platform.animation import AsyncAnimManager
 from .download import download_animation
+from .contracts import TerminalDesign
+
+
+class TerminalDownloadProgress(object):
+    """把终端下载设计适配为升级进度端口。"""
+
+    def __init__(self, anim_manager: AsyncAnimManager, design: TerminalDesign) -> None:
+        """绑定动画管理器和终端下载设计。"""
+        self.anim_manager = anim_manager
+        self.design = design
+
+    async def start(self, state: dict[str, typing.Any]) -> None:
+        """启动终端下载进度。"""
+        await self.anim_manager.start(
+            lambda stop_event: self.design.download_animation(state, stop_event)
+        )
+
+    async def stop(self) -> None:
+        """停止终端下载进度。"""
+        await self.anim_manager.stop()
 
 
 class TerminalDownloadRenderer(object):

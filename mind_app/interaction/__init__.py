@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+from .attachments import Attach
 from .contracts import (
     ApprovalPresenterPort,
     InteractionPort,
@@ -10,6 +11,7 @@ from .noninteractive import NonInteractiveInteraction
 
 __all__ = [
     "ApprovalPresenterPort",
+    "Attach",
     "InteractionPort",
     "NonInteractiveInteraction",
     "PromptContext"

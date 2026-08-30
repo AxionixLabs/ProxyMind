@@ -13,9 +13,10 @@ from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.services.server_manager import ServerManage
 from infrastructure.platform.terminal import Terminal
 from infrastructure.errors import AppError
+from infrastructure.update.assets import ensure_asset
 from infrastructure.update.runtime import UpgradeProgress
-from mind_app.assets import ensure_asset
 from mind_app.presentation.terminal.contracts import TerminalDesign
+from mind_app.presentation.terminal.download_renderer import TerminalDownloadProgress
 from observability import (
     observe,
     observe_exception
@@ -162,14 +163,18 @@ async def ensure_runtime_asset(
     progress: UpgradeProgress | None = None
 ) -> bool:
     """复用入口升级流程确认运行时资产。"""
+    resolved_progress = progress
+    if resolved_progress is None:
+        if design is None:
+            raise RuntimeError("terminal design is required without upgrade progress")
+        resolved_progress = TerminalDownloadProgress(anim_manager, design)
+
     return await ensure_asset(
         asset=spec.executable,
         supports=spec.supports,
         packaged=packaged,
         explicit_upgrade=explicit_upgrade,
-        anim_manager=anim_manager,
-        design=design,
-        progress=progress,
+        progress=resolved_progress,
     )
 
 

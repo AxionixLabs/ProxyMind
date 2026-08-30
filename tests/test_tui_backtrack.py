@@ -11,7 +11,7 @@ import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mind_app.attach import Attach
+from mind_app.interaction.attachments import Attach
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.models import (
     FragmentBlock,

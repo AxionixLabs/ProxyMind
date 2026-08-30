@@ -2,10 +2,14 @@
 # Notes: ==== Mind™ ====
 
 from .contracts import TerminalDesign
-from .download_renderer import TerminalDownloadRenderer
+from .download_renderer import (
+    TerminalDownloadProgress,
+    TerminalDownloadRenderer,
+)
 
 __all__ = [
     "TerminalDesign",
+    "TerminalDownloadProgress",
     "TerminalDownloadRenderer",
 ]
 

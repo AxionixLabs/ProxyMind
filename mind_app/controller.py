@@ -31,7 +31,7 @@ from observability import (
     observe,
     observe_exception
 )
-from .attach import Attach
+from .interaction.attachments import Attach
 from .runtime.mcp.lifecycle import ExternalMcpRuntimeOwner
 from .runtime.mcp.service_lifecycle import ServiceRuntimeOwner
 from .runtime.environment.coding_lifecycle import WorkspaceCodingRuntimeOwner
