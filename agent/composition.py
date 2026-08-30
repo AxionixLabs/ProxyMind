@@ -10,6 +10,7 @@ from agent.ports import (
     EffectJournal,
     TurnExecutorResult,
 )
+from agent.ports import HookRegistryFactory
 from agent.stores import (
     LocalEffectJournal,
     SQLiteRunStore,
@@ -53,6 +54,7 @@ def open_process_capability() -> LocalProcessCapability:
 
 def create_runtime_services(
     *,
+    create_hook_registry: HookRegistryFactory,
     create_workspace_runtime: WorkspaceRuntimeFactory | None = None,
 ) -> RuntimeServices:
     """创建供单个进程入口共享的 Agent Harness 依赖。"""
@@ -61,6 +63,7 @@ def create_runtime_services(
         environment_capability=open_environment_capability(),
         create_turn_application=open_turn_application,
         create_effect_journal=open_effect_journal,
+        create_hook_registry=create_hook_registry,
         create_workspace_runtime=create_workspace_runtime,
         process_capability=open_process_capability(),
     )

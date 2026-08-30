@@ -27,6 +27,7 @@ from agent.application import (
 from agent.application import RunResult
 from infrastructure.config.paths import ApplicationLayout
 from agent.application import PermissionSettings
+from mind_app.runtime.hooks.registry import HookRegistry
 
 
 def _source_layout(tmp_path: Path) -> ApplicationLayout:
@@ -78,6 +79,7 @@ def _runtime_services(model_capability: object | None = None) -> SimpleNamespace
         ),
         environment_capability=_EnvironmentCapability(),
         create_turn_application=lambda _path: TurnApplication(),
+        create_hook_registry=lambda **kwargs: HookRegistry(**kwargs),
     )
 
 

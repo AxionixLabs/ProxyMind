@@ -52,7 +52,6 @@ from agent.application import (
     PermissionSettings,
     resolve_permissions
 )
-from mind_app.runtime.hooks.registry import HookRegistry
 from infrastructure.services.service_config import ServiceConfig
 from protocol.schema.permissions import (
     ApprovalPolicy,
@@ -149,7 +148,7 @@ class MindMcpRuntime(object):
                 session_factory=create_silent_output_session,
             )
 
-            hook_registry = HookRegistry()
+            hook_registry = runtime_services.create_hook_registry()
 
             mind = Mind(
                 const.SHOW_LEVEL,

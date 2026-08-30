@@ -23,6 +23,7 @@ from mind_app.presentation.application_sinks import (
 )
 from mind_app.presentation.application import ApplicationView
 from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
+from mind_app.runtime.hooks.registry import HookRegistry
 from mind_app.tui.adapters.hooks import TuiHookStatusAdapter
 from mind_app.tui.core.runtime import TuiRuntime
 from infrastructure.config.paths import ApplicationLayout
@@ -49,6 +50,14 @@ class _TrustRuntime(object):
 
     def show_directory_trust_error(self, message: str) -> None:
         self.errors.append(message)
+
+
+def _runtime_services() -> SimpleNamespace:
+    """构造 bootstrap 单测使用的显式 Hook 组合工厂。"""
+    return SimpleNamespace(
+        environment_capability=SimpleNamespace(clear_cache=Mock()),
+        create_hook_registry=lambda **kwargs: HookRegistry(**kwargs),
+    )
 
 
 def _project(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -376,6 +385,7 @@ async def test_tui_bootstrap_builds_controller_only_from_post_trust_snapshot(
         SimpleNamespace(),
         (),
         None,
+        runtime_services=_runtime_services(),
     )
 
     assert result == 0
@@ -425,6 +435,7 @@ async def test_bootstrap_forwards_hook_warnings_outside_config_resolution(
         SimpleNamespace(),
         (),
         None,
+        runtime_services=_runtime_services(),
     )
 
     assert result == 0
@@ -465,6 +476,7 @@ async def test_exec_hook_trust_bypass_is_invocation_scoped(
         SimpleNamespace(),
         (),
         None,
+        runtime_services=_runtime_services(),
     )
 
     assert result == 0
@@ -754,6 +766,7 @@ async def test_tui_bootstrap_quit_stops_before_controller_and_config_service(
         SimpleNamespace(),
         (),
         None,
+        runtime_services=_runtime_services(),
     )
 
     assert result == 0
@@ -800,6 +813,7 @@ async def test_noninteractive_exec_never_requests_directory_trust(
         SimpleNamespace(),
         (),
         None,
+        runtime_services=_runtime_services(),
     )
 
     assert result == 0
@@ -856,6 +870,7 @@ async def test_agent_listen_uses_tui_directory_trust(
         SimpleNamespace(),
         (),
         None,
+        runtime_services=_runtime_services(),
     )
 
     assert result == 0

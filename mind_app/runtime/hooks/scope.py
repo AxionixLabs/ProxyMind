@@ -13,9 +13,11 @@ from agent.application.hook_protocol import (
     build_hook_input,
     validate_hook_input
 )
-from .runtime import (
-    HookDispatcher,
+from agent.ports import (
+    HookDispatcherPort,
     HookStatusPort,
+)
+from .runtime import (
     HookRuntime
 )
 
@@ -94,7 +96,7 @@ class HookExecutionContext:
 class HookExecutionScope:
     """在一个执行作用域内固定 Hook 运行时和公共上下文。"""
     context: HookExecutionContext
-    dispatcher: HookDispatcher
+    dispatcher: HookDispatcherPort
 
     @classmethod
     def empty(cls, context: HookExecutionContext) -> "HookExecutionScope":

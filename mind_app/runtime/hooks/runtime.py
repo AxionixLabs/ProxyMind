@@ -17,6 +17,7 @@ from observability import (
 from agent.ports import (
     HookCommandRunner,
     HookContextSpiller,
+    HookStatusPort,
 )
 from agent.application import (
     HookDefinitionConfig,
@@ -42,46 +43,11 @@ from agent.application.hook_models import (
 )
 
 
-class HookStatusPort(typing.Protocol):
-    """定义 Hook 命令状态消息的展示生命周期。"""
-
-    async def started(self, run: HookRunSummary) -> None:
-        """发布一个 Hook 命令已经开始。"""
-        ...
-
-    async def completed(self, run: HookRunSummary) -> None:
-        """发布一个 Hook 命令已经完成。"""
-        ...
-
-
 @dataclass(frozen=True, slots=True)
 class _RegisteredHook:
     """保存已编译 matcher 的活动 Hook。"""
     definition: HookDefinitionConfig
     matcher: HookMatcher
-
-
-class HookDispatcher(typing.Protocol):
-    """定义生命周期事件使用的不可变分发接口。"""
-
-    def has_matching(
-        self,
-        event: HookEventName,
-        match_value: str = "",
-    ) -> bool:
-        """判断指定事件是否存在匹配 Hook。"""
-        ...
-
-    async def dispatch(self, request: HookEventRequest) -> HookDispatchResult:
-        """分发一次生命周期事件。"""
-        ...
-
-    def with_default_status_port(
-        self,
-        status_port: HookStatusPort,
-    ) -> "HookDispatcher":
-        """在尚未绑定展示端时返回带状态端口的分发器。"""
-        ...
 
 
 @dataclass(frozen=True, slots=True, init=False)

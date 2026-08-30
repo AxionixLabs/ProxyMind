@@ -1122,6 +1122,19 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] 新增显式资源生命周期回归和 `isinstance(HookCommandExecutor)` 架构守卫；Hook/工具/架构
   定向回归 `172 passed, 37 warnings`，导入图、`compileall` 和差异检查通过。
 
+### 已完成切片：Hook Registry 组合边界收敛
+
+状态：已完成（2026-08-31）
+
+- [x] 在 `agent/ports/hooks.py` 定义 `HookStatusPort`、`HookDispatcherPort`、
+  `HookRegistryPort` 和 `HookRegistryFactory`，把 Hook 发现、作用域分发和资源关闭作为
+  可替换端口暴露；`RuntimeServices` 要求显式提供 `create_hook_registry` 工厂。
+- [x] `mind.py` 成为具体 `HookRegistry` 的唯一组合根；CLI bootstrap、MCP server 和
+  Controller 只消费注入的 registry/dispatcher port，不再导入或隐式构造 runtime registry。
+  `HookExecutionScope` 也只依赖 dispatcher port，runtime 不向上泄漏具体实现类型。
+- [x] CLI、MCP、Hook 和架构回归 `244 passed`，新增组合根守卫通过；全量回归
+  `3009 passed, 11 skipped, 38 warnings`，编译、导入图、文档契约和差异检查通过。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -1335,3 +1348,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 Hook 执行端口切片 | 将 `HookCommandRunner`、`HookCommandResult` 和 `HookContextSpiller` 从 runtime 重组到 `agent/ports/hooks.py`，保留展示状态端口在 runtime 并删除重复 Protocol 定义 | Hook/工具/架构定向回归 `171 passed, 37 warnings`，旧 runtime 定义守卫、导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 Hook 生命周期显式注入切片 | 将 Hook spill、会话清理和关闭从执行器类型推断改为显式端口参数，默认执行器仅在构造分支绑定并删除 runtime/registry 的 `isinstance` 能力判断 | Hook/工具/架构定向回归 `172 passed, 37 warnings`，显式资源回归、旧类型反射守卫、导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 事件报告客户端边界切片 | 将 `EventReportRuntimeOwner`、`EventReportLifetime` 和 `TurnEventReportHandle` 从 `mind_app/runtime/turns/event_reporting.py` 重组到 `protocol/client/reports.py`；Session/Turn 报告生命周期与 `protocol.transport.events` 归属同一 Protocol Client，runtime turns 与测试消费者切换并删除旧模块 | 事件报告、Turn/Subagent/TUI 定向回归 `61 passed`；新增旧路径/旧导入守卫 `1 passed`，全量架构扫描 `52 passed`，导入图、`compileall`、文档契约和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 Hook Registry 组合边界切片 | 将 Hook status/dispatcher/registry 抽象为 `agent.ports` 端口，`RuntimeServices` 注入 `create_hook_registry`，具体 `HookRegistry` 仅由 `mind.py` 组合；CLI/MCP/Controller 删除直接构造和 fallback | CLI/MCP/Hook 定向回归 `244 passed`，新增组合根守卫通过；全量回归 `3009 passed, 11 skipped, 38 warnings`，导入图、`compileall`、文档契约和 `git diff --check` 通过 |

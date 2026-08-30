@@ -27,7 +27,11 @@ from .hooks import (
     HookCommandResult,
     HookCommandRunner,
     HookContextSpiller,
+    HookDispatcherPort,
+    HookRegistryFactory,
+    HookRegistryPort,
     HookResourceClose,
+    HookStatusPort,
     HookSessionCleanup,
 )
 from .persistence import (
@@ -77,7 +81,11 @@ __all__ = (
     "HookCommandResult",
     "HookCommandRunner",
     "HookContextSpiller",
+    "HookDispatcherPort",
+    "HookRegistryFactory",
+    "HookRegistryPort",
     "HookResourceClose",
+    "HookStatusPort",
     "HookSessionCleanup",
 )
 

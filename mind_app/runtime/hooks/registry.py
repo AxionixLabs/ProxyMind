@@ -29,12 +29,13 @@ from agent.application.hook_models import (
 from agent.ports import (
     HookCommandRunner,
     HookContextSpiller,
+    HookDispatcherPort,
     HookResourceClose,
+    HookStatusPort,
     HookSessionCleanup,
 )
 from .runtime import (
     HookRuntime,
-    HookStatusPort
 )
 
 
@@ -222,7 +223,7 @@ class HookRegistry:
         hook_states: HookStateTable | None = None,
         warnings: typing.Iterable[str] = (),
         status_port: HookStatusPort | None = None
-    ) -> HookRuntime:
+    ) -> HookDispatcherPort:
         """按当前信任状态构建一个独立运行时。"""
         resolved      = self._resolve(definitions, hook_states or {})
         warning_items = list(warnings)

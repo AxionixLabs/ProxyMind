@@ -9,6 +9,7 @@ from agent.ports import (
     EffectJournal,
     EnvironmentSnapshotCapability,
     HelixCapability,
+    HookRegistryFactory,
     ModelCapability,
     ProcessCapability,
 )
@@ -34,6 +35,7 @@ class RuntimeServices:
     environment_capability: EnvironmentSnapshotCapability
     create_turn_application: TurnApplicationFactory
     create_effect_journal: EffectJournalFactory
+    create_hook_registry: HookRegistryFactory
     create_workspace_runtime: WorkspaceRuntimeFactory | None = None
     process_capability: ProcessCapability | None = None
     helix_capability: HelixCapability | None = None
@@ -54,6 +56,8 @@ class RuntimeServices:
             raise TypeError("turn application factory must be callable")
         if not callable(self.create_effect_journal):
             raise TypeError("effect journal factory must be callable")
+        if not callable(self.create_hook_registry):
+            raise TypeError("hook registry factory must be callable")
         if (
             self.create_workspace_runtime is not None
             and not callable(self.create_workspace_runtime)

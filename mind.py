@@ -10,6 +10,12 @@ from infrastructure.config.paths import ApplicationLayout
 from mind_app.cli.entry import run
 from mind_app.native_coding import NativeCoding
 from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
+from mind_app.runtime.hooks.registry import HookRegistry
+
+
+def create_hook_registry(*, bypass_hook_trust: bool = False) -> HookRegistry:
+    """在进程组合根创建绑定本机资源的 Hook registry。"""
+    return HookRegistry(bypass_hook_trust=bypass_hook_trust)
 
 
 def create_workspace_runtime(
@@ -32,6 +38,7 @@ if __name__ == "__main__":
     raise SystemExit(run(
         entry_file=__file__,
         runtime_services=create_runtime_services(
+            create_hook_registry=create_hook_registry,
             create_workspace_runtime=create_workspace_runtime,
         ),
     ))

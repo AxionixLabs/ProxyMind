@@ -60,7 +60,7 @@ from .presentation.application import (
     Frontend
 )
 from .presentation.terminal.contracts import TerminalDesign
-from .runtime.hooks.registry import HookRegistry
+from agent.ports import HookRegistryPort
 from .runtime.hooks.scope import (
     HookExecutionContext,
     HookExecutionScope
@@ -123,9 +123,10 @@ class Mind(object):
         self.permissions: PermissionSettings = kwargs["permissions"]
         self.frontend: Frontend = kwargs["frontend"]
 
-        self.hook_registry: HookRegistry = (
-            kwargs.get("hook_registry") or HookRegistry()
-        )
+        hook_registry = kwargs.get("hook_registry")
+        if not isinstance(hook_registry, HookRegistryPort):
+            raise TypeError("hook registry is required")
+        self.hook_registry: HookRegistryPort = hook_registry
         self.hook_startup_warnings = tuple(
             kwargs.get("hook_startup_warnings") or ()
         )

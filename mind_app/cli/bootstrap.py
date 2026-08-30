@@ -61,7 +61,7 @@ from ..runtime.mcp.service_runtime import (
 )
 from ..runtime.mcp.service_lifecycle import ServerManageHelixCapability
 from ..presentation.terminal.contracts import TerminalDesign
-from ..runtime.hooks.registry import HookRegistry
+from agent.ports import HookRegistryPort
 from agent.domain.tool_policy import ToolFilterMode
 from .commands import (
     ApplicationCommand,
@@ -378,7 +378,7 @@ async def _run_application(
         raise
 
     try:
-        hook_registry = HookRegistry(
+        hook_registry = runtime_services.create_hook_registry(
             bypass_hook_trust=(
                 command.bypass_hook_trust
                 if isinstance(command, ExecCommand)
@@ -468,7 +468,7 @@ async def _run_controller(
     output_mode: OutputMode,
     permissions: PermissionSettings,
     application_layout: ApplicationLayout | None = None,
-    hook_registry: HookRegistry | None = None,
+    hook_registry: HookRegistryPort | None = None,
     hook_startup_warnings: tuple[str, ...] = (),
     agent_settings: AgentSettings | None = None,
     feature_settings: FeatureSettings | None = None,
@@ -507,7 +507,7 @@ async def _run_controller(
             design=design,
             report=report,
             permissions=permissions,
-            hook_registry=hook_registry or HookRegistry(),
+            hook_registry=hook_registry,
             hook_startup_warnings=hook_startup_warnings,
             hook_status=hook_status,
             application_layout=application_layout,

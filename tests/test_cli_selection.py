@@ -46,6 +46,15 @@ from mind_app.cli.parser import (
     parse_cli_command,
     parse_cli_invocation
 )
+from mind_app.runtime.hooks.registry import HookRegistry
+
+
+def _runtime_services() -> SimpleNamespace:
+    """构造 bootstrap 单测使用的显式 Hook 组合工厂。"""
+    return SimpleNamespace(
+        environment_capability=SimpleNamespace(clear_cache=Mock()),
+        create_hook_registry=lambda **kwargs: HookRegistry(**kwargs),
+    )
 from mind_app.cli.selection import OutputMode, resolve_cli_output_mode
 from mind_app.cli.dispatch import run_selected_command
 from agent.application import RunResult
@@ -1293,6 +1302,7 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
         SimpleNamespace(),
         (),
         None,
+        runtime_services=_runtime_services(),
     )
 
     assert result == 0

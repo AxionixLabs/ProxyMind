@@ -1907,6 +1907,37 @@ def test_event_report_lifecycle_has_protocol_client_ownership() -> None:
     )
 
 
+def test_hook_registry_is_composed_at_the_process_root() -> None:
+    """确保入口只消费 Hook registry port，不直接装配具体实现。"""
+    entry_paths = (
+        PROJECT_ROOT / "mind_app" / "controller.py",
+        PROJECT_ROOT / "mind_app" / "cli" / "bootstrap.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "server.py",
+    )
+    violations: list[str] = []
+    for path in entry_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if module == "mind_app.runtime.hooks.registry":
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} imports concrete HookRegistry"
+                    )
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "HookRegistry"
+            ):
+                violations.append(
+                    f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} constructs concrete HookRegistry"
+                )
+
+    assert not violations, "Hook registry construction escaped composition root:\n" + (
+        "\n".join(violations)
+    )
+
+
 def test_controller_does_not_expose_runtime_facades() -> None:
     controller_path = PROJECT_ROOT / "mind_app" / "controller.py"
     tree = ast.parse(
