@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from mind_app.native_coding.encoding import (
+from infrastructure.platform.encoding import (
     DecodedProcessOutput,
     UTF8_ENCODING,
     UTF8_SIG_ENCODING,

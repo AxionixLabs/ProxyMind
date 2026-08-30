@@ -23,7 +23,7 @@ from mind_app.runtime.processes import (
     terminate_process_tree,
     wait_for_process
 )
-from mind_app.native_coding.encoding import decode_process_output
+from infrastructure.platform.encoding import decode_process_output
 from mind_app.native_coding.exec.process_capture import (
     OrderedOutputBuffer,
     ProcessCapture

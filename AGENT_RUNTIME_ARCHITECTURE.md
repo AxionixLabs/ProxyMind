@@ -503,6 +503,7 @@ running -> cancelled
 | `mind_app/assets.py` | `infrastructure/update/assets.py` 与 `mind_app/presentation/terminal/download_renderer.py` | 资产存在性和升级触发属于更新基础设施；动画管理器到终端进度端口的适配属于 presentation，不让更新层依赖 UI |
 | `mind_app/attach.py` | `mind_app/interaction/attachments.py` | 待发送附件的路径解析、分类、快照和消费属于交互输入状态；不把一次输入状态伪装成持久化 Store 或协议模型 |
 | `mind_app/mcp/` | `mind_app/runtime/mcp/` | MCP 配置、外部连接、会话组合、工具结果和 stdio 服务同属运行时适配边界；不在应用根保留平铺包或转发 facade |
+| `mind_app/native_coding/encoding.py` | `infrastructure/platform/encoding.py` | 进程输出编码探测、规范化和解码是跨能力的平台事实；native coding 只消费平台端口，不拥有第二套解码器 |
 | `mind_core/application_paths.py` | `infrastructure/config/paths.py` | 应用入口、打包模式、本地资源目录和用户数据目录解析属于配置基础设施；不把路径环境事实放入策略模块 |
 | `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |
 | `mind_core/provider_config.py` | `infrastructure/config/providers.py` | Provider Profile 默认值、路由和标识校验属于配置基础设施；不把供应商连接规则放入 Harness domain |

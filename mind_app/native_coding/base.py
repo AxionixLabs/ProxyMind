@@ -6,7 +6,7 @@ import typing
 import hashlib
 from pathlib import Path
 from metadata import const
-from mind_app.native_coding.encoding import (
+from infrastructure.platform.encoding import (
     decode_process_output,
     process_output_encodings
 )

@@ -6,7 +6,7 @@ import typing
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from mind_app.native_coding.encoding import decode_process_output
+from infrastructure.platform.encoding import decode_process_output
 from mind_app.runtime.processes import (
     subprocess_process_group_kwargs,
     terminate_process_tree

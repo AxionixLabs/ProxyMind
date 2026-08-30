@@ -10,7 +10,7 @@ from mind_app.native_coding.base import (
     NativeCodingBase,
     NativeCodingComponent
 )
-from mind_app.native_coding.encoding import normalize_process_output_encoding
+from infrastructure.platform.encoding import normalize_process_output_encoding
 from mind_app.native_coding.exec.output_decoder import CapturedOutputDecoder
 from mind_app.native_coding.exec.process_capture import ProcessCapture
 from mind_app.native_coding.exec.process_capture import (
