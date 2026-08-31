@@ -1175,7 +1175,7 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   不依赖 runtime、基础设施或具体前端。
 - [x] 切换 Turn、工具、Hook、MCP、子 Agent、内置工具、TUI 与测试消费者，删除旧 runtime
   execution 入口，不保留兼容 facade；新增 application 归属、旧导入和跨边界守卫。
-- [x] 执行上下文及能力定向回归 `229 passed`，导入图、`compileall` 和差异检查通过；下一切片
+- [x] 执行上下文及能力定向回归 `230 passed, 1 warning`，导入图、`compileall` 和差异检查通过；下一切片
   继续收敛子 Agent 的 mailbox/graph 值对象与持久化边界。
 
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
@@ -1394,4 +1394,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 Hook Registry 组合边界切片 | 将 Hook status/dispatcher/registry 抽象为 `agent.ports` 端口，`RuntimeServices` 注入 `create_hook_registry`，具体 `HookRegistry` 仅由 `mind.py` 组合；CLI/MCP/Controller 删除直接构造和 fallback | CLI/MCP/Hook 定向回归 `244 passed`，新增组合根守卫通过；全量回归 `3009 passed, 11 skipped, 38 warnings`，导入图、`compileall`、文档契约和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 runtime support 职责拆分切片 | 将会话状态迁入 `mind_app/interaction/conversation.py`、TUI 剪贴板迁入 `mind_app/tui/adapters/clipboard.py`，并把 MCP 传输错误与 stream 异常摘要拆到各自边界；删除 `conversation.py`、`clipboard.py`、`session_policy.py` 旧 support 入口并加入架构守卫 | 会话/Turn/流协议定向回归 `107 passed, 1 warning`，完整架构测试 `54 passed, 38 warnings`，导入图、`compileall` 和 `git diff --check` 通过；下一切片继续审计剩余 runtime/interaction 历史职责 |
 | 2026-08-31 | 阶段 5 上下文压缩结果与编排分离切片 | 将 `CompactResult` 提升到 `agent/application/compact_result.py`，将 runtime 编排改名为 `mind_app/runtime/compaction.py`，删除旧 `runtime/conversation.py` 并补充结果/编排分离守卫 | 压缩/TUI/架构定向回归通过，导入图、`compileall` 和 `git diff --check` 通过；下一切片继续审计 runtime/subagents 和剩余平铺入口 |
-| 2026-08-31 | 阶段 5 执行上下文契约归位切片 | 将 `AgentContext`、`TurnContext`、`ToolInvocation` 提升到 `agent/application/execution.py`，切换 Turn/工具/Hook/MCP/子 Agent/TUI 全部消费者并删除旧 `runtime/execution.py` | 执行上下文及能力定向回归 `229 passed`，application 归属与旧导入守卫、导入图、`compileall` 和 `git diff --check` 通过；下一切片继续收敛子 Agent mailbox/graph 边界 |
+| 2026-08-31 | 阶段 5 执行上下文契约归位切片 | 将 `AgentContext`、`TurnContext`、`ToolInvocation` 提升到 `agent/application/execution.py`，切换 Turn/工具/Hook/MCP/子 Agent/TUI 全部消费者并删除旧 `runtime/execution.py` | 执行上下文及能力定向回归 `230 passed, 1 warning`，application 归属与旧导入守卫、导入图、`compileall` 和 `git diff --check` 通过；下一切片继续收敛子 Agent mailbox/graph 边界 |

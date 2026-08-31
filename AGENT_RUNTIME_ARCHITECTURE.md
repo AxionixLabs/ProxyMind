@@ -208,7 +208,9 @@ agent/
 │   └── recovery.py          # 快照恢复、未完成命令和效果对账
 ├── application/
 │   ├── commands.py          # submit、resume、approve、cancel、retry
+│   ├── compact_result.py    # 上下文压缩稳定结果值对象
 │   ├── environment.py       # 环境快照采集用例与能力失败收敛
+│   ├── execution.py        # Agent、Turn 和工具调用执行上下文
 │   ├── session_identity.py  # 远端坐标到本地 Session 身份的确定性派生
 │   ├── run_result.py        # 单次 Run 的不可变结果值对象
 │   ├── stream_outcome.py    # 流式 Turn 终态聚合与结果构建
