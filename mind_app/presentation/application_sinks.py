@@ -12,7 +12,7 @@ from mind_app.presentation.models import (
 )
 from mind_app.presentation.terminal_text import sanitize_styled_block
 from metadata import const
-from .application import (
+from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,
     Viewport

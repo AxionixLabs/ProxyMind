@@ -168,6 +168,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/turns/projections.py",
         "application/turns/run_result.py",
         "application/turns/stream_outcome.py",
+        "ports/presentation.py",
         "harness/agents/control.py",
         "harness/agents/delivery.py",
         "harness/agents/registry.py",
@@ -3280,6 +3281,59 @@ def test_frontend_contracts_have_no_legacy_package_or_imports() -> None:
     assert not violations, "legacy frontend imports remain:\n" + "\n".join(violations)
 
 
+def test_application_presentation_ports_are_owned_by_agent() -> None:
+    """确保跨入口展示端口不再由 mind_app presentation 持有。"""
+    target_path = PROJECT_ROOT / "agent" / "ports" / "presentation.py"
+    legacy_path = PROJECT_ROOT / "mind_app" / "presentation" / "application.py"
+    assert target_path.is_file(), "application presentation port is missing"
+    assert legacy_path.is_file(), "legacy application module is missing"
+
+    target_tree = ast.parse(
+        target_path.read_text(encoding="utf-8-sig"),
+        filename=str(target_path),
+    )
+    target_definitions = {
+        node.name
+        for node in target_tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert target_definitions == {
+        "ApplicationView",
+        "Viewport",
+        "ApplicationSink",
+    }
+
+    legacy_tree = ast.parse(
+        legacy_path.read_text(encoding="utf-8-sig"),
+        filename=str(legacy_path),
+    )
+    legacy_definitions = {
+        node.name
+        for node in legacy_tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert not legacy_definitions.intersection(
+        {"ApplicationView", "Viewport", "ApplicationSink"}
+    ), "legacy presentation module still defines shared ports"
+
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.level != 0:
+                continue
+            if node.module != "mind_app.presentation.application":
+                continue
+            for alias in node.names:
+                if alias.name in {"ApplicationView", "Viewport", "ApplicationSink"}:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {alias.name}"
+                    )
+    assert not violations, "legacy shared presentation imports remain:\n" + (
+        "\n".join(violations)
+    )
+
+
 def test_tui_contracts_are_owned_by_frontends() -> None:
     """确保 TUI 展示契约独立于旧应用运行时。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "tui" / "contracts"
@@ -3705,6 +3759,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.domain.tool_policy",
         "agent.domain.execution_policy",
         "agent.ports",
+        "agent.ports.presentation",
         "agent.ports.agent_messages",
         "agent.ports.transcript",
         "agent.adapters.agents.messages",

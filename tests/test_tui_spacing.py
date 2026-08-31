@@ -27,7 +27,7 @@ from prompt_toolkit.utils import get_cwidth
 
 from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.approval.models import ApprovalDecisionValue
-from mind_app.presentation.application import ApplicationView
+from agent.ports.presentation import ApplicationView
 from mind_app.presentation.terminal.capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,

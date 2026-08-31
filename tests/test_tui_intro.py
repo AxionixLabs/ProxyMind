@@ -8,7 +8,7 @@ import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mind_app.presentation.application import ApplicationView
+from agent.ports.presentation import ApplicationView
 from frontends.tui.adapters import application as tui_application
 from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.core.render import fragments_text

@@ -13,7 +13,7 @@ from prompt_toolkit.output import DummyOutput
 
 from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.controller import Mind
-from mind_app.presentation.application import ApplicationView
+from agent.ports.presentation import ApplicationView
 from mind_app.interaction import PromptContext
 from frontends.tui.adapters.output import TuiOutputControl
 from frontends.tui.adapters.application import TuiApplicationSink

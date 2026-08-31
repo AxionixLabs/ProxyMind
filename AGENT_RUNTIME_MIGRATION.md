@@ -215,6 +215,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
      JSONL adapter 位于 `infrastructure/persistence`；旧 `mind_app/history` 包及 contract/store
      路径已删除。已通过 Transcript/TUI/Turn/Subagent/History 回归、完整架构守卫、导入图和
      `compileall`，下一条只补齐四类入口独立启动/恢复证据，再进入其他历史包删除收口。
+     跨入口应用展示端口已归入 `agent/ports/presentation.py`；前端和运行侧只依赖该端口，
+     `FrontendRuntime`、`Frontend` 仍留在现有装配边界，交互和输出生命周期未混入 ports。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -312,6 +314,12 @@ SQLite 会话游标和待分支请求状态，构造必须接收显式数据库�
 infrastructure reader；旧 `mind_app/runtime/subagents/context.py` 已删除，并通过 fork 范围、
 字符预算和无读取器失败路径回归。
 
+本次应用展示端口切片的准入与删除条件已满足：`agent/ports/presentation.py` 只依赖标准库并
+单一持有 `ApplicationView`、`ApplicationSink` 和 `Viewport`；`mind_app/presentation/application.py`
+不再重新定义这些端口，前端、入口 sink 和运行侧统一从新路径导入。跨入口展示回归 `704 passed`、
+完整架构守卫 `93 passed, 60 warnings`，端口边界守卫、导入图、`compileall` 和
+`git diff --check` 均通过。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -400,3 +408,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 将 Session history cursor 从 `mind_app/history` 迁入 `agent/stores/sessions`，由 CLI/Controller 显式注入数据库路径并删除旧 store/export | History/CLI/TUI/Controller 回归 `181 passed`；完整架构守卫 `91 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 Transcript JSONL 文件 adapter 迁入 `infrastructure/persistence`，删除 `mind_app/history` 包并让入口使用基础设施实现 | Transcript/TUI/Turn/Subagent 回归 `226 passed`；完整架构守卫 `91 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 Subagent fork history adapter 迁入 `agent/adapters/agents/fork_context.py`，改为显式 Transcript reader 注入并删除 runtime 旧模块 | Fork/Subagent/Tools 回归 `34 passed`；完整架构守卫 `92 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将跨入口应用展示端口迁入 `agent/ports/presentation.py`，清除 `mind_app.presentation.application` 的旧定义和生产导入 | 展示/CLI/TUI 回归 `704 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |

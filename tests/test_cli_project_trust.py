@@ -21,7 +21,7 @@ from mind_app.presentation.application_sinks import (
     ConsoleApplicationSink,
     JsonApplicationSink,
 )
-from mind_app.presentation.application import ApplicationView
+from agent.ports.presentation import ApplicationView
 from infrastructure.services.runtime_context import ServiceRuntimeSpec
 from agent.harness.hooks.registry import HookRegistry
 from frontends.tui.adapters.hooks import TuiHookStatusAdapter

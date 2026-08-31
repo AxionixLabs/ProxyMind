@@ -5,7 +5,7 @@ import typing
 from collections import defaultdict
 from prompt_toolkit.utils import get_cwidth
 from metadata import const
-from mind_app.presentation.application import (
+from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )

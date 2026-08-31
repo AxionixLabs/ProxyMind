@@ -4,7 +4,7 @@
 import typing
 import asyncio
 from observability import observe
-from mind_app.presentation.application import (
+from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )

@@ -12,7 +12,7 @@ from dataclasses import (
 )
 from infrastructure.platform.file_assist import FileAssist
 from infrastructure.services.runtime_setup import service_runtime_asset_missing
-from mind_app.presentation.application import ApplicationView
+from agent.ports.presentation import ApplicationView
 from agent.stores.sessions import INTERACTIVE_HISTORY_SOURCES
 from infrastructure.config.store import ConfigStoreError
 from mind_app.presentation.models import (

@@ -34,9 +34,9 @@ from infrastructure.services.service_config import ServiceConfig
 from protocol.transport.endpoints import service_endpoints
 from metadata import const
 from mind_app.controller import Mind
+from agent.ports.presentation import ApplicationView
 from mind_app.presentation.application import (
-    ApplicationView,
-    Frontend
+    Frontend,
 )
 from infrastructure.config.runtime_paths import (
     ensure_mind_home,

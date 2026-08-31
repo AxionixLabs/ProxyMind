@@ -31,7 +31,7 @@ from .dispatch import (
 )
 
 if typing.TYPE_CHECKING:
-    from mind_app.presentation.application import ApplicationSink
+    from agent.ports.presentation import ApplicationSink
 
 InterruptHandler: typing.TypeAlias = (
     typing.Callable[[int, FrameType | None], typing.Any]
@@ -130,7 +130,7 @@ def emit_entry_failure(
     phase: str
 ) -> None:
     """按照命令输出契约发送入口失败。"""
-    from mind_app.presentation.application import ApplicationView
+    from agent.ports.presentation import ApplicationView
 
     application = _entry_application(command)
 

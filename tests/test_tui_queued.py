@@ -8,7 +8,7 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.utils import get_cwidth
 from unittest.mock import Mock
 
-from mind_app.presentation.application import ApplicationView
+from agent.ports.presentation import ApplicationView
 from mind_app.interaction.contracts import PromptContext
 from mind_app.presentation.terminal.capabilities import (
     TerminalCapabilities,

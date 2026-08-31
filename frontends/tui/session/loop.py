@@ -10,7 +10,10 @@ from agent.application.turns.commands import (
     TurnApplication,
 )
 from agent.application.config.session_identity import derive_local_session_id
-from mind_app.presentation.application import ApplicationSink, ApplicationView
+from agent.ports.presentation import (
+    ApplicationSink,
+    ApplicationView,
+)
 from protocol.schema.identifiers import short_uid
 from protocol.client.fork import ResubmittablePrompt
 from ..core.runtime import (

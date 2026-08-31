@@ -4,7 +4,7 @@
 import typing
 from dataclasses import dataclass
 from infrastructure.errors import AppError
-from mind_app.presentation.application import ApplicationView
+from agent.ports.presentation import ApplicationView
 from mind_app.presentation.mcp_status import (
     McpStatusDetail,
     McpStatusView,

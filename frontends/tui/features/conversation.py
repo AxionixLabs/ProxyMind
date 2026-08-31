@@ -8,7 +8,7 @@ from agent.ports import (
     ProtocolCommandClient,
     ProtocolCommandError,
 )
-from mind_app.presentation.application import ApplicationView
+from agent.ports.presentation import ApplicationView
 from observability import (
     observe,
     observe_exception

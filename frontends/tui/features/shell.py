@@ -8,7 +8,7 @@ import ctypes
 import typing
 import asyncio
 import functools
-from mind_app.presentation.application import (
+from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )

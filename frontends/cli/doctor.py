@@ -18,7 +18,7 @@ from infrastructure.platform.shell_tools import (
     SHELL_TOOL_LAYOUT,
     executable_name
 )
-from mind_app.presentation.application import ApplicationView
+from agent.ports.presentation import ApplicationView
 from infrastructure.config.runtime_paths import (
     mind_config_path,
     mind_home

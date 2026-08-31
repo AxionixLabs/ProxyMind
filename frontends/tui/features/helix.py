@@ -5,7 +5,7 @@ import typing
 import functools
 from infrastructure.errors import AppError
 from infrastructure.platform.file_assist import FileAssist
-from mind_app.presentation.application import ApplicationView
+from agent.ports.presentation import ApplicationView
 from mind_app.presentation.mcp_status import (
     McpStatusDetail,
     McpStatusView,
