@@ -43,8 +43,8 @@ resolved/cancelled Item 不得被该水位内的旧 pending 事件重新打开�
 
 ## CLI 契约
 
-权威来源：`mind_app/cli/arguments.py`、`mind_app/cli/invocation.py`、
-`mind_app/cli/dispatch.py`、`mind_app/runtime/turns/result.py`。
+权威来源：`frontends/cli/arguments.py`、`frontends/cli/invocation.py`、
+`frontends/cli/dispatch.py`、`mind_app/runtime/turns/result.py`。
 
 | 入口 | 当前输入 | 当前输出或效果 | 迁移约束 |
 | --- | --- | --- | --- |

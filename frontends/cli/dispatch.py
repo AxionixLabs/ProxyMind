@@ -27,17 +27,17 @@ from .commands import (
     ResumeCommand,
     RuntimeCommand
 )
-from ..history import (
+from mind_app.history import (
     HISTORY_LIMIT,
     INTERACTIVE_HISTORY_SOURCES
 )
-from ..runtime.turns.root import (
+from mind_app.runtime.turns.root import (
     run_root_turn,
 )
-from ..interaction.environment import capture_active_turn_environment
+from mind_app.interaction.environment import capture_active_turn_environment
 
 if typing.TYPE_CHECKING:
-    from ..controller import Mind
+    from mind_app.controller import Mind
 
 
 async def run_selected_command(
@@ -133,8 +133,8 @@ async def run_selected_command(
             if record is None:
                 mind.task_event.set()
             else:
-                from ..tui.core.runtime import require_tui_runtime
-                from ..tui.features.history import load_history_transcript
+                from mind_app.tui.core.runtime import require_tui_runtime
+                from mind_app.tui.features.history import load_history_transcript
 
                 runtime    = require_tui_runtime(mind.frontend.runtime)
                 session_id = str(record.get("sid") or "").strip()
@@ -212,7 +212,7 @@ async def _run_tui_session(
     model: str | None
 ) -> None:
     """使用现有 TUI 生命周期运行一个交互会话。"""
-    from ..tui.session.loop import run_tui_loop
+    from mind_app.tui.session.loop import run_tui_loop
 
     for image in images:
         mind.attach.add_pending_attachments(image)
@@ -267,13 +267,13 @@ async def _select_resume_session(
             raise AppError("No resumable sessions were found.")
         return records[0]
 
-    from ..tui.core.runtime import require_tui_runtime
-    from ..tui.features.history import (
+    from mind_app.tui.core.runtime import require_tui_runtime
+    from mind_app.tui.features.history import (
         HistoryResumePreviewLoader,
         HistoryResumeTranscriptLoader,
         choose_history_session
     )
-    from ..tui.contracts.resume import ResumeRow, ResumeSessionStatus
+    from mind_app.tui.contracts.resume import ResumeRow, ResumeSessionStatus
     from dataclasses import replace
 
     async def archive_session(row: ResumeRow) -> None:

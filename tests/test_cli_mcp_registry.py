@@ -2,9 +2,9 @@
 
 from io import StringIO
 
-from mind_app.cli import mcp_registry
-from mind_app.cli.commands import McpAddCommand, McpGetCommand
-from mind_app.cli.parser import parse_cli_command
+from frontends.cli import mcp_registry
+from frontends.cli.commands import McpAddCommand, McpGetCommand
+from frontends.cli.parser import parse_cli_command
 from infrastructure.config.store import ConfigStore
 
 

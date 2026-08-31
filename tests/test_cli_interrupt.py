@@ -2,7 +2,7 @@
 
 import asyncio
 
-from mind_app.cli.entry import _InterruptController
+from frontends.cli.entry import _InterruptController
 
 
 async def _wait_forever() -> int:

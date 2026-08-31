@@ -4,15 +4,15 @@ from io import StringIO
 
 import pytest
 
-from mind_app.cli.commands import (
+from frontends.cli.commands import (
     COMPLETION_SHELLS,
     CompletionCommand,
 )
-from mind_app.cli.completion import (
+from frontends.cli.completion import (
     generate_completion_script,
     run_completion_command,
 )
-from mind_app.cli.arguments import create_cli_parser
+from frontends.cli.arguments import create_cli_parser
 
 
 @pytest.mark.parametrize("shell", COMPLETION_SHELLS)

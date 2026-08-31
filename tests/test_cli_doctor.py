@@ -5,9 +5,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from mind_app.cli import doctor
-from mind_app.cli.commands import DoctorCommand
-from mind_app.cli.doctor import (
+from frontends.cli import doctor
+from frontends.cli.commands import DoctorCommand
+from frontends.cli.doctor import (
     DoctorCheck,
     DoctorContext,
     DoctorReport,

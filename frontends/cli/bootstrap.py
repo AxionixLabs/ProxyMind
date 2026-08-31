@@ -33,7 +33,7 @@ from infrastructure.config.preferences import Preferences
 from infrastructure.services.service_config import ServiceConfig
 from protocol.transport.endpoints import service_endpoints
 from metadata import const
-from ..controller import Mind
+from mind_app.controller import Mind
 from mind_app.presentation.application import (
     ApplicationView,
     Frontend
@@ -44,7 +44,7 @@ from infrastructure.config.runtime_paths import (
     mind_reports_dir,
     process_env
 )
-from ..presentation.models import (
+from mind_app.presentation.models import (
     StyledBlock,
     TextSpan,
     TextStyle
@@ -57,12 +57,12 @@ from infrastructure.services.runtime_context import (
     ServiceRuntimeSpec,
 )
 from infrastructure.services.runtime_setup import resolve_service_runtime
-from ..runtime.mcp.service_runtime import (
+from mind_app.runtime.mcp.service_runtime import (
     ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
 )
 from infrastructure.services.helix_capability import ServerManageHelixCapability
-from ..presentation.terminal.contracts import TerminalDesign
+from mind_app.presentation.terminal.contracts import TerminalDesign
 from agent.ports import HookRegistryPort
 from agent.domain.tool_policy import ToolFilterMode
 from .commands import (
@@ -262,8 +262,8 @@ async def _run_application(
         config_resolution = config_session.resolve()
 
         if output_mode == "tui":
-            from ..tui.core.keymap import TuiRuntimeKeymap
-            from ..tui.core.runtime import require_tui_runtime
+            from mind_app.tui.core.keymap import TuiRuntimeKeymap
+            from mind_app.tui.core.runtime import require_tui_runtime
 
             tui_runtime = require_tui_runtime(frontend.runtime)
 
@@ -482,8 +482,8 @@ async def _run_controller(
 
     try:
         if output_mode == "tui":
-            from ..tui.adapters.hooks import TuiHookStatusAdapter
-            from ..tui.core.runtime import require_tui_runtime
+            from mind_app.tui.adapters.hooks import TuiHookStatusAdapter
+            from mind_app.tui.core.runtime import require_tui_runtime
 
             hook_status = TuiHookStatusAdapter(
                 require_tui_runtime(frontend.runtime)
@@ -545,8 +545,8 @@ async def _run_controller(
         )
 
         if output_mode == "tui":
-            from ..tui.core.runtime import require_tui_runtime
-            from ..tui.session.state import preload_tui_prompt_context
+            from mind_app.tui.core.runtime import require_tui_runtime
+            from mind_app.tui.session.state import preload_tui_prompt_context
 
             if interactive_tui:
                 require_tui_runtime(
@@ -623,9 +623,9 @@ async def _run_controller(
             await asyncio.gather(*startup_tasks, return_exceptions=True)
 
         if output_mode == "tui":
-            from ..tui.core.runtime import require_tui_runtime
-            from ..tui.features.helix import confirm_tui_service_runtime_startup
-            from ..tui.features.hooks import (
+            from mind_app.tui.core.runtime import require_tui_runtime
+            from mind_app.tui.features.helix import confirm_tui_service_runtime_startup
+            from mind_app.tui.features.hooks import (
                 manage_hooks,
                 review_startup_hooks
             )
@@ -710,7 +710,7 @@ async def _run_controller(
 
 async def start_tui_external_mcp(controller: Mind) -> None:
     """启动 TUI 外部 MCP 并提交最终状态。"""
-    from ..tui.features.mcp import (
+    from mind_app.tui.features.mcp import (
         finish_mcp_activity,
         render_external_mcp_start_status
     )
@@ -735,7 +735,7 @@ async def start_tui_service_runtime(
     tool_profile: ToolFilterMode = "app"
 ) -> None:
     """在 TUI 后台准备 Helix 服务运行时。"""
-    from ..tui.features.helix import (
+    from mind_app.tui.features.helix import (
         finish_helix_activity,
         link_helix_runtime,
         render_helix_link_failure,
@@ -821,7 +821,7 @@ async def finalize_application(
         await controller.close_runtime_resources()
 
     if completed and output_mode == "tui":
-        from ..tui.core.runtime import require_tui_runtime
+        from mind_app.tui.core.runtime import require_tui_runtime
 
         runtime = require_tui_runtime(controller.frontend.runtime)
 

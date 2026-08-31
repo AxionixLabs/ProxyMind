@@ -171,6 +171,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `frontends/mcp` 不再导入 `mind_app.runtime.turns.root` 或
   `mind_app.interaction.environment`；MCP 行为回归 `14 passed`，前端边界守卫通过，
   导入图无循环。
+- CLI 前端迁移已完成：`mind_app/cli` 整体归入 `frontends/cli`，命令解析、路由、TUI
+  启动、doctor、MCP registry 和进程级中断生命周期保持在同一适配器边界；CLI 回归
+  `136 passed`，TUI 启动回归 `11 passed`，旧路径归属守卫通过。
 
 警告来自测试依赖的 Nuitka `glob2` 弃用转义，不属于本次生产代码失败；下次扩大验证时
 仍需记录是否发生变化。
@@ -191,8 +194,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    组合根注入，前端适配器不再导入 `mind_app.runtime.turns` 或
    `mind_app.interaction.environment`；下一条补齐 CLI、TUI、MCP、Subscription 的独立
    启动/恢复证据。
-   stdio MCP 入站适配器及其根轮次/环境能力注入已完成；下一条只补齐 CLI、TUI、MCP、
-   Subscription 的独立启动/恢复证据，再进入具体外部 MCP capability/adapters 的职责迁移。
+   stdio MCP 入站适配器及其根轮次/环境能力注入已完成，CLI 适配器也已整体归入
+   `frontends/cli`；下一条只补齐四类入口的独立启动/恢复证据，再进入具体外部 MCP
+   capability/adapters 的职责迁移。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -223,7 +227,7 @@ HTTP/WS 客户端、wire envelope、open/resume、收件箱转发和恢复逻辑
 `mind_app` runtime 或 interaction 模块，成功、失败、取消和环境快照回归保持一致。
 
 本次 MCP stdio 前端迁移的删除条件已满足：`frontends/mcp/server.py` 单一持有 stdio
-工具发现、`mind_exec` 调用、会话续接和关闭生命周期；`mind_app.cli` 仅通过组合根注入
+工具发现、`mind_exec` 调用、会话续接和关闭生命周期；`frontends.cli` 仅通过组合根注入
 runner，不导入具体 MCP 实现；旧 `mind_app/runtime/mcp/server.py` 文件和生产导入已清零，
 并由 MCP 专项回归、CLI 入口回归、架构守卫、导入图和 `compileall` 证明行为一致。
 
@@ -231,6 +235,10 @@ runner，不导入具体 MCP 实现；旧 `mind_app/runtime/mcp/server.py` 文�
 `EnvironmentSnapshotProvider` 只作为 `frontends/mcp` 的显式能力端口，生产实现由
 `mind.py` 组合根绑定；旧根轮次与环境采集模块不再由 MCP 前端导入，MCP 续接、超时和
 失败回执保持原有语义。
+
+本次 CLI 前端迁移的删除条件已满足：`frontends/cli` 单一持有命令解析、入口中断、
+非交互执行、TUI 启动和配置管理命令；`mind.py` 只从新前端导入 `run`，旧
+`mind_app/cli` 目录和生产导入已清零，CLI/TUI 回归与架构守卫证明行为一致。
 
 ## 过渡入口与删除条件
 
@@ -312,3 +320,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-08-31 | 收口 Subscription 对旧根轮次和环境采集模块的反向依赖，改为组合根显式注入 | Subscription/TUI 回归 `88 passed`；`frontends` 旧 `mind_app` 导入守卫、Harness 边界守卫 `3 passed`；导入图无循环、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 stdio MCP 入站适配器迁入 `frontends/mcp`，CLI 通过组合根注入 runner | MCP server `14 passed`、CLI `1 passed`；MCP 归属/旧路径守卫 `2 passed`；导入图无循环、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 收口 MCP 前端对旧根轮次和环境采集模块的反向依赖，改为组合根显式注入 | MCP 回归 `14 passed`；前端边界守卫通过；导入图无循环、`compileall`、`git diff --check` 通过 |
+| 2026-08-31 | 将 CLI 命令适配器整体迁入 `frontends/cli`，清除 `mind_app/cli` 旧路径 | CLI `136 passed`、TUI 启动 `11 passed`；CLI 归属/旧路径守卫通过；导入图无循环、`compileall`、`git diff --check` 通过 |

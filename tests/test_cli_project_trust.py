@@ -10,13 +10,13 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from metadata import const
 
-from mind_app.cli import bootstrap
-from mind_app.cli.commands import (
+from frontends.cli import bootstrap
+from frontends.cli.commands import (
     AgentListenCommand,
     ExecCommand,
     InteractiveCommand,
 )
-from mind_app.cli.bootstrap import _confirm_tui_project_trust
+from frontends.cli.bootstrap import _confirm_tui_project_trust
 from mind_app.presentation.application_sinks import (
     ConsoleApplicationSink,
     JsonApplicationSink,

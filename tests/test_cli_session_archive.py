@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.cli.commands import SessionArchiveCommand
-from mind_app.cli import session_archive
+from frontends.cli.commands import SessionArchiveCommand
+from frontends.cli import session_archive
 from mind_app.history import ConversationHistoryStore
 
 

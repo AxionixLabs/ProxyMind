@@ -8,13 +8,13 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from metadata import const
 
-from mind_app.cli import (
+from frontends.cli import (
     bootstrap,
     entry,
 )
-from mind_app.cli import dispatch as cli_dispatch
-from mind_app.cli import frontend as cli_frontend
-from mind_app.cli.commands import (
+from frontends.cli import dispatch as cli_dispatch
+from frontends.cli import frontend as cli_frontend
+from frontends.cli.commands import (
     AgentListenCommand,
     CliCommand,
     CliInvocation,
@@ -32,17 +32,17 @@ from mind_app.cli.commands import (
     RuntimeUpgradeCommand,
     SessionArchiveCommand,
 )
-from mind_app.cli.frontend import (
+from frontends.cli.frontend import (
     resolve_cli_design,
     resolve_cli_frontend,
 )
-from mind_app.cli.help import (
+from frontends.cli.help import (
     ANSI_ACCENT,
     ANSI_HEADER,
     ANSI_MUTED
 )
-from mind_app.cli.arguments import create_cli_parser
-from mind_app.cli.parser import (
+from frontends.cli.arguments import create_cli_parser
+from frontends.cli.parser import (
     parse_cli_command,
     parse_cli_invocation
 )
@@ -55,8 +55,8 @@ def _runtime_services() -> SimpleNamespace:
         environment_capability=SimpleNamespace(clear_cache=Mock()),
         create_hook_registry=lambda **kwargs: HookRegistry(**kwargs),
     )
-from mind_app.cli.selection import OutputMode, resolve_cli_output_mode
-from mind_app.cli.dispatch import run_selected_command
+from frontends.cli.selection import OutputMode, resolve_cli_output_mode
+from frontends.cli.dispatch import run_selected_command
 from agent.application.turns.run_result import RunResult
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
@@ -788,7 +788,7 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> Non
 async def test_interactive_cli_resume_opens_picker_for_empty_snapshot(
     monkeypatch,
 ) -> None:
-    from mind_app.cli import dispatch as dispatch_module
+    from frontends.cli import dispatch as dispatch_module
     from mind_app.tui.core import runtime as runtime_module
     from mind_app.tui.features import history as history_module
 
@@ -831,7 +831,7 @@ async def test_interactive_cli_resume_opens_picker_for_empty_snapshot(
 
 @pytest.mark.anyio
 async def test_resume_last_empty_snapshot_keeps_direct_error() -> None:
-    from mind_app.cli import dispatch as dispatch_module
+    from frontends.cli import dispatch as dispatch_module
 
     mind = SimpleNamespace(
         history_workspace="D:/workspace",

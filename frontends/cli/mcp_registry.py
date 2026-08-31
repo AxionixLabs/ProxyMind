@@ -17,7 +17,7 @@ from infrastructure.config.runtime_paths import mind_config_path
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
-from mind_app.cli.commands import (
+from frontends.cli.commands import (
     McpAddCommand,
     McpGetCommand,
     McpListCommand,

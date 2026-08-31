@@ -3201,6 +3201,52 @@ def test_subscription_adapter_is_owned_by_frontends() -> None:
     )
 
 
+def test_cli_adapter_is_owned_by_frontends() -> None:
+    """确保 CLI 命令解析、路由和入口生命周期归入前端边界。"""
+    legacy_root = PROJECT_ROOT / "mind_app" / "cli"
+    target_root = PROJECT_ROOT / "frontends" / "cli"
+    assert not legacy_root.exists(), "legacy CLI package still exists"
+    expected_files = {
+        "__init__.py",
+        "arguments.py",
+        "bootstrap.py",
+        "commands.py",
+        "completion.py",
+        "dispatch.py",
+        "doctor.py",
+        "entry.py",
+        "frontend.py",
+        "help.py",
+        "invocation.py",
+        "mcp_parser.py",
+        "mcp_registry.py",
+        "parser.py",
+        "selection.py",
+        "session_archive.py",
+    }
+    assert {
+        path.name
+        for path in target_root.glob("*.py")
+    } == expected_files
+
+    violations: list[str] = []
+    legacy_module = "mind_app.cli"
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            if any(
+                module == legacy_module or module.startswith(legacy_module + ".")
+                for module in modules
+            ):
+                violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+    assert not violations, "legacy CLI imports remain:\n" + "\n".join(violations)
+
+
 def test_presentation_output_has_no_legacy_package_or_imports() -> None:
     """确保单轮输出会话和 sink 已归入 presentation/output 边界。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "output"
@@ -3531,8 +3577,8 @@ def test_hook_registry_is_composed_at_the_process_root() -> None:
     """确保入口只消费 Hook registry port，不直接装配具体实现。"""
     entry_paths = (
         PROJECT_ROOT / "mind_app" / "controller.py",
-        PROJECT_ROOT / "mind_app" / "cli" / "bootstrap.py",
-        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "server.py",
+        PROJECT_ROOT / "frontends" / "cli" / "bootstrap.py",
+        PROJECT_ROOT / "frontends" / "mcp" / "server.py",
     )
     violations: list[str] = []
     for path in entry_paths:

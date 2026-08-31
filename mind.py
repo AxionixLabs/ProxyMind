@@ -19,7 +19,7 @@ from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.sandbox import SandboxClient
 from infrastructure.platform.hook_command import HookCommandExecutor
 from mind_app.runtime.mcp.external import ExternalMcpRuntime
-from mind_app.cli.entry import run
+from frontends.cli.entry import run
 from frontends.mcp.server import run_mind_mcp_server
 from mind_app.native_coding import NativeCoding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager

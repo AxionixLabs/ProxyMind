@@ -70,7 +70,7 @@ from collections.abc import (
 
 ```text
 mind.py -> agent.composition
-mind.py -> mind_app.cli -> mind_app.controller
+mind.py -> frontends.cli -> mind_app.controller
                          -> mind_app.runtime / subscription / tui / output
 mind_app -> agent.application
 mind_app -> mind_core -> mind_nova

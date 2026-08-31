@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
-from mind_app.cli import bootstrap
+from frontends.cli import bootstrap
 from mind_app.controller import Mind
 from mind_app.interaction.contracts import PromptContext
 from mind_app.runtime.mcp import external
