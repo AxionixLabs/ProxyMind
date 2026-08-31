@@ -15,6 +15,7 @@ from agent.application import (
 from infrastructure.skills import skills_payload
 from protocol.transport.events import EventReport
 from agent.ports import McpSessionPort
+from agent.ports import SubagentExecutionPort
 from agent.application.execution import (
     AgentContext,
     TurnContext
@@ -38,7 +39,6 @@ from agent.application import ForkTurns, normalize_fork_turns
 from mind_app.runtime.subagents.context import build_fork_context
 from mind_app.runtime.subagents.executor import (
     StreamSubagentExecutor,
-    SubagentExecutionPort
 )
 from mind_app.runtime.subagents.delivery import (
     AgentActiveTurn,

@@ -11,17 +11,19 @@ from observability import (
 from protocol.transport.events import EventReport
 from agent.application.hook_models import SubagentStopDecision
 from agent.application import TurnExecution
+from agent.ports import (
+    McpSessionPort,
+    SubagentOperation,
+    SubagentResultValue,
+)
 from mind_app.runtime.hooks.subagent import SubagentHookEvents
 from mind_app.runtime.turns.executor import (
-    TurnResultValue,
     create_continuation_execution,
     execute_turn
 )
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
-    from agent.ports import McpSessionPort
-
 SubagentOutcome = typing.Literal[
     "completed",
     "failed",
@@ -30,20 +32,6 @@ SubagentOutcome = typing.Literal[
 ]
 
 MAX_SUBAGENT_STOP_CONTINUATIONS = 3
-
-
-class SubagentOperation(typing.Protocol[TurnResultValue]):
-    """定义使用固定 Hook 作用域执行子轮次的操作。"""
-
-    async def __call__(
-        self,
-        execution: TurnExecution,
-        session: "McpSessionPort",
-        tools: list[dict[str, typing.Any]],
-        event_report: EventReport
-    ) -> TurnResultValue:
-        """执行子轮次并返回稳定结果。"""
-        ...
 
 
 class SubagentRunner:
@@ -56,10 +44,10 @@ class SubagentRunner:
         self,
         pref_config: dict[str, typing.Any],
         execution: TurnExecution,
-        operation: SubagentOperation[TurnResultValue],
+        operation: SubagentOperation[SubagentResultValue],
         *,
         event_report: EventReport | None = None
-    ) -> TurnResultValue:
+    ) -> SubagentResultValue:
         """执行子轮次并应用开始上下文与停止继续决定。"""
         if execution.context.agent.depth == 0:
             raise ValueError("subagent execution requires a child agent context")
@@ -68,10 +56,10 @@ class SubagentRunner:
 
         async def run_child_turn(
             turn_execution: TurnExecution,
-        session: "McpSessionPort",
+            session: "McpSessionPort",
             tools: list[dict[str, typing.Any]],
             report: EventReport
-        ) -> TurnResultValue:
+        ) -> SubagentResultValue:
             """执行使用固定轮次上下文的子轮次操作。"""
             return await operation(
                 turn_execution,

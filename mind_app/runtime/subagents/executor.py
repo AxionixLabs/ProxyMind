@@ -4,32 +4,11 @@
 import typing
 from agent.application import RunResult, TurnExecution
 from protocol.transport.events import EventReport
-from protocol.schema.stream_events import StreamEvent
-from protocol.schema.turn_inputs import TurnInput
 from agent.ports import McpSessionPort
 from mind_app.presentation.output.silent import create_silent_output_session
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
-
-
-class SubagentExecutionPort(typing.Protocol):
-    """定义执行已经准备好的子模型轮次所需能力。"""
-
-    async def execute(
-        self,
-        pref_config: dict[str, typing.Any],
-        skills: list[dict[str, str]],
-        execution: TurnExecution,
-        session: McpSessionPort,
-        tools: list[dict[str, typing.Any]],
-        event_report: EventReport,
-        on_turn_input_event: (
-            typing.Callable[[StreamEvent], TurnInput | None] | None
-        ) = None,
-    ) -> RunResult:
-        """执行子模型轮次并返回结构化结果。"""
-        ...
 
 
 class StreamSubagentExecutor:
@@ -46,9 +25,7 @@ class StreamSubagentExecutor:
         session: McpSessionPort,
         tools: list[dict[str, typing.Any]],
         event_report: EventReport,
-        on_turn_input_event: (
-            typing.Callable[[StreamEvent], TurnInput | None] | None
-        ) = None,
+        on_turn_input_event: typing.Callable[..., typing.Any] | None = None,
     ) -> RunResult:
         """使用独立静默输出会话执行固定子轮次。"""
         if execution.context.agent.depth == 0:

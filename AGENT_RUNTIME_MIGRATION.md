@@ -1259,6 +1259,18 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   `compileall`、导入图和 `git diff --check` 通过。下一切片继续拆分 Subagent 执行器和 runner 的
   runtime 依赖。
 
+### 已完成切片：Turn 与 Subagent 执行端口归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将 `TurnResult`/`TurnOperation` 与输入事件回调重组到 `agent/ports/turns.py`，
+  `mind_app/runtime/turns/executor.py` 只保留模型会话生命周期、工具过滤和结果收束实现。
+- [x] 将 `SubagentExecutionPort`/`SubagentOperation` 重组到 `agent/ports/subagents.py`，
+  `StreamSubagentExecutor` 和 `SubagentRunner` 不再定义跨层协议；Subagent runtime 通过 ports 注入
+  执行端口，保留 Hook 停止决定与续跑状态机。
+- [x] Turn/Subagent/工具回归 `54 passed`，新增端口与旧 runtime contract 守卫；导入图、
+  `compileall` 和 `git diff --check` 通过。下一切片继续拆分 Subagent 流式适配器与 runtime 控制器。
+
 ### 已完成切片：上下文压缩结果与编排分离
 
 状态：已完成（2026-08-31）
@@ -1510,3 +1522,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 Hook 输入上下文归位切片 | 将 Hook 输入上下文值对象和权限模式映射重组到 `agent/application/hook_context.py`，runtime scope 仅保留 dispatcher 与生命周期实现 | Hook/Turn/压缩/Subagent/TUI 定向回归 `247 passed`，application/runtime 守卫、导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 Turn 执行契约归位切片 | 将 `TurnExecution` 提升到 `agent/application/turn_execution.py`，以 `HookExecutionScopePort` 解耦 application 与 runtime HookScope | Turn/RunResult/Stream/Subagent/TUI 与架构守卫回归 `108 passed`，导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 MCP 会话端口归位切片 | 将 `McpSessionLike` 重组为 `agent/ports/mcp_session.py` 的 `McpSessionPort`，切换所有 MCP/Turn/工具/Subagent/TUI 消费者并删除旧 runtime contract | MCP/工具/Subagent/完整架构守卫回归 `64 passed, 48 warnings`，导入图、`compileall` 和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 Turn 与 Subagent 执行端口归位切片 | 将 Turn/Subagent 调用协议重组到 `agent/ports/turns.py`、`agent/ports/subagents.py`，runtime executor/runner 只保留具体执行与状态协调 | Turn/Subagent/工具回归 `54 passed`，端口归属和旧 contract 守卫通过，导入图、`compileall` 和 `git diff --check` 通过 |

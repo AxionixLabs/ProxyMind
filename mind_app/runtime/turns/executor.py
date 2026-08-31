@@ -19,6 +19,10 @@ from agent.application import (
     TurnExecution,
 )
 from agent.application.execution import TurnContext
+from agent.ports import (
+    TurnOperation,
+    TurnResultValue,
+)
 from protocol.client.reports import (
     EventReportLifetime,
     TurnEventReportHandle,
@@ -234,36 +238,6 @@ def create_continuation_execution(
         additional_context=tuple(additional_context),
         system_message=system_message,
     )
-
-
-class TurnResult(typing.Protocol):
-    """定义模型轮次执行器返回的最小结果契约。"""
-
-    @property
-    def status(self) -> str:
-        """返回模型轮次的稳定结束状态。"""
-        ...
-
-
-TurnResultValue = typing.TypeVar(
-    "TurnResultValue",
-    bound=TurnResult,
-    covariant=True,
-)
-
-
-class TurnOperation(typing.Protocol[TurnResultValue]):
-    """定义在工具会话中执行单个模型轮次的操作。"""
-
-    async def __call__(
-        self,
-        execution: TurnExecution,
-        session: "McpSessionPort",
-        tools: list[dict[str, typing.Any]],
-        event_report: EventReport
-    ) -> TurnResultValue:
-        """执行模型轮次并返回稳定结果。"""
-        ...
 
 
 async def execute_turn(

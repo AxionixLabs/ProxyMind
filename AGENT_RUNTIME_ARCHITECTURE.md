@@ -233,6 +233,8 @@ agent/
 │   ├── hooks.py              # Hook 执行器和超限上下文 spill 端口
 │   ├── agent_messages.py    # 子 Agent 消息回执和投递端口
 │   ├── mcp_session.py       # 工具执行所需的 MCP 会话端口
+│   ├── turns.py              # 模型轮次操作和输入事件端口
+│   ├── subagents.py          # 子 Agent 执行和操作端口
 │   ├── persistence.py       # 事件、快照、历史和 outbox 端口
 │   ├── permissions.py       # 执行上下文读取权限授权端口
 │   └── observability.py     # 日志、指标和 tracing 端口
@@ -564,6 +566,8 @@ running -> cancelled
 | `mind_app/runtime/hooks/scope.py` 中的 `HookExecutionContext` | `agent/application/hook_context.py` | Hook 输入上下文只依赖 Turn、domain 事件名和 schema 构建；`HookExecutionScope` 继续持有 runtime dispatcher 和生命周期，不把具体执行器带入 application |
 | `mind_app/runtime/turns/executor.py` 中的 `TurnExecution` | `agent/application/turn_execution.py`；`HookExecutionScopePort` 归 `agent/ports/hooks.py` | Turn 执行值对象只依赖固定 scope 端口；runtime executor 保留模型执行函数和具体 scope 构造，不让 application 加载 HookRuntime |
 | `mind_app/runtime/mcp/contracts.py` 中的 `McpSessionLike` | `agent/ports/mcp_session.py` 的 `McpSessionPort` | MCP 会话能力是工具执行跨层端口；runtime/mcp 只实现 Composite session，工具、Turn、Subagent 和 TUI 通过 ports 依赖，不把 runtime contract 当作公共接口 |
+| `mind_app/runtime/turns/executor.py` 中的 `TurnResult`、`TurnOperation` | `agent/ports/turns.py` | 模型轮次操作只依赖 MCP 会话、事件报告和 TurnExecution；runtime executor 只负责会话生命周期、工具过滤和结果收束 |
+| `mind_app/runtime/subagents/executor.py`、`runner.py` 中的执行协议 | `agent/ports/subagents.py` | 子 Agent 执行与操作端口和具体流式适配分离；runtime runner 只负责 Hook 生命周期、续跑和停止决定 |
 | `mind_app/runtime/hooks/protocol.py` | `agent/application/hook_protocol.py` | Hook 进程 stdin/stdout schema、构建和校验属于 application boundary；runtime 只调用已校验的契约，不把内部 Hook 协议误并入线上 `protocol/` |
 | `mind_app/runtime/hooks/catalog.py` | `agent/application/hook_catalog.py` | Hook 管理目录、不可变状态快照和内容冲突错误属于 application contract；Controller/TUI 只消费该契约，注册器仍负责运行时装配 |
 | `mind_app/runtime/hooks/matching.py` | `agent/domain/hook_matching.py` | Hook matcher、工具 canonical 名称和别名候选属于纯领域规则；不依赖 application、runtime 或平台实现 |

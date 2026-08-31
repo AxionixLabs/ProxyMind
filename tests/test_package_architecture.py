@@ -1972,6 +1972,62 @@ def test_mcp_session_contract_is_owned_by_agent_ports() -> None:
     assert not target_violations, "MCP session port crosses its boundary:\n" + "\n".join(target_violations)
 
 
+def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
+    """确保 Turn/Subagent 调用协议不由具体 runtime executor 定义。"""
+    targets = {
+        PROJECT_ROOT / "agent" / "ports" / "turns.py": {
+            "TurnInputEventHandler",
+            "TurnOperation",
+            "TurnResultPort",
+        },
+        PROJECT_ROOT / "agent" / "ports" / "subagents.py": {
+            "SubagentExecutionPort",
+            "SubagentOperation",
+        },
+    }
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "executor.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "executor.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runner.py",
+    )
+
+    for target_path, expected_classes in targets.items():
+        assert target_path.is_file(), f"execution port is missing: {target_path}"
+        tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+        classes = {
+            node.name
+            for node in tree.body
+            if isinstance(node, ast.ClassDef)
+        }
+        assert classes == expected_classes
+        violations: list[str] = []
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                    violations.append(
+                        f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+        assert not violations, "execution port crosses its boundary:\n" + "\n".join(violations)
+
+    legacy_violations: list[str] = []
+    for path in legacy_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef) and node.name in {
+                "TurnResult",
+                "TurnOperation",
+                "SubagentExecutionPort",
+                "SubagentOperation",
+            }:
+                legacy_violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {node.name}")
+    assert not legacy_violations, "runtime execution contracts remain:\n" + "\n".join(legacy_violations)
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (

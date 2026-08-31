@@ -55,6 +55,17 @@ from .agent_messages import (
     AgentMessageReceiptStatus,
 )
 from .mcp_session import McpSessionPort
+from .subagents import (
+    SubagentExecutionPort,
+    SubagentOperation,
+    SubagentResultValue,
+)
+from .turns import (
+    TurnInputEventHandler,
+    TurnOperation,
+    TurnResultPort,
+    TurnResultValue,
+)
 
 __all__ = (
     "EffectIntent",
@@ -91,6 +102,13 @@ __all__ = (
     "AgentMessageReceipt",
     "AgentMessageReceiptStatus",
     "McpSessionPort",
+    "SubagentExecutionPort",
+    "SubagentOperation",
+    "SubagentResultValue",
+    "TurnInputEventHandler",
+    "TurnOperation",
+    "TurnResultPort",
+    "TurnResultValue",
     "TurnExecutor",
     "TurnExecutorResult",
     "HookCommandResult",
