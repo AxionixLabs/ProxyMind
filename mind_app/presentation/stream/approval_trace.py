@@ -5,11 +5,11 @@ import typing
 import unicodedata
 from metadata import const
 from mind_app.approval.policy import approval_execpolicy_amendment
-from mind_app.presentation.models import (
-    ApprovalSource,
+from agent.ports.presentation import (
     TextSpan,
     TextStyle
 )
+from mind_app.presentation.models import ApprovalSource
 from .command_preview import command_preview
 from .tool_traces import (
     TITLE_STYLE,

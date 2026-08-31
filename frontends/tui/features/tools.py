@@ -10,7 +10,7 @@ from agent.ports.presentation import (
     ApplicationView
 )
 from agent.ports import McpSessionPort
-from mind_app.presentation.models import (
+from agent.ports.presentation import (
     TextSpan,
     TextStyle
 )

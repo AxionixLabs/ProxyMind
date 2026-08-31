@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.presentation.models import StyledBlock, TextSpan, TextStyle
+from agent.ports.presentation import (
+    StyledBlock,
+    TextSpan,
+    TextStyle,
+)
 from mind_app.presentation.terminal_text import (
     TerminalTextFilter,
     sanitize_terminal_line,

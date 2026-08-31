@@ -15,7 +15,7 @@ from infrastructure.services.runtime_setup import service_runtime_asset_missing
 from agent.ports.presentation import ApplicationView
 from agent.stores.sessions import INTERACTIVE_HISTORY_SOURCES
 from infrastructure.config.store import ConfigStoreError
-from mind_app.presentation.models import (
+from agent.ports.presentation import (
     StyledBlock,
     TextSpan
 )

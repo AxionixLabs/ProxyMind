@@ -13,7 +13,7 @@ from mind_app.presentation.terminal.palette import (
     selection_color,
     semantic_color
 )
-from mind_app.presentation.models import (
+from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle

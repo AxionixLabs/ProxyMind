@@ -34,7 +34,12 @@ from infrastructure.services.service_config import ServiceConfig
 from protocol.transport.endpoints import service_endpoints
 from metadata import const
 from mind_app.controller import Mind
-from agent.ports.presentation import ApplicationView
+from agent.ports.presentation import (
+    ApplicationView,
+    StyledBlock,
+    TextSpan,
+    TextStyle,
+)
 from mind_app.presentation.application import (
     Frontend,
 )
@@ -43,11 +48,6 @@ from infrastructure.config.runtime_paths import (
     mind_config_path,
     mind_reports_dir,
     process_env
-)
-from mind_app.presentation.models import (
-    StyledBlock,
-    TextSpan,
-    TextStyle
 )
 from observability.reporting import RunReport
 from infrastructure.platform.shell_tools import route_shell_tools

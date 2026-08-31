@@ -25,7 +25,8 @@ from mind_app.presentation.renderers.tool import (
     render_tool_start_view,
 )
 from mind_app.presentation.renderers.hook import render_hook_run_view
-from mind_app.presentation.models import HookOutputView, HookRunView, TextStyle
+from agent.ports.presentation import TextStyle
+from mind_app.presentation.models import HookOutputView, HookRunView
 from mind_app.presentation.renderers.patch import (
     PATCH_ADD_STYLE,
     PATCH_ERROR_STYLE,

@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import re
-from mind_app.presentation.models import (
+from agent.ports.presentation import (
     TextSpan,
     TextStyle
 )

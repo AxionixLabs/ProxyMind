@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
+from agent.ports.presentation import TextSpan
 from mind_app.presentation.models import (
     PlanItemView,
     PlanStepsStartView,
     PlanUpdateView,
-    TextSpan,
 )
 from mind_app.presentation.renderers.plan import (
     render_plan_steps_start_view,

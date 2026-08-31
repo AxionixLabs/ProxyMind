@@ -215,8 +215,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
      JSONL adapter 位于 `infrastructure/persistence`；旧 `mind_app/history` 包及 contract/store
      路径已删除。已通过 Transcript/TUI/Turn/Subagent/History 回归、完整架构守卫、导入图和
      `compileall`，下一条只补齐四类入口独立启动/恢复证据，再进入其他历史包删除收口。
-     跨入口应用展示端口已归入 `agent/ports/presentation.py`；前端和运行侧只依赖该端口，
-     `FrontendRuntime`、`Frontend` 仍留在现有装配边界，交互和输出生命周期未混入 ports。
+      跨入口应用展示端口已归入 `agent/ports/presentation.py`；前端和运行侧只依赖该端口，
+      `FrontendRuntime`、`Frontend` 仍留在现有装配边界，交互和输出生命周期未混入 ports。
+      下一切片迁移 `TextStyle`、`TextSpan`、`StyledBlock` 三个纯展示值对象到同一端口，
+      其余带工具/计划语义的 presentation view 暂留实现边界。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -320,6 +322,11 @@ infrastructure reader；旧 `mind_app/runtime/subagents/context.py` 已删除，
 完整架构守卫 `93 passed, 60 warnings`，端口边界守卫、导入图、`compileall` 和
 `git diff --check` 均通过。
 
+本次文本展示值对象切片的准入条件：`agent/ports/presentation.py` 单一持有
+`TextStyle`、`TextSpan`、`StyledBlock` 及应用展示端口；`mind_app.presentation.models`
+不得重新定义这些无业务语义的值对象，前端、输出端口和渲染器统一从新路径导入。删除条件是
+旧定义和生产导入清零，文本/终端/输出回归、端口边界守卫、导入图和 `compileall` 均通过。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -409,3 +416,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 将 Transcript JSONL 文件 adapter 迁入 `infrastructure/persistence`，删除 `mind_app/history` 包并让入口使用基础设施实现 | Transcript/TUI/Turn/Subagent 回归 `226 passed`；完整架构守卫 `91 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 Subagent fork history adapter 迁入 `agent/adapters/agents/fork_context.py`，改为显式 Transcript reader 注入并删除 runtime 旧模块 | Fork/Subagent/Tools 回归 `34 passed`；完整架构守卫 `92 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将跨入口应用展示端口迁入 `agent/ports/presentation.py`，清除 `mind_app.presentation.application` 的旧定义和生产导入 | 展示/CLI/TUI 回归 `704 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将 `TextStyle`、`TextSpan`、`StyledBlock` 三个纯展示值对象迁入 `agent/ports/presentation.py`，清除 `mind_app.presentation.models` 的旧定义和生产导入 | 文本/渲染/输出/CLI/TUI 回归 `905 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |

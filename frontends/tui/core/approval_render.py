@@ -24,9 +24,7 @@ from mind_app.approval.policy import (
     approval_decision_label,
 )
 from mind_app.presentation.stream.tool_traces.command_parts import render_command_parts
-from mind_app.presentation.models import (
-    StyledBlock
-)
+from agent.ports.presentation import StyledBlock
 from mind_app.presentation.renderers.patch import render_patch_view
 from mind_app.presentation.styles import (
     COMMAND_STYLE,

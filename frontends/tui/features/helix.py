@@ -12,7 +12,7 @@ from mind_app.presentation.mcp_status import (
     inbuild_status_view,
     render_mcp_status_block,
 )
-from mind_app.presentation.models import (
+from agent.ports.presentation import (
     StyledBlock,
     TextSpan
 )

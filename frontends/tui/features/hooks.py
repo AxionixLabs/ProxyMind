@@ -9,7 +9,7 @@ from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )
-from mind_app.presentation.models import TextSpan
+from agent.ports.presentation import TextSpan
 from agent.application.hooks.catalog import (
     HookCatalogEntry,
     HookCatalogSnapshot

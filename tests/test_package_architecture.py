@@ -3301,6 +3301,9 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
         "ApplicationView",
         "Viewport",
         "ApplicationSink",
+        "TextStyle",
+        "TextSpan",
+        "StyledBlock",
     }
 
     legacy_tree = ast.parse(
@@ -3316,6 +3319,20 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
         {"ApplicationView", "Viewport", "ApplicationSink"}
     ), "legacy presentation module still defines shared ports"
 
+    model_path = PROJECT_ROOT / "mind_app" / "presentation" / "models.py"
+    model_tree = ast.parse(
+        model_path.read_text(encoding="utf-8-sig"),
+        filename=str(model_path),
+    )
+    model_definitions = {
+        node.name
+        for node in model_tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert not model_definitions.intersection(
+        {"TextStyle", "TextSpan", "StyledBlock"}
+    ), "legacy models module still defines shared text values"
+
     violations: list[str] = []
     for path in PROJECT_ROOT.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
@@ -3323,9 +3340,13 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
             if not isinstance(node, ast.ImportFrom) or node.level != 0:
                 continue
             if node.module != "mind_app.presentation.application":
-                continue
+                if node.module != "mind_app.presentation.models":
+                    continue
+                moved_names = {"TextStyle", "TextSpan", "StyledBlock"}
+            else:
+                moved_names = {"ApplicationView", "Viewport", "ApplicationSink"}
             for alias in node.names:
-                if alias.name in {"ApplicationView", "Viewport", "ApplicationSink"}:
+                if alias.name in moved_names:
                     violations.append(
                         f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {alias.name}"
                     )

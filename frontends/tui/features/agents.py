@@ -11,7 +11,7 @@ from agent.stores.transcripts import (
     TranscriptEntry,
     TranscriptReplay,
 )
-from mind_app.presentation.models import TextSpan
+from agent.ports.presentation import TextSpan
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from agent.application.agents.views import AgentSnapshot
 from agent.harness.agents.control import AgentNotFoundError

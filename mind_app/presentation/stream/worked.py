@@ -3,9 +3,11 @@
 
 from agent.ports.presentation import (
     ApplicationSink,
-    ApplicationView
+    ApplicationView,
+    StyledBlock,
+    TextSpan,
+    TextStyle,
 )
-from mind_app.presentation.models import StyledBlock, TextSpan, TextStyle
 from mind_app.presentation.stream.compact_rule import full_rule_width
 from mind_app.presentation.formatting import format_elapsed
 

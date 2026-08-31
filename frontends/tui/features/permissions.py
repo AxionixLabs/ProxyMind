@@ -8,7 +8,7 @@ from agent.domain.policies import (
     permission_label,
     preset_permissions
 )
-from mind_app.presentation.models import (
+from agent.ports.presentation import (
     TextSpan,
     TextStyle
 )

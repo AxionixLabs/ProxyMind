@@ -11,13 +11,15 @@ from mind_app.presentation.terminal.capabilities import (
 )
 from mind_app.presentation.terminal.palette import best_color, is_light_color
 from mind_app.presentation.code_highlight import highlight_code_lines
+from agent.ports.presentation import (
+    StyledBlock,
+    TextSpan,
+    TextStyle,
+)
 from mind_app.presentation.models import (
     PatchFileView,
     PatchLineView,
     PatchView,
-    StyledBlock,
-    TextSpan,
-    TextStyle
 )
 from mind_app.presentation.text_layout import (
     wrap_styled_line,

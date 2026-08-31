@@ -3,11 +3,11 @@
 
 import re
 import typing
-from mind_app.presentation.models import (
+from agent.ports.presentation import (
     TextSpan,
     TextStyle,
-    TracePreview
 )
+from mind_app.presentation.models import TracePreview
 from mind_app.presentation.text_layout import (
     clip_display_text,
     text_display_width

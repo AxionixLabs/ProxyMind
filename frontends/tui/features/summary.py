@@ -8,7 +8,7 @@ from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )
-from mind_app.presentation.models import TextStyle
+from agent.ports.presentation import TextStyle
 from ..core.models import FragmentBlock
 from ..rendering.fragments import clip_text
 from ..core.styles import prompt_style

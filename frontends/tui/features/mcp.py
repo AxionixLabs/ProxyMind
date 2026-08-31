@@ -11,7 +11,10 @@ from mind_app.presentation.mcp_status import (
     external_mcp_status_view,
     render_mcp_status_block,
 )
-from mind_app.presentation.models import TextSpan, TextStyle
+from agent.ports.presentation import (
+    TextSpan,
+    TextStyle,
+)
 from ..core.models import (
     MenuDescriptionLayout,
     MenuOption,

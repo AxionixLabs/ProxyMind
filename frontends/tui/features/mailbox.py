@@ -10,7 +10,7 @@ from mind_app.presentation.mcp_status import (
     McpStatusView,
     render_mcp_status_block,
 )
-from mind_app.presentation.models import TextSpan
+from agent.ports.presentation import TextSpan
 from ..core.models import (
     CLOSE_MENU_FOOTER_HINT,
     MailboxEntry,

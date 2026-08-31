@@ -3,12 +3,14 @@
 
 import typing
 from mind_app.presentation.formatting import format_duration_ms
+from agent.ports.presentation import (
+    StyledBlock,
+    TextSpan,
+    TextStyle,
+)
 from mind_app.presentation.models import (
     HookOutputView,
     HookRunView,
-    StyledBlock,
-    TextSpan,
-    TextStyle
 )
 from mind_app.presentation.styles import (
     ERROR_DOT_STYLE,

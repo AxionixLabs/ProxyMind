@@ -6,15 +6,13 @@ import sys
 import json
 import shutil
 import typing
-from mind_app.presentation.models import (
-    StyledBlock,
-    TextStyle
-)
 from mind_app.presentation.terminal_text import sanitize_styled_block
 from metadata import const
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,
+    StyledBlock,
+    TextStyle,
     Viewport
 )
 

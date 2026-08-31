@@ -17,7 +17,7 @@ from mind_app.presentation.mcp_status import (
     external_mcp_status_view,
     render_mcp_status_block,
 )
-from mind_app.presentation.models import (
+from agent.ports.presentation import (
     StyledBlock,
     TextSpan
 )

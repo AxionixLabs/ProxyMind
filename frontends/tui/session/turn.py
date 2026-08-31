@@ -9,7 +9,7 @@ from agent.ports.presentation import (
     ApplicationView
 )
 from agent.ports import McpSessionPort
-from mind_app.presentation.models import TextSpan
+from agent.ports.presentation import TextSpan
 from protocol.transport.events import EventReport
 from metadata import const
 from agent.domain.policies import PermissionSettings

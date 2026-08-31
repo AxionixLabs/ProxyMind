@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
+from agent.ports.presentation import TextSpan
 from mind_app.presentation.models import (
     FailureView,
     RunIncompleteView,
-    TextSpan
 )
 from mind_app.presentation.renderers.dispatch import (
     render_presentation_transcript_view,

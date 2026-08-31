@@ -17,7 +17,7 @@ from mind_app.presentation.code_highlight import (
     StreamingCodeHighlighter,
     code_token_style
 )
-from mind_app.presentation.models import (
+from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle

@@ -7,7 +7,7 @@ import typing
 import asyncio
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.utils import get_cwidth
-from mind_app.presentation.models import TextSpan
+from agent.ports.presentation import TextSpan
 from mind_app.presentation.terminal_text import sanitize_terminal_text
 from agent.ports.presentation import (
     ApplicationSink,

@@ -11,7 +11,7 @@ from agent.ports.presentation import (
     ApplicationView,
     Viewport
 )
-from mind_app.presentation.models import (
+from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle

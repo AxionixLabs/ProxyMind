@@ -12,6 +12,10 @@ from mind_app.presentation.contracts import (
     PresentationSink,
     PresentationView
 )
+from agent.ports.presentation import (
+    StyledBlock,
+    TextSpan,
+)
 from mind_app.presentation.models import (
     ApprovalView,
     BatchCompletedView,
@@ -27,8 +31,6 @@ from mind_app.presentation.models import (
     ProgressView,
     RunCompletedView,
     RunIncompleteView,
-    StyledBlock,
-    TextSpan,
     ToolStartView
 )
 from mind_app.presentation.renderers.dispatch import (

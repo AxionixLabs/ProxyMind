@@ -6,6 +6,11 @@ from dataclasses import (
     dataclass,
     field
 )
+from agent.ports.presentation import (
+    StyledBlock,
+    TextSpan,
+    TextStyle,
+)
 from mind_app.approval.models import ApprovalDecisionValue
 
 PlanStatus = typing.Literal[
@@ -73,37 +78,6 @@ HookOutputKind = typing.Literal[
     "context",
     "error",
 ]
-
-@dataclass(frozen=True, slots=True)
-class TextStyle(object):
-    """描述与终端实现无关的文本样式。"""
-    foreground: str | None = None
-    background: str | None = None
-    bold: bool = False
-    dim: bool = False
-    italic: bool = False
-    underline: bool = False
-    reverse: bool = False
-    strikethrough: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class TextSpan(object):
-    """保存一段文本及其中立样式。"""
-    text: str = field()
-    style: TextStyle = TextStyle()
-    hyperlink: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class StyledBlock(object):
-    """保存一个结构化文本块及其纯文本表示。"""
-    plain_text: str
-    spans: tuple[TextSpan, ...] = ()
-    preserve_spans: bool = False
-    direct: bool = False
-    line_fill_styles: tuple[TextStyle | None, ...] = ()
-
 
 @dataclass(frozen=True, slots=True)
 class RunStartedView(object):

@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.presentation.models import TextSpan, TextStyle
+from agent.ports.presentation import (
+    TextSpan,
+    TextStyle,
+)
 
 LIFECYCLE_DOT_STYLE   = TextStyle(foreground="#8A929C", bold=True)
 LIFECYCLE_TITLE_STYLE = TextStyle(foreground="#C9D3DE", bold=True)

@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.presentation.models import TextSpan
+from agent.ports.presentation import TextSpan
 from .common import (
     TracePreview,
     _normalize_preview_lines,

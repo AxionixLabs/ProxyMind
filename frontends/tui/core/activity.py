@@ -11,7 +11,7 @@ from mind_app.presentation.application import (
     ActivityStatusKind,
     WaitRetryState
 )
-from mind_app.presentation.models import TextStyle
+from agent.ports.presentation import TextStyle
 from mind_app.presentation.renderers.upload import (
     upload_idle_block,
     upload_progress_block,

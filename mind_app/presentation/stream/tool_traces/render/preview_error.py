@@ -3,7 +3,10 @@
 
 import re
 import typing
-from mind_app.presentation.models import TextSpan, TextStyle
+from agent.ports.presentation import (
+    TextSpan,
+    TextStyle,
+)
 
 from mind_app.presentation.styles import (
     ERROR_PREVIEW_HEAD_STYLE,
