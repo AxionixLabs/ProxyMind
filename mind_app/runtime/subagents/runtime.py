@@ -20,7 +20,7 @@ from agent.ports import (
     SubagentOperation,
     TurnInputEventHandler,
 )
-from agent.adapters import StreamSubagentExecution
+from agent.adapters.subagent_execution import StreamSubagentExecution
 from agent.harness.subagent_runner import SubagentRunner
 from agent.application.execution import (
     AgentContext,
