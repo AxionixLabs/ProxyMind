@@ -25,6 +25,7 @@ from agent.ports import (
 )
 from agent.adapters.subagent_execution import StreamSubagentExecution
 from agent.harness.subagent_runner import SubagentRunner
+from agent.harness.agent_registry import AgentControlRegistry
 from agent.application.execution import (
     AgentContext,
     TurnContext
@@ -97,7 +98,6 @@ class SubagentRuntime:
             raise TypeError("subagent runtime enabled state must be a boolean")
 
         self._controller       = controller
-        self._enabled          = enabled
         self._settings         = settings or AgentSettings()
         self._executor         = executor or StreamSubagentExecution(self._run_stream)
         self._message_delivery = message_delivery or SteeringMessageDelivery()
@@ -116,11 +116,11 @@ class SubagentRuntime:
             turn_runner=self._run_turn,
             cleanup=controller,
         )
-        self._lock                = asyncio.Lock()
-        self._controls: dict[str, AgentControl] = {}
+        self._control_registry = AgentControlRegistry(
+            self._build_control,
+            enabled=enabled,
+        )
         self._active_deliveries = AgentDeliveryRegistry()
-
-        self._shutdown: bool = False
 
     async def _run_turn(
         self,
@@ -174,7 +174,7 @@ class SubagentRuntime:
     @property
     def enabled(self) -> bool:
         """返回运行时是否允许创建和控制子执行主体。"""
-        return self._enabled
+        return self._control_registry.enabled
 
     async def spawn(
         self,
@@ -413,10 +413,11 @@ class SubagentRuntime:
         root_session_id: str
     ) -> tuple[AgentSnapshot, ...]:
         """关闭并移除指定根会话的执行树。"""
-        normalized = _normalize_root_session_id(root_session_id)
+        normalized = str(root_session_id or "").strip()
+        if not normalized:
+            raise ValueError("root session id is required")
 
-        async with self._lock:
-            control = self._controls.pop(normalized, None)
+        control = await self._control_registry.remove(normalized)
         await self._active_deliveries.close(normalized)
         if control is None:
             return ()
@@ -428,18 +429,13 @@ class SubagentRuntime:
 
     async def shutdown(self) -> None:
         """终止运行时并关闭全部根会话执行树。"""
-        async with self._lock:
-            if self._shutdown:
-                return None
-            self._shutdown = True
-            controls = self._controls
-            self._controls = {}
+        controls = await self._control_registry.shutdown()
 
         await self._active_deliveries.close()
 
         if controls:
             await asyncio.gather(
-                *(control.shutdown() for control in controls.values()),
+                *(control.shutdown() for control in controls),
                 return_exceptions=False,
             )
         if self._graph_persistence is not None:
@@ -588,24 +584,10 @@ class SubagentRuntime:
         create_empty: bool = True,
     ) -> AgentControl:
         """返回或创建根会话对应的执行控制器。"""
-        normalized = _normalize_root_session_id(root_session_id)
-
-        async with self._lock:
-            self._require_active()
-            if not self._enabled:
-                raise AgentStateError("subagent runtime is disabled")
-
-            control = self._controls.get(normalized)
-            if control is None:
-                checkpoint = await self._load_checkpoint(normalized)
-                if checkpoint is None and not create_empty:
-                    raise AgentNotFoundError(
-                        f"agent root session not found: {normalized}"
-                    )
-                control = self._create_control(normalized, checkpoint)
-                self._controls[normalized] = control
-
-            return control
+        return await self._control_registry.get(
+            root_session_id,
+            create_empty=create_empty,
+        )
 
     async def _existing_control(self, root_session_id: str) -> AgentControl:
         """返回已经建立的根会话执行控制器。"""
@@ -634,12 +616,18 @@ class SubagentRuntime:
                 f"agent graph restore failed: {root_session_id}"
             ) from error
 
-    def _create_control(
+    async def _build_control(
         self,
         root_session_id: str,
-        checkpoint: AgentGraphCheckpoint | None,
+        create_empty: bool,
     ) -> AgentControl:
         """创建空控制树或从已校验快照重建。"""
+        checkpoint = await self._load_checkpoint(root_session_id)
+        if checkpoint is None and not create_empty:
+            raise AgentNotFoundError(
+                f"agent root session not found: {root_session_id}"
+            )
+
         publisher = (
             self._graph_persistence.publish
             if self._graph_persistence is not None
@@ -665,11 +653,6 @@ class SubagentRuntime:
             checkpoint_publisher=publisher,
         )
 
-    def _require_active(self) -> None:
-        """确认运行时仍可接受操作。"""
-        if self._shutdown:
-            raise AgentStateError("subagent runtime is shut down")
-
 
 def _normalize_task(message: str) -> str:
     """返回非空的子轮次任务文本。"""
@@ -679,14 +662,6 @@ def _normalize_task(message: str) -> str:
         raise ValueError("subagent task is required")
 
     return message
-
-
-def _normalize_root_session_id(value: str) -> str:
-    """返回非空的根会话标识。"""
-    normalized = str(value or "").strip()
-    if not normalized:
-        raise ValueError("root session id is required")
-    return normalized
 
 
 if __name__ == '__main__':

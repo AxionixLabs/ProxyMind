@@ -1824,6 +1824,45 @@ def test_agent_views_are_owned_by_application() -> None:
     assert not control_classes.intersection(target_classes)
 
 
+def test_agent_control_registry_owns_root_lifecycle() -> None:
+    """确保根会话 control 注册表属于 Harness，runtime 不再持有生命周期状态。"""
+    registry_path = PROJECT_ROOT / "agent" / "harness" / "agent_registry.py"
+    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py"
+    assert registry_path.is_file(), "agent control registry is missing"
+    assert runtime_path.is_file(), "subagent runtime is missing"
+
+    registry_tree = ast.parse(registry_path.read_text(encoding="utf-8-sig"), filename=str(registry_path))
+    registry_classes = {
+        node.name
+        for node in registry_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert registry_classes == {"AgentControlRegistry"}
+
+    registry_violations: list[str] = []
+    for node in ast.walk(registry_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                registry_violations.append(
+                    f"{registry_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not registry_violations, "agent control registry crosses legacy boundary:\n" + "\n".join(registry_violations)
+
+    runtime_tree = ast.parse(runtime_path.read_text(encoding="utf-8-sig"), filename=str(runtime_path))
+    forbidden_attributes = {"_controls", "_lock", "_shutdown"}
+    runtime_attributes = {
+        node.attr
+        for node in ast.walk(runtime_tree)
+        if isinstance(node, ast.Attribute)
+    }
+    assert not runtime_attributes.intersection(forbidden_attributes)
+
+
 def test_subagent_message_delivery_has_port_and_adapter_owners() -> None:
     """确保子 Agent 消息投递的端口、适配和 Harness 状态各自归属。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "delivery.py"

@@ -1359,6 +1359,16 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] AgentControl/graph/Subagent/TUI 回归通过，新增视图边界守卫；`compileall`、导入图和
   `git diff --check` 通过。下一切片继续拆分 SubagentRuntime 的外部资源协调和 mailbox 投递状态。
 
+### 已完成切片：Agent 根会话注册表归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将 SubagentRuntime 持有的根会话 control 字典、并发锁和 shutdown 生命周期重组到
+  `agent/harness/agent_registry.py` 的 `AgentControlRegistry`；恢复/创建通过显式 control factory 注入。
+- [x] runtime 仅保留 graph store/persistence 和业务执行绑定，注册表统一负责 control 的串行复用、移除和批量关闭；保持禁用、缺失根会话和重复关闭语义不变。
+- [x] 新增注册表行为与架构边界守卫；Subagent/runtime/graph 回归通过，`compileall`、导入图和
+  `git diff --check` 通过。下一切片继续审计 SubagentRuntime 的上下文构造与外部资源适配边界。
+
 ### 已完成切片：上下文压缩结果与编排分离
 
 状态：已完成（2026-08-31）
@@ -1618,3 +1628,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 Agent 活动投递状态归位 | 将 AgentActiveTurn/AgentMessageDispatch 重组到 `agent/harness/agent_delivery.py`，切换 SubagentRuntime/TUI/测试并删除旧 runtime delivery | Agent delivery/Subagent/TUI/架构守卫回归通过，导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 活动投递注册表归位 | 将 SubagentRuntime 活动 Turn 字典/锁抽取为 Harness `AgentDeliveryRegistry`，runtime 仅使用注册表端口 | Agent delivery/Subagent/graph/TUI 回归 `83 passed, 1 warning`，delivery 守卫、导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 Agent 只读视图归位 | 将 AgentSnapshot/AgentWaitResult/AgentMailboxWaitResult 重组到 `agent/application/agent_views.py`，Harness control 只保留可变状态机 | AgentControl/graph/Subagent/TUI/视图守卫回归通过，导入图、`compileall` 和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 Agent 根会话注册表归位 | 将 SubagentRuntime 根会话 control 字典、生命周期锁和 shutdown 状态重组到 `agent/harness/agent_registry.py`，以显式 factory 负责恢复/创建 | 注册表/AgentControl/Subagent/runtime/架构守卫回归通过，导入图、`compileall` 和 `git diff --check` 通过 |

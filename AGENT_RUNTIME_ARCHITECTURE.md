@@ -206,6 +206,7 @@ agent/
 │   ├── subagent_runner.py   # 子 Agent Hook 生命周期和续跑协调
 │   ├── agent_control.py     # Agent 树状态机、队列和 mailbox 协调
 │   ├── agent_delivery.py    # 活动 Turn 投递状态和消息回执
+│   ├── agent_registry.py     # 根会话 control 注册、恢复和关闭生命周期
 │   ├── scheduler.py         # Run 调度、并发上限和公平性
 │   ├── supervisor.py        # 子任务、断线和关闭收束
 │   └── recovery.py          # 快照恢复、未完成命令和效果对账
@@ -507,6 +508,7 @@ running -> cancelled
 | `mind_app/runtime/turns/stream.py`、`stream_model.py` | `harness/session_loop.py`、`application/turn_pipeline.py`、TUI adapter | 输入准备、终态、工具交付、资源收尾和回合展示已拆到具名所有者；模型 presenter 只消费 Protocol Client current/active/audit Item 投影并持有 Transcript 交付水位，RunResult、Stop Hook、最后回复和 sources 均读取 canonical 投影；`stream.py` 暂留迁移期事件路由，所有模型/工具/审批/效果命令均走 Protocol Client |
 | `mind_app/runtime/mcp/*`、`subscription/lifecycle.py` | capabilities、adapters、harness supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
 | `mind_app/runtime/subagents/control.py` | `agent/harness/agent_control.py`；状态值对象归 `agent/domain/agents.py`、图归 `agent/stores/agent_graph.py` | AgentControl 只保留可变树调度、mailbox 协调和观察快照；Harness 持有状态机，domain/stores 不反向依赖它 |
+| `SubagentRuntime._controls`、根会话生命周期锁 | `agent/harness/agent_registry.py` | AgentControlRegistry 串行管理根会话 control 的创建、恢复、移除和关闭；runtime 不再持有执行树注册表或 shutdown 状态 |
 | `AgentSnapshot`、`AgentWaitResult`、`AgentMailboxWaitResult` | `agent/application/agent_views.py` | 跨 TUI、工具和 runtime 的只读 Agent 视图归 application；Harness control 只创建视图，不拥有公共值对象 |
 | `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 图快照、SQLite 存储和持久化单写者归入 stores，存储实现不得进入 domain |
 | `AgentSubmission`、Agent 状态字面量 | `agent/domain/agents.py` | 任务提交和状态分类只依赖协议标识与标准库，供 control、stores 和后续 Harness 调度复用 |

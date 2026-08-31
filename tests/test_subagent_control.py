@@ -15,6 +15,7 @@ from agent.harness.agent_control import (
     AgentNotFoundError,
     AgentStateError,
 )
+from agent.harness.agent_registry import AgentControlRegistry
 from agent.application import AgentThreadContext
 
 
@@ -45,6 +46,46 @@ def _control(
         max_open_agents=max_open_agents,
         max_depth=max_depth,
     )
+
+
+@pytest.mark.anyio
+async def test_agent_control_registry_owns_root_lifecycle() -> None:
+    """注册表应串行复用 control，并在关闭后拒绝新建。"""
+    created: list[tuple[str, bool]] = []
+
+    async def factory(root_session_id: str, create_empty: bool) -> AgentControl:
+        created.append((root_session_id, create_empty))
+        return _control()
+
+    registry = AgentControlRegistry(factory)
+    first = await registry.get("root-a")
+    second = await registry.get("root-a", create_empty=False)
+
+    assert first is second
+    assert created == [("root-a", True)]
+    assert await registry.get("root-b") is not first
+
+    controls = await registry.shutdown()
+    assert len(controls) == 2
+    assert controls[0] is first
+    assert await registry.shutdown() == ()
+    with pytest.raises(AgentStateError, match="shut down"):
+        await registry.get("root-c")
+
+
+@pytest.mark.anyio
+async def test_agent_control_registry_rejects_disabled_and_invalid_roots() -> None:
+    """禁用或空根会话不能绕过注册表边界。"""
+    async def factory(root_session_id: str, create_empty: bool) -> AgentControl:
+        return _control()
+
+    disabled = AgentControlRegistry(factory, enabled=False)
+    with pytest.raises(AgentStateError, match="disabled"):
+        await disabled.get("root-a")
+
+    registry = AgentControlRegistry(factory)
+    with pytest.raises(ValueError, match="root session id"):
+        await registry.get("  ")
 
 
 def _thread(
