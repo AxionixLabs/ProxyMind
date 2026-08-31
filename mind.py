@@ -124,4 +124,6 @@ if __name__ == "__main__":
             turn_runner=run_root_turn,
             environment_snapshot_provider=capture_turn_environment,
         ),
+        turn_runner=run_root_turn,
+        environment_snapshot_provider=capture_active_turn_environment,
     ))

@@ -3230,6 +3230,7 @@ def test_cli_adapter_is_owned_by_frontends() -> None:
     } == expected_files
 
     violations: list[str] = []
+    reverse_dependencies: list[str] = []
     legacy_module = "mind_app.cli"
     for path in PROJECT_ROOT.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
@@ -3244,7 +3245,29 @@ def test_cli_adapter_is_owned_by_frontends() -> None:
                 for module in modules
             ):
                 violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+    for path in target_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            if any(
+                module in {
+                    "mind_app.runtime.turns.root",
+                    "mind_app.interaction.environment",
+                }
+                for module in modules
+            ):
+                reverse_dependencies.append(
+                    f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}"
+                )
     assert not violations, "legacy CLI imports remain:\n" + "\n".join(violations)
+    assert not reverse_dependencies, (
+        "CLI imports legacy execution dependencies:\n"
+        + "\n".join(reverse_dependencies)
+    )
 
 
 def test_presentation_output_has_no_legacy_package_or_imports() -> None:

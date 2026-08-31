@@ -25,6 +25,10 @@ from .commands import (
     SessionArchiveCommand
 )
 from .parser import parse_cli_invocation
+from .dispatch import (
+    EnvironmentSnapshotProvider,
+    RootTurnRunner,
+)
 
 if typing.TYPE_CHECKING:
     from mind_app.presentation.application import ApplicationSink
@@ -158,6 +162,8 @@ async def main(
     config_profile: str | None = None,
     runtime_services: RuntimeServices | None = None,
     mcp_server_runner: typing.Callable[..., typing.Awaitable[int]] | None = None,
+    turn_runner: RootTurnRunner | None = None,
+    environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
 ) -> int:
     """把已解析命令路由到对应的应用组合根。"""
     if isinstance(command, McpServerCommand):
@@ -219,6 +225,8 @@ async def main(
         config_overrides=config_overrides,
         config_profile=config_profile,
         runtime_services=runtime_services,
+        turn_runner=turn_runner,
+        environment_snapshot_provider=environment_snapshot_provider,
     )
 
 
@@ -231,6 +239,8 @@ async def _run_main(
     config_profile: str | None,
     runtime_services: RuntimeServices | None,
     mcp_server_runner: typing.Callable[..., typing.Awaitable[int]] | None,
+    turn_runner: RootTurnRunner | None,
+    environment_snapshot_provider: EnvironmentSnapshotProvider | None,
 ) -> int:
     """绑定主任务并进入命令路由。"""
     task = asyncio.current_task()
@@ -238,7 +248,11 @@ async def _run_main(
         raise RuntimeError("Process task is unavailable")
 
     interrupts.bind_main_task(task)
-    if mcp_server_runner is None:
+    if (
+        mcp_server_runner is None
+        and turn_runner is None
+        and environment_snapshot_provider is None
+    ):
         return await main(
             command,
             entry_file=entry_file,
@@ -253,6 +267,8 @@ async def _run_main(
         config_profile=config_profile,
         runtime_services=runtime_services,
         mcp_server_runner=mcp_server_runner,
+        turn_runner=turn_runner,
+        environment_snapshot_provider=environment_snapshot_provider,
     )
 
 
@@ -262,6 +278,8 @@ def run(
     arguments: typing.Sequence[str] | None = None,
     runtime_services: RuntimeServices | None = None,
     mcp_server_runner: typing.Callable[..., typing.Awaitable[int]] | None = None,
+    turn_runner: RootTurnRunner | None = None,
+    environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
 ) -> int:
     """解析命令并运行统一的进程级异步生命周期。"""
     invocation = parse_cli_invocation(arguments)
@@ -284,6 +302,8 @@ def run(
                 config_profile=invocation.profile,
                 runtime_services=runtime_services,
                 mcp_server_runner=mcp_server_runner,
+                turn_runner=turn_runner,
+                environment_snapshot_provider=environment_snapshot_provider,
             ))
     except AppError as error:
         emit_entry_failure(command, error, phase="runtime")

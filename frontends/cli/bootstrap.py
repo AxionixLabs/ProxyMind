@@ -75,7 +75,11 @@ from .commands import (
     command_helix_profile,
     command_uses_helix
 )
-from .dispatch import run_selected_command
+from .dispatch import (
+    EnvironmentSnapshotProvider,
+    RootTurnRunner,
+    run_selected_command,
+)
 from .frontend import (
     resolve_cli_design,
     resolve_cli_frontend
@@ -214,6 +218,9 @@ async def _run_application(
     config_overrides: tuple[ConfigOverride, ...],
     config_profile: str | None,
     runtime_services: RuntimeServices | None = None,
+    *,
+    turn_runner: RootTurnRunner | None = None,
+    environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
 ) -> int:
     """执行普通应用运行时的完整生命周期。"""
     output_mode = resolve_cli_output_mode(command)
@@ -431,6 +438,8 @@ async def _run_application(
             agent_settings=agent_settings,
             feature_settings=feature_settings,
             runtime_services=runtime_services,
+            turn_runner=turn_runner,
+            environment_snapshot_provider=environment_snapshot_provider,
             startup_warnings=(
                 *config_resolution.startup_warnings,
                 *(
@@ -476,6 +485,8 @@ async def _run_controller(
     feature_settings: FeatureSettings | None = None,
     startup_warnings: tuple[str, ...] = (),
     runtime_services: RuntimeServices | None = None,
+    turn_runner: RootTurnRunner | None = None,
+    environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
 ) -> int:
     """创建 Controller 并运行用户命令。"""
     hook_status = None
@@ -678,7 +689,12 @@ async def _run_controller(
                     name="tui service runtime startup",
                 )
 
-        await run_selected_command(controller, command)
+        await run_selected_command(
+            controller,
+            command,
+            turn_runner=turn_runner,
+            environment_snapshot_provider=environment_snapshot_provider,
+        )
         completed = True
         observe("app.complete", exit_code=controller.exit_code)
 
@@ -767,6 +783,8 @@ async def run_application(
     config_overrides: tuple[ConfigOverride, ...] = (),
     config_profile: str | None = None,
     runtime_services: RuntimeServices,
+    turn_runner: RootTurnRunner | None = None,
+    environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
 ) -> int:
     """装配并运行需要本地应用资源的命令。"""
     animation = AsyncAnimManager()
@@ -778,6 +796,8 @@ async def run_application(
             config_overrides,
             config_profile,
             runtime_services,
+            turn_runner=turn_runner,
+            environment_snapshot_provider=environment_snapshot_provider,
         )
     finally:
         await _await_cleanup(animation.stop())

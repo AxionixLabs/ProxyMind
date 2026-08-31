@@ -31,18 +31,62 @@ from mind_app.history import (
     HISTORY_LIMIT,
     INTERACTIVE_HISTORY_SOURCES
 )
-from mind_app.runtime.turns.root import (
-    run_root_turn,
-)
-from mind_app.interaction.environment import capture_active_turn_environment
-
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
 
 
+class RootTurnRunner(typing.Protocol):
+    """定义组合根提供的 CLI 根轮次执行能力。"""
+
+    async def __call__(
+        self,
+        controller: "Mind",
+        *,
+        message: str,
+        **kwargs: typing.Any,
+    ) -> RunResult:
+        """执行一次已冻结的根轮次。"""
+        ...
+
+
+class EnvironmentSnapshotProvider(typing.Protocol):
+    """定义组合根提供的 CLI 环境快照能力。"""
+
+    def __call__(self, controller: "Mind") -> dict[str, typing.Any] | None:
+        """捕获当前 CLI Turn 使用的不可变环境快照。"""
+        ...
+
+
+async def _require_turn_runner(
+    _controller: "Mind",
+    *,
+    message: str,
+    **_kwargs: typing.Any,
+) -> RunResult:
+    """在 CLI 未由组合根装配时返回明确配置错误。"""
+    _ = message
+    raise RuntimeError("CLI root turn runner is required")
+
+
+def _require_environment_snapshot(
+    _controller: "Mind",
+) -> dict[str, typing.Any] | None:
+    """在 CLI 未由组合根装配时返回明确配置错误。"""
+    raise RuntimeError("CLI environment snapshot provider is required")
+
+
+run_root_turn: RootTurnRunner = _require_turn_runner
+capture_active_turn_environment: EnvironmentSnapshotProvider = (
+    _require_environment_snapshot
+)
+
+
 async def run_selected_command(
     mind: "Mind",
-    command: RuntimeCommand
+    command: RuntimeCommand,
+    *,
+    turn_runner: RootTurnRunner | None = None,
+    environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
 ) -> RunResult | None:
     """按命令行参数分派到直接执行或交互入口。"""
     if isinstance(command, AgentListenCommand):
@@ -97,7 +141,11 @@ async def run_selected_command(
                     "cli",
                     mind.conversation.snapshot(),
                 )
-            environment_snapshot = capture_active_turn_environment(mind)
+            environment_snapshot = (
+                capture_active_turn_environment
+                if environment_snapshot_provider is None
+                else environment_snapshot_provider
+            )(mind)
             submit_command = SubmitTurnCommand.create(
                 session_id=local_session_id,
                 message=command.prompt,
@@ -107,7 +155,10 @@ async def run_selected_command(
             )
 
             execute_root_turn = RootTurnCommandExecutor(
-                functools.partial(run_root_turn, mind),
+                functools.partial(
+                    run_root_turn if turn_runner is None else turn_runner,
+                    mind,
+                ),
                 include_empty_attachments=True,
             )
 
