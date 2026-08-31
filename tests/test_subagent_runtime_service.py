@@ -30,7 +30,7 @@ from agent.stores.agent_mailbox import (
     AgentMailboxStore,
     format_mailbox_context,
 )
-from mind_app.runtime.subagents.thread import AgentThreadContext
+from agent.application import AgentThreadContext
 from agent.application import AgentSettings
 from agent.application import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid

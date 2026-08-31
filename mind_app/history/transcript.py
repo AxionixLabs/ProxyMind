@@ -22,7 +22,7 @@ from .contracts import (
     TranscriptActor,
     TranscriptSink
 )
-from .ids import SID_RE
+from protocol.schema.identifiers import SID_RE
 
 
 @dataclass(frozen=True, slots=True)

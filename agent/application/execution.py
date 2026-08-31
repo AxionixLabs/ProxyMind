@@ -6,15 +6,13 @@ from dataclasses import (
     dataclass,
     replace,
 )
-from protocol.schema.stream_events import ExecutionEffect
 from agent.domain.policies import PermissionSettings
+from agent.ports import PermissionGrantReader
+from protocol.schema.stream_events import ExecutionEffect
 from protocol.schema.identifiers import (
     normalize_turn_id,
     short_uid,
 )
-
-if typing.TYPE_CHECKING:
-    from agent.stores.permission_grants import PermissionGrantStore
 
 ROOT_AGENT_ID = "root"
 ROOT_AGENT_TYPE = "root"
@@ -160,7 +158,7 @@ class TurnContext:
     model: str
     cwd: str
     permissions: PermissionSettings
-    permission_grants: "PermissionGrantStore | None" = None
+    permission_grants: PermissionGrantReader | None = None
     output_record_path: str = ""
     transcript_path: str = ""
     parent_transcript_path: str = ""
@@ -178,7 +176,7 @@ class TurnContext:
         pref_config: dict[str, typing.Any],
         cwd: str,
         permissions: PermissionSettings,
-        permission_grants: "PermissionGrantStore | None" = None,
+        permission_grants: PermissionGrantReader | None = None,
         output_record_path: str = "",
         transcript_path: str = "",
         parent_transcript_path: str = "",

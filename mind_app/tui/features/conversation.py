@@ -25,7 +25,7 @@ from mind_app.tui.adapters.clipboard import (
     ClipboardError,
     copy_text_to_clipboard
 )
-from mind_app.history.ids import valid_session_ids
+from protocol.schema.identifiers import valid_session_ids
 from protocol.client.fork import ResubmittablePrompt
 from metadata import const
 from agent.application import CompactResult

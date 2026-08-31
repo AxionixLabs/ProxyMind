@@ -1165,6 +1165,33 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] mailbox/子 Agent 定向回归 `53 passed, 1 warning`，新增 stores 边界与旧导入守卫、导入图、`compileall`
   和差异检查通过；下一切片继续拆分 Agent graph 快照与 SQLite 持久化实现。
 
+### 已完成切片：协议身份校验归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将 `CID_RE`、`SID_RE` 和 `valid_session_ids` 从 `mind_app/history/ids.py` 提升到
+  `protocol/schema/identifiers.py`；历史存储、Controller、交互和 TUI 统一复用协议 schema，删除
+  旧 history 身份入口。
+- [x] 新增协议身份归属守卫，确认旧模块和旧导入不存在；该切片与子 Agent 上下文迁移一起通过
+  `compileall`、导入图和 `git diff --check`，协议身份和历史路径回归 `350 passed`。
+
+### 已完成切片：子 Agent 线程与继承上下文归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将 `AgentThreadContext`、`AgentTurnContext` 从 `mind_app/runtime/subagents/thread.py` 重组到
+  `agent/application/agent_thread.py`；application 契约只依赖 domain、协议 schema 和 application
+  执行/设置类型，不依赖 runtime、历史或具体基础设施。
+- [x] 将 `ForkContextSnapshot`、`ForkTurns` 和 `normalize_fork_turns` 重组到
+  `agent/application/fork_context.py`；`mind_app/runtime/subagents/context.py` 仅保留 transcript
+  上下文构建职责，删除旧 thread 入口和 `typing.cast()` 强制断言。
+- [x] 新增 `agent/ports/PermissionGrantReader`，使执行上下文只依赖读取端口，不再通过
+  `TYPE_CHECKING` 引入具体 `PermissionGrantStore`。
+- [x] 子 Agent context/control/graph/runtime/TUI 与身份边界回归 `65 passed, 2 warnings`，扩展交互、
+  历史、Controller、TUI 和 CLI 回归 `350 passed`；完整架构守卫 `60 passed, 44 warnings`，导入图、
+  全量行为回归 `3015 passed, 11 skipped, 44 warnings`，导入图、`compileall` 和 `git diff --check`
+  已通过。下一切片继续拆分 Agent graph 快照与 SQLite 持久化实现。
+
 ### 已完成切片：上下文压缩结果与编排分离
 
 状态：已完成（2026-08-31）
@@ -1409,3 +1436,5 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 上下文压缩结果与编排分离切片 | 将 `CompactResult` 提升到 `agent/application/compact_result.py`，将 runtime 编排改名为 `mind_app/runtime/compaction.py`，删除旧 `runtime/conversation.py` 并补充结果/编排分离守卫 | 压缩/TUI/架构定向回归通过，导入图、`compileall` 和 `git diff --check` 通过；下一切片继续审计 runtime/subagents 和剩余平铺入口 |
 | 2026-08-31 | 阶段 5 执行上下文契约归位切片 | 将 `AgentContext`、`TurnContext`、`ToolInvocation` 提升到 `agent/application/execution.py`，切换 Turn/工具/Hook/MCP/子 Agent/TUI 全部消费者并删除旧 `runtime/execution.py` | 执行上下文及能力定向回归 `230 passed, 1 warning`，application 归属与旧导入守卫、导入图、`compileall` 和 `git diff --check` 通过；下一切片继续收敛子 Agent mailbox/graph 边界 |
 | 2026-08-31 | 阶段 5 子 Agent mailbox 存储归位切片 | 将 mailbox 事件/快照/消费游标和有界日志从 `mind_app/runtime/subagents/mailbox.py` 重组到 `agent/stores/agent_mailbox.py`，切换控制/投递/图/运行时/客户端工具消费者并删除旧入口 | mailbox/子 Agent 定向回归 `53 passed, 1 warning`，stores 边界与旧导入守卫、导入图、`compileall` 和 `git diff --check` 通过；下一切片继续拆分 Agent graph 快照与 SQLite 持久化实现 |
+| 2026-08-31 | 阶段 5 协议身份校验归位切片 | 将 `CID_RE`、`SID_RE` 和 `valid_session_ids` 从 `mind_app/history/ids.py` 重组到 `protocol/schema/identifiers.py`，历史/交互/Controller/TUI 复用统一 schema 并删除旧身份模块 | 身份、历史、交互、Controller、TUI 和 CLI 回归 `350 passed`；协议身份守卫、导入图、`compileall` 和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 子 Agent 线程与继承上下文归位切片 | 将 `AgentThreadContext`、`AgentTurnContext`、`ForkContextSnapshot` 和 `normalize_fork_turns` 重组到 `agent/application`，runtime context 仅保留 transcript builder，并以 `PermissionGrantReader` 解耦执行上下文与 stores | 子 Agent/上下文/架构定向回归 `65 passed, 2 warnings`；交互/历史/Controller/TUI/CLI 扩展回归 `350 passed`；完整架构守卫 `60 passed, 44 warnings`；全量行为回归 `3015 passed, 11 skipped, 44 warnings`，导入图、`compileall` 和 `git diff --check` 通过 |

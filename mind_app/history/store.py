@@ -8,7 +8,7 @@ import typing
 import sqlite3
 from pathlib import Path
 from infrastructure.config.runtime_paths import mind_history_db_path
-from .ids import valid_session_ids
+from protocol.schema.identifiers import valid_session_ids
 
 TABLE_SESSION_CURSORS = "conversation_session_cursors"
 TABLE_PENDING_FORKS   = "conversation_pending_forks"

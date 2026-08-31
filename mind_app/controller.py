@@ -25,7 +25,10 @@ from agent.application import (
     HookDefinitionConfig,
     SessionEndReason
 )
-from protocol.schema.identifiers import short_uid
+from protocol.schema.identifiers import (
+    short_uid,
+    valid_session_ids,
+)
 from observability.reporting import RunReport
 from observability import (
     observe,
@@ -76,7 +79,6 @@ from .history import (
     HISTORY_LIMIT,
     normalize_workspace
 )
-from .history.ids import valid_session_ids
 from .history.transcript import (
     ConversationTranscriptStore,
     TranscriptEntry

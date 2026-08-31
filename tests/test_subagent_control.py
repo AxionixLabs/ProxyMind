@@ -15,7 +15,7 @@ from mind_app.runtime.subagents.control import (
     AgentSubmission,
     AgentStateError,
 )
-from mind_app.runtime.subagents.thread import AgentThreadContext
+from agent.application import AgentThreadContext
 
 
 class _TestControl(AgentControl):

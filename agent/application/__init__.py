@@ -51,6 +51,15 @@ from .execution import (
     ToolInvocation,
     TurnContext,
 )
+from .fork_context import (
+    ForkContextSnapshot,
+    ForkTurns,
+    normalize_fork_turns,
+)
+from .agent_thread import (
+    AgentThreadContext,
+    AgentTurnContext,
+)
 from agent.domain.policies import (
     PermissionPreset,
     PermissionSettings,
@@ -141,8 +150,13 @@ __all__ = (
     "CompactOutcome",
     "CompactResult",
     "AgentContext",
+    "AgentThreadContext",
+    "AgentTurnContext",
     "ToolInvocation",
     "TurnContext",
+    "ForkContextSnapshot",
+    "ForkTurns",
+    "normalize_fork_turns",
     "CompactResultSource",
     "CompactTriggerReason",
     "CompactTriggerSource",

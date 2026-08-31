@@ -5,7 +5,12 @@ import typing
 import asyncio
 import sqlite3
 from observability import observe_exception
-from agent.application import AgentSettings, RunResult
+from agent.application import (
+    AgentSettings,
+    AgentThreadContext,
+    AgentTurnContext,
+    RunResult,
+)
 from infrastructure.skills import skills_payload
 from protocol.transport.events import EventReport
 from mind_app.runtime.mcp.contracts import McpSessionLike
@@ -30,11 +35,8 @@ from mind_app.runtime.subagents.control import (
 from agent.stores.agent_mailbox import (
     format_mailbox_context
 )
-from mind_app.runtime.subagents.context import (
-    ForkTurns,
-    build_fork_context,
-    normalize_fork_turns
-)
+from agent.application import ForkTurns, normalize_fork_turns
+from mind_app.runtime.subagents.context import build_fork_context
 from mind_app.runtime.subagents.executor import (
     StreamSubagentExecutor,
     SubagentExecutionPort
@@ -50,10 +52,6 @@ from mind_app.runtime.subagents.graph import (
     AgentGraphStore
 )
 from mind_app.runtime.subagents.runner import SubagentRunner
-from mind_app.runtime.subagents.thread import (
-    AgentThreadContext,
-    AgentTurnContext
-)
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind

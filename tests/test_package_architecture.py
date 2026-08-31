@@ -1581,6 +1581,118 @@ def test_agent_mailbox_is_owned_by_stores() -> None:
     assert not target_violations, "agent mailbox store crosses its boundary:\n" + "\n".join(target_violations)
 
 
+def test_agent_thread_context_is_owned_by_application() -> None:
+    """确保子 Agent 线程上下文不依赖 runtime 或历史存储实现。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "thread.py"
+    target_paths = (
+        PROJECT_ROOT / "agent" / "application" / "agent_thread.py",
+        PROJECT_ROOT / "agent" / "application" / "fork_context.py",
+    )
+    assert not legacy_path.is_file(), "legacy runtime thread module still exists"
+    assert all(path.is_file() for path in target_paths), "application thread sources are missing"
+
+    legacy_modules = {"mind_app.runtime.subagents.thread"}
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+    assert not violations, "legacy subagent thread imports remain:\n" + "\n".join(violations)
+
+    builder_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "context.py"
+    builder_tree = ast.parse(
+        builder_path.read_text(encoding="utf-8-sig"),
+        filename=str(builder_path),
+    )
+    builder_definitions = {
+        node.name
+        for node in builder_tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert not builder_definitions.intersection(
+        {"ForkContextSnapshot", "normalize_fork_turns"}
+    ), "runtime context builder redefines application contracts"
+
+    for target_path in target_paths:
+        tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+        target_violations: list[str] = []
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                    target_violations.append(
+                        f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+        assert not target_violations, (
+            f"application subagent contract crosses its boundary: {target_path.name}\n"
+            + "\n".join(target_violations)
+        )
+
+    thread_tree = ast.parse(
+        (PROJECT_ROOT / "agent" / "application" / "agent_thread.py").read_text(encoding="utf-8-sig"),
+        filename="agent/application/agent_thread.py",
+    )
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "cast"
+        for node in ast.walk(thread_tree)
+    )
+
+
+def test_session_identity_validation_is_owned_by_protocol_schema() -> None:
+    """确保 cid/sid 格式校验由协议 schema 统一拥有。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "history" / "ids.py"
+    target_path = PROJECT_ROOT / "protocol" / "schema" / "identifiers.py"
+    assert not legacy_path.is_file(), "legacy history identity module still exists"
+    assert target_path.is_file(), "protocol identity schema is missing"
+
+    legacy_modules = {"mind_app.history.ids"}
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+    assert not violations, "legacy history identity imports remain:\n" + "\n".join(violations)
+
+    tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    definitions = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+    assert {"valid_session_ids"}.issubset(definitions)
+    assert {"CID_RE", "SID_RE"}.issubset(
+        node.targets[0].id
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and node.targets
+        and isinstance(node.targets[0], ast.Name)
+    )
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (
@@ -1975,6 +2087,9 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.hook_models",
         "agent.application.hook_output",
         "agent.application.hook_result",
+        "agent.application.execution",
+        "agent.application.fork_context",
+        "agent.application.settings",
         "agent.domain.hook_matching",
         "agent.domain.tool_policy",
         "agent.domain.execution_policy",
@@ -1982,6 +2097,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.protocol.json_value",
         "agent.stores.approval_ledger",
         "agent.stores.permission_grants",
+        "agent.stores.agent_mailbox",
     }
     violations: list[str] = []
     package_root = PROJECT_ROOT / "mind_app"

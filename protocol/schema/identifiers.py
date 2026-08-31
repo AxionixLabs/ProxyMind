@@ -10,6 +10,8 @@ import hashlib
 
 TURN_ID_PATTERN    = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,160}$")
+CID_RE = re.compile(r"^cid_([0-9a-z]+)_[0-9a-f]{8}$")
+SID_RE = re.compile(r"^sid_([0-9a-z]+)_[0-9a-z]+_[0-9a-f]{6}$")
 
 
 def _base36(number: int) -> str:
@@ -38,6 +40,20 @@ def new_sid(cid: str, prefix: str = "sid") -> str:
     random_part = uuid.uuid4().hex[:6]
     cid_part = cid.split("_", 2)[1]
     return f"{prefix}_{cid_part}_{timestamp}_{random_part}"
+
+
+def valid_session_ids(cid: typing.Any, sid: typing.Any) -> bool:
+    """校验 cid/sid 格式及其会话关联关系。"""
+    cid_text = str(cid or "").strip()
+    sid_text = str(sid or "").strip()
+
+    cid_match = CID_RE.fullmatch(cid_text)
+    sid_match = SID_RE.fullmatch(sid_text)
+
+    if cid_match is None or sid_match is None:
+        return False
+
+    return cid_match.group(1) == sid_match.group(1)
 
 
 def short_uid(length: int = 8) -> str:

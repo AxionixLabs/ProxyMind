@@ -8,15 +8,15 @@ from collections import deque
 from dataclasses import dataclass
 from observability import observe_exception
 from protocol.schema.identifiers import short_uid
-from agent.application.execution import AgentContext
+from agent.application import (
+    AgentContext,
+    AgentThreadContext,
+    AgentTurnContext,
+)
 from agent.stores.agent_mailbox import (
     AgentMailboxEvent,
     AgentMailboxSnapshot,
     AgentMailboxStore
-)
-from mind_app.runtime.subagents.thread import (
-    AgentThreadContext,
-    AgentTurnContext
 )
 
 AgentStatus = typing.Literal[

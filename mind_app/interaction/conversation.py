@@ -8,7 +8,7 @@ from protocol.schema.identifiers import (
     new_cid,
     new_sid,
 )
-from mind_app.history.ids import valid_session_ids
+from protocol.schema.identifiers import valid_session_ids
 
 
 @dataclass(frozen=True, slots=True)

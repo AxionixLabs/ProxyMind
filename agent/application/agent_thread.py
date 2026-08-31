@@ -5,21 +5,22 @@ import copy
 import typing
 from dataclasses import dataclass
 from types import MappingProxyType
-from agent.application import PermissionSettings
-from agent.application import DEFAULT_FORK_TURNS
+from collections.abc import Mapping
+from .settings import DEFAULT_FORK_TURNS
+from agent.domain.policies import PermissionSettings
 from protocol.schema.identifiers import (
     new_cid,
-    new_sid
+    new_sid,
+    valid_session_ids,
 )
-from mind_app.history.ids import valid_session_ids
-from agent.application.execution import (
+from .execution import (
     AgentContext,
-    TurnContext
+    TurnContext,
 )
-from mind_app.runtime.subagents.context import (
+from .fork_context import (
     ForkContextSnapshot,
     ForkTurns,
-    normalize_fork_turns
+    normalize_fork_turns,
 )
 
 
@@ -70,17 +71,20 @@ class AgentThreadContext:
         if self.fork_context.requested_turns != fork_turns:
             raise ValueError("agent thread fork context range does not match")
 
-        pref_config = typing.cast(
-            typing.Mapping[str, typing.Any],
-            _freeze_config(dict(self.pref_config)),
-        )
-        skills = tuple(
-            typing.cast(
-                typing.Mapping[str, str],
-                _freeze_config(dict(skill)),
-            )
-            for skill in self.skills
-        )
+        frozen_config = _freeze_config(dict(self.pref_config))
+        if not isinstance(frozen_config, Mapping):
+            raise TypeError("agent thread config must be a mapping")
+        skills: list[Mapping[str, str]] = []
+        for skill in self.skills:
+            frozen_skill = _freeze_config(dict(skill))
+            if not isinstance(frozen_skill, Mapping):
+                raise TypeError("agent thread skill must be a mapping")
+            if any(
+                not isinstance(key, str) or not isinstance(value, str)
+                for key, value in frozen_skill.items()
+            ):
+                raise TypeError("agent thread skill fields must be strings")
+            skills.append(frozen_skill)
 
         object.__setattr__(self, "cid", cid)
         object.__setattr__(self, "sid", sid)
@@ -90,8 +94,8 @@ class AgentThreadContext:
         object.__setattr__(self, "fork_turns", fork_turns)
         object.__setattr__(self, "transcript_path", transcript_path)
         object.__setattr__(self, "parent_transcript_path", parent_transcript_path)
-        object.__setattr__(self, "pref_config", pref_config)
-        object.__setattr__(self, "skills", skills)
+        object.__setattr__(self, "pref_config", frozen_config)
+        object.__setattr__(self, "skills", tuple(skills))
 
     @classmethod
     def child(
@@ -140,7 +144,10 @@ class AgentThreadContext:
 
     def config_snapshot(self) -> dict[str, typing.Any]:
         """返回可供单轮执行使用的独立配置副本。"""
-        return typing.cast(dict[str, typing.Any], _thaw_config(self.pref_config))
+        snapshot = _thaw_config(self.pref_config)
+        if not isinstance(snapshot, dict):
+            raise TypeError("agent thread config snapshot must be a mapping")
+        return snapshot
 
     def skills_snapshot(self) -> list[dict[str, str]]:
         """返回可供单轮请求使用的技能描述副本。"""
@@ -175,7 +182,7 @@ class AgentTurnContext:
 
 def _freeze_config(value: typing.Any) -> typing.Any:
     """递归固定配置值，避免线程生命周期内发生漂移。"""
-    if isinstance(value, typing.Mapping):
+    if isinstance(value, Mapping):
         return MappingProxyType({
             key: _freeze_config(item)
             for key, item in value.items()
@@ -190,7 +197,7 @@ def _freeze_config(value: typing.Any) -> typing.Any:
 
 def _thaw_config(value: typing.Any) -> typing.Any:
     """递归复制线程配置为单轮可用的普通容器。"""
-    if isinstance(value, typing.Mapping):
+    if isinstance(value, Mapping):
         return {
             key: _thaw_config(item)
             for key, item in value.items()

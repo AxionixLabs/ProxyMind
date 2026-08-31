@@ -10,7 +10,7 @@ from mind_app.client_tools.types import (
     ClientToolRuntime
 )
 from mind_app.runtime.subagents.control import AgentSnapshot
-from mind_app.runtime.subagents.context import normalize_fork_turns
+from agent.application import normalize_fork_turns
 from agent.stores.agent_mailbox import MAX_AGENT_MESSAGE_CHARS
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 

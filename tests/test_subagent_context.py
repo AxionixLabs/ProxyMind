@@ -5,8 +5,8 @@ import pytest
 from mind_app.history.transcript import ConversationTranscriptStore
 from mind_app.runtime.subagents.context import (
     build_fork_context,
-    normalize_fork_turns,
 )
+from agent.application import normalize_fork_turns
 
 
 def _write_turn(path, *, session_id: str, turn_id: str, user: str, assistant: str) -> None:

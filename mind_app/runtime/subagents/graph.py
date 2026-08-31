@@ -17,7 +17,7 @@ from protocol.schema.permissions import (
 )
 from infrastructure.config.runtime_paths import agent_graph_db_path
 from agent.application.execution import AgentContext
-from mind_app.runtime.subagents.context import ForkContextSnapshot
+from agent.application import AgentThreadContext, ForkContextSnapshot
 from mind_app.runtime.subagents.control import (
     AgentGraphCheckpoint,
     AgentGraphRecord,
@@ -31,7 +31,6 @@ from agent.stores.agent_mailbox import (
     AgentMailboxEventKind,
     AgentMailboxSnapshot,
 )
-from mind_app.runtime.subagents.thread import AgentThreadContext
 
 TABLE_AGENT_GRAPH_CHECKPOINTS = "agent_graph_checkpoints"
 

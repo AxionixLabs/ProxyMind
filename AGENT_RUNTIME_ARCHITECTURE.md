@@ -209,8 +209,10 @@ agent/
 ├── application/
 │   ├── commands.py          # submit、resume、approve、cancel、retry
 │   ├── compact_result.py    # 上下文压缩稳定结果值对象
+│   ├── agent_thread.py      # 子 Agent 线程和轮次上下文
 │   ├── environment.py       # 环境快照采集用例与能力失败收敛
 │   ├── execution.py        # Agent、Turn 和工具调用执行上下文
+│   ├── fork_context.py      # 父会话继承范围和上下文快照
 │   ├── session_identity.py  # 远端坐标到本地 Session 身份的确定性派生
 │   ├── run_result.py        # 单次 Run 的不可变结果值对象
 │   ├── stream_outcome.py    # 流式 Turn 终态聚合与结果构建
@@ -228,6 +230,7 @@ agent/
 │   ├── capabilities.py      # 模型、MCP、Helix、进程和文件端口
 │   ├── hooks.py              # Hook 执行器和超限上下文 spill 端口
 │   ├── persistence.py       # 事件、快照、历史和 outbox 端口
+│   ├── permissions.py       # 执行上下文读取权限授权端口
 │   └── observability.py     # 日志、指标和 tracing 端口
 ├── stores/
 │   ├── agent_mailbox.py     # 子 Agent mailbox 事件、快照和消费游标
@@ -493,6 +496,8 @@ running -> cancelled
 | `mind_app/runtime/subagents/control.py` | `harness/scheduler.py`、`domain/agents.py` | 将 mailbox、生命周期和图持久化分开 |
 | `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 保留检查点语义，存储实现不得进入 domain |
 | `mind_app/runtime/subagents/mailbox.py` | `agent/stores/agent_mailbox.py` | 子 Agent mailbox 事件、快照、消费游标和有界日志是持久状态；runtime/subagents 只依赖存储契约，不拥有 mailbox 数据结构 |
+| `mind_app/runtime/subagents/thread.py` | `agent/application/agent_thread.py`、`agent/application/fork_context.py` | 子 Agent 线程/轮次上下文和父会话继承快照是 application 执行契约；运行时控制器只消费已冻结值，不持有跨边界身份结构 |
+| `mind_app/history/ids.py` | `protocol/schema/identifiers.py` | `cid/sid` 正则和关联校验属于 wire identity schema；历史、交互、Controller 和 Harness 复用协议边界，不在 history 保留身份实现 |
 | `agent/stores/effect_journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `stores/effect_journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |
 | `agent/stores/run_store.py`、`_run_schema.py`、`_run_records.py` | `stores/session_store.py`、`event_store.py`、`outbox.py` 的首个事务切片 | 已原子提交事件、快照、outbox 和最终事实；只有出现独立生命周期或规模压力时再物理拆 store，避免单次转发 facade |
 | 旧 wire 模块 | `protocol/schema`、`protocol/transport`、`protocol/client` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；schema、传输和客户端操作分层，协议不得导入 `engine` |
@@ -538,6 +543,7 @@ running -> cancelled
 | `mind_app/runtime/support/session_policy.py` | `mind_app/runtime/mcp/errors.py`、`mind_app/presentation/stream/exception_text.py` | MCP 传输关闭判断归 MCP 错误边界；HTTP/运行期异常的一行用户摘要归 stream presentation，按职责拆分，不保留混合 session policy |
 | `mind_app/runtime/conversation.py` | `mind_app/runtime/compaction.py`、`agent/application/compact_result.py` | 上下文压缩的运行时 Hook/Transcript 编排与不可变结果契约分离；runtime 只负责执行生命周期，application 只暴露稳定结果 |
 | `mind_app/runtime/execution.py` | `agent/application/execution.py` | Agent、Turn 和工具调用上下文是跨能力共享的 application 执行契约；不让 MCP、Hook、工具和子 Agent 继续依赖 runtime 平铺实现模块 |
+| `agent/stores/permission_grants.py` | `agent/ports/permissions.py` | application 只依赖 `PermissionGrantReader` 读取端口；具体授权存储留在 stores，由组合根注入，避免执行上下文反向依赖持久化实现 |
 | `mind_app/runtime/turns/result.py` | `agent/application/run_result.py` | 单次模型 Run 的稳定结果值对象属于 application 出站契约；前端和 Subagent 只消费公开结果，不从 runtime turns 导入 |
 | `mind_app/runtime/turns/stream_outcome.py` | `agent/application/stream_outcome.py` | 流式终态优先级、协议终态归并和 `RunResult` 构建属于 application 结果聚合；协议事件只在边界输入，不持有 UI 或执行副作用 |
 | `mind_app/runtime/support/idle_status.py` | `infrastructure/platform/idle_status.py` | asyncio 延迟状态计时器只管理平台任务生命周期；stream runtime 通过显式平台实现使用，不让 support 目录继续承接无归属基础设施 |

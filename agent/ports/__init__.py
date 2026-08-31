@@ -46,6 +46,7 @@ from .persistence import (
     RunRecoveryRequired,
     RunSnapshot,
 )
+from .permissions import PermissionGrantReader
 
 __all__ = (
     "EffectIntent",
@@ -76,6 +77,7 @@ __all__ = (
     "RunPersistenceConflict",
     "RunRecoveryRequired",
     "RunSnapshot",
+    "PermissionGrantReader",
     "TurnExecutor",
     "TurnExecutorResult",
     "HookCommandResult",
