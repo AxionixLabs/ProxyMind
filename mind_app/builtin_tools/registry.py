@@ -9,7 +9,7 @@ from mind_app.client_tools.types import (
     NESTED_TOOL_DISPATCH_META_KEY,
     TURN_INTERRUPT_META_KEY,
 )
-from agent.application.execution import TurnContext
+from agent.application.turns.context import TurnContext
 from .types import BuiltinTool
 
 

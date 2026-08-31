@@ -4,12 +4,12 @@
 import typing
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from agent.ports import McpSessionPort
-from agent.application.execution import (
+from agent.application.turns.context import (
     ToolInvocation,
     TurnContext
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
-from agent.application.hook_models import (
+from agent.application.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
 )

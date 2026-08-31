@@ -5,7 +5,7 @@ import typing
 
 if typing.TYPE_CHECKING:
     from mcp import types as mcp_types
-    from agent.application.execution import TurnContext
+    from agent.application.turns.context import TurnContext
 
 __all__ = ("McpSessionPort",)
 

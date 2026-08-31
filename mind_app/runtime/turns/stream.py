@@ -19,7 +19,7 @@ from agent.application import (
     TurnControlReceipt,
     create_continuation_execution,
 )
-from agent.stores.approval_ledger import ApprovalCallLedger
+from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.ports import McpSessionPort
 from infrastructure.config.runtime_paths import effect_journal_db_path
 from protocol.schema.identifiers import stable_request_id
@@ -51,7 +51,7 @@ from protocol.client.tools import (
 from protocol.client.effects import post_effect_reconciliation
 from mind_app.presentation.output import OutputControlPort
 from ..hooks.tool import ToolCallCoordinator
-from agent.application.hook_models import StopHookDecision
+from agent.application.hooks.models import StopHookDecision
 from ..hooks.turn import (
     PromptHookBlockedError,
     TurnHookEvents

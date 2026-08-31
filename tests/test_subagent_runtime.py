@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent.application import RunResult
-from agent.application.execution import (
+from agent.application.turns.context import (
     AgentContext,
     TurnContext,
 )
@@ -18,9 +18,9 @@ from agent.application import (
 )
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from agent.application import SubagentHookEvents
-from agent.harness.subagent_runner import SubagentRunner
+from agent.harness.execution.subagent_runner import SubagentRunner
 from agent.ports import SubagentOperation
-from agent.harness.subagent_runner import (
+from agent.harness.execution.subagent_runner import (
     MAX_SUBAGENT_STOP_CONTINUATIONS,
 )
 from infrastructure.hooks.discovery import resolve_hook_definitions

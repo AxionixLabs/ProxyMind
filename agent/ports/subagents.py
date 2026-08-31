@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import typing
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
@@ -9,9 +9,11 @@ from protocol.transport.events import EventReport
 from .mcp_session import McpSessionPort
 from .turns import TurnInputEventHandler
 
+SkillsProvider: typing.TypeAlias = Callable[[], list[dict[str, str]]]
+
 if typing.TYPE_CHECKING:
-    from agent.application.run_result import RunResult
-    from agent.application.turn_execution import TurnExecution
+    from agent.application.turns.run_result import RunResult
+    from agent.application.turns.execution import TurnExecution
 
 
 class SubagentExecutionPort(typing.Protocol):
@@ -96,6 +98,7 @@ class SubagentCleanupPort(typing.Protocol):
 
 
 __all__ = (
+    "SkillsProvider",
     "SubagentExecutionPort",
     "SubagentStreamPort",
     "SubagentOperation",

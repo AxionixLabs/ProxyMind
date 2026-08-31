@@ -8,7 +8,7 @@ from protocol.transport.events import EventReport
 from .mcp_session import McpSessionPort
 
 if typing.TYPE_CHECKING:
-    from agent.application.turn_execution import TurnExecution
+    from agent.application.turns.execution import TurnExecution
 
 
 class TurnResultPort(typing.Protocol):

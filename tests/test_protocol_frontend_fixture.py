@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.adapters.protocol_client import MindChatProtocolClient
+from agent.adapters.protocol.client import MindChatProtocolClient
 from agent.protocol import ModelStreamRequest
-from agent.adapters import protocol_client as protocol_client_module
+from agent.adapters.protocol import client as protocol_client_module
 
 
 class _FixtureStream:

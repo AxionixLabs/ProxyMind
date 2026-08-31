@@ -13,10 +13,10 @@ from agent.domain.hooks import (
 )
 
 if typing.TYPE_CHECKING:
-    from agent.application.execution import TurnContext
-    from agent.application.hook_context import HookExecutionContext
-    from agent.application.hook_catalog import HookCatalogSnapshot
-    from agent.application.hook_models import (
+    from agent.application.turns.context import TurnContext
+    from agent.application.hooks.context import HookExecutionContext
+    from agent.application.hooks.catalog import HookCatalogSnapshot
+    from agent.application.hooks.models import (
         HookDispatchResult,
         HookEventRequest,
         HookRunSummary,

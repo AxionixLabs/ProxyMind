@@ -53,11 +53,12 @@ from .client_tools import (
     default_registry as default_client_tool_registry
 )
 from .builtin_tools import BuiltinToolRegistry, permission_tools
-from agent.stores.permission_grants import PermissionGrantStore
+from agent.stores.approvals.permissions import PermissionGrantStore
 from .approval.coordinator import ApprovalCoordinator
-from agent.stores.approval_ledger import ApprovalCallLedger
+from agent.stores.approvals.ledger import ApprovalCallLedger
 from .runtime.subagents.runtime import SubagentRuntime
 from agent.stores import AgentGraphStore
+from infrastructure.config.runtime_paths import agent_graph_db_path
 from .subscription.lifecycle import SubscriptionRuntimeOwner
 from .presentation.application import (
     ActivityStatusKind,
@@ -68,7 +69,7 @@ from agent.ports import HookRegistryPort
 from .runtime.hooks.scope import HookExecutionScope
 from .runtime.hooks.session import SessionLifecycleGateway
 from .runtime.hooks.tool import CommandHookSessionStore
-from agent.application.hook_catalog import (
+from agent.application.hooks.catalog import (
     HookCatalogSnapshot,
     HookCatalogStaleError
 )
@@ -193,23 +194,35 @@ class Mind(object):
         )
         self.permission_grants = PermissionGrantStore()
 
-        self.subagents: SubagentRuntime = (
-            kwargs.get("subagent_runtime")
-            or SubagentRuntime(
+        subagent_runtime = kwargs.get("subagent_runtime")
+        if subagent_runtime is None:
+            skills_provider_factory = getattr(
+                self.runtime_services,
+                "create_skills_provider",
+                None,
+            )
+            skills_provider = (
+                skills_provider_factory(self.config_session.load)
+                if callable(skills_provider_factory)
+                else None
+            )
+            subagent_runtime = SubagentRuntime(
                 self,
                 enabled=self.features.subagents,
                 settings=kwargs.get("agent_settings") or AgentSettings(),
+                skills_provider=skills_provider,
                 transcript_path_for=self.transcripts.path_for_session,
                 session_cleanup=self._close_repl_session,
                 graph_store=(
                     kwargs.get("agent_graph_store")
                     or AgentGraphStore(
+                        agent_graph_db_path(),
                         ttl_ms=self.history_store.ttl_ms,
                         max_items=self.history_store.max_items,
                     )
                 ),
             )
-        )
+        self.subagents: SubagentRuntime = subagent_runtime
 
         self.service_exec_env: typing.Optional[dict[str, typing.Any]] = None
 

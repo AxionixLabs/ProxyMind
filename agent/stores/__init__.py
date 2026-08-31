@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .effect_journal import LocalEffectJournal
-from .agent_graph import (
+from .effects.journal import LocalEffectJournal
+from .agents.graph import (
     AgentGraphCheckpoint,
     AgentGraphPersistence,
     AgentGraphPersistenceError,
     AgentGraphRecord,
     AgentGraphStore,
 )
-from .agent_mailbox import (
+from .agents.mailbox import (
     AgentMailboxEvent,
     AgentMailboxEventKind,
     AgentMailboxSnapshot,
@@ -20,13 +20,13 @@ from .agent_mailbox import (
     MAX_MAILBOX_UPDATES,
     format_mailbox_context,
 )
-from .approval_ledger import ApprovalCallLedger
-from .permission_grants import (
+from .approvals.ledger import ApprovalCallLedger
+from .approvals.permissions import (
     PermissionGrant,
     PermissionGrantStore,
     normalize_permission_profile,
 )
-from .run_store import SQLiteRunStore
+from .runs.store import SQLiteRunStore
 
 __all__ = (
     "ApprovalCallLedger",

@@ -3,7 +3,7 @@
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
-from agent.application.hook_models import (
+from agent.application.hooks.models import (
     HookOutputEntry,
     HookRunSummary,
 )

@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent.adapters.item_reducer import CanonicalItemReducer
+from agent.adapters.protocol.items import CanonicalItemReducer
 from protocol.schema.stream_events import (
     ToolApprovalRequiredEvent,
     parse_stream_event,

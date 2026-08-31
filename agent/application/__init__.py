@@ -39,31 +39,31 @@ from agent.ports import (
     RunRecoveryRequired,
     RunSnapshot,
 )
-from .commands import (
+from .turns.commands import (
     SubmitTurnResult,
     TurnApplication,
     submit_turn
 )
-from .compact_result import CompactResult
-from .environment import capture_environment_snapshot
-from .execution import (
+from .turns.compact_result import CompactResult
+from .turns.environment import capture_environment_snapshot
+from .turns.context import (
     AgentContext,
     ToolInvocation,
     TurnContext,
 )
-from .fork_context import (
+from .agents.fork_context import (
     ForkContextEntry,
     ForkContextSnapshot,
     ForkTurns,
     build_fork_context,
     normalize_fork_turns,
 )
-from .agent_thread import (
+from .agents.thread import (
     AgentThreadContext,
     AgentTurnContext,
 )
-from .agent_messages import AgentMessageDispatch
-from .agent_views import (
+from .agents.messages import AgentMessageDispatch
+from .agents.views import (
     AgentMailboxWaitResult,
     AgentSnapshot,
     AgentWaitResult,
@@ -102,8 +102,8 @@ from agent.domain.hooks import (
     SessionEndReason,
     normalize_hook_state_table,
 )
-from .hook_context import HookExecutionContext
-from .subagent_hooks import SubagentHookEvents
+from .hooks.context import HookExecutionContext
+from .hooks.subagent import SubagentHookEvents
 from agent.domain.hook_trust import (
     HookResolvedState,
     HookTrustState,
@@ -113,13 +113,13 @@ from agent.domain.hook_trust import (
     hook_needs_review,
     resolve_hook_state,
 )
-from .projections import (
+from .turns.projections import (
     RunResultProjection,
     project_run_result
 )
-from .run_result import RunResult
+from .turns.run_result import RunResult
 from .services import RuntimeServices
-from .settings import (
+from .config.settings import (
     AgentConfigError,
     AgentSettings,
     DEFAULT_FORK_TURNS,
@@ -130,9 +130,9 @@ from .settings import (
     normalize_agent_table,
     normalize_feature_table,
 )
-from .session_identity import derive_local_session_id
-from .stream_outcome import StreamTurnOutcome
-from .turn_execution import (
+from .config.session_identity import derive_local_session_id
+from .turns.stream_outcome import StreamTurnOutcome
+from .turns.execution import (
     TurnExecution,
     create_continuation_execution,
 )

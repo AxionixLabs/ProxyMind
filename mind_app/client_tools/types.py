@@ -9,7 +9,7 @@ from dataclasses import (
 from mcp import types as mcp_types
 
 if typing.TYPE_CHECKING:
-    from agent.application.execution import TurnContext
+    from agent.application.turns.context import TurnContext
 
 NestedToolDispatch = typing.Callable[
     [str, dict[str, typing.Any], str],

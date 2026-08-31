@@ -4,7 +4,6 @@
 import typing
 import asyncio
 import sqlite3
-from observability import observe_exception
 from agent.application import (
     AgentMailboxWaitResult,
     AgentMessageDispatch,
@@ -15,18 +14,18 @@ from agent.application import (
     TurnExecution,
     AgentWaitResult,
 )
-from infrastructure.skills import skills_payload
 from protocol.transport.events import EventReport
 from agent.ports import (
     McpSessionPort,
+    SkillsProvider,
     SubagentExecutionPort,
     SubagentOperation,
     TurnInputEventHandler,
 )
-from agent.adapters.subagent_execution import StreamSubagentExecution
-from agent.harness.subagent_runner import SubagentRunner
-from agent.harness.agent_registry import AgentControlRegistry
-from agent.application.execution import (
+from agent.adapters.agents.execution import StreamSubagentExecution
+from agent.harness.execution.subagent_runner import SubagentRunner
+from agent.harness.agents.registry import AgentControlRegistry
+from agent.application.turns.context import (
     AgentContext,
     TurnContext
 )
@@ -37,20 +36,20 @@ from mind_app.runtime.turns.executor import (
     execute_turn,
     resolve_turn_hook_scope,
 )
-from agent.harness.agent_control import (
+from agent.harness.agents.control import (
     AgentControl,
     AgentNotFoundError,
     AgentStateError,
 )
 from agent.application import ForkTurns, normalize_fork_turns
 from mind_app.runtime.subagents.context import load_fork_context
-from agent.harness.agent_delivery import (
+from agent.harness.agents.delivery import (
     AgentDeliveryRegistry,
 )
-from agent.harness.subagent_submission import SubagentSubmissionExecutor
-from agent.adapters.agent_messages import SteeringMessageDelivery
+from agent.harness.execution.subagent_submission import SubagentSubmissionExecutor
+from agent.adapters.agents.messages import SteeringMessageDelivery
 from agent.ports.agent_messages import AgentMessageDeliveryPort
-from agent.stores.agent_graph import (
+from agent.stores.agents.graph import (
     AgentGraphCheckpoint,
     AgentGraphPersistence,
     AgentGraphStore
@@ -59,7 +58,6 @@ from agent.stores.agent_graph import (
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
 
-SkillsProvider         = typing.Callable[[], list[dict[str, str]]]
 TranscriptPathResolver = typing.Callable[[str], str]
 SessionCleanup         = typing.Callable[[str], typing.Awaitable[typing.Any]]
 
@@ -95,7 +93,7 @@ class SubagentRuntime:
             else None
         )
 
-        self._skills_provider     = skills_provider or self._configured_skills
+        self._skills_provider     = skills_provider or (lambda: [])
         self._transcript_path_for = transcript_path_for or (lambda _sid: "")
         self._session_cleanup     = session_cleanup
         runner = SubagentRunner(
@@ -438,19 +436,6 @@ class SubagentRuntime:
             )
         if self._graph_persistence is not None:
             await self._graph_persistence.close()
-
-    def _configured_skills(self) -> list[dict[str, str]]:
-        """读取并固定创建线程时有效的技能描述。"""
-        try:
-            config = self._controller.config_session.load()
-            return skills_payload(config)
-        except (OSError, TypeError, ValueError) as error:
-            observe_exception(
-                "subagent.skills.resolve_failed",
-                error,
-                level="WARNING",
-            )
-            return []
 
     async def _control(
         self,

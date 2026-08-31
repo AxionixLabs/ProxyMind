@@ -9,11 +9,12 @@ from agent.application import (
     project_run_result,
     submit_turn,
 )
+from agent.harness.sessions.owner import SessionRuntimeOwner
 from agent.protocol import (
     RunEvent,
     SubmitTurnCommand,
 )
-from agent.harness.session_loop import SessionLoop
+from agent.harness.sessions.loop import SessionLoop
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +109,11 @@ async def test_submit_turn_emits_successful_run_sequence() -> None:
         assert request is command
         return _Result(status="completed")
 
-    result = await submit_turn(command, execute)
+    result = await submit_turn(
+        command,
+        execute,
+        runtime_factory=SessionRuntimeOwner,
+    )
 
     assert result.value == _Result(status="completed")
     assert [event.kind for event in result.events] == [
@@ -179,7 +184,9 @@ async def test_session_loop_serializes_runs_and_deduplicates_command() -> None:
 
 @pytest.mark.anyio
 async def test_turn_application_reuses_session_queue_across_submissions() -> None:
-    application: TurnApplication[_Result] = TurnApplication()
+    application: TurnApplication[_Result] = TurnApplication(
+        runtime_factory=SessionRuntimeOwner,
+    )
     first = _command("first", run_id="run-app-first")
     second = _command("second", run_id="run-app-second")
     first_started = asyncio.Event()
@@ -221,7 +228,9 @@ async def test_turn_application_reuses_session_queue_across_submissions() -> Non
 
 @pytest.mark.anyio
 async def test_turn_application_cancellation_rebuilds_session_loop() -> None:
-    application: TurnApplication[_Result] = TurnApplication()
+    application: TurnApplication[_Result] = TurnApplication(
+        runtime_factory=SessionRuntimeOwner,
+    )
     cancelled = _command("wait", run_id="run-app-cancelled")
     resumed = _command("resume", run_id="run-app-resumed")
     started = asyncio.Event()
@@ -257,7 +266,9 @@ async def test_turn_application_cancellation_rebuilds_session_loop() -> None:
 
 @pytest.mark.anyio
 async def test_turn_application_close_waits_for_active_session() -> None:
-    application: TurnApplication[_Result] = TurnApplication()
+    application: TurnApplication[_Result] = TurnApplication(
+        runtime_factory=SessionRuntimeOwner,
+    )
     command = _command("wait", run_id="run-app-close")
     started = asyncio.Event()
     release = asyncio.Event()
@@ -296,7 +307,11 @@ async def test_session_loop_emits_failed_tool_result() -> None:
     async def execute(_request: SubmitTurnCommand) -> _Result:
         return _Result(status="failed")
 
-    result = await submit_turn(command, execute)
+    result = await submit_turn(
+        command,
+        execute,
+        runtime_factory=SessionRuntimeOwner,
+    )
 
     assert result.value.status == "failed"
     assert result.events[-1].kind == "run_failed"

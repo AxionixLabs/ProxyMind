@@ -12,15 +12,18 @@ from agent.ports import (
     HookRegistryFactory,
     ModelCapability,
     ProcessCapability,
+    SkillsProvider,
 )
-from agent.harness.workspace_runtime import WorkspaceRuntimeFactory
-from .commands import TurnApplication
+from agent.ports.workspace import WorkspaceRuntimeFactory
+from .turns.commands import TurnApplication
 
 TurnApplicationFactory: typing.TypeAlias = Callable[
     [str | Path],
     TurnApplication[typing.Any],
 ]
 EffectJournalFactory: typing.TypeAlias = Callable[[str | Path], EffectJournal]
+SkillsConfigReader: typing.TypeAlias = Callable[[], dict[str, typing.Any]]
+SkillsProviderFactory: typing.TypeAlias = Callable[[SkillsConfigReader], SkillsProvider]
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +42,7 @@ class RuntimeServices:
     create_workspace_runtime: WorkspaceRuntimeFactory | None = None
     process_capability: ProcessCapability | None = None
     helix_capability: HelixCapability | None = None
+    create_skills_provider: SkillsProviderFactory | None = None
 
     def __post_init__(self) -> None:
         """拒绝缺失能力，确保组合错误在启动边界暴露。"""
@@ -58,6 +62,11 @@ class RuntimeServices:
             raise TypeError("effect journal factory must be callable")
         if not callable(self.create_hook_registry):
             raise TypeError("hook registry factory must be callable")
+        if (
+            self.create_skills_provider is not None
+            and not callable(self.create_skills_provider)
+        ):
+            raise TypeError("skills provider factory must be callable")
         if (
             self.create_workspace_runtime is not None
             and not callable(self.create_workspace_runtime)

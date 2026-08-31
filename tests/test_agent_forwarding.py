@@ -26,6 +26,7 @@ from mind_app.subscription.ws import (
     recv_json_or_stop,
 )
 from agent.application import TurnApplication
+from agent.harness.sessions.owner import SessionRuntimeOwner
 from mind_app.runtime.agent.client import AgentClient
 from agent.application import RunResult
 
@@ -40,6 +41,11 @@ def frozen_environment_snapshot(monkeypatch) -> dict[str, object]:
         Mock(return_value=snapshot),
     )
     return snapshot
+
+
+def _turn_application() -> TurnApplication:
+    """创建测试使用的显式 Session runtime。"""
+    return TurnApplication(runtime_factory=SessionRuntimeOwner)
 
 
 def _forward_message() -> dict[str, object]:
@@ -123,7 +129,10 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
         },
     )
 
-    await AgentExecutor(turn_runner).execute(
+    await AgentExecutor(
+        turn_runner,
+        turn_application=_turn_application(),
+    ).execute(
         mind,
         client,
         object(),
@@ -153,7 +162,7 @@ async def test_agent_executor_submits_frozen_forward_command() -> None:
 
     class RecordingApplication(TurnApplication):
         def __init__(self) -> None:
-            super().__init__()
+            super().__init__(runtime_factory=SessionRuntimeOwner)
             self.command = None
 
         async def submit(self, command, executor):
@@ -226,7 +235,10 @@ async def test_agent_executor_propagates_tui_turn_id() -> None:
         payload={"message": "inspect workspace"},
     )
 
-    await AgentExecutor(turn_runner).execute(
+    await AgentExecutor(
+        turn_runner,
+        turn_application=_turn_application(),
+    ).execute(
         mind,
         client,
         object(),
@@ -254,7 +266,10 @@ async def test_agent_executor_reports_interrupted_result_as_cancelled() -> None:
         payload={"message": "inspect workspace"},
     )
 
-    await AgentExecutor(turn_runner).execute(
+    await AgentExecutor(
+        turn_runner,
+        turn_application=_turn_application(),
+    ).execute(
         mind,
         client,
         object(),
@@ -293,7 +308,10 @@ async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
         payload={"message": "inspect workspace"},
     )
 
-    task = asyncio.create_task(AgentExecutor(run_root_turn).execute(
+    task = asyncio.create_task(AgentExecutor(
+        run_root_turn,
+        turn_application=_turn_application(),
+    ).execute(
         mind,
         client,
         object(),
@@ -328,7 +346,10 @@ async def test_agent_executor_reports_execution_failure() -> None:
     )
 
     with pytest.raises(RuntimeError, match="execution failed"):
-        await AgentExecutor(turn_runner).execute(
+        await AgentExecutor(
+            turn_runner,
+            turn_application=_turn_application(),
+        ).execute(
             mind,
             client,
             object(),

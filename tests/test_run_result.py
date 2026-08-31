@@ -36,7 +36,7 @@ from mind_app.presentation.models import (
     RunIncompleteView,
 )
 from mind_app.runtime.mcp import tool_runtime
-from agent.application.execution import (
+from agent.application.turns.context import (
     AgentContext,
     ToolInvocation,
     TurnContext,
@@ -60,7 +60,7 @@ from mind_app.runtime.tools.client_call import (
     ClientToolCallResult,
 )
 from agent.application import ModelCapabilityError, ModelStreamRequest
-from agent.adapters.item_reducer import CanonicalItemReducer
+from agent.adapters.protocol.items import CanonicalItemReducer
 from agent.composition import open_effect_journal
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from infrastructure.hooks.discovery import resolve_hook_definitions

@@ -11,7 +11,7 @@ from agent.application import (
     ProtocolCommandError,
     SteerTurnInput,
 )
-from agent.adapters import protocol_client as model_adapter
+from agent.adapters.protocol import client as model_adapter
 from agent.composition import open_model_capability
 from protocol.schema.tool_approval import (
     ToolApprovalSnapshot,

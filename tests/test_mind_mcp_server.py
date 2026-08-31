@@ -27,6 +27,7 @@ from agent.application import (
 from agent.application import RunResult
 from infrastructure.config.paths import ApplicationLayout
 from agent.application import PermissionSettings
+from agent.harness.sessions.owner import SessionRuntimeOwner
 from mind_app.runtime.hooks.registry import HookRegistry
 
 
@@ -65,7 +66,7 @@ def _runtime(mind: typing.Any, turn_runner: AsyncMock) -> MindMcpRuntime:
         mind,
         report=SimpleNamespace(close=Mock()),
         turn_runner=turn_runner,
-        turn_application=TurnApplication(),
+        turn_application=TurnApplication(runtime_factory=SessionRuntimeOwner),
     )
 
 
@@ -78,7 +79,9 @@ def _runtime_services(model_capability: object | None = None) -> SimpleNamespace
             else model_capability
         ),
         environment_capability=_EnvironmentCapability(),
-        create_turn_application=lambda _path: TurnApplication(),
+        create_turn_application=lambda _path: TurnApplication(
+            runtime_factory=SessionRuntimeOwner,
+        ),
         create_hook_registry=lambda **kwargs: HookRegistry(**kwargs),
     )
 
@@ -130,7 +133,7 @@ async def test_mind_mcp_runtime_closes_report_after_runtime_resources(
         typing.cast(typing.Any, mind),
         report=report,
         turn_runner=AsyncMock(),
-        turn_application=TurnApplication(),
+        turn_application=TurnApplication(runtime_factory=SessionRuntimeOwner),
     )
 
     await runtime.close()
@@ -157,7 +160,7 @@ async def test_mind_mcp_runtime_releases_resources_when_session_close_fails(
         typing.cast(typing.Any, mind),
         report=report,
         turn_runner=AsyncMock(),
-        turn_application=TurnApplication(),
+        turn_application=TurnApplication(runtime_factory=SessionRuntimeOwner),
     )
 
     with pytest.raises(RuntimeError, match="session failed"):
@@ -185,7 +188,7 @@ async def test_mind_mcp_runtime_closes_report_when_resource_cleanup_fails(
         typing.cast(typing.Any, mind),
         report=report,
         turn_runner=AsyncMock(),
-        turn_application=TurnApplication(),
+        turn_application=TurnApplication(runtime_factory=SessionRuntimeOwner),
     )
 
     with pytest.raises(RuntimeError, match="cleanup failed"):

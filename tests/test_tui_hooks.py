@@ -12,7 +12,7 @@ from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from agent.application.hook_catalog import (
+from agent.application.hooks.catalog import (
     HookCatalogEntry,
     HookCatalogSnapshot,
     HookCatalogStaleError,

@@ -10,7 +10,7 @@ from mind_app.presentation.application import (
     ApplicationView
 )
 from mind_app.presentation.models import TextSpan
-from agent.application.hook_catalog import (
+from agent.application.hooks.catalog import (
     HookCatalogEntry,
     HookCatalogSnapshot
 )

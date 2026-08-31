@@ -6,7 +6,7 @@ from mcp import types as mcp_types
 from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from protocol.client.turn_control import TurnControlRequestError
 from mind_app.approval.policy import approval_execpolicy_amendment
-from agent.stores.permission_grants import normalize_permission_profile
+from agent.stores.approvals.permissions import normalize_permission_profile
 from mind_app.native_coding import NativeCoding
 from mind_app.native_coding.exec.exec_policy import (
     ExecPolicyManager,

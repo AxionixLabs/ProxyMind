@@ -6,7 +6,7 @@ from agent.application import (
     CompactTriggerReason,
     CompactTriggerSource
 )
-from agent.application.hook_models import HookDecision
+from agent.application.hooks.models import HookDecision
 from .scope import HookExecutionScope
 
 

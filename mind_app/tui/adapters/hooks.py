@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
 from mind_app.presentation.formatting import format_duration_ms
 from mind_app.presentation.models import TextStyle
-from agent.application.hook_models import (
+from agent.application.hooks.models import (
     HookOutputEntry,
     HookRunSummary
 )

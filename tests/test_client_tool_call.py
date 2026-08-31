@@ -18,12 +18,12 @@ from agent.application import (
 )
 from agent.composition import open_effect_journal
 
-from agent.application.execution import (
+from agent.application.turns.context import (
     AgentContext,
     ToolInvocation,
     TurnContext,
 )
-from agent.application.hook_models import (
+from agent.application.hooks.models import (
     HookVisibleToolResult,
     ToolCallRunResult,
     ToolOperationResult,

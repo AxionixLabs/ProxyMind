@@ -32,12 +32,12 @@ from mind_app.presentation.output import (
     OutputStatusPort
 )
 from mind_app.presentation.contracts import PresentationSink
-from agent.application.execution import (
+from agent.application.turns.context import (
     ToolInvocation,
     TurnContext
 )
 from protocol.client.turn_control import TurnControlRequestError
-from agent.application.hook_models import (
+from agent.application.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
 )

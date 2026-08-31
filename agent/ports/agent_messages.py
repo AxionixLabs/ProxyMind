@@ -2,7 +2,7 @@
 
 import typing
 from dataclasses import dataclass
-from agent.application.execution import TurnContext
+from agent.application.turns.context import TurnContext
 from protocol.schema.turn_inputs import TurnInput
 
 AgentMessageDeliveryStatus = typing.Literal["active_turn", "mailbox"]

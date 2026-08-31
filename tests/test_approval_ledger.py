@@ -1,4 +1,4 @@
-from agent.stores.approval_ledger import ApprovalCallLedger
+from agent.stores.approvals.ledger import ApprovalCallLedger
 
 
 def test_approval_ledger_only_tracks_approval_consumption() -> None:

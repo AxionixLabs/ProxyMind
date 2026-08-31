@@ -10,12 +10,12 @@ from dataclasses import (
     dataclass,
     replace,
 )
-from agent.application.execution import ToolInvocation
+from agent.application.turns.context import ToolInvocation
 from mind_app.history.contracts import TranscriptSink
 from metadata import const
 from agent.domain.hook_matching import hook_tool_name
-from agent.application.hook_result import apply_tool_result_effect
-from agent.application.hook_models import (
+from agent.application.hooks.result import apply_tool_result_effect
+from agent.application.hooks.models import (
     HookDecision,
     HookDispatchResult,
     HookPermissionDecision,

@@ -8,7 +8,7 @@ import functools
 from dataclasses import dataclass
 from mcp import types as mcp_types
 from agent.ports import McpSessionPort
-from agent.application.execution import ToolInvocation
+from agent.application.turns.context import ToolInvocation
 from protocol.schema.tool_approval import (
     TOOL_LIFECYCLE_STATUSES,
     ToolLifecycleStatus,

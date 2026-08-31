@@ -14,7 +14,7 @@ from protocol.client.compact import (
     build_compact_payload,
     stream_compact_events
 )
-from agent.application.execution import AgentContext
+from agent.application.turns.context import AgentContext
 from .hooks.compact import (
     CompactHookBlockedError,
     CompactHookEvents
@@ -28,7 +28,7 @@ from observability import (
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
-    from agent.application.hook_models import HookDecision
+    from agent.application.hooks.models import HookDecision
 
 CompactProgress = typing.Callable[[str], None]
 

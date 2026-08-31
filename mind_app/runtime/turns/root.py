@@ -6,7 +6,7 @@ import typing
 from collections.abc import Mapping
 from protocol.transport.events import EventReport
 from agent.application import RunResult, SubmitTurnCommand, TurnExecution
-from agent.application.execution import (
+from agent.application.turns.context import (
     AgentContext,
     TurnContext,
 )

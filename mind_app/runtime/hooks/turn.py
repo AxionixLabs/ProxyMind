@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from agent.application.hook_models import (
+from agent.application.hooks.models import (
     HookDecision,
     StopHookDecision,
     TurnStartResult

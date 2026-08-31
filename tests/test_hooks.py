@@ -12,7 +12,7 @@ import pytest
 import mind_app.runtime.hooks.command as hook_command_module
 import mind_app.runtime.hooks.runtime as hook_runtime_module
 
-from agent.application.execution import (
+from agent.application.turns.context import (
     AgentContext,
     ToolInvocation,
     TurnContext
@@ -21,8 +21,8 @@ from mind_app.runtime.hooks.command import (
     HookCommandError,
     HookCommandExecutor
 )
-from agent.application.hook_events import HOOK_EVENT_SPECS
-from agent.application.hook_models import (
+from agent.application.hooks.events import HOOK_EVENT_SPECS
+from agent.application.hooks.models import (
     HookEventRequest,
     HookOutputEntry,
     ToolOperationResult,

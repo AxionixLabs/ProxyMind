@@ -16,13 +16,13 @@ from agent.application import (
     HookDefinitionConfig,
     HookStateTable
 )
-from agent.application.hook_catalog import (
+from agent.application.hooks.catalog import (
     HookCatalogEntry,
     HookCatalogSnapshot,
     HookEventSummary
 )
 from .command import HookCommandExecutor
-from agent.application.hook_models import (
+from agent.application.hooks.models import (
     HookRuntimeEntry,
     HookRuntimeStatus
 )

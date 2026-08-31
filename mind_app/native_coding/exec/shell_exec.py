@@ -31,7 +31,7 @@ from mind_app.native_coding.exec.exec_policy import (
     effective_sandbox_mode,
     normalize_sandbox_permission,
 )
-from agent.stores.permission_grants import normalize_permission_profile
+from agent.stores.approvals.permissions import normalize_permission_profile
 from infrastructure.platform.processes import wait_for_process
 
 

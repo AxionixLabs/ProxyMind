@@ -7,7 +7,7 @@ from mind_app.presentation.models import (
     HookRunView,
     HookViewPhase
 )
-from agent.application.hook_models import HookRunSummary
+from agent.application.hooks.models import HookRunSummary
 
 
 def build_hook_run_view(

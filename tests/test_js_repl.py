@@ -39,8 +39,8 @@ from infrastructure.platform.javascript_repl import (
     _stderr_tail_bytes,
 )
 from mind_app.presentation.models import NativeToolResultView, ToolStartView
-from agent.application.execution import AgentContext, ToolInvocation, TurnContext
-from agent.application.hook_models import (
+from agent.application.turns.context import AgentContext, ToolInvocation, TurnContext
+from agent.application.hooks.models import (
     HookVisibleToolResult,
     ToolCallRunResult,
 )

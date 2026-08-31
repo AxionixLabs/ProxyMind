@@ -3,11 +3,14 @@
 
 import typing
 from pathlib import Path
-from agent.harness.workspace_runtime import WorkspaceRuntimeFactory
-from agent.application.commands import TurnApplication
+from observability import observe_exception
+from infrastructure.skills import skills_payload
+from agent.application.turns.commands import TurnApplication
 from agent.application.services import RuntimeServices
+from agent.application.services import SkillsConfigReader
 from agent.ports import (
     EffectJournal,
+    SkillsProvider,
     TurnExecutorResult,
 )
 from agent.ports import HookRegistryFactory
@@ -21,6 +24,8 @@ from agent.capabilities import (
 )
 from agent.adapters import MindChatProtocolClient
 from agent.ports import EnvironmentSnapshotCapability, ModelCapability
+from agent.ports.workspace import WorkspaceRuntimeFactory
+from agent.harness.sessions.owner import SessionRuntimeOwner
 
 ResultValue = typing.TypeVar("ResultValue", bound=TurnExecutorResult)
 
@@ -29,7 +34,10 @@ def open_turn_application(
     db_path: str | Path,
 ) -> TurnApplication[ResultValue]:
     """使用 Agent Harness 专用 SQLite store 组合主动 Turn 应用入口。"""
-    return TurnApplication(SQLiteRunStore(db_path))
+    return TurnApplication(
+        SQLiteRunStore(db_path),
+        runtime_factory=SessionRuntimeOwner,
+    )
 
 
 def open_effect_journal(db_path: str | Path) -> EffectJournal:
@@ -52,6 +60,26 @@ def open_process_capability() -> LocalProcessCapability:
     return LocalProcessCapability()
 
 
+def open_skills_provider(config_reader: SkillsConfigReader) -> SkillsProvider:
+    """在组合根绑定配置读取器并返回稳定的 skills 快照提供器。"""
+    if not callable(config_reader):
+        raise TypeError("skills config reader must be callable")
+
+    def provide() -> list[dict[str, str]]:
+        """读取当前配置并转换为模型可见的 skills 描述。"""
+        try:
+            return skills_payload(config_reader())
+        except (OSError, TypeError, ValueError) as error:
+            observe_exception(
+                "subagent.skills.resolve_failed",
+                error,
+                level="WARNING",
+            )
+            return []
+
+    return provide
+
+
 def create_runtime_services(
     *,
     create_hook_registry: HookRegistryFactory,
@@ -66,6 +94,7 @@ def create_runtime_services(
         create_hook_registry=create_hook_registry,
         create_workspace_runtime=create_workspace_runtime,
         process_capability=open_process_capability(),
+        create_skills_provider=open_skills_provider,
     )
 
 

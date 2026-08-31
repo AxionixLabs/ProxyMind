@@ -11,7 +11,7 @@ from unittest.mock import (
 import pytest
 
 from agent.application import RunResult
-from agent.application.execution import (
+from agent.application.turns.context import (
     AgentContext,
     TurnContext
 )

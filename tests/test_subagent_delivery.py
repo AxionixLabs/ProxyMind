@@ -4,17 +4,17 @@ import asyncio
 
 import pytest
 
-from agent.application.execution import AgentContext, TurnContext
-from agent.adapters import agent_messages as delivery_module
-from agent.harness.agent_delivery import (
+from agent.application.turns.context import AgentContext, TurnContext
+from agent.adapters.agents import messages as delivery_module
+from agent.harness.agents.delivery import (
     AgentActiveTurn,
 )
-from agent.adapters.agent_messages import SteeringMessageDelivery
+from agent.adapters.agents.messages import SteeringMessageDelivery
 from agent.ports.agent_messages import (
     AgentMessageReceipt,
     AgentMessageReceiptStatus,
 )
-from agent.stores.agent_mailbox import AgentMailboxStore
+from agent.stores.agents.mailbox import AgentMailboxStore
 from agent.application import preset_permissions
 from protocol.client.turn_control import (
     TurnControlRequestError,

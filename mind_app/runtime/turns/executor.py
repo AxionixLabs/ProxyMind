@@ -16,7 +16,7 @@ from agent.application import (
     HookExecutionContext,
     TurnExecution,
 )
-from agent.application.execution import TurnContext
+from agent.application.turns.context import TurnContext
 from agent.ports import (
     TurnOperation,
     TurnResultValue,

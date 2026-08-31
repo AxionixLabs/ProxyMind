@@ -2,8 +2,8 @@
 
 import pytest
 
-from agent.application.execution import AgentContext
-from agent.stores.agent_mailbox import (
+from agent.application.turns.context import AgentContext
+from agent.stores.agents.mailbox import (
     AgentMailboxStore,
     MAX_MAILBOX_CONTEXT_CHARS,
     format_mailbox_context,

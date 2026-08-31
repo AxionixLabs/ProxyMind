@@ -7,15 +7,15 @@ import pytest
 from agent.application import PermissionSettings
 from agent.domain.agents import AgentSubmission
 from protocol.schema.identifiers import new_cid, new_sid
-from agent.application.execution import AgentContext
-from agent.harness.agent_control import (
+from agent.application.turns.context import AgentContext
+from agent.harness.agents.control import (
     AgentControl,
     AgentDepthError,
     AgentLimitError,
     AgentNotFoundError,
     AgentStateError,
 )
-from agent.harness.agent_registry import AgentControlRegistry
+from agent.harness.agents.registry import AgentControlRegistry
 from agent.application import AgentThreadContext
 
 

@@ -11,7 +11,7 @@ from agent.ports import McpSessionPort
 from .status import should_reraise_external
 
 if typing.TYPE_CHECKING:
-    from agent.application.execution import TurnContext
+    from agent.application.turns.context import TurnContext
 
 
 class CompositeToolSession(McpSessionPort):

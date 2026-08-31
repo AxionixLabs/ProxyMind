@@ -10,7 +10,6 @@ from agent.application import (
     TurnApplication,
     SubmitTurnResult,
     SubmitTurnCommand,
-    submit_turn,
 )
 from infrastructure.errors import AppError
 from observability import observe
@@ -191,10 +190,11 @@ class AgentExecutor(object):
             )
 
             execution: SubmitTurnResult[RunResult]
-            submitted = (
-                self._turn_application.submit(command, execute_root_turn)
-                if self._turn_application is not None
-                else submit_turn(command, execute_root_turn)
+            if self._turn_application is None:
+                raise RuntimeError("turn application is required")
+            submitted = self._turn_application.submit(
+                command,
+                execute_root_turn,
             )
 
             if timeout_sec is not None:

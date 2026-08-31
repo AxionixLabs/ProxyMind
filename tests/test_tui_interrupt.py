@@ -21,6 +21,8 @@ from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.submission import TuiInterruptRequested
 from mind_app.tui.session import loop
 from agent.application import preset_permissions
+from agent.application import TurnApplication
+from agent.harness.sessions.owner import SessionRuntimeOwner
 from mind_app.tui.session.turn import execute_tui_model_turn
 
 
@@ -31,6 +33,16 @@ def frozen_environment_snapshot(monkeypatch) -> None:
         loop,
         "capture_active_turn_environment",
         Mock(return_value={"snapshot_id": "envsnap_tui"}),
+    )
+
+
+@pytest.fixture(autouse=True)
+def injected_turn_application(monkeypatch) -> None:
+    """为 TUI 中断单测注入显式 Session runtime。"""
+    monkeypatch.setattr(
+        loop,
+        "TurnApplication",
+        lambda: TurnApplication(runtime_factory=SessionRuntimeOwner),
     )
 
 

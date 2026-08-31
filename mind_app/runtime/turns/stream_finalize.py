@@ -6,7 +6,7 @@ from observability import observe_exception
 from mind_app.history.contracts import TranscriptSink
 from mind_app.presentation.output import OutputControlPort
 from agent.application import StreamTurnOutcome
-from agent.application.hook_models import StopHookDecision
+from agent.application.hooks.models import StopHookDecision
 from mind_app.runtime.hooks.turn import TurnHookEvents
 from infrastructure.platform.idle_status import IdleStatusTimer
 from .executor import record_turn_finished

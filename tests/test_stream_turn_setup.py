@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from mind_app.presentation.output import OutputSession
-from agent.application.execution import (
+from agent.application.turns.context import (
     AgentContext,
     TurnContext,
 )

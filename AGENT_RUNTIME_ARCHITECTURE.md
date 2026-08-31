@@ -1,6 +1,6 @@
 # Agent Harness 架构基线
 
-状态：已采纳（Architecture Decision Record）；阶段 4 已完成，阶段 5 进行中
+状态：已采纳（Architecture Decision Record）；阶段 4 已完成，阶段 5 进行中（2026-08-31）
 
 这份文档是 ProxyMind 下一代 Agent Harness 的目标架构。它解决的是
 `mind_app`、`mind_core`、`mind_nova` 和 `engine` 四个历史包职责交叉、状态所有权不清和
@@ -20,7 +20,7 @@
   TUI、桌面端和 Web 可以共用的 `mind.chat` wire contract；`agent.protocol`
   只定义进程内 Harness 的 Command/Event，不作为跨进程或浏览器 SDK。
 - 正式 `mind.chat` Python wire SDK 已进入顶层 `protocol`，不再按历史包名组织。
-  `agent.adapters.protocol_client` 只把冻结的 Harness 请求映射到该 SDK，并拥有本地
+  `agent.adapters.protocol.client` 只把冻结的 Harness 请求映射到该 SDK，并拥有本地
   Session 游标、Canonical Item 投影和能力错误归一化，不复制线上 schema。
 - Agent Harness 是产品架构主线，`agent.harness` 是本地编排内核的正式包名；
   `agent.runtime` 已在阶段 4B 的首个切片中删除，不得重新创建兼容 facade。
@@ -82,7 +82,7 @@ Protocol Client 的职责是构造冻结命令、维护 `cid/sid/turn_id` 和 `e
 的权威生命周期仍由服务端拥有。
 
 当前 Python 实现中的 `protocol.client` / `protocol.schema.stream_events` 是该 Protocol Client
-边界的独立传输实现。`agent.adapters.item_reducer` 已在传输交付前把 Item 事件归约
+边界的独立传输实现。`agent.adapters.protocol.items` 已在传输交付前把 Item 事件归约
 为不可变 `CanonicalItem`，并同时保留 active 视图和被 retry/presentation 替换的
 审计视图。重连审批快照先在同一 reducer 中按服务端 `last_event_seq` 归约，再通知
 前端审批处理器；快照水位只裁决旧审批事件，不能推进客户端已确认事件游标。
@@ -175,7 +175,9 @@ server/                         # 可选 ConfigServiceRuntime，不拥有 Harnes
 | `engine` | `agent.capabilities` 的进程/Helix 端口实现；可复用的纯平台代码进入 `infrastructure/platform` | 先切断反向业务依赖和循环，再逐项删除 `engine` 模块；不得保留只转发一次调用的 facade |
 
 目标目录中的新模块只在迁移计划启用对应切片且能承载完整用例时创建；不为“未来可能
-使用”预建空目录。
+使用”预建空目录。阶段 5 的职责化重组已完成首轮：application、harness、stores 和
+adapters 的子职责目录均已有真实调用者，旧平铺路径已删除；后续只在独立生命周期、
+一致性或扩展边界成立时继续拆分。
 
 ## 目标目录
 
@@ -201,40 +203,44 @@ agent/
 │   ├── tool_policy.py       # app/api 工具可见性和元数据过滤规则
 │   └── policies.py          # 权限、预算、取消和重试规则
 ├── harness/
-│   ├── session_loop.py      # 一个 Session 的单写者事件循环
-│   ├── run_actor.py         # 一个 Run 的串行状态执行器
-│   ├── subagent_runner.py   # 子 Agent Hook 生命周期和续跑协调
-│   ├── subagent_submission.py # 已分配提交的上下文、执行和 mailbox 确认协调
-│   ├── agent_control.py     # Agent 树状态机、队列和 mailbox 协调
-│   ├── agent_delivery.py    # 活动 Turn 投递状态和消息回执
-│   ├── agent_registry.py     # 根会话 control 注册、恢复和关闭生命周期
-│   ├── scheduler.py         # Run 调度、并发上限和公平性
-│   ├── supervisor.py        # 子任务、断线和关闭收束
-│   └── recovery.py          # 快照恢复、未完成命令和效果对账
+│   ├── agents/              # Agent 树状态、活动 Turn 和根会话注册
+│   │   ├── control.py       # Agent 树状态机、队列和 mailbox 协调
+│   │   ├── delivery.py      # 活动 Turn 投递状态
+│   │   └── registry.py      # 根会话 control 注册、恢复和关闭生命周期
+│   ├── execution/           # Run/Subagent 执行与接管协调
+│   │   ├── actor.py         # 一个 Run 的串行状态执行器
+│   │   ├── subagent_runner.py # 子 Agent Hook 生命周期和续跑协调
+│   │   └── subagent_submission.py # 已分配提交的上下文、执行和 mailbox 确认协调
+│   └── sessions/            # Session 单写者和生命周期所有者
+│       ├── loop.py          # 一个 Session 的单写者事件循环
+│       └── owner.py         # SessionLoop 的创建、关闭和恢复入口
 ├── application/
-│   ├── commands.py          # submit、resume、approve、cancel、retry
-│   ├── compact_result.py    # 上下文压缩稳定结果值对象
-│   ├── agent_thread.py      # 子 Agent 线程和轮次上下文
-│   ├── agent_messages.py    # Agent 消息派发结果值对象
-│   ├── agent_views.py       # Agent 状态、等待和 mailbox 只读视图
-│   ├── environment.py       # 环境快照采集用例与能力失败收敛
-│   ├── execution.py        # Agent、Turn 和工具调用执行上下文
-│   ├── turn_execution.py   # 固定 Hook 作用域的 Turn 执行契约
-│   ├── fork_context.py      # 父会话继承范围和上下文快照
-│   ├── session_identity.py  # 远端坐标到本地 Session 身份的确定性派生
-│   ├── run_result.py        # 单次 Run 的不可变结果值对象
-│   ├── stream_outcome.py    # 流式 Turn 终态聚合与结果构建
-│   ├── hook_catalog.py      # Hook 管理目录、状态快照和变更冲突
-│   ├── hook_context.py      # Hook 输入上下文值对象
-│   ├── subagent_hooks.py    # 子 Agent Hook 生命周期聚合
-│   ├── hook_events.py       # Hook 生命周期事件规格目录
-│   ├── hook_models.py       # Hook 生命周期快照、决定和工具结果值对象
-│   ├── hook_output.py       # Hook 输出语义校验与归一化
-│   ├── hook_protocol.py     # Hook stdin/stdout schema、构建和边界校验
-│   ├── hook_result.py       # 后置 Hook 对模型可见工具结果的投影
-│   ├── queries.py           # 历史、状态、计划和证据读取
-│   ├── projections.py       # Event Queue 到入口稳定结果的投影
-│   ├── settings.py          # Harness 并发和可选能力的启动时设置
+│   ├── agents/              # 子 Agent 上下文、消息结果和只读视图
+│   │   ├── thread.py        # 子 Agent 线程和轮次上下文
+│   │   ├── messages.py      # Agent 消息派发结果值对象
+│   │   ├── views.py         # Agent 状态、等待和 mailbox 只读视图
+│   │   └── fork_context.py  # 父会话继承范围和上下文快照
+│   ├── turns/               # Turn 输入、执行上下文和结果投影
+│   │   ├── commands.py      # submit、resume、approve、cancel、retry
+│   │   ├── context.py       # Agent、Turn 和工具调用执行上下文
+│   │   ├── execution.py     # 固定 Hook 作用域的 Turn 执行契约
+│   │   ├── environment.py   # 环境快照采集用例与能力失败收敛
+│   │   ├── compact_result.py # 上下文压缩稳定结果值对象
+│   │   ├── run_result.py    # 单次 Run 的不可变结果值对象
+│   │   ├── stream_outcome.py # 流式 Turn 终态聚合与结果构建
+│   │   └── projections.py   # Event Queue 到入口稳定结果的投影
+│   ├── hooks/               # Hook 输入、生命周期和输出契约
+│   │   ├── catalog.py       # Hook 管理目录、状态快照和变更冲突
+│   │   ├── context.py       # Hook 输入上下文值对象
+│   │   ├── events.py        # Hook 生命周期事件规格目录
+│   │   ├── models.py        # Hook 生命周期快照、决定和工具结果值对象
+│   │   ├── output.py        # Hook 输出语义校验与归一化
+│   │   ├── protocol.py      # Hook stdin/stdout schema、构建和边界校验
+│   │   ├── result.py        # 后置 Hook 对模型可见工具结果的投影
+│   │   └── subagent.py      # 子 Agent Hook 生命周期聚合
+│   ├── config/              # 应用启动设置和本地身份
+│   │   ├── settings.py      # Harness 并发和可选能力的启动时设置
+│   │   └── session_identity.py # 远端坐标到本地 Session 身份的确定性派生
 │   └── services.py          # 用例编排，不持有长期运行状态
 ├── ports/
 │   ├── capabilities.py      # 模型、MCP、Helix、进程和文件端口
@@ -243,16 +249,24 @@ agent/
 │   ├── mcp_session.py       # 工具执行所需的 MCP 会话端口
 │   ├── turns.py              # 模型轮次操作和输入事件端口
 │   ├── subagents.py          # 子 Agent 执行和操作端口
+│   ├── sessions.py           # Turn application 使用的 Session 生命周期端口
+│   ├── workspace.py          # 工作区资源生命周期和组合工厂端口
 │   ├── persistence.py       # 事件、快照、历史和 outbox 端口
 │   ├── permissions.py       # 执行上下文读取权限授权端口
 │   └── observability.py     # 日志、指标和 tracing 端口
 ├── stores/
-│   ├── agent_mailbox.py     # 子 Agent mailbox 事件、快照和消费游标
-│   ├── agent_graph.py       # 子 Agent 图快照、SQLite 存储和单写者持久化
-│   ├── session_store.py     # Session/Run 元数据和最终记录
-│   ├── event_store.py       # 追加事件、读取游标和快照
-│   ├── effect_journal.py   # 外部副作用状态机
-│   └── outbox.py            # 事务性待发送消息
+│   ├── agents/              # 子 Agent 图与 mailbox 持久化
+│   │   ├── graph.py         # 子 Agent 图快照、SQLite 存储和单写者持久化
+│   │   └── mailbox.py       # 子 Agent mailbox 事件、快照和消费游标
+│   ├── runs/                # Run 事件、快照和最终事实
+│   │   ├── store.py         # Session/Run 元数据和最终记录
+│   │   ├── records.py       # Run 快照记录投影
+│   │   └── schema.py        # SQLite schema 版本
+│   ├── effects/             # 外部副作用账本
+│   │   └── journal.py       # 外部副作用状态机
+│   └── approvals/           # 审批和权限状态
+│       ├── ledger.py        # 工具审批消费记录
+│       └── permissions.py   # 会话权限授权记录
 ├── capabilities/
 │   ├── model.py             # 模型流式响应能力
 │   ├── mcp.py               # MCP 工具发现与调用能力
@@ -261,13 +275,16 @@ agent/
 │   ├── environment.py       # 客户端执行环境快照采集与 provider 聚合
 │   └── filesystem.py        # 受控文件能力
 ├── adapters/
-│   ├── protocol_client.py # mind.chat 命令、传输恢复和 Canonical Item 投影
-│   ├── agent_messages.py  # 子 Agent steer 协议适配
+│   ├── protocol/             # mind.chat 命令、传输恢复和 Canonical Item 投影
+│   │   ├── client.py        # Protocol Client 请求和恢复
+│   │   └── items.py         # Canonical Item reducer
+│   ├── agents/               # 子 Agent 外部交互适配
+│   │   ├── messages.py      # 子 Agent steer 协议适配
+│   │   └── execution.py     # 流式 Subagent 执行适配
 │   ├── cli.py               # CLI 输入/退出码到 Command
 │   ├── tui.py               # TUI 输入、渲染和 Event 投影
 │   ├── mcp_server.py        # stdio MCP 入站协议
 │   ├── subscription.py      # 远端订阅、resume 和 mailbox
-│   ├── subagent_execution.py # 流式 Subagent 执行适配
 │   └── observability.py     # 日志、指标和 tracing 出站适配
 └── composition.py           # 唯一组合根
 ```
@@ -322,7 +339,7 @@ stores ────────> ports <── harness / application
 composition.py ──────────> all concrete implementations
 
 frontends ──────────────> application / protocol
-agent.adapters.protocol_client ─────────────> protocol
+agent.adapters.protocol.client ─────────────> protocol
 infrastructure ────────> ports
 ```
 
@@ -451,13 +468,13 @@ running -> cancelled
 
 阶段 2 的首个生产切片已经落实以下边界：
 
-- `agent/stores/run_store.py` 编排 SQLite 事务，私有 schema 与记录投影分别位于
-  `_run_schema.py`、`_run_records.py`；公开存储实现不泄漏数据库行或 SQL。
+- `agent/stores/runs/store.py` 编排 SQLite 事务，私有 schema 与记录投影分别位于
+  `schema.py`、`records.py`；公开存储实现不泄漏数据库行或 SQL。
 - `runtime.db` 的 schema/snapshot 版本为 1；事件、快照、outbox 和最终事实由
   同一事务提交。`effects.db`、`agents.db`、`history.db` 保持独立文件和所有权。
 - queued 快照可以使用持久化原命令安全再派发；running、waiting_effect 和执行
   超时必须对账，waiting_approval 保持等待，paused 只能显式恢复。
-- `agent/stores/effect_journal.py` 是本地外部效果状态机的正式实现；旧
+- `agent/stores/effects/journal.py` 是本地外部效果状态机的正式实现；旧
   `mind_app/runtime/durable_effects.py` 已删除，没有兼容 facade。
 - CLI 和 TUI 的生产组合使用哈希派生的本地 Session 身份接入 `runtime.db`；
   测试替身可以显式使用内存运行时。本切片不改变线上 Session/Turn 身份。
@@ -506,27 +523,27 @@ running -> cancelled
 | --- | --- | --- |
 | `mind.py`、`agent/composition.py` | `composition.py` | `mind.py` 已创建单个 `RuntimeServices` 并注入全部进程入口；具体 store 和 capability 只能在 `agent/composition.py` 装配 |
 | `mind_app/controller.py` | application 公开门面 | 只借用入口注入的 `RuntimeServices`，不复制能力引用、不选择具体实现；已有可变状态按完整生命周期迁出 |
-| `mind_app/runtime/turns/root.py` | `application/commands.py` | CLI、TUI、MCP 和 Subscription 已由类型化 Command 驱动；`RootTurnCommandExecutor` 作为显式 composition adapter 保留，统一根轮次调用和结果投影，不拥有 Session/Run 状态 |
-| `mind_app/runtime/turns/stream.py`、`stream_model.py` | `harness/session_loop.py`、`application/turn_pipeline.py`、TUI adapter | 输入准备、终态、工具交付、资源收尾和回合展示已拆到具名所有者；模型 presenter 只消费 Protocol Client current/active/audit Item 投影并持有 Transcript 交付水位，RunResult、Stop Hook、最后回复和 sources 均读取 canonical 投影；`stream.py` 暂留迁移期事件路由，所有模型/工具/审批/效果命令均走 Protocol Client |
+| `mind_app/runtime/turns/root.py` | `agent/application/turns/commands.py` | CLI、TUI、MCP 和 Subscription 已由类型化 Command 驱动；`RootTurnCommandExecutor` 作为显式 composition adapter 保留，统一根轮次调用和结果投影，不拥有 Session/Run 状态 |
+| `mind_app/runtime/turns/stream.py`、`stream_model.py` | `agent/harness/sessions/loop.py`、`agent/application/turns/`、TUI adapter | 输入准备、终态、工具交付、资源收尾和回合展示已拆到具名所有者；模型 presenter 只消费 Protocol Client current/active/audit Item 投影并持有 Transcript 交付水位，RunResult、Stop Hook、最后回复和 sources 均读取 canonical 投影；`stream.py` 暂留迁移期事件路由，所有模型/工具/审批/效果命令均走 Protocol Client |
 | `mind_app/runtime/mcp/*`、`subscription/lifecycle.py` | capabilities、adapters、harness supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
-| `mind_app/runtime/subagents/control.py` | `agent/harness/agent_control.py`；状态值对象归 `agent/domain/agents.py`、图归 `agent/stores/agent_graph.py` | AgentControl 只保留可变树调度、mailbox 协调和观察快照；Harness 持有状态机，domain/stores 不反向依赖它 |
-| `SubagentRuntime._execute_submission` | `agent/harness/subagent_submission.py` | 已分配提交的 mailbox claim、Turn 上下文构造、活动轮次投递、结果确认和失败收束归 Harness；runtime 只注入 Controller、Hook scope 与执行适配器 |
-| `SubagentRuntime._controls`、根会话生命周期锁 | `agent/harness/agent_registry.py` | AgentControlRegistry 串行管理根会话 control 的创建、恢复、移除和关闭；runtime 不再持有执行树注册表或 shutdown 状态 |
-| `AgentSnapshot`、`AgentWaitResult`、`AgentMailboxWaitResult` | `agent/application/agent_views.py` | 跨 TUI、工具和 runtime 的只读 Agent 视图归 application；Harness control 只创建视图，不拥有公共值对象 |
-| `AgentMessageDispatch` | `agent/application/agent_messages.py` | 消息派发结果是跨入口复用的 application 值对象；活动轮次和注册表只保留 Harness 内部状态 |
-| `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 图快照、SQLite 存储和持久化单写者归入 stores，存储实现不得进入 domain |
+| `mind_app/runtime/subagents/control.py` | `agent/harness/agents/control.py`；状态值对象归 `agent/domain/agents.py`、图归 `agent/stores/agents/graph.py` | AgentControl 只保留可变树调度、mailbox 协调和观察快照；Harness 持有状态机，domain/stores 不反向依赖它 |
+| `SubagentRuntime._execute_submission` | `agent/harness/execution/subagent_submission.py` | 已分配提交的 mailbox claim、Turn 上下文构造、活动轮次投递、结果确认和失败收束归 Harness；runtime 只注入 Controller、Hook scope 与执行适配器 |
+| `SubagentRuntime._controls`、根会话生命周期锁 | `agent/harness/agents/registry.py` | AgentControlRegistry 串行管理根会话 control 的创建、恢复、移除和关闭；runtime 不再持有执行树注册表或 shutdown 状态 |
+| `AgentSnapshot`、`AgentWaitResult`、`AgentMailboxWaitResult` | `agent/application/agents/views.py` | 跨 TUI、工具和 runtime 的只读 Agent 视图归 application；Harness control 只创建视图，不拥有公共值对象 |
+| `AgentMessageDispatch` | `agent/application/agents/messages.py` | 消息派发结果是跨入口复用的 application 值对象；活动轮次和注册表只保留 Harness 内部状态 |
+| `mind_app/runtime/subagents/graph.py` | `agent/stores/agents/graph.py` | 图快照、SQLite 存储和持久化单写者归入 stores，存储实现不得进入 domain |
 | `AgentSubmission`、Agent 状态字面量 | `agent/domain/agents.py` | 任务提交和状态分类只依赖协议标识与标准库，供 control、stores 和后续 Harness 调度复用 |
-| `mind_app/runtime/subagents/mailbox.py` | `agent/stores/agent_mailbox.py` | 子 Agent mailbox 事件、快照、消费游标和有界日志是持久状态；runtime/subagents 只依赖存储契约，不拥有 mailbox 数据结构 |
-| `mind_app/runtime/subagents/thread.py` | `agent/application/agent_thread.py`、`agent/application/fork_context.py` | 子 Agent 线程/轮次上下文和父会话继承快照是 application 执行契约；运行时控制器只消费已冻结值，不持有跨边界身份结构 |
-| `mind_app/runtime/subagents/context.py` | `agent/application/fork_context.py` + runtime history adapter | `ForkContextEntry` 和继承范围/渲染/字符预算算法由 application 统一持有；runtime 只读取具体 Transcript 并映射为已验证条目 |
-| `mind_app/runtime/subagents/delivery.py` | `agent/ports/agent_messages.py`、`agent/adapters/agent_messages.py`、`agent/harness/agent_delivery.py` | 消息回执和投递端口归 ports，`/turn/steer` 归 Protocol Client adapter，Harness 维护活动轮次就绪和 pending 输入状态 |
+| `mind_app/runtime/subagents/mailbox.py` | `agent/stores/agents/mailbox.py` | 子 Agent mailbox 事件、快照、消费游标和有界日志是持久状态；runtime/subagents 只依赖存储契约，不拥有 mailbox 数据结构 |
+| `mind_app/runtime/subagents/thread.py` | `agent/application/agents/thread.py`、`agent/application/agents/fork_context.py` | 子 Agent 线程/轮次上下文和父会话继承快照是 application 执行契约；运行时控制器只消费已冻结值，不持有跨边界身份结构 |
+| `mind_app/runtime/subagents/context.py` | `agent/application/agents/fork_context.py` + runtime history adapter | `ForkContextEntry` 和继承范围/渲染/字符预算算法由 application 统一持有；runtime 只读取具体 Transcript 并映射为已验证条目 |
+| `mind_app/runtime/subagents/delivery.py` | `agent/ports/agent_messages.py`、`agent/adapters/agents/messages.py`、`agent/harness/agents/delivery.py` | 消息回执和投递端口归 ports，`/turn/steer` 归 Protocol Client adapter，Harness 维护活动轮次就绪和 pending 输入状态 |
 | `mind_app/history/ids.py` | `protocol/schema/identifiers.py` | `cid/sid` 正则和关联校验属于 wire identity schema；历史、交互、Controller 和 Harness 复用协议边界，不在 history 保留身份实现 |
-| `agent/stores/effect_journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `stores/effect_journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |
-| `agent/stores/run_store.py`、`_run_schema.py`、`_run_records.py` | `stores/session_store.py`、`event_store.py`、`outbox.py` 的首个事务切片 | 已原子提交事件、快照、outbox 和最终事实；只有出现独立生命周期或规模压力时再物理拆 store，避免单次转发 facade |
+| `agent/stores/effects/journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `agent/stores/effects/journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |
+| `agent/stores/runs/store.py`、`schema.py`、`records.py` | `agent/stores/runs/` 的事务切片 | 已原子提交事件、快照、outbox 和最终事实；只有出现独立生命周期或规模压力时再物理拆 store，避免单次转发 facade |
 | 旧 wire 模块 | `protocol/schema`、`protocol/transport`、`protocol/client` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；schema、传输和客户端操作分层，协议不得导入 `engine` |
 | `mind_app/runtime/turns/event_reporting.py` | `protocol/client/reports.py` | EventReport 的 Session/Turn 生命周期包装器与 wire transport 同属 Protocol Client；迁移后 runtime turns 只消费公开报告句柄，不保留旧路径或兼容 facade |
-| 旧 chat/tool/effect 请求模块 | `protocol/client`；`agent/adapters/protocol_client.py`、`item_reducer.py` | `protocol` 是最终 wire schema、HTTP、认证、事件解析、SSE、attach 和恢复原语的唯一所有者；Protocol Client 独立拥有 Harness 请求坐标、结算游标、Canonical Item 状态、审批快照优先级以及 steer/status/fork/renew/tool/approval/effect 命令端口，由 TUI、桌面端和 Web 共用 |
-| 旧模型请求模块 | `agent/protocol/model.py`、`protocol/client/chat.py`、`agent/adapters/protocol_client.py` | `ModelStreamRequest` 显式冻结 Turn 坐标、metadata 和环境快照；`MindChatProtocolClient` 通过 `protocol` 完成 wire 映射，不在 `agent.protocol` 复制 endpoint schema 或传输实现 |
+| 旧 chat/tool/effect 请求模块 | `protocol/client`；`agent/adapters/protocol/client.py`、`items.py` | `protocol` 是最终 wire schema、HTTP、认证、事件解析、SSE、attach 和恢复原语的唯一所有者；Protocol Client 独立拥有 Harness 请求坐标、结算游标、Canonical Item 状态、审批快照优先级以及 steer/status/fork/renew/tool/approval/effect 命令端口，由 TUI、桌面端和 Web 共用 |
+| 旧模型请求模块 | `agent/protocol/model.py`、`protocol/client/chat.py`、`agent/adapters/protocol/client.py` | `ModelStreamRequest` 显式冻结 Turn 坐标、metadata 和环境快照；`MindChatProtocolClient` 通过 `protocol` 完成 wire 映射，不在 `agent.protocol` 复制 endpoint schema 或传输实现 |
 | `engine/observability.py` 及业务 logger | `observability/` | 结构化观测和第三方日志适配拥有唯一实现；迁移所有消费者后删除旧模块，并由 AST 守卫禁止标准 logging 回流 |
 | `engine/enhance/` | `mind_app/runtime/tools/enhancement/`（迁移期运行工具 adapter） | 结果增强依赖工具执行与远端自愈协议，不能留在低层 engine；完整调用者切换后删除旧目录，后续随 `mind_app` 工具 adapter 一并迁入目标前端/能力边界 |
 | `engine/encoding.py`、`engine/terminal.py`、`engine/ports.py`、`engine/file_assist.py` | `infrastructure/platform/` | 进程输出编码、终端进程、端口探测/清理和文件打开属于平台实现；消费者切换后删除旧模块，平台实现不得反向导入 legacy runtime |
@@ -543,7 +560,7 @@ running -> cancelled
 | `mind_app/output/` | `mind_app/presentation/output/` | 单轮输出端口、结构化正文、文本/JSONL/静默 sink 属于 presentation 适配器；不把输出生命周期放入 Harness |
 | `mind_app/stream_events/` | `mind_app/presentation/stream/` | 流事件到展示视图的投影、工具 trace 和生命周期渲染归入 presentation；运行时只消费公开投影函数 |
 | `mind_app/stream_io/`、`stream_state/` | `mind_app/presentation/output/recording.py`、`boundary.py` | 输出记录和段间边界状态归入输出适配器；单调用者 spacing 逻辑内聚到 boundary，不保留平铺状态包 |
-| `mind_app/approval/permission_grants.py`、`ledger.py` | `agent/stores/permission_grants.py`、`approval_ledger.py` | 会话权限授权和审批消费状态由 stores 持有；协调器、策略和展示模型不随状态存储迁移 |
+| `mind_app/approval/permission_grants.py`、`ledger.py` | `agent/stores/approvals/permissions.py`、`ledger.py` | 会话权限授权和审批消费状态由 stores 持有；协调器、策略和展示模型不随状态存储迁移 |
 | `mind_app/reporting.py` | `observability/reporting.py` | 单次运行报告目录、诊断日志 sink 和输出记录路径由可观测性基础设施统一管理；控制器只持有注入的报告对象 |
 | `mind_app/paths.py` | `infrastructure/config/runtime_paths.py` | 用户数据目录、报告/会话/历史/效果/运行时数据库路径和子进程环境属于配置基础设施；入口布局解析保持在 `config/paths.py` |
 | `mind_app/assets.py` | `infrastructure/update/assets.py` 与 `mind_app/presentation/terminal/download_renderer.py` | 资产存在性和升级触发属于更新基础设施；动画管理器到终端进度端口的适配属于 presentation，不让更新层依赖 UI |
@@ -559,16 +576,18 @@ running -> cancelled
 | `mind_app/runtime/environment/shell_tools.py`、`workspace.py` | `infrastructure/platform/shell_tools.py`、`workspace_context.py` | 本机支持工具 PATH 路由和当前工作区探测属于平台环境助手；runtime/MCP/TUI 只消费结果，不拥有进程环境事实 |
 | `mind_app/runtime/hooks/output_spill.py` | `infrastructure/platform/hook_output_spill.py` | Hook 流输出读取、临时文件 spill、预览和会话清理属于本机平台文件能力；Hook command 只依赖平台适配器 |
 | `mind_app/runtime/environment/coding_lifecycle.py` | `agent/harness/workspace_runtime.py` | 工作区编码、Shell、执行策略和进程能力的替换/关闭属于 Harness 生命周期；具体 NativeCoding/策略工厂只由根组合注入，Harness 不导入 legacy 或平台实现 |
-| `mind_app/runtime/environment/snapshot.py` | `agent/application/environment.py`、`mind_app/interaction/environment.py` | 环境能力调用与失败收敛属于 application 用例；Controller/Helix 上下文聚合属于 interaction adapter，不让 runtime 持有环境采集逻辑 |
-| `mind_app/runtime/support/session_identity.py` | `agent/application/session_identity.py` | 远端 `cid/sid` 到本地持久化 Session 身份的确定性派生属于 application 身份用例；不让 CLI/TUI 各自复制哈希规则，也不把本地语义塞入线上 `protocol` |
+| `mind_app/runtime/environment/snapshot.py` | `agent/application/turns/environment.py`、`mind_app/interaction/environment.py` | 环境能力调用与失败收敛属于 application 用例；Controller/Helix 上下文聚合属于 interaction adapter，不让 runtime 持有环境采集逻辑 |
+| `mind_app/runtime/support/session_identity.py` | `agent/application/config/session_identity.py` | 远端 `cid/sid` 到本地持久化 Session 身份的确定性派生属于 application 身份用例；不让 CLI/TUI 各自复制哈希规则，也不把本地语义塞入线上 `protocol` |
 | `mind_app/runtime/support/conversation.py` | `mind_app/interaction/conversation.py` | 本地会话标识、轮次边界和一次性上下文属于交互输入状态；Controller 只持有交互状态，不让 runtime support 继续承接会话生命周期 |
 | `mind_app/runtime/support/clipboard.py` | `mind_app/tui/adapters/clipboard.py` | 系统剪贴板是 TUI 的平台 adapter；展示功能显式依赖该 adapter，不让通用 runtime support 持有 UI 专属 I/O |
 | `mind_app/runtime/support/session_policy.py` | `mind_app/runtime/mcp/errors.py`、`mind_app/presentation/stream/exception_text.py` | MCP 传输关闭判断归 MCP 错误边界；HTTP/运行期异常的一行用户摘要归 stream presentation，按职责拆分，不保留混合 session policy |
-| `mind_app/runtime/conversation.py` | `mind_app/runtime/compaction.py`、`agent/application/compact_result.py` | 上下文压缩的运行时 Hook/Transcript 编排与不可变结果契约分离；runtime 只负责执行生命周期，application 只暴露稳定结果 |
-| `mind_app/runtime/execution.py` | `agent/application/execution.py` | Agent、Turn 和工具调用上下文是跨能力共享的 application 执行契约；不让 MCP、Hook、工具和子 Agent 继续依赖 runtime 平铺实现模块 |
-| `agent/stores/permission_grants.py` | `agent/ports/permissions.py` | application 只依赖 `PermissionGrantReader` 读取端口；具体授权存储留在 stores，由组合根注入，避免执行上下文反向依赖持久化实现 |
-| `mind_app/runtime/turns/result.py` | `agent/application/run_result.py` | 单次模型 Run 的稳定结果值对象属于 application 出站契约；前端和 Subagent 只消费公开结果，不从 runtime turns 导入 |
-| `mind_app/runtime/turns/stream_outcome.py` | `agent/application/stream_outcome.py` | 流式终态优先级、协议终态归并和 `RunResult` 构建属于 application 结果聚合；协议事件只在边界输入，不持有 UI 或执行副作用 |
+| `mind_app/runtime/conversation.py` | `mind_app/runtime/compaction.py`、`agent/application/turns/compact_result.py` | 上下文压缩的运行时 Hook/Transcript 编排与不可变结果契约分离；runtime 只负责执行生命周期，application 只暴露稳定结果 |
+| `mind_app/runtime/execution.py` | `agent/application/turns/context.py` | Agent、Turn 和工具调用上下文是跨能力共享的 application 执行契约；不让 MCP、Hook、工具和子 Agent 继续依赖 runtime 平铺实现模块 |
+| `agent/stores/approvals/permissions.py` | `agent/ports/permissions.py` | application 只依赖 `PermissionGrantReader` 读取端口；具体授权存储留在 stores，由组合根注入，避免执行上下文反向依赖持久化实现 |
+| `mind_app/runtime/turns/result.py` | `agent/application/turns/run_result.py` | 单次模型 Run 的稳定结果值对象属于 application 出站契约；前端和 Subagent 只消费公开结果，不从 runtime turns 导入 |
+| `mind_app/runtime/turns/stream_outcome.py` | `agent/application/turns/stream_outcome.py` | 流式终态优先级、协议终态归并和 `RunResult` 构建属于 application 结果聚合；协议事件只在边界输入，不持有 UI 或执行副作用 |
+| `agent/harness/sessions/owner.py`、`loop.py` | `agent/ports/sessions.py` | Session runtime 的执行、取消、恢复和关闭契约归入 ports；Harness 只提供实现，application 通过显式 factory 使用，不直接装配 owner |
+| `agent/harness/workspace_runtime.py` | `agent/ports/workspace.py` | 工作区资源生命周期和组合工厂契约归入 ports；Harness 只持有具体资源替换/关闭实现，路径由组合边界解析 |
 | `mind_app/runtime/support/idle_status.py` | `infrastructure/platform/idle_status.py` | asyncio 延迟状态计时器只管理平台任务生命周期；stream runtime 通过显式平台实现使用，不让 support 目录继续承接无归属基础设施 |
 | `mind_app/runtime/support/rwlock.py` | 已删除 | 全仓库无生产或测试调用者；删除死代码，避免保留未接入 Harness 的并发抽象和伪迁移入口 |
 | `mind_app/runtime/tools/notify.py` | `mind_app/runtime/mcp/tool_progress.py` | MCP 工具进度通知依赖 MCP 调用生命周期，归入 MCP runtime 适配边界；工具路由只调用该边界，不在平铺 tools 包维护通知实现 |
@@ -576,25 +595,25 @@ running -> cancelled
 | `mind_app/runtime/hooks/runtime.py` 中的 `HookCommandRunner`、`HookContextSpiller` | `agent/ports/hooks.py` | Hook 命令执行和上下文 spill 是 runtime 调用具体实现的端口；协议值对象只声明已校验结果字段，状态展示端口仍由 runtime 持有 |
 | `HookRegistry`/`HookRuntime` 的执行器资源推断 | 显式 `context_spiller`、`cleanup_session`、`close` 注入 | Hook 执行、超限 spill 和资源清理按端口绑定；runtime 不通过 `isinstance` 猜测具体执行器能力，默认执行器仅在构造分支集中绑定 |
 | `HookRegistry` 在 CLI/MCP/Controller 内的隐式构造 | `agent.ports.HookRegistryFactory`，由 `mind.py` 注入 `RuntimeServices` | 具体 registry 只在进程组合根创建；入口、Controller 和 Hook scope 仅依赖 registry/dispatcher/status port，不反向导入 runtime 实现 |
-| `mind_app/runtime/hooks/models.py` | `agent/application/hook_models.py` | Hook 生命周期快照、决定、输出和工具结果是跨 runtime/TUI 的 application contract；Hook 执行器、注册器和 scope 仍由 runtime 持有，不把执行副作用放入值对象 |
-| `mind_app/runtime/hooks/scope.py` 中的 `HookExecutionContext` | `agent/application/hook_context.py` | Hook 输入上下文只依赖 Turn、domain 事件名和 schema 构建；`HookExecutionScope` 继续持有 runtime dispatcher 和生命周期，不把具体执行器带入 application |
-| `mind_app/runtime/turns/executor.py` 中的 `TurnExecution` | `agent/application/turn_execution.py`；`HookExecutionScopePort` 归 `agent/ports/hooks.py` | Turn 执行值对象只依赖固定 scope 端口；runtime executor 保留模型执行函数和具体 scope 构造，不让 application 加载 HookRuntime |
+| `mind_app/runtime/hooks/models.py` | `agent/application/hooks/models.py` | Hook 生命周期快照、决定、输出和工具结果是跨 runtime/TUI 的 application contract；Hook 执行器、注册器和 scope 仍由 runtime 持有，不把执行副作用放入值对象 |
+| `mind_app/runtime/hooks/scope.py` 中的 `HookExecutionContext` | `agent/application/hooks/context.py` | Hook 输入上下文只依赖 Turn、domain 事件名和 schema 构建；`HookExecutionScope` 继续持有 runtime dispatcher 和生命周期，不把具体执行器带入 application |
+| `mind_app/runtime/turns/executor.py` 中的 `TurnExecution` | `agent/application/turns/execution.py`；`HookExecutionScopePort` 归 `agent/ports/hooks.py` | Turn 执行值对象只依赖固定 scope 端口；runtime executor 保留模型执行函数和具体 scope 构造，不让 application 加载 HookRuntime |
 | `mind_app/runtime/mcp/contracts.py` 中的 `McpSessionLike` | `agent/ports/mcp_session.py` 的 `McpSessionPort` | MCP 会话能力是工具执行跨层端口；runtime/mcp 只实现 Composite session，工具、Turn、Subagent 和 TUI 通过 ports 依赖，不把 runtime contract 当作公共接口 |
 | `mind_app/runtime/turns/executor.py` 中的 `TurnResult`、`TurnOperation` | `agent/ports/turns.py` | 模型轮次操作只依赖 MCP 会话、事件报告和 TurnExecution；runtime executor 只负责会话生命周期、工具过滤和结果收束 |
 | `mind_app/runtime/subagents/executor.py`、`runner.py` 中的执行协议 | `agent/ports/subagents.py` | 子 Agent 执行与操作端口和具体流式适配分离；runtime runner 只负责 Hook 生命周期、续跑和停止决定 |
-| `mind_app/runtime/hooks/subagent.py` | `agent/application/subagent_hooks.py` | 子 Agent Hook 事件聚合只依赖 scope 端口和 application 结果模型；runtime 不再拥有生命周期业务规则 |
-| `mind_app/runtime/subagents/runner.py` | `agent/harness/subagent_runner.py` | SubagentRunner 只接收 Turn runner 与 cleanup 端口，Harness 负责 Hook 停止决定和续跑；不持有 Mind Controller，避免 runtime/application 反向耦合 |
-| `mind_app/runtime/subagents/executor.py` | `agent/adapters/subagent_execution.py` | 流式 Subagent 执行器只实现 `SubagentExecutionPort`，通过 `SubagentStreamPort` 注入 stream；Controller、静默输出和具体 runtime stream 绑定留在 runtime 组合处 |
-| `mind_app/runtime/hooks/protocol.py` | `agent/application/hook_protocol.py` | Hook 进程 stdin/stdout schema、构建和校验属于 application boundary；runtime 只调用已校验的契约，不把内部 Hook 协议误并入线上 `protocol/` |
-| `mind_app/runtime/hooks/catalog.py` | `agent/application/hook_catalog.py` | Hook 管理目录、不可变状态快照和内容冲突错误属于 application contract；Controller/TUI 只消费该契约，注册器仍负责运行时装配 |
+| `mind_app/runtime/hooks/subagent.py` | `agent/application/hooks/subagent.py` | 子 Agent Hook 事件聚合只依赖 scope 端口和 application 结果模型；runtime 不再拥有生命周期业务规则 |
+| `mind_app/runtime/subagents/runner.py` | `agent/harness/execution/subagent_runner.py` | SubagentRunner 只接收 Turn runner 与 cleanup 端口，Harness 负责 Hook 停止决定和续跑；不持有 Mind Controller，避免 runtime/application 反向耦合 |
+| `mind_app/runtime/subagents/executor.py` | `agent/adapters/agents/execution.py` | 流式 Subagent 执行器只实现 `SubagentExecutionPort`，通过 `SubagentStreamPort` 注入 stream；Controller、静默输出和具体 runtime stream 绑定留在 runtime 组合处 |
+| `mind_app/runtime/hooks/protocol.py` | `agent/application/hooks/protocol.py` | Hook 进程 stdin/stdout schema、构建和校验属于 application boundary；runtime 只调用已校验的契约，不把内部 Hook 协议误并入线上 `protocol/` |
+| `mind_app/runtime/hooks/catalog.py` | `agent/application/hooks/catalog.py` | Hook 管理目录、不可变状态快照和内容冲突错误属于 application contract；Controller/TUI 只消费该契约，注册器仍负责运行时装配 |
 | `mind_app/runtime/hooks/matching.py` | `agent/domain/hook_matching.py` | Hook matcher、工具 canonical 名称和别名候选属于纯领域规则；不依赖 application、runtime 或平台实现 |
 | `mind_app/runtime/tools/mode_policy.py` | `agent/domain/tool_policy.py` | app/api 工具可见性、隐藏规则和内联元数据过滤属于纯领域策略；入口与 runtime 只消费策略函数 |
-| `mind_app/runtime/hooks/events.py` | `agent/application/hook_events.py` | Hook 生命周期事件规格和目录一致性校验属于 application contract；规范化实现通过同层 `hook_output` 注入，不反向依赖 runtime |
-| `mind_app/runtime/hooks/effects.py` | `agent/application/hook_output.py` | Hook 输出 schema 后的语义校验、决定归一化和业务阻断结果属于 application contract；不持有外部效果或执行器副作用 |
-| `mind_app/runtime/hooks/results.py` | `agent/application/hook_result.py` | 后置 Hook 的工具结果替换、反馈和上下文投影属于 application contract；runtime tool 只负责协调调用 |
+| `mind_app/runtime/hooks/events.py` | `agent/application/hooks/events.py` | Hook 生命周期事件规格和目录一致性校验属于 application contract；规范化实现通过同层 `hook_output` 注入，不反向依赖 runtime |
+| `mind_app/runtime/hooks/effects.py` | `agent/application/hooks/output.py` | Hook 输出 schema 后的语义校验、决定归一化和业务阻断结果属于 application contract；不持有外部效果或执行器副作用 |
+| `mind_app/runtime/hooks/results.py` | `agent/application/hooks/result.py` | 后置 Hook 的工具结果替换、反馈和上下文投影属于 application contract；runtime tool 只负责协调调用 |
 | `mind_app/native_coding/exec/execpolicy/` | `agent/domain/execution_policy/` 与 `infrastructure/config/execution_policy.py` | 执行策略决定、规则和值对象属于纯 domain；规则文件 AST/文件读取属于配置基础设施，native coding 只组合二者，不让策略域持有 IO |
 | `mind_core/application_paths.py` | `infrastructure/config/paths.py` | 应用入口、打包模式、本地资源目录和用户数据目录解析属于配置基础设施；不把路径环境事实放入策略模块 |
-| `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |
+| `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/config/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |
 | `mind_core/provider_config.py` | `infrastructure/config/providers.py` | Provider Profile 默认值、路由和标识校验属于配置基础设施；不把供应商连接规则放入 Harness domain |
 | `mind_core/skills/` | `infrastructure/skills/` | 技能目录发现、frontmatter 解析、来源去重、配置过滤和请求 payload 属于本地资源基础设施；配置核心不读取技能文件系统 |
 | `mind_core/project_trust.py` | `infrastructure/config/trust.py` | 项目根、Git checkout、信任登记和配置目录边界依赖本地文件系统；配置解析只消费已解析的信任上下文 |
@@ -606,11 +625,11 @@ running -> cancelled
 | `mind_core/config_layers.py` | `infrastructure/config/layers.py` | 用户、Profile、项目和 CLI 的优先级合并及信任边界解析属于配置基础设施；只消费存储、信任和 schema 契约 |
 | `mind_core/config_session.py` | `infrastructure/config/session.py` | 配置读取、原子更新、覆盖校验和项目信任提交属于配置会话基础设施；应用入口只依赖会话公开接口 |
 | `mind_nova/const.py` | `metadata/const.py` | 产品版本、展示、编码和构建元数据已抽出；`setup.py` 与内置配置服务已切换，服务端点、认证和运行时路径仍按职责在后续切片迁移 |
-| `agent/ports/capabilities.py`、`agent/adapters/protocol_client.py` | `ports`、`adapters/protocol_client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
+| `agent/ports/capabilities.py`、`agent/adapters/protocol/client.py` | `ports`、`adapters/protocol/client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | 已删除的 `mind_app/runtime/environment/exec_env.py`、旧 environment 请求模块 | `capabilities/environment.py`、`protocol/schema/environment.py` | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化归属 `protocol.schema`。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |
 | `agent/protocol/capabilities.py`、`agent/ports/capabilities.py` | `protocol`、`ports` | MCP 工具值对象、Helix 生命周期、受控进程/文件和本地 sandbox 权限只通过具名 port 表达；不把 SDK 会话、进程句柄或操作系统路径带入 domain |
 | `agent/capabilities/mcp.py`、`helix.py`、`process.py`、`filesystem.py` | `capabilities` | MCP/Helix 内存替身和本地进程/文件实现均可脱离网络、TUI 和 legacy runtime 测试；完整权限进程与 Helix 已由显式 adapter 接入，受限进程继续接受显式 sandbox launcher |
-| 已删除的 `mind_app/runtime/turns/delivery.py` | `adapters/protocol_client.py` | Session 跨 Turn 的 `event_seq` 水位已迁入独立 Protocol Client；控制器和前端不再持有，也不与本地 Run sequence 合并 |
+| 已删除的 `mind_app/runtime/turns/delivery.py` | `agent/adapters/protocol/client.py` | Session 跨 Turn 的 `event_seq` 水位已迁入独立 Protocol Client；控制器和前端不再持有，也不与本地 Run sequence 合并 |
 | `mind_core` 配置、权限、hooks、skills | `domain/policies.py`、`application/`、`infrastructure/config`、capability adapters | 配置读取、策略判断和技能/Hook 生命周期拆开，禁止形成新的共享杂物包；完成后删除 `mind_core` |
 | `mind_app/cli`、`tui`、`mcp`、`subscription` | `frontends/`、`application/`、Protocol Client | 四类入口均通过 `RuntimeServices` 接收 application；CLI/TUI/MCP/Subscription 的执行命令已冻结并提交统一入口，终态观测和回执优先使用 Run/Canonical Event projection；TUI 作为 Protocol Client 前端 adapter，桌面/Web 通过同一 fixture 校验协议投影；完整用例迁出后删除 `mind_app` |
 | `mind_app/mcp/server.py` | `adapters/mcp_server.py` | `mind_exec` 已通过注入的 `TurnApplication` 和 `RootTurnCommandExecutor` 提交 `SubmitTurnCommand`，structured content 优先使用 `RunResultProjection`；MCP runtime 不拥有控制器或模型生命周期 |

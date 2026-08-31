@@ -7,7 +7,7 @@ from agent.application import (
     build_fork_context,
     normalize_fork_turns,
 )
-from agent.application.settings import DEFAULT_MAX_FORK_CONTEXT_CHARS
+from agent.application.config.settings import DEFAULT_MAX_FORK_CONTEXT_CHARS
 from mind_app.history.transcript import (
     ConversationTranscriptStore,
     TranscriptReplay,

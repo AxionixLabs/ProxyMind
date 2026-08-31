@@ -62,12 +62,27 @@ from .subagents import (
     SubagentResultValue,
     SubagentStreamPort,
     SubagentTurnRunner,
+    SkillsProvider,
 )
 from .turns import (
     TurnInputEventHandler,
     TurnOperation,
     TurnResultPort,
     TurnResultValue,
+)
+from .workspace import (
+    CodingFactory,
+    CodingRuntime,
+    ExecutionPolicy,
+    ExecutionPolicyFactory,
+    WorkspaceRoot,
+    WorkspaceRuntime,
+    WorkspaceRuntimeFactory,
+)
+from .sessions import (
+    RunExecution,
+    SessionRuntime,
+    SessionRuntimeFactory,
 )
 
 __all__ = (
@@ -106,6 +121,7 @@ __all__ = (
     "AgentMessageReceiptStatus",
     "McpSessionPort",
     "SubagentExecutionPort",
+    "SkillsProvider",
     "SubagentStreamPort",
     "SubagentCleanupPort",
     "SubagentOperation",
@@ -115,6 +131,16 @@ __all__ = (
     "TurnOperation",
     "TurnResultPort",
     "TurnResultValue",
+    "CodingFactory",
+    "CodingRuntime",
+    "ExecutionPolicy",
+    "ExecutionPolicyFactory",
+    "WorkspaceRoot",
+    "WorkspaceRuntime",
+    "WorkspaceRuntimeFactory",
+    "RunExecution",
+    "SessionRuntime",
+    "SessionRuntimeFactory",
     "TurnExecutor",
     "TurnExecutorResult",
     "HookCommandResult",

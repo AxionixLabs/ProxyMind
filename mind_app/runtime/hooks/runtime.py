@@ -24,14 +24,14 @@ from agent.application import (
     HookEventName
 )
 from .command import HookCommandExecutor
-from agent.application.hook_events import hook_event_spec
-from agent.application.hook_output import normalize_business_block
+from agent.application.hooks.events import hook_event_spec
+from agent.application.hooks.output import normalize_business_block
 from agent.domain.hook_matching import (
     HookMatcher,
     compile_hook_matcher,
     hook_match_candidates
 )
-from agent.application.hook_models import (
+from agent.application.hooks.models import (
     HookDispatchResult,
     HookEventRequest,
     HookExecutionRecord,

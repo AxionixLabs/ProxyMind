@@ -7,7 +7,7 @@ from observability import (
     observe,
     observe_exception
 )
-from agent.stores.approval_ledger import ApprovalCallLedger
+from agent.stores.approvals.ledger import ApprovalCallLedger
 from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.approval.policy import (
     approval_decisions,
@@ -20,7 +20,7 @@ from mind_app.presentation.output import OutputStatusPort
 from mind_app.presentation.approval_views import build_approval_view
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.models import ApprovalSource
-from agent.application.execution import (
+from agent.application.turns.context import (
     ToolInvocation,
     TurnContext
 )

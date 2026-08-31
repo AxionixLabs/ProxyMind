@@ -132,12 +132,138 @@ def test_agent_harness_core_does_not_import_legacy_packages() -> None:
         *_forbidden_imports("agent/ports", legacy_forbidden),
         *_forbidden_imports("agent/harness", legacy_forbidden),
         *_forbidden_imports("agent/application", legacy_forbidden),
-        *_forbidden_imports("agent/stores", legacy_forbidden),
+        *_forbidden_imports(
+            "agent/stores",
+            {*legacy_forbidden, "infrastructure"},
+        ),
     ]
 
     assert not violations, "agent harness imports legacy code:\n" + "\n".join(
         violations
     )
+
+
+def test_agent_responsibility_packages_are_physical() -> None:
+    """确保 Agent Harness 的职责重组落在真实子包而非平铺或转发模块。"""
+    expected_files = {
+        "application/agents/fork_context.py",
+        "application/agents/messages.py",
+        "application/agents/thread.py",
+        "application/agents/views.py",
+        "application/config/session_identity.py",
+        "application/config/settings.py",
+        "application/hooks/catalog.py",
+        "application/hooks/context.py",
+        "application/hooks/events.py",
+        "application/hooks/models.py",
+        "application/hooks/output.py",
+        "application/hooks/protocol.py",
+        "application/hooks/result.py",
+        "application/hooks/subagent.py",
+        "application/turns/commands.py",
+        "application/turns/compact_result.py",
+        "application/turns/context.py",
+        "application/turns/environment.py",
+        "application/turns/execution.py",
+        "application/turns/projections.py",
+        "application/turns/run_result.py",
+        "application/turns/stream_outcome.py",
+        "harness/agents/control.py",
+        "harness/agents/delivery.py",
+        "harness/agents/registry.py",
+        "harness/execution/actor.py",
+        "harness/execution/subagent_runner.py",
+        "harness/execution/subagent_submission.py",
+        "harness/sessions/loop.py",
+        "harness/sessions/owner.py",
+        "stores/agents/graph.py",
+        "stores/agents/mailbox.py",
+        "stores/approvals/ledger.py",
+        "stores/approvals/permissions.py",
+        "stores/effects/journal.py",
+        "stores/runs/records.py",
+        "stores/runs/schema.py",
+        "stores/runs/store.py",
+        "adapters/agents/execution.py",
+        "adapters/agents/messages.py",
+        "adapters/protocol/client.py",
+        "adapters/protocol/items.py",
+    }
+    missing = [
+        relative
+        for relative in sorted(expected_files)
+        if not (PROJECT_ROOT / "agent" / relative).is_file()
+    ]
+    assert not missing, "reorganized Agent modules are missing: " + ", ".join(missing)
+
+    top_level_files = {
+        path.name
+        for path in (PROJECT_ROOT / "agent" / "application").glob("*.py")
+    }
+    assert top_level_files == {"__init__.py", "services.py"}
+    assert {
+        path.name
+        for path in (PROJECT_ROOT / "agent" / "harness").glob("*.py")
+    } == {"__init__.py", "workspace_runtime.py"}
+    assert {
+        path.name
+        for path in (PROJECT_ROOT / "agent" / "stores").glob("*.py")
+    } == {"__init__.py"}
+    assert {
+        path.name
+        for path in (PROJECT_ROOT / "agent" / "adapters").glob("*.py")
+    } == {"__init__.py"}
+
+    legacy_files = (
+        "application/agent_thread.py",
+        "application/agent_messages.py",
+        "application/agent_views.py",
+        "application/fork_context.py",
+        "application/commands.py",
+        "application/execution.py",
+        "application/turn_execution.py",
+        "application/environment.py",
+        "application/compact_result.py",
+        "application/run_result.py",
+        "application/stream_outcome.py",
+        "application/projections.py",
+        "application/hook_catalog.py",
+        "application/hook_context.py",
+        "application/hook_events.py",
+        "application/hook_models.py",
+        "application/hook_output.py",
+        "application/hook_protocol.py",
+        "application/hook_result.py",
+        "application/subagent_hooks.py",
+        "application/settings.py",
+        "application/session_identity.py",
+        "harness/agent_control.py",
+        "harness/agent_delivery.py",
+        "harness/agent_registry.py",
+        "harness/run_actor.py",
+        "harness/subagent_runner.py",
+        "harness/subagent_submission.py",
+        "harness/session_loop.py",
+        "harness/session_owner.py",
+        "stores/agent_graph.py",
+        "stores/agent_mailbox.py",
+        "stores/approval_ledger.py",
+        "stores/permission_grants.py",
+        "stores/effect_journal.py",
+        "stores/run_store.py",
+        "stores/_run_records.py",
+        "stores/_run_schema.py",
+        "adapters/protocol_client.py",
+        "adapters/item_reducer.py",
+        "adapters/agent_messages.py",
+        "adapters/subagent_execution.py",
+    )
+    present = [
+        relative
+        for relative in legacy_files
+        if (PROJECT_ROOT / "agent" / relative).exists()
+    ]
+    assert not present, "legacy flat Agent modules still exist: " + ", ".join(present)
 
 
 def test_agent_capabilities_depend_only_on_protocol_transport() -> None:
@@ -894,7 +1020,7 @@ def test_environment_snapshot_capture_has_application_ownership() -> None:
         "legacy environment snapshot imports remain:\n" + "\n".join(violations)
     )
 
-    application_path = PROJECT_ROOT / "agent" / "application" / "environment.py"
+    application_path = PROJECT_ROOT / "agent" / "application" / "turns" / "environment.py"
     tree = ast.parse(
         application_path.read_text(encoding="utf-8-sig"),
         filename=str(application_path),
@@ -944,7 +1070,7 @@ def test_hook_models_have_application_ownership() -> None:
         "legacy hook model imports remain:\n" + "\n".join(violations)
     )
 
-    application_path = PROJECT_ROOT / "agent" / "application" / "hook_models.py"
+    application_path = PROJECT_ROOT / "agent" / "application" / "hooks" / "models.py"
     tree = ast.parse(
         application_path.read_text(encoding="utf-8-sig"),
         filename=str(application_path),
@@ -994,7 +1120,7 @@ def test_hook_protocol_has_application_ownership() -> None:
         "legacy hook protocol imports remain:\n" + "\n".join(violations)
     )
 
-    application_path = PROJECT_ROOT / "agent" / "application" / "hook_protocol.py"
+    application_path = PROJECT_ROOT / "agent" / "application" / "hooks" / "protocol.py"
     tree = ast.parse(
         application_path.read_text(encoding="utf-8-sig"),
         filename=str(application_path),
@@ -1044,7 +1170,7 @@ def test_hook_catalog_has_application_ownership() -> None:
         "legacy hook catalog imports remain:\n" + "\n".join(violations)
     )
 
-    application_path = PROJECT_ROOT / "agent" / "application" / "hook_catalog.py"
+    application_path = PROJECT_ROOT / "agent" / "application" / "hooks" / "catalog.py"
     tree = ast.parse(
         application_path.read_text(encoding="utf-8-sig"),
         filename=str(application_path),
@@ -1157,7 +1283,7 @@ def test_hook_output_and_events_have_application_ownership() -> None:
     )
 
     forbidden = {"infrastructure", "mind_app", "mind_core", "observability"}
-    for relative_path in ("hook_output.py", "hook_events.py"):
+    for relative_path in ("hooks/output.py", "hooks/events.py"):
         application_path = PROJECT_ROOT / "agent" / "application" / relative_path
         tree = ast.parse(
             application_path.read_text(encoding="utf-8-sig"),
@@ -1208,7 +1334,7 @@ def test_hook_result_projection_has_application_ownership() -> None:
         + "\n".join(violations)
     )
 
-    application_path = PROJECT_ROOT / "agent" / "application" / "hook_result.py"
+    application_path = PROJECT_ROOT / "agent" / "application" / "hooks" / "result.py"
     tree = ast.parse(
         application_path.read_text(encoding="utf-8-sig"),
         filename=str(application_path),
@@ -1330,9 +1456,9 @@ def test_turn_result_and_session_identity_boundaries_are_explicit() -> None:
     assert not violations, "legacy turn/support imports remain:\n" + "\n".join(violations)
 
     for relative_path in (
-        "run_result.py",
-        "stream_outcome.py",
-        "session_identity.py",
+        "turns/run_result.py",
+        "turns/stream_outcome.py",
+        "config/session_identity.py",
     ):
         application_path = PROJECT_ROOT / "agent" / "application" / relative_path
         assert application_path.is_file(), (
@@ -1455,7 +1581,7 @@ def test_compaction_result_and_runtime_orchestration_have_separate_owners() -> N
     assert not legacy_path.is_file(), "legacy runtime conversation module still exists"
 
     runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "compaction.py"
-    result_path = PROJECT_ROOT / "agent" / "application" / "compact_result.py"
+    result_path = PROJECT_ROOT / "agent" / "application" / "turns" / "compact_result.py"
     assert runtime_path.is_file(), "runtime compaction orchestration is missing"
     assert result_path.is_file(), "application compact result contract is missing"
 
@@ -1497,7 +1623,7 @@ def test_compaction_result_and_runtime_orchestration_have_separate_owners() -> N
 def test_execution_context_contracts_are_owned_by_agent_application() -> None:
     """确保 Agent、Turn 和工具调用上下文不再由 mind_app runtime 持有。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "execution.py"
-    target_path = PROJECT_ROOT / "agent" / "application" / "execution.py"
+    target_path = PROJECT_ROOT / "agent" / "application" / "turns" / "context.py"
     assert not legacy_path.is_file(), "legacy runtime execution module still exists"
     assert target_path.is_file(), "application execution contract is missing"
 
@@ -1543,7 +1669,7 @@ def test_execution_context_contracts_are_owned_by_agent_application() -> None:
 def test_agent_mailbox_is_owned_by_stores() -> None:
     """确保子 Agent mailbox 的事件、快照和消费游标归入 stores。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "mailbox.py"
-    target_path = PROJECT_ROOT / "agent" / "stores" / "agent_mailbox.py"
+    target_path = PROJECT_ROOT / "agent" / "stores" / "agents" / "mailbox.py"
     assert not legacy_path.is_file(), "legacy runtime mailbox module still exists"
     assert target_path.is_file(), "agent mailbox store is missing"
 
@@ -1585,8 +1711,8 @@ def test_agent_thread_context_is_owned_by_application() -> None:
     """确保子 Agent 线程上下文不依赖 runtime 或历史存储实现。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "thread.py"
     target_paths = (
-        PROJECT_ROOT / "agent" / "application" / "agent_thread.py",
-        PROJECT_ROOT / "agent" / "application" / "fork_context.py",
+        PROJECT_ROOT / "agent" / "application" / "agents" / "thread.py",
+        PROJECT_ROOT / "agent" / "application" / "agents" / "fork_context.py",
     )
     assert not legacy_path.is_file(), "legacy runtime thread module still exists"
     assert all(path.is_file() for path in target_paths), "application thread sources are missing"
@@ -1642,8 +1768,8 @@ def test_agent_thread_context_is_owned_by_application() -> None:
         )
 
     fork_tree = ast.parse(
-        (PROJECT_ROOT / "agent" / "application" / "fork_context.py").read_text(encoding="utf-8-sig"),
-        filename="agent/application/fork_context.py",
+        (PROJECT_ROOT / "agent" / "application" / "agents" / "fork_context.py").read_text(encoding="utf-8-sig"),
+        filename="agent/application/agents/fork_context.py",
     )
     fork_definitions = {
         node.name
@@ -1653,8 +1779,8 @@ def test_agent_thread_context_is_owned_by_application() -> None:
     assert {"ForkContextEntry", "build_fork_context"}.issubset(fork_definitions)
 
     thread_tree = ast.parse(
-        (PROJECT_ROOT / "agent" / "application" / "agent_thread.py").read_text(encoding="utf-8-sig"),
-        filename="agent/application/agent_thread.py",
+        (PROJECT_ROOT / "agent" / "application" / "agents" / "thread.py").read_text(encoding="utf-8-sig"),
+        filename="agent/application/agents/thread.py",
     )
     assert not any(
         isinstance(node, ast.Call)
@@ -1707,10 +1833,10 @@ def test_session_identity_validation_is_owned_by_protocol_schema() -> None:
 def test_agent_graph_persistence_is_owned_by_stores() -> None:
     """确保 Agent 图快照和 SQLite 持久化不再由 runtime 持有。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "graph.py"
-    target_path = PROJECT_ROOT / "agent" / "stores" / "agent_graph.py"
+    target_path = PROJECT_ROOT / "agent" / "stores" / "agents" / "graph.py"
     domain_path = PROJECT_ROOT / "agent" / "domain" / "agents.py"
     legacy_control_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "control.py"
-    control_path = PROJECT_ROOT / "agent" / "harness" / "agent_control.py"
+    control_path = PROJECT_ROOT / "agent" / "harness" / "agents" / "control.py"
     assert not legacy_path.is_file(), "legacy runtime graph module still exists"
     assert not legacy_control_path.is_file(), "legacy runtime agent control module still exists"
     assert target_path.is_file(), "agent graph store is missing"
@@ -1796,8 +1922,8 @@ def test_agent_graph_persistence_is_owned_by_stores() -> None:
 
 def test_agent_views_are_owned_by_application() -> None:
     """确保 Agent 只读快照视图不和 Harness 可变状态机混合。"""
-    target_path = PROJECT_ROOT / "agent" / "application" / "agent_views.py"
-    control_path = PROJECT_ROOT / "agent" / "harness" / "agent_control.py"
+    target_path = PROJECT_ROOT / "agent" / "application" / "agents" / "views.py"
+    control_path = PROJECT_ROOT / "agent" / "harness" / "agents" / "control.py"
     assert target_path.is_file(), "agent application views are missing"
     assert control_path.is_file(), "agent harness control is missing"
 
@@ -1837,8 +1963,8 @@ def test_agent_views_are_owned_by_application() -> None:
 
 def test_agent_message_dispatch_is_owned_by_application() -> None:
     """确保消息派发结果值对象不和活动投递状态机混合。"""
-    target_path = PROJECT_ROOT / "agent" / "application" / "agent_messages.py"
-    delivery_path = PROJECT_ROOT / "agent" / "harness" / "agent_delivery.py"
+    target_path = PROJECT_ROOT / "agent" / "application" / "agents" / "messages.py"
+    delivery_path = PROJECT_ROOT / "agent" / "harness" / "agents" / "delivery.py"
     assert target_path.is_file(), "agent application message result is missing"
     assert delivery_path.is_file(), "agent harness delivery is missing"
 
@@ -1848,7 +1974,7 @@ def test_agent_message_dispatch_is_owned_by_application() -> None:
         for node in target_tree.body
         if isinstance(node, ast.ClassDef)
     }
-    assert target_classes == {"AgentMessageDispatch"}
+    assert target_classes == {"AgentMessageEvent", "AgentMessageDispatch"}
 
     delivery_tree = ast.parse(delivery_path.read_text(encoding="utf-8-sig"), filename=str(delivery_path))
     delivery_classes = {
@@ -1875,7 +2001,7 @@ def test_agent_message_dispatch_is_owned_by_application() -> None:
 
 def test_agent_control_registry_owns_root_lifecycle() -> None:
     """确保根会话 control 注册表属于 Harness，runtime 不再持有生命周期状态。"""
-    registry_path = PROJECT_ROOT / "agent" / "harness" / "agent_registry.py"
+    registry_path = PROJECT_ROOT / "agent" / "harness" / "agents" / "registry.py"
     runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py"
     assert registry_path.is_file(), "agent control registry is missing"
     assert runtime_path.is_file(), "subagent runtime is missing"
@@ -1915,9 +2041,9 @@ def test_agent_control_registry_owns_root_lifecycle() -> None:
 def test_subagent_message_delivery_has_port_and_adapter_owners() -> None:
     """确保子 Agent 消息投递的端口、适配和 Harness 状态各自归属。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "delivery.py"
-    runtime_path = PROJECT_ROOT / "agent" / "harness" / "agent_delivery.py"
+    runtime_path = PROJECT_ROOT / "agent" / "harness" / "agents" / "delivery.py"
     port_path = PROJECT_ROOT / "agent" / "ports" / "agent_messages.py"
-    adapter_path = PROJECT_ROOT / "agent" / "adapters" / "agent_messages.py"
+    adapter_path = PROJECT_ROOT / "agent" / "adapters" / "agents" / "messages.py"
     assert not legacy_path.is_file(), "legacy runtime active-turn state machine still exists"
     assert runtime_path.is_file(), "harness active-turn state machine is missing"
     assert port_path.is_file(), "agent message delivery port is missing"
@@ -1986,7 +2112,7 @@ def test_subagent_message_delivery_has_port_and_adapter_owners() -> None:
 def test_hook_execution_context_is_owned_by_application() -> None:
     """确保 Hook 输入上下文不与 runtime scope 生命周期实现混合。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "scope.py"
-    target_path = PROJECT_ROOT / "agent" / "application" / "hook_context.py"
+    target_path = PROJECT_ROOT / "agent" / "application" / "hooks" / "context.py"
     assert legacy_path.is_file(), "runtime hook scope is missing"
     assert target_path.is_file(), "application hook context is missing"
 
@@ -2037,7 +2163,7 @@ def test_hook_execution_context_is_owned_by_application() -> None:
 def test_turn_execution_contract_is_owned_by_application() -> None:
     """确保 TurnExecution 只由 application 持有，runtime executor 不定义值对象。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "executor.py"
-    target_path = PROJECT_ROOT / "agent" / "application" / "turn_execution.py"
+    target_path = PROJECT_ROOT / "agent" / "application" / "turns" / "execution.py"
     ports_path = PROJECT_ROOT / "agent" / "ports" / "hooks.py"
     assert legacy_path.is_file(), "runtime turn executor is missing"
     assert target_path.is_file(), "application turn execution contract is missing"
@@ -2145,13 +2271,15 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
         },
         PROJECT_ROOT / "agent" / "ports" / "subagents.py": {
             "SubagentExecutionPort",
+            "SubagentStreamPort",
             "SubagentOperation",
+            "SubagentTurnRunner",
+            "SubagentCleanupPort",
         },
     }
     legacy_paths = (
         PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "executor.py",
-        PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "executor.py",
-        PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runner.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py",
     )
 
     for target_path, expected_classes in targets.items():
@@ -2194,7 +2322,7 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
 def test_subagent_hook_events_are_owned_by_application() -> None:
     """确保子 Agent Hook 生命周期聚合不依赖 runtime scope 实现。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "subagent.py"
-    target_path = PROJECT_ROOT / "agent" / "application" / "subagent_hooks.py"
+    target_path = PROJECT_ROOT / "agent" / "application" / "hooks" / "subagent.py"
     assert not legacy_path.is_file(), "legacy subagent hook module still exists"
     assert target_path.is_file(), "application subagent hook module is missing"
 
@@ -2236,7 +2364,7 @@ def test_subagent_hook_events_are_owned_by_application() -> None:
 def test_subagent_runner_is_owned_by_harness_without_package_cycle() -> None:
     """确保 SubagentRunner 由 Harness 持有且包初始化不预加载组件。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runner.py"
-    target_path = PROJECT_ROOT / "agent" / "harness" / "subagent_runner.py"
+    target_path = PROJECT_ROOT / "agent" / "harness" / "execution" / "subagent_runner.py"
     package_path = PROJECT_ROOT / "agent" / "harness" / "__init__.py"
     assert not legacy_path.is_file(), "legacy subagent runner still exists"
     assert target_path.is_file(), "harness subagent runner is missing"
@@ -2274,7 +2402,7 @@ def test_subagent_runner_is_owned_by_harness_without_package_cycle() -> None:
 
 def test_subagent_submission_execution_is_owned_by_harness() -> None:
     """确保已分配提交的执行协调不回流到 mind_app runtime。"""
-    target_path = PROJECT_ROOT / "agent" / "harness" / "subagent_submission.py"
+    target_path = PROJECT_ROOT / "agent" / "harness" / "execution" / "subagent_submission.py"
     runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py"
     assert target_path.is_file(), "harness subagent submission executor is missing"
     assert runtime_path.is_file(), "subagent runtime is missing"
@@ -2314,7 +2442,7 @@ def test_subagent_submission_execution_is_owned_by_harness() -> None:
 def test_subagent_stream_execution_is_owned_by_adapter() -> None:
     """确保具体流式 Subagent 执行器由 adapter 持有且不反向加载旧应用。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "executor.py"
-    target_path = PROJECT_ROOT / "agent" / "adapters" / "subagent_execution.py"
+    target_path = PROJECT_ROOT / "agent" / "adapters" / "agents" / "execution.py"
     assert not legacy_path.is_file(), "legacy subagent executor still exists"
     assert target_path.is_file(), "subagent execution adapter is missing"
 
@@ -2717,6 +2845,7 @@ def test_agent_application_does_not_load_concrete_composition() -> None:
         {
             "agent.capabilities",
             "agent.composition",
+            "agent.harness",
             "agent.stores",
         },
     )
@@ -2741,17 +2870,28 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
     """限制旧应用只能使用 application 用例或明确归属的 state store。"""
     allowed_modules = {
         "agent.application",
-        "agent.application.hook_catalog",
-        "agent.application.hook_events",
-        "agent.application.hook_protocol",
-        "agent.application.hook_models",
-        "agent.application.hook_output",
-        "agent.application.hook_result",
-        "agent.application.execution",
-        "agent.application.hook_context",
-        "agent.application.turn_execution",
-        "agent.application.fork_context",
-        "agent.application.settings",
+        "agent.application.hooks.catalog",
+        "agent.application.hooks.events",
+        "agent.application.hooks.protocol",
+        "agent.application.hooks.models",
+        "agent.application.hooks.output",
+        "agent.application.hooks.result",
+        "agent.application.hooks.subagent",
+        "agent.application.agents.thread",
+        "agent.application.agents.views",
+        "agent.application.agents.messages",
+        "agent.application.turns.context",
+        "agent.application.turns.commands",
+        "agent.application.turns.environment",
+        "agent.application.turns.compact_result",
+        "agent.application.turns.run_result",
+        "agent.application.turns.stream_outcome",
+        "agent.application.turns.projections",
+        "agent.application.hooks.context",
+        "agent.application.turns.execution",
+        "agent.application.agents.fork_context",
+        "agent.application.config.settings",
+        "agent.application.config.session_identity",
         "agent.domain.hooks",
         "agent.domain.hook_matching",
         "agent.domain.agents",
@@ -2759,15 +2899,18 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.domain.execution_policy",
         "agent.ports",
         "agent.ports.agent_messages",
-        "agent.adapters.agent_messages",
-        "agent.adapters.subagent_execution",
-        "agent.harness.agent_control",
-        "agent.harness.subagent_runner",
+        "agent.adapters.agents.messages",
+        "agent.adapters.agents.execution",
+        "agent.harness.agents.control",
+        "agent.harness.agents.delivery",
+        "agent.harness.agents.registry",
+        "agent.harness.execution.subagent_runner",
+        "agent.harness.execution.subagent_submission",
         "agent.protocol.json_value",
-        "agent.stores.approval_ledger",
-        "agent.stores.permission_grants",
-        "agent.stores.agent_mailbox",
-        "agent.stores.agent_graph",
+        "agent.stores.approvals.ledger",
+        "agent.stores.approvals.permissions",
+        "agent.stores.agents.mailbox",
+        "agent.stores.agents.graph",
         "agent.stores",
     }
     violations: list[str] = []

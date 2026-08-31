@@ -7,19 +7,19 @@ from dataclasses import replace
 
 import pytest
 
-from agent.application.execution import AgentContext, TurnContext
+from agent.application.turns.context import AgentContext, TurnContext
 from agent.domain.agents import AgentSubmission
-from agent.harness.agent_control import AgentControl
-from agent.stores.agent_graph import (
+from agent.harness.agents.control import AgentControl
+from agent.stores.agents.graph import (
     AgentGraphCheckpoint,
     AgentGraphRecord,
 )
-from agent.stores.agent_graph import (
+from agent.stores.agents.graph import (
     AgentGraphPersistence,
     AgentGraphPersistenceError,
     AgentGraphStore,
 )
-from agent.stores.agent_mailbox import AgentMailboxStore
+from agent.stores.agents.mailbox import AgentMailboxStore
 from agent.application import AgentThreadContext
 from agent.application import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid

@@ -58,6 +58,8 @@ def _runtime_services() -> SimpleNamespace:
 from mind_app.cli.selection import OutputMode, resolve_cli_output_mode
 from mind_app.cli.dispatch import run_selected_command
 from agent.application import RunResult
+from agent.application import TurnApplication
+from agent.harness.sessions.owner import SessionRuntimeOwner
 from mind_app.presentation.application import PassiveFrontendRuntime
 from mind_app.presentation.application_sinks import ConsoleApplicationSink
 from mind_app.presentation.application_sinks import JsonApplicationSink
@@ -75,6 +77,16 @@ def root_turn_adapter(monkeypatch) -> AsyncMock:
     turn_runner = AsyncMock()
     monkeypatch.setattr(cli_dispatch, "run_root_turn", turn_runner)
     return turn_runner
+
+
+@pytest.fixture(autouse=True)
+def injected_turn_application(monkeypatch) -> None:
+    """为无完整 Controller 的 CLI 单测注入 Session runtime。"""
+    monkeypatch.setattr(
+        cli_dispatch,
+        "TurnApplication",
+        lambda: TurnApplication(runtime_factory=SessionRuntimeOwner),
+    )
 
 
 @pytest.fixture(autouse=True)

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from agent.application import TurnApplication
+from agent.harness.sessions.owner import SessionRuntimeOwner
 
 from mind_app.controller import Mind
 from mind_app.subscription.forwarding import AgentInbox
@@ -87,7 +88,7 @@ async def test_agent_runtime_starts_once_and_stops_listener() -> None:
 
 @pytest.mark.anyio
 async def test_agent_runtime_composes_and_closes_injected_turn_application() -> None:
-    application = TurnApplication()
+    application = TurnApplication(runtime_factory=SessionRuntimeOwner)
     created_paths = []
 
     def create_application(path):

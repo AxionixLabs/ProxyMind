@@ -14,17 +14,17 @@ from agent.application import (
     RunResult,
 )
 from agent.domain.agents import AgentSubmission
-from agent.stores.agent_graph import (
+from agent.stores.agents.graph import (
     AgentGraphCheckpoint,
     AgentGraphRecord,
 )
 from mind_app.history.transcript import ConversationTranscriptStore
 from mind_app.presentation.output.silent import create_silent_output_session
-from agent.application.execution import AgentContext, TurnContext
+from agent.application.turns.context import AgentContext, TurnContext
 from mind_app.runtime.hooks.scope import (
     HookExecutionScope,
 )
-from agent.harness.agent_control import (
+from agent.harness.agents.control import (
     AgentControl,
     AgentStateError,
 )
@@ -32,8 +32,8 @@ from agent.ports.agent_messages import AgentMessageReceipt
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.turns import stream as turn_stream
 from protocol.client.reports import EventReportRuntimeOwner
-from agent.stores.agent_graph import AgentGraphStore
-from agent.stores.agent_mailbox import (
+from agent.stores.agents.graph import AgentGraphStore
+from agent.stores.agents.mailbox import (
     AgentMailboxStore,
     format_mailbox_context,
 )
@@ -570,7 +570,7 @@ async def test_runtime_releases_mailbox_claim_after_context_failure(
         return format_mailbox_context(events)
 
     monkeypatch.setattr(
-        "agent.harness.subagent_submission.format_mailbox_context",
+        "agent.harness.execution.subagent_submission.format_mailbox_context",
         fail_once,
     )
     await runtime.followup_task(parent.sid, spawned.agent_id, "try once")

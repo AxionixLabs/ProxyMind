@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent.application.execution import (
+from agent.application.turns.context import (
     ROOT_AGENT_ID,
     ROOT_AGENT_TYPE,
     AgentContext,

@@ -3,14 +3,14 @@
 
 import typing
 from dataclasses import dataclass
-from agent.application.hook_context import HookExecutionContext
-from agent.application.execution import TurnContext
+from agent.application.hooks.context import HookExecutionContext
+from agent.application.turns.context import TurnContext
 from agent.domain.hooks import HookEventName
-from agent.application.hook_models import (
+from agent.application.hooks.models import (
     HookDispatchResult,
     HookEventRequest
 )
-from agent.application.hook_protocol import validate_hook_input
+from agent.application.hooks.protocol import validate_hook_input
 from agent.ports import (
     HookDispatcherPort,
     HookStatusPort,

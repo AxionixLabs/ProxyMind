@@ -13,7 +13,7 @@ from agent.application import (
     AgentSnapshot,
     normalize_fork_turns,
 )
-from agent.stores.agent_mailbox import MAX_AGENT_MESSAGE_CHARS
+from agent.stores.agents.mailbox import MAX_AGENT_MESSAGE_CHARS
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 
 SPAWN_AGENT_TOOL     = "spawn_agent"

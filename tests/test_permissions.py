@@ -23,12 +23,12 @@ from mind_app.client_tools.coding.native import (
     coding_tools,
 )
 from mind_app.client_tools.types import ClientToolRuntime
-from agent.application.execution import (
+from agent.application.turns.context import (
     AgentContext,
     ToolInvocation,
     TurnContext,
 )
-from agent.application.hook_models import HookDecision
+from agent.application.hooks.models import HookDecision
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from agent.application import (
     PermissionSettings,
