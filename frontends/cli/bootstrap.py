@@ -269,8 +269,8 @@ async def _run_application(
         config_resolution = config_session.resolve()
 
         if output_mode == "tui":
-            from mind_app.tui.core.keymap import TuiRuntimeKeymap
-            from mind_app.tui.core.runtime import require_tui_runtime
+            from frontends.tui.core.keymap import TuiRuntimeKeymap
+            from frontends.tui.core.runtime import require_tui_runtime
 
             tui_runtime = require_tui_runtime(frontend.runtime)
 
@@ -493,8 +493,8 @@ async def _run_controller(
 
     try:
         if output_mode == "tui":
-            from mind_app.tui.adapters.hooks import TuiHookStatusAdapter
-            from mind_app.tui.core.runtime import require_tui_runtime
+            from frontends.tui.adapters.hooks import TuiHookStatusAdapter
+            from frontends.tui.core.runtime import require_tui_runtime
 
             hook_status = TuiHookStatusAdapter(
                 require_tui_runtime(frontend.runtime)
@@ -556,8 +556,8 @@ async def _run_controller(
         )
 
         if output_mode == "tui":
-            from mind_app.tui.core.runtime import require_tui_runtime
-            from mind_app.tui.session.state import preload_tui_prompt_context
+            from frontends.tui.core.runtime import require_tui_runtime
+            from frontends.tui.session.state import preload_tui_prompt_context
 
             if interactive_tui:
                 require_tui_runtime(
@@ -634,9 +634,9 @@ async def _run_controller(
             await asyncio.gather(*startup_tasks, return_exceptions=True)
 
         if output_mode == "tui":
-            from mind_app.tui.core.runtime import require_tui_runtime
-            from mind_app.tui.features.helix import confirm_tui_service_runtime_startup
-            from mind_app.tui.features.hooks import (
+            from frontends.tui.core.runtime import require_tui_runtime
+            from frontends.tui.features.helix import confirm_tui_service_runtime_startup
+            from frontends.tui.features.hooks import (
                 manage_hooks,
                 review_startup_hooks
             )
@@ -726,7 +726,7 @@ async def _run_controller(
 
 async def start_tui_external_mcp(controller: Mind) -> None:
     """启动 TUI 外部 MCP 并提交最终状态。"""
-    from mind_app.tui.features.mcp import (
+    from frontends.tui.features.mcp import (
         finish_mcp_activity,
         render_external_mcp_start_status
     )
@@ -751,7 +751,7 @@ async def start_tui_service_runtime(
     tool_profile: ToolFilterMode = "app"
 ) -> None:
     """在 TUI 后台准备 Helix 服务运行时。"""
-    from mind_app.tui.features.helix import (
+    from frontends.tui.features.helix import (
         finish_helix_activity,
         link_helix_runtime,
         render_helix_link_failure,
@@ -841,7 +841,7 @@ async def finalize_application(
         await controller.close_runtime_resources()
 
     if completed and output_mode == "tui":
-        from mind_app.tui.core.runtime import require_tui_runtime
+        from frontends.tui.core.runtime import require_tui_runtime
 
         runtime = require_tui_runtime(controller.frontend.runtime)
 

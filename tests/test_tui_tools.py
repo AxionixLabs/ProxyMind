@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 from metadata import const
 
-from mind_app.tui.features.tools import (
+from frontends.tui.features.tools import (
     print_available_tools,
     render_tools_summary
 )

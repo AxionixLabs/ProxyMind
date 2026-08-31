@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from infrastructure.errors import AppError
-from mind_app.tui.core.models import (
+from frontends.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
 )
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.features import mcp
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.features import mcp
 
 
 class _Runtime(object):

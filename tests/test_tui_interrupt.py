@@ -11,19 +11,19 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from mind_app.interaction.contracts import PromptContext
-from mind_app.tui.adapters.application import TuiApplicationSink
-from mind_app.tui.core.interrupt import (
+from frontends.tui.adapters.application import TuiApplicationSink
+from frontends.tui.core.interrupt import (
     InterruptDisposition,
     TuiInterruptState
 )
-from mind_app.tui.core.queued import TuiSubmission
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.submission import TuiInterruptRequested
-from mind_app.tui.session import loop
+from frontends.tui.core.queued import TuiSubmission
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.submission import TuiInterruptRequested
+from frontends.tui.session import loop
 from agent.domain.policies import preset_permissions
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
-from mind_app.tui.session.turn import execute_tui_model_turn
+from frontends.tui.session.turn import execute_tui_model_turn
 
 
 @pytest.fixture(autouse=True)

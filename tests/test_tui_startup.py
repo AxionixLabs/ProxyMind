@@ -15,10 +15,10 @@ from mind_app.runtime.mcp import tool_runtime
 from mind_app.runtime.mcp.external import ExternalMcpRuntime
 from agent.harness.mcp.owner import McpRuntimeOwner
 from mind_app.runtime.mcp.tool_runtime import CompositeToolRuntime
-from mind_app.tui.core.render import fragments_text
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.features import helix
-from mind_app.tui.session import loop
+from frontends.tui.core.render import fragments_text
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.features import helix
+from frontends.tui.session import loop
 from agent.domain.policies import preset_permissions
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner

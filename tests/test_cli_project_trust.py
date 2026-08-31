@@ -24,8 +24,8 @@ from mind_app.presentation.application_sinks import (
 from mind_app.presentation.application import ApplicationView
 from infrastructure.services.runtime_context import ServiceRuntimeSpec
 from agent.harness.hooks.registry import HookRegistry
-from mind_app.tui.adapters.hooks import TuiHookStatusAdapter
-from mind_app.tui.core.runtime import TuiRuntime
+from frontends.tui.adapters.hooks import TuiHookStatusAdapter
+from frontends.tui.core.runtime import TuiRuntime
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.layers import PROJECT_CONFIG_DIR
 from infrastructure.config.session import ConfigSession
@@ -582,7 +582,7 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
         schedule_external_mcp,
     )
 
-    from mind_app.tui.session import state as tui_state
+    from frontends.tui.session import state as tui_state
 
     monkeypatch.setattr(
         tui_state,
@@ -666,7 +666,7 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
     monkeypatch.setattr(bootstrap, "run_selected_command", AsyncMock())
     monkeypatch.setattr(bootstrap, "finalize_application", AsyncMock())
     monkeypatch.setattr(
-        "mind_app.tui.session.state.preload_tui_prompt_context",
+        "frontends.tui.session.state.preload_tui_prompt_context",
         AsyncMock(),
     )
 
@@ -676,7 +676,7 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
 
     monkeypatch.setattr(bootstrap, "start_tui_external_mcp", start_external_mcp)
 
-    from mind_app.tui.features import hooks as tui_hooks
+    from frontends.tui.features import hooks as tui_hooks
 
     startup_catalog = object()
 

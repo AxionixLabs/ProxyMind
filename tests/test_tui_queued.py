@@ -16,14 +16,14 @@ from mind_app.presentation.terminal.capabilities import (
     TerminalIdentity,
     TerminalKind,
 )
-from mind_app.tui.adapters.application import TuiApplicationSink
-from mind_app.tui.core.queued import (
+from frontends.tui.adapters.application import TuiApplicationSink
+from frontends.tui.core.queued import (
     TuiPendingSteers,
     TuiQueuedMessages,
     TuiSubmission,
 )
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.styles import text_block
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.styles import text_block
 
 
 def test_queue_uses_next_turn_title() -> None:

@@ -20,7 +20,7 @@ from agent.application.hooks.catalog import (
 )
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.harness.hooks.registry import HookRegistry
-from mind_app.tui.features.hooks import (
+from frontends.tui.features.hooks import (
     _hook_detail_body,
     _display_source_path,
     hook_event_menu,
@@ -29,13 +29,13 @@ from mind_app.tui.features.hooks import (
     review_startup_hooks,
     startup_hooks_review_menu,
 )
-from mind_app.tui.core.models import (
+from frontends.tui.core.models import (
     FragmentBlock,
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
 )
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.menu import TuiMenu
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.menu import TuiMenu
 from prompt_toolkit.utils import get_cwidth
 
 

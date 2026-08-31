@@ -7,15 +7,15 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
-from mind_app.tui.core.process_status import TuiProcessStatus
-from mind_app.tui.core.models import FragmentBlock
-from mind_app.tui.core.render import fragments_text
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.features.context import (
+from frontends.tui.core.process_status import TuiProcessStatus
+from frontends.tui.core.models import FragmentBlock
+from frontends.tui.core.render import fragments_text
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.features.context import (
     exec_status_display_label,
 )
-from mind_app.tui.features.processes import monitor_exec_status
-from mind_app.tui.features.summary import (
+from frontends.tui.features.processes import monitor_exec_status
+from frontends.tui.features.summary import (
     CommandSummary,
     command_summary_text,
     command_summary_title_parts,

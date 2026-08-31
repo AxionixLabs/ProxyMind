@@ -5,13 +5,13 @@ import contextvars
 
 import pytest
 
-from mind_app.tui.contracts.text import FragmentBlock
-from mind_app.tui.runtime.background import (
+from frontends.tui.contracts.text import FragmentBlock
+from frontends.tui.runtime.background import (
     BackgroundTaskManager,
     DeferredBlock,
     DeferredBlockBuffer,
 )
-from mind_app.tui.runtime.state import (
+from frontends.tui.runtime.state import (
     ActivityHandoffState,
     CommandLayoutState,
     ProcessCompletionStore,

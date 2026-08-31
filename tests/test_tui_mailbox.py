@@ -9,20 +9,20 @@ import pytest
 from mind_app.interaction.contracts import PromptContext
 from frontends.subscription.forwarding import AgentInbox
 from frontends.subscription.models import AgentForwardRequest
-from mind_app.tui.core.models import (
+from frontends.tui.core.models import (
     FragmentBlock,
     MailboxRunRequest,
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
 )
-from mind_app.tui.core.render import fragments_text
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.submission import TuiMailboxRunRequested
-from mind_app.tui.features.mailbox import (
+from frontends.tui.core.render import fragments_text
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.submission import TuiMailboxRunRequested
+from frontends.tui.features.mailbox import (
     PreparedMailboxRun,
     TuiMailboxFeature
 )
-from mind_app.tui.session.loop import _handle_mailbox_run
+from frontends.tui.session.loop import _handle_mailbox_run
 
 
 def _request(

@@ -66,9 +66,9 @@ resolved/cancelled Item 不得被该水位内的旧 pending 事件重新打开�
 
 ## TUI 契约
 
-权威来源：`mind_app/tui/session/dispatch.py`、
-`mind_app/tui/session/turn_input.py`、`mind_app/tui/session/turn.py` 和
-`mind_app/tui/prompting/commands.py`。
+展示契约权威来源：`frontends/tui/contracts/`；输入和生命周期适配权威来源：
+`frontends/tui/session/dispatch.py`、`frontends/tui/session/turn_input.py`、
+`frontends/tui/session/turn.py` 和 `frontends/tui/prompting/commands.py`。
 
 - 普通输入创建主动模型 Turn；shell escape 和 slash command 继续由 TUI adapter
   分类，只有改变 Agent Runtime 状态的输入才提交 application Command。

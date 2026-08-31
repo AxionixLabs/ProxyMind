@@ -177,6 +177,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - CLI 前端反向依赖收口已完成：`run_root_turn` 和环境快照 provider 改为由
   `mind.py` 组合根注入，`frontends/cli` 不再导入 `mind_app.runtime.turns.root` 或
   `mind_app.interaction.environment`；CLI/TUI 定向回归 `147 passed`，边界守卫通过。
+- TUI 前端整体迁移已完成：输入、会话、渲染、展示 runtime 和契约整体归入
+  `frontends/tui`，所有生产消费者与测试已切换新路径，旧 `mind_app/tui` 源目录和导入
+  已清零；TUI/CLI 回归 `1618 passed`，完整架构守卫 `88 passed, 58 warnings`，
+  前端归属守卫和导入图共同证明不存在前端与旧应用的包级循环。
 
 警告来自测试依赖的 Nuitka `glob2` 弃用转义，不属于本次生产代码失败；下次扩大验证时
 仍需记录是否发生变化。
@@ -200,6 +204,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    stdio MCP 入站适配器及其根轮次/环境能力注入已完成，CLI 适配器及其根轮次/环境
    能力注入也已收口；下一条只补齐四类入口的独立启动/恢复证据，再进入具体外部 MCP
    capability/adapters 的职责迁移。
+   TUI 输入、会话、渲染和 runtime 已作为同一可替换前端边界整体迁入
+   `frontends/tui`，旧路径已删除；下一条补齐 CLI、TUI、MCP、Subscription 的独立
+   启动/恢复证据，再进入具体外部 MCP capability/adapters 的职责迁移。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -246,6 +253,23 @@ runner，不导入具体 MCP 实现；旧 `mind_app/runtime/mcp/server.py` 文�
 本次 CLI 前端反向依赖收口的删除条件已满足：`frontends/cli` 只声明根轮次和环境快照
 能力协议，生产实现由 `mind.py` 组合根绑定；未装配时返回明确配置错误，不复制或隐式
 导入旧 runtime，实现与 CLI 入口生命周期保持一致。
+
+本次 TUI 展示契约切片的删除条件已满足：`frontends/tui/contracts` 只依赖标准库和
+同一契约包，不能导入 `mind_app`、`agent`、`infrastructure`、`engine` 或具体前端；
+所有 TUI、CLI 和测试消费者必须切换到新路径，旧 `mind_app/tui/contracts` 文件与导入
+清零，并通过契约行为回归、前端边界守卫、导入图和 `compileall` 验证。会话、渲染和
+runtime 目录不随本切片搬迁，后续按状态所有权分别处理。
+
+本次 TUI 完整前端迁移的准入条件已满足：`frontends/tui` 整体持有 TUI 的输入、会话、
+渲染和展示 runtime；生产消费者、测试和文档统一使用新路径，旧 `mind_app/tui` 源目录
+与导入清零，且导入图不得出现 `frontends -> mind_app -> frontends` 循环。Harness、
+Controller 和线上 Protocol Client 状态所有权不随目录迁移，必须通过 TUI 启动、交互、
+恢复和关键失败路径回归验证。
+
+本次 TUI 完整前端迁移的删除条件已满足：`frontends/tui` 整体持有 TUI 输入、会话、渲染
+和展示 runtime，生产消费者、测试和文档均使用新路径，旧 `mind_app/tui` 源目录与导入
+清零；导入图无 `frontends -> mind_app -> frontends` 循环，TUI 启动、交互、恢复和
+关键失败路径回归通过。
 
 ## 过渡入口与删除条件
 
@@ -329,3 +353,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-08-31 | 收口 MCP 前端对旧根轮次和环境采集模块的反向依赖，改为组合根显式注入 | MCP 回归 `14 passed`；前端边界守卫通过；导入图无循环、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 CLI 命令适配器整体迁入 `frontends/cli`，清除 `mind_app/cli` 旧路径 | CLI `136 passed`、TUI 启动 `11 passed`；CLI 归属/旧路径守卫通过；导入图无循环、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 收口 CLI 前端对旧根轮次和环境采集模块的反向依赖，改为组合根显式注入 | CLI/TUI `147 passed`；CLI 边界守卫通过；导入图无循环、`compileall`、`git diff --check` 通过 |
+| 2026-08-31 | 将 TUI 输入、会话、渲染、展示 runtime 和契约整体迁入 `frontends/tui`，删除 `mind_app/tui` 旧路径并消除包级循环 | TUI/CLI 回归 `1618 passed`；完整架构守卫 `88 passed, 58 warnings`；导入图、`compileall`、`git diff --check` 通过 |

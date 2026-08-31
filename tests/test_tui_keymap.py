@@ -11,10 +11,10 @@ from infrastructure.config.schema import (
     ConfigValidationError,
     normalize_config,
 )
-from mind_app.tui.core.keymap import TuiRuntimeKeymap
-from mind_app.tui.core.models import FragmentBlock
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.features.transcript_export import TranscriptExporter
+from frontends.tui.core.keymap import TuiRuntimeKeymap
+from frontends.tui.core.models import FragmentBlock
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.features.transcript_export import TranscriptExporter
 
 
 def _block(text: str) -> FragmentBlock:

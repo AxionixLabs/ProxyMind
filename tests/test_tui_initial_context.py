@@ -8,8 +8,8 @@ import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.session.state import preload_tui_prompt_context
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.session.state import preload_tui_prompt_context
 from agent.domain.policies import preset_permissions
 
 
@@ -42,7 +42,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
     )
 
     with patch(
-        "mind_app.tui.session.state.fetch_runtime_workspace_root",
+        "frontends.tui.session.state.fetch_runtime_workspace_root",
         AsyncMock(return_value=Path("D:/workspace")),
     ):
         await preload_tui_prompt_context(mind)
@@ -115,7 +115,7 @@ async def test_first_trust_keeps_input_hidden_until_startup_finishes() -> None:
             )
 
             with patch(
-                "mind_app.tui.session.state.fetch_runtime_workspace_root",
+                "frontends.tui.session.state.fetch_runtime_workspace_root",
                 AsyncMock(return_value=workspace),
             ):
                 await preload_tui_prompt_context(mind)

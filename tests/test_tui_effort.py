@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.models import (
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
 )
-from mind_app.tui.features.model import choose_model_effort
-from mind_app.tui.session import dispatch
-from mind_app.tui.session import loop
+from frontends.tui.features.model import choose_model_effort
+from frontends.tui.session import dispatch
+from frontends.tui.session import loop
 from agent.domain.policies import preset_permissions
 from agent.application.turns.commands import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner

@@ -63,7 +63,7 @@ from agent.harness.sessions.owner import SessionRuntimeOwner
 from mind_app.presentation.application import PassiveFrontendRuntime
 from mind_app.presentation.application_sinks import ConsoleApplicationSink
 from mind_app.presentation.application_sinks import JsonApplicationSink
-from mind_app.tui.core.runtime import TuiRuntime
+from frontends.tui.core.runtime import TuiRuntime
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.schema import ConfigOverride
 from mind_app.presentation.terminal.capabilities import DEGRADED_TERMINAL_CAPABILITIES
@@ -637,8 +637,8 @@ async def test_direct_cli_command_applies_temporary_model_override(
 
 @pytest.mark.anyio
 async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
-    from mind_app.tui.core import runtime as runtime_module
-    from mind_app.tui.features import history as history_module
+    from frontends.tui.core import runtime as runtime_module
+    from frontends.tui.features import history as history_module
 
     record = {
         "cid": "cid_test_12345678",
@@ -690,7 +690,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         load_history_transcript,
     )
     monkeypatch.setattr(
-        "mind_app.tui.session.loop.run_tui_loop",
+        "frontends.tui.session.loop.run_tui_loop",
         run_tui_loop,
     )
 
@@ -737,8 +737,8 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
 
 @pytest.mark.anyio
 async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> None:
-    from mind_app.tui.core import runtime as runtime_module
-    from mind_app.tui.features import history as history_module
+    from frontends.tui.core import runtime as runtime_module
+    from frontends.tui.features import history as history_module
 
     record = {
         "cid": "cid_test_12345678",
@@ -770,7 +770,7 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> Non
         Mock(return_value=(object(),)),
     )
     monkeypatch.setattr(
-        "mind_app.tui.session.loop.run_tui_loop",
+        "frontends.tui.session.loop.run_tui_loop",
         run_tui_loop,
     )
 
@@ -789,8 +789,8 @@ async def test_interactive_cli_resume_opens_picker_for_empty_snapshot(
     monkeypatch,
 ) -> None:
     from frontends.cli import dispatch as dispatch_module
-    from mind_app.tui.core import runtime as runtime_module
-    from mind_app.tui.features import history as history_module
+    from frontends.tui.core import runtime as runtime_module
+    from frontends.tui.features import history as history_module
 
     runtime = SimpleNamespace(
         terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
@@ -859,7 +859,7 @@ async def test_agent_listen_owns_listener_for_tui_session(monkeypatch) -> None:
         subscription=subscription,
     )
     monkeypatch.setattr(
-        "mind_app.tui.session.loop.run_tui_loop",
+        "frontends.tui.session.loop.run_tui_loop",
         run_tui_loop,
     )
 
@@ -887,7 +887,7 @@ async def test_agent_listen_stops_listener_when_tui_fails(monkeypatch) -> None:
         subscription=subscription,
     )
     monkeypatch.setattr(
-        "mind_app.tui.session.loop.run_tui_loop",
+        "frontends.tui.session.loop.run_tui_loop",
         AsyncMock(side_effect=RuntimeError("TUI failed")),
     )
 
@@ -1124,13 +1124,13 @@ async def test_agent_listen_owns_config_service_lifecycle(
     monkeypatch.setattr(bootstrap, "run_selected_command", AsyncMock())
     monkeypatch.setattr(bootstrap, "finalize_application", AsyncMock())
     monkeypatch.setattr(
-        "mind_app.tui.session.state.preload_tui_prompt_context",
+        "frontends.tui.session.state.preload_tui_prompt_context",
         AsyncMock(),
     )
     monkeypatch.setattr(bootstrap, "start_tui_external_mcp", AsyncMock())
     confirm_helix = AsyncMock(return_value=False)
     monkeypatch.setattr(
-        "mind_app.tui.features.helix.confirm_tui_service_runtime_startup",
+        "frontends.tui.features.helix.confirm_tui_service_runtime_startup",
         confirm_helix,
     )
     report = SimpleNamespace(close=Mock())

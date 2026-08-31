@@ -8,12 +8,12 @@ import pytest
 
 from infrastructure.errors import AppError
 from agent.application.turns.run_result import RunResult
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.render import fragments_text
-from mind_app.tui.core.styles import text_block
-from mind_app.tui.session import barriers
-from mind_app.tui.session import dispatch
-from mind_app.tui.session import loop
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.render import fragments_text
+from frontends.tui.core.styles import text_block
+from frontends.tui.session import barriers
+from frontends.tui.session import dispatch
+from frontends.tui.session import loop
 from agent.domain.policies import preset_permissions
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner

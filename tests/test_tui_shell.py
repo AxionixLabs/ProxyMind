@@ -11,12 +11,12 @@ from prompt_toolkit.utils import get_cwidth
 from mind_app.native_coding import NativeCoding
 from mind import create_native_coding
 from infrastructure.platform.process_sessions import ProcessSessionManager
-from mind_app.tui.core.models import FragmentBlock
-from mind_app.tui.core.interrupt import InterruptDisposition
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.styles import TUI_APPLICATION_OVERRIDES
-from mind_app.tui.features.shell import run_shell_escape
-from mind_app.tui.features.processes import (
+from frontends.tui.core.models import FragmentBlock
+from frontends.tui.core.interrupt import InterruptDisposition
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.styles import TUI_APPLICATION_OVERRIDES
+from frontends.tui.features.shell import run_shell_escape
+from frontends.tui.features.processes import (
     PS_INTERRUPT_GRACE_SEC,
     PS_OUTPUT_LIMIT,
     _interrupt_exec_session,
@@ -245,11 +245,11 @@ async def test_shell_escape_starts_user_shell_watcher() -> None:
 
     with (
         patch(
-            "mind_app.tui.features.shell.default_shell_executable",
+            "frontends.tui.features.shell.default_shell_executable",
             return_value="shell",
         ),
         patch(
-            "mind_app.tui.features.shell.watch_user_shell_session",
+            "frontends.tui.features.shell.watch_user_shell_session",
             new=AsyncMock(side_effect=watch_ready),
         ) as watch,
     ):
@@ -298,7 +298,7 @@ async def test_shell_escape_background_task_keeps_input_visible() -> None:
 
     with (
         patch(
-            "mind_app.tui.features.shell.default_shell_executable",
+            "frontends.tui.features.shell.default_shell_executable",
             return_value="shell",
         ),
     ):
@@ -366,7 +366,7 @@ async def test_shell_escape_ctrl_c_interrupts_process_session() -> None:
 
     with (
         patch(
-            "mind_app.tui.features.shell.default_shell_executable",
+            "frontends.tui.features.shell.default_shell_executable",
             return_value="shell",
         ),
     ):
@@ -401,7 +401,7 @@ async def test_interrupt_exec_session_returns_control_snapshot_immediately() -> 
     )
 
     with patch(
-        "mind_app.tui.features.processes.asyncio.sleep",
+        "frontends.tui.features.processes.asyncio.sleep",
         new_callable=AsyncMock,
     ) as sleep:
         result = await _interrupt_exec_session(
@@ -432,7 +432,7 @@ async def test_interrupt_exec_session_force_stops_unresponsive_process() -> None
     )
 
     with patch(
-        "mind_app.tui.features.processes.asyncio.sleep",
+        "frontends.tui.features.processes.asyncio.sleep",
         new_callable=AsyncMock,
     ) as sleep:
         result = await _interrupt_exec_session(
@@ -490,7 +490,7 @@ async def test_second_shell_shows_first_shell_in_process_status() -> None:
 
     with (
         patch(
-            "mind_app.tui.features.shell.default_shell_executable",
+            "frontends.tui.features.shell.default_shell_executable",
             return_value="shell",
         ),
     ):
@@ -1225,7 +1225,7 @@ def test_user_shell_exec_cell_counts_omitted_logical_lines_after_wrapping() -> N
 
 def test_user_shell_exec_cell_uses_animated_activity_marker() -> None:
     with patch(
-        "mind_app.tui.features.processes.time.perf_counter",
+        "frontends.tui.features.processes.time.perf_counter",
         return_value=0.0,
     ):
         block = exec_session_user_shell_block(

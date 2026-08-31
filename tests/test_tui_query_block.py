@@ -6,15 +6,15 @@ import pytest
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.interaction.contracts import PromptContext
-from mind_app.tui.core.document import TuiDocument
-from mind_app.tui.core.models import FragmentBlock, MenuOption, MenuRequest
-from mind_app.tui.core.queued import TuiSubmission
-from mind_app.tui.core.render import (
+from frontends.tui.core.document import TuiDocument
+from frontends.tui.core.models import FragmentBlock, MenuOption, MenuRequest
+from frontends.tui.core.queued import TuiSubmission
+from frontends.tui.core.render import (
     fragments_text,
     split_formatted_lines
 )
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.styles import (
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.styles import (
     query_block,
     query_display_block,
     query_preview_block,

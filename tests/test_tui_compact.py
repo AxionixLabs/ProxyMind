@@ -8,7 +8,7 @@ import pytest
 from mind_app.runtime import compaction as compact_mode
 from agent.harness.hooks.runtime import HookRuntime
 from agent.harness.hooks.scope import HookExecutionScope
-from mind_app.tui.features import conversation
+from frontends.tui.features import conversation
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.domain.policies import preset_permissions
 

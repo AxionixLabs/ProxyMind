@@ -1852,7 +1852,7 @@ def test_runtime_support_responsibilities_have_explicit_owners() -> None:
 
     target_paths = (
         PROJECT_ROOT / "mind_app" / "interaction" / "conversation.py",
-        PROJECT_ROOT / "mind_app" / "tui" / "adapters" / "clipboard.py",
+        PROJECT_ROOT / "frontends" / "tui" / "adapters" / "clipboard.py",
         PROJECT_ROOT / "mind_app" / "presentation" / "stream" / "exception_text.py",
     )
     assert all(path.is_file() for path in target_paths), (
@@ -3141,6 +3141,127 @@ def test_frontend_contracts_have_no_legacy_package_or_imports() -> None:
                     )
 
     assert not violations, "legacy frontend imports remain:\n" + "\n".join(violations)
+
+
+def test_tui_contracts_are_owned_by_frontends() -> None:
+    """确保 TUI 展示契约独立于旧应用运行时。"""
+    legacy_root = PROJECT_ROOT / "mind_app" / "tui" / "contracts"
+    target_root = PROJECT_ROOT / "frontends" / "tui" / "contracts"
+    assert not legacy_root.exists(), "legacy TUI contract package still exists"
+
+    expected_files = {
+        "__init__.py",
+        "menu.py",
+        "pager.py",
+        "resume.py",
+        "screen.py",
+        "text.py",
+        "transcript.py",
+        "views.py",
+    }
+    assert {
+        path.name
+        for path in target_root.glob("*.py")
+    } == expected_files
+
+    forbidden_prefixes = (
+        "mind_app",
+        "agent",
+        "infrastructure",
+        "engine",
+        "server",
+    )
+    violations: list[str] = []
+    for path in target_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module == "" or module.startswith(forbidden_prefixes):
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "TUI contracts import forbidden packages:\n" + "\n".join(
+        violations
+    )
+
+    old_imports: list[str] = []
+    old_tui_root = PROJECT_ROOT / "mind_app" / "tui"
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        relative_to_tui = path.is_relative_to(old_tui_root)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+                if any(
+                    module == "mind_app.tui.contracts"
+                    or module.startswith("mind_app.tui.contracts.")
+                    for module in modules
+                ):
+                    old_imports.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}"
+                    )
+            elif (
+                relative_to_tui
+                and isinstance(node, ast.ImportFrom)
+                and node.level > 0
+                and (node.module or "").startswith("contracts")
+            ):
+                old_imports.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+
+    assert not old_imports, "legacy TUI contract imports remain:\n" + "\n".join(
+        old_imports
+    )
+
+
+def test_tui_adapter_is_owned_by_frontends() -> None:
+    """确保 TUI 整体归属 frontends，避免旧包与前端互相导入。"""
+    legacy_root = PROJECT_ROOT / "mind_app" / "tui"
+    target_root = PROJECT_ROOT / "frontends" / "tui"
+    assert not legacy_root.exists(), "legacy TUI package still exists"
+
+    expected_children = {
+        "__init__.py",
+        "adapters",
+        "contracts",
+        "core",
+        "features",
+        "prompting",
+        "rendering",
+        "runtime",
+        "session",
+    }
+    assert {
+        path.name
+        for path in target_root.iterdir()
+        if path.name != "__pycache__"
+    } == expected_children
+
+    legacy_imports: list[str] = []
+    for path in (PROJECT_ROOT / "mind_app").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            if any(
+                module == "frontends.tui" or module.startswith("frontends.tui.")
+                for module in modules
+            ):
+                legacy_imports.append(
+                    f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}"
+                )
+
+    assert not legacy_imports, "mind_app imports the TUI frontend:\n" + "\n".join(
+        legacy_imports
+    )
 
 
 def test_subscription_adapter_is_owned_by_frontends() -> None:

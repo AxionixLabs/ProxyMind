@@ -4,7 +4,7 @@ import pytest
 from prompt_toolkit.utils import get_cwidth
 from mind_app.presentation.terminal.capabilities import TerminalColorLevel
 
-from mind_app.tui.core.status_frames import (
+from frontends.tui.core.status_frames import (
     SPINNER_FRAMES,
     SWEEP_PROFILES,
     _animated_palette,

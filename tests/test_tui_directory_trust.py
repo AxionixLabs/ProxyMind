@@ -8,8 +8,8 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.utils import get_cwidth
 
-from mind_app.tui.core.directory_trust import TuiDirectoryTrust
-from mind_app.tui.core.runtime import TuiRuntime
+from frontends.tui.core.directory_trust import TuiDirectoryTrust
+from frontends.tui.core.runtime import TuiRuntime
 
 
 def _text(prompt: TuiDirectoryTrust) -> str:

@@ -8,10 +8,10 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from mind_app.approval.coordinator import ApprovalCoordinator
-from mind_app.tui.core.bottom_pane import TuiBottomPane
-from mind_app.tui.core.models import FragmentBlock, MenuOption, MenuRequest
-from mind_app.tui.core.queued import TuiSubmission
-from mind_app.tui.core.runtime import TuiRuntime
+from frontends.tui.core.bottom_pane import TuiBottomPane
+from frontends.tui.core.models import FragmentBlock, MenuOption, MenuRequest
+from frontends.tui.core.queued import TuiSubmission
+from frontends.tui.core.runtime import TuiRuntime
 
 
 def test_bottom_pane_restores_previous_surface_focus() -> None:

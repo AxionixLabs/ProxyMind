@@ -67,38 +67,38 @@ from mind_app.presentation.tool_views import (
     build_native_tool_result_view,
     build_tool_start_view,
 )
-from mind_app.tui.adapters.application import TuiApplicationSink
-from mind_app.tui.adapters.content import TuiContentSink
-from mind_app.tui.adapters import markdown as tui_markdown
-from mind_app.tui.adapters import output as tui_output_module
-from mind_app.tui.adapters.markdown import (
+from frontends.tui.adapters.application import TuiApplicationSink
+from frontends.tui.adapters.content import TuiContentSink
+from frontends.tui.adapters import markdown as tui_markdown
+from frontends.tui.adapters import output as tui_output_module
+from frontends.tui.adapters.markdown import (
     TuiMarkdownStreamRenderer,
     render_tui_assistant_markdown,
     render_tui_markdown,
 )
-from mind_app.tui.adapters.output import TuiOutputControl
-from mind_app.tui.adapters.presentation import TuiPresentationSink
-from mind_app.tui.core.document import (
+from frontends.tui.adapters.output import TuiOutputControl
+from frontends.tui.adapters.presentation import TuiPresentationSink
+from frontends.tui.core.document import (
     TranscriptBlock,
     TuiBlockKind,
     TuiDocument,
 )
-from mind_app.tui.core.models import (
+from frontends.tui.core.models import (
     FragmentBlock,
     LineFill,
     MenuOption,
     MenuRequest,
     TranscriptBacktrackRequest,
 )
-from mind_app.tui.core.keymap import TuiRuntimeKeymap
-from mind_app.tui.core.hyperlinks import (
+from frontends.tui.core.keymap import TuiRuntimeKeymap
+from frontends.tui.core.hyperlinks import (
     OSC8_CLOSE,
     decorate_scrollback_hyperlinks,
     terminal_hyperlink_from_style,
     terminal_hyperlink_style
 )
-from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
-from mind_app.tui.core.render import (
+from frontends.tui.core.queued import TuiQueuedMessages, TuiSubmission
+from frontends.tui.core.render import (
     display_line_count,
     fragment_continuation_widths,
     fragments_text,
@@ -107,25 +107,25 @@ from mind_app.tui.core.render import (
     split_formatted_lines,
     wrap_formatted_lines,
 )
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.features.processes import (
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.features.processes import (
     exec_session_user_shell_block,
     exec_session_summary_block,
 )
-from mind_app.tui.core.screen import (
+from frontends.tui.core.screen import (
     FrameGeometry,
     _clear_terminal_for_resize_replay,
     _erase_terminal_scrollback,
     _set_alternate_scroll_mode,
     _set_synchronized_output,
 )
-from mind_app.tui.core.styles import (
+from frontends.tui.core.styles import (
     ASSISTANT_PREFIX_CLASS,
     assistant_block,
     failure_parts,
     query_block,
 )
-from mind_app.tui.rendering.separators import final_message_separator
+from frontends.tui.rendering.separators import final_message_separator
 
 RESPONSE_IDENTITY = ResponseIdentity("turn_test", 1, 1, 1)
 
@@ -1002,7 +1002,7 @@ def test_ctrl_l_cancels_pending_scrollback_before_clearing() -> None:
     with (
         patch.object(runtime.screen.application.renderer, "clear") as clear,
         patch(
-            "mind_app.tui.core.screen._erase_terminal_scrollback"
+            "frontends.tui.core.screen._erase_terminal_scrollback"
         ) as erase_scrollback,
     ):
         runtime.viewport.clear_visible()
@@ -1086,7 +1086,7 @@ def test_transcript_screen_pairs_alternate_scroll_sequences(
         vt100_output=object(),
         write_raw=Mock(),
     )
-    monkeypatch.setattr("mind_app.tui.core.screen.sys.platform", "win32")
+    monkeypatch.setattr("frontends.tui.core.screen.sys.platform", "win32")
 
     assert _set_alternate_scroll_mode(output, True) is True
     assert _set_alternate_scroll_mode(output, False) is True
@@ -1101,7 +1101,7 @@ def test_nested_synchronized_output_toggles_only_at_outer_boundary() -> None:
     runtime = TuiRuntime()
 
     with patch(
-        "mind_app.tui.core.screen._set_synchronized_output",
+        "frontends.tui.core.screen._set_synchronized_output",
         return_value=True,
     ) as set_synchronized:
         assert runtime.screen.begin_synchronized_output() is True
@@ -1128,7 +1128,7 @@ def test_terminal_scrollback_skips_raw_ansi_on_legacy_win32(
         write_raw=Mock(),
         flush=Mock(),
     )
-    monkeypatch.setattr("mind_app.tui.core.screen.sys.platform", "win32")
+    monkeypatch.setattr("frontends.tui.core.screen.sys.platform", "win32")
 
     _erase_terminal_scrollback(output)
 
@@ -2460,7 +2460,7 @@ async def test_scrollback_synchronizes_the_complete_terminal_transition() -> Non
                 return_value=Size(rows=8, columns=40),
             ),
             patch(
-                "mind_app.tui.core.viewport.in_terminal",
+                "frontends.tui.core.viewport.in_terminal",
                 controlled_terminal,
             ),
         ):
@@ -2588,7 +2588,7 @@ async def test_scrollback_releases_sync_when_terminal_wait_is_cancelled() -> Non
                 return_value=Size(rows=8, columns=40),
             ),
             patch(
-                "mind_app.tui.core.viewport.in_terminal",
+                "frontends.tui.core.viewport.in_terminal",
                 blocked_terminal,
             ),
         ):
@@ -2758,7 +2758,7 @@ async def test_scrollback_candidate_ignores_active_cell_changes() -> None:
 
                 with (
                     patch(
-                        "mind_app.tui.core.viewport.in_terminal",
+                        "frontends.tui.core.viewport.in_terminal",
                         update_active_while_waiting,
                     ),
                     patch.object(
@@ -2809,7 +2809,7 @@ async def test_scrollback_discards_candidate_after_unobserved_resize() -> None:
             try:
                 with (
                     patch(
-                        "mind_app.tui.core.viewport.in_terminal",
+                        "frontends.tui.core.viewport.in_terminal",
                         resize_while_waiting,
                     ),
                     patch.object(
@@ -2931,7 +2931,7 @@ async def test_active_stream_does_not_schedule_native_scrollback() -> None:
                 return_value=Size(rows=12, columns=40),
             ),
             patch(
-                "mind_app.tui.core.viewport.in_terminal",
+                "frontends.tui.core.viewport.in_terminal",
                 controlled_terminal,
             ),
         ):
@@ -2989,7 +2989,7 @@ async def test_continuous_markdown_stream_renders_only_complete_source_lines() -
             await runtime.open()
             try:
                 with patch(
-                        "mind_app.tui.adapters.markdown.render_tui_markdown",
+                        "frontends.tui.adapters.markdown.render_tui_markdown",
                     wraps=render_tui_markdown,
                 ) as render:
                     runtime.set_execution_active(True)
@@ -4255,7 +4255,7 @@ async def test_resize_storm_replays_once_in_synchronized_output() -> None:
 
                 with (
                     patch(
-                        "mind_app.tui.core.viewport.in_terminal",
+                        "frontends.tui.core.viewport.in_terminal",
                         controlled_terminal,
                     ),
                     patch.object(
@@ -4362,7 +4362,7 @@ async def test_resize_reflow_releases_sync_when_terminal_wait_is_cancelled(
 
                 with (
                     patch(
-                        "mind_app.tui.core.viewport.in_terminal",
+                        "frontends.tui.core.viewport.in_terminal",
                         blocked_terminal,
                     ),
                     patch.object(
@@ -4441,7 +4441,7 @@ async def test_resize_invalidated_while_acquiring_terminal_keeps_position() -> N
 
                 with (
                     patch(
-                        "mind_app.tui.core.viewport.in_terminal",
+                        "frontends.tui.core.viewport.in_terminal",
                         resize_while_waiting,
                     ),
                     patch.object(
@@ -4508,7 +4508,7 @@ async def test_resize_replay_failure_restores_scrollback_position() -> None:
 
                 with (
                     patch(
-                        "mind_app.tui.core.viewport.in_terminal",
+                        "frontends.tui.core.viewport.in_terminal",
                         controlled_terminal,
                     ),
                     patch.object(
@@ -7517,7 +7517,7 @@ def test_transcript_screen_pairs_vt_terminal_modes(monkeypatch) -> None:
         term="xterm-256color",
         enable_cpr=False,
     )
-    monkeypatch.setattr("mind_app.tui.core.screen.sys.platform", "win32")
+    monkeypatch.setattr("frontends.tui.core.screen.sys.platform", "win32")
     runtime = TuiRuntime(output_obj=output)
 
     runtime.toggle_transcript_overlay()
@@ -11043,7 +11043,7 @@ def test_transcript_display_metrics_cache_tracks_layout_dependencies() -> None:
             side_effect=lambda: size,
         ),
         patch(
-            "mind_app.tui.core.screen.display_line_count",
+            "frontends.tui.core.screen.display_line_count",
             wraps=display_line_count,
         ) as line_count,
         patch.object(
@@ -11094,7 +11094,7 @@ def test_transcript_display_metrics_cache_tracks_visible_prefix() -> None:
     runtime.append_block(_block("first\nsecond\nthird"), kind="assistant")
 
     with patch(
-        "mind_app.tui.core.screen.display_line_count",
+        "frontends.tui.core.screen.display_line_count",
         wraps=display_line_count,
     ) as line_count:
         def transcript_scan_count() -> int:
@@ -11404,7 +11404,7 @@ async def test_animated_stream_waits_for_complete_source_line() -> None:
             wraps=runtime.set_active_renderable,
         ) as update,
         patch(
-            "mind_app.tui.adapters.markdown.render_tui_markdown",
+            "frontends.tui.adapters.markdown.render_tui_markdown",
             wraps=render_tui_markdown,
         ) as render,
     ):
@@ -11518,7 +11518,7 @@ async def test_live_stream_tail_is_rendered_before_it_appears() -> None:
     )
 
     with patch(
-        "mind_app.tui.adapters.markdown.render_tui_markdown",
+        "frontends.tui.adapters.markdown.render_tui_markdown",
         wraps=render_tui_markdown,
     ) as render:
         await output.append_assistant_delta(source)
@@ -12077,7 +12077,7 @@ async def test_segment_completion_keeps_rendered_markdown_stable() -> None:
     content = TuiContentSink(output)
 
     with patch(
-        "mind_app.tui.adapters.markdown.render_tui_markdown",
+        "frontends.tui.adapters.markdown.render_tui_markdown",
         wraps=render_tui_markdown,
     ) as render:
         await content.emit(AssistantTextDelta("**bold**", RESPONSE_IDENTITY))
@@ -12139,7 +12139,7 @@ async def test_assistant_commit_falls_back_to_plain_text_after_markdown_failure(
 
     await output.append_assistant_delta("```\nvalue\n```")
     with patch(
-        "mind_app.tui.adapters.markdown.render_tui_markdown",
+        "frontends.tui.adapters.markdown.render_tui_markdown",
         side_effect=IndexError("invalid markdown"),
     ):
         await presentation.emit(build_failure_view("turn.failed", "request failed"))

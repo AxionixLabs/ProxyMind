@@ -9,9 +9,9 @@ from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mind_app.tui.core.models import FragmentBlock
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.session.turn import execute_tui_model_turn
+from frontends.tui.core.models import FragmentBlock
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.session.turn import execute_tui_model_turn
 
 
 def _block(text: str) -> FragmentBlock:

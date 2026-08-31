@@ -11,7 +11,7 @@ from metadata import const
 from mind_app.presentation.terminal.turn_lifecycle import run_foreground_turn
 from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.interaction.contracts import PromptContext
-from mind_app.tui.core.runtime import TuiRuntime
+from frontends.tui.core.runtime import TuiRuntime
 from mind_app.presentation.terminal.progress import (
     OscTerminalProgress,
     PassiveTerminalProgress,

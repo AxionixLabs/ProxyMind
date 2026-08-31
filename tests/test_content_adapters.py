@@ -15,7 +15,7 @@ from mind_app.presentation.output.content import (
     ResponseIdentity,
 )
 from mind_app.presentation.output.terminal_content import TerminalContentSink
-from mind_app.tui.adapters.content import TuiContentSink
+from frontends.tui.adapters.content import TuiContentSink
 
 
 def _output() -> SimpleNamespace:

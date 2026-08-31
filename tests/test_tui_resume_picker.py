@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import replace
 import pytest
 from prompt_toolkit.styles import Style
-from mind_app.tui.contracts.resume import (
+from frontends.tui.contracts.resume import (
     ResumeDensity,
     ResumeFilterMode,
     ResumeLaunchContext,
@@ -16,11 +16,11 @@ from mind_app.tui.contracts.resume import (
     ResumeSessionStatus,
     ResumeSortKey,
 )
-from mind_app.tui.rendering.fragments import (
+from frontends.tui.rendering.fragments import (
     fragments_text,
     split_formatted_lines,
 )
-from mind_app.tui.rendering.menu.resume_picker import (
+from frontends.tui.rendering.menu.resume_picker import (
     ResumeToolbarFocus,
     change_resume_toolbar_value,
     begin_resume_archive,
@@ -39,8 +39,8 @@ from mind_app.tui.rendering.menu.resume_picker import (
     toggle_resume_density,
     toggle_resume_expansion,
 )
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.styles import build_tui_application_style
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.styles import build_tui_application_style
 from mind_app.presentation.terminal.capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,

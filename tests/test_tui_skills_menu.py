@@ -16,15 +16,15 @@ from prompt_toolkit.output import DummyOutput
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from infrastructure.skills import SkillSpec
-from mind_app.tui.core.input import TuiInputModel
-from mind_app.tui.core.menu import TUI_MENU_STYLE, TuiMenu
-from mind_app.tui.core.models import MenuEmptyAcceptAction
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.features import skills as skills_feature
-from mind_app.tui.rendering.fragments import fragments_text
-from mind_app.tui.prompting import files as file_search_module
-from mind_app.tui.prompting.files import FileSearchManager
-from mind_app.tui.prompting.skills import (
+from frontends.tui.core.input import TuiInputModel
+from frontends.tui.core.menu import TUI_MENU_STYLE, TuiMenu
+from frontends.tui.core.models import MenuEmptyAcceptAction
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.features import skills as skills_feature
+from frontends.tui.rendering.fragments import fragments_text
+from frontends.tui.prompting import files as file_search_module
+from frontends.tui.prompting.files import FileSearchManager
+from frontends.tui.prompting.skills import (
     SkillTokenLexer,
     skill_match_score,
 )

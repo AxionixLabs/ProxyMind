@@ -14,15 +14,15 @@ from mind_app.presentation.terminal.capabilities import (
     TerminalKind,
     TerminalTheme,
 )
-from mind_app.tui.core.approval_render import (
+from frontends.tui.core.approval_render import (
     TUI_APPROVAL_STYLE,
     approval_command_pager_lines,
     approval_pager_title,
     tui_approval_content_lines,
 )
-from mind_app.tui.core.runtime import TuiRuntime
+from frontends.tui.core.runtime import TuiRuntime
 from mind_app.approval.coordinator import ApprovalCoordinator
-from mind_app.tui.core.styles import build_tui_application_style
+from frontends.tui.core.styles import build_tui_application_style
 
 
 def test_approval_command_pager_preserves_argv_and_highlighting() -> None:

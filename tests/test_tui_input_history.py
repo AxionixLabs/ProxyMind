@@ -8,9 +8,9 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.keys import Keys
 
 from mind_app.interaction.contracts import PromptContext
-from mind_app.tui.core.input import TuiInputModel
-from mind_app.tui.core.render import fragments_text
-from mind_app.tui.core.runtime import TuiRuntime
+from frontends.tui.core.input import TuiInputModel
+from frontends.tui.core.render import fragments_text
+from frontends.tui.core.runtime import TuiRuntime
 
 
 def press_history_key(model: TuiInputModel, key: Keys, buffer: Buffer) -> None:

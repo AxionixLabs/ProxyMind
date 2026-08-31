@@ -9,10 +9,10 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from mind_app.presentation.application import ApplicationView
-from mind_app.tui.adapters import application as tui_application
-from mind_app.tui.adapters.application import TuiApplicationSink
-from mind_app.tui.core.render import fragments_text
-from mind_app.tui.core.runtime import TuiRuntime
+from frontends.tui.adapters import application as tui_application
+from frontends.tui.adapters.application import TuiApplicationSink
+from frontends.tui.core.render import fragments_text
+from frontends.tui.core.runtime import TuiRuntime
 from mind_app.presentation.terminal.intro import intro_frames
 from metadata import const
 

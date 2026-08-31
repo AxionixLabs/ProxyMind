@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.tui.core.input import TuiInputModel
-from mind_app.tui.prompting.paste import (
+from frontends.tui.core.input import TuiInputModel
+from frontends.tui.prompting.paste import (
     format_paste_placeholder,
     parse_paste_placeholder,
 )
-from mind_app.tui.prompting.skills import iter_paste_placeholder_tokens
+from frontends.tui.prompting.skills import iter_paste_placeholder_tokens
 
 
 def test_paste_content_uses_uniform_character_count_label() -> None:

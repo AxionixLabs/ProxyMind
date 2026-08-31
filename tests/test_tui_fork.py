@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from mind_app.tui.features import conversation
+from frontends.tui.features import conversation
 from protocol.client import fork as fork_request
 from protocol.client.fork import (
     ConversationForkRequestError,

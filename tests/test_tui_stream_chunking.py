@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.tui.core.stream_chunking import (
+from frontends.tui.core.stream_chunking import (
     StreamChunkingMode,
     StreamChunkingPolicy,
     StreamQueueSnapshot,

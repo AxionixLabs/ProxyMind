@@ -4,11 +4,11 @@ import pytest
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.history.transcript import TranscriptEntry, TranscriptReplay
-from mind_app.tui.core.document import TuiDocument
-from mind_app.tui.core.render import fragments_text
-from mind_app.tui.features import history
-from mind_app.tui.core.hyperlinks import terminal_hyperlink_from_style
-from mind_app.tui.contracts.resume import (
+from frontends.tui.core.document import TuiDocument
+from frontends.tui.core.render import fragments_text
+from frontends.tui.features import history
+from frontends.tui.core.hyperlinks import terminal_hyperlink_from_style
+from frontends.tui.contracts.resume import (
     ResumeDensity,
     ResumeFilterMode,
     ResumePreviewStatus,

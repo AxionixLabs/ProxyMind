@@ -12,14 +12,14 @@ from infrastructure.platform.git_diff import (
     WorkspaceDiffResult,
     WorkspaceDiffState,
 )
-from mind_app.tui.contracts.pager import StaticPagerRequest
-from mind_app.tui.core.render import fragments_text
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.static_pager import TuiStaticPager
-from mind_app.tui.rendering.screen.layout import measure_overlay_layout
-from mind_app.tui.features import diff as diff_feature
-from mind_app.tui.session import dispatch as dispatch_module
-from mind_app.tui.session.dispatch import (
+from frontends.tui.contracts.pager import StaticPagerRequest
+from frontends.tui.core.render import fragments_text
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.static_pager import TuiStaticPager
+from frontends.tui.rendering.screen.layout import measure_overlay_layout
+from frontends.tui.features import diff as diff_feature
+from frontends.tui.session import dispatch as dispatch_module
+from frontends.tui.session.dispatch import (
     DispatchAction,
     TuiCommandDispatcher,
 )

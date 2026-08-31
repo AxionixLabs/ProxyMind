@@ -9,11 +9,11 @@ from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.keys import Keys
 from metadata import const
 
-from mind_app.tui.core.menu import (
+from frontends.tui.core.menu import (
     TUI_MENU_STYLE,
     TuiMenu,
 )
-from mind_app.tui.core.models import (
+from frontends.tui.core.models import (
     MenuColumnWidthMode,
     MenuDescriptionLayout,
     MenuOption,

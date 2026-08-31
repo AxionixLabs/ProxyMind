@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 
 
-TUI_PACKAGE = Path(__file__).parents[1] / "mind_app" / "tui"
+TUI_PACKAGE = Path(__file__).parents[1] / "frontends" / "tui"
 
 
 def test_rendering_does_not_import_core() -> None:
@@ -18,7 +18,7 @@ def test_rendering_does_not_import_core() -> None:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 names = tuple(alias.name for alias in node.names)
-                if any(name.startswith("mind_app.tui.core") for name in names):
+                if any(name.startswith("frontends.tui.core") for name in names):
                     violations.append(str(path.relative_to(TUI_PACKAGE)))
             elif isinstance(node, ast.ImportFrom):
                 target = _resolved_import(module_parts, node.level, node.module)
@@ -39,8 +39,8 @@ def test_runtime_state_does_not_import_screen_or_runtime() -> None:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 if any(
-                    alias.name.startswith("mind_app.tui.core.runtime")
-                    or alias.name.startswith("mind_app.tui.core.screen")
+                    alias.name.startswith("frontends.tui.core.runtime")
+                    or alias.name.startswith("frontends.tui.core.screen")
                     for alias in node.names
                 ):
                     violations.append(str(path.relative_to(TUI_PACKAGE)))
@@ -70,9 +70,9 @@ def test_resume_runtime_coordinator_uses_narrow_ports() -> None:
                 alias.name
                 for alias in node.names
                 if alias.name.startswith((
-                    "mind_app.tui.core.screen",
-                    "mind_app.tui.core.runtime",
-                    "mind_app.tui.core.viewport",
+                    "frontends.tui.core.screen",
+                    "frontends.tui.core.runtime",
+                    "frontends.tui.core.viewport",
                 ))
             )
         elif isinstance(node, ast.ImportFrom):
@@ -96,7 +96,7 @@ def test_process_feature_uses_capability_port() -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             if any(
-                alias.name.startswith("mind_app.tui.core.runtime")
+                alias.name.startswith("frontends.tui.core.runtime")
                 for alias in node.names
             ):
                 violations.append("absolute core.runtime import")
@@ -130,7 +130,7 @@ def test_foreground_barrier_uses_capability_port() -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             if any(
-                alias.name.startswith("mind_app.tui.core.runtime")
+                alias.name.startswith("frontends.tui.core.runtime")
                 for alias in node.names
             ):
                 violations.append("absolute core.runtime import")
@@ -164,7 +164,7 @@ def test_turn_execution_uses_capability_port() -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             if any(
-                alias.name.startswith("mind_app.tui.core.runtime")
+                alias.name.startswith("frontends.tui.core.runtime")
                 for alias in node.names
             ):
                 violations.append("absolute core.runtime import")
@@ -198,7 +198,7 @@ def test_turn_input_uses_capability_port() -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             if any(
-                alias.name.startswith("mind_app.tui.core.runtime")
+                alias.name.startswith("frontends.tui.core.runtime")
                 for alias in node.names
             ):
                 violations.append("absolute core.runtime import")
@@ -240,7 +240,7 @@ def test_read_only_features_use_capability_ports() -> None:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 if any(
-                    alias.name.startswith("mind_app.tui.core.runtime")
+                    alias.name.startswith("frontends.tui.core.runtime")
                     for alias in node.names
                 ):
                     violations.append("absolute core.runtime import")
@@ -268,7 +268,7 @@ def _resolved_import(
     level: int,
     module: str | None,
 ) -> tuple[str, ...]:
-    """把 mind_app.tui 内的相对导入解析为包内路径。"""
+    """把 frontends.tui 内的相对导入解析为包内路径。"""
     imported = tuple((module or "").split(".")) if module else ()
     if level <= 0:
         prefix = ("mind_app", "tui")

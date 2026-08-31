@@ -23,28 +23,28 @@ from mind_app.presentation.terminal.capabilities import (
 )
 from infrastructure.skills import SkillSpec
 from mind_app.interaction.contracts import PromptContext
-from mind_app.tui.adapters.output import TuiOutputControl
-from mind_app.tui.core.models import (
+from frontends.tui.adapters.output import TuiOutputControl
+from frontends.tui.core.models import (
     FragmentBlock,
     MenuOption,
     MenuRequest,
 )
-from mind_app.tui.core.render import fragments_text
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.styles import text_block
-from mind_app.tui.core.token_menu import (
+from frontends.tui.core.render import fragments_text
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.styles import text_block
+from frontends.tui.core.token_menu import (
     TokenCompletionMenuControl,
     TokenMenuItem,
     TokenMenuSnapshot,
     token_menu_display_height,
 )
-from mind_app.tui.prompting.skills import (
+from frontends.tui.prompting.skills import (
     skill_display_text,
     skill_meta_text,
     skill_completions,
     skill_query_token,
 )
-from mind_app.tui.session.barriers import TuiForegroundTasks
+from frontends.tui.session.barriers import TuiForegroundTasks
 
 
 async def wait_for_completion(runtime: TuiRuntime) -> None:

@@ -8,13 +8,13 @@ import pytest
 from metadata import const
 
 from mind_app.interaction.contracts import PromptContext
-from mind_app.tui.core.models import (
+from frontends.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
 )
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.features import permissions as permissions_feature
-from mind_app.tui.features.permissions import (
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.features import permissions as permissions_feature
+from frontends.tui.features.permissions import (
     choose_permissions_mode,
     render_permissions_status,
 )

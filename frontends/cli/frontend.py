@@ -39,10 +39,10 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
     if output_mode == "tui":
         _require_tui_terminal()
 
-        from mind_app.tui.adapters.application import TuiApplicationSink
-        from mind_app.tui.adapters.session import create_tui_output_session
-        from mind_app.tui.core.runtime import TuiRuntime
-        from mind_app.tui.features.transcript_export import TranscriptExporter
+        from frontends.tui.adapters.application import TuiApplicationSink
+        from frontends.tui.adapters.session import create_tui_output_session
+        from frontends.tui.core.runtime import TuiRuntime
+        from frontends.tui.features.transcript_export import TranscriptExporter
         from prompt_toolkit.input import create_input
         from mind_app.presentation.terminal.capabilities import detect_terminal_capabilities
         from mind_app.presentation.terminal.progress import create_terminal_progress

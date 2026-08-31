@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from mind_app.tui.core.queued import TuiSubmission
-from mind_app.tui.core.render import fragments_text
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.interrupt import InterruptDisposition
-from mind_app.tui.core.styles import query_block, text_block
-from mind_app.tui.session import turn_input as turn_input_session
-from mind_app.tui.session.turn import execute_tui_model_turn
-from mind_app.tui.session.turn_input import TuiTurnInputControl
+from frontends.tui.core.queued import TuiSubmission
+from frontends.tui.core.render import fragments_text
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.interrupt import InterruptDisposition
+from frontends.tui.core.styles import query_block, text_block
+from frontends.tui.session import turn_input as turn_input_session
+from frontends.tui.session.turn import execute_tui_model_turn
+from frontends.tui.session.turn_input import TuiTurnInputControl
 from protocol.client.turn_control import TurnControlRequestError
 from protocol.schema.stream_events import (
     MarkerEvent,

@@ -13,19 +13,19 @@ from prompt_toolkit.output import DummyOutput
 
 from mind_app.interaction.attachments import Attach
 from mind_app.interaction.contracts import PromptContext
-from mind_app.tui.core.models import (
+from frontends.tui.core.models import (
     FragmentBlock,
     TranscriptBacktrackRequest
 )
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.styles import (
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.styles import (
     TUI_APPLICATION_OVERRIDES,
     query_block,
 )
-from mind_app.tui.core.submission import TuiTranscriptBacktrackRequested
-from mind_app.tui.features.conversation import ForkLiveStatus
-from mind_app.tui.session import loop
-from mind_app.tui.session.state import TuiSessionState
+from frontends.tui.core.submission import TuiTranscriptBacktrackRequested
+from frontends.tui.features.conversation import ForkLiveStatus
+from frontends.tui.session import loop
+from frontends.tui.session.state import TuiSessionState
 from agent.domain.policies import preset_permissions
 from protocol.client.fork import ResubmittablePrompt
 

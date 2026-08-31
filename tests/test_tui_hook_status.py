@@ -7,15 +7,15 @@ from agent.application.hooks.models import (
     HookOutputEntry,
     HookRunSummary,
 )
-from mind_app.tui.adapters.hooks import TuiHookStatusAdapter
-from mind_app.tui.core.keymap import TuiRuntimeKeymap
-from mind_app.tui.core.models import FragmentBlock
-from mind_app.tui.core.render import (
+from frontends.tui.adapters.hooks import TuiHookStatusAdapter
+from frontends.tui.core.keymap import TuiRuntimeKeymap
+from frontends.tui.core.models import FragmentBlock
+from frontends.tui.core.render import (
     display_line_count,
     fragments_text,
 )
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.screen import FrameGeometry
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.screen import FrameGeometry
 
 
 def _run(

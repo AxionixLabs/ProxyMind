@@ -10,8 +10,8 @@ from agent.harness.hooks.runtime import HookRuntime
 from agent.harness.hooks.scope import HookExecutionScope
 from mind_app.interaction import ConversationTurn
 from protocol.client.reports import EventReportRuntimeOwner
-from mind_app.tui.session import turn as tui_turn
-from mind_app.tui.session.turn import run_tui_model_turn
+from frontends.tui.session import turn as tui_turn
+from frontends.tui.session.turn import run_tui_model_turn
 from agent.domain.policies import preset_permissions
 
 

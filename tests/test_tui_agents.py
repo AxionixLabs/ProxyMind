@@ -11,13 +11,13 @@ from mind_app.history.transcript import TranscriptWriter
 from agent.application.turns.context import AgentContext
 from agent.application.agents.views import AgentSnapshot
 from agent.application.agents.thread import AgentThreadContext
-from mind_app.tui.core.models import (
+from frontends.tui.core.models import (
     FragmentBlock,
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
 )
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.features.agents import (
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.features.agents import (
     agent_detail_menu,
     agent_list_menu,
     agent_snapshot_block,

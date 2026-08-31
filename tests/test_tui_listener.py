@@ -10,21 +10,21 @@ from prompt_toolkit.utils import get_cwidth
 
 from frontends.subscription.forwarding import AgentInbox
 from frontends.subscription.models import AgentForwardRequest
-from mind_app.tui.adapters.application import TuiApplicationSink
-from mind_app.tui.core.mailbox import (
+from frontends.tui.adapters.application import TuiApplicationSink
+from frontends.tui.core.mailbox import (
     TuiMailboxOverlay,
     format_mailbox_count,
 )
-from mind_app.tui.core.models import (
+from frontends.tui.core.models import (
     MailboxEntry,
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
 )
-from mind_app.tui.core.interrupt import InterruptDisposition
-from mind_app.tui.core.render import fragments_text
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.features.mailbox import TuiMailboxFeature
-from mind_app.tui.features.listener import (
+from frontends.tui.core.interrupt import InterruptDisposition
+from frontends.tui.core.render import fragments_text
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.features.mailbox import TuiMailboxFeature
+from frontends.tui.features.listener import (
     choose_listener_action,
     parse_listener_command,
     render_listener_failure,
@@ -32,7 +32,7 @@ from mind_app.tui.features.listener import (
     render_listener_result,
     render_listener_status,
 )
-from mind_app.tui.session.barriers import TuiForegroundTasks
+from frontends.tui.session.barriers import TuiForegroundTasks
 
 
 class _Listener(object):

@@ -19,24 +19,24 @@ from mind_app.presentation.terminal.capabilities import DEGRADED_TERMINAL_CAPABI
 from infrastructure.skills import SkillSpec
 from metadata import const
 from mind_app.history.transcript import TranscriptEntry
-from mind_app.tui.core.models import (
+from frontends.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
     TranscriptBacktrackRequest,
 )
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.styles import BODY_STYLE, BRIGHT_STYLE, prompt_style
-from mind_app.tui.features import helix
-from mind_app.tui.features.model import (
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.styles import BODY_STYLE, BRIGHT_STYLE, prompt_style
+from frontends.tui.features import helix
+from frontends.tui.features.model import (
     choose_provider,
     save_active_provider,
 )
-from mind_app.tui.features.context import save_primary_pref_field
-from mind_app.tui.features.transcript_export import TranscriptExporter
-from mind_app.tui.features.skills import choose_skill
-from mind_app.tui.features.conversation import ForkLiveStatus
-from mind_app.tui.features.conversation import confirm_archive_session
-from mind_app.tui.prompting.commands import (
+from frontends.tui.features.context import save_primary_pref_field
+from frontends.tui.features.transcript_export import TranscriptExporter
+from frontends.tui.features.skills import choose_skill
+from frontends.tui.features.conversation import ForkLiveStatus
+from frontends.tui.features.conversation import confirm_archive_session
+from frontends.tui.prompting.commands import (
     SlashCommandCompleter,
     canonical_command_label,
     command_names,
@@ -48,7 +48,7 @@ from mind_app.tui.prompting.commands import (
     stream_command_policy,
     submission_uses_transient_surface,
 )
-from mind_app.tui.session.dispatch import (
+from frontends.tui.session.dispatch import (
     DispatchAction,
     TuiCommandDispatcher,
 )
@@ -216,7 +216,7 @@ async def test_model_commands_update_the_active_provider_profile(tmp_path) -> No
 
 @pytest.mark.anyio
 async def test_model_command_reports_model_and_effort(monkeypatch) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     views = []
     runtime = TuiRuntime()
@@ -299,7 +299,7 @@ async def test_shutdown_command_reports_stopping_runtime_status() -> None:
 async def test_preferences_uses_browser_status_without_command_prefix(
     monkeypatch,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     views = []
     open_url = AsyncMock()
@@ -337,7 +337,7 @@ async def test_preferences_uses_browser_status_without_command_prefix(
 async def test_preferences_browser_failure_uses_failure_status(
     monkeypatch,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     views = []
     monkeypatch.setattr(
@@ -552,7 +552,7 @@ def test_root_slash_only_opens_completion() -> None:
 
 @pytest.mark.anyio
 async def test_provider_menu_reports_config_load_failure(monkeypatch) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     views = []
     mind = SimpleNamespace(
@@ -627,7 +627,7 @@ async def test_linked_missing_helix_runtime_download_ends_current_command(
     monkeypatch,
     command,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     context = object()
     linked = Mock(return_value=True)
@@ -698,7 +698,7 @@ async def test_unlinked_helix_command_skips_runtime_lookup(
     monkeypatch,
     command,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     views = []
     foreground = SimpleNamespace(start=Mock(), wait=AsyncMock())
@@ -809,7 +809,7 @@ def test_linked_helix_unlink_reports_unlinked() -> None:
 async def test_helix_mode_changes_filter_only_for_linked_runtime(
     monkeypatch,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     views = []
     context = object()
@@ -911,7 +911,7 @@ async def test_archive_confirmation_matches_codex_menu_contract() -> None:
 
 @pytest.mark.anyio
 async def test_archive_command_cancels_before_mutating_session(monkeypatch) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     views = []
     mind = SimpleNamespace(
@@ -955,7 +955,7 @@ async def test_archive_command_uses_codex_failure_messages(
     failure,
     expected,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     views = []
     mind = SimpleNamespace(
@@ -1054,7 +1054,7 @@ async def test_named_new_conversation_persists_title_without_result_copy() -> No
 async def test_resume_conversation_clears_structured_prompt_draft(
     monkeypatch,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     record = {
         "cid": "cid_old_12345678",
@@ -1104,7 +1104,7 @@ async def test_resume_conversation_clears_structured_prompt_draft(
 async def test_resume_conversation_opens_picker_for_empty_snapshot(
     monkeypatch,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     choose = AsyncMock(return_value=None)
     runtime = SimpleNamespace(
@@ -1140,7 +1140,7 @@ async def test_resume_conversation_opens_picker_for_empty_snapshot(
 
 @pytest.mark.anyio
 async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     record = {
         "cid": "cid_old_12345678",
@@ -1184,7 +1184,7 @@ async def test_resumed_transcript_supports_search_export_and_backtrack(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     record = {
         "cid": "cid_old_12345678",
@@ -1329,7 +1329,7 @@ def test_successful_plain_fork_clears_structured_prompt_draft() -> None:
 async def test_dispatcher_routes_hooks_to_the_management_surface(
     monkeypatch,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     runtime = SimpleNamespace()
     mind = SimpleNamespace(
@@ -1356,7 +1356,7 @@ async def test_dispatcher_routes_hooks_to_the_management_surface(
 async def test_dispatcher_routes_agent_to_the_management_surface(
     monkeypatch,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     runtime = SimpleNamespace()
     mind = SimpleNamespace(
@@ -1383,7 +1383,7 @@ async def test_dispatcher_routes_agent_to_the_management_surface(
 async def test_dispatcher_routes_listener_status_to_stable_output(
     monkeypatch,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     runtime = SimpleNamespace()
     mind = SimpleNamespace(
@@ -1421,7 +1421,7 @@ async def test_dispatcher_routes_listener_status_to_stable_output(
 async def test_dispatcher_runs_listener_action_selected_from_bare_menu(
     monkeypatch,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     runtime = TuiRuntime()
     mind = SimpleNamespace(
@@ -1459,7 +1459,7 @@ async def test_dispatcher_runs_listener_action_selected_from_bare_menu(
 async def test_dispatcher_closes_listener_menu_without_starting_action(
     monkeypatch,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
@@ -1548,7 +1548,7 @@ async def test_dispatcher_runs_listener_transition_as_foreground_task(
 async def test_dispatcher_opens_agent_panel_without_interrupting(
     monkeypatch,
 ) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     menu_called = asyncio.Event()
     runtime = TuiRuntime()
@@ -1592,7 +1592,7 @@ async def test_dispatcher_opens_agent_panel_without_interrupting(
 
 @pytest.mark.anyio
 async def test_dispatcher_routes_skills_to_the_picker(monkeypatch) -> None:
-    from mind_app.tui.session import dispatch as dispatch_module
+    from frontends.tui.session import dispatch as dispatch_module
 
     runtime = SimpleNamespace()
     config_session = SimpleNamespace()

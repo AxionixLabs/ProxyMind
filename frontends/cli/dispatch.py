@@ -184,8 +184,8 @@ async def run_selected_command(
             if record is None:
                 mind.task_event.set()
             else:
-                from mind_app.tui.core.runtime import require_tui_runtime
-                from mind_app.tui.features.history import load_history_transcript
+                from frontends.tui.core.runtime import require_tui_runtime
+                from frontends.tui.features.history import load_history_transcript
 
                 runtime    = require_tui_runtime(mind.frontend.runtime)
                 session_id = str(record.get("sid") or "").strip()
@@ -263,7 +263,7 @@ async def _run_tui_session(
     model: str | None
 ) -> None:
     """使用现有 TUI 生命周期运行一个交互会话。"""
-    from mind_app.tui.session.loop import run_tui_loop
+    from frontends.tui.session.loop import run_tui_loop
 
     for image in images:
         mind.attach.add_pending_attachments(image)
@@ -318,13 +318,13 @@ async def _select_resume_session(
             raise AppError("No resumable sessions were found.")
         return records[0]
 
-    from mind_app.tui.core.runtime import require_tui_runtime
-    from mind_app.tui.features.history import (
+    from frontends.tui.core.runtime import require_tui_runtime
+    from frontends.tui.features.history import (
         HistoryResumePreviewLoader,
         HistoryResumeTranscriptLoader,
         choose_history_session
     )
-    from mind_app.tui.contracts.resume import ResumeRow, ResumeSessionStatus
+    from frontends.tui.contracts.resume import ResumeRow, ResumeSessionStatus
     from dataclasses import replace
 
     async def archive_session(row: ResumeRow) -> None:

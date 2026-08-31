@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 import pytest
 
-from mind_app.tui.core.document import TranscriptBlock
-from mind_app.tui.core.models import FragmentBlock
-from mind_app.tui.features.transcript_export import TranscriptExporter
+from frontends.tui.core.document import TranscriptBlock
+from frontends.tui.core.models import FragmentBlock
+from frontends.tui.features.transcript_export import TranscriptExporter
 
 
 def _cell(
@@ -130,7 +130,7 @@ def test_transcript_exporter_uses_unique_name_for_same_timestamp(
     cells = (_cell("content", kind="assistant"),)
 
     with patch(
-        "mind_app.tui.features.transcript_export.datetime",
+        "frontends.tui.features.transcript_export.datetime",
     ) as current_datetime:
         current_datetime.now.return_value.astimezone.return_value.strftime\
             .return_value = "20260803-120000-000000"

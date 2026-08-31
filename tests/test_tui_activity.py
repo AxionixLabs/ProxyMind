@@ -15,11 +15,11 @@ from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.controller import Mind
 from mind_app.presentation.application import ApplicationView
 from mind_app.interaction import PromptContext
-from mind_app.tui.adapters.output import TuiOutputControl
-from mind_app.tui.adapters.application import TuiApplicationSink
-from mind_app.tui.adapters.session import create_tui_output_session
-from mind_app.tui.adapters.status import TuiStreamStatusControl
-from mind_app.tui.core.activity import (
+from frontends.tui.adapters.output import TuiOutputControl
+from frontends.tui.adapters.application import TuiApplicationSink
+from frontends.tui.adapters.session import create_tui_output_session
+from frontends.tui.adapters.status import TuiStreamStatusControl
+from frontends.tui.core.activity import (
     TuiActivity,
     _download_block,
     _elapsed_label,
@@ -27,13 +27,13 @@ from mind_app.tui.core.activity import (
     _mcp_final_block,
     _upload_block,
 )
-from mind_app.tui.core.models import FragmentBlock
-from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.core.status_frames import SPINNER_FRAMES
-from mind_app.tui.core.styles import text_block
-from mind_app.tui.core.task_state import TuiTaskState
-from mind_app.tui.features.helix import TuiUpgradeProgress
-from mind_app.tui.session.barriers import TuiForegroundTasks
+from frontends.tui.core.models import FragmentBlock
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.status_frames import SPINNER_FRAMES
+from frontends.tui.core.styles import text_block
+from frontends.tui.core.task_state import TuiTaskState
+from frontends.tui.features.helix import TuiUpgradeProgress
+from frontends.tui.session.barriers import TuiForegroundTasks
 from mind_app.presentation.terminal.turn_lifecycle import run_foreground_turn
 from mind_app.presentation.stream.worked import emit_worked_footer
 from mind_app.presentation.mcp_status import (
@@ -245,7 +245,7 @@ async def test_terminal_wait_uses_wait_elapsed_and_pauses_with_approval() -> Non
     )
 
     with patch(
-        "mind_app.tui.core.activity.time.perf_counter",
+        "frontends.tui.core.activity.time.perf_counter",
         side_effect=lambda: clock[0],
     ):
         await activity.begin_wait()
@@ -270,7 +270,7 @@ async def test_terminal_wait_switch_reuses_thinking_animation_state() -> None:
     )
 
     with patch(
-        "mind_app.tui.core.activity.time.perf_counter",
+        "frontends.tui.core.activity.time.perf_counter",
         side_effect=lambda: clock[0],
     ):
         await activity.begin_wait()
@@ -759,8 +759,8 @@ async def test_pause_wait_excludes_approval_time_from_elapsed() -> None:
     )
 
     with (
-        patch("mind_app.tui.core.activity.time.perf_counter", side_effect=lambda: clock[0]),
-        patch("mind_app.tui.core.activity.status_interval", return_value=0.001),
+        patch("frontends.tui.core.activity.time.perf_counter", side_effect=lambda: clock[0]),
+        patch("frontends.tui.core.activity.status_interval", return_value=0.001),
     ):
         await activity.begin_wait()
         await asyncio.sleep(0.005)
@@ -1218,7 +1218,7 @@ async def test_external_mcp_final_status_settles_without_entering_document() -> 
         {"name": "github", "state": "ready", "tools": 7, "detail": ""},
         {"name": "docs", "state": "failed", "tools": 0, "detail": "timeout"},
     ]
-    with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.001):
+    with patch("frontends.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.001):
         await runtime.end_activity_status("external_mcp")
 
     assert runtime.screen.activity_block is not None
@@ -1251,7 +1251,7 @@ async def test_new_activity_replaces_settling_status_without_old_expiration() ->
         {"name": "docs", "state": "ready", "tools": 4},
     ]
 
-    with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.001):
+    with patch("frontends.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.001):
         await runtime.end_activity_status("external_mcp")
 
     snapshot["done"] = False
@@ -1284,7 +1284,7 @@ async def test_frozen_only_activity_waits_without_repeated_rendering() -> None:
 
     await activity.begin_download(lambda: dict(snapshot))
     snapshot["stage"] = "done"
-    with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.04):
+    with patch("frontends.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.04):
         await activity.stop("download")
 
     final = rendered[-1]
@@ -1329,7 +1329,7 @@ async def test_animated_activity_continues_while_frozen_slot_settles() -> None:
     await activity.begin_download(lambda: dict(download))
     await activity.begin_external_mcp(lambda: dict(external))
     download["stage"] = "done"
-    with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.12):
+    with patch("frontends.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.12):
         await activity.stop("download")
 
     render_count = len(rendered)
@@ -1363,7 +1363,7 @@ async def test_clear_cancels_pending_frozen_activity_expiry() -> None:
 
     await activity.begin_download(lambda: dict(snapshot))
     snapshot["stage"] = "done"
-    with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.04):
+    with patch("frontends.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.04):
         await activity.stop("download")
 
     settle_task = activity._settle_task
@@ -1544,7 +1544,7 @@ async def test_upload_success_settles_without_entering_document() -> None:
     }
 
     await runtime.begin_upload_status(lambda: dict(snapshot))
-    with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.001):
+    with patch("frontends.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.001):
         await runtime.end_activity_status("upload")
 
     assert runtime.screen.activity_block is not None
