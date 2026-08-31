@@ -191,6 +191,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "stores/runs/schema.py",
         "stores/runs/store.py",
         "adapters/agents/execution.py",
+        "adapters/agents/fork_context.py",
         "adapters/agents/messages.py",
         "adapters/protocol/client.py",
         "adapters/protocol/items.py",
@@ -253,6 +254,25 @@ def test_transcript_shared_values_are_owned_by_stores() -> None:
         "TranscriptWriter",
         "ConversationTranscriptStore",
     }
+
+
+def test_subagent_fork_context_adapter_uses_explicit_transcript_reader() -> None:
+    """确保 fork 上下文 adapter 不实例化具体文件存储。"""
+    target_path = PROJECT_ROOT / "agent" / "adapters" / "agents" / "fork_context.py"
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "context.py"
+    assert target_path.is_file(), "fork context adapter is missing"
+    assert not legacy_path.exists(), "legacy fork context adapter remains"
+
+    violations = _forbidden_imports(
+        "agent/adapters/agents",
+        {"infrastructure", "mind_app", "mind_core", "engine", "server"},
+    )
+    assert not violations, "fork adapter owns a concrete transcript store:\n" + (
+        "\n".join(violations)
+    )
+
+    source = target_path.read_text(encoding="utf-8-sig")
+    assert "transcript_entries_for" in source
 
 
 def test_session_history_store_is_owned_by_stores() -> None:
@@ -2127,7 +2147,8 @@ def test_agent_thread_context_is_owned_by_application() -> None:
                     )
     assert not violations, "legacy subagent thread imports remain:\n" + "\n".join(violations)
 
-    builder_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "context.py"
+    builder_path = PROJECT_ROOT / "agent" / "adapters" / "agents" / "fork_context.py"
+    assert builder_path.is_file(), "fork context adapter is missing"
     builder_tree = ast.parse(
         builder_path.read_text(encoding="utf-8-sig"),
         filename=str(builder_path),
@@ -2137,9 +2158,10 @@ def test_agent_thread_context_is_owned_by_application() -> None:
         for node in builder_tree.body
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
     }
+    assert "load_fork_context" in builder_definitions
     assert not builder_definitions.intersection(
         {"ForkContextSnapshot", "normalize_fork_turns"}
-    ), "runtime context builder redefines application contracts"
+    ), "fork context adapter redefines application contracts"
 
     for target_path in target_paths:
         tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
@@ -3687,6 +3709,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.ports.transcript",
         "agent.adapters.agents.messages",
         "agent.adapters.agents.execution",
+        "agent.adapters.agents.fork_context",
         "agent.adapters.turns.root",
         "agent.harness.agents.control",
         "agent.harness.agents.delivery",

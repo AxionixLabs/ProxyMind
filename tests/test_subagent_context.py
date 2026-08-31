@@ -3,7 +3,7 @@
 import pytest
 
 from infrastructure.persistence.transcripts import ConversationTranscriptStore
-from mind_app.runtime.subagents.context import (
+from agent.adapters.agents.fork_context import (
     load_fork_context,
 )
 from agent.application.agents.fork_context import (
@@ -27,6 +27,11 @@ def _write_turn(path, *, session_id: str, turn_id: str, user: str, assistant: st
         payload={"content": assistant},
     )
     writer.close()
+
+
+def _read_entries(path: str):
+    """读取测试用 JSONL 中的已验证 Transcript 条目。"""
+    return ConversationTranscriptStore.reader(path).read()
 
 
 def test_normalize_fork_turns_accepts_named_and_bounded_values() -> None:
@@ -55,6 +60,12 @@ def test_build_fork_context_is_pure_over_validated_entries() -> None:
     assert '"role":"user"' in snapshot.parts[0]
 
 
+def test_load_fork_context_requires_reader_for_transcript_path() -> None:
+    """存在历史路径但未注入读取器时显式拒绝隐式存储。"""
+    with pytest.raises(ValueError, match="transcript_entries_for"):
+        load_fork_context("D:/missing.jsonl", "all", max_chars=1000)
+
+
 def test_load_fork_context_selects_recent_parent_turns(tmp_path) -> None:
     path = tmp_path / "parent.jsonl"
     _write_turn(
@@ -72,11 +83,21 @@ def test_load_fork_context_selects_recent_parent_turns(tmp_path) -> None:
         assistant="second answer",
     )
 
-    empty = load_fork_context(str(path), "none", max_chars=1000)
+    empty = load_fork_context(
+        str(path),
+        "none",
+        transcript_entries_for=_read_entries,
+        max_chars=1000,
+    )
     assert empty.parts == ()
     assert empty.requested_turns == "none"
 
-    recent = load_fork_context(str(path), "1", max_chars=1000)
+    recent = load_fork_context(
+        str(path),
+        "1",
+        transcript_entries_for=_read_entries,
+        max_chars=1000,
+    )
     assert "second question" in recent.parts[0]
     assert "first question" not in recent.parts[0]
     assert recent.available_turns == 2
@@ -84,13 +105,19 @@ def test_load_fork_context_selects_recent_parent_turns(tmp_path) -> None:
     assert recent.included_turns == 1
     assert not recent.truncated
 
-    complete = load_fork_context(str(path), "all", max_chars=1000)
+    complete = load_fork_context(
+        str(path),
+        "all",
+        transcript_entries_for=_read_entries,
+        max_chars=1000,
+    )
     assert "first question" in complete.parts[0]
     assert "second question" in complete.parts[0]
 
     bounded = load_fork_context(
         str(path),
         "all",
+        transcript_entries_for=_read_entries,
         max_chars=recent.chars,
     )
     assert bounded.parts == recent.parts
@@ -109,7 +136,12 @@ def test_load_fork_context_never_splits_an_oversized_turn(tmp_path) -> None:
         assistant="large answer " * 20,
     )
 
-    snapshot = load_fork_context(str(path), "all", max_chars=80)
+    snapshot = load_fork_context(
+        str(path),
+        "all",
+        transcript_entries_for=_read_entries,
+        max_chars=80,
+    )
 
     assert snapshot.parts == ()
     assert snapshot.selected_turns == 1

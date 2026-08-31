@@ -212,6 +212,9 @@ async def test_runtime_assigns_stable_child_transcript_path(tmp_path) -> None:
     runtime = SubagentRuntime(
         controller,
         transcript_path_for=store.path_for_session,
+        transcript_entries_for=(
+            lambda path: ConversationTranscriptStore.reader(path).read()
+        ),
     )
 
     spawned = await runtime.spawn(
@@ -673,6 +676,9 @@ async def test_runtime_forks_recent_parent_turns_into_first_child_turn(tmp_path)
         transcript_path_for=ConversationTranscriptStore(
             tmp_path / "sessions"
         ).path_for_session,
+        transcript_entries_for=(
+            lambda path: ConversationTranscriptStore.reader(path).read()
+        ),
     )
     parent = _parent_turn(transcript_path=str(parent_path))
 

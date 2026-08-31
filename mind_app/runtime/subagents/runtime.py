@@ -42,7 +42,10 @@ from agent.harness.agents.control import (
     AgentStateError,
 )
 from agent.application.agents.fork_context import ForkTurns, normalize_fork_turns
-from mind_app.runtime.subagents.context import load_fork_context
+from agent.adapters.agents.fork_context import (
+    TranscriptEntriesReader,
+    load_fork_context,
+)
 from agent.harness.agents.delivery import (
     AgentDeliveryRegistry,
 )
@@ -76,6 +79,7 @@ class SubagentRuntime:
         graph_store: AgentGraphStore | None = None,
         skills_provider: SkillsProvider | None = None,
         transcript_path_for: TranscriptPathResolver | None = None,
+        transcript_entries_for: TranscriptEntriesReader | None = None,
         session_cleanup: SessionCleanup | None = None
     ) -> None:
         if not isinstance(enabled, bool):
@@ -95,6 +99,7 @@ class SubagentRuntime:
 
         self._skills_provider     = skills_provider or (lambda: [])
         self._transcript_path_for = transcript_path_for or (lambda _sid: "")
+        self._transcript_entries_for = transcript_entries_for
         self._session_cleanup     = session_cleanup
         runner = SubagentRunner(
             turn_runner=self._run_turn,
@@ -204,6 +209,7 @@ class SubagentRuntime:
             fork_context=load_fork_context(
                 parent.transcript_path,
                 normalized_fork_turns,
+                transcript_entries_for=self._transcript_entries_for,
                 max_chars=self._settings.max_fork_context_chars,
             ),
             transcript_path_for=self._transcript_path_for,

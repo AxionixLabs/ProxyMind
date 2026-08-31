@@ -233,6 +233,9 @@ class Mind(object):
                 settings=kwargs.get("agent_settings") or AgentSettings(),
                 skills_provider=skills_provider,
                 transcript_path_for=self.transcripts.path_for_session,
+                transcript_entries_for=(
+                    lambda path: self.transcripts.reader(path).read()
+                ),
                 session_cleanup=self._close_repl_session,
                 graph_store=(
                     kwargs.get("agent_graph_store")

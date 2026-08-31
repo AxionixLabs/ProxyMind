@@ -306,6 +306,12 @@ SQLite 会话游标和待分支请求状态，构造必须接收显式数据库�
 旧 `mind_app/history` 包删除，并通过存量读取、追加写入、尾部读取和路径失败回归。满足后
 才允许继续删除 `mind_app` 的 history 目录及相关启动依赖。
 
+本次 Subagent fork history adapter 切片的准入与删除条件已满足：`agent/adapters/agents/fork_context.py`
+只依赖 application fork context、agent Transcript records/replay 和显式读取 callable；
+`SubagentRuntime` 不再导入或实例化具体 Transcript 文件 Store，Controller 负责绑定
+infrastructure reader；旧 `mind_app/runtime/subagents/context.py` 已删除，并通过 fork 范围、
+字符预算和无读取器失败路径回归。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -393,3 +399,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 将 TranscriptEntry/TranscriptReplay 拆入 `agent/stores/transcripts`，归并策略下沉到 `agent.domain`；history 仅保留文件 Reader/Writer 和 Session 路径 adapter | Transcript/TUI/Turn/Subagent/工具策略回归 `229 passed`；完整架构守卫 `90 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 Session history cursor 从 `mind_app/history` 迁入 `agent/stores/sessions`，由 CLI/Controller 显式注入数据库路径并删除旧 store/export | History/CLI/TUI/Controller 回归 `181 passed`；完整架构守卫 `91 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 Transcript JSONL 文件 adapter 迁入 `infrastructure/persistence`，删除 `mind_app/history` 包并让入口使用基础设施实现 | Transcript/TUI/Turn/Subagent 回归 `226 passed`；完整架构守卫 `91 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将 Subagent fork history adapter 迁入 `agent/adapters/agents/fork_context.py`，改为显式 Transcript reader 注入并删除 runtime 旧模块 | Fork/Subagent/Tools 回归 `34 passed`；完整架构守卫 `92 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
