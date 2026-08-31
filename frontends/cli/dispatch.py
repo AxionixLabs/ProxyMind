@@ -12,6 +12,8 @@ from agent.application.turns.commands import (
     SubmitTurnCommand,
     TurnApplication,
 )
+from agent.application.services import TurnApplicationFactory
+from agent.ports import ProtocolCommandClient
 from agent.application.turns.run_result import RunResult
 from infrastructure.config.preferences import apply_primary_model_override
 from infrastructure.config.runtime_paths import agent_runtime_db_path
@@ -87,6 +89,8 @@ async def run_selected_command(
     *,
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
+    turn_application_factory: TurnApplicationFactory | None = None,
+    protocol_client: ProtocolCommandClient | None = None,
 ) -> RunResult | None:
     """按命令行参数分派到直接执行或交互入口。"""
     if isinstance(command, AgentListenCommand):
@@ -112,7 +116,11 @@ async def run_selected_command(
 
     try:
         if isinstance(command, AgentListenCommand):
-            await _run_agent_listener_session(mind)
+            await _run_agent_listener_session(
+                mind,
+                turn_application_factory=turn_application_factory,
+                protocol_client=protocol_client,
+            )
         elif isinstance(command, ExecCommand):
             attachments: list[dict[str, typing.Any]] = []
             if command.images:
@@ -128,13 +136,16 @@ async def run_selected_command(
                 )
 
             durable_runtime = getattr(mind, "application_layout", None) is not None
-            turn_application = (
-                mind.runtime_services.create_turn_application(
+            if durable_runtime:
+                if turn_application_factory is None:
+                    raise RuntimeError(
+                        "CLI turn application factory is required"
+                    )
+                turn_application = turn_application_factory(
                     agent_runtime_db_path()
                 )
-                if durable_runtime
-                else TurnApplication()
-            )
+            else:
+                turn_application = TurnApplication()
             local_session_id = None
             if durable_runtime:
                 local_session_id = derive_local_session_id(
@@ -178,6 +189,8 @@ async def run_selected_command(
                 prompt=command.prompt,
                 images=command.images,
                 model=command.model,
+                turn_application_factory=turn_application_factory,
+                protocol_client=protocol_client,
             )
         elif isinstance(command, ResumeCommand):
             record = await _select_resume_session(mind, command)
@@ -213,6 +226,8 @@ async def run_selected_command(
                     prompt=command.prompt,
                     images=command.images,
                     model=command.model,
+                    turn_application_factory=turn_application_factory,
+                    protocol_client=protocol_client,
                 )
 
     except asyncio.CancelledError:
@@ -244,7 +259,12 @@ async def run_selected_command(
     return run_result
 
 
-async def _run_agent_listener_session(mind: "Mind") -> None:
+async def _run_agent_listener_session(
+    mind: "Mind",
+    *,
+    turn_application_factory: TurnApplicationFactory | None,
+    protocol_client: ProtocolCommandClient | None,
+) -> None:
     """在普通 TUI 生命周期内运行临时远端请求监听器。"""
     mind.subscription.start()
     await _run_tui_session(
@@ -252,6 +272,8 @@ async def _run_agent_listener_session(mind: "Mind") -> None:
         prompt=None,
         images=(),
         model=None,
+        turn_application_factory=turn_application_factory,
+        protocol_client=protocol_client,
     )
 
 
@@ -260,7 +282,9 @@ async def _run_tui_session(
     *,
     prompt: str | None,
     images: tuple[str, ...],
-    model: str | None
+    model: str | None,
+    turn_application_factory: TurnApplicationFactory | None,
+    protocol_client: ProtocolCommandClient | None,
 ) -> None:
     """使用现有 TUI 生命周期运行一个交互会话。"""
     from frontends.tui.session.loop import run_tui_loop
@@ -269,12 +293,25 @@ async def _run_tui_session(
         mind.attach.add_pending_attachments(image)
 
     try:
-        await run_tui_loop(
-            mind,
-            initial_prompt=prompt,
-            initial_images=images,
-            initial_model=model,
-        )
+        if (
+            turn_application_factory is None
+            and protocol_client is None
+        ):
+            await run_tui_loop(
+                mind,
+                initial_prompt=prompt,
+                initial_images=images,
+                initial_model=model,
+            )
+        else:
+            await run_tui_loop(
+                mind,
+                initial_prompt=prompt,
+                initial_images=images,
+                initial_model=model,
+                turn_application_factory=turn_application_factory,
+                protocol_client=protocol_client,
+            )
     finally:
         await mind.subscription.close()
 

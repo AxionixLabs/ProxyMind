@@ -966,15 +966,16 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
     mind = SimpleNamespace(
         application_layout=object(),
         conversation=SimpleNamespace(snapshot=Mock(return_value=coordinates)),
-        runtime_services=SimpleNamespace(
-            create_turn_application=open_application,
-        ),
         exit_code=0,
         history_workspace=".",
         permissions=preset_permissions("auto"),
     )
 
-    result = await run_selected_command(mind, ExecCommand(prompt="hello"))
+    result = await run_selected_command(
+        mind,
+        ExecCommand(prompt="hello"),
+        turn_application_factory=open_application,
+    )
 
     submitted_command = submit.await_args.args[0]
     assert result is run_result
@@ -985,6 +986,22 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
     open_application.assert_called_once_with(db_path)
     derive_session.assert_called_once_with("cli", coordinates)
     close.assert_awaited_once_with(cancel_running=True)
+
+
+@pytest.mark.anyio
+async def test_exec_requires_explicit_turn_application_factory_for_real_layout() -> None:
+    mind = SimpleNamespace(
+        application_layout=object(),
+        exit_code=0,
+        history_workspace=".",
+        permissions=preset_permissions("auto"),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="CLI turn application factory is required",
+    ):
+        await run_selected_command(mind, ExecCommand(prompt="hello"))
 
 
 @pytest.mark.anyio

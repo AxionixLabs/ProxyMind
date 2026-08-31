@@ -3564,6 +3564,22 @@ def test_subscription_adapter_is_owned_by_frontends() -> None:
         "TUI turn input must not discover runtime services dynamically"
     )
 
+    tui_loop_source = (
+        PROJECT_ROOT / "frontends" / "tui" / "session" / "loop.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "turn_application_factory" in tui_loop_source
+    assert "runtime_services" not in tui_loop_source, (
+        "TUI session loop must not discover runtime services dynamically"
+    )
+
+    cli_dispatch_source = (
+        PROJECT_ROOT / "frontends" / "cli" / "dispatch.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "turn_application_factory" in cli_dispatch_source
+    assert "runtime_services" not in cli_dispatch_source, (
+        "CLI dispatch must not discover runtime services dynamically"
+    )
+
 
 def test_cli_adapter_is_owned_by_frontends() -> None:
     """确保 CLI 命令解析、路由和入口生命周期归入前端边界。"""

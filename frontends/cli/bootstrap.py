@@ -63,7 +63,10 @@ from mind_app.runtime.mcp.service_runtime import (
 )
 from infrastructure.services.helix_capability import ServerManageHelixCapability
 from mind_app.presentation.terminal.contracts import TerminalDesign
-from agent.ports import HookRegistryPort
+from agent.ports import (
+    HookRegistryPort,
+    ProtocolCommandClient,
+)
 from agent.domain.tool_policy import ToolFilterMode
 from .commands import (
     ApplicationCommand,
@@ -689,11 +692,23 @@ async def _run_controller(
                     name="tui service runtime startup",
                 )
 
+        protocol_client = None
+        turn_application_factory = None
+        if runtime_services is not None:
+            turn_application_factory = runtime_services.create_turn_application
+            if isinstance(
+                runtime_services.model_capability,
+                ProtocolCommandClient,
+            ):
+                protocol_client = runtime_services.model_capability
+
         await run_selected_command(
             controller,
             command,
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
+            turn_application_factory=turn_application_factory,
+            protocol_client=protocol_client,
         )
         completed = True
         observe("app.complete", exit_code=controller.exit_code)

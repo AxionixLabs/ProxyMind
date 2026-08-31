@@ -47,17 +47,24 @@ async def test_tui_uses_durable_runtime_composition_for_real_layout(
     monkeypatch.setattr(loop, "agent_runtime_db_path", lambda: db_path)
     monkeypatch.setattr(loop, "_run_tui_loop", run_loop)
 
-    await loop.run_tui_loop(SimpleNamespace(
-        application_layout=object(),
-        runtime_services=SimpleNamespace(
-            create_turn_application=open_application,
-        ),
-    ))
+    await loop.run_tui_loop(
+        SimpleNamespace(application_layout=object()),
+        turn_application_factory=open_application,
+    )
 
     open_application.assert_called_once_with(db_path)
     assert run_loop.await_args.kwargs["turn_application"] is application
     assert run_loop.await_args.kwargs["local_session_id"] is None
     close.assert_awaited_once_with(cancel_running=True)
+
+
+@pytest.mark.anyio
+async def test_tui_requires_explicit_turn_application_factory_for_real_layout() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="TUI turn application factory is required",
+    ):
+        await loop.run_tui_loop(SimpleNamespace(application_layout=object()))
 
 
 @pytest.mark.anyio

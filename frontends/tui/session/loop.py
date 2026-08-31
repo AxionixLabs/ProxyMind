@@ -4,6 +4,7 @@
 import typing
 import asyncio
 from agent.ports import ProtocolCommandClient
+from agent.application.services import TurnApplicationFactory
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.commands import (
     SubmitTurnCommand,
@@ -117,19 +118,23 @@ async def run_tui_loop(
     *,
     initial_prompt: str | None = None,
     initial_images: tuple[str, ...] = (),
-    initial_model: str | None = None
+    initial_model: str | None = None,
+    turn_application_factory: TurnApplicationFactory | None = None,
+    protocol_client: ProtocolCommandClient | None = None,
 ) -> None:
     """运行 TUI 会话，并统一关闭其主动 Turn application。"""
     durable_runtime = getattr(mind, "application_layout", None) is not None
-    turn_application = (
-        mind.runtime_services.create_turn_application(agent_runtime_db_path())
-        if durable_runtime
-        else TurnApplication()
-    )
+    if durable_runtime:
+        if turn_application_factory is None:
+            raise RuntimeError("TUI turn application factory is required")
+        turn_application = turn_application_factory(agent_runtime_db_path())
+    else:
+        turn_application = TurnApplication()
     try:
         await _run_tui_loop(
             mind,
             turn_application=turn_application,
+            protocol_client=protocol_client,
             local_session_id=(
                 None
                 if durable_runtime
@@ -147,6 +152,7 @@ async def _run_tui_loop(
     mind: "Mind",
     *,
     turn_application: TurnApplication["RunResult"],
+    protocol_client: ProtocolCommandClient | None,
     local_session_id: str | None,
     initial_prompt: str | None,
     initial_images: tuple[str, ...],
@@ -291,11 +297,6 @@ async def _run_tui_loop(
         mind.workspace_runtime.coding.reset_patch_diff()
 
         turn_id = short_uid(12)
-
-        runtime_services = getattr(mind, "runtime_services", None)
-        protocol_client = getattr(runtime_services, "model_capability", None)
-        if not isinstance(protocol_client, ProtocolCommandClient):
-            protocol_client = None
 
         turn_input_control = TuiTurnInputControl(
             mind,
