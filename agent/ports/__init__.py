@@ -47,6 +47,12 @@ from .persistence import (
     RunSnapshot,
 )
 from .permissions import PermissionGrantReader
+from .agent_messages import (
+    AgentMessageDeliveryPort,
+    AgentMessageDeliveryStatus,
+    AgentMessageReceipt,
+    AgentMessageReceiptStatus,
+)
 
 __all__ = (
     "EffectIntent",
@@ -78,6 +84,10 @@ __all__ = (
     "RunRecoveryRequired",
     "RunSnapshot",
     "PermissionGrantReader",
+    "AgentMessageDeliveryPort",
+    "AgentMessageDeliveryStatus",
+    "AgentMessageReceipt",
+    "AgentMessageReceiptStatus",
     "TurnExecutor",
     "TurnExecutorResult",
     "HookCommandResult",

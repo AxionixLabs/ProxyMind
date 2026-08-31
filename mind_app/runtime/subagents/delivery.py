@@ -1,16 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
 from dataclasses import dataclass
-from observability import observe_exception
-from protocol.schema.identifiers import new_request_id
-from protocol.client.turn_control import (
-    TurnControlRequestError,
-    TurnControlStatus,
-    steer_turn
-)
 from protocol.schema.stream_events import (
     StreamEvent,
     TurnInputAcceptedEvent,
@@ -18,33 +10,14 @@ from protocol.schema.stream_events import (
 )
 from protocol.schema.turn_inputs import TurnInput
 from agent.application.execution import TurnContext
+from agent.ports.agent_messages import (
+    AgentMessageDeliveryPort,
+    AgentMessageDeliveryStatus,
+    AgentMessageReceipt,
+)
 from agent.stores.agent_mailbox import AgentMailboxEvent
 
-AgentMessageDeliveryStatus = typing.Literal["active_turn", "mailbox"]
-AgentMessageReceiptStatus  = typing.Literal["accepted", "duplicate"]
-
 ACTIVE_TURN_READY_TIMEOUT_SEC = 1.0
-
-STEERING_ATTEMPTS = 2
-
-
-@dataclass(frozen=True, slots=True)
-class AgentMessageReceipt:
-    """描述远程轮次对一项稳定消息标识的接收结果。"""
-    status: AgentMessageReceiptStatus
-    turn_id: str
-    client_message_id: str
-
-    def __post_init__(self) -> None:
-        """校验回执中的远程关联标识。"""
-        turn_id = str(self.turn_id or "").strip()
-        client_message_id = str(self.client_message_id or "").strip()
-        if self.status not in {"accepted", "duplicate"}:
-            raise ValueError("agent message receipt status is invalid")
-        if not turn_id or not client_message_id:
-            raise ValueError("agent message receipt identifiers are required")
-        object.__setattr__(self, "turn_id", turn_id)
-        object.__setattr__(self, "client_message_id", client_message_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,63 +38,6 @@ class AgentMessageDispatch:
                 raise ValueError("agent message receipt does not match event")
         elif self.receipt is not None:
             raise ValueError("mailbox delivery cannot include a receipt")
-
-
-class AgentMessageDeliveryPort(typing.Protocol):
-    """定义向活动远程轮次投递输入所需能力。"""
-
-    async def deliver(
-        self,
-        context: TurnContext,
-        turn_input: TurnInput,
-    ) -> AgentMessageReceipt | None:
-        """投递输入并返回匹配的远程接收回执。"""
-        ...
-
-
-class SteeringMessageDelivery:
-    """通过远程轮次引导接口投递活动轮次输入。"""
-
-    @staticmethod
-    async def deliver(
-        context: TurnContext,
-        turn_input: TurnInput,
-    ) -> AgentMessageReceipt | None:
-        """尝试投递输入，不可用时返回空回执。"""
-        response   = None
-        request_id = new_request_id("steer")
-
-        for attempt in range(STEERING_ATTEMPTS):
-            try:
-                response = await steer_turn(
-                    cid=context.cid,
-                    sid=context.sid,
-                    turn_id=context.turn_id,
-                    turn_input=turn_input,
-                    request_id=request_id,
-                )
-                break
-            except TurnControlRequestError as error:
-                if attempt + 1 < STEERING_ATTEMPTS:
-                    continue
-                observe_exception(
-                    "subagent.message.steer_failed",
-                    error,
-                    level="WARNING",
-                    agent_id=context.agent.agent_id,
-                    turn_id=context.turn_id,
-                )
-
-        if response is None:
-            return None
-        receipt_status = _receipt_status(response.status)
-        if receipt_status is None:
-            return None
-        return AgentMessageReceipt(
-            status=receipt_status,
-            turn_id=response.turn_id,
-            client_message_id=response.client_message_id,
-        )
 
 
 class AgentActiveTurn:
@@ -225,17 +141,6 @@ class AgentActiveTurn:
             await asyncio.gather(*waits, return_exceptions=True)
 
         return self._ready.is_set() and not self._unavailable.is_set()
-
-
-def _receipt_status(
-    value: TurnControlStatus,
-) -> AgentMessageReceiptStatus | None:
-    """把远端控制状态收窄为可确认的消息回执状态。"""
-    if value == "accepted":
-        return "accepted"
-    if value == "duplicate":
-        return "duplicate"
-    return None
 
 
 def _turn_input_from_event(event: AgentMailboxEvent) -> TurnInput:

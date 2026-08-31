@@ -230,6 +230,7 @@ agent/
 ├── ports/
 │   ├── capabilities.py      # 模型、MCP、Helix、进程和文件端口
 │   ├── hooks.py              # Hook 执行器和超限上下文 spill 端口
+│   ├── agent_messages.py    # 子 Agent 消息回执和投递端口
 │   ├── persistence.py       # 事件、快照、历史和 outbox 端口
 │   ├── permissions.py       # 执行上下文读取权限授权端口
 │   └── observability.py     # 日志、指标和 tracing 端口
@@ -238,7 +239,6 @@ agent/
 │   ├── agent_graph.py       # 子 Agent 图快照、SQLite 存储和单写者持久化
 │   ├── session_store.py     # Session/Run 元数据和最终记录
 │   ├── event_store.py       # 追加事件、读取游标和快照
-│   ├── agent_graph.py       # 子 Agent 图和检查点
 │   ├── effect_journal.py   # 外部副作用状态机
 │   └── outbox.py            # 事务性待发送消息
 ├── capabilities/
@@ -250,6 +250,7 @@ agent/
 │   └── filesystem.py        # 受控文件能力
 ├── adapters/
 │   ├── protocol_client.py # mind.chat 命令、传输恢复和 Canonical Item 投影
+│   ├── agent_messages.py  # 子 Agent steer 协议适配
 │   ├── cli.py               # CLI 输入/退出码到 Command
 │   ├── tui.py               # TUI 输入、渲染和 Event 投影
 │   ├── mcp_server.py        # stdio MCP 入站协议
@@ -500,6 +501,7 @@ running -> cancelled
 | `AgentSubmission`、Agent 状态字面量 | `agent/domain/agents.py` | 任务提交和状态分类只依赖协议标识与标准库，供 control、stores 和后续 Harness 调度复用 |
 | `mind_app/runtime/subagents/mailbox.py` | `agent/stores/agent_mailbox.py` | 子 Agent mailbox 事件、快照、消费游标和有界日志是持久状态；runtime/subagents 只依赖存储契约，不拥有 mailbox 数据结构 |
 | `mind_app/runtime/subagents/thread.py` | `agent/application/agent_thread.py`、`agent/application/fork_context.py` | 子 Agent 线程/轮次上下文和父会话继承快照是 application 执行契约；运行时控制器只消费已冻结值，不持有跨边界身份结构 |
+| `mind_app/runtime/subagents/delivery.py` | `agent/ports/agent_messages.py`、`agent/adapters/agent_messages.py`、runtime active-turn state | 消息回执和投递端口归 ports，`/turn/steer` 归 Protocol Client adapter，runtime 仅维护活动轮次就绪和 pending 输入状态 |
 | `mind_app/history/ids.py` | `protocol/schema/identifiers.py` | `cid/sid` 正则和关联校验属于 wire identity schema；历史、交互、Controller 和 Harness 复用协议边界，不在 history 保留身份实现 |
 | `agent/stores/effect_journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `stores/effect_journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |
 | `agent/stores/run_store.py`、`_run_schema.py`、`_run_records.py` | `stores/session_store.py`、`event_store.py`、`outbox.py` 的首个事务切片 | 已原子提交事件、快照、outbox 和最终事实；只有出现独立生命周期或规模压力时再物理拆 store，避免单次转发 facade |

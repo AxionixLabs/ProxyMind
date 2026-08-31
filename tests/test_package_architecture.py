@@ -1766,6 +1766,60 @@ def test_agent_graph_persistence_is_owned_by_stores() -> None:
     assert not domain_violations, "agent domain status crosses application boundary:\n" + "\n".join(domain_violations)
 
 
+def test_subagent_message_delivery_has_port_and_adapter_owners() -> None:
+    """确保子 Agent 消息投递的端口和协议适配不由 runtime 混合持有。"""
+    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "delivery.py"
+    port_path = PROJECT_ROOT / "agent" / "ports" / "agent_messages.py"
+    adapter_path = PROJECT_ROOT / "agent" / "adapters" / "agent_messages.py"
+    assert runtime_path.is_file(), "runtime active-turn state machine is missing"
+    assert port_path.is_file(), "agent message delivery port is missing"
+    assert adapter_path.is_file(), "agent message protocol adapter is missing"
+
+    forbidden_names = {
+        "AgentMessageReceipt",
+        "AgentMessageReceiptStatus",
+        "AgentMessageDeliveryPort",
+        "SteeringMessageDelivery",
+    }
+    runtime_tree = ast.parse(runtime_path.read_text(encoding="utf-8-sig"), filename=str(runtime_path))
+    runtime_classes = {
+        node.name
+        for node in runtime_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert not runtime_classes.intersection(forbidden_names)
+
+    old_imports: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.level != 0:
+                continue
+            if node.module != "mind_app.runtime.subagents.delivery":
+                continue
+            for imported in node.names:
+                if imported.name in forbidden_names:
+                    old_imports.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {imported.name}"
+                    )
+    assert not old_imports, "legacy message delivery imports remain:\n" + "\n".join(old_imports)
+
+    adapter_tree = ast.parse(adapter_path.read_text(encoding="utf-8-sig"), filename=str(adapter_path))
+    adapter_violations: list[str] = []
+    for node in ast.walk(adapter_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server"}:
+                adapter_violations.append(
+                    f"{adapter_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not adapter_violations, "message adapter crosses legacy boundary:\n" + "\n".join(adapter_violations)
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (
@@ -2168,6 +2222,8 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.domain.tool_policy",
         "agent.domain.execution_policy",
         "agent.ports",
+        "agent.ports.agent_messages",
+        "agent.adapters.agent_messages",
         "agent.protocol.json_value",
         "agent.stores.approval_ledger",
         "agent.stores.permission_grants",

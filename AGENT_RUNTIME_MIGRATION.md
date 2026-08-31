@@ -1207,6 +1207,19 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   `compileall` 和 `git diff --check` 通过。下一切片继续收敛 Subagent runtime 的执行器、投递和
   控制端口，减少 runtime 平铺依赖。
 
+### 已完成切片：子 Agent 消息投递端口拆分
+
+状态：已完成（2026-08-31）
+
+- [x] 将 `AgentMessageReceipt`、`AgentMessageReceiptStatus` 和 `AgentMessageDeliveryPort` 提升到
+  `agent/ports/agent_messages.py`；runtime 不再定义跨层投递端口或协议回执值对象。
+- [x] 将 `SteeringMessageDelivery` 提升到 `agent/adapters/agent_messages.py`，集中承担
+  `/turn/steer` 请求、稳定 request_id、有限重试和状态映射；`AgentActiveTurn` 与
+  `AgentMessageDispatch` 仍由 runtime 保留为活动轮次状态机。
+- [x] 新增消息端口/适配器架构守卫；消息投递与 runtime 相关回归 `45 passed, 1 warning`，
+  导入图、`compileall` 和 `git diff --check` 通过。完整架构扫描的既有唯一失败为允许清单遗漏本次
+  两个正式模块，修正后对应守卫已通过；下一切片继续拆分 Subagent 执行器和 runner 的 runtime 依赖。
+
 ### 已完成切片：上下文压缩结果与编排分离
 
 状态：已完成（2026-08-31）
@@ -1454,3 +1467,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 协议身份校验归位切片 | 将 `CID_RE`、`SID_RE` 和 `valid_session_ids` 从 `mind_app/history/ids.py` 重组到 `protocol/schema/identifiers.py`，历史/交互/Controller/TUI 复用统一 schema 并删除旧身份模块 | 身份、历史、交互、Controller、TUI 和 CLI 回归 `350 passed`；协议身份守卫、导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 子 Agent 线程与继承上下文归位切片 | 将 `AgentThreadContext`、`AgentTurnContext`、`ForkContextSnapshot` 和 `normalize_fork_turns` 重组到 `agent/application`，runtime context 仅保留 transcript builder，并以 `PermissionGrantReader` 解耦执行上下文与 stores | 子 Agent/上下文/架构定向回归 `65 passed, 2 warnings`；交互/历史/Controller/TUI/CLI 扩展回归 `350 passed`；完整架构守卫 `60 passed, 44 warnings`；全量行为回归 `3015 passed, 11 skipped, 44 warnings`，导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 Agent graph 快照与 SQLite 存储归位切片 | 将 Agent 状态/任务值对象重组到 `agent/domain/agents.py`，将图快照、SQLite 存储和单写者持久化重组到 `agent/stores/agent_graph.py`，删除旧 runtime graph 入口并清理 control 重复定义 | Agent graph/control/runtime 与 stores/domain/旧导入守卫回归 `51 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 子 Agent 消息投递端口拆分 | 将消息回执/投递端口重组到 `agent/ports`，将 steer 协议适配重组到 `agent/adapters`，runtime 仅保留活动轮次状态机 | 消息投递/运行时与架构守卫回归 `45 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过；下一切片拆分 Subagent 执行器和 runner 的 runtime 依赖 |

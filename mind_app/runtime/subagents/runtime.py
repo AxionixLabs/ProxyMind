@@ -44,10 +44,10 @@ from mind_app.runtime.subagents.executor import (
 )
 from mind_app.runtime.subagents.delivery import (
     AgentActiveTurn,
-    AgentMessageDeliveryPort,
     AgentMessageDispatch,
-    SteeringMessageDelivery
 )
+from agent.adapters.agent_messages import SteeringMessageDelivery
+from agent.ports.agent_messages import AgentMessageDeliveryPort
 from agent.stores.agent_graph import (
     AgentGraphCheckpoint,
     AgentGraphPersistence,

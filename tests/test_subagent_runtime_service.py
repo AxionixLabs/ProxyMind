@@ -23,7 +23,7 @@ from mind_app.runtime.subagents.control import (
     AgentControl,
     AgentStateError,
 )
-from mind_app.runtime.subagents.delivery import AgentMessageReceipt
+from agent.ports.agent_messages import AgentMessageReceipt
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.turns import stream as turn_stream
 from protocol.client.reports import EventReportRuntimeOwner

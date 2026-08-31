@@ -6,11 +6,13 @@ from .protocol_client import (
     ProtocolEventCursorStore,
     ProtocolModelEventStream,
 )
+from .agent_messages import SteeringMessageDelivery
 
 __all__ = (
     "MindChatProtocolClient",
     "ProtocolEventCursorStore",
     "ProtocolModelEventStream",
+    "SteeringMessageDelivery",
 )
 
 
