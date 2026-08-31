@@ -2070,6 +2070,45 @@ def test_subagent_hook_events_are_owned_by_application() -> None:
     assert not import_violations, "legacy subagent hook imports remain:\n" + "\n".join(import_violations)
 
 
+def test_subagent_runner_is_owned_by_harness_without_package_cycle() -> None:
+    """确保 SubagentRunner 由 Harness 持有且包初始化不预加载组件。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runner.py"
+    target_path = PROJECT_ROOT / "agent" / "harness" / "subagent_runner.py"
+    package_path = PROJECT_ROOT / "agent" / "harness" / "__init__.py"
+    assert not legacy_path.is_file(), "legacy subagent runner still exists"
+    assert target_path.is_file(), "harness subagent runner is missing"
+    assert package_path.is_file(), "harness package initializer is missing"
+
+    target_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    target_classes = {
+        node.name
+        for node in target_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert target_classes == {"SubagentRunner"}
+    violations: list[str] = []
+    for node in ast.walk(target_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                violations.append(
+                    f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not violations, "harness subagent runner crosses legacy boundary:\n" + "\n".join(violations)
+
+    package_tree = ast.parse(package_path.read_text(encoding="utf-8-sig"), filename=str(package_path))
+    package_imports = [
+        node
+        for node in package_tree.body
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+    ]
+    assert not package_imports, "harness package initializer must not preload components"
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (

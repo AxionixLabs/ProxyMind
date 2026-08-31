@@ -18,9 +18,10 @@ from agent.application import (
 )
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from agent.application import SubagentHookEvents
-from mind_app.runtime.subagents.runner import (
+from agent.harness.subagent_runner import SubagentRunner
+from agent.ports import SubagentOperation
+from agent.harness.subagent_runner import (
     MAX_SUBAGENT_STOP_CONTINUATIONS,
-    SubagentRunner,
 )
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.application import preset_permissions
@@ -60,6 +61,31 @@ class _Controller:
     @staticmethod
     async def await_cleanup(awaitable) -> None:
         await awaitable
+
+
+def _runner(controller: _Controller) -> SubagentRunner:
+    """为测试 Harness runner 注入现有 runtime Turn 执行器。"""
+    from mind_app.runtime.turns.executor import execute_turn
+
+    async def turn_runner(
+        pref_config,
+        execution,
+        operation: SubagentOperation,
+        *,
+        event_report=None,
+    ):
+        return await execute_turn(
+            controller,
+            pref_config,
+            execution,
+            operation,
+            event_report=event_report,
+        )
+
+    return SubagentRunner(
+        turn_runner=turn_runner,
+        cleanup=controller,
+    )
 
 
 def _definitions(raw):
@@ -166,7 +192,7 @@ async def test_subagent_runner_dispatches_fixed_lifecycle_scope() -> None:
             usage={"output_tokens": 3},
         )
 
-    result = await SubagentRunner(controller).run(
+    result = await _runner(controller).run(
         {"primary": {"model": "test-model"}},
         execution,
         operation,
@@ -223,7 +249,7 @@ async def test_subagent_runner_skips_non_matching_hooks() -> None:
         timeline.append("operation")
         return RunResult(status="completed")
 
-    result = await SubagentRunner(controller).run(
+    result = await _runner(controller).run(
         {},
         execution,
         operation,
@@ -266,13 +292,13 @@ async def test_subagent_start_injects_ordered_context_only_for_first_turn() -> N
         prepared_turns.append(prepared)
         return RunResult(status="completed")
 
-    await SubagentRunner(_Controller()).run(
+    await _runner(_Controller()).run(
         {},
         _execution(dispatcher=runtime),
         operation,
         event_report=_Report(),
     )
-    await SubagentRunner(_Controller()).run(
+    await _runner(_Controller()).run(
         {},
         _execution(dispatcher=runtime, session_started=False),
         operation,
@@ -371,7 +397,7 @@ async def test_subagent_stop_continuation_has_hard_limit() -> None:
             ),
         )
 
-    result = await SubagentRunner(_Controller()).run(
+    result = await _runner(_Controller()).run(
         {},
         _execution(dispatcher=runtime),
         operation,
@@ -442,7 +468,7 @@ async def test_subagent_hook_command_failures_do_not_replace_result() -> None:
         timeline.append("operation")
         return RunResult(status="completed", assistant_text="done")
 
-    result = await SubagentRunner(controller).run(
+    result = await _runner(controller).run(
         {},
         execution,
         operation,
@@ -469,7 +495,7 @@ async def test_subagent_runner_reports_failed_result() -> None:
             usage={"input_tokens": 5},
         )
 
-    result = await SubagentRunner(controller).run(
+    result = await _runner(controller).run(
         {},
         execution,
         operation,
@@ -500,7 +526,7 @@ async def test_subagent_runner_preserves_operation_failure() -> None:
         raise RuntimeError("model failed")
 
     with pytest.raises(RuntimeError, match="model failed"):
-        await SubagentRunner(controller).run(
+        await _runner(controller).run(
             {},
             execution,
             operation,
@@ -529,7 +555,7 @@ async def test_subagent_runner_dispatches_stop_after_cancellation() -> None:
         raise asyncio.CancelledError
 
     with pytest.raises(asyncio.CancelledError):
-        await SubagentRunner(controller).run(
+        await _runner(controller).run(
             {},
             execution,
             operation,
@@ -553,7 +579,7 @@ async def test_subagent_runner_rejects_root_turn_before_side_effects() -> None:
         return RunResult(status="completed")
 
     with pytest.raises(ValueError, match="child agent context"):
-        await SubagentRunner(controller).run(
+        await _runner(controller).run(
             {},
             _root_execution(),
             operation,
@@ -580,7 +606,7 @@ async def test_subagent_runner_rejects_empty_task_before_side_effects() -> None:
         return RunResult(status="completed")
 
     with pytest.raises(ValueError, match="task is required"):
-        await SubagentRunner(controller).run(
+        await _runner(controller).run(
             {},
             execution,
             operation,

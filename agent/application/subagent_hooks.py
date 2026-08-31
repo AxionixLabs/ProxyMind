@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
-
 from agent.application.hook_models import (
     SubagentStartResult,
     SubagentStopDecision,

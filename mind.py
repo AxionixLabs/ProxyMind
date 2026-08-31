@@ -4,7 +4,7 @@
 import os
 
 from agent.composition import create_runtime_services
-from agent.harness import WorkspaceRuntimeOwner
+from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
 from agent.ports import ProcessCapability
 from infrastructure.config.paths import ApplicationLayout
 from mind_app.cli.entry import run

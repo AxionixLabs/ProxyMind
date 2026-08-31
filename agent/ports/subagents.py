@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import typing
+from collections.abc import Awaitable
 
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
@@ -52,8 +53,33 @@ class SubagentOperation(typing.Protocol[SubagentResultValue]):
         ...
 
 
+class SubagentTurnRunner(typing.Protocol):
+    """定义 Harness 调用一次子 Agent Turn 的端口。"""
+
+    async def __call__(
+        self,
+        pref_config: dict[str, typing.Any],
+        execution: "TurnExecution",
+        operation: SubagentOperation["RunResult"],
+        *,
+        event_report: EventReport | None = None,
+    ) -> "RunResult":
+        """运行固定子轮次并返回结果。"""
+        ...
+
+
+class SubagentCleanupPort(typing.Protocol):
+    """定义 Harness 等待异步清理收束的端口。"""
+
+    async def await_cleanup(self, awaitable: Awaitable[None]) -> None:
+        """等待清理协程完成。"""
+        ...
+
+
 __all__ = (
     "SubagentExecutionPort",
     "SubagentOperation",
     "SubagentResultValue",
+    "SubagentTurnRunner",
+    "SubagentCleanupPort",
 )

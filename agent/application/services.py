@@ -13,7 +13,7 @@ from agent.ports import (
     ModelCapability,
     ProcessCapability,
 )
-from agent.harness import WorkspaceRuntimeFactory
+from agent.harness.workspace_runtime import WorkspaceRuntimeFactory
 from .commands import TurnApplication
 
 TurnApplicationFactory: typing.TypeAlias = Callable[

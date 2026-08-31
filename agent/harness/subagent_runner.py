@@ -9,21 +9,19 @@ from observability import (
     observe_exception
 )
 from protocol.transport.events import EventReport
+from agent.application import (
+    RunResult,
+    SubagentHookEvents,
+    TurnExecution,
+    create_continuation_execution,
+)
 from agent.application.hook_models import SubagentStopDecision
-from agent.application import TurnExecution
 from agent.ports import (
+    SubagentCleanupPort,
     McpSessionPort,
     SubagentOperation,
-    SubagentResultValue,
+    SubagentTurnRunner,
 )
-from agent.application import SubagentHookEvents
-from mind_app.runtime.turns.executor import (
-    create_continuation_execution,
-    execute_turn
-)
-
-if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
 SubagentOutcome = typing.Literal[
     "completed",
     "failed",
@@ -37,17 +35,24 @@ MAX_SUBAGENT_STOP_CONTINUATIONS = 3
 class SubagentRunner:
     """执行一个已经完成身份和会话分配的本地子轮次。"""
 
-    def __init__(self, controller: "Mind") -> None:
-        self._controller = controller
+    def __init__(
+        self,
+        *,
+        turn_runner: SubagentTurnRunner,
+        cleanup: SubagentCleanupPort,
+    ) -> None:
+        """绑定 Turn 执行和异步清理端口，不持有具体 Controller。"""
+        self._turn_runner = turn_runner
+        self._cleanup = cleanup
 
     async def run(
         self,
         pref_config: dict[str, typing.Any],
         execution: TurnExecution,
-        operation: SubagentOperation[SubagentResultValue],
+        operation: SubagentOperation[RunResult],
         *,
         event_report: EventReport | None = None
-    ) -> SubagentResultValue:
+    ) -> RunResult:
         """执行子轮次并应用开始上下文与停止继续决定。"""
         if execution.context.agent.depth == 0:
             raise ValueError("subagent execution requires a child agent context")
@@ -59,7 +64,7 @@ class SubagentRunner:
             session: "McpSessionPort",
             tools: list[dict[str, typing.Any]],
             report: EventReport
-        ) -> SubagentResultValue:
+        ) -> RunResult:
             """执行使用固定轮次上下文的子轮次操作。"""
             return await operation(
                 turn_execution,
@@ -89,8 +94,7 @@ class SubagentRunner:
             hook_events = SubagentHookEvents(current_execution.hook_scope)
 
             try:
-                result = await execute_turn(
-                    self._controller,
+                result = await self._turn_runner(
                     pref_config,
                     current_execution,
                     run_child_turn,
@@ -181,7 +185,7 @@ class SubagentRunner:
 
         try:
             if cleanup:
-                await self._controller.await_cleanup(cleanup_stop())
+                await self._cleanup.await_cleanup(cleanup_stop())
                 return SubagentStopDecision.stop()
             return await dispatch_stop()
         except Exception as hook_error:
@@ -198,8 +202,12 @@ class SubagentRunner:
 def _result_outcome(result: typing.Any) -> SubagentOutcome:
     """把模型结果状态规范为子执行主体结束状态。"""
     status = str(getattr(result, "status", "") or "").strip().lower()
-    if status in {"completed", "failed", "incomplete"}:
-        return typing.cast(SubagentOutcome, status)
+    if status == "completed":
+        return "completed"
+    if status == "failed":
+        return "failed"
+    if status == "incomplete":
+        return "incomplete"
     return "failed"
 
 

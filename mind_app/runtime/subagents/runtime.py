@@ -14,8 +14,12 @@ from agent.application import (
 )
 from infrastructure.skills import skills_payload
 from protocol.transport.events import EventReport
-from agent.ports import McpSessionPort
-from agent.ports import SubagentExecutionPort
+from agent.ports import (
+    McpSessionPort,
+    SubagentExecutionPort,
+    SubagentOperation,
+)
+from agent.harness.subagent_runner import SubagentRunner
 from agent.application.execution import (
     AgentContext,
     TurnContext
@@ -23,7 +27,10 @@ from agent.application.execution import (
 from agent.domain.agents import (
     AgentSubmission,
 )
-from mind_app.runtime.turns.executor import resolve_turn_hook_scope
+from mind_app.runtime.turns.executor import (
+    execute_turn,
+    resolve_turn_hook_scope,
+)
 from mind_app.runtime.subagents.control import (
     AgentControl,
     AgentMailboxWaitResult,
@@ -51,7 +58,6 @@ from agent.stores.agent_graph import (
     AgentGraphPersistence,
     AgentGraphStore
 )
-from mind_app.runtime.subagents.runner import SubagentRunner
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
@@ -106,7 +112,10 @@ class SubagentRuntime:
         self._skills_provider     = skills_provider or self._configured_skills
         self._transcript_path_for = transcript_path_for or (lambda _sid: "")
         self._session_cleanup     = session_cleanup
-        self._runner              = SubagentRunner(controller)
+        self._runner              = SubagentRunner(
+            turn_runner=self._run_turn,
+            cleanup=controller,
+        )
         self._lock                = asyncio.Lock()
         self._delivery_lock       = asyncio.Lock()
 
@@ -118,6 +127,23 @@ class SubagentRuntime:
         ] = {}
 
         self._shutdown: bool = False
+
+    async def _run_turn(
+        self,
+        pref_config: dict[str, typing.Any],
+        execution: TurnExecution,
+        operation: SubagentOperation[RunResult],
+        *,
+        event_report: EventReport | None = None,
+    ) -> RunResult:
+        """把 Harness Turn 端口绑定到当前 runtime Controller。"""
+        return await execute_turn(
+            self._controller,
+            pref_config,
+            execution,
+            operation,
+            event_report=event_report,
+        )
 
     @property
     def settings(self) -> AgentSettings:

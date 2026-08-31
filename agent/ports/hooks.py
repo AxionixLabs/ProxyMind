@@ -90,6 +90,10 @@ class HookDispatcherPort(typing.Protocol):
         """分发一次生命周期事件。"""
         ...
 
+    def for_turn(self, turn: "TurnContext") -> "HookExecutionScopePort":
+        """为同一 dispatcher 创建绑定新 Turn 的作用域。"""
+        ...
+
     def with_default_status_port(
         self,
         status_port: HookStatusPort,

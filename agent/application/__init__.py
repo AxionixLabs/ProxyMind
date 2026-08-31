@@ -124,7 +124,10 @@ from .settings import (
 )
 from .session_identity import derive_local_session_id
 from .stream_outcome import StreamTurnOutcome
-from .turn_execution import TurnExecution
+from .turn_execution import (
+    TurnExecution,
+    create_continuation_execution,
+)
 
 __all__ = (
     "EffectJournal",
@@ -160,6 +163,7 @@ __all__ = (
     "ToolInvocation",
     "TurnContext",
     "TurnExecution",
+    "create_continuation_execution",
     "ForkContextSnapshot",
     "ForkTurns",
     "normalize_fork_turns",

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.harness import WorkspaceRuntimeOwner
+from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
 
 
 class _CodingRuntime:

@@ -17,6 +17,7 @@ from agent.application import (
     StreamTurnOutcome,
     TurnExecution,
     TurnControlReceipt,
+    create_continuation_execution,
 )
 from agent.stores.approval_ledger import ApprovalCallLedger
 from agent.ports import McpSessionPort
@@ -60,7 +61,6 @@ from ..tools.client_call import ClientToolCallRunner
 from ..tools.plan_call import PlanToolCallRunner
 from .executor import (
     build_turn_input_payload,
-    create_continuation_execution,
     record_turn_started,
     turn_continuation_count
 )

@@ -2,10 +2,11 @@
 
 import typing
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 
 from agent.ports import HookExecutionScopePort
+from protocol.schema.identifiers import short_uid
 from .execution import TurnContext
 
 
@@ -72,7 +73,53 @@ class TurnExecution:
         )
 
 
-__all__ = ("TurnExecution",)
+def create_continuation_execution(
+    execution: TurnExecution,
+    message: str,
+    *,
+    continuation_count: int | None = None,
+    additional_context: typing.Iterable[str] = (),
+    system_message: str = "",
+) -> TurnExecution:
+    """在当前会话中创建一次续跑模型执行。"""
+    if continuation_count is None:
+        raw_count = execution.metadata.get("continuation_count")
+        try:
+            next_count = max(0, int(raw_count or 0)) + 1
+        except (TypeError, ValueError):
+            next_count = 1
+    else:
+        try:
+            next_count = max(0, int(continuation_count))
+        except (TypeError, ValueError):
+            next_count = 0
+
+    context = replace(
+        execution.context,
+        turn_id=short_uid(12),
+        session_started=False,
+        session_start_reason="",
+    )
+    metadata = dict(execution.metadata)
+    metadata.update({
+        "continuation_of_turn_id": (
+            metadata.get("continuation_of_turn_id")
+            or execution.context.turn_id
+        ),
+        "continuation_count": next_count,
+    })
+
+    return TurnExecution(
+        context=context,
+        message=message,
+        hook_scope=execution.hook_scope.for_turn(context),
+        metadata=metadata,
+        additional_context=tuple(additional_context),
+        system_message=system_message,
+    )
+
+
+__all__ = ("TurnExecution", "create_continuation_execution")
 
 
 if __name__ == '__main__':

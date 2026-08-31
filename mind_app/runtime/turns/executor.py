@@ -6,13 +6,11 @@ import time
 import typing
 import asyncio
 from collections.abc import Mapping
-from dataclasses import replace
 from observability import (
     observe,
     observe_exception
 )
 from protocol.transport.events import EventReport
-from protocol.schema.identifiers import short_uid
 from mind_app.history.contracts import TranscriptSink
 from agent.application import (
     HookExecutionContext,
@@ -191,53 +189,6 @@ def _resolve_tool_filter_mode(
     if profile_mode == "api":
         return "api"
     raise ValueError(f"Invalid tool filter mode: {profile_mode}")
-
-
-def create_continuation_execution(
-    execution: TurnExecution,
-    message: str,
-    *,
-    continuation_count: int | None = None,
-    additional_context: typing.Iterable[str] = (),
-    system_message: str = ""
-) -> TurnExecution:
-    """在当前会话中创建一次续跑模型执行。"""
-    if continuation_count is None:
-        next_count = turn_continuation_count(execution) + 1
-    else:
-        try:
-            next_count = max(0, int(continuation_count))
-        except (TypeError, ValueError):
-            next_count = 0
-
-    context = replace(
-        execution.context,
-        turn_id=short_uid(12),
-        session_started=False,
-        session_start_reason="",
-    )
-
-    metadata = dict(execution.metadata)
-
-    metadata.update({
-        "continuation_of_turn_id": (
-            metadata.get("continuation_of_turn_id")
-            or execution.context.turn_id
-        ),
-        "continuation_count": next_count,
-    })
-
-    return TurnExecution(
-        context=context,
-        message=message,
-        hook_scope=HookExecutionScope(
-            context=HookExecutionContext.from_turn(context),
-            dispatcher=execution.hook_scope.dispatcher,
-        ),
-        metadata=metadata,
-        additional_context=tuple(additional_context),
-        system_message=system_message,
-    )
 
 
 async def execute_turn(

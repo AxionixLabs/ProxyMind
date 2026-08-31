@@ -13,7 +13,7 @@ from agent.protocol import (
     RunEvent,
     SubmitTurnCommand,
 )
-from agent.harness import SessionLoop
+from agent.harness.session_loop import SessionLoop
 
 
 @dataclass(frozen=True, slots=True)

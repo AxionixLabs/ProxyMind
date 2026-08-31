@@ -73,6 +73,13 @@ class HookExecutionScope:
         if HookExecutionContext.from_turn(turn) != self.context:
             raise ValueError("turn does not belong to hook scope")
 
+    def for_turn(self, turn: TurnContext) -> "HookExecutionScope":
+        """保留 dispatcher 并创建绑定新 Turn 的执行作用域。"""
+        return type(self)(
+            context=HookExecutionContext.from_turn(turn),
+            dispatcher=self.dispatcher,
+        )
+
 
 if __name__ == '__main__':
     pass

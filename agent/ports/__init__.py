@@ -56,9 +56,11 @@ from .agent_messages import (
 )
 from .mcp_session import McpSessionPort
 from .subagents import (
+    SubagentCleanupPort,
     SubagentExecutionPort,
     SubagentOperation,
     SubagentResultValue,
+    SubagentTurnRunner,
 )
 from .turns import (
     TurnInputEventHandler,
@@ -103,8 +105,10 @@ __all__ = (
     "AgentMessageReceiptStatus",
     "McpSessionPort",
     "SubagentExecutionPort",
+    "SubagentCleanupPort",
     "SubagentOperation",
     "SubagentResultValue",
+    "SubagentTurnRunner",
     "TurnInputEventHandler",
     "TurnOperation",
     "TurnResultPort",

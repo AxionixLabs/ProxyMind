@@ -3,7 +3,7 @@
 
 import typing
 from pathlib import Path
-from agent.harness import WorkspaceRuntimeFactory
+from agent.harness.workspace_runtime import WorkspaceRuntimeFactory
 from agent.application.commands import TurnApplication
 from agent.application.services import RuntimeServices
 from agent.ports import (
