@@ -31,10 +31,8 @@ from agent.application.hook_models import (
 from infrastructure.platform.hook_output_spill import HookOutputSpillStore
 from mind_app.runtime.hooks.registry import HookRegistry
 from mind_app.runtime.hooks.runtime import HookRuntime
-from mind_app.runtime.hooks.scope import (
-    HookExecutionContext,
-    HookExecutionScope
-)
+from agent.application import HookExecutionContext
+from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.hooks.session import SessionLifecycleGateway
 from mind_app.runtime.hooks.tool import (
     CommandHookSessionStore,

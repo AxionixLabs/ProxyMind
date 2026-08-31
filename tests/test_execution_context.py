@@ -9,8 +9,8 @@ from agent.application.execution import (
     ToolInvocation,
     TurnContext,
 )
-from mind_app.runtime.hooks.scope import HookExecutionContext
 from agent.application import (
+    HookExecutionContext,
     PermissionSettings,
     preset_permissions,
 )

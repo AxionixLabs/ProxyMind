@@ -23,6 +23,7 @@ from agent.application import (
 )
 from agent.application import (
     HookDefinitionConfig,
+    HookExecutionContext,
     SessionEndReason
 )
 from protocol.schema.identifiers import (
@@ -64,10 +65,7 @@ from .presentation.application import (
 )
 from .presentation.terminal.contracts import TerminalDesign
 from agent.ports import HookRegistryPort
-from .runtime.hooks.scope import (
-    HookExecutionContext,
-    HookExecutionScope
-)
+from .runtime.hooks.scope import HookExecutionScope
 from .runtime.hooks.session import SessionLifecycleGateway
 from .runtime.hooks.tool import CommandHookSessionStore
 from agent.application.hook_catalog import (

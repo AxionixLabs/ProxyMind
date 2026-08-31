@@ -94,6 +94,7 @@ from agent.domain.hooks import (
     SessionEndReason,
     normalize_hook_state_table,
 )
+from .hook_context import HookExecutionContext
 from agent.domain.hook_trust import (
     HookResolvedState,
     HookTrustState,
@@ -149,6 +150,7 @@ __all__ = (
     "SESSION_END_REASONS",
     "CompactOutcome",
     "CompactResult",
+    "HookExecutionContext",
     "AgentContext",
     "AgentThreadContext",
     "AgentTurnContext",

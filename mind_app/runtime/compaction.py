@@ -8,6 +8,7 @@ from agent.application import (
     CompactResult,
     CompactTriggerReason,
     CompactTriggerSource,
+    HookExecutionContext,
 )
 from protocol.client.compact import (
     build_compact_payload,
@@ -18,10 +19,7 @@ from .hooks.compact import (
     CompactHookBlockedError,
     CompactHookEvents
 )
-from .hooks.scope import (
-    HookExecutionContext,
-    HookExecutionScope
-)
+from .hooks.scope import HookExecutionScope
 from .hooks.turn import TurnHookEvents
 from observability import (
     observe,

@@ -13,10 +13,8 @@ from mind_app.client_tools.planning import (
 from mind_app.runtime.tools.plan_steps import StepPlanExecutor
 from agent.application.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.runtime import HookRuntime
-from mind_app.runtime.hooks.scope import (
-    HookExecutionContext,
-    HookExecutionScope
-)
+from agent.application import HookExecutionContext
+from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.application import preset_permissions

@@ -10,12 +10,14 @@ from metadata import const
 from mind_app.controller import Mind
 from agent.application.hook_catalog import HookCatalogStaleError
 from mind_app.runtime.hooks.registry import HookRegistry
-from mind_app.runtime.hooks.scope import HookExecutionContext
 from infrastructure.config.layers import PROJECT_CONFIG_DIR
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from infrastructure.hooks.discovery import resolve_hook_definitions
-from agent.application import HOOK_EVENT_NAMES
+from agent.application import (
+    HOOK_EVENT_NAMES,
+    HookExecutionContext,
+)
 
 
 def _hook(command, *, matcher=None):

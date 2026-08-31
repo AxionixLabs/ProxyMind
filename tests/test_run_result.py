@@ -42,10 +42,8 @@ from agent.application.execution import (
     TurnContext,
 )
 from mind_app.runtime.hooks.runtime import HookRuntime
-from mind_app.runtime.hooks.scope import (
-    HookExecutionContext,
-    HookExecutionScope
-)
+from agent.application import HookExecutionContext
+from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.turns.executor import (
     TurnExecution,
     build_turn_input_payload,

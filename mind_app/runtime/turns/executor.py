@@ -20,6 +20,7 @@ from protocol.transport.events import EventReport
 from protocol.schema.identifiers import short_uid
 from mind_app.history.contracts import TranscriptSink
 from agent.application.execution import TurnContext
+from agent.application import HookExecutionContext
 from protocol.client.reports import (
     EventReportLifetime,
     TurnEventReportHandle,
@@ -28,10 +29,7 @@ from agent.domain.tool_policy import (
     ToolFilterMode,
     filter_mode_tools
 )
-from mind_app.runtime.hooks.scope import (
-    HookExecutionContext,
-    HookExecutionScope
-)
+from mind_app.runtime.hooks.scope import HookExecutionScope
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind

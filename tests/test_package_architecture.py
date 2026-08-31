@@ -1820,6 +1820,57 @@ def test_subagent_message_delivery_has_port_and_adapter_owners() -> None:
     assert not adapter_violations, "message adapter crosses legacy boundary:\n" + "\n".join(adapter_violations)
 
 
+def test_hook_execution_context_is_owned_by_application() -> None:
+    """确保 Hook 输入上下文不与 runtime scope 生命周期实现混合。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "scope.py"
+    target_path = PROJECT_ROOT / "agent" / "application" / "hook_context.py"
+    assert legacy_path.is_file(), "runtime hook scope is missing"
+    assert target_path.is_file(), "application hook context is missing"
+
+    legacy_tree = ast.parse(legacy_path.read_text(encoding="utf-8-sig"), filename=str(legacy_path))
+    legacy_classes = {
+        node.name
+        for node in legacy_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert "HookExecutionContext" not in legacy_classes
+    assert "HookExecutionScope" in legacy_classes
+
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.level != 0:
+                continue
+            if node.module != "mind_app.runtime.hooks.scope":
+                continue
+            if any(alias.name == "HookExecutionContext" for alias in node.names):
+                violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+    assert not violations, "legacy HookExecutionContext imports remain:\n" + "\n".join(violations)
+
+    target_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    target_classes = {
+        node.name
+        for node in target_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert target_classes == {"HookExecutionContext"}
+
+    target_violations: list[str] = []
+    for node in ast.walk(target_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                target_violations.append(
+                    f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not target_violations, "application hook context crosses its boundary:\n" + "\n".join(target_violations)
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (

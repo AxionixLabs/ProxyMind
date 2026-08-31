@@ -11,10 +11,8 @@ from agent.application.execution import (
     TurnContext,
 )
 from mind_app.runtime.hooks.runtime import HookRuntime
-from mind_app.runtime.hooks.scope import (
-    HookExecutionContext,
-    HookExecutionScope,
-)
+from agent.application import HookExecutionContext
+from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.turns import stream_setup
 from mind_app.runtime.turns.executor import TurnExecution
 from agent.application import preset_permissions

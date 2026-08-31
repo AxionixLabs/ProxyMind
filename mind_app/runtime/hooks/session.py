@@ -6,16 +6,14 @@ import asyncio
 from dataclasses import replace
 from agent.application import (
     SESSION_END_REASONS,
+    HookExecutionContext,
     SessionEndReason
 )
 from observability import (
     observe,
     observe_exception
 )
-from .scope import (
-    HookExecutionContext,
-    HookExecutionScope
-)
+from .scope import HookExecutionScope
 
 SessionScopeFactory = typing.Callable[
     [HookExecutionContext],

@@ -1220,6 +1220,18 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   导入图、`compileall` 和 `git diff --check` 通过。完整架构扫描的既有唯一失败为允许清单遗漏本次
   两个正式模块，修正后对应守卫已通过；下一切片继续拆分 Subagent 执行器和 runner 的 runtime 依赖。
 
+### 已完成切片：Hook 输入上下文归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将 `HookExecutionContext` 与权限模式映射从 `mind_app/runtime/hooks/scope.py` 重组到
+  `agent/application/hook_context.py`；上下文只依赖 Turn、domain Hook 事件名和已定义的 Hook schema，
+  不依赖 runtime dispatcher 或基础设施。
+- [x] `HookExecutionScope` 保留在 runtime，继续拥有 dispatcher、HookRuntime.empty、状态端口绑定和
+  生命周期校验；所有生产/测试消费者切换到 `agent.application.HookExecutionContext`，删除旧导入。
+- [x] Hook/Turn/压缩/Subagent/TUI 定向回归 `247 passed`，新增 application/runtime 分离守卫；
+  `compileall`、导入图和 `git diff --check` 通过。下一切片继续拆分 Subagent 执行器和 runner 的 runtime 依赖。
+
 ### 已完成切片：上下文压缩结果与编排分离
 
 状态：已完成（2026-08-31）
@@ -1468,3 +1480,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 子 Agent 线程与继承上下文归位切片 | 将 `AgentThreadContext`、`AgentTurnContext`、`ForkContextSnapshot` 和 `normalize_fork_turns` 重组到 `agent/application`，runtime context 仅保留 transcript builder，并以 `PermissionGrantReader` 解耦执行上下文与 stores | 子 Agent/上下文/架构定向回归 `65 passed, 2 warnings`；交互/历史/Controller/TUI/CLI 扩展回归 `350 passed`；完整架构守卫 `60 passed, 44 warnings`；全量行为回归 `3015 passed, 11 skipped, 44 warnings`，导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 Agent graph 快照与 SQLite 存储归位切片 | 将 Agent 状态/任务值对象重组到 `agent/domain/agents.py`，将图快照、SQLite 存储和单写者持久化重组到 `agent/stores/agent_graph.py`，删除旧 runtime graph 入口并清理 control 重复定义 | Agent graph/control/runtime 与 stores/domain/旧导入守卫回归 `51 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 子 Agent 消息投递端口拆分 | 将消息回执/投递端口重组到 `agent/ports`，将 steer 协议适配重组到 `agent/adapters`，runtime 仅保留活动轮次状态机 | 消息投递/运行时与架构守卫回归 `45 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过；下一切片拆分 Subagent 执行器和 runner 的 runtime 依赖 |
+| 2026-08-31 | 阶段 5 Hook 输入上下文归位切片 | 将 Hook 输入上下文值对象和权限模式映射重组到 `agent/application/hook_context.py`，runtime scope 仅保留 dispatcher 与生命周期实现 | Hook/Turn/压缩/Subagent/TUI 定向回归 `247 passed`，application/runtime 守卫、导入图、`compileall` 和 `git diff --check` 通过 |
