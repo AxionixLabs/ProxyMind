@@ -143,6 +143,57 @@ class AgentActiveTurn:
         return self._ready.is_set() and not self._unavailable.is_set()
 
 
+class AgentDeliveryRegistry:
+    """管理根会话下活动 Agent Turn 的并发投递状态。"""
+
+    def __init__(self) -> None:
+        """创建空的活动投递登记表。"""
+        self._lock = asyncio.Lock()
+        self._active: dict[tuple[str, str], AgentActiveTurn] = {}
+
+    async def register(self, active: AgentActiveTurn) -> None:
+        """登记活动轮次并关闭同一 Agent 的旧轮次。"""
+        context = active.context
+        key = (context.agent.root_session_id, context.agent.agent_id)
+        async with self._lock:
+            previous = self._active.get(key)
+            self._active[key] = active
+        if previous is not None and previous is not active:
+            previous.close()
+
+    async def unregister(self, active: AgentActiveTurn) -> None:
+        """仅在登记仍指向当前轮次时移除活动状态。"""
+        context = active.context
+        key = (context.agent.root_session_id, context.agent.agent_id)
+        async with self._lock:
+            if self._active.get(key) is active:
+                self._active.pop(key, None)
+
+    async def get(
+        self,
+        agent_id: str,
+        *,
+        root_session_id: str,
+    ) -> AgentActiveTurn | None:
+        """返回指定根会话与 Agent 的活动轮次。"""
+        key = (str(root_session_id or "").strip(), agent_id)
+        async with self._lock:
+            return self._active.get(key)
+
+    async def close(self, root_session_id: str | None = None) -> None:
+        """关闭全部或指定根会话的活动投递状态。"""
+        async with self._lock:
+            if root_session_id is None:
+                active = tuple(self._active.values())
+                self._active.clear()
+            else:
+                normalized = str(root_session_id or "").strip()
+                keys = tuple(key for key in self._active if key[0] == normalized)
+                active = tuple(self._active.pop(key) for key in keys)
+        for delivery in active:
+            delivery.close()
+
+
 def _turn_input_from_event(event: AgentMailboxEvent) -> TurnInput:
     """把邮箱消息转换为可追踪的轮次输入。"""
     return TurnInput(
@@ -160,5 +211,8 @@ def _turn_input_from_event(event: AgentMailboxEvent) -> TurnInput:
     )
 
 
-if __name__ == "__main__":
-    pass
+__all__ = (
+    "AgentActiveTurn",
+    "AgentDeliveryRegistry",
+    "AgentMessageDispatch",
+)

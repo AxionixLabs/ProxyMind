@@ -1807,6 +1807,11 @@ def test_subagent_message_delivery_has_port_and_adapter_owners() -> None:
         if isinstance(node, ast.ClassDef)
     }
     assert not runtime_classes.intersection(forbidden_names)
+    assert {
+        "AgentActiveTurn",
+        "AgentDeliveryRegistry",
+        "AgentMessageDispatch",
+    }.issubset(runtime_classes)
 
     old_imports: list[str] = []
     for path in PROJECT_ROOT.rglob("*.py"):

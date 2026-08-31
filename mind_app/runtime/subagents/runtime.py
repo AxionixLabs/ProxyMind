@@ -48,6 +48,7 @@ from agent.application import ForkTurns, normalize_fork_turns
 from mind_app.runtime.subagents.context import build_fork_context
 from agent.harness.agent_delivery import (
     AgentActiveTurn,
+    AgentDeliveryRegistry,
     AgentMessageDispatch,
 )
 from agent.adapters.agent_messages import SteeringMessageDelivery
@@ -116,14 +117,8 @@ class SubagentRuntime:
             cleanup=controller,
         )
         self._lock                = asyncio.Lock()
-        self._delivery_lock       = asyncio.Lock()
-
         self._controls: dict[str, AgentControl] = {}
-
-        self._active_deliveries: dict[
-            tuple[str, str],
-            AgentActiveTurn,
-        ] = {}
+        self._active_deliveries = AgentDeliveryRegistry()
 
         self._shutdown: bool = False
 
@@ -263,7 +258,7 @@ class SubagentRuntime:
         control   = await self._existing_control(root_session_id)
         recipient = await control.get(target, caller=caller)
 
-        active = await self._active_delivery(
+        active = await self._active_deliveries.get(
             recipient.agent_id,
             root_session_id=root_session_id,
         )
@@ -422,7 +417,7 @@ class SubagentRuntime:
 
         async with self._lock:
             control = self._controls.pop(normalized, None)
-        await self._close_active_deliveries(normalized)
+        await self._active_deliveries.close(normalized)
         if control is None:
             return ()
 
@@ -440,7 +435,7 @@ class SubagentRuntime:
             controls = self._controls
             self._controls = {}
 
-        await self._close_active_deliveries()
+        await self._active_deliveries.close()
 
         if controls:
             await asyncio.gather(
@@ -535,7 +530,7 @@ class SubagentRuntime:
                     prepared.context,
                     self._message_delivery,
                 )
-                await self._register_active_delivery(active)
+                await self._active_deliveries.register(active)
                 try:
                     return await self._executor.execute(
                         pref_config=pref_config,
@@ -548,7 +543,7 @@ class SubagentRuntime:
                     )
                 finally:
                     active.close()
-                    await self._unregister_active_delivery(active)
+                    await self._active_deliveries.unregister(active)
 
             result = await self._runner.run(
                 pref_config,
@@ -585,59 +580,6 @@ class SubagentRuntime:
                 level="WARNING",
             )
             return []
-
-    async def _register_active_delivery(self, active: AgentActiveTurn) -> None:
-        """登记子执行主体当前可投递的远程轮次。"""
-        context = active.context
-        key     = (context.agent.root_session_id, context.agent.agent_id)
-
-        async with self._delivery_lock:
-            previous = self._active_deliveries.get(key)
-            self._active_deliveries[key] = active
-
-        if previous is not None and previous is not active:
-            previous.close()
-
-    async def _unregister_active_delivery(self, active: AgentActiveTurn) -> None:
-        """仅在登记仍指向当前轮次时移除投递状态。"""
-        context = active.context
-        key = (context.agent.root_session_id, context.agent.agent_id)
-        async with self._delivery_lock:
-            if self._active_deliveries.get(key) is active:
-                self._active_deliveries.pop(key, None)
-
-    async def _active_delivery(
-        self,
-        agent_id: str,
-        *,
-        root_session_id: str,
-    ) -> AgentActiveTurn | None:
-        """返回指定根会话与执行主体的活动投递状态。"""
-        key = (_normalize_root_session_id(root_session_id), agent_id)
-        async with self._delivery_lock:
-            return self._active_deliveries.get(key)
-
-    async def _close_active_deliveries(
-        self,
-        root_session_id: str | None = None,
-    ) -> None:
-        """关闭全部或指定根会话的活动投递状态。"""
-        async with self._delivery_lock:
-            if root_session_id is None:
-                active = tuple(self._active_deliveries.values())
-                self._active_deliveries.clear()
-            else:
-                keys = tuple(
-                    key
-                    for key in self._active_deliveries
-                    if key[0] == root_session_id
-                )
-                active = tuple(
-                    self._active_deliveries.pop(key)
-                    for key in keys
-                )
-        for delivery in active:
-            delivery.close()
 
     async def _control(
         self,
