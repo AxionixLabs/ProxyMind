@@ -19,6 +19,7 @@ from infrastructure.platform.sandbox import SandboxClient
 from infrastructure.platform.hook_command import HookCommandExecutor
 from mind_app.runtime.mcp.external import ExternalMcpRuntime
 from mind_app.cli.entry import run
+from frontends.mcp.server import run_mind_mcp_server
 from mind_app.native_coding import NativeCoding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.harness.hooks.registry import HookRegistry
@@ -114,4 +115,5 @@ if __name__ == "__main__":
             skills_payload_builder=skills_payload,
             create_workspace_runtime=create_workspace_runtime,
         ),
+        mcp_server_runner=run_mind_mcp_server,
     ))

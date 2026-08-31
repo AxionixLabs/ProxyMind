@@ -790,6 +790,46 @@ def test_mcp_runtime_has_no_legacy_root_package_or_imports() -> None:
     assert not violations, "legacy MCP imports remain:\n" + "\n".join(violations)
 
 
+def test_mcp_stdio_adapter_is_owned_by_frontends() -> None:
+    """确保 stdio MCP 入站适配器已迁入前端边界。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "server.py"
+    target_path = PROJECT_ROOT / "frontends" / "mcp" / "server.py"
+    assert not legacy_path.is_file(), "legacy MCP stdio adapter still exists"
+    assert target_path.is_file(), "frontend MCP stdio adapter is missing"
+
+    tree = ast.parse(
+        target_path.read_text(encoding="utf-8-sig"),
+        filename=str(target_path),
+    )
+    definitions = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert {
+        "MindMcpRuntime",
+        "create_mind_mcp_server",
+        "run_mind_mcp_server",
+    } <= definitions
+
+    violations: list[str] = []
+    legacy_module = "mind_app.runtime.mcp.server"
+    for path in PROJECT_ROOT.rglob("*.py"):
+        source_tree = ast.parse(
+            path.read_text(encoding="utf-8-sig"),
+            filename=str(path),
+        )
+        for node in ast.walk(source_tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            if legacy_module in modules:
+                violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+    assert not violations, "legacy MCP stdio imports remain:\n" + "\n".join(violations)
+
+
 def test_mcp_lifecycle_owner_is_harness_owned() -> None:
     """确保 MCP 生命周期所有者只依赖 Harness 端口和注入工厂。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "lifecycle.py"

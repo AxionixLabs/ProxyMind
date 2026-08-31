@@ -15,11 +15,11 @@ from metadata import const
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from mind_app.runtime.mcp.server import (
+from frontends.mcp.server import (
     MindMcpRuntime,
     create_mind_mcp_server,
 )
-from mind_app.runtime.mcp import server as mcp_server
+from frontends.mcp import server as mcp_server
 from agent.application.turns.projections import RunResultProjection
 from agent.application import TurnApplication
 from agent.application.turns.run_result import RunResult

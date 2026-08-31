@@ -157,15 +157,16 @@ async def main(
     config_overrides: tuple[ConfigOverride, ...] = (),
     config_profile: str | None = None,
     runtime_services: RuntimeServices | None = None,
+    mcp_server_runner: typing.Callable[..., typing.Awaitable[int]] | None = None,
 ) -> int:
     """把已解析命令路由到对应的应用组合根。"""
     if isinstance(command, McpServerCommand):
-        from mind_app.runtime.mcp.server import run_mind_mcp_server
-
         if runtime_services is None:
             raise AppError("Agent runtime services are required")
+        if mcp_server_runner is None:
+            raise AppError("MCP server runner is not configured")
 
-        return await run_mind_mcp_server(
+        return await mcp_server_runner(
             entry_file=entry_file,
             config_overrides=config_overrides,
             config_profile=config_profile,
@@ -229,6 +230,7 @@ async def _run_main(
     config_overrides: tuple[ConfigOverride, ...],
     config_profile: str | None,
     runtime_services: RuntimeServices | None,
+    mcp_server_runner: typing.Callable[..., typing.Awaitable[int]] | None,
 ) -> int:
     """绑定主任务并进入命令路由。"""
     task = asyncio.current_task()
@@ -236,12 +238,21 @@ async def _run_main(
         raise RuntimeError("Process task is unavailable")
 
     interrupts.bind_main_task(task)
+    if mcp_server_runner is None:
+        return await main(
+            command,
+            entry_file=entry_file,
+            config_overrides=config_overrides,
+            config_profile=config_profile,
+            runtime_services=runtime_services,
+        )
     return await main(
         command,
         entry_file=entry_file,
         config_overrides=config_overrides,
         config_profile=config_profile,
         runtime_services=runtime_services,
+        mcp_server_runner=mcp_server_runner,
     )
 
 
@@ -250,6 +261,7 @@ def run(
     entry_file: str | None = None,
     arguments: typing.Sequence[str] | None = None,
     runtime_services: RuntimeServices | None = None,
+    mcp_server_runner: typing.Callable[..., typing.Awaitable[int]] | None = None,
 ) -> int:
     """解析命令并运行统一的进程级异步生命周期。"""
     invocation = parse_cli_invocation(arguments)
@@ -271,6 +283,7 @@ def run(
                 config_overrides=invocation.config_overrides,
                 config_profile=invocation.profile,
                 runtime_services=runtime_services,
+                mcp_server_runner=mcp_server_runner,
             ))
     except AppError as error:
         emit_entry_failure(command, error, phase="runtime")
