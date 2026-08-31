@@ -1777,8 +1777,17 @@ def test_tool_mode_policy_belongs_to_domain() -> None:
     """确保工具可见性策略归入 domain 且不反向依赖 runtime。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "mode_policy.py"
     assert not legacy_path.is_file(), "legacy tool mode policy source still exists"
+    presentation_policy_path = (
+        PROJECT_ROOT / "mind_app" / "presentation" / "tool_policy.py"
+    )
+    assert not presentation_policy_path.is_file(), (
+        "legacy presentation tool policy source still exists"
+    )
 
-    legacy_modules = {"mind_app.runtime.tools.mode_policy"}
+    legacy_modules = {
+        "mind_app.runtime.tools.mode_policy",
+        "mind_app.presentation.tool_policy",
+    }
     violations: list[str] = []
     for path in PROJECT_ROOT.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
@@ -3358,6 +3367,7 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
         "plan.py",
         "progress.py",
         "run.py",
+        "tool_display.py",
         "tools.py",
     }
 
@@ -3779,6 +3789,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.agents.fork_context",
         "agent.application.views",
         "agent.application.views.contracts",
+        "agent.application.views.tool_display",
         "agent.application.config.settings",
         "agent.application.config.session_identity",
         "agent.domain.hooks",

@@ -23,7 +23,7 @@ from .common import (
     _trace_preview_from_lines
 )
 from agent.application.views import TraceEntry
-from mind_app.presentation.tool_policy import (
+from agent.application.views.tool_display import (
     NATIVE_TOOL_NAMES,
     ToolDisplayKind,
     tool_display_spec

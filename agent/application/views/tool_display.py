@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind™ ====
 
 import enum
 from dataclasses import dataclass
 
-from agent.domain.tool_policy import merges_tool_start_event
-
 
 class ToolDisplayKind(enum.Enum):
-    """描述原生工具在共享展示层中的内容类型。"""
+    """描述工具结果在共享展示层中的内容类型。"""
+
     GENERIC = "generic"
     SHELL = "shell"
     STDIN = "stdin"
@@ -18,8 +16,9 @@ class ToolDisplayKind(enum.Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class ToolDisplaySpec(object):
+class ToolDisplaySpec:
     """描述工具展示和历史记录所需的稳定策略。"""
+
     kind: ToolDisplayKind
     two_stage: bool = False
     source_field: str | None = None
@@ -61,24 +60,18 @@ NATIVE_TOOL_NAMES = frozenset(
 
 def tool_display_spec(name: str) -> ToolDisplaySpec:
     """返回工具在展示、历史和交互层共用的策略。"""
+
     normalized = str(name or "").strip()
     return _TOOL_DISPLAY_SPECS.get(normalized, _GENERIC_SPEC)
 
 
 def is_two_stage_tool(name: str) -> bool:
     """判断工具是否需要分别记录开始和完成阶段。"""
+
     return tool_display_spec(name).two_stage
 
 
 def tool_status_text(name: str) -> str | None:
     """返回工具执行期间使用的状态文本。"""
+
     return tool_display_spec(name).status_text
-
-
-def is_approval_only_tool(name: str) -> bool:
-    """判断工具是否只通过专用审批表面反馈结果。"""
-    return str(name or "").strip() == "request_permissions"
-
-
-if __name__ == '__main__':
-    pass

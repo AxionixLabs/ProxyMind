@@ -43,7 +43,7 @@ from agent.application.hooks.models import (
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from mind_app.presentation.stream.tool_traces import coding_trace_tool
-from mind_app.presentation.tool_policy import (
+from agent.application.views.tool_display import (
     is_two_stage_tool,
     tool_status_text
 )

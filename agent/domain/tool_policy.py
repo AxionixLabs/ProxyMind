@@ -52,6 +52,12 @@ def merges_tool_start_event(name: str) -> bool:
     return str(name or "").strip() != "js_repl"
 
 
+def is_approval_only_tool(name: str) -> bool:
+    """判断工具是否只通过专用审批表面反馈结果。"""
+
+    return str(name or "").strip() == "request_permissions"
+
+
 def filter_mode_tools(
     mode: ToolFilterMode | None,
     tools: list[dict[str, typing.Any]]

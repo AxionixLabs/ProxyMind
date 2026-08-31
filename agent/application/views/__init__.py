@@ -50,6 +50,14 @@ from .tools import (
     TraceEntry,
     TracePreview,
 )
+from .tool_display import (
+    NATIVE_TOOL_NAMES,
+    ToolDisplayKind,
+    ToolDisplaySpec,
+    is_two_stage_tool,
+    tool_display_spec,
+    tool_status_text,
+)
 
 __all__ = (
     "ApprovalDecision",
@@ -69,6 +77,7 @@ __all__ = (
     "HookViewStatus",
     "LifecycleView",
     "NativeToolResultView",
+    "NATIVE_TOOL_NAMES",
     "PatchAction",
     "PatchDiagnosticView",
     "PatchFileView",
@@ -87,6 +96,11 @@ __all__ = (
     "RunIncompleteView",
     "RunStartedView",
     "ToolStartView",
+    "ToolDisplayKind",
+    "ToolDisplaySpec",
     "TraceEntry",
     "TracePreview",
+    "is_two_stage_tool",
+    "tool_display_spec",
+    "tool_status_text",
 )

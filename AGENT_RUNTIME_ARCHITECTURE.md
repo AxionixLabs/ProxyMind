@@ -248,7 +248,8 @@ agent/
 │   │   ├── patch.py          # 补丁差异和诊断视图
 │   │   ├── approval.py       # 审批结果视图
 │   │   ├── hooks.py          # Hook 生命周期和输出视图
-│   │   └── progress.py       # 工具进度视图
+│   │   ├── progress.py       # 工具进度视图
+│   │   └── tool_display.py   # 工具展示分类和阶段策略
 │   ├── config/              # 应用启动设置和本地身份
 │   │   ├── settings.py      # Harness 并发和可选能力的启动时设置
 │   │   └── session_identity.py # 远端坐标到本地 Session 身份的确定性派生
@@ -562,7 +563,7 @@ running -> cancelled
 | `mind_app/history/contracts.py`（已删除） | `agent/ports/transcript.py` | TranscriptSink 是 runtime、Hook、执行器和历史 writer 共享的最小写入端口；端口不依赖旧包或基础设施 |
 | `mind_app/history/transcript.py` 中的 `TranscriptEntry`、`TranscriptReplay` | `agent/stores/transcripts/records.py`、`replay.py` | 共享记录值和事件归约器不依赖本地文件、观测或展示；工具归并策略由 `agent.domain.tool_policy` 提供 |
 | `mind_app/history/transcript.py`（已删除） | `infrastructure/persistence/transcripts.py` | JSONL Reader/Writer、Session 日期路径、编码和损坏记录观测属于基础设施；实现依赖 `agent` 的记录值与 Sink 端口，不反向依赖旧应用 |
-| `mind_app/presentation/tool_policy.py::merges_tool_start_event` | `agent/domain/tool_policy.py` | 工具开始/完成事件是否合并是跨历史归约与运行时的稳定领域策略；展示模块只保留 ToolDisplaySpec 和渲染分类，不重复定义该规则 |
+| `mind_app/presentation/tool_policy.py` | `agent/domain/tool_policy.py`、`agent/application/views/tool_display.py` | 工具过滤和 `is_approval_only_tool` 属于领域规则；`ToolDisplayKind`、`ToolDisplaySpec` 和 renderer 分类归应用 view policy；旧 presentation policy 文件删除，不保留兼容 facade |
 | `mind_app/history/store.py`（已删除） | `agent/stores/sessions/history.py` | Session 游标和待分支请求是独立持久状态；存储只接收显式 `db_path`，CLI/Controller 在组合边界注入运行时路径，stores 不读取基础设施配置 |
 | `agent/stores/effects/journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `agent/stores/effects/journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |
 | `agent/stores/runs/store.py`、`schema.py`、`records.py` | `agent/stores/runs/` 的事务切片 | 已原子提交事件、快照、outbox 和最终事实；只有出现独立生命周期或规模压力时再物理拆 store，避免单次转发 facade |

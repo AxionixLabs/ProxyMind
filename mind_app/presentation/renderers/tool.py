@@ -9,7 +9,7 @@ from mind_app.presentation.stream.tool_traces.native import (
     render_tool_trace
 )
 from mind_app.presentation.stream.tool_traces.render import render_tool_trace_parts
-from ..tool_policy import (
+from agent.application.views.tool_display import (
     ToolDisplayKind,
     tool_display_spec
 )

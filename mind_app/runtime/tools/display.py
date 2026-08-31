@@ -10,7 +10,7 @@ from mind_app.presentation.tool_views import (
     build_native_tool_result_view,
     build_tool_start_view
 )
-from mind_app.presentation.tool_policy import is_approval_only_tool
+from agent.domain.tool_policy import is_approval_only_tool
 from .plan_steps import PlanExecutionReport
 from .run import ToolRunResult
 

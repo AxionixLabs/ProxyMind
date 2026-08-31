@@ -115,6 +115,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `views/contracts.py`，纯文本原语继续归 `agent/ports/presentation.py`。旧
   `mind_app.presentation.models` 与 `contracts` 已物理删除，renderer、output、runtime
   和 TUI adapter 均改用新边界。
+- 工具展示策略已拆分：`agent/domain/tool_policy.py` 持有工具过滤和审批专用判定，
+  `agent/application/views/tool_display.py` 持有展示分类、阶段和状态文案；旧
+  `mind_app.presentation.tool_policy` 已删除，runtime、renderer、TUI 和测试不再依赖旧路径。
 
 ### 最新证据
 
@@ -224,7 +227,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
       view 已按语义拆入 `agent/application/views`，前端和运行侧只依赖显式契约，交互和
       输出生命周期未混入 ports。下一切片补齐四类入口独立启动/恢复证据，并开始迁移
       `mind_app.presentation` 的 renderer/stream 实现到前端或 application adapter，
-      继续保持 view 与具体终端渲染解耦。
+      继续保持 view 与具体终端渲染解耦。工具展示策略前置切片已完成，下一条只补齐
+      四类入口独立启动/恢复证据，再迁移具体 renderer/stream 实现。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -340,6 +344,16 @@ infrastructure reader；旧 `mind_app/runtime/subagents/context.py` 已删除，
 除允许模块清单漏登记外其余 `92 passed`，修正清单后专项守卫通过；`compileall` 和
 `git diff --check` 通过。完整守卫需在提交前重跑确认。
 
+下一切片工具展示策略的准入条件：展示分类值对象和工具规格只依赖标准库，审批判定属于
+`agent.domain.tool_policy`；runtime、renderer、TUI 和测试统一切换，旧
+`mind_app.presentation.tool_policy` 可物理删除，且不得新增旧路径 facade。关键失败路径
+是未知工具回退通用规格、审批专用工具判定和工具过滤模式保持现有语义；删除条件为旧文件与
+生产导入清零，并通过工具策略、渲染、TUI 回归、架构守卫、导入图和 `compileall`。
+
+本次工具展示策略切片已满足上述条件：工具策略/渲染回归 `123 passed`，Run/TUI/输出回归
+`544 passed`，完整架构守卫 `93 passed, 60 warnings`，导入图、`compileall` 和
+`git diff --check` 均通过；旧 `mind_app.presentation.tool_policy` 文件和生产导入清零。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -431,3 +445,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 将跨入口应用展示端口迁入 `agent/ports/presentation.py`，清除 `mind_app.presentation.application` 的旧定义和生产导入 | 展示/CLI/TUI 回归 `704 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 `TextStyle`、`TextSpan`、`StyledBlock` 三个纯展示值对象迁入 `agent/ports/presentation.py`，清除 `mind_app.presentation.models` 的旧定义和生产导入 | 文本/渲染/输出/CLI/TUI 回归 `905 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将跨前端应用结果 view 按 Run、工具、计划、补丁、审批、Hook、进度拆入 `agent/application/views`，迁移 `PresentationView/PresentationSink` 并删除旧 `mind_app.presentation.models/contracts` | 展示回归 `158 passed`；Run/TUI 回归 `512 passed`；架构守卫修正后专项通过；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将工具过滤/审批判定与展示分类拆分到 `agent.domain.tool_policy`、`agent.application.views.tool_display`，删除旧 `mind_app.presentation.tool_policy` | 工具策略/渲染回归 `123 passed`；Run/TUI/输出回归 `544 passed`；专项架构守卫、导入图、`compileall`、`git diff --check` 通过 |

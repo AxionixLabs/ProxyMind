@@ -13,7 +13,7 @@ from infrastructure.config.execution_policy_manager import ExecApprovalRequireme
 from mind_app.presentation.output import OutputStatusPort
 from mind_app.presentation.approval_views import build_approval_view
 from agent.application.views.contracts import PresentationSink
-from mind_app.presentation.tool_policy import is_approval_only_tool
+from agent.domain.tool_policy import is_approval_only_tool
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext

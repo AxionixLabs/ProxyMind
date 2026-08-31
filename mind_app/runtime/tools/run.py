@@ -20,7 +20,7 @@ from mind_app.runtime.mcp.tool_result import (
 )
 from mind_app.runtime.mcp.tool_store import meta_for_tool
 from agent.application.views.contracts import PresentationSink
-from mind_app.presentation.tool_policy import is_approval_only_tool
+from agent.domain.tool_policy import is_approval_only_tool
 from .enhancement import enhance_result
 from mind_app.presentation.output import OutputStatusPort
 from .enhance_reporter import ToolEnhanceReporter

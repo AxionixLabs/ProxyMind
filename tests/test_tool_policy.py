@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.presentation.tool_policy import (
+from agent.application.views.tool_display import (
     NATIVE_TOOL_NAMES,
     ToolDisplayKind,
     is_two_stage_tool,
-    merges_tool_start_event,
     tool_display_spec,
     tool_status_text,
 )
+from agent.domain.tool_policy import merges_tool_start_event
 
 
 def test_javascript_display_policy_is_shared_across_layers() -> None:
