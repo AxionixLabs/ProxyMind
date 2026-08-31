@@ -9,7 +9,7 @@ from mind_app.native_coding.base import NativeCodingBase
 from mind_app.native_coding.edit.patch_engine import PatchEngine
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.exec_command import ExecCommandTools
-from mind_app.native_coding.exec.process_session import ProcessSessionManager
+from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.sandbox import SandboxClient
 from mind_app.native_coding.exec.user_shell import UserShellExecution
 from mind_app.native_coding.exec.command_policy import CommandPolicy

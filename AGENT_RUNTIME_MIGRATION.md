@@ -98,6 +98,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - `ExecPolicyManager` 及其本地执行审批值对象已迁移至
   `infrastructure/config/execution_policy_manager.py`；`mind_app.native_coding.exec`
   不再导出策略管理器，规则解析/发现与编码工具组件的职责边界已固定。
+- `ProcessSessionManager`、`ProcessSession` 和 `ProcessSessionSpec` 已迁移至
+  `infrastructure/platform/process_sessions.py`；完整权限 capability、受限 Sandbox
+  sidecar、输出缓冲和回收状态不再由 `mind_app.native_coding.exec` 持有。
 
 ### 最新证据
 
@@ -114,6 +117,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `77 passed, 52 warnings`。
 - 策略迁移后的导入图、`compileall` 和 `git diff --check` 均通过；旧
   `mind_app.native_coding.exec.exec_policy` 文件及生产导入已清零。
+- 进程会话迁移定向回归：`58 passed`；平台所有权守卫：`2 passed`；导入图、
+  `compileall` 和 `git diff --check` 均通过，旧 `process_session` 文件和导入已清零。
 
 警告来自测试依赖的 Nuitka `glob2` 弃用转义，不属于本次生产代码失败；下次扩大验证时
 仍需记录是否发生变化。
@@ -122,9 +127,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 当前只允许进入以下顺序，不以补丁式需求插队：
 
-1. **历史副作用适配器退役**：Helix 与执行策略子切片已完成；继续按完整权限进程、Sandbox
-   sidecar、根轮次 executor 的真实消费者逐项接入 capability/application，完成后删除旧调用
-   路径和 `engine` 模块。
+1. **历史副作用适配器退役**：Helix、执行策略和进程会话子切片已完成；继续收束 Sandbox
+   sidecar 的组合注入，再迁移根轮次 executor 的真实消费者，完成后删除旧调用路径和
+   `engine` 模块。
 2. **入口与数据迁移**：将 `mind_core` 的配置、权限、hooks、skills 按职责落位；在
    CLI、TUI、MCP、Subscription 均有独立启动/恢复证据后再迁移 `frontends/`。
 3. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
@@ -199,3 +204,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-08-31 | 将本计划精简为当前状态与交接入口，完整切片历史移入归档 | 主计划与归档链接可访问，状态权威仍为本文件 |
 | 2026-08-31 | 将 `ServerManageHelixCapability` 迁入 `infrastructure/services`，删除 `mind_app` 旧实现和导入 | 生命周期 `6 passed`；架构 `77 passed, 52 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 `ExecPolicyManager` 迁入 `infrastructure/config`，删除 `mind_app/native_coding/exec/exec_policy.py` 和旧导出 | 全量行为 `3037 passed, 11 skipped, 52 warnings`；架构 `77 passed, 52 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-08-31 | 将本地多后端 `ProcessSessionManager` 迁入 `infrastructure/platform`，删除 native coding 旧实现和导入 | 会话/TUI Shell `58 passed`；架构守卫 `2 passed`；导入图、`compileall`、`git diff --check` 通过 |

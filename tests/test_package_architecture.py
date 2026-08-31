@@ -860,8 +860,14 @@ def test_command_safety_has_platform_ownership() -> None:
 
 def test_process_execution_substrate_has_platform_ownership() -> None:
     """确保进程捕获、解码、沙箱 sidecar 和 shell 解析由平台基础设施持有。"""
+    process_sessions = (
+        PROJECT_ROOT / "infrastructure" / "platform" / "process_sessions.py"
+    )
+    assert process_sessions.is_file(), "platform process session manager is missing"
+
     legacy_paths = (
         PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "process_capture.py",
+        PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "process_session.py",
         PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "output_decoder.py",
         PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "sandbox_client.py",
         PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "shell_runtime.py",
@@ -878,6 +884,7 @@ def test_process_execution_substrate_has_platform_ownership() -> None:
     legacy_prefix = "mind_app.native_coding.exec."
     legacy_modules = {
         f"{legacy_prefix}process_capture",
+        f"{legacy_prefix}process_session",
         f"{legacy_prefix}output_decoder",
         f"{legacy_prefix}sandbox_client",
         f"{legacy_prefix}shell_runtime",

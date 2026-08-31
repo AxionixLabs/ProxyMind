@@ -9,7 +9,7 @@ import pytest
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.native_coding import NativeCoding
-from mind_app.native_coding.exec.process_session import ProcessSessionManager
+from infrastructure.platform.process_sessions import ProcessSessionManager
 from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.interrupt import InterruptDisposition
 from mind_app.tui.core.runtime import TuiRuntime
@@ -725,7 +725,7 @@ async def test_process_session_manager_stops_all_running_sessions() -> None:
         process.returncode = -15
 
     with patch(
-        "mind_app.native_coding.exec.process_session."
+        "infrastructure.platform.process_sessions."
         "terminate_process_tree",
         side_effect=terminate,
     ):

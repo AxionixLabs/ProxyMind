@@ -7,7 +7,7 @@ from infrastructure.platform.sandbox import (
     _SidecarStream,
     sandbox_backend_name,
 )
-from mind_app.native_coding.exec.process_session import (
+from infrastructure.platform.process_sessions import (
     ProcessSessionManager,
     ProcessSessionSpec,
 )

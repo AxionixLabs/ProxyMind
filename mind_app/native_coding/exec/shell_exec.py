@@ -17,7 +17,7 @@ from infrastructure.platform.process_capture import (
     CapturedOutputLine,
     CapturedProcessResult
 )
-from mind_app.native_coding.exec.process_session import (
+from infrastructure.platform.process_sessions import (
     ProcessSessionManager,
     ProcessSessionSpec
 )

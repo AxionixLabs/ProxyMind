@@ -12,7 +12,7 @@ from infrastructure.platform.processes import (
     terminate_process_tree,
     wait_for_process
 )
-from mind_app.native_coding.exec.process_session import (
+from infrastructure.platform.process_sessions import (
     ProcessSession as ExecSession,
     ProcessSessionManager,
     ProcessSessionSpec
