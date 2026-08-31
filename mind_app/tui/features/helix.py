@@ -16,8 +16,8 @@ from mind_app.presentation.models import (
     StyledBlock,
     TextSpan
 )
+from infrastructure.services.runtime_context import ServiceRuntimeContext
 from mind_app.runtime.mcp.service_runtime import (
-    ServiceRuntimeContext,
     ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
     service_runtime_asset_missing

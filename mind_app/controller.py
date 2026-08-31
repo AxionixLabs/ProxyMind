@@ -37,7 +37,7 @@ from observability import (
     observe_exception
 )
 from .interaction.attachments import Attach
-from .runtime.mcp.service_lifecycle import ServiceRuntimeOwner
+from infrastructure.services.runtime_owner import ServiceRuntimeOwner
 from protocol.client.reports import EventReportRuntimeOwner
 from .interaction import (
     ConversationState,

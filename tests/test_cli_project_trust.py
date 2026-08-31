@@ -22,7 +22,7 @@ from mind_app.presentation.application_sinks import (
     JsonApplicationSink,
 )
 from mind_app.presentation.application import ApplicationView
-from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
+from infrastructure.services.runtime_context import ServiceRuntimeSpec
 from agent.harness.hooks.registry import HookRegistry
 from mind_app.tui.adapters.hooks import TuiHookStatusAdapter
 from mind_app.tui.core.runtime import TuiRuntime

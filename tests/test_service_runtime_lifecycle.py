@@ -9,8 +9,8 @@ import pytest
 from infrastructure.errors import AppError
 from infrastructure.services import helix_capability
 from infrastructure.services.helix_capability import ServerManageHelixCapability
-from mind_app.runtime.mcp import service_lifecycle
-from mind_app.runtime.mcp.service_lifecycle import ServiceRuntimeOwner
+from infrastructure.services import runtime_owner
+from infrastructure.services.runtime_owner import ServiceRuntimeOwner
 
 
 @pytest.mark.anyio
@@ -74,7 +74,7 @@ async def test_service_runtime_owner_stop_preserves_bound_manager(
     async def terminate(port: int) -> None:
         terminated.append(port)
 
-    monkeypatch.setattr(service_lifecycle, "terminate_port_process", terminate)
+    monkeypatch.setattr(runtime_owner, "terminate_port_process", terminate)
 
     await owner.stop()
 
@@ -102,7 +102,7 @@ async def test_service_runtime_owner_reboots_and_restores_keepalive(
     )
     owner = ServiceRuntimeOwner()
     owner.bind(manager, SimpleNamespace())
-    monkeypatch.setattr(service_lifecycle, "run_keepalive", keepalive)
+    monkeypatch.setattr(runtime_owner, "run_keepalive", keepalive)
 
     await owner.reboot()
     await keepalive_started.wait()
@@ -141,8 +141,8 @@ async def test_service_runtime_owner_closes_keepalive_before_manager(
     owner = ServiceRuntimeOwner()
     owner.bind(manager, SimpleNamespace())
     owner.request_termination_on_close()
-    monkeypatch.setattr(service_lifecycle, "run_keepalive", keepalive)
-    monkeypatch.setattr(service_lifecycle, "terminate_port_process", terminate)
+    monkeypatch.setattr(runtime_owner, "run_keepalive", keepalive)
+    monkeypatch.setattr(runtime_owner, "terminate_port_process", terminate)
 
     owner.start_keepalive()
     await keepalive_started.wait()

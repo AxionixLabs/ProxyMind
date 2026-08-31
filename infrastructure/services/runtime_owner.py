@@ -12,10 +12,8 @@ from observability import (
     observe_exception,
 )
 from infrastructure.platform.ports import terminate_port_process
+from infrastructure.services.runtime_context import ServiceRuntimeContext
 from .keepalive import run_keepalive
-
-if typing.TYPE_CHECKING:
-    from .service_runtime import ServiceRuntimeContext
 
 ServiceStartupOperation = typing.Callable[[], typing.Awaitable[bool]]
 

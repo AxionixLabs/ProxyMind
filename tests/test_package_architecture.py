@@ -849,14 +849,17 @@ def test_mcp_lifecycle_owner_is_harness_owned() -> None:
 
 
 def test_helix_lifecycle_adapter_is_owned_by_infrastructure() -> None:
-    """确保具体 Helix 生命周期适配器不再由 mind_app 运行时持有。"""
+    """确保服务生命周期和具体 Helix capability 均由 infrastructure 持有。"""
     adapter_path = PROJECT_ROOT / "infrastructure" / "services" / "helix_capability.py"
+    owner_path = PROJECT_ROOT / "infrastructure" / "services" / "runtime_owner.py"
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "service_lifecycle.py"
 
     assert adapter_path.is_file(), "Helix lifecycle adapter is missing"
-    legacy_source = legacy_path.read_text(encoding="utf-8-sig")
-    assert "class ServerManageHelixCapability" not in legacy_source
-    assert "infrastructure.services.helix_capability" not in legacy_source
+    assert owner_path.is_file(), "service runtime owner is missing"
+    assert not legacy_path.is_file(), "legacy service runtime owner still exists"
+    owner_source = owner_path.read_text(encoding="utf-8-sig")
+    assert "class ServiceRuntimeOwner" in owner_source
+    assert "mind_app" not in owner_source
 
     violations: list[str] = []
     for path in PROJECT_ROOT.rglob("*.py"):
@@ -865,12 +868,9 @@ def test_helix_lifecycle_adapter_is_owned_by_infrastructure() -> None:
             if isinstance(node, ast.ImportFrom) and node.level == 0:
                 module = node.module or ""
                 if module == "mind_app.runtime.mcp.service_lifecycle":
-                    imported_names = {alias.name for alias in node.names}
-                    if "ServerManageHelixCapability" in imported_names:
-                        violations.append(
-                            f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> "
-                            "ServerManageHelixCapability"
-                        )
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}"
+                    )
 
     assert not violations, "legacy Helix adapter imports remain:\n" + "\n".join(
         violations

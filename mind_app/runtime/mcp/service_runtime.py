@@ -8,7 +8,6 @@ import time
 import typing
 import asyncio
 from pathlib import Path
-from dataclasses import dataclass
 from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.services.server_manager import ServerManage
 from infrastructure.platform.terminal import Terminal
@@ -22,30 +21,14 @@ from observability import (
     observe_exception
 )
 from agent.domain.tool_policy import ToolFilterMode
+from infrastructure.services.runtime_context import (
+    ServiceRuntimeContext,
+    ServiceRuntimeSpec,
+)
 from .service_exec_env import fetch_service_exec_env
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
-
-
-@dataclass(frozen=True, slots=True)
-class ServiceRuntimeSpec:
-    """描述本地服务运行时的路径和启动命令。"""
-    supports: str
-    executable: str
-    launch_command: list[str]
-    path_entries: tuple[str, ...]
-    working_directory: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ServiceRuntimeContext:
-    """描述服务运行时在当前入口下的准备参数。"""
-    spec: ServiceRuntimeSpec
-    platform: str
-    packaged: bool
-    env_symbol: str
-    app_desc: str
 
 
 def runtime_status(server_manager: ServerManage | None) -> str:

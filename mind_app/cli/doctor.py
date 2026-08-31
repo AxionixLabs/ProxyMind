@@ -23,10 +23,8 @@ from infrastructure.config.runtime_paths import (
     mind_config_path,
     mind_home
 )
-from mind_app.runtime.mcp.service_runtime import (
-    ServiceRuntimeSpec,
-    resolve_service_runtime
-)
+from infrastructure.services.runtime_context import ServiceRuntimeSpec
+from mind_app.runtime.mcp.service_runtime import resolve_service_runtime
 from infrastructure.config.schema import (
     ConfigOverride
 )

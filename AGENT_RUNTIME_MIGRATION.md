@@ -147,6 +147,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   已切换到 `agent/harness/mcp`，只依赖端口和显式工厂，旧
   `mind_app.runtime.mcp.lifecycle` 路径与导入已清零；取消关闭仍等待 stop 清理完成；
   完整架构守卫：`82 passed, 54 warnings`。
+- 本地服务生命周期迁移回归：`44 passed`；`ServiceRuntimeOwner`、keepalive 和服务上下文
+  已切换到 `infrastructure/services`，旧 `mind_app.runtime.mcp.service_lifecycle`、
+  `keepalive` 路径与生产导入已清零；服务停止、重启、保活取消和关闭顺序守卫通过；完整
+  架构守卫：`82 passed, 54 warnings`。
 
 警告来自测试依赖的 Nuitka `glob2` 弃用转义，不属于本次生产代码失败；下次扩大验证时
 仍需记录是否发生变化。
@@ -158,9 +162,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 1. **入口与数据迁移**：`mind_core` 的配置、权限、hooks、skills 已完成生产导入清零，
    终端轮次生命周期已迁入 `mind_app/presentation/terminal`；Hook 命令执行器已归属
    `infrastructure/platform`，Hook runtime/registry/Scope 已接入 `agent/harness/hooks`；
-   通用 MCP 生命周期所有者已迁入 `agent/harness/mcp`；下一条补齐 CLI、TUI、MCP、
-   Subscription 的独立启动/恢复证据，具体外部 MCP runtime 仍由后续 capability/adapters
-   切片接管，最后迁移 `frontends/`。
+   通用 MCP 生命周期所有者已迁入 `agent/harness/mcp`；本地服务生命周期 owner、keepalive
+   和上下文类型已迁入 `infrastructure/services`；下一条补齐 CLI、TUI、MCP、Subscription
+   的独立启动/恢复证据，具体外部 MCP runtime 仍由后续 capability/adapters 切片接管，
+   最后迁移 `frontends/`。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -170,6 +175,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 本次 MCP 生命周期切片的删除条件已满足：Harness 所有者不得导入 `mind_app` 或具体 MCP 实现；
 组合根必须显式注入 `ExternalMcpRuntime` 工厂；旧 `mind_app.runtime.mcp.lifecycle`
 文件、导入和默认隐式构造全部清零，并以启动、重启、取消清理回归证明行为保持一致。
+
+本次服务生命周期切片的删除条件已满足：`ServiceRuntimeOwner`、keepalive 和服务上下文类型不得
+依赖 `mind_app`；服务停止、重启、保活取消和关闭顺序由 infrastructure 单一实现持有；
+旧 `mind_app.runtime.mcp.service_lifecycle`、`keepalive` 路径及生产导入清零，并保留
+Helix/TUI 启动与取消清理回归。
 
 ## 过渡入口与删除条件
 
@@ -245,3 +255,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-08-31 | 将 HookRuntime/HookRegistry 迁入 `agent/harness/hooks`，移除 Harness 对平台执行器的直接导入并由组合根注入资源 | Hook/入口/Turn 回归 `413 passed`；完整架构 `81 passed, 53 warnings`；Harness 边界与旧路径守卫、导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 HookExecutionScope 迁入 `agent/harness/hooks/scope.py`，保留 application context 为纯输入契约并清除 runtime 旧路径 | Hook/Turn/Subagent/TUI 回归 `308 passed, 1 warning`；完整架构 `81 passed, 53 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将通用 `McpRuntimeOwner` 迁入 `agent/harness/mcp`，以 `McpRuntime` 端口和组合根工厂管理外部 MCP 生命周期 | MCP/TUI/server 回归 `36 passed`；MCP 所有权守卫 `3 passed`；完整架构 `82 passed, 54 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-08-31 | 将 `ServiceRuntimeOwner`、keepalive 和服务上下文类型迁入 `infrastructure/services`，删除 runtime 旧生命周期实现 | 服务/CLI/TUI 回归 `44 passed`；完整架构 `82 passed, 54 warnings`；导入图、`compileall`、`git diff --check` 通过 |

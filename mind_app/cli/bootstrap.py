@@ -52,9 +52,11 @@ from ..presentation.models import (
 from observability.reporting import RunReport
 from infrastructure.platform.shell_tools import route_shell_tools
 from infrastructure.platform.workspace_context import fetch_runtime_workspace_root
-from ..runtime.mcp.service_runtime import (
+from infrastructure.services.runtime_context import (
     ServiceRuntimeContext,
     ServiceRuntimeSpec,
+)
+from ..runtime.mcp.service_runtime import (
     ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
     resolve_service_runtime

@@ -13,7 +13,7 @@ from mind_app.cli.doctor import (
     DoctorReport,
     diagnose,
 )
-from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
+from infrastructure.services.runtime_context import ServiceRuntimeSpec
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.hooks.discovery import HOOKS_FILE_NAME
 from infrastructure.config.store import ConfigStore
