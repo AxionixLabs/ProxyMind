@@ -22,7 +22,7 @@ from protocol.schema.stream_events import (
     TurnLogicalSettledEvent
 )
 from protocol.schema.turn_inputs import TurnInput
-from ...runtime.execution import TurnContext
+from agent.application.execution import TurnContext
 from ..core.queued import TuiSubmission
 from ..runtime.ports import TurnInputRuntimePort
 from .steer_ledger import PendingSteerLedger

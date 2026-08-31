@@ -11,7 +11,7 @@ from mind_app.native_coding.exec.exec_policy import (
     ExecPolicyManager,
     validate_sandbox_permission_arguments,
 )
-from mind_app.runtime.execution import (
+from agent.application.execution import (
     ToolInvocation,
     TurnContext,
 )

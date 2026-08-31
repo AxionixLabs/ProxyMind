@@ -8,7 +8,7 @@ import pytest
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.history.transcript import TranscriptWriter
-from mind_app.runtime.execution import AgentContext
+from agent.application.execution import AgentContext
 from mind_app.runtime.subagents.control import AgentSnapshot
 from mind_app.runtime.subagents.thread import AgentThreadContext
 from mind_app.tui.core.models import (

@@ -32,7 +32,7 @@ from mind_app.presentation.output import (
     OutputStatusPort
 )
 from mind_app.presentation.contracts import PresentationSink
-from mind_app.runtime.execution import (
+from agent.application.execution import (
     ToolInvocation,
     TurnContext
 )

@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from mind_app.runtime.execution import AgentContext, TurnContext
+from agent.application.execution import AgentContext, TurnContext
 from mind_app.runtime.subagents import delivery as delivery_module
 from mind_app.runtime.subagents.delivery import (
     AgentActiveTurn,

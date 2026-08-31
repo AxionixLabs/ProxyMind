@@ -7,7 +7,7 @@ from mind_app.runtime.mcp.tool_result import (
     normalize_call_tool_result,
     normalize_tool_fields,
 )
-from mind_app.runtime.execution import AgentContext, ToolInvocation, TurnContext
+from agent.application.execution import AgentContext, ToolInvocation, TurnContext
 from mind_app.runtime.tools.run import (
     run_tool_step,
     server_tool_output_result,

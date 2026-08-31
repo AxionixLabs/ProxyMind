@@ -14,7 +14,7 @@ from mind_app.presentation.output import (
     SessionFactory,
 )
 from mind_app.interaction.environment import capture_turn_environment
-from mind_app.runtime.execution import TurnContext
+from agent.application.execution import TurnContext
 from mind_app.runtime.hooks.presentation import HookPresentationAdapter
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from .executor import TurnExecution

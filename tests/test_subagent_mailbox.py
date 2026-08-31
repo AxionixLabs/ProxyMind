@@ -2,7 +2,7 @@
 
 import pytest
 
-from mind_app.runtime.execution import AgentContext
+from agent.application.execution import AgentContext
 from mind_app.runtime.subagents.mailbox import (
     AgentMailboxStore,
     MAX_MAILBOX_CONTEXT_CHARS,

@@ -8,7 +8,7 @@ import functools
 from dataclasses import dataclass
 from mcp import types as mcp_types
 from mind_app.runtime.mcp.contracts import McpSessionLike
-from mind_app.runtime.execution import ToolInvocation
+from agent.application.execution import ToolInvocation
 from protocol.schema.tool_approval import (
     TOOL_LIFECYCLE_STATUSES,
     ToolLifecycleStatus,

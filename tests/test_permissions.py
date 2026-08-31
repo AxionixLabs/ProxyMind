@@ -23,7 +23,7 @@ from mind_app.client_tools.coding.native import (
     coding_tools,
 )
 from mind_app.client_tools.types import ClientToolRuntime
-from mind_app.runtime.execution import (
+from agent.application.execution import (
     AgentContext,
     ToolInvocation,
     TurnContext,

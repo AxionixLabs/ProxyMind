@@ -11,7 +11,7 @@ from mind_app.client_tools.planning import (
     planning_tools,
 )
 from mind_app.runtime.tools.plan_steps import StepPlanExecutor
-from mind_app.runtime.execution import AgentContext, TurnContext
+from agent.application.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import (
     HookExecutionContext,

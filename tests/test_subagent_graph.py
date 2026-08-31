@@ -7,7 +7,7 @@ from dataclasses import replace
 
 import pytest
 
-from mind_app.runtime.execution import AgentContext, TurnContext
+from agent.application.execution import AgentContext, TurnContext
 from mind_app.runtime.subagents.control import (
     AgentControl,
     AgentGraphCheckpoint,

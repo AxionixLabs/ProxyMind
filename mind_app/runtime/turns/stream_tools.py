@@ -14,7 +14,7 @@ from mind_app.presentation.output import OutputStatusPort
 from mind_app.presentation.approval_views import build_approval_view
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.tool_policy import is_approval_only_tool
-from mind_app.runtime.execution import (
+from agent.application.execution import (
     ToolInvocation,
     TurnContext
 )

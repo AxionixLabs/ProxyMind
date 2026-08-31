@@ -8,7 +8,7 @@ from mind_app.client_tools.types import (
 )
 from mind_app.runtime.mcp.contracts import McpSessionLike
 from mind_app.runtime.mcp.tool_store import has_tool
-from mind_app.runtime.execution import ToolInvocation
+from agent.application.execution import ToolInvocation
 from mcp.types import CallToolResult
 from ..mcp.tool_progress import (
     emit_tool_progress,

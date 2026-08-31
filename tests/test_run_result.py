@@ -36,7 +36,7 @@ from mind_app.presentation.models import (
     RunIncompleteView,
 )
 from mind_app.runtime.mcp import tool_runtime
-from mind_app.runtime.execution import (
+from agent.application.execution import (
     AgentContext,
     ToolInvocation,
     TurnContext,

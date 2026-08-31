@@ -6,7 +6,7 @@ import pytest
 
 from agent.application import PermissionSettings
 from protocol.schema.identifiers import new_cid, new_sid
-from mind_app.runtime.execution import AgentContext
+from agent.application.execution import AgentContext
 from mind_app.runtime.subagents.control import (
     AgentControl,
     AgentDepthError,

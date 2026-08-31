@@ -11,7 +11,7 @@ from .contracts import McpSessionLike
 from .status import should_reraise_external
 
 if typing.TYPE_CHECKING:
-    from mind_app.runtime.execution import TurnContext
+    from agent.application.execution import TurnContext
 
 
 class CompositeToolSession(McpSessionLike):

@@ -2,7 +2,7 @@
 
 import pytest
 
-from mind_app.runtime.execution import (
+from agent.application.execution import (
     ROOT_AGENT_ID,
     ROOT_AGENT_TYPE,
     AgentContext,

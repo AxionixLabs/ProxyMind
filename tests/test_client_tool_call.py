@@ -18,7 +18,7 @@ from agent.application import (
 )
 from agent.composition import open_effect_journal
 
-from mind_app.runtime.execution import (
+from agent.application.execution import (
     AgentContext,
     ToolInvocation,
     TurnContext,

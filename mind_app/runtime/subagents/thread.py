@@ -12,7 +12,7 @@ from protocol.schema.identifiers import (
     new_sid
 )
 from mind_app.history.ids import valid_session_ids
-from mind_app.runtime.execution import (
+from agent.application.execution import (
     AgentContext,
     TurnContext
 )

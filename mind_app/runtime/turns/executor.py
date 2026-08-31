@@ -19,7 +19,7 @@ from observability import (
 from protocol.transport.events import EventReport
 from protocol.schema.identifiers import short_uid
 from mind_app.history.contracts import TranscriptSink
-from mind_app.runtime.execution import TurnContext
+from agent.application.execution import TurnContext
 from protocol.client.reports import (
     EventReportLifetime,
     TurnEventReportHandle,

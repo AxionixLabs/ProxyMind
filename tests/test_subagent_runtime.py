@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent.application import RunResult
-from mind_app.runtime.execution import (
+from agent.application.execution import (
     AgentContext,
     TurnContext,
 )

@@ -13,7 +13,7 @@ from protocol.client.compact import (
     build_compact_payload,
     stream_compact_events
 )
-from .execution import AgentContext
+from agent.application.execution import AgentContext
 from .hooks.compact import (
     CompactHookBlockedError,
     CompactHookEvents

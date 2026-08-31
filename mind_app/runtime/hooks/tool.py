@@ -10,7 +10,7 @@ from dataclasses import (
     dataclass,
     replace,
 )
-from mind_app.runtime.execution import ToolInvocation
+from agent.application.execution import ToolInvocation
 from mind_app.history.contracts import TranscriptSink
 from metadata import const
 from agent.domain.hook_matching import hook_tool_name

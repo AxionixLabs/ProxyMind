@@ -12,7 +12,7 @@ import pytest
 import mind_app.runtime.hooks.command as hook_command_module
 import mind_app.runtime.hooks.runtime as hook_runtime_module
 
-from mind_app.runtime.execution import (
+from agent.application.execution import (
     AgentContext,
     ToolInvocation,
     TurnContext

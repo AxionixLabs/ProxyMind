@@ -5,7 +5,7 @@ import typing
 
 if typing.TYPE_CHECKING:
     from mcp import types as mcp_types
-    from mind_app.runtime.execution import TurnContext
+    from agent.application.execution import TurnContext
 
 
 class McpSessionLike(typing.Protocol):

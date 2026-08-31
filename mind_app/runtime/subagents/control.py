@@ -8,7 +8,7 @@ from collections import deque
 from dataclasses import dataclass
 from observability import observe_exception
 from protocol.schema.identifiers import short_uid
-from mind_app.runtime.execution import AgentContext
+from agent.application.execution import AgentContext
 from mind_app.runtime.subagents.mailbox import (
     AgentMailboxEvent,
     AgentMailboxSnapshot,

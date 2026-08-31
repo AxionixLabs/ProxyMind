@@ -10,7 +10,7 @@ from mind_app.builtin_tools import BuiltinTool, BuiltinToolRegistry
 from mind_app.client_tools.registry import ClientToolRegistry
 from mind_app.client_tools.types import ClientTool
 from mind_app.runtime.mcp.session_adapter import CompositeToolSession
-from mind_app.runtime.execution import (
+from agent.application.execution import (
     AgentContext,
     TurnContext,
 )

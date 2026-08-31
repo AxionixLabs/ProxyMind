@@ -9,7 +9,7 @@ from agent.application import AgentSettings, RunResult
 from infrastructure.skills import skills_payload
 from protocol.transport.events import EventReport
 from mind_app.runtime.mcp.contracts import McpSessionLike
-from mind_app.runtime.execution import (
+from agent.application.execution import (
     AgentContext,
     TurnContext
 )

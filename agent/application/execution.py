@@ -4,19 +4,19 @@
 import typing
 from dataclasses import (
     dataclass,
-    replace
+    replace,
 )
 from protocol.schema.stream_events import ExecutionEffect
-from agent.application import PermissionSettings
+from agent.domain.policies import PermissionSettings
 from protocol.schema.identifiers import (
     normalize_turn_id,
-    short_uid
+    short_uid,
 )
 
 if typing.TYPE_CHECKING:
     from agent.stores.permission_grants import PermissionGrantStore
 
-ROOT_AGENT_ID   = "root"
+ROOT_AGENT_ID = "root"
 ROOT_AGENT_TYPE = "root"
 
 
@@ -33,11 +33,11 @@ class AgentContext:
 
     def __post_init__(self) -> None:
         """校验执行主体身份和层级关系。"""
-        agent_id        = str(self.agent_id or "").strip()
-        agent_type      = str(self.agent_type or "").strip()
+        agent_id = str(self.agent_id or "").strip()
+        agent_type = str(self.agent_type or "").strip()
         root_session_id = str(self.root_session_id or "").strip()
-        task_name       = str(self.task_name or "").strip().casefold()
-        task_path       = str(self.task_path or "").strip()
+        task_name = str(self.task_name or "").strip().casefold()
+        task_path = str(self.task_path or "").strip()
         parent_agent_id = str(self.parent_agent_id or "").strip()
 
         if not agent_id:
@@ -108,7 +108,7 @@ class AgentContext:
         """创建继承根会话和父级关系的子执行主体。"""
         normalized_type = str(agent_type or "").strip()
         normalized_name = str(task_name or "").strip().casefold()
-        normalized_id   = str(agent_id or "").strip() or short_uid(12)
+        normalized_id = str(agent_id or "").strip() or short_uid(12)
 
         if not normalized_type:
             raise ValueError("child agent type is required")
@@ -187,8 +187,8 @@ class TurnContext:
         session_start_reason: str = ""
     ) -> "TurnContext":
         """从会话与运行配置创建轮次上下文。"""
-        normalized_cid     = str(cid or "").strip()
-        normalized_sid     = str(sid or "").strip()
+        normalized_cid = str(cid or "").strip()
+        normalized_sid = str(sid or "").strip()
 
         normalized_turn_id = normalize_turn_id(
             str(turn_id or "").strip() or short_uid(12)
@@ -201,7 +201,7 @@ class TurnContext:
             raise ValueError("agent root session does not match turn session")
 
         primary = pref_config.get("primary") if isinstance(pref_config, dict) else None
-        model   = str(primary.get("model") or "").strip() if isinstance(primary, dict) else ""
+        model = str(primary.get("model") or "").strip() if isinstance(primary, dict) else ""
 
         return cls(
             agent=agent,

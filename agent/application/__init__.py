@@ -46,6 +46,11 @@ from .commands import (
 )
 from .compact_result import CompactResult
 from .environment import capture_environment_snapshot
+from .execution import (
+    AgentContext,
+    ToolInvocation,
+    TurnContext,
+)
 from agent.domain.policies import (
     PermissionPreset,
     PermissionSettings,
@@ -135,6 +140,9 @@ __all__ = (
     "SESSION_END_REASONS",
     "CompactOutcome",
     "CompactResult",
+    "AgentContext",
+    "ToolInvocation",
+    "TurnContext",
     "CompactResultSource",
     "CompactTriggerReason",
     "CompactTriggerSource",
