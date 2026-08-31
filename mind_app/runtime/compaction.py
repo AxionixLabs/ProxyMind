@@ -3,15 +3,11 @@
 
 import typing
 import asyncio
-from dataclasses import (
-    dataclass,
-    replace
-)
+from dataclasses import replace
 from agent.application import (
-    CompactOutcome,
-    CompactResultSource,
+    CompactResult,
     CompactTriggerReason,
-    CompactTriggerSource
+    CompactTriggerSource,
 )
 from protocol.client.compact import (
     build_compact_payload,
@@ -37,26 +33,6 @@ if typing.TYPE_CHECKING:
     from agent.application.hook_models import HookDecision
 
 CompactProgress = typing.Callable[[str], None]
-
-
-@dataclass(frozen=True, slots=True)
-class CompactResult:
-    """描述一次上下文压缩的稳定结果。"""
-    outcome: CompactOutcome
-    message: str
-    before_items: int | None = None
-    after_items: int | None = None
-    summary: str = ""
-    transcript_path: str = ""
-    trigger: CompactTriggerReason = "manual"
-    trigger_source: CompactTriggerSource = "client"
-    result_source: CompactResultSource = "fallback"
-    continue_execution: bool = True
-
-    @property
-    def ok(self) -> bool:
-        """返回上下文压缩是否完成。"""
-        return self.outcome == "completed" and self.continue_execution
 
 
 async def compact_conversation(

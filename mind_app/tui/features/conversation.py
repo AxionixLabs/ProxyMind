@@ -28,8 +28,8 @@ from mind_app.tui.adapters.clipboard import (
 from mind_app.history.ids import valid_session_ids
 from protocol.client.fork import ResubmittablePrompt
 from metadata import const
-from ...runtime.conversation import (
-    CompactResult,
+from agent.application import CompactResult
+from ...runtime.compaction import (
     compact_conversation
 )
 

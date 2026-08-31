@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mind_app.runtime import conversation as compact_mode
+from mind_app.runtime import compaction as compact_mode
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.tui.features import conversation

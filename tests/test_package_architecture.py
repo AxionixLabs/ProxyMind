@@ -1449,6 +1449,51 @@ def test_runtime_support_responsibilities_have_explicit_owners() -> None:
     )
 
 
+def test_compaction_result_and_runtime_orchestration_have_separate_owners() -> None:
+    """确保压缩结果契约与运行时编排不再混在旧 conversation 模块。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "conversation.py"
+    assert not legacy_path.is_file(), "legacy runtime conversation module still exists"
+
+    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "compaction.py"
+    result_path = PROJECT_ROOT / "agent" / "application" / "compact_result.py"
+    assert runtime_path.is_file(), "runtime compaction orchestration is missing"
+    assert result_path.is_file(), "application compact result contract is missing"
+
+    legacy_modules = {"mind_app.runtime.conversation"}
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy compaction imports remain:\n" + "\n".join(violations)
+
+    result_tree = ast.parse(result_path.read_text(encoding="utf-8-sig"), filename=str(result_path))
+    result_classes = {
+        node.name
+        for node in result_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert result_classes == {"CompactResult"}
+
+    runtime_tree = ast.parse(runtime_path.read_text(encoding="utf-8-sig"), filename=str(runtime_path))
+    runtime_classes = {
+        node.name
+        for node in runtime_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert "CompactResult" not in runtime_classes
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (

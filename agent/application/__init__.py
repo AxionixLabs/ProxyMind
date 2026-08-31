@@ -44,6 +44,7 @@ from .commands import (
     TurnApplication,
     submit_turn
 )
+from .compact_result import CompactResult
 from .environment import capture_environment_snapshot
 from agent.domain.policies import (
     PermissionPreset,
@@ -133,6 +134,7 @@ __all__ = (
     "HOOK_STATE_FIELDS",
     "SESSION_END_REASONS",
     "CompactOutcome",
+    "CompactResult",
     "CompactResultSource",
     "CompactTriggerReason",
     "CompactTriggerSource",

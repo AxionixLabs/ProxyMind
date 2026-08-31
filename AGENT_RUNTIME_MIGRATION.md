@@ -1152,6 +1152,19 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   测试 `54 passed, 38 warnings`，导入图、`compileall` 和差异检查通过；下一切片继续审计剩余
   `mind_app` runtime 与完整入口边界。
 
+### 已完成切片：上下文压缩结果与编排分离
+
+状态：已完成（2026-08-31）
+
+- [x] 将不可变 `CompactResult` 从 `mind_app/runtime/conversation.py` 提升到
+  `agent/application/compact_result.py`，通过 application 公开入口提供稳定的压缩结果契约；
+  runtime 不再定义结果值对象。
+- [x] 将压缩 Hook、远端 compact stream、Transcript 记录和会话启动收束模块改名为
+  `mind_app/runtime/compaction.py`，TUI 与压缩测试分别依赖运行时编排和 application 结果，删除
+  旧 `runtime/conversation.py`，不保留兼容 facade。
+- [x] 新增结果/编排分离架构守卫；压缩、TUI 和架构定向回归、导入图、`compileall` 与差异检查
+  通过，下一切片继续审计 runtime/subagents 和剩余平铺入口。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -1367,3 +1380,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 事件报告客户端边界切片 | 将 `EventReportRuntimeOwner`、`EventReportLifetime` 和 `TurnEventReportHandle` 从 `mind_app/runtime/turns/event_reporting.py` 重组到 `protocol/client/reports.py`；Session/Turn 报告生命周期与 `protocol.transport.events` 归属同一 Protocol Client，runtime turns 与测试消费者切换并删除旧模块 | 事件报告、Turn/Subagent/TUI 定向回归 `61 passed`；新增旧路径/旧导入守卫 `1 passed`，全量架构扫描 `52 passed`，导入图、`compileall`、文档契约和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 Hook Registry 组合边界切片 | 将 Hook status/dispatcher/registry 抽象为 `agent.ports` 端口，`RuntimeServices` 注入 `create_hook_registry`，具体 `HookRegistry` 仅由 `mind.py` 组合；CLI/MCP/Controller 删除直接构造和 fallback | CLI/MCP/Hook 定向回归 `244 passed`，新增组合根守卫通过；全量回归 `3009 passed, 11 skipped, 38 warnings`，导入图、`compileall`、文档契约和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 runtime support 职责拆分切片 | 将会话状态迁入 `mind_app/interaction/conversation.py`、TUI 剪贴板迁入 `mind_app/tui/adapters/clipboard.py`，并把 MCP 传输错误与 stream 异常摘要拆到各自边界；删除 `conversation.py`、`clipboard.py`、`session_policy.py` 旧 support 入口并加入架构守卫 | 会话/Turn/流协议定向回归 `107 passed, 1 warning`，完整架构测试 `54 passed, 38 warnings`，导入图、`compileall` 和 `git diff --check` 通过；下一切片继续审计剩余 runtime/interaction 历史职责 |
+| 2026-08-31 | 阶段 5 上下文压缩结果与编排分离切片 | 将 `CompactResult` 提升到 `agent/application/compact_result.py`，将 runtime 编排改名为 `mind_app/runtime/compaction.py`，删除旧 `runtime/conversation.py` 并补充结果/编排分离守卫 | 压缩/TUI/架构定向回归通过，导入图、`compileall` 和 `git diff --check` 通过；下一切片继续审计 runtime/subagents 和剩余平铺入口 |
