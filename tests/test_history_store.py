@@ -2,7 +2,7 @@
 
 import sqlite3
 
-from mind_app.history import (
+from agent.stores.sessions import (
     ConversationHistoryStore,
     INTERACTIVE_HISTORY_SOURCES,
 )

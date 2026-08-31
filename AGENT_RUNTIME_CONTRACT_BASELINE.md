@@ -154,7 +154,7 @@ Protocol Client 的 `ProtocolCommandClient` 端口负责上述控制面命令的
 
 ## 历史与 Transcript 契约
 
-权威来源：`mind_app/history/store.py`、`mind_app/history/transcript.py`（文件 adapter）和
+权威来源：`agent/stores/sessions/history.py`、`mind_app/history/transcript.py`（文件 adapter）和
 `agent/stores/transcripts/records.py`、`agent/stores/transcripts/replay.py`（共享记录值与归约）。
 
 本地 SQLite 只保存会话游标和待完成分支请求，不保存完整消息：

@@ -185,6 +185,8 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "stores/transcripts/__init__.py",
         "stores/transcripts/records.py",
         "stores/transcripts/replay.py",
+        "stores/sessions/__init__.py",
+        "stores/sessions/history.py",
         "stores/runs/records.py",
         "stores/runs/schema.py",
         "stores/runs/store.py",
@@ -244,6 +246,30 @@ def test_transcript_shared_values_are_owned_by_stores() -> None:
         if isinstance(node, ast.ClassDef)
     }
     assert not history_classes.intersection({"TranscriptEntry", "TranscriptReplay"})
+
+
+def test_session_history_store_is_owned_by_stores() -> None:
+    """确保 Session 游标存储不读取 legacy history 或基础设施路径。"""
+    target_path = PROJECT_ROOT / "agent" / "stores" / "sessions" / "history.py"
+    legacy_path = PROJECT_ROOT / "mind_app" / "history" / "store.py"
+    assert target_path.is_file(), "session history store is missing"
+    assert not legacy_path.exists(), "legacy session history store remains"
+
+    violations = _forbidden_imports(
+        "agent/stores/sessions",
+        {"mind_app", "mind_core", "engine", "server", "infrastructure"},
+    )
+    assert not violations, "session stores cross their boundary:\n" + (
+        "\n".join(violations)
+    )
+
+    tree = ast.parse(target_path.read_text(encoding="utf-8-sig"))
+    classes = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert "ConversationHistoryStore" in classes
 
     legacy_files = (
         "application/agent_thread.py",
@@ -3672,6 +3698,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.stores.agents.mailbox",
         "agent.stores.agents.graph",
         "agent.stores.transcripts",
+        "agent.stores.sessions",
         "agent.stores",
     }
     violations: list[str] = []

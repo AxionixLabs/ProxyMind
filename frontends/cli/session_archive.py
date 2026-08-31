@@ -3,7 +3,8 @@
 
 import typing
 from infrastructure.errors import AppError
-from mind_app.history import (
+from infrastructure.config.runtime_paths import mind_history_db_path
+from agent.stores.sessions import (
     ConversationHistoryStore,
     HISTORY_LIMIT
 )
@@ -12,7 +13,7 @@ from .commands import SessionArchiveCommand
 
 def run_session_archive_command(command: SessionArchiveCommand) -> int:
     """执行本地会话归档或恢复命令。"""
-    store = ConversationHistoryStore()
+    store = ConversationHistoryStore(mind_history_db_path())
 
     record = _find_target(
         store,

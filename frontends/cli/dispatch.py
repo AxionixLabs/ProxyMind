@@ -27,7 +27,7 @@ from .commands import (
     ResumeCommand,
     RuntimeCommand
 )
-from mind_app.history import (
+from agent.stores.sessions import (
     HISTORY_LIMIT,
     INTERACTIVE_HISTORY_SOURCES
 )

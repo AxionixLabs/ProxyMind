@@ -216,7 +216,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
     `mind_app/history` 作为本地持久化 adapter 持有。完成条件是所有生产/测试消费者切换到
     新记录与归约模块、旧模块不再定义共享值对象、stores 不导入 `mind_app`/基础设施，并
     通过 Transcript/TUI/Turn 回归、stores 边界守卫、导入图和 `compileall`；不满足条件时
-    不继续搬运文件 adapter。
+    不继续搬运文件 adapter。随后将 Session 游标存储迁入 `agent/stores/sessions`，要求
+    `db_path` 由组合边界显式注入，并删除 `mind_app/history/store.py` 及旧导出。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -293,6 +294,12 @@ runtime、Hook、执行器和 Transcript writer 统一从该端口导入；旧
 stores 不导入 `mind_app`、`infrastructure` 或展示模块。删除条件是旧
 `mind_app/history/transcript.py` 不再定义共享记录值和归约器，并完成文件 adapter 的独立
 组合与恢复用例后，才允许继续删除旧 history 实现。
+
+本次 Session history store 切片的准入条件：`agent/stores/sessions/history.py` 单一持有
+SQLite 会话游标和待分支请求状态，构造必须接收显式数据库路径，不导入 `mind_app`、
+`infrastructure` 或 UI；CLI、Controller、TUI 和测试统一切换到新路径，旧
+`mind_app/history/store.py` 与 history 导出删除，并通过会话归档、恢复、过滤和缺失记录
+失败路径验证。满足后才允许继续拆分 history 文件 adapter。
 
 ## 过渡入口与删除条件
 
@@ -379,3 +386,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-08-31 | 将 TUI 输入、会话、渲染、展示 runtime 和契约整体迁入 `frontends/tui`，删除 `mind_app/tui` 旧路径并消除包级循环 | TUI/CLI 回归 `1618 passed`；完整架构守卫 `88 passed, 58 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 TranscriptSink/TranscriptActor 从 history 实现包提升到 `agent/ports/transcript.py`，删除旧 contract 路径 | Turn/Hook/Subagent/Transcript 回归 `146 passed`；端口专项 `18 passed`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 TranscriptEntry/TranscriptReplay 拆入 `agent/stores/transcripts`，归并策略下沉到 `agent.domain`；history 仅保留文件 Reader/Writer 和 Session 路径 adapter | Transcript/TUI/Turn/Subagent/工具策略回归 `229 passed`；完整架构守卫 `90 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将 Session history cursor 从 `mind_app/history` 迁入 `agent/stores/sessions`，由 CLI/Controller 显式注入数据库路径并删除旧 store/export | History/CLI/TUI/Controller 回归 `181 passed`；完整架构守卫 `91 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |

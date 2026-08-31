@@ -2,7 +2,7 @@
 
 from frontends.cli.commands import SessionArchiveCommand
 from frontends.cli import session_archive
-from mind_app.history import ConversationHistoryStore
+from agent.stores.sessions import ConversationHistoryStore
 
 
 def test_cli_archive_and_unarchive_resolve_global_title(
@@ -17,7 +17,11 @@ def test_cli_archive_and_unarchive_resolve_global_title(
         title="Review archive flow",
         workspace=str(tmp_path / "other-workspace"),
     )
-    monkeypatch.setattr(session_archive, "ConversationHistoryStore", lambda: store)
+    monkeypatch.setattr(
+        session_archive,
+        "ConversationHistoryStore",
+        lambda *_args, **_kwargs: store,
+    )
 
     assert session_archive.run_session_archive_command(
         SessionArchiveCommand(action="archive", target="Review archive flow")

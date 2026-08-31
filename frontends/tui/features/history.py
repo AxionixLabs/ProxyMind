@@ -11,7 +11,7 @@ from mind_app.presentation.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
 )
-from mind_app.history import normalize_workspace
+from agent.stores.sessions import normalize_workspace
 from protocol.schema.identifiers import valid_session_ids
 from agent.stores.transcripts import (
     TranscriptEntry,

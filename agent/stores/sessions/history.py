@@ -3,11 +3,10 @@
 
 import os
 import re
+import sqlite3
 import time
 import typing
-import sqlite3
 from pathlib import Path
-from infrastructure.config.runtime_paths import mind_history_db_path
 from protocol.schema.identifiers import valid_session_ids
 
 TABLE_SESSION_CURSORS = "conversation_session_cursors"
@@ -64,12 +63,14 @@ class ConversationHistoryStore(object):
 
     def __init__(
         self,
-        db_path: typing.Optional[Path] = None,
+        db_path: str | Path,
         *,
         ttl_ms: int = HISTORY_TTL_MS,
         max_items: int = HISTORY_LIMIT
     ) -> None:
-        self.db_path   = Path(db_path or mind_history_db_path()).expanduser()
+        if not str(db_path or "").strip():
+            raise ValueError("history db path is required")
+        self.db_path   = Path(db_path).expanduser()
         self.ttl_ms    = max(1, int(ttl_ms or HISTORY_TTL_MS))
         self.max_items = max(1, int(max_items or HISTORY_LIMIT))
 

@@ -58,7 +58,10 @@ from .approval.coordinator import ApprovalCoordinator
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from .runtime.subagents.runtime import SubagentRuntime
 from agent.stores import AgentGraphStore
-from infrastructure.config.runtime_paths import agent_graph_db_path
+from infrastructure.config.runtime_paths import (
+    agent_graph_db_path,
+    mind_history_db_path,
+)
 from agent.harness.subscription.owner import SubscriptionRuntimeOwner
 from .presentation.application import (
     ActivityStatusKind,
@@ -73,7 +76,7 @@ from agent.application.hooks.catalog import (
     HookCatalogSnapshot,
     HookCatalogStaleError
 )
-from .history import (
+from agent.stores.sessions import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
     normalize_workspace
@@ -163,7 +166,10 @@ class Mind(object):
         self.design: TerminalDesign | None = kwargs.get("design")
 
         self.conversation: ConversationState         = ConversationState()
-        self.history_store: ConversationHistoryStore = ConversationHistoryStore()
+        self.history_store: ConversationHistoryStore = (
+            kwargs.get("history_store")
+            or ConversationHistoryStore(mind_history_db_path())
+        )
 
         self.transcripts: ConversationTranscriptStore = (
             kwargs.get("transcript_store") or ConversationTranscriptStore()
