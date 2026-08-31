@@ -19,7 +19,7 @@ from agent.application import (
     TurnControlReceipt,
 )
 from agent.stores.approval_ledger import ApprovalCallLedger
-from mind_app.runtime.mcp.contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from infrastructure.config.runtime_paths import effect_journal_db_path
 from protocol.schema.identifiers import stable_request_id
 from protocol.client.turn_control import (
@@ -239,7 +239,7 @@ async def _interrupt_approval_cancelled_turn(
 
 async def stream_turn(
     mind: "Mind",
-    session: McpSessionLike,
+    session: McpSessionPort,
     pref_config: dict[str, typing.Any],
     tools: list[dict[str, typing.Any]],
     *_,

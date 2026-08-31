@@ -81,7 +81,7 @@ from .history.transcript import (
     ConversationTranscriptStore,
     TranscriptEntry
 )
-from .runtime.mcp.contracts import McpSessionLike
+from agent.ports import McpSessionPort
 
 SessionResult = typing.TypeVar("SessionResult")
 CleanupResult = typing.TypeVar("CleanupResult")
@@ -1105,7 +1105,7 @@ class Mind(object):
         pref_config: dict[str, typing.Any],
         function: typing.Callable[
             [
-                McpSessionLike,
+                McpSessionPort,
                 list[dict[str, typing.Any]],
             ],
             typing.Awaitable[SessionResult],

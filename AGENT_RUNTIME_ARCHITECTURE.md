@@ -197,7 +197,6 @@ agent/
 │   ├── tools.py             # 工具调用意图、结果和失败分类
 │   ├── agents.py            # 子 Agent 状态、关系和任务提交值对象
 │   ├── approvals.py         # 审批请求、决定和策略
-│   ├── agents.py            # 子 Agent 身份、关系和状态
 │   ├── hook_matching.py     # Hook matcher 解析、工具别名和候选值规则
 │   ├── tool_policy.py       # app/api 工具可见性和元数据过滤规则
 │   └── policies.py          # 权限、预算、取消和重试规则
@@ -233,6 +232,7 @@ agent/
 │   ├── capabilities.py      # 模型、MCP、Helix、进程和文件端口
 │   ├── hooks.py              # Hook 执行器和超限上下文 spill 端口
 │   ├── agent_messages.py    # 子 Agent 消息回执和投递端口
+│   ├── mcp_session.py       # 工具执行所需的 MCP 会话端口
 │   ├── persistence.py       # 事件、快照、历史和 outbox 端口
 │   ├── permissions.py       # 执行上下文读取权限授权端口
 │   └── observability.py     # 日志、指标和 tracing 端口
@@ -563,6 +563,7 @@ running -> cancelled
 | `mind_app/runtime/hooks/models.py` | `agent/application/hook_models.py` | Hook 生命周期快照、决定、输出和工具结果是跨 runtime/TUI 的 application contract；Hook 执行器、注册器和 scope 仍由 runtime 持有，不把执行副作用放入值对象 |
 | `mind_app/runtime/hooks/scope.py` 中的 `HookExecutionContext` | `agent/application/hook_context.py` | Hook 输入上下文只依赖 Turn、domain 事件名和 schema 构建；`HookExecutionScope` 继续持有 runtime dispatcher 和生命周期，不把具体执行器带入 application |
 | `mind_app/runtime/turns/executor.py` 中的 `TurnExecution` | `agent/application/turn_execution.py`；`HookExecutionScopePort` 归 `agent/ports/hooks.py` | Turn 执行值对象只依赖固定 scope 端口；runtime executor 保留模型执行函数和具体 scope 构造，不让 application 加载 HookRuntime |
+| `mind_app/runtime/mcp/contracts.py` 中的 `McpSessionLike` | `agent/ports/mcp_session.py` 的 `McpSessionPort` | MCP 会话能力是工具执行跨层端口；runtime/mcp 只实现 Composite session，工具、Turn、Subagent 和 TUI 通过 ports 依赖，不把 runtime contract 当作公共接口 |
 | `mind_app/runtime/hooks/protocol.py` | `agent/application/hook_protocol.py` | Hook 进程 stdin/stdout schema、构建和校验属于 application boundary；runtime 只调用已校验的契约，不把内部 Hook 协议误并入线上 `protocol/` |
 | `mind_app/runtime/hooks/catalog.py` | `agent/application/hook_catalog.py` | Hook 管理目录、不可变状态快照和内容冲突错误属于 application contract；Controller/TUI 只消费该契约，注册器仍负责运行时装配 |
 | `mind_app/runtime/hooks/matching.py` | `agent/domain/hook_matching.py` | Hook matcher、工具 canonical 名称和别名候选属于纯领域规则；不依赖 application、runtime 或平台实现 |

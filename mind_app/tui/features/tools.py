@@ -9,7 +9,7 @@ from mind_app.presentation.application import (
     ApplicationSink,
     ApplicationView
 )
-from mind_app.runtime.mcp.contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from mind_app.presentation.models import (
     TextSpan,
     TextStyle
@@ -90,7 +90,7 @@ def _tool_name_lines(
 
 
 def _tools_for_display(
-    session: McpSessionLike,
+    session: McpSessionPort,
     tools: list[dict[str, typing.Any]]
 ) -> list[dict[str, typing.Any]]:
     """复制工具目录，并把外接工具限定名替换为服务原始名称。"""
@@ -240,7 +240,7 @@ async def print_available_tools(
 ) -> None:
     """建立一次 MCP 会话并打印当前模式可见工具。"""
     async def render_tools_with_session(
-        session: McpSessionLike,
+        session: McpSessionPort,
         tools: list[dict[str, typing.Any]]
     ) -> None:
         render_tools_summary(

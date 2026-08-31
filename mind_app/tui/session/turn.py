@@ -8,7 +8,7 @@ from mind_app.presentation.application import (
     ApplicationSink,
     ApplicationView
 )
-from mind_app.runtime.mcp.contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from mind_app.presentation.models import TextSpan
 from protocol.transport.events import EventReport
 from metadata import const
@@ -247,7 +247,7 @@ async def run_tui_model_turn(
 
     async def run_tui_turn(
         prepared: TurnExecution,
-        session: McpSessionLike,
+        session: McpSessionPort,
         tools: list[dict[str, typing.Any]],
         event_report: EventReport
     ) -> "RunResult":

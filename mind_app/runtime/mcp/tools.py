@@ -6,14 +6,14 @@ from dataclasses import dataclass
 from observability import observe
 from mcp import ClientSession
 from mcp import types as mcp_types
-from .contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from .session_adapter import CompositeToolSession
 
 
 @dataclass(frozen=True)
 class McpToolContext:
     """承载一次模型调用所需的 MCP 会话和工具描述。"""
-    session: McpSessionLike
+    session: McpSessionPort
     tools: list[dict[str, typing.Any]]
 
 

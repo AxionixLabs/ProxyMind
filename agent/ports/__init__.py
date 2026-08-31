@@ -54,6 +54,7 @@ from .agent_messages import (
     AgentMessageReceipt,
     AgentMessageReceiptStatus,
 )
+from .mcp_session import McpSessionPort
 
 __all__ = (
     "EffectIntent",
@@ -89,6 +90,7 @@ __all__ = (
     "AgentMessageDeliveryStatus",
     "AgentMessageReceipt",
     "AgentMessageReceiptStatus",
+    "McpSessionPort",
     "TurnExecutor",
     "TurnExecutorResult",
     "HookCommandResult",

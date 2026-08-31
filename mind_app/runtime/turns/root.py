@@ -21,7 +21,7 @@ from agent.application import PermissionSettings
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
-    from mind_app.runtime.mcp.contracts import McpSessionLike
+    from agent.ports import McpSessionPort
 
 
 class RootTurnRunner(typing.Protocol):
@@ -174,7 +174,7 @@ async def run_root_turn(
 
     async def execute_prepared_turn(
         prepared: TurnExecution,
-        session: "McpSessionLike",
+        session: "McpSessionPort",
         tools: list[dict[str, typing.Any]],
         report: EventReport,
     ) -> RunResult:

@@ -7,12 +7,14 @@ if typing.TYPE_CHECKING:
     from mcp import types as mcp_types
     from agent.application.execution import TurnContext
 
+__all__ = ("McpSessionPort",)
 
-class McpSessionLike(typing.Protocol):
-    """描述可被运行时使用的 MCP 会话接口。"""
+
+class McpSessionPort(typing.Protocol):
+    """定义工具执行所需的 MCP 会话端口。"""
 
     async def list_tools(self) -> "mcp_types.ListToolsResult":
-        """列出当前会话可用的 MCP 工具。"""
+        """列出当前会话可用的工具。"""
         ...
 
     async def call_tool(
@@ -26,9 +28,9 @@ class McpSessionLike(typing.Protocol):
         args: dict[str, typing.Any] | None = None,
         call_id: str | None = None,
         turn_context: "TurnContext | None" = None,
-        pref_config: typing.Mapping[str, typing.Any] | None = None
+        pref_config: typing.Mapping[str, typing.Any] | None = None,
     ) -> "mcp_types.CallToolResult":
-        """调用指定 MCP 工具并返回执行结果。"""
+        """调用工具并返回 MCP 结果。"""
         ...
 
 

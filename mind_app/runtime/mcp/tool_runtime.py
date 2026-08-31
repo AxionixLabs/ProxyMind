@@ -6,7 +6,7 @@ import inspect
 import asyncio
 import contextlib
 from observability import observe_exception
-from mind_app.runtime.mcp.contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from mind_app.runtime.mcp.tools import build_tool_context
 from .local import open_local_mcp_session
 
@@ -17,7 +17,7 @@ SessionResult = typing.TypeVar("SessionResult")
 
 SessionCallback = typing.Callable[
     [
-        McpSessionLike,
+        McpSessionPort,
         list[dict[str, typing.Any]],
     ],
     typing.Awaitable[SessionResult]

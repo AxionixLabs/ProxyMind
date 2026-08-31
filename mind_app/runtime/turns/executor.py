@@ -14,9 +14,11 @@ from observability import (
 from protocol.transport.events import EventReport
 from protocol.schema.identifiers import short_uid
 from mind_app.history.contracts import TranscriptSink
+from agent.application import (
+    HookExecutionContext,
+    TurnExecution,
+)
 from agent.application.execution import TurnContext
-from agent.application import HookExecutionContext
-from agent.application.turn_execution import TurnExecution
 from protocol.client.reports import (
     EventReportLifetime,
     TurnEventReportHandle,
@@ -29,7 +31,7 @@ from mind_app.runtime.hooks.scope import HookExecutionScope
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
-    from mind_app.runtime.mcp.contracts import McpSessionLike
+    from agent.ports import McpSessionPort
 
 
 class _UnspecifiedToolFilterMode(object):
@@ -256,7 +258,7 @@ class TurnOperation(typing.Protocol[TurnResultValue]):
     async def __call__(
         self,
         execution: TurnExecution,
-        session: "McpSessionLike",
+        session: "McpSessionPort",
         tools: list[dict[str, typing.Any]],
         event_report: EventReport
     ) -> TurnResultValue:
@@ -311,7 +313,7 @@ async def execute_turn(
     operation_started = asyncio.Event()
 
     async def run_with_session(
-        session: "McpSessionLike",
+        session: "McpSessionPort",
         tools: list[dict[str, typing.Any]]
     ) -> TurnResultValue:
         """在已建立的工具会话中执行模型轮次。"""

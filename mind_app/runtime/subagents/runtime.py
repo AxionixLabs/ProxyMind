@@ -14,7 +14,7 @@ from agent.application import (
 )
 from infrastructure.skills import skills_payload
 from protocol.transport.events import EventReport
-from mind_app.runtime.mcp.contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from agent.application.execution import (
     AgentContext,
     TurnContext
@@ -474,7 +474,7 @@ class SubagentRuntime:
 
             async def execute_subagent(
                 prepared: TurnExecution,
-                session: McpSessionLike,
+                session: McpSessionPort,
                 tools: list[dict[str, typing.Any]],
                 event_report: EventReport
             ) -> RunResult:

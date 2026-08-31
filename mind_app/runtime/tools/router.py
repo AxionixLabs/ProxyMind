@@ -6,7 +6,7 @@ from mind_app.client_tools.types import (
     NESTED_TOOL_DISPATCH_META_KEY,
     TURN_INTERRUPT_META_KEY,
 )
-from mind_app.runtime.mcp.contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from mind_app.runtime.mcp.tool_store import has_tool
 from agent.application.execution import ToolInvocation
 from mcp.types import CallToolResult
@@ -27,7 +27,7 @@ def is_hosted_tool(
 
 
 async def execute_tool(
-    session: McpSessionLike,
+    session: McpSessionPort,
     *,
     tools: list[dict[str, typing.Any]],
     invocation: ToolInvocation,

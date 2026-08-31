@@ -1930,6 +1930,48 @@ def test_turn_execution_contract_is_owned_by_application() -> None:
     assert "HookExecutionScopePort" in port_classes
 
 
+def test_mcp_session_contract_is_owned_by_agent_ports() -> None:
+    """确保 MCP 会话只由 agent ports 定义，runtime 不保留协议契约。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "contracts.py"
+    target_path = PROJECT_ROOT / "agent" / "ports" / "mcp_session.py"
+    assert not legacy_path.is_file(), "legacy MCP session contract still exists"
+    assert target_path.is_file(), "agent MCP session port is missing"
+
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            if "mind_app.runtime.mcp.contracts" in modules:
+                violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+    assert not violations, "legacy MCP session imports remain:\n" + "\n".join(violations)
+
+    target_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    target_classes = {
+        node.name
+        for node in target_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert target_classes == {"McpSessionPort"}
+    target_violations: list[str] = []
+    for node in ast.walk(target_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                target_violations.append(
+                    f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not target_violations, "MCP session port crosses its boundary:\n" + "\n".join(target_violations)
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (
@@ -2325,8 +2367,11 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.hook_output",
         "agent.application.hook_result",
         "agent.application.execution",
+        "agent.application.hook_context",
+        "agent.application.turn_execution",
         "agent.application.fork_context",
         "agent.application.settings",
+        "agent.domain.hooks",
         "agent.domain.hook_matching",
         "agent.domain.agents",
         "agent.domain.tool_policy",

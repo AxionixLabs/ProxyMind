@@ -20,7 +20,7 @@ from mind_app.runtime.turns.executor import (
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
-    from mind_app.runtime.mcp.contracts import McpSessionLike
+    from agent.ports import McpSessionPort
 
 SubagentOutcome = typing.Literal[
     "completed",
@@ -38,7 +38,7 @@ class SubagentOperation(typing.Protocol[TurnResultValue]):
     async def __call__(
         self,
         execution: TurnExecution,
-        session: "McpSessionLike",
+        session: "McpSessionPort",
         tools: list[dict[str, typing.Any]],
         event_report: EventReport
     ) -> TurnResultValue:
@@ -68,7 +68,7 @@ class SubagentRunner:
 
         async def run_child_turn(
             turn_execution: TurnExecution,
-            session: "McpSessionLike",
+        session: "McpSessionPort",
             tools: list[dict[str, typing.Any]],
             report: EventReport
         ) -> TurnResultValue:

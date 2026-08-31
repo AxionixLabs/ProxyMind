@@ -7,7 +7,7 @@ import asyncio
 import functools
 from dataclasses import dataclass
 from mcp import types as mcp_types
-from mind_app.runtime.mcp.contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from agent.application.execution import ToolInvocation
 from protocol.schema.tool_approval import (
     TOOL_LIFECYCLE_STATUSES,
@@ -181,7 +181,7 @@ def _server_output_cost_ms(event: dict[str, typing.Any]) -> int:
 
 
 async def run_tool_step(
-    session: McpSessionLike,
+    session: McpSessionPort,
     *,
     status_control: OutputStatusPort,
     presentation: PresentationSink,

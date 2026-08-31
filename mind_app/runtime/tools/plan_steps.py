@@ -6,7 +6,7 @@ import typing
 from dataclasses import dataclass
 from observability import observe
 from mind_app.client_tools.planning import normalize_plan_arguments
-from mind_app.runtime.mcp.contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from mind_app.runtime.mcp.tool_result import normalize_call_tool_result
 from mind_app.runtime.mcp.tool_store import has_tool
 from agent.application.execution import (
@@ -66,7 +66,7 @@ class StepPlanExecutor:
     def __init__(
         self,
         *,
-        session: McpSessionLike,
+        session: McpSessionPort,
         tools: list[dict[str, typing.Any]],
         turn_context: TurnContext,
         pref_config: typing.Mapping[str, typing.Any],

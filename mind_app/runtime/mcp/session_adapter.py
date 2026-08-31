@@ -7,14 +7,14 @@ from mcp import ClientSession, types as mcp_types
 from mind_app.client_tools import ClientToolRegistry
 from mind_app.builtin_tools import BuiltinToolRegistry
 from .config import truncate_text
-from .contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from .status import should_reraise_external
 
 if typing.TYPE_CHECKING:
     from agent.application.execution import TurnContext
 
 
-class CompositeToolSession(McpSessionLike):
+class CompositeToolSession(McpSessionPort):
     """合并内置、客户端、外部和服务 MCP 会话，并按工具来源分发调用。"""
 
     def __init__(

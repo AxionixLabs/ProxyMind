@@ -20,7 +20,7 @@ from mind_app.client_tools.types import (
     NESTED_TOOL_DISPATCH_META_KEY,
     TURN_INTERRUPT_META_KEY,
 )
-from mind_app.runtime.mcp.contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from protocol.client.effects import post_effect_reconciliation
 from protocol.client.tools import (
     ToolResultEnvelope,
@@ -173,7 +173,7 @@ class ClientToolCallRunner:
     def __init__(
         self,
         *,
-        session: McpSessionLike,
+        session: McpSessionPort,
         output_control: OutputControlPort,
         status_control: OutputStatusPort,
         presentation: PresentationSink,

@@ -6,7 +6,7 @@ from agent.application import RunResult, TurnExecution
 from protocol.transport.events import EventReport
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
-from mind_app.runtime.mcp.contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from mind_app.presentation.output.silent import create_silent_output_session
 
 if typing.TYPE_CHECKING:
@@ -21,7 +21,7 @@ class SubagentExecutionPort(typing.Protocol):
         pref_config: dict[str, typing.Any],
         skills: list[dict[str, str]],
         execution: TurnExecution,
-        session: McpSessionLike,
+        session: McpSessionPort,
         tools: list[dict[str, typing.Any]],
         event_report: EventReport,
         on_turn_input_event: (
@@ -43,7 +43,7 @@ class StreamSubagentExecutor:
         pref_config: dict[str, typing.Any],
         skills: list[dict[str, str]],
         execution: TurnExecution,
-        session: McpSessionLike,
+        session: McpSessionPort,
         tools: list[dict[str, typing.Any]],
         event_report: EventReport,
         on_turn_input_event: (

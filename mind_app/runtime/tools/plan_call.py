@@ -3,7 +3,7 @@
 
 import typing
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
-from mind_app.runtime.mcp.contracts import McpSessionLike
+from agent.ports import McpSessionPort
 from agent.application.execution import (
     ToolInvocation,
     TurnContext
@@ -33,7 +33,7 @@ class PlanToolCallRunner:
     def __init__(
         self,
         *,
-        session: McpSessionLike,
+        session: McpSessionPort,
         output_control: OutputControlPort,
         status_control: OutputStatusPort,
         presentation: PresentationSink,
