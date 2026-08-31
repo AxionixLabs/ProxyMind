@@ -51,10 +51,19 @@ def create_mcp_runtime(host: McpRuntimeHost) -> McpRuntime:
 
 def create_subscription_runtime(host: SubscriptionHost) -> SubscriptionRuntime:
     """在进程组合根创建绑定应用宿主的远端订阅运行时。"""
+    runtime_services = getattr(host, "runtime_services", None)
+    turn_application_factory = getattr(
+        runtime_services,
+        "create_turn_application",
+        None,
+    )
+    if not callable(turn_application_factory):
+        raise RuntimeError("subscription turn application factory is required")
     return AgentRuntime(
         host,
         turn_runner=run_root_turn,
         environment_snapshot_provider=capture_active_turn_environment,
+        turn_application_factory=turn_application_factory,
     )
 
 

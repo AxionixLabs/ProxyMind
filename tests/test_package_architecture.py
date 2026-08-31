@@ -3550,6 +3550,12 @@ def test_subscription_adapter_is_owned_by_frontends() -> None:
         "legacy Subscription imports remain:\n" + "\n".join(legacy_imports)
     )
 
+    runtime_source = (frontend_root / "runtime.py").read_text(encoding="utf-8-sig")
+    assert "turn_application_factory" in runtime_source
+    assert "runtime_services" not in runtime_source, (
+        "Subscription frontend must not discover runtime services dynamically"
+    )
+
 
 def test_cli_adapter_is_owned_by_frontends() -> None:
     """确保 CLI 命令解析、路由和入口生命周期归入前端边界。"""

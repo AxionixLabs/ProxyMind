@@ -96,14 +96,11 @@ async def test_agent_runtime_composes_and_closes_injected_turn_application() -> 
         return application
 
     runtime = AgentRuntime(
-        SimpleNamespace(
-            runtime_services=SimpleNamespace(
-                create_turn_application=create_application,
-            ),
-        ),
+        SimpleNamespace(),
         config=_config(),
         client=SimpleNamespace(),
         supervisor=SimpleNamespace(run=AsyncMock()),
+        turn_application_factory=create_application,
     )
 
     assert runtime.executor._turn_application is application
@@ -113,6 +110,26 @@ async def test_agent_runtime_composes_and_closes_injected_turn_application() -> 
     await runtime.shutdown()
 
     assert application.closed
+
+
+def test_agent_runtime_does_not_discover_turn_application_from_host() -> None:
+    """确认缺少显式 application factory 时不会读取宿主动态属性。"""
+    host = SimpleNamespace(
+        runtime_services=SimpleNamespace(
+            create_turn_application=lambda _path: TurnApplication(
+                runtime_factory=SessionRuntimeOwner,
+            ),
+        ),
+    )
+
+    runtime = AgentRuntime(
+        host,
+        config=_config(),
+        client=SimpleNamespace(),
+        supervisor=SimpleNamespace(run=AsyncMock()),
+    )
+
+    assert runtime.executor._turn_application is None
 
 
 @pytest.mark.anyio

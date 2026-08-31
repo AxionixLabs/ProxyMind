@@ -4,7 +4,9 @@
 import typing
 import asyncio
 import platform
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from agent.application import TurnApplication
 from agent.ports import SubscriptionHost
 from infrastructure.config.runtime_paths import agent_runtime_db_path
@@ -37,6 +39,11 @@ from protocol.transport.endpoints import service_endpoints
 InboxChangedCallback = typing.Callable[[], None]
 
 AGENT_READY_WAIT_TIMEOUT_SEC: typing.Final[float] = 30.0
+
+TurnApplicationFactory: typing.TypeAlias = Callable[
+    [str | Path],
+    TurnApplication[typing.Any],
+]
 
 
 @dataclass(slots=True)
@@ -75,6 +82,7 @@ class AgentRuntime(object):
         supervisor: AgentSupervisor | None = None,
         turn_runner: RootTurnRunner | None = None,
         environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
+        turn_application_factory: TurnApplicationFactory | None = None,
     ) -> None:
         """装配订阅连接、收件箱和执行器。"""
         self.mind = mind
@@ -84,9 +92,9 @@ class AgentRuntime(object):
         self.inbox       = inbox or AgentInbox()
         self._executor_owned = executor is None
         self.executor    = executor or self._build_default_executor(
-            mind,
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
+            turn_application_factory=turn_application_factory,
         )
         self.live_status = live_status or AgentLiveStatus()
         self.status_outbox = AgentStatusOutbox()
@@ -125,16 +133,14 @@ class AgentRuntime(object):
 
     @staticmethod
     def _build_default_executor(
-        mind: SubscriptionHost,
         *,
         turn_runner: RootTurnRunner | None,
         environment_snapshot_provider: EnvironmentSnapshotProvider | None,
+        turn_application_factory: TurnApplicationFactory | None,
     ) -> AgentExecutor:
         """为生产订阅运行时组合持久 Turn application。"""
-        runtime_services = getattr(mind, "runtime_services", None)
-        factory = getattr(runtime_services, "create_turn_application", None)
-        if callable(factory):
-            application = factory(agent_runtime_db_path())
+        if turn_application_factory is not None:
+            application = turn_application_factory(agent_runtime_db_path())
             if not isinstance(application, TurnApplication):
                 raise TypeError("turn application factory returned an invalid application")
             return AgentExecutor(

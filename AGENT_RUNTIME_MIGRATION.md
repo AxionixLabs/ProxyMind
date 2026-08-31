@@ -118,6 +118,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - 工具展示策略已拆分：`agent/domain/tool_policy.py` 持有工具过滤和审批专用判定，
   `agent/application/views/tool_display.py` 持有展示分类、阶段和状态文案；旧
   `mind_app.presentation.tool_policy` 已删除，runtime、renderer、TUI 和测试不再依赖旧路径。
+- Subscription 的 Turn application 装配已改为显式 `TurnApplicationFactory`：组合根 `mind.py`
+  负责绑定持久 application，`frontends/subscription/runtime.py` 不再通过宿主动态属性发现
+  `runtime_services`，关闭时继续由订阅执行器回收 application。
 
 ### 最新证据
 
@@ -227,8 +230,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
       view 已按语义拆入 `agent/application/views`，前端和运行侧只依赖显式契约，交互和
       输出生命周期未混入 ports。下一切片补齐四类入口独立启动/恢复证据，并开始迁移
       `mind_app.presentation` 的 renderer/stream 实现到前端或 application adapter，
-      继续保持 view 与具体终端渲染解耦。工具展示策略前置切片已完成，下一条只补齐
-      四类入口独立启动/恢复证据，再迁移具体 renderer/stream 实现。
+      继续保持 view 与具体终端渲染解耦。工具展示策略和 Subscription 显式装配前置切片
+      已完成，下一条只补齐 CLI、TUI、MCP、Subscription 四类入口独立启动/恢复证据。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -354,6 +357,17 @@ infrastructure reader；旧 `mind_app/runtime/subagents/context.py` 已删除，
 `544 passed`，完整架构守卫 `93 passed, 60 warnings`，导入图、`compileall` 和
 `git diff --check` 均通过；旧 `mind_app.presentation.tool_policy` 文件和生产导入清零。
 
+下一切片 Subscription 独立装配的准入条件：`AgentRuntime` 只接收显式
+`TurnApplicationFactory`，不读取宿主动态属性；组合根负责绑定持久 application，缺失依赖在
+启动边界立即失败，关闭时由订阅执行器回收 application。关键失败路径是缺失 factory、factory
+返回错误对象和 runtime shutdown；删除条件是前端中 `runtime_services` 动态发现清零，并通过
+订阅启动/恢复、执行与关闭回归及架构守卫验证。
+
+本次 Subscription 独立装配切片已满足上述条件：订阅运行时回归 `18 passed`，架构/旧路径
+守卫与装配专项回归合计 `19 passed`；缺失显式 factory 时保持未配置状态，错误 factory
+结果会在边界抛出，shutdown 回收持久 application；导入图、`compileall` 和
+`git diff --check` 通过，`frontends/subscription/runtime.py` 已无 `runtime_services` 动态发现。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -446,3 +460,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 将 `TextStyle`、`TextSpan`、`StyledBlock` 三个纯展示值对象迁入 `agent/ports/presentation.py`，清除 `mind_app.presentation.models` 的旧定义和生产导入 | 文本/渲染/输出/CLI/TUI 回归 `905 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将跨前端应用结果 view 按 Run、工具、计划、补丁、审批、Hook、进度拆入 `agent/application/views`，迁移 `PresentationView/PresentationSink` 并删除旧 `mind_app.presentation.models/contracts` | 展示回归 `158 passed`；Run/TUI 回归 `512 passed`；架构守卫修正后专项通过；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将工具过滤/审批判定与展示分类拆分到 `agent.domain.tool_policy`、`agent.application.views.tool_display`，删除旧 `mind_app.presentation.tool_policy` | 工具策略/渲染回归 `123 passed`；Run/TUI/输出回归 `544 passed`；专项架构守卫、导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将 Subscription `TurnApplication` 改为组合根显式 `TurnApplicationFactory` 注入，清除前端对 `runtime_services` 的动态发现 | Subscription 回归 `18 passed`；装配/架构守卫专项 `19 passed`；导入图、`compileall`、`git diff --check` 通过 |
