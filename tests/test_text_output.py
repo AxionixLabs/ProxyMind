@@ -39,7 +39,7 @@ from mind_app.presentation.stream.worked import (
     emit_worked_footer,
     worked_footer_text,
 )
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 
 RESPONSE_IDENTITY = ResponseIdentity("turn_test", 1, 1, 1)
 

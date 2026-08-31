@@ -19,7 +19,7 @@ from agent.ports import (
     HookContextSpiller,
     HookStatusPort,
 )
-from agent.application import (
+from agent.domain.hooks import (
     HookDefinitionConfig,
     HookEventName
 )

@@ -5,8 +5,8 @@ import time
 import typing
 import asyncio
 from collections.abc import Mapping
-from agent.application import (
-    RunResult,
+from agent.application.turns.run_result import RunResult
+from agent.application.turns.commands import (
     TurnApplication,
     SubmitTurnResult,
     SubmitTurnCommand,

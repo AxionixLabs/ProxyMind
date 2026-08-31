@@ -31,7 +31,7 @@ from agent.application.hooks.models import (
 from infrastructure.platform.hook_output_spill import HookOutputSpillStore
 from mind_app.runtime.hooks.registry import HookRegistry
 from mind_app.runtime.hooks.runtime import HookRuntime
-from agent.application import HookExecutionContext
+from agent.application.hooks.context import HookExecutionContext
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.hooks.session import SessionLifecycleGateway
 from mind_app.runtime.hooks.tool import (
@@ -46,8 +46,8 @@ from mind_app.runtime.hooks.turn import (
 from mind_app.presentation.approval_views import build_approval_view
 from mind_app.presentation.renderers.approval import render_approval_view
 from infrastructure.hooks.discovery import resolve_hook_definitions
-from agent.application import HOOK_EVENT_NAMES
-from agent.application import preset_permissions
+from agent.domain.hooks import HOOK_EVENT_NAMES
+from agent.domain.policies import preset_permissions
 
 
 class _CommandRunner:

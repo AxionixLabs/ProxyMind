@@ -14,7 +14,9 @@ from mind_app.tui.core.models import (
 from mind_app.tui.features.model import choose_model_effort
 from mind_app.tui.session import dispatch
 from mind_app.tui.session import loop
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
+from agent.application.turns.commands import TurnApplication
+from agent.harness.sessions.owner import SessionRuntimeOwner
 
 
 @pytest.fixture(autouse=True)
@@ -24,6 +26,11 @@ def frozen_environment_snapshot(monkeypatch) -> None:
         loop,
         "capture_active_turn_environment",
         Mock(return_value={"snapshot_id": "envsnap_tui"}),
+    )
+    monkeypatch.setattr(
+        loop,
+        "TurnApplication",
+        lambda: TurnApplication(runtime_factory=SessionRuntimeOwner),
     )
 
 

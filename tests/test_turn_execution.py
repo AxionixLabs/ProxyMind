@@ -10,16 +10,14 @@ from unittest.mock import (
 
 import pytest
 
-from agent.application import RunResult
+from agent.application.turns.run_result import RunResult
 from agent.application.turns.context import (
     AgentContext,
     TurnContext
 )
 from mind_app.runtime.hooks.runtime import HookRuntime
-from agent.application import (
-    HookExecutionContext,
-    TurnExecution,
-)
+from agent.application.hooks.context import HookExecutionContext
+from agent.application.turns.execution import TurnExecution
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.interaction import ConversationTurn
 from mind_app.runtime.turns import root as root_turns
@@ -33,7 +31,7 @@ from mind_app.history.transcript import (
     ConversationTranscriptStore,
     TranscriptReader,
 )
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 
 
 class _Report(object):

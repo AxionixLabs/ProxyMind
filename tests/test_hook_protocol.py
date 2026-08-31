@@ -13,7 +13,7 @@ from agent.application.hooks.protocol import (
     validate_hook_input,
     validate_hook_output,
 )
-from agent.application import HOOK_EVENT_NAMES
+from agent.domain.hooks import HOOK_EVENT_NAMES
 
 
 def _prompt_input(**overrides):

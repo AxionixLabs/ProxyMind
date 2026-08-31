@@ -11,7 +11,7 @@ import pytest
 
 from mind_app.controller import Mind
 from mind_app.interaction import ConversationState
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 
 
 def test_controller_tracks_helix_tool_profile_with_link_state() -> None:

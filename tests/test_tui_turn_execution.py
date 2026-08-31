@@ -5,14 +5,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.application import RunResult
+from agent.application.turns.run_result import RunResult
 from mind_app.runtime.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.interaction import ConversationTurn
 from protocol.client.reports import EventReportRuntimeOwner
 from mind_app.tui.session import turn as tui_turn
 from mind_app.tui.session.turn import run_tui_model_turn
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 
 
 class _Report:

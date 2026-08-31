@@ -3,7 +3,7 @@
 
 import sys
 import typing
-from agent.application import (
+from agent.domain.policies import (
     PermissionSettings,
     permission_label,
     preset_permissions

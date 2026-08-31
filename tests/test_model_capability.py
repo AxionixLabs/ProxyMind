@@ -5,10 +5,12 @@ from unittest.mock import ANY, AsyncMock, Mock
 
 import pytest
 
-from agent.application import (
+from agent.ports import (
     ModelCapabilityError,
-    ModelStreamRequest,
     ProtocolCommandError,
+)
+from agent.protocol import (
+    ModelStreamRequest,
     SteerTurnInput,
 )
 from agent.adapters.protocol import client as model_adapter

@@ -46,8 +46,8 @@ from agent.application.hooks.models import (
 )
 from mind_app.runtime.tools.client_call import ClientToolCallRunner
 from agent.composition import open_effect_journal
-from agent.application import FeatureSettings
-from agent.application import preset_permissions
+from agent.application.config.settings import FeatureSettings
+from agent.domain.policies import preset_permissions
 from protocol.client.turn_control import TurnControlRequestError
 
 

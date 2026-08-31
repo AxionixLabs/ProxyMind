@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from agent.application import PermissionSettings
+from agent.domain.policies import PermissionSettings
 from agent.domain.agents import AgentSubmission
 from protocol.schema.identifiers import new_cid, new_sid
 from agent.application.turns.context import AgentContext
@@ -16,7 +16,7 @@ from agent.harness.agents.control import (
     AgentStateError,
 )
 from agent.harness.agents.registry import AgentControlRegistry
-from agent.application import AgentThreadContext
+from agent.application.agents.thread import AgentThreadContext
 
 
 class _TestControl(AgentControl):

@@ -4,12 +4,12 @@
 import typing
 import asyncio
 from dataclasses import replace
-from agent.application import (
-    CompactResult,
+from agent.application.turns.compact_result import CompactResult
+from agent.domain.hooks import (
     CompactTriggerReason,
     CompactTriggerSource,
-    HookExecutionContext,
 )
+from agent.application.hooks.context import HookExecutionContext
 from protocol.client.compact import (
     build_compact_payload,
     stream_compact_events

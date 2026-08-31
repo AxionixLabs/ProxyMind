@@ -6,7 +6,7 @@ import json
 import typing
 import asyncio
 from dataclasses import dataclass
-from agent.application import (
+from agent.domain.hooks import (
     HookDefinitionConfig,
     HookEventName
 )

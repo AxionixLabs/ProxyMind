@@ -18,7 +18,7 @@ from infrastructure.config.store import (
 )
 from infrastructure.config.layers import PROJECT_CONFIG_DIR
 from infrastructure.hooks.discovery import HOOKS_FILE_NAME
-from agent.application import HOOK_EVENT_CONFIG_SPECS
+from agent.domain.hooks import HOOK_EVENT_CONFIG_SPECS
 
 
 def _command_handler(command, *, timeout=None):

@@ -5,7 +5,7 @@ import typing
 from collections.abc import Mapping
 from pathlib import Path
 
-from agent.application import capture_environment_snapshot
+from agent.application.turns.environment import capture_environment_snapshot
 from agent.protocol.json_value import JsonValue
 from agent.ports import CapabilityError
 from observability import observe_exception

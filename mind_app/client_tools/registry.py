@@ -5,7 +5,7 @@ import copy
 import typing
 from pathlib import Path
 from mcp import types as mcp_types
-from agent.application import FeatureSettings
+from agent.application.config.settings import FeatureSettings
 from agent.application.turns.context import TurnContext
 from .types import (
     ClientTool,

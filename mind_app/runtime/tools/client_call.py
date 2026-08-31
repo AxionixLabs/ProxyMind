@@ -4,7 +4,7 @@
 import typing
 import asyncio
 import hashlib
-from agent.application import (
+from agent.ports import (
     EffectJournal,
     EffectJournalPersistenceError,
     LocalEffectReconciliationRequired,

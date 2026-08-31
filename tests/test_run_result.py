@@ -18,7 +18,7 @@ from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.approval.models import ApprovalOutcome
 from mind_app.interaction.noninteractive import NonInteractiveInteraction
 from mind_app.runtime.turns import stream
-from agent.application import RunResult
+from agent.application.turns.run_result import RunResult
 from mind_app.presentation.output.content import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
@@ -42,10 +42,8 @@ from agent.application.turns.context import (
     TurnContext,
 )
 from mind_app.runtime.hooks.runtime import HookRuntime
-from agent.application import (
-    HookExecutionContext,
-    TurnExecution,
-)
+from agent.application.hooks.context import HookExecutionContext
+from agent.application.turns.execution import TurnExecution
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.turns.executor import build_turn_input_payload
 from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
@@ -59,12 +57,13 @@ from mind_app.runtime.tools.client_call import (
     ClientToolCallOutcome,
     ClientToolCallResult,
 )
-from agent.application import ModelCapabilityError, ModelStreamRequest
+from agent.ports import ModelCapabilityError
+from agent.protocol import ModelStreamRequest
 from agent.adapters.protocol.items import CanonicalItemReducer
 from agent.composition import open_effect_journal
 from mind_app.runtime.tools.plan_steps import PlanExecutionReport
 from infrastructure.hooks.discovery import resolve_hook_definitions
-from agent.application import (
+from agent.domain.policies import (
     PermissionSettings,
     preset_permissions,
 )

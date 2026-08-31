@@ -7,12 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.application import (
+from agent.application.agents.views import (
     AgentMailboxWaitResult,
     AgentSnapshot,
     AgentWaitResult,
-    RunResult,
 )
+from agent.application.turns.run_result import RunResult
 from agent.domain.agents import AgentSubmission
 from agent.stores.agents.graph import (
     AgentGraphCheckpoint,
@@ -37,9 +37,9 @@ from agent.stores.agents.mailbox import (
     AgentMailboxStore,
     format_mailbox_context,
 )
-from agent.application import AgentThreadContext
-from agent.application import AgentSettings
-from agent.application import preset_permissions
+from agent.application.agents.thread import AgentThreadContext
+from agent.application.config.settings import AgentSettings
+from agent.domain.policies import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid
 from protocol.schema.stream_events import MarkerEvent
 from protocol.schema.turn_inputs import TurnInput

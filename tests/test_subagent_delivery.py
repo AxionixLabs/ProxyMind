@@ -15,7 +15,7 @@ from agent.ports.agent_messages import (
     AgentMessageReceiptStatus,
 )
 from agent.stores.agents.mailbox import AgentMailboxStore
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 from protocol.client.turn_control import (
     TurnControlRequestError,
     TurnControlResponse,

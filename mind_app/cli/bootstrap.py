@@ -11,13 +11,13 @@ from infrastructure.services.server_manager import ServerManage
 from infrastructure.errors import AppError
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.layers import ConfigResolution
-from agent.application import (
+from agent.application.config.settings import (
     AgentSettings,
     FeatureSettings,
 )
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
-from agent.application import (
+from agent.domain.policies import (
     PermissionSettings,
     resolve_permissions
 )

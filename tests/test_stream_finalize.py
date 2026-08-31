@@ -6,7 +6,7 @@ import pytest
 
 from agent.application.hooks.models import StopHookDecision
 from mind_app.runtime.turns.stream_finalize import StreamTurnFinalizer
-from agent.application import StreamTurnOutcome
+from agent.application.turns.stream_outcome import StreamTurnOutcome
 from protocol.schema.stream_events import TurnDoneEvent
 
 

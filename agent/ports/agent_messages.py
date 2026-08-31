@@ -2,11 +2,25 @@
 
 import typing
 from dataclasses import dataclass
-from agent.application.turns.context import TurnContext
 from protocol.schema.turn_inputs import TurnInput
 
 AgentMessageDeliveryStatus = typing.Literal["active_turn", "mailbox"]
 AgentMessageReceiptStatus = typing.Literal["accepted", "duplicate"]
+
+
+class AgentIdentity(typing.Protocol):
+    """描述消息投递所需的最小 Agent 身份。"""
+
+    agent_id: str
+
+
+class AgentMessageContext(typing.Protocol):
+    """描述消息投递所需的轮次坐标和 Agent 身份。"""
+
+    cid: str
+    sid: str
+    turn_id: str
+    agent: AgentIdentity
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +48,7 @@ class AgentMessageDeliveryPort(typing.Protocol):
 
     async def deliver(
         self,
-        context: TurnContext,
+        context: AgentMessageContext,
         turn_input: TurnInput,
     ) -> AgentMessageReceipt | None:
         """投递输入并返回匹配的远程接收回执。"""
@@ -43,6 +57,8 @@ class AgentMessageDeliveryPort(typing.Protocol):
 
 __all__ = (
     "AgentMessageDeliveryPort",
+    "AgentMessageContext",
+    "AgentIdentity",
     "AgentMessageDeliveryStatus",
     "AgentMessageReceipt",
     "AgentMessageReceiptStatus",

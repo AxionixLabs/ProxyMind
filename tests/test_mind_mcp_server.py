@@ -20,13 +20,11 @@ from mind_app.runtime.mcp.server import (
     create_mind_mcp_server,
 )
 from mind_app.runtime.mcp import server as mcp_server
-from agent.application import (
-    RunResultProjection,
-    TurnApplication,
-)
-from agent.application import RunResult
+from agent.application.turns.projections import RunResultProjection
+from agent.application import TurnApplication
+from agent.application.turns.run_result import RunResult
 from infrastructure.config.paths import ApplicationLayout
-from agent.application import PermissionSettings
+from agent.domain.policies import PermissionSettings
 from agent.harness.sessions.owner import SessionRuntimeOwner
 from mind_app.runtime.hooks.registry import HookRegistry
 

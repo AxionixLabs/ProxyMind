@@ -12,10 +12,8 @@ from observability import (
 )
 from protocol.transport.events import EventReport
 from mind_app.history.contracts import TranscriptSink
-from agent.application import (
-    HookExecutionContext,
-    TurnExecution,
-)
+from agent.application.hooks.context import HookExecutionContext
+from agent.application.turns.execution import TurnExecution
 from agent.application.turns.context import TurnContext
 from agent.ports import (
     TurnOperation,

@@ -6,10 +6,10 @@ import math
 import typing
 import asyncio
 import contextlib
-from agent.application import (
-    RuntimeServices,
-    RunResultProjection,
-    RunResult,
+from agent.application import RuntimeServices
+from agent.application.turns.projections import RunResultProjection
+from agent.application.turns.run_result import RunResult
+from agent.application.turns.commands import (
     SubmitTurnCommand,
     TurnApplication,
 )
@@ -42,13 +42,13 @@ from infrastructure.config.paths import (
     ApplicationLayout,
     resolve_application_layout
 )
-from agent.application import AgentSettings
+from agent.application.config.settings import AgentSettings
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
-from agent.application import FeatureSettings
+from agent.application.config.settings import FeatureSettings
 from infrastructure.config.preferences import Preferences
-from agent.application import (
+from agent.domain.policies import (
     PermissionSettings,
     resolve_permissions
 )

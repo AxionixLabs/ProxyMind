@@ -11,14 +11,14 @@ from mind_app.client_tools.registry import (
 )
 from mind_app.client_tools.subagents import subagent_tools
 from mind_app.runtime.mcp.session_adapter import CompositeToolSession
-from agent.application import RunResult
+from agent.application.turns.run_result import RunResult
 from agent.application.turns.context import AgentContext, TurnContext
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.turns import stream as turn_stream
 from protocol.client.reports import EventReportRuntimeOwner
-from agent.application import AgentSettings
-from agent.application import preset_permissions
+from agent.application.config.settings import AgentSettings
+from agent.domain.policies import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid
 
 

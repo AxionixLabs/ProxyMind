@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.application import (
+from agent.ports import (
     EffectJournalPersistenceError,
 )
 from agent.composition import open_effect_journal

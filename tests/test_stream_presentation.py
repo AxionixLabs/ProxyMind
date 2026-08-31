@@ -11,12 +11,12 @@ from mind_app.presentation.models import (
     RunIncompleteView,
     RunStartedView,
 )
-from agent.application import StreamTurnOutcome
+from agent.application.turns.stream_outcome import StreamTurnOutcome
 from mind_app.runtime.turns.stream_presentation import (
     FailureProjectionMode,
     StreamTurnPresentation,
 )
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 from protocol.schema.stream_events import (
     TurnDoneEvent,
     TurnFailedEvent,

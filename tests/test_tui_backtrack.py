@@ -26,7 +26,7 @@ from mind_app.tui.core.submission import TuiTranscriptBacktrackRequested
 from mind_app.tui.features.conversation import ForkLiveStatus
 from mind_app.tui.session import loop
 from mind_app.tui.session.state import TuiSessionState
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 from protocol.client.fork import ResubmittablePrompt
 
 

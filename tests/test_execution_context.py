@@ -9,8 +9,8 @@ from agent.application.turns.context import (
     ToolInvocation,
     TurnContext,
 )
-from agent.application import (
-    HookExecutionContext,
+from agent.application.hooks.context import HookExecutionContext
+from agent.domain.policies import (
     PermissionSettings,
     preset_permissions,
 )

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.application import (
+from agent.ports import (
     RunPersistenceConflict,
     RunRecoveryRequired,
 )
@@ -21,7 +21,7 @@ from infrastructure.config.runtime_paths import (
     effect_journal_db_path,
     mind_history_db_path,
 )
-from agent.application import derive_local_session_id
+from agent.application.config.session_identity import derive_local_session_id
 
 
 @dataclass(frozen=True, slots=True)

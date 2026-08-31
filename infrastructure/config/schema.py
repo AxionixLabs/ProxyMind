@@ -17,15 +17,15 @@ from infrastructure.config.providers import (
     supported_routes_for_kind
 )
 from infrastructure.hooks.discovery import normalize_hook_table
-from agent.application import (
+from agent.domain.hooks import (
     HookConfigError,
     normalize_hook_state_table
 )
-from agent.application import (
+from agent.application.config.settings import (
     AgentConfigError,
     normalize_agent_table
 )
-from agent.application import (
+from agent.application.config.settings import (
     FEATURE_CONFIG_FIELDS,
     FeatureConfigError,
     normalize_feature_table

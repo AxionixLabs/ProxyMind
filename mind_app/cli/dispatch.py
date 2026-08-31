@@ -4,9 +4,9 @@
 import time
 import typing
 import asyncio
-from agent.application import (
-    RunResult,
-    derive_local_session_id,
+from agent.application.turns.run_result import RunResult
+from agent.application.config.session_identity import derive_local_session_id
+from agent.application.turns.commands import (
     SubmitTurnCommand,
     TurnApplication,
 )

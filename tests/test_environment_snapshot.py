@@ -5,7 +5,7 @@ import backend.utilities.runtime.exec_env
 
 import pytest
 
-from agent.application import capture_environment_snapshot
+from agent.application.turns.environment import capture_environment_snapshot
 from agent.capabilities import LocalEnvironmentSnapshotCapability
 from agent.ports import CapabilityError
 from protocol.schema.environment import (

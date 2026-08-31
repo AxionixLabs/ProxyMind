@@ -11,7 +11,7 @@ from mind_app.history.transcript import (
 )
 from mind_app.presentation.models import TextSpan
 from mind_app.presentation.terminal_text import sanitize_terminal_text
-from agent.application import AgentSnapshot
+from agent.application.agents.views import AgentSnapshot
 from agent.harness.agents.control import AgentNotFoundError
 from ..core.models import (
     CLOSE_MENU_FOOTER_HINT,

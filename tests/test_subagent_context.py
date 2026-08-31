@@ -6,7 +6,7 @@ from mind_app.history.transcript import ConversationTranscriptStore
 from mind_app.runtime.subagents.context import (
     load_fork_context,
 )
-from agent.application import (
+from agent.application.agents.fork_context import (
     ForkContextEntry,
     build_fork_context,
     normalize_fork_turns,

@@ -6,25 +6,23 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.application import RunResult
+from agent.application.turns.run_result import RunResult
 from agent.application.turns.context import (
     AgentContext,
     TurnContext,
 )
 from mind_app.runtime.hooks.runtime import HookRuntime
-from agent.application import (
-    HookExecutionContext,
-    TurnExecution,
-)
+from agent.application.hooks.context import HookExecutionContext
+from agent.application.turns.execution import TurnExecution
 from mind_app.runtime.hooks.scope import HookExecutionScope
-from agent.application import SubagentHookEvents
+from agent.application.hooks.subagent import SubagentHookEvents
 from agent.harness.execution.subagent_runner import SubagentRunner
 from agent.ports import SubagentOperation
 from agent.harness.execution.subagent_runner import (
     MAX_SUBAGENT_STOP_CONTINUATIONS,
 )
 from infrastructure.hooks.discovery import resolve_hook_definitions
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 
 
 class _Report:

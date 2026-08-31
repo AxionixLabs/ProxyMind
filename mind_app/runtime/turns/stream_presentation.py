@@ -4,7 +4,8 @@
 import enum
 import time
 import typing
-from agent.application import PermissionSettings, StreamTurnOutcome
+from agent.domain.policies import PermissionSettings
+from agent.application.turns.stream_outcome import StreamTurnOutcome
 from protocol.transport.events import EventReport
 from mind_app.presentation.output import (
     ContentSink,

@@ -2,7 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from agent.application import CanonicalItem, ModelEventStream
+from agent.protocol import CanonicalItem
+from agent.ports import ModelEventStream
 from protocol.schema.stream_events import (
     PresentationSupersededEvent,
     StreamEvent,

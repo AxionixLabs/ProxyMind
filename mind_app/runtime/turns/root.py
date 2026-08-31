@@ -5,7 +5,9 @@ import time
 import typing
 from collections.abc import Mapping
 from protocol.transport.events import EventReport
-from agent.application import RunResult, SubmitTurnCommand, TurnExecution
+from agent.application.turns.run_result import RunResult
+from agent.application.turns.commands import SubmitTurnCommand
+from agent.application.turns.execution import TurnExecution
 from agent.application.turns.context import (
     AgentContext,
     TurnContext,
@@ -17,7 +19,7 @@ from mind_app.runtime.turns.executor import (
 )
 from mind_app.runtime.turns.stream import stream_turn
 from mind_app.presentation.stream.worked import emit_worked_footer
-from agent.application import PermissionSettings
+from agent.domain.policies import PermissionSettings
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind

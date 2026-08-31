@@ -4,7 +4,7 @@
 import typing
 import asyncio
 import contextlib
-from agent.application import (
+from agent.ports import (
     CapabilityError,
     HelixCapability,
     HelixState,

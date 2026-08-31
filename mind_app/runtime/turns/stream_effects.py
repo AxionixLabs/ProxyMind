@@ -6,7 +6,7 @@ import httpx
 import typing
 import asyncio
 from dataclasses import dataclass
-from agent.application import ProtocolCommandError
+from agent.ports import ProtocolCommandError
 from protocol.schema.identifiers import stable_request_id
 from protocol.client.tools import (
     ToolResultEnvelope,

@@ -28,7 +28,7 @@ from infrastructure.hooks.discovery import (
     resolve_hook_file_source,
     resolve_hook_source,
 )
-from agent.application import (
+from agent.domain.hooks import (
     HookDefinitionConfig,
     HookStateTable,
 )

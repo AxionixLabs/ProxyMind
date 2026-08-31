@@ -18,7 +18,7 @@ from mind_app.tui.features.permissions import (
     choose_permissions_mode,
     render_permissions_status,
 )
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 
 
 @pytest.mark.anyio

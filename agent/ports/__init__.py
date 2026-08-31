@@ -49,6 +49,8 @@ from .persistence import (
 )
 from .permissions import PermissionGrantReader
 from .agent_messages import (
+    AgentIdentity,
+    AgentMessageContext,
     AgentMessageDeliveryPort,
     AgentMessageDeliveryStatus,
     AgentMessageReceipt,
@@ -116,6 +118,8 @@ __all__ = (
     "RunSnapshot",
     "PermissionGrantReader",
     "AgentMessageDeliveryPort",
+    "AgentMessageContext",
+    "AgentIdentity",
     "AgentMessageDeliveryStatus",
     "AgentMessageReceipt",
     "AgentMessageReceiptStatus",

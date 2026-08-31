@@ -12,7 +12,7 @@ from mind_app.runtime.tools.run import (
     run_tool_step,
     server_tool_output_result,
 )
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 
 
 def test_normalize_external_structured_result_keeps_text_and_data() -> None:

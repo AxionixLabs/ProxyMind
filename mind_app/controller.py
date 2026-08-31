@@ -13,19 +13,19 @@ from infrastructure.errors import AppError
 from infrastructure.config.preferences import Preferences
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.session import ConfigSession
-from agent.application import (
+from agent.application.config.settings import (
     AgentSettings,
     FeatureSettings,
 )
-from agent.application import (
+from agent.domain.policies import (
     PermissionSettings,
     resolve_permissions
 )
-from agent.application import (
+from agent.domain.hooks import (
     HookDefinitionConfig,
-    HookExecutionContext,
     SessionEndReason
 )
+from agent.application.hooks.context import HookExecutionContext
 from protocol.schema.identifiers import (
     short_uid,
     valid_session_ids,

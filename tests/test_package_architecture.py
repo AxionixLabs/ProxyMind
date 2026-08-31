@@ -266,6 +266,30 @@ def test_agent_responsibility_packages_are_physical() -> None:
     assert not present, "legacy flat Agent modules still exist: " + ", ".join(present)
 
 
+def test_agent_application_public_api_is_minimal() -> None:
+    """application 包只公开跨入口用例，不重新聚合领域和基础端口。"""
+    path = PROJECT_ROOT / "agent" / "application" / "__init__.py"
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    exported: object | None = None
+    imported_modules: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for target in node.targets
+        ):
+            exported = ast.literal_eval(node.value)
+        elif isinstance(node, ast.ImportFrom) and node.level == 1:
+            imported_modules.add(node.module or "")
+
+    assert exported == (
+        "RuntimeServices",
+        "SubmitTurnResult",
+        "TurnApplication",
+        "submit_turn",
+    )
+    assert imported_modules == {"services", "turns.commands"}
+
+
 def test_agent_capabilities_depend_only_on_protocol_transport() -> None:
     violations = _forbidden_imports(
         "agent/capabilities",
@@ -2890,10 +2914,12 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.hooks.context",
         "agent.application.turns.execution",
         "agent.application.agents.fork_context",
-        "agent.application.config.settings",
-        "agent.application.config.session_identity",
-        "agent.domain.hooks",
-        "agent.domain.hook_matching",
+            "agent.application.config.settings",
+            "agent.application.config.session_identity",
+            "agent.domain.hooks",
+            "agent.domain.policies",
+            "agent.domain.hook_trust",
+            "agent.domain.hook_matching",
         "agent.domain.agents",
         "agent.domain.tool_policy",
         "agent.domain.execution_policy",
@@ -2906,7 +2932,8 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.harness.agents.registry",
         "agent.harness.execution.subagent_runner",
         "agent.harness.execution.subagent_submission",
-        "agent.protocol.json_value",
+            "agent.protocol.json_value",
+            "agent.protocol",
         "agent.stores.approvals.ledger",
         "agent.stores.approvals.permissions",
         "agent.stores.agents.mailbox",

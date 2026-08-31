@@ -11,13 +11,11 @@ from agent.application.turns.context import (
     TurnContext,
 )
 from mind_app.runtime.hooks.runtime import HookRuntime
-from agent.application import (
-    HookExecutionContext,
-    TurnExecution,
-)
+from agent.application.hooks.context import HookExecutionContext
+from agent.application.turns.execution import TurnExecution
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.turns import stream_setup
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 
 
 def _output_session() -> OutputSession:

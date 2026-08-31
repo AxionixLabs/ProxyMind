@@ -3,13 +3,13 @@
 
 import typing
 import asyncio
-from agent.application import (
-    ProtocolCommandClient,
-    RunResult,
+from agent.ports import ProtocolCommandClient
+from agent.application.turns.run_result import RunResult
+from agent.application.turns.commands import (
     SubmitTurnCommand,
     TurnApplication,
-    derive_local_session_id,
 )
+from agent.application.config.session_identity import derive_local_session_id
 from mind_app.presentation.application import ApplicationSink, ApplicationView
 from protocol.schema.identifiers import short_uid
 from protocol.client.fork import ResubmittablePrompt

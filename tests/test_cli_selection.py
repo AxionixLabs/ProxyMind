@@ -57,7 +57,7 @@ def _runtime_services() -> SimpleNamespace:
     )
 from mind_app.cli.selection import OutputMode, resolve_cli_output_mode
 from mind_app.cli.dispatch import run_selected_command
-from agent.application import RunResult
+from agent.application.turns.run_result import RunResult
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
 from mind_app.presentation.application import PassiveFrontendRuntime
@@ -67,7 +67,7 @@ from mind_app.tui.core.runtime import TuiRuntime
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.schema import ConfigOverride
 from mind_app.presentation.terminal.capabilities import DEGRADED_TERMINAL_CAPABILITIES
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 from infrastructure.errors import AppError
 
 

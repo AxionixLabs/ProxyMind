@@ -4,11 +4,13 @@
 import time
 import typing
 import asyncio
-from agent.application import (
+from agent.protocol import (
     ModelStreamEndReason,
+    SteerTurnInput,
+)
+from agent.ports import (
     ProtocolCommandClient,
     ProtocolCommandError,
-    SteerTurnInput,
 )
 from dataclasses import replace
 from observability import (

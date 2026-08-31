@@ -7,7 +7,7 @@ import asyncio
 import secrets
 from collections import deque
 from dataclasses import dataclass
-from agent.application import (
+from agent.ports import (
     ProcessCapability,
     ProcessHandle,
     ProcessSpec,

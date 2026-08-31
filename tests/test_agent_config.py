@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent.application import AgentSettings
+from agent.application.config.settings import AgentSettings
 from infrastructure.config.schema import ConfigValidationError, normalize_config
 
 

@@ -3,12 +3,9 @@ from dataclasses import dataclass
 
 import pytest
 
-from agent.application import (
-    ModelCapabilityError,
-    TurnApplication,
-    project_run_result,
-    submit_turn,
-)
+from agent.ports import ModelCapabilityError
+from agent.application import TurnApplication, submit_turn
+from agent.application.turns.projections import project_run_result
 from agent.harness.sessions.owner import SessionRuntimeOwner
 from agent.protocol import (
     RunEvent,

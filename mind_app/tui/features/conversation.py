@@ -3,8 +3,8 @@
 
 import typing
 import asyncio
-from agent.application import (
-    ConversationForkReceipt,
+from agent.protocol import ConversationForkReceipt
+from agent.ports import (
     ProtocolCommandClient,
     ProtocolCommandError,
 )
@@ -28,7 +28,7 @@ from mind_app.tui.adapters.clipboard import (
 from protocol.schema.identifiers import valid_session_ids
 from protocol.client.fork import ResubmittablePrompt
 from metadata import const
-from agent.application import CompactResult
+from agent.application.turns.compact_result import CompactResult
 from ...runtime.compaction import (
     compact_conversation
 )

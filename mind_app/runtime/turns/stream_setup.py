@@ -17,7 +17,7 @@ from mind_app.interaction.environment import capture_turn_environment
 from agent.application.turns.context import TurnContext
 from mind_app.runtime.hooks.presentation import HookPresentationAdapter
 from mind_app.runtime.hooks.scope import HookExecutionScope
-from agent.application import TurnExecution
+from agent.application.turns.execution import TurnExecution
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind

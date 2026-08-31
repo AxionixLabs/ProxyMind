@@ -9,10 +9,8 @@ from prompt_toolkit.utils import get_cwidth
 
 from mind_app.history.transcript import TranscriptWriter
 from agent.application.turns.context import AgentContext
-from agent.application import (
-    AgentSnapshot,
-    AgentThreadContext,
-)
+from agent.application.agents.views import AgentSnapshot
+from agent.application.agents.thread import AgentThreadContext
 from mind_app.tui.core.models import (
     FragmentBlock,
     MenuDescriptionLayout,
@@ -25,7 +23,7 @@ from mind_app.tui.features.agents import (
     agent_snapshot_block,
     manage_agents,
 )
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid
 
 

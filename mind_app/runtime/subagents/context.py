@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from agent.application import (
+from agent.application.agents.fork_context import (
     ForkContextEntry,
     ForkContextSnapshot,
     ForkTurns,

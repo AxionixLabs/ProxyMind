@@ -4,16 +4,16 @@
 import typing
 import asyncio
 import sqlite3
-from agent.application import (
+from agent.application.agents.views import (
     AgentMailboxWaitResult,
-    AgentMessageDispatch,
     AgentSnapshot,
-    AgentSettings,
-    AgentThreadContext,
-    RunResult,
-    TurnExecution,
     AgentWaitResult,
 )
+from agent.application.agents.messages import AgentMessageDispatch
+from agent.application.config.settings import AgentSettings
+from agent.application.agents.thread import AgentThreadContext
+from agent.application.turns.run_result import RunResult
+from agent.application.turns.execution import TurnExecution
 from protocol.transport.events import EventReport
 from agent.ports import (
     McpSessionPort,
@@ -41,7 +41,7 @@ from agent.harness.agents.control import (
     AgentNotFoundError,
     AgentStateError,
 )
-from agent.application import ForkTurns, normalize_fork_turns
+from agent.application.agents.fork_context import ForkTurns, normalize_fork_turns
 from mind_app.runtime.subagents.context import load_fork_context
 from agent.harness.agents.delivery import (
     AgentDeliveryRegistry,

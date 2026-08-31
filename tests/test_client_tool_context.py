@@ -14,7 +14,7 @@ from agent.application.turns.context import (
     AgentContext,
     TurnContext,
 )
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 
 
 def _result() -> mcp_types.CallToolResult:

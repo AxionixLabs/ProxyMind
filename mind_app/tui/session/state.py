@@ -9,7 +9,7 @@ from mind_app.interaction import PromptContext
 from infrastructure.platform.workspace_context import fetch_runtime_workspace_root
 from infrastructure.skills import configured_skills
 from infrastructure.config.preferences import apply_primary_model_override
-from agent.application import (
+from agent.domain.policies import (
     PermissionSettings,
     permission_label
 )

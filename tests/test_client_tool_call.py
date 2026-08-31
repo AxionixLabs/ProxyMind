@@ -11,7 +11,7 @@ from unittest.mock import (
 
 import pytest
 from mcp import types as mcp_types
-from agent.application import (
+from agent.ports import (
     EffectJournalDecision,
     EffectJournalPersistenceError,
     LocalEffectReconciliationRequired,
@@ -37,7 +37,7 @@ from mind_app.runtime.tools.client_call import (
     ClientToolCallRunner,
 )
 from mind_app.runtime.tools.run import ToolRunResult, hook_tool_response
-from agent.application import preset_permissions
+from agent.domain.policies import preset_permissions
 from protocol.schema.stream_events import ExecutionEffect
 
 

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
 from observability import observe_exception
-from agent.application.turns.context import TurnContext
 from agent.ports.agent_messages import (
+    AgentMessageContext,
     AgentMessageReceipt,
     AgentMessageReceiptStatus,
 )
@@ -22,7 +22,7 @@ class SteeringMessageDelivery:
 
     async def deliver(
         self,
-        context: TurnContext,
+        context: AgentMessageContext,
         turn_input: TurnInput,
     ) -> AgentMessageReceipt | None:
         """尝试投递输入，不可用时返回空回执。"""

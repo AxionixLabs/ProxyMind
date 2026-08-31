@@ -4,7 +4,7 @@
 import re
 import copy
 import typing
-from agent.application import PermissionSettings
+from agent.domain.policies import PermissionSettings
 from .models import (
     RunCompletedView,
     RunIncompleteView,

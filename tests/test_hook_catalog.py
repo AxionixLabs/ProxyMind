@@ -14,10 +14,8 @@ from infrastructure.config.layers import PROJECT_CONFIG_DIR
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from infrastructure.hooks.discovery import resolve_hook_definitions
-from agent.application import (
-    HOOK_EVENT_NAMES,
-    HookExecutionContext,
-)
+from agent.domain.hooks import HOOK_EVENT_NAMES
+from agent.application.hooks.context import HookExecutionContext
 
 
 def _hook(command, *, matcher=None):

@@ -3,7 +3,7 @@
 
 import os
 import typing
-from agent.application import ProcessCapability
+from agent.ports import ProcessCapability
 from infrastructure.config.paths import ApplicationLayout
 from mind_app.native_coding.base import NativeCodingBase
 from mind_app.native_coding.edit.patch_engine import PatchEngine

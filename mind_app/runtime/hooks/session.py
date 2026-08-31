@@ -4,11 +4,11 @@
 import typing
 import asyncio
 from dataclasses import replace
-from agent.application import (
+from agent.domain.hooks import (
     SESSION_END_REASONS,
-    HookExecutionContext,
     SessionEndReason
 )
+from agent.application.hooks.context import HookExecutionContext
 from observability import (
     observe,
     observe_exception

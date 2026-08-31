@@ -30,7 +30,7 @@ from agent.application.turns.context import (
 )
 from agent.application.hooks.models import HookDecision
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
-from agent.application import (
+from agent.domain.policies import (
     PermissionSettings,
     permission_label,
     preset_permissions,

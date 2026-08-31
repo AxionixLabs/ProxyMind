@@ -9,7 +9,7 @@ from infrastructure.config.schema import (
 )
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
-from agent.application import FeatureSettings
+from agent.application.config.settings import FeatureSettings
 
 
 def test_feature_settings_use_normalized_defaults() -> None:

@@ -5,18 +5,22 @@ import time
 import typing
 import asyncio
 from collections.abc import Mapping
-from agent.application import (
+from agent.ports import (
     LocalEffectReconciliationRequired,
     ModelCapability,
     ModelCapabilityError,
     ModelEventStream,
-    ModelStreamRequest,
     ProtocolCommandClient,
     ProtocolCommandError,
-    RunResult,
-    StreamTurnOutcome,
-    TurnExecution,
+)
+from agent.protocol import (
+    ModelStreamRequest,
     TurnControlReceipt,
+)
+from agent.application.turns.run_result import RunResult
+from agent.application.turns.stream_outcome import StreamTurnOutcome
+from agent.application.turns.execution import (
+    TurnExecution,
     create_continuation_execution,
 )
 from agent.stores.approvals.ledger import ApprovalCallLedger
