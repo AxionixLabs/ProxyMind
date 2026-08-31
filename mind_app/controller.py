@@ -59,7 +59,7 @@ from agent.stores.approvals.ledger import ApprovalCallLedger
 from .runtime.subagents.runtime import SubagentRuntime
 from agent.stores import AgentGraphStore
 from infrastructure.config.runtime_paths import agent_graph_db_path
-from .subscription.lifecycle import SubscriptionRuntimeOwner
+from agent.harness.subscription.owner import SubscriptionRuntimeOwner
 from .presentation.application import (
     ActivityStatusKind,
     Frontend
@@ -85,6 +85,8 @@ from .history.transcript import (
 from agent.ports import (
     McpRuntime,
     McpSessionPort,
+    SubscriptionHost,
+    SubscriptionRuntime,
 )
 
 SessionResult = typing.TypeVar("SessionResult")
@@ -94,6 +96,11 @@ CleanupResult = typing.TypeVar("CleanupResult")
 def _unconfigured_mcp_runtime() -> McpRuntime:
     """返回明确配置错误，禁止控制器隐式构造具体 MCP 实现。"""
     raise RuntimeError("MCP runtime factory is required")
+
+
+def _unconfigured_subscription_runtime(_host: SubscriptionHost) -> SubscriptionRuntime:
+    """返回明确配置错误，禁止入口隐式构造订阅实现。"""
+    raise RuntimeError("subscription runtime factory is required")
 
 
 def _normalize_tool_profile(value: str) -> ToolFilterMode:
@@ -249,7 +256,17 @@ class Mind(object):
             )
         self.service_runtime = ServiceRuntimeOwner()
 
-        self.subscription = SubscriptionRuntimeOwner(self)
+        subscription_factory = getattr(
+            self.runtime_services,
+            "create_subscription_runtime",
+            None,
+        )
+        if not callable(subscription_factory):
+            subscription_factory = _unconfigured_subscription_runtime
+        self.subscription = SubscriptionRuntimeOwner(
+            self,
+            runtime_factory=subscription_factory,
+        )
 
         self.client_tools: ClientToolRegistry = self._build_client_tools()
         self.builtin_tools: BuiltinToolRegistry = self._build_builtin_tools()

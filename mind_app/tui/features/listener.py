@@ -32,7 +32,7 @@ from ..core.styles import (
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
-    from ...subscription.runtime import AgentRuntime
+    from agent.ports.subscription import SubscriptionRuntime
 
 ListenerAction    = typing.Literal["start", "stop", "status"]
 ListenerOperation = typing.Literal["start", "stop"]

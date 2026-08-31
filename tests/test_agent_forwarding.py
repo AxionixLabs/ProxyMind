@@ -6,20 +6,20 @@ from unittest.mock import ANY, AsyncMock, Mock
 
 import pytest
 
-import mind_app.subscription.forwarding as forwarding_module
-from mind_app.subscription.forwarding import (
+import frontends.subscription.forwarding as forwarding_module
+from frontends.subscription.forwarding import (
     AgentExecutor,
     AgentInbox,
     InboxForwardHandler,
     normalize_forward_request,
 )
-from mind_app.subscription.models import (
+from frontends.subscription.models import (
     AgentForwardRequest,
     AgentLiveStatus,
     AgentSessionRuntime,
 )
-from mind_app.subscription.status import AgentStatusOutbox
-from mind_app.subscription.ws import (
+from frontends.subscription.status import AgentStatusOutbox
+from frontends.subscription.ws import (
     build_runtime_llm_conf,
     connect_once,
     handle_server_message,
@@ -27,7 +27,7 @@ from mind_app.subscription.ws import (
 )
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
-from mind_app.runtime.agent.client import AgentClient
+from frontends.subscription.client import AgentClient
 from agent.application.turns.run_result import RunResult
 
 

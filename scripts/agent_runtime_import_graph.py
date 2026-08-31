@@ -9,6 +9,7 @@ from pathlib import Path
 RUNTIME_PACKAGE_ROOTS = (
     "agent",
     "applications",
+    "frontends",
     "infrastructure",
     "mind_app",
     "mind_core",

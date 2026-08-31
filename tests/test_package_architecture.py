@@ -174,6 +174,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "harness/execution/actor.py",
         "harness/execution/subagent_runner.py",
         "harness/execution/subagent_submission.py",
+        "harness/subscription/owner.py",
         "harness/sessions/loop.py",
         "harness/sessions/owner.py",
         "stores/agents/graph.py",
@@ -3093,6 +3094,67 @@ def test_frontend_contracts_have_no_legacy_package_or_imports() -> None:
     assert not violations, "legacy frontend imports remain:\n" + "\n".join(violations)
 
 
+def test_subscription_adapter_is_owned_by_frontends() -> None:
+    """确保 Subscription 适配器和远端 wire client 不再挂在 mind_app runtime。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "subscription",
+        PROJECT_ROOT / "mind_app" / "runtime" / "agent",
+    )
+    legacy_sources = tuple(
+        path
+        for root in legacy_paths
+        for path in (root.rglob("*.py") if root.is_dir() else (root,))
+        if path.is_file()
+    )
+    assert not legacy_sources, (
+        "legacy Subscription sources remain: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_sources
+        )
+    )
+
+    frontend_root = PROJECT_ROOT / "frontends" / "subscription"
+    expected_files = {
+        "__init__.py",
+        "client.py",
+        "wire.py",
+        "external_access.py",
+        "forwarding.py",
+        "loop.py",
+        "models.py",
+        "opening.py",
+        "runtime.py",
+        "status.py",
+        "ws.py",
+    }
+    assert {
+        path.name
+        for path in frontend_root.glob("*.py")
+    } == expected_files
+
+    legacy_imports: list[str] = []
+    for path in frontend_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module.startswith((
+                    "mind_app.subscription",
+                    "mind_app.runtime.agent",
+                )):
+                    legacy_imports.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+    assert not legacy_imports, (
+        "legacy Subscription imports remain:\n" + "\n".join(legacy_imports)
+    )
+
+
 def test_presentation_output_has_no_legacy_package_or_imports() -> None:
     """确保单轮输出会话和 sink 已归入 presentation/output 边界。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "output"
@@ -3280,10 +3342,12 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.harness.hooks.runtime",
         "agent.harness.hooks.scope",
         "agent.harness.mcp.owner",
+        "agent.harness.subscription.owner",
         "agent.harness.execution.subagent_runner",
         "agent.harness.execution.subagent_submission",
-            "agent.protocol.json_value",
-            "agent.protocol",
+        "agent.ports.subscription",
+        "agent.protocol.json_value",
+        "agent.protocol",
         "agent.stores.approvals.ledger",
         "agent.stores.approvals.permissions",
         "agent.stores.agents.mailbox",

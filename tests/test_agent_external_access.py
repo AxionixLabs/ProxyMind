@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
-from mind_app.subscription.external_access import publish_external_access
-from mind_app.subscription.opening import normalize_open_payload
+from frontends.subscription.external_access import publish_external_access
+from frontends.subscription.opening import normalize_open_payload
 
 
 def test_agent_open_payload_preserves_server_mind_call_example() -> None:
@@ -42,11 +42,11 @@ async def test_agent_example_sync_bypasses_proxy_environment(monkeypatch) -> Non
     client.put = put
     factory = Mock(return_value=client)
     monkeypatch.setattr(
-        "mind_app.subscription.external_access.httpx.AsyncClient",
+        "frontends.subscription.external_access.httpx.AsyncClient",
         factory,
     )
     monkeypatch.setattr(
-        "mind_app.subscription.external_access.config_service_base_url",
+        "frontends.subscription.external_access.config_service_base_url",
         lambda: "http://127.0.0.1:37300",
     )
     runtime = SimpleNamespace(

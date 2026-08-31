@@ -8,8 +8,8 @@ from observability import (
     observe,
     observe_exception
 )
-from ..runtime.agent.client import AgentClient
-from ..runtime.agent.protocol import build_envelope
+from .client import AgentClient
+from .wire import build_envelope
 from .models import (
     AgentForwardRequest,
     AgentSessionRuntime

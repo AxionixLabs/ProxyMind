@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import asyncio
-import functools
 import time
 import typing
+import asyncio
+import functools
 from collections.abc import Mapping
 
 from agent.adapters.turns.root import RootTurnCommandExecutor
@@ -14,12 +14,13 @@ from agent.application.turns.commands import (
     TurnApplication,
 )
 from agent.application.turns.run_result import RunResult
+from agent.ports import SubscriptionHost
 from infrastructure.errors import AppError
 from observability import observe
 
-from ..runtime.agent.client import AgentClient
-from ..interaction.environment import capture_active_turn_environment
-from ..runtime.turns.root import (
+from .client import AgentClient
+from mind_app.interaction.environment import capture_active_turn_environment
+from mind_app.runtime.turns.root import (
     RootTurnRunner,
     run_root_turn,
 )
@@ -31,16 +32,13 @@ from .models import (
 )
 from .status import AgentStatusOutbox
 
-if typing.TYPE_CHECKING:
-    from ..controller import Mind
-
 
 class AgentForwardHandler(typing.Protocol):
     """处理一条服务端 forward 请求。"""
 
     async def handle(
         self,
-        mind: "Mind",
+        mind: SubscriptionHost,
         client: AgentClient,
         connection: typing.Any,
         runtime: AgentSessionRuntime,
@@ -129,7 +127,7 @@ class AgentExecutor(object):
 
     async def execute(
         self,
-        mind: "Mind",
+        mind: SubscriptionHost,
         client: AgentClient,
         connection: typing.Any,
         runtime: AgentSessionRuntime,
@@ -399,7 +397,7 @@ class AgentInbox(object):
         item: AgentInboxItem,
         *,
         executor: AgentExecutor,
-        mind: "Mind",
+        mind: SubscriptionHost,
         client: AgentClient,
         connection: typing.Any,
         runtime: AgentSessionRuntime,
@@ -449,7 +447,7 @@ class AgentInbox(object):
         self,
         *,
         executor: AgentExecutor,
-        mind: "Mind",
+        mind: SubscriptionHost,
         client: AgentClient,
         connection: typing.Any,
         runtime: AgentSessionRuntime,
@@ -513,7 +511,7 @@ class InboxForwardHandler(object):
 
     async def handle(
         self,
-        mind: "Mind",
+        mind: SubscriptionHost,
         client: AgentClient,
         connection: typing.Any,
         runtime: AgentSessionRuntime,

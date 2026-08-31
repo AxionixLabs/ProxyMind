@@ -9,6 +9,8 @@ from agent.ports import (
     McpRuntime,
     McpRuntimeHost,
     ProcessCapability,
+    SubscriptionHost,
+    SubscriptionRuntime,
 )
 from infrastructure.skills import skills_payload
 from infrastructure.config.paths import ApplicationLayout
@@ -20,6 +22,7 @@ from mind_app.cli.entry import run
 from mind_app.native_coding import NativeCoding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.harness.hooks.registry import HookRegistry
+from frontends.subscription.runtime import AgentRuntime
 
 
 def create_hook_registry(*, bypass_hook_trust: bool = False) -> HookRegistry:
@@ -37,6 +40,11 @@ def create_hook_registry(*, bypass_hook_trust: bool = False) -> HookRegistry:
 def create_mcp_runtime(host: McpRuntimeHost) -> McpRuntime:
     """在进程组合根创建绑定应用生命周期端口的 MCP 运行时。"""
     return ExternalMcpRuntime(host)
+
+
+def create_subscription_runtime(host: SubscriptionHost) -> SubscriptionRuntime:
+    """在进程组合根创建绑定应用宿主的远端订阅运行时。"""
+    return AgentRuntime(host)
 
 
 def create_native_coding(
@@ -96,6 +104,7 @@ if __name__ == "__main__":
         runtime_services=create_runtime_services(
             create_hook_registry=create_hook_registry,
             create_mcp_runtime=create_mcp_runtime,
+            create_subscription_runtime=create_subscription_runtime,
             skills_payload_builder=skills_payload,
             create_workspace_runtime=create_workspace_runtime,
         ),

@@ -88,6 +88,14 @@ from .workspace import (
     WorkspaceRuntime,
     WorkspaceRuntimeFactory,
 )
+from .subscription import (
+    SubscriptionHost,
+    SubscriptionInbox,
+    SubscriptionInboxItem,
+    SubscriptionRequest,
+    SubscriptionRuntime,
+    SubscriptionRuntimeBuilder,
+)
 from .sessions import (
     RunExecution,
     SessionRuntime,
@@ -136,6 +144,12 @@ __all__ = (
     "McpRuntimeBuilder",
     "McpRuntimeFactory",
     "McpRuntimeHost",
+    "SubscriptionHost",
+    "SubscriptionInbox",
+    "SubscriptionInboxItem",
+    "SubscriptionRequest",
+    "SubscriptionRuntime",
+    "SubscriptionRuntimeBuilder",
     "SubagentExecutionPort",
     "SkillsProvider",
     "SubagentStreamPort",

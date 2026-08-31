@@ -9,15 +9,15 @@ from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
 
 from mind_app.controller import Mind
-from mind_app.subscription.forwarding import AgentInbox
-from mind_app.subscription.models import (
+from frontends.subscription.forwarding import AgentInbox
+from frontends.subscription.models import (
     AgentConfig,
     AgentForwardRequest,
     AgentSessionRuntime,
 )
-from mind_app.subscription.runtime import AgentRuntime
-from mind_app.subscription.lifecycle import SubscriptionRuntimeOwner
-from mind_app.subscription.loop import AgentSupervisor
+from frontends.subscription.runtime import AgentRuntime
+from agent.harness.subscription.owner import SubscriptionRuntimeOwner
+from frontends.subscription.loop import AgentSupervisor
 
 
 def _config() -> AgentConfig:
@@ -283,7 +283,7 @@ async def test_agent_supervisor_resumes_session_after_pause(monkeypatch) -> None
         connect_once=connect_once,
     )
     monkeypatch.setattr(
-        "mind_app.subscription.loop.publish_external_access",
+        "frontends.subscription.loop.publish_external_access",
         AsyncMock(),
     )
     supervisor = AgentSupervisor(
@@ -319,7 +319,7 @@ async def test_agent_supervisor_retries_ready_timeout_as_pre_ready_failure(
     runtime = _session_runtime()
     delay = AsyncMock()
     monkeypatch.setattr(
-        "mind_app.subscription.loop.sleep_or_stop",
+        "frontends.subscription.loop.sleep_or_stop",
         delay,
     )
     live_status = SimpleNamespace(update=Mock())

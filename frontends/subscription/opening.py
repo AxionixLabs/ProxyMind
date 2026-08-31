@@ -14,7 +14,7 @@ from observability import (
     observe,
     observe_exception
 )
-from ..runtime.agent.client import AgentClient
+from .client import AgentClient
 from .models import AgentConfig
 from metadata import const
 

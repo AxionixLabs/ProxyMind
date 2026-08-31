@@ -15,6 +15,7 @@ from agent.ports import (
 from agent.ports import (
     HookRegistryFactory,
     McpRuntimeBuilder,
+    SubscriptionRuntimeBuilder,
 )
 from agent.stores import (
     LocalEffectJournal,
@@ -96,6 +97,7 @@ def create_runtime_services(
     *,
     create_hook_registry: HookRegistryFactory,
     create_mcp_runtime: McpRuntimeBuilder | None = None,
+    create_subscription_runtime: SubscriptionRuntimeBuilder | None = None,
     skills_payload_builder: SkillsPayloadBuilder,
     create_workspace_runtime: WorkspaceRuntimeFactory | None = None,
 ) -> RuntimeServices:
@@ -109,6 +111,7 @@ def create_runtime_services(
         create_effect_journal=open_effect_journal,
         create_hook_registry=create_hook_registry,
         create_mcp_runtime=create_mcp_runtime,
+        create_subscription_runtime=create_subscription_runtime,
         create_workspace_runtime=create_workspace_runtime,
         process_capability=open_process_capability(),
         create_skills_provider=(

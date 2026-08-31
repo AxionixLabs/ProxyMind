@@ -6,7 +6,8 @@ import asyncio
 import contextlib
 from observability import observe
 from websockets.asyncio.client import ClientConnection
-from ..runtime.agent.client import AgentClient
+from agent.ports import SubscriptionHost
+from .client import AgentClient
 from protocol.client.payload import request_llm_conf
 from .models import (
     AgentForwardRequest,
@@ -14,9 +15,6 @@ from .models import (
     AgentLiveStatus
 )
 from .forwarding import AgentForwardHandler
-
-if typing.TYPE_CHECKING:
-    from ..controller import Mind
 
 ReadyCallback = typing.Callable[[], None]
 
@@ -133,7 +131,7 @@ async def sleep_or_stop(delay_sec: float, stop_event: asyncio.Event) -> None:
                     await task
 
 
-async def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
+async def build_runtime_llm_conf(mind: SubscriptionHost) -> dict[str, typing.Any]:
     """基于当前偏好配置生成 `runtime.bind` 所需的 llm_conf。"""
     payload = await mind.fresh_pref_config(ttl_sec=0.0)
     primary = request_llm_conf(payload)["primary"]
@@ -211,7 +209,7 @@ def parse_forward_request(
 
 
 async def handle_server_message(
-    mind: "Mind",
+        mind: SubscriptionHost,
     client: AgentClient,
     connection: ClientConnection,
     runtime: AgentSessionRuntime,
@@ -374,7 +372,7 @@ async def connection_scope(
 
 
 async def connect_once(
-    mind: "Mind",
+    mind: SubscriptionHost,
     client: AgentClient,
     runtime: AgentSessionRuntime,
     live_status: AgentLiveStatus,

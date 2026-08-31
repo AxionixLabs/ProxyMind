@@ -8,8 +8,8 @@ import pytest
 
 from prompt_toolkit.utils import get_cwidth
 
-from mind_app.subscription.forwarding import AgentInbox
-from mind_app.subscription.models import AgentForwardRequest
+from frontends.subscription.forwarding import AgentInbox
+from frontends.subscription.models import AgentForwardRequest
 from mind_app.tui.adapters.application import TuiApplicationSink
 from mind_app.tui.core.mailbox import (
     TuiMailboxOverlay,

@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
+from collections.abc import Callable
 
-if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
-    from mind_app.subscription.runtime import AgentRuntime
+from agent.ports.subscription import (
+    SubscriptionHost,
+    SubscriptionRuntime,
+)
 
-
-SubscriptionRuntimeFactory = typing.Callable[["Mind"], "AgentRuntime"]
+SubscriptionRuntimeFactory = Callable[[SubscriptionHost], SubscriptionRuntime]
 
 
 class SubscriptionRuntimeOwner(object):
@@ -16,29 +16,27 @@ class SubscriptionRuntimeOwner(object):
 
     def __init__(
         self,
-        controller: "Mind",
+        controller: SubscriptionHost,
         *,
         runtime_factory: SubscriptionRuntimeFactory | None = None,
     ) -> None:
         """绑定监听器所需控制器和可选实例工厂。"""
         self._controller = controller
         self._runtime_factory = runtime_factory
-        self._runtime: AgentRuntime | None = None
+        self._runtime: SubscriptionRuntime | None = None
 
     @property
-    def current(self) -> "AgentRuntime | None":
+    def current(self) -> SubscriptionRuntime | None:
         """返回当前进程持有的监听器实例。"""
         return self._runtime
 
-    def start(self) -> "AgentRuntime":
+    def start(self) -> SubscriptionRuntime:
         """启动或复用当前进程的监听器实例。"""
         runtime = self._runtime
         if runtime is None:
             factory = self._runtime_factory
             if factory is None:
-                from mind_app.subscription.runtime import AgentRuntime
-
-                factory = AgentRuntime
+                raise RuntimeError("subscription runtime factory is required")
             runtime = factory(self._controller)
             self._runtime = runtime
         runtime.start_background()

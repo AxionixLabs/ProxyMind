@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from mind_app.interaction.contracts import PromptContext
-from mind_app.subscription.forwarding import AgentInbox
-from mind_app.subscription.models import AgentForwardRequest
+from frontends.subscription.forwarding import AgentInbox
+from frontends.subscription.models import AgentForwardRequest
 from mind_app.tui.core.models import (
     FragmentBlock,
     MailboxRunRequest,

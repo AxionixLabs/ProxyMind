@@ -30,13 +30,13 @@ from ..core.styles import (
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
-    from ...subscription.runtime import AgentRuntime
+    from agent.ports.subscription import SubscriptionRuntime
 
 
 @dataclass(frozen=True, slots=True)
 class PreparedMailboxRun(object):
     """保存已经通过主循环执行校验的收件箱请求。"""
-    listener: "AgentRuntime"
+    listener: "SubscriptionRuntime"
     message_id: str
     prompt: str
 
@@ -55,7 +55,7 @@ class TuiMailboxFeature(object):
         self.controller = controller
         self.auto_run   = False
 
-        self._listener: AgentRuntime | None = None
+        self._listener: SubscriptionRuntime | None = None
 
         self._automatic_message_id: str    = ""
         self._manual_message_ids: set[str] = set()
@@ -534,7 +534,7 @@ def _error_detail(error: BaseException) -> str:
 
 
 def _mailbox_entries(
-    listener: "AgentRuntime"
+    listener: "SubscriptionRuntime"
 ) -> tuple[MailboxEntry, ...]:
     """把订阅请求转换为不携带传输对象的只读展示快照。"""
     entries: list[MailboxEntry] = []

@@ -154,6 +154,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - 服务运行时 setup 迁移回归：`182 passed`；路径解析、PATH 注入、打包校验、Darwin 权限
   和资产缺失判断已切换到 `infrastructure/services/runtime_setup.py`，旧 runtime helper
   定义与生产导入已清零；setup 架构守卫通过；完整架构守卫：`83 passed, 55 warnings`。
+- Subscription 前端迁移回归：订阅 open/resume、WS 断线恢复、收件箱转发、取消和关闭
+  定向回归 `88 passed`；Subscription 前端归属守卫与 Harness owner/port 物理布局守卫通过；
+  旧 `mind_app/subscription`、`mind_app/runtime/agent` 源文件和生产导入已清零。
+- 本切片全仓行为回归：`3047 passed, 11 skipped, 55 warnings`；完整架构守卫随全仓回归
+  通过，警告仍仅来自测试依赖 Nuitka `glob2` 的弃用转义。
 
 警告来自测试依赖的 Nuitka `glob2` 弃用转义，不属于本次生产代码失败；下次扩大验证时
 仍需记录是否发生变化。
@@ -166,9 +171,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    终端轮次生命周期已迁入 `mind_app/presentation/terminal`；Hook 命令执行器已归属
    `infrastructure/platform`，Hook runtime/registry/Scope 已接入 `agent/harness/hooks`；
    通用 MCP 生命周期所有者已迁入 `agent/harness/mcp`；本地服务生命周期 owner、keepalive、
-   上下文类型和 setup helpers 已迁入 `infrastructure/services`；下一条补齐 CLI、TUI、
-   MCP、Subscription 的独立启动/恢复证据，具体外部 MCP runtime 仍由后续 capability/
-   adapters 切片接管，最后迁移 `frontends/`。
+   上下文类型和 setup helpers 已迁入 `infrastructure/services`；Subscription 适配器已
+   整体迁入 `frontends/subscription`，仅供它使用的 HTTP/WS 客户端与 wire envelope 已
+   同步迁出，旧路径已删除；下一条补齐 CLI、TUI、MCP、Subscription 的独立启动/恢复证据，
+   具体外部 MCP runtime 仍由后续 capability/adapters 切片接管。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -188,6 +194,12 @@ Helix/TUI 启动与取消清理回归。
 服务资产缺失判断由 `infrastructure/services/runtime_setup.py` 单一持有；该模块不得
 依赖 `mind_app` 或 presentation，旧 runtime 中的同名 helper 定义与生产导入清零，并以
 CLI doctor、TUI Helix 和服务启动回归证明行为一致。
+
+本次 Subscription 前端切片的删除条件已满足：`frontends/subscription` 单一持有远端
+HTTP/WS 客户端、wire envelope、open/resume、收件箱转发和恢复逻辑；Harness 只通过
+`agent/ports/subscription.py` 管理 owner 生命周期；控制器、TUI、CLI 和测试已切换新路径，
+`mind_app/subscription`、`mind_app/runtime/agent` 旧源文件及生产导入清零。`AgentExecutor`
+对旧根轮次执行器和环境采集器的依赖仍登记为后续 adapter/application 切片。
 
 ## 过渡入口与删除条件
 
@@ -265,3 +277,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-08-31 | 将通用 `McpRuntimeOwner` 迁入 `agent/harness/mcp`，以 `McpRuntime` 端口和组合根工厂管理外部 MCP 生命周期 | MCP/TUI/server 回归 `36 passed`；MCP 所有权守卫 `3 passed`；完整架构 `82 passed, 54 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 `ServiceRuntimeOwner`、keepalive 和服务上下文类型迁入 `infrastructure/services`，删除 runtime 旧生命周期实现 | 服务/CLI/TUI 回归 `44 passed`；完整架构 `82 passed, 54 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将服务运行时路径解析、环境注入、打包校验和权限 setup helpers 迁入 `infrastructure/services/runtime_setup.py`，runtime 仅保留启动编排 | 服务/CLI/TUI 回归 `182 passed`；完整架构 `83 passed, 55 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-08-31 | 将 Subscription 适配器及专用 HTTP/WS client、wire envelope 迁入 `frontends/subscription`，将生命周期 owner/端口归入 `agent/harness/subscription` 与 `agent/ports` | Subscription/TUI 回归 `88 passed`；全仓 `3047 passed, 11 skipped, 55 warnings`；旧路径和导入清零；导入图、`compileall`、`git diff --check` 通过 |

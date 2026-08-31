@@ -14,6 +14,7 @@ from agent.ports import (
     ModelCapability,
     ProcessCapability,
     SkillsProvider,
+    SubscriptionRuntimeBuilder,
 )
 from agent.ports.workspace import WorkspaceRuntimeFactory
 from .turns.commands import TurnApplication
@@ -41,6 +42,7 @@ class RuntimeServices:
     create_effect_journal: EffectJournalFactory
     create_hook_registry: HookRegistryFactory
     create_mcp_runtime: McpRuntimeBuilder | None = None
+    create_subscription_runtime: SubscriptionRuntimeBuilder | None = None
     create_workspace_runtime: WorkspaceRuntimeFactory | None = None
     process_capability: ProcessCapability | None = None
     helix_capability: HelixCapability | None = None
@@ -69,6 +71,11 @@ class RuntimeServices:
             and not callable(self.create_mcp_runtime)
         ):
             raise TypeError("MCP runtime factory must be callable")
+        if (
+            self.create_subscription_runtime is not None
+            and not callable(self.create_subscription_runtime)
+        ):
+            raise TypeError("subscription runtime factory must be callable")
         if (
             self.create_skills_provider is not None
             and not callable(self.create_skills_provider)

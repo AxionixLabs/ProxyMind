@@ -10,7 +10,7 @@ import certifi
 import websockets
 from urllib.parse import urlencode
 from websockets.asyncio.client import ClientConnection
-from .protocol import (
+from .wire import (
     build_envelope, ensure_ws_base
 )
 from metadata import const

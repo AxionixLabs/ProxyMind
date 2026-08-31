@@ -6,9 +6,10 @@ import asyncio
 import platform
 from dataclasses import dataclass
 from agent.application import TurnApplication
+from agent.ports import SubscriptionHost
 from infrastructure.config.runtime_paths import agent_runtime_db_path
 from observability import observe_exception
-from ..runtime.agent.client import AgentClient
+from .client import AgentClient
 from .forwarding import (
     AgentExecutor,
     AgentInbox,
@@ -30,9 +31,6 @@ from .opening import build_device_id
 from .status import AgentStatusOutbox
 from metadata import const
 from protocol.transport.endpoints import service_endpoints
-
-if typing.TYPE_CHECKING:
-    from ..controller import Mind
 
 InboxChangedCallback = typing.Callable[[], None]
 
@@ -65,7 +63,7 @@ class AgentRuntime(object):
 
     def __init__(
         self,
-        mind: "Mind",
+        mind: SubscriptionHost,
         *,
         config: AgentConfig | None = None,
         client: AgentClient | None = None,
@@ -118,7 +116,7 @@ class AgentRuntime(object):
         self.task: asyncio.Task[None] | None = None
 
     @staticmethod
-    def _build_default_executor(mind: "Mind") -> AgentExecutor:
+    def _build_default_executor(mind: SubscriptionHost) -> AgentExecutor:
         """为生产订阅运行时组合持久 Turn application。"""
         runtime_services = getattr(mind, "runtime_services", None)
         factory = getattr(runtime_services, "create_turn_application", None)

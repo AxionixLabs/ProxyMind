@@ -13,7 +13,8 @@ from websockets.exceptions import (
     InvalidStatus,
     WebSocketException
 )
-from ..runtime.agent.client import AgentClient
+from agent.ports import SubscriptionHost
+from .client import AgentClient
 from .models import (
     AgentConfig,
     AgentSessionRuntime,
@@ -36,9 +37,6 @@ from .ws import (
     connect_once
 )
 from .forwarding import AgentForwardHandler
-
-if typing.TYPE_CHECKING:
-    from ..controller import Mind
 
 
 def summarize_ws_disconnect(exc: BaseException) -> tuple[str, str]:
@@ -103,7 +101,7 @@ class AgentConnection(object):
 
     def __init__(
         self,
-        mind: "Mind",
+        mind: SubscriptionHost,
         client: AgentClient,
         config: AgentConfig,
         live_status: AgentLiveStatus,
@@ -116,15 +114,14 @@ class AgentConnection(object):
     ) -> None:
         """保存连接控制所需依赖。"""
         self.mind = mind
-
-        self.client          = client
-        self.config          = config
-        self.live_status     = live_status
+        self.client = client
+        self.config = config
+        self.live_status = live_status
         self.forward_handler = forward_handler
-        self.on_ready        = on_ready
-        self.on_connected    = on_connected
+        self.on_ready = on_ready
+        self.on_connected = on_connected
         self.on_disconnected = on_disconnected
-        self.on_ack          = on_ack
+        self.on_ack = on_ack
 
     async def open_session_runtime(
         self,
@@ -178,7 +175,7 @@ class AgentConnection(object):
         )
 
         resume_data = self.client.unwrap_data(resume_resp)
-        resumable   = bool(resume_data.get("resumable"))
+        resumable = bool(resume_data.get("resumable"))
 
         observe(
             "agent.session.resume_status",
@@ -241,14 +238,13 @@ class AgentSupervisor(object):
 
     def __init__(
         self,
-        mind: "Mind",
+        mind: SubscriptionHost,
         connection: AgentConnection,
         live_status: AgentLiveStatus
     ) -> None:
         """保存订阅运行所需依赖。"""
         self.mind = mind
-
-        self.connection  = connection
+        self.connection = connection
         self.live_status = live_status
         self.runtime: AgentSessionRuntime | None = None
 
