@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind™ ====
 
 import typing
+
 from agent.application.hook_models import (
     SubagentStartResult,
-    SubagentStopDecision
+    SubagentStopDecision,
 )
-from .scope import HookExecutionScope
+from agent.ports import HookExecutionScopePort
 
 _MAX_CONTEXT_CHARS = 12000
 
@@ -14,7 +14,7 @@ _MAX_CONTEXT_CHARS = 12000
 class SubagentHookEvents:
     """构建本地子执行主体的生命周期事件。"""
 
-    def __init__(self, scope: HookExecutionScope) -> None:
+    def __init__(self, scope: HookExecutionScopePort) -> None:
         self.scope = scope
 
     async def start(self, task: str) -> SubagentStartResult:
@@ -53,7 +53,7 @@ class SubagentHookEvents:
         error: str = "",
         usage: dict[str, typing.Any] | None = None,
         last_assistant_message: str = "",
-        continuation_count: int = 0
+        continuation_count: int = 0,
     ) -> SubagentStopDecision:
         """在子执行主体结束模型轮次前分发事件并聚合继续决定。"""
         agent_type = self.scope.context.agent_type
@@ -86,10 +86,7 @@ class SubagentHookEvents:
         vetoes = tuple(
             record.hook_key
             for record in result.records
-            if (
-                record.ok
-                and not record.effect.continue_execution
-            )
+            if record.ok and not record.effect.continue_execution
         )
         if vetoes:
             return SubagentStopDecision(
@@ -105,11 +102,6 @@ class SubagentHookEvents:
         if not continuations:
             return SubagentStopDecision.stop()
 
-        prompts = tuple(
-            record.effect.continuation_prompt
-            for record in continuations
-        )
-
         contexts = _bounded_parts(
             tuple(
                 context
@@ -121,7 +113,10 @@ class SubagentHookEvents:
 
         return SubagentStopDecision(
             should_continue=True,
-            continuation_prompt="\n\n".join(prompts),
+            continuation_prompt="\n\n".join(
+                record.effect.continuation_prompt
+                for record in continuations
+            ),
             reason="; ".join(
                 record.effect.reason
                 for record in continuations
@@ -135,11 +130,10 @@ class SubagentHookEvents:
 def _bounded_parts(
     values: tuple[str, ...],
     *,
-    limit: int
+    limit: int,
 ) -> tuple[str, ...]:
     """按原始顺序截取不超过总长度限制的文本集合。"""
     remaining = limit
-
     bounded: list[str] = []
 
     for value in values:
@@ -153,5 +147,4 @@ def _bounded_parts(
     return tuple(bounded)
 
 
-if __name__ == '__main__':
-    pass
+__all__ = ("SubagentHookEvents",)

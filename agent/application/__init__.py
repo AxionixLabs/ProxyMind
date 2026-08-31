@@ -95,6 +95,7 @@ from agent.domain.hooks import (
     normalize_hook_state_table,
 )
 from .hook_context import HookExecutionContext
+from .subagent_hooks import SubagentHookEvents
 from agent.domain.hook_trust import (
     HookResolvedState,
     HookTrustState,
@@ -152,6 +153,7 @@ __all__ = (
     "CompactOutcome",
     "CompactResult",
     "HookExecutionContext",
+    "SubagentHookEvents",
     "AgentContext",
     "AgentThreadContext",
     "AgentTurnContext",

@@ -21,6 +21,7 @@ if typing.TYPE_CHECKING:
         HookEventRequest,
         HookRunSummary,
     )
+    from agent.domain.hooks import HookEventName
     from agent.domain.hooks import HookStateTable
 
 HookSessionCleanup: typing.TypeAlias = Callable[[str], Awaitable[None]]
@@ -103,6 +104,21 @@ class HookExecutionScopePort(typing.Protocol):
 
     context: "HookExecutionContext"
     dispatcher: HookDispatcherPort
+
+    def has_matching(self, event: "HookEventName", match_value: str = "") -> bool:
+        """判断当前作用域是否存在匹配 Hook。"""
+        ...
+
+    async def dispatch(
+        self,
+        event: "HookEventName",
+        *,
+        payload: dict[str, typing.Any] | None = None,
+        match_value: str = "",
+        diagnostics: dict[str, typing.Any] | None = None,
+    ) -> "HookDispatchResult":
+        """合并公共上下文并分发一次生命周期事件。"""
+        ...
 
     def require_turn(self, turn: "TurnContext") -> None:
         """验证模型轮次属于当前固定作用域。"""

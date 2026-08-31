@@ -2028,6 +2028,48 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
     assert not legacy_violations, "runtime execution contracts remain:\n" + "\n".join(legacy_violations)
 
 
+def test_subagent_hook_events_are_owned_by_application() -> None:
+    """确保子 Agent Hook 生命周期聚合不依赖 runtime scope 实现。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "subagent.py"
+    target_path = PROJECT_ROOT / "agent" / "application" / "subagent_hooks.py"
+    assert not legacy_path.is_file(), "legacy subagent hook module still exists"
+    assert target_path.is_file(), "application subagent hook module is missing"
+
+    target_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    target_classes = {
+        node.name
+        for node in target_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert target_classes == {"SubagentHookEvents"}
+    violations: list[str] = []
+    for node in ast.walk(target_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                violations.append(
+                    f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not violations, "application subagent hooks cross their boundary:\n" + "\n".join(violations)
+
+    import_violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            if "mind_app.runtime.hooks.subagent" in modules:
+                import_violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+    assert not import_violations, "legacy subagent hook imports remain:\n" + "\n".join(import_violations)
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (

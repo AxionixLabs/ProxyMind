@@ -16,7 +16,7 @@ from agent.ports import (
     SubagentOperation,
     SubagentResultValue,
 )
-from mind_app.runtime.hooks.subagent import SubagentHookEvents
+from agent.application import SubagentHookEvents
 from mind_app.runtime.turns.executor import (
     create_continuation_execution,
     execute_turn

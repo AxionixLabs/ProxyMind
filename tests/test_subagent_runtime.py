@@ -17,7 +17,7 @@ from agent.application import (
     TurnExecution,
 )
 from mind_app.runtime.hooks.scope import HookExecutionScope
-from mind_app.runtime.hooks.subagent import SubagentHookEvents
+from agent.application import SubagentHookEvents
 from mind_app.runtime.subagents.runner import (
     MAX_SUBAGENT_STOP_CONTINUATIONS,
     SubagentRunner,

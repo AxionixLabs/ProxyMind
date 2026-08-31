@@ -219,6 +219,7 @@ agent/
 │   ├── stream_outcome.py    # 流式 Turn 终态聚合与结果构建
 │   ├── hook_catalog.py      # Hook 管理目录、状态快照和变更冲突
 │   ├── hook_context.py      # Hook 输入上下文值对象
+│   ├── subagent_hooks.py    # 子 Agent Hook 生命周期聚合
 │   ├── hook_events.py       # Hook 生命周期事件规格目录
 │   ├── hook_models.py       # Hook 生命周期快照、决定和工具结果值对象
 │   ├── hook_output.py       # Hook 输出语义校验与归一化
@@ -568,6 +569,7 @@ running -> cancelled
 | `mind_app/runtime/mcp/contracts.py` 中的 `McpSessionLike` | `agent/ports/mcp_session.py` 的 `McpSessionPort` | MCP 会话能力是工具执行跨层端口；runtime/mcp 只实现 Composite session，工具、Turn、Subagent 和 TUI 通过 ports 依赖，不把 runtime contract 当作公共接口 |
 | `mind_app/runtime/turns/executor.py` 中的 `TurnResult`、`TurnOperation` | `agent/ports/turns.py` | 模型轮次操作只依赖 MCP 会话、事件报告和 TurnExecution；runtime executor 只负责会话生命周期、工具过滤和结果收束 |
 | `mind_app/runtime/subagents/executor.py`、`runner.py` 中的执行协议 | `agent/ports/subagents.py` | 子 Agent 执行与操作端口和具体流式适配分离；runtime runner 只负责 Hook 生命周期、续跑和停止决定 |
+| `mind_app/runtime/hooks/subagent.py` | `agent/application/subagent_hooks.py` | 子 Agent Hook 事件聚合只依赖 scope 端口和 application 结果模型；runtime 不再拥有生命周期业务规则 |
 | `mind_app/runtime/hooks/protocol.py` | `agent/application/hook_protocol.py` | Hook 进程 stdin/stdout schema、构建和校验属于 application boundary；runtime 只调用已校验的契约，不把内部 Hook 协议误并入线上 `protocol/` |
 | `mind_app/runtime/hooks/catalog.py` | `agent/application/hook_catalog.py` | Hook 管理目录、不可变状态快照和内容冲突错误属于 application contract；Controller/TUI 只消费该契约，注册器仍负责运行时装配 |
 | `mind_app/runtime/hooks/matching.py` | `agent/domain/hook_matching.py` | Hook matcher、工具 canonical 名称和别名候选属于纯领域规则；不依赖 application、runtime 或平台实现 |
