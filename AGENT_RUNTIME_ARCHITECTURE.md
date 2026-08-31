@@ -215,6 +215,7 @@ agent/
 │   ├── commands.py          # submit、resume、approve、cancel、retry
 │   ├── compact_result.py    # 上下文压缩稳定结果值对象
 │   ├── agent_thread.py      # 子 Agent 线程和轮次上下文
+│   ├── agent_messages.py    # Agent 消息派发结果值对象
 │   ├── agent_views.py       # Agent 状态、等待和 mailbox 只读视图
 │   ├── environment.py       # 环境快照采集用例与能力失败收敛
 │   ├── execution.py        # Agent、Turn 和工具调用执行上下文
@@ -512,6 +513,7 @@ running -> cancelled
 | `SubagentRuntime._execute_submission` | `agent/harness/subagent_submission.py` | 已分配提交的 mailbox claim、Turn 上下文构造、活动轮次投递、结果确认和失败收束归 Harness；runtime 只注入 Controller、Hook scope 与执行适配器 |
 | `SubagentRuntime._controls`、根会话生命周期锁 | `agent/harness/agent_registry.py` | AgentControlRegistry 串行管理根会话 control 的创建、恢复、移除和关闭；runtime 不再持有执行树注册表或 shutdown 状态 |
 | `AgentSnapshot`、`AgentWaitResult`、`AgentMailboxWaitResult` | `agent/application/agent_views.py` | 跨 TUI、工具和 runtime 的只读 Agent 视图归 application；Harness control 只创建视图，不拥有公共值对象 |
+| `AgentMessageDispatch` | `agent/application/agent_messages.py` | 消息派发结果是跨入口复用的 application 值对象；活动轮次和注册表只保留 Harness 内部状态 |
 | `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 图快照、SQLite 存储和持久化单写者归入 stores，存储实现不得进入 domain |
 | `AgentSubmission`、Agent 状态字面量 | `agent/domain/agents.py` | 任务提交和状态分类只依赖协议标识与标准库，供 control、stores 和后续 Harness 调度复用 |
 | `mind_app/runtime/subagents/mailbox.py` | `agent/stores/agent_mailbox.py` | 子 Agent mailbox 事件、快照、消费游标和有界日志是持久状态；runtime/subagents 只依赖存储契约，不拥有 mailbox 数据结构 |

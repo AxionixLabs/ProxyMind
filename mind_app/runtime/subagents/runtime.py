@@ -7,6 +7,7 @@ import sqlite3
 from observability import observe_exception
 from agent.application import (
     AgentMailboxWaitResult,
+    AgentMessageDispatch,
     AgentSnapshot,
     AgentSettings,
     AgentThreadContext,
@@ -45,7 +46,6 @@ from agent.application import ForkTurns, normalize_fork_turns
 from mind_app.runtime.subagents.context import load_fork_context
 from agent.harness.agent_delivery import (
     AgentDeliveryRegistry,
-    AgentMessageDispatch,
 )
 from agent.harness.subagent_submission import SubagentSubmissionExecutor
 from agent.adapters.agent_messages import SteeringMessageDelivery

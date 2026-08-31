@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import asyncio
 import typing
-from collections.abc import Awaitable, Callable
-
+from collections.abc import (
+    Awaitable,
+    Callable
+)
 from protocol.transport.events import EventReport
 from agent.application import (
     AgentTurnContext,

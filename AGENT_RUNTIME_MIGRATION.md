@@ -1389,6 +1389,16 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] Subagent/runtime/tools/delivery 回归和 Harness 边界守卫通过，`compileall`、导入图和
   `git diff --check` 通过。下一切片继续审计 SubagentRuntime 的上下文构造与外部资源适配边界。
 
+### 已完成切片：Agent 消息派发结果归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将不可变 `AgentMessageDispatch` 结果从 `agent/harness/agent_delivery.py` 重组到
+  `agent/application/agent_messages.py`，Harness delivery 仅保留活动 Turn 和注册表状态。
+- [x] SubagentRuntime 切换 application 入口，保留 active-turn receipt 与 mailbox delivery 的一致性校验。
+- [x] 消息投递、Subagent/runtime 和 application 边界守卫通过，`compileall`、导入图和
+  `git diff --check` 通过。下一切片继续审计 SubagentRuntime 的上下文构造与外部资源适配边界。
+
 ### 已完成切片：上下文压缩结果与编排分离
 
 状态：已完成（2026-08-31）
@@ -1651,3 +1661,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 Agent 根会话注册表归位 | 将 SubagentRuntime 根会话 control 字典、生命周期锁和 shutdown 状态重组到 `agent/harness/agent_registry.py`，以显式 factory 负责恢复/创建 | 注册表/AgentControl/Subagent/runtime/架构守卫回归通过，导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 父会话继承上下文算法归位 | 将 ForkContextEntry、继承范围选择、渲染和字符预算算法重组到 `agent/application/fork_context.py`，runtime context 收敛为 history adapter | Subagent/context/application/架构守卫回归通过，导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 Subagent 提交执行协调归位 | 将 SubagentRuntime `_execute_submission` 重组到 `agent/harness/subagent_submission.py`，显式注入 control、Hook、执行、投递和权限端口 | Subagent/runtime/tools/delivery 回归与 Harness 守卫通过，导入图、`compileall` 和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 Agent 消息派发结果归位 | 将 AgentMessageDispatch 从 Harness delivery 重组到 `agent/application/agent_messages.py`，活动投递模块只保留可变状态 | 消息投递/Subagent/application/架构守卫回归通过，导入图、`compileall` 和 `git diff --check` 通过 |

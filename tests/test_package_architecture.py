@@ -1835,6 +1835,44 @@ def test_agent_views_are_owned_by_application() -> None:
     assert not control_classes.intersection(target_classes)
 
 
+def test_agent_message_dispatch_is_owned_by_application() -> None:
+    """确保消息派发结果值对象不和活动投递状态机混合。"""
+    target_path = PROJECT_ROOT / "agent" / "application" / "agent_messages.py"
+    delivery_path = PROJECT_ROOT / "agent" / "harness" / "agent_delivery.py"
+    assert target_path.is_file(), "agent application message result is missing"
+    assert delivery_path.is_file(), "agent harness delivery is missing"
+
+    target_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    target_classes = {
+        node.name
+        for node in target_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert target_classes == {"AgentMessageDispatch"}
+
+    delivery_tree = ast.parse(delivery_path.read_text(encoding="utf-8-sig"), filename=str(delivery_path))
+    delivery_classes = {
+        node.name
+        for node in delivery_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert "AgentMessageDispatch" not in delivery_classes
+
+    violations: list[str] = []
+    for node in ast.walk(target_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                violations.append(
+                    f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not violations, "agent message result crosses legacy boundary:\n" + "\n".join(violations)
+
+
 def test_agent_control_registry_owns_root_lifecycle() -> None:
     """确保根会话 control 注册表属于 Harness，runtime 不再持有生命周期状态。"""
     registry_path = PROJECT_ROOT / "agent" / "harness" / "agent_registry.py"
@@ -1901,8 +1939,8 @@ def test_subagent_message_delivery_has_port_and_adapter_owners() -> None:
     assert {
         "AgentActiveTurn",
         "AgentDeliveryRegistry",
-        "AgentMessageDispatch",
     }.issubset(runtime_classes)
+    assert "AgentMessageDispatch" not in runtime_classes
 
     old_imports: list[str] = []
     for path in PROJECT_ROOT.rglob("*.py"):

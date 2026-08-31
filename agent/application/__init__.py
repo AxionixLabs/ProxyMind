@@ -62,6 +62,7 @@ from .agent_thread import (
     AgentThreadContext,
     AgentTurnContext,
 )
+from .agent_messages import AgentMessageDispatch
 from .agent_views import (
     AgentMailboxWaitResult,
     AgentSnapshot,
@@ -167,6 +168,7 @@ __all__ = (
     "AgentContext",
     "AgentThreadContext",
     "AgentTurnContext",
+    "AgentMessageDispatch",
     "AgentMailboxWaitResult",
     "AgentSnapshot",
     "AgentWaitResult",
