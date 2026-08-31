@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from observability import observe_exception
 from protocol.schema.identifiers import short_uid
 from agent.application.execution import AgentContext
-from mind_app.runtime.subagents.mailbox import (
+from agent.stores.agent_mailbox import (
     AgentMailboxEvent,
     AgentMailboxSnapshot,
     AgentMailboxStore

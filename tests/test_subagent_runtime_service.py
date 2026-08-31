@@ -26,7 +26,7 @@ from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.turns import stream as turn_stream
 from protocol.client.reports import EventReportRuntimeOwner
 from mind_app.runtime.subagents.graph import AgentGraphStore
-from mind_app.runtime.subagents.mailbox import (
+from agent.stores.agent_mailbox import (
     AgentMailboxStore,
     format_mailbox_context,
 )

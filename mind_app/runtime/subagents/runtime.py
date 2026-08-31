@@ -27,7 +27,7 @@ from mind_app.runtime.subagents.control import (
     AgentSubmission,
     AgentWaitResult
 )
-from mind_app.runtime.subagents.mailbox import (
+from agent.stores.agent_mailbox import (
     format_mailbox_context
 )
 from mind_app.runtime.subagents.context import (

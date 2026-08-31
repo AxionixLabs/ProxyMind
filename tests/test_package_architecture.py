@@ -1540,6 +1540,47 @@ def test_execution_context_contracts_are_owned_by_agent_application() -> None:
     assert not violations, "application execution crosses its boundary:\n" + "\n".join(violations)
 
 
+def test_agent_mailbox_is_owned_by_stores() -> None:
+    """确保子 Agent mailbox 的事件、快照和消费游标归入 stores。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "mailbox.py"
+    target_path = PROJECT_ROOT / "agent" / "stores" / "agent_mailbox.py"
+    assert not legacy_path.is_file(), "legacy runtime mailbox module still exists"
+    assert target_path.is_file(), "agent mailbox store is missing"
+
+    legacy_modules = {"mind_app.runtime.subagents.mailbox"}
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy mailbox imports remain:\n" + "\n".join(violations)
+
+    target_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    target_violations: list[str] = []
+    for node in ast.walk(target_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server"}:
+                target_violations.append(
+                    f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not target_violations, "agent mailbox store crosses its boundary:\n" + "\n".join(target_violations)
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (

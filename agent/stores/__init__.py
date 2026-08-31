@@ -2,6 +2,17 @@
 # Notes: ==== Mind™ ====
 
 from .effect_journal import LocalEffectJournal
+from .agent_mailbox import (
+    AgentMailboxEvent,
+    AgentMailboxEventKind,
+    AgentMailboxSnapshot,
+    AgentMailboxStore,
+    MAX_AGENT_MESSAGE_CHARS,
+    MAX_MAILBOX_CONTEXT_CHARS,
+    MAX_MAILBOX_EVENTS,
+    MAX_MAILBOX_UPDATES,
+    format_mailbox_context,
+)
 from .approval_ledger import ApprovalCallLedger
 from .permission_grants import (
     PermissionGrant,
@@ -12,11 +23,20 @@ from .run_store import SQLiteRunStore
 
 __all__ = (
     "ApprovalCallLedger",
+    "AgentMailboxEvent",
+    "AgentMailboxEventKind",
+    "AgentMailboxSnapshot",
+    "AgentMailboxStore",
     "LocalEffectJournal",
+    "MAX_AGENT_MESSAGE_CHARS",
+    "MAX_MAILBOX_CONTEXT_CHARS",
+    "MAX_MAILBOX_EVENTS",
+    "MAX_MAILBOX_UPDATES",
     "PermissionGrant",
     "PermissionGrantStore",
     "SQLiteRunStore",
     "normalize_permission_profile",
+    "format_mailbox_context",
 )
 
 

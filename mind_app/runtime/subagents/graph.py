@@ -26,7 +26,7 @@ from mind_app.runtime.subagents.control import (
     AgentSubmission,
     AgentSubmissionKind,
 )
-from mind_app.runtime.subagents.mailbox import (
+from agent.stores.agent_mailbox import (
     AgentMailboxEvent,
     AgentMailboxEventKind,
     AgentMailboxSnapshot,

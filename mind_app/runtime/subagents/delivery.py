@@ -18,7 +18,7 @@ from protocol.schema.stream_events import (
 )
 from protocol.schema.turn_inputs import TurnInput
 from agent.application.execution import TurnContext
-from mind_app.runtime.subagents.mailbox import AgentMailboxEvent
+from agent.stores.agent_mailbox import AgentMailboxEvent
 
 AgentMessageDeliveryStatus = typing.Literal["active_turn", "mailbox"]
 AgentMessageReceiptStatus  = typing.Literal["accepted", "duplicate"]

@@ -19,7 +19,7 @@ from mind_app.runtime.subagents.graph import (
     AgentGraphPersistenceError,
     AgentGraphStore,
 )
-from mind_app.runtime.subagents.mailbox import AgentMailboxStore
+from agent.stores.agent_mailbox import AgentMailboxStore
 from mind_app.runtime.subagents.thread import AgentThreadContext
 from agent.application import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid

@@ -3,7 +3,7 @@
 import pytest
 
 from agent.application.execution import AgentContext
-from mind_app.runtime.subagents.mailbox import (
+from agent.stores.agent_mailbox import (
     AgentMailboxStore,
     MAX_MAILBOX_CONTEXT_CHARS,
     format_mailbox_context,
