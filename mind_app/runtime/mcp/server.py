@@ -1,20 +1,34 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
-import math
-import typing
 import asyncio
 import contextlib
+import functools
+import math
+import os
+import typing
+from dataclasses import dataclass
+from pathlib import Path
+
+from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application import RuntimeServices
-from agent.application.turns.projections import RunResultProjection
-from agent.application.turns.run_result import RunResult
 from agent.application.turns.commands import (
     SubmitTurnCommand,
     TurnApplication,
 )
-from dataclasses import dataclass
-from pathlib import Path
+from agent.application.turns.projections import RunResultProjection
+from agent.application.turns.run_result import RunResult
+from infrastructure.config.paths import (
+    ApplicationLayout,
+    resolve_application_layout
+)
+from infrastructure.config.runtime_paths import (
+    agent_runtime_db_path,
+    ensure_mind_home,
+    mind_config_path,
+    mind_reports_dir
+)
+from infrastructure.platform.shell_tools import route_shell_tools
 from mcp.server.fastmcp import (
     Context,
     FastMCP
@@ -24,24 +38,12 @@ from mind_app.presentation.application import Frontend
 from mind_app.presentation.application_sinks import NullApplicationSink
 from mind_app.interaction import NonInteractiveInteraction
 from mind_app.runtime.turns.root import (
-    RootTurnCommandExecutor,
     RootTurnRunner,
     run_root_turn,
 )
 from mind_app.presentation.output.silent import create_silent_output_session
-from infrastructure.config.runtime_paths import (
-    agent_runtime_db_path,
-    ensure_mind_home,
-    mind_config_path,
-    mind_reports_dir
-)
 from observability.reporting import RunReport
 from mind_app.interaction.environment import capture_turn_environment
-from infrastructure.platform.shell_tools import route_shell_tools
-from infrastructure.config.paths import (
-    ApplicationLayout,
-    resolve_application_layout
-)
 from agent.application.config.settings import AgentSettings
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
@@ -346,8 +348,7 @@ class MindMcpRuntime(object):
         )
 
         execute_root_turn = RootTurnCommandExecutor(
-            self.mind,
-            turn_runner=self._turn_runner,
+            functools.partial(self._turn_runner, self.mind),
             permissions=permissions,
         )
 

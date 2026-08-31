@@ -523,7 +523,7 @@ running -> cancelled
 | --- | --- | --- |
 | `mind.py`、`agent/composition.py` | `composition.py` | `mind.py` 已创建单个 `RuntimeServices` 并注入全部进程入口；具体 store 和 capability 只能在 `agent/composition.py` 装配 |
 | `mind_app/controller.py` | application 公开门面 | 只借用入口注入的 `RuntimeServices`，不复制能力引用、不选择具体实现；已有可变状态按完整生命周期迁出 |
-| `mind_app/runtime/turns/root.py` | `agent/application/turns/commands.py` | CLI、TUI、MCP 和 Subscription 已由类型化 Command 驱动；`RootTurnCommandExecutor` 作为显式 composition adapter 保留，统一根轮次调用和结果投影，不拥有 Session/Run 状态 |
+| `mind_app/runtime/turns/root.py` | `agent/application/turns/commands.py`、`agent/adapters/turns/root.py` | CLI、TUI、MCP 和 Subscription 已由类型化 Command 驱动；命令映射已迁入 controller 无关的入站 adapter，旧 runtime 只保留尚待 Harness 接管的根轮次准备与前端生命周期 |
 | `mind_app/runtime/turns/stream.py`、`stream_model.py` | `agent/harness/sessions/loop.py`、`agent/application/turns/`、TUI adapter | 输入准备、终态、工具交付、资源收尾和回合展示已拆到具名所有者；模型 presenter 只消费 Protocol Client current/active/audit Item 投影并持有 Transcript 交付水位，RunResult、Stop Hook、最后回复和 sources 均读取 canonical 投影；`stream.py` 暂留迁移期事件路由，所有模型/工具/审批/效果命令均走 Protocol Client |
 | `mind_app/runtime/mcp/*`、`subscription/lifecycle.py` | capabilities、adapters、harness supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
 | `mind_app/runtime/subagents/control.py` | `agent/harness/agents/control.py`；状态值对象归 `agent/domain/agents.py`、图归 `agent/stores/agents/graph.py` | AgentControl 只保留可变树调度、mailbox 协调和观察快照；Harness 持有状态机，domain/stores 不反向依赖它 |
@@ -602,6 +602,7 @@ running -> cancelled
 | `mind_app/runtime/turns/executor.py` 中的 `TurnExecution` | `agent/application/turns/execution.py`；`HookExecutionScopePort` 归 `agent/ports/hooks.py` | Turn 执行值对象只依赖固定 scope 端口；runtime executor 保留模型执行函数和具体 scope 构造，不让 application 加载 HookRuntime |
 | `mind_app/runtime/mcp/contracts.py` 中的 `McpSessionLike` | `agent/ports/mcp_session.py` 的 `McpSessionPort` | MCP 会话能力是工具执行跨层端口；runtime/mcp 只实现 Composite session，工具、Turn、Subagent 和 TUI 通过 ports 依赖，不把 runtime contract 当作公共接口 |
 | `mind_app/runtime/turns/executor.py` 中的 `TurnResult`、`TurnOperation` | `agent/ports/turns.py` | 模型轮次操作只依赖 MCP 会话、事件报告和 TurnExecution；runtime executor 只负责会话生命周期、工具过滤和结果收束 |
+| `mind_app/runtime/turns/root.py` 中的 `RootTurnCommandExecutor` | `agent/adapters/turns/root.py` | 冻结命令到根轮次参数的映射属于入站 adapter；CLI、MCP 和 Subscription 在入口绑定 controller，adapter 不依赖旧控制器或前端生命周期 |
 | `mind_app/runtime/subagents/executor.py`、`runner.py` 中的执行协议 | `agent/ports/subagents.py` | 子 Agent 执行与操作端口和具体流式适配分离；runtime runner 只负责 Hook 生命周期、续跑和停止决定 |
 | `mind_app/runtime/hooks/subagent.py` | `agent/application/hooks/subagent.py` | 子 Agent Hook 事件聚合只依赖 scope 端口和 application 结果模型；runtime 不再拥有生命周期业务规则 |
 | `mind_app/runtime/subagents/runner.py` | `agent/harness/execution/subagent_runner.py` | SubagentRunner 只接收 Turn runner 与 cleanup 端口，Harness 负责 Hook 停止决定和续跑；不持有 Mind Controller，避免 runtime/application 反向耦合 |

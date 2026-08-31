@@ -1,17 +1,21 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
+import functools
 import time
 import typing
-import asyncio
-from agent.application.turns.run_result import RunResult
+
+from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application.config.session_identity import derive_local_session_id
 from agent.application.turns.commands import (
     SubmitTurnCommand,
     TurnApplication,
 )
-from infrastructure.errors import AppError
+from agent.application.turns.run_result import RunResult
 from infrastructure.config.preferences import apply_primary_model_override
+from infrastructure.config.runtime_paths import agent_runtime_db_path
+from infrastructure.errors import AppError
 from observability import (
     observe,
     observe_exception
@@ -28,10 +32,8 @@ from ..history import (
     INTERACTIVE_HISTORY_SOURCES
 )
 from ..runtime.turns.root import (
-    RootTurnCommandExecutor,
     run_root_turn,
 )
-from infrastructure.config.runtime_paths import agent_runtime_db_path
 from ..interaction.environment import capture_active_turn_environment
 
 if typing.TYPE_CHECKING:
@@ -105,8 +107,7 @@ async def run_selected_command(
             )
 
             execute_root_turn = RootTurnCommandExecutor(
-                mind,
-                turn_runner=run_root_turn,
+                functools.partial(run_root_turn, mind),
                 include_empty_attachments=True,
             )
 

@@ -6,7 +6,6 @@ import typing
 from collections.abc import Mapping
 from protocol.transport.events import EventReport
 from agent.application.turns.run_result import RunResult
-from agent.application.turns.commands import SubmitTurnCommand
 from agent.application.turns.execution import TurnExecution
 from agent.application.turns.context import (
     AgentContext,
@@ -200,72 +199,6 @@ async def run_root_turn(
         execute_prepared_turn,
         event_report=event_report,
     )
-
-
-class RootTurnCommandExecutor:
-    """把冻结的主动 Turn 命令适配到现有根轮次执行器。
-
-    该适配器只拥有命令字段到旧执行器参数的映射，不创建 Session、Run 或
-    前端状态；调用方负责将其实例注入 `TurnApplication`，从而保持入口和
-    Harness 生命周期解耦。
-    """
-
-    def __init__(
-        self,
-        controller: "Mind",
-        *,
-        turn_runner: RootTurnRunner | None = None,
-        permissions: PermissionSettings | None = None,
-        include_empty_attachments: bool = False,
-    ) -> None:
-        """绑定控制器、可替换执行器和可选的权限覆盖。"""
-        if not isinstance(include_empty_attachments, bool):
-            raise TypeError("include_empty_attachments must be boolean")
-        self._controller = controller
-        self._turn_runner = (
-            run_root_turn if turn_runner is None else turn_runner
-        )
-        self._permissions = permissions
-        self._include_empty_attachments = include_empty_attachments
-
-    async def __call__(self, command: SubmitTurnCommand) -> RunResult:
-        """解包冻结命令并执行一次根轮次。"""
-        if not isinstance(command, SubmitTurnCommand):
-            raise TypeError("root turn command executor requires SubmitTurnCommand")
-
-        root_kwargs: dict[str, typing.Any] = {
-            "exec_env": command.environment_snapshot_value(),
-        }
-
-        pref_config = command.pref_config_value()
-        if pref_config is not None:
-            root_kwargs["pref_config"] = pref_config
-
-        attachments = command.attachment_values()
-        if attachments or self._include_empty_attachments:
-            root_kwargs["attachments"] = attachments
-
-        if self._permissions is not None:
-            root_kwargs["permissions"] = self._permissions
-
-        values = command.extras_value() or {}
-        metadata = values.get("metadata")
-        if isinstance(metadata, Mapping):
-            root_kwargs["metadata"] = dict(metadata)
-
-        request_extras = values.get("request_extras")
-        if isinstance(request_extras, Mapping) and request_extras:
-            root_kwargs["extras"] = dict(request_extras)
-
-        turn_id = values.get("turn_id")
-        if isinstance(turn_id, str) and turn_id.strip():
-            root_kwargs["turn_id"] = turn_id
-
-        return await self._turn_runner(
-            self._controller,
-            message=command.message,
-            **root_kwargs,
-        )
 
 
 if __name__ == '__main__':

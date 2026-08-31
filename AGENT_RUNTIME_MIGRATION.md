@@ -104,6 +104,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - `mind.py::create_native_coding` 成为 SandboxClient 和 ProcessSessionManager 的唯一生产
   装配点；`NativeCoding` 强制接收会话运行时，`coding_tools/default_registry` 强制接收
   工作区编码实例，不再通过空参数创建具体平台能力。
+- `RootTurnCommandExecutor` 已迁移至 `agent/adapters/turns/root.py`，只依赖冻结命令、
+  权限领域值和注入的 operation；CLI、MCP、Subscription 在各自入口绑定 controller，
+  `mind_app.runtime.turns.root` 不再拥有 application 命令适配器。
 
 ### 最新证据
 
@@ -124,19 +127,20 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `compileall` 和 `git diff --check` 均通过，旧 `process_session` 文件和导入已清零。
 - Sandbox 显式组合定向回归：`339 passed`；平台/组合所有权守卫：`2 passed`；导入图、
   `compileall` 和 `git diff --check` 均通过，NativeCoding 内部 Sandbox 构造已清零。
+- 根轮次命令适配器三入口回归：`155 passed`；专项 adapter/application 守卫：`2 passed`；
+  完整架构守卫：`78 passed, 52 warnings`；失败项修正后的边界专项：`5 passed`；导入图、
+  `compileall` 和 `git diff --check` 均通过，旧 runtime 适配器定义和导入已清零。
 
 警告来自测试依赖的 Nuitka `glob2` 弃用转义，不属于本次生产代码失败；下次扩大验证时
 仍需记录是否发生变化。
 
-### 下一切片：历史副作用适配器退役
+### 下一切片：入口与数据迁移
 
 当前只允许进入以下顺序，不以补丁式需求插队：
 
-1. **历史副作用适配器退役**：Helix、执行策略、进程会话和 Sandbox 组合子切片已完成；
-   下一步迁移根轮次命令适配器的 CLI/MCP/Subscription 真实消费者，再进入入口与数据迁移。
-2. **入口与数据迁移**：将 `mind_core` 的配置、权限、hooks、skills 按职责落位；在
+1. **入口与数据迁移**：将 `mind_core` 的配置、权限、hooks、skills 按职责落位；在
    CLI、TUI、MCP、Subscription 均有独立启动/恢复证据后再迁移 `frontends/`。
-3. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
+2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
@@ -210,3 +214,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-08-31 | 将 `ExecPolicyManager` 迁入 `infrastructure/config`，删除 `mind_app/native_coding/exec/exec_policy.py` 和旧导出 | 全量行为 `3037 passed, 11 skipped, 52 warnings`；架构 `77 passed, 52 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将本地多后端 `ProcessSessionManager` 迁入 `infrastructure/platform`，删除 native coding 旧实现和导入 | 会话/TUI Shell `58 passed`；架构守卫 `2 passed`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 SandboxClient/ProcessSessionManager 装配提升到 `mind.py`，删除 NativeCoding 和工具注册表的隐式构造 | 受影响行为 `339 passed`；架构守卫 `2 passed`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-08-31 | 将 `RootTurnCommandExecutor` 迁入 `agent/adapters/turns`，CLI/MCP/Subscription 显式绑定旧 runner | 三入口行为 `155 passed`；专项守卫 `2 passed`，完整架构 `78 passed, 52 warnings`；导入图、`compileall`、`git diff --check` 通过 |

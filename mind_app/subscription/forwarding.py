@@ -1,22 +1,25 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
+import functools
 import time
 import typing
-import asyncio
 from collections.abc import Mapping
-from agent.application.turns.run_result import RunResult
+
+from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application.turns.commands import (
-    TurnApplication,
-    SubmitTurnResult,
     SubmitTurnCommand,
+    SubmitTurnResult,
+    TurnApplication,
 )
+from agent.application.turns.run_result import RunResult
 from infrastructure.errors import AppError
 from observability import observe
+
 from ..runtime.agent.client import AgentClient
 from ..interaction.environment import capture_active_turn_environment
 from ..runtime.turns.root import (
-    RootTurnCommandExecutor,
     RootTurnRunner,
     run_root_turn,
 )
@@ -185,8 +188,7 @@ class AgentExecutor(object):
             )
 
             execute_root_turn = RootTurnCommandExecutor(
-                mind,
-                turn_runner=self._turn_runner,
+                functools.partial(self._turn_runner, mind),
             )
 
             execution: SubmitTurnResult[RunResult]

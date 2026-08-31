@@ -332,6 +332,32 @@ def test_agent_capabilities_depend_only_on_protocol_transport() -> None:
     )
 
 
+def test_root_turn_command_adapter_is_controller_independent() -> None:
+    """确保主动 Turn 命令映射由 agent adapter 持有且不依赖旧控制器。"""
+    adapter_path = PROJECT_ROOT / "agent" / "adapters" / "turns" / "root.py"
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "root.py"
+
+    assert adapter_path.is_file(), "root turn command adapter is missing"
+    legacy_source = legacy_path.read_text(encoding="utf-8-sig")
+    assert "class RootTurnCommandExecutor" not in legacy_source
+
+    violations = _forbidden_imports(
+        "agent/adapters/turns",
+        {
+            "backend",
+            "engine",
+            "infrastructure",
+            "mind_app",
+            "mind_core",
+            "observability",
+            "server",
+        },
+    )
+    assert not violations, "root turn adapter crosses boundaries:\n" + "\n".join(
+        violations
+    )
+
+
 def test_infrastructure_does_not_depend_on_legacy_runtime() -> None:
     """基础设施实现不能重新依赖已进入退役流程的业务包。"""
     violations = _forbidden_imports(
@@ -3022,6 +3048,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.ports.agent_messages",
         "agent.adapters.agents.messages",
         "agent.adapters.agents.execution",
+        "agent.adapters.turns.root",
         "agent.harness.agents.control",
         "agent.harness.agents.delivery",
         "agent.harness.agents.registry",
