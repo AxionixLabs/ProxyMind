@@ -393,6 +393,15 @@ CLI `run_selected_command` 均接收显式 `ProtocolCommandClient`/`TurnApplicat
 `compileall` 和 `git diff --check` 均通过。下一切片收口
 `frontends/tui/features/conversation.py` 的 Protocol Client 显式注入。
 
+本次 TUI conversation fork 切片已满足上述条件：`fork_current_conversation` 删除
+`_protocol_client_for` 和 `runtime_services` 反射，`/fork` 与 transcript backtrack 均由
+session 显式传递 `ProtocolCommandClient`；源缺失恢复、可重试失败和本地请求 seam 语义保持
+不变。Fork/backtrack/command/stream/input 回归 `211 passed`，其中显式客户端调用有独立
+断言；完整架构守卫 `93 passed, 60 warnings`，导入图、`compileall` 和
+`git diff --check` 均通过。
+下一切片进入 `mind_app/runtime/turns/stream.py`，把模型 Protocol Client、Effect Journal
+和运行上下文从 controller 反射读取改为根轮次显式端口。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -488,3 +497,5 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 将 Subscription `TurnApplication` 改为组合根显式 `TurnApplicationFactory` 注入，清除前端对 `runtime_services` 的动态发现 | Subscription 回归 `18 passed`；装配/架构守卫专项 `19 passed`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 TUI `TuiTurnInputControl` 改为显式注入 `ProtocolCommandClient`，删除输入控制器对 `runtime_services` 的隐式发现 | TUI 输入/流式命令/中断及前端边界回归 `57 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 TUI session loop 与 CLI durable exec 的 `TurnApplication`/`ProtocolCommandClient` 改为 bootstrap 显式注入，删除前端对 `Mind.runtime_services` 的动态发现 | TUI/CLI 回归 `145 passed, 1 deselected`，时序测试单独通过；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将 TUI conversation fork/backtrack 的 Protocol Client 改为 session 显式注入，删除 feature 对 `Mind.runtime_services` 的动态发现 | Fork/backtrack/command/stream/input 回归 `211 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将 TUI conversation fork/backtrack 的 Protocol Client 改为 session 显式注入，删除 feature 对 `Mind.runtime_services` 的动态发现 | Fork/backtrack/command/stream/input 回归 `211 passed`；完整架构守卫、导入图、`compileall`、`git diff --check` 在提交前复核 |

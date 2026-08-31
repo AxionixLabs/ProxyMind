@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
+from agent.protocol import ConversationForkReceipt
 from frontends.tui.features import conversation
 from protocol.client import fork as fork_request
 from protocol.client.fork import (
@@ -137,6 +138,36 @@ async def test_fork_switches_only_after_remote_copy_succeeds(monkeypatch) -> Non
     result = next(view for view in mind.views if view.type == "tui.fork.status")
     assert result.renderable.plain_text == (
         "■ Conversation forked. · 24 items"
+    )
+
+
+@pytest.mark.anyio
+async def test_fork_uses_explicit_protocol_client() -> None:
+    mind = ForkMindStub()
+    protocol_client = SimpleNamespace(
+        fork_session=AsyncMock(return_value=ConversationForkReceipt(
+            request_id="fork_request_0001",
+            source_cid="cid_source_12345678",
+            source_sid="sid_source_1_abcdef",
+            prompt_source="none",
+            cid="cid_target_87654321",
+            sid="sid_target_2_fedcba",
+            copied_items=24,
+        )),
+    )
+
+    status = await conversation.fork_current_conversation(
+        mind,
+        protocol_client=protocol_client,
+    )
+
+    assert status.succeeded
+    protocol_client.fork_session.assert_awaited_once_with(
+        cid="cid_source_12345678",
+        sid="sid_source_1_abcdef",
+        request_id="fork_request_0001",
+        prompt_source="none",
+        before_turn_id=None,
     )
 
 

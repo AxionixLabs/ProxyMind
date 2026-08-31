@@ -186,6 +186,7 @@ async def _run_tui_loop(
         runtime,
         state,
         foreground_tasks,
+        protocol_client=protocol_client,
     )
     dispatcher.mailbox.bind_listener()
     if initial_prompt is not None:
@@ -234,6 +235,7 @@ async def _run_tui_loop(
                     state,
                     foreground_tasks,
                     requested.request,
+                    protocol_client=protocol_client,
                 )
                 continue
             except TuiMailboxRunRequested as requested:
@@ -438,7 +440,9 @@ async def _handle_transcript_backtrack(
     runtime: TuiRuntime,
     state: TuiSessionState,
     foreground_tasks: TuiForegroundTasks,
-    request: TranscriptBacktrackRequest
+    request: TranscriptBacktrackRequest,
+    *,
+    protocol_client: ProtocolCommandClient | None = None,
 ) -> None:
     """通过前台屏障执行历史分支并恢复选中的输入。"""
     runtime.replace_input_text(request.prompt)
@@ -456,6 +460,7 @@ async def _handle_transcript_backtrack(
                 attachments=request.attachments,
                 extras=request.extras,
             ),
+            protocol_client=protocol_client,
         ),
         activity_kind="compact",
         on_succeeded=lambda status: _finish_transcript_backtrack(

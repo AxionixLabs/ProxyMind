@@ -12,6 +12,7 @@ from dataclasses import (
 )
 from infrastructure.platform.file_assist import FileAssist
 from infrastructure.services.runtime_setup import service_runtime_asset_missing
+from agent.ports import ProtocolCommandClient
 from agent.ports.presentation import ApplicationView
 from agent.stores.sessions import INTERACTIVE_HISTORY_SOURCES
 from infrastructure.config.store import ConfigStoreError
@@ -190,13 +191,16 @@ class TuiCommandDispatcher(object):
         mind: "Mind",
         runtime: TuiRuntime,
         state: TuiSessionState,
-        foreground_tasks: TuiForegroundTasks
+        foreground_tasks: TuiForegroundTasks,
+        *,
+        protocol_client: ProtocolCommandClient | None = None,
     ) -> None:
         self.mind    = mind
         self.runtime = runtime
         self.state   = state
 
         self.foreground_tasks = foreground_tasks
+        self.protocol_client = protocol_client
         self.application      = mind.frontend.application
         self.mailbox          = TuiMailboxFeature(runtime, mind)
 
@@ -1162,6 +1166,7 @@ class TuiCommandDispatcher(object):
                 "Conversation fork",
                 lambda: fork_current_conversation(
                     self.mind,
+                    protocol_client=self.protocol_client,
                 ),
                 activity_kind="compact",
                 on_succeeded=self._finish_conversation_fork,

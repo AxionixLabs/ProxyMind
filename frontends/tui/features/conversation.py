@@ -319,7 +319,8 @@ async def fork_current_conversation(
     *,
     before_turn_id: str = "",
     bind_target: bool = True,
-    fallback_prompt: ResubmittablePrompt | None = None
+    fallback_prompt: ResubmittablePrompt | None = None,
+    protocol_client: ProtocolCommandClient | None = None,
 ) -> ForkLiveStatus:
     """复制完整或指定轮次之前的上下文并按需切换会话标识。"""
     source   = mind.conversation.snapshot()
@@ -360,7 +361,6 @@ async def fork_current_conversation(
             observe("conversation.fork.animation.start")
             await mind.start_compact_anim(status.snapshot)
 
-        protocol_client = _protocol_client_for(mind)
         if protocol_client is not None:
             receipt = await protocol_client.fork_session(
                 cid=source["cid"],
@@ -522,7 +522,7 @@ async def fork_current_conversation(
         )
 
     except Exception as error:
-        if _protocol_client_for(mind) is None:
+        if protocol_client is None:
             error_code = str(getattr(error, "code", "") or "").strip()
             if bind_target and not boundary and error_code == "source_missing":
                 mind.clear_conversation_fork(
@@ -576,13 +576,6 @@ async def fork_current_conversation(
         )
 
     return status
-
-
-def _protocol_client_for(mind: "Mind") -> ProtocolCommandClient | None:
-    """读取 TUI 使用的远端 Protocol Client。"""
-    services = getattr(mind, "runtime_services", None)
-    candidate = getattr(services, "model_capability", None)
-    return candidate if isinstance(candidate, ProtocolCommandClient) else None
 
 
 def _fork_receipt_values(receipt: ConversationForkReceipt) -> dict[str, typing.Any]:

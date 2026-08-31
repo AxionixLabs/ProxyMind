@@ -3572,6 +3572,14 @@ def test_subscription_adapter_is_owned_by_frontends() -> None:
         "TUI session loop must not discover runtime services dynamically"
     )
 
+    tui_conversation_source = (
+        PROJECT_ROOT / "frontends" / "tui" / "features" / "conversation.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "protocol_client" in tui_conversation_source
+    assert "runtime_services" not in tui_conversation_source, (
+        "TUI conversation features must not discover runtime services dynamically"
+    )
+
     cli_dispatch_source = (
         PROJECT_ROOT / "frontends" / "cli" / "dispatch.py"
     ).read_text(encoding="utf-8-sig")
