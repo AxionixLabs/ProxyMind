@@ -21,7 +21,7 @@ from mind_app.presentation.models import (
     StyledBlock,
     TextSpan
 )
-from mind_app.runtime.support.clipboard import (
+from mind_app.tui.adapters.clipboard import (
     ClipboardError,
     copy_text_to_clipboard
 )

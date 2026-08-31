@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.runtime.support.conversation import ConversationState
+from mind_app.interaction import ConversationState
 from protocol.schema.identifiers import new_cid, new_sid
 
 

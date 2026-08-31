@@ -1378,6 +1378,77 @@ def test_turn_result_and_session_identity_boundaries_are_explicit() -> None:
     )
 
 
+def test_runtime_support_responsibilities_have_explicit_owners() -> None:
+    """确保会话、TUI 剪贴板和错误展示不再由 runtime support 混合持有。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "support" / "conversation.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "support" / "clipboard.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "support" / "session_policy.py",
+    )
+    assert not any(path.is_file() for path in legacy_paths), (
+        "legacy runtime support sources still exist: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in legacy_paths
+            if path.is_file()
+        )
+    )
+
+    target_paths = (
+        PROJECT_ROOT / "mind_app" / "interaction" / "conversation.py",
+        PROJECT_ROOT / "mind_app" / "tui" / "adapters" / "clipboard.py",
+        PROJECT_ROOT / "mind_app" / "presentation" / "stream" / "exception_text.py",
+    )
+    assert all(path.is_file() for path in target_paths), (
+        "explicit runtime support owners are missing: "
+        + ", ".join(
+            str(path.relative_to(PROJECT_ROOT))
+            for path in target_paths
+            if not path.is_file()
+        )
+    )
+
+    legacy_modules = {
+        "mind_app.runtime.support.conversation",
+        "mind_app.runtime.support.clipboard",
+        "mind_app.runtime.support.session_policy",
+    }
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+
+    assert not violations, "legacy runtime support imports remain:\n" + "\n".join(violations)
+
+    mcp_errors = PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "errors.py"
+    mcp_tree = ast.parse(mcp_errors.read_text(encoding="utf-8-sig"), filename=str(mcp_errors))
+    mcp_functions = {
+        node.name
+        for node in mcp_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "is_transport_close_exception" in mcp_functions
+
+    presentation_violations = _forbidden_imports(
+        "mind_app/presentation/stream",
+        {"engine", "mind_core", "server"},
+    )
+    assert not presentation_violations, (
+        "stream exception presentation crosses its boundary:\n"
+        + "\n".join(presentation_violations)
+    )
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (

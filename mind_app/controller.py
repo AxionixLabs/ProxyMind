@@ -35,7 +35,7 @@ from .interaction.attachments import Attach
 from .runtime.mcp.lifecycle import ExternalMcpRuntimeOwner
 from .runtime.mcp.service_lifecycle import ServiceRuntimeOwner
 from protocol.client.reports import EventReportRuntimeOwner
-from .runtime.support.conversation import (
+from .interaction import (
     ConversationState,
     ConversationTurn
 )

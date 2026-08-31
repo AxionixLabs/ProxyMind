@@ -20,7 +20,7 @@ from mind_app.runtime.hooks.scope import (
     HookExecutionContext,
     HookExecutionScope,
 )
-from mind_app.runtime.support.conversation import ConversationTurn
+from mind_app.interaction import ConversationTurn
 from mind_app.runtime.turns import root as root_turns
 from mind_app.runtime.turns.executor import (
     TurnExecution,

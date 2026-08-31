@@ -5,13 +5,19 @@ from .attachments import Attach
 from .contracts import (
     ApprovalPresenterPort,
     InteractionPort,
-    PromptContext
+    PromptContext,
+)
+from .conversation import (
+    ConversationState,
+    ConversationTurn,
 )
 from .noninteractive import NonInteractiveInteraction
 
 __all__ = [
     "ApprovalPresenterPort",
     "Attach",
+    "ConversationState",
+    "ConversationTurn",
     "InteractionPort",
     "NonInteractiveInteraction",
     "PromptContext"

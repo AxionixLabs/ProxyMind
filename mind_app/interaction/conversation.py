@@ -6,7 +6,7 @@ import typing
 from dataclasses import dataclass
 from protocol.schema.identifiers import (
     new_cid,
-    new_sid
+    new_sid,
 )
 from mind_app.history.ids import valid_session_ids
 

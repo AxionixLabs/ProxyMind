@@ -10,7 +10,7 @@ from unittest.mock import (
 import pytest
 
 from mind_app.controller import Mind
-from mind_app.runtime.support.conversation import ConversationState
+from mind_app.interaction import ConversationState
 from agent.application import preset_permissions
 
 

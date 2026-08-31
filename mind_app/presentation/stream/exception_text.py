@@ -1,33 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import contextlib
 import json
 import httpx
-import contextlib
-from mind_app.runtime.mcp.errors import (
-    exception_type_name, flatten_exceptions
-)
 from metadata import const
-
-
-def is_transport_close_exception(exc: BaseException) -> bool:
-    """判断异常组是否只包含 MCP 关闭期可忽略的传输断开异常。"""
-    transport_close_types = {
-        "httpx.ReadError",
-        "httpx.WriteError",
-        "httpx.CloseError",
-        "httpcore.ReadError",
-        "httpcore.WriteError",
-        "httpcore.CloseError",
-        "anyio.EndOfStream",
-        "anyio.BrokenResourceError",
-        "anyio.ClosedResourceError"
-    }
-    items = list(flatten_exceptions(exc))
-    if not items:
-        return False
-
-    return all(exception_type_name(item) in transport_close_types for item in items)
 
 
 def response_body_text(exc: httpx.HTTPStatusError) -> str:
@@ -93,6 +70,7 @@ def friendly_exception_text(exc: BaseException) -> str:
 
     text = str(exc).strip()
     return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
+
 
 if __name__ == '__main__':
     pass

@@ -1135,6 +1135,23 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] CLI、MCP、Hook 和架构回归 `244 passed`，新增组合根守卫通过；全量回归
   `3009 passed, 11 skipped, 38 warnings`，编译、导入图、文档契约和差异检查通过。
 
+### 已完成切片：runtime support 职责拆分
+
+状态：已完成（2026-08-31）
+
+- [x] 将本地会话标识、轮次边界和一次性上下文从
+  `mind_app/runtime/support/conversation.py` 重组到
+  `mind_app/interaction/conversation.py`；Controller、Turn 和测试改走交互边界，保留
+  会话状态的唯一所有权。
+- [x] 将 TUI 剪贴板 I/O 从 `mind_app/runtime/support/clipboard.py` 重组到
+  `mind_app/tui/adapters/clipboard.py`；将 MCP 关闭期传输异常判断内聚到
+  `mind_app/runtime/mcp/errors.py`，将用户可见 HTTP/运行期异常摘要重组到
+  `mind_app/presentation/stream/exception_text.py`。
+- [x] 删除混合的 `session_policy.py` 与旧 support 源码，不保留兼容 facade；新增旧路径、旧导入、
+  TUI/MCP/presentation 归属守卫。会话/Turn/流协议定向回归 `107 passed, 1 warning`，完整架构
+  测试 `54 passed, 38 warnings`，导入图、`compileall` 和差异检查通过；下一切片继续审计剩余
+  `mind_app` runtime 与完整入口边界。
+
 只有全部条件满足后才能删除四个历史包中的对应职责。根据阶段 5 前置审计，正式
 `mind.chat` Python wire SDK 必须先迁入顶层 `protocol/`，再删除 `mind_nova`；不能
 为了目录整洁把协议实现塞回 `agent.protocol`，也不能在旧包中长期保留兼容 facade：
@@ -1349,3 +1366,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 Hook 生命周期显式注入切片 | 将 Hook spill、会话清理和关闭从执行器类型推断改为显式端口参数，默认执行器仅在构造分支绑定并删除 runtime/registry 的 `isinstance` 能力判断 | Hook/工具/架构定向回归 `172 passed, 37 warnings`，显式资源回归、旧类型反射守卫、导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 事件报告客户端边界切片 | 将 `EventReportRuntimeOwner`、`EventReportLifetime` 和 `TurnEventReportHandle` 从 `mind_app/runtime/turns/event_reporting.py` 重组到 `protocol/client/reports.py`；Session/Turn 报告生命周期与 `protocol.transport.events` 归属同一 Protocol Client，runtime turns 与测试消费者切换并删除旧模块 | 事件报告、Turn/Subagent/TUI 定向回归 `61 passed`；新增旧路径/旧导入守卫 `1 passed`，全量架构扫描 `52 passed`，导入图、`compileall`、文档契约和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 Hook Registry 组合边界切片 | 将 Hook status/dispatcher/registry 抽象为 `agent.ports` 端口，`RuntimeServices` 注入 `create_hook_registry`，具体 `HookRegistry` 仅由 `mind.py` 组合；CLI/MCP/Controller 删除直接构造和 fallback | CLI/MCP/Hook 定向回归 `244 passed`，新增组合根守卫通过；全量回归 `3009 passed, 11 skipped, 38 warnings`，导入图、`compileall`、文档契约和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 runtime support 职责拆分切片 | 将会话状态迁入 `mind_app/interaction/conversation.py`、TUI 剪贴板迁入 `mind_app/tui/adapters/clipboard.py`，并把 MCP 传输错误与 stream 异常摘要拆到各自边界；删除 `conversation.py`、`clipboard.py`、`session_policy.py` 旧 support 入口并加入架构守卫 | 会话/Turn/流协议定向回归 `107 passed, 1 warning`，完整架构测试 `54 passed, 38 warnings`，导入图、`compileall` 和 `git diff --check` 通过；下一切片继续审计剩余 runtime/interaction 历史职责 |
