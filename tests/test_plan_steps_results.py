@@ -14,7 +14,7 @@ from mind_app.runtime.tools.plan_steps import StepPlanExecutor
 from agent.application.turns.context import AgentContext, TurnContext
 from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
-from mind_app.runtime.hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.domain.policies import preset_permissions

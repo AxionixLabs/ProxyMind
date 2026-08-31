@@ -18,7 +18,7 @@ from agent.application.turns.context import (
 from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
-from mind_app.runtime.hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 from mind_app.interaction import ConversationTurn
 from mind_app.runtime.turns import root as root_turns
 from mind_app.runtime.turns.executor import (

@@ -601,7 +601,7 @@ running -> cancelled
 | `HookRegistry`/`HookRuntime` 的执行器资源推断 | 显式 `context_spiller`、`cleanup_session`、`close` 注入 | Hook 执行、超限 spill 和资源清理按端口绑定；runtime 不通过 `isinstance` 猜测具体执行器能力，默认执行器仅在构造分支集中绑定 |
 | `HookRegistry` 在 CLI/MCP/Controller 内的隐式构造 | `agent.ports.HookRegistryFactory`，由 `mind.py` 注入 `RuntimeServices` | 具体 registry 只在进程组合根创建；入口、Controller 和 Hook scope 仅依赖 registry/dispatcher/status port，不反向导入 runtime 实现 |
 | `mind_app/runtime/hooks/models.py` | `agent/application/hooks/models.py` | Hook 生命周期快照、决定、输出和工具结果是跨 runtime/TUI 的 application contract；Hook 执行器、注册器和 scope 仍由 runtime 持有，不把执行副作用放入值对象 |
-| `mind_app/runtime/hooks/scope.py` 中的 `HookExecutionContext` | `agent/application/hooks/context.py` | Hook 输入上下文只依赖 Turn、domain 事件名和 schema 构建；`HookExecutionScope` 继续持有 runtime dispatcher 和生命周期，不把具体执行器带入 application |
+| `mind_app/runtime/hooks/scope.py` 中的 `HookExecutionContext` | `agent/application/hooks/context.py`；`HookExecutionScope` 归 `agent/harness/hooks/scope.py` | Hook 输入上下文只依赖 Turn、domain 事件名和 schema 构建；执行作用域持有 Harness dispatcher 和生命周期，不把具体执行器带入 application |
 | `mind_app/runtime/turns/executor.py` 中的 `TurnExecution` | `agent/application/turns/execution.py`；`HookExecutionScopePort` 归 `agent/ports/hooks.py` | Turn 执行值对象只依赖固定 scope 端口；runtime executor 保留模型执行函数和具体 scope 构造，不让 application 加载 HookRuntime |
 | `mind_app/runtime/mcp/contracts.py` 中的 `McpSessionLike` | `agent/ports/mcp_session.py` 的 `McpSessionPort` | MCP 会话能力是工具执行跨层端口；runtime/mcp 只实现 Composite session，工具、Turn、Subagent 和 TUI 通过 ports 依赖，不把 runtime contract 当作公共接口 |
 | `mind_app/runtime/turns/executor.py` 中的 `TurnResult`、`TurnOperation` | `agent/ports/turns.py` | 模型轮次操作只依赖 MCP 会话、事件报告和 TurnExecution；runtime executor 只负责会话生命周期、工具过滤和结果收束 |

@@ -2280,20 +2280,22 @@ def test_subagent_message_delivery_has_port_and_adapter_owners() -> None:
 
 
 def test_hook_execution_context_is_owned_by_application() -> None:
-    """确保 Hook 输入上下文不与 runtime scope 生命周期实现混合。"""
+    """确保 Hook 输入上下文和执行作用域分别归 application 与 Harness。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "scope.py"
+    scope_path = PROJECT_ROOT / "agent" / "harness" / "hooks" / "scope.py"
     target_path = PROJECT_ROOT / "agent" / "application" / "hooks" / "context.py"
-    assert legacy_path.is_file(), "runtime hook scope is missing"
+    assert not legacy_path.is_file(), "legacy runtime hook scope still exists"
+    assert scope_path.is_file(), "Harness hook scope is missing"
     assert target_path.is_file(), "application hook context is missing"
 
-    legacy_tree = ast.parse(legacy_path.read_text(encoding="utf-8-sig"), filename=str(legacy_path))
-    legacy_classes = {
+    scope_tree = ast.parse(scope_path.read_text(encoding="utf-8-sig"), filename=str(scope_path))
+    scope_classes = {
         node.name
-        for node in legacy_tree.body
+        for node in scope_tree.body
         if isinstance(node, ast.ClassDef)
     }
-    assert "HookExecutionContext" not in legacy_classes
-    assert "HookExecutionScope" in legacy_classes
+    assert "HookExecutionContext" not in scope_classes
+    assert "HookExecutionScope" in scope_classes
 
     violations: list[str] = []
     for path in PROJECT_ROOT.rglob("*.py"):
@@ -2303,9 +2305,9 @@ def test_hook_execution_context_is_owned_by_application() -> None:
                 continue
             if node.module != "mind_app.runtime.hooks.scope":
                 continue
-            if any(alias.name == "HookExecutionContext" for alias in node.names):
+            if node.names:
                 violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
-    assert not violations, "legacy HookExecutionContext imports remain:\n" + "\n".join(violations)
+    assert not violations, "legacy HookExecutionScope imports remain:\n" + "\n".join(violations)
 
     target_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
     target_classes = {
@@ -3166,6 +3168,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.harness.agents.delivery",
         "agent.harness.agents.registry",
         "agent.harness.hooks.runtime",
+        "agent.harness.hooks.scope",
         "agent.harness.execution.subagent_runner",
         "agent.harness.execution.subagent_submission",
             "agent.protocol.json_value",

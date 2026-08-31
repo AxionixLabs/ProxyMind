@@ -7,7 +7,7 @@ from agent.domain.hooks import (
     CompactTriggerSource
 )
 from agent.application.hooks.models import HookDecision
-from .scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 
 
 class CompactHookBlockedError(RuntimeError):

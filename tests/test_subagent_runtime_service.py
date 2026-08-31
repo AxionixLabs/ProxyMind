@@ -21,7 +21,7 @@ from agent.stores.agents.graph import (
 from mind_app.history.transcript import ConversationTranscriptStore
 from mind_app.presentation.output.silent import create_silent_output_session
 from agent.application.turns.context import AgentContext, TurnContext
-from mind_app.runtime.hooks.scope import (
+from agent.harness.hooks.scope import (
     HookExecutionScope,
 )
 from agent.harness.agents.control import (

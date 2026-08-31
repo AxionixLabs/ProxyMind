@@ -7,7 +7,7 @@ from agent.application.hooks.models import (
     StopHookDecision,
     TurnStartResult
 )
-from .scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 
 SessionStartSource = typing.Literal[
     "startup",

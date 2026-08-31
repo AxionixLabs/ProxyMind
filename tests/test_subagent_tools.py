@@ -14,7 +14,7 @@ from mind_app.client_tools.subagents import subagent_tools
 from mind_app.runtime.mcp.session_adapter import CompositeToolSession
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.context import AgentContext, TurnContext
-from mind_app.runtime.hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.turns import stream as turn_stream
 from protocol.client.reports import EventReportRuntimeOwner

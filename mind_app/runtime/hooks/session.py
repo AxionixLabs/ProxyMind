@@ -13,7 +13,7 @@ from observability import (
     observe,
     observe_exception
 )
-from .scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 
 SessionScopeFactory = typing.Callable[
     [HookExecutionContext],

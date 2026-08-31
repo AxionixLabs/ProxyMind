@@ -23,7 +23,7 @@ from agent.application.hooks.models import (
     ToolOperationResult,
     ToolOutcome
 )
-from .scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 
 ToolValue = typing.TypeVar("ToolValue")
 

@@ -19,7 +19,7 @@ from .hooks.compact import (
     CompactHookBlockedError,
     CompactHookEvents
 )
-from .hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 from .hooks.turn import TurnHookEvents
 from observability import (
     observe,

@@ -140,6 +140,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - Hook runtime/registry Harness 迁移回归：`413 passed`；完整架构守卫：`81 passed, 53 warnings`；
   Harness 边界、端口和旧路径守卫通过；未注入平台执行器时只返回明确配置错误，具体执行器
   由 `mind.py` 组合根注入。
+- HookExecutionScope Harness 迁移回归：`308 passed, 1 warning`；完整架构守卫：`81 passed, 53
+  warnings`；Scope 已切换到 `agent/harness/hooks`，application context 与 Harness 执行
+  作用域边界由架构守卫锁定，旧 `mind_app.runtime.hooks.scope` 路径和导入已清零。
 
 警告来自测试依赖的 Nuitka `glob2` 弃用转义，不属于本次生产代码失败；下次扩大验证时
 仍需记录是否发生变化。
@@ -149,10 +152,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 当前只允许进入以下顺序，不以补丁式需求插队：
 
 1. **入口与数据迁移**：`mind_core` 的配置、权限、hooks、skills 已完成生产导入清零，
-   终端轮次生命周期已迁入 `mind_app/presentation/terminal`；下一条完整用例迁移 Hook
-   命令执行器到 `infrastructure/platform`，并已将 Hook runtime/registry 接入
-   `agent/harness/hooks`；下一步补齐 CLI、TUI、MCP、Subscription 的独立启动/恢复证据，
-   再迁移 `frontends/`。
+   终端轮次生命周期已迁入 `mind_app/presentation/terminal`；Hook 命令执行器已归属
+   `infrastructure/platform`，Hook runtime/registry/Scope 已接入 `agent/harness/hooks`；
+   下一条补齐 CLI、TUI、MCP、Subscription 的独立启动/恢复证据，再迁移 `frontends/`。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -231,3 +233,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-08-31 | 将 `run_foreground_turn` 迁入 `mind_app/presentation/terminal/turn_lifecycle.py`，runtime root 仅保留执行编排 | 生命周期回归 `108 passed`；归属守卫 `1 passed`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 HookCommandExecutor、HookCommandOutput 和 HookCommandError 迁入 `infrastructure/platform/hook_command.py`，runtime 仅通过 HookCommandRunner 使用 | Hook/平台回归 `87 passed`；端口与归属守卫通过；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 HookRuntime/HookRegistry 迁入 `agent/harness/hooks`，移除 Harness 对平台执行器的直接导入并由组合根注入资源 | Hook/入口/Turn 回归 `413 passed`；完整架构 `81 passed, 53 warnings`；Harness 边界与旧路径守卫、导入图、`compileall`、`git diff --check` 通过 |
+| 2026-08-31 | 将 HookExecutionScope 迁入 `agent/harness/hooks/scope.py`，保留 application context 为纯输入契约并清除 runtime 旧路径 | Hook/Turn/Subagent/TUI 回归 `308 passed, 1 warning`；完整架构 `81 passed, 53 warnings`；导入图、`compileall`、`git diff --check` 通过 |

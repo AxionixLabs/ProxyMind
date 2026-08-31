@@ -32,7 +32,7 @@ from infrastructure.platform.hook_output_spill import HookOutputSpillStore
 from agent.harness.hooks.registry import HookRegistry
 from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
-from mind_app.runtime.hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 from mind_app.runtime.hooks.session import SessionLifecycleGateway
 from mind_app.runtime.hooks.tool import (
     CommandHookSessionStore,

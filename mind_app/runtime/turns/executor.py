@@ -27,7 +27,7 @@ from agent.domain.tool_policy import (
     ToolFilterMode,
     filter_mode_tools
 )
-from mind_app.runtime.hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind

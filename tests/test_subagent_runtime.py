@@ -14,7 +14,7 @@ from agent.application.turns.context import (
 from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
-from mind_app.runtime.hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 from agent.application.hooks.subagent import SubagentHookEvents
 from agent.harness.execution.subagent_runner import SubagentRunner
 from agent.ports import SubagentOperation

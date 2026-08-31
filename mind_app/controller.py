@@ -66,7 +66,7 @@ from .presentation.application import (
 )
 from .presentation.terminal.contracts import TerminalDesign
 from agent.ports import HookRegistryPort
-from .runtime.hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 from .runtime.hooks.session import SessionLifecycleGateway
 from .runtime.hooks.tool import CommandHookSessionStore
 from agent.application.hooks.catalog import (

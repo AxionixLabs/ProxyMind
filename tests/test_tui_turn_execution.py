@@ -7,7 +7,7 @@ import pytest
 
 from agent.application.turns.run_result import RunResult
 from agent.harness.hooks.runtime import HookRuntime
-from mind_app.runtime.hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import HookExecutionScope
 from mind_app.interaction import ConversationTurn
 from protocol.client.reports import EventReportRuntimeOwner
 from mind_app.tui.session import turn as tui_turn
