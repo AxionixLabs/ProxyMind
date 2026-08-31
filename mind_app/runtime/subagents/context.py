@@ -8,7 +8,7 @@ from agent.application.agents.fork_context import (
     normalize_fork_turns,
 )
 from agent.application.config.settings import DEFAULT_MAX_FORK_CONTEXT_CHARS
-from mind_app.history.transcript import (
+from infrastructure.persistence.transcripts import (
     ConversationTranscriptStore,
 )
 from agent.stores.transcripts import TranscriptReplay

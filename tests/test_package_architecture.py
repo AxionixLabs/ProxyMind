@@ -222,7 +222,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
 
 
 def test_transcript_shared_values_are_owned_by_stores() -> None:
-    """确保 Transcript 记录值和归约器不依赖 history 文件 adapter。"""
+    """确保 Transcript 记录值归 stores、文件 adapter 归 infrastructure。"""
     target_root = PROJECT_ROOT / "agent" / "stores" / "transcripts"
     assert (target_root / "records.py").is_file()
     assert (target_root / "replay.py").is_file()
@@ -235,17 +235,24 @@ def test_transcript_shared_values_are_owned_by_stores() -> None:
         "\n".join(violations)
     )
 
-    history_tree = ast.parse(
-        (PROJECT_ROOT / "mind_app" / "history" / "transcript.py").read_text(
-            encoding="utf-8-sig"
-        )
+    adapter_path = PROJECT_ROOT / "infrastructure" / "persistence" / "transcripts.py"
+    legacy_path = PROJECT_ROOT / "mind_app" / "history" / "transcript.py"
+    assert adapter_path.is_file(), "transcript file adapter is missing"
+    assert not legacy_path.exists(), "legacy transcript adapter remains"
+
+    adapter_tree = ast.parse(
+        adapter_path.read_text(encoding="utf-8-sig")
     )
-    history_classes = {
+    adapter_classes = {
         node.name
-        for node in history_tree.body
+        for node in adapter_tree.body
         if isinstance(node, ast.ClassDef)
     }
-    assert not history_classes.intersection({"TranscriptEntry", "TranscriptReplay"})
+    assert adapter_classes == {
+        "TranscriptReader",
+        "TranscriptWriter",
+        "ConversationTranscriptStore",
+    }
 
 
 def test_session_history_store_is_owned_by_stores() -> None:

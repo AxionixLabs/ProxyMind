@@ -4,7 +4,7 @@
 import json
 import typing
 from prompt_toolkit.utils import get_cwidth
-from mind_app.history.transcript import (
+from infrastructure.persistence.transcripts import (
     TranscriptReader,
 )
 from agent.stores.transcripts import (

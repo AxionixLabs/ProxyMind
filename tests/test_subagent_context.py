@@ -2,7 +2,7 @@
 
 import pytest
 
-from mind_app.history.transcript import ConversationTranscriptStore
+from infrastructure.persistence.transcripts import ConversationTranscriptStore
 from mind_app.runtime.subagents.context import (
     load_fork_context,
 )

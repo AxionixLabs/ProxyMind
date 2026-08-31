@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
-from mind_app.history.transcript import TranscriptWriter
+from infrastructure.persistence.transcripts import TranscriptWriter
 from agent.application.turns.context import AgentContext
 from agent.application.agents.views import AgentSnapshot
 from agent.application.agents.thread import AgentThreadContext

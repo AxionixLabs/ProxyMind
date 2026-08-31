@@ -161,6 +161,8 @@ agent/                          # 本地 Agent Harness bounded context
 protocol/                       # 独立 mind.chat wire SDK，供所有前端复用
 frontends/                      # CLI、TUI、MCP、Subscription 及未来桌面/Web adapter
 infrastructure/                 # 配置、平台进程、Helix 和持久化的具体外部实现
+├── persistence/                # 本地文件与外部持久化 adapter
+│   └── transcripts.py          # Transcript JSONL 读写和 Session 路径
 metadata/                       # 版本、编码和产品展示元数据，不承载运行时状态
 server/                         # 可选 ConfigServiceRuntime，不拥有 Harness 状态
 ```
@@ -546,7 +548,8 @@ running -> cancelled
 | `mind_app/runtime/subagents/delivery.py` | `agent/ports/agent_messages.py`、`agent/adapters/agents/messages.py`、`agent/harness/agents/delivery.py` | 消息回执和投递端口归 ports，`/turn/steer` 归 Protocol Client adapter，Harness 维护活动轮次就绪和 pending 输入状态 |
 | `mind_app/history/ids.py` | `protocol/schema/identifiers.py` | `cid/sid` 正则和关联校验属于 wire identity schema；历史、交互、Controller 和 Harness 复用协议边界，不在 history 保留身份实现 |
 | `mind_app/history/contracts.py`（已删除） | `agent/ports/transcript.py` | TranscriptSink 是 runtime、Hook、执行器和历史 writer 共享的最小写入端口；端口不依赖旧包或基础设施 |
-| `mind_app/history/transcript.py` 中的 `TranscriptEntry`、`TranscriptReplay` | `agent/stores/transcripts/records.py`、`replay.py` | 共享记录值和事件归约器不依赖本地文件、观测或展示；Reader/Writer 与 Session 日期路径仍由 history adapter 持有，工具归并策略由 `agent.domain.tool_policy` 提供 |
+| `mind_app/history/transcript.py` 中的 `TranscriptEntry`、`TranscriptReplay` | `agent/stores/transcripts/records.py`、`replay.py` | 共享记录值和事件归约器不依赖本地文件、观测或展示；工具归并策略由 `agent.domain.tool_policy` 提供 |
+| `mind_app/history/transcript.py`（已删除） | `infrastructure/persistence/transcripts.py` | JSONL Reader/Writer、Session 日期路径、编码和损坏记录观测属于基础设施；实现依赖 `agent` 的记录值与 Sink 端口，不反向依赖旧应用 |
 | `mind_app/presentation/tool_policy.py::merges_tool_start_event` | `agent/domain/tool_policy.py` | 工具开始/完成事件是否合并是跨历史归约与运行时的稳定领域策略；展示模块只保留 ToolDisplaySpec 和渲染分类，不重复定义该规则 |
 | `mind_app/history/store.py`（已删除） | `agent/stores/sessions/history.py` | Session 游标和待分支请求是独立持久状态；存储只接收显式 `db_path`，CLI/Controller 在组合边界注入运行时路径，stores 不读取基础设施配置 |
 | `agent/stores/effects/journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `agent/stores/effects/journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |

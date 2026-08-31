@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from mind_app.history.transcript import (
+from infrastructure.persistence.transcripts import (
     ConversationTranscriptStore,
     TranscriptReader,
     TranscriptWriter,

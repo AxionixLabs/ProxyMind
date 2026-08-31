@@ -81,7 +81,7 @@ from agent.stores.sessions import (
     HISTORY_LIMIT,
     normalize_workspace
 )
-from .history.transcript import (
+from infrastructure.persistence.transcripts import (
     ConversationTranscriptStore,
 )
 from agent.stores.transcripts import TranscriptEntry

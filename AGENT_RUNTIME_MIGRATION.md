@@ -210,14 +210,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    TUI 输入、会话、渲染和 runtime 已作为同一可替换前端边界整体迁入
    `frontends/tui`，旧路径已删除；下一条补齐 CLI、TUI、MCP、Subscription 的独立
    启动/恢复证据，再进入具体外部 MCP capability/adapters 的职责迁移。
-    TranscriptSink 端口已提升到 `agent/ports/transcript.py`，旧 history contract 路径
-    已删除；本轮继续拆分 Transcript 的共享记录值与归约器：`TranscriptEntry`、
-    `TranscriptReplay` 归入 `agent/stores/transcripts`，文件读写和 Session 日期路径仍由
-    `mind_app/history` 作为本地持久化 adapter 持有。完成条件是所有生产/测试消费者切换到
-    新记录与归约模块、旧模块不再定义共享值对象、stores 不导入 `mind_app`/基础设施，并
-    通过 Transcript/TUI/Turn 回归、stores 边界守卫、导入图和 `compileall`；不满足条件时
-    不继续搬运文件 adapter。随后将 Session 游标存储迁入 `agent/stores/sessions`，要求
-    `db_path` 由组合边界显式注入，并删除 `mind_app/history/store.py` 及旧导出。
+     TranscriptSink 端口、Transcript 共享记录值/归约器和 Session 游标存储均已完成职责迁移：
+     共享值位于 `agent/stores/transcripts`，Session 状态位于 `agent/stores/sessions`，文件
+     JSONL adapter 位于 `infrastructure/persistence`；旧 `mind_app/history` 包及 contract/store
+     路径已删除。已通过 Transcript/TUI/Turn/Subagent/History 回归、完整架构守卫、导入图和
+     `compileall`，下一条只补齐四类入口独立启动/恢复证据，再进入其他历史包删除收口。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -285,21 +282,29 @@ Controller 和线上 Protocol Client 状态所有权不随目录迁移，必须�
 本次 TranscriptSink 端口切片的准入与删除条件已满足：`agent/ports/transcript.py` 只依赖标准库，
 runtime、Hook、执行器和 Transcript writer 统一从该端口导入；旧
 `mind_app/history/contracts.py` 文件与生产导入清零，并通过 Transcript、Turn、Hook
-关键路径回归和端口边界守卫验证。TranscriptEntry、TranscriptReader、TranscriptWriter
-和历史文件路径仍由 `mind_app/history` 实现持有。
+关键路径回归和端口边界守卫验证。TranscriptEntry/TranscriptReplay 已由
+`agent/stores/transcripts` 持有，文件 Reader/Writer 和历史文件路径在本轮迁入
+`infrastructure/persistence`。
 
 本次 Transcript 共享记录切片的准入条件：`agent/stores/transcripts` 只持有不依赖文件系统
 的 `TranscriptEntry` 和 `TranscriptReplay`，工具开始/完成归并策略由 `agent.domain` 提供；
-所有跨层消费者通过新路径读取记录值，文件 Reader/Writer 只作为 history adapter 使用，且
+所有跨层消费者通过新路径读取记录值，文件 Reader/Writer 只作为 infrastructure adapter 使用，且
 stores 不导入 `mind_app`、`infrastructure` 或展示模块。删除条件是旧
-`mind_app/history/transcript.py` 不再定义共享记录值和归约器，并完成文件 adapter 的独立
-组合与恢复用例后，才允许继续删除旧 history 实现。
+`mind_app/history/transcript.py` 已删除，文件 adapter 由
+`infrastructure/persistence/transcripts.py` 独立持有，并通过存量读取、追加写入和路径
+失败回归；后续不再在 `mind_app/history` 添加新的实现。
 
-本次 Session history store 切片的准入条件：`agent/stores/sessions/history.py` 单一持有
+本次 Session history store 切片的准入与删除条件已满足：`agent/stores/sessions/history.py` 单一持有
 SQLite 会话游标和待分支请求状态，构造必须接收显式数据库路径，不导入 `mind_app`、
 `infrastructure` 或 UI；CLI、Controller、TUI 和测试统一切换到新路径，旧
 `mind_app/history/store.py` 与 history 导出删除，并通过会话归档、恢复、过滤和缺失记录
-失败路径验证。满足后才允许继续拆分 history 文件 adapter。
+失败路径验证；旧 `mind_app/history/store.py` 与 history 导出已删除。
+
+本次 Transcript 文件 adapter 切片的准入条件：`infrastructure/persistence/transcripts.py`
+单一持有 JSONL Reader/Writer、Session 日期路径、编码和损坏记录观测；共享记录值与归约
+仍来自 `agent/stores/transcripts`，不得在基础设施复制；所有生产/测试消费者切换新路径，
+旧 `mind_app/history` 包删除，并通过存量读取、追加写入、尾部读取和路径失败回归。满足后
+才允许继续删除 `mind_app` 的 history 目录及相关启动依赖。
 
 ## 过渡入口与删除条件
 
@@ -387,3 +392,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-08-31 | 将 TranscriptSink/TranscriptActor 从 history 实现包提升到 `agent/ports/transcript.py`，删除旧 contract 路径 | Turn/Hook/Subagent/Transcript 回归 `146 passed`；端口专项 `18 passed`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 TranscriptEntry/TranscriptReplay 拆入 `agent/stores/transcripts`，归并策略下沉到 `agent.domain`；history 仅保留文件 Reader/Writer 和 Session 路径 adapter | Transcript/TUI/Turn/Subagent/工具策略回归 `229 passed`；完整架构守卫 `90 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 Session history cursor 从 `mind_app/history` 迁入 `agent/stores/sessions`，由 CLI/Controller 显式注入数据库路径并删除旧 store/export | History/CLI/TUI/Controller 回归 `181 passed`；完整架构守卫 `91 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将 Transcript JSONL 文件 adapter 迁入 `infrastructure/persistence`，删除 `mind_app/history` 包并让入口使用基础设施实现 | Transcript/TUI/Turn/Subagent 回归 `226 passed`；完整架构守卫 `91 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |
