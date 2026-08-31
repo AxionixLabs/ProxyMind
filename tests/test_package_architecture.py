@@ -728,6 +728,35 @@ def test_mcp_runtime_has_no_legacy_root_package_or_imports() -> None:
     assert not violations, "legacy MCP imports remain:\n" + "\n".join(violations)
 
 
+def test_helix_lifecycle_adapter_is_owned_by_infrastructure() -> None:
+    """确保具体 Helix 生命周期适配器不再由 mind_app 运行时持有。"""
+    adapter_path = PROJECT_ROOT / "infrastructure" / "services" / "helix_capability.py"
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "service_lifecycle.py"
+
+    assert adapter_path.is_file(), "Helix lifecycle adapter is missing"
+    legacy_source = legacy_path.read_text(encoding="utf-8-sig")
+    assert "class ServerManageHelixCapability" not in legacy_source
+    assert "infrastructure.services.helix_capability" not in legacy_source
+
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.level == 0:
+                module = node.module or ""
+                if module == "mind_app.runtime.mcp.service_lifecycle":
+                    imported_names = {alias.name for alias in node.names}
+                    if "ServerManageHelixCapability" in imported_names:
+                        violations.append(
+                            f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> "
+                            "ServerManageHelixCapability"
+                        )
+
+    assert not violations, "legacy Helix adapter imports remain:\n" + "\n".join(
+        violations
+    )
+
+
 def test_process_encoding_has_one_platform_owner() -> None:
     """确保进程输出解码只由平台基础设施实现。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "native_coding" / "encoding.py"

@@ -59,7 +59,7 @@ from ..runtime.mcp.service_runtime import (
     prepare_and_start_service_runtime,
     resolve_service_runtime
 )
-from ..runtime.mcp.service_lifecycle import ServerManageHelixCapability
+from infrastructure.services.helix_capability import ServerManageHelixCapability
 from ..presentation.terminal.contracts import TerminalDesign
 from agent.ports import HookRegistryPort
 from agent.domain.tool_policy import ToolFilterMode

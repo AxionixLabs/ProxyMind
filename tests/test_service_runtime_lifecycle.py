@@ -7,11 +7,10 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from infrastructure.errors import AppError
+from infrastructure.services import helix_capability
+from infrastructure.services.helix_capability import ServerManageHelixCapability
 from mind_app.runtime.mcp import service_lifecycle
-from mind_app.runtime.mcp.service_lifecycle import (
-    ServerManageHelixCapability,
-    ServiceRuntimeOwner,
-)
+from mind_app.runtime.mcp.service_lifecycle import ServiceRuntimeOwner
 
 
 @pytest.mark.anyio
@@ -169,7 +168,7 @@ async def test_server_manage_helix_capability_owns_lifecycle_port(monkeypatch) -
     async def terminate(port: int) -> None:
         terminated.append(port)
 
-    monkeypatch.setattr(service_lifecycle, "terminate_port_process", terminate)
+    monkeypatch.setattr(helix_capability, "terminate_port_process", terminate)
     capability = ServerManageHelixCapability(manager)
 
     await capability.ensure_ready(wait_sec=2.0)
