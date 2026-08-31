@@ -10,6 +10,7 @@ from agent.ports import (
     EnvironmentSnapshotCapability,
     HelixCapability,
     HookRegistryFactory,
+    McpRuntimeBuilder,
     ModelCapability,
     ProcessCapability,
     SkillsProvider,
@@ -39,6 +40,7 @@ class RuntimeServices:
     create_turn_application: TurnApplicationFactory
     create_effect_journal: EffectJournalFactory
     create_hook_registry: HookRegistryFactory
+    create_mcp_runtime: McpRuntimeBuilder | None = None
     create_workspace_runtime: WorkspaceRuntimeFactory | None = None
     process_capability: ProcessCapability | None = None
     helix_capability: HelixCapability | None = None
@@ -62,6 +64,11 @@ class RuntimeServices:
             raise TypeError("effect journal factory must be callable")
         if not callable(self.create_hook_registry):
             raise TypeError("hook registry factory must be callable")
+        if (
+            self.create_mcp_runtime is not None
+            and not callable(self.create_mcp_runtime)
+        ):
+            raise TypeError("MCP runtime factory must be callable")
         if (
             self.create_skills_provider is not None
             and not callable(self.create_skills_provider)

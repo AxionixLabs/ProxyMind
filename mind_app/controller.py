@@ -25,6 +25,7 @@ from agent.domain.hooks import (
     HookDefinitionConfig,
     SessionEndReason
 )
+from agent.harness.mcp.owner import McpRuntimeOwner
 from agent.application.hooks.context import HookExecutionContext
 from protocol.schema.identifiers import (
     short_uid,
@@ -36,7 +37,6 @@ from observability import (
     observe_exception
 )
 from .interaction.attachments import Attach
-from .runtime.mcp.lifecycle import ExternalMcpRuntimeOwner
 from .runtime.mcp.service_lifecycle import ServiceRuntimeOwner
 from protocol.client.reports import EventReportRuntimeOwner
 from .interaction import (
@@ -82,10 +82,18 @@ from .history.transcript import (
     ConversationTranscriptStore,
     TranscriptEntry
 )
-from agent.ports import McpSessionPort
+from agent.ports import (
+    McpRuntime,
+    McpSessionPort,
+)
 
 SessionResult = typing.TypeVar("SessionResult")
 CleanupResult = typing.TypeVar("CleanupResult")
+
+
+def _unconfigured_mcp_runtime() -> McpRuntime:
+    """返回明确配置错误，禁止控制器隐式构造具体 MCP 实现。"""
+    raise RuntimeError("MCP runtime factory is required")
 
 
 def _normalize_tool_profile(value: str) -> ToolFilterMode:
@@ -226,7 +234,19 @@ class Mind(object):
 
         self.service_exec_env: typing.Optional[dict[str, typing.Any]] = None
 
-        self.external_mcp = ExternalMcpRuntimeOwner(self)
+        mcp_runtime_builder = getattr(
+            self.runtime_services,
+            "create_mcp_runtime",
+            None,
+        )
+        if callable(mcp_runtime_builder):
+            self.external_mcp = McpRuntimeOwner(
+                runtime_factory=lambda: mcp_runtime_builder(self),
+            )
+        else:
+            self.external_mcp = McpRuntimeOwner(
+                runtime_factory=_unconfigured_mcp_runtime,
+            )
         self.service_runtime = ServiceRuntimeOwner()
 
         self.subscription = SubscriptionRuntimeOwner(self)

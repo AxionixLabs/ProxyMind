@@ -526,7 +526,7 @@ running -> cancelled
 | `mind_app/runtime/turns/root.py` | `agent/application/turns/commands.py`、`agent/adapters/turns/root.py` | CLI、TUI、MCP 和 Subscription 已由类型化 Command 驱动；命令映射已迁入 controller 无关的入站 adapter，旧 runtime 只保留尚待 Harness 接管的根轮次准备与执行编排 |
 | `mind_app/runtime/turns/root.py::run_foreground_turn` | `mind_app/presentation/terminal/turn_lifecycle.py` | 动画、终端进度和清理属于展示生命周期；runtime root 只保留根轮次准备与执行编排，生命周期模块不拥有 Turn/Session 状态 |
 | `mind_app/runtime/turns/stream.py`、`stream_model.py` | `agent/harness/sessions/loop.py`、`agent/application/turns/`、TUI adapter | 输入准备、终态、工具交付、资源收尾和回合展示已拆到具名所有者；模型 presenter 只消费 Protocol Client current/active/audit Item 投影并持有 Transcript 交付水位，RunResult、Stop Hook、最后回复和 sources 均读取 canonical 投影；`stream.py` 暂留迁移期事件路由，所有模型/工具/审批/效果命令均走 Protocol Client |
-| `mind_app/runtime/mcp/*`、`subscription/lifecycle.py` | capabilities、adapters、harness supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
+| `mind_app/runtime/mcp/*`、`subscription/lifecycle.py` | capabilities、adapters、harness supervisor；MCP 生命周期所有者归 `agent/harness/mcp/owner.py` | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运；具体 MCP runtime 由组合根工厂注入 |
 | `mind_app/runtime/subagents/control.py` | `agent/harness/agents/control.py`；状态值对象归 `agent/domain/agents.py`、图归 `agent/stores/agents/graph.py` | AgentControl 只保留可变树调度、mailbox 协调和观察快照；Harness 持有状态机，domain/stores 不反向依赖它 |
 | `SubagentRuntime._execute_submission` | `agent/harness/execution/subagent_submission.py` | 已分配提交的 mailbox claim、Turn 上下文构造、活动轮次投递、结果确认和失败收束归 Harness；runtime 只注入 Controller、Hook scope 与执行适配器 |
 | `SubagentRuntime._controls`、根会话生命周期锁 | `agent/harness/agents/registry.py` | AgentControlRegistry 串行管理根会话 control 的创建、恢复、移除和关闭；runtime 不再持有执行树注册表或 shutdown 状态 |

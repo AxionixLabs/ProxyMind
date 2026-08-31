@@ -3,6 +3,7 @@
 
 import typing
 import asyncio
+from agent.ports import McpRuntimeHost
 from infrastructure.errors import AppError
 from mind_app.runtime.mcp.config import normalize_mcp_servers
 from mind_app.runtime.mcp.group import ExternalMcpGroup
@@ -15,16 +16,12 @@ from observability import (
     observe_exception
 )
 
-if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
-
-
 class ExternalMcpRuntime(object):
     """管理应用生命周期内的外部 MCP 连接和状态。"""
 
-    def __init__(self, mind: "Mind") -> None:
-        """绑定主控制器，并初始化外部 MCP 运行时状态。"""
-        self._mind = mind
+    def __init__(self, host: McpRuntimeHost) -> None:
+        """绑定应用生命周期端口，并初始化外部 MCP 运行时状态。"""
+        self._host = host
 
         self._group: typing.Optional[ExternalMcpGroup] = None
 
@@ -84,7 +81,7 @@ class ExternalMcpRuntime(object):
 
         self._last_start_snapshot = {}
 
-        config  = self._mind.config_session.load()
+        config  = self._host.config_session.load()
         servers = normalize_mcp_servers(config.get("mcp_servers"))
 
         if include_disabled:
@@ -107,7 +104,7 @@ class ExternalMcpRuntime(object):
 
         try:
             if status.visible:
-                await self._mind.start_external_mcp_anim(status.snapshot)
+                await self._host.start_external_mcp_anim(lambda: status.snapshot)
                 external_anim_started = True
 
             group = ExternalMcpGroup()
@@ -117,13 +114,13 @@ class ExternalMcpRuntime(object):
                 self._group   = group
                 self._started = True
             else:
-                await self._mind.await_cleanup(group.close())
+                await self._host.await_cleanup(group.close())
 
         except BaseException as exc:
             status.finish_unresolved(external_status_detail_from_exception(exc))
 
             if group is not None:
-                await self._mind.await_cleanup(group.close())
+                await self._host.await_cleanup(group.close())
 
             self._group   = None
             self._started = False
@@ -137,7 +134,7 @@ class ExternalMcpRuntime(object):
             observe_exception("external_mcp.start.failed", exc, level="WARNING")
         finally:
             if external_anim_started and not defer_activity_stop:
-                await self._mind.await_cleanup(self._mind.stop_anim(
+                await self._host.await_cleanup(self._host.stop_anim(
                     "external_mcp",
                     settle=False,
                 ))
@@ -173,7 +170,7 @@ class ExternalMcpRuntime(object):
 
         try:
             if group is not None:
-                await self._mind.await_cleanup(group.close())
+                await self._host.await_cleanup(group.close())
         finally:
             self._started = False
 

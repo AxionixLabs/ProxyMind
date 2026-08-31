@@ -57,6 +57,13 @@ from .agent_messages import (
     AgentMessageReceiptStatus,
 )
 from .mcp_session import McpSessionPort
+from .mcp_runtime import (
+    McpConfigReader,
+    McpRuntime,
+    McpRuntimeBuilder,
+    McpRuntimeFactory,
+    McpRuntimeHost,
+)
 from .subagents import (
     SubagentCleanupPort,
     SubagentExecutionPort,
@@ -124,6 +131,11 @@ __all__ = (
     "AgentMessageReceipt",
     "AgentMessageReceiptStatus",
     "McpSessionPort",
+    "McpConfigReader",
+    "McpRuntime",
+    "McpRuntimeBuilder",
+    "McpRuntimeFactory",
+    "McpRuntimeHost",
     "SubagentExecutionPort",
     "SkillsProvider",
     "SubagentStreamPort",

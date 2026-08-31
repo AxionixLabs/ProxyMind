@@ -5,12 +5,17 @@ import os
 
 from agent.composition import create_runtime_services
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
-from agent.ports import ProcessCapability
+from agent.ports import (
+    McpRuntime,
+    McpRuntimeHost,
+    ProcessCapability,
+)
 from infrastructure.skills import skills_payload
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.sandbox import SandboxClient
 from infrastructure.platform.hook_command import HookCommandExecutor
+from mind_app.runtime.mcp.external import ExternalMcpRuntime
 from mind_app.cli.entry import run
 from mind_app.native_coding import NativeCoding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
@@ -27,6 +32,11 @@ def create_hook_registry(*, bypass_hook_trust: bool = False) -> HookRegistry:
         close=command_runner.close,
         bypass_hook_trust=bypass_hook_trust,
     )
+
+
+def create_mcp_runtime(host: McpRuntimeHost) -> McpRuntime:
+    """在进程组合根创建绑定应用生命周期端口的 MCP 运行时。"""
+    return ExternalMcpRuntime(host)
 
 
 def create_native_coding(
@@ -85,6 +95,7 @@ if __name__ == "__main__":
         entry_file=__file__,
         runtime_services=create_runtime_services(
             create_hook_registry=create_hook_registry,
+            create_mcp_runtime=create_mcp_runtime,
             skills_payload_builder=skills_payload,
             create_workspace_runtime=create_workspace_runtime,
         ),

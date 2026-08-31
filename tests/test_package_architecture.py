@@ -789,6 +789,65 @@ def test_mcp_runtime_has_no_legacy_root_package_or_imports() -> None:
     assert not violations, "legacy MCP imports remain:\n" + "\n".join(violations)
 
 
+def test_mcp_lifecycle_owner_is_harness_owned() -> None:
+    """确保 MCP 生命周期所有者只依赖 Harness 端口和注入工厂。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "lifecycle.py"
+    owner_path = PROJECT_ROOT / "agent" / "harness" / "mcp" / "owner.py"
+
+    assert not legacy_path.is_file(), "legacy MCP lifecycle owner still exists"
+    assert owner_path.is_file(), "Harness MCP lifecycle owner is missing"
+
+    tree = ast.parse(owner_path.read_text(encoding="utf-8-sig"), filename=str(owner_path))
+    classes = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert "McpRuntimeOwner" in classes
+    assert "McpRuntime" not in classes
+
+    violations: list[str] = []
+    legacy_module = "mind_app.runtime.mcp." + "lifecycle"
+    for path in PROJECT_ROOT.rglob("*.py"):
+        source_tree = ast.parse(
+            path.read_text(encoding="utf-8-sig"),
+            filename=str(path),
+        )
+        for node in ast.walk(source_tree):
+            imported_module = ""
+            if isinstance(node, ast.ImportFrom) and node.level == 0:
+                imported_module = node.module or ""
+            elif isinstance(node, ast.Import):
+                imported_module = next(
+                    (
+                        alias.name
+                        for alias in node.names
+                        if alias.name == legacy_module
+                    ),
+                    "",
+                )
+            if imported_module == legacy_module:
+                violations.append(
+                    f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}"
+                )
+    assert not violations, "legacy MCP lifecycle imports remain:\n" + "\n".join(
+        violations
+    )
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            alias.name.startswith("mind_app") for alias in node.names
+        ):
+            violations.append(f"{owner_path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+        if isinstance(node, ast.ImportFrom) and node.level == 0:
+            module = node.module or ""
+            if module.startswith("mind_app"):
+                violations.append(f"{owner_path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+    assert not violations, "Harness MCP owner crosses legacy boundary:\n" + "\n".join(
+        violations
+    )
+
+
 def test_helix_lifecycle_adapter_is_owned_by_infrastructure() -> None:
     """确保具体 Helix 生命周期适配器不再由 mind_app 运行时持有。"""
     adapter_path = PROJECT_ROOT / "infrastructure" / "services" / "helix_capability.py"
@@ -3169,6 +3228,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.harness.agents.registry",
         "agent.harness.hooks.runtime",
         "agent.harness.hooks.scope",
+        "agent.harness.mcp.owner",
         "agent.harness.execution.subagent_runner",
         "agent.harness.execution.subagent_submission",
             "agent.protocol.json_value",

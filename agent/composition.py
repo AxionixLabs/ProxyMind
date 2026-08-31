@@ -12,7 +12,10 @@ from agent.ports import (
     SkillsProvider,
     TurnExecutorResult,
 )
-from agent.ports import HookRegistryFactory
+from agent.ports import (
+    HookRegistryFactory,
+    McpRuntimeBuilder,
+)
 from agent.stores import (
     LocalEffectJournal,
     SQLiteRunStore,
@@ -92,6 +95,7 @@ def open_skills_provider(
 def create_runtime_services(
     *,
     create_hook_registry: HookRegistryFactory,
+    create_mcp_runtime: McpRuntimeBuilder | None = None,
     skills_payload_builder: SkillsPayloadBuilder,
     create_workspace_runtime: WorkspaceRuntimeFactory | None = None,
 ) -> RuntimeServices:
@@ -104,6 +108,7 @@ def create_runtime_services(
         create_turn_application=open_turn_application,
         create_effect_journal=open_effect_journal,
         create_hook_registry=create_hook_registry,
+        create_mcp_runtime=create_mcp_runtime,
         create_workspace_runtime=create_workspace_runtime,
         process_capability=open_process_capability(),
         create_skills_provider=(

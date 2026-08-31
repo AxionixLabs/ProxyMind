@@ -13,7 +13,7 @@ from mind_app.runtime.mcp import external
 from mind_app.runtime.mcp import service_runtime
 from mind_app.runtime.mcp import tool_runtime
 from mind_app.runtime.mcp.external import ExternalMcpRuntime
-from mind_app.runtime.mcp.lifecycle import ExternalMcpRuntimeOwner
+from agent.harness.mcp.owner import McpRuntimeOwner
 from mind_app.runtime.mcp.tool_runtime import CompositeToolRuntime
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
@@ -371,7 +371,7 @@ async def test_external_owner_reuses_runtime_for_start_and_restart() -> None:
     )
     factory = Mock(return_value=runtime)
     mind = SimpleNamespace(await_cleanup=Mind.await_cleanup)
-    owner = ExternalMcpRuntimeOwner(mind, runtime_factory=factory)
+    owner = McpRuntimeOwner(runtime_factory=lambda: factory(mind))
 
     await owner.start(include_disabled=True)
     await owner.start()
@@ -443,10 +443,8 @@ async def test_external_owner_waits_for_runtime_cleanup_when_cancelled() -> None
             await release_cleanup.wait()
             cleanup_finished.set()
 
-    mind = SimpleNamespace(await_cleanup=Mind.await_cleanup)
-    owner = ExternalMcpRuntimeOwner(
-        mind,
-        runtime_factory=Mock(return_value=RuntimeStub()),
+    owner = McpRuntimeOwner(
+        runtime_factory=lambda: RuntimeStub(),
     )
     await owner.start()
 
