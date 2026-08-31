@@ -159,6 +159,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   旧 `mind_app/subscription`、`mind_app/runtime/agent` 源文件和生产导入已清零。
 - 本切片全仓行为回归：`3047 passed, 11 skipped, 55 warnings`；完整架构守卫随全仓回归
   通过，警告仍仅来自测试依赖 Nuitka `glob2` 的弃用转义。
+- Subscription 反向依赖收口已完成：`AgentExecutor` 的根轮次执行器和环境快照提供器改为
+  显式组合根注入；`frontends/subscription` 不再导入 `mind_app`，导入图中的该边和跨边界
+  循环均已清零。
 
 警告来自测试依赖的 Nuitka `glob2` 弃用转义，不属于本次生产代码失败；下次扩大验证时
 仍需记录是否发生变化。
@@ -175,6 +178,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    整体迁入 `frontends/subscription`，仅供它使用的 HTTP/WS 客户端与 wire envelope 已
    同步迁出，旧路径已删除；下一条补齐 CLI、TUI、MCP、Subscription 的独立启动/恢复证据，
    具体外部 MCP runtime 仍由后续 capability/adapters 切片接管。
+   Subscription 对旧根轮次与环境采集模块的反向依赖已收口：执行器和环境快照提供器由
+   组合根注入，前端适配器不再导入 `mind_app.runtime.turns` 或
+   `mind_app.interaction.environment`；下一条补齐 CLI、TUI、MCP、Subscription 的独立
+   启动/恢复证据。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -198,8 +205,11 @@ CLI doctor、TUI Helix 和服务启动回归证明行为一致。
 本次 Subscription 前端切片的删除条件已满足：`frontends/subscription` 单一持有远端
 HTTP/WS 客户端、wire envelope、open/resume、收件箱转发和恢复逻辑；Harness 只通过
 `agent/ports/subscription.py` 管理 owner 生命周期；控制器、TUI、CLI 和测试已切换新路径，
-`mind_app/subscription`、`mind_app/runtime/agent` 旧源文件及生产导入清零。`AgentExecutor`
-对旧根轮次执行器和环境采集器的依赖仍登记为后续 adapter/application 切片。
+`mind_app/subscription`、`mind_app/runtime/agent` 旧源文件及生产导入清零。
+
+本次 Subscription 反向依赖收口的删除条件已满足：`AgentExecutor` 在缺少根轮次/环境能力时
+只返回明确配置错误，生产实现由 `mind.py` 组合根提供；Subscription 前端不再导入旧
+`mind_app` runtime 或 interaction 模块，成功、失败、取消和环境快照回归保持一致。
 
 ## 过渡入口与删除条件
 
@@ -278,3 +288,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-08-31 | 将 `ServiceRuntimeOwner`、keepalive 和服务上下文类型迁入 `infrastructure/services`，删除 runtime 旧生命周期实现 | 服务/CLI/TUI 回归 `44 passed`；完整架构 `82 passed, 54 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将服务运行时路径解析、环境注入、打包校验和权限 setup helpers 迁入 `infrastructure/services/runtime_setup.py`，runtime 仅保留启动编排 | 服务/CLI/TUI 回归 `182 passed`；完整架构 `83 passed, 55 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 Subscription 适配器及专用 HTTP/WS client、wire envelope 迁入 `frontends/subscription`，将生命周期 owner/端口归入 `agent/harness/subscription` 与 `agent/ports` | Subscription/TUI 回归 `88 passed`；全仓 `3047 passed, 11 skipped, 55 warnings`；旧路径和导入清零；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-08-31 | 收口 Subscription 对旧根轮次和环境采集模块的反向依赖，改为组合根显式注入 | Subscription/TUI 回归 `88 passed`；`frontends` 旧 `mind_app` 导入守卫、Harness 边界守卫 `3 passed`；导入图无循环、`compileall`、`git diff --check` 通过 |

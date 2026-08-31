@@ -13,9 +13,11 @@ from .client import AgentClient
 from .forwarding import (
     AgentExecutor,
     AgentInbox,
+    EnvironmentSnapshotProvider,
     InboxForwardHandler,
     ReceiptDisposition,
-    ReceiptDispositionResolver
+    ReceiptDispositionResolver,
+    RootTurnRunner,
 )
 from .loop import (
     AgentConnection,
@@ -70,7 +72,9 @@ class AgentRuntime(object):
         inbox: AgentInbox | None = None,
         executor: AgentExecutor | None = None,
         live_status: AgentLiveStatus | None = None,
-        supervisor: AgentSupervisor | None = None
+        supervisor: AgentSupervisor | None = None,
+        turn_runner: RootTurnRunner | None = None,
+        environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     ) -> None:
         """装配订阅连接、收件箱和执行器。"""
         self.mind = mind
@@ -79,7 +83,11 @@ class AgentRuntime(object):
         self.client      = client or AgentClient(base_url=self.config.base_url)
         self.inbox       = inbox or AgentInbox()
         self._executor_owned = executor is None
-        self.executor    = executor or self._build_default_executor(mind)
+        self.executor    = executor or self._build_default_executor(
+            mind,
+            turn_runner=turn_runner,
+            environment_snapshot_provider=environment_snapshot_provider,
+        )
         self.live_status = live_status or AgentLiveStatus()
         self.status_outbox = AgentStatusOutbox()
 
@@ -116,7 +124,12 @@ class AgentRuntime(object):
         self.task: asyncio.Task[None] | None = None
 
     @staticmethod
-    def _build_default_executor(mind: SubscriptionHost) -> AgentExecutor:
+    def _build_default_executor(
+        mind: SubscriptionHost,
+        *,
+        turn_runner: RootTurnRunner | None,
+        environment_snapshot_provider: EnvironmentSnapshotProvider | None,
+    ) -> AgentExecutor:
         """为生产订阅运行时组合持久 Turn application。"""
         runtime_services = getattr(mind, "runtime_services", None)
         factory = getattr(runtime_services, "create_turn_application", None)
@@ -124,8 +137,15 @@ class AgentRuntime(object):
             application = factory(agent_runtime_db_path())
             if not isinstance(application, TurnApplication):
                 raise TypeError("turn application factory returned an invalid application")
-            return AgentExecutor(turn_application=application)
-        return AgentExecutor()
+            return AgentExecutor(
+                turn_runner,
+                turn_application=application,
+                environment_snapshot_provider=environment_snapshot_provider,
+            )
+        return AgentExecutor(
+            turn_runner,
+            environment_snapshot_provider=environment_snapshot_provider,
+        )
 
     def remember_context(
         self,

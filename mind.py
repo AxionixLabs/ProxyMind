@@ -22,6 +22,8 @@ from mind_app.cli.entry import run
 from mind_app.native_coding import NativeCoding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.harness.hooks.registry import HookRegistry
+from mind_app.interaction.environment import capture_active_turn_environment
+from mind_app.runtime.turns.root import run_root_turn
 from frontends.subscription.runtime import AgentRuntime
 
 
@@ -44,7 +46,11 @@ def create_mcp_runtime(host: McpRuntimeHost) -> McpRuntime:
 
 def create_subscription_runtime(host: SubscriptionHost) -> SubscriptionRuntime:
     """在进程组合根创建绑定应用宿主的远端订阅运行时。"""
-    return AgentRuntime(host)
+    return AgentRuntime(
+        host,
+        turn_runner=run_root_turn,
+        environment_snapshot_provider=capture_active_turn_environment,
+    )
 
 
 def create_native_coding(

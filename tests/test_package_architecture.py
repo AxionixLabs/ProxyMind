@@ -3143,10 +3143,7 @@ def test_subscription_adapter_is_owned_by_frontends() -> None:
             elif isinstance(node, ast.ImportFrom) and node.level == 0:
                 modules = (node.module or "",)
             for module in modules:
-                if module.startswith((
-                    "mind_app.subscription",
-                    "mind_app.runtime.agent",
-                )):
+                if module == "mind_app" or module.startswith("mind_app."):
                     legacy_imports.append(
                         f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
                     )

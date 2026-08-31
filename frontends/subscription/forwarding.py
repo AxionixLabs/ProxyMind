@@ -5,7 +5,10 @@ import time
 import typing
 import asyncio
 import functools
-from collections.abc import Mapping
+from collections.abc import (
+    Callable,
+    Mapping,
+)
 
 from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application.turns.commands import (
@@ -19,11 +22,6 @@ from infrastructure.errors import AppError
 from observability import observe
 
 from .client import AgentClient
-from mind_app.interaction.environment import capture_active_turn_environment
-from mind_app.runtime.turns.root import (
-    RootTurnRunner,
-    run_root_turn,
-)
 from .models import (
     AgentInboxItem,
     AgentForwardRequest,
@@ -31,6 +29,46 @@ from .models import (
     AgentSessionRuntime
 )
 from .status import AgentStatusOutbox
+
+
+class RootTurnRunner(typing.Protocol):
+    """定义组合根提供的根轮次执行能力。"""
+
+    async def __call__(
+        self,
+        host: SubscriptionHost,
+        pref_config: dict[str, typing.Any] | None = None,
+        *,
+        message: str,
+        **kwargs: typing.Any,
+    ) -> RunResult:
+        """执行一次已冻结的根轮次。"""
+        ...
+
+
+EnvironmentSnapshotProvider = Callable[
+    [SubscriptionHost],
+    dict[str, typing.Any] | None,
+]
+
+
+def capture_active_turn_environment(
+    _host: SubscriptionHost,
+) -> dict[str, typing.Any] | None:
+    """在缺少组合根环境能力时返回明确配置错误。"""
+    raise RuntimeError("subscription environment snapshot provider is required")
+
+
+async def run_root_turn(
+    _host: SubscriptionHost,
+    _pref_config: dict[str, typing.Any] | None = None,
+    *,
+    message: str,
+    **_kwargs: typing.Any,
+) -> RunResult:
+    """在缺少组合根根轮次能力时返回明确配置错误。"""
+    _ = message
+    raise RuntimeError("subscription root turn runner is required")
 
 
 class AgentForwardHandler(typing.Protocol):
@@ -112,12 +150,16 @@ class AgentExecutor(object):
 
     def __init__(
         self,
-        turn_runner: RootTurnRunner = run_root_turn,
+        turn_runner: RootTurnRunner | None = None,
         *,
         turn_application: TurnApplication[RunResult] | None = None,
+        environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     ) -> None:
-        """绑定根轮次执行器和可选的长生命周期 Turn application。"""
-        self._turn_runner = turn_runner
+        """绑定组合根提供的根轮次和环境能力。"""
+        self._turn_runner = turn_runner or run_root_turn
+        self._environment_snapshot_provider = (
+            environment_snapshot_provider or capture_active_turn_environment
+        )
         self._turn_application = turn_application
 
     async def close(self) -> None:
@@ -175,7 +217,7 @@ class AgentExecutor(object):
                 call_id=request.call_id
             )
 
-            environment_snapshot = capture_active_turn_environment(mind)
+            environment_snapshot = self._environment_snapshot_provider(mind)
             command = self._build_command(
                 request,
                 message=message,
