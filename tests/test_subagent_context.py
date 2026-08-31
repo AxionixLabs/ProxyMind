@@ -4,9 +4,13 @@ import pytest
 
 from mind_app.history.transcript import ConversationTranscriptStore
 from mind_app.runtime.subagents.context import (
-    build_fork_context,
+    load_fork_context,
 )
-from agent.application import normalize_fork_turns
+from agent.application import (
+    ForkContextEntry,
+    build_fork_context,
+    normalize_fork_turns,
+)
 
 
 def _write_turn(path, *, session_id: str, turn_id: str, user: str, assistant: str) -> None:
@@ -35,7 +39,23 @@ def test_normalize_fork_turns_accepts_named_and_bounded_values() -> None:
         normalize_fork_turns("0")
 
 
-def test_build_fork_context_selects_recent_parent_turns(tmp_path) -> None:
+def test_build_fork_context_is_pure_over_validated_entries() -> None:
+    """application 构造器只消费已验证条目，不依赖历史存储。"""
+    snapshot = build_fork_context(
+        (
+            ForkContextEntry("turn_one", "user", "question"),
+            ForkContextEntry("turn_one", "assistant", "answer"),
+        ),
+        "all",
+        max_chars=1000,
+    )
+
+    assert snapshot.available_turns == 1
+    assert snapshot.included_turns == 1
+    assert '"role":"user"' in snapshot.parts[0]
+
+
+def test_load_fork_context_selects_recent_parent_turns(tmp_path) -> None:
     path = tmp_path / "parent.jsonl"
     _write_turn(
         path,
@@ -52,11 +72,11 @@ def test_build_fork_context_selects_recent_parent_turns(tmp_path) -> None:
         assistant="second answer",
     )
 
-    empty = build_fork_context(str(path), "none")
+    empty = load_fork_context(str(path), "none", max_chars=1000)
     assert empty.parts == ()
     assert empty.requested_turns == "none"
 
-    recent = build_fork_context(str(path), "1")
+    recent = load_fork_context(str(path), "1", max_chars=1000)
     assert "second question" in recent.parts[0]
     assert "first question" not in recent.parts[0]
     assert recent.available_turns == 2
@@ -64,11 +84,11 @@ def test_build_fork_context_selects_recent_parent_turns(tmp_path) -> None:
     assert recent.included_turns == 1
     assert not recent.truncated
 
-    complete = build_fork_context(str(path), "all")
+    complete = load_fork_context(str(path), "all", max_chars=1000)
     assert "first question" in complete.parts[0]
     assert "second question" in complete.parts[0]
 
-    bounded = build_fork_context(
+    bounded = load_fork_context(
         str(path),
         "all",
         max_chars=recent.chars,
@@ -79,7 +99,7 @@ def test_build_fork_context_selects_recent_parent_turns(tmp_path) -> None:
     assert bounded.truncated
 
 
-def test_build_fork_context_never_splits_an_oversized_turn(tmp_path) -> None:
+def test_load_fork_context_never_splits_an_oversized_turn(tmp_path) -> None:
     path = tmp_path / "parent.jsonl"
     _write_turn(
         path,
@@ -89,7 +109,7 @@ def test_build_fork_context_never_splits_an_oversized_turn(tmp_path) -> None:
         assistant="large answer " * 20,
     )
 
-    snapshot = build_fork_context(str(path), "all", max_chars=80)
+    snapshot = load_fork_context(str(path), "all", max_chars=80)
 
     assert snapshot.parts == ()
     assert snapshot.selected_turns == 1

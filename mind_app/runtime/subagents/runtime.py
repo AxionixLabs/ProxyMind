@@ -46,7 +46,7 @@ from agent.stores.agent_mailbox import (
     format_mailbox_context
 )
 from agent.application import ForkTurns, normalize_fork_turns
-from mind_app.runtime.subagents.context import build_fork_context
+from mind_app.runtime.subagents.context import load_fork_context
 from agent.harness.agent_delivery import (
     AgentActiveTurn,
     AgentDeliveryRegistry,
@@ -205,7 +205,7 @@ class SubagentRuntime:
             skills=self._skills_provider(),
             agent_id=agent_id,
             fork_turns=normalized_fork_turns,
-            fork_context=build_fork_context(
+            fork_context=load_fork_context(
                 parent.transcript_path,
                 normalized_fork_turns,
                 max_chars=self._settings.max_fork_context_chars,

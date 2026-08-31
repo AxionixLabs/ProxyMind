@@ -1641,6 +1641,17 @@ def test_agent_thread_context_is_owned_by_application() -> None:
             + "\n".join(target_violations)
         )
 
+    fork_tree = ast.parse(
+        (PROJECT_ROOT / "agent" / "application" / "fork_context.py").read_text(encoding="utf-8-sig"),
+        filename="agent/application/fork_context.py",
+    )
+    fork_definitions = {
+        node.name
+        for node in fork_tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert {"ForkContextEntry", "build_fork_context"}.issubset(fork_definitions)
+
     thread_tree = ast.parse(
         (PROJECT_ROOT / "agent" / "application" / "agent_thread.py").read_text(encoding="utf-8-sig"),
         filename="agent/application/agent_thread.py",

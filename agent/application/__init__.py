@@ -52,8 +52,10 @@ from .execution import (
     TurnContext,
 )
 from .fork_context import (
+    ForkContextEntry,
     ForkContextSnapshot,
     ForkTurns,
+    build_fork_context,
     normalize_fork_turns,
 )
 from .agent_thread import (
@@ -173,7 +175,9 @@ __all__ = (
     "TurnExecution",
     "create_continuation_execution",
     "ForkContextSnapshot",
+    "ForkContextEntry",
     "ForkTurns",
+    "build_fork_context",
     "normalize_fork_turns",
     "CompactResultSource",
     "CompactTriggerReason",
