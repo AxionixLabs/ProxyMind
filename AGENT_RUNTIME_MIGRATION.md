@@ -107,6 +107,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - `RootTurnCommandExecutor` 已迁移至 `agent/adapters/turns/root.py`，只依赖冻结命令、
   权限领域值和注入的 operation；CLI、MCP、Subscription 在各自入口绑定 controller，
   `mind_app.runtime.turns.root` 不再拥有 application 命令适配器。
+- `run_foreground_turn` 已迁移至 `mind_app/presentation/terminal/turn_lifecycle.py`，
+  动画、终端进度和清理由展示边界持有；runtime root 不再定义前端生命周期函数，TUI、
+  CLI 和根轮次执行仍共享同一实现。
 
 ### 最新证据
 
@@ -130,6 +133,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - 根轮次命令适配器三入口回归：`155 passed`；专项 adapter/application 守卫：`2 passed`；
   完整架构守卫：`78 passed, 52 warnings`；失败项修正后的边界专项：`5 passed`；导入图、
   `compileall` 和 `git diff --check` 均通过，旧 runtime 适配器定义和导入已清零。
+- 终端轮次生命周期迁移回归：`108 passed`；生命周期归属架构守卫：`1 passed`；导入图、
+  `compileall` 和 `git diff --check` 均通过，旧 runtime 生命周期函数定义已清零。
 
 警告来自测试依赖的 Nuitka `glob2` 弃用转义，不属于本次生产代码失败；下次扩大验证时
 仍需记录是否发生变化。
@@ -138,8 +143,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 当前只允许进入以下顺序，不以补丁式需求插队：
 
-1. **入口与数据迁移**：将 `mind_core` 的配置、权限、hooks、skills 按职责落位；在
-   CLI、TUI、MCP、Subscription 均有独立启动/恢复证据后再迁移 `frontends/`。
+1. **入口与数据迁移**：`mind_core` 的配置、权限、hooks、skills 已完成生产导入清零，
+   下一条完整用例迁移终端轮次生命周期到 `mind_app/presentation/terminal`；随后补齐
+   CLI、TUI、MCP、Subscription 的独立启动/恢复证据，再迁移 `frontends/`。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -215,3 +221,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-08-31 | 将本地多后端 `ProcessSessionManager` 迁入 `infrastructure/platform`，删除 native coding 旧实现和导入 | 会话/TUI Shell `58 passed`；架构守卫 `2 passed`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 SandboxClient/ProcessSessionManager 装配提升到 `mind.py`，删除 NativeCoding 和工具注册表的隐式构造 | 受影响行为 `339 passed`；架构守卫 `2 passed`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 `RootTurnCommandExecutor` 迁入 `agent/adapters/turns`，CLI/MCP/Subscription 显式绑定旧 runner | 三入口行为 `155 passed`；专项守卫 `2 passed`，完整架构 `78 passed, 52 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-08-31 | 将 `run_foreground_turn` 迁入 `mind_app/presentation/terminal/turn_lifecycle.py`，runtime root 仅保留执行编排 | 生命周期回归 `108 passed`；归属守卫 `1 passed`；导入图、`compileall`、`git diff --check` 通过 |

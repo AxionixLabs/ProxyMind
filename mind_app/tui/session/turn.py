@@ -15,7 +15,8 @@ from metadata import const
 from agent.domain.policies import PermissionSettings
 from agent.application.turns.execution import TurnExecution
 from ...runtime.turns.executor import execute_turn
-from ...runtime.turns.root import prepare_root_turn, run_foreground_turn
+from ...runtime.turns.root import prepare_root_turn
+from ...presentation.terminal.turn_lifecycle import run_foreground_turn
 from ...runtime.turns.stream import stream_turn
 from ..runtime.ports import TurnRuntimePort
 from ..core.interrupt import InterruptDisposition

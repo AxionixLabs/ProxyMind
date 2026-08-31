@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
 import typing
 from collections.abc import Mapping
 from protocol.transport.events import EventReport
@@ -17,7 +16,7 @@ from mind_app.runtime.turns.executor import (
     resolve_turn_hook_scope,
 )
 from mind_app.runtime.turns.stream import stream_turn
-from mind_app.presentation.stream.worked import emit_worked_footer
+from mind_app.presentation.terminal.turn_lifecycle import run_foreground_turn
 from agent.domain.policies import PermissionSettings
 
 if typing.TYPE_CHECKING:
@@ -38,45 +37,6 @@ class RootTurnRunner(typing.Protocol):
     ) -> RunResult:
         """准备并执行一次根轮次。"""
         ...
-
-
-async def run_foreground_turn(
-    controller: "Mind",
-    operation: typing.Callable[..., typing.Awaitable[RunResult]],
-    *args: typing.Any,
-    **kwargs: typing.Any,
-) -> RunResult:
-    """在主前端进度和动画生命周期内执行一次轮次操作。"""
-    started_at = time.perf_counter()
-    frontend_runtime = controller.frontend.runtime
-    frontend_runtime.begin_terminal_progress()
-    completed = False
-
-    try:
-        await controller.start_anim()
-        result = await operation(*args, **kwargs)
-        completed = True
-        return result
-    finally:
-        try:
-            if completed:
-                finish_turn_wait = getattr(
-                    frontend_runtime,
-                    "finish_turn_wait",
-                    None,
-                )
-                if callable(finish_turn_wait):
-                    finish_turn_wait()
-            if completed and controller.animate:
-                emit_worked_footer(
-                    controller.frontend.application,
-                    time.perf_counter() - started_at,
-                )
-        finally:
-            try:
-                await controller.await_cleanup(controller.stop_anim("wait"))
-            finally:
-                frontend_runtime.end_terminal_progress()
 
 
 async def prepare_root_turn(

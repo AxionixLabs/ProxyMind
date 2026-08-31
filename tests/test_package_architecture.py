@@ -358,6 +358,41 @@ def test_root_turn_command_adapter_is_controller_independent() -> None:
     )
 
 
+def test_foreground_turn_lifecycle_is_owned_by_terminal_presentation() -> None:
+    """确保动画和终端进度生命周期不由 runtime root 定义。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "root.py"
+    target_path = (
+        PROJECT_ROOT
+        / "mind_app"
+        / "presentation"
+        / "terminal"
+        / "turn_lifecycle.py"
+    )
+
+    assert target_path.is_file(), "terminal turn lifecycle is missing"
+    legacy_tree = ast.parse(
+        legacy_path.read_text(encoding="utf-8-sig"),
+        filename=str(legacy_path),
+    )
+    legacy_functions = {
+        node.name
+        for node in legacy_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "run_foreground_turn" not in legacy_functions
+
+    target_tree = ast.parse(
+        target_path.read_text(encoding="utf-8-sig"),
+        filename=str(target_path),
+    )
+    target_functions = {
+        node.name
+        for node in target_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert target_functions == {"run_foreground_turn"}
+
+
 def test_infrastructure_does_not_depend_on_legacy_runtime() -> None:
     """基础设施实现不能重新依赖已进入退役流程的业务包。"""
     violations = _forbidden_imports(

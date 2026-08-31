@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from metadata import const
 
-from mind_app.runtime.turns.root import run_foreground_turn
+from mind_app.presentation.terminal.turn_lifecycle import run_foreground_turn
 from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.runtime import TuiRuntime

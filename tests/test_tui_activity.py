@@ -34,7 +34,7 @@ from mind_app.tui.core.styles import text_block
 from mind_app.tui.core.task_state import TuiTaskState
 from mind_app.tui.features.helix import TuiUpgradeProgress
 from mind_app.tui.session.barriers import TuiForegroundTasks
-from mind_app.runtime.turns.root import run_foreground_turn
+from mind_app.presentation.terminal.turn_lifecycle import run_foreground_turn
 from mind_app.presentation.stream.worked import emit_worked_footer
 from mind_app.presentation.mcp_status import (
     external_mcp_status_view,
