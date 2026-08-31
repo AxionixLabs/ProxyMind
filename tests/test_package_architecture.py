@@ -3556,6 +3556,14 @@ def test_subscription_adapter_is_owned_by_frontends() -> None:
         "Subscription frontend must not discover runtime services dynamically"
     )
 
+    tui_input_source = (
+        PROJECT_ROOT / "frontends" / "tui" / "session" / "turn_input.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "protocol_client" in tui_input_source
+    assert "runtime_services" not in tui_input_source, (
+        "TUI turn input must not discover runtime services dynamically"
+    )
+
 
 def test_cli_adapter_is_owned_by_frontends() -> None:
     """确保 CLI 命令解析、路由和入口生命周期归入前端边界。"""

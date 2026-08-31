@@ -232,6 +232,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
       `mind_app.presentation` 的 renderer/stream 实现到前端或 application adapter，
       继续保持 view 与具体终端渲染解耦。工具展示策略和 Subscription 显式装配前置切片
       已完成，下一条只补齐 CLI、TUI、MCP、Subscription 四类入口独立启动/恢复证据。
+      TUI 输入控制器先收口 Protocol Client 显式注入，禁止从 controller 反射发现
+      `runtime_services`。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -368,6 +370,19 @@ infrastructure reader；旧 `mind_app/runtime/subagents/context.py` 已删除，
 结果会在边界抛出，shutdown 回收持久 application；导入图、`compileall` 和
 `git diff --check` 通过，`frontends/subscription/runtime.py` 已无 `runtime_services` 动态发现。
 
+下一切片 TUI 输入端口的准入条件：`TuiTurnInputControl` 只接收显式
+`ProtocolCommandClient | None`，生产 session 在创建控制器时绑定能力；无客户端时仅允许
+测试 seam 的命令函数，不读取宿主 `runtime_services`。关键失败路径是客户端类型错误、缺失
+客户端时的明确配置错误和关闭期间输入对账；删除条件是控制器模块动态发现清零，并通过 TUI
+输入、流式命令和架构守卫验证。
+
+本次 TUI 输入端口切片已满足上述条件：`TuiTurnInputControl` 删除 controller 上的
+`runtime_services`/`model_capability` 反射发现，只接受显式 `ProtocolCommandClient`，类型错误
+在构造边界立即拒绝；缺失客户端时仅使用测试 seam，关闭期间的 steer/interrupt 对账语义保持不变。
+TUI 输入、流式命令、中断和前端边界回归 `57 passed`；完整架构守卫 `93 passed, 60 warnings`，
+导入图、`compileall` 和 `git diff --check` 均通过。下一切片收口 `frontends/tui/session/loop.py` 的
+Protocol Client 装配，使 session factory 也不再从 `Mind` 反射读取 `runtime_services`。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -461,3 +476,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 将跨前端应用结果 view 按 Run、工具、计划、补丁、审批、Hook、进度拆入 `agent/application/views`，迁移 `PresentationView/PresentationSink` 并删除旧 `mind_app.presentation.models/contracts` | 展示回归 `158 passed`；Run/TUI 回归 `512 passed`；架构守卫修正后专项通过；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将工具过滤/审批判定与展示分类拆分到 `agent.domain.tool_policy`、`agent.application.views.tool_display`，删除旧 `mind_app.presentation.tool_policy` | 工具策略/渲染回归 `123 passed`；Run/TUI/输出回归 `544 passed`；专项架构守卫、导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 Subscription `TurnApplication` 改为组合根显式 `TurnApplicationFactory` 注入，清除前端对 `runtime_services` 的动态发现 | Subscription 回归 `18 passed`；装配/架构守卫专项 `19 passed`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将 TUI `TuiTurnInputControl` 改为显式注入 `ProtocolCommandClient`，删除输入控制器对 `runtime_services` 的隐式发现 | TUI 输入/流式命令/中断及前端边界回归 `57 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |

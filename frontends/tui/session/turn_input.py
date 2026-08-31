@@ -64,16 +64,12 @@ class TuiTurnInputControl(object):
         self._runtime = runtime
         self._state = state
         self._target = (cid, sid, turn_id)
-        candidate = protocol_client
-        if candidate is None:
-            services = getattr(controller, "runtime_services", None)
-            candidate = getattr(services, "model_capability", None)
-        if candidate is not None and not isinstance(
-            candidate,
+        if protocol_client is not None and not isinstance(
+            protocol_client,
             ProtocolCommandClient,
         ):
             raise TypeError("TUI turn input requires ProtocolCommandClient")
-        self._protocol_client = candidate
+        self._protocol_client = protocol_client
 
         self._ready_turn_id: str = ""
 
