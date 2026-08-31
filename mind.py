@@ -8,6 +8,8 @@ from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
 from agent.ports import ProcessCapability
 from infrastructure.skills import skills_payload
 from infrastructure.config.paths import ApplicationLayout
+from infrastructure.platform.process_sessions import ProcessSessionManager
+from infrastructure.platform.sandbox import SandboxClient
 from mind_app.cli.entry import run
 from mind_app.native_coding import NativeCoding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
@@ -17,6 +19,41 @@ from mind_app.runtime.hooks.registry import HookRegistry
 def create_hook_registry(*, bypass_hook_trust: bool = False) -> HookRegistry:
     """在进程组合根创建绑定本机资源的 Hook registry。"""
     return HookRegistry(bypass_hook_trust=bypass_hook_trust)
+
+
+def create_native_coding(
+    *,
+    root: str | os.PathLike[str],
+    application_layout: object | None,
+    process_capability: ProcessCapability | None = None,
+) -> NativeCoding:
+    """在进程组合根创建绑定工作区的平台执行资源。"""
+    if (
+        application_layout is not None
+        and not isinstance(application_layout, ApplicationLayout)
+    ):
+        raise TypeError("application_layout must be ApplicationLayout")
+    sandbox_client = SandboxClient(
+        workspace_root=root,
+        application_root=(
+            application_layout.root if application_layout is not None else None
+        ),
+        packaged=(
+            application_layout.packaged if application_layout is not None else None
+        ),
+        platform=(
+            application_layout.platform if application_layout is not None else None
+        ),
+    )
+    process_sessions = ProcessSessionManager(
+        sandbox_client,
+        process_capability=process_capability,
+    )
+    return NativeCoding(
+        root=root,
+        application_layout=application_layout,
+        process_sessions=process_sessions,
+    )
 
 
 def create_workspace_runtime(
@@ -29,7 +66,7 @@ def create_workspace_runtime(
     return WorkspaceRuntimeOwner(
         workspace_root,
         application_layout=application_layout,
-        coding_factory=NativeCoding,
+        coding_factory=create_native_coding,
         execution_policy_factory=ExecPolicyManager,
         process_capability=process_capability,
     )

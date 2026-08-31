@@ -28,7 +28,7 @@ from mind_app.client_tools.registry import (
 )
 from mind_app.client_tools.types import ClientToolRuntime
 from mind_app.runtime.mcp.session_adapter import CompositeToolSession
-from mind_app.native_coding import NativeCoding
+from mind import create_native_coding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from infrastructure.platform.javascript_repl import (
     JavaScriptReplPool,
@@ -963,7 +963,7 @@ async def test_js_repl_client_tool_executes_without_shell_metadata(
     tmp_path: Path,
 ) -> None:
     _require_node()
-    coding = NativeCoding(tmp_path)
+    coding = create_native_coding(root=tmp_path, application_layout=None)
     registry = default_registry(
         coding,
         execution_root=tmp_path,
@@ -1038,7 +1038,7 @@ async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
             return "accept"
 
     coordinator = Coordinator()
-    coding = NativeCoding(tmp_path)
+    coding = create_native_coding(root=tmp_path, application_layout=None)
     coding.shell_command = AsyncMock(return_value=coding.ok_result(
         "nested shell completed",
         output="nested-ok",
@@ -1174,7 +1174,7 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
             ),
         )
 
-    coding = NativeCoding(tmp_path)
+    coding = create_native_coding(root=tmp_path, application_layout=None)
     coding.shell_command = AsyncMock(return_value=coding.ok_result(
         "nested shell completed",
         command='Start-Process "https://example.com"',
@@ -1323,7 +1323,7 @@ async def test_js_repl_mcp_bridge_preserves_type_and_image_rules(
                 ))
             return mcp_types.CallToolResult(content=content, isError=False)
 
-    coding = NativeCoding(tmp_path)
+    coding = create_native_coding(root=tmp_path, application_layout=None)
     registry = ClientToolRegistry(coding_tools(coding))
     session = CompositeToolSession(
         service_session=ServiceSession(),

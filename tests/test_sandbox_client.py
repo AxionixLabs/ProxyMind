@@ -11,7 +11,7 @@ from infrastructure.platform.process_sessions import (
     ProcessSessionManager,
     ProcessSessionSpec,
 )
-from mind_app.native_coding.native_coding import NativeCoding
+from mind import create_native_coding
 from infrastructure.config.paths import ApplicationLayout
 
 
@@ -126,12 +126,17 @@ def test_native_coding_reuses_application_layout_for_sandbox_paths(tmp_path) -> 
             / "macos"
         ),
     )
-    coding = NativeCoding(root=tmp_path / "workspace", application_layout=layout)
+    coding = create_native_coding(
+        root=tmp_path / "workspace",
+        application_layout=layout,
+    )
 
     try:
-        assert coding._sandbox_client.application_root == layout.root
-        assert coding._sandbox_client.packaged is True
-        assert coding._sandbox_client.platform == layout.platform
+        sandbox_client = coding._process_sessions._sandbox_client
+        assert sandbox_client is not None
+        assert sandbox_client.application_root == layout.root
+        assert sandbox_client.packaged is True
+        assert sandbox_client.platform == layout.platform
     finally:
         asyncio.run(coding.close())
 

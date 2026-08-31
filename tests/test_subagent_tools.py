@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from mind import create_native_coding
 from mind_app.client_tools.registry import (
     ClientToolRegistry,
     default_registry,
@@ -116,8 +117,10 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
         _Controller(),
         enabled=False,
     )
+    coding = create_native_coding(root=tmp_path, application_layout=None)
 
     enabled_tools = default_registry(
+        coding,
         execution_root=tmp_path,
         subagent_runtime=enabled,
     ).list_tools().tools
@@ -125,6 +128,7 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
     disabled_names = {
         tool.name
         for tool in default_registry(
+            coding,
             execution_root=tmp_path,
             subagent_runtime=disabled,
         ).list_tools().tools

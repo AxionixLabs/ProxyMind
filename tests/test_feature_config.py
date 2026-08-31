@@ -1,5 +1,6 @@
 import pytest
 
+from mind import create_native_coding
 from mind_app.builtin_tools import BuiltinToolRegistry, permission_tools
 from mind_app.client_tools.registry import default_registry
 from infrastructure.config.schema import (
@@ -69,6 +70,7 @@ def test_invalid_feature_settings_are_rejected(features, message) -> None:
 
 def test_js_repl_feature_removes_both_repl_tools(tmp_path) -> None:
     tools = default_registry(
+        create_native_coding(root=tmp_path, application_layout=None),
         execution_root=tmp_path,
         features=FeatureSettings(js_repl=False),
     ).list_tools().tools
@@ -81,6 +83,7 @@ def test_js_repl_feature_removes_both_repl_tools(tmp_path) -> None:
 
 def test_permission_features_control_tool_surface(tmp_path) -> None:
     tools = default_registry(
+        create_native_coding(root=tmp_path, application_layout=None),
         execution_root=tmp_path,
         features=FeatureSettings(
             request_permissions_tool=False,
@@ -101,13 +104,17 @@ def test_permission_features_control_tool_surface(tmp_path) -> None:
 def test_permission_features_are_disabled_by_default(tmp_path) -> None:
     names = {
         tool.name
-        for tool in default_registry(execution_root=tmp_path).list_tools().tools
+        for tool in default_registry(
+            create_native_coding(root=tmp_path, application_layout=None),
+            execution_root=tmp_path,
+        ).list_tools().tools
     }
     assert "request_permissions" not in names
 
 
 def test_permission_features_can_be_enabled_explicitly(tmp_path) -> None:
     tools = default_registry(
+        create_native_coding(root=tmp_path, application_layout=None),
         execution_root=tmp_path,
         features=FeatureSettings(
             request_permissions_tool=True,

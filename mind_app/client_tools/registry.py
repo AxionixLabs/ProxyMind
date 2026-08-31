@@ -108,7 +108,7 @@ class ClientToolRegistry:
 
 
 def default_registry(
-    native_coding: typing.Any = None,
+    native_coding: typing.Any,
     *,
     execution_root: str | Path | None = None,
     exec_policy_manager: "ExecPolicyManager | None" = None,

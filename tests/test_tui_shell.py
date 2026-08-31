@@ -9,6 +9,7 @@ import pytest
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.native_coding import NativeCoding
+from mind import create_native_coding
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.interrupt import InterruptDisposition
@@ -513,7 +514,7 @@ async def test_second_shell_shows_first_shell_in_process_status() -> None:
 
 @pytest.mark.anyio
 async def test_user_shell_session_is_listed_and_closed(tmp_path) -> None:
-    coding = NativeCoding(root=tmp_path)
+    coding = create_native_coding(root=tmp_path, application_layout=None)
     snapshot = await coding.user_shell.start_user_shell_session(
         command="background test",
         args=[
@@ -686,7 +687,7 @@ async def test_detached_shell_completion_waits_for_command_scope_result(
 
 @pytest.mark.anyio
 async def test_exec_command_keeps_tool_policy_and_result_flow(tmp_path) -> None:
-    coding = NativeCoding(root=tmp_path)
+    coding = create_native_coding(root=tmp_path, application_layout=None)
     try:
         result = await coding.exec_command(
             command="echo shared-session",

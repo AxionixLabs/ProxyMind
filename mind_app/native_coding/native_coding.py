@@ -3,14 +3,12 @@
 
 import os
 import typing
-from agent.ports import ProcessCapability
 from infrastructure.config.paths import ApplicationLayout
 from mind_app.native_coding.base import NativeCodingBase
 from mind_app.native_coding.edit.patch_engine import PatchEngine
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.exec_command import ExecCommandTools
 from infrastructure.platform.process_sessions import ProcessSessionManager
-from infrastructure.platform.sandbox import SandboxClient
 from mind_app.native_coding.exec.user_shell import UserShellExecution
 from mind_app.native_coding.exec.command_policy import CommandPolicy
 from mind_app.native_coding.exec.file_audit import FileAudit
@@ -29,31 +27,14 @@ class NativeCoding(NativeCodingBase):
         root: str | os.PathLike[str] | None = None,
         *,
         application_layout: ApplicationLayout | None = None,
-        process_capability: ProcessCapability | None = None,
+        process_sessions: ProcessSessionManager,
     ) -> None:
         """初始化共享运行时状态并装配各能力组件。"""
         super().__init__(root=root)
 
-        self._sandbox_client   = SandboxClient(
-            workspace_root=self.root,
-            application_root=(
-                application_layout.root if application_layout is not None else None
-            ),
-            packaged=(
-                application_layout.packaged
-                if application_layout is not None
-                else None
-            ),
-            platform=(
-                application_layout.platform
-                if application_layout is not None
-                else None
-            ),
-        )
-        self._process_sessions = ProcessSessionManager(
-            self._sandbox_client,
-            process_capability=process_capability,
-        )
+        if not isinstance(process_sessions, ProcessSessionManager):
+            raise TypeError("process_sessions must be ProcessSessionManager")
+        self._process_sessions = process_sessions
 
         self.user_shell = UserShellExecution(
             root=self.root,

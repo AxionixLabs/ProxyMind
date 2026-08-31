@@ -908,6 +908,31 @@ def test_process_execution_substrate_has_platform_ownership() -> None:
         "legacy process execution imports remain:\n" + "\n".join(violations)
     )
 
+    native_coding_path = (
+        PROJECT_ROOT / "mind_app" / "native_coding" / "native_coding.py"
+    )
+    native_tree = ast.parse(
+        native_coding_path.read_text(encoding="utf-8-sig"),
+        filename=str(native_coding_path),
+    )
+    native_imports = {
+        node.module or ""
+        for node in ast.walk(native_tree)
+        if isinstance(node, ast.ImportFrom) and node.level == 0
+    }
+    assert "infrastructure.platform.sandbox" not in native_imports
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "SandboxClient"
+        for node in ast.walk(native_tree)
+    )
+
+    composition_path = PROJECT_ROOT / "mind.py"
+    composition_source = composition_path.read_text(encoding="utf-8-sig")
+    assert "SandboxClient(" in composition_source
+    assert "ProcessSessionManager(" in composition_source
+
 
 def test_hook_output_spill_has_platform_ownership() -> None:
     """确保 Hook 大输出的临时文件生命周期由平台基础设施持有。"""

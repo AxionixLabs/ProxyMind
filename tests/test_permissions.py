@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from mind import create_native_coding
 from mind_app.approval.policy import (
     approval_decisions,
     approval_decision_label,
@@ -302,8 +303,10 @@ async def test_request_payload_rejects_removed_system_message_alias() -> None:
 @pytest.mark.parametrize("tool_name", ["apply_patch"])
 async def test_read_only_sandbox_rejects_local_mutating_capabilities(
     tool_name,
+    tmp_path,
 ) -> None:
-    tool = next(tool for tool in coding_tools() if tool.name == tool_name)
+    coding = create_native_coding(root=tmp_path, application_layout=None)
+    tool = next(tool for tool in coding_tools(coding) if tool.name == tool_name)
     runtime = _client_runtime(preset_permissions("read-only"))
 
     arguments = {"patch": "*** Begin Patch\n*** End Patch"}
@@ -466,7 +469,7 @@ async def test_native_shell_handler_accepts_client_arguments_without_remote_gran
 def test_justification_is_only_exposed_by_process_start_tools() -> None:
     schemas = {
         tool.name: tool.input_schema
-        for tool in coding_tools()
+        for tool in coding_tools(_coding_stub())
     }
 
     assert "justification" in schemas["shell_command"]["properties"]

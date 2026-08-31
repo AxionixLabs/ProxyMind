@@ -166,14 +166,14 @@ def validate_workspace_write_authorization(runtime: ClientToolRuntime) -> None:
 
 
 def coding_tools(
-    native_coding: NativeCoding | None = None,
+    native_coding: NativeCoding,
     *,
     approval_coordinator: "ApprovalCoordinator | None" = None,
     exec_policy_manager: ExecPolicyManager | None = None,
     exec_permission_approvals_enabled: bool = False,
 ) -> list[ClientTool]:
     """返回编码工具列表。"""
-    coding = native_coding or NativeCoding()
+    coding = native_coding
     local_exec_policy = exec_policy_manager or ExecPolicyManager(
         workspace_root=coding.root
     )
