@@ -87,6 +87,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - `agent.application` 包级导出已收窄为 `RuntimeServices`、`TurnApplication`、
   `SubmitTurnResult` 和 `submit_turn`；协议、端口、领域和内部值对象的消费者均改为
   从职责模块导入，并由架构守卫锁定公开面。
+- Skills payload 转换器改为组合参数注入，`agent.composition` 不再导入
+  `infrastructure`；`agent -> infrastructure -> agent` 跨边界循环已从导入图清除。
 - Skills 文件读取在组合根创建 provider，runtime 只消费注入的 `SkillsProvider`；具体
   文件系统和 Harness 实现没有回流到 application。
 - `AgentMessageEvent` 使用最小端口协议，避免 application 依赖具体 mailbox 存储。
@@ -99,21 +101,20 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - 完整架构守卫：`75 passed, 51 warnings`。
 - `agent_runtime_import_graph.py --write/--check` 通过，导入图已刷新。
 - `compileall`、`git diff --check` 通过；旧平铺路径和旧导入扫描无结果。
+- 组合根切片定向回归：`76 passed`；新增组合/架构守卫：`4 passed`。
 
 警告来自测试依赖的 Nuitka `glob2` 弃用转义，不属于本次生产代码失败；下次扩大验证时
 仍需记录是否发生变化。
 
-### 下一切片：组合根依赖清理
+### 下一切片：历史副作用适配器退役
 
 当前只允许进入以下顺序，不以补丁式需求插队：
 
-1. **组合根依赖清理**：让 `agent/composition.py` 成为具体实现的唯一装配点；消除
-   application、harness、stores 对配置解析、环境探测和具体网络客户端的隐式导入。
-2. **历史副作用适配器退役**：按完整权限进程、Helix、Sandbox sidecar、根轮次 executor
+1. **历史副作用适配器退役**：按完整权限进程、Helix、Sandbox sidecar、根轮次 executor
    的真实消费者逐项接入 capability/application，完成后删除旧调用路径和 `engine` 模块。
-3. **入口与数据迁移**：将 `mind_core` 的配置、权限、hooks、skills 按职责落位；在
+2. **入口与数据迁移**：将 `mind_core` 的配置、权限、hooks、skills 按职责落位；在
    CLI、TUI、MCP、Subscription 均有独立启动/恢复证据后再迁移 `frontends/`。
-4. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
+3. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
@@ -181,4 +182,5 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | --- | --- | --- |
 | 2026-08-31 | `agent/` 按职责重组；新增 Session/Workspace 生命周期端口；Skills provider 移至组合根；删除旧平铺路径 | 行为 `495 passed`；架构 `74 passed, 51 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 收窄 `agent.application` 公开 API，端口类型消除对 application 的反向导入，所有消费者改用职责模块 | 行为 `2958 passed, 11 skipped`；架构 `75 passed, 51 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-08-31 | 组合根 Skills payload 注入，清除 `agent -> infrastructure -> agent` 跨边界循环 | 组合切片定向回归 `76 passed`；新增守卫 `4 passed`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将本计划精简为当前状态与交接入口，完整切片历史移入归档 | 主计划与归档链接可访问，状态权威仍为本文件 |

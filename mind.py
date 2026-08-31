@@ -6,6 +6,7 @@ import os
 from agent.composition import create_runtime_services
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
 from agent.ports import ProcessCapability
+from infrastructure.skills import skills_payload
 from infrastructure.config.paths import ApplicationLayout
 from mind_app.cli.entry import run
 from mind_app.native_coding import NativeCoding
@@ -39,6 +40,7 @@ if __name__ == "__main__":
         entry_file=__file__,
         runtime_services=create_runtime_services(
             create_hook_registry=create_hook_registry,
+            skills_payload_builder=skills_payload,
             create_workspace_runtime=create_workspace_runtime,
         ),
     ))

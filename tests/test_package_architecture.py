@@ -290,6 +290,30 @@ def test_agent_application_public_api_is_minimal() -> None:
     assert imported_modules == {"services", "turns.commands"}
 
 
+def test_agent_composition_has_no_infrastructure_imports() -> None:
+    """组合契约接收基础设施适配器，不在 agent 包内反向导入实现。"""
+    path = PROJECT_ROOT / "agent" / "composition.py"
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        imported: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            imported = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            imported = (node.module or "",)
+        if any(
+            module == "infrastructure"
+            or module.startswith("infrastructure.")
+            for module in imported
+        ):
+            violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+
+    assert not violations, (
+        "agent composition imports infrastructure: "
+        + ", ".join(violations)
+    )
+
+
 def test_agent_capabilities_depend_only_on_protocol_transport() -> None:
     violations = _forbidden_imports(
         "agent/capabilities",

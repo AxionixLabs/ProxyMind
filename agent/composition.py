@@ -4,7 +4,6 @@
 import typing
 from pathlib import Path
 from observability import observe_exception
-from infrastructure.skills import skills_payload
 from agent.application.turns.commands import TurnApplication
 from agent.application.services import RuntimeServices
 from agent.application.services import SkillsConfigReader
@@ -28,6 +27,10 @@ from agent.ports.workspace import WorkspaceRuntimeFactory
 from agent.harness.sessions.owner import SessionRuntimeOwner
 
 ResultValue = typing.TypeVar("ResultValue", bound=TurnExecutorResult)
+SkillsPayloadBuilder: typing.TypeAlias = typing.Callable[
+    [dict[str, typing.Any]],
+    list[dict[str, str]],
+]
 
 
 def open_turn_application(
@@ -60,15 +63,21 @@ def open_process_capability() -> LocalProcessCapability:
     return LocalProcessCapability()
 
 
-def open_skills_provider(config_reader: SkillsConfigReader) -> SkillsProvider:
+def open_skills_provider(
+    config_reader: SkillsConfigReader,
+    *,
+    payload_builder: SkillsPayloadBuilder,
+) -> SkillsProvider:
     """在组合根绑定配置读取器并返回稳定的 skills 快照提供器。"""
     if not callable(config_reader):
         raise TypeError("skills config reader must be callable")
+    if not callable(payload_builder):
+        raise TypeError("skills payload builder must be callable")
 
     def provide() -> list[dict[str, str]]:
         """读取当前配置并转换为模型可见的 skills 描述。"""
         try:
-            return skills_payload(config_reader())
+            return payload_builder(config_reader())
         except (OSError, TypeError, ValueError) as error:
             observe_exception(
                 "subagent.skills.resolve_failed",
@@ -83,9 +92,12 @@ def open_skills_provider(config_reader: SkillsConfigReader) -> SkillsProvider:
 def create_runtime_services(
     *,
     create_hook_registry: HookRegistryFactory,
+    skills_payload_builder: SkillsPayloadBuilder,
     create_workspace_runtime: WorkspaceRuntimeFactory | None = None,
 ) -> RuntimeServices:
     """创建供单个进程入口共享的 Agent Harness 依赖。"""
+    if not callable(skills_payload_builder):
+        raise TypeError("skills payload builder must be callable")
     return RuntimeServices(
         model_capability=open_model_capability(),
         environment_capability=open_environment_capability(),
@@ -94,7 +106,12 @@ def create_runtime_services(
         create_hook_registry=create_hook_registry,
         create_workspace_runtime=create_workspace_runtime,
         process_capability=open_process_capability(),
-        create_skills_provider=open_skills_provider,
+        create_skills_provider=(
+            lambda reader: open_skills_provider(
+                reader,
+                payload_builder=skills_payload_builder,
+            )
+        ),
     )
 
 
