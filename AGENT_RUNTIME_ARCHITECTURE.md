@@ -240,6 +240,15 @@ agent/
 │   │   ├── protocol.py      # Hook stdin/stdout schema、构建和边界校验
 │   │   ├── result.py        # 后置 Hook 对模型可见工具结果的投影
 │   │   └── subagent.py      # 子 Agent Hook 生命周期聚合
+│   ├── views/               # 跨前端共享的应用结果 projection/view 契约
+│   │   ├── contracts.py      # PresentationView 与 PresentationSink
+│   │   ├── run.py            # Run 终态、失败和生命周期视图
+│   │   ├── tools.py          # 工具轨迹、调用、结果和批次视图
+│   │   ├── plan.py           # 计划步骤视图
+│   │   ├── patch.py          # 补丁差异和诊断视图
+│   │   ├── approval.py       # 审批结果视图
+│   │   ├── hooks.py          # Hook 生命周期和输出视图
+│   │   └── progress.py       # 工具进度视图
 │   ├── config/              # 应用启动设置和本地身份
 │   │   ├── settings.py      # Harness 并发和可选能力的启动时设置
 │   │   └── session_identity.py # 远端坐标到本地 Session 身份的确定性派生
@@ -547,7 +556,7 @@ running -> cancelled
 | `mind_app/runtime/subagents/thread.py` | `agent/application/agents/thread.py`、`agent/application/agents/fork_context.py` | 子 Agent 线程/轮次上下文和父会话继承快照是 application 执行契约；运行时控制器只消费已冻结值，不持有跨边界身份结构 |
 | `mind_app/runtime/subagents/context.py`（已删除） | `agent/adapters/agents/fork_context.py` + `agent/application/agents/fork_context.py` | fork history adapter 只接收组合根注入的 Transcript 条目读取 callable；继承范围、渲染和字符预算算法由 application 持有，SubagentRuntime 不实例化文件 Store |
 | `mind_app/presentation/application.py`（展示端口定义） | `agent/ports/presentation.py` | `ApplicationView`、`ApplicationSink`、`Viewport` 是跨入口的纯展示端口；`FrontendRuntime` 和 `Frontend` 仍属于现有装配边界，避免把交互生命周期下沉到 ports |
-| `mind_app/presentation/models.py`（文本原语定义） | `agent/ports/presentation.py` | `TextStyle`、`TextSpan`、`StyledBlock` 是无业务语义的跨入口值对象；工具、计划和 Hook view 继续留在 presentation 实现边界 |
+| `mind_app/presentation/models.py`（已删除的混合视图定义） | `agent/application/views/` | Run、工具、计划、补丁、审批、Hook 和进度 view 按语义拆分；`PresentationView/PresentationSink` 归 `views/contracts.py`，纯文本原语仍归 `agent/ports/presentation.py`；旧总模型不得保留兼容入口 |
 | `mind_app/runtime/subagents/delivery.py` | `agent/ports/agent_messages.py`、`agent/adapters/agents/messages.py`、`agent/harness/agents/delivery.py` | 消息回执和投递端口归 ports，`/turn/steer` 归 Protocol Client adapter，Harness 维护活动轮次就绪和 pending 输入状态 |
 | `mind_app/history/ids.py` | `protocol/schema/identifiers.py` | `cid/sid` 正则和关联校验属于 wire identity schema；历史、交互、Controller 和 Harness 复用协议边界，不在 history 保留身份实现 |
 | `mind_app/history/contracts.py`（已删除） | `agent/ports/transcript.py` | TranscriptSink 是 runtime、Hook、执行器和历史 writer 共享的最小写入端口；端口不依赖旧包或基础设施 |

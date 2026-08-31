@@ -18,7 +18,7 @@ from mind_app.presentation.output.jsonl import (
     JsonOutputControl,
     JsonOutputState,
 )
-from mind_app.presentation.models import (
+from agent.application.views import (
     ApprovalView,
     FailureView,
     HookOutputView,

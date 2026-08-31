@@ -1,57 +1,8 @@
-# -*- coding: utf-8 -*-
-# Notes: ==== Mind™ ====
+"""旧展示实现包的模块入口。共享 view 契约位于 ``agent.application.views``。"""
 
-from .models import (
-    ApprovalDecision,
-    ApprovalState,
-    ApprovalSource,
-    ApprovalView,
-    BatchCallView,
-    BatchCompletedView,
-    BatchResultView,
-    BatchStartView,
-    FailureView,
-    GenericToolResultView,
-    LifecycleView,
-    NativeToolResultView,
-    PlanItemView,
-    PlanStepsStartView,
-    PlanUpdateView,
-    ProgressSource,
-    ProgressView,
-    StyledBlock,
-    TextSpan,
-    TextStyle,
-    ToolStartView,
-    TraceEntry,
-    TracePreview
-)
+from . import code_highlight
 
-__all__ = [
-    "ApprovalDecision",
-    "ApprovalState",
-    "ApprovalSource",
-    "ApprovalView",
-    "BatchCallView",
-    "BatchCompletedView",
-    "BatchResultView",
-    "BatchStartView",
-    "FailureView",
-    "GenericToolResultView",
-    "LifecycleView",
-    "NativeToolResultView",
-    "PlanItemView",
-    "PlanStepsStartView",
-    "PlanUpdateView",
-    "ProgressSource",
-    "ProgressView",
-    "StyledBlock",
-    "TextSpan",
-    "TextStyle",
-    "ToolStartView",
-    "TraceEntry",
-    "TracePreview"
-]
+__all__ = ("code_highlight",)
 
 
 if __name__ == '__main__':

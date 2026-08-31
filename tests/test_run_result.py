@@ -29,7 +29,7 @@ from mind_app.presentation.output.content import (
     SourcesOutput,
 )
 from mind_app.presentation.output.session import OutputSession
-from mind_app.presentation.models import (
+from agent.application.views import (
     ApprovalView,
     FailureView,
     HookRunView,

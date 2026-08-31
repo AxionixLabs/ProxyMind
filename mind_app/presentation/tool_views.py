@@ -8,7 +8,7 @@ from mind_app.presentation.stream.tool_traces.native import (
     render_tool_start_preview,
     render_tool_start_trace
 )
-from .models import (
+from agent.application.views import (
     GenericToolResultView,
     NativeToolResultView,
     PatchView,

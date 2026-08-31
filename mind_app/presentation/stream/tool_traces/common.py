@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.presentation.models import TracePreview
+from agent.application.views import TracePreview
 from mind_app.presentation.terminal_text import (
     sanitize_terminal_line,
     sanitize_terminal_text,

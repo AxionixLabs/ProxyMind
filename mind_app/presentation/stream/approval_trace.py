@@ -9,7 +9,7 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle
 )
-from mind_app.presentation.models import ApprovalSource
+from agent.application.views import ApprovalSource
 from .command_preview import command_preview
 from .tool_traces import (
     TITLE_STYLE,

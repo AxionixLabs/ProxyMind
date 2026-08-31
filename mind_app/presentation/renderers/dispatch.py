@@ -6,8 +6,8 @@ from mind_app.presentation.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
 )
-from ..contracts import PresentationView
-from ..models import (
+from agent.application.views.contracts import PresentationView
+from agent.application.views import (
     ApprovalView,
     BatchCompletedView,
     BatchStartView,
@@ -23,9 +23,9 @@ from ..models import (
     RunCompletedView,
     RunIncompleteView,
     RunStartedView,
-    StyledBlock,
     ToolStartView
 )
+from agent.ports.presentation import StyledBlock
 from .approval import render_approval_view
 from .batch import (
     render_batch_completed_transcript_view,

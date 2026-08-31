@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .models import TextStyle
+from agent.ports.presentation import TextStyle
 
 TITLE_STYLE                 = TextStyle(foreground="#D7E7FF", bold=True)
 PREVIEW_STYLE               = TextStyle(foreground="#8FA4B8", dim=True)

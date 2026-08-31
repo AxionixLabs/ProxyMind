@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from .models import (
+from agent.application.views import (
     PlanItemView,
     PlanStatus,
     PlanStepsStartView,

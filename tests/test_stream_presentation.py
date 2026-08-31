@@ -5,7 +5,7 @@ import typing
 import pytest
 
 from mind_app.presentation.output import SourcesOutput
-from mind_app.presentation.models import (
+from agent.application.views import (
     FailureView,
     RunCompletedView,
     RunIncompleteView,

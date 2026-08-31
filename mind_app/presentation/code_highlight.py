@@ -16,7 +16,7 @@ from pygments.token import (
 )
 from pygments.util import ClassNotFound
 from metadata import const
-from .models import (
+from agent.ports.presentation import (
     TextSpan,
     TextStyle
 )

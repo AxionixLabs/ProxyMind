@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.presentation.contracts import PresentationSink
-from mind_app.presentation.models import ProgressSource
+from agent.application.views.contracts import PresentationSink
+from agent.application.views import ProgressSource
 from mind_app.presentation.progress_views import build_progress_view
 
 

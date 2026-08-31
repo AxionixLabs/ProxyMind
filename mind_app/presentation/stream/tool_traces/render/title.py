@@ -7,7 +7,7 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
-from mind_app.presentation.models import TracePreview
+from agent.application.views import TracePreview
 from mind_app.presentation.text_layout import (
     clip_display_text,
     text_display_width

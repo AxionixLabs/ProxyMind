@@ -3,12 +3,14 @@
 
 import json
 import typing
-from ..models import (
+from agent.application.views import (
     BatchCompletedView,
     BatchStartView,
+)
+from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle
+    TextStyle,
 )
 from ..styles import (
     ACTION_TOOL_STYLE,

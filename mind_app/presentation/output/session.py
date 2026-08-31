@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from mind_app.presentation.contracts import PresentationSink
+from agent.application.views.contracts import PresentationSink
 from .content import ContentSink
 from .contracts import (
     OutputControlPort,

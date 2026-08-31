@@ -19,14 +19,16 @@ from ..text_layout import (
     text_display_width,
 )
 from ..terminal_text import sanitize_terminal_line
-from ..models import (
+from agent.application.views import (
     GenericToolResultView,
     NativeToolResultView,
+    ToolStartView,
+    TracePreview
+)
+from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle,
-    ToolStartView,
-    TracePreview
 )
 
 TRANSCRIPT_SUCCESS_STYLE  = TextStyle(foreground="#6EE7A8", bold=True)

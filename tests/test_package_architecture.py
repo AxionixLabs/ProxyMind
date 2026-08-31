@@ -3320,18 +3320,7 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
     ), "legacy presentation module still defines shared ports"
 
     model_path = PROJECT_ROOT / "mind_app" / "presentation" / "models.py"
-    model_tree = ast.parse(
-        model_path.read_text(encoding="utf-8-sig"),
-        filename=str(model_path),
-    )
-    model_definitions = {
-        node.name
-        for node in model_tree.body
-        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    assert not model_definitions.intersection(
-        {"TextStyle", "TextSpan", "StyledBlock"}
-    ), "legacy models module still defines shared text values"
+    assert not model_path.exists(), "legacy presentation models module still exists"
 
     violations: list[str] = []
     for path in PROJECT_ROOT.rglob("*.py"):
@@ -3339,12 +3328,14 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom) or node.level != 0:
                 continue
-            if node.module != "mind_app.presentation.application":
-                if node.module != "mind_app.presentation.models":
-                    continue
-                moved_names = {"TextStyle", "TextSpan", "StyledBlock"}
-            else:
+            if node.module == "mind_app.presentation.application":
                 moved_names = {"ApplicationView", "Viewport", "ApplicationSink"}
+            elif node.module == "mind_app.presentation.models":
+                moved_names = set(alias.name for alias in node.names)
+            elif node.module == "mind_app.presentation.contracts":
+                moved_names = set(alias.name for alias in node.names)
+            else:
+                continue
             for alias in node.names:
                 if alias.name in moved_names:
                     violations.append(
@@ -3353,6 +3344,22 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
     assert not violations, "legacy shared presentation imports remain:\n" + (
         "\n".join(violations)
     )
+
+    views_root = PROJECT_ROOT / "agent" / "application" / "views"
+    assert {
+        path.name
+        for path in views_root.glob("*.py")
+    } == {
+        "__init__.py",
+        "approval.py",
+        "contracts.py",
+        "hooks.py",
+        "patch.py",
+        "plan.py",
+        "progress.py",
+        "run.py",
+        "tools.py",
+    }
 
 
 def test_tui_contracts_are_owned_by_frontends() -> None:
@@ -3770,12 +3777,14 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.hooks.context",
         "agent.application.turns.execution",
         "agent.application.agents.fork_context",
-            "agent.application.config.settings",
-            "agent.application.config.session_identity",
-            "agent.domain.hooks",
-            "agent.domain.policies",
-            "agent.domain.hook_trust",
-            "agent.domain.hook_matching",
+        "agent.application.views",
+        "agent.application.views.contracts",
+        "agent.application.config.settings",
+        "agent.application.config.session_identity",
+        "agent.domain.hooks",
+        "agent.domain.policies",
+        "agent.domain.hook_trust",
+        "agent.domain.hook_matching",
         "agent.domain.agents",
         "agent.domain.tool_policy",
         "agent.domain.execution_policy",

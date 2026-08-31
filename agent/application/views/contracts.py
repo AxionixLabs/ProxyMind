@@ -1,24 +1,28 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind™ ====
 
 import typing
-from .models import (
-    ApprovalView,
-    BatchCompletedView,
-    BatchStartView,
-    FailureView,
-    GenericToolResultView,
-    HookRunView,
-    LifecycleView,
-    NativeToolResultView,
-    PatchView,
+
+from .approval import ApprovalView
+from .hooks import HookRunView
+from .patch import PatchView
+from .plan import (
     PlanStepsStartView,
     PlanUpdateView,
-    ProgressView,
+)
+from .progress import ProgressView
+from .run import (
+    FailureView,
+    LifecycleView,
     RunCompletedView,
     RunIncompleteView,
     RunStartedView,
-    ToolStartView
+)
+from .tools import (
+    BatchCompletedView,
+    BatchStartView,
+    GenericToolResultView,
+    NativeToolResultView,
+    ToolStartView,
 )
 
 PresentationView: typing.TypeAlias = (
@@ -42,12 +46,8 @@ PresentationView: typing.TypeAlias = (
 
 
 class PresentationSink(typing.Protocol):
-    """接收与具体终端渲染方式无关的展示数据。"""
+    """接收跨前端共享的应用展示结果。"""
 
     async def emit(self, view: PresentationView) -> None:
         """发送一项结构化展示数据。"""
         ...
-
-
-if __name__ == '__main__':
-    pass

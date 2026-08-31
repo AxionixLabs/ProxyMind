@@ -19,7 +19,7 @@ from mind_app.runtime.mcp.tool_result import (
     serialize_call_tool_result
 )
 from mind_app.runtime.mcp.tool_store import meta_for_tool
-from mind_app.presentation.contracts import PresentationSink
+from agent.application.views.contracts import PresentationSink
 from mind_app.presentation.tool_policy import is_approval_only_tool
 from .enhancement import enhance_result
 from mind_app.presentation.output import OutputStatusPort

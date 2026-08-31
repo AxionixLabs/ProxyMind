@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.presentation.models import TraceEntry, TracePreview
+from agent.application.views import TraceEntry, TracePreview
 from mind_app.presentation.styles import (
     ACTION_EDIT_STYLE,
     ACTION_RUN_STYLE,

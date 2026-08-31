@@ -12,7 +12,7 @@ from mind_app.presentation.output import (
     OutputStatusPort,
     SourcesOutput,
 )
-from mind_app.presentation.contracts import PresentationSink
+from agent.application.views.contracts import PresentationSink
 from mind_app.presentation.lifecycle_views import build_failure_view
 from mind_app.presentation.run_views import (
     build_run_completed_view,

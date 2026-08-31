@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from agent.ports.presentation import TextSpan
-from mind_app.presentation.models import (
+from agent.application.views import (
     FailureView,
     RunIncompleteView,
 )

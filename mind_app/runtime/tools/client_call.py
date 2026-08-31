@@ -31,7 +31,7 @@ from mind_app.presentation.output import (
     OutputControlPort,
     OutputStatusPort
 )
-from mind_app.presentation.contracts import PresentationSink
+from agent.application.views.contracts import PresentationSink
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext

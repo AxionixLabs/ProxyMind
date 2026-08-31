@@ -53,7 +53,7 @@ from mind_app.presentation.batch_views import (
 )
 from mind_app.presentation import code_highlight
 from mind_app.presentation.lifecycle_views import build_failure_view
-from mind_app.presentation.models import (
+from agent.application.views import (
     NativeToolResultView,
     PatchView,
     PlanItemView,

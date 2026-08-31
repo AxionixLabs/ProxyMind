@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.presentation.contracts import PresentationSink
-from mind_app.presentation.models import (
+from agent.application.views.contracts import PresentationSink
+from agent.application.views import (
     HookOutputView,
     HookRunView,
     HookViewPhase

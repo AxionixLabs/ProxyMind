@@ -2,12 +2,14 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from ..models import (
+from agent.application.views import (
     PlanStepsStartView,
     PlanUpdateView,
+)
+from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle
+    TextStyle,
 )
 from ..styles import (
     COMMAND_HEAD_STYLE,

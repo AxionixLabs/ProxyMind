@@ -4,7 +4,7 @@
 import typing
 import unicodedata
 from urllib.parse import urlsplit
-from .models import (
+from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle

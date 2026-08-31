@@ -16,7 +16,7 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
-from mind_app.presentation.models import (
+from agent.application.views import (
     PatchFileView,
     PatchLineView,
     PatchView,

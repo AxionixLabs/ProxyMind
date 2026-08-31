@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from ..models import (
-    ProgressView,
-    StyledBlock
-)
+from agent.application.views import ProgressView
+from agent.ports.presentation import StyledBlock
 
 
 def render_progress_view(view: ProgressView) -> StyledBlock:

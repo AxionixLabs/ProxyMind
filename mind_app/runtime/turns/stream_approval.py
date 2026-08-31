@@ -18,8 +18,8 @@ from mind_app.approval.policy import (
 )
 from mind_app.presentation.output import OutputStatusPort
 from mind_app.presentation.approval_views import build_approval_view
-from mind_app.presentation.contracts import PresentationSink
-from mind_app.presentation.models import ApprovalSource
+from agent.application.views.contracts import PresentationSink
+from agent.application.views import ApprovalSource
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext

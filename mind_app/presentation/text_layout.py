@@ -3,7 +3,7 @@
 
 import typing
 import unicodedata
-from .models import TextSpan
+from agent.ports.presentation import TextSpan
 
 
 def text_display_width(text: str) -> int:

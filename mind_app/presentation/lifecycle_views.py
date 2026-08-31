@@ -3,7 +3,7 @@
 
 import copy
 import typing
-from .models import (
+from agent.application.views import (
     FailureView,
     LifecycleView
 )

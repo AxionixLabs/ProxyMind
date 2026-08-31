@@ -12,7 +12,7 @@ from mind_app.runtime.mcp.tool_store import meta_for_tool
 from infrastructure.config.execution_policy_manager import ExecApprovalRequirement
 from mind_app.presentation.output import OutputStatusPort
 from mind_app.presentation.approval_views import build_approval_view
-from mind_app.presentation.contracts import PresentationSink
+from agent.application.views.contracts import PresentationSink
 from mind_app.presentation.tool_policy import is_approval_only_tool
 from agent.application.turns.context import (
     ToolInvocation,

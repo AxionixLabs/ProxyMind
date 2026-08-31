@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from .models import (
+from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle

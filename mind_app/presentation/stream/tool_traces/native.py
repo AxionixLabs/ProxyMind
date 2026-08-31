@@ -22,7 +22,7 @@ from .common import (
     _trace_code_preview_from_lines,
     _trace_preview_from_lines
 )
-from mind_app.presentation.models import TraceEntry
+from agent.application.views import TraceEntry
 from mind_app.presentation.tool_policy import (
     NATIVE_TOOL_NAMES,
     ToolDisplayKind,

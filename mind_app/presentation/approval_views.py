@@ -6,7 +6,7 @@ from protocol.schema.tool_approval import (
     TOOL_APPROVAL_ACCEPT_DECISIONS,
     TOOL_APPROVAL_DECISIONS,
 )
-from .models import (
+from agent.application.views import (
     ApprovalDecision,
     ApprovalSource,
     ApprovalState,

@@ -7,10 +7,8 @@ from mind_app.presentation.stream.approval_trace import (
     render_approval_denied_trace,
     render_approval_trace_parts
 )
-from ..models import (
-    ApprovalView,
-    StyledBlock
-)
+from agent.application.views import ApprovalView
+from agent.ports.presentation import StyledBlock
 
 
 def render_approval_view(view: ApprovalView) -> StyledBlock:

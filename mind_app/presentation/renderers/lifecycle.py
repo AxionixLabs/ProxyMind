@@ -4,12 +4,12 @@
 import typing
 from mind_app.presentation.stream.failure_display import render_failure_block
 from mind_app.presentation.stream.lifecycle_display import render_lifecycle_display_parts
-from ..models import (
+from agent.application.views import (
     FailureView,
     LifecycleView,
     RunIncompleteView,
-    StyledBlock
 )
+from agent.ports.presentation import StyledBlock
 
 
 def render_failure_view(

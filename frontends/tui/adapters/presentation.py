@@ -8,7 +8,7 @@ from mind_app.presentation.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
 )
-from mind_app.presentation.contracts import (
+from agent.application.views.contracts import (
     PresentationSink,
     PresentationView
 )
@@ -16,7 +16,7 @@ from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
 )
-from mind_app.presentation.models import (
+from agent.application.views import (
     ApprovalView,
     BatchCompletedView,
     BatchStartView,

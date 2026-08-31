@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from mind_app.presentation.output import OutputStatusPort
-from mind_app.presentation.contracts import PresentationSink
+from agent.application.views.contracts import PresentationSink
 from .progress import show_tool_progress
 
 

@@ -9,11 +9,11 @@ from mind_app.presentation.terminal_text import (
     sanitize_terminal_line,
     sanitize_terminal_text
 )
-from mind_app.presentation.contracts import (
+from agent.application.views.contracts import (
     PresentationSink,
     PresentationView
 )
-from mind_app.presentation.models import (
+from agent.application.views import (
     ApprovalView,
     BatchCompletedView,
     BatchStartView,

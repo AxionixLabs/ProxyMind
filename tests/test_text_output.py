@@ -24,7 +24,7 @@ from mind_app.presentation.output.content import (
     AssistantTextDelta,
     ResponseIdentity,
 )
-from mind_app.presentation.models import (
+from agent.application.views import (
     ApprovalView,
     GenericToolResultView,
     HookOutputView,

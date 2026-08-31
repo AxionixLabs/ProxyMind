@@ -17,7 +17,7 @@ from mind_app.presentation.output import (
     OutputControlPort,
     OutputStatusPort
 )
-from mind_app.presentation.contracts import PresentationSink
+from agent.application.views.contracts import PresentationSink
 from mind_app.presentation.plan_views import build_plan_steps_start_view
 from .display import show_tool_result
 from .plan_steps import (
