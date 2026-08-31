@@ -1347,6 +1347,18 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   `compileall`、导入图和 `git diff --check` 通过。下一切片继续拆分 SubagentRuntime 的外部
   资源协调和 mailbox 投递状态。
 
+### 已完成切片：Agent 只读视图归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将 `AgentSnapshot`、`AgentWaitResult`、`AgentMailboxWaitResult` 从
+  `agent/harness/agent_control.py` 重组到 `agent/application/agent_views.py`；只读状态、等待结果
+  和 mailbox 事件视图由 application 统一公开。
+- [x] AgentControl 保留可变树记录与状态转移，SubagentRuntime、client tools、TUI 和测试切换到
+  application 视图入口，避免 Harness 文件同时承担 mutable state 与 UI contract。
+- [x] AgentControl/graph/Subagent/TUI 回归通过，新增视图边界守卫；`compileall`、导入图和
+  `git diff --check` 通过。下一切片继续拆分 SubagentRuntime 的外部资源协调和 mailbox 投递状态。
+
 ### 已完成切片：上下文压缩结果与编排分离
 
 状态：已完成（2026-08-31）
@@ -1605,3 +1617,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 AgentControl Harness 归位 | 将完整 AgentControl 状态机重组到 `agent/harness/agent_control.py`，切换 SubagentRuntime/client tools/TUI 并删除旧 runtime control | AgentControl/graph/Subagent/TUI 回归 `78 passed`，graph/control 归属守卫、导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 Agent 活动投递状态归位 | 将 AgentActiveTurn/AgentMessageDispatch 重组到 `agent/harness/agent_delivery.py`，切换 SubagentRuntime/TUI/测试并删除旧 runtime delivery | Agent delivery/Subagent/TUI/架构守卫回归通过，导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 活动投递注册表归位 | 将 SubagentRuntime 活动 Turn 字典/锁抽取为 Harness `AgentDeliveryRegistry`，runtime 仅使用注册表端口 | Agent delivery/Subagent/graph/TUI 回归 `83 passed, 1 warning`，delivery 守卫、导入图、`compileall` 和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 Agent 只读视图归位 | 将 AgentSnapshot/AgentWaitResult/AgentMailboxWaitResult 重组到 `agent/application/agent_views.py`，Harness control 只保留可变状态机 | AgentControl/graph/Subagent/TUI/视图守卫回归通过，导入图、`compileall` 和 `git diff --check` 通过 |

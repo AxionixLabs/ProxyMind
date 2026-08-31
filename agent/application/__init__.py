@@ -60,6 +60,11 @@ from .agent_thread import (
     AgentThreadContext,
     AgentTurnContext,
 )
+from .agent_views import (
+    AgentMailboxWaitResult,
+    AgentSnapshot,
+    AgentWaitResult,
+)
 from agent.domain.policies import (
     PermissionPreset,
     PermissionSettings,
@@ -160,6 +165,9 @@ __all__ = (
     "AgentContext",
     "AgentThreadContext",
     "AgentTurnContext",
+    "AgentMailboxWaitResult",
+    "AgentSnapshot",
+    "AgentWaitResult",
     "ToolInvocation",
     "TurnContext",
     "TurnExecution",

@@ -9,8 +9,10 @@ from mind_app.client_tools.types import (
     ClientTool,
     ClientToolRuntime
 )
-from agent.harness.agent_control import AgentSnapshot
-from agent.application import normalize_fork_turns
+from agent.application import (
+    AgentSnapshot,
+    normalize_fork_turns,
+)
 from agent.stores.agent_mailbox import MAX_AGENT_MESSAGE_CHARS
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 

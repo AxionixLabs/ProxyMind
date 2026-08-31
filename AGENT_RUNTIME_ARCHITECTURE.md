@@ -213,6 +213,7 @@ agent/
 │   ├── commands.py          # submit、resume、approve、cancel、retry
 │   ├── compact_result.py    # 上下文压缩稳定结果值对象
 │   ├── agent_thread.py      # 子 Agent 线程和轮次上下文
+│   ├── agent_views.py       # Agent 状态、等待和 mailbox 只读视图
 │   ├── environment.py       # 环境快照采集用例与能力失败收敛
 │   ├── execution.py        # Agent、Turn 和工具调用执行上下文
 │   ├── turn_execution.py   # 固定 Hook 作用域的 Turn 执行契约
@@ -506,6 +507,7 @@ running -> cancelled
 | `mind_app/runtime/turns/stream.py`、`stream_model.py` | `harness/session_loop.py`、`application/turn_pipeline.py`、TUI adapter | 输入准备、终态、工具交付、资源收尾和回合展示已拆到具名所有者；模型 presenter 只消费 Protocol Client current/active/audit Item 投影并持有 Transcript 交付水位，RunResult、Stop Hook、最后回复和 sources 均读取 canonical 投影；`stream.py` 暂留迁移期事件路由，所有模型/工具/审批/效果命令均走 Protocol Client |
 | `mind_app/runtime/mcp/*`、`subscription/lifecycle.py` | capabilities、adapters、harness supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
 | `mind_app/runtime/subagents/control.py` | `agent/harness/agent_control.py`；状态值对象归 `agent/domain/agents.py`、图归 `agent/stores/agent_graph.py` | AgentControl 只保留可变树调度、mailbox 协调和观察快照；Harness 持有状态机，domain/stores 不反向依赖它 |
+| `AgentSnapshot`、`AgentWaitResult`、`AgentMailboxWaitResult` | `agent/application/agent_views.py` | 跨 TUI、工具和 runtime 的只读 Agent 视图归 application；Harness control 只创建视图，不拥有公共值对象 |
 | `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 图快照、SQLite 存储和持久化单写者归入 stores，存储实现不得进入 domain |
 | `AgentSubmission`、Agent 状态字面量 | `agent/domain/agents.py` | 任务提交和状态分类只依赖协议标识与标准库，供 control、stores 和后续 Harness 调度复用 |
 | `mind_app/runtime/subagents/mailbox.py` | `agent/stores/agent_mailbox.py` | 子 Agent mailbox 事件、快照、消费游标和有界日志是持久状态；runtime/subagents 只依赖存储契约，不拥有 mailbox 数据结构 |

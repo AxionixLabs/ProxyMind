@@ -9,8 +9,10 @@ from prompt_toolkit.utils import get_cwidth
 
 from mind_app.history.transcript import TranscriptWriter
 from agent.application.execution import AgentContext
-from agent.harness.agent_control import AgentSnapshot
-from agent.application import AgentThreadContext
+from agent.application import (
+    AgentSnapshot,
+    AgentThreadContext,
+)
 from mind_app.tui.core.models import (
     FragmentBlock,
     MenuDescriptionLayout,

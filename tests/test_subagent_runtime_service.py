@@ -7,7 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.application import RunResult
+from agent.application import (
+    AgentMailboxWaitResult,
+    AgentSnapshot,
+    AgentWaitResult,
+    RunResult,
+)
 from agent.domain.agents import AgentSubmission
 from agent.stores.agent_graph import (
     AgentGraphCheckpoint,
