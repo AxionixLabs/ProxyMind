@@ -56,10 +56,10 @@ from infrastructure.services.runtime_context import (
     ServiceRuntimeContext,
     ServiceRuntimeSpec,
 )
+from infrastructure.services.runtime_setup import resolve_service_runtime
 from ..runtime.mcp.service_runtime import (
     ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
-    resolve_service_runtime
 )
 from infrastructure.services.helix_capability import ServerManageHelixCapability
 from ..presentation.terminal.contracts import TerminalDesign

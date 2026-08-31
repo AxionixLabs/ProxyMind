@@ -877,6 +877,57 @@ def test_helix_lifecycle_adapter_is_owned_by_infrastructure() -> None:
     )
 
 
+def test_service_runtime_setup_is_infrastructure_owned() -> None:
+    """确保服务路径、环境和权限 setup 不再由 runtime 模块定义。"""
+    setup_path = PROJECT_ROOT / "infrastructure" / "services" / "runtime_setup.py"
+    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "service_runtime.py"
+    assert setup_path.is_file(), "service runtime setup module is missing"
+    assert runtime_path.is_file(), "service runtime orchestration is missing"
+
+    setup_source = setup_path.read_text(encoding="utf-8-sig")
+    assert "mind_app" not in setup_source
+
+    moved_names = {
+        "runtime_status",
+        "resolve_service_runtime",
+        "prepend_runtime_paths",
+        "verify_runtime_paths",
+        "authorize_runtime_files",
+        "service_runtime_asset_missing",
+        "ensure_runtime_started",
+    }
+    runtime_tree = ast.parse(
+        runtime_path.read_text(encoding="utf-8-sig"),
+        filename=str(runtime_path),
+    )
+    definitions = {
+        node.name
+        for node in runtime_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert not definitions.intersection(moved_names)
+
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.level != 0:
+                continue
+            if node.module != "mind_app.runtime.mcp.service_runtime":
+                continue
+            imported_names = {
+                alias.name
+                for alias in node.names
+            }
+            moved = imported_names.intersection(moved_names)
+            if moved:
+                violations.append(
+                    f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> "
+                    + ", ".join(sorted(moved))
+                )
+    assert not violations, "legacy setup imports remain:\n" + "\n".join(violations)
+
+
 def test_process_encoding_has_one_platform_owner() -> None:
     """确保进程输出解码只由平台基础设施实现。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "native_coding" / "encoding.py"

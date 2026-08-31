@@ -17,10 +17,10 @@ from mind_app.presentation.models import (
     TextSpan
 )
 from infrastructure.services.runtime_context import ServiceRuntimeContext
+from infrastructure.services.runtime_setup import service_runtime_asset_missing
 from mind_app.runtime.mcp.service_runtime import (
     ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
-    service_runtime_asset_missing
 )
 from agent.domain.tool_policy import ToolFilterMode
 from metadata import const

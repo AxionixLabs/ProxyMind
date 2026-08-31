@@ -11,7 +11,7 @@ from observability import (
 )
 from infrastructure.errors import AppError
 from mind_app.presentation.application import ActivityStatusKind
-from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
+from infrastructure.services.runtime_setup import service_runtime_asset_missing
 from ..runtime.ports import ForegroundRuntimePort
 from ..core.interrupt import InterruptDisposition
 from ..core.styles import (
