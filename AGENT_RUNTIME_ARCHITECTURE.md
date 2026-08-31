@@ -204,6 +204,8 @@ agent/
 │   ├── session_loop.py      # 一个 Session 的单写者事件循环
 │   ├── run_actor.py         # 一个 Run 的串行状态执行器
 │   ├── subagent_runner.py   # 子 Agent Hook 生命周期和续跑协调
+│   ├── agent_control.py     # Agent 树状态机、队列和 mailbox 协调
+│   ├── agent_delivery.py    # 活动 Turn 投递状态和消息回执
 │   ├── scheduler.py         # Run 调度、并发上限和公平性
 │   ├── supervisor.py        # 子任务、断线和关闭收束
 │   └── recovery.py          # 快照恢复、未完成命令和效果对账
@@ -508,7 +510,7 @@ running -> cancelled
 | `AgentSubmission`、Agent 状态字面量 | `agent/domain/agents.py` | 任务提交和状态分类只依赖协议标识与标准库，供 control、stores 和后续 Harness 调度复用 |
 | `mind_app/runtime/subagents/mailbox.py` | `agent/stores/agent_mailbox.py` | 子 Agent mailbox 事件、快照、消费游标和有界日志是持久状态；runtime/subagents 只依赖存储契约，不拥有 mailbox 数据结构 |
 | `mind_app/runtime/subagents/thread.py` | `agent/application/agent_thread.py`、`agent/application/fork_context.py` | 子 Agent 线程/轮次上下文和父会话继承快照是 application 执行契约；运行时控制器只消费已冻结值，不持有跨边界身份结构 |
-| `mind_app/runtime/subagents/delivery.py` | `agent/ports/agent_messages.py`、`agent/adapters/agent_messages.py`、runtime active-turn state | 消息回执和投递端口归 ports，`/turn/steer` 归 Protocol Client adapter，runtime 仅维护活动轮次就绪和 pending 输入状态 |
+| `mind_app/runtime/subagents/delivery.py` | `agent/ports/agent_messages.py`、`agent/adapters/agent_messages.py`、`agent/harness/agent_delivery.py` | 消息回执和投递端口归 ports，`/turn/steer` 归 Protocol Client adapter，Harness 维护活动轮次就绪和 pending 输入状态 |
 | `mind_app/history/ids.py` | `protocol/schema/identifiers.py` | `cid/sid` 正则和关联校验属于 wire identity schema；历史、交互、Controller 和 Harness 复用协议边界，不在 history 保留身份实现 |
 | `agent/stores/effect_journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `stores/effect_journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |
 | `agent/stores/run_store.py`、`_run_schema.py`、`_run_records.py` | `stores/session_store.py`、`event_store.py`、`outbox.py` 的首个事务切片 | 已原子提交事件、快照、outbox 和最终事实；只有出现独立生命周期或规模压力时再物理拆 store，避免单次转发 facade |

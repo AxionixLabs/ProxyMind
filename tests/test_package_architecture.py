@@ -1784,11 +1784,13 @@ def test_agent_graph_persistence_is_owned_by_stores() -> None:
 
 
 def test_subagent_message_delivery_has_port_and_adapter_owners() -> None:
-    """确保子 Agent 消息投递的端口和协议适配不由 runtime 混合持有。"""
-    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "delivery.py"
+    """确保子 Agent 消息投递的端口、适配和 Harness 状态各自归属。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "delivery.py"
+    runtime_path = PROJECT_ROOT / "agent" / "harness" / "agent_delivery.py"
     port_path = PROJECT_ROOT / "agent" / "ports" / "agent_messages.py"
     adapter_path = PROJECT_ROOT / "agent" / "adapters" / "agent_messages.py"
-    assert runtime_path.is_file(), "runtime active-turn state machine is missing"
+    assert not legacy_path.is_file(), "legacy runtime active-turn state machine still exists"
+    assert runtime_path.is_file(), "harness active-turn state machine is missing"
     assert port_path.is_file(), "agent message delivery port is missing"
     assert adapter_path.is_file(), "agent message protocol adapter is missing"
 
@@ -1812,14 +1814,24 @@ def test_subagent_message_delivery_has_port_and_adapter_owners() -> None:
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom) or node.level != 0:
                 continue
-            if node.module != "mind_app.runtime.subagents.delivery":
-                continue
-            for imported in node.names:
-                if imported.name in forbidden_names:
-                    old_imports.append(
-                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {imported.name}"
-                    )
+            if node.module == "mind_app.runtime.subagents.delivery":
+                old_imports.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
     assert not old_imports, "legacy message delivery imports remain:\n" + "\n".join(old_imports)
+
+    runtime_violations: list[str] = []
+    runtime_tree = ast.parse(runtime_path.read_text(encoding="utf-8-sig"), filename=str(runtime_path))
+    for node in ast.walk(runtime_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                runtime_violations.append(
+                    f"{runtime_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not runtime_violations, "harness delivery crosses legacy boundary:\n" + "\n".join(runtime_violations)
 
     adapter_tree = ast.parse(adapter_path.read_text(encoding="utf-8-sig"), filename=str(adapter_path))
     adapter_violations: list[str] = []

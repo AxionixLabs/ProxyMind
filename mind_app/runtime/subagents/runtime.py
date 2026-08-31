@@ -46,7 +46,7 @@ from agent.stores.agent_mailbox import (
 )
 from agent.application import ForkTurns, normalize_fork_turns
 from mind_app.runtime.subagents.context import build_fork_context
-from mind_app.runtime.subagents.delivery import (
+from agent.harness.agent_delivery import (
     AgentActiveTurn,
     AgentMessageDispatch,
 )

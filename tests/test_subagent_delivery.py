@@ -6,7 +6,7 @@ import pytest
 
 from agent.application.execution import AgentContext, TurnContext
 from agent.adapters import agent_messages as delivery_module
-from mind_app.runtime.subagents.delivery import (
+from agent.harness.agent_delivery import (
     AgentActiveTurn,
 )
 from agent.adapters.agent_messages import SteeringMessageDelivery
