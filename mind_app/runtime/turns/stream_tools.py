@@ -7,7 +7,7 @@ from observability import observe
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from mind_app.approval.models import ApprovalOutcome
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
-from mind_app.history.contracts import TranscriptSink
+from agent.ports.transcript import TranscriptSink
 from mind_app.runtime.mcp.tool_store import meta_for_tool
 from infrastructure.config.execution_policy_manager import ExecApprovalRequirement
 from mind_app.presentation.output import OutputStatusPort

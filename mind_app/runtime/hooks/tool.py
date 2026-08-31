@@ -11,7 +11,7 @@ from dataclasses import (
     replace,
 )
 from agent.application.turns.context import ToolInvocation
-from mind_app.history.contracts import TranscriptSink
+from agent.ports.transcript import TranscriptSink
 from metadata import const
 from agent.domain.hook_matching import hook_tool_name
 from agent.application.hooks.result import apply_tool_result_effect

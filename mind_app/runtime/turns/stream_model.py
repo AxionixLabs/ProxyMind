@@ -12,7 +12,7 @@ from protocol.schema.stream_events import (
     TextMetaEvent,
     TurnRetryingEvent,
 )
-from mind_app.history.contracts import TranscriptSink
+from agent.ports.transcript import TranscriptSink
 from mind_app.presentation.output import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,

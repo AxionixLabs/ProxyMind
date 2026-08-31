@@ -18,7 +18,7 @@ from mind_app.presentation.tool_policy import merges_tool_start_event
 from observability import observe_exception
 from infrastructure.config.runtime_paths import sessions_dir
 from metadata import const
-from .contracts import (
+from agent.ports.transcript import (
     TranscriptActor,
     TranscriptSink
 )

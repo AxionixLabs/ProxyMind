@@ -13,7 +13,7 @@ from mind_app.presentation.output import (
     OutputStatusPort,
     ResponseIdentity,
 )
-from mind_app.history.contracts import TranscriptSink
+from agent.ports.transcript import TranscriptSink
 from mind_app.runtime.turns.stream_model import ModelStreamEventHandler
 from protocol.schema.stream_events import (
     StreamEvent,

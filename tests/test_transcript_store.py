@@ -11,7 +11,7 @@ from mind_app.history.transcript import (
     TranscriptReplay,
     TranscriptWriter,
 )
-from mind_app.history.contracts import TranscriptSink
+from agent.ports.transcript import TranscriptSink
 from protocol.schema.identifiers import new_cid, new_sid
 
 

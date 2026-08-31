@@ -11,7 +11,7 @@ from observability import (
     observe_exception
 )
 from protocol.transport.events import EventReport
-from mind_app.history.contracts import TranscriptSink
+from agent.ports.transcript import TranscriptSink
 from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
 from agent.application.turns.context import TurnContext

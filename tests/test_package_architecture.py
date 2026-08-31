@@ -2160,6 +2160,58 @@ def test_session_identity_validation_is_owned_by_protocol_schema() -> None:
     )
 
 
+def test_transcript_sink_port_is_owned_by_agent_ports() -> None:
+    """确保 Transcript 写入端口不再由历史文件实现包拥有。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "history" / "contracts.py"
+    target_path = PROJECT_ROOT / "agent" / "ports" / "transcript.py"
+    assert not legacy_path.is_file(), "legacy history contract module still exists"
+    assert target_path.is_file(), "agent transcript port is missing"
+
+    tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    forbidden: list[str] = []
+    for node in ast.walk(tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        forbidden.extend(
+            f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+            for module in modules
+            if module.partition(".")[0] in {
+                "mind_app",
+                "mind_core",
+                "engine",
+                "infrastructure",
+                "server",
+            }
+        )
+    assert not forbidden, "transcript port imports legacy or infrastructure code:\n" + "\n".join(
+        forbidden
+    )
+
+    legacy_imports: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            if any(
+                module == "mind_app.history.contracts"
+                or module.startswith("mind_app.history.contracts.")
+                for module in modules
+            ):
+                legacy_imports.append(
+                    f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}"
+                )
+    assert not legacy_imports, "legacy Transcript port imports remain:\n" + "\n".join(
+        legacy_imports
+    )
+
+
 def test_agent_graph_persistence_is_owned_by_stores() -> None:
     """确保 Agent 图快照和 SQLite 持久化不再由 runtime 持有。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "graph.py"

@@ -3,7 +3,7 @@
 
 import typing
 from observability import observe_exception
-from mind_app.history.contracts import TranscriptSink
+from agent.ports.transcript import TranscriptSink
 from mind_app.presentation.output import OutputControlPort
 from agent.application.turns.stream_outcome import StreamTurnOutcome
 from agent.application.hooks.models import StopHookDecision
