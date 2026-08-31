@@ -579,6 +579,7 @@ running -> cancelled
 | `mind_app/runtime/environment/shell_tools.py`、`workspace.py` | `infrastructure/platform/shell_tools.py`、`workspace_context.py` | 本机支持工具 PATH 路由和当前工作区探测属于平台环境助手；runtime/MCP/TUI 只消费结果，不拥有进程环境事实 |
 | `mind_app/runtime/hooks/output_spill.py` | `infrastructure/platform/hook_output_spill.py` | Hook 流输出读取、临时文件 spill、预览和会话清理属于本机平台文件能力；Hook command 只依赖平台适配器 |
 | `mind_app/runtime/hooks/command.py` | `infrastructure/platform/hook_command.py` | Hook 子进程启动、跨平台 shell、输出解析和终止属于平台执行能力；Hook runtime 只消费 `HookCommandRunner`，不拥有操作系统进程句柄 |
+| `mind_app/runtime/hooks/runtime.py`、`registry.py` | `agent/harness/hooks/runtime.py`、`registry.py` | Hook 并发执行、信任解析、scope 构建和资源生命周期属于 Harness；Harness 只依赖 agent ports，具体平台执行器由组合根注入 |
 | `mind_app/runtime/environment/coding_lifecycle.py` | `agent/harness/workspace_runtime.py` | 工作区编码、Shell、执行策略和进程能力的替换/关闭属于 Harness 生命周期；具体 NativeCoding/策略工厂只由根组合注入，Harness 不导入 legacy 或平台实现 |
 | `mind_app/runtime/environment/snapshot.py` | `agent/application/turns/environment.py`、`mind_app/interaction/environment.py` | 环境能力调用与失败收敛属于 application 用例；Controller/Helix 上下文聚合属于 interaction adapter，不让 runtime 持有环境采集逻辑 |
 | `mind_app/runtime/support/session_identity.py` | `agent/application/config/session_identity.py` | 远端 `cid/sid` 到本地持久化 Session 身份的确定性派生属于 application 身份用例；不让 CLI/TUI 各自复制哈希规则，也不把本地语义塞入线上 `protocol` |

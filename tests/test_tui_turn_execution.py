@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent.application.turns.run_result import RunResult
-from mind_app.runtime.hooks.runtime import HookRuntime
+from agent.harness.hooks.runtime import HookRuntime
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.interaction import ConversationTurn
 from protocol.client.reports import EventReportRuntimeOwner

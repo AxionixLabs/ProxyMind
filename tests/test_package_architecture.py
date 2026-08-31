@@ -2758,7 +2758,7 @@ def test_hook_command_executor_is_owned_by_platform_infrastructure() -> None:
         legacy_imports
     )
 
-    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "runtime.py"
+    runtime_path = PROJECT_ROOT / "agent" / "harness" / "hooks" / "runtime.py"
     runtime_tree = ast.parse(
         runtime_path.read_text(encoding="utf-8-sig"),
         filename=str(runtime_path),
@@ -2775,8 +2775,8 @@ def test_hook_command_executor_is_owned_by_platform_infrastructure() -> None:
     )
 
     for relative_path in (
-        "mind_app/runtime/hooks/runtime.py",
-        "mind_app/runtime/hooks/registry.py",
+        "agent/harness/hooks/runtime.py",
+        "agent/harness/hooks/registry.py",
     ):
         source_path = PROJECT_ROOT / relative_path
         source_tree = ast.parse(
@@ -2797,6 +2797,47 @@ def test_hook_command_executor_is_owned_by_platform_infrastructure() -> None:
             "Hook lifecycle must use explicit ports: "
             + relative_path
         )
+
+
+def test_hook_runtime_and_registry_are_harness_owned() -> None:
+    """确保 Hook 执行状态和 registry 生命周期归 Harness 且不反向依赖平台。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "runtime.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "registry.py",
+    )
+    target_paths = (
+        PROJECT_ROOT / "agent" / "harness" / "hooks" / "runtime.py",
+        PROJECT_ROOT / "agent" / "harness" / "hooks" / "registry.py",
+    )
+
+    assert not any(path.is_file() for path in legacy_paths), (
+        "legacy Hook runtime sources still exist: "
+        + ", ".join(str(path.relative_to(PROJECT_ROOT)) for path in legacy_paths if path.is_file())
+    )
+    assert all(path.is_file() for path in target_paths), "Harness Hook sources are missing"
+
+    violations: list[str] = []
+    for path in target_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module.partition(".")[0] in {
+                    "engine",
+                    "infrastructure",
+                    "mind_app",
+                    "mind_core",
+                    "mind_nova",
+                    "server",
+                }:
+                    violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}")
+    assert not violations, "Harness Hook implementation crosses boundaries:\n" + "\n".join(
+        violations
+    )
 
 
 def test_execution_policy_is_split_between_domain_and_config() -> None:
@@ -3124,6 +3165,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.harness.agents.control",
         "agent.harness.agents.delivery",
         "agent.harness.agents.registry",
+        "agent.harness.hooks.runtime",
         "agent.harness.execution.subagent_runner",
         "agent.harness.execution.subagent_submission",
             "agent.protocol.json_value",
@@ -3274,7 +3316,10 @@ def test_hook_registry_is_composed_at_the_process_root() -> None:
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 module = node.module or ""
-                if module == "mind_app.runtime.hooks.registry":
+                if module in {
+                    "mind_app.runtime.hooks.registry",
+                    "agent.harness.hooks.registry",
+                }:
                     violations.append(
                         f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} imports concrete HookRegistry"
                     )

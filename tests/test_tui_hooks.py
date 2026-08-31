@@ -19,7 +19,7 @@ from agent.application.hooks.catalog import (
     HookEventSummary
 )
 from infrastructure.hooks.discovery import resolve_hook_definitions
-from mind_app.runtime.hooks.registry import HookRegistry
+from agent.harness.hooks.registry import HookRegistry
 from mind_app.tui.features.hooks import (
     _hook_detail_body,
     _display_source_path,

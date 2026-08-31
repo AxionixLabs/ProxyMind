@@ -9,7 +9,7 @@ from metadata import const
 
 from mind_app.controller import Mind
 from agent.application.hooks.catalog import HookCatalogStaleError
-from mind_app.runtime.hooks.registry import HookRegistry
+from agent.harness.hooks.registry import HookRegistry
 from infrastructure.config.layers import PROJECT_CONFIG_DIR
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore

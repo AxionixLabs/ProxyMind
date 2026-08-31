@@ -26,7 +26,7 @@ from agent.application.turns.run_result import RunResult
 from infrastructure.config.paths import ApplicationLayout
 from agent.domain.policies import PermissionSettings
 from agent.harness.sessions.owner import SessionRuntimeOwner
-from mind_app.runtime.hooks.registry import HookRegistry
+from agent.harness.hooks.registry import HookRegistry
 
 
 def _source_layout(tmp_path: Path) -> ApplicationLayout:

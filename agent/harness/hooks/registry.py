@@ -21,12 +21,12 @@ from agent.application.hooks.catalog import (
     HookCatalogSnapshot,
     HookEventSummary
 )
-from infrastructure.platform.hook_command import HookCommandExecutor
 from agent.application.hooks.models import (
     HookRuntimeEntry,
     HookRuntimeStatus
 )
 from agent.ports import (
+    HookCommandResult,
     HookCommandRunner,
     HookContextSpiller,
     HookDispatcherPort,
@@ -37,6 +37,18 @@ from agent.ports import (
 from .runtime import (
     HookRuntime,
 )
+
+
+class _UnconfiguredHookCommandRunner:
+    """表示 Harness 未注入平台 Hook 执行器的失败端口。"""
+
+    async def execute(
+        self,
+        _definition: HookDefinitionConfig,
+        _payload: dict[str, typing.Any],
+    ) -> HookCommandResult:
+        """拒绝在缺少平台执行器时隐式创建进程。"""
+        raise RuntimeError("hook command runner is not configured")
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,15 +73,10 @@ class HookRegistry:
         bypass_hook_trust: bool = False
     ) -> None:
         if command_runner is None:
-            default_runner = HookCommandExecutor()
-            self._command_runner: HookCommandRunner = default_runner
-            self._context_spiller: HookContextSpiller | None = (
-                context_spiller or default_runner
-            )
-            self._cleanup_session: HookSessionCleanup | None = (
-                cleanup_session or default_runner.cleanup_session
-            )
-            self._close: HookResourceClose | None = close or default_runner.close
+            self._command_runner: HookCommandRunner = _UnconfiguredHookCommandRunner()
+            self._context_spiller = context_spiller
+            self._cleanup_session = cleanup_session
+            self._close = close
         else:
             self._command_runner = command_runner
             self._context_spiller = context_spiller

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 import infrastructure.platform.hook_command as hook_command_module
-import mind_app.runtime.hooks.runtime as hook_runtime_module
+import agent.harness.hooks.runtime as hook_runtime_module
 
 from agent.application.turns.context import (
     AgentContext,
@@ -29,8 +29,8 @@ from agent.application.hooks.models import (
     ToolResultSnapshot
 )
 from infrastructure.platform.hook_output_spill import HookOutputSpillStore
-from mind_app.runtime.hooks.registry import HookRegistry
-from mind_app.runtime.hooks.runtime import HookRuntime
+from agent.harness.hooks.registry import HookRegistry
+from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.hooks.session import SessionLifecycleGateway

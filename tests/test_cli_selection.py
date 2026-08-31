@@ -46,7 +46,7 @@ from mind_app.cli.parser import (
     parse_cli_command,
     parse_cli_invocation
 )
-from mind_app.runtime.hooks.registry import HookRegistry
+from agent.harness.hooks.registry import HookRegistry
 
 
 def _runtime_services() -> SimpleNamespace:

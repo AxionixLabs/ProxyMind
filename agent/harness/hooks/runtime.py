@@ -15,6 +15,7 @@ from observability import (
     observe_exception
 )
 from agent.ports import (
+    HookCommandResult,
     HookCommandRunner,
     HookContextSpiller,
     HookStatusPort,
@@ -23,7 +24,6 @@ from agent.domain.hooks import (
     HookDefinitionConfig,
     HookEventName
 )
-from infrastructure.platform.hook_command import HookCommandExecutor
 from agent.application.hooks.events import hook_event_spec
 from agent.application.hooks.output import normalize_business_block
 from agent.domain.hook_matching import (
@@ -48,6 +48,18 @@ class _RegisteredHook:
     """保存已编译 matcher 的活动 Hook。"""
     definition: HookDefinitionConfig
     matcher: HookMatcher
+
+
+class _UnconfiguredHookCommandRunner:
+    """表示 Harness 未注入平台 Hook 执行器的失败端口。"""
+
+    async def execute(
+        self,
+        _definition: HookDefinitionConfig,
+        _payload: dict[str, typing.Any],
+    ) -> HookCommandResult:
+        """拒绝在缺少平台执行器时隐式创建进程。"""
+        raise RuntimeError("hook command runner is not configured")
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -85,11 +97,8 @@ class HookRuntime:
         )
 
         if command_runner is None:
-            default_runner = HookCommandExecutor()
-            resolved_runner: HookCommandRunner = default_runner
-            resolved_spiller: HookContextSpiller | None = (
-                context_spiller or default_runner
-            )
+            resolved_runner: HookCommandRunner = _UnconfiguredHookCommandRunner()
+            resolved_spiller = context_spiller
         else:
             resolved_runner = command_runner
             resolved_spiller = context_spiller

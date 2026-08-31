@@ -15,7 +15,7 @@ from agent.application.turns.context import (
     AgentContext,
     TurnContext
 )
-from mind_app.runtime.hooks.runtime import HookRuntime
+from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
 from mind_app.runtime.hooks.scope import HookExecutionScope

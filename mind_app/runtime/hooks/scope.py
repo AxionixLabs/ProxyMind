@@ -15,9 +15,7 @@ from agent.ports import (
     HookDispatcherPort,
     HookStatusPort,
 )
-from .runtime import (
-    HookRuntime
-)
+from agent.harness.hooks.runtime import HookRuntime
 
 
 @dataclass(frozen=True, slots=True)

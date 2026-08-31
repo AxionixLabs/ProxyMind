@@ -10,15 +10,23 @@ from infrastructure.skills import skills_payload
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.sandbox import SandboxClient
+from infrastructure.platform.hook_command import HookCommandExecutor
 from mind_app.cli.entry import run
 from mind_app.native_coding import NativeCoding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
-from mind_app.runtime.hooks.registry import HookRegistry
+from agent.harness.hooks.registry import HookRegistry
 
 
 def create_hook_registry(*, bypass_hook_trust: bool = False) -> HookRegistry:
     """在进程组合根创建绑定本机资源的 Hook registry。"""
-    return HookRegistry(bypass_hook_trust=bypass_hook_trust)
+    command_runner = HookCommandExecutor()
+    return HookRegistry(
+        command_runner=command_runner,
+        context_spiller=command_runner,
+        cleanup_session=command_runner.cleanup_session,
+        close=command_runner.close,
+        bypass_hook_trust=bypass_hook_trust,
+    )
 
 
 def create_native_coding(

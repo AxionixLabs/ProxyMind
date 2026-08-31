@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from mind_app.runtime.hooks.registry import HookRegistry
+from agent.harness.hooks.registry import HookRegistry
 from infrastructure.hooks.discovery import resolve_hook_definitions
 
 
