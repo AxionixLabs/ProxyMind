@@ -18,7 +18,7 @@ from infrastructure.config.store import ConfigStore
 from mind_app.presentation.terminal.capabilities import DEGRADED_TERMINAL_CAPABILITIES
 from infrastructure.skills import SkillSpec
 from metadata import const
-from mind_app.history.transcript import TranscriptEntry
+from agent.stores.transcripts import TranscriptEntry
 from frontends.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,

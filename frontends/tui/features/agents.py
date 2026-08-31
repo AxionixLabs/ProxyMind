@@ -5,9 +5,11 @@ import json
 import typing
 from prompt_toolkit.utils import get_cwidth
 from mind_app.history.transcript import (
-    TranscriptEntry,
     TranscriptReader,
-    TranscriptReplay
+)
+from agent.stores.transcripts import (
+    TranscriptEntry,
+    TranscriptReplay,
 )
 from mind_app.presentation.models import TextSpan
 from mind_app.presentation.terminal_text import sanitize_terminal_text

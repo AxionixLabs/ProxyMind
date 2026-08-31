@@ -13,9 +13,9 @@ from mind_app.presentation.terminal.capabilities import (
 )
 from mind_app.history import normalize_workspace
 from protocol.schema.identifiers import valid_session_ids
-from mind_app.history.transcript import (
+from agent.stores.transcripts import (
     TranscriptEntry,
-    TranscriptReplay
+    TranscriptReplay,
 )
 from mind_app.presentation.terminal_text import (
     sanitize_terminal_line,

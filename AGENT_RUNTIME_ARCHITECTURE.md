@@ -264,6 +264,9 @@ agent/
 │   │   └── schema.py        # SQLite schema 版本
 │   ├── effects/             # 外部副作用账本
 │   │   └── journal.py       # 外部副作用状态机
+│   ├── transcripts/          # 跨入口 Transcript 记录值和归约
+│   │   ├── records.py        # 结构化记录校验与稳定 JSON 投影
+│   │   └── replay.py         # 消息更新、替代和工具结果归约
 │   └── approvals/           # 审批和权限状态
 │       ├── ledger.py        # 工具审批消费记录
 │       └── permissions.py   # 会话权限授权记录
@@ -540,7 +543,9 @@ running -> cancelled
 | `mind_app/runtime/subagents/context.py` | `agent/application/agents/fork_context.py` + runtime history adapter | `ForkContextEntry` 和继承范围/渲染/字符预算算法由 application 统一持有；runtime 只读取具体 Transcript 并映射为已验证条目 |
 | `mind_app/runtime/subagents/delivery.py` | `agent/ports/agent_messages.py`、`agent/adapters/agents/messages.py`、`agent/harness/agents/delivery.py` | 消息回执和投递端口归 ports，`/turn/steer` 归 Protocol Client adapter，Harness 维护活动轮次就绪和 pending 输入状态 |
 | `mind_app/history/ids.py` | `protocol/schema/identifiers.py` | `cid/sid` 正则和关联校验属于 wire identity schema；历史、交互、Controller 和 Harness 复用协议边界，不在 history 保留身份实现 |
-| `mind_app/history/contracts.py`（已删除） | `agent/ports/transcript.py` | TranscriptSink 是 runtime、Hook、执行器和历史 writer 共享的最小写入端口；TranscriptEntry/Reader/Writer 和文件路径仍由 history 实现持有，端口不依赖旧包或基础设施 |
+| `mind_app/history/contracts.py`（已删除） | `agent/ports/transcript.py` | TranscriptSink 是 runtime、Hook、执行器和历史 writer 共享的最小写入端口；端口不依赖旧包或基础设施 |
+| `mind_app/history/transcript.py` 中的 `TranscriptEntry`、`TranscriptReplay` | `agent/stores/transcripts/records.py`、`replay.py` | 共享记录值和事件归约器不依赖本地文件、观测或展示；Reader/Writer 与 Session 日期路径仍由 history adapter 持有，工具归并策略由 `agent.domain.tool_policy` 提供 |
+| `mind_app/presentation/tool_policy.py::merges_tool_start_event` | `agent/domain/tool_policy.py` | 工具开始/完成事件是否合并是跨历史归约与运行时的稳定领域策略；展示模块只保留 ToolDisplaySpec 和渲染分类，不重复定义该规则 |
 | `agent/stores/effects/journal.py`（旧 `mind_app/runtime/durable_effects.py` 已删除） | `agent/stores/effects/journal.py` | 已成为现有效果状态机的正式落点；效果身份、指纹、重放和对账由端口约束 |
 | `agent/stores/runs/store.py`、`schema.py`、`records.py` | `agent/stores/runs/` 的事务切片 | 已原子提交事件、快照、outbox 和最终事实；只有出现独立生命周期或规模压力时再物理拆 store，避免单次转发 facade |
 | 旧 wire 模块 | `protocol/schema`、`protocol/transport`、`protocol/client` | 已按正式协议校验 Canonical Item、批次边界、`stream.gap` 和 Turn 坐标；schema、传输和客户端操作分层，协议不得导入 `engine` |

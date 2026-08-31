@@ -6,12 +6,14 @@ from pathlib import Path
 
 from mind_app.history.transcript import (
     ConversationTranscriptStore,
-    TranscriptEntry,
     TranscriptReader,
-    TranscriptReplay,
     TranscriptWriter,
 )
 from agent.ports.transcript import TranscriptSink
+from agent.stores.transcripts import (
+    TranscriptEntry,
+    TranscriptReplay,
+)
 from protocol.schema.identifiers import new_cid, new_sid
 
 

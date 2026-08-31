@@ -10,8 +10,8 @@ from agent.application.agents.fork_context import (
 from agent.application.config.settings import DEFAULT_MAX_FORK_CONTEXT_CHARS
 from mind_app.history.transcript import (
     ConversationTranscriptStore,
-    TranscriptReplay,
 )
+from agent.stores.transcripts import TranscriptReplay
 
 
 def load_fork_context(

@@ -210,9 +210,13 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    TUI 输入、会话、渲染和 runtime 已作为同一可替换前端边界整体迁入
    `frontends/tui`，旧路径已删除；下一条补齐 CLI、TUI、MCP、Subscription 的独立
    启动/恢复证据，再进入具体外部 MCP capability/adapters 的职责迁移。
-   TranscriptSink 端口已提升到 `agent/ports/transcript.py`，旧 history contract 路径
-   已删除；下一条继续补齐四类入口的独立启动/恢复证据，并审计 Transcript 文件实现的
-   store 所有权，不提前搬运仍依赖展示归约和本地路径的实现。
+    TranscriptSink 端口已提升到 `agent/ports/transcript.py`，旧 history contract 路径
+    已删除；本轮继续拆分 Transcript 的共享记录值与归约器：`TranscriptEntry`、
+    `TranscriptReplay` 归入 `agent/stores/transcripts`，文件读写和 Session 日期路径仍由
+    `mind_app/history` 作为本地持久化 adapter 持有。完成条件是所有生产/测试消费者切换到
+    新记录与归约模块、旧模块不再定义共享值对象、stores 不导入 `mind_app`/基础设施，并
+    通过 Transcript/TUI/Turn 回归、stores 边界守卫、导入图和 `compileall`；不满足条件时
+    不继续搬运文件 adapter。
 2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
@@ -282,6 +286,13 @@ runtime、Hook、执行器和 Transcript writer 统一从该端口导入；旧
 `mind_app/history/contracts.py` 文件与生产导入清零，并通过 Transcript、Turn、Hook
 关键路径回归和端口边界守卫验证。TranscriptEntry、TranscriptReader、TranscriptWriter
 和历史文件路径仍由 `mind_app/history` 实现持有。
+
+本次 Transcript 共享记录切片的准入条件：`agent/stores/transcripts` 只持有不依赖文件系统
+的 `TranscriptEntry` 和 `TranscriptReplay`，工具开始/完成归并策略由 `agent.domain` 提供；
+所有跨层消费者通过新路径读取记录值，文件 Reader/Writer 只作为 history adapter 使用，且
+stores 不导入 `mind_app`、`infrastructure` 或展示模块。删除条件是旧
+`mind_app/history/transcript.py` 不再定义共享记录值和归约器，并完成文件 adapter 的独立
+组合与恢复用例后，才允许继续删除旧 history 实现。
 
 ## 过渡入口与删除条件
 
@@ -367,3 +378,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-08-31 | 收口 CLI 前端对旧根轮次和环境采集模块的反向依赖，改为组合根显式注入 | CLI/TUI `147 passed`；CLI 边界守卫通过；导入图无循环、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 TUI 输入、会话、渲染、展示 runtime 和契约整体迁入 `frontends/tui`，删除 `mind_app/tui` 旧路径并消除包级循环 | TUI/CLI 回归 `1618 passed`；完整架构守卫 `88 passed, 58 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 将 TranscriptSink/TranscriptActor 从 history 实现包提升到 `agent/ports/transcript.py`，删除旧 contract 路径 | Turn/Hook/Subagent/Transcript 回归 `146 passed`；端口专项 `18 passed`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将 TranscriptEntry/TranscriptReplay 拆入 `agent/stores/transcripts`，归并策略下沉到 `agent.domain`；history 仅保留文件 Reader/Writer 和 Session 路径 adapter | Transcript/TUI/Turn/Subagent/工具策略回归 `229 passed`；完整架构守卫 `90 passed, 59 warnings`；导入图、`compileall`、`git diff --check` 通过 |

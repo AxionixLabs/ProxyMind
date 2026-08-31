@@ -47,6 +47,11 @@ DEFAULT_TOOL_POLICY: ModeToolPolicy = {
 }
 
 
+def merges_tool_start_event(name: str) -> bool:
+    """判断工具开始事件是否应与完成事件合并。"""
+    return str(name or "").strip() != "js_repl"
+
+
 def filter_mode_tools(
     mode: ToolFilterMode | None,
     tools: list[dict[str, typing.Any]]

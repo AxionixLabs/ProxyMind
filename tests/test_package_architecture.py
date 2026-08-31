@@ -182,6 +182,9 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "stores/approvals/ledger.py",
         "stores/approvals/permissions.py",
         "stores/effects/journal.py",
+        "stores/transcripts/__init__.py",
+        "stores/transcripts/records.py",
+        "stores/transcripts/replay.py",
         "stores/runs/records.py",
         "stores/runs/schema.py",
         "stores/runs/store.py",
@@ -214,6 +217,33 @@ def test_agent_responsibility_packages_are_physical() -> None:
         path.name
         for path in (PROJECT_ROOT / "agent" / "adapters").glob("*.py")
     } == {"__init__.py"}
+
+
+def test_transcript_shared_values_are_owned_by_stores() -> None:
+    """确保 Transcript 记录值和归约器不依赖 history 文件 adapter。"""
+    target_root = PROJECT_ROOT / "agent" / "stores" / "transcripts"
+    assert (target_root / "records.py").is_file()
+    assert (target_root / "replay.py").is_file()
+
+    violations = _forbidden_imports(
+        "agent/stores/transcripts",
+        {"mind_app", "mind_core", "engine", "server", "infrastructure"},
+    )
+    assert not violations, "transcript stores cross their boundary:\n" + (
+        "\n".join(violations)
+    )
+
+    history_tree = ast.parse(
+        (PROJECT_ROOT / "mind_app" / "history" / "transcript.py").read_text(
+            encoding="utf-8-sig"
+        )
+    )
+    history_classes = {
+        node.name
+        for node in history_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert not history_classes.intersection({"TranscriptEntry", "TranscriptReplay"})
 
     legacy_files = (
         "application/agent_thread.py",
@@ -3621,6 +3651,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.domain.execution_policy",
         "agent.ports",
         "agent.ports.agent_messages",
+        "agent.ports.transcript",
         "agent.adapters.agents.messages",
         "agent.adapters.agents.execution",
         "agent.adapters.turns.root",
@@ -3640,6 +3671,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.stores.approvals.permissions",
         "agent.stores.agents.mailbox",
         "agent.stores.agents.graph",
+        "agent.stores.transcripts",
         "agent.stores",
     }
     violations: list[str] = []

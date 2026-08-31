@@ -80,8 +80,8 @@ from .history import (
 )
 from .history.transcript import (
     ConversationTranscriptStore,
-    TranscriptEntry
 )
+from agent.stores.transcripts import TranscriptEntry
 from agent.ports import (
     McpRuntime,
     McpSessionPort,

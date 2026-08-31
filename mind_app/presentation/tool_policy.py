@@ -4,6 +4,8 @@
 import enum
 from dataclasses import dataclass
 
+from agent.domain.tool_policy import merges_tool_start_event
+
 
 class ToolDisplayKind(enum.Enum):
     """描述原生工具在共享展示层中的内容类型。"""
@@ -20,7 +22,6 @@ class ToolDisplaySpec(object):
     """描述工具展示和历史记录所需的稳定策略。"""
     kind: ToolDisplayKind
     two_stage: bool = False
-    merge_start_event: bool = True
     source_field: str | None = None
     status_text: str | None = None
 
@@ -44,7 +45,6 @@ _TOOL_DISPLAY_SPECS = {
     "js_repl": ToolDisplaySpec(
         ToolDisplayKind.JAVASCRIPT,
         two_stage=True,
-        merge_start_event=False,
         source_field="code",
         status_text="JavaScript",
     ),
@@ -78,11 +78,6 @@ def tool_status_text(name: str) -> str | None:
 def is_approval_only_tool(name: str) -> bool:
     """判断工具是否只通过专用审批表面反馈结果。"""
     return str(name or "").strip() == "request_permissions"
-
-
-def merges_tool_start_event(name: str) -> bool:
-    """判断历史回放是否将开始事件并入完成事件。"""
-    return tool_display_spec(name).merge_start_event
 
 
 if __name__ == '__main__':

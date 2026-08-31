@@ -154,7 +154,8 @@ Protocol Client 的 `ProtocolCommandClient` 端口负责上述控制面命令的
 
 ## 历史与 Transcript 契约
 
-权威来源：`mind_app/history/store.py`、`mind_app/history/transcript.py`。
+权威来源：`mind_app/history/store.py`、`mind_app/history/transcript.py`（文件 adapter）和
+`agent/stores/transcripts/records.py`、`agent/stores/transcripts/replay.py`（共享记录值与归约）。
 
 本地 SQLite 只保存会话游标和待完成分支请求，不保存完整消息：
 
@@ -169,6 +170,10 @@ Transcript 是逐行 JSON。每条记录固定包含 `timestamp`、`event`、`se
 `context.compacted`、`context.compaction.failed`、`turn.failed`、
 `turn.incomplete` 和 `turn.interrupted`。迁移必须保留对存量文件的读取，写入新版本时
 需要显式版本识别，不能通过字段重命名使旧记录静默丢失。
+
+记录值校验和归约由 `agent/stores/transcripts` 统一持有；工具开始/完成事件合并规则由
+`agent.domain.tool_policy` 提供。`mind_app/history` 只负责本地文件 I/O、会话日期路径
+和损坏记录观测，不能再定义共享记录值或归约算法。
 
 ## 当前入口到目标 Command/Event 的映射
 

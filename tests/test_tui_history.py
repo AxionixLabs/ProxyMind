@@ -3,7 +3,7 @@
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
-from mind_app.history.transcript import TranscriptEntry, TranscriptReplay
+from agent.stores.transcripts import TranscriptEntry, TranscriptReplay
 from frontends.tui.core.document import TuiDocument
 from frontends.tui.core.render import fragments_text
 from frontends.tui.features import history
