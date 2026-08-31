@@ -19,7 +19,7 @@ from agent.application.execution import AgentContext, TurnContext
 from mind_app.runtime.hooks.scope import (
     HookExecutionScope,
 )
-from mind_app.runtime.subagents.control import (
+from agent.harness.agent_control import (
     AgentControl,
     AgentStateError,
 )

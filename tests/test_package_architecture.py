@@ -1698,10 +1698,13 @@ def test_agent_graph_persistence_is_owned_by_stores() -> None:
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "graph.py"
     target_path = PROJECT_ROOT / "agent" / "stores" / "agent_graph.py"
     domain_path = PROJECT_ROOT / "agent" / "domain" / "agents.py"
-    control_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "control.py"
+    legacy_control_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "control.py"
+    control_path = PROJECT_ROOT / "agent" / "harness" / "agent_control.py"
     assert not legacy_path.is_file(), "legacy runtime graph module still exists"
+    assert not legacy_control_path.is_file(), "legacy runtime agent control module still exists"
     assert target_path.is_file(), "agent graph store is missing"
     assert domain_path.is_file(), "agent domain status module is missing"
+    assert control_path.is_file(), "agent harness control module is missing"
 
     legacy_modules = {"mind_app.runtime.subagents.graph"}
     violations: list[str] = []
@@ -1742,6 +1745,20 @@ def test_agent_graph_persistence_is_owned_by_stores() -> None:
         if isinstance(node, ast.ClassDef)
     }
     assert not control_classes.intersection({"AgentGraphRecord", "AgentGraphCheckpoint"})
+
+    control_violations: list[str] = []
+    for node in ast.walk(control_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                control_violations.append(
+                    f"{control_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not control_violations, "agent harness control crosses legacy boundary:\n" + "\n".join(control_violations)
 
     domain_tree = ast.parse(domain_path.read_text(encoding="utf-8-sig"), filename=str(domain_path))
     domain_violations: list[str] = []
@@ -2558,6 +2575,9 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.ports",
         "agent.ports.agent_messages",
         "agent.adapters.agent_messages",
+        "agent.adapters.subagent_execution",
+        "agent.harness.agent_control",
+        "agent.harness.subagent_runner",
         "agent.protocol.json_value",
         "agent.stores.approval_ledger",
         "agent.stores.permission_grants",

@@ -1309,6 +1309,19 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] Subagent/Turn/工具回归 `61 passed`，新增 adapter/旧路径守卫；`compileall`、导入图和
   `git diff --check` 通过。下一切片继续收敛 SubagentRuntime 的 mailbox/graph 控制职责。
 
+### 已完成切片：AgentControl Harness 归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将完整 `AgentControl` 可变树状态机从 `mind_app/runtime/subagents/control.py` 重组到
+  `agent/harness/agent_control.py`；Harness 现在拥有 Agent 生命周期、队列、mailbox 协调、
+  caller 权限边界和恢复收束，domain 状态值与 stores 持久化继续保持独立。
+- [x] SubagentRuntime、client tools、TUI 和测试全部切换到 Harness 职责模块，删除旧 control
+  模块，不保留兼容 facade；现有 graph store/mailbox store 契约不变。
+- [x] AgentControl/graph/Subagent/TUI 回归 `78 passed`，更新 graph/control 归属守卫；
+  `compileall`、导入图和 `git diff --check` 通过。下一切片继续拆分 SubagentRuntime 的外部
+  资源协调和 mailbox 投递状态。
+
 ### 已完成切片：上下文压缩结果与编排分离
 
 状态：已完成（2026-08-31）
@@ -1564,3 +1577,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 Subagent Hook 生命周期归位切片 | 将 `SubagentHookEvents` 重组到 `agent/application/subagent_hooks.py`，扩展 Hook scope 端口并删除旧 runtime Hook 模块 | Hook/Subagent/Turn/架构守卫回归 `137 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 SubagentRunner Harness 化 | 将 SubagentRunner 重组到 `agent/harness/subagent_runner.py`，将 continuation 构造归入 application，改用 Turn runner/cleanup 注入并消除 harness 包初始化循环 | Subagent/Turn/SessionLoop 回归 `65 passed`，Harness 归属守卫、导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 Subagent 流式执行适配器归位 | 将 StreamSubagentExecutor 重组为 `agent/adapters/subagent_execution.py`，新增 SubagentStreamPort 并删除旧 runtime executor | Subagent/Turn/工具/adapter 守卫回归 `61 passed`，导入图、`compileall` 和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 AgentControl Harness 归位 | 将完整 AgentControl 状态机重组到 `agent/harness/agent_control.py`，切换 SubagentRuntime/client tools/TUI 并删除旧 runtime control | AgentControl/graph/Subagent/TUI 回归 `78 passed`，graph/control 归属守卫、导入图、`compileall` 和 `git diff --check` 通过 |

@@ -33,7 +33,7 @@ from mind_app.runtime.turns.executor import (
     execute_turn,
     resolve_turn_hook_scope,
 )
-from mind_app.runtime.subagents.control import (
+from agent.harness.agent_control import (
     AgentControl,
     AgentMailboxWaitResult,
     AgentNotFoundError,

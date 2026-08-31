@@ -9,7 +9,7 @@ from prompt_toolkit.utils import get_cwidth
 
 from mind_app.history.transcript import TranscriptWriter
 from agent.application.execution import AgentContext
-from mind_app.runtime.subagents.control import AgentSnapshot
+from agent.harness.agent_control import AgentSnapshot
 from agent.application import AgentThreadContext
 from mind_app.tui.core.models import (
     FragmentBlock,

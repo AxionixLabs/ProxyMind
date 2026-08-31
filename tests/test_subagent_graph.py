@@ -9,7 +9,7 @@ import pytest
 
 from agent.application.execution import AgentContext, TurnContext
 from agent.domain.agents import AgentSubmission
-from mind_app.runtime.subagents.control import AgentControl
+from agent.harness.agent_control import AgentControl
 from agent.stores.agent_graph import (
     AgentGraphCheckpoint,
     AgentGraphRecord,
