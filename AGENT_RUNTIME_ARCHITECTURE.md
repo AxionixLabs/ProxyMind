@@ -213,6 +213,7 @@ agent/
 │   ├── agent_thread.py      # 子 Agent 线程和轮次上下文
 │   ├── environment.py       # 环境快照采集用例与能力失败收敛
 │   ├── execution.py        # Agent、Turn 和工具调用执行上下文
+│   ├── turn_execution.py   # 固定 Hook 作用域的 Turn 执行契约
 │   ├── fork_context.py      # 父会话继承范围和上下文快照
 │   ├── session_identity.py  # 远端坐标到本地 Session 身份的确定性派生
 │   ├── run_result.py        # 单次 Run 的不可变结果值对象
@@ -561,6 +562,7 @@ running -> cancelled
 | `HookRegistry` 在 CLI/MCP/Controller 内的隐式构造 | `agent.ports.HookRegistryFactory`，由 `mind.py` 注入 `RuntimeServices` | 具体 registry 只在进程组合根创建；入口、Controller 和 Hook scope 仅依赖 registry/dispatcher/status port，不反向导入 runtime 实现 |
 | `mind_app/runtime/hooks/models.py` | `agent/application/hook_models.py` | Hook 生命周期快照、决定、输出和工具结果是跨 runtime/TUI 的 application contract；Hook 执行器、注册器和 scope 仍由 runtime 持有，不把执行副作用放入值对象 |
 | `mind_app/runtime/hooks/scope.py` 中的 `HookExecutionContext` | `agent/application/hook_context.py` | Hook 输入上下文只依赖 Turn、domain 事件名和 schema 构建；`HookExecutionScope` 继续持有 runtime dispatcher 和生命周期，不把具体执行器带入 application |
+| `mind_app/runtime/turns/executor.py` 中的 `TurnExecution` | `agent/application/turn_execution.py`；`HookExecutionScopePort` 归 `agent/ports/hooks.py` | Turn 执行值对象只依赖固定 scope 端口；runtime executor 保留模型执行函数和具体 scope 构造，不让 application 加载 HookRuntime |
 | `mind_app/runtime/hooks/protocol.py` | `agent/application/hook_protocol.py` | Hook 进程 stdin/stdout schema、构建和校验属于 application boundary；runtime 只调用已校验的契约，不把内部 Hook 协议误并入线上 `protocol/` |
 | `mind_app/runtime/hooks/catalog.py` | `agent/application/hook_catalog.py` | Hook 管理目录、不可变状态快照和内容冲突错误属于 application contract；Controller/TUI 只消费该契约，注册器仍负责运行时装配 |
 | `mind_app/runtime/hooks/matching.py` | `agent/domain/hook_matching.py` | Hook matcher、工具 canonical 名称和别名候选属于纯领域规则；不依赖 application、runtime 或平台实现 |

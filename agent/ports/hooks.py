@@ -13,6 +13,8 @@ from agent.domain.hooks import (
 )
 
 if typing.TYPE_CHECKING:
+    from agent.application.execution import TurnContext
+    from agent.application.hook_context import HookExecutionContext
     from agent.application.hook_catalog import HookCatalogSnapshot
     from agent.application.hook_models import (
         HookDispatchResult,
@@ -92,6 +94,18 @@ class HookDispatcherPort(typing.Protocol):
         status_port: HookStatusPort,
     ) -> "HookDispatcherPort":
         """在尚未绑定展示端时返回带状态端口的分发器。"""
+        ...
+
+
+@typing.runtime_checkable
+class HookExecutionScopePort(typing.Protocol):
+    """定义 TurnExecution 校验固定 Hook 作用域所需的最小端口。"""
+
+    context: "HookExecutionContext"
+    dispatcher: HookDispatcherPort
+
+    def require_turn(self, turn: "TurnContext") -> None:
+        """验证模型轮次属于当前固定作用域。"""
         ...
 
 

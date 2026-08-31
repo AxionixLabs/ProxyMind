@@ -42,12 +42,12 @@ from agent.application.execution import (
     TurnContext,
 )
 from mind_app.runtime.hooks.runtime import HookRuntime
-from agent.application import HookExecutionContext
-from mind_app.runtime.hooks.scope import HookExecutionScope
-from mind_app.runtime.turns.executor import (
+from agent.application import (
+    HookExecutionContext,
     TurnExecution,
-    build_turn_input_payload,
 )
+from mind_app.runtime.hooks.scope import HookExecutionScope
+from mind_app.runtime.turns.executor import build_turn_input_payload
 from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
 from agent.domain.execution_policy import (
     Decision,

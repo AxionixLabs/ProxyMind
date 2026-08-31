@@ -5,13 +5,12 @@ import time
 import typing
 from collections.abc import Mapping
 from protocol.transport.events import EventReport
-from agent.application import RunResult, SubmitTurnCommand
+from agent.application import RunResult, SubmitTurnCommand, TurnExecution
 from agent.application.execution import (
     AgentContext,
     TurnContext,
 )
 from mind_app.runtime.turns.executor import (
-    TurnExecution,
     build_turn_input_payload,
     execute_turn,
     resolve_turn_hook_scope,

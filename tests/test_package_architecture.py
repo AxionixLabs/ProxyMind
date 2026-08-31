@@ -1871,6 +1871,65 @@ def test_hook_execution_context_is_owned_by_application() -> None:
     assert not target_violations, "application hook context crosses its boundary:\n" + "\n".join(target_violations)
 
 
+def test_turn_execution_contract_is_owned_by_application() -> None:
+    """确保 TurnExecution 只由 application 持有，runtime executor 不定义值对象。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "executor.py"
+    target_path = PROJECT_ROOT / "agent" / "application" / "turn_execution.py"
+    ports_path = PROJECT_ROOT / "agent" / "ports" / "hooks.py"
+    assert legacy_path.is_file(), "runtime turn executor is missing"
+    assert target_path.is_file(), "application turn execution contract is missing"
+    assert ports_path.is_file(), "hook execution scope port is missing"
+
+    legacy_tree = ast.parse(legacy_path.read_text(encoding="utf-8-sig"), filename=str(legacy_path))
+    legacy_classes = {
+        node.name
+        for node in legacy_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert "TurnExecution" not in legacy_classes
+
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.level != 0:
+                continue
+            if node.module != "mind_app.runtime.turns.executor":
+                continue
+            if any(alias.name == "TurnExecution" for alias in node.names):
+                violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+    assert not violations, "legacy TurnExecution imports remain:\n" + "\n".join(violations)
+
+    target_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    target_classes = {
+        node.name
+        for node in target_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert target_classes == {"TurnExecution"}
+    target_violations: list[str] = []
+    for node in ast.walk(target_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                target_violations.append(
+                    f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not target_violations, "application TurnExecution crosses its boundary:\n" + "\n".join(target_violations)
+
+    port_tree = ast.parse(ports_path.read_text(encoding="utf-8-sig"), filename=str(ports_path))
+    port_classes = {
+        node.name
+        for node in port_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert "HookExecutionScopePort" in port_classes
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (

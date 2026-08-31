@@ -12,11 +12,8 @@ from mind_app.runtime.mcp.contracts import McpSessionLike
 from mind_app.presentation.models import TextSpan
 from protocol.transport.events import EventReport
 from metadata import const
-from agent.application import PermissionSettings
-from ...runtime.turns.executor import (
-    TurnExecution,
-    execute_turn,
-)
+from agent.application import PermissionSettings, TurnExecution
+from ...runtime.turns.executor import execute_turn
 from ...runtime.turns.root import prepare_root_turn, run_foreground_turn
 from ...runtime.turns.stream import stream_turn
 from ..runtime.ports import TurnRuntimePort

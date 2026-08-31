@@ -10,6 +10,7 @@ from agent.application import (
     AgentThreadContext,
     AgentTurnContext,
     RunResult,
+    TurnExecution,
 )
 from infrastructure.skills import skills_payload
 from protocol.transport.events import EventReport
@@ -21,10 +22,7 @@ from agent.application.execution import (
 from agent.domain.agents import (
     AgentSubmission,
 )
-from mind_app.runtime.turns.executor import (
-    TurnExecution,
-    resolve_turn_hook_scope
-)
+from mind_app.runtime.turns.executor import resolve_turn_hook_scope
 from mind_app.runtime.subagents.control import (
     AgentControl,
     AgentMailboxWaitResult,

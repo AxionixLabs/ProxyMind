@@ -10,9 +10,9 @@ from observability import (
 )
 from protocol.transport.events import EventReport
 from agent.application.hook_models import SubagentStopDecision
+from agent.application import TurnExecution
 from mind_app.runtime.hooks.subagent import SubagentHookEvents
 from mind_app.runtime.turns.executor import (
-    TurnExecution,
     TurnResultValue,
     create_continuation_execution,
     execute_turn

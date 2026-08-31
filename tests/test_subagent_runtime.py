@@ -12,14 +12,16 @@ from agent.application.execution import (
     TurnContext,
 )
 from mind_app.runtime.hooks.runtime import HookRuntime
-from agent.application import HookExecutionContext
+from agent.application import (
+    HookExecutionContext,
+    TurnExecution,
+)
 from mind_app.runtime.hooks.scope import HookExecutionScope
 from mind_app.runtime.hooks.subagent import SubagentHookEvents
 from mind_app.runtime.subagents.runner import (
     MAX_SUBAGENT_STOP_CONTINUATIONS,
     SubagentRunner,
 )
-from mind_app.runtime.turns.executor import TurnExecution
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.application import preset_permissions
 

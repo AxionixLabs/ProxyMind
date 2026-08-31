@@ -15,6 +15,7 @@ from agent.application import (
     ProtocolCommandError,
     RunResult,
     StreamTurnOutcome,
+    TurnExecution,
     TurnControlReceipt,
 )
 from agent.stores.approval_ledger import ApprovalCallLedger
@@ -58,7 +59,6 @@ from mind_app.presentation.stream.exception_text import friendly_exception_text
 from ..tools.client_call import ClientToolCallRunner
 from ..tools.plan_call import PlanToolCallRunner
 from .executor import (
-    TurnExecution,
     build_turn_input_payload,
     create_continuation_execution,
     record_turn_started,

@@ -1232,6 +1232,20 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 - [x] Hook/Turn/压缩/Subagent/TUI 定向回归 `247 passed`，新增 application/runtime 分离守卫；
   `compileall`、导入图和 `git diff --check` 通过。下一切片继续拆分 Subagent 执行器和 runner 的 runtime 依赖。
 
+### 已完成切片：Turn 执行契约归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将不可变 `TurnExecution` 从 `mind_app/runtime/turns/executor.py` 重组到
+  `agent/application/turn_execution.py`；模型身份、输入载荷、metadata 和追加上下文的冻结逻辑由
+  application 统一持有。
+- [x] 在 `agent/ports/hooks.py` 增加 `HookExecutionScopePort`，TurnExecution 只依赖
+  `require_turn`、context 和 dispatcher 的最小结构端口；runtime `HookExecutionScope` 继续负责
+  具体 dispatcher、状态端口绑定和生命周期。
+- [x] Turn/RunResult/Stream/Subagent/TUI 定向回归 `108 passed`，新增 TurnExecution/application
+  守卫；导入图、`compileall` 和 `git diff --check` 通过。下一切片继续拆分 Subagent 执行器和 runner
+  的 runtime 依赖。
+
 ### 已完成切片：上下文压缩结果与编排分离
 
 状态：已完成（2026-08-31）
@@ -1481,3 +1495,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 Agent graph 快照与 SQLite 存储归位切片 | 将 Agent 状态/任务值对象重组到 `agent/domain/agents.py`，将图快照、SQLite 存储和单写者持久化重组到 `agent/stores/agent_graph.py`，删除旧 runtime graph 入口并清理 control 重复定义 | Agent graph/control/runtime 与 stores/domain/旧导入守卫回归 `51 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 子 Agent 消息投递端口拆分 | 将消息回执/投递端口重组到 `agent/ports`，将 steer 协议适配重组到 `agent/adapters`，runtime 仅保留活动轮次状态机 | 消息投递/运行时与架构守卫回归 `45 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过；下一切片拆分 Subagent 执行器和 runner 的 runtime 依赖 |
 | 2026-08-31 | 阶段 5 Hook 输入上下文归位切片 | 将 Hook 输入上下文值对象和权限模式映射重组到 `agent/application/hook_context.py`，runtime scope 仅保留 dispatcher 与生命周期实现 | Hook/Turn/压缩/Subagent/TUI 定向回归 `247 passed`，application/runtime 守卫、导入图、`compileall` 和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 Turn 执行契约归位切片 | 将 `TurnExecution` 提升到 `agent/application/turn_execution.py`，以 `HookExecutionScopePort` 解耦 application 与 runtime HookScope | Turn/RunResult/Stream/Subagent/TUI 与架构守卫回归 `108 passed`，导入图、`compileall` 和 `git diff --check` 通过 |
