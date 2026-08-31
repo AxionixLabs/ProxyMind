@@ -812,6 +812,15 @@ def test_mcp_stdio_adapter_is_owned_by_frontends() -> None:
         "run_mind_mcp_server",
     } <= definitions
 
+    target_modules: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            target_modules.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            target_modules.append(node.module or "")
+    assert "mind_app.runtime.turns.root" not in target_modules
+    assert "mind_app.interaction.environment" not in target_modules
+
     violations: list[str] = []
     legacy_module = "mind_app.runtime.mcp.server"
     for path in PROJECT_ROOT.rglob("*.py"):

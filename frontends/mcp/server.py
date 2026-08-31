@@ -37,13 +37,8 @@ from mind_app.controller import Mind
 from mind_app.presentation.application import Frontend
 from mind_app.presentation.application_sinks import NullApplicationSink
 from mind_app.interaction import NonInteractiveInteraction
-from mind_app.runtime.turns.root import (
-    RootTurnRunner,
-    run_root_turn,
-)
 from mind_app.presentation.output.silent import create_silent_output_session
 from observability.reporting import RunReport
-from mind_app.interaction.environment import capture_turn_environment
 from agent.application.config.settings import AgentSettings
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
@@ -65,6 +60,56 @@ from protocol.transport.endpoints import service_endpoints
 from metadata import const
 
 DEFAULT_MCP_EXEC_TIMEOUT_SEC = 900.0
+
+
+class RootTurnRunner(typing.Protocol):
+    """定义组合根提供的 MCP 根轮次执行能力。"""
+
+    async def __call__(
+        self,
+        controller: Mind,
+        *,
+        message: str,
+        **kwargs: typing.Any,
+    ) -> RunResult:
+        """执行一次已冻结的根轮次。"""
+        ...
+
+
+class EnvironmentSnapshotProvider(typing.Protocol):
+    """定义组合根提供的 MCP 执行环境快照能力。"""
+
+    def __call__(
+        self,
+        controller: Mind,
+        *,
+        cwd: str | Path,
+        workspace_root: str | Path,
+    ) -> dict[str, typing.Any] | None:
+        """捕获当前 MCP 调用使用的不可变环境快照。"""
+        ...
+
+
+async def _require_turn_runner(
+    _controller: Mind,
+    *,
+    message: str,
+    **_kwargs: typing.Any,
+) -> RunResult:
+    """在 MCP 未由组合根装配时返回明确配置错误。"""
+    _ = message
+    raise RuntimeError("MCP root turn runner is required")
+
+
+def _require_environment_snapshot(
+    _controller: Mind,
+    *,
+    cwd: str | Path,
+    workspace_root: str | Path,
+) -> dict[str, typing.Any] | None:
+    """在 MCP 未由组合根装配时返回明确配置错误。"""
+    _ = (cwd, workspace_root)
+    raise RuntimeError("MCP environment snapshot provider is required")
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +145,10 @@ class MindMcpRuntime(object):
         mind: Mind,
         *,
         report: RunReport,
-        turn_runner: RootTurnRunner = run_root_turn,
+        turn_runner: RootTurnRunner = _require_turn_runner,
+        environment_snapshot_provider: EnvironmentSnapshotProvider = (
+            _require_environment_snapshot
+        ),
         turn_application: TurnApplication[RunResult],
     ) -> None:
         """绑定主控制器、主动 Turn application 和串行调用锁。"""
@@ -108,6 +156,7 @@ class MindMcpRuntime(object):
         self.default_workspace = Path(mind.history_workspace).resolve()
         self._report           = report
         self._turn_runner      = turn_runner
+        self._environment_snapshot_provider = environment_snapshot_provider
         self._turn_application = turn_application
 
         self._call_lock = asyncio.Lock()
@@ -120,6 +169,10 @@ class MindMcpRuntime(object):
         config_profile: str | None = None,
         *,
         runtime_services: RuntimeServices,
+        turn_runner: RootTurnRunner = _require_turn_runner,
+        environment_snapshot_provider: EnvironmentSnapshotProvider = (
+            _require_environment_snapshot
+        ),
     ) -> "MindMcpRuntime":
         """创建并启动 MCP 服务使用的应用运行时。"""
         home   = ensure_mind_home()
@@ -192,6 +245,8 @@ class MindMcpRuntime(object):
             return cls(
                 mind,
                 report=report,
+                turn_runner=turn_runner,
+                environment_snapshot_provider=environment_snapshot_provider,
                 turn_application=turn_application,
             )
         except BaseException:
@@ -329,7 +384,7 @@ class MindMcpRuntime(object):
 
         request.session_id = metadata["sid"]
 
-        environment_snapshot = capture_turn_environment(
+        environment_snapshot = self._environment_snapshot_provider(
             self.mind,
             cwd=workspace,
             workspace_root=workspace,
@@ -383,6 +438,10 @@ def create_mind_mcp_server(
     config_overrides: tuple[ConfigOverride, ...] = (),
     config_profile: str | None = None,
     runtime_services: RuntimeServices,
+    turn_runner: RootTurnRunner = _require_turn_runner,
+    environment_snapshot_provider: EnvironmentSnapshotProvider = (
+        _require_environment_snapshot
+    ),
 ) -> FastMCP[MindMcpRuntime]:
     """创建提供 agent 工具的 stdio MCP 服务。"""
     resolved_layout = layout or resolve_application_layout(entry_file=entry_file)
@@ -396,6 +455,8 @@ def create_mind_mcp_server(
             config_overrides,
             config_profile,
             runtime_services=runtime_services,
+            turn_runner=turn_runner,
+            environment_snapshot_provider=environment_snapshot_provider,
         )
         try:
             yield runtime
@@ -453,6 +514,10 @@ async def run_mind_mcp_server(
     config_overrides: tuple[ConfigOverride, ...] = (),
     config_profile: str | None = None,
     runtime_services: RuntimeServices,
+    turn_runner: RootTurnRunner = _require_turn_runner,
+    environment_snapshot_provider: EnvironmentSnapshotProvider = (
+        _require_environment_snapshot
+    ),
 ) -> int:
     """通过 stdio 运行 MCP 服务直至客户端断开。"""
     server = create_mind_mcp_server(
@@ -460,6 +525,8 @@ async def run_mind_mcp_server(
         config_overrides=config_overrides,
         config_profile=config_profile,
         runtime_services=runtime_services,
+        turn_runner=turn_runner,
+        environment_snapshot_provider=environment_snapshot_provider,
     )
     await server.run_stdio_async()
     return 0

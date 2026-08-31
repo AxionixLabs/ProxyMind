@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import os
+import functools
 
 from agent.composition import create_runtime_services
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
@@ -23,7 +24,10 @@ from frontends.mcp.server import run_mind_mcp_server
 from mind_app.native_coding import NativeCoding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.harness.hooks.registry import HookRegistry
-from mind_app.interaction.environment import capture_active_turn_environment
+from mind_app.interaction.environment import (
+    capture_active_turn_environment,
+    capture_turn_environment,
+)
 from mind_app.runtime.turns.root import run_root_turn
 from frontends.subscription.runtime import AgentRuntime
 
@@ -115,5 +119,9 @@ if __name__ == "__main__":
             skills_payload_builder=skills_payload,
             create_workspace_runtime=create_workspace_runtime,
         ),
-        mcp_server_runner=run_mind_mcp_server,
+        mcp_server_runner=functools.partial(
+            run_mind_mcp_server,
+            turn_runner=run_root_turn,
+            environment_snapshot_provider=capture_turn_environment,
+        ),
     ))

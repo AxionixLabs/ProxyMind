@@ -55,6 +55,17 @@ class _EnvironmentCapability:
         self.clear_cache_mock()
 
 
+def _environment_snapshot(
+    _mind: typing.Any,
+    *,
+    cwd: str | Path,
+    workspace_root: str | Path,
+) -> dict[str, object]:
+    """提供 MCP 入口测试使用的固定环境快照。"""
+    _ = (cwd, workspace_root)
+    return {"snapshot_id": "envsnap_mcp"}
+
+
 def _runtime(mind: typing.Any, turn_runner: AsyncMock) -> MindMcpRuntime:
     """使用指定根轮次用例构造 MCP 测试运行时。"""
     mind.runtime_services = _runtime_services()
@@ -64,6 +75,7 @@ def _runtime(mind: typing.Any, turn_runner: AsyncMock) -> MindMcpRuntime:
         mind,
         report=SimpleNamespace(close=Mock()),
         turn_runner=turn_runner,
+        environment_snapshot_provider=_environment_snapshot,
         turn_application=TurnApplication(runtime_factory=SessionRuntimeOwner),
     )
 
@@ -381,6 +393,7 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
         mind,
         report=SimpleNamespace(close=Mock()),
         turn_runner=turn_runner,
+        environment_snapshot_provider=_environment_snapshot,
         turn_application=application,
     )
 
