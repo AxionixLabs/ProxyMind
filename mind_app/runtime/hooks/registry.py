@@ -21,7 +21,7 @@ from agent.application.hooks.catalog import (
     HookCatalogSnapshot,
     HookEventSummary
 )
-from .command import HookCommandExecutor
+from infrastructure.platform.hook_command import HookCommandExecutor
 from agent.application.hooks.models import (
     HookRuntimeEntry,
     HookRuntimeStatus

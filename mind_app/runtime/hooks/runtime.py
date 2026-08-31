@@ -23,7 +23,7 @@ from agent.domain.hooks import (
     HookDefinitionConfig,
     HookEventName
 )
-from .command import HookCommandExecutor
+from infrastructure.platform.hook_command import HookCommandExecutor
 from agent.application.hooks.events import hook_event_spec
 from agent.application.hooks.output import normalize_business_block
 from agent.domain.hook_matching import (

@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import mind_app.runtime.hooks.command as hook_command_module
+import infrastructure.platform.hook_command as hook_command_module
 import mind_app.runtime.hooks.runtime as hook_runtime_module
 
 from agent.application.turns.context import (
@@ -17,7 +17,7 @@ from agent.application.turns.context import (
     ToolInvocation,
     TurnContext
 )
-from mind_app.runtime.hooks.command import (
+from infrastructure.platform.hook_command import (
     HookCommandError,
     HookCommandExecutor
 )

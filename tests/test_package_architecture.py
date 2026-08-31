@@ -2721,6 +2721,43 @@ def test_hook_execution_ports_are_owned_by_agent_ports() -> None:
 
     assert not violations, "Hook ports cross their boundary:\n" + "\n".join(violations)
 
+
+def test_hook_command_executor_is_owned_by_platform_infrastructure() -> None:
+    """确保 Hook 子进程执行器不再由 runtime hooks 持有。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "command.py"
+    target_path = PROJECT_ROOT / "infrastructure" / "platform" / "hook_command.py"
+
+    assert not legacy_path.is_file(), "legacy runtime HookCommandExecutor still exists"
+    assert target_path.is_file(), "platform HookCommandExecutor is missing"
+
+    target_tree = ast.parse(
+        target_path.read_text(encoding="utf-8-sig"),
+        filename=str(target_path),
+    )
+    target_classes = {
+        node.name
+        for node in target_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert {"HookCommandError", "HookCommandOutput", "HookCommandExecutor"}.issubset(
+        target_classes
+    )
+
+    legacy_imports: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            if "mind_app.runtime.hooks.command" in modules:
+                legacy_imports.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+    assert not legacy_imports, "legacy HookCommandExecutor imports remain:\n" + "\n".join(
+        legacy_imports
+    )
+
     runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "runtime.py"
     runtime_tree = ast.parse(
         runtime_path.read_text(encoding="utf-8-sig"),
