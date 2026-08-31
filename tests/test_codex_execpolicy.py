@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.native_coding.exec.exec_policy import (
+from infrastructure.config.execution_policy_manager import (
     ExecApprovalRequirement,
     ExecPolicyManager,
     commands_for_exec_policy,

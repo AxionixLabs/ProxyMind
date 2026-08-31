@@ -8,7 +8,7 @@ from protocol.client.turn_control import TurnControlRequestError
 from mind_app.approval.policy import approval_execpolicy_amendment
 from agent.stores.approvals.permissions import normalize_permission_profile
 from mind_app.native_coding import NativeCoding
-from mind_app.native_coding.exec.exec_policy import (
+from infrastructure.config.execution_policy_manager import (
     ExecPolicyManager,
     validate_sandbox_permission_arguments
 )

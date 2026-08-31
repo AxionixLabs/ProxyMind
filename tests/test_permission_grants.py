@@ -11,7 +11,7 @@ from mind_app.builtin_tools.permissions import permission_tools
 from mind_app.client_tools.coding.native import coding_tools
 from mind_app.client_tools.types import ClientToolRuntime
 from mind_app.native_coding import NativeCoding
-from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
+from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.application.turns.context import AgentContext, TurnContext
 from mind_app.runtime.turns.stream_policy import (
     local_exec_policy_requirement,

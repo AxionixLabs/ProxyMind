@@ -27,7 +27,7 @@ from infrastructure.platform.sandbox import (
     sandbox_backend_name,
 )
 from infrastructure.platform.shell_runtime import ShellRuntimeResolver
-from mind_app.native_coding.exec.exec_policy import (
+from infrastructure.config.execution_policy_manager import (
     effective_sandbox_mode,
     normalize_sandbox_permission,
 )

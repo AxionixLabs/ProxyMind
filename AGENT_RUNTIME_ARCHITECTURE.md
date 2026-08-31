@@ -612,6 +612,7 @@ running -> cancelled
 | `mind_app/runtime/hooks/effects.py` | `agent/application/hooks/output.py` | Hook 输出 schema 后的语义校验、决定归一化和业务阻断结果属于 application contract；不持有外部效果或执行器副作用 |
 | `mind_app/runtime/hooks/results.py` | `agent/application/hooks/result.py` | 后置 Hook 的工具结果替换、反馈和上下文投影属于 application contract；runtime tool 只负责协调调用 |
 | `mind_app/native_coding/exec/execpolicy/` | `agent/domain/execution_policy/` 与 `infrastructure/config/execution_policy.py` | 执行策略决定、规则和值对象属于纯 domain；规则文件 AST/文件读取属于配置基础设施，native coding 只组合二者，不让策略域持有 IO |
+| `mind_app/native_coding/exec/exec_policy.py` | `infrastructure/config/execution_policy_manager.py` | 本地规则发现、审批缓存和策略评估属于配置基础设施；native coding 只消费已构建的策略管理器，不再拥有策略生命周期 |
 | `mind_core/application_paths.py` | `infrastructure/config/paths.py` | 应用入口、打包模式、本地资源目录和用户数据目录解析属于配置基础设施；不把路径环境事实放入策略模块 |
 | `mind_core/agent_config.py`、`mind_core/feature_config.py` | `agent/application/config/settings.py` | Agent 并发限制和可选能力开关是应用启动设置；通过 application 公开入口提供，不让配置包持有运行设置模型 |
 | `mind_core/provider_config.py` | `infrastructure/config/providers.py` | Provider Profile 默认值、路由和标识校验属于配置基础设施；不把供应商连接规则放入 Harness domain |

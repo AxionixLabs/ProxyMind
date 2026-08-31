@@ -9,7 +9,7 @@ from mind_app.approval.models import ApprovalOutcome
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.history.contracts import TranscriptSink
 from mind_app.runtime.mcp.tool_store import meta_for_tool
-from mind_app.native_coding.exec.exec_policy import ExecApprovalRequirement
+from infrastructure.config.execution_policy_manager import ExecApprovalRequirement
 from mind_app.presentation.output import OutputStatusPort
 from mind_app.presentation.approval_views import build_approval_view
 from mind_app.presentation.contracts import PresentationSink

@@ -10,7 +10,7 @@ from infrastructure.skills import skills_payload
 from infrastructure.config.paths import ApplicationLayout
 from mind_app.cli.entry import run
 from mind_app.native_coding import NativeCoding
-from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
+from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from mind_app.runtime.hooks.registry import HookRegistry
 
 

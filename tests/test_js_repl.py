@@ -29,7 +29,7 @@ from mind_app.client_tools.registry import (
 from mind_app.client_tools.types import ClientToolRuntime
 from mind_app.runtime.mcp.session_adapter import CompositeToolSession
 from mind_app.native_coding import NativeCoding
-from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
+from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from infrastructure.platform.javascript_repl import (
     JavaScriptReplPool,
     ReplRuntimeError,

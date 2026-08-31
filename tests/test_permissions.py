@@ -18,7 +18,7 @@ from mind_app.runtime.turns.stream_policy import (
     apply_local_patch_approval,
     local_patch_approval,
 )
-from mind_app.native_coding.exec.exec_policy import ExecPolicyManager
+from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from mind_app.client_tools.coding.native import (
     coding_tools,
 )

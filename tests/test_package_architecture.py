@@ -2671,6 +2671,15 @@ def test_hook_execution_ports_are_owned_by_agent_ports() -> None:
 
 def test_execution_policy_is_split_between_domain_and_config() -> None:
     """确保执行策略值对象与规则文件解析分别归属 domain/config。"""
+    legacy_manager = (
+        PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "exec_policy.py"
+    )
+    manager_path = (
+        PROJECT_ROOT / "infrastructure" / "config" / "execution_policy_manager.py"
+    )
+    assert not legacy_manager.is_file(), "legacy execution policy manager still exists"
+    assert manager_path.is_file(), "infrastructure execution policy manager is missing"
+
     legacy_root = PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "execpolicy"
     legacy_sources = tuple(legacy_root.rglob("*.py"))
     assert not legacy_sources, (
@@ -2682,6 +2691,7 @@ def test_execution_policy_is_split_between_domain_and_config() -> None:
     )
 
     legacy_modules = {
+        "mind_app.native_coding.exec.exec_policy",
         "mind_app.native_coding.exec.execpolicy",
         "mind_app.native_coding.exec.execpolicy.decision",
         "mind_app.native_coding.exec.execpolicy.rule",

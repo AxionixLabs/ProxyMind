@@ -6,7 +6,7 @@ import typing
 from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.approval.policy import approval_execpolicy_amendment
 from agent.stores.approvals.permissions import normalize_permission_profile
-from mind_app.native_coding.exec.exec_policy import (
+from infrastructure.config.execution_policy_manager import (
     ExecApprovalRequirement,
     ExecPolicyManager,
     validate_sandbox_permission_arguments,
