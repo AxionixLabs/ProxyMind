@@ -10,7 +10,6 @@ from agent.application import (
     AgentSnapshot,
     AgentSettings,
     AgentThreadContext,
-    AgentTurnContext,
     RunResult,
     TurnExecution,
     AgentWaitResult,
@@ -42,16 +41,13 @@ from agent.harness.agent_control import (
     AgentNotFoundError,
     AgentStateError,
 )
-from agent.stores.agent_mailbox import (
-    format_mailbox_context
-)
 from agent.application import ForkTurns, normalize_fork_turns
 from mind_app.runtime.subagents.context import load_fork_context
 from agent.harness.agent_delivery import (
-    AgentActiveTurn,
     AgentDeliveryRegistry,
     AgentMessageDispatch,
 )
+from agent.harness.subagent_submission import SubagentSubmissionExecutor
 from agent.adapters.agent_messages import SteeringMessageDelivery
 from agent.ports.agent_messages import AgentMessageDeliveryPort
 from agent.stores.agent_graph import (
@@ -66,16 +62,6 @@ if typing.TYPE_CHECKING:
 SkillsProvider         = typing.Callable[[], list[dict[str, str]]]
 TranscriptPathResolver = typing.Callable[[str], str]
 SessionCleanup         = typing.Callable[[str], typing.Awaitable[typing.Any]]
-
-
-class SubagentTurnFailedError(RuntimeError):
-    """表示子模型轮次返回了未完成结果。"""
-
-    def __init__(self, result: RunResult) -> None:
-        self.result = result
-        detail = str(result.error or "").strip()
-        reason = detail or f"subagent turn ended as {result.status}"
-        super().__init__("\n\n".join((reason, *result.additional_context)))
 
 
 class SubagentRuntime:
@@ -112,7 +98,7 @@ class SubagentRuntime:
         self._skills_provider     = skills_provider or self._configured_skills
         self._transcript_path_for = transcript_path_for or (lambda _sid: "")
         self._session_cleanup     = session_cleanup
-        self._runner              = SubagentRunner(
+        runner = SubagentRunner(
             turn_runner=self._run_turn,
             cleanup=controller,
         )
@@ -121,6 +107,18 @@ class SubagentRuntime:
             enabled=enabled,
         )
         self._active_deliveries = AgentDeliveryRegistry()
+        self._submission_executor = SubagentSubmissionExecutor(
+            control_for=self._existing_control,
+            runner=runner,
+            executor=self._executor,
+            message_delivery=self._message_delivery,
+            active_deliveries=self._active_deliveries,
+            hook_scope_for=lambda context: resolve_turn_hook_scope(
+                self._controller,
+                context,
+            ),
+            permission_grants=getattr(controller, "permission_grants", None),
+        )
 
     async def _run_turn(
         self,
@@ -441,129 +439,6 @@ class SubagentRuntime:
         if self._graph_persistence is not None:
             await self._graph_persistence.close()
 
-    async def _execute_submission(
-        self,
-        turn: AgentTurnContext,
-        submission: AgentSubmission,
-    ) -> RunResult:
-        """执行控制器已经分配的结构化任务。"""
-        thread      = turn.thread
-        pref_config = thread.config_snapshot()
-
-        control = await self._existing_control(
-            thread.agent.root_session_id
-        )
-
-        mailbox_events = await control.claim_messages(
-            thread.agent.agent_id,
-            submission.submission_id,
-        )
-        acknowledged = False
-
-        try:
-            mailbox_context = format_mailbox_context(mailbox_events)
-
-            context = TurnContext.create(
-                agent=thread.agent,
-                cid=thread.cid,
-                sid=thread.sid,
-                source=thread.source,
-                pref_config=pref_config,
-                cwd=thread.cwd,
-                permissions=thread.permissions,
-                permission_grants=getattr(self._controller, "permission_grants", None),
-                transcript_path=thread.transcript_path,
-                parent_transcript_path=thread.parent_transcript_path,
-                session_started=turn.turn_index == 1,
-                session_start_reason="subagent",
-            )
-
-            execution = TurnExecution(
-                context=context,
-                message=submission.message,
-                hook_scope=resolve_turn_hook_scope(self._controller, context),
-                metadata={
-                    "parent_turn_id": (
-                        submission.parent_turn_id
-                        or thread.spawn_turn_id
-                    ),
-                    "submission_id": turn.submission_id,
-                    "submission_kind": submission.kind,
-                    "mailbox_event_ids": [
-                        event.event_id
-                        for event in mailbox_events
-                    ],
-                    "turn_index": turn.turn_index,
-                    "task_name": thread.agent.task_name,
-                    "task_path": thread.agent.task_path,
-                    "fork_turns": thread.fork_turns,
-                    "fork_context": {
-                        "available_turns": thread.fork_context.available_turns,
-                        "selected_turns": thread.fork_context.selected_turns,
-                        "included_turns": thread.fork_context.included_turns,
-                        "chars": thread.fork_context.chars,
-                        "truncated": thread.fork_context.truncated,
-                    },
-                },
-                additional_context=(
-                    *(
-                        thread.fork_context.parts
-                        if turn.turn_index == 1
-                        else ()
-                    ),
-                    *((mailbox_context,) if mailbox_context else ()),
-                ),
-            )
-
-            async def execute_subagent(
-                prepared: TurnExecution,
-                session: McpSessionPort,
-                tools: list[dict[str, typing.Any]],
-                event_report: EventReport
-            ) -> RunResult:
-                """通过运行时装配的执行端口运行固定子轮次。"""
-                active = AgentActiveTurn(
-                    prepared.context,
-                    self._message_delivery,
-                )
-                await self._active_deliveries.register(active)
-                try:
-                    return await self._executor.execute(
-                        pref_config=pref_config,
-                        skills=thread.skills_snapshot(),
-                        execution=prepared,
-                        session=session,
-                        tools=tools,
-                        event_report=event_report,
-                        on_turn_input_event=active.handle_event,
-                    )
-                finally:
-                    active.close()
-                    await self._active_deliveries.unregister(active)
-
-            result = await self._runner.run(
-                pref_config,
-                execution,
-                execute_subagent,
-            )
-            if result.status != "completed":
-                raise SubagentTurnFailedError(result)
-            if mailbox_events:
-                await control.acknowledge_messages(
-                    thread.agent.agent_id,
-                    submission.submission_id,
-                    mailbox_events,
-                )
-            acknowledged = True
-            return result
-        finally:
-            if mailbox_events and not acknowledged:
-                await control.release_messages(
-                    thread.agent.agent_id,
-                    submission.submission_id,
-                    mailbox_events,
-                )
-
     def _configured_skills(self) -> list[dict[str, str]]:
         """读取并固定创建线程时有效的技能描述。"""
         try:
@@ -636,7 +511,7 @@ class SubagentRuntime:
         if checkpoint is not None:
             return AgentControl.restore(
                 checkpoint,
-                self._execute_submission,
+                self._submission_executor.execute,
                 max_open_agents=(
                     self._settings.max_concurrent_threads_per_session
                 ),
@@ -645,7 +520,7 @@ class SubagentRuntime:
             )
         return AgentControl(
             AgentContext.root(root_session_id),
-            self._execute_submission,
+            self._submission_executor.execute,
             max_open_agents=(
                 self._settings.max_concurrent_threads_per_session
             ),

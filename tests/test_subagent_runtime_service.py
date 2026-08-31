@@ -570,7 +570,7 @@ async def test_runtime_releases_mailbox_claim_after_context_failure(
         return format_mailbox_context(events)
 
     monkeypatch.setattr(
-        "mind_app.runtime.subagents.runtime.format_mailbox_context",
+        "agent.harness.subagent_submission.format_mailbox_context",
         fail_once,
     )
     await runtime.followup_task(parent.sid, spawned.agent_id, "try once")

@@ -2234,6 +2234,45 @@ def test_subagent_runner_is_owned_by_harness_without_package_cycle() -> None:
     assert not package_imports, "harness package initializer must not preload components"
 
 
+def test_subagent_submission_execution_is_owned_by_harness() -> None:
+    """确保已分配提交的执行协调不回流到 mind_app runtime。"""
+    target_path = PROJECT_ROOT / "agent" / "harness" / "subagent_submission.py"
+    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py"
+    assert target_path.is_file(), "harness subagent submission executor is missing"
+    assert runtime_path.is_file(), "subagent runtime is missing"
+
+    target_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    target_classes = {
+        node.name
+        for node in target_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert target_classes == {"SubagentSubmissionExecutor", "SubagentTurnFailedError"}
+
+    violations: list[str] = []
+    for node in ast.walk(target_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                violations.append(
+                    f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not violations, "harness subagent submission crosses legacy boundary:\n" + "\n".join(violations)
+
+    runtime_tree = ast.parse(runtime_path.read_text(encoding="utf-8-sig"), filename=str(runtime_path))
+    runtime_definitions = {
+        node.name
+        for node in runtime_tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "SubagentTurnFailedError" not in runtime_definitions
+    assert "_execute_submission" not in runtime_definitions
+
+
 def test_subagent_stream_execution_is_owned_by_adapter() -> None:
     """确保具体流式 Subagent 执行器由 adapter 持有且不反向加载旧应用。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "executor.py"
