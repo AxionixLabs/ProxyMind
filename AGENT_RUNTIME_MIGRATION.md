@@ -1192,6 +1192,21 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   全量行为回归 `3015 passed, 11 skipped, 44 warnings`，导入图、`compileall` 和 `git diff --check`
   已通过。下一切片继续拆分 Agent graph 快照与 SQLite 持久化实现。
 
+### 已完成切片：Agent graph 快照与 SQLite 存储归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将 `AgentStatus`、`AgentResumeStatus`、`AgentSubmission` 和重启中断事实从
+  `mind_app/runtime/subagents/control.py` 重组到 `agent/domain/agents.py`；领域值对象只依赖协议
+  标识和标准库，不拥有运行时或存储状态。
+- [x] 将 `AgentGraphRecord`、`AgentGraphCheckpoint`、`AgentGraphStore` 和
+  `AgentGraphPersistence` 从 `mind_app/runtime/subagents/graph.py` 重组到
+  `agent/stores/agent_graph.py`；control 仅保留可变调度协调器，SQLite schema、载荷校验和单写者
+  持久化全部由 stores 负责，删除旧 graph 入口且不保留 facade。
+- [x] 子 Agent graph/control/runtime 与 stores/domain/旧导入守卫回归 `51 passed, 1 warning`；导入图、
+  `compileall` 和 `git diff --check` 通过。下一切片继续收敛 Subagent runtime 的执行器、投递和
+  控制端口，减少 runtime 平铺依赖。
+
 ### 已完成切片：上下文压缩结果与编排分离
 
 状态：已完成（2026-08-31）
@@ -1438,3 +1453,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 子 Agent mailbox 存储归位切片 | 将 mailbox 事件/快照/消费游标和有界日志从 `mind_app/runtime/subagents/mailbox.py` 重组到 `agent/stores/agent_mailbox.py`，切换控制/投递/图/运行时/客户端工具消费者并删除旧入口 | mailbox/子 Agent 定向回归 `53 passed, 1 warning`，stores 边界与旧导入守卫、导入图、`compileall` 和 `git diff --check` 通过；下一切片继续拆分 Agent graph 快照与 SQLite 持久化实现 |
 | 2026-08-31 | 阶段 5 协议身份校验归位切片 | 将 `CID_RE`、`SID_RE` 和 `valid_session_ids` 从 `mind_app/history/ids.py` 重组到 `protocol/schema/identifiers.py`，历史/交互/Controller/TUI 复用统一 schema 并删除旧身份模块 | 身份、历史、交互、Controller、TUI 和 CLI 回归 `350 passed`；协议身份守卫、导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 子 Agent 线程与继承上下文归位切片 | 将 `AgentThreadContext`、`AgentTurnContext`、`ForkContextSnapshot` 和 `normalize_fork_turns` 重组到 `agent/application`，runtime context 仅保留 transcript builder，并以 `PermissionGrantReader` 解耦执行上下文与 stores | 子 Agent/上下文/架构定向回归 `65 passed, 2 warnings`；交互/历史/Controller/TUI/CLI 扩展回归 `350 passed`；完整架构守卫 `60 passed, 44 warnings`；全量行为回归 `3015 passed, 11 skipped, 44 warnings`，导入图、`compileall` 和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 Agent graph 快照与 SQLite 存储归位切片 | 将 Agent 状态/任务值对象重组到 `agent/domain/agents.py`，将图快照、SQLite 存储和单写者持久化重组到 `agent/stores/agent_graph.py`，删除旧 runtime graph 入口并清理 control 重复定义 | Agent graph/control/runtime 与 stores/domain/旧导入守卫回归 `51 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过 |

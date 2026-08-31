@@ -56,7 +56,7 @@ from agent.stores.permission_grants import PermissionGrantStore
 from .approval.coordinator import ApprovalCoordinator
 from agent.stores.approval_ledger import ApprovalCallLedger
 from .runtime.subagents.runtime import SubagentRuntime
-from .runtime.subagents.graph import AgentGraphStore
+from agent.stores import AgentGraphStore
 from .subscription.lifecycle import SubscriptionRuntimeOwner
 from .presentation.application import (
     ActivityStatusKind,

@@ -195,6 +195,7 @@ agent/
 │   ├── turns.py             # Turn、消息、工具轮次
 │   ├── plans.py             # 计划、步骤和证据引用
 │   ├── tools.py             # 工具调用意图、结果和失败分类
+│   ├── agents.py            # 子 Agent 状态、关系和任务提交值对象
 │   ├── approvals.py         # 审批请求、决定和策略
 │   ├── agents.py            # 子 Agent 身份、关系和状态
 │   ├── hook_matching.py     # Hook matcher 解析、工具别名和候选值规则
@@ -234,6 +235,7 @@ agent/
 │   └── observability.py     # 日志、指标和 tracing 端口
 ├── stores/
 │   ├── agent_mailbox.py     # 子 Agent mailbox 事件、快照和消费游标
+│   ├── agent_graph.py       # 子 Agent 图快照、SQLite 存储和单写者持久化
 │   ├── session_store.py     # Session/Run 元数据和最终记录
 │   ├── event_store.py       # 追加事件、读取游标和快照
 │   ├── agent_graph.py       # 子 Agent 图和检查点
@@ -493,8 +495,9 @@ running -> cancelled
 | `mind_app/runtime/turns/root.py` | `application/commands.py` | CLI、TUI、MCP 和 Subscription 已由类型化 Command 驱动；`RootTurnCommandExecutor` 作为显式 composition adapter 保留，统一根轮次调用和结果投影，不拥有 Session/Run 状态 |
 | `mind_app/runtime/turns/stream.py`、`stream_model.py` | `harness/session_loop.py`、`application/turn_pipeline.py`、TUI adapter | 输入准备、终态、工具交付、资源收尾和回合展示已拆到具名所有者；模型 presenter 只消费 Protocol Client current/active/audit Item 投影并持有 Transcript 交付水位，RunResult、Stop Hook、最后回复和 sources 均读取 canonical 投影；`stream.py` 暂留迁移期事件路由，所有模型/工具/审批/效果命令均走 Protocol Client |
 | `mind_app/runtime/mcp/*`、`subscription/lifecycle.py` | capabilities、adapters、harness supervisor | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运 |
-| `mind_app/runtime/subagents/control.py` | `harness/scheduler.py`、`domain/agents.py` | 将 mailbox、生命周期和图持久化分开 |
-| `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 保留检查点语义，存储实现不得进入 domain |
+| `mind_app/runtime/subagents/control.py` | `harness/scheduler.py`、`domain/agents.py` | 将 mailbox、生命周期和图持久化分开；control 只保留可变调度和观察快照 |
+| `mind_app/runtime/subagents/graph.py` | `stores/agent_graph.py` | 图快照、SQLite 存储和持久化单写者归入 stores，存储实现不得进入 domain |
+| `AgentSubmission`、Agent 状态字面量 | `agent/domain/agents.py` | 任务提交和状态分类只依赖协议标识与标准库，供 control、stores 和后续 Harness 调度复用 |
 | `mind_app/runtime/subagents/mailbox.py` | `agent/stores/agent_mailbox.py` | 子 Agent mailbox 事件、快照、消费游标和有界日志是持久状态；runtime/subagents 只依赖存储契约，不拥有 mailbox 数据结构 |
 | `mind_app/runtime/subagents/thread.py` | `agent/application/agent_thread.py`、`agent/application/fork_context.py` | 子 Agent 线程/轮次上下文和父会话继承快照是 application 执行契约；运行时控制器只消费已冻结值，不持有跨边界身份结构 |
 | `mind_app/history/ids.py` | `protocol/schema/identifiers.py` | `cid/sid` 正则和关联校验属于 wire identity schema；历史、交互、Controller 和 Harness 复用协议边界，不在 history 保留身份实现 |

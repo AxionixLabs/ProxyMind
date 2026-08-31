@@ -1693,6 +1693,79 @@ def test_session_identity_validation_is_owned_by_protocol_schema() -> None:
     )
 
 
+def test_agent_graph_persistence_is_owned_by_stores() -> None:
+    """确保 Agent 图快照和 SQLite 持久化不再由 runtime 持有。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "graph.py"
+    target_path = PROJECT_ROOT / "agent" / "stores" / "agent_graph.py"
+    domain_path = PROJECT_ROOT / "agent" / "domain" / "agents.py"
+    control_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "control.py"
+    assert not legacy_path.is_file(), "legacy runtime graph module still exists"
+    assert target_path.is_file(), "agent graph store is missing"
+    assert domain_path.is_file(), "agent domain status module is missing"
+
+    legacy_modules = {"mind_app.runtime.subagents.graph"}
+    violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module in legacy_modules:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+    assert not violations, "legacy graph imports remain:\n" + "\n".join(violations)
+
+    store_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    store_violations: list[str] = []
+    for node in ast.walk(store_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server"}:
+                store_violations.append(
+                    f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not store_violations, "agent graph store crosses legacy boundary:\n" + "\n".join(store_violations)
+
+    control_tree = ast.parse(control_path.read_text(encoding="utf-8-sig"), filename=str(control_path))
+    control_classes = {
+        node.name
+        for node in control_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert not control_classes.intersection({"AgentGraphRecord", "AgentGraphCheckpoint"})
+
+    domain_tree = ast.parse(domain_path.read_text(encoding="utf-8-sig"), filename=str(domain_path))
+    domain_violations: list[str] = []
+    for node in ast.walk(domain_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if (
+                module == "mind_app"
+                or module.startswith("mind_app.")
+                or module == "agent.application"
+                or module.startswith("agent.application.")
+                or module == "agent.stores"
+                or module.startswith("agent.stores.")
+            ):
+                domain_violations.append(
+                    f"{domain_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not domain_violations, "agent domain status crosses application boundary:\n" + "\n".join(domain_violations)
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (
@@ -2091,6 +2164,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.fork_context",
         "agent.application.settings",
         "agent.domain.hook_matching",
+        "agent.domain.agents",
         "agent.domain.tool_policy",
         "agent.domain.execution_policy",
         "agent.ports",
@@ -2098,6 +2172,8 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.stores.approval_ledger",
         "agent.stores.permission_grants",
         "agent.stores.agent_mailbox",
+        "agent.stores.agent_graph",
+        "agent.stores",
     }
     violations: list[str] = []
     package_root = PROJECT_ROOT / "mind_app"

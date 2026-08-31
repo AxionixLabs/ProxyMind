@@ -7,44 +7,27 @@ import asyncio
 from collections import deque
 from dataclasses import dataclass
 from observability import observe_exception
-from protocol.schema.identifiers import short_uid
+from agent.domain.agents import (
+    AgentResumeStatus,
+    AgentStatus,
+    AgentSubmission,
+    FINAL_AGENT_STATUSES,
+    RESTART_INTERRUPTION_ERROR,
+)
 from agent.application import (
     AgentContext,
     AgentThreadContext,
     AgentTurnContext,
+)
+from agent.stores.agent_graph import (
+    AgentGraphCheckpoint,
+    AgentGraphRecord,
 )
 from agent.stores.agent_mailbox import (
     AgentMailboxEvent,
     AgentMailboxSnapshot,
     AgentMailboxStore
 )
-
-AgentStatus = typing.Literal[
-    "pending",
-    "running",
-    "completed",
-    "failed",
-    "interrupted",
-    "interrupted_by_restart",
-    "closed",
-]
-AgentResumeStatus = typing.Literal[
-    "completed",
-    "failed",
-    "interrupted",
-    "interrupted_by_restart",
-]
-
-FINAL_AGENT_STATUSES = frozenset({
-    "completed",
-    "failed",
-    "interrupted",
-    "interrupted_by_restart",
-    "closed",
-})
-
-RESTART_INTERRUPTION_ERROR = "agent execution interrupted by process restart"
-
 
 class AgentControlError(RuntimeError):
     """表示本地执行主体控制操作失败。"""
@@ -64,61 +47,6 @@ class AgentDepthError(AgentControlError):
 
 class AgentStateError(AgentControlError):
     """表示执行主体当前状态不允许指定操作。"""
-
-
-AgentSubmissionKind = typing.Literal["initial", "followup"]
-
-
-@dataclass(frozen=True, slots=True)
-class AgentSubmission:
-    """保存可排队和持久化的执行主体任务。"""
-    submission_id: str
-    message: str
-    kind: AgentSubmissionKind
-    created_at_ms: int
-    parent_turn_id: str = ""
-
-    def __post_init__(self) -> None:
-        """校验任务载荷中的稳定字段。"""
-        submission_id = str(self.submission_id or "").strip()
-        message = str(self.message or "").strip()
-        parent_turn_id = str(self.parent_turn_id or "").strip()
-
-        if not submission_id:
-            raise ValueError("agent submission id is required")
-        if not message:
-            raise ValueError("agent submission message is required")
-        if self.kind not in {"initial", "followup"}:
-            raise ValueError("agent submission kind is invalid")
-        if (
-            isinstance(self.created_at_ms, bool)
-            or not isinstance(self.created_at_ms, int)
-            or self.created_at_ms <= 0
-        ):
-            raise ValueError("agent submission timestamp must be positive")
-
-        object.__setattr__(self, "submission_id", submission_id)
-        object.__setattr__(self, "message", message)
-        object.__setattr__(self, "parent_turn_id", parent_turn_id)
-
-    @classmethod
-    def create(
-        cls,
-        message: str,
-        *,
-        kind: AgentSubmissionKind,
-        parent_turn_id: str = ""
-    ) -> "AgentSubmission":
-        """创建带稳定标识和时间的任务载荷。"""
-        if not isinstance(message, str):
-            raise TypeError("agent submission message must be a string")
-        return cls(
-            submission_id=short_uid(12),
-            message=message,
-            kind=kind,
-            created_at_ms=time.time_ns() // 1_000_000,
-            parent_turn_id=parent_turn_id,
-        )
 
 
 AgentTurnExecutor = typing.Callable[
@@ -163,115 +91,6 @@ class AgentMailboxWaitResult:
     events: tuple[AgentMailboxEvent, ...] = ()
     snapshots: tuple[AgentSnapshot, ...] = ()
     timed_out: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class AgentGraphRecord:
-    """保存可用于重建单个执行主体的控制快照。"""
-    thread: AgentThreadContext
-    status: AgentStatus
-    submission: AgentSubmission | None = None
-    queue: tuple[AgentSubmission, ...] = ()
-    turn_count: int = 0
-    error: str = ""
-    status_before_close: AgentResumeStatus | None = None
-
-    def __post_init__(self) -> None:
-        """校验执行主体快照的持久化字段。"""
-        if not isinstance(self.thread, AgentThreadContext):
-            raise TypeError("agent graph thread is required")
-        if self.status not in FINAL_AGENT_STATUSES | {"pending", "running"}:
-            raise ValueError("agent graph status is invalid")
-        if self.submission is not None and not isinstance(
-            self.submission,
-            AgentSubmission,
-        ):
-            raise TypeError("agent graph submission is invalid")
-        if not isinstance(self.queue, tuple) or any(
-            not isinstance(item, AgentSubmission)
-            for item in self.queue
-        ):
-            raise TypeError("agent graph queue is invalid")
-        if any(item.kind != "followup" for item in self.queue):
-            raise ValueError("agent graph queue requires followup submissions")
-        if (
-            isinstance(self.turn_count, bool)
-            or not isinstance(self.turn_count, int)
-            or self.turn_count < 0
-        ):
-            raise ValueError("agent graph turn count must be non-negative")
-        if self.status_before_close not in {
-            None,
-            "completed",
-            "failed",
-            "interrupted",
-            "interrupted_by_restart",
-        }:
-            raise ValueError("agent graph resume status is invalid")
-        object.__setattr__(self, "error", str(self.error or ""))
-
-
-@dataclass(frozen=True, slots=True)
-class AgentGraphCheckpoint:
-    """保存单个根会话执行树与邮箱的完整快照。"""
-    root_session_id: str
-    revision: int
-    updated_at_ms: int
-    records: tuple[AgentGraphRecord, ...] = ()
-    mailbox: AgentMailboxSnapshot = AgentMailboxSnapshot.empty()
-
-    def __post_init__(self) -> None:
-        """校验执行树快照的顺序、根会话和邮箱。"""
-        root_session_id = str(self.root_session_id or "").strip()
-        if not root_session_id:
-            raise ValueError("agent graph root session id is required")
-        if (
-            isinstance(self.revision, bool)
-            or not isinstance(self.revision, int)
-            or self.revision <= 0
-        ):
-            raise ValueError("agent graph revision must be positive")
-        if (
-            isinstance(self.updated_at_ms, bool)
-            or not isinstance(self.updated_at_ms, int)
-            or self.updated_at_ms <= 0
-        ):
-            raise ValueError("agent graph timestamp must be positive")
-        if not isinstance(self.records, tuple) or any(
-            not isinstance(record, AgentGraphRecord)
-            for record in self.records
-        ):
-            raise TypeError("agent graph records must be a tuple")
-
-        agent_ids = [record.thread.agent.agent_id for record in self.records]
-        task_paths = [record.thread.agent.task_path for record in self.records]
-        if len(agent_ids) != len(set(agent_ids)):
-            raise ValueError("agent graph agent ids must be unique")
-        if len(task_paths) != len(set(task_paths)):
-            raise ValueError("agent graph task paths must be unique")
-        if any(
-            record.thread.agent.root_session_id != root_session_id
-            for record in self.records
-        ):
-            raise ValueError("agent graph record belongs to another root session")
-        if not isinstance(self.mailbox, AgentMailboxSnapshot):
-            raise TypeError("agent graph mailbox snapshot is required")
-
-        identities = {
-            "root": "/root",
-            **{
-                record.thread.agent.agent_id: record.thread.agent.task_path
-                for record in self.records
-            },
-        }
-        for event in self.mailbox.events:
-            if identities.get(event.source_agent_id) != event.source_task_path:
-                raise ValueError("mailbox event source is outside the agent graph")
-            if event.kind == "message" and identities.get(
-                event.recipient_agent_id
-            ) != event.recipient_task_path:
-                raise ValueError("mailbox recipient is outside the agent graph")
-        object.__setattr__(self, "root_session_id", root_session_id)
 
 
 AgentGraphPublisher = typing.Callable[[AgentGraphCheckpoint], None]

@@ -6,9 +6,18 @@ import time
 import typing
 import asyncio
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 from observability import observe_exception
 from agent.application import PermissionSettings
+from agent.application import AgentThreadContext
+from agent.domain.agents import (
+    AgentResumeStatus,
+    AgentStatus,
+    AgentSubmission,
+    AgentSubmissionKind,
+    FINAL_AGENT_STATUSES,
+)
 from protocol.schema.permissions import (
     normalize_approval_policy,
     normalize_approval_reviewer,
@@ -17,16 +26,8 @@ from protocol.schema.permissions import (
 )
 from infrastructure.config.runtime_paths import agent_graph_db_path
 from agent.application.execution import AgentContext
-from agent.application import AgentThreadContext, ForkContextSnapshot
-from mind_app.runtime.subagents.control import (
-    AgentGraphCheckpoint,
-    AgentGraphRecord,
-    AgentResumeStatus,
-    AgentStatus,
-    AgentSubmission,
-    AgentSubmissionKind,
-)
-from agent.stores.agent_mailbox import (
+from agent.application import ForkContextSnapshot
+from .agent_mailbox import (
     AgentMailboxEvent,
     AgentMailboxEventKind,
     AgentMailboxSnapshot,
@@ -36,6 +37,14 @@ TABLE_AGENT_GRAPH_CHECKPOINTS = "agent_graph_checkpoints"
 
 DEFAULT_AGENT_GRAPH_TTL_MS = 24 * 60 * 60 * 1000
 DEFAULT_AGENT_GRAPH_LIMIT  = 200
+
+__all__ = (
+    "AgentGraphCheckpoint",
+    "AgentGraphPersistence",
+    "AgentGraphPersistenceError",
+    "AgentGraphRecord",
+    "AgentGraphStore",
+)
 
 SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS {TABLE_AGENT_GRAPH_CHECKPOINTS} (
@@ -48,6 +57,117 @@ CREATE TABLE IF NOT EXISTS {TABLE_AGENT_GRAPH_CHECKPOINTS} (
 CREATE INDEX IF NOT EXISTS idx_agent_graph_checkpoints_updated
 ON {TABLE_AGENT_GRAPH_CHECKPOINTS} (updated_at_ms DESC);
 """
+
+
+@dataclass(frozen=True, slots=True)
+class AgentGraphRecord:
+    """保存可用于重建单个执行主体的控制快照。"""
+
+    thread: AgentThreadContext
+    status: AgentStatus
+    submission: AgentSubmission | None = None
+    queue: tuple[AgentSubmission, ...] = ()
+    turn_count: int = 0
+    error: str = ""
+    status_before_close: AgentResumeStatus | None = None
+
+    def __post_init__(self) -> None:
+        """校验执行主体快照的持久化字段。"""
+        if not isinstance(self.thread, AgentThreadContext):
+            raise TypeError("agent graph thread is required")
+        if self.status not in FINAL_AGENT_STATUSES | {"pending", "running"}:
+            raise ValueError("agent graph status is invalid")
+        if self.submission is not None and not isinstance(
+            self.submission,
+            AgentSubmission,
+        ):
+            raise TypeError("agent graph submission is invalid")
+        if not isinstance(self.queue, tuple) or any(
+            not isinstance(item, AgentSubmission)
+            for item in self.queue
+        ):
+            raise TypeError("agent graph queue is invalid")
+        if any(item.kind != "followup" for item in self.queue):
+            raise ValueError("agent graph queue requires followup submissions")
+        if (
+            isinstance(self.turn_count, bool)
+            or not isinstance(self.turn_count, int)
+            or self.turn_count < 0
+        ):
+            raise ValueError("agent graph turn count must be non-negative")
+        if self.status_before_close not in {
+            None,
+            "completed",
+            "failed",
+            "interrupted",
+            "interrupted_by_restart",
+        }:
+            raise ValueError("agent graph resume status is invalid")
+        object.__setattr__(self, "error", str(self.error or ""))
+
+
+@dataclass(frozen=True, slots=True)
+class AgentGraphCheckpoint:
+    """保存单个根会话执行树与邮箱的完整快照。"""
+
+    root_session_id: str
+    revision: int
+    updated_at_ms: int
+    records: tuple[AgentGraphRecord, ...] = ()
+    mailbox: AgentMailboxSnapshot = AgentMailboxSnapshot.empty()
+
+    def __post_init__(self) -> None:
+        """校验执行树快照的顺序、根会话和邮箱。"""
+        root_session_id = str(self.root_session_id or "").strip()
+        if not root_session_id:
+            raise ValueError("agent graph root session id is required")
+        if (
+            isinstance(self.revision, bool)
+            or not isinstance(self.revision, int)
+            or self.revision <= 0
+        ):
+            raise ValueError("agent graph revision must be positive")
+        if (
+            isinstance(self.updated_at_ms, bool)
+            or not isinstance(self.updated_at_ms, int)
+            or self.updated_at_ms <= 0
+        ):
+            raise ValueError("agent graph timestamp must be positive")
+        if not isinstance(self.records, tuple) or any(
+            not isinstance(record, AgentGraphRecord)
+            for record in self.records
+        ):
+            raise TypeError("agent graph records must be a tuple")
+
+        agent_ids = [record.thread.agent.agent_id for record in self.records]
+        task_paths = [record.thread.agent.task_path for record in self.records]
+        if len(agent_ids) != len(set(agent_ids)):
+            raise ValueError("agent graph agent ids must be unique")
+        if len(task_paths) != len(set(task_paths)):
+            raise ValueError("agent graph task paths must be unique")
+        if any(
+            record.thread.agent.root_session_id != root_session_id
+            for record in self.records
+        ):
+            raise ValueError("agent graph record belongs to another root session")
+        if not isinstance(self.mailbox, AgentMailboxSnapshot):
+            raise TypeError("agent graph mailbox snapshot is required")
+
+        identities = {
+            "root": "/root",
+            **{
+                record.thread.agent.agent_id: record.thread.agent.task_path
+                for record in self.records
+            },
+        }
+        for event in self.mailbox.events:
+            if identities.get(event.source_agent_id) != event.source_task_path:
+                raise ValueError("mailbox event source is outside the agent graph")
+            if event.kind == "message" and identities.get(
+                event.recipient_agent_id
+            ) != event.recipient_task_path:
+                raise ValueError("mailbox recipient is outside the agent graph")
+        object.__setattr__(self, "root_session_id", root_session_id)
 
 
 class AgentGraphStore:

@@ -8,13 +8,13 @@ from dataclasses import replace
 import pytest
 
 from agent.application.execution import AgentContext, TurnContext
-from mind_app.runtime.subagents.control import (
-    AgentControl,
+from agent.domain.agents import AgentSubmission
+from mind_app.runtime.subagents.control import AgentControl
+from agent.stores.agent_graph import (
     AgentGraphCheckpoint,
     AgentGraphRecord,
-    AgentSubmission,
 )
-from mind_app.runtime.subagents.graph import (
+from agent.stores.agent_graph import (
     AgentGraphPersistence,
     AgentGraphPersistenceError,
     AgentGraphStore,

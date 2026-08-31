@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from agent.application import PermissionSettings
+from agent.domain.agents import AgentSubmission
 from protocol.schema.identifiers import new_cid, new_sid
 from agent.application.execution import AgentContext
 from mind_app.runtime.subagents.control import (
@@ -12,7 +13,6 @@ from mind_app.runtime.subagents.control import (
     AgentDepthError,
     AgentLimitError,
     AgentNotFoundError,
-    AgentSubmission,
     AgentStateError,
 )
 from agent.application import AgentThreadContext

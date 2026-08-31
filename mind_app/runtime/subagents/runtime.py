@@ -18,18 +18,19 @@ from agent.application.execution import (
     AgentContext,
     TurnContext
 )
+from agent.domain.agents import (
+    AgentSubmission,
+)
 from mind_app.runtime.turns.executor import (
     TurnExecution,
     resolve_turn_hook_scope
 )
 from mind_app.runtime.subagents.control import (
     AgentControl,
-    AgentGraphCheckpoint,
     AgentMailboxWaitResult,
     AgentNotFoundError,
     AgentSnapshot,
     AgentStateError,
-    AgentSubmission,
     AgentWaitResult
 )
 from agent.stores.agent_mailbox import (
@@ -47,7 +48,8 @@ from mind_app.runtime.subagents.delivery import (
     AgentMessageDispatch,
     SteeringMessageDelivery
 )
-from mind_app.runtime.subagents.graph import (
+from agent.stores.agent_graph import (
+    AgentGraphCheckpoint,
     AgentGraphPersistence,
     AgentGraphStore
 )
