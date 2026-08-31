@@ -261,6 +261,7 @@ agent/
 │   ├── tui.py               # TUI 输入、渲染和 Event 投影
 │   ├── mcp_server.py        # stdio MCP 入站协议
 │   ├── subscription.py      # 远端订阅、resume 和 mailbox
+│   ├── subagent_execution.py # 流式 Subagent 执行适配
 │   └── observability.py     # 日志、指标和 tracing 出站适配
 └── composition.py           # 唯一组合根
 ```
@@ -572,6 +573,7 @@ running -> cancelled
 | `mind_app/runtime/subagents/executor.py`、`runner.py` 中的执行协议 | `agent/ports/subagents.py` | 子 Agent 执行与操作端口和具体流式适配分离；runtime runner 只负责 Hook 生命周期、续跑和停止决定 |
 | `mind_app/runtime/hooks/subagent.py` | `agent/application/subagent_hooks.py` | 子 Agent Hook 事件聚合只依赖 scope 端口和 application 结果模型；runtime 不再拥有生命周期业务规则 |
 | `mind_app/runtime/subagents/runner.py` | `agent/harness/subagent_runner.py` | SubagentRunner 只接收 Turn runner 与 cleanup 端口，Harness 负责 Hook 停止决定和续跑；不持有 Mind Controller，避免 runtime/application 反向耦合 |
+| `mind_app/runtime/subagents/executor.py` | `agent/adapters/subagent_execution.py` | 流式 Subagent 执行器只实现 `SubagentExecutionPort`，通过 `SubagentStreamPort` 注入 stream；Controller、静默输出和具体 runtime stream 绑定留在 runtime 组合处 |
 | `mind_app/runtime/hooks/protocol.py` | `agent/application/hook_protocol.py` | Hook 进程 stdin/stdout schema、构建和校验属于 application boundary；runtime 只调用已校验的契约，不把内部 Hook 协议误并入线上 `protocol/` |
 | `mind_app/runtime/hooks/catalog.py` | `agent/application/hook_catalog.py` | Hook 管理目录、不可变状态快照和内容冲突错误属于 application contract；Controller/TUI 只消费该契约，注册器仍负责运行时装配 |
 | `mind_app/runtime/hooks/matching.py` | `agent/domain/hook_matching.py` | Hook matcher、工具 canonical 名称和别名候选属于纯领域规则；不依赖 application、runtime 或平台实现 |

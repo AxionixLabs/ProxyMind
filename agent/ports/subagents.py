@@ -7,6 +7,7 @@ from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
 from protocol.transport.events import EventReport
 from .mcp_session import McpSessionPort
+from .turns import TurnInputEventHandler
 
 if typing.TYPE_CHECKING:
     from agent.application.run_result import RunResult
@@ -29,6 +30,24 @@ class SubagentExecutionPort(typing.Protocol):
         ) = None,
     ) -> "RunResult":
         """执行子模型轮次并返回结构化结果。"""
+        ...
+
+
+class SubagentStreamPort(typing.Protocol):
+    """定义流式模型适配器执行子 Agent Turn 的端口。"""
+
+    async def __call__(
+        self,
+        session: McpSessionPort,
+        pref_config: dict[str, typing.Any],
+        tools: list[dict[str, typing.Any]],
+        *,
+        turn_execution: "TurnExecution",
+        event_report: EventReport,
+        skills: list[dict[str, str]],
+        on_turn_input_event: TurnInputEventHandler | None = None,
+    ) -> "RunResult":
+        """执行流式子轮次并返回结构化结果。"""
         ...
 
 
@@ -78,6 +97,7 @@ class SubagentCleanupPort(typing.Protocol):
 
 __all__ = (
     "SubagentExecutionPort",
+    "SubagentStreamPort",
     "SubagentOperation",
     "SubagentResultValue",
     "SubagentTurnRunner",

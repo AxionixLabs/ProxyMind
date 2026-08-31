@@ -2109,6 +2109,48 @@ def test_subagent_runner_is_owned_by_harness_without_package_cycle() -> None:
     assert not package_imports, "harness package initializer must not preload components"
 
 
+def test_subagent_stream_execution_is_owned_by_adapter() -> None:
+    """确保具体流式 Subagent 执行器由 adapter 持有且不反向加载旧应用。"""
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "executor.py"
+    target_path = PROJECT_ROOT / "agent" / "adapters" / "subagent_execution.py"
+    assert not legacy_path.is_file(), "legacy subagent executor still exists"
+    assert target_path.is_file(), "subagent execution adapter is missing"
+
+    target_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    target_classes = {
+        node.name
+        for node in target_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert target_classes == {"StreamSubagentExecution"}
+    violations: list[str] = []
+    for node in ast.walk(target_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                violations.append(
+                    f"{target_path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                )
+    assert not violations, "subagent adapter crosses legacy boundary:\n" + "\n".join(violations)
+
+    import_violations: list[str] = []
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            if "mind_app.runtime.subagents.executor" in modules:
+                import_violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+    assert not import_violations, "legacy subagent executor imports remain:\n" + "\n".join(import_violations)
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (

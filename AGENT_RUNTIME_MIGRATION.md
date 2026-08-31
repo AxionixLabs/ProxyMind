@@ -1297,6 +1297,18 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   Subagent/Turn/SessionLoop 回归 `65 passed`，新增 Harness 归属守卫，`compileall`、导入图和
   `git diff --check` 通过。下一切片继续拆分 Subagent 流式适配器。
 
+### 已完成切片：Subagent 流式执行适配器归位
+
+状态：已完成（2026-08-31）
+
+- [x] 将 `StreamSubagentExecutor` 从 `mind_app/runtime/subagents/executor.py` 重组为
+  `agent/adapters/subagent_execution.py` 的 `StreamSubagentExecution`；adapter 只依赖
+  application Turn/Result 与 `SubagentStreamPort`，不加载 Controller、stream runtime 或输出实现。
+- [x] 在 `agent/ports/subagents.py` 增加 `SubagentStreamPort` 和输入事件端口；SubagentRuntime
+  通过 `_run_stream` 注入具体 stream 与静默输出工厂，删除旧 executor 模块，不保留 facade。
+- [x] Subagent/Turn/工具回归 `61 passed`，新增 adapter/旧路径守卫；`compileall`、导入图和
+  `git diff --check` 通过。下一切片继续收敛 SubagentRuntime 的 mailbox/graph 控制职责。
+
 ### 已完成切片：上下文压缩结果与编排分离
 
 状态：已完成（2026-08-31）
@@ -1551,3 +1563,4 @@ python website/mind/scripts/check_docs.py
 | 2026-08-31 | 阶段 5 Turn 与 Subagent 执行端口归位切片 | 将 Turn/Subagent 调用协议重组到 `agent/ports/turns.py`、`agent/ports/subagents.py`，runtime executor/runner 只保留具体执行与状态协调 | Turn/Subagent/工具回归 `54 passed`，端口归属和旧 contract 守卫通过，导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 Subagent Hook 生命周期归位切片 | 将 `SubagentHookEvents` 重组到 `agent/application/subagent_hooks.py`，扩展 Hook scope 端口并删除旧 runtime Hook 模块 | Hook/Subagent/Turn/架构守卫回归 `137 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过 |
 | 2026-08-31 | 阶段 5 SubagentRunner Harness 化 | 将 SubagentRunner 重组到 `agent/harness/subagent_runner.py`，将 continuation 构造归入 application，改用 Turn runner/cleanup 注入并消除 harness 包初始化循环 | Subagent/Turn/SessionLoop 回归 `65 passed`，Harness 归属守卫、导入图、`compileall` 和 `git diff --check` 通过 |
+| 2026-08-31 | 阶段 5 Subagent 流式执行适配器归位 | 将 StreamSubagentExecutor 重组为 `agent/adapters/subagent_execution.py`，新增 SubagentStreamPort 并删除旧 runtime executor | Subagent/Turn/工具/adapter 守卫回归 `61 passed`，导入图、`compileall` 和 `git diff --check` 通过 |

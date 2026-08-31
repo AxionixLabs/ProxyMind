@@ -4,18 +4,19 @@
 import typing
 from agent.application import RunResult, TurnExecution
 from protocol.transport.events import EventReport
-from agent.ports import McpSessionPort
-from mind_app.presentation.output.silent import create_silent_output_session
+from agent.ports import (
+    McpSessionPort,
+    SubagentStreamPort,
+    TurnInputEventHandler,
+)
 
-if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
 
+class StreamSubagentExecution:
+    """通过注入的流式端口执行无前台输出的子轮次。"""
 
-class StreamSubagentExecutor:
-    """通过现有流式模式执行器运行无前台输出的子轮次。"""
-
-    def __init__(self, controller: "Mind") -> None:
-        self._controller = controller
+    def __init__(self, stream_runner: SubagentStreamPort) -> None:
+        """绑定具体流式执行端口，不持有 Controller 或输出实现。"""
+        self._stream_runner = stream_runner
 
     async def execute(
         self,
@@ -25,26 +26,21 @@ class StreamSubagentExecutor:
         session: McpSessionPort,
         tools: list[dict[str, typing.Any]],
         event_report: EventReport,
-        on_turn_input_event: typing.Callable[..., typing.Any] | None = None,
+        on_turn_input_event: TurnInputEventHandler | None = None,
     ) -> RunResult:
         """使用独立静默输出会话执行固定子轮次。"""
         if execution.context.agent.depth == 0:
             raise ValueError("subagent execution requires a child agent context")
 
-        from mind_app.runtime.turns.stream import stream_turn
-
-        return await stream_turn(
-            self._controller,
+        return await self._stream_runner(
             session=session,
+            turn_execution=execution,
             pref_config=pref_config,
             tools=tools,
-            turn_execution=execution,
-            ev_report=event_report,
+            event_report=event_report,
             skills=skills,
-            session_factory=create_silent_output_session,
             on_turn_input_event=on_turn_input_event,
         )
 
 
-if __name__ == '__main__':
-    pass
+__all__ = ("StreamSubagentExecution",)

@@ -60,6 +60,7 @@ from .subagents import (
     SubagentExecutionPort,
     SubagentOperation,
     SubagentResultValue,
+    SubagentStreamPort,
     SubagentTurnRunner,
 )
 from .turns import (
@@ -105,6 +106,7 @@ __all__ = (
     "AgentMessageReceiptStatus",
     "McpSessionPort",
     "SubagentExecutionPort",
+    "SubagentStreamPort",
     "SubagentCleanupPort",
     "SubagentOperation",
     "SubagentResultValue",

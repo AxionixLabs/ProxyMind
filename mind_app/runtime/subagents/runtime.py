@@ -18,7 +18,9 @@ from agent.ports import (
     McpSessionPort,
     SubagentExecutionPort,
     SubagentOperation,
+    TurnInputEventHandler,
 )
+from agent.adapters import StreamSubagentExecution
 from agent.harness.subagent_runner import SubagentRunner
 from agent.application.execution import (
     AgentContext,
@@ -44,9 +46,6 @@ from agent.stores.agent_mailbox import (
 )
 from agent.application import ForkTurns, normalize_fork_turns
 from mind_app.runtime.subagents.context import build_fork_context
-from mind_app.runtime.subagents.executor import (
-    StreamSubagentExecutor,
-)
 from mind_app.runtime.subagents.delivery import (
     AgentActiveTurn,
     AgentMessageDispatch,
@@ -99,7 +98,7 @@ class SubagentRuntime:
         self._controller       = controller
         self._enabled          = enabled
         self._settings         = settings or AgentSettings()
-        self._executor         = executor or StreamSubagentExecutor(controller)
+        self._executor         = executor or StreamSubagentExecution(self._run_stream)
         self._message_delivery = message_delivery or SteeringMessageDelivery()
         self._graph_store      = graph_store
 
@@ -143,6 +142,33 @@ class SubagentRuntime:
             execution,
             operation,
             event_report=event_report,
+        )
+
+    async def _run_stream(
+        self,
+        session: McpSessionPort,
+        pref_config: dict[str, typing.Any],
+        tools: list[dict[str, typing.Any]],
+        *,
+        turn_execution: TurnExecution,
+        event_report: EventReport,
+        skills: list[dict[str, str]],
+        on_turn_input_event: TurnInputEventHandler | None = None,
+    ) -> RunResult:
+        """将当前 Controller 绑定到流式 Subagent adapter 端口。"""
+        from mind_app.presentation.output.silent import create_silent_output_session
+        from mind_app.runtime.turns.stream import stream_turn
+
+        return await stream_turn(
+            self._controller,
+            session=session,
+            pref_config=pref_config,
+            tools=tools,
+            turn_execution=turn_execution,
+            ev_report=event_report,
+            skills=skills,
+            session_factory=create_silent_output_session,
+            on_turn_input_event=on_turn_input_event,
         )
 
     @property

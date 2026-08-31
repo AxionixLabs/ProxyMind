@@ -7,12 +7,14 @@ from .protocol_client import (
     ProtocolModelEventStream,
 )
 from .agent_messages import SteeringMessageDelivery
+from .subagent_execution import StreamSubagentExecution
 
 __all__ = (
     "MindChatProtocolClient",
     "ProtocolEventCursorStore",
     "ProtocolModelEventStream",
     "SteeringMessageDelivery",
+    "StreamSubagentExecution",
 )
 
 
