@@ -14,6 +14,7 @@ from mind_app.client_tools.subagents import subagent_tools
 from mind_app.runtime.mcp.session_adapter import CompositeToolSession
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.context import AgentContext, TurnContext
+from agent.application.hooks.context import HookExecutionContext
 from agent.harness.hooks.scope import HookExecutionScope
 from mind_app.runtime.subagents.runtime import SubagentRuntime
 from mind_app.runtime.turns import stream as turn_stream
@@ -45,6 +46,9 @@ class _Controller:
 
     def hook_scope(self, context):
         return HookExecutionScope.empty(context)
+
+    def turn_hook_scope(self, context):
+        return self.hook_scope(HookExecutionContext.from_turn(context))
 
     async def with_mcp_session(self, pref_config, function):
         return await function("session", [])

@@ -17,6 +17,7 @@ from agent.application.config.settings import (
     AgentSettings,
     FeatureSettings,
 )
+from agent.application.turns.context import TurnContext
 from agent.domain.policies import (
     PermissionSettings,
     resolve_permissions
@@ -280,11 +281,6 @@ class Mind(object):
                 transcript_path_for=self.transcripts.path_for_session,
                 transcript_entries_for=(
                     lambda path: self.transcripts.reader(path).read()
-                ),
-                execution_runtime=self.turn_execution_runtime,
-                hook_scope_for=lambda context: resolve_turn_hook_scope(
-                    self,
-                    context,
                 ),
                 session_cleanup=self._close_repl_session,
                 graph_store=(
@@ -699,6 +695,10 @@ class Mind(object):
                 status_port=getattr(self, "hook_status", None),
             ),
         )
+
+    def turn_hook_scope(self, context: TurnContext) -> HookExecutionScope:
+        """为 SubagentRuntime 提供绑定当前轮次的 Hook 作用域。"""
+        return resolve_turn_hook_scope(self, context)
 
     def inspect_hooks(
         self,

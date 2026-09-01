@@ -2847,6 +2847,7 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
             "SubagentOperation",
             "SubagentTurnRunner",
             "SubagentCleanupPort",
+            "SubagentRuntimeHostPort",
         },
     }
     legacy_paths = (
@@ -3403,6 +3404,7 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
         "ApplicationView",
         "Viewport",
         "ApplicationSink",
+        "TurnForegroundLifecyclePort",
         "TextStyle",
         "TextSpan",
         "StyledBlock",

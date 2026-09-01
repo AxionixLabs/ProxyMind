@@ -535,11 +535,20 @@ Controller 已装配的 `turn_execution_runtime` 端口，不再将 Controller �
 Subagent 的清理与 Hook scope 依赖，继续把宿主生命周期从 runtime 移出。
 
 本次 Subagent 生命周期端口切片已满足上述条件：SubagentRuntime 的流式 owner 改为
-`TurnExecutionRuntimePort`，Hook scope 改为显式 `hook_scope_for`，权限授予直接使用
-注入端口，停止 Hook 清理复用显式清理/执行端口；runtime 不再保存 Controller 或把它
-传给流式适配器。Subagent/工具回归 `39 passed`；Subagent 生命周期架构专项
-`5 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过。下一切片复核
-Subagent 构造器的 Controller 入参，评估完全移除历史宿主参数的条件。
+`TurnExecutionRuntimePort`，Hook scope 改为显式宿主端口，权限授予直接使用注入端口，
+停止 Hook 清理复用显式清理/执行端口；runtime 不再保存 Controller 或把它传给流式适配器。
+Subagent/工具回归 `39 passed`；架构专项 `3 passed, 1 warning`，导入图、`compileall` 和
+`git diff --check` 通过。
+
+本次 Subagent 宿主端口切片已满足上述条件：新增 `SubagentRuntimeHostPort`，
+SubagentRuntime 首参改为组合根宿主端口，删除 `execution_runtime`、`hook_scope_for` 两个
+重复注入参数及 `Mind` 类型依赖；生产组合根通过 `Mind.turn_execution_runtime` 与
+`Mind.turn_hook_scope` 实现端口，测试替身同步使用 `HookExecutionContext` 边界转换。
+Subagent/工具回归 `39 passed`，根轮次、TUI、CLI 与 Subagent 回归 `161 passed`；架构守卫
+新增端口断言通过，定向专项 `3 passed, 1 warning`，导入图、`compileall` 和
+`git diff --check` 通过。下一切片收口 `mind_app/runtime/subagents/runtime.py` 对
+`mind_app.runtime.turns` 与静默输出工厂的历史依赖，评估将 Subagent 运行编排下沉到
+`agent/harness` 的完整删除条件。
 
 ## 过渡入口与删除条件
 

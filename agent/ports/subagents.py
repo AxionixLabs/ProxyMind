@@ -7,13 +7,18 @@ from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
 from protocol.transport.events import EventReport
 from .mcp_session import McpSessionPort
-from .turns import TurnInputEventHandler
+from .turns import (
+    TurnExecutionRuntimePort,
+    TurnInputEventHandler,
+)
 
 SkillsProvider: typing.TypeAlias = Callable[[], list[dict[str, str]]]
 
 if typing.TYPE_CHECKING:
     from agent.application.turns.run_result import RunResult
     from agent.application.turns.execution import TurnExecution
+    from agent.application.turns.context import TurnContext
+    from .hooks import HookExecutionScopePort
 
 
 class SubagentExecutionPort(typing.Protocol):
@@ -97,6 +102,19 @@ class SubagentCleanupPort(typing.Protocol):
         ...
 
 
+class SubagentRuntimeHostPort(typing.Protocol):
+    """定义 SubagentRuntime 所需的组合根宿主端口。"""
+
+    @property
+    def turn_execution_runtime(self) -> TurnExecutionRuntimePort:
+        """返回子 Agent 轮次使用的执行运行时。"""
+        ...
+
+    def turn_hook_scope(self, context: "TurnContext") -> "HookExecutionScopePort":
+        """为子 Agent 轮次创建固定 Hook 作用域。"""
+        ...
+
+
 __all__ = (
     "SkillsProvider",
     "SubagentExecutionPort",
@@ -105,4 +123,5 @@ __all__ = (
     "SubagentResultValue",
     "SubagentTurnRunner",
     "SubagentCleanupPort",
+    "SubagentRuntimeHostPort",
 )

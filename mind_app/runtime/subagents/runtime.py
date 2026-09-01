@@ -30,9 +30,8 @@ from agent.ports import (
     TurnCleanupPort,
     TranscriptFactory,
     TurnInputEventHandler,
-    TurnExecutionRuntimePort,
-    HookExecutionScopePort,
     PermissionGrantReader,
+    SubagentRuntimeHostPort,
 )
 from agent.adapters.agents.execution import StreamSubagentExecution
 from agent.harness.execution.subagent_runner import SubagentRunner
@@ -46,7 +45,6 @@ from agent.domain.agents import (
 )
 from mind_app.runtime.turns.executor import (
     execute_turn,
-    resolve_turn_hook_scope,
 )
 from agent.harness.agents.control import (
     AgentControl,
@@ -70,12 +68,8 @@ from agent.stores.agents.graph import (
     AgentGraphStore
 )
 
-if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
-
 TranscriptPathResolver = typing.Callable[[str], str]
 SessionCleanup         = typing.Callable[[str], typing.Awaitable[typing.Any]]
-HookScopeResolver       = typing.Callable[[TurnContext], HookExecutionScopePort]
 
 
 class SubagentRuntime:
@@ -83,7 +77,7 @@ class SubagentRuntime:
 
     def __init__(
         self,
-        controller: "Mind",
+        host: SubagentRuntimeHostPort,
         *,
         enabled: bool = True,
         settings: AgentSettings | None = None,
@@ -104,8 +98,6 @@ class SubagentRuntime:
         transcript_factory: TranscriptFactory | None = None,
         cleanup: TurnCleanupPort | None = None,
         patch_preview: PatchPreviewPort | None = None,
-        execution_runtime: TurnExecutionRuntimePort | None = None,
-        hook_scope_for: HookScopeResolver | None = None,
     ) -> None:
         if not isinstance(enabled, bool):
             raise TypeError("subagent runtime enabled state must be a boolean")
@@ -134,13 +126,9 @@ class SubagentRuntime:
         self._transcript_factory = transcript_factory
         self._cleanup = cleanup
         self._patch_preview = patch_preview
-        if execution_runtime is None:
-            execution_runtime = controller.turn_execution_runtime
-        self._execution_runtime = execution_runtime
-        self._hook_scope_for = hook_scope_for or (
-            lambda context: resolve_turn_hook_scope(controller, context)
-        )
-        runner_cleanup = cleanup or execution_runtime
+        self._execution_runtime = host.turn_execution_runtime
+        self._hook_scope_for = host.turn_hook_scope
+        runner_cleanup = cleanup or self._execution_runtime
         runner = SubagentRunner(
             turn_runner=self._run_turn,
             cleanup=runner_cleanup,
