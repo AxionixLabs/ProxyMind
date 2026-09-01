@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .content import (
+from agent.ports import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
     AssistantResponseSuperseded,

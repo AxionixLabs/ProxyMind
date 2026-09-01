@@ -6,7 +6,7 @@ import pytest
 
 from agent.protocol import CanonicalItem
 from agent.ports import OutputStatusPort
-from mind_app.presentation.output import (
+from agent.ports import (
     AssistantOutputBoundary,
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,

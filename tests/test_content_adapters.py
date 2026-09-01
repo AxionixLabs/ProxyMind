@@ -8,7 +8,7 @@ from unittest.mock import (
 
 import pytest
 
-from mind_app.presentation.output.content import (
+from agent.ports import (
     AssistantOutputBoundary,
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,

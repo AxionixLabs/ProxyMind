@@ -7,9 +7,9 @@ import typing
 from dataclasses import dataclass
 from protocol.transport.events import EventReport
 from protocol.schema.environment import normalize_client_environment_snapshot
-from mind_app.presentation.output import (
+from agent.ports import (
     OutputSession,
-    SessionFactory,
+    OutputSessionFactory,
 )
 from agent.application.turns.context import TurnContext
 from agent.ports import (
@@ -114,7 +114,7 @@ def prepare_stream_turn(
     execution: TurnExecution,
     options: typing.Mapping[str, typing.Any],
     *,
-    session_factory: SessionFactory | None = None,
+    session_factory: OutputSessionFactory | None = None,
 ) -> PreparedStreamTurn:
     """解析并固定一次流式模型执行所需的输入与输出边界。"""
     request_kwargs = dict(options)
@@ -230,7 +230,7 @@ def _optional_callback(
     return value
 
 
-def _resolve_output_session_factory(value: typing.Any) -> SessionFactory:
+def _resolve_output_session_factory(value: typing.Any) -> OutputSessionFactory:
     """解析单轮输出工厂并校验续跑边界传入值。"""
     if value is None:
         raise RuntimeError("stream output session factory is required")

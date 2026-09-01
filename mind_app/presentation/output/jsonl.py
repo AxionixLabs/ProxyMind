@@ -28,7 +28,7 @@ from agent.application.views import (
     ToolStartView
 )
 from .recording import StreamRecordWriter
-from .content import (
+from agent.ports import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
     AssistantResponseSuperseded,
@@ -37,13 +37,11 @@ from .content import (
     ContentOutput,
     ContentSink,
     ResponseIdentity,
-    SourcesOutput
-)
-from agent.ports import (
     OutputControlPort,
-    OutputStatusPort
+    OutputSession,
+    OutputStatusPort,
+    SourcesOutput,
 )
-from .session import OutputSession
 
 
 def _plain(value: typing.Any) -> typing.Any:

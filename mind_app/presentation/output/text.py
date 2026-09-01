@@ -32,7 +32,7 @@ from agent.application.views import (
     ToolStartView
 )
 from .recording import StreamRecordWriter
-from .content import (
+from agent.ports import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
     AssistantResponseSuperseded,
@@ -40,13 +40,11 @@ from .content import (
     AssistantTextDelta,
     ContentOutput,
     ContentSink,
-    SourcesOutput
-)
-from agent.ports import (
     OutputControlPort,
-    OutputStatusPort
+    OutputSession,
+    OutputStatusPort,
+    SourcesOutput,
 )
-from .session import OutputSession
 from mind_app.presentation.renderers.approval import render_approval_view
 
 ANSI_RESET   = "\x1b[0m"

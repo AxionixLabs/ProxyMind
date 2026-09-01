@@ -8,7 +8,7 @@ from agent.domain.policies import PermissionSettings
 from agent.application.turns.stream_outcome import StreamTurnOutcome
 from protocol.transport.events import EventReport
 from agent.ports import OutputStatusPort
-from mind_app.presentation.output import (
+from agent.ports import (
     ContentSink,
     SourcesOutput,
 )

@@ -13,7 +13,7 @@ from agent.ports.presentation import (
 )
 from agent.ports import RetryState
 from mind_app.interaction.contracts import InteractionPort
-from mind_app.presentation.output.session import SessionFactory
+from agent.ports import OutputSessionFactory
 
 ActivityStatusKind = typing.Literal[
     "wait",
@@ -241,7 +241,7 @@ class Frontend(object):
     """聚合应用级展示、交互和单轮输出装配能力。"""
     application: ApplicationSink
     interaction: InteractionPort
-    session_factory: SessionFactory
+    session_factory: OutputSessionFactory
     runtime: FrontendRuntime = field(default_factory=PassiveFrontendRuntime)
 
 

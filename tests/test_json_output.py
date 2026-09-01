@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from mind_app.presentation.output.content import (
+from agent.ports import (
     AssistantPresentationSuperseded,
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,

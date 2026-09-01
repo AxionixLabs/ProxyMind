@@ -61,7 +61,7 @@ from protocol.client.tools import (
 )
 from protocol.client.effects import post_effect_reconciliation
 from agent.ports import OutputControlPort
-from mind_app.presentation.output import SessionFactory
+from agent.ports import OutputSessionFactory
 from ..hooks.tool import ToolCallCoordinator
 from agent.application.hooks.models import StopHookDecision
 from ..hooks.turn import (
@@ -256,7 +256,7 @@ async def stream_turn(
     model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
-    session_factory: SessionFactory | None = None,
+    session_factory: OutputSessionFactory | None = None,
     **kwargs
 ) -> RunResult:
     """处理流式事件、工具调用和输出上报。"""

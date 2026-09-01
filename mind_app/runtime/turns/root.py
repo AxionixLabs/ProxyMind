@@ -34,7 +34,7 @@ from mind_app.runtime.turns.executor import (
 )
 from mind_app.runtime.turns.stream import stream_turn
 from mind_app.presentation.terminal.turn_lifecycle import run_foreground_turn
-from mind_app.presentation.output import SessionFactory
+from agent.ports import OutputSessionFactory
 from agent.domain.policies import PermissionSettings
 
 if typing.TYPE_CHECKING:
@@ -144,7 +144,7 @@ async def run_root_turn(
     execution_policy: ExecutionPolicy | None = None,
     execution_runtime: TurnExecutionRuntimePort,
     lifecycle: TurnForegroundLifecyclePort | None = None,
-    session_factory: SessionFactory | None = None,
+    session_factory: OutputSessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,

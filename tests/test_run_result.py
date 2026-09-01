@@ -19,7 +19,7 @@ from mind_app.approval.models import ApprovalOutcome
 from mind_app.interaction.noninteractive import NonInteractiveInteraction
 from mind_app.runtime.turns import stream
 from agent.application.turns.run_result import RunResult
-from mind_app.presentation.output.content import (
+from agent.ports import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
     AssistantResponseSuperseded,
@@ -28,7 +28,7 @@ from mind_app.presentation.output.content import (
     ResponseIdentity,
     SourcesOutput,
 )
-from mind_app.presentation.output.session import OutputSession
+from agent.ports import OutputSession
 from agent.application.views import (
     ApprovalView,
     FailureView,

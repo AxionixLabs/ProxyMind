@@ -13,8 +13,8 @@ from agent.ports import (
     SubagentOperation,
     TurnExecutionRuntimePort,
     TurnInputEventHandler,
+    OutputSessionFactory,
 )
-from mind_app.presentation.output import SessionFactory
 from mind_app.runtime.turns.executor import execute_turn
 from mind_app.runtime.turns.stream import stream_turn
 from protocol.transport.events import EventReport
@@ -55,7 +55,7 @@ class ControllerSubagentExecution(SubagentExecutionPort):
         model_capability: ModelCapability | None,
         protocol_client: ProtocolCommandClient | None,
         effect_journal_factory: EffectJournalFactory | None,
-        session_factory: SessionFactory,
+        session_factory: OutputSessionFactory,
     ) -> None:
         """绑定模型、协议和效果账本能力。"""
         self._runtime = runtime

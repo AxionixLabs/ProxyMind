@@ -14,7 +14,7 @@ from protocol.schema.stream_events import (
 )
 from agent.ports.transcript import TranscriptSink
 from agent.ports import OutputStatusPort
-from mind_app.presentation.output import (
+from agent.ports import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
     AssistantResponseSuperseded,

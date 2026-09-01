@@ -606,6 +606,15 @@ sink；输出/流式/TUI 定向回归 `114 passed`，架构专项 `2 passed, 1 w
 `compileall` 和 `git diff --check` 通过。下一切片拆分 `OutputSession` 的跨层值对象，定义
 不携带具体 UI 实现的 session/content 端口后再迁移 `SessionFactory`。
 
+本次输出会话契约迁移已满足上述条件：`ContentOutput`、`ContentSink` 和内容值对象已迁入
+`agent/ports/content.py`，`OutputSession`、泛型 `OutputPresentationPort` 和
+`OutputSessionFactory` 已归入 `agent/ports/output.py`；所有流式、根轮次、TUI、CLI 和
+Subagent 调用点改用 `OutputSessionFactory`，旧 `mind_app/presentation/output/content.py`
+与 `session.py` 已删除，输出实现包不再导出契约 facade。输出/流式/TUI/根轮次回归
+`122 passed`，架构专项 `4 passed, 1 warning`，导入图、`compileall` 和 `git diff --check`
+通过。下一切片复核 `mind_app/presentation/output` 的具体 sink 与 `mind_app/presentation`
+渲染器边界，继续把无 UI 状态的适配器归入 `frontends` 或 `infrastructure`。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |

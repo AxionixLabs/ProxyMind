@@ -19,7 +19,7 @@ from agent.ports import (
     TurnCleanupPort,
     TranscriptFactory,
 )
-from mind_app.presentation.output import SessionFactory
+from agent.ports import OutputSessionFactory
 from agent.application.services import TurnApplicationFactory
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.commands import (
@@ -143,7 +143,7 @@ async def run_tui_loop(
     approval_coordinator: ApprovalCoordinatorPort | None = None,
     lifecycle: TurnForegroundLifecyclePort | None = None,
     approval_ledger: ApprovalLedger | None = None,
-    session_factory: SessionFactory | None = None,
+    session_factory: OutputSessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,
@@ -203,7 +203,7 @@ async def _run_tui_loop(
     approval_coordinator: ApprovalCoordinatorPort | None,
     lifecycle: TurnForegroundLifecyclePort | None,
     approval_ledger: ApprovalLedger | None,
-    session_factory: SessionFactory | None,
+    session_factory: OutputSessionFactory | None,
     transcript_factory: TranscriptFactory | None,
     cleanup: TurnCleanupPort | None,
     patch_preview: PatchPreviewPort | None,

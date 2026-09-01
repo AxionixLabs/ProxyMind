@@ -4,7 +4,7 @@ import typing
 
 import pytest
 
-from mind_app.presentation.output import SourcesOutput
+from agent.ports import SourcesOutput
 from agent.application.views import (
     FailureView,
     RunCompletedView,

@@ -29,7 +29,7 @@ from agent.ports import (
     TurnCleanupPort,
     TranscriptFactory,
 )
-from mind_app.presentation.output import SessionFactory
+from agent.ports import OutputSessionFactory
 from agent.application.turns.run_result import RunResult
 from infrastructure.config.preferences import apply_primary_model_override
 from infrastructure.config.runtime_paths import agent_runtime_db_path
@@ -113,7 +113,7 @@ async def run_selected_command(
     approval_coordinator: ApprovalCoordinatorPort | None = None,
     lifecycle: TurnForegroundLifecyclePort | None = None,
     approval_ledger: ApprovalLedger | None = None,
-    session_factory: SessionFactory | None = None,
+    session_factory: OutputSessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,
@@ -342,7 +342,7 @@ async def _run_agent_listener_session(
     approval_coordinator: ApprovalCoordinatorPort | None,
     lifecycle: TurnForegroundLifecyclePort | None,
     approval_ledger: ApprovalLedger | None,
-    session_factory: SessionFactory | None = None,
+    session_factory: OutputSessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,
@@ -391,7 +391,7 @@ async def _run_tui_session(
     approval_coordinator: ApprovalCoordinatorPort | None,
     lifecycle: TurnForegroundLifecyclePort | None,
     approval_ledger: ApprovalLedger | None,
-    session_factory: SessionFactory | None = None,
+    session_factory: OutputSessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,

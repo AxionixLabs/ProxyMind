@@ -5,7 +5,9 @@ from abc import (
     ABC,
     abstractmethod,
 )
+from dataclasses import dataclass
 
+from .content import ContentSink
 from .presentation import (
     TextSpan,
     TextStyle,
@@ -15,6 +17,11 @@ OutputDisplay = typing.Literal["stream", "block"]
 
 STREAM_OUTPUT: typing.Final[OutputDisplay] = "stream"
 BLOCK_OUTPUT: typing.Final[OutputDisplay] = "block"
+
+PresentationViewT = typing.TypeVar(
+    "PresentationViewT",
+    contravariant=True,
+)
 
 
 class OutputControlPort(ABC):
@@ -138,11 +145,47 @@ class OutputPort(OutputControlPort, OutputStatusPort):
         ...
 
 
+class OutputPresentationPort(typing.Protocol[PresentationViewT]):
+    """接收由 application view 生成的结构化输出。"""
+
+    async def emit(self, view: PresentationViewT) -> None:
+        """发送一项结构化输出。"""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class OutputSession(typing.Generic[PresentationViewT]):
+    """聚合单轮运行所需的输出控制、内容和展示端口。"""
+
+    control: OutputControlPort
+    status: OutputStatusPort
+    content: ContentSink
+    presentation: OutputPresentationPort[PresentationViewT]
+    show_hook_lifecycle: bool = False
+
+
+class OutputSessionFactory(typing.Protocol[PresentationViewT]):
+    """定义按记录路径创建输出会话的工厂端口。"""
+
+    def __call__(
+        self,
+        log_file: str,
+        *,
+        animate: bool = True,
+    ) -> OutputSession[PresentationViewT]:
+        """创建绑定输出记录和前端展示端口的会话。"""
+        ...
+
+
 __all__ = (
     "BLOCK_OUTPUT",
+    "ContentSink",
     "OutputControlPort",
     "OutputDisplay",
     "OutputPort",
+    "OutputPresentationPort",
+    "OutputSession",
+    "OutputSessionFactory",
     "OutputStatusPort",
     "STREAM_OUTPUT",
 )

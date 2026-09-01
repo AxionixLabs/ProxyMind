@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from .recording import StreamRecordWriter
-from .session import OutputSession
+from agent.ports import OutputSession
 from .text import (
     TextContentSink,
     TextOutputControl,

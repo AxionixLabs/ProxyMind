@@ -35,7 +35,7 @@ from agent.application.turns.execution import TurnExecution
 from mind_app.runtime.turns.executor import execute_turn
 from mind_app.runtime.turns.root import prepare_root_turn
 from mind_app.presentation.terminal.turn_lifecycle import run_foreground_turn
-from mind_app.presentation.output import SessionFactory
+from agent.ports import OutputSessionFactory
 from mind_app.runtime.turns.stream import stream_turn
 from ..runtime.ports import TurnRuntimePort
 from ..core.interrupt import InterruptDisposition
@@ -226,7 +226,7 @@ async def run_tui_model_turn(
     approval_coordinator: ApprovalCoordinatorPort | None = None,
     lifecycle: TurnForegroundLifecyclePort | None = None,
     approval_ledger: ApprovalLedger | None = None,
-    session_factory: SessionFactory | None = None,
+    session_factory: OutputSessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,

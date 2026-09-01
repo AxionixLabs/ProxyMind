@@ -19,7 +19,7 @@ from mind_app.presentation.output.text import (
     TextOutputState,
     TextPresentationSink,
 )
-from mind_app.presentation.output.content import (
+from agent.ports import (
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ResponseIdentity,

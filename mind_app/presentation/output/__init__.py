@@ -1,36 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .content import (
-    AssistantOutputBoundary,
-    AssistantPresentationSuperseded,
-    AssistantResponseSuperseded,
-    AssistantSegmentCompleted,
-    AssistantTextDelta,
-    ContentOutput,
-    ContentSink,
-    ResponseIdentity,
-    SourcesOutput
-)
-from .session import (
-    OutputSession,
-    SessionFactory
-)
+"""具体输出适配器。
 
-__all__ = [
-    "AssistantOutputBoundary",
-    "AssistantPresentationSuperseded",
-    "AssistantResponseSuperseded",
-    "AssistantSegmentCompleted",
-    "AssistantTextDelta",
-    "ContentOutput",
-    "ContentSink",
-    "ResponseIdentity",
-    "OutputSession",
-    "SessionFactory",
-    "SourcesOutput"
-]
-
-
-if __name__ == '__main__':
-    pass
+跨前端输出契约位于 ``agent.ports``；本包只保留文本、JSONL 和记录文件等
+具体实现，避免重新形成输出契约 facade。
+"""
