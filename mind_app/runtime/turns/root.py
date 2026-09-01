@@ -30,10 +30,8 @@ from agent.application.turns.context import (
     AgentContext,
     TurnContext,
 )
-from mind_app.runtime.turns.executor import (
-    build_turn_input_payload,
-    execute_turn,
-)
+from mind_app.runtime.turns.executor import execute_turn
+from agent.application.turns.transcript import build_turn_input_payload
 from mind_app.runtime.turns.stream import stream_turn
 from agent.ports import OutputSessionFactory
 from agent.domain.policies import PermissionSettings

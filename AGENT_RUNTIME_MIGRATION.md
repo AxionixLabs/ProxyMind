@@ -279,6 +279,12 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   旧 `Exec*` 结果类型已删除。策略/权限/协议回归 `144 passed`，扩展主链 `186 passed`，职责
   守卫 `5 passed, 1 warning`；finalizer 同时改用具名 `TranscriptLifecyclePort`，相关回归
   `20 passed`。
+- Turn 协议边界第三组已完成归位：请求环境与输出会话准备迁入
+  `agent/adapters/protocol/turn_setup.py`，唯一终态资源收敛迁入
+  `agent/harness/execution/turn_finalizer.py`，Turn transcript payload 和开始/终态事实迁入
+  `agent/application/turns/transcript.py`。新增 `IdleStatusPort` 后 Harness 不再依赖具体 timer，
+  旧 setup/finalize 文件已删除；setup/finalize/Transcript/主链回归 `109 passed`，职责守卫
+  `4 passed, 1 warning`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：本轮全量扫描 `109 passed, 4 stale assertions, 66 warnings`；陈旧断言
@@ -419,6 +425,11 @@ wire schema，application 终态展示只消费中立输出与报告端口；Har
 结果归一化留在注入 adapter。旧 stream 三文件、旧 infrastructure 结果类、相关旧导入及迁移
 范围内的 `typing.cast`/`type: ignore` 已清零；批次乱序、审批恢复、权限授权、策略拒绝、hosted
 输出和根/Subagent Turn 均有回归覆盖。
+
+本次 Turn 协议边界第三组的删除条件已满足：setup 是唯一 wire request 准备边界，finalizer
+只持有具名生命周期端口，transcript helper 不解释协议或依赖基础设施；旧 setup/finalize 路径
+与生产导入清零。环境注入、回调继承、缺失输出工厂、终态清理顺序、中断 Stop Hook 和
+Transcript 回读均有回归覆盖。
 
 本次 media 切片的删除条件已满足：应用工具只消费 `ImageReaderPort`，具体文件读取器由
 `mind.py` 注入并由 `WorkspaceRuntimeOwner` 随工作区统一替换；旧 `view_image.py`、旧导入和
@@ -953,6 +964,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 拆分 Turn 协议边界第三组：setup 归 protocol adapter、finalizer 归 Harness、Turn transcript 事实归 application，并新增空闲计时器端口 | setup/finalize/Transcript/主链 `109 passed`；职责守卫 `4 passed, 1 warning`；`compileall`、旧路径扫描通过 |
 | 2026-09-02 | 拆分 Turn 协议边界第二组：执行策略结果归 domain、本地审批规则归 application、审批/工具事件归 protocol adapters，hosted 输出改由工具执行端口投影；finalizer 改用 Transcript 生命周期端口 | 策略/权限/协议 `144 passed`；扩展主链 `186 passed`；Transcript `20 passed`；职责守卫 `5 passed, 1 warning`；`compileall`、旧路径与迁移范围强制类型声明扫描通过 |
 | 2026-09-02 | 拆分 Turn 协议边界第一组：模型事件与工具结果归 protocol adapters，终态展示归 application，并以 `EventReportPort` 替代 Harness 对具体 transport 报告器的依赖 | 定向 `88 passed`；扩展主链 `326 passed`；全量架构 `109 passed / 4 stale assertions`，修正后相关 `5 passed, 2 warnings`；导入图、`compileall` 与旧导入扫描通过 |
 | 2026-09-02 | 将 Compact/Session/Turn Hook 生命周期迁入 Harness，拆出纯 Hook view builder 并删除旧 `mind_app/runtime/hooks` 源包 | Hook/压缩/流式 `167 passed`；职责守卫 `4 passed`；导入图、`compileall`、旧导入扫描和差异检查通过 |

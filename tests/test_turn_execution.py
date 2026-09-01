@@ -25,8 +25,8 @@ from agent.harness.hooks.scope import HookExecutionScope
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.harness.sessions.conversation import ConversationTurn
 from mind_app.runtime.turns import root as root_turns
+from agent.application.turns.transcript import build_turn_input_payload
 from mind_app.runtime.turns.executor import (
-    build_turn_input_payload,
     execute_turn,
     resolve_turn_hook_scope,
 )

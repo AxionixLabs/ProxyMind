@@ -72,10 +72,10 @@ from agent.harness.hooks.turn_lifecycle import (
 from agent.application.turns.exception_text import friendly_exception_text
 from agent.harness.tools.client_calls import ClientToolCallRunner
 from agent.harness.tools.plan_calls import PlanToolCallRunner
-from .executor import (
+from .executor import turn_continuation_count
+from agent.application.turns.transcript import (
     build_turn_input_payload,
     record_turn_started,
-    turn_continuation_count
 )
 from infrastructure.platform.idle_status import IdleStatusTimer
 from agent.adapters.protocol.approval_events import ApprovalEventHandler
@@ -83,10 +83,10 @@ from agent.adapters.protocol.tool_events import (
     ToolCallBatchBuffer,
     ToolEventHandler,
 )
-from .stream_setup import prepare_stream_turn
+from agent.adapters.protocol.turn_setup import prepare_stream_turn
 from agent.adapters.protocol.model_events import ModelStreamEventHandler
 from agent.adapters.protocol.tool_results import ToolResultDelivery
-from .stream_finalize import StreamTurnFinalizer
+from agent.harness.execution.turn_finalizer import StreamTurnFinalizer
 from agent.application.turns.presentation import (
     FailureProjectionMode,
     StreamTurnPresentation,

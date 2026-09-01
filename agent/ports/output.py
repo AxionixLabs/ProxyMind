@@ -84,6 +84,23 @@ class OutputStatusPort(ABC):
         ...
 
 
+@typing.runtime_checkable
+class IdleStatusPort(typing.Protocol):
+    """定义流式空闲状态计时器的调度和关闭生命周期。"""
+
+    def reschedule(self) -> None:
+        """从当前时刻重新安排一次空闲状态。"""
+        ...
+
+    def cancel_nowait(self) -> None:
+        """同步请求取消当前计时任务。"""
+        ...
+
+    async def cancel(self) -> None:
+        """取消并等待当前计时任务收束。"""
+        ...
+
+
 class OutputPort(OutputControlPort, OutputStatusPort):
     """描述终端渲染适配器需要的完整输出能力。"""
 
@@ -180,6 +197,7 @@ class OutputSessionFactory(typing.Protocol[PresentationViewT]):
 __all__ = (
     "BLOCK_OUTPUT",
     "ContentSink",
+    "IdleStatusPort",
     "OutputControlPort",
     "OutputDisplay",
     "OutputPort",

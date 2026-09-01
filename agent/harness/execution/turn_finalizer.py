@@ -4,12 +4,14 @@
 import typing
 from observability import observe_exception
 from agent.ports.transcript import TranscriptLifecyclePort
-from agent.ports import OutputControlPort
+from agent.ports import (
+    IdleStatusPort,
+    OutputControlPort,
+)
+from agent.application.turns.transcript import record_turn_finished
 from agent.application.turns.stream_outcome import StreamTurnOutcome
 from agent.application.hooks.models import StopHookDecision
 from agent.harness.hooks.turn_lifecycle import TurnHookEvents
-from infrastructure.platform.idle_status import IdleStatusTimer
-from .executor import record_turn_finished
 
 
 class _TurnStateStore(typing.Protocol):
@@ -49,7 +51,7 @@ class StreamTurnFinalizer:
         model_output: _ModelOutputLifecycle,
         retry_state_close: typing.Callable[[], None],
         stream_end: typing.Callable[[str], None] | None,
-        idle_wait: IdleStatusTimer,
+        idle_wait: IdleStatusPort,
         output_control: OutputControlPort,
         await_cleanup: _AwaitCleanup,
         continuation_count: int,

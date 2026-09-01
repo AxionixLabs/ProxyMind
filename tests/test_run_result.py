@@ -48,7 +48,7 @@ from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
 from agent.harness.hooks.scope import HookExecutionScope
 from agent.stores.approvals.ledger import ApprovalCallLedger
-from mind_app.runtime.turns.executor import build_turn_input_payload
+from agent.application.turns.transcript import build_turn_input_payload
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.domain.execution_policy import (
     Decision,

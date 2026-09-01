@@ -155,6 +155,7 @@ from .content import (
     SourcesOutput,
 )
 from .output import (
+    IdleStatusPort,
     BLOCK_OUTPUT,
     OutputDisplay,
     OutputControlPort,
@@ -298,6 +299,7 @@ __all__ = (
     "AssistantTextDelta",
     "ContentOutput",
     "ContentSink",
+    "IdleStatusPort",
     "OutputControlPort",
     "OutputDisplay",
     "OutputPort",

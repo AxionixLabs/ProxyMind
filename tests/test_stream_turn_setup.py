@@ -14,7 +14,7 @@ from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
 from agent.harness.hooks.scope import HookExecutionScope
-from mind_app.runtime.turns import stream_setup
+from agent.adapters.protocol import turn_setup
 from agent.domain.policies import preset_permissions
 
 
@@ -145,7 +145,7 @@ def test_prepare_stream_turn_separates_request_and_continuation_options() -> Non
         "extras": {"trace": "preserved"},
     }
 
-    prepared = stream_setup.prepare_stream_turn(
+    prepared = turn_setup.prepare_stream_turn(
         execution,
         options,
     )
@@ -189,7 +189,7 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities() -> None:
         environment_snapshot=snapshot,
     )
 
-    prepared = stream_setup.prepare_stream_turn(
+    prepared = turn_setup.prepare_stream_turn(
         _execution(
             retry_state=retry_state_port,
             session_context=session_context,
@@ -217,7 +217,7 @@ def test_prepare_stream_turn_rejects_missing_session_factory() -> None:
         RuntimeError,
         match="stream output session factory is required",
     ):
-        stream_setup.prepare_stream_turn(
+        turn_setup.prepare_stream_turn(
             _execution(),
             {
                 "exec_env": _exec_env_snapshot(),
@@ -233,7 +233,7 @@ def test_prepare_stream_turn_rejects_non_callable_callback() -> None:
         TypeError,
         match="on_turn_input_event must be callable",
     ):
-        stream_setup.prepare_stream_turn(
+        turn_setup.prepare_stream_turn(
             _execution(),
             {
                 "exec_env": _exec_env_snapshot(),

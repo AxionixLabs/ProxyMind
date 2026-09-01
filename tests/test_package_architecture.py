@@ -199,6 +199,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/turns/presentation.py",
         "application/turns/stream_boundaries.py",
         "application/turns/stream_outcome.py",
+        "application/turns/transcript.py",
         "application/views/builders/__init__.py",
         "application/views/builders/approval.py",
         "application/views/builders/batch.py",
@@ -227,6 +228,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "harness/execution/actor.py",
         "harness/execution/subagent_runner.py",
         "harness/execution/subagent_submission.py",
+        "harness/execution/turn_finalizer.py",
         "harness/hooks/tool_lifecycle.py",
         "harness/hooks/compaction.py",
         "harness/hooks/presentation.py",
@@ -262,6 +264,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "adapters/protocol/model_events.py",
         "adapters/protocol/tool_events.py",
         "adapters/protocol/tool_results.py",
+        "adapters/protocol/turn_setup.py",
     }
     missing = [
         relative
@@ -2628,7 +2631,7 @@ def test_transcript_sink_port_is_owned_by_agent_ports() -> None:
     assert "class TranscriptSink" in target_source
     assert "class TranscriptLifecyclePort" in target_source
     finalizer_source = (
-        PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "stream_finalize.py"
+        PROJECT_ROOT / "agent" / "harness" / "execution" / "turn_finalizer.py"
     ).read_text(encoding="utf-8-sig")
     assert "TranscriptLifecyclePort" in finalizer_source
     assert "typing.cast" not in finalizer_source
@@ -4326,7 +4329,9 @@ def test_turn_stream_protocol_boundaries_have_single_owners() -> None:
         "stream_model.py",
         "stream_presentation.py",
         "stream_policy.py",
+        "stream_setup.py",
         "stream_tools.py",
+        "stream_finalize.py",
     }
     assert not any((legacy_root / name).is_file() for name in legacy_names)
 
@@ -4335,6 +4340,7 @@ def test_turn_stream_protocol_boundaries_have_single_owners() -> None:
         PROJECT_ROOT / "agent" / "adapters" / "protocol" / "approval_events.py",
         PROJECT_ROOT / "agent" / "adapters" / "protocol" / "tool_events.py",
         PROJECT_ROOT / "agent" / "adapters" / "protocol" / "tool_results.py",
+        PROJECT_ROOT / "agent" / "adapters" / "protocol" / "turn_setup.py",
     )
     assert all(path.is_file() for path in adapter_paths)
     adapter_violations = _forbidden_imports(
@@ -4373,6 +4379,22 @@ def test_turn_stream_protocol_boundaries_have_single_owners() -> None:
     assert "protocol." not in local_policy_source
     assert "infrastructure" not in local_policy_source
     assert "typing.cast" not in local_policy_source
+
+    transcript_path = (
+        PROJECT_ROOT / "agent" / "application" / "turns" / "transcript.py"
+    )
+    transcript_source = transcript_path.read_text(encoding="utf-8-sig")
+    assert "protocol." not in transcript_source
+    assert "infrastructure" not in transcript_source
+
+    finalizer_path = (
+        PROJECT_ROOT / "agent" / "harness" / "execution" / "turn_finalizer.py"
+    )
+    finalizer_source = finalizer_path.read_text(encoding="utf-8-sig")
+    assert "IdleStatusPort" in finalizer_source
+    assert "protocol." not in finalizer_source
+    assert "infrastructure" not in finalizer_source
+    assert "mind_app" not in finalizer_source
 
     report_port_consumers = (
         PROJECT_ROOT / "agent" / "ports" / "turns.py",
@@ -5024,6 +5046,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.turns.lifecycle",
         "agent.application.turns.presentation",
         "agent.application.turns.stream_boundaries",
+        "agent.application.turns.transcript",
         "agent.application.hooks.context",
         "agent.application.turns.execution",
         "agent.application.turns.foreground",
@@ -5081,6 +5104,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.adapters.protocol.approval_events",
         "agent.adapters.protocol.tool_events",
         "agent.adapters.protocol.tool_results",
+        "agent.adapters.protocol.turn_setup",
         "agent.adapters.turns.root",
         "agent.harness.agents.control",
         "agent.harness.agents.delivery",
@@ -5098,6 +5122,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.harness.subscription.owner",
         "agent.harness.execution.subagent_runner",
         "agent.harness.execution.subagent_submission",
+        "agent.harness.execution.turn_finalizer",
         "agent.harness.tools.client_calls",
         "agent.harness.tools.plan_calls",
         "agent.ports.subscription",
