@@ -11,6 +11,9 @@ from unittest.mock import (
 import pytest
 
 from agent.application.turns.run_result import RunResult
+from agent.application.turns.foreground import (
+    ApplicationTurnForegroundLifecycle,
+)
 from agent.application.turns.context import (
     AgentContext,
     TurnContext
@@ -22,9 +25,6 @@ from agent.harness.hooks.scope import HookExecutionScope
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.harness.sessions.conversation import ConversationTurn
 from mind_app.runtime.turns import root as root_turns
-from frontends.terminal.turn_lifecycle import (
-    ControllerTurnForegroundLifecycle,
-)
 from mind_app.runtime.turns.executor import (
     build_turn_input_payload,
     execute_turn,
@@ -719,7 +719,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         metadata={"origin": "test"},
         ev_report=report,
         execution_runtime=mind,
-        lifecycle=ControllerTurnForegroundLifecycle(mind),
+        lifecycle=ApplicationTurnForegroundLifecycle(mind, Mock()),
     )
 
     assert result.status == "completed"

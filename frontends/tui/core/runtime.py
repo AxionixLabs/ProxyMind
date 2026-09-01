@@ -26,10 +26,10 @@ from agent.application.approvals.models import (
     ApprovalQueueSnapshot,
     ApprovalRequest
 )
-from frontends.runtime import (
+from agent.ports import (
+    ActivityRuntimePort,
     ActivityStatusKind,
-    FrontendRuntime,
-    WaitRetryState
+    RetryState,
 )
 from frontends.interaction.contracts import PromptContext
 from frontends.terminal.text import sanitize_terminal_line
@@ -1871,7 +1871,7 @@ class TuiRuntime(object):
 
         self.invalidate()
 
-    def set_wait_retry_state(self, state: WaitRetryState) -> None:
+    def set_wait_retry_state(self, state: RetryState) -> None:
         """切换等待动画的重试来源并保持当前动画相位。"""
         self.activity.set_wait_retry_state(state)
 
@@ -2466,7 +2466,7 @@ class TuiRuntime(object):
             self.viewport.refresh_geometry()
 
 
-def require_tui_runtime(runtime: FrontendRuntime) -> TuiRuntime:
+def require_tui_runtime(runtime: ActivityRuntimePort) -> TuiRuntime:
     """验证前端运行期为 TUI 具体实现。"""
     if not isinstance(runtime, TuiRuntime):
         raise TypeError("TUI frontend requires TuiRuntime")

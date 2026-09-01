@@ -1344,8 +1344,9 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     assert len(upgrade_calls) == 1
     _context, kwargs = upgrade_calls[0]
     assert kwargs["explicit_upgrade"] is True
-    assert kwargs["design"] is design
-    assert "progress" not in kwargs
+    progress = kwargs["progress"]
+    assert progress.anim_manager is not None
+    assert progress.design is design
     report.close.assert_called_once_with()
 
 

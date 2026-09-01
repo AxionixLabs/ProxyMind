@@ -34,8 +34,10 @@ from frontends.tui.core.styles import text_block
 from frontends.tui.core.task_state import TuiTaskState
 from frontends.tui.features.helix import TuiUpgradeProgress
 from frontends.tui.session.barriers import TuiForegroundTasks
-from agent.application.turns.foreground import run_foreground_turn
-from frontends.terminal.turn_lifecycle import ControllerTurnForegroundLifecycle
+from agent.application.turns.foreground import (
+    ApplicationTurnForegroundLifecycle,
+    run_foreground_turn,
+)
 from frontends.terminal.worked import emit_worked_footer
 from frontends.terminal.mcp_status import (
     external_mcp_status_view,
@@ -629,7 +631,10 @@ async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
     mind = MindStub()
     mind.frontend = SimpleNamespace(runtime=runtime)
 
-    await run_foreground_turn(ControllerTurnForegroundLifecycle(mind), runner)
+    await run_foreground_turn(
+        ApplicationTurnForegroundLifecycle(mind, emit_worked_footer),
+        runner,
+    )
 
     assert not runtime.activity.active
     assert runtime.screen._status_fragments() == []

@@ -11,7 +11,7 @@ from frontends.tui.contracts.resume import (
     ResumePickerResult
 )
 from frontends.tui.contracts.text import FragmentBlock
-from frontends.runtime import ActivityStatusKind
+from agent.ports.frontend import ActivityStatusKind
 from ..core.document import TuiBlockKind
 from ..core.interrupt import InterruptDisposition
 from ..core.queued import TuiSubmission

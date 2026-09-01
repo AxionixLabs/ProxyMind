@@ -18,6 +18,10 @@ from agent.application.config.settings import (
     FeatureSettings,
 )
 from agent.application.turns.context import TurnContext
+from agent.application.turns.foreground import (
+    ApplicationTurnForegroundLifecycle,
+    FrontendTurnAnimation,
+)
 from agent.domain.policies import (
     PermissionSettings,
     resolve_permissions
@@ -37,7 +41,6 @@ from observability import (
     observe,
     observe_exception
 )
-from frontends.interaction.attachments import Attach
 from infrastructure.services.runtime_owner import ServiceRuntimeOwner
 from protocol.client.reports import EventReportRuntimeOwner
 from agent.harness.sessions.conversation import (
@@ -75,19 +78,16 @@ from infrastructure.config.runtime_paths import (
     mind_history_db_path,
 )
 from agent.harness.subscription.owner import SubscriptionRuntimeOwner
-from frontends.runtime import (
+from agent.ports.frontend import (
     ActivityStatusKind,
-    Frontend
-)
-from frontends.output.silent import create_silent_output_session
-from frontends.terminal.contracts import TerminalDesign
-from frontends.terminal.animation import TurnAnimationAdapter
-from frontends.terminal.turn_lifecycle import (
-    ControllerTurnForegroundLifecycle,
+    AttachmentStatePort,
+    FrontendPort,
+    TurnCompletionPresenterPort,
 )
 from agent.ports import (
     ApprovalLedger,
     HookRegistryPort,
+    OutputSessionFactory,
     ProtocolCommandClient,
 )
 from agent.harness.hooks.scope import HookExecutionScope
@@ -176,7 +176,7 @@ class Mind(object):
         self.pref: Preferences = kwargs["pref"]
         self.config_session: ConfigSession = kwargs["config_session"]
         self.permissions: PermissionSettings = kwargs["permissions"]
-        self.frontend: Frontend = kwargs["frontend"]
+        self.frontend: FrontendPort = kwargs["frontend"]
 
         hook_registry = kwargs.get("hook_registry")
         if not isinstance(hook_registry, HookRegistryPort):
@@ -198,14 +198,18 @@ class Mind(object):
         self.anim_manager: AsyncAnimManager = kwargs.get("anim_manager") or AsyncAnimManager()
 
         self.animate: bool = bool(kwargs.get("animate", True))
-        self.turn_animation = TurnAnimationAdapter(
+        self.turn_animation = FrontendTurnAnimation(
             self.frontend.runtime,
             self.stop_anim,
         )
-        self.turn_foreground_lifecycle = ControllerTurnForegroundLifecycle(self)
+        turn_completion_presenter: TurnCompletionPresenterPort = kwargs[
+            "turn_completion_presenter"
+        ]
+        self.turn_foreground_lifecycle = ApplicationTurnForegroundLifecycle(
+            self,
+            turn_completion_presenter,
+        )
         self.turn_session_context = ControllerTurnSessionContext(self)
-
-        self.design: TerminalDesign | None = kwargs.get("design")
 
         self.conversation: ConversationState = ConversationState()
         self.turn_session_state = ControllerTurnSessionState(self)
@@ -225,6 +229,9 @@ class Mind(object):
             self.turn_execution_runtime,
         )
         self.subagent_cleanup = self
+        subagent_session_factory: OutputSessionFactory = kwargs[
+            "subagent_session_factory"
+        ]
         self.subagent_execution = ControllerSubagentExecution(
             self.turn_execution_runtime,
             model_capability=self.runtime_services.model_capability,
@@ -237,7 +244,7 @@ class Mind(object):
                 else None
             ),
             effect_journal_factory=self.runtime_services.create_effect_journal,
-            session_factory=create_silent_output_session,
+            session_factory=subagent_session_factory,
         )
         self.root_turn_session = ControllerRootTurnSession(self)
         self._conversation_lifecycle_id: int = 0
@@ -249,10 +256,10 @@ class Mind(object):
 
         self.report: RunReport = kwargs["report"]
 
-        self.attach: Attach = Attach()
+        self.attach: AttachmentStatePort = kwargs["attachment_state"]
 
         self.approval_coordinator = ApprovalCoordinator(
-            self.frontend.interaction,
+            kwargs["approval_presenter"],
             snapshot_error_handler=_observe_approval_snapshot_failure,
         )
         self.approval_call_ledger = ApprovalCallLedger()

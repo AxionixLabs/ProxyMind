@@ -342,8 +342,6 @@ async def download_service_runtime(
     return await ensure_service_runtime_asset(
         context,
         explicit_upgrade=False,
-        anim_manager=mind.anim_manager,
-        design=mind.design,
         progress=TuiUpgradeProgress(runtime),
     )
 

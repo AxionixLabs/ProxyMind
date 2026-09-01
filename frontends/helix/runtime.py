@@ -10,14 +10,11 @@ from collections.abc import (
 )
 
 from agent.domain.tool_policy import ToolFilterMode
-from frontends.runtime import ActivityStatusKind
-from infrastructure.platform.animation import AsyncAnimManager
+from agent.ports.frontend import ActivityStatusKind
 from infrastructure.services.helix_environment import fetch_service_exec_env
 from infrastructure.services.server_manager import ServerManage
 from infrastructure.update.assets import ensure_asset
 from infrastructure.update.runtime import UpgradeProgress
-from frontends.terminal.contracts import TerminalDesign
-from frontends.terminal.download_renderer import TerminalDownloadProgress
 from observability import (
     observe,
     observe_exception
@@ -74,8 +71,6 @@ class HelixRuntimeHost(typing.Protocol):
     不接管宿主或后台服务的最终关闭生命周期。
     """
 
-    anim_manager: AsyncAnimManager
-    design: TerminalDesign | None
     service_runtime: HelixServiceRuntimePort
 
     async def start_inbuild_startup_anim(
@@ -116,23 +111,15 @@ async def ensure_runtime_asset(
     *,
     packaged: bool,
     explicit_upgrade: bool,
-    anim_manager: AsyncAnimManager,
-    design: TerminalDesign | None,
-    progress: UpgradeProgress | None = None
+    progress: UpgradeProgress,
 ) -> bool:
     """复用入口升级流程确认运行时资产。"""
-    resolved_progress = progress
-    if resolved_progress is None:
-        if design is None:
-            raise RuntimeError("terminal design is required without upgrade progress")
-        resolved_progress = TerminalDownloadProgress(anim_manager, design)
-
     return await ensure_asset(
         asset=spec.executable,
         supports=spec.supports,
         packaged=packaged,
         explicit_upgrade=explicit_upgrade,
-        progress=resolved_progress,
+        progress=progress,
     )
 
 
@@ -140,17 +127,13 @@ async def ensure_service_runtime_asset(
     context: ServiceRuntimeContext,
     *,
     explicit_upgrade: bool,
-    anim_manager: AsyncAnimManager,
-    design: TerminalDesign | None,
-    progress: UpgradeProgress | None = None
+    progress: UpgradeProgress,
 ) -> bool:
     """确认当前服务运行时资产存在，必要时执行升级流程。"""
     return await ensure_runtime_asset(
         context.spec,
         packaged=context.packaged,
         explicit_upgrade=explicit_upgrade,
-        anim_manager=anim_manager,
-        design=design,
         progress=progress,
     )
 
@@ -158,16 +141,12 @@ async def ensure_service_runtime_asset(
 async def prepare_service_runtime(
     context: ServiceRuntimeContext,
     *,
-    anim_manager: AsyncAnimManager,
-    design: TerminalDesign | None,
-    progress: UpgradeProgress | None = None
+    progress: UpgradeProgress,
 ) -> bool:
     """准备服务运行时资产、环境变量和执行权限。"""
     await ensure_service_runtime_asset(
         context,
         explicit_upgrade=False,
-        anim_manager=anim_manager,
-        design=design,
         progress=progress,
     )
 
@@ -236,7 +215,7 @@ async def prepare_and_start_service_runtime(
         [ServiceRuntimeContext],
         typing.Awaitable[bool],
     ] | None = None,
-    progress: UpgradeProgress | None = None,
+    progress: UpgradeProgress,
     download_confirmed: bool = False,
     defer_activity_stop: bool = False
 ) -> bool:
@@ -259,8 +238,6 @@ async def prepare_and_start_service_runtime(
 
         prepared = await prepare_service_runtime(
             context,
-            anim_manager=mind.anim_manager,
-            design=mind.design,
             progress=progress,
         )
         if not prepared:

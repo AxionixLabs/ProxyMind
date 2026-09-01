@@ -109,6 +109,14 @@ from .transcript import (
     TranscriptSink,
 )
 from .presentation import TurnForegroundLifecyclePort
+from .frontend import (
+    ActivityRuntimePort,
+    ActivitySnapshot,
+    ActivityStatusKind,
+    AttachmentStatePort,
+    FrontendPort,
+    TurnCompletionPresenterPort,
+)
 from .content import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
@@ -257,6 +265,12 @@ __all__ = (
     "TranscriptFactory",
     "TranscriptSink",
     "TurnForegroundLifecyclePort",
+    "ActivityRuntimePort",
+    "ActivitySnapshot",
+    "ActivityStatusKind",
+    "AttachmentStatePort",
+    "FrontendPort",
+    "TurnCompletionPresenterPort",
     "CodingFactory",
     "CodingRuntime",
     "ExecutionPolicy",

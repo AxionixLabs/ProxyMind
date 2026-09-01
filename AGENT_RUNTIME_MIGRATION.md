@@ -107,9 +107,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - `RootTurnCommandExecutor` 已迁移至 `agent/adapters/turns/root.py`，只依赖冻结命令、
   权限领域值和注入的 operation；CLI、MCP、Subscription 在各自入口绑定 controller，
   `mind_app.runtime.turns.root` 不再拥有 application 命令适配器。
-- `run_foreground_turn` 已迁移至 `frontends/terminal/turn_lifecycle.py`，
-  动画、终端进度和清理由展示边界持有；runtime root 不再定义前端生命周期函数，TUI、
-  CLI 和根轮次执行仍共享同一实现。
+- `run_foreground_turn`、活动状态适配和前台清理顺序已统一归入
+  `agent/application/turns/foreground.py`；`agent/ports/frontend.py` 定义可替换前端的
+  Activity、Frontend、附件和完成投影端口，worked footer 的具体 renderer 由组合根注入。
 - 跨前端应用结果视图已迁移至 `agent/application/views/`，按 Run、工具、计划、补丁、
   审批、Hook 和进度语义拆分；`PresentationView`/`PresentationSink` 归
   `views/contracts.py`，纯文本原语继续归 `agent/ports/presentation.py`。旧
@@ -138,8 +138,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   职责拆入 `infrastructure/mcp`；旧 `mind_app/runtime/mcp/config.py` 与 `registry.py`
   已删除，运行时会话组合只消费这些基础设施入口。
 - Helix 环境聚合已迁入 `infrastructure/services/helix_environment.py`，启动展示和前端
-  宿主协调已迁入 `frontends/helix/runtime.py`；终端轮次生命周期通过
-  `TerminalTurnHost` 显式消费前端运行时，不再使用 Controller 类型或动态方法探测。
+  宿主协调已迁入 `frontends/helix/runtime.py`；资源下载显式消费 `UpgradeProgress`，
+  Controller 不再保存 `TerminalDesign` 或替前端选择下载展示实现。
 - 流式输出净化已迁入 `frontends/output/sanitize.py`，旧 `mind_app/stream_sanitize.py`
   已删除；净化行为与输出适配器同属可替换前端边界。
 - TUI 根轮次执行已收敛为组合根绑定的 `TuiRootTurnRunner` 用例，前端不再逐层传递
@@ -175,6 +175,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - 前台轮次执行顺序已从 terminal adapter 提升到 `agent/application/turns/foreground.py`，
   worked footer 通过 `TurnForegroundLifecyclePort` 交给 terminal 实现；展示、失败清理、TUI
   活动和根轮次回归 `122 passed`，`mind_app/runtime/turns/root.py` 不再导入前端。
+- Controller 的附件状态、Frontend runtime、静默 Subagent 输出、审批 presenter 和轮次完成
+  投影均改为显式端口/组合根注入，旧 terminal lifecycle/animation adapter 已删除；Helix
+  下载改为显式 `UpgradeProgress`。导入图中 `mind_app -> frontends` 的 `1 file / 6 edges`
+  已清零，前后端历史包双向边均为零。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -253,14 +257,13 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 当前只允许进入以下顺序，不以补丁式需求插队：
 
-0. **旧应用反向前端依赖清零**：`frontends -> mind_app` 已清零且由全前端守卫锁定；
-   root 前台轮次编排已归 application，导入图剩余 `mind_app -> frontends` 的
-   `1 file / 6 edges` 全部集中在 `mind_app/controller.py`。下一步按附件输入、Frontend
-   容器、静默输出 Session 和终端生命周期 adapter 的真实所有权拆分 Controller，禁止把
-   六类对象迁入新的聚合 facade。
+0. **旧应用反向前端依赖清零（已完成）**：`frontends -> mind_app` 和
+   `mind_app -> frontends` 均已清零并由双向架构守卫锁定。附件输入、Frontend runtime、
+   静默输出 Session、审批 presenter 和终端完成投影分别使用具名端口或组合根注入；旧
+   terminal lifecycle/animation 文件已物理删除，没有新增聚合兼容 facade。
 
 1. **入口与数据迁移**：`mind_core` 的配置、权限、hooks、skills 已完成生产导入清零，
-   终端轮次生命周期已迁入 `frontends/terminal`；Hook 命令执行器已归属
+   前台轮次生命周期已归 application/ports 并由组合根绑定具体展示；Hook 命令执行器已归属
    `infrastructure/platform`，Hook runtime/registry/Scope 已接入 `agent/harness/hooks`；
    通用 MCP 生命周期所有者已迁入 `agent/harness/mcp`；本地服务生命周期 owner、keepalive、
    上下文类型和 setup helpers 已迁入 `infrastructure/services`；Subscription 适配器已
@@ -847,3 +850,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | SubagentRuntime 的流式 owner、Hook scope、权限授予和停止清理改为显式端口，删除 `_controller` 状态及流式调用传递 | Subagent/工具 `39 passed`；生命周期专项 `5 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 删除 `mind_app/presentation` 源包，将纯工具 view/错误摘要/审批 application 迁入 `agent`，将终端 renderer/trace/样式迁入 `frontends/terminal`，并移除 application view 的终端预渲染字段 | 展示、TUI、审批、协议效果回归 `926 passed`；职责守卫 `8 passed, 3 warnings`；依赖图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将审批 Coordinator 与 presenter 契约迁入 `agent/application/approvals`，由组合根注入快照失败观测回调并删除 `mind_app/approval` 源包 | 审批/TUI/终端交互回归 `283 passed`，Controller/启动回归 `42 passed`；职责守卫 `4 passed`；依赖图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | Controller 前端边界收口：新增 Frontend/Activity/Attachment ports，组合根注入具体附件、静默输出、审批与完成投影；删除 terminal lifecycle/animation，并显式注入 Helix UpgradeProgress | 生命周期 `121 passed`；CLI/TUI `236 passed`；MCP `14 passed`；Controller `49 passed`；完整架构扫描 `104 passed`，修正两项过期路径断言后专项 `5 passed`；导入图双向边清零，`compileall`、差异检查通过 |

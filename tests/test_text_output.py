@@ -33,8 +33,10 @@ from agent.application.views import (
     ProgressView,
 )
 from agent.application.views.builders.run import build_run_started_view
-from agent.application.turns.foreground import run_foreground_turn
-from frontends.terminal.turn_lifecycle import ControllerTurnForegroundLifecycle
+from agent.application.turns.foreground import (
+    ApplicationTurnForegroundLifecycle,
+    run_foreground_turn,
+)
 from frontends.terminal.worked import (
     emit_worked_footer,
     worked_footer_text,
@@ -526,7 +528,10 @@ async def test_non_animated_mode_does_not_emit_worked_footer() -> None:
     )
     runner = AsyncMock()
 
-    await run_foreground_turn(ControllerTurnForegroundLifecycle(mind), runner)
+    await run_foreground_turn(
+        ApplicationTurnForegroundLifecycle(mind, emit_worked_footer),
+        runner,
+    )
 
     assert application.views == []
 
@@ -565,7 +570,10 @@ async def test_worked_footer_precedes_final_animation_cleanup() -> None:
     async def runner() -> None:
         events.append("runner")
 
-    await run_foreground_turn(ControllerTurnForegroundLifecycle(mind), runner)
+    await run_foreground_turn(
+        ApplicationTurnForegroundLifecycle(mind, emit_worked_footer),
+        runner,
+    )
 
     assert events == [
         "progress.begin",

@@ -472,8 +472,8 @@ def test_root_turn_command_adapter_is_controller_independent() -> None:
     )
 
 
-def test_foreground_turn_orchestration_uses_terminal_presentation_port() -> None:
-    """确保前台轮次编排与终端展示实现归属不同边界。"""
+def test_foreground_turn_orchestration_uses_injected_presentation_port() -> None:
+    """确保前台轮次编排只消费注入的展示端口。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "root.py"
     application_path = (
         PROJECT_ROOT
@@ -482,7 +482,7 @@ def test_foreground_turn_orchestration_uses_terminal_presentation_port() -> None
         / "turns"
         / "foreground.py"
     )
-    terminal_path = (
+    legacy_terminal_path = (
         PROJECT_ROOT
         / "frontends"
         / "terminal"
@@ -490,7 +490,9 @@ def test_foreground_turn_orchestration_uses_terminal_presentation_port() -> None
     )
 
     assert application_path.is_file(), "foreground Turn use case is missing"
-    assert terminal_path.is_file(), "terminal turn lifecycle adapter is missing"
+    assert not legacy_terminal_path.exists(), (
+        "legacy terminal turn lifecycle adapter remains"
+    )
     legacy_tree = ast.parse(
         legacy_path.read_text(encoding="utf-8-sig"),
         filename=str(legacy_path),
@@ -521,38 +523,16 @@ def test_foreground_turn_orchestration_uses_terminal_presentation_port() -> None
         + "\n".join(application_violations)
     )
 
-    terminal_tree = ast.parse(
-        terminal_path.read_text(encoding="utf-8-sig"),
-        filename=str(terminal_path),
-    )
-    terminal_functions = {
+    application_classes = {
         node.name
-        for node in terminal_tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    assert not terminal_functions
-    terminal_classes = {
-        node.name
-        for node in terminal_tree.body
+        for node in application_tree.body
         if isinstance(node, ast.ClassDef)
     }
-    assert "TerminalTurnHost" in terminal_classes
-
-    imported_modules = {
-        node.module or ""
-        for node in ast.walk(terminal_tree)
-        if isinstance(node, ast.ImportFrom) and node.level == 0
-    }
-    assert not any(
-        module == "mind_app" or module.startswith("mind_app.")
-        for module in imported_modules
-    )
-    assert not any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "getattr"
-        for node in ast.walk(terminal_tree)
-    )
+    assert {
+        "ApplicationTurnForegroundLifecycle",
+        "ForegroundTurnHost",
+        "FrontendTurnAnimation",
+    }.issubset(application_classes)
 
 
 def test_infrastructure_does_not_depend_on_legacy_runtime() -> None:
@@ -3715,6 +3695,23 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
         "StyledBlock",
     }
 
+    frontend_port_path = PROJECT_ROOT / "agent" / "ports" / "frontend.py"
+    frontend_port_tree = ast.parse(
+        frontend_port_path.read_text(encoding="utf-8-sig"),
+        filename=str(frontend_port_path),
+    )
+    frontend_port_definitions = {
+        node.name
+        for node in frontend_port_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert frontend_port_definitions == {
+        "ActivityRuntimePort",
+        "AttachmentStatePort",
+        "FrontendPort",
+        "TurnCompletionPresenterPort",
+    }
+
     model_path = PROJECT_ROOT / "mind_app" / "presentation" / "models.py"
     assert not model_path.exists(), "legacy presentation models module still exists"
 
@@ -3769,9 +3766,14 @@ def test_frontend_runtime_and_terminal_are_owned_by_frontends() -> None:
         PROJECT_ROOT / "frontends" / "terminal" / "highlighting.py",
         PROJECT_ROOT / "frontends" / "terminal" / "renderers" / "dispatch.py",
         PROJECT_ROOT / "frontends" / "terminal" / "traces" / "models.py",
-        PROJECT_ROOT / "frontends" / "terminal" / "turn_lifecycle.py",
     )
     assert all(path.is_file() for path in target_paths)
+    assert not (
+        PROJECT_ROOT / "frontends" / "terminal" / "turn_lifecycle.py"
+    ).exists()
+    assert not (
+        PROJECT_ROOT / "frontends" / "terminal" / "animation.py"
+    ).exists()
 
     legacy_paths = (
         PROJECT_ROOT / "mind_app" / "presentation" / "application.py",
@@ -4254,7 +4256,12 @@ def test_frontends_use_injected_application_hosts() -> None:
     )
     assert "class CliCommandHost(typing.Protocol)" in cli_dispatch
     assert "class McpApplicationHost(typing.Protocol)" in mcp_server
-    assert "application_host_factory=Mind" in composition
+    assert "application_host_factory=create_application_host" in composition
+    reverse_violations = _forbidden_imports("mind_app", {"frontends"})
+    assert not reverse_violations, (
+        "legacy application imports frontend implementations:\n"
+        + "\n".join(reverse_violations)
+    )
 
 
 def test_presentation_output_has_no_legacy_package_or_imports() -> None:
@@ -4541,8 +4548,9 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.domain.agents",
         "agent.domain.tool_policy",
         "agent.domain.execution_policy",
-        "agent.ports",
-        "agent.ports.presentation",
+            "agent.ports",
+            "agent.ports.frontend",
+            "agent.ports.presentation",
         "agent.ports.agent_messages",
         "agent.ports.transcript",
         "agent.adapters.agents.messages",

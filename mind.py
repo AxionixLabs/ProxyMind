@@ -6,8 +6,10 @@ import typing
 import functools
 from agent.composition import create_runtime_services
 from agent.application import RuntimeServices
+from agent.application.approvals.presenter import ApprovalPresenterPort
 from agent.application.turns.run_result import RunResult
 from agent.ports import (
+    FrontendPort,
     ModelCapability,
     ProtocolCommandClient,
 )
@@ -37,8 +39,21 @@ from infrastructure.services.turn_environment import (
 from mind_app.runtime.turns.root import run_root_turn
 from mind_app.runtime.compaction import compact_conversation
 from mind_app.controller import Mind
+from frontends.interaction.attachments import Attach
+from frontends.output.silent import create_silent_output_session
+from frontends.terminal.worked import emit_worked_footer
 from frontends.tui.features.conversation import ConversationCompactor
 from frontends.subscription.runtime import AgentRuntime
+
+
+@typing.runtime_checkable
+class _ComposedFrontend(FrontendPort, typing.Protocol):
+    """描述进程组合根装配应用宿主所需的完整前端能力。"""
+
+    @property
+    def interaction(self) -> ApprovalPresenterPort:
+        """返回工具审批展示端口。"""
+        ...
 
 
 def bind_root_turn_runner(
@@ -91,6 +106,29 @@ def bind_conversation_compactor(host: object) -> ConversationCompactor:
     if not isinstance(host, Mind):
         raise TypeError("conversation compactor host must be Mind")
     return functools.partial(compact_conversation, host)
+
+
+def create_application_host(
+    level: str,
+    power: int,
+    state: dict[str, object],
+    **kwargs: object,
+) -> Mind:
+    """在唯一进程组合根装配应用宿主的前端侧依赖。"""
+    frontend = kwargs.get("frontend")
+    if not isinstance(frontend, _ComposedFrontend):
+        raise TypeError("application frontend is incomplete")
+
+    return Mind(
+        level,
+        power,
+        state,
+        **kwargs,
+        approval_presenter=frontend.interaction,
+        attachment_state=Attach(),
+        subagent_session_factory=create_silent_output_session,
+        turn_completion_presenter=emit_worked_footer,
+    )
 
 
 def create_hook_registry(*, bypass_hook_trust: bool = False) -> HookRegistry:
@@ -193,11 +231,11 @@ if __name__ == "__main__":
         runtime_services=runtime_services,
         mcp_server_runner=functools.partial(
             run_mind_mcp_server,
-            application_host_factory=Mind,
+            application_host_factory=create_application_host,
             turn_runner=root_turn_runner,
             environment_snapshot_provider=capture_turn_environment,
         ),
-        application_host_factory=Mind,
+        application_host_factory=create_application_host,
         turn_runner=root_turn_runner,
         environment_snapshot_provider=capture_active_turn_environment,
         conversation_compactor_factory=bind_conversation_compactor,

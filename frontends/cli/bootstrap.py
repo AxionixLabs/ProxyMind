@@ -26,6 +26,7 @@ from agent.ports import (
     ProtocolCommandClient,
 )
 from infrastructure.platform.animation import AsyncAnimManager
+from infrastructure.update.runtime import UpgradeProgress
 from infrastructure.services.server_manager import ServerManage
 from infrastructure.errors import AppError
 from infrastructure.config.schema import ConfigOverride
@@ -65,6 +66,7 @@ from frontends.helix.runtime import (
 )
 
 from frontends.terminal.contracts import TerminalDesign
+from frontends.terminal.download_renderer import TerminalDownloadProgress
 from frontends.tui.features.conversation import (
     ConversationCompactor,
     ConversationCompactorFactory,
@@ -97,6 +99,16 @@ from .selection import (
 )
 
 CleanupResult = typing.TypeVar("CleanupResult")
+
+
+def _terminal_upgrade_progress(
+    animation: AsyncAnimManager,
+    design: TerminalDesign | None,
+) -> UpgradeProgress:
+    """创建当前命令行输出模式使用的资源升级进度端口。"""
+    if design is None:
+        raise RuntimeError("terminal download design is required")
+    return TerminalDownloadProgress(animation, design)
 
 
 class _ExternalMcpState(typing.Protocol):
@@ -434,8 +446,7 @@ async def _run_application(
             await ensure_service_runtime_asset(
                 service_context,
                 explicit_upgrade=True,
-                anim_manager=animation,
-                design=design,
+                progress=_terminal_upgrade_progress(animation, design),
             )
             observe("upgrade.complete")
             return 0
@@ -617,7 +628,6 @@ async def _run_controller(
             anim_manager=animation,
             animate=output_mode_uses_animation(output_mode),
             frontend=frontend,
-            design=design,
             report=report,
             permissions=permissions,
             hook_registry=hook_registry,
@@ -680,6 +690,7 @@ async def _run_controller(
             helix_linked = await prepare_and_start_service_runtime(
                 controller,
                 tool_profile=helix_profile,
+                progress=_terminal_upgrade_progress(animation, design),
             )
             if not helix_linked:
                 _emit_helix_skipped(controller)

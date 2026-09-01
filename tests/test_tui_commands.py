@@ -1773,8 +1773,6 @@ async def test_helix_runtime_download_does_not_start_or_link(monkeypatch) -> Non
     ensure = AsyncMock(return_value=True)
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
-        anim_manager=object(),
-        design=object(),
         link_service_mcp=Mock(),
     )
     monkeypatch.setattr(helix, "ensure_service_runtime_asset", ensure)
@@ -1785,6 +1783,10 @@ async def test_helix_runtime_download_does_not_start_or_link(monkeypatch) -> Non
     ensure.assert_awaited_once()
     assert ensure.await_args.args == (context,)
     assert ensure.await_args.kwargs["explicit_upgrade"] is False
+    assert isinstance(
+        ensure.await_args.kwargs["progress"],
+        helix.TuiUpgradeProgress,
+    )
     mind.link_service_mcp.assert_not_called()
 
 

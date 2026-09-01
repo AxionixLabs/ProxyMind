@@ -7,9 +7,9 @@ import asyncio
 import contextlib
 from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
-from frontends.runtime import (
+from agent.ports import (
     ActivityStatusKind,
-    WaitRetryState
+    RetryState,
 )
 from agent.ports.presentation import TextStyle
 from frontends.terminal.renderers.upload import (
@@ -154,7 +154,7 @@ class TuiActivity(object):
         self._terminal_wait_command: str    = ""
         self._terminal_wait_active: bool    = False
 
-        self._wait_retry_state: WaitRetryState = "idle"
+        self._wait_retry_state: RetryState = "idle"
 
         self._slots: dict[ActivitySlotKey, _ActivitySlot]    = {}
         self._settle_deadlines: dict[ActivitySlotKey, float] = {}
@@ -476,7 +476,7 @@ class TuiActivity(object):
             render=self._wait_block,
         ))
 
-    def set_wait_retry_state(self, state: WaitRetryState) -> None:
+    def set_wait_retry_state(self, state: RetryState) -> None:
         """切换等待动画的重试来源并保持当前动画相位。"""
         if state not in {"idle", "transport", "provider"}:
             raise ValueError(f"unsupported wait retry state: {state}")

@@ -295,7 +295,6 @@ class MindMcpRuntime(object):
                 config_session=config_session,
                 animate=False,
                 frontend=frontend,
-                design=None,
                 report=report,
                 workspace_root=Path.cwd(),
                 permissions=permissions,

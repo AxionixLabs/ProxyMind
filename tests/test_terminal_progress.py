@@ -8,8 +8,10 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from metadata import const
 
-from agent.application.turns.foreground import run_foreground_turn
-from frontends.terminal.turn_lifecycle import ControllerTurnForegroundLifecycle
+from agent.application.turns.foreground import (
+    ApplicationTurnForegroundLifecycle,
+    run_foreground_turn,
+)
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from frontends.interaction.contracts import PromptContext
 from frontends.tui.core.runtime import TuiRuntime
@@ -298,7 +300,10 @@ async def test_turn_lifecycle_clears_terminal_progress_on_failure() -> None:
         raise RuntimeError("failed")
 
     with pytest.raises(RuntimeError, match="failed"):
-        await run_foreground_turn(ControllerTurnForegroundLifecycle(mind), runner)
+        await run_foreground_turn(
+            ApplicationTurnForegroundLifecycle(mind, Mock()),
+            runner,
+        )
 
     assert events == [
         "progress.begin",
