@@ -28,11 +28,11 @@ def build_envelope(
 ) -> dict[str, typing.Any]:
     """构造包含通用顶层字段的协议信封。"""
     envelope: dict[str, typing.Any] = {
-        "type"       : message_type,
-        "session_id" : session_id,
-        "message_id" : message_id or new_message_id(message_type.replace(".", "_")),
-        "ts"         : now_ts(),
-        "payload"    : payload or {}
+        "type": message_type,
+        "session_id": session_id,
+        "message_id": message_id or new_message_id(message_type.replace(".", "_")),
+        "ts": now_ts(),
+        "payload": payload or {}
     }
 
     if seq is not None:

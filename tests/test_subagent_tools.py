@@ -6,10 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from mind import create_native_coding
-from mind_app.client_tools.registry import (
-    ClientToolRegistry,
-    default_registry,
-)
+from infrastructure.mcp.local_tool_registry import ToolRegistry
+from mind_app.client_tools.factory import default_registry
 from mind_app.client_tools.subagents import subagent_tools
 from infrastructure.mcp.composite_session import CompositeToolSession
 from frontends.output.silent import create_silent_output_session
@@ -132,7 +130,7 @@ def _root_turn() -> TurnContext:
 
 def _session(runtime: SubagentRuntime) -> CompositeToolSession:
     return CompositeToolSession(
-        client_registry=ClientToolRegistry(subagent_tools(runtime)),
+        client_registry=ToolRegistry(subagent_tools(runtime)),
     )
 
 

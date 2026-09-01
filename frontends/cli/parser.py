@@ -12,7 +12,7 @@ from .arguments import (
     PROMPT_VALUE_PREFIXES,
     create_cli_parser,
     create_interactive_parser,
-    root_command_names
+    root_command_names,
 )
 from .commands import (
     AgentListenCommand,
@@ -29,13 +29,13 @@ from .commands import (
     ParsedCommand,
     ResumeCommand,
     RuntimeUpgradeCommand,
-    SessionArchiveCommand
+    SessionArchiveCommand,
 )
 from .help import CliArgumentParser
 from .invocation import extract_invocation_options
 from .mcp_parser import (
     parse_mcp_command,
-    split_mcp_stdio_command
+    split_mcp_stdio_command,
 )
 
 
@@ -246,7 +246,7 @@ def _interactive_command(
     values: dict[str, object] = vars(namespace)
 
     prompt = _optional_string(parser, values, "prompt")
-    model  = _optional_string(parser, values, "model")
+    model = _optional_string(parser, values, "model")
 
     return InteractiveCommand(
         prompt=(prompt.strip() or None) if prompt is not None else None,
@@ -291,7 +291,7 @@ def _parse_cli_command(
     input_stream: typing.TextIO | None = None
 ) -> ParsedCommand:
     """解析参数并返回强类型命令。"""
-    raw_arguments       = _normalize_helix_arguments(tuple(arguments))
+    raw_arguments = _normalize_helix_arguments(tuple(arguments))
     interactive_command = _interactive_command(parser, raw_arguments)
 
     if interactive_command is not None:
@@ -338,9 +338,9 @@ def _parse_cli_command(
 
     if command == "resume":
         session_id = _optional_string(parser, values, "session_id")
-        prompt     = _optional_string(parser, values, "resume_prompt")
-        model      = _selected_model(parser, values)
-        last       = bool(values["last"])
+        prompt = _optional_string(parser, values, "resume_prompt")
+        model = _selected_model(parser, values)
+        last = bool(values["last"])
 
         if last and session_id is not None:
             if prompt is not None:
@@ -349,7 +349,7 @@ def _parse_cli_command(
             session_id = None
 
         session_id = str(session_id or "").strip() or None
-        prompt     = str(prompt or "").strip() or None
+        prompt = str(prompt or "").strip() or None
 
         return ResumeCommand(
             session_id=session_id,

@@ -9,12 +9,10 @@ from agent.ports import (
     AssistantTextDelta,
     ContentOutput,
     ContentSink,
-    SourcesOutput
-)
-from agent.ports import (
+    SourcesOutput,
     BLOCK_OUTPUT,
     STREAM_OUTPUT,
-    OutputPort
+    OutputPort,
 )
 from .source_text import render_sources_text
 

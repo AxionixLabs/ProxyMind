@@ -172,6 +172,8 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/hooks/subagent.py",
         "application/tools/__init__.py",
         "application/tools/catalog.py",
+        "application/tools/context.py",
+        "application/tools/definitions.py",
         "application/turns/commands.py",
         "application/turns/compact_result.py",
         "application/turns/context.py",
@@ -1148,6 +1150,7 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "external_runtime.py",
         "external_status.py",
         "local_session.py",
+        "local_tool_registry.py",
         "registry.py",
         "settings.py",
         "tool_catalog.py",
@@ -1203,6 +1206,40 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
     assert not legacy_imports, "legacy MCP infrastructure imports remain:\n" + (
         "\n".join(legacy_imports)
     )
+
+
+def test_local_tool_contracts_have_single_ownership_boundary() -> None:
+    """确保本地工具契约与 MCP 注册表不在旧能力包中重复实现。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "builtin_tools" / "registry.py",
+        PROJECT_ROOT / "mind_app" / "builtin_tools" / "types.py",
+        PROJECT_ROOT / "mind_app" / "client_tools" / "registry.py",
+        PROJECT_ROOT / "mind_app" / "client_tools" / "types.py",
+    )
+    assert not any(path.is_file() for path in legacy_paths)
+
+    legacy_modules = {
+        "mind_app.builtin_tools.registry",
+        "mind_app.builtin_tools.types",
+        "mind_app.client_tools.registry",
+        "mind_app.client_tools.types",
+    }
+    violations = _forbidden_module_imports(".", legacy_modules)
+    assert not violations, "legacy local tool imports remain:\n" + "\n".join(
+        violations
+    )
+
+    factory_path = PROJECT_ROOT / "mind_app" / "client_tools" / "factory.py"
+    factory_tree = ast.parse(
+        factory_path.read_text(encoding="utf-8-sig"),
+        filename=str(factory_path),
+    )
+    factory_classes = {
+        node.name
+        for node in factory_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert not factory_classes, "client tool factory must not own registry state"
 
 
 def test_tool_runtime_is_composed_at_process_root() -> None:
@@ -2166,7 +2203,7 @@ def test_runtime_support_responsibilities_have_explicit_owners() -> None:
 
     assert not violations, "legacy runtime support imports remain:\n" + "\n".join(violations)
 
-    mcp_errors = PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "errors.py"
+    mcp_errors = PROJECT_ROOT / "infrastructure" / "mcp" / "errors.py"
     mcp_tree = ast.parse(mcp_errors.read_text(encoding="utf-8-sig"), filename=str(mcp_errors))
     mcp_functions = {
         node.name
@@ -4608,6 +4645,9 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.views.builders.tools",
         "agent.application.config.settings",
         "agent.application.config.session_identity",
+        "agent.application.tools.catalog",
+        "agent.application.tools.context",
+        "agent.application.tools.definitions",
         "agent.domain.hooks",
         "agent.domain.identifiers",
         "agent.domain.policies",

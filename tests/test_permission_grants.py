@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from agent.application.approvals.models import ApprovalOutcome
+from agent.application.tools.context import ToolHandlerContext
 from agent.stores.approvals.permissions import PermissionGrantStore
 from mind_app.builtin_tools.permissions import permission_tools
 from mind_app.client_tools.coding.native import coding_tools
-from mind_app.client_tools.types import ClientToolRuntime
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.application.turns.context import AgentContext, TurnContext
 from mind_app.runtime.turns.stream_policy import (
@@ -196,7 +196,7 @@ async def test_request_permissions_tool_records_turn_grant(tmp_path) -> None:
     tool = permission_tools(coordinator)[0]
     assert "reason" in tool.input_schema["properties"]
     assert "justification" not in tool.input_schema["properties"]
-    runtime = ClientToolRuntime(
+    runtime = ToolHandlerContext(
         session=SimpleNamespace(),
         turn_context=context,
         pref_config={},
@@ -251,7 +251,7 @@ async def test_request_permissions_tool_skips_card_for_never_policy(tmp_path) ->
     tool = permission_tools(coordinator)[0]
     result = await tool.handler({
         "permissions": {"network": {"enabled": True}},
-    }, ClientToolRuntime(
+    }, ToolHandlerContext(
         session=SimpleNamespace(),
         turn_context=context,
         pref_config={},
@@ -300,7 +300,7 @@ async def test_request_permissions_tool_returns_native_decision_result(
     tool = permission_tools(coordinator)[0]
     result = await tool.handler(
         {"permissions": {"network": {"enabled": True}}},
-        ClientToolRuntime(
+        ToolHandlerContext(
             session=SimpleNamespace(),
             turn_context=context,
             pref_config={},

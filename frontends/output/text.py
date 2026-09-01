@@ -4,14 +4,9 @@
 import os
 import sys
 import typing
-from metadata import const
-from frontends.terminal.text import (
-    sanitize_terminal_line,
-    sanitize_terminal_text
-)
 from agent.application.views.contracts import (
     PresentationSink,
-    PresentationView
+    PresentationView,
 )
 from agent.application.views import (
     ApprovalView,
@@ -29,9 +24,8 @@ from agent.application.views import (
     RunCompletedView,
     RunIncompleteView,
     RunStartedView,
-    ToolStartView
+    ToolStartView,
 )
-from .recording import StreamRecordWriter
 from agent.ports import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
@@ -45,13 +39,19 @@ from agent.ports import (
     OutputStatusPort,
     SourcesOutput,
 )
+from frontends.terminal.text import (
+    sanitize_terminal_line,
+    sanitize_terminal_text,
+)
 from frontends.terminal.renderers.approval import render_approval_view
+from metadata import const
+from .recording import StreamRecordWriter
 
-ANSI_RESET   = "\x1b[0m"
-ANSI_BOLD    = "\x1b[1m"
-ANSI_DIM     = "\x1b[2m"
+ANSI_RESET = "\x1b[0m"
+ANSI_BOLD = "\x1b[1m"
+ANSI_DIM = "\x1b[2m"
 ANSI_WARNING = "\x1b[1;33m"
-ANSI_CYAN    = "\x1b[1;96m"
+ANSI_CYAN = "\x1b[1;96m"
 ANSI_MAGENTA = "\x1b[1;95m"
 
 
@@ -86,7 +86,7 @@ def _terminal_text(value: typing.Any) -> str:
 
 def _styled_text(text: str, style: str) -> str:
     """生成在末尾换行前复位的 ANSI 文本。"""
-    body     = text.rstrip("\r\n")
+    body = text.rstrip("\r\n")
     trailing = text[len(body):]
 
     if not body:
@@ -117,7 +117,7 @@ def _payload(data: typing.Any) -> dict[str, typing.Any]:
 
 def _tool_output(data: typing.Any) -> str:
     """提取工具结果中的标准输出文本。"""
-    payload  = _payload(data)
+    payload = _payload(data)
     combined = payload.get("output")
 
     if combined is not None:
@@ -148,14 +148,13 @@ class TextOutputState:
         color: bool = False
     ) -> None:
         """绑定文本流、记录器和颜色配置。"""
-        self.record_writer  = record_writer
-        self.stdout         = stdout
-        self.stderr         = stderr
-        self.color          = color
+        self.record_writer = record_writer
+        self.stdout = stdout
+        self.stderr = stderr
+        self.color = color
         self.assistant_open = False
-
         self._assistant_parts: list[str] = []
-        self._assistant_item_id: str     = ""
+        self._assistant_item_id: str = ""
 
     async def open(self) -> None:
         """打开文本记录。"""
@@ -181,10 +180,10 @@ class TextOutputState:
 
     def hook(self, event: str, *, status: str | None = None) -> None:
         """输出命令执行形态的 Hook 生命周期。"""
-        event_text  = _line(event) or "Unknown"
+        event_text = _line(event) or "Unknown"
         status_text = _line(status) if status is not None else ""
-        suffix      = f" {status_text}" if status_text else ""
-        plain       = f"hook: {event_text}{suffix}\n"
+        suffix = f" {status_text}" if status_text else ""
+        plain = f"hook: {event_text}{suffix}\n"
 
         if self.color:
             visible = (
@@ -304,7 +303,7 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
 
             if tool in {"shell_command", "exec_command"}:
                 command = _line(args.get("command") or args.get("cmd") or tool)
-                cwd     = _line(args.get("cwd") or ".")
+                cwd = _line(args.get("cwd") or ".")
 
                 self.state.process("exec", style=ANSI_CYAN)
                 self.state.process(f"\n{command} in {cwd}\n")

@@ -12,11 +12,11 @@ import hashlib
 import platform
 from observability import (
     observe,
-    observe_exception
+    observe_exception,
 )
+from metadata import const
 from .client import AgentClient
 from .models import AgentConfig
-from metadata import const
 
 
 def iter_exception_chain(exc: BaseException) -> typing.Iterator[BaseException]:
@@ -101,26 +101,26 @@ def normalize_open_payload(
     data = client.unwrap_data(opened)
 
     session_raw = data.get("session")
-    session     = session_raw if isinstance(session_raw, dict) else {}
-
+    session = session_raw if isinstance(session_raw, dict) else {}
     session_id = data.get("session_id") or session.get("session_id")
 
-    ws_token   = data.get("ws_token")
+    ws_token = data.get("ws_token")
     ws_url_raw = data.get("ws_url")
-    ws_url     = ws_url_raw if isinstance(ws_url_raw, str) else None
+    ws_url = ws_url_raw if isinstance(ws_url_raw, str) else None
 
     resume_token_raw = data.get("resume_token")
-    resume_token     = resume_token_raw if isinstance(resume_token_raw, str) else None
+    resume_token = resume_token_raw if isinstance(resume_token_raw, str) else None
 
-    credential_raw   = data.get("credential")
-    credential_data  = credential_raw if isinstance(credential_raw, dict) else {}
+    credential_raw = data.get("credential")
+    credential_data = credential_raw if isinstance(credential_raw, dict) else {}
     credential_token = credential_data.get("token")
-    credential       = credential_token if isinstance(credential_token, str) else None
+    credential = credential_token if isinstance(credential_token, str) else None
 
-    examples_raw       = data.get("examples")
-    examples           = examples_raw if isinstance(examples_raw, dict) else {}
-    mind_call_raw      = examples.get("mind_call")
-    mind_call_example  = mind_call_raw if isinstance(mind_call_raw, dict) else None
+    examples_raw = data.get("examples")
+    examples = examples_raw if isinstance(examples_raw, dict) else {}
+
+    mind_call_raw = examples.get("mind_call")
+    mind_call_example = mind_call_raw if isinstance(mind_call_raw, dict) else None
 
     if not isinstance(session_id, str) or not session_id:
         raise RuntimeError("agent open response missing session_id or ws_token")
@@ -212,7 +212,7 @@ def log_http_error_detail(prefix: str, exc: httpx.HTTPStatusError) -> None:
     _ = prefix
     detail = extract_http_error_detail(exc)
 
-    code    = detail.get("code") if isinstance(detail, dict) else None
+    code = detail.get("code") if isinstance(detail, dict) else None
     message = detail.get("message") if isinstance(detail, dict) else None
 
     observe(

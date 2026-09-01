@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from frontends.terminal.formatting import format_duration_ms
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
@@ -21,9 +20,10 @@ from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text
 )
+from frontends.terminal.formatting import format_duration_ms
 from frontends.terminal.text_layout import layout_styled_line
 
-_MUTED_STYLE   = TextStyle(foreground="#7F8C9A", dim=True)
+_MUTED_STYLE = TextStyle(foreground="#7F8C9A", dim=True)
 _WARNING_STYLE = TextStyle(foreground="#FFD75F", bold=True)
 
 
@@ -54,9 +54,9 @@ def _render_started(
     measure_width: typing.Callable[[str], int] | None
 ) -> StyledBlock:
     """生成 Hook 开始展示块。"""
-    title         = f"Running {sanitize_terminal_line(view.event)} hook"
+    title = f"Running {sanitize_terminal_line(view.event)} hook"
     message_lines = _content_lines(view.status_message)
-    title_parts   = [TextSpan(f" {title}", TITLE_STYLE)]
+    title_parts = [TextSpan(f" {title}", TITLE_STYLE)]
 
     if message_lines:
         title_parts.extend((
@@ -90,7 +90,7 @@ def _render_completed(
     measure_width: typing.Callable[[str], int] | None
 ) -> StyledBlock:
     """生成 Hook 完成展示块。"""
-    title         = f"Ran {sanitize_terminal_line(view.event)} hook"
+    title = f"Ran {sanitize_terminal_line(view.event)} hook"
     message_lines = _content_lines(view.status_message)
 
     bullet_style = (

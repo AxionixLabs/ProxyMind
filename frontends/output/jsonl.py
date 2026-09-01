@@ -27,7 +27,6 @@ from agent.application.views import (
     RunStartedView,
     ToolStartView
 )
-from .recording import StreamRecordWriter
 from agent.ports import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
@@ -42,6 +41,7 @@ from agent.ports import (
     OutputStatusPort,
     SourcesOutput,
 )
+from .recording import StreamRecordWriter
 
 
 def _plain(value: typing.Any) -> typing.Any:
@@ -134,18 +134,14 @@ class JsonOutputState:
     ) -> None:
         """绑定结构化记录器和标准输出流。"""
         self.record_writer = record_writer
-        self.stdout        = stdout
-
+        self.stdout = stdout
         self.next_item: int = 0
-
         self.preferred_item_ids: dict[str, str] = {}
-        self.reserved_item_ids: set[str]        = set()
-
-        self._assistant_parts: list[str]                             = []
-        self._assistant_identity: ResponseIdentity | None            = None
-        self._assistant_item_id: str                                 = ""
+        self.reserved_item_ids: set[str] = set()
+        self._assistant_parts: list[str] = []
+        self._assistant_identity: ResponseIdentity | None = None
+        self._assistant_item_id: str = ""
         self._assistant_item_identities: dict[str, ResponseIdentity] = {}
-
         self._completed_assistant_item_ids: set[tuple[str, str]] = set()
         self._invalidated_assistant_item_ids: set[str] = set()
 
@@ -213,7 +209,7 @@ class JsonOutputState:
             self.flush_assistant()
 
         self._assistant_identity = identity
-        self._assistant_item_id  = item_id
+        self._assistant_item_id = item_id
 
         self._assistant_parts.append(str(text))
 
@@ -246,13 +242,13 @@ class JsonOutputState:
 
         text = final_text if final_text is not None else "".join(self._assistant_parts)
 
-        identity       = self._assistant_identity
+        identity = self._assistant_identity
         output_item_id = self.item_id(item_id)
 
         self._assistant_parts.clear()
 
         self._assistant_identity = None
-        self._assistant_item_id  = ""
+        self._assistant_item_id = ""
 
         self._assistant_item_identities[output_item_id] = identity
 
@@ -364,11 +360,11 @@ class JsonOutputControl(OutputControlPort, OutputStatusPort):
         """写出工具项目开始事件。"""
         self.state.flush_assistant()
 
-        tool    = str(name or "tool")
+        tool = str(name or "tool")
         if tool.strip() == "write_stdin":
             return None
 
-        args    = dict(arguments) if isinstance(arguments, dict) else {}
+        args = dict(arguments) if isinstance(arguments, dict) else {}
         item_id = self.state.item_id(str(call_id or ""))
 
         if tool in {"shell_command", "exec_command"}:

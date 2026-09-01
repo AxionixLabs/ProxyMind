@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+from agent.application.views import ApprovalView
+from agent.ports.presentation import StyledBlock
 from frontends.terminal.traces.approval import (
     render_approval_approved_trace,
     render_approval_cancelled_trace,
     render_approval_denied_trace,
     render_approval_trace_parts
 )
-from agent.application.views import ApprovalView
-from agent.ports.presentation import StyledBlock
 
 
 def render_approval_view(view: ApprovalView) -> StyledBlock:

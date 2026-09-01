@@ -22,11 +22,9 @@ from mind_app.client_tools.coding.native import (
     _nested_tool_response,
 )
 from mind_app.client_tools.coding.schemas import JS_REPL_INPUT_SCHEMA
-from mind_app.client_tools.registry import (
-    ClientToolRegistry,
-    default_registry,
-)
-from mind_app.client_tools.types import ClientToolRuntime
+from agent.application.tools.context import ToolHandlerContext
+from infrastructure.mcp.local_tool_registry import ToolRegistry
+from mind_app.client_tools.factory import default_registry
 from infrastructure.mcp.composite_session import CompositeToolSession
 from mind import create_native_coding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
@@ -1049,7 +1047,7 @@ async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
         rules_paths=(),
         writable_rules_path=tmp_path / ".mind" / "rules" / "default.rules",
     )
-    registry = ClientToolRegistry(coding_tools(
+    registry = ToolRegistry(coding_tools(
         coding,
         approval_coordinator=coordinator,
         exec_policy_manager=exec_policy_manager,
@@ -1118,7 +1116,7 @@ async def test_nested_approval_cancel_interrupts_turn(tmp_path: Path) -> None:
         turn_id="turn_nested_cancel",
     )
     interrupt = AsyncMock(return_value=True)
-    runtime = ClientToolRuntime(
+    runtime = ToolHandlerContext(
         session=SimpleNamespace(),
         turn_context=turn,
         pref_config={},
@@ -1188,7 +1186,7 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
         rules_paths=(),
         writable_rules_path=tmp_path / ".mind" / "rules" / "default.rules",
     )
-    registry = ClientToolRegistry(coding_tools(
+    registry = ToolRegistry(coding_tools(
         coding,
         approval_coordinator=Approval(),
         exec_policy_manager=exec_policy_manager,
@@ -1336,7 +1334,7 @@ async def test_js_repl_mcp_bridge_preserves_type_and_image_rules(
             return mcp_types.CallToolResult(content=content, isError=False)
 
     coding = create_native_coding(root=tmp_path, application_layout=None)
-    registry = ClientToolRegistry(coding_tools(coding))
+    registry = ToolRegistry(coding_tools(coding))
     session = CompositeToolSession(
         service_session=ServiceSession(),
         client_registry=registry,

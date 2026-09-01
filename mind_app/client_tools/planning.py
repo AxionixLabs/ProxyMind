@@ -3,11 +3,9 @@
 
 import typing
 from mcp import types as mcp_types
+from agent.application.tools.context import ToolHandlerContext
+from agent.application.tools.definitions import ClientTool
 from mind_app.client_tools.result import client_tool_result
-from mind_app.client_tools.types import (
-    ClientTool,
-    ClientToolRuntime
-)
 from mind_app.client_tools.update_plan import UPDATE_PLAN_TOOL
 
 PLAN_STEPS_TOOL = "plan_steps"
@@ -132,7 +130,7 @@ def planning_tools() -> list[ClientTool]:
 
     async def plan_steps_handler(
         arguments: dict[str, typing.Any],
-        runtime: ClientToolRuntime
+        runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         """返回标准化计划声明。"""
         _ = runtime

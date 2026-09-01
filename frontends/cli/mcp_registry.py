@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from urllib.parse import (
     urlsplit,
-    urlunsplit
+    urlunsplit,
 )
 from infrastructure.errors import AppError
 from infrastructure.mcp.registry import McpServerRegistry
@@ -118,9 +118,9 @@ def _write_server_list(
         for name, config in servers
     ]
 
-    name_width      = max(len("Name"), *(len(row[0]) for row in rows))
+    name_width = max(len("Name"), *(len(row[0]) for row in rows))
     transport_width = max(len("Transport"), *(len(row[1]) for row in rows))
-    status_width    = max(len("Status"), *(len(row[2]) for row in rows))
+    status_width = max(len("Status"), *(len(row[2]) for row in rows))
 
     stream.write(
         f"{'Name':<{name_width}}  "
@@ -156,8 +156,8 @@ def _add_config(command: McpAddCommand) -> dict[str, typing.Any]:
             raise AppError("MCP server target is incomplete")
 
         config = {
-            "url"     : command.url,
-            "enabled" : command.enabled
+            "url": command.url,
+            "enabled": command.enabled
         }
 
         if command.bearer_token_env_var is not None:
@@ -189,7 +189,7 @@ def run_mcp_registry_command(
     output_stream: typing.TextIO | None = None
 ) -> int:
     """执行一个外部 MCP 服务注册表命令。"""
-    stream   = sys.stdout if output_stream is None else output_stream
+    stream = sys.stdout if output_stream is None else output_stream
 
     registry = McpServerRegistry(ConfigSession(
         ConfigStore(mind_config_path()),
@@ -220,7 +220,7 @@ def run_mcp_registry_command(
 
         if isinstance(command, McpGetCommand):
             config = _public_server_config(registry.get(command.name))
-            value  = {"name": command.name, "config": config}
+            value = {"name": command.name, "config": config}
 
             if command.output_format == "json":
                 _write_json(value, stream)

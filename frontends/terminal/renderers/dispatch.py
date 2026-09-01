@@ -2,10 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from frontends.terminal.capabilities import (
-    DEGRADED_TERMINAL_CAPABILITIES,
-    TerminalCapabilities
-)
 from agent.application.views.contracts import PresentationView
 from agent.application.views import (
     ApprovalView,
@@ -23,9 +19,17 @@ from agent.application.views import (
     RunCompletedView,
     RunIncompleteView,
     RunStartedView,
-    ToolStartView
+    ToolStartView,
 )
 from agent.ports.presentation import StyledBlock
+from frontends.terminal.text import (
+    sanitize_styled_block,
+    sanitize_terminal_text,
+)
+from frontends.terminal.capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilities,
+)
 from .approval import render_approval_view
 from .batch import (
     render_batch_completed_transcript_view,
@@ -55,10 +59,6 @@ from .tool import (
     render_tool_start_raw_text,
     render_tool_start_transcript_view,
     render_tool_start_view
-)
-from frontends.terminal.text import (
-    sanitize_styled_block,
-    sanitize_terminal_text
 )
 
 

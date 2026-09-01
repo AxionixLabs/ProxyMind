@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+
 def segment_prefix(
     *,
     last_display: str | None,
@@ -42,10 +43,10 @@ class OutputBoundaryState(object):
         at_line_start: bool = True
     ) -> None:
         """初始化输出边界状态。"""
-        self.stream_display    = stream_display
-        self.last_display      = last_display
+        self.stream_display = stream_display
+        self.last_display = last_display
         self.trailing_newlines = max(0, int(trailing_newlines or 0))
-        self.at_line_start     = bool(at_line_start)
+        self.at_line_start = bool(at_line_start)
 
     @staticmethod
     def count_trailing_newlines(text: str) -> int:

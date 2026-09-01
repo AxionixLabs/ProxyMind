@@ -10,7 +10,7 @@ from .commands import (
     McpRegistryCommand,
     McpRemoveCommand,
     McpSetEnabledCommand,
-    OutputFormat
+    OutputFormat,
 )
 from .help import CliArgumentParser
 
@@ -80,12 +80,12 @@ def _parse_add_command(
     values: dict[str, object]
 ) -> McpAddCommand:
     """解析 MCP 服务注册参数。"""
-    name          = _required_string(parser, values, "name")
-    raw_url       = _optional_string(parser, values, "url")
-    url           = str(raw_url or "").strip() or None
+    name = _required_string(parser, values, "name")
+    raw_url = _optional_string(parser, values, "url")
+    url = str(raw_url or "").strip() or None
     stdio_command = _stdio_command(parser, values)
-    env           = _key_value_pairs(parser, values, "env")
-    headers       = _key_value_pairs(parser, values, "header")
+    env = _key_value_pairs(parser, values, "env")
+    headers = _key_value_pairs(parser, values, "header")
 
     env_http_headers = _key_value_pairs(
         parser,
@@ -94,7 +94,7 @@ def _parse_add_command(
     )
 
     allow = _patterns(parser, values, "allow")
-    deny  = _patterns(parser, values, "deny")
+    deny = _patterns(parser, values, "deny")
 
     startup_timeout_sec = _positive_number(
         parser,
@@ -109,7 +109,7 @@ def _parse_add_command(
     )
 
     cwd_value = _optional_string(parser, values, "cwd")
-    cwd       = str(cwd_value or "").strip() or None
+    cwd = str(cwd_value or "").strip() or None
 
     bearer_value = _optional_string(
         parser,
@@ -210,7 +210,7 @@ def _key_value_pairs(
     items = _string_sequence(parser, values, key)
 
     pairs: list[tuple[str, str]] = []
-    seen: set[str]               = set()
+    seen: set[str] = set()
 
     option = f"--{key.replace('_', '-').removesuffix('s')}"
 
@@ -234,7 +234,7 @@ def _patterns(
 ) -> tuple[str, ...]:
     """读取并去重一个非空匹配模式序列。"""
     patterns: list[str] = []
-    seen: set[str]      = set()
+    seen: set[str] = set()
 
     for raw in _string_sequence(parser, values, key):
         pattern = raw.strip()

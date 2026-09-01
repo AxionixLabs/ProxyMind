@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from observability import (
     observe,
-    observe_exception
+    observe_exception,
 )
 from .client import AgentClient
 from .wire import build_envelope

@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import base64
 import glob
-import mimetypes
+import base64
 import typing
+import mimetypes
 from collections.abc import Mapping
-from copy import deepcopy
 from pathlib import Path
-
+from copy import deepcopy
 from infrastructure.errors import AppError
 
 _RESTORED_ATTACHMENT_KEY = "_restored_attachment"
@@ -18,12 +17,28 @@ class Attach(object):
     """附件状态与上传编排。"""
 
     TEXT_ATTACHMENT_SUFFIXES: typing.ClassVar[frozenset[str]] = frozenset({
-        ".txt", ".md", ".markdown", ".json", ".yaml", ".yml",
-        ".csv", ".log", ".xml", ".html", ".htm", ".cfg", ".ini"
+        ".txt",
+        ".md",
+        ".markdown",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".csv",
+        ".log",
+        ".xml",
+        ".html",
+        ".htm",
+        ".cfg",
+        ".ini"
     })
 
     IMAGE_ATTACHMENT_SUFFIXES: typing.ClassVar[frozenset[str]] = frozenset({
-        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".gif",
+        ".bmp"
     })
 
     INVISIBLE_PATH_CHARS: typing.ClassVar[frozenset[str]] = frozenset({
@@ -52,20 +67,6 @@ class Attach(object):
         """初始化待上传附件列表。"""
         self.pending: list[dict[str, typing.Any]] = []
 
-    @classmethod
-    def _classify_attachment(cls, path: Path) -> tuple[str, str]:
-        """根据文件名和 MIME 类型判断附件类型。"""
-        mime_type = mimetypes.guess_type(path.name)[0] or ""
-        suffix    = path.suffix.lower()
-
-        if mime_type.startswith("image/") or suffix in cls.IMAGE_ATTACHMENT_SUFFIXES:
-            return "image", mime_type or "image/png"
-
-        if mime_type.startswith("text/") or suffix in cls.TEXT_ATTACHMENT_SUFFIXES:
-            return "file", mime_type or "text/plain"
-
-        return "file", mime_type or "application/octet-stream"
-
     @staticmethod
     def _clean_invisible_path_chars(value: str) -> str:
         """移除复制路径时常见的不可见 Unicode 控制符。"""
@@ -83,7 +84,7 @@ class Attach(object):
     @staticmethod
     def _dedupe_paths(paths: list[Path]) -> list[Path]:
         """按路径字符串去重并保留原有顺序。"""
-        seen: set[str]     = set()
+        seen: set[str] = set()
         result: list[Path] = []
 
         for path in paths:
@@ -94,6 +95,28 @@ class Attach(object):
             result.append(path)
 
         return result
+
+    @staticmethod
+    def _snapshot_item(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """复制待上传附件并隐藏内部来源标记。"""
+        restored = item.get(_RESTORED_ATTACHMENT_KEY)
+        if isinstance(restored, dict):
+            return deepcopy(restored)
+        return deepcopy(item)
+
+    @classmethod
+    def _classify_attachment(cls, path: Path) -> tuple[str, str]:
+        """根据文件名和 MIME 类型判断附件类型。"""
+        mime_type = mimetypes.guess_type(path.name)[0] or ""
+        suffix = path.suffix.lower()
+
+        if mime_type.startswith("image/") or suffix in cls.IMAGE_ATTACHMENT_SUFFIXES:
+            return "image", mime_type or "image/png"
+
+        if mime_type.startswith("text/") or suffix in cls.TEXT_ATTACHMENT_SUFFIXES:
+            return "file", mime_type or "text/plain"
+
+        return "file", mime_type or "application/octet-stream"
 
     def _resolve_attachment_path(self, raw_path: str, *, must_exist: bool) -> Path:
         """解析附件路径，并按需校验文件是否存在。"""
@@ -181,9 +204,9 @@ class Attach(object):
         """添加文件、目录或 glob 匹配到的附件。"""
         candidates = self._expand_attachment_inputs(raw_path)
 
-        added: list[dict[str, typing.Any]]    = []
+        added: list[dict[str, typing.Any]] = []
         existing: list[dict[str, typing.Any]] = []
-        skipped: list[dict[str, typing.Any]]  = []
+        skipped: list[dict[str, typing.Any]] = []
 
         for path in candidates:
             local = str(path)
@@ -192,9 +215,9 @@ class Attach(object):
                 kind, mime_type = self._classify_attachment(path)
             except AppError as error:
                 skipped.append({
-                    "local"    : local,
-                    "filename" : path.name,
-                    "error"    : str(error)
+                    "local": local,
+                    "filename": path.name,
+                    "error": str(error)
                 })
                 continue
 
@@ -204,11 +227,11 @@ class Attach(object):
                     break
             else:
                 payload = {
-                    "local"     : local,
-                    "kind"      : kind,
-                    "filename"  : path.name,
-                    "mime_type" : mime_type,
-                    "size"      : int(path.stat().st_size)
+                    "local": local,
+                    "kind": kind,
+                    "filename": path.name,
+                    "mime_type": mime_type,
+                    "size": int(path.stat().st_size)
                 }
                 self.pending.append(payload)
                 added.append(dict(payload))
@@ -222,9 +245,9 @@ class Attach(object):
             raise AppError("attach no files were added")
 
         return {
-            "added"    : added,
-            "existing" : existing,
-            "skipped"  : skipped
+            "added": added,
+            "existing": existing,
+            "skipped": skipped
         }
 
     def remove_pending_attachment(self, query: str) -> dict[str, typing.Any]:
@@ -291,14 +314,6 @@ class Attach(object):
 
         self.pending.clear()
         return attachments
-
-    @staticmethod
-    def _snapshot_item(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        """复制待上传附件并隐藏内部来源标记。"""
-        restored = item.get(_RESTORED_ATTACHMENT_KEY)
-        if isinstance(restored, dict):
-            return deepcopy(restored)
-        return deepcopy(item)
 
 
 if __name__ == '__main__':

@@ -26,28 +26,28 @@ from frontends.terminal.text_layout import (
     wrap_styled_lines
 )
 
-PATCH_TITLE_STYLE  = TextStyle(bold=True)
-PATCH_MUTED_STYLE  = TextStyle(dim=True)
-PATCH_ADD_STYLE    = TextStyle(foreground="ansigreen")
+PATCH_TITLE_STYLE = TextStyle(bold=True)
+PATCH_MUTED_STYLE = TextStyle(dim=True)
+PATCH_ADD_STYLE = TextStyle(foreground="ansigreen")
 PATCH_REMOVE_STYLE = TextStyle(foreground="ansired")
-PATCH_ERROR_STYLE  = TextStyle(foreground="ansimagenta", bold=True)
+PATCH_ERROR_STYLE = TextStyle(foreground="ansimagenta", bold=True)
 
-_DARK_TRUECOLOR_ADD_BG            = "#213A2B"
-_DARK_TRUECOLOR_REMOVE_BG         = "#4A221D"
-_LIGHT_TRUECOLOR_ADD_BG           = "#DAFBE1"
-_LIGHT_TRUECOLOR_REMOVE_BG        = "#FFEBE9"
-_LIGHT_TRUECOLOR_ADD_GUTTER_BG    = "#ACEEBB"
+_DARK_TRUECOLOR_ADD_BG = "#213A2B"
+_DARK_TRUECOLOR_REMOVE_BG = "#4A221D"
+_LIGHT_TRUECOLOR_ADD_BG = "#DAFBE1"
+_LIGHT_TRUECOLOR_REMOVE_BG = "#FFEBE9"
+_LIGHT_TRUECOLOR_ADD_GUTTER_BG = "#ACEEBB"
 _LIGHT_TRUECOLOR_REMOVE_GUTTER_BG = "#FFCECB"
-_LIGHT_TRUECOLOR_GUTTER_FG        = "#1F2328"
+_LIGHT_TRUECOLOR_GUTTER_FG = "#1F2328"
 
 # prompt_toolkit 将这些 RGB 值在 ANSI-256 输出下精确量化。
-_DARK_ANSI256_ADD_BG            = "#005F00"  # 22
-_DARK_ANSI256_REMOVE_BG         = "#5F0000"  # 52
-_LIGHT_ANSI256_ADD_BG           = "#D7FFD7"  # 194
-_LIGHT_ANSI256_REMOVE_BG        = "#FFD7D7"  # 224
-_LIGHT_ANSI256_ADD_GUTTER_BG    = "#AFFFAF"  # 157
+_DARK_ANSI256_ADD_BG = "#005F00"  # 22
+_DARK_ANSI256_REMOVE_BG = "#5F0000"  # 52
+_LIGHT_ANSI256_ADD_BG = "#D7FFD7"  # 194
+_LIGHT_ANSI256_REMOVE_BG = "#FFD7D7"  # 224
+_LIGHT_ANSI256_ADD_GUTTER_BG = "#AFFFAF"  # 157
 _LIGHT_ANSI256_REMOVE_GUTTER_BG = "#FFAFAF"  # 217
-_LIGHT_ANSI256_GUTTER_FG        = "#303030"  # 236
+_LIGHT_ANSI256_GUTTER_FG = "#303030"  # 236
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,8 +101,8 @@ def _success_spans(
     measure_width: typing.Callable[[str], int] | None
 ) -> list[TextSpan]:
     """生成补丁的完整标题和差异正文。"""
-    files   = sorted(view.files, key=_file_sort_path)
-    added   = sum(file.added for file in files)
+    files = sorted(view.files, key=_file_sort_path)
+    added = sum(file.added for file in files)
     removed = sum(file.removed for file in files)
 
     bullet_style = PATCH_MUTED_STYLE
@@ -173,7 +173,7 @@ def _file_line_spans(
     )
 
     number_width = max(1, len(str(max_line)))
-    syntax_path  = file.new_path or file.old_path
+    syntax_path = file.new_path or file.old_path
 
     spans: list[TextSpan] = []
 
@@ -220,10 +220,10 @@ def _diff_line_spans(
     marker = "-" if line.kind == "remove" else "+" if line.kind == "add" else " "
 
     line_background = _line_background(line, palette)
-    gutter_style    = _gutter_style(line, palette, line_background=line_background)
-    sign_style      = _sign_style(line, line_background=line_background)
-    content_style   = _content_style(line, palette, line_background=line_background)
-    content         = str(line.text or "").replace("\t", "    ")
+    gutter_style = _gutter_style(line, palette, line_background=line_background)
+    sign_style = _sign_style(line, line_background=line_background)
+    content_style = _content_style(line, palette, line_background=line_background)
+    content = str(line.text or "").replace("\t", "    ")
 
     content_spans = (
         [_syntax_span(span, line=line, background=line_background) for span in syntax_spans]
@@ -231,7 +231,7 @@ def _diff_line_spans(
         else [TextSpan(content, content_style)]
     )
 
-    first_prefix        = f"    {str(number or ''):>{number_width}} {marker}"
+    first_prefix = f"    {str(number or ''):>{number_width}} {marker}"
     continuation_prefix = f"    {'':>{number_width}}  "
 
     wrapped = wrap_styled_lines(
@@ -384,7 +384,7 @@ def _theme_scope_color(
             and len(value) == 3
             and all(isinstance(component, int) for component in value)
         ):
-            return typing.cast(RgbColor, value)
+            return value
     return None
 
 

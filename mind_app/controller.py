@@ -48,11 +48,9 @@ from agent.harness.sessions.conversation import (
     ConversationTurn,
 )
 from agent.domain.tool_policy import ToolFilterMode
-from .client_tools import (
-    ClientToolRegistry,
-    default_registry as default_client_tool_registry
-)
-from .builtin_tools import BuiltinToolRegistry, permission_tools
+from infrastructure.mcp.local_tool_registry import ToolRegistry
+from .builtin_tools.permissions import permission_tools
+from .client_tools.factory import default_registry as default_client_tool_registry
 from agent.stores.approvals.permissions import PermissionGrantStore
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.stores.approvals.ledger import ApprovalCallLedger
@@ -109,6 +107,7 @@ from agent.ports import (
     SubscriptionRuntime,
     BeforeToolSession,
     ExternalToolGroupPort,
+    ToolRegistryPort,
     ToolRuntimePort,
     ToolRuntimeSources,
 )
@@ -359,8 +358,8 @@ class Mind(object):
             runtime_factory=subscription_factory,
         )
 
-        self.client_tools: ClientToolRegistry = self._build_client_tools()
-        self.builtin_tools: BuiltinToolRegistry = self._build_builtin_tools()
+        self.client_tools: ToolRegistryPort = self._build_client_tools()
+        self.builtin_tools: ToolRegistryPort = self._build_builtin_tools()
         self.service_mcp_linked: bool = False
         self.service_tool_profile: ToolFilterMode | None = None
 
@@ -511,7 +510,7 @@ class Mind(object):
         target = workspace or Path(self.history_workspace)
         return Path(target).expanduser().resolve()
 
-    def _build_client_tools(self) -> ClientToolRegistry:
+    def _build_client_tools(self) -> ToolRegistryPort:
         """按当前工作区构建客户端工具注册表。"""
         return default_client_tool_registry(
             self.workspace_runtime.coding,
@@ -522,14 +521,14 @@ class Mind(object):
             features=self.features,
         )
 
-    def _build_builtin_tools(self) -> BuiltinToolRegistry:
+    def _build_builtin_tools(self) -> ToolRegistryPort:
         """按当前能力开关构建核心内置工具注册表。"""
         tools = (
             permission_tools(self.approval_coordinator)
             if self.features.request_permissions_tool
             else ()
         )
-        return BuiltinToolRegistry(tools)
+        return ToolRegistry(tools)
 
     def recent_conversation_sessions(
         self,

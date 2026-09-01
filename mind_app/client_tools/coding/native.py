@@ -3,6 +3,8 @@
 
 import typing
 from mcp import types as mcp_types
+from agent.application.tools.context import ToolHandlerContext
+from agent.application.tools.definitions import ClientTool
 from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from protocol.client.turn_control import TurnControlRequestError
 from agent.application.approvals.amendments import approval_execpolicy_amendment
@@ -16,10 +18,6 @@ from infrastructure.mcp.tool_results import normalize_call_tool_result
 from mind_app.native_coding.execution_authorization import (
     ExecutionAuthorizationError,
     reject_model_execution
-)
-from mind_app.client_tools.types import (
-    ClientTool,
-    ClientToolRuntime
 )
 from .schemas import (
     APPLY_PATCH_INPUT_SCHEMA,
@@ -150,12 +148,12 @@ def sandbox_failure_result(
     )
 
 
-def read_only_sandbox(runtime: ClientToolRuntime) -> bool:
+def read_only_sandbox(runtime: ToolHandlerContext) -> bool:
     """判断当前客户端工具是否运行在只读沙箱中。"""
     return runtime.turn_context.permissions.sandbox_mode == "read-only"
 
 
-def validate_workspace_write_authorization(runtime: ClientToolRuntime) -> None:
+def validate_workspace_write_authorization(runtime: ToolHandlerContext) -> None:
     """校验客户端工作区写入权限。"""
     permissions = runtime.turn_context.permissions
     if permissions.sandbox_mode == "read-only":
@@ -195,7 +193,7 @@ def coding_tools(
 
     async def js_repl_handler(
         arguments: dict[str, typing.Any],
-        runtime: ClientToolRuntime
+        runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         """执行一个持久 JavaScript 单元。"""
         try:
@@ -266,7 +264,7 @@ def coding_tools(
 
     async def js_repl_reset_handler(
         arguments: dict[str, typing.Any],
-        runtime: ClientToolRuntime
+        runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         """重置当前会话的 JavaScript 内核。"""
         try:
@@ -291,7 +289,7 @@ def coding_tools(
 
     async def shell_command_handler(
         arguments: dict[str, typing.Any],
-        runtime: ClientToolRuntime
+        runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         """执行单条命令。"""
         try:
@@ -337,7 +335,7 @@ def coding_tools(
 
     async def apply_patch_handler(
         arguments: dict[str, typing.Any],
-        runtime: ClientToolRuntime
+        runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         """应用补丁。"""
         if read_only_sandbox(runtime):
@@ -376,7 +374,7 @@ def coding_tools(
 
     async def exec_command_handler(
         arguments: dict[str, typing.Any],
-        runtime: ClientToolRuntime
+        runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         """启动可持续命令会话。"""
         try:
@@ -424,7 +422,7 @@ def coding_tools(
 
     async def write_stdin_handler(
         arguments: dict[str, typing.Any],
-        runtime: ClientToolRuntime
+        runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         """写入或轮询命令会话。"""
         try:
@@ -730,7 +728,7 @@ def _nested_tool_response(
 
 
 async def _authorize_nested_tool(
-    runtime: ClientToolRuntime,
+    runtime: ToolHandlerContext,
     *,
     tool: str,
     arguments: dict[str, typing.Any],
@@ -897,7 +895,7 @@ async def _authorize_nested_tool(
 
 
 def _nested_permission_granted(
-    runtime: ClientToolRuntime,
+    runtime: ToolHandlerContext,
     arguments: dict[str, typing.Any],
     *,
     permissions: dict[str, typing.Any],

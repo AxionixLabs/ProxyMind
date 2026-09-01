@@ -6,13 +6,11 @@ from agent.ports.presentation import (
     TextStyle,
 )
 
-LIFECYCLE_DOT_STYLE   = TextStyle(foreground="#8A929C", bold=True)
+LIFECYCLE_DOT_STYLE = TextStyle(foreground="#8A929C", bold=True)
 LIFECYCLE_TITLE_STYLE = TextStyle(foreground="#C9D3DE", bold=True)
 
 
-def render_lifecycle_display_parts(
-    title: str
-) -> list[TextSpan]:
+def render_lifecycle_display_parts(title: str) -> list[TextSpan]:
     """把生命周期 display 标题转换为专用显示片段。"""
     text = str(title or "")
     if not text:

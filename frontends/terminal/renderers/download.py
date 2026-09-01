@@ -5,17 +5,17 @@ import typing
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle
+    TextStyle,
 )
 from .upload import format_bytes
 
-MUTED     = TextStyle(foreground="#7F8C9A")
-ACCENT    = TextStyle(foreground="#AFC7D8")
-BRIGHT    = TextStyle(foreground="#F4F7FA")
+MUTED = TextStyle(foreground="#7F8C9A")
+ACCENT = TextStyle(foreground="#AFC7D8")
+BRIGHT = TextStyle(foreground="#F4F7FA")
 INDICATOR = TextStyle(foreground="#5FD7AF")
-SUCCESS   = TextStyle(foreground="#5FD7AF", bold=True)
-FAILURE   = TextStyle(foreground="#FF6B6B")
-WARNING   = TextStyle(foreground="#FFD166", bold=True)
+SUCCESS = TextStyle(foreground="#5FD7AF", bold=True)
+FAILURE = TextStyle(foreground="#FF6B6B")
+WARNING = TextStyle(foreground="#FFD166", bold=True)
 
 
 def download_progress_block(
@@ -110,8 +110,8 @@ def _transfer_spans(
     include_speed: bool,
 ) -> list[TextSpan]:
     """生成下载量和可选速度片段。"""
-    done     = int(state.get("done") or 0)
-    total    = int(state.get("total") or 0)
+    done = int(state.get("done") or 0)
+    total = int(state.get("total") or 0)
     transfer = format_bytes(float(done))
 
     if total > 0:

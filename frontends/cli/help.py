@@ -7,10 +7,10 @@ import typing
 import argparse
 import functools
 
-ANSI_RESET  = "\x1b[0m"
+ANSI_RESET = "\x1b[0m"
 ANSI_ACCENT = "\x1b[38;2;232;235;239m"
 ANSI_HEADER = "\x1b[4;38;2;232;235;239m"
-ANSI_MUTED  = "\x1b[38;2;138;146;156m"
+ANSI_MUTED = "\x1b[38;2;138;146;156m"
 
 HELP_SECTIONS = (
     "Usage",
@@ -19,14 +19,20 @@ HELP_SECTIONS = (
     "Options",
 )
 
+def _styled(text: str, style: str, *, enabled: bool) -> str:
+    """为非空文本添加单段 ANSI 样式。"""
+    if not enabled or not text:
+        return text
+    return f"{style}{text}{ANSI_RESET}"
+
 
 def supports_help_color(
     stream: typing.TextIO | None = None,
-    environ: typing.Mapping[str, str] | None = None
+    environ: typing.Mapping[str, str] | None = None,
 ) -> bool:
     """判断命令帮助输出是否适合使用 ANSI 样式。"""
     output = sys.stdout if stream is None else stream
-    env    = os.environ if environ is None else environ
+    env = os.environ if environ is None else environ
 
     if "NO_COLOR" in env:
         return False
@@ -39,13 +45,6 @@ def supports_help_color(
         return bool(callable(isatty) and isatty())
     except (OSError, ValueError):
         return False
-
-
-def _styled(text: str, style: str, *, enabled: bool) -> str:
-    """为非空文本添加单段 ANSI 样式。"""
-    if not enabled or not text:
-        return text
-    return f"{style}{text}{ANSI_RESET}"
 
 
 class CliHelpFormatter(argparse.HelpFormatter):
@@ -63,10 +62,10 @@ class CliHelpFormatter(argparse.HelpFormatter):
 
     def _format_command_action(self, action: argparse.Action) -> str:
         """按照固定说明列渲染一条命令。"""
-        invocation    = str(action.metavar or action.dest)
-        indent        = max(0, self._current_indent - 2)
+        invocation = str(action.metavar or action.dest)
+        indent = max(0, self._current_indent - 2)
         help_position = 18
-        action_width  = help_position - indent - 2
+        action_width = help_position - indent - 2
 
         header = " " * indent + _styled(
             invocation,
@@ -169,9 +168,9 @@ class CliHelpFormatter(argparse.HelpFormatter):
                 for subaction in self._iter_indented_subactions(action)
             ])
 
-        invocation    = self._format_action_invocation(action)
-        help_position = 10
-        help_width    = max(self._width - help_position, 11)
+        invocation = self._format_action_invocation(action)
+        help_position: int = 10
+        help_width = max(self._width - help_position, 11)
 
         parts = [
             " " * self._current_indent
@@ -239,7 +238,7 @@ class CliArgumentParser(argparse.ArgumentParser):
         **kwargs: typing.Any,
     ) -> None:
         self.help_title = help_title
-        description     = kwargs.pop("description", "")
+        description = kwargs.pop("description", "")
 
         self.help_summary = (
             str(description or "")
@@ -276,9 +275,7 @@ class CliArgumentParser(argparse.ArgumentParser):
         """登记一条可由 help 命令访问的命令路径。"""
         self._command_help[path] = parser
 
-    def registered_command_parsers(
-        self,
-    ) -> dict[tuple[str, ...], "CliArgumentParser"]:
+    def registered_command_parsers(self) -> dict[tuple[str, ...], "CliArgumentParser"]:
         """返回按登记顺序排列的命令路径和解析器。"""
         return dict(self._command_help)
 

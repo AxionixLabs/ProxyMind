@@ -20,7 +20,6 @@ from agent.application.turns.run_result import RunResult
 from agent.ports import SubscriptionHost
 from infrastructure.errors import AppError
 from observability import observe
-
 from .client import AgentClient
 from .models import (
     AgentInboxItem,
@@ -182,8 +181,8 @@ class AgentExecutor(object):
         """执行一条服务端下发的本地任务。"""
         message, intent_summary = normalize_forward_request(request.payload)
 
-        timeout_sec      = resolve_forward_timeout_sec(request.payload)
-        metadata_raw     = request.payload.get("metadata")
+        timeout_sec = resolve_forward_timeout_sec(request.payload)
+        metadata_raw = request.payload.get("metadata")
         forward_metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
 
         metadata = dict(forward_metadata)
@@ -406,14 +405,6 @@ class AgentInbox(object):
         self.items.append(item)
         return item
 
-    def pending_items(self) -> list[AgentInboxItem]:
-        """返回待处理请求列表。"""
-        return [item for item in self.items if item.status == "pending"]
-
-    def pending_count(self) -> int:
-        """返回待处理请求数量。"""
-        return len(self.pending_items())
-
     def find(self, message_id: str) -> AgentInboxItem | None:
         """按消息标识查找请求。"""
         for item in self.items:
@@ -428,6 +419,14 @@ class AgentInbox(object):
             raise KeyError(message_id)
         self.items.remove(item)
         return item
+
+    def pending_items(self) -> list[AgentInboxItem]:
+        """返回待处理请求列表。"""
+        return [item for item in self.items if item.status == "pending"]
+
+    def pending_count(self) -> int:
+        """返回待处理请求数量。"""
+        return len(self.pending_items())
 
     def next_pending(self) -> AgentInboxItem | None:
         """返回最早的待处理请求。"""
@@ -479,7 +478,7 @@ class AgentInbox(object):
             raise
 
         item.status = "completed"
-        item.error  = None
+        item.error = None
 
         if status_changed is not None:
             status_changed()
@@ -524,7 +523,8 @@ InboxContextCallback = typing.Callable[
 
 InboxChangedCallback = typing.Callable[[], None]
 
-ReceiptDisposition         = typing.Literal["queued", "auto_run"]
+ReceiptDisposition = typing.Literal["queued", "auto_run"]
+
 ReceiptDispositionResolver = typing.Callable[[], ReceiptDisposition]
 
 
@@ -539,9 +539,9 @@ class InboxForwardHandler(object):
         disposition_resolver: ReceiptDispositionResolver | None = None
     ) -> None:
         """保存服务端请求收件箱。"""
-        self.inbox                = inbox
-        self.context_callback     = context_callback
-        self.changed_callback     = changed_callback
+        self.inbox = inbox
+        self.context_callback = context_callback
+        self.changed_callback = changed_callback
         self.disposition_resolver = disposition_resolver
 
     def _receipt_disposition(self) -> ReceiptDisposition:

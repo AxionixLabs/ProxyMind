@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-
-"""前端输入、附件和人工交互契约。"""
+# Notes: ==== Mind™ ====
 
 from .attachments import Attach
 from .contracts import (
@@ -15,3 +14,7 @@ __all__ = (
     "NonInteractiveInteraction",
     "PromptContext",
 )
+
+
+if __name__ == '__main__':
+    pass

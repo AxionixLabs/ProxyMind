@@ -16,7 +16,7 @@ from dataclasses import (
 )
 from mcp import types as mcp_types
 from observability import observe_exception
-from mind_app.client_tools.types import (
+from agent.application.tools.context import (
     NESTED_TOOL_DISPATCH_META_KEY,
     TURN_INTERRUPT_META_KEY,
 )

@@ -6,15 +6,15 @@ import sys
 import json
 import shutil
 import typing
-from frontends.terminal.text import sanitize_styled_block
-from metadata import const
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,
     StyledBlock,
     TextStyle,
-    Viewport
+    Viewport,
 )
+from frontends.terminal.text import sanitize_styled_block
+from metadata import const
 
 ANSI_RESET = "\x1b[0m"
 
@@ -93,7 +93,6 @@ class ConsoleApplicationSink(ApplicationSink):
         console: object | None = None,
         error_console: object | None = None,
     ) -> None:
-        # 保留属性名作为现有组合根的稳定标识，但不再依赖 Rich。
         self.console = console or sys.stdout
         self.error_console = error_console or sys.stderr
         self._stream = _stream(self.console, sys.stdout)
@@ -166,6 +165,17 @@ class JsonApplicationSink(ApplicationSink):
         """返回空展示尺寸。"""
         return Viewport()
 
+    def _write(self, payload: dict[str, typing.Any]) -> None:
+        """写出单个入口级 JSONL 事件。"""
+        line = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
+        )
+        self.stream.write(line + "\n")
+        self.stream.flush()
+
     def emit(self, view: ApplicationView) -> None:
         """写出 JSON 事件并忽略其他应用展示。"""
         if view.type == "config.warning":
@@ -178,17 +188,6 @@ class JsonApplicationSink(ApplicationSink):
         if view.type != "json" or not isinstance(view.renderable, dict):
             return None
         self._write(view.renderable)
-
-    def _write(self, payload: dict[str, typing.Any]) -> None:
-        """写出单个入口级 JSONL 事件。"""
-        line = json.dumps(
-            payload,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            default=str,
-        )
-        self.stream.write(line + "\n")
-        self.stream.flush()
 
 
 class NullApplicationSink(ApplicationSink):

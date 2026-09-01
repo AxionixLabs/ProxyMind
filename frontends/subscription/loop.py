@@ -2,30 +2,29 @@
 # Notes: ==== Mind™ ====
 
 import httpx
-import typing
 import asyncio
-from observability import (
-    observe,
-    observe_exception
-)
 from websockets.exceptions import (
     ConnectionClosed,
     InvalidStatus,
-    WebSocketException
+    WebSocketException,
 )
 from agent.ports import SubscriptionHost
+from observability import (
+    observe,
+    observe_exception,
+)
 from .client import AgentClient
 from .models import (
     AgentConfig,
     AgentSessionRuntime,
-    AgentLiveStatus
+    AgentLiveStatus,
 )
 from .external_access import publish_external_access
 from .opening import (
     normalize_open_payload,
     open_runtime,
     is_tls_certificate_error,
-    summarize_tls_certificate_error
+    summarize_tls_certificate_error,
 )
 from .ws import (
     AckCallback,
@@ -34,7 +33,7 @@ from .ws import (
     DisconnectedCallback,
     ReadyCallback,
     sleep_or_stop,
-    connect_once
+    connect_once,
 )
 from .forwarding import AgentForwardHandler
 

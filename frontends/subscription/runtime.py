@@ -11,6 +11,8 @@ from agent.application import TurnApplication
 from agent.ports import SubscriptionHost
 from infrastructure.config.runtime_paths import agent_runtime_db_path
 from observability import observe_exception
+from protocol.transport.endpoints import service_endpoints
+from metadata import const
 from .client import AgentClient
 from .forwarding import (
     AgentExecutor,
@@ -33,8 +35,6 @@ from .models import (
 )
 from .opening import build_device_id
 from .status import AgentStatusOutbox
-from metadata import const
-from protocol.transport.endpoints import service_endpoints
 
 InboxChangedCallback = typing.Callable[[], None]
 
@@ -87,11 +87,12 @@ class AgentRuntime(object):
         """装配订阅连接、收件箱和执行器。"""
         self.mind = mind
 
-        self.config      = config or build_default_agent_config()
-        self.client      = client or AgentClient(base_url=self.config.base_url)
-        self.inbox       = inbox or AgentInbox()
+        self.config = config or build_default_agent_config()
+        self.client = client or AgentClient(base_url=self.config.base_url)
+        self.inbox = inbox or AgentInbox()
         self._executor_owned = executor is None
-        self.executor    = executor or self._build_default_executor(
+
+        self.executor = executor or self._build_default_executor(
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
             turn_application_factory=turn_application_factory,
@@ -153,37 +154,6 @@ class AgentRuntime(object):
             environment_snapshot_provider=environment_snapshot_provider,
         )
 
-    def remember_context(
-        self,
-        item: AgentInboxItem,
-        client: AgentClient,
-        connection: typing.Any,
-        runtime: AgentSessionRuntime,
-        live_status: AgentLiveStatus
-    ) -> None:
-        """记录待处理请求的连接上下文。"""
-        self.contexts[item.request.message_id] = AgentRuntimeContext(
-            client=client,
-            connection=connection,
-            runtime=runtime,
-            live_status=live_status
-        )
-
-    def bind_inbox_changed(
-        self,
-        callback: InboxChangedCallback | None
-    ) -> None:
-        """绑定收件箱快照变化通知，并立即同步当前状态。"""
-        self._inbox_changed = callback
-        self._notify_inbox_changed()
-
-    def bind_receipt_disposition(
-        self,
-        resolver: ReceiptDispositionResolver | None
-    ) -> None:
-        """绑定收件回执所使用的处理意图解析器。"""
-        self._receipt_disposition_resolver = resolver
-
     def _resolve_receipt_disposition(self) -> ReceiptDisposition:
         """读取当前处理意图，未绑定交互策略时只入箱。"""
         resolver = self._receipt_disposition_resolver
@@ -204,14 +174,6 @@ class AgentRuntime(object):
                 error,
                 level="WARNING",
             )
-
-    def is_running(self) -> bool:
-        """判断后台订阅任务是否运行中。"""
-        return self.task is not None and not self.task.done()
-
-    def is_ready(self) -> bool:
-        """判断后台订阅任务是否已经收到服务端 ready。"""
-        return self.is_running() and self._ready.is_set()
 
     def _mark_ready(self) -> None:
         """记录当前后台订阅任务已经完成服务端握手。"""
@@ -244,64 +206,6 @@ class AgentRuntime(object):
                 live_status,
             )
 
-    async def wait_until_ready(
-        self,
-        *,
-        timeout_sec: float = AGENT_READY_WAIT_TIMEOUT_SEC
-    ) -> None:
-        """等待当前后台订阅任务收到 ready，或传播其提前退出原因。"""
-        if self.is_ready():
-            return None
-
-        task = self.task
-        if task is None:
-            raise RuntimeError("listener is not running")
-
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + max(0.0, float(timeout_sec))
-
-        while True:
-            if self.is_ready():
-                return None
-            if task.done():
-                await asyncio.shield(task)
-                raise RuntimeError("listener stopped before server ready")
-
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                raise TimeoutError(
-                    f"listener was not ready within {timeout_sec:g}s"
-                )
-
-            ready_wait = asyncio.create_task(
-                self._ready.wait(),
-                name="agent-runtime-ready",
-            )
-            try:
-                await asyncio.wait(
-                    (ready_wait, task),
-                    return_when=asyncio.FIRST_COMPLETED,
-                    timeout=remaining,
-                )
-            finally:
-                if not ready_wait.done():
-                    ready_wait.cancel()
-                    await asyncio.gather(ready_wait, return_exceptions=True)
-
-    def start_background(self) -> asyncio.Task[None]:
-        """启动后台订阅任务。"""
-        if self.is_running():
-            return self.task
-
-        self._ready.clear()
-        self.task = asyncio.create_task(
-            self.supervisor.run(),
-            name="agent-runtime"
-        )
-        self.task.add_done_callback(self._task_done)
-        self._notify_inbox_changed()
-        return self.task
-
     def _task_done(self, task: asyncio.Task[None]) -> None:
         """取回后台监听任务结果，避免异常泄漏到事件循环。"""
         if not task.cancelled():
@@ -310,22 +214,44 @@ class AgentRuntime(object):
             self._ready.clear()
             self._notify_inbox_changed()
 
-    async def stop(self) -> None:
-        """停止后台订阅任务。"""
-        task = self.task
-        self.task = None
-        self._ready.clear()
-        if task is None or task.done():
-            self._notify_inbox_changed()
-            return None
+    def remember_context(
+        self,
+        item: AgentInboxItem,
+        client: AgentClient,
+        connection: typing.Any,
+        runtime: AgentSessionRuntime,
+        live_status: AgentLiveStatus
+    ) -> None:
+        """记录待处理请求的连接上下文。"""
+        self.contexts[item.request.message_id] = AgentRuntimeContext(
+            client=client,
+            connection=connection,
+            runtime=runtime,
+            live_status=live_status
+        )
 
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self._notify_inbox_changed()
+    def bind_inbox_changed(
+        self,
+        callback: InboxChangedCallback | None
+    ) -> None:
+        """绑定收件箱快照变化通知，并立即同步当前状态。"""
+        self._inbox_changed = callback
+        self._notify_inbox_changed()
+
+    def bind_receipt_disposition(
+        self,
+        resolver: ReceiptDispositionResolver | None
+    ) -> None:
+        """绑定收件回执所使用的处理意图解析器。"""
+        self._receipt_disposition_resolver = resolver
+
+    def is_running(self) -> bool:
+        """判断后台订阅任务是否运行中。"""
+        return self.task is not None and not self.task.done()
+
+    def is_ready(self) -> bool:
+        """判断后台订阅任务是否已经收到服务端 ready。"""
+        return self.is_running() and self._ready.is_set()
 
     def status_label(self) -> str:
         """返回交互输入头可展示的订阅状态。"""
@@ -343,6 +269,37 @@ class AgentRuntime(object):
             return "agent · reconnecting"
 
         return "agent · off"
+
+    def start_background(self) -> asyncio.Task[None]:
+        """启动后台订阅任务。"""
+        if self.is_running():
+            return self.task
+
+        self._ready.clear()
+        self.task = asyncio.create_task(
+            self.supervisor.run(),
+            name="agent-runtime"
+        )
+        self.task.add_done_callback(self._task_done)
+        self._notify_inbox_changed()
+        return self.task
+
+    async def stop(self) -> None:
+        """停止后台订阅任务。"""
+        task = self.task
+        self.task = None
+        self._ready.clear()
+        if task is None or task.done():
+            self._notify_inbox_changed()
+            return None
+
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._notify_inbox_changed()
 
     async def run_next(self) -> AgentInboxItem | None:
         """执行最早的待处理请求。"""
@@ -392,6 +349,50 @@ class AgentRuntime(object):
                 self.inbox.remove(message_id)
             self._notify_inbox_changed()
 
+    async def wait_until_ready(
+        self,
+        *,
+        timeout_sec: float = AGENT_READY_WAIT_TIMEOUT_SEC
+    ) -> None:
+        """等待当前后台订阅任务收到 ready，或传播其提前退出原因。"""
+        if self.is_ready():
+            return None
+
+        task = self.task
+        if task is None:
+            raise RuntimeError("listener is not running")
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, float(timeout_sec))
+
+        while True:
+            if self.is_ready():
+                return None
+            if task.done():
+                await asyncio.shield(task)
+                raise RuntimeError("listener stopped before server ready")
+
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"listener was not ready within {timeout_sec:g}s"
+                )
+
+            ready_wait = asyncio.create_task(
+                self._ready.wait(),
+                name="agent-runtime-ready",
+            )
+            try:
+                await asyncio.wait(
+                    (ready_wait, task),
+                    return_when=asyncio.FIRST_COMPLETED,
+                    timeout=remaining,
+                )
+            finally:
+                if not ready_wait.done():
+                    ready_wait.cancel()
+                    await asyncio.gather(ready_wait, return_exceptions=True)
+
     async def discard(self, message_id: str) -> AgentInboxItem:
         """取消服务端任务并从当前进程中删除待处理请求。"""
         item = self.inbox.find(message_id)
@@ -430,6 +431,7 @@ class AgentRuntime(object):
             finally:
                 if self._executor_owned:
                     await self.executor.close()
+
 
 if __name__ == '__main__':
     pass

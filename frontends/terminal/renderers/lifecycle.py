@@ -2,14 +2,14 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from frontends.terminal.renderers.failure import render_failure_block
-from frontends.terminal.renderers.lifecycle_parts import render_lifecycle_display_parts
 from agent.application.views import (
     FailureView,
     LifecycleView,
     RunIncompleteView,
 )
 from agent.ports.presentation import StyledBlock
+from frontends.terminal.renderers.failure import render_failure_block
+from frontends.terminal.renderers.lifecycle_parts import render_lifecycle_display_parts
 
 
 def render_failure_view(

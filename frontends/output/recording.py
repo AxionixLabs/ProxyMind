@@ -14,10 +14,9 @@ class StreamRecordWriter(object):
     def __init__(self, log_file: str) -> None:
         """初始化输出记录器状态。"""
         self.log_file = log_file
-
-        self.buffer: str                        = ""
+        self.buffer: str = ""
         self.fp: typing.Optional[typing.TextIO] = None
-        self.boundary: OutputBoundaryState      = OutputBoundaryState(stream_display="stream")
+        self.boundary: OutputBoundaryState = OutputBoundaryState(stream_display="stream")
 
     @property
     def at_line_start(self) -> bool:
@@ -63,6 +62,16 @@ class StreamRecordWriter(object):
                 level="WARNING",
                 path=self.log_file,
             )
+
+    async def close(self) -> None:
+        """刷新并关闭记录文件。"""
+        self.flush()
+        if self.fp:
+            try:
+                self.fp.flush()
+            finally:
+                self.fp.close()
+            self.fp = None
 
     def write(self, chunk: typing.Optional[str], *, block: bool = False) -> None:
         """写入一段显示文本，并按显示类型归一化换行。"""
@@ -134,16 +143,6 @@ class StreamRecordWriter(object):
         if self.fp:
             self.fp.write(line)
             self.fp.flush()
-
-    async def close(self) -> None:
-        """刷新并关闭记录文件。"""
-        self.flush()
-        if self.fp:
-            try:
-                self.fp.flush()
-            finally:
-                self.fp.close()
-            self.fp = None
 
     def _normalize_display_text(self, text: str, *, display: str) -> str:
         """按显示类型归一化待记录文本。"""

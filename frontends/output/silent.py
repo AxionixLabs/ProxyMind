@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .recording import StreamRecordWriter
 from agent.ports import OutputSession
+from .recording import StreamRecordWriter
 from .text import (
     TextContentSink,
     TextOutputControl,
     TextOutputState,
     TextPresentationSink,
-    TextStream
+    TextStream,
 )
 
 

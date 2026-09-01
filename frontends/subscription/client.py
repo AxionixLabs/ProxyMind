@@ -11,10 +11,11 @@ import websockets
 from urllib.parse import urlencode
 from websockets.asyncio.client import ClientConnection
 from .wire import (
-    build_envelope, ensure_ws_base
+    build_envelope,
+    ensure_ws_base
 )
-from metadata import const
 from protocol.transport import config
+from metadata import const
 
 
 class AgentClient(object):
@@ -100,12 +101,12 @@ class AgentClient(object):
     ) -> dict[str, typing.Any]:
         """调用 `/agents/open` 创建新的订阅会话。"""
         payload = {
-            "device_id"      : device_id,
-            "agent_id"       : agent_id,
-            "client_version" : client_version,
-            "platform"       : platform,
-            "arch"           : arch,
-            "hostname"       : hostname or socket.gethostname(),
+            "device_id": device_id,
+            "agent_id": agent_id,
+            "client_version": client_version,
+            "platform": platform,
+            "arch": arch,
+            "hostname": hostname or socket.gethostname(),
         }
         return await self._request(
             method="POST", path="/agents/open", token_kind="client", json_body=payload
@@ -122,9 +123,9 @@ class AgentClient(object):
     ) -> dict[str, typing.Any]:
         """调用 `/agents/resume` 恢复已存在的订阅会话。"""
         payload: dict[str, typing.Any] = {
-            "session_id"     : session_id,
-            "resume_token"   : resume_token,
-            "last_acked_seq" : last_acked_seq
+            "session_id": session_id,
+            "resume_token": resume_token,
+            "last_acked_seq": last_acked_seq
         }
         if device_id:
             payload["device_id"] = device_id
@@ -213,9 +214,9 @@ class AgentClient(object):
             ws_base_url=ws_base_url
         )
         connect_kwargs: dict[str, typing.Any] = {
-            "open_timeout"  : self.timeout_sec,
-            "close_timeout" : 1.0,
-            "ping_interval" : None
+            "open_timeout": self.timeout_sec,
+            "close_timeout": 1.0,
+            "ping_interval": None
         }
 
         if url.startswith("wss://"):
@@ -252,8 +253,8 @@ class AgentClient(object):
                 message_type="hello",
                 session_id=session_id,
                 payload={
-                    "client_version" : client_version,
-                    "device_id"      : device_id
+                    "client_version": client_version,
+                    "device_id": device_id
                 }
             )
         )
@@ -387,8 +388,8 @@ class AgentClient(object):
                 payload={
                     "call_id": call_id,
                     "error": {
-                        "type"    : error_type,
-                        "message" : error_message
+                        "type": error_type,
+                        "message": error_message
                     }
                 }
             )

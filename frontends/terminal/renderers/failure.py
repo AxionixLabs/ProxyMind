@@ -5,14 +5,14 @@ import typing
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle
+    TextStyle,
 )
 from frontends.terminal.text_layout import wrap_styled_line
 from frontends.terminal.text import sanitize_terminal_text
 
-FAILURE_DOT_STYLE     = TextStyle(foreground="#FF5F5F")
-FAILURE_TITLE_STYLE   = TextStyle(foreground="#FF8A8A")
-FAILURE_BRANCH_STYLE  = TextStyle(foreground="#8FA4B8", dim=True)
+FAILURE_DOT_STYLE = TextStyle(foreground="#FF5F5F")
+FAILURE_TITLE_STYLE = TextStyle(foreground="#FF8A8A")
+FAILURE_BRANCH_STYLE = TextStyle(foreground="#8FA4B8", dim=True)
 FAILURE_MESSAGE_STYLE = TextStyle(foreground="#D98A8A")
 
 
@@ -24,7 +24,7 @@ def render_failure_title(phase: str) -> str:
 
 def render_failure_text(phase: str, error: typing.Any) -> str:
     """生成 stream 生命周期失败块文本。"""
-    title   = render_failure_title(phase)
+    title = render_failure_title(phase)
     message = _failure_message(error)
     return f"{title}\n  └ {message}" if message else title
 
@@ -37,7 +37,7 @@ def render_failure_display_parts(
     measure_width: typing.Callable[[str], int] | None = None
 ) -> list[TextSpan]:
     """把 stream 生命周期失败块转换为显示片段。"""
-    title   = render_failure_title(phase)
+    title = render_failure_title(phase)
     message = _failure_message(error)
 
     parts: list[TextSpan] = [

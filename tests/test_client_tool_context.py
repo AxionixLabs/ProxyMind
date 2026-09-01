@@ -6,9 +6,11 @@ from unittest.mock import AsyncMock
 import pytest
 from mcp import types as mcp_types
 
-from mind_app.builtin_tools import BuiltinTool, BuiltinToolRegistry
-from mind_app.client_tools.registry import ClientToolRegistry
-from mind_app.client_tools.types import ClientTool
+from agent.application.tools.definitions import (
+    BuiltinTool,
+    ClientTool,
+)
+from infrastructure.mcp.local_tool_registry import ToolRegistry
 from infrastructure.mcp.composite_session import CompositeToolSession
 from agent.application.turns.context import (
     AgentContext,
@@ -41,6 +43,57 @@ def _child_turn() -> TurnContext:
     )
 
 
+def _client_tool(name: str = "inspect_context") -> ClientTool:
+    async def handler(arguments, runtime):
+        return _result()
+
+    return ClientTool(
+        name=name,
+        description="test",
+        input_schema={"type": "object"},
+        handler=handler,
+    )
+
+
+def _builtin_tool(name: str = "request_permissions") -> BuiltinTool:
+    async def handler(arguments, runtime):
+        return _result()
+
+    return BuiltinTool(
+        name=name,
+        description="test",
+        input_schema={"type": "object"},
+        handler=handler,
+    )
+
+
+def test_local_tool_registry_rejects_mixed_sources() -> None:
+    with pytest.raises(ValueError, match="cannot mix tool sources"):
+        ToolRegistry([_client_tool(), _builtin_tool()])
+
+
+def test_local_tool_registry_rejects_duplicate_names() -> None:
+    with pytest.raises(ValueError, match="duplicate client tool"):
+        ToolRegistry([_client_tool(), _client_tool()])
+
+
+def test_local_tool_registry_owns_source_metadata() -> None:
+    tool = ClientTool(
+        name="inspect_context",
+        description="test",
+        input_schema={"type": "object"},
+        handler=_client_tool().handler,
+        meta={"client_builtin": False, "title": "Inspect context"},
+    )
+
+    listed = ToolRegistry([tool]).list_tools().tools
+
+    assert listed[0].meta == {
+        "client_builtin": True,
+        "title": "Inspect context",
+    }
+
+
 @pytest.mark.anyio
 async def test_client_tool_receives_complete_turn_context() -> None:
     received = []
@@ -49,7 +102,7 @@ async def test_client_tool_receives_complete_turn_context() -> None:
         received.append((arguments, runtime))
         return _result()
 
-    registry = ClientToolRegistry([ClientTool(
+    registry = ToolRegistry([ClientTool(
         name="inspect_context",
         description="test",
         input_schema={"type": "object"},
@@ -82,7 +135,7 @@ async def test_client_tool_receives_complete_turn_context() -> None:
 @pytest.mark.anyio
 async def test_client_tool_rejects_missing_turn_context() -> None:
     handler = AsyncMock(return_value=_result())
-    registry = ClientToolRegistry([ClientTool(
+    registry = ToolRegistry([ClientTool(
         name="inspect_context",
         description="test",
         input_schema={"type": "object"},
@@ -108,7 +161,7 @@ async def test_builtin_tool_uses_separate_registry_and_wire_metadata() -> None:
         received.append((arguments, runtime))
         return _result()
 
-    registry = BuiltinToolRegistry([BuiltinTool(
+    registry = ToolRegistry([BuiltinTool(
         name="request_permissions",
         description="test",
         input_schema={"type": "object"},

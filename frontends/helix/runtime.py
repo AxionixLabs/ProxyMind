@@ -8,17 +8,13 @@ from collections.abc import (
     Awaitable,
     Callable,
 )
-
 from agent.domain.tool_policy import ToolFilterMode
 from agent.ports.frontend import ActivityStatusKind
 from infrastructure.services.helix_environment import fetch_service_exec_env
 from infrastructure.services.server_manager import ServerManage
 from infrastructure.update.assets import ensure_asset
 from infrastructure.update.runtime import UpgradeProgress
-from observability import (
-    observe,
-    observe_exception
-)
+
 from infrastructure.services.runtime_context import (
     ServiceRuntimeContext,
     ServiceRuntimeSpec,
@@ -29,6 +25,10 @@ from infrastructure.services.runtime_setup import (
     prepend_runtime_paths,
     service_runtime_asset_missing,
     verify_runtime_paths,
+)
+from observability import (
+    observe,
+    observe_exception,
 )
 
 

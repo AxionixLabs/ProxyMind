@@ -3,11 +3,9 @@
 
 import typing
 from mcp import types as mcp_types
+from agent.application.tools.context import ToolHandlerContext
+from agent.application.tools.definitions import ClientTool
 from mind_app.client_tools.result import client_tool_result
-from mind_app.client_tools.types import (
-    ClientTool,
-    ClientToolRuntime
-)
 
 UPDATE_PLAN_TOOL = "update_plan"
 
@@ -133,7 +131,7 @@ def update_plan_tools() -> list[ClientTool]:
 
     async def update_plan_handler(
         arguments: dict[str, typing.Any],
-        runtime: ClientToolRuntime
+        runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         """校验计划快照并返回结构化结果。"""
         _ = runtime

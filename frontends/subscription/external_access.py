@@ -4,7 +4,7 @@
 import httpx
 from observability import (
     observe,
-    observe_exception
+    observe_exception,
 )
 from server import config_service_base_url
 from .models import AgentSessionRuntime

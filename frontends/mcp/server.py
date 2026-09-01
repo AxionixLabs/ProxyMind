@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from mcp.server.fastmcp import (
     Context,
-    FastMCP
+    FastMCP,
 )
 from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application import RuntimeServices
@@ -229,10 +229,10 @@ class MindMcpRuntime(object):
         turn_application: TurnApplication[RunResult],
     ) -> None:
         """绑定主控制器、主动 Turn application 和串行调用锁。"""
-        self.mind              = mind
+        self.mind = mind
         self.default_workspace = Path(mind.history_workspace).resolve()
-        self._report           = report
-        self._turn_runner      = turn_runner
+        self._report = report
+        self._turn_runner = turn_runner
         self._environment_snapshot_provider = environment_snapshot_provider
         self._turn_application = turn_application
 
@@ -255,7 +255,7 @@ class MindMcpRuntime(object):
         ),
     ) -> "MindMcpRuntime":
         """创建并启动 MCP 服务使用的应用运行时。"""
-        home   = ensure_mind_home()
+        home = ensure_mind_home()
         report = RunReport(str(mind_reports_dir()), label="mcp_server")
 
         try:

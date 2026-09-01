@@ -12,6 +12,11 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
+from frontends.terminal.text import sanitize_terminal_line
+from frontends.terminal.text_layout import (
+    clip_display_text,
+    text_display_width,
+)
 from ..styles import (
     ACTION_TOOL_STYLE,
     ERROR_DOT_STYLE,
@@ -20,18 +25,13 @@ from ..styles import (
     SUCCESS_DOT_STYLE,
     TITLE_STYLE
 )
-from frontends.terminal.text import sanitize_terminal_line
-from frontends.terminal.text_layout import (
-    clip_display_text,
-    text_display_width
-)
 
 BATCH_DOT_STYLE = TextStyle(foreground="#F59E0B", bold=True)
 
-_BATCH_PREVIEW_CALLS        = 4
-_BATCH_PREVIEW_ARGUMENTS    = 3
+_BATCH_PREVIEW_CALLS = 4
+_BATCH_PREVIEW_ARGUMENTS = 3
 _BATCH_RESULT_PREVIEW_LINES = 5
-_BATCH_PREVIEW_WIDTH        = 120
+_BATCH_PREVIEW_WIDTH = 120
 
 
 def render_batch_start_view(
@@ -54,16 +54,16 @@ def render_batch_start_view(
         TextSpan(title[1:], TITLE_STYLE),
     ]
 
-    calls         = view.calls[:_BATCH_PREVIEW_CALLS]
+    calls = view.calls[:_BATCH_PREVIEW_CALLS]
     omitted_calls = max(0, len(view.calls) - len(calls))
-    row_count     = len(calls) + (1 if omitted_calls else 0)
+    row_count = len(calls) + (1 if omitted_calls else 0)
 
     for index, call in enumerate(calls):
 
-        is_last       = index == row_count - 1
-        branch        = "└" if is_last else "├"
+        is_last = index == row_count - 1
+        branch = "└" if is_last else "├"
         detail_prefix = "    " if is_last else "  │ "
-        call_prefix   = f"  {branch} "
+        call_prefix = f"  {branch} "
 
         call_name = _display_line(
             call.name,
@@ -114,11 +114,11 @@ def render_batch_start_view(
 
 def render_batch_start_transcript_view(view: BatchStartView) -> StyledBlock:
     """把并行工具启动信息转换为完整记录块。"""
-    lines      = ["• Parallel tools"]
+    lines = ["• Parallel tools"]
     last_index = len(view.calls) - 1
 
     for index, call in enumerate(view.calls):
-        branch        = "└" if index == last_index else "├"
+        branch = "└" if index == last_index else "├"
         detail_prefix = "    " if index == last_index else "  │ "
         lines.append(f"  {branch} {call.name}")
 
@@ -156,19 +156,17 @@ def render_batch_completed_view(
         TextSpan(title[1:], TITLE_STYLE),
     ]
 
-    results         = view.results[:_BATCH_PREVIEW_CALLS]
+    results = view.results[:_BATCH_PREVIEW_CALLS]
     omitted_results = max(0, len(view.results) - len(results))
-    row_count       = len(results) + (1 if omitted_results else 0)
+    row_count = len(results) + (1 if omitted_results else 0)
 
     for index, result in enumerate(results):
-
-        is_last       = index == row_count - 1
-        branch        = "└" if is_last else "├"
+        is_last = index == row_count - 1
+        branch = "└" if is_last else "├"
         detail_prefix = "    " if is_last else "  │ "
-        status        = "ok" if result.ok else "failed"
-        row_prefix    = f"  {branch} "
+        status = "ok" if result.ok else "failed"
+        row_prefix = f"  {branch} "
         status_suffix = f"  {status}"
-
         result_name = _display_line(
             result.name,
             prefix=f"{row_prefix}{status_suffix}",
@@ -176,7 +174,6 @@ def render_batch_completed_view(
             measure_width=measure_width,
         )
         lines.append(f"{row_prefix}{result_name}{status_suffix}")
-
         spans.extend((
             TextSpan("\n"),
             TextSpan(f"  {branch}", PREVIEW_STYLE),
@@ -189,7 +186,6 @@ def render_batch_completed_view(
         for line_index, line in enumerate(_result_preview_lines(result.text)):
             marker = "└ " if line_index == 0 else "  "
             prefix = f"{detail_prefix}{marker}"
-
             display_line = _display_line(
                 line,
                 prefix=prefix,
@@ -223,17 +219,14 @@ def render_batch_completed_transcript_view(
     view: BatchCompletedView,
 ) -> StyledBlock:
     """把并行工具完整结果转换为记录块。"""
-    lines      = ["• Parallel tools completed"]
+    lines = ["• Parallel tools completed"]
     last_index = len(view.results) - 1
 
     for index, result in enumerate(view.results):
-
-        branch        = "└" if index == last_index else "├"
+        branch = "└" if index == last_index else "├"
         detail_prefix = "    " if index == last_index else "  │ "
-        status        = "ok" if result.ok else "failed"
-
+        status = "ok" if result.ok else "failed"
         lines.append(f"  {branch} {result.name}  {status}")
-
         result_lines = _trim_outer_blank_lines(result.text)
         for line_index, line in enumerate(result_lines):
             marker = "└ " if line_index == 0 else "  "
@@ -337,8 +330,7 @@ def _display_line(
 ) -> str:
     """按树形前缀后的可用宽度生成单行展示文本。"""
     width_of = measure_width or text_display_width
-    text     = sanitize_terminal_line(value, measure_width=width_of)
-
+    text = sanitize_terminal_line(value, measure_width=width_of)
     if not isinstance(terminal_width, int) or terminal_width <= 0:
         return text
 

@@ -4,11 +4,9 @@
 import asyncio
 import typing
 from mcp import types as mcp_types
+from agent.application.tools.context import ToolHandlerContext
+from agent.application.tools.definitions import ClientTool
 from mind_app.client_tools.result import client_tool_result
-from mind_app.client_tools.types import (
-    ClientTool,
-    ClientToolRuntime
-)
 from agent.application.agents.views import AgentSnapshot
 from agent.application.agents.fork_context import normalize_fork_turns
 from agent.stores.agents.mailbox import MAX_AGENT_MESSAGE_CHARS
@@ -114,7 +112,7 @@ def _spawn_handler(agents: SubagentRuntime):
     """创建新执行主体工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
-        tool_runtime: ClientToolRuntime
+        tool_runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         try:
             message    = _required_text(arguments, "message")
@@ -172,7 +170,7 @@ def _list_handler(agents: SubagentRuntime):
     """创建执行主体发现工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
-        tool_runtime: ClientToolRuntime
+        tool_runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         try:
             caller      = tool_runtime.turn_context.agent
@@ -204,7 +202,7 @@ def _send_message_handler(agents: SubagentRuntime):
     """创建轻量消息投递工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
-        tool_runtime: ClientToolRuntime
+        tool_runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         try:
             target  = _required_text(arguments, "target")
@@ -257,7 +255,7 @@ def _followup_handler(agents: SubagentRuntime):
     """创建后续任务工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
-        tool_runtime: ClientToolRuntime
+        tool_runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         try:
             target  = _required_text(arguments, "target")
@@ -291,7 +289,7 @@ def _interrupt_handler(agents: SubagentRuntime):
     """创建执行主体中断工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
-        tool_runtime: ClientToolRuntime
+        tool_runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         try:
             target = _required_text(arguments, "target")
@@ -328,7 +326,7 @@ def _resume_handler(agents: SubagentRuntime):
     """创建执行主体恢复工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
-        tool_runtime: ClientToolRuntime
+        tool_runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         try:
             target = _required_text(arguments, "target")
@@ -359,7 +357,7 @@ def _wait_handler(agents: SubagentRuntime):
     """创建执行主体等待工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
-        tool_runtime: ClientToolRuntime
+        tool_runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         try:
             targets    = _targets(arguments.get("targets"))
@@ -405,7 +403,7 @@ def _close_handler(agents: SubagentRuntime):
     """创建执行主体关闭工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
-        tool_runtime: ClientToolRuntime
+        tool_runtime: ToolHandlerContext
     ) -> mcp_types.CallToolResult:
         try:
             target = _required_text(arguments, "target")
@@ -464,7 +462,7 @@ def _agent_summary(snapshot: AgentSnapshot) -> dict[str, typing.Any]:
 
 def _spawn_agent_type(
     arguments: dict[str, typing.Any],
-    tool_runtime: ClientToolRuntime
+    tool_runtime: ToolHandlerContext
 ) -> str:
     """返回显式或继承的执行主体类型。"""
     value = arguments.get("agent_type")

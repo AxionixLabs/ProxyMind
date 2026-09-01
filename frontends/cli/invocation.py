@@ -5,14 +5,14 @@ import typing
 import argparse
 from infrastructure.config.schema import (
     ConfigOverride,
-    parse_config_override
+    parse_config_override,
 )
 from infrastructure.config.layers import normalize_profile_name
 from metadata import const
 
-CONFIG_FLAGS   = ("-c", "--config")
-PROFILE_FLAGS  = ("-p", "--profile")
-SANDBOX_FLAGS  = ("-s", "--sandbox")
+CONFIG_FLAGS = ("-c", "--config")
+PROFILE_FLAGS = ("-p", "--profile")
+SANDBOX_FLAGS = ("-s", "--sandbox")
 APPROVAL_FLAGS = ("-a", "--ask-for-approval")
 
 VALUE_OPTIONS = frozenset((
@@ -94,9 +94,9 @@ def extract_invocation_options(
     arguments: tuple[str, ...],
 ) -> tuple[tuple[str, ...], tuple[ConfigOverride, ...], str | None]:
     """提取可出现在任意命令层级的进程级选项。"""
-    remaining: list[str]            = []
+    remaining: list[str] = []
     overrides: list[ConfigOverride] = []
-    profile: str | None             = None
+    profile: str | None = None
 
     index: int = 0
     while index < len(arguments):

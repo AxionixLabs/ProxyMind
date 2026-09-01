@@ -64,7 +64,7 @@ def _source_title(source: typing.Any, url: typing.Optional[str]) -> str:
 
 
 def _format_source_entry(index: int, source: typing.Any) -> str:
-    url   = _source_url(source)
+    url = _source_url(source)
     title = _source_title(source, url)
 
     if url and title != url:
@@ -77,10 +77,10 @@ def _format_source_entry(index: int, source: typing.Any) -> str:
 
 def render_sources_text(sources: typing.Iterable[typing.Any]) -> str:
     """把原始来源转换为当前纯文本展示。"""
-    max_items: int   = 3
-    seen: set[str]   = set()
+    max_items: int = 3
+    seen: set[str] = set()
     lines: list[str] = []
-    total: int       = 0
+    total: int = 0
 
     for source in sources:
         url = _source_url(source)

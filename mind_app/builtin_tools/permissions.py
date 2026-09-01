@@ -4,15 +4,15 @@
 import json
 import typing
 from mcp import types as mcp_types
+from agent.application.tools.context import ToolHandlerContext
+from agent.application.tools.definitions import BuiltinTool
 from protocol.client.turn_control import TurnControlRequestError
 from agent.stores.approvals.permissions import normalize_permission_profile
 from mind_app.client_tools.coding.schemas import REQUEST_PERMISSIONS_INPUT_SCHEMA
-from mind_app.client_tools.types import ClientToolRuntime
 from mind_app.native_coding.execution_authorization import (
     ExecutionAuthorizationError,
     reject_model_execution
 )
-from .types import BuiltinTool
 
 if typing.TYPE_CHECKING:
     from agent.application.approvals.coordinator import ApprovalCoordinator
@@ -57,7 +57,7 @@ def permission_tools(
 
     async def request_permissions_handler(
         arguments: dict[str, typing.Any],
-        runtime: ClientToolRuntime,
+        runtime: ToolHandlerContext,
     ) -> mcp_types.CallToolResult:
         """申请当前环境的额外文件或网络权限。"""
         try:

@@ -5,11 +5,9 @@ import base64
 import typing
 from pathlib import Path
 from mcp import types as mcp_types
+from agent.application.tools.context import ToolHandlerContext
+from agent.application.tools.definitions import ClientTool
 from mind_app.client_tools.result import client_tool_result
-from mind_app.client_tools.types import (
-    ClientTool,
-    ClientToolRuntime
-)
 
 VIEW_IMAGE_TOOL = "view_image"
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -87,7 +85,7 @@ def view_image_tools(execution_root: str | Path) -> list[ClientTool]:
 
     async def view_image_handler(
         arguments: dict[str, typing.Any],
-        runtime: ClientToolRuntime,
+        runtime: ToolHandlerContext,
     ) -> mcp_types.CallToolResult:
         """读取图片并以工具附件回传。"""
         _ = runtime

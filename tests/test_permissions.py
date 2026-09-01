@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from mind import create_native_coding
+from agent.application.tools.context import ToolHandlerContext
 from agent.application.approvals.policy import (
     approval_decisions,
     approval_decision_label,
@@ -23,7 +24,6 @@ from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from mind_app.client_tools.coding.native import (
     coding_tools,
 )
-from mind_app.client_tools.types import ClientToolRuntime
 from agent.application.turns.context import (
     AgentContext,
     ToolInvocation,
@@ -77,7 +77,7 @@ def test_approval_from_snapshot_matches_event_shape() -> None:
 
 def _client_runtime(
     permissions: PermissionSettings,
-) -> ClientToolRuntime:
+) -> ToolHandlerContext:
     turn_context = TurnContext.create(
         agent=AgentContext.root("sid_test"),
         cid="cid_test",
@@ -87,7 +87,7 @@ def _client_runtime(
         cwd=".",
         permissions=permissions,
     )
-    return ClientToolRuntime(
+    return ToolHandlerContext(
         session=SimpleNamespace(),
         turn_context=turn_context,
         pref_config={},

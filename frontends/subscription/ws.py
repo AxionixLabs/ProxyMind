@@ -4,15 +4,15 @@
 import typing
 import asyncio
 import contextlib
-from observability import observe
 from websockets.asyncio.client import ClientConnection
 from agent.ports import SubscriptionHost
-from .client import AgentClient
+from observability import observe
 from protocol.client.payload import request_llm_conf
+from .client import AgentClient
 from .models import (
     AgentForwardRequest,
     AgentSessionRuntime,
-    AgentLiveStatus
+    AgentLiveStatus,
 )
 from .forwarding import AgentForwardHandler
 
@@ -58,9 +58,9 @@ class AgentWsProtocolError(RuntimeError):
     ) -> None:
         super().__init__(f"{code}: {message}")
 
-        self.code         = code
+        self.code = code
         self.message_text = message
-        self.action       = action
+        self.action = action
 
 
 def extract_message_seq(message: dict[str, typing.Any]) -> int | None:
@@ -108,7 +108,7 @@ async def recv_json_or_stop(
 async def sleep_or_stop(delay_sec: float, stop_event: asyncio.Event) -> None:
     """在退避等待期间同时响应退出信号。"""
     sleep_task = asyncio.create_task(asyncio.sleep(delay_sec))
-    stop_task  = asyncio.create_task(stop_event.wait())
+    stop_task = asyncio.create_task(stop_event.wait())
 
     try:
         done, pending = await asyncio.wait(
@@ -149,21 +149,22 @@ def parse_forward_request(
     message: dict[str, typing.Any]
 ) -> AgentForwardRequest | None:
     """解析并校验服务端下发的 forward 请求。"""
-    payload_raw    = message.get("payload")
-    payload        = payload_raw if isinstance(payload_raw, dict) else {}
+    payload_raw = message.get("payload")
+    payload = payload_raw if isinstance(payload_raw, dict) else {}
+
     session_id_raw = message.get("session_id")
-    session_id     = session_id_raw if isinstance(session_id_raw, str) else ""
+    session_id = session_id_raw if isinstance(session_id_raw, str) else ""
 
     message_id_raw = message.get("message_id")
-    message_id     = message_id_raw if isinstance(message_id_raw, str) else ""
+    message_id = message_id_raw if isinstance(message_id_raw, str) else ""
 
     call_id_raw = payload.get("call_id")
-    call_id     = call_id_raw if isinstance(call_id_raw, str) else ""
+    call_id = call_id_raw if isinstance(call_id_raw, str) else ""
 
     cid_raw = message.get("cid")
-    cid     = cid_raw if isinstance(cid_raw, str) else None
+    cid = cid_raw if isinstance(cid_raw, str) else None
     sid_raw = message.get("sid")
-    sid     = sid_raw if isinstance(sid_raw, str) else None
+    sid = sid_raw if isinstance(sid_raw, str) else None
 
     if not message_id:
         observe("agent.forward.ignored", level="WARNING", reason="message_id_missing")
@@ -221,12 +222,12 @@ async def handle_server_message(
     on_ack: AckCallback | None = None
 ) -> int | None:
     """按订阅协议处理一条服务端消息。"""
-    current_seq  = extract_message_seq(message)
+    current_seq = extract_message_seq(message)
     message_type = str(message.get("type") or "")
 
     if message_type == "ready":
         payload_raw = message.get("payload")
-        payload     = payload_raw if isinstance(payload_raw, dict) else {}
+        payload = payload_raw if isinstance(payload_raw, dict) else {}
 
         runtime.ready_received = True
         runtime.pre_ready_connect_failures = 0
@@ -250,10 +251,10 @@ async def handle_server_message(
         return current_seq
 
     if message_type == "replay.batch":
-        payload_raw  = message.get("payload")
-        payload      = payload_raw if isinstance(payload_raw, dict) else {}
+        payload_raw = message.get("payload")
+        payload = payload_raw if isinstance(payload_raw, dict) else {}
         messages_raw = payload.get("messages")
-        replayed     = messages_raw if isinstance(messages_raw, list) else []
+        replayed = messages_raw if isinstance(messages_raw, list) else []
 
         live_status.update(
             "Replaying History", f"replay.batch × {len(replayed)}"
@@ -285,9 +286,9 @@ async def handle_server_message(
         return current_seq
 
     if message_type == "resume.rejected":
-        payload_raw  = message.get("payload")
-        payload      = payload_raw if isinstance(payload_raw, dict) else {}
-        code         = str(payload.get("code") or "AGENT_RESUME_REJECTED").strip()
+        payload_raw = message.get("payload")
+        payload = payload_raw if isinstance(payload_raw, dict) else {}
+        code = str(payload.get("code") or "AGENT_RESUME_REJECTED").strip()
         message_text = str(payload.get("message") or "resume rejected").strip()
 
         observe(
@@ -316,8 +317,8 @@ async def handle_server_message(
         return current_seq
 
     if message_type == "ack":
-        payload_raw      = message.get("payload")
-        payload          = payload_raw if isinstance(payload_raw, dict) else {}
+        payload_raw = message.get("payload")
+        payload = payload_raw if isinstance(payload_raw, dict) else {}
         acked_message_id = str(payload.get("acked_message_id") or "").strip()
 
         if acked_message_id and on_ack is not None:
@@ -325,8 +326,8 @@ async def handle_server_message(
         return current_seq
 
     if message_type == "error":
-        payload_raw  = message.get("payload")
-        payload      = payload_raw if isinstance(payload_raw, dict) else {}
+        payload_raw = message.get("payload")
+        payload = payload_raw if isinstance(payload_raw, dict) else {}
         message_text = str(payload.get("message") or "").strip()
 
         code = str(payload.get("code") or "").strip()

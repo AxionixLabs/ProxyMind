@@ -1,8 +1,9 @@
 import pytest
 
 from mind import create_native_coding
-from mind_app.builtin_tools import BuiltinToolRegistry, permission_tools
-from mind_app.client_tools.registry import default_registry
+from infrastructure.mcp.local_tool_registry import ToolRegistry
+from mind_app.builtin_tools.permissions import permission_tools
+from mind_app.client_tools.factory import default_registry
 from infrastructure.config.schema import (
     ConfigValidationError,
     normalize_config,
@@ -128,7 +129,7 @@ def test_permission_features_can_be_enabled_explicitly(tmp_path) -> None:
         "properties"
     ]["sandbox_permissions"]["enum"]
 
-    builtin_tools = BuiltinToolRegistry(permission_tools(None)).list_tools().tools
+    builtin_tools = ToolRegistry(permission_tools(None)).list_tools().tools
     assert [tool.name for tool in builtin_tools] == ["request_permissions"]
 
 

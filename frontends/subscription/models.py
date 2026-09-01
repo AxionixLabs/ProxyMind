@@ -59,8 +59,8 @@ class AgentInboxItem:
     ) -> None:
         """初始化收件箱请求条目。"""
         self.request = request
-        self.status  = status
-        self.error   = error
+        self.status = status
+        self.error = error
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, AgentInboxItem):
