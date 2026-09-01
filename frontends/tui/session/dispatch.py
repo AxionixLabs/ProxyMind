@@ -40,6 +40,7 @@ from frontends.tui.contracts.resume import (
 from ..features.context import ignored_tui_input
 from ..features.agents import manage_agents
 from ..features.conversation import (
+    ConversationCompactor,
     ForkLiveStatus,
     compact_current_conversation,
     confirm_archive_session,
@@ -194,6 +195,7 @@ class TuiCommandDispatcher(object):
         foreground_tasks: TuiForegroundTasks,
         *,
         protocol_client: ProtocolCommandClient | None = None,
+        conversation_compactor: ConversationCompactor | None = None,
     ) -> None:
         self.mind    = mind
         self.runtime = runtime
@@ -201,6 +203,7 @@ class TuiCommandDispatcher(object):
 
         self.foreground_tasks = foreground_tasks
         self.protocol_client = protocol_client
+        self.conversation_compactor = conversation_compactor
         self.application      = mind.frontend.application
         self.mailbox          = TuiMailboxFeature(runtime, mind)
 
@@ -1140,11 +1143,14 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "compact"):
+            if self.conversation_compactor is None:
+                raise RuntimeError("TUI conversation compactor is required")
             await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
             self.foreground_tasks.start(
                 "Context compaction",
                 lambda: compact_current_conversation(
                     self.mind,
+                    self.conversation_compactor,
                     pref_config=self.state.pref_config,
                 ),
                 activity_kind="compact",

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from dataclasses import dataclass
@@ -16,3 +17,7 @@ class ProgressView:
     text: str
     source: ProgressSource
     tool_name: str
+
+
+if __name__ == '__main__':
+    pass

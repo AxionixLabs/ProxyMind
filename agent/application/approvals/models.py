@@ -7,7 +7,7 @@ import typing
 from dataclasses import dataclass
 from protocol.schema.tool_approval import (
     ToolApprovalDecision,
-    ToolApprovalKind
+    ToolApprovalKind,
 )
 
 if typing.TYPE_CHECKING:

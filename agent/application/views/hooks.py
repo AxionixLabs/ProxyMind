@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from dataclasses import dataclass
@@ -43,3 +44,7 @@ class HookRunView:
     status_message: str = ""
     duration_ms: int | None = None
     entries: tuple[HookOutputView, ...] = ()
+
+
+if __name__ == '__main__':
+    pass

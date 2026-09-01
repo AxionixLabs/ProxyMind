@@ -4,7 +4,7 @@
 import typing
 from agent.domain.hooks import (
     HOOK_EVENT_NAMES,
-    HookEventName
+    HookEventName,
 )
 
 JsonSchema = dict[str, typing.Any]
@@ -25,7 +25,7 @@ def _object_schema(
     }
 
 
-_STRING: JsonSchema  = {"type": "string"}
+_STRING: JsonSchema = {"type": "string"}
 _BOOLEAN: JsonSchema = {"type": "boolean"}
 _INTEGER: JsonSchema = {"type": "integer"}
 
@@ -537,7 +537,7 @@ def _validate_object(
 ) -> None:
     """校验对象字段、必填项和未知字段。"""
     properties = schema.get("properties", {})
-    required   = schema.get("required", ())
+    required = schema.get("required", ())
 
     for key in required:
         if key not in value:

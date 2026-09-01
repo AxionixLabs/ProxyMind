@@ -9,7 +9,7 @@ from agent.application.views import (
     PatchFileView,
     PatchHunkView,
     PatchLineView,
-    PatchView
+    PatchView,
 )
 
 
@@ -45,8 +45,8 @@ def build_patch_result_view(
 ) -> PatchView:
     """构建补丁执行完成后的结构化展示数据。"""
     raw_patch = str(arguments.get("patch") or "")
-    payload   = dict(data) if isinstance(data, dict) else {}
-    files     = _files_from_delta(payload) if ok else ()
+    payload = dict(data) if isinstance(data, dict) else {}
+    files = _files_from_delta(payload) if ok else ()
 
     return PatchView(
         call_id=_required_call_id(call_id),
@@ -96,8 +96,8 @@ def _files_from_delta(payload: dict[str, typing.Any]) -> tuple[PatchFileView, ..
 
 def _file_from_delta_change(change: dict[str, typing.Any]) -> PatchFileView:
     """把单项已提交内容变化转换为结构化文件差异。"""
-    action      = _patch_action(change.get("action"))
-    path        = _display_path(change.get("path"))
+    action = _patch_action(change.get("action"))
+    path = _display_path(change.get("path"))
     source_path = _display_path(change.get("source_path"))
 
     if not path:
@@ -192,9 +192,8 @@ def _line_number(value: typing.Any) -> int | None:
 
 def _line_totals(hunks: tuple[PatchHunkView, ...]) -> tuple[int, int]:
     """统计结构化 hunk 的新增与删除行数。"""
-    added   = sum(line.kind == "add" for hunk in hunks for line in hunk.lines)
+    added = sum(line.kind == "add" for hunk in hunks for line in hunk.lines)
     removed = sum(line.kind == "remove" for hunk in hunks for line in hunk.lines)
-
     return added, removed
 
 

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from dataclasses import dataclass
@@ -35,3 +36,7 @@ class PlanStepsStartView:
     step_count: int
     tools: tuple[str, ...]
     omitted_steps: int
+
+
+if __name__ == '__main__':
+    pass

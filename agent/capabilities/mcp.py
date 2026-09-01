@@ -10,11 +10,11 @@ from collections.abc import (
 )
 from agent.ports import (
     CapabilityError,
-    McpCapability
+    McpCapability,
 )
 from agent.protocol import (
     McpToolDefinition,
-    McpToolResult
+    McpToolResult,
 )
 from agent.protocol.json_value import (
     JsonValue,

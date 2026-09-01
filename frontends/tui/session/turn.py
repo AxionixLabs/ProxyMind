@@ -3,40 +3,15 @@
 
 import typing
 import asyncio
+
 from observability import observe
 from agent.ports.presentation import (
     ApplicationSink,
-    ApplicationView
-)
-from agent.ports import (
-    ApprovalCoordinatorPort,
-    ApprovalLedger,
-    EffectJournalFactory,
-    ExecutionPolicy,
-    McpSessionPort,
-    ModelCapability,
-    ProtocolCommandClient,
-    PatchPreviewPort,
-    RetryStatePort,
-    TurnAnimationPort,
-    TurnSessionContextPort,
-    TurnSessionStatePort,
-    TurnForegroundLifecyclePort,
-    TurnExecutionRuntimePort,
-    RootTurnSessionPort,
-    TurnCleanupPort,
-    TranscriptFactory,
+    ApplicationView,
 )
 from agent.ports.presentation import TextSpan
-from protocol.transport.events import EventReport
 from metadata import const
 from agent.domain.policies import PermissionSettings
-from agent.application.turns.execution import TurnExecution
-from mind_app.runtime.turns.executor import execute_turn
-from mind_app.runtime.turns.root import prepare_root_turn
-from frontends.terminal.turn_lifecycle import run_foreground_turn
-from agent.ports import OutputSessionFactory
-from mind_app.runtime.turns.stream import stream_turn
 from ..runtime.ports import TurnRuntimePort
 from ..core.interrupt import InterruptDisposition
 from .turn_input import TuiTurnInputControl
@@ -49,9 +24,26 @@ from ..core.styles import (
 
 if typing.TYPE_CHECKING:
     from agent.application.turns.run_result import RunResult
-    from ...controller import Mind
 
 TurnValue = typing.TypeVar("TurnValue")
+
+
+class TuiRootTurnRunner(typing.Protocol):
+    """描述 TUI 调用已绑定根轮次用例的稳定入口。
+
+    实现方必须在组合根固定模型、协议、工具、报告和清理生命周期；TUI 只提交
+    当前输入快照与展示回调，不得组装具体执行器。
+    """
+
+    async def __call__(
+        self,
+        pref_config: dict[str, typing.Any] | None = None,
+        *,
+        message: str,
+        **kwargs: typing.Any,
+    ) -> "RunResult":
+        """执行一次已冻结的 TUI 根轮次。"""
+        ...
 
 
 class _TurnInterruptState(object):
@@ -208,32 +200,15 @@ async def execute_tui_model_turn(
 
 
 async def run_tui_model_turn(
-    mind: "Mind",
-    execution_runtime: TurnExecutionRuntimePort,
-    root_session: RootTurnSessionPort,
+    turn_runner: TuiRootTurnRunner,
     *,
     message_text: str,
     pref_config: dict[str, typing.Any],
     permissions: PermissionSettings,
-    attachments: typing.Iterable[typing.Mapping[str, typing.Any]] | None = None,
+    attachments: typing.Iterable[typing.Mapping[str, typing.Any]] = (),
     environment_snapshot: typing.Mapping[str, typing.Any] | None = None,
     turn_id: str | None = None,
     prompt_extras: typing.Mapping[str, typing.Any] | None = None,
-    model_capability: ModelCapability | None = None,
-    protocol_client: ProtocolCommandClient | None = None,
-    effect_journal_factory: EffectJournalFactory | None = None,
-    execution_policy: ExecutionPolicy | None = None,
-    approval_coordinator: ApprovalCoordinatorPort | None = None,
-    lifecycle: TurnForegroundLifecyclePort | None = None,
-    approval_ledger: ApprovalLedger | None = None,
-    session_factory: OutputSessionFactory | None = None,
-    transcript_factory: TranscriptFactory | None = None,
-    cleanup: TurnCleanupPort | None = None,
-    patch_preview: PatchPreviewPort | None = None,
-    retry_state: RetryStatePort | None = None,
-    animation: TurnAnimationPort | None = None,
-    session_context: TurnSessionContextPort | None = None,
-    session_state: TurnSessionStatePort | None = None,
     on_prompt_prepared: typing.Callable[
         [list[dict[str, typing.Any]]],
         None,
@@ -241,18 +216,8 @@ async def run_tui_model_turn(
     turn_input_control: TuiTurnInputControl | None = None,
     on_interrupt_acknowledged: typing.Callable[[], None] | None = None,
 ) -> "RunResult":
-    """为单轮 TUI 输入准备上下文并执行统一模型流程。"""
-    tool_filter_mode = execution_runtime.tool_profile_for_turn()
-    if attachments is None:
-        attachment_values = (
-            mind.attach.consume_pending_attachments()
-            if mind.attach.has_pending_attachments()
-            else []
-        )
-    else:
-        attachment_values = [dict(item) for item in attachments]
-        if mind.attach.has_pending_attachments():
-            mind.attach.consume_pending_attachments()
+    """冻结 TUI 输入并提交给组合根绑定的根轮次用例。"""
+    attachment_values = [dict(item) for item in attachments]
 
     if on_prompt_prepared is not None:
         on_prompt_prepared(attachment_values)
@@ -270,81 +235,31 @@ async def run_tui_model_turn(
 
     extras = dict(prompt_extras or {})
 
-    execution = await prepare_root_turn(
-        root_session,
-        message=message_text,
-        title=session_title,
-        source="tui",
-        pref_config=pref_config,
-        permissions=permissions,
-        metadata={},
-        attachments=attachment_values,
-        extras=extras,
-        approval_ledger=approval_ledger,
-        approval_coordinator=approval_coordinator,
-        execution_policy=execution_policy,
-        transcript_factory=transcript_factory,
-        cleanup=cleanup,
-        patch_preview=patch_preview,
-        retry_state=retry_state,
-        animation=animation,
-        session_context=session_context,
-        session_state=session_state,
-        turn_id=turn_id,
-    )
+    prompt_kwargs: dict[str, typing.Any] = {
+        "title": session_title,
+        "source": "tui",
+        "permissions": permissions,
+        "attachments": attachment_values,
+        "exec_env": (
+            dict(environment_snapshot)
+            if environment_snapshot is not None
+            else None
+        ),
+        "turn_id": turn_id,
+    }
+    if extras:
+        prompt_kwargs["extras"] = extras
+    if turn_input_control is not None:
+        prompt_kwargs["on_turn_input_context"] = turn_input_control.activate
+        prompt_kwargs["on_turn_input_event"] = turn_input_control.handle_event
+        prompt_kwargs["on_turn_stream_end"] = turn_input_control.handle_stream_end
+    if on_interrupt_acknowledged is not None:
+        prompt_kwargs["on_turn_interrupted"] = on_interrupt_acknowledged
 
-    async def run_tui_turn(
-        prepared: TurnExecution,
-        session: McpSessionPort,
-        tools: list[dict[str, typing.Any]],
-        event_report: EventReport
-    ) -> "RunResult":
-        """使用 TUI 前端生命周期执行已经准备好的根轮次。"""
-        prompt_kwargs: dict[str, typing.Any] = {
-            "exec_env": (
-                dict(environment_snapshot)
-                if environment_snapshot is not None
-                else None
-            ),
-        }
-        if extras:
-            prompt_kwargs["extras"] = extras
-        if model_capability is not None:
-            prompt_kwargs["model_capability"] = model_capability
-        if protocol_client is not None:
-            prompt_kwargs["protocol_client"] = protocol_client
-        if effect_journal_factory is not None:
-            prompt_kwargs["effect_journal_factory"] = effect_journal_factory
-        if session_factory is not None:
-            prompt_kwargs["session_factory"] = session_factory
-        if turn_input_control is not None:
-            prompt_kwargs["on_turn_input_context"] = turn_input_control.activate
-            prompt_kwargs["on_turn_input_event"] = turn_input_control.handle_event
-            prompt_kwargs["on_turn_stream_end"] = (
-                turn_input_control.handle_stream_end
-            )
-        if on_interrupt_acknowledged is not None:
-            prompt_kwargs["on_turn_interrupted"] = on_interrupt_acknowledged
-
-        return await run_foreground_turn(
-            lifecycle,
-            stream_turn,
-            mind,
-            session=session,
-            pref_config=pref_config,
-            tools=tools,
-            attachments=attachment_values,
-            ev_report=event_report,
-            turn_execution=prepared,
-            **prompt_kwargs,
-        )
-
-    return await execute_turn(
-        execution_runtime,
+    return await turn_runner(
         pref_config,
-        execution,
-        run_tui_turn,
-        tool_filter_mode=tool_filter_mode,
+        message=message_text,
+        **prompt_kwargs,
     )
 
 

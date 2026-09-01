@@ -2,9 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import os
-import functools
 import typing
-
+import functools
 from agent.composition import create_runtime_services
 from agent.application import RuntimeServices
 from agent.application.turns.run_result import RunResult
@@ -36,10 +35,10 @@ from infrastructure.services.turn_environment import (
     capture_turn_environment,
 )
 from mind_app.runtime.turns.root import run_root_turn
+from mind_app.runtime.compaction import compact_conversation
+from mind_app.controller import Mind
+from frontends.tui.features.conversation import ConversationCompactor
 from frontends.subscription.runtime import AgentRuntime
-
-if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
 
 
 def bind_root_turn_runner(
@@ -85,6 +84,13 @@ def bind_root_turn_runner(
         )
 
     return run_bound_root_turn
+
+
+def bind_conversation_compactor(host: object) -> ConversationCompactor:
+    """在进程组合根绑定当前 Controller 的会话压缩用例。"""
+    if not isinstance(host, Mind):
+        raise TypeError("conversation compactor host must be Mind")
+    return functools.partial(compact_conversation, host)
 
 
 def create_hook_registry(*, bypass_hook_trust: bool = False) -> HookRegistry:
@@ -192,4 +198,5 @@ if __name__ == "__main__":
         ),
         turn_runner=root_turn_runner,
         environment_snapshot_provider=capture_active_turn_environment,
+        conversation_compactor_factory=bind_conversation_compactor,
     ))

@@ -6,7 +6,7 @@ import asyncio
 import inspect
 from collections.abc import (
     Awaitable,
-    Callable
+    Callable,
 )
 from agent.ports import (
     CapabilityError,

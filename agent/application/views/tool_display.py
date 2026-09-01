@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import enum
 from dataclasses import dataclass
@@ -81,3 +82,7 @@ def tool_status_text(name: str) -> str | None:
     """返回工具执行期间使用的状态文本。"""
 
     return tool_display_spec(name).status_text
+
+
+if __name__ == '__main__':
+    pass

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import copy
+import typing
 from dataclasses import dataclass
 from agent.application.views import PatchView
 from agent.application.views.builders.patch import build_patch_start_view
@@ -12,7 +12,7 @@ from agent.application.approvals.amendments import (
 )
 from .summary import (
     approval_shell_commands,
-    approval_summary
+    approval_summary,
 )
 from .models import (
     ApprovalDecisionValue,
@@ -21,7 +21,7 @@ from .models import (
 )
 from .policy import (
     approval_decisions,
-    approval_prompt
+    approval_prompt,
 )
 
 ApprovalCommand: typing.TypeAlias = str | tuple[str, ...]

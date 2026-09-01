@@ -6,7 +6,7 @@ from agent.application.views import (
     BatchCallView,
     BatchCompletedView,
     BatchResultView,
-    BatchStartView
+    BatchStartView,
 )
 
 

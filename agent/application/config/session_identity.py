@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import hashlib
 from collections.abc import Mapping

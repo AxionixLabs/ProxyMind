@@ -23,7 +23,9 @@ TurnApplicationFactory: typing.TypeAlias = Callable[
     [str | Path],
     TurnApplication[typing.Any],
 ]
+
 SkillsConfigReader: typing.TypeAlias = Callable[[], dict[str, typing.Any]]
+
 SkillsProviderFactory: typing.TypeAlias = Callable[[SkillsConfigReader], SkillsProvider]
 
 

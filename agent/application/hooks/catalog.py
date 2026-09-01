@@ -7,13 +7,13 @@ from agent.domain.hook_trust import (
     hook_is_active,
     hook_is_toggleable,
     hook_is_trusted,
-    hook_needs_review
+    hook_needs_review,
 )
 from agent.domain.hooks import (
     HookControlPolicy,
     HookEventName,
     HookMatcherSubject,
-    HookTrustPolicy
+    HookTrustPolicy,
 )
 
 

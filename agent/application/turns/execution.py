@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import (
+    dataclass,
+    field,
+    replace,
+)
 from types import MappingProxyType
-
 from agent.ports import HookExecutionScopePort
 from protocol.schema.identifiers import short_uid
 from .context import TurnContext
+
+__all__ = ("TurnExecution", "create_continuation_execution")
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,9 +123,6 @@ def create_continuation_execution(
         additional_context=tuple(additional_context),
         system_message=system_message,
     )
-
-
-__all__ = ("TurnExecution", "create_continuation_execution")
 
 
 if __name__ == '__main__':

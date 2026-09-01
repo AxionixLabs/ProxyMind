@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from dataclasses import dataclass
 from protocol.schema.tool_approval import ToolApprovalDecision
 
 ApprovalDecision: typing.TypeAlias = ToolApprovalDecision
+
 ApprovalState: typing.TypeAlias = typing.Literal[
     "approved",
     "denied",
@@ -26,3 +28,7 @@ class ApprovalView:
     decision: ApprovalDecision
     state: ApprovalState
     source: ApprovalSource = "user"
+
+
+if __name__ == '__main__':
+    pass

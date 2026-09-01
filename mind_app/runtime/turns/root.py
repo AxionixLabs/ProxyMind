@@ -162,6 +162,8 @@ async def run_root_turn(
         pref_config = await session.fresh_pref_config(ttl_sec=0.0)
 
     permissions = kwargs.pop("permissions", None) or session.permissions
+    source = str(kwargs.pop("source", "calling") or "calling").strip()
+    title = str(kwargs.pop("title", message) or message).strip()
     raw_metadata = kwargs.pop("metadata", None)
     metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
     raw_attachments = kwargs.get("attachments")
@@ -174,8 +176,8 @@ async def run_root_turn(
     execution = await prepare_root_turn(
         session,
         message=message,
-        title=message,
-        source="calling",
+        title=title,
+        source=source,
         pref_config=pref_config,
         permissions=permissions,
         metadata=metadata,

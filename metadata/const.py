@@ -40,9 +40,11 @@ R_LOG_FILE      = f"{APP_NAME}.log"
 SHOW_LEVEL  = r"INFO"
 NOTE_LEVEL  = r"DEBUG"
 PRINT_HEAD  = f"[bold #8B8B8B]{APP_DESC} ::[/]"
-SUC         = r"[bold #FFFFFF on #32CD32]"
-WRN         = r"[bold #000000 on #FFFF00]"
-ERR         = r"[bold #FFFFFF on #FF6347]"
+
+SUC = r"[bold #FFFFFF on #32CD32]"
+WRN = r"[bold #000000 on #FFFF00]"
+ERR = r"[bold #FFFFFF on #FF6347]"
+
 PRINT_FORMAT = r"<level>{level: <8}</level> | <level>{message}</level>"
 
 

@@ -2063,9 +2063,9 @@ def test_runtime_support_responsibilities_have_explicit_owners() -> None:
     )
 
     target_paths = (
-        PROJECT_ROOT / "mind_app" / "interaction" / "conversation.py",
+        PROJECT_ROOT / "agent" / "harness" / "sessions" / "conversation.py",
         PROJECT_ROOT / "frontends" / "tui" / "adapters" / "clipboard.py",
-        PROJECT_ROOT / "mind_app" / "presentation" / "stream" / "exception_text.py",
+        PROJECT_ROOT / "agent" / "application" / "turns" / "exception_text.py",
     )
     assert all(path.is_file() for path in target_paths), (
         "explicit runtime support owners are missing: "
@@ -2107,13 +2107,22 @@ def test_runtime_support_responsibilities_have_explicit_owners() -> None:
     }
     assert "is_transport_close_exception" in mcp_functions
 
-    presentation_violations = _forbidden_imports(
-        "mind_app/presentation/stream",
-        {"engine", "mind_core", "server"},
+    session_violations = _forbidden_imports(
+        "agent/harness/sessions",
+        {"engine", "frontends", "infrastructure", "mind_app", "mind_core", "server"},
     )
-    assert not presentation_violations, (
-        "stream exception presentation crosses its boundary:\n"
-        + "\n".join(presentation_violations)
+    assert not session_violations, (
+        "Harness session state crosses its boundary:\n"
+        + "\n".join(session_violations)
+    )
+
+    exception_violations = _forbidden_imports(
+        "agent/application/turns",
+        {"engine", "frontends", "infrastructure", "mind_app", "mind_core", "server"},
+    )
+    assert not exception_violations, (
+        "application Turn support crosses its boundary:\n"
+        + "\n".join(exception_violations)
     )
 
 
@@ -3621,8 +3630,8 @@ def test_interaction_state_has_responsibility_owned_modules() -> None:
     )
 
 
-def test_tui_turn_loop_consumes_injected_execution_ports() -> None:
-    """确保可替换 TUI 不从旧 Controller 动态发现 Turn 执行端口。"""
+def test_tui_turn_loop_consumes_injected_root_turn_use_case() -> None:
+    """确保可替换 TUI 只消费组合根绑定的根轮次用例。"""
     loop_path = PROJECT_ROOT / "frontends" / "tui" / "session" / "loop.py"
     tree = ast.parse(
         loop_path.read_text(encoding="utf-8-sig"),
@@ -3638,7 +3647,9 @@ def test_tui_turn_loop_consumes_injected_execution_ports() -> None:
         argument.arg
         for argument in loop_function.args.kwonlyargs
     }
-    assert {"execution_runtime", "root_session"} <= keyword_names
+    assert "turn_runner" in keyword_names
+    assert "execution_runtime" not in keyword_names
+    assert "root_session" not in keyword_names
 
     forbidden_attributes = {
         node.attr
@@ -4058,13 +4069,44 @@ def test_subscription_adapter_is_owned_by_frontends() -> None:
         PROJECT_ROOT / "frontends" / "tui" / "session" / "loop.py"
     ).read_text(encoding="utf-8-sig")
     assert "turn_application_factory" in tui_loop_source
+    assert "turn_runner" in tui_loop_source
+    assert "execution_runtime" not in tui_loop_source
+    assert "root_session" not in tui_loop_source
     assert "runtime_services" not in tui_loop_source, (
         "TUI session loop must not discover runtime services dynamically"
+    )
+
+    tui_turn_path = (
+        PROJECT_ROOT / "frontends" / "tui" / "session" / "turn.py"
+    )
+    tui_turn_source = tui_turn_path.read_text(encoding="utf-8-sig")
+    assert "class TuiRootTurnRunner(typing.Protocol)" in tui_turn_source
+    assert "execution_runtime" not in tui_turn_source
+    assert "root_session" not in tui_turn_source
+
+    tui_turn_tree = ast.parse(tui_turn_source, filename=str(tui_turn_path))
+    tui_turn_legacy_imports = [
+        node.module or ""
+        for node in ast.walk(tui_turn_tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.level == 0
+        and (
+            (node.module or "") == "mind_app"
+            or (node.module or "").startswith("mind_app.")
+        )
+    ]
+    assert not tui_turn_legacy_imports, (
+        "TUI turn adapter imports legacy application runtime: "
+        f"{tui_turn_legacy_imports}"
     )
 
     tui_conversation_source = (
         PROJECT_ROOT / "frontends" / "tui" / "features" / "conversation.py"
     ).read_text(encoding="utf-8-sig")
+    assert "class ConversationCompactor(typing.Protocol)" in (
+        tui_conversation_source
+    )
+    assert "mind_app.runtime.compaction" not in tui_conversation_source
     assert "protocol_client" in tui_conversation_source
     assert "runtime_services" not in tui_conversation_source, (
         "TUI conversation features must not discover runtime services dynamically"
@@ -4445,8 +4487,9 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.harness.agents.runtime",
         "agent.harness.hooks.runtime",
         "agent.harness.hooks.scope",
-        "agent.harness.mcp.owner",
-        "agent.harness.subscription.owner",
+            "agent.harness.mcp.owner",
+            "agent.harness.sessions.conversation",
+            "agent.harness.subscription.owner",
         "agent.harness.execution.subagent_runner",
         "agent.harness.execution.subagent_submission",
         "agent.ports.subscription",

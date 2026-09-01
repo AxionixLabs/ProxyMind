@@ -5,7 +5,7 @@ import typing
 from agent.application.hooks.models import (
     HookDecision,
     StopHookDecision,
-    TurnStartResult
+    TurnStartResult,
 )
 from agent.harness.hooks.scope import HookExecutionScope
 
@@ -110,8 +110,8 @@ class TurnHookEvents:
         )
 
         blocked_keys: list[str] = []
-        reasons: list[str]      = []
-        contexts: list[str]     = []
+        reasons: list[str] = []
+        contexts: list[str] = []
 
         for record in dispatched.records:
             if not record.ok:

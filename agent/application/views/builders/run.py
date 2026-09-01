@@ -8,7 +8,7 @@ from agent.domain.policies import PermissionSettings
 from agent.application.views import (
     RunCompletedView,
     RunIncompleteView,
-    RunStartedView
+    RunStartedView,
 )
 
 
@@ -33,7 +33,7 @@ def build_run_started_view(
     """构建一次运行的启动展示数据。"""
     primary = pref_config.get("primary") if isinstance(pref_config, dict) else None
     primary = primary if isinstance(primary, dict) else {}
-    model   = primary.get("model")
+    model = primary.get("model")
 
     provider = str(
         primary.get("name")

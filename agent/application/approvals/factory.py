@@ -8,12 +8,12 @@ from collections.abc import Mapping
 from .models import (
     ApprovalPayload,
     ApprovalRequest,
-    ApprovalRequestKey
+    ApprovalRequestKey,
 )
 from .policy import approval_decisions
 from .presentation import (
     approval_request_kind,
-    build_approval_presentation
+    build_approval_presentation,
 )
 
 

@@ -4,7 +4,7 @@
 import typing
 from collections.abc import (
     Mapping,
-    Sequence
+    Sequence,
 )
 from dataclasses import dataclass
 from types import MappingProxyType

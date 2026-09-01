@@ -13,26 +13,9 @@ from agent.application.turns.commands import (
     TurnApplication,
 )
 from agent.application.services import TurnApplicationFactory
-from agent.ports import (
-    ApprovalCoordinatorPort,
-    ApprovalLedger,
-    EffectJournalFactory,
-    ExecutionPolicy,
-    ModelCapability,
-    ProtocolCommandClient,
-    PatchPreviewPort,
-    RootTurnSessionPort,
-    RetryStatePort,
-    TurnAnimationPort,
-    TurnExecutionRuntimePort,
-    TurnSessionContextPort,
-    TurnSessionStatePort,
-    TurnForegroundLifecyclePort,
-    TurnCleanupPort,
-    TranscriptFactory,
-)
-from agent.ports import OutputSessionFactory
+from agent.ports import ProtocolCommandClient
 from agent.application.turns.run_result import RunResult
+from frontends.tui.features.conversation import ConversationCompactor
 from infrastructure.config.preferences import apply_primary_model_override
 from infrastructure.config.runtime_paths import agent_runtime_db_path
 from infrastructure.errors import AppError
@@ -108,23 +91,8 @@ async def run_selected_command(
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     turn_application_factory: TurnApplicationFactory | None = None,
-    execution_runtime: TurnExecutionRuntimePort | None = None,
-    root_session: RootTurnSessionPort | None = None,
-    model_capability: ModelCapability | None = None,
+    conversation_compactor: ConversationCompactor | None = None,
     protocol_client: ProtocolCommandClient | None = None,
-    effect_journal_factory: EffectJournalFactory | None = None,
-    execution_policy: ExecutionPolicy | None = None,
-    approval_coordinator: ApprovalCoordinatorPort | None = None,
-    lifecycle: TurnForegroundLifecyclePort | None = None,
-    approval_ledger: ApprovalLedger | None = None,
-    session_factory: OutputSessionFactory | None = None,
-    transcript_factory: TranscriptFactory | None = None,
-    cleanup: TurnCleanupPort | None = None,
-    patch_preview: PatchPreviewPort | None = None,
-    retry_state: RetryStatePort | None = None,
-    animation: TurnAnimationPort | None = None,
-    session_context: TurnSessionContextPort | None = None,
-    session_state: TurnSessionStatePort | None = None,
 ) -> RunResult | None:
     """按命令行参数分派到直接执行或交互入口。"""
     if isinstance(command, AgentListenCommand):
@@ -152,24 +120,10 @@ async def run_selected_command(
         if isinstance(command, AgentListenCommand):
             await _run_agent_listener_session(
                 mind,
+                turn_runner=turn_runner,
                 turn_application_factory=turn_application_factory,
-                execution_runtime=execution_runtime,
-                root_session=root_session,
-                model_capability=model_capability,
+                conversation_compactor=conversation_compactor,
                 protocol_client=protocol_client,
-                effect_journal_factory=effect_journal_factory,
-                execution_policy=execution_policy,
-                approval_coordinator=approval_coordinator,
-                lifecycle=lifecycle,
-                approval_ledger=approval_ledger,
-                session_factory=session_factory,
-                transcript_factory=transcript_factory,
-                cleanup=cleanup,
-                patch_preview=patch_preview,
-                retry_state=retry_state,
-                animation=animation,
-                session_context=session_context,
-                session_state=session_state,
             )
         elif isinstance(command, ExecCommand):
             attachments: list[dict[str, typing.Any]] = []
@@ -239,24 +193,10 @@ async def run_selected_command(
                 prompt=command.prompt,
                 images=command.images,
                 model=command.model,
+                turn_runner=turn_runner,
                 turn_application_factory=turn_application_factory,
-                execution_runtime=execution_runtime,
-                root_session=root_session,
-                model_capability=model_capability,
+                conversation_compactor=conversation_compactor,
                 protocol_client=protocol_client,
-                effect_journal_factory=effect_journal_factory,
-                execution_policy=execution_policy,
-                approval_coordinator=approval_coordinator,
-                lifecycle=lifecycle,
-                approval_ledger=approval_ledger,
-                session_factory=session_factory,
-                transcript_factory=transcript_factory,
-                cleanup=cleanup,
-                patch_preview=patch_preview,
-                retry_state=retry_state,
-                animation=animation,
-                session_context=session_context,
-                session_state=session_state,
             )
         elif isinstance(command, ResumeCommand):
             record = await _select_resume_session(mind, command)
@@ -292,24 +232,10 @@ async def run_selected_command(
                     prompt=command.prompt,
                     images=command.images,
                     model=command.model,
+                    turn_runner=turn_runner,
                     turn_application_factory=turn_application_factory,
-                    execution_runtime=execution_runtime,
-                    root_session=root_session,
-                    model_capability=model_capability,
+                    conversation_compactor=conversation_compactor,
                     protocol_client=protocol_client,
-                    effect_journal_factory=effect_journal_factory,
-                    execution_policy=execution_policy,
-                    approval_coordinator=approval_coordinator,
-                    lifecycle=lifecycle,
-                    approval_ledger=approval_ledger,
-                    session_factory=session_factory,
-                    transcript_factory=transcript_factory,
-                    cleanup=cleanup,
-                    patch_preview=patch_preview,
-                    retry_state=retry_state,
-                    animation=animation,
-                    session_context=session_context,
-                    session_state=session_state,
                 )
 
     except asyncio.CancelledError:
@@ -344,24 +270,10 @@ async def run_selected_command(
 async def _run_agent_listener_session(
     mind: "Mind",
     *,
+    turn_runner: RootTurnRunner | None,
     turn_application_factory: TurnApplicationFactory | None,
-    execution_runtime: TurnExecutionRuntimePort | None,
-    root_session: RootTurnSessionPort | None,
-    model_capability: ModelCapability | None,
+    conversation_compactor: ConversationCompactor | None,
     protocol_client: ProtocolCommandClient | None,
-    effect_journal_factory: EffectJournalFactory | None,
-    execution_policy: ExecutionPolicy | None,
-    approval_coordinator: ApprovalCoordinatorPort | None,
-    lifecycle: TurnForegroundLifecyclePort | None,
-    approval_ledger: ApprovalLedger | None,
-    session_factory: OutputSessionFactory | None = None,
-    transcript_factory: TranscriptFactory | None = None,
-    cleanup: TurnCleanupPort | None = None,
-    patch_preview: PatchPreviewPort | None = None,
-    retry_state: RetryStatePort | None = None,
-    animation: TurnAnimationPort | None = None,
-    session_context: TurnSessionContextPort | None = None,
-    session_state: TurnSessionStatePort | None = None,
 ) -> None:
     """在普通 TUI 生命周期内运行临时远端请求监听器。"""
     mind.subscription.start()
@@ -370,24 +282,10 @@ async def _run_agent_listener_session(
         prompt=None,
         images=(),
         model=None,
+        turn_runner=turn_runner,
         turn_application_factory=turn_application_factory,
-        execution_runtime=execution_runtime,
-        root_session=root_session,
-        model_capability=model_capability,
+        conversation_compactor=conversation_compactor,
         protocol_client=protocol_client,
-        effect_journal_factory=effect_journal_factory,
-        execution_policy=execution_policy,
-        approval_coordinator=approval_coordinator,
-        lifecycle=lifecycle,
-        approval_ledger=approval_ledger,
-        session_factory=session_factory,
-        transcript_factory=transcript_factory,
-        cleanup=cleanup,
-        patch_preview=patch_preview,
-        retry_state=retry_state,
-        animation=animation,
-        session_context=session_context,
-        session_state=session_state,
     )
 
 
@@ -397,24 +295,10 @@ async def _run_tui_session(
     prompt: str | None,
     images: tuple[str, ...],
     model: str | None,
+    turn_runner: RootTurnRunner | None,
     turn_application_factory: TurnApplicationFactory | None,
-    execution_runtime: TurnExecutionRuntimePort | None,
-    root_session: RootTurnSessionPort | None,
-    model_capability: ModelCapability | None,
+    conversation_compactor: ConversationCompactor | None,
     protocol_client: ProtocolCommandClient | None,
-    effect_journal_factory: EffectJournalFactory | None,
-    execution_policy: ExecutionPolicy | None,
-    approval_coordinator: ApprovalCoordinatorPort | None,
-    lifecycle: TurnForegroundLifecyclePort | None,
-    approval_ledger: ApprovalLedger | None,
-    session_factory: OutputSessionFactory | None = None,
-    transcript_factory: TranscriptFactory | None = None,
-    cleanup: TurnCleanupPort | None = None,
-    patch_preview: PatchPreviewPort | None = None,
-    retry_state: RetryStatePort | None = None,
-    animation: TurnAnimationPort | None = None,
-    session_context: TurnSessionContextPort | None = None,
-    session_state: TurnSessionStatePort | None = None,
 ) -> None:
     """使用现有 TUI 生命周期运行一个交互会话。"""
     from frontends.tui.session.loop import run_tui_loop
@@ -427,43 +311,17 @@ async def _run_tui_session(
             "initial_prompt": prompt,
             "initial_images": images,
             "initial_model": model,
+            "turn_runner": functools.partial(
+                run_root_turn if turn_runner is None else turn_runner,
+                mind,
+            ),
         }
         if turn_application_factory is not None:
             loop_kwargs["turn_application_factory"] = turn_application_factory
-        if execution_runtime is not None:
-            loop_kwargs["execution_runtime"] = execution_runtime
-        if root_session is not None:
-            loop_kwargs["root_session"] = root_session
-        if model_capability is not None:
-            loop_kwargs["model_capability"] = model_capability
+        if conversation_compactor is not None:
+            loop_kwargs["conversation_compactor"] = conversation_compactor
         if protocol_client is not None:
             loop_kwargs["protocol_client"] = protocol_client
-        if effect_journal_factory is not None:
-            loop_kwargs["effect_journal_factory"] = effect_journal_factory
-        if execution_policy is not None:
-            loop_kwargs["execution_policy"] = execution_policy
-        if approval_coordinator is not None:
-            loop_kwargs["approval_coordinator"] = approval_coordinator
-        if lifecycle is not None:
-            loop_kwargs["lifecycle"] = lifecycle
-        if approval_ledger is not None:
-            loop_kwargs["approval_ledger"] = approval_ledger
-        if session_factory is not None:
-            loop_kwargs["session_factory"] = session_factory
-        if transcript_factory is not None:
-            loop_kwargs["transcript_factory"] = transcript_factory
-        if cleanup is not None:
-            loop_kwargs["cleanup"] = cleanup
-        if patch_preview is not None:
-            loop_kwargs["patch_preview"] = patch_preview
-        if retry_state is not None:
-            loop_kwargs["retry_state"] = retry_state
-        if animation is not None:
-            loop_kwargs["animation"] = animation
-        if session_context is not None:
-            loop_kwargs["session_context"] = session_context
-        if session_state is not None:
-            loop_kwargs["session_state"] = session_state
         await run_tui_loop(mind, **loop_kwargs)
     finally:
         await mind.subscription.close()

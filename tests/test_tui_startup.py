@@ -125,8 +125,7 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
 
     run_task = asyncio.create_task(loop.run_tui_loop(
         MindStub(),
-        execution_runtime=object(),
-        root_session=object(),
+        turn_runner=AsyncMock(),
     ))
     await refresh_started.wait()
 

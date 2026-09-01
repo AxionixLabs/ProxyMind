@@ -8,7 +8,7 @@ from pathlib import Path
 from collections.abc import Iterable
 from agent.ports import (
     CapabilityError,
-    FilesystemCapability
+    FilesystemCapability,
 )
 
 

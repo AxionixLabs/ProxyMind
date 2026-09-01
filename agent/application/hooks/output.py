@@ -6,7 +6,7 @@ from agent.domain.hooks import HookEventName
 from agent.application.hooks.protocol import validate_hook_output
 from agent.application.hooks.models import (
     HookNormalizedOutput,
-    HookOutputEffect
+    HookOutputEffect,
 )
 
 
@@ -53,12 +53,13 @@ def normalize_hook_output(
     """把命令 Hook 的 JSON 输出归一化为统一影响模型。"""
     validate_hook_output(event, data)
     _validate_output_semantics(event, data)
-    merged        = _merge_specific_output(event, data)
-    decision      = _normalize_decision(event, merged)
-    continuation  = _normalize_continue(merged)
-    reason        = _normalize_reason(merged)
+
+    merged = _merge_specific_output(event, data)
+    decision = _normalize_decision(event, merged)
+    continuation = _normalize_continue(merged)
+    reason = _normalize_reason(merged)
     updated_input = _normalize_updated_input(merged)
-    contexts      = _normalize_additional_context(event, merged)
+    contexts = _normalize_additional_context(event, merged)
 
     system_text = _normalize_optional_text(
         merged,
@@ -126,7 +127,7 @@ def _merge_specific_output(
     data: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
     """合并 hookSpecificOutput 中与当前事件匹配的输出。"""
-    merged   = dict(data)
+    merged = dict(data)
     specific = data.get("hookSpecificOutput")
 
     if event == "PreToolUse":
@@ -497,7 +498,7 @@ def _normalized_output(
     output = dict(data)
     output["decision"] = decision
     output["continue"] = continuation
-    output["reason"]   = reason
+    output["reason"] = reason
 
     if updated_input is not None:
         output["updated_input"] = dict(updated_input)

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from dataclasses import dataclass
@@ -64,3 +65,7 @@ class BatchCompletedView:
     """描述并行工具执行完成时的展示数据。"""
 
     results: tuple[BatchResultView, ...]
+
+
+if __name__ == '__main__':
+    pass

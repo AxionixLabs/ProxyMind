@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
-
 from .approval import ApprovalView
 from .hooks import HookRunView
 from .patch import PatchView
@@ -51,3 +51,7 @@ class PresentationSink(typing.Protocol):
     async def emit(self, view: PresentationView) -> None:
         """发送一项结构化展示数据。"""
         ...
+
+
+if __name__ == '__main__':
+    pass

@@ -5,7 +5,7 @@ from agent.application.views.contracts import PresentationSink
 from agent.application.views import (
     HookOutputView,
     HookRunView,
-    HookViewPhase
+    HookViewPhase,
 )
 from agent.application.hooks.models import HookRunSummary
 

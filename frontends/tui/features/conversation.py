@@ -29,9 +29,6 @@ from protocol.schema.identifiers import valid_session_ids
 from protocol.client.fork import ResubmittablePrompt
 from metadata import const
 from agent.application.turns.compact_result import CompactResult
-from mind_app.runtime.compaction import (
-    compact_conversation
-)
 
 from ..core.models import FragmentBlock
 from ..core.models import (
@@ -51,6 +48,32 @@ from ..core.styles import (
 )
 
 PromptSource: typing.TypeAlias = typing.Literal["none", "server", "client"]
+
+
+class ConversationCompactor(typing.Protocol):
+    """描述前端触发会话压缩所需的应用用例。
+
+    实现方持有压缩事务、Hook 和 Transcript 生命周期；前端只提供配置快照、来源和
+    进度回调，不读取或修改压缩内部状态。
+    """
+
+    async def __call__(
+        self,
+        *,
+        pref_config: dict[str, typing.Any],
+        source: str,
+        on_progress: typing.Callable[[str], None] | None = None,
+    ) -> CompactResult:
+        """执行一次会话压缩并返回稳定结果。"""
+        ...
+
+
+class ConversationCompactorFactory(typing.Protocol):
+    """描述组合根按应用宿主绑定会话压缩用例的工厂。"""
+
+    def __call__(self, host: object) -> ConversationCompactor:
+        """返回只绑定当前应用生命周期的压缩用例。"""
+        ...
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
@@ -289,6 +312,7 @@ def compact_animation_enabled(mind: "Mind") -> bool:
 
 async def compact_current_conversation(
     mind: "Mind",
+    compactor: ConversationCompactor,
     *,
     pref_config: dict[str, typing.Any],
 ) -> CompactLiveStatus:
@@ -299,8 +323,7 @@ async def compact_current_conversation(
         observe("compact.animation.start")
         await mind.start_compact_anim(status.snapshot)
 
-    result = await compact_conversation(
-        mind,
+    result = await compactor(
         pref_config=pref_config,
         source="tui",
         on_progress=status.running,

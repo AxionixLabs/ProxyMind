@@ -142,6 +142,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `TerminalTurnHost` 显式消费前端运行时，不再使用 Controller 类型或动态方法探测。
 - 流式输出净化已迁入 `frontends/output/sanitize.py`，旧 `mind_app/stream_sanitize.py`
   已删除；净化行为与输出适配器同属可替换前端边界。
+- TUI 根轮次执行已收敛为组合根绑定的 `TuiRootTurnRunner` 用例，前端不再逐层传递
+  execution/session/model/tool/report 等具体端口；会话压缩改由注入的
+  `ConversationCompactor` 持有 runtime 事务、Hook 和 Transcript 生命周期，TUI 只保留
+  动画、命令与结果展示。
 
 ### 最新证据
 
@@ -157,6 +161,13 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   新增 MCP 基础设施契约回归 `3 passed`，终端轮次端口扩展回归 `107 passed`。
 - MCP、Helix、输出职责架构专项 `6 passed, 4 warnings`；旧源路径与生产导入清零，
   `infrastructure/mcp` 和 `frontends/helix` 均无 legacy 反向依赖。
+- TUI 根轮次/压缩边界回归 `65 passed`，CLI 入口回归 `121 passed`，application 扩大
+  行为回归 `505 passed`，新增用例端口与 legacy runtime 禁入守卫通过。
+- domain/port/capability 补充回归 `179 passed`；完整架构与 baseline 扫描中其余
+  `104 passed`，两项过期 owner/导入图断言修正后专项 `14 passed, 1 warning`。
+- 导入图中 `frontends -> mind_app` 从 `5 files / 7 edges` 降至 `3 files / 3 edges`；
+  `frontends/tui` 已不再导入 `mind_app`，剩余范围仅为 CLI bootstrap/dispatch 与 MCP
+  server 对 Controller 的组合和类型依赖。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -235,10 +246,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 当前只允许进入以下顺序，不以补丁式需求插队：
 
-0. **前端旧依赖清零**：以导入图剩余 `5 files / 7 edges` 为唯一范围，先迁移 TUI Turn
-   与 compaction adapter，再收口 CLI/MCP 对 Controller 的组合与类型边；每组都必须删除
-   旧源路径并保持 execution/session 端口由组合根注入，禁止建立
-   `frontends -> mind_app` facade。
+0. **前端旧依赖清零**：TUI Turn 与 compaction adapter 已完成，导入图剩余
+   `3 files / 3 edges`；下一步收口 CLI bootstrap/dispatch 与 MCP server 对 Controller 的
+   组合和类型边。必须先建立职责准确的应用宿主端口或组合对象，再删除旧导入，禁止建立
+   `frontends -> mind_app` facade 或把 Controller API 原样复制成宽接口。
 
 1. **入口与数据迁移**：`mind_core` 的配置、权限、hooks、skills 已完成生产导入清零，
    终端轮次生命周期已迁入 `frontends/terminal`；Hook 命令执行器已归属

@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass, field
+from dataclasses import (
+    dataclass,
+    field,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,3 +77,7 @@ class LifecycleView:
     """描述服务端生命周期事件的展示数据。"""
 
     text: str
+
+
+if __name__ == '__main__':
+    pass

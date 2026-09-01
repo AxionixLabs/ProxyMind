@@ -15,7 +15,7 @@ class ExternalMcpStatus(object):
         """根据启用的外部服务初始化状态项。"""
         self._items: dict[str, dict[str, typing.Any]] = {}
         self._updated_at = time.monotonic()
-        self._done = False
+        self._done: bool = False
 
         for server in servers or []:
             if not bool(server.get("enabled", True)):
@@ -23,12 +23,12 @@ class ExternalMcpStatus(object):
 
             alias = slugify_mcp_name(server.get("name"), fallback="server")
             self._items[alias] = {
-                "name"      : alias,
-                "state"     : "linking",
-                "tools"     : 0,
+                "name": alias,
+                "state": "linking",
+                "tools": 0,
                 "discovered": 0,
-                "filtered"  : 0,
-                "detail"    : ""
+                "filtered": 0,
+                "detail": ""
             }
 
     @property
@@ -87,9 +87,9 @@ class ExternalMcpStatus(object):
     def snapshot(self) -> dict[str, typing.Any]:
         """返回供 UI 动画读取的状态快照。"""
         return {
-            "done"       : self._done,
-            "updated_at" : self._updated_at,
-            "items"      : [dict(item) for item in self._items.values()]
+            "done": self._done,
+            "updated_at": self._updated_at,
+            "items": [dict(item) for item in self._items.values()]
         }
 
     def _update(

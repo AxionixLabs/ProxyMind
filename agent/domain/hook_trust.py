@@ -5,7 +5,7 @@ import typing
 from dataclasses import dataclass
 from agent.domain.hooks import (
     HookDefinitionConfig,
-    HookStateTable
+    HookStateTable,
 )
 
 HookTrustState = typing.Literal[
@@ -56,8 +56,8 @@ def resolve_hook_state(
             active=True,
         )
 
-    state        = states.get(definition.key, {})
-    enabled      = state.get("enabled") is not False
+    state = states.get(definition.key, {})
+    enabled = state.get("enabled") is not False
     trusted_hash = state.get("trusted_hash")
 
     if trusted_hash is None:

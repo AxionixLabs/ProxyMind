@@ -12,7 +12,6 @@ from .run_result import (
     RunStatus,
 )
 
-
 _STATUS_PRIORITY: tuple[RunStatus, ...] = (
     "interrupted",
     "reconciliation_required",

@@ -1,27 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
-from agent.ports import (
-    ApprovalCoordinatorPort,
-    ApprovalLedger,
-    EffectJournalFactory,
-    ExecutionPolicy,
-    ModelCapability,
-    ProtocolCommandClient,
-    PatchPreviewPort,
-    RootTurnSessionPort,
-    RetryStatePort,
-    TurnAnimationPort,
-    TurnExecutionRuntimePort,
-    TurnSessionContextPort,
-    TurnSessionStatePort,
-    TurnForegroundLifecyclePort,
-    TurnCleanupPort,
-    TranscriptFactory,
-)
-from agent.ports import OutputSessionFactory
+import typing
+
+from agent.ports import ProtocolCommandClient
 from agent.application.services import TurnApplicationFactory
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.commands import (
@@ -49,6 +32,7 @@ from ..core.submission import (
     TuiTranscriptBacktrackRequested
 )
 from ..features.conversation import (
+    ConversationCompactor,
     ForkLiveStatus,
     fork_current_conversation,
     render_fork_failure,
@@ -64,6 +48,7 @@ from .dispatch import (
 )
 from .state import TuiSessionState
 from .turn import (
+    TuiRootTurnRunner,
     emit_tui_interrupt_notice,
     execute_tui_model_turn,
     run_tui_model_turn
@@ -136,27 +121,13 @@ def _pending_attachment_snapshot(
 async def run_tui_loop(
     mind: "Mind",
     *,
-    execution_runtime: TurnExecutionRuntimePort | None = None,
-    root_session: RootTurnSessionPort | None = None,
+    turn_runner: TuiRootTurnRunner | None = None,
+    conversation_compactor: ConversationCompactor | None = None,
     initial_prompt: str | None = None,
     initial_images: tuple[str, ...] = (),
     initial_model: str | None = None,
     turn_application_factory: TurnApplicationFactory | None = None,
-    model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
-    effect_journal_factory: EffectJournalFactory | None = None,
-    execution_policy: ExecutionPolicy | None = None,
-    approval_coordinator: ApprovalCoordinatorPort | None = None,
-    lifecycle: TurnForegroundLifecyclePort | None = None,
-    approval_ledger: ApprovalLedger | None = None,
-    session_factory: OutputSessionFactory | None = None,
-    transcript_factory: TranscriptFactory | None = None,
-    cleanup: TurnCleanupPort | None = None,
-    patch_preview: PatchPreviewPort | None = None,
-    retry_state: RetryStatePort | None = None,
-    animation: TurnAnimationPort | None = None,
-    session_context: TurnSessionContextPort | None = None,
-    session_state: TurnSessionStatePort | None = None,
 ) -> None:
     """运行 TUI 会话，并统一关闭其主动 Turn application。"""
     durable_runtime = getattr(mind, "application_layout", None) is not None
@@ -167,30 +138,14 @@ async def run_tui_loop(
     else:
         turn_application = TurnApplication()
     try:
-        if execution_runtime is None:
-            raise RuntimeError("TUI turn execution runtime is required")
-        if root_session is None:
-            raise RuntimeError("TUI root turn session is required")
+        if turn_runner is None:
+            raise RuntimeError("TUI root turn runner is required")
         await _run_tui_loop(
             mind,
             turn_application=turn_application,
-            execution_runtime=execution_runtime,
-            root_session=root_session,
-            model_capability=model_capability,
+            turn_runner=turn_runner,
+            conversation_compactor=conversation_compactor,
             protocol_client=protocol_client,
-            effect_journal_factory=effect_journal_factory,
-            execution_policy=execution_policy,
-            approval_coordinator=approval_coordinator,
-            lifecycle=lifecycle,
-            approval_ledger=approval_ledger,
-            session_factory=session_factory,
-            transcript_factory=transcript_factory,
-            cleanup=cleanup,
-            patch_preview=patch_preview,
-            retry_state=retry_state,
-            animation=animation,
-            session_context=session_context,
-            session_state=session_state,
             local_session_id=(
                 None
                 if durable_runtime
@@ -208,23 +163,9 @@ async def _run_tui_loop(
     mind: "Mind",
     *,
     turn_application: TurnApplication["RunResult"],
-    execution_runtime: TurnExecutionRuntimePort,
-    root_session: RootTurnSessionPort,
-    model_capability: ModelCapability | None,
+    turn_runner: TuiRootTurnRunner,
+    conversation_compactor: ConversationCompactor | None,
     protocol_client: ProtocolCommandClient | None,
-    effect_journal_factory: EffectJournalFactory | None,
-    execution_policy: ExecutionPolicy | None,
-    approval_coordinator: ApprovalCoordinatorPort | None,
-    lifecycle: TurnForegroundLifecyclePort | None,
-    approval_ledger: ApprovalLedger | None,
-    session_factory: OutputSessionFactory | None,
-    transcript_factory: TranscriptFactory | None,
-    cleanup: TurnCleanupPort | None,
-    patch_preview: PatchPreviewPort | None,
-    retry_state: RetryStatePort | None,
-    animation: TurnAnimationPort | None,
-    session_context: TurnSessionContextPort | None,
-    session_state: TurnSessionStatePort | None,
     local_session_id: str | None,
     initial_prompt: str | None,
     initial_images: tuple[str, ...],
@@ -259,6 +200,7 @@ async def _run_tui_loop(
         state,
         foreground_tasks,
         protocol_client=protocol_client,
+        conversation_compactor=conversation_compactor,
     )
     dispatcher.mailbox.bind_listener()
     if initial_prompt is not None:
@@ -433,9 +375,7 @@ async def _run_tui_loop(
         ) -> "RunResult":
             """把 TUI Command 适配到现有根轮次执行能力。"""
             return await run_tui_model_turn(
-                mind,
-                execution_runtime,
-                root_session,
+                turn_runner,
                 message_text=command.message,
                 pref_config=command.pref_config_value() or {},
                 permissions=state.permissions,
@@ -443,21 +383,6 @@ async def _run_tui_loop(
                 environment_snapshot=command.environment_snapshot_value(),
                 turn_id=turn_id,
                 prompt_extras=command.extras_value(),
-                model_capability=model_capability,
-                protocol_client=protocol_client,
-                effect_journal_factory=effect_journal_factory,
-                execution_policy=execution_policy,
-                approval_coordinator=approval_coordinator,
-                lifecycle=lifecycle,
-                approval_ledger=approval_ledger,
-                session_factory=session_factory,
-                transcript_factory=transcript_factory,
-                cleanup=cleanup,
-                patch_preview=patch_preview,
-                retry_state=retry_state,
-                animation=animation,
-                session_context=session_context,
-                session_state=session_state,
                 on_prompt_prepared=bind_prompt_attachments,
                 turn_input_control=turn_input_control,
                 on_interrupt_acknowledged=interrupt_notice.acknowledge,

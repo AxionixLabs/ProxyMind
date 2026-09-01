@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from dataclasses import dataclass
-
 from agent.domain.hooks import HookEventName
 from ..turns.context import TurnContext
 from .protocol import build_hook_input
+
+__all__ = ("HookExecutionContext",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,9 +97,6 @@ def _permission_mode(approval_policy: str) -> str:
         return "bypassPermissions"
 
     return "default"
-
-
-__all__ = ("HookExecutionContext",)
 
 
 if __name__ == '__main__':

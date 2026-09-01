@@ -6,16 +6,14 @@ from pathlib import Path
 from protocol.schema.stream_events import ToolApprovalRequiredEvent
 from protocol.schema.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
-    TOOL_APPROVAL_DECISIONS_BY_KIND
+    TOOL_APPROVAL_DECISIONS_BY_KIND,
 )
 from metadata import const
 from agent.application.approvals.amendments import (
     ExecPolicyAmendmentProposal,
     approval_execpolicy_amendment,
 )
-from .models import (
-    ApprovalDecisionValue,
-)
+from .models import ApprovalDecisionValue
 
 DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
     "accept",
@@ -170,11 +168,11 @@ def approval_from_snapshot(
     item: typing.Mapping[str, typing.Any],
 ) -> dict[str, typing.Any]:
     """把服务端快照中的审批记录转换为事件同构载荷。"""
-    approval    = dict(item)
+    approval = dict(item)
     approval_id = str(approval.get("approval_id") or "").strip()
-    call_id     = str(approval.get("call_id") or "").strip()
-    turn_id     = str(approval.get("turn_id") or "").strip()
-    kind        = str(approval.get("kind") or "command").strip()
+    call_id = str(approval.get("call_id") or "").strip()
+    turn_id = str(approval.get("turn_id") or "").strip()
+    kind = str(approval.get("kind") or "command").strip()
 
     if kind == "apply_patch":
         tool = "apply_patch"

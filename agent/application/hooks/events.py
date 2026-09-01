@@ -7,14 +7,14 @@ from agent.domain.hooks import (
     HOOK_EVENT_CONFIG_SPECS,
     HOOK_EVENT_NAMES,
     HookControlPolicy,
-    HookEventName
+    HookEventName,
 )
 from .output import normalize_hook_output
 from agent.application.hooks.models import HookNormalizedOutput
 from agent.application.hooks.protocol import (
     JsonSchema,
     hook_input_schema,
-    hook_output_schema
+    hook_output_schema,
 )
 
 HookOutputNormalizer = typing.Callable[
@@ -76,8 +76,8 @@ def validate_hook_event_catalog() -> None:
 
     if configured != registered or tuple(HOOK_EVENT_SPECS) != HOOK_EVENT_NAMES:
         missing = sorted(configured.difference(registered))
-        extra   = sorted(registered.difference(configured))
-        detail  = f"missing={missing}, extra={extra}"
+        extra = sorted(registered.difference(configured))
+        detail = f"missing={missing}, extra={extra}"
 
         raise RuntimeError(f"hook event catalog mismatch: {detail}")
 

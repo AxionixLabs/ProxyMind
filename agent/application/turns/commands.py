@@ -10,7 +10,7 @@ from agent.ports import (
     RunSnapshot,
     SessionRuntimeFactory,
     TurnExecutor,
-    TurnExecutorResult
+    TurnExecutorResult,
 )
 from agent.protocol import (
     RunEvent,
@@ -18,7 +18,7 @@ from agent.protocol import (
 )
 from .projections import (
     RunResultProjection,
-    project_run_result
+    project_run_result,
 )
 
 ResultValue = typing.TypeVar("ResultValue", bound=TurnExecutorResult)

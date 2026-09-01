@@ -4,7 +4,10 @@
 from .helix import InMemoryHelixCapability
 from .environment import LocalEnvironmentSnapshotCapability
 from .mcp import InMemoryMcpCapability
-from .filesystem import InMemoryFilesystemCapability, LocalFilesystemCapability
+from .filesystem import (
+    InMemoryFilesystemCapability,
+    LocalFilesystemCapability,
+)
 from .process import (
     InMemoryProcessCapability,
     InMemoryProcessHandle,

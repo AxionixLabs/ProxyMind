@@ -4,11 +4,11 @@
 import typing
 from dataclasses import (
     dataclass,
-    field
+    field,
 )
 from agent.domain.hooks import (
     HookEventName,
-    HookTrustPolicy
+    HookTrustPolicy,
 )
 from agent.domain.hook_trust import HookTrustState
 

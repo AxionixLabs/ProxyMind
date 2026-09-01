@@ -207,7 +207,7 @@ class Mind(object):
 
         self.design: TerminalDesign | None = kwargs.get("design")
 
-        self.conversation: ConversationState         = ConversationState()
+        self.conversation: ConversationState = ConversationState()
         self.turn_session_state = ControllerTurnSessionState(self)
         self.history_store: ConversationHistoryStore = (
             kwargs.get("history_store")
@@ -1256,6 +1256,7 @@ class Mind(object):
             function,
             before_user_flow=before_user_flow
         )
+
 
 if __name__ == '__main__':
     pass

@@ -2,9 +2,11 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from collections.abc import Callable, Mapping
 from pathlib import Path
-
+from collections.abc import (
+    Callable,
+    Mapping,
+)
 from agent.ports import (
     CapabilityError,
     EnvironmentSnapshotCapability,
@@ -43,3 +45,7 @@ def capture_environment_snapshot(
     if not isinstance(snapshot, Mapping):
         raise TypeError("environment capability must return an object")
     return dict(snapshot)
+
+
+if __name__ == '__main__':
+    pass

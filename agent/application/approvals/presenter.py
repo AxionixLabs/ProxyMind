@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import typing
-
 from .models import (
     ApprovalDecisionSource,
     ApprovalDecisionValue,

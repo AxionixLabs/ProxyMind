@@ -6,7 +6,7 @@ import typing
 from dataclasses import dataclass
 from agent.domain.hooks import (
     HOOK_EVENT_CONFIG_SPECS,
-    HookEventName
+    HookEventName,
 )
 
 _REGEX_META = frozenset("\\.^$*+?{}[]()")
@@ -42,7 +42,7 @@ def compile_hook_matcher(
     matcher: str
 ) -> HookMatcher:
     """按生命周期事件语义编译 Hook 匹配规则。"""
-    spec       = HOOK_EVENT_CONFIG_SPECS[event]
+    spec = HOOK_EVENT_CONFIG_SPECS[event]
     normalized = str(matcher or "").strip()
 
     if spec.matcher_subject is None or normalized in {"", "*"}:

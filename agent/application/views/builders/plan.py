@@ -6,7 +6,7 @@ from agent.application.views import (
     PlanItemView,
     PlanStatus,
     PlanStepsStartView,
-    PlanUpdateView
+    PlanUpdateView,
 )
 
 PLAN_STEPS_PREVIEW_LIMIT = 8

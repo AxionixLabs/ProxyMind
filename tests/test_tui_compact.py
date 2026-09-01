@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import functools
 from types import SimpleNamespace
 
 import pytest
@@ -125,6 +126,7 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
     mind = MindStub()
     status = await conversation.compact_current_conversation(
         mind,
+        functools.partial(compact_mode.compact_conversation, mind),
         pref_config={},
     )
     conversation.render_compact_result(mind, status)
@@ -175,6 +177,7 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
     mind = MindStub()
     result = await conversation.compact_current_conversation(
         mind,
+        functools.partial(compact_mode.compact_conversation, mind),
         pref_config={},
     )
     conversation.render_compact_result(mind, result)
@@ -230,6 +233,7 @@ async def test_compact_cancellation_clears_animation_without_failure(
     mind = MindStub()
     task = asyncio.create_task(conversation.compact_current_conversation(
         mind,
+        functools.partial(compact_mode.compact_conversation, mind),
         pref_config={},
     ))
     await started.wait()

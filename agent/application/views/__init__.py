@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-
-"""跨前端共享的应用结果视图。"""
+# Notes: ==== Mind™ ====
 
 from .approval import (
     ApprovalDecision,
@@ -31,7 +30,10 @@ from .plan import (
     PlanStepsStartView,
     PlanUpdateView,
 )
-from .progress import ProgressSource, ProgressView
+from .progress import (
+    ProgressSource,
+    ProgressView,
+)
 from .run import (
     FailureView,
     LifecycleView,
@@ -102,3 +104,7 @@ __all__ = (
     "tool_status_text",
     "uses_native_tool_view",
 )
+
+
+if __name__ == '__main__':
+    pass

@@ -30,3 +30,7 @@ __all__ = (
     "PrefixRule",
     "RuleMatch",
 )
+
+
+if __name__ == '__main__':
+    pass

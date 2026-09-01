@@ -244,11 +244,11 @@ class ProcessHandle(typing.Protocol):
     pid: int | None
     returncode: int | None
 
-    async def read_stdout(self) -> AsyncIterator[str]:
+    def read_stdout(self) -> AsyncIterator[str]:
         """按顺序读取标准输出文本片段。"""
         ...
 
-    async def read_stderr(self) -> AsyncIterator[str]:
+    def read_stderr(self) -> AsyncIterator[str]:
         """按顺序读取标准错误文本片段。"""
         ...
 

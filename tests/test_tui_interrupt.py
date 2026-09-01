@@ -161,8 +161,7 @@ async def test_double_ctrl_c_returns_normally_from_session_loop(
 
     session_task = asyncio.create_task(loop.run_tui_loop(
         mind,
-        execution_runtime=object(),
-        root_session=object(),
+        turn_runner=AsyncMock(),
     ))
     await asyncio.sleep(0)
     runtime.submissions.interrupt_input()

@@ -2,14 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from protocol.schema.tool_approval import (
-    TOOL_APPROVAL_ACCEPT_DECISIONS,
-)
+from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from agent.application.views import (
     ApprovalDecision,
     ApprovalSource,
     ApprovalState,
-    ApprovalView
+    ApprovalView,
 )
 
 

@@ -5,7 +5,7 @@ import copy
 import typing
 from agent.application.views import (
     FailureView,
-    LifecycleView
+    LifecycleView,
 )
 
 
@@ -18,8 +18,8 @@ def build_failure_view(
 ) -> FailureView:
     """构建运行失败的结构化展示数据。"""
     normalized_phase = str(phase or "stream.failed").strip() or "stream.failed"
-    message          = "" if error is None else str(error)
-    meta             = dict(terminal_meta or {})
+    message = "" if error is None else str(error)
+    meta = dict(terminal_meta or {})
 
     return FailureView(
         phase=normalized_phase,

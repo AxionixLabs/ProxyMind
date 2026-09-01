@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 import unicodedata
-
 from agent.application.views.commands import command_preview
-
 from .amendments import approval_execpolicy_amendment
 
 APPROVAL_SNIPPET_MAX_GRAPHEMES = 80
@@ -49,21 +48,6 @@ def approval_amendment_snippet(approval: dict[str, typing.Any]) -> str:
     return _truncate_approval_snippet(amendment.display)
 
 
-def _approval_command_summary(approval: dict[str, typing.Any]) -> str:
-    """生成 shell 命令审批摘要。"""
-    commands = approval_shell_commands(approval)
-    if not commands:
-        return ""
-    preview = command_preview(commands[0]).title
-    return preview or str(commands[0])
-
-
-def _approval_arguments(approval: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """返回审批载荷中的工具参数。"""
-    raw = approval.get("arguments", approval.get("args"))
-    return dict(raw) if isinstance(raw, dict) else {}
-
-
 def _truncate_approval_snippet(value: typing.Any) -> str:
     """按审批历史规则生成单行命令摘要。"""
     text = str(value or "").strip()
@@ -78,6 +62,21 @@ def _truncate_approval_snippet(value: typing.Any) -> str:
     if len(units) <= APPROVAL_SNIPPET_MAX_GRAPHEMES:
         return text
     return "".join(units[:APPROVAL_SNIPPET_MAX_GRAPHEMES - 3]) + "..."
+
+
+def _approval_command_summary(approval: dict[str, typing.Any]) -> str:
+    """生成 shell 命令审批摘要。"""
+    commands = approval_shell_commands(approval)
+    if not commands:
+        return ""
+    preview = command_preview(commands[0]).title
+    return preview or str(commands[0])
+
+
+def _approval_arguments(approval: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """返回审批载荷中的工具参数。"""
+    raw = approval.get("arguments", approval.get("args"))
+    return dict(raw) if isinstance(raw, dict) else {}
 
 
 def _approval_graphemes(text: str) -> typing.Iterator[str]:
@@ -131,3 +130,7 @@ def _approval_extends_grapheme(char: str) -> bool:
 def _approval_regional_indicator(char: str) -> bool:
     """判断字符是否为区域指示符。"""
     return 0x1F1E6 <= ord(char) <= 0x1F1FF
+
+
+if __name__ == "__main__":
+    pass

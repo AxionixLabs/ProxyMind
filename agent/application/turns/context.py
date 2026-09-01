@@ -4,7 +4,7 @@
 import typing
 from dataclasses import (
     dataclass,
-    replace
+    replace,
 )
 from agent.domain.policies import PermissionSettings
 from agent.ports import (
@@ -23,7 +23,7 @@ from agent.ports import (
 from protocol.schema.stream_events import ExecutionEffect
 from protocol.schema.identifiers import (
     normalize_turn_id,
-    short_uid
+    short_uid,
 )
 
 ROOT_AGENT_ID = "root"

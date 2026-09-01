@@ -1,10 +1,19 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import time
 import typing
 from dataclasses import dataclass
-
 from protocol.schema.identifiers import short_uid
+
+__all__ = (
+    "AgentResumeStatus",
+    "AgentStatus",
+    "AgentSubmission",
+    "AgentSubmissionKind",
+    "FINAL_AGENT_STATUSES",
+    "RESTART_INTERRUPTION_ERROR",
+)
 
 AgentStatus = typing.Literal[
     "pending",
@@ -15,12 +24,14 @@ AgentStatus = typing.Literal[
     "interrupted_by_restart",
     "closed",
 ]
+
 AgentResumeStatus = typing.Literal[
     "completed",
     "failed",
     "interrupted",
     "interrupted_by_restart",
 ]
+
 AgentSubmissionKind = typing.Literal["initial", "followup"]
 
 FINAL_AGENT_STATUSES = frozenset({
@@ -84,16 +95,6 @@ class AgentSubmission:
             created_at_ms=time.time_ns() // 1_000_000,
             parent_turn_id=parent_turn_id,
         )
-
-
-__all__ = (
-    "AgentResumeStatus",
-    "AgentStatus",
-    "AgentSubmission",
-    "AgentSubmissionKind",
-    "FINAL_AGENT_STATUSES",
-    "RESTART_INTERRUPTION_ERROR",
-)
 
 
 if __name__ == '__main__':

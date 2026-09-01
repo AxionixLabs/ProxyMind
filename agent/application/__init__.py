@@ -1,8 +1,5 @@
-"""Agent Harness 应用入口。
-
-本包只公开跨入口使用的应用用例；协议、端口、领域值对象和具体实现必须从
-各自职责模块导入，避免包级导出重新形成跨层 facade。
-"""
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 from .services import RuntimeServices
 from .turns.commands import (
@@ -17,3 +14,7 @@ __all__ = (
     "TurnApplication",
     "submit_turn",
 )
+
+
+if __name__ == '__main__':
+    pass

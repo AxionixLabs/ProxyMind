@@ -13,7 +13,6 @@ from dataclasses import (
 from agent.application.turns.context import ToolInvocation
 from agent.ports import CommandHookSessionPort
 from agent.ports.transcript import TranscriptSink
-from metadata import const
 from agent.domain.hook_matching import hook_tool_name
 from agent.application.hooks.result import apply_tool_result_effect
 from agent.application.hooks.models import (
@@ -22,9 +21,10 @@ from agent.application.hooks.models import (
     HookPermissionDecision,
     ToolCallRunResult,
     ToolOperationResult,
-    ToolOutcome
+    ToolOutcome,
 )
 from agent.harness.hooks.scope import HookExecutionScope
+from metadata import const
 
 ToolValue = typing.TypeVar("ToolValue")
 
@@ -152,7 +152,7 @@ class ToolHookEvents:
         feedback: list[str] = []
 
         replacement_result: typing.Any = None
-        replacement_result_set: bool   = False
+        replacement_result_set: bool = False
 
         blocked: bool = False
 
@@ -203,9 +203,9 @@ class ToolHookEvents:
             invocation,
         )
 
-        denied_keys: list[str]    = []
+        denied_keys: list[str] = []
         denied_reasons: list[str] = []
-        allowed_keys: list[str]   = []
+        allowed_keys: list[str] = []
 
         for record in dispatched.records:
             if not record.ok:
@@ -289,8 +289,8 @@ class ToolCallCoordinator:
         command_sessions: CommandHookSessionPort | None = None,
         failure_context_sink: FailureContextSink | None = None,
     ) -> None:
-        self.events           = ToolHookEvents(scope)
-        self.transcript       = transcript
+        self.events = ToolHookEvents(scope)
+        self.transcript = transcript
         self.command_sessions = command_sessions or CommandHookSessionStore()
         self.failure_context_sink = failure_context_sink
 
@@ -706,7 +706,7 @@ def _prepared_decision(
 ) -> _PreparedDecision:
     """构建同时匹配原始和改写参数的前置决定缓存。"""
     fingerprints = [_invocation_fingerprint(invocation)]
-    effective    = ToolCallCoordinator.effective_invocation(invocation, decision)
+    effective = ToolCallCoordinator.effective_invocation(invocation, decision)
 
     effective_fingerprint = _invocation_fingerprint(effective)
     if effective_fingerprint not in fingerprints:
@@ -735,11 +735,11 @@ def _tool_response(outcome: ToolOutcome) -> typing.Any:
 
 def _command_result_state(outcome: ToolOutcome) -> tuple[str, str]:
     """读取持续命令结果中的状态和进程会话标识。"""
-    fields  = outcome.result if isinstance(outcome.result, dict) else {}
-    data    = fields.get("data")
+    fields = outcome.result if isinstance(outcome.result, dict) else {}
+    data = fields.get("data")
     payload = data if isinstance(data, dict) else {}
 
-    status     = str(payload.get("status") or "").strip()
+    status = str(payload.get("status") or "").strip()
     session_id = str(payload.get("session_id") or "").strip()
 
     return status, session_id
@@ -759,9 +759,9 @@ def _post_tool_result_eligible(
     }:
         return False
 
-    fields    = outcome.result if isinstance(outcome.result, dict) else {}
-    data      = fields.get("data")
-    payload   = data if isinstance(data, dict) else {}
+    fields = outcome.result if isinstance(outcome.result, dict) else {}
+    data = fields.get("data")
+    payload = data if isinstance(data, dict) else {}
     exit_code = payload.get("exit_code")
 
     return (

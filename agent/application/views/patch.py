@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from dataclasses import dataclass
@@ -71,3 +72,7 @@ class PatchView:
     result_files: tuple[dict[str, typing.Any], ...] = ()
     diagnostics: tuple[PatchDiagnosticView, ...] = ()
     cost_ms: int | None = None
+
+
+if __name__ == '__main__':
+    pass

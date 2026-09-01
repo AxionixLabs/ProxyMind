@@ -4,7 +4,7 @@
 import typing
 from agent.application.views import (
     ProgressSource,
-    ProgressView
+    ProgressView,
 )
 
 

@@ -8,6 +8,8 @@ from agent.application.hooks.models import (
 )
 from agent.ports import HookExecutionScopePort
 
+__all__ = ("SubagentHookEvents",)
+
 _MAX_CONTEXT_CHARS = 12000
 
 
@@ -147,4 +149,5 @@ def _bounded_parts(
     return tuple(bounded)
 
 
-__all__ = ("SubagentHookEvents",)
+if __name__ == '__main__':
+    pass

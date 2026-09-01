@@ -6,12 +6,12 @@ import asyncio
 from dataclasses import replace
 from agent.domain.hooks import (
     SESSION_END_REASONS,
-    SessionEndReason
+    SessionEndReason,
 )
 from agent.application.hooks.context import HookExecutionContext
 from observability import (
     observe,
-    observe_exception
+    observe_exception,
 )
 from agent.harness.hooks.scope import HookExecutionScope
 
@@ -34,11 +34,9 @@ class SessionLifecycleGateway:
         scope_factory: SessionScopeFactory,
         cleanup_session: SessionCleanup
     ) -> None:
-        self._scope_factory   = scope_factory
+        self._scope_factory = scope_factory
         self._cleanup_session = cleanup_session
-
         self._ended_lifecycle_id: int | None = None
-
         self._lock: asyncio.Lock = asyncio.Lock()
 
     async def end(

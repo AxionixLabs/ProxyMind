@@ -17,14 +17,14 @@ def apply_tool_result_effect(
     additional_context: typing.Iterable[str] = (),
 ) -> HookVisibleToolResult:
     """把后置 Hook 影响应用到模型可见工具结果。"""
-    result_ok     = bool(ok)
-    result_text   = str(text or "")
+    result_ok = bool(ok)
+    result_text = str(text or "")
     result_fields = dict(fields)
-    feedback      = str(feedback_message or "").strip()
+    feedback = str(feedback_message or "").strip()
 
     if blocked:
         result_text = feedback or "PostToolUse hook blocked the tool result"
-        result_ok   = False
+        result_ok = False
         result_fields = {
             "ok": False,
             "text": result_text,
@@ -111,3 +111,7 @@ def _hook_result_text(value: typing.Any) -> str:
         return str(value if value is not None else "")
     except (TypeError, ValueError):
         return ""
+
+
+if __name__ == '__main__':
+    pass

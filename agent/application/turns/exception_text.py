@@ -1,23 +1,21 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import contextlib
 import json
 import httpx
+import contextlib
 from metadata import const
 
 
 def response_body_text(exc: httpx.HTTPStatusError) -> str:
     """读取失败响应体，优先使用 response hook 已缓存的内容。"""
-    body = exc.response.extensions.get("error_body", b"") if exc.response else b""
+    response = exc.response
+    body = response.extensions.get("error_body", b"")
     if isinstance(body, bytes) and body:
         return body.decode(const.CHARSET, errors="replace").strip()
 
-    if exc.response is None:
-        return ""
-
     with contextlib.suppress(httpx.ResponseNotRead):
-        body = exc.response.content
+        body = response.content
         if isinstance(body, bytes) and body:
             return body.decode(const.CHARSET, errors="replace").strip()
 
@@ -50,7 +48,7 @@ def compact_error_text(text: str) -> str:
 def friendly_exception_text(exc: BaseException) -> str:
     """把运行期异常转换成用户可读的一行摘要。"""
     if isinstance(exc, httpx.HTTPStatusError):
-        status_code = exc.response.status_code if exc.response else 0
+        status_code = exc.response.status_code
         detail = compact_error_text(response_body_text(exc))
         if detail:
             return f"HTTP {status_code}: {detail}"

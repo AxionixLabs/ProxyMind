@@ -725,12 +725,15 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
     )
     runtime.replace_transcript.assert_called_once_with(replay_blocks)
     attachments.assert_called_once_with("screen.png")
-    run_tui_loop.assert_awaited_once_with(
-        mind,
-        initial_prompt="continue",
-        initial_images=("screen.png",),
-        initial_model="review-model",
-    )
+    run_tui_loop.assert_awaited_once()
+    args, kwargs = run_tui_loop.await_args
+    assert args == (mind,)
+    assert callable(kwargs.pop("turn_runner"))
+    assert kwargs == {
+        "initial_prompt": "continue",
+        "initial_images": ("screen.png",),
+        "initial_model": "review-model",
+    }
     mind.subscription.close.assert_awaited_once_with()
     assert events == ["load", "resume", "replace", "run"]
 
@@ -867,12 +870,15 @@ async def test_agent_listen_owns_listener_for_tui_session(monkeypatch) -> None:
 
     assert result is None
     subscription.start.assert_called_once_with()
-    run_tui_loop.assert_awaited_once_with(
-        mind,
-        initial_prompt=None,
-        initial_images=(),
-        initial_model=None,
-    )
+    run_tui_loop.assert_awaited_once()
+    args, kwargs = run_tui_loop.await_args
+    assert args == (mind,)
+    assert callable(kwargs.pop("turn_runner"))
+    assert kwargs == {
+        "initial_prompt": None,
+        "initial_images": (),
+        "initial_model": None,
+    }
     subscription.close.assert_awaited_once_with()
 
 

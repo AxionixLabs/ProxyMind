@@ -8,7 +8,7 @@ import secrets
 from collections.abc import (
     AsyncIterator,
     Awaitable,
-    Callable
+    Callable,
 )
 from agent.ports import (
     CapabilityError,
@@ -16,6 +16,7 @@ from agent.ports import (
     ProcessHandle,
     ProcessSpec,
 )
+from metadata import const
 
 SandboxProcessLauncher: typing.TypeAlias = Callable[
     [ProcessSpec],
@@ -29,8 +30,8 @@ class _SubprocessHandle:
     def __init__(self, process: asyncio.subprocess.Process) -> None:
         """绑定子进程并生成本地会话身份。"""
         self._process = process
-        self.session_id = f"process_{secrets.token_hex(8)}"
-        self.pid = process.pid
+        self.session_id: str = f"process_{secrets.token_hex(8)}"
+        self.pid: int | None = process.pid
         self.returncode: int | None = process.returncode
         self._closed = False
 
@@ -118,13 +119,14 @@ class LocalProcessCapability:
         """绑定可选的本地 sandbox 启动器。"""
         self._sandbox_launcher = sandbox_launcher
         self._handles: dict[str, ProcessHandle] = {}
-        self._closed = False
-        self._lock = asyncio.Lock()
+        self._closed: bool = False
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     async def spawn(self, spec: ProcessSpec) -> ProcessHandle:
         """按启动参数创建进程，并登记句柄所有权。"""
         if not isinstance(spec, ProcessSpec):
             raise TypeError("process spec must be ProcessSpec")
+        handle: ProcessHandle
         async with self._lock:
             if self._closed:
                 raise CapabilityError("process_closed", "process capability is closed")
@@ -169,11 +171,6 @@ class LocalProcessCapability:
                     ) from error
                 handle = _SubprocessHandle(process)
 
-            if not isinstance(handle, ProcessHandle):
-                raise CapabilityError(
-                    "process_handle_invalid",
-                    "process launcher returned an invalid handle",
-                )
             self._handles[handle.session_id] = handle
             return handle
 
@@ -205,10 +202,10 @@ class InMemoryProcessHandle:
         self._stdout = (str(stdout),) if stdout else ()
         self._stderr = (str(stderr),) if stderr else ()
         self._inputs: list[str] = []
-        self._stdin_closed = False
-        self._closed = False
-        self.session_id = f"memory_process_{secrets.token_hex(8)}"
-        self.pid = None
+        self._stdin_closed: bool = False
+        self._closed: bool = False
+        self.session_id: str = f"memory_process_{secrets.token_hex(8)}"
+        self.pid: int | None = None
         self.returncode: int | None = int(returncode)
 
     @property
@@ -283,7 +280,7 @@ class InMemoryProcessCapability:
         self._stderr = stderr
         self._returncode = int(returncode)
         self._handles: dict[str, InMemoryProcessHandle] = {}
-        self._closed = False
+        self._closed: bool = False
 
     async def spawn(self, spec: ProcessSpec) -> ProcessHandle:
         """登记启动规格并返回内存进程句柄。"""
@@ -320,15 +317,13 @@ async def _read_stream(
         chunk = await stream.read(4096)
         if not chunk:
             return
-        yield chunk.decode("utf-8", errors="replace")
+        yield chunk.decode(const.CHARSET, errors="replace")
 
 
 if not isinstance(LocalProcessCapability(), ProcessCapability):
     raise TypeError("LocalProcessCapability must implement ProcessCapability")
 if not isinstance(InMemoryProcessCapability(), ProcessCapability):
     raise TypeError("InMemoryProcessCapability must implement ProcessCapability")
-if not isinstance(InMemoryProcessHandle(), ProcessHandle):
-    raise TypeError("InMemoryProcessHandle must implement ProcessHandle")
 
 
 if __name__ == '__main__':

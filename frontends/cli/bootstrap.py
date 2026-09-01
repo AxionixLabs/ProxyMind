@@ -64,17 +64,12 @@ from frontends.helix.runtime import (
 from infrastructure.services.helix_capability import ServerManageHelixCapability
 from frontends.terminal.contracts import TerminalDesign
 from agent.ports import (
-    ApprovalCoordinatorPort,
-    ExecutionPolicy,
     HookRegistryPort,
     ProtocolCommandClient,
-    RootTurnSessionPort,
-    RetryStatePort,
-    TurnAnimationPort,
-    TurnExecutionRuntimePort,
-    TurnSessionContextPort,
-    TurnSessionStatePort,
-    TurnForegroundLifecyclePort,
+)
+from frontends.tui.features.conversation import (
+    ConversationCompactor,
+    ConversationCompactorFactory,
 )
 from agent.domain.tool_policy import ToolFilterMode
 from .commands import (
@@ -233,6 +228,7 @@ async def _run_application(
     *,
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
+    conversation_compactor_factory: ConversationCompactorFactory | None = None,
 ) -> int:
     """执行普通应用运行时的完整生命周期。"""
     output_mode = resolve_cli_output_mode(command)
@@ -452,6 +448,7 @@ async def _run_application(
             runtime_services=runtime_services,
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
+            conversation_compactor_factory=conversation_compactor_factory,
             startup_warnings=(
                 *config_resolution.startup_warnings,
                 *(
@@ -499,6 +496,7 @@ async def _run_controller(
     runtime_services: RuntimeServices | None = None,
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
+    conversation_compactor_factory: ConversationCompactorFactory | None = None,
 ) -> int:
     """创建 Controller 并运行用户命令。"""
     hook_status = None
@@ -701,47 +699,18 @@ async def _run_controller(
                     name="tui service runtime startup",
                 )
 
-        model_capability = None
         protocol_client = None
         turn_application_factory = None
-        effect_journal_factory = None
-        approval_ledger = None
-        session_factory = None
-        transcript_factory = None
-        cleanup = None
-        patch_preview = None
-        retry_state: RetryStatePort | None = None
-        animation_port: TurnAnimationPort | None = None
-        session_context: TurnSessionContextPort | None = None
-        session_state: TurnSessionStatePort | None = None
-        execution_runtime: TurnExecutionRuntimePort | None = None
-        root_session: RootTurnSessionPort | None = None
-        execution_policy: ExecutionPolicy | None = None
-        approval_coordinator: ApprovalCoordinatorPort | None = None
-        lifecycle: TurnForegroundLifecyclePort | None = None
+        conversation_compactor: ConversationCompactor | None = None
         if runtime_services is not None:
-            execution_runtime = controller.turn_execution_runtime
-            root_session = controller.root_turn_session
             turn_application_factory = runtime_services.create_turn_application
-            model_capability = runtime_services.model_capability
-            effect_journal_factory = runtime_services.create_effect_journal
-            approval_ledger = controller.approval_call_ledger
-            session_factory = controller.frontend.session_factory
-            transcript_factory = controller.transcripts.writer
-            cleanup = controller
-            patch_preview = controller.workspace_runtime.coding.preview_patch
-            retry_state = controller.frontend.runtime
-            animation_port = controller.turn_animation
-            session_context = controller.turn_session_context
-            session_state = controller.turn_session_state
-            execution_policy = controller.workspace_runtime.execution_policy
-            approval_coordinator = controller.approval_coordinator
-            lifecycle = controller.turn_foreground_lifecycle
             if isinstance(
                 runtime_services.model_capability,
                 ProtocolCommandClient,
             ):
                 protocol_client = runtime_services.model_capability
+        if conversation_compactor_factory is not None:
+            conversation_compactor = conversation_compactor_factory(controller)
 
         await run_selected_command(
             controller,
@@ -749,23 +718,8 @@ async def _run_controller(
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
             turn_application_factory=turn_application_factory,
-            execution_runtime=execution_runtime,
-            root_session=root_session,
-            model_capability=model_capability,
+            conversation_compactor=conversation_compactor,
             protocol_client=protocol_client,
-            effect_journal_factory=effect_journal_factory,
-            approval_ledger=approval_ledger,
-            session_factory=session_factory,
-            transcript_factory=transcript_factory,
-            cleanup=cleanup,
-            patch_preview=patch_preview,
-            retry_state=retry_state,
-            animation=animation_port,
-            session_context=session_context,
-            session_state=session_state,
-            execution_policy=execution_policy,
-            approval_coordinator=approval_coordinator,
-            lifecycle=lifecycle,
         )
         completed = True
         observe("app.complete", exit_code=controller.exit_code)
@@ -857,6 +811,7 @@ async def run_application(
     runtime_services: RuntimeServices,
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
+    conversation_compactor_factory: ConversationCompactorFactory | None = None,
 ) -> int:
     """装配并运行需要本地应用资源的命令。"""
     animation = AsyncAnimManager()
@@ -870,6 +825,7 @@ async def run_application(
             runtime_services,
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
+            conversation_compactor_factory=conversation_compactor_factory,
         )
     finally:
         await _await_cleanup(animation.stop())
