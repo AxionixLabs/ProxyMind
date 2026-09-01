@@ -4,7 +4,10 @@
 import os
 import typing
 from .capabilities import ProcessCapability
+from .javascript import WorkspaceJavaScriptPort
 from .media import ImageReaderPort
+from .patching import WorkspacePatchPort
+from .process_tools import WorkspaceProcessPort
 
 __all__ = (
     "CodingFactory",
@@ -14,6 +17,7 @@ __all__ = (
     "ExecutionPolicyFactory",
     "ExecutionPolicyRequirement",
     "PatchPreviewPort",
+    "WorkspaceCodingPort",
     "WorkspaceRoot",
     "WorkspaceRuntime",
     "WorkspaceRuntimeFactory",
@@ -30,6 +34,16 @@ class CodingRuntime(typing.Protocol):
     async def close(self) -> None:
         """释放编码能力持有的全部资源。"""
         ...
+
+
+class WorkspaceCodingPort(
+    CodingRuntime,
+    WorkspaceJavaScriptPort,
+    WorkspacePatchPort,
+    WorkspaceProcessPort,
+    typing.Protocol,
+):
+    """聚合一个工作区内共享生命周期的编码执行能力。"""
 
 
 class PatchPreviewPort(typing.Protocol):
@@ -65,7 +79,7 @@ class ExecutionPolicyRequirement(typing.Protocol):
     """定义本地命令执行策略的判定结果。"""
 
     state: ExecutionPolicyState
-    reason: str
+    reason: str | None
     proposed_execpolicy_amendment: ExecutionPolicyAmendment | None
 
 
@@ -145,7 +159,7 @@ class CodingFactory(typing.Protocol):
         root: WorkspaceRoot,
         application_layout: object | None,
         process_capability: ProcessCapability | None = None,
-    ) -> CodingRuntime:
+    ) -> WorkspaceCodingPort:
         ...
 
 
@@ -159,7 +173,7 @@ class ExecutionPolicyFactory(typing.Protocol):
 class WorkspaceRuntime(typing.Protocol):
     """定义 Controller 消费的工作区资源生命周期边界。"""
 
-    coding: CodingRuntime
+    coding: WorkspaceCodingPort
     execution_policy: ExecutionPolicy
     image_reader: ImageReaderPort
     user_shell: object

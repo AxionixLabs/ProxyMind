@@ -240,6 +240,14 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   有效模式迁入 `agent/domain/execution_policy/sandbox.py`，基础设施不再拥有纯规则副本。
   旧 `native.py` 三个 handler 同步删除；权限/执行策略/工具与完整架构回归
   `188 passed, 65 warnings`，同提交 Session 类型收窄回归 `29 passed`。
+- workspace coding 已完成 JS REPL 与注册表装配切片：REPL 用例、嵌套执行策略和审批编排
+  迁入 `agent/application/tools/javascript.py`，工作区执行通过 `WorkspaceJavaScriptPort`，
+  MCP SDK 结果在 `infrastructure/mcp/nested_tool_results.py` 校验并转换为稳定 JSON；客户端
+  与内置工具工厂统一归 `infrastructure/mcp/local_tool_factory.py`，旧
+  `mind_app/client_tools` 源包已整体删除，Controller 不再直接构造具体注册表。
+- JS/权限/补丁/工具工厂与 Controller 组合回归 `172 passed`；完整架构守卫除一项新增端口
+  白名单过期外其余 `107 passed, 65 warnings`，修正后失败节点及两项职责守卫
+  `3 passed, 2 warnings`。导入图、`compileall`、旧导入扫描和差异检查通过。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -336,14 +344,18 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    运行期投递已按 adapter/application/domain/runtime 分开；三个旧模块、旧导入和单调用者
    facade 已删除，`mind_app/runtime/mcp` 源码清零。
 
-4. **本地工具能力族重组（进行中）**：registry、调用上下文、类型契约、稳定结果、
+4. **本地工具能力族重组（已完成）**：registry、调用上下文、类型契约、稳定结果、
    planning、media、permissions 与 subagent 能力已迁入 `agent`、`infrastructure` 和具名
-   ports；workspace coding 的全部 schema、`apply_patch` 及三个进程工具用例也已迁出
-   legacy，sandbox 参数规则已归 domain。下一步只拆分 JS REPL：建立内核执行与嵌套工具
-   结果端口，将审批/策略编排迁出 legacy；不得把 MCP SDK、具体 `ExecPolicyManager` 或
-   `NativeCoding` 类型搬进 application，也不得创建新的总工具 facade。
+   ports；workspace coding 的 schema、补丁、进程和 JS REPL 用例已全部迁出 legacy，sandbox
+   参数规则归 domain，嵌套 MCP 结果归 infrastructure adapter。旧 `mind_app/client_tools`
+   源包整体删除，application 不导入 MCP SDK、具体 `ExecPolicyManager` 或 `NativeCoding`。
 
-5. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
+5. **Workspace 编码实现归位（下一步）**：按补丁、命令、文件审计和聚合生命周期重组
+   `mind_app/native_coding`，把纯执行实现迁入 `agent/capabilities` 或既有
+   `infrastructure/platform` 职责模块；`mind.py` 保持唯一具体组合根，同一切片切换生产与
+   测试导入并删除旧路径，不创建 `native_coding` 同名 facade。
+
+6. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
@@ -369,8 +381,14 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 本次 workspace process 切片的删除条件已满足：三个进程工具只消费
 `WorkspaceProcessPort`，application 不导入配置实现、平台进程或 legacy coding；sandbox
 参数规则由 domain 单一声明，执行策略、Turn 审批与嵌套 JS 调用复用同一校验。旧三个 handler
-和 infrastructure 规则定义已删除；JS REPL handler、MCP 结果适配及嵌套审批仍在 legacy，
-因此 workspace coding 尚未整体完成。
+和 infrastructure 规则定义已删除；JS REPL、MCP 结果适配及嵌套审批的后续切片也已按下述
+删除条件完成，因此 workspace coding application 用例现已整体收口。
+
+本次 workspace JavaScript 切片的删除条件已满足：REPL application 用例只消费
+`WorkspaceJavaScriptPort`、`ApprovalCoordinatorPort` 和 `ExecutionPolicy`，MCP SDK 对象在
+infrastructure 注册表边界转换为经过 JSON 校验的嵌套输出；客户端与内置注册表装配不再由
+Controller 或 legacy 能力包持有。旧 `mind_app/client_tools` 源文件和生产导入已清零，JS
+持久上下文、嵌套审批取消、本地工具展示及 MCP 图片桥接均保留回归覆盖。
 
 本次 MCP 生命周期切片的删除条件已满足：Harness 所有者不得导入 `mind_app` 或具体 MCP 实现；
 组合根必须显式注入 `ExternalMcpRuntime` 工厂；旧 `mind_app.runtime.mcp.lifecycle`

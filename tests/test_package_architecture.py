@@ -1165,7 +1165,9 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "external_runtime.py",
         "external_status.py",
         "local_session.py",
+        "local_tool_factory.py",
         "local_tool_registry.py",
+        "nested_tool_results.py",
         "registry.py",
         "settings.py",
         "tool_catalog.py",
@@ -1237,6 +1239,10 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
         PROJECT_ROOT / "mind_app" / "client_tools" / "update_plan.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "view_image.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "coding" / "schemas.py",
+        PROJECT_ROOT / "mind_app" / "client_tools" / "coding" / "native.py",
+        PROJECT_ROOT / "mind_app" / "client_tools" / "coding" / "__init__.py",
+        PROJECT_ROOT / "mind_app" / "client_tools" / "factory.py",
+        PROJECT_ROOT / "mind_app" / "client_tools" / "__init__.py",
         PROJECT_ROOT / "mind_app" / "native_coding" / "execution_authorization.py",
     )
     assert not any(path.is_file() for path in legacy_paths)
@@ -1256,6 +1262,8 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
         "mind_app.client_tools.update_plan",
         "mind_app.client_tools.view_image",
         "mind_app.client_tools.coding.schemas",
+        "mind_app.client_tools.coding.native",
+        "mind_app.client_tools.factory",
         "mind_app.native_coding.execution_authorization",
     }
     violations = _forbidden_module_imports(".", legacy_modules)
@@ -1272,7 +1280,13 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
         + "\n".join(tool_boundary_violations)
     )
 
-    factory_path = PROJECT_ROOT / "mind_app" / "client_tools" / "factory.py"
+    assert not any(
+        (PROJECT_ROOT / "mind_app" / "client_tools").glob("**/*.py")
+    )
+
+    factory_path = (
+        PROJECT_ROOT / "infrastructure" / "mcp" / "local_tool_factory.py"
+    )
     factory_tree = ast.parse(
         factory_path.read_text(encoding="utf-8-sig"),
         filename=str(factory_path),
@@ -4704,6 +4718,8 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.tools.results",
         "agent.application.tools.subagents",
         "agent.ports.media",
+        "agent.ports.capabilities",
+        "agent.ports.javascript",
         "agent.domain.hooks",
         "agent.domain.identifiers",
         "agent.domain.permission_profiles",

@@ -21,9 +21,7 @@ from mind_app.runtime.turns.stream_policy import (
     local_patch_approval,
 )
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
-from mind_app.client_tools.coding.native import (
-    coding_tools,
-)
+from agent.application.tools.coding import coding_tools
 from agent.application.turns.context import (
     AgentContext,
     ToolInvocation,

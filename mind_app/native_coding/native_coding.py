@@ -3,6 +3,8 @@
 
 import os
 import typing
+from agent.ports.capabilities import SandboxMode
+from agent.ports.javascript import NestedToolDispatch
 from infrastructure.config.paths import ApplicationLayout
 from mind_app.native_coding.base import NativeCodingBase
 from mind_app.native_coding.edit.patch_engine import PatchEngine
@@ -282,9 +284,9 @@ class NativeCoding(NativeCodingBase):
         session_id: str,
         code: str,
         cwd: str,
-        access_mode: str,
+        access_mode: SandboxMode,
         timeout_ms: int,
-        call_tool: typing.Any
+        call_tool: NestedToolDispatch,
     ) -> dict[str, typing.Any]:
         """在会话持有的持久 JavaScript 内核中执行代码。"""
         try:

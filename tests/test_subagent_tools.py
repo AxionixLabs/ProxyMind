@@ -7,7 +7,7 @@ import pytest
 
 from mind import create_native_coding
 from infrastructure.mcp.local_tool_registry import ToolRegistry
-from mind_app.client_tools.factory import default_registry
+from infrastructure.mcp.local_tool_factory import build_client_tool_registry
 from agent.application.tools.subagents import subagent_tools
 from infrastructure.mcp.composite_session import CompositeToolSession
 from infrastructure.platform.images import FileImageReader
@@ -162,7 +162,7 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
     )
     coding = create_native_coding(root=tmp_path, application_layout=None)
 
-    enabled_tools = default_registry(
+    enabled_tools = build_client_tool_registry(
         coding,
         image_reader=FileImageReader(tmp_path),
         subagent_runtime=enabled,
@@ -170,7 +170,7 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
     enabled_names = {tool.name for tool in enabled_tools}
     disabled_names = {
         tool.name
-        for tool in default_registry(
+        for tool in build_client_tool_registry(
             coding,
             image_reader=FileImageReader(tmp_path),
             subagent_runtime=disabled,

@@ -10,18 +10,14 @@ from collections.abc import (
 from dataclasses import dataclass
 from datetime import timedelta
 from agent.ports.mcp_session import McpSessionPort
+from agent.ports.javascript import NestedToolDispatch
 
 if typing.TYPE_CHECKING:
-    from mcp import types as mcp_types
     from agent.application.turns.context import TurnContext
 
 ToolProgressCallback: typing.TypeAlias = Callable[
     [float, float | None, str | None],
     Awaitable[None],
-]
-NestedToolDispatch: typing.TypeAlias = Callable[
-    [str, dict[str, typing.Any], str],
-    Awaitable["mcp_types.CallToolResult"],
 ]
 TurnInterrupt: typing.TypeAlias = Callable[[str], Awaitable[bool]]
 

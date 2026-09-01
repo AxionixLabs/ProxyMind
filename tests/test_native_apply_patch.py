@@ -2,7 +2,7 @@
 
 import pytest
 
-from mind_app.client_tools.coding.native import coding_tools
+from agent.application.tools.coding import coding_tools
 from mind import create_native_coding
 from mind_app.native_coding.edit.parser import PatchParser
 

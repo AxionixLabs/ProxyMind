@@ -75,6 +75,11 @@ from .media import (
     ImageReaderFactory,
     ImageReaderPort,
 )
+from .javascript import (
+    NestedToolDispatch,
+    NestedToolOutput,
+    WorkspaceJavaScriptPort,
+)
 from .patching import WorkspacePatchPort
 from .process_tools import WorkspaceProcessPort
 from .tool_runtime import (
@@ -167,6 +172,7 @@ from .workspace import (
     ExecutionPolicyRequirement,
     PatchPreviewPort,
     WorkspaceRoot,
+    WorkspaceCodingPort,
     WorkspaceRuntime,
     WorkspaceRuntimeFactory,
 )
@@ -232,6 +238,9 @@ __all__ = (
     "ImageReadError",
     "ImageReaderFactory",
     "ImageReaderPort",
+    "NestedToolDispatch",
+    "NestedToolOutput",
+    "WorkspaceJavaScriptPort",
     "WorkspacePatchPort",
     "WorkspaceProcessPort",
     "BeforeToolSession",
@@ -313,6 +322,7 @@ __all__ = (
     "ExecutionPolicyRequirement",
     "PatchPreviewPort",
     "WorkspaceRoot",
+    "WorkspaceCodingPort",
     "WorkspaceRuntime",
     "WorkspaceRuntimeFactory",
     "RunExecution",

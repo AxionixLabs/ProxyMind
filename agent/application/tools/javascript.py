@@ -1,41 +1,43 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind™ ====
+# Notes: ==== Mind(TM) ====
 
 import typing
-from mcp import types as mcp_types
-from agent.application.tools.context import ToolHandlerContext
-from agent.application.tools.definitions import ClientTool
+
+from agent.application.approvals.amendments import approval_execpolicy_amendment
 from agent.application.tools.authorization import (
     ExecutionAuthorizationError,
     ToolTurnInterrupted,
     reject_model_execution,
 )
-from agent.application.tools.results import (
-    LocalToolResult,
-)
-from agent.application.tools.execution_results import client_execution_result
-from agent.application.tools.patching import patch_tools
-from agent.application.tools.processes import process_tools
-from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
-from agent.application.approvals.amendments import approval_execpolicy_amendment
-from agent.domain.permission_profiles import normalize_permission_profile
-from agent.domain.execution_policy import validate_sandbox_permission_arguments
-from mind_app.native_coding import NativeCoding
-from infrastructure.config.execution_policy_manager import ExecPolicyManager
-from infrastructure.mcp.tool_results import normalize_call_tool_result
 from agent.application.tools.coding_schemas import (
     JS_REPL_INPUT_SCHEMA,
     JS_REPL_RESET_INPUT_SCHEMA,
 )
+from agent.application.tools.context import ToolHandlerContext
+from agent.application.tools.definitions import ClientTool
+from agent.application.tools.execution_results import (
+    client_execution_failure,
+    client_execution_result,
+)
+from agent.application.tools.results import LocalToolResult
+from agent.domain.execution_policy import validate_sandbox_permission_arguments
+from agent.domain.permission_profiles import normalize_permission_profile
+from agent.ports.approvals import ApprovalCoordinatorPort
+from agent.ports.javascript import (
+    NestedToolOutput,
+    WorkspaceJavaScriptPort,
+)
+from agent.ports.workspace import ExecutionPolicy
+from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 
-if typing.TYPE_CHECKING:
-    from agent.application.approvals.coordinator import ApprovalCoordinator
-
-NESTED_PROCESS_TOOLS = {
+JS_REPL_TOOL = "js_repl"
+JS_REPL_RESET_TOOL = "js_repl_reset"
+JS_REPL_TOOL_NAMES = frozenset({JS_REPL_TOOL, JS_REPL_RESET_TOOL})
+NESTED_PROCESS_TOOLS = frozenset({
     "shell_command",
     "exec_command",
-    "write_stdin"
-}
+    "write_stdin",
+})
 
 JS_REPL_DESCRIPTION = (
     "在当前 sid 持有的持久 Node.js Kernel 中执行 JavaScript；顶层 await、fetch 和动态 "
@@ -62,117 +64,54 @@ JS_REPL_DESCRIPTION = (
 )
 
 
-def build_coding_result(
+def javascript_tools(
+    executor: WorkspaceJavaScriptPort,
     *,
-    tool: str,
-    args: dict[str, typing.Any],
-    raw: dict[str, typing.Any],
-    target: str
-) -> LocalToolResult:
-    """构造编码工具调用结果。"""
-    return client_execution_result(
-        tool=tool,
-        arguments=args,
-        result=raw,
-        target=target,
-    )
-
-
-def authorization_failure_result(
-    coding: NativeCoding,
-    *,
-    tool: str,
-    arguments: dict[str, typing.Any],
-    error: ExecutionAuthorizationError
-) -> LocalToolResult:
-    """构造执行授权失败结果。"""
-    raw = coding.fail_result(
-        error.reason,
-        tool=tool,
-        error="execution_policy_blocked",
-        detail=error.detail,
-    )
-    return build_coding_result(
-        tool=tool,
-        args={
-            key: value
-            for key, value in arguments.items()
-            if key != "execution"
-        },
-        raw=raw,
-        target=coding.agent_id,
-    )
-
-
-def coding_tools(
-    native_coding: NativeCoding,
-    *,
-    approval_coordinator: "ApprovalCoordinator | None" = None,
-    exec_policy_manager: ExecPolicyManager | None = None,
-    exec_permission_approvals_enabled: bool = False,
+    approval_coordinator: ApprovalCoordinatorPort | None = None,
+    execution_policy: ExecutionPolicy | None = None,
 ) -> list[ClientTool]:
-    """返回编码工具列表。"""
-    coding = native_coding
-    local_exec_policy = exec_policy_manager or ExecPolicyManager(
-        workspace_root=coding.root
-    )
+    """构造持久 JavaScript 内核工具及其嵌套调用编排。"""
 
     async def js_repl_handler(
         arguments: dict[str, typing.Any],
-        runtime: ToolHandlerContext
+        runtime: ToolHandlerContext,
     ) -> LocalToolResult:
         """执行一个持久 JavaScript 单元。"""
         try:
             reject_model_execution(arguments)
             args = _js_repl_arguments(arguments)
-        except ExecutionAuthorizationError as exc:
-            return authorization_failure_result(
-                coding,
-                tool="js_repl",
+        except ExecutionAuthorizationError as error:
+            return _authorization_failure(
+                executor,
+                tool=JS_REPL_TOOL,
                 arguments=arguments,
-                error=exc,
+                error=error,
             )
 
         async def call_nested_tool(
             tool_name: str,
             tool_arguments: dict[str, typing.Any],
-            call_id: str
-        ) -> dict[str, typing.Any]:
-            """通过当前复合工具会话执行内核请求。"""
+            call_id: str,
+        ) -> NestedToolOutput:
+            """在当前 Turn 的工具生命周期内执行嵌套调用。"""
             await _authorize_nested_tool(
                 runtime,
                 tool=tool_name,
                 arguments=tool_arguments,
                 approval_coordinator=approval_coordinator,
-                exec_policy_manager=local_exec_policy,
+                execution_policy=execution_policy,
                 call_id=call_id,
             )
-
-            if runtime.nested_tool_dispatch is not None:
-                result = await runtime.nested_tool_dispatch(
-                    tool_name,
-                    tool_arguments,
-                    call_id,
-                )
-            else:
-                result = await runtime.session.call_tool(
-                    tool_name,
-                    tool_arguments,
-                    read_timeout_seconds=runtime.read_timeout_seconds,
-                    progress_callback=runtime.progress_callback,
-                    call_id=call_id,
-                    turn_context=runtime.turn_context,
-                    pref_config=runtime.pref_config,
-                )
-            return _nested_tool_response(
-                result,
-                call_id=call_id,
-                mcp_result=_nested_tool_returns_mcp(runtime.session, tool_name),
+            if runtime.nested_tool_dispatch is None:
+                raise RuntimeError("nested tool dispatch is unavailable")
+            return await runtime.nested_tool_dispatch(
+                tool_name,
+                tool_arguments,
+                call_id,
             )
 
         turn = runtime.turn_context
-
-        raw = await coding.js_repl(
+        result = await executor.js_repl(
             session_id=turn.sid,
             code=str(args["code"]),
             cwd=turn.cwd,
@@ -180,49 +119,47 @@ def coding_tools(
             timeout_ms=int(args["timeout_ms"]),
             call_tool=call_nested_tool,
         )
-
-        return build_coding_result(
-            tool="js_repl",
-            args=args,
-            raw=raw,
-            target=coding.agent_id,
+        return client_execution_result(
+            tool=JS_REPL_TOOL,
+            arguments=args,
+            result=result,
+            target=executor.agent_id,
         )
 
     async def js_repl_reset_handler(
         arguments: dict[str, typing.Any],
-        runtime: ToolHandlerContext
+        runtime: ToolHandlerContext,
     ) -> LocalToolResult:
         """重置当前会话的 JavaScript 内核。"""
         try:
             reject_model_execution(arguments)
             args = _js_repl_reset_arguments(arguments)
-        except ExecutionAuthorizationError as exc:
-            return authorization_failure_result(
-                coding,
-                tool="js_repl_reset",
+        except ExecutionAuthorizationError as error:
+            return _authorization_failure(
+                executor,
+                tool=JS_REPL_RESET_TOOL,
                 arguments=arguments,
-                error=exc,
+                error=error,
             )
 
-        raw = await coding.reset_js_repl(runtime.turn_context.sid)
-
-        return build_coding_result(
-            tool="js_repl_reset",
-            args=args,
-            raw=raw,
-            target=coding.agent_id,
+        result = await executor.reset_js_repl(runtime.turn_context.sid)
+        return client_execution_result(
+            tool=JS_REPL_RESET_TOOL,
+            arguments=args,
+            result=result,
+            target=executor.agent_id,
         )
 
-    tools: list[ClientTool] = [
+    return [
         ClientTool(
-            name="js_repl",
+            name=JS_REPL_TOOL,
             description=JS_REPL_DESCRIPTION,
             input_schema=JS_REPL_INPUT_SCHEMA,
             meta={"hidden": False, "domain": "coding", "class": "shell"},
             handler=js_repl_handler,
         ),
         ClientTool(
-            name="js_repl_reset",
+            name=JS_REPL_RESET_TOOL,
             description=(
                 "重置当前对话会话的持久 JavaScript 内核。下次调用 js_repl 时会按需启动"
                 "新的 Node.js 进程，之前定义的变量和对象将不可用。"
@@ -231,14 +168,6 @@ def coding_tools(
             meta={"hidden": False, "domain": "coding", "class": "shell"},
             handler=js_repl_reset_handler,
         ),
-    ]
-    return [
-        *tools,
-        *process_tools(
-            coding,
-            exec_permission_approvals_enabled=exec_permission_approvals_enabled,
-        ),
-        *patch_tools(coding),
     ]
 
 
@@ -268,24 +197,25 @@ def _js_repl_arguments(arguments: dict[str, typing.Any]) -> dict[str, typing.Any
             "canonical_contract_invalid",
             "js_repl timeout_ms must be a non-negative integer",
         )
-
     return {"code": code, "timeout_ms": timeout_ms}
 
 
-def _js_repl_reset_arguments(arguments: dict[str, typing.Any]) -> dict[str, typing.Any]:
+def _js_repl_reset_arguments(
+    arguments: dict[str, typing.Any],
+) -> dict[str, typing.Any]:
     """校验 JavaScript 内核重置参数。"""
     if arguments:
         raise ExecutionAuthorizationError(
             "canonical_contract_invalid",
-            f"js_repl_reset arguments contain unsupported fields: {sorted(arguments)}",
+            "js_repl_reset arguments contain unsupported fields: "
+            f"{sorted(arguments)}",
         )
-
     return {}
 
 
 def _nested_canonical_arguments(
     tool: str,
-    arguments: dict[str, typing.Any]
+    arguments: dict[str, typing.Any],
 ) -> dict[str, typing.Any]:
     """补齐嵌套进程工具需要的 canonical 默认参数。"""
     if tool == "shell_command":
@@ -306,7 +236,9 @@ def _nested_canonical_arguments(
         if arguments.get("environment_id") not in (None, ""):
             canonical["environment_id"] = str(arguments["environment_id"])
         if arguments.get("additional_permissions") is not None:
-            canonical["additional_permissions"] = arguments["additional_permissions"]
+            canonical["additional_permissions"] = arguments[
+                "additional_permissions"
+            ]
         return canonical
     if tool == "exec_command":
         canonical = {
@@ -329,7 +261,9 @@ def _nested_canonical_arguments(
         if arguments.get("environment_id") not in (None, ""):
             canonical["environment_id"] = str(arguments["environment_id"])
         if arguments.get("additional_permissions") is not None:
-            canonical["additional_permissions"] = arguments["additional_permissions"]
+            canonical["additional_permissions"] = arguments[
+                "additional_permissions"
+            ]
         return canonical
     if tool == "write_stdin":
         return {
@@ -342,130 +276,23 @@ def _nested_canonical_arguments(
     return dict(arguments)
 
 
-def _nested_tool_returns_mcp(session: typing.Any, tool_name: str) -> bool:
-    """判断嵌套工具是否由 MCP 会话提供。"""
-    registry = getattr(session, "client_registry", None)
-    if registry is not None and registry.has_tool(tool_name):
-        return False
-
-    external_group = getattr(session, "external_group", None)
-    external_tools = getattr(external_group, "tools", {})
-    if tool_name in external_tools:
-        return True
-
-    return getattr(session, "service_session", None) is not None
-
-
-def _nested_tool_response(
-    result: mcp_types.CallToolResult,
-    *,
-    call_id: str,
-    mcp_result: bool = False
-) -> dict[str, typing.Any]:
-    """把 MCP 工具结果转换为内核可消费的函数输出。"""
-    normalized = normalize_call_tool_result(result)
-    if not normalized.ok and not mcp_result:
-        raise RuntimeError(normalized.display_text)
-
-    if mcp_result:
-        output = result.model_dump(
-            mode="json",
-            by_alias=True,
-            exclude_none=True,
-        )
-        return {
-            "type": "mcp_tool_call_output",
-            "call_id": call_id,
-            "output": output,
-            # 旧 Kernel 的 emitImage MCP 分支读取 result，而协议对象使用 output。
-            "result": (
-                {"Ok": output}
-                if normalized.ok
-                else {"Err": normalized.display_text}
-            ),
-        }
-
-    content_items: list[dict[str, typing.Any]] = []
-    content_has_image = False
-    for item in result.content:
-        if isinstance(item, mcp_types.TextContent):
-            if item.text:
-                content_items.append({"type": "input_text", "text": item.text})
-            continue
-        if isinstance(item, mcp_types.ImageContent):
-            content_has_image = True
-            detail = None
-            meta = item.meta if isinstance(item.meta, dict) else {}
-            for key, value in meta.items():
-                if str(key).endswith("/imageDetail") and value in {
-                    "auto",
-                    "low",
-                    "high",
-                    "original",
-                }:
-                    detail = value
-                    break
-            content_items.append({
-                "type": "input_image",
-                "image_url": f"data:{item.mimeType};base64,{item.data}",
-                **({"detail": detail} if detail else {}),
-            })
-
-    if content_has_image:
-        output: typing.Any = content_items
-        return {
-            "type": "function_call_output",
-            "call_id": call_id,
-            "output": output,
-        }
-
-    images = [
-        item
-        for item in normalized.fields.get("attachments", [])
-        if isinstance(item, dict)
-        and item.get("kind") == "image"
-        and str(item.get("data_url") or "").lower().startswith("data:")
-    ]
-    if images:
-        output: typing.Any = [
-            {
-                "type": "input_image",
-                "image_url": str(item["data_url"]),
-                **(
-                    {"detail": item["detail"]}
-                    if item.get("detail") in {"auto", "low", "high", "original"}
-                    else {}
-                ),
-            }
-            for item in images
-        ]
-    else:
-        data = normalized.data
-        output = (
-            data
-            if data not in (None, {}, [], "")
-            else str(normalized.fields.get("text") or normalized.display_text or "")
-        )
-
-    return {
-        "type": "function_call_output",
-        "call_id": call_id,
-        "output": output,
-    }
-
-
 async def _authorize_nested_tool(
     runtime: ToolHandlerContext,
     *,
     tool: str,
     arguments: dict[str, typing.Any],
-    approval_coordinator: "ApprovalCoordinator | None",
-    exec_policy_manager: ExecPolicyManager,
-    call_id: str
+    approval_coordinator: ApprovalCoordinatorPort | None,
+    execution_policy: ExecutionPolicy | None,
+    call_id: str,
 ) -> None:
     """按本地规则审批 JavaScript 发起的嵌套进程调用。"""
     if tool not in NESTED_PROCESS_TOOLS:
         return None
+    if execution_policy is None:
+        raise ExecutionAuthorizationError(
+            "nested_tool_policy_unavailable",
+            f"execution policy is required for nested {tool} command",
+        )
 
     permissions = runtime.turn_context.permissions
     try:
@@ -475,6 +302,7 @@ async def _authorize_nested_tool(
             "sandbox_permissions_invalid",
             str(error),
         ) from error
+
     command_cwd = arguments.get("cwd") or runtime.turn_context.cwd
     additional_permissions = arguments.get("additional_permissions")
     if additional_permissions is not None:
@@ -489,11 +317,11 @@ async def _authorize_nested_tool(
                 str(error),
             ) from error
 
-    requirement = exec_policy_manager.create_exec_approval_requirement_for_command(
+    requirement = execution_policy.create_exec_approval_requirement_for_command(
         str(arguments.get("command") or ""),
         approval_policy=permissions.approval_policy,
         sandbox_mode=permissions.sandbox_mode,
-        cwd=arguments.get("cwd") or runtime.turn_context.cwd,
+        cwd=command_cwd,
         tool=tool,
         amendment_id=f"local-rule-{call_id}",
         sandbox_permissions=sandbox_permissions,
@@ -506,32 +334,34 @@ async def _authorize_nested_tool(
     if requirement.state == "forbidden":
         raise ExecutionAuthorizationError(
             "local_exec_policy_forbidden",
-            requirement.reason or f"local execution policy forbids nested {tool} command",
+            requirement.reason
+            or f"local execution policy forbids nested {tool} command",
         )
 
-    if (
+    additional_approval_required = (
         sandbox_permissions == "with_additional_permissions"
-        and additional_permissions
+        and bool(additional_permissions)
         and not _nested_permission_granted(
             runtime,
             arguments,
             permissions=additional_permissions,
             cwd=command_cwd,
         )
+    )
+    if (
+        additional_approval_required
+        and runtime.turn_context.permissions.approval_policy == "never"
     ):
-        if runtime.turn_context.permissions.approval_policy == "never":
-            raise ExecutionAuthorizationError(
-                "additional_permissions_approval_required",
-                "additional permissions require approval, but approval policy is never",
-            )
-        requirement = ExecApprovalRequirement.needs_approval(
-            reason="additional permissions require approval",
-            proposed_execpolicy_amendment=requirement.proposed_execpolicy_amendment,
+        raise ExecutionAuthorizationError(
+            "additional_permissions_approval_required",
+            "additional permissions require approval, but approval policy is never",
         )
 
-    requires_approval = requirement.state == "needs_approval"
-
-    approved  = not requires_approval
+    requires_approval = (
+        requirement.state == "needs_approval"
+        or additional_approval_required
+    )
+    approved = not requires_approval
     canonical = _nested_canonical_arguments(tool, arguments)
     if additional_permissions is not None:
         canonical["additional_permissions"] = additional_permissions
@@ -544,8 +374,7 @@ async def _authorize_nested_tool(
             )
 
         agent = runtime.turn_context.agent
-
-        approval = {
+        approval: dict[str, typing.Any] = {
             "id": f"nested_{call_id}",
             "call_id": call_id,
             "tool": tool,
@@ -571,7 +400,8 @@ async def _authorize_nested_tool(
                 "display": amendment.display,
             }
 
-        decision = await approval_coordinator.request(approval)
+        outcome = await approval_coordinator.request_outcome(approval)
+        decision = outcome.decision
         if decision == "cancel":
             if runtime.interrupt_turn is None:
                 raise ExecutionAuthorizationError(
@@ -587,9 +417,10 @@ async def _authorize_nested_tool(
             raise ToolTurnInterrupted(
                 f"nested {tool} approval cancelled the turn"
             )
+
         approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS
         if decision == "acceptForSession":
-            exec_policy_manager.add_approval_for_session(
+            execution_policy.add_approval_for_session(
                 str(canonical.get("command") or ""),
                 tool=tool,
                 cwd=canonical.get("cwd") or runtime.turn_context.cwd,
@@ -606,7 +437,7 @@ async def _authorize_nested_tool(
                 approved = False
             else:
                 try:
-                    exec_policy_manager.persist_execpolicy_amendment({
+                    execution_policy.persist_execpolicy_amendment({
                         "command_prefix": list(proposal.command_prefix),
                     })
                 except (OSError, UnicodeError, ValueError):
@@ -617,8 +448,6 @@ async def _authorize_nested_tool(
             "nested_tool_approval_denied",
             f"nested {tool} call was not approved",
         )
-
-    return None
 
 
 def _nested_permission_granted(
@@ -642,5 +471,38 @@ def _nested_permission_granted(
     ))
 
 
-if __name__ == '__main__':
+def _authorization_failure(
+    executor: WorkspaceJavaScriptPort,
+    *,
+    tool: str,
+    arguments: dict[str, typing.Any],
+    error: ExecutionAuthorizationError,
+) -> LocalToolResult:
+    """把 JavaScript 参数门禁失败投影为稳定工具结果。"""
+    return client_execution_failure(
+        tool=tool,
+        arguments={
+            key: value
+            for key, value in arguments.items()
+            if key != "execution"
+        },
+        target=executor.agent_id,
+        reason=error.reason,
+        details={
+            "tool": tool,
+            "error": "execution_policy_blocked",
+            "detail": error.detail,
+        },
+    )
+
+
+__all__ = (
+    "JS_REPL_RESET_TOOL",
+    "JS_REPL_TOOL",
+    "JS_REPL_TOOL_NAMES",
+    "javascript_tools",
+)
+
+
+if __name__ == "__main__":
     pass

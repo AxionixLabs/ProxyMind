@@ -15,18 +15,19 @@ from unittest.mock import AsyncMock
 import pytest
 from mcp import types as mcp_types
 
-from mind_app.client_tools.coding import coding_tools
-from mind_app.client_tools.coding.native import (
+from agent.application.approvals.models import ApprovalOutcome
+from agent.application.tools.coding import coding_tools
+from agent.application.tools.javascript import (
     _authorize_nested_tool,
     _js_repl_arguments,
-    _nested_tool_response,
 )
 from agent.application.tools.coding_schemas import JS_REPL_INPUT_SCHEMA
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.authorization import ToolTurnInterrupted
 from infrastructure.mcp.local_tool_registry import ToolRegistry
-from mind_app.client_tools.factory import default_registry
+from infrastructure.mcp.local_tool_factory import build_client_tool_registry
 from infrastructure.mcp.composite_session import CompositeToolSession
+from infrastructure.mcp.nested_tool_results import _nested_tool_response
 from mind import create_native_coding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from infrastructure.platform.javascript_repl import (
@@ -964,7 +965,7 @@ async def test_js_repl_client_tool_executes_without_shell_metadata(
 ) -> None:
     _require_node()
     coding = create_native_coding(root=tmp_path, application_layout=None)
-    registry = default_registry(
+    registry = build_client_tool_registry(
         coding,
         image_reader=FileImageReader(tmp_path),
         features=FeatureSettings(js_repl=True),
@@ -1032,10 +1033,14 @@ async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
         def __init__(self) -> None:
             self.requests = []
 
-        async def request(self, approval):
+        async def request_outcome(self, approval):
             self.requests.append(approval)
             events.append("approval")
-            return "accept"
+            return ApprovalOutcome.create(
+                "accept",
+                source="user",
+                reason="user",
+            )
 
     coordinator = Coordinator()
     coding = create_native_coding(root=tmp_path, application_layout=None)
@@ -1051,7 +1056,7 @@ async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
     registry = ToolRegistry(coding_tools(
         coding,
         approval_coordinator=coordinator,
-        exec_policy_manager=exec_policy_manager,
+        execution_policy=exec_policy_manager,
     ))
     session = CompositeToolSession(client_registry=registry)
     turn = TurnContext.create(
@@ -1103,8 +1108,12 @@ async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
 @pytest.mark.anyio
 async def test_nested_approval_cancel_interrupts_turn(tmp_path: Path) -> None:
     class Coordinator:
-        async def request(self, _approval):
-            return "cancel"
+        async def request_outcome(self, _approval):
+            return ApprovalOutcome.create(
+                "cancel",
+                source="user",
+                reason="user",
+            )
 
     turn = TurnContext.create(
         agent=AgentContext.root("sid_nested_cancel"),
@@ -1135,7 +1144,7 @@ async def test_nested_approval_cancel_interrupts_turn(tmp_path: Path) -> None:
             tool="shell_command",
             arguments={"command": "rm -rf nested"},
             approval_coordinator=Coordinator(),
-            exec_policy_manager=manager,
+            execution_policy=manager,
             call_id="nested-cancel",
         )
 
@@ -1150,9 +1159,13 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
     events = []
 
     class Approval:
-        async def request(self, approval):
+        async def request_outcome(self, approval):
             events.append(("approval", approval["command"]))
-            return "accept"
+            return ApprovalOutcome.create(
+                "accept",
+                source="user",
+                reason="user",
+            )
 
     class Presentation:
         async def emit(self, view):
@@ -1190,7 +1203,7 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
     registry = ToolRegistry(coding_tools(
         coding,
         approval_coordinator=Approval(),
-        exec_policy_manager=exec_policy_manager,
+        execution_policy=exec_policy_manager,
     ))
     session = CompositeToolSession(client_registry=registry)
     turn = TurnContext.create(

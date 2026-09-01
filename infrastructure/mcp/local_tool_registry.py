@@ -30,6 +30,7 @@ from agent.protocol.json_value import (
     thaw_object,
 )
 from agent.ports.mcp_session import McpSessionPort
+from infrastructure.mcp.nested_tool_results import create_nested_tool_dispatch
 
 
 def _definition_source(definition: LocalToolDefinition) -> LocalToolSource:
@@ -145,8 +146,15 @@ class ToolRegistry:
             progress_callback=progress_callback,
             meta=runtime_meta or None,
             call_id=call_id,
-            nested_tool_dispatch=(
-                nested_dispatch if callable(nested_dispatch) else None
+            nested_tool_dispatch=create_nested_tool_dispatch(
+                session=session,
+                raw_dispatch=(
+                    nested_dispatch if callable(nested_dispatch) else None
+                ),
+                read_timeout_seconds=read_timeout_seconds,
+                progress_callback=progress_callback,
+                turn_context=turn_context,
+                pref_config=pref_config,
             ),
             interrupt_turn=(turn_interrupt if callable(turn_interrupt) else None),
         )

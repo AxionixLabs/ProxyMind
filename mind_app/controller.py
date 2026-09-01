@@ -48,9 +48,10 @@ from agent.harness.sessions.conversation import (
     ConversationTurn,
 )
 from agent.domain.tool_policy import ToolFilterMode
-from infrastructure.mcp.local_tool_registry import ToolRegistry
-from agent.application.tools.permissions import permission_tools
-from .client_tools.factory import default_registry as default_client_tool_registry
+from infrastructure.mcp.local_tool_factory import (
+    build_builtin_tool_registry,
+    build_client_tool_registry,
+)
 from agent.stores.approvals.permissions import PermissionGrantStore
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.stores.approvals.ledger import ApprovalCallLedger
@@ -512,10 +513,10 @@ class Mind(object):
 
     def _build_client_tools(self) -> ToolRegistryPort:
         """按当前工作区构建客户端工具注册表。"""
-        return default_client_tool_registry(
+        return build_client_tool_registry(
             self.workspace_runtime.coding,
             image_reader=self.workspace_runtime.image_reader,
-            exec_policy_manager=self.workspace_runtime.execution_policy,
+            execution_policy=self.workspace_runtime.execution_policy,
             subagent_runtime=self.subagents,
             approval_coordinator=self.approval_coordinator,
             features=self.features,
@@ -523,15 +524,11 @@ class Mind(object):
 
     def _build_builtin_tools(self) -> ToolRegistryPort:
         """按当前能力开关构建核心内置工具注册表。"""
-        tools = (
-            permission_tools(
-                self.approval_coordinator,
-                self.permission_grants,
-            )
-            if self.features.request_permissions_tool
-            else ()
+        return build_builtin_tool_registry(
+            approval_coordinator=self.approval_coordinator,
+            permission_grants=self.permission_grants,
+            features=self.features,
         )
-        return ToolRegistry(tools)
 
     def recent_conversation_sessions(
         self,

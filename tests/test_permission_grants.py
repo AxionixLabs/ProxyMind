@@ -10,7 +10,7 @@ from agent.application.tools.authorization import ToolTurnInterrupted
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.permissions import permission_tools
 from agent.stores.approvals.permissions import PermissionGrantStore
-from mind_app.client_tools.coding.native import coding_tools
+from agent.application.tools.coding import coding_tools
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.application.turns.context import AgentContext, TurnContext
 from mind_app.runtime.turns.stream_policy import (
