@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from mcp import types as mcp_types
 
-from mind_app.runtime.mcp.tools import build_tool_context
+from infrastructure.mcp.tool_catalog import build_tool_context
 from agent.domain.tool_policy import filter_mode_tools
 
 

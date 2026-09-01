@@ -9,12 +9,12 @@ from dataclasses import dataclass
 from metadata import const
 from .commands import (
     CompletionCommand,
-    CompletionShell
+    CompletionShell,
 )
 from .help import CliArgumentParser
 from .invocation import (
     CONFIG_FLAGS,
-    PROFILE_FLAGS
+    PROFILE_FLAGS,
 )
 
 
@@ -298,13 +298,13 @@ def _takes_value_cases(nodes: tuple[_NodeSpec, ...]) -> str:
 
 def _bash_script(nodes: tuple[_NodeSpec, ...]) -> str:
     """生成 Bash 补全脚本。"""
-    symbol         = _shell_symbol()
-    candidates_fn  = f"_{symbol}_completion_candidates"
+    symbol = _shell_symbol()
+    candidates_fn = f"_{symbol}_completion_candidates"
     selectables_fn = f"_{symbol}_completion_selectables"
-    options_fn     = f"_{symbol}_completion_options"
-    values_fn      = f"_{symbol}_completion_values"
-    takes_fn       = f"_{symbol}_completion_takes_value"
-    complete_fn    = f"_{symbol}_completion"
+    options_fn = f"_{symbol}_completion_options"
+    values_fn = f"_{symbol}_completion_values"
+    takes_fn = f"_{symbol}_completion_takes_value"
+    complete_fn = f"_{symbol}_completion"
 
     return f"""# bash completion for {const.APP_DESC}
 {candidates_fn}() {{
@@ -587,7 +587,7 @@ Register-ArgumentCompleter -Native -CommandName {_powershell_quote(const.APP_NAM
 
 def _fish_script(nodes: tuple[_NodeSpec, ...]) -> str:
     """生成 Fish 补全脚本。"""
-    symbol  = _shell_symbol()
+    symbol = _shell_symbol()
     path_fn = f"__{symbol}_completion_at_path"
 
     known_paths = " ".join(

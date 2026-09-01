@@ -27,7 +27,7 @@ from mind_app.client_tools.registry import (
     default_registry,
 )
 from mind_app.client_tools.types import ClientToolRuntime
-from mind_app.runtime.mcp.session_adapter import CompositeToolSession
+from infrastructure.mcp.composite_session import CompositeToolSession
 from mind import create_native_coding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from infrastructure.platform.javascript_repl import (

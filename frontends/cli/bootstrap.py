@@ -330,8 +330,8 @@ async def _run_application(
 ) -> int:
     """执行普通应用运行时的完整生命周期。"""
     output_mode = resolve_cli_output_mode(command)
-    frontend    = resolve_cli_frontend(output_mode)
-    design      = resolve_cli_design(frontend, output_mode)
+    frontend = resolve_cli_frontend(output_mode)
+    design = resolve_cli_design(frontend, output_mode)
     tui_runtime = None
 
     if output_mode_uses_animation(output_mode):
@@ -359,7 +359,7 @@ async def _run_application(
     if runtime_spec is None:
         raise AppError(f"This platform is not supported: {platform}.")
 
-    home    = ensure_mind_home()
+    home = ensure_mind_home()
     reports = mind_reports_dir()
 
     try:
@@ -397,7 +397,7 @@ async def _run_application(
         raise AppError(f"Configuration is invalid: {error}") from error
 
     report = RunReport(str(reports))
-    power  = os.cpu_count() or 1
+    power = os.cpu_count() or 1
 
     is_upgrade = isinstance(command, RuntimeUpgradeCommand)
 
@@ -500,7 +500,7 @@ async def _run_application(
             )
         )
 
-        agent_settings   = AgentSettings.from_config(config_resolution.config)
+        agent_settings = AgentSettings.from_config(config_resolution.config)
         feature_settings = FeatureSettings.from_config(config_resolution.config)
 
         hook_startup_warnings = (
@@ -803,6 +803,7 @@ async def _run_controller(
         protocol_client = None
         turn_application_factory = None
         conversation_compactor: ConversationCompactor | None = None
+
         if runtime_services is not None:
             turn_application_factory = runtime_services.create_turn_application
             if isinstance(

@@ -5,36 +5,35 @@ import argparse
 from metadata import const
 from .commands import (
     COMPLETION_SHELLS,
-    HELIX_PROFILES
+    HELIX_PROFILES,
 )
 from .help import CliArgumentParser
 from .invocation import (
     ArgumentContainer,
-    add_invocation_options
+    add_invocation_options,
 )
 
-
-EXEC_HELP          = "Run a task non-interactively"
-RESUME_HELP        = "Resume a previous interactive session"
-ARCHIVE_HELP       = "Archive a previous interactive session"
-UNARCHIVE_HELP     = "Restore an archived interactive session"
-COMPLETION_HELP    = "Generate shell completion scripts"
-AGENT_HELP         = "Manage remote task subscriptions"
-AGENT_LISTEN_HELP  = "Listen for remotely dispatched tasks"
-UPGRADE_HELP       = "Manage runtime component upgrades"
+EXEC_HELP = "Run a task non-interactively"
+RESUME_HELP = "Resume a previous interactive session"
+ARCHIVE_HELP = "Archive a previous interactive session"
+UNARCHIVE_HELP = "Restore an archived interactive session"
+COMPLETION_HELP = "Generate shell completion scripts"
+AGENT_HELP = "Manage remote task subscriptions"
+AGENT_LISTEN_HELP = "Listen for remotely dispatched tasks"
+UPGRADE_HELP = "Manage runtime component upgrades"
 UPGRADE_HELIX_HELP = "Update Helix runtime components"
-DOCTOR_HELP        = "Diagnose the local runtime environment"
-MCP_HELP           = "Manage external MCP servers"
-MCP_SERVER_HELP    = "Start the MCP server over stdio"
-HELP_HELP          = "Print this message or the help of the given subcommand(s)"
-OPTION_HELP        = "Print help (see a summary with '-h')"
+DOCTOR_HELP = "Diagnose the local runtime environment"
+MCP_HELP = "Manage external MCP servers"
+MCP_SERVER_HELP = "Start the MCP server over stdio"
+HELP_HELP = "Print this message or the help of the given subcommand(s)"
+OPTION_HELP = "Print help (see a summary with '-h')"
 
 IMAGE_FLAGS = ("-i", "--image")
 MODEL_FLAGS = ("-m", "--model")
 HELIX_FLAGS = ("-H", "--helix")
 
-PROMPT_VALUE_OPTIONS        = frozenset((*IMAGE_FLAGS, *MODEL_FLAGS))
-PROMPT_VALUE_PREFIXES       = ("--image=", "--model=")
+PROMPT_VALUE_OPTIONS = frozenset((*IMAGE_FLAGS, *MODEL_FLAGS))
+PROMPT_VALUE_PREFIXES = ("--image=", "--model=")
 PROMPT_SHORT_VALUE_PREFIXES = ("-i", "-m")
 
 

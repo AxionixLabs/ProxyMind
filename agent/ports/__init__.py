@@ -69,6 +69,16 @@ from .agent_messages import (
     AgentMessageReceiptStatus,
 )
 from .mcp_session import McpSessionPort
+from .tool_runtime import (
+    BeforeToolSession,
+    ExternalToolGroupPort,
+    ToolRegistryPort,
+    ToolRuntimeBuilder,
+    ToolRuntimePort,
+    ToolRuntimeSources,
+    ToolSessionCallback,
+    ToolSessionFactory,
+)
 from .mcp_runtime import (
     McpConfigReader,
     McpRuntime,
@@ -209,6 +219,14 @@ __all__ = (
     "AgentMessageReceipt",
     "AgentMessageReceiptStatus",
     "McpSessionPort",
+    "BeforeToolSession",
+    "ExternalToolGroupPort",
+    "ToolRegistryPort",
+    "ToolRuntimeBuilder",
+    "ToolRuntimePort",
+    "ToolRuntimeSources",
+    "ToolSessionCallback",
+    "ToolSessionFactory",
     "McpConfigReader",
     "McpRuntime",
     "McpRuntimeBuilder",

@@ -260,6 +260,7 @@ agent/
 │   ├── hooks.py              # Hook 执行器和超限上下文 spill 端口
 │   ├── agent_messages.py    # 子 Agent 消息回执和投递端口
 │   ├── mcp_session.py       # 工具执行所需的 MCP 会话端口
+│   ├── tool_runtime.py      # 工具来源、注册表和会话 runtime 组合端口
 │   ├── turns.py              # 模型轮次操作和输入事件端口
 │   ├── subagents.py          # 子 Agent 执行和操作端口
 │   ├── sessions.py           # Turn application 使用的 Session 生命周期端口
@@ -611,7 +612,7 @@ running -> cancelled
 | `mind_app/paths.py` | `infrastructure/config/runtime_paths.py` | 用户数据目录、报告/会话/历史/效果/运行时数据库路径和子进程环境属于配置基础设施；入口布局解析保持在 `config/paths.py` |
 | `mind_app/assets.py` | `infrastructure/update/assets.py` 与 `frontends/terminal/download_renderer.py` | 资产存在性和升级触发属于更新基础设施；动画管理器到终端进度端口的适配属于 frontend，不让更新层依赖 UI |
 | `mind_app/attach.py`、`mind_app/interaction/attachments.py` | `frontends/interaction/attachments.py` | 待发送附件的路径解析、分类、快照和消费属于前端输入状态；不把一次输入状态伪装成持久化 Store 或协议模型，Controller 仅在迁移期持有该前端状态 |
-| `mind_app/mcp/`、`mind_app/runtime/mcp/config.py`、`registry.py`、`errors.py`、`external.py`、`group.py`、`local.py`、`status.py` | `infrastructure/mcp/settings.py`、`transport.py`、`values.py`、`registry.py`、`errors.py`、`external_runtime.py`、`external_group.py`、`local_session.py`、`external_status.py` | 外部 MCP 配置校验、SDK 参数构造、网络预检、工具名规范化、注册表持久化、连接组、启动状态、错误分类和本地/外部 SDK 会话都属于基础设施 adapter；通用生命周期 owner 仍归 Harness，组合根只注入 runtime，旧路径不保留 facade |
+| `mind_app/mcp/`、`mind_app/runtime/mcp/config.py`、`registry.py`、`errors.py`、`external.py`、`group.py`、`local.py`、`status.py`、`session_adapter.py`、`tools.py`、`tool_runtime.py` | `infrastructure/mcp/settings.py`、`transport.py`、`values.py`、`registry.py`、`errors.py`、`external_runtime.py`、`external_group.py`、`local_session.py`、`external_status.py`、`composite_session.py`、`tool_catalog.py`、`tool_runtime.py` | MCP 配置、SDK 参数、网络预检、注册表、连接生命周期及多来源工具会话都属于基础设施 adapter；动态工具来源通过 `ToolRuntimeSources` provider 在一次 Turn 开始时冻结，具体 runtime 只由 `mind.py` 组合，通用生命周期 owner 仍归 Harness，旧路径不保留 facade |
 | `mind_app/native_coding/encoding.py` | `infrastructure/platform/encoding.py` | 进程输出编码探测、规范化和解码是跨能力的平台事实；native coding 只消费平台端口，不拥有第二套解码器 |
 | `mind_app/runtime/processes.py` | `infrastructure/platform/processes.py` | 进程组创建、stdin 收束、树级中断/终止和 Windows/POSIX 差异属于平台生命周期能力 |
 | `mind_app/native_coding/workspace_command.py` | `infrastructure/platform/workspace.py` | 无 shell 工作区命令、超时和输出上限属于平台命令执行能力；native coding 不拥有进程树实现 |
@@ -649,7 +650,7 @@ running -> cancelled
 | `mind_app/runtime/hooks/models.py` | `agent/application/hooks/models.py` | Hook 生命周期快照、决定、输出和工具结果是跨 runtime/TUI 的 application contract；Hook 执行器、注册器和 scope 仍由 runtime 持有，不把执行副作用放入值对象 |
 | `mind_app/runtime/hooks/scope.py` 中的 `HookExecutionContext` | `agent/application/hooks/context.py`；`HookExecutionScope` 归 `agent/harness/hooks/scope.py` | Hook 输入上下文只依赖 Turn、domain 事件名和 schema 构建；执行作用域持有 Harness dispatcher 和生命周期，不把具体执行器带入 application |
 | `mind_app/runtime/turns/executor.py` 中的 `TurnExecution` | `agent/application/turns/execution.py`；`HookExecutionScopePort` 归 `agent/ports/hooks.py` | Turn 执行值对象只依赖固定 scope 端口；runtime executor 保留模型执行函数和具体 scope 构造，不让 application 加载 HookRuntime |
-| `mind_app/runtime/mcp/contracts.py` 中的 `McpSessionLike` | `agent/ports/mcp_session.py` 的 `McpSessionPort` | MCP 会话能力是工具执行跨层端口；runtime/mcp 只实现 Composite session，工具、Turn、Subagent 和 TUI 通过 ports 依赖，不把 runtime contract 当作公共接口 |
+| `mind_app/runtime/mcp/contracts.py` 中的 `McpSessionLike` 与旧 `tool_runtime.py` 的运行时协议 | `agent/ports/mcp_session.py` 的 `McpSessionPort`、`agent/ports/tool_runtime.py` | MCP 会话、工具注册表、动态来源和 session runtime 是跨层端口；Composite 实现归 `infrastructure/mcp`，工具、Turn、Subagent 和 TUI 只依赖 ports，不把具体 SDK 组合器当作公共接口 |
 | `mind_app/runtime/turns/executor.py` 中的 `TurnResult`、`TurnOperation` | `agent/ports/turns.py` | 模型轮次操作只依赖 MCP 会话、事件报告和 TurnExecution；runtime executor 只负责会话生命周期、工具过滤和结果收束 |
 | `mind_app/runtime/turns/root.py` 中的 `RootTurnCommandExecutor` | `agent/adapters/turns/root.py` | 冻结命令到根轮次参数的映射属于入站 adapter；CLI、MCP 和 Subscription 在入口绑定 controller，adapter 不依赖旧控制器或前端生命周期 |
 | `mind_app/runtime/subagents/executor.py`、`runner.py` 中的执行协议 | `agent/ports/subagents.py` | 子 Agent 执行与操作端口和具体流式适配分离；runtime runner 只负责 Hook 生命周期、续跑和停止决定 |

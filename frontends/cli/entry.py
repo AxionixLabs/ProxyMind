@@ -10,6 +10,7 @@ from types import FrameType
 from agent.application import RuntimeServices
 from infrastructure.errors import AppError
 from infrastructure.config.schema import ConfigOverride
+from frontends.tui.features.conversation import ConversationCompactorFactory
 from observability import reset_sinks
 from .commands import (
     CompletionCommand,
@@ -29,7 +30,6 @@ from .dispatch import (
     EnvironmentSnapshotProvider,
     RootTurnRunner,
 )
-from frontends.tui.features.conversation import ConversationCompactorFactory
 
 if typing.TYPE_CHECKING:
     from agent.ports.presentation import ApplicationSink
@@ -49,7 +49,24 @@ class _InterruptController(object):
     def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
         self.loop = loop
         self.main_task: asyncio.Task[int] | None = None
-        self.interrupt_count = 0
+        self.interrupt_count: int = 0
+
+    @staticmethod
+    def restore(previous: InterruptHandler) -> None:
+        """恢复安装前的信号处理器。"""
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
+
+    def _cancel_tasks(self, cancel_all: bool) -> None:
+        """首次取消主任务，后续取消当前事件循环的全部任务。"""
+        main_task = self.main_task
+        if not cancel_all and main_task is not None:
+            if not main_task.done():
+                main_task.cancel()
+            return None
+
+        for task in asyncio.all_tasks(self.loop):
+            task.cancel()
 
     def bind_main_task(self, task: asyncio.Task[int]) -> None:
         """绑定进程级主任务。"""
@@ -64,17 +81,6 @@ class _InterruptController(object):
         except RuntimeError:
             return None
 
-    def _cancel_tasks(self, cancel_all: bool) -> None:
-        """首次取消主任务，后续取消当前事件循环的全部任务。"""
-        main_task = self.main_task
-        if not cancel_all and main_task is not None:
-            if not main_task.done():
-                main_task.cancel()
-            return None
-
-        for task in asyncio.all_tasks(self.loop):
-            task.cancel()
-
     def install(self) -> InterruptHandler:
         """在主线程默认信号策略下安装处理器。"""
         if threading.current_thread() is not threading.main_thread():
@@ -86,12 +92,6 @@ class _InterruptController(object):
 
         signal.signal(signal.SIGINT, self.handle)
         return previous
-
-    @staticmethod
-    def restore(previous: InterruptHandler) -> None:
-        """恢复安装前的信号处理器。"""
-        if previous is not None:
-            signal.signal(signal.SIGINT, previous)
 
 
 def _entry_application(command: ParsedCommand) -> "ApplicationSink":
@@ -309,7 +309,7 @@ def run(
 ) -> int:
     """解析命令并运行统一的进程级异步生命周期。"""
     invocation = parse_cli_invocation(arguments)
-    command    = invocation.command
+    command = invocation.command
 
     reset_sinks()
 

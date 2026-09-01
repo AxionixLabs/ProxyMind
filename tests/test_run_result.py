@@ -35,7 +35,8 @@ from agent.application.views import (
     HookRunView,
     RunIncompleteView,
 )
-from mind_app.runtime.mcp import tool_runtime
+from infrastructure.mcp import tool_runtime
+from agent.ports import ToolRuntimeSources
 from agent.application.turns.context import (
     AgentContext,
     ToolInvocation,
@@ -935,8 +936,19 @@ async def test_tool_runtime_forwards_callback_result(monkeypatch) -> None:
         is_service_mcp_linked=lambda: False,
     )
 
-    async def build_context(_service, _external, *, client_registry):
-        _ = client_registry
+    async def build_context(
+        *,
+        service_session,
+        external_group,
+        client_registry,
+        builtin_registry,
+    ):
+        _ = (
+            service_session,
+            external_group,
+            client_registry,
+            builtin_registry,
+        )
         return SimpleNamespace(session=object(), tools=[])
 
     async def user_flow(_session, _tools) -> RunResult:
@@ -944,7 +956,12 @@ async def test_tool_runtime_forwards_callback_result(monkeypatch) -> None:
 
     monkeypatch.setattr(tool_runtime, "build_tool_context", build_context)
 
-    runtime = tool_runtime.CompositeToolRuntime(mind)
+    runtime = tool_runtime.CompositeToolRuntime(ToolRuntimeSources(
+        client_registry=lambda: mind.client_tools,
+        builtin_registry=lambda: None,
+        external_group=lambda: None,
+        service_linked=mind.is_service_mcp_linked,
+    ))
     result = await runtime.with_session({}, user_flow)
 
     assert result is expected

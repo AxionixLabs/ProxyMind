@@ -11,7 +11,7 @@ from mind_app.client_tools.registry import (
     default_registry,
 )
 from mind_app.client_tools.subagents import subagent_tools
-from mind_app.runtime.mcp.session_adapter import CompositeToolSession
+from infrastructure.mcp.composite_session import CompositeToolSession
 from frontends.output.silent import create_silent_output_session
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.context import AgentContext, TurnContext

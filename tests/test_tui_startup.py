@@ -11,10 +11,11 @@ from mind_app.controller import Mind
 from frontends.interaction.contracts import PromptContext
 from infrastructure.mcp import external_runtime as external
 from frontends.helix import runtime as service_runtime
-from mind_app.runtime.mcp import tool_runtime
+from infrastructure.mcp import tool_runtime
 from infrastructure.mcp.external_runtime import ExternalMcpRuntime
 from agent.harness.mcp.owner import McpRuntimeOwner
-from mind_app.runtime.mcp.tool_runtime import CompositeToolRuntime
+from infrastructure.mcp.tool_runtime import CompositeToolRuntime
+from agent.ports import ToolRuntimeSources
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.features import helix
@@ -479,8 +480,14 @@ async def test_model_turn_keeps_external_tool_snapshot_from_session_start(
         is_service_mcp_linked=lambda: False,
     )
 
-    async def build_context(_service, external_group, *, client_registry):
-        _ = client_registry
+    async def build_context(
+        *,
+        service_session,
+        external_group,
+        client_registry,
+        builtin_registry,
+    ):
+        _ = (service_session, client_registry, builtin_registry)
         captured_groups.append(external_group)
         build_started.set()
         await release_build.wait()
@@ -491,7 +498,12 @@ async def test_model_turn_keeps_external_tool_snapshot_from_session_start(
 
     monkeypatch.setattr(tool_runtime, "build_tool_context", build_context)
 
-    runtime = CompositeToolRuntime(mind)
+    runtime = CompositeToolRuntime(ToolRuntimeSources(
+        client_registry=lambda: mind.client_tools,
+        builtin_registry=lambda: None,
+        external_group=lambda: initial_runtime.group,
+        service_linked=mind.is_service_mcp_linked,
+    ))
     turn = asyncio.create_task(runtime.with_session({}, user_flow))
     await build_started.wait()
 

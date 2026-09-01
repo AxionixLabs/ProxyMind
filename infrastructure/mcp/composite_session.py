@@ -2,13 +2,17 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from observability import observe_exception
-from mcp import ClientSession, types as mcp_types
-from mind_app.client_tools import ClientToolRegistry
-from mind_app.builtin_tools import BuiltinToolRegistry
-from infrastructure.mcp.values import truncate_text
-from agent.ports import McpSessionPort
+from datetime import timedelta
+from mcp import types as mcp_types
+from mcp.shared.session import ProgressFnT
+from agent.ports import (
+    ExternalToolGroupPort,
+    McpSessionPort,
+    ToolRegistryPort,
+)
 from infrastructure.mcp.external_status import should_reraise_external
+from infrastructure.mcp.values import truncate_text
+from observability import observe_exception
 
 if typing.TYPE_CHECKING:
     from agent.application.turns.context import TurnContext
@@ -19,10 +23,10 @@ class CompositeToolSession(McpSessionPort):
 
     def __init__(
         self,
-        service_session: ClientSession | None = None,
-        external_group: typing.Any = None,
-        client_registry: ClientToolRegistry | None = None,
-        builtin_registry: BuiltinToolRegistry | None = None,
+        service_session: McpSessionPort | None = None,
+        external_group: ExternalToolGroupPort | None = None,
+        client_registry: ToolRegistryPort | None = None,
+        builtin_registry: ToolRegistryPort | None = None,
     ) -> None:
         """保存可选服务会话、外部工具分组及两类本地工具。"""
         self.service_session = service_session
@@ -112,8 +116,8 @@ class CompositeToolSession(McpSessionPort):
         self,
         name: str,
         arguments: dict[str, typing.Any] | None = None,
-        read_timeout_seconds: typing.Any = None,
-        progress_callback: typing.Any = None,
+        read_timeout_seconds: timedelta | None = None,
+        progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, typing.Any] | None = None,
         args: dict[str, typing.Any] | None = None,

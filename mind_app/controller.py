@@ -47,10 +47,6 @@ from agent.harness.sessions.conversation import (
     ConversationState,
     ConversationTurn,
 )
-from .runtime.mcp.tool_runtime import (
-    CompositeToolRuntime,
-    ToolRuntime
-)
 from agent.domain.tool_policy import ToolFilterMode
 from .client_tools import (
     ClientToolRegistry,
@@ -111,6 +107,10 @@ from agent.ports import (
     McpSessionPort,
     SubscriptionHost,
     SubscriptionRuntime,
+    BeforeToolSession,
+    ExternalToolGroupPort,
+    ToolRuntimePort,
+    ToolRuntimeSources,
 )
 
 SessionResult = typing.TypeVar("SessionResult")
@@ -361,13 +361,22 @@ class Mind(object):
 
         self.client_tools: ClientToolRegistry = self._build_client_tools()
         self.builtin_tools: BuiltinToolRegistry = self._build_builtin_tools()
-
-        self.tool_runtime: ToolRuntime = CompositeToolRuntime(self)
-
-        self.exit_code: int = 0
-
         self.service_mcp_linked: bool = False
         self.service_tool_profile: ToolFilterMode | None = None
+
+        tool_runtime_builder = self.runtime_services.create_tool_runtime
+        if not callable(tool_runtime_builder):
+            raise TypeError("tool runtime factory is required")
+        self.tool_runtime: ToolRuntimePort = tool_runtime_builder(
+            ToolRuntimeSources(
+                client_registry=lambda: self.client_tools,
+                builtin_registry=lambda: self.builtin_tools,
+                external_group=self._current_external_tool_group,
+                service_linked=self.is_service_mcp_linked,
+            )
+        )
+
+        self.exit_code: int = 0
 
         self.last_assistant_reply: str = ""
 
@@ -686,6 +695,11 @@ class Mind(object):
     def is_service_mcp_linked(self) -> bool:
         """判断当前工具会话是否挂载本地服务 MCP。"""
         return bool(self.service_mcp_linked)
+
+    def _current_external_tool_group(self) -> ExternalToolGroupPort | None:
+        """返回当前外部 MCP runtime 已发布的工具组。"""
+        runtime = self.external_mcp.current
+        return runtime.group if runtime is not None else None
 
     def tool_profile_for_turn(self) -> ToolFilterMode | None:
         """返回当前模型请求使用的服务工具配置。"""
@@ -1255,7 +1269,7 @@ class Mind(object):
             ],
             typing.Awaitable[SessionResult],
         ],
-        before_user_flow: typing.Optional[typing.Callable[[], typing.Any]] = None
+        before_user_flow: BeforeToolSession | None = None,
     ) -> SessionResult:
         """通过工具运行时建立会话并执行回调。"""
         return await self.tool_runtime.with_session(

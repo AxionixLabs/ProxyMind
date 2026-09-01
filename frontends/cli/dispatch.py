@@ -13,10 +13,14 @@ from agent.application.turns.commands import (
     TurnApplication,
 )
 from agent.application.services import TurnApplicationFactory
+from agent.application.turns.run_result import RunResult
+from agent.stores.sessions import (
+    HISTORY_LIMIT,
+    INTERACTIVE_HISTORY_SOURCES,
+)
 from agent.domain.policies import PermissionSettings
 from agent.harness.sessions.conversation import ConversationState
 from agent.ports import ProtocolCommandClient
-from agent.application.turns.run_result import RunResult
 from frontends.tui.features.conversation import ConversationCompactor
 from frontends.runtime import Frontend
 from infrastructure.config.preferences import apply_primary_model_override
@@ -32,10 +36,6 @@ from .commands import (
     InteractiveCommand,
     ResumeCommand,
     RuntimeCommand,
-)
-from agent.stores.sessions import (
-    HISTORY_LIMIT,
-    INTERACTIVE_HISTORY_SOURCES,
 )
 
 
@@ -294,7 +294,7 @@ async def run_selected_command(
                 from frontends.tui.core.runtime import require_tui_runtime
                 from frontends.tui.features.history import load_history_transcript
 
-                runtime    = require_tui_runtime(mind.frontend.runtime)
+                runtime = require_tui_runtime(mind.frontend.runtime)
                 session_id = str(record.get("sid") or "").strip()
 
                 replay_blocks = await asyncio.to_thread(

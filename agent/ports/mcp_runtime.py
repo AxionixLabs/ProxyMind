@@ -6,6 +6,7 @@ from collections.abc import (
     Awaitable,
     Callable
 )
+from .tool_runtime import ExternalToolGroupPort
 
 __all__ = (
     "McpRuntime",
@@ -18,6 +19,11 @@ __all__ = (
 
 class McpRuntime(typing.Protocol):
     """定义 Harness 管理 MCP 生命周期所需的最小运行时端口。"""
+
+    @property
+    def group(self) -> ExternalToolGroupPort | None:
+        """返回已建立的外部工具组，尚不可用时返回空。"""
+        ...
 
     async def start(
         self,

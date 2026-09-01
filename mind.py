@@ -20,6 +20,8 @@ from agent.ports import (
     ProcessCapability,
     SubscriptionHost,
     SubscriptionRuntime,
+    ToolRuntimePort,
+    ToolRuntimeSources,
 )
 from infrastructure.skills import skills_payload
 from infrastructure.config.paths import ApplicationLayout
@@ -27,6 +29,7 @@ from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.sandbox import SandboxClient
 from infrastructure.platform.hook_command import HookCommandExecutor
 from infrastructure.mcp.external_runtime import ExternalMcpRuntime
+from infrastructure.mcp.tool_runtime import CompositeToolRuntime
 from frontends.cli.entry import run
 from frontends.mcp.server import run_mind_mcp_server
 from mind_app.native_coding import NativeCoding
@@ -148,6 +151,11 @@ def create_mcp_runtime(host: McpRuntimeHost) -> McpRuntime:
     return ExternalMcpRuntime(host)
 
 
+def create_tool_runtime(sources: ToolRuntimeSources) -> ToolRuntimePort:
+    """在进程组合根创建绑定动态工具来源的组合运行时。"""
+    return CompositeToolRuntime(sources)
+
+
 def create_subscription_runtime(host: SubscriptionHost) -> SubscriptionRuntime:
     """在进程组合根创建绑定应用宿主的远端订阅运行时。"""
     runtime_services = getattr(host, "runtime_services", None)
@@ -220,6 +228,7 @@ def create_workspace_runtime(
 if __name__ == "__main__":
     runtime_services = create_runtime_services(
         create_hook_registry=create_hook_registry,
+        create_tool_runtime=create_tool_runtime,
         create_mcp_runtime=create_mcp_runtime,
         create_subscription_runtime=create_subscription_runtime,
         skills_payload_builder=skills_payload,

@@ -3,7 +3,7 @@
 
 from dataclasses import (
     dataclass,
-    field
+    field,
 )
 from agent.ports import (
     ActivityRuntimePort,
@@ -14,6 +14,7 @@ from agent.ports import (
 )
 from agent.ports.presentation import ApplicationSink
 from frontends.interaction.contracts import InteractionPort
+
 
 class PassiveFrontendRuntime(ActivityRuntimePort):
     """提供无需常驻前端运行期时的空实现。"""

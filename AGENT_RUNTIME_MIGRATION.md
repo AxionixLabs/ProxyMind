@@ -185,6 +185,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - 外部 MCP runtime/adapters 第一批已完成：五个 SDK/连接生命周期模块迁入
   `infrastructure/mcp`，旧文件和生产导入清零；MCP group `11 passed`，TUI/运行入口
   `95 passed`，工具上下文与结果链路 `63 passed`，架构专项 `3 passed, 2 warnings`。
+- 外部 MCP runtime/adapters 第二批已完成：新增工具注册表、外部工具组、动态来源和
+  runtime 组合端口，Composite session、tool catalog、tool runtime 迁入
+  `infrastructure/mcp`；Controller 只创建 `ToolRuntimeSources`，具体实现由 `mind.py` 注入。
+  工具会话回归 `26 + 81 + 35 passed`，Turn/Subagent `51 passed`，工具结果/权限
+  `70 passed`，CLI/TUI/清理 `39 + 123 passed`，架构专项 `5 passed, 2 warnings`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -272,13 +277,16 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    覆盖启动、恢复/续接及关键清理失败；入口均消费组合根绑定的 application/Protocol
    能力，前端不通过 Controller 动态发现运行时服务。
 
-2. **外部 MCP runtime/adapters 拆分（进行中）**：SDK session、外部连接组、启动状态、
-   错误分类和应用级 runtime 已迁入 `infrastructure/mcp`，旧路径已删除；通用 owner 保持在
-   `agent/harness/mcp`。下一切片先为客户端/内置工具注册表建立最小端口，再迁移
-   `session_adapter.py` 和 `tools.py` 的组合职责，禁止基础设施反向导入 `mind_app`，也不创建
-   新的 `mcp` 聚合 facade。
+2. **外部 MCP runtime/adapters 拆分（已完成）**：SDK session、外部连接组、启动状态、
+   错误分类、Composite session、tool catalog 和 tool runtime 已迁入 `infrastructure/mcp`；
+   通用 owner 保持在 `agent/harness/mcp`，具体 runtime 由 `mind.py` 注入。旧文件、旧导入和
+   四个 Controller provider facade 全部删除，基础设施不反向依赖 `mind_app`。
 
-3. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
+3. **MCP 结果与展示职责收口**：审计剩余 `tool_result.py`、`tool_store.py` 和
+   `tool_progress.py`；结果校验/归约进入 application 或 protocol adapter，纯目录查询进入
+   Harness/基础设施，展示 projection 进入 application views，任何迁移都先建立最小端口。
+
+4. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
@@ -837,3 +845,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | Controller 前端边界收口：新增 Frontend/Activity/Attachment ports，组合根注入具体附件、静默输出、审批与完成投影；删除 terminal lifecycle/animation，并显式注入 Helix UpgradeProgress | 生命周期 `121 passed`；CLI/TUI `236 passed`；MCP `14 passed`；Controller `49 passed`；完整架构扫描 `104 passed`，修正两项过期路径断言后专项 `5 passed`；导入图双向边清零，`compileall`、差异检查通过 |
 | 2026-09-01 | 四入口独立启动/恢复证据收口，并将下一迁移切片推进到外部 MCP runtime/adapters | CLI `14 passed`、TUI `29 passed`、stdio MCP `14 passed`、Subscription `18 passed`；覆盖续接、事务回退、ready 超时、重启和清理失败 |
 | 2026-09-01 | 外部 MCP SDK 与连接生命周期基础设施化，删除旧 runtime 下的 errors/external/group/local/status 模块 | MCP group `11 passed`、TUI/运行入口 `95 passed`、工具链路 `63 passed`、架构专项 `3 passed, 2 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 工具会话组合基础设施化：新增工具 runtime/source/registry ports，将 Composite session、tool catalog 和 runtime 迁出旧应用并由组合根构造 | 工具会话 `26 + 81 + 35 passed`、Turn/Subagent `51 passed`、工具结果/权限 `70 passed`、CLI/TUI/清理 `39 + 123 passed`、架构专项 `5 passed, 2 warnings`；导入图和语法检查通过 |

@@ -1140,6 +1140,7 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         for path in target_root.glob("*.py")
     } == {
         "__init__.py",
+        "composite_session.py",
         "errors.py",
         "external_group.py",
         "external_runtime.py",
@@ -1147,6 +1148,8 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "local_session.py",
         "registry.py",
         "settings.py",
+        "tool_catalog.py",
+        "tool_runtime.py",
         "transport.py",
         "values.py",
     }
@@ -1158,7 +1161,10 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "group.py",
         PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "local.py",
         PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "registry.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "session_adapter.py",
         PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "status.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "tool_runtime.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "tools.py",
     )
     assert not any(path.is_file() for path in legacy_paths)
 
@@ -1179,12 +1185,43 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
             "mind_app.runtime.mcp.group",
             "mind_app.runtime.mcp.local",
             "mind_app.runtime.mcp.registry",
+            "mind_app.runtime.mcp.session_adapter",
             "mind_app.runtime.mcp.status",
+            "mind_app.runtime.mcp.tool_runtime",
+            "mind_app.runtime.mcp.tools",
         },
     )
     assert not legacy_imports, "legacy MCP infrastructure imports remain:\n" + (
         "\n".join(legacy_imports)
     )
+
+
+def test_tool_runtime_is_composed_at_process_root() -> None:
+    """确保组合工具运行时由唯一组合根创建，旧应用只消费端口。"""
+    reverse_imports = _forbidden_module_imports(
+        "mind_app",
+        {"infrastructure.mcp.tool_runtime"},
+    )
+    assert not reverse_imports, "legacy application constructs tool runtime:\n" + (
+        "\n".join(reverse_imports)
+    )
+
+    composition = (PROJECT_ROOT / "mind.py").read_text(encoding="utf-8-sig")
+    controller = (
+        PROJECT_ROOT / "mind_app" / "controller.py"
+    ).read_text(encoding="utf-8-sig")
+    runtime = (
+        PROJECT_ROOT / "infrastructure" / "mcp" / "tool_runtime.py"
+    ).read_text(encoding="utf-8-sig")
+
+    assert "def create_tool_runtime(" in composition
+    assert "create_tool_runtime=create_tool_runtime" in composition
+    assert "ToolRuntimeSources(" in controller
+    assert "CompositeToolRuntime" not in controller
+    assert "ClientToolProvider" not in runtime
+    assert "BuiltinToolProvider" not in runtime
+    assert "ExternalMcpProvider" not in runtime
+    assert "ServiceMcpProvider" not in runtime
 
 
 def test_frontend_output_sanitizer_has_no_legacy_source() -> None:

@@ -7,41 +7,40 @@ import shutil
 import typing
 from dataclasses import dataclass
 from pathlib import Path
-from infrastructure.errors import AppError
-from infrastructure.mcp.settings import normalize_mcp_servers
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle,
+    ApplicationView,
 )
+from infrastructure.errors import AppError
+from infrastructure.mcp.settings import normalize_mcp_servers
 from infrastructure.platform.shell_tools import (
     SHELL_TOOL_LAYOUT,
     executable_name
 )
-from agent.ports.presentation import ApplicationView
+
 from infrastructure.config.runtime_paths import (
     mind_config_path,
     mind_home
 )
 from infrastructure.services.runtime_context import ServiceRuntimeSpec
 from infrastructure.services.runtime_setup import resolve_service_runtime
-from infrastructure.config.schema import (
-    ConfigOverride
-)
+from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from infrastructure.config.paths import (
     ApplicationMode,
-    resolve_application_layout
+    resolve_application_layout,
 )
 from metadata import const
 from .commands import DoctorCommand
 from .frontend import resolve_cli_frontend
 from .selection import resolve_cli_output_mode
 
-DoctorStatus   = typing.Literal["pass", "warn", "fail"]
+DoctorStatus = typing.Literal["pass", "warn", "fail"]
 MINIMUM_PYTHON = (3, 11)
-DOCTOR_TOOLS   = ("rg", "jq", "ast-grep")
+DOCTOR_TOOLS = ("rg", "jq", "ast-grep")
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,9 +288,9 @@ def _config_check(context: DoctorContext) -> DoctorCheck:
         primary_value if isinstance(primary_value, dict) else {}
     )
 
-    provider   = str(primary.get("provider") or "").strip()
+    provider = str(primary.get("provider") or "").strip()
     model_name = str(primary.get("model") or "").strip()
-    enabled    = bool(primary.get("enabled"))
+    enabled = bool(primary.get("enabled"))
 
     model_ready = enabled and bool(provider) and bool(model_name)
     if model_ready and not resolution.startup_warnings:
@@ -466,10 +465,8 @@ def render_doctor_report(report: DoctorReport) -> StyledBlock:
 
     for check in report.checks:
         label = f"[{check.status.upper():4}]"
-        line  = f"{label} {check.name}: {check.summary}\n"
-
+        line = f"{label} {check.name}: {check.summary}\n"
         plain_parts.append(line)
-
         spans.extend((
             TextSpan(label, label_styles[check.status]),
             TextSpan(f" {check.name}: {check.summary}\n"),
@@ -504,7 +501,7 @@ def run_doctor_command(
 ) -> int:
     """解析只读诊断上下文并输出检查结果。"""
     output_mode = resolve_cli_output_mode(command)
-    frontend    = resolve_cli_frontend(output_mode)
+    frontend = resolve_cli_frontend(output_mode)
 
     try:
         layout = resolve_application_layout(entry_file=entry_file)

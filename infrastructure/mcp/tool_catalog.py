@@ -3,11 +3,14 @@
 
 import typing
 from dataclasses import dataclass
-from observability import observe
-from mcp import ClientSession
 from mcp import types as mcp_types
-from agent.ports import McpSessionPort
-from .session_adapter import CompositeToolSession
+from agent.ports import (
+    ExternalToolGroupPort,
+    McpSessionPort,
+    ToolRegistryPort,
+)
+from infrastructure.mcp.composite_session import CompositeToolSession
+from observability import observe
 
 
 @dataclass(frozen=True)
@@ -41,15 +44,16 @@ def build_wire_tools(list_tools: mcp_types.ListToolsResult) -> list[dict[str, ty
 
 
 async def build_tool_context(
-    service_session: ClientSession | None = None,
-    external_group: typing.Any = None,
-    client_registry: typing.Any = None,
-    builtin_registry: typing.Any = None,
+    *,
+    service_session: McpSessionPort | None = None,
+    external_group: ExternalToolGroupPort | None = None,
+    client_registry: ToolRegistryPort | None = None,
+    builtin_registry: ToolRegistryPort | None = None,
 ) -> McpToolContext:
     """合并可用工具来源，并生成模型调用上下文。"""
     active_session = CompositeToolSession(
-        service_session,
-        external_group,
+        service_session=service_session,
+        external_group=external_group,
         client_registry=client_registry,
         builtin_registry=builtin_registry,
     )

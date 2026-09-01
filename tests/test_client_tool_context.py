@@ -9,7 +9,7 @@ from mcp import types as mcp_types
 from mind_app.builtin_tools import BuiltinTool, BuiltinToolRegistry
 from mind_app.client_tools.registry import ClientToolRegistry
 from mind_app.client_tools.types import ClientTool
-from mind_app.runtime.mcp.session_adapter import CompositeToolSession
+from infrastructure.mcp.composite_session import CompositeToolSession
 from agent.application.turns.context import (
     AgentContext,
     TurnContext,

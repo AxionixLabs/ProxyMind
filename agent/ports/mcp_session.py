@@ -2,9 +2,11 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from datetime import timedelta
 
 if typing.TYPE_CHECKING:
     from mcp import types as mcp_types
+    from mcp.shared.session import ProgressFnT
     from agent.application.turns.context import TurnContext
 
 __all__ = ("McpSessionPort",)
@@ -21,8 +23,8 @@ class McpSessionPort(typing.Protocol):
         self,
         name: str,
         arguments: dict[str, typing.Any] | None = None,
-        read_timeout_seconds: typing.Any = None,
-        progress_callback: typing.Any = None,
+        read_timeout_seconds: timedelta | None = None,
+        progress_callback: "ProgressFnT | None" = None,
         *,
         meta: dict[str, typing.Any] | None = None,
         args: dict[str, typing.Any] | None = None,
