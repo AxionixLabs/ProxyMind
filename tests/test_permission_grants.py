@@ -6,9 +6,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from agent.application.approvals.models import ApprovalOutcome
+from agent.application.tools.authorization import ToolTurnInterrupted
 from agent.application.tools.context import ToolHandlerContext
+from agent.application.tools.permissions import permission_tools
 from agent.stores.approvals.permissions import PermissionGrantStore
-from mind_app.builtin_tools.permissions import permission_tools
 from mind_app.client_tools.coding.native import coding_tools
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.application.turns.context import AgentContext, TurnContext
@@ -193,7 +194,7 @@ async def test_request_permissions_tool_records_turn_grant(tmp_path) -> None:
             )
         )
     )
-    tool = permission_tools(coordinator)[0]
+    tool = permission_tools(coordinator, store)[0]
     assert "reason" in tool.input_schema["properties"]
     assert "justification" not in tool.input_schema["properties"]
     runtime = ToolHandlerContext(
@@ -248,7 +249,8 @@ async def test_request_permissions_tool_skips_card_for_never_policy(tmp_path) ->
         permissions=preset_permissions("full-access"),
         permission_grants=PermissionGrantStore(),
     )
-    tool = permission_tools(coordinator)[0]
+    store = PermissionGrantStore()
+    tool = permission_tools(coordinator, store)[0]
     result = await tool.handler({
         "permissions": {"network": {"enabled": True}},
     }, ToolHandlerContext(
@@ -297,7 +299,7 @@ async def test_request_permissions_tool_returns_native_decision_result(
             )
         )
     )
-    tool = permission_tools(coordinator)[0]
+    tool = permission_tools(coordinator, store)[0]
     result = await tool.handler(
         {"permissions": {"network": {"enabled": True}}},
         ToolHandlerContext(
@@ -321,6 +323,47 @@ async def test_request_permissions_tool_returns_native_decision_result(
             cwd=str(tmp_path),
             permissions={"network": {"enabled": True}},
         ) is True
+
+
+@pytest.mark.anyio
+async def test_request_permissions_cancel_interrupts_turn(tmp_path) -> None:
+    store = PermissionGrantStore()
+    context = TurnContext.create(
+        agent=AgentContext.root("sid-cancel"),
+        cid="cid-cancel",
+        sid="sid-cancel",
+        source="test",
+        pref_config={},
+        cwd=str(tmp_path),
+        permissions=preset_permissions("auto"),
+        permission_grants=store,
+    )
+    coordinator = SimpleNamespace(
+        request_outcome=AsyncMock(
+            return_value=ApprovalOutcome.create(
+                "cancel",
+                source="user",
+                reason="user",
+            )
+        )
+    )
+    interrupt = AsyncMock(return_value=True)
+    tool = permission_tools(coordinator, store)[0]
+
+    with pytest.raises(ToolTurnInterrupted, match="request_permissions cancelled"):
+        await tool.handler(
+            {"permissions": {"network": {"enabled": True}}},
+            ToolHandlerContext(
+                session=SimpleNamespace(),
+                turn_context=context,
+                pref_config={},
+                call_id="call-cancel",
+                interrupt_turn=interrupt,
+            ),
+        )
+
+    interrupt.assert_awaited_once_with("call-cancel")
+    assert store.turn_grants == ()
 
 
 def test_inline_permissions_require_command_approval_until_granted(tmp_path) -> None:

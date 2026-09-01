@@ -1,30 +1,83 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind™ ====
+# Notes: ==== Mind(TM) ====
 
 import json
 import typing
+from agent.application.tools.authorization import (
+    ExecutionAuthorizationError,
+    ToolTurnInterrupted,
+    reject_model_execution,
+)
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.definitions import BuiltinTool
 from agent.application.tools.results import (
     LocalToolResult,
     LocalToolSource,
 )
-from protocol.client.turn_control import TurnControlRequestError
-from agent.stores.approvals.permissions import normalize_permission_profile
-from mind_app.client_tools.coding.schemas import REQUEST_PERMISSIONS_INPUT_SCHEMA
-from mind_app.native_coding.execution_authorization import (
-    ExecutionAuthorizationError,
-    reject_model_execution
+from agent.domain.permission_profiles import (
+    PermissionGrantScope,
+    PermissionProfile,
+    normalize_permission_profile,
 )
+from agent.ports.approvals import ApprovalCoordinatorPort
+from agent.ports.permissions import PermissionGrantPort
 
-if typing.TYPE_CHECKING:
-    from agent.application.approvals.coordinator import ApprovalCoordinator
+PERMISSION_PROFILE_SCHEMA: dict[str, typing.Any] = {
+    "type": "object",
+    "properties": {
+        "network": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "是否请求网络访问。",
+                },
+            },
+            "additionalProperties": False,
+        },
+        "file_system": {
+            "type": "object",
+            "properties": {
+                "read": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "请求读取的路径列表。",
+                },
+                "write": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "请求写入的路径列表。",
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    "additionalProperties": False,
+    "description": "要申请的文件系统或网络权限。",
+}
+
+REQUEST_PERMISSIONS_INPUT_SCHEMA: dict[str, typing.Any] = {
+    "type": "object",
+    "properties": {
+        "environment_id": {
+            "type": "string",
+            "description": "目标执行环境标识；省略时使用当前环境。",
+        },
+        "reason": {
+            "type": "string",
+            "description": "向用户展示的权限申请理由。",
+        },
+        "permissions": PERMISSION_PROFILE_SCHEMA,
+    },
+    "required": ["permissions"],
+    "additionalProperties": False,
+}
 
 
 def permission_response_result(
     *,
-    permissions: dict[str, typing.Any],
-    scope: str,
+    permissions: PermissionProfile,
+    scope: PermissionGrantScope,
     strict_auto_review: bool,
     error: str = "",
 ) -> LocalToolResult:
@@ -47,9 +100,10 @@ def permission_response_result(
 
 
 def permission_tools(
-    approval_coordinator: "ApprovalCoordinator | None",
+    approval_coordinator: ApprovalCoordinatorPort | None,
+    permission_grants: PermissionGrantPort,
 ) -> list[BuiltinTool]:
-    """构造可选的权限内置工具。"""
+    """构造通过显式审批与授权端口执行的权限工具。"""
 
     async def request_permissions_handler(
         arguments: dict[str, typing.Any],
@@ -80,15 +134,22 @@ def permission_tools(
             )
 
         raw_environment_id = arguments.get("environment_id")
-        if raw_environment_id is not None and not isinstance(raw_environment_id, str):
+        if (
+            raw_environment_id is not None
+            and not isinstance(raw_environment_id, str)
+        ):
             return permission_response_result(
-                permissions={}, scope="turn", strict_auto_review=False,
+                permissions={},
+                scope="turn",
+                strict_auto_review=False,
                 error="environment_id must be a string",
             )
         raw_reason = arguments.get("reason")
         if raw_reason is not None and not isinstance(raw_reason, str):
             return permission_response_result(
-                permissions={}, scope="turn", strict_auto_review=False,
+                permissions={},
+                scope="turn",
+                strict_auto_review=False,
                 error="reason must be a string",
             )
 
@@ -97,13 +158,17 @@ def permission_tools(
         call_id = str(runtime.call_id or "").strip()
         if not call_id:
             return permission_response_result(
-                permissions={}, scope="turn", strict_auto_review=False,
+                permissions={},
+                scope="turn",
+                strict_auto_review=False,
                 error="request_permissions call_id is required",
             )
 
         if runtime.turn_context.permissions.approval_policy == "never":
             return permission_response_result(
-                permissions={}, scope="turn", strict_auto_review=False,
+                permissions={},
+                scope="turn",
+                strict_auto_review=False,
             )
         if approval_coordinator is None:
             return permission_response_result(
@@ -144,10 +209,10 @@ def permission_tools(
             if runtime.interrupt_turn is not None:
                 interrupted = await runtime.interrupt_turn(call_id)
                 if not interrupted:
-                    raise TurnControlRequestError(
+                    raise ToolTurnInterrupted(
                         "request_permissions cancellation could not interrupt the turn"
                     )
-            raise TurnControlRequestError("request_permissions cancelled")
+            raise ToolTurnInterrupted("request_permissions cancelled")
 
         if outcome.decision not in {
             "grantForTurn",
@@ -155,20 +220,16 @@ def permission_tools(
             "grantForSession",
         }:
             return permission_response_result(
-                permissions={}, scope="turn", strict_auto_review=False,
-            )
-
-        scope = "session" if outcome.decision == "grantForSession" else "turn"
-        strict_auto_review = outcome.decision == "grantForTurnWithStrictAutoReview"
-        store = runtime.turn_context.permission_grants
-        if store is None:
-            return permission_response_result(
                 permissions={},
                 scope="turn",
                 strict_auto_review=False,
-                error="permission grant store is unavailable",
             )
-        store.grant(
+
+        scope: PermissionGrantScope = (
+            "session" if outcome.decision == "grantForSession" else "turn"
+        )
+        strict_auto_review = outcome.decision == "grantForTurnWithStrictAutoReview"
+        permission_grants.grant(
             scope=scope,
             cid=runtime.turn_context.cid,
             sid=runtime.turn_context.sid,
@@ -199,5 +260,9 @@ def permission_tools(
     ]
 
 
-if __name__ == '__main__':
-    pass
+__all__ = (
+    "PERMISSION_PROFILE_SCHEMA",
+    "REQUEST_PERMISSIONS_INPUT_SCHEMA",
+    "permission_response_result",
+    "permission_tools",
+)

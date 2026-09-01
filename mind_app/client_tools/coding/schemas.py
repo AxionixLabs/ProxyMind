@@ -3,59 +3,7 @@
 
 import copy
 import typing
-
-
-PERMISSION_PROFILE_SCHEMA: dict[str, typing.Any] = {
-    "type": "object",
-    "properties": {
-        "network": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean",
-                    "description": "是否请求网络访问。",
-                },
-            },
-            "additionalProperties": False,
-        },
-        "file_system": {
-            "type": "object",
-            "properties": {
-                "read": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "请求读取的路径列表。",
-                },
-                "write": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "请求写入的路径列表。",
-                },
-            },
-            "additionalProperties": False,
-        },
-    },
-    "additionalProperties": False,
-    "description": "要申请的文件系统或网络权限。",
-}
-
-
-REQUEST_PERMISSIONS_INPUT_SCHEMA: dict[str, typing.Any] = {
-    "type": "object",
-    "properties": {
-        "environment_id": {
-            "type": "string",
-            "description": "目标执行环境标识；省略时使用当前环境。",
-        },
-        "reason": {
-            "type": "string",
-            "description": "向用户展示的权限申请理由。",
-        },
-        "permissions": PERMISSION_PROFILE_SCHEMA,
-    },
-    "required": ["permissions"],
-    "additionalProperties": False,
-}
+from agent.application.tools.permissions import PERMISSION_PROFILE_SCHEMA
 
 JS_REPL_INPUT_SCHEMA: dict[str, typing.Any] = {
     "type": "object",

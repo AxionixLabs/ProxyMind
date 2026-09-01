@@ -24,7 +24,6 @@ from .approvals.ledger import ApprovalCallLedger
 from .approvals.permissions import (
     PermissionGrant,
     PermissionGrantStore,
-    normalize_permission_profile,
 )
 from .runs.store import SQLiteRunStore
 
@@ -47,7 +46,6 @@ __all__ = (
     "PermissionGrant",
     "PermissionGrantStore",
     "SQLiteRunStore",
-    "normalize_permission_profile",
     "format_mailbox_context",
 )
 

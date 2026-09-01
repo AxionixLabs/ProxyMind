@@ -5,24 +5,24 @@ import typing
 from mcp import types as mcp_types
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.definitions import ClientTool
+from agent.application.tools.authorization import (
+    ExecutionAuthorizationError,
+    ToolTurnInterrupted,
+    reject_model_execution,
+)
 from agent.application.tools.results import (
     LocalToolResult,
     LocalToolSource,
 )
 from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
-from protocol.client.turn_control import TurnControlRequestError
 from agent.application.approvals.amendments import approval_execpolicy_amendment
-from agent.stores.approvals.permissions import normalize_permission_profile
+from agent.domain.permission_profiles import normalize_permission_profile
 from mind_app.native_coding import NativeCoding
 from infrastructure.config.execution_policy_manager import (
     ExecPolicyManager,
     validate_sandbox_permission_arguments
 )
 from infrastructure.mcp.tool_results import normalize_call_tool_result
-from mind_app.native_coding.execution_authorization import (
-    ExecutionAuthorizationError,
-    reject_model_execution
-)
 from .schemas import (
     APPLY_PATCH_INPUT_SCHEMA,
     JS_REPL_INPUT_SCHEMA,
@@ -855,7 +855,7 @@ async def _authorize_nested_tool(
                     "nested_tool_approval_cancelled",
                     f"nested {tool} approval could not interrupt the turn",
                 )
-            raise TurnControlRequestError(
+            raise ToolTurnInterrupted(
                 f"nested {tool} approval cancelled the turn"
             )
         approved = decision in TOOL_APPROVAL_ACCEPT_DECISIONS

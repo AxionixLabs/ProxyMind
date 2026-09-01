@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 
 import typing
+from agent.domain.permission_profiles import (
+    PermissionGrantScope,
+    PermissionProfile,
+)
 
 
 class PermissionGrantReader(typing.Protocol):
@@ -14,7 +18,7 @@ class PermissionGrantReader(typing.Protocol):
         turn_id: str,
         environment_id: str | None,
         cwd: str,
-        permissions: typing.Any,
+        permissions: PermissionProfile,
     ) -> bool:
         """判断授权是否覆盖指定的执行权限。"""
 
@@ -35,16 +39,16 @@ class PermissionGrantPort(PermissionGrantReader, typing.Protocol):
     def grant(
         self,
         *,
-        scope: str,
+        scope: PermissionGrantScope,
         cid: str,
         sid: str,
         turn_id: str,
         environment_id: str | None,
         cwd: str | None,
-        permissions: typing.Any,
-        requested_permissions: typing.Any,
+        permissions: PermissionProfile,
+        requested_permissions: PermissionProfile,
         strict_auto_review: bool,
-    ) -> object:
+    ) -> None:
         """保存一项经过边界校验的权限授予。"""
 
 

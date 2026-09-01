@@ -204,6 +204,7 @@ agent/
 │   ├── agents.py            # 子 Agent 状态、关系和任务提交值对象
 │   ├── approvals.py         # 审批请求、决定和策略
 │   ├── hook_matching.py     # Hook matcher 解析、工具别名和候选值规则
+│   ├── permission_profiles.py # 权限对象规范化、交并、覆盖与稳定身份
 │   ├── tool_policy.py       # app/api 工具可见性和元数据过滤规则
 │   └── policies.py          # 权限、预算、取消和重试规则
 ├── harness/
@@ -242,12 +243,14 @@ agent/
 │   │   ├── protocol.py      # Hook stdin/stdout schema、构建和边界校验
 │   │   ├── result.py        # 后置 Hook 对模型可见工具结果的投影
 │   │   └── subagent.py      # 子 Agent Hook 生命周期聚合
-│   ├── tools/               # 本地工具定义、调用上下文与无副作用目录语义
+│   ├── tools/               # 本地工具契约、应用用例与结果投影
+│   │   ├── authorization.py # 模型参数授权失败和工具中断语义
 │   │   ├── catalog.py       # 模型可见工具目录的名称与元数据查询
 │   │   ├── context.py       # 单次处理调用的会话、Turn 与回调依赖
 │   │   ├── definitions.py   # SDK 无关的 client/builtin 工具定义
 │   │   ├── results.py       # 不可变、JSON 校验的本地工具结果
 │   │   ├── media.py         # 图片工具 schema、错误映射和结果投影
+│   │   ├── permissions.py   # 权限申请 schema、审批用例和授权结果
 │   │   ├── planning.py      # 宏步骤计划的 schema、校验和工具定义
 │   │   └── plan_update.py   # 工作计划快照的 schema、校验和工具定义
 │   ├── views/               # 跨前端共享的应用结果 projection/view 契约
@@ -277,7 +280,7 @@ agent/
 │   ├── sessions.py           # Turn application 使用的 Session 生命周期端口
 │   ├── workspace.py          # 工作区资源生命周期和组合工厂端口
 │   ├── persistence.py       # 事件、快照、历史和 outbox 端口
-│   ├── permissions.py       # 执行上下文读取权限授权端口
+│   ├── permissions.py       # 执行上下文权限授权读写端口
 │   └── observability.py     # 日志、指标和 tracing 端口
 ├── stores/
 │   ├── agents/              # 子 Agent 图与 mailbox 持久化
@@ -627,6 +630,8 @@ running -> cancelled
 | `mind_app/client_tools/types.py`、`registry.py`、`result.py` 与 `mind_app/builtin_tools/types.py`、`registry.py` | `agent/application/tools/context.py`、`definitions.py`、`results.py` 与 `infrastructure/mcp/local_tool_registry.py` | 工具定义、调用级依赖和不可变 JSON 结果属于 application 契约，不构造 MCP SDK 对象；唯一注册表在基础设施边界完成 MCP schema/result 适配，强制单个实例只接收 client 或 builtin 一种来源，并校验结果身份。Controller 只保存 `ToolRegistryPort`，能力包不再持有第二套状态或兼容导出 |
 | `mind_app/client_tools/planning.py`、`update_plan.py` | `agent/application/tools/planning.py`、`plan_update.py` | 计划 schema、输入校验、稳定结果和工具描述是无 IO 的 application 能力；运行计划的工具调用、Hook、展示和耗时仍由执行编排持有，不把副作用迁入 application |
 | `mind_app/client_tools/view_image.py` | `agent/application/tools/media.py`、`agent/ports/media.py`、`infrastructure/platform/images.py` | 图片工具定义和结果投影归 application；工作区绑定、阻塞文件读取、大小限制、格式识别和编码归平台 adapter。`WorkspaceRuntimeOwner` 与编码/策略资源一起原子替换读取器，工具工厂不得自行解析工作区或执行同步文件 IO |
+| `mind_app/builtin_tools/permissions.py` | `agent/application/tools/permissions.py`、`agent/domain/permission_profiles.py`、`agent/ports/permissions.py` | `request_permissions` schema、审批与授权用例归 application；权限对象规范化、交并、覆盖和稳定键归 domain；状态写入只通过显式 grant port。应用工具不得导入具体 store、旧 coding schema 或 wire client 异常 |
+| `mind_app/native_coding/execution_authorization.py` | `agent/application/tools/authorization.py` | 模型工具参数的客户端执行门禁和已确认 Turn 中断是跨本地工具的 application 语义；runtime adapter 负责把中断映射到执行收束，不用 wire transport 异常充当应用状态 |
 | `mind_app/native_coding/encoding.py` | `infrastructure/platform/encoding.py` | 进程输出编码探测、规范化和解码是跨能力的平台事实；native coding 只消费平台端口，不拥有第二套解码器 |
 | `mind_app/runtime/processes.py` | `infrastructure/platform/processes.py` | 进程组创建、stdin 收束、树级中断/终止和 Windows/POSIX 差异属于平台生命周期能力 |
 | `mind_app/native_coding/workspace_command.py` | `infrastructure/platform/workspace.py` | 无 shell 工作区命令、超时和输出上限属于平台命令执行能力；native coding 不拥有进程树实现 |
@@ -649,7 +654,7 @@ running -> cancelled
 | `mind_app/approval/models.py::ExecPolicyAmendmentProposal`、`approval/policy.py::approval_execpolicy_amendment` | `agent/application/approvals/amendments.py` | 执行策略修订提案的具名值和结构校验属于审批 application 语义；终端审批 renderer 不反向导入 legacy application |
 | `mind_app/runtime/conversation.py` | `mind_app/runtime/compaction.py`、`agent/application/turns/compact_result.py` | 上下文压缩的运行时 Hook/Transcript 编排与不可变结果契约分离；runtime 只负责执行生命周期，application 只暴露稳定结果 |
 | `mind_app/runtime/execution.py` | `agent/application/turns/context.py` | Agent、Turn 和工具调用上下文是跨能力共享的 application 执行契约；不让 MCP、Hook、工具和子 Agent 继续依赖 runtime 平铺实现模块 |
-| `agent/stores/approvals/permissions.py` | `agent/ports/permissions.py` | application 只依赖 `PermissionGrantReader` 读取端口；具体授权存储留在 stores，由组合根注入，避免执行上下文反向依赖持久化实现 |
+| `agent/stores/approvals/permissions.py` | `agent/domain/permission_profiles.py`、`agent/ports/permissions.py` | 权限对象算法由 domain 单一持有，store 只保存 Turn/Session 授权状态；执行上下文依赖读取端口，权限申请工具依赖写入端口，具体 store 由组合边界注入 |
 | `mind_app/runtime/turns/result.py` | `agent/application/turns/run_result.py` | 单次模型 Run 的稳定结果值对象属于 application 出站契约；前端和 Subagent 只消费公开结果，不从 runtime turns 导入 |
 | `mind_app/runtime/turns/stream_outcome.py` | `agent/application/turns/stream_outcome.py` | 流式终态优先级、协议终态归并和 `RunResult` 构建属于 application 结果聚合；协议事件只在边界输入，不持有 UI 或执行副作用 |
 | `agent/harness/sessions/owner.py`、`loop.py` | `agent/ports/sessions.py` | Session runtime 的执行、取消、恢复和关闭契约归入 ports；Harness 只提供实现，application 通过显式 factory 使用，不直接装配 owner |

@@ -20,6 +20,7 @@ from agent.application.tools.context import (
     NESTED_TOOL_DISPATCH_META_KEY,
     TURN_INTERRUPT_META_KEY,
 )
+from agent.application.tools.authorization import ToolTurnInterrupted
 from agent.ports import McpSessionPort
 from protocol.client.effects import post_effect_reconciliation
 from protocol.client.tools import (
@@ -564,7 +565,7 @@ class ClientToolCallRunner:
 
             hook_response = getattr(tool_run, "hook_response", fields)
 
-        except TurnControlRequestError:
+        except (ToolTurnInterrupted, TurnControlRequestError):
             raise
         except Exception as exc:
             text = f"{type(exc).__name__}: {exc}"

@@ -171,10 +171,12 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/hooks/result.py",
         "application/hooks/subagent.py",
         "application/tools/__init__.py",
+        "application/tools/authorization.py",
         "application/tools/catalog.py",
         "application/tools/context.py",
         "application/tools/definitions.py",
         "application/tools/media.py",
+        "application/tools/permissions.py",
         "application/tools/planning.py",
         "application/tools/plan_update.py",
         "application/tools/results.py",
@@ -200,6 +202,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/views/builders/tools.py",
         "application/views/commands.py",
         "domain/identifiers.py",
+        "domain/permission_profiles.py",
         "ports/content.py",
         "ports/media.py",
         "ports/output.py",
@@ -1217,6 +1220,7 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
     """确保本地工具契约与 MCP 注册表不在旧能力包中重复实现。"""
     legacy_paths = (
         PROJECT_ROOT / "mind_app" / "builtin_tools" / "registry.py",
+        PROJECT_ROOT / "mind_app" / "builtin_tools" / "permissions.py",
         PROJECT_ROOT / "mind_app" / "builtin_tools" / "types.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "registry.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "result.py",
@@ -1224,11 +1228,16 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
         PROJECT_ROOT / "mind_app" / "client_tools" / "types.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "update_plan.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "view_image.py",
+        PROJECT_ROOT / "mind_app" / "native_coding" / "execution_authorization.py",
     )
     assert not any(path.is_file() for path in legacy_paths)
+    assert not any(
+        (PROJECT_ROOT / "mind_app" / "builtin_tools").glob("*.py")
+    )
 
     legacy_modules = {
         "mind_app.builtin_tools.registry",
+        "mind_app.builtin_tools.permissions",
         "mind_app.builtin_tools.types",
         "mind_app.client_tools.registry",
         "mind_app.client_tools.result",
@@ -1236,6 +1245,7 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
         "mind_app.client_tools.types",
         "mind_app.client_tools.update_plan",
         "mind_app.client_tools.view_image",
+        "mind_app.native_coding.execution_authorization",
     }
     violations = _forbidden_module_imports(".", legacy_modules)
     assert not violations, "legacy local tool imports remain:\n" + "\n".join(
@@ -4659,15 +4669,18 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.config.settings",
         "agent.application.config.session_identity",
         "agent.application.tools.catalog",
+        "agent.application.tools.authorization",
         "agent.application.tools.context",
         "agent.application.tools.definitions",
         "agent.application.tools.media",
+        "agent.application.tools.permissions",
         "agent.application.tools.planning",
         "agent.application.tools.plan_update",
         "agent.application.tools.results",
         "agent.ports.media",
         "agent.domain.hooks",
         "agent.domain.identifiers",
+        "agent.domain.permission_profiles",
         "agent.domain.policies",
         "agent.domain.hook_trust",
         "agent.domain.hook_matching",

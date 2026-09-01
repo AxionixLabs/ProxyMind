@@ -23,6 +23,7 @@ from mind_app.client_tools.coding.native import (
 )
 from mind_app.client_tools.coding.schemas import JS_REPL_INPUT_SCHEMA
 from agent.application.tools.context import ToolHandlerContext
+from agent.application.tools.authorization import ToolTurnInterrupted
 from infrastructure.mcp.local_tool_registry import ToolRegistry
 from mind_app.client_tools.factory import default_registry
 from infrastructure.mcp.composite_session import CompositeToolSession
@@ -48,7 +49,6 @@ from mind_app.runtime.tools.client_call import ClientToolCallRunner
 from agent.composition import open_effect_journal
 from agent.application.config.settings import FeatureSettings
 from agent.domain.policies import preset_permissions
-from protocol.client.turn_control import TurnControlRequestError
 
 
 def _require_node() -> None:
@@ -1129,7 +1129,7 @@ async def test_nested_approval_cancel_interrupts_turn(tmp_path: Path) -> None:
         writable_rules_path=tmp_path / ".mind" / "rules" / "default.rules",
     )
 
-    with pytest.raises(TurnControlRequestError):
+    with pytest.raises(ToolTurnInterrupted):
         await _authorize_nested_tool(
             runtime,
             tool="shell_command",

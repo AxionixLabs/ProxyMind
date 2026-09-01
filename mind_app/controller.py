@@ -49,7 +49,7 @@ from agent.harness.sessions.conversation import (
 )
 from agent.domain.tool_policy import ToolFilterMode
 from infrastructure.mcp.local_tool_registry import ToolRegistry
-from .builtin_tools.permissions import permission_tools
+from agent.application.tools.permissions import permission_tools
 from .client_tools.factory import default_registry as default_client_tool_registry
 from agent.stores.approvals.permissions import PermissionGrantStore
 from agent.application.approvals.coordinator import ApprovalCoordinator
@@ -524,7 +524,10 @@ class Mind(object):
     def _build_builtin_tools(self) -> ToolRegistryPort:
         """按当前能力开关构建核心内置工具注册表。"""
         tools = (
-            permission_tools(self.approval_coordinator)
+            permission_tools(
+                self.approval_coordinator,
+                self.permission_grants,
+            )
             if self.features.request_permissions_tool
             else ()
         )

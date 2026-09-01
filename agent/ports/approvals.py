@@ -4,7 +4,12 @@
 import typing
 from collections.abc import Awaitable, Mapping
 
-__all__ = ("ApprovalLedger", "ApprovalLedgerState")
+__all__ = (
+    "ApprovalCoordinatorPort",
+    "ApprovalLedger",
+    "ApprovalLedgerState",
+    "ApprovalOutcomePort",
+)
 
 
 class ApprovalOutcomePort(typing.Protocol):

@@ -5,7 +5,7 @@ import time
 import typing
 from agent.application.approvals.models import ApprovalDecisionValue
 from agent.application.approvals.amendments import approval_execpolicy_amendment
-from agent.stores.approvals.permissions import normalize_permission_profile
+from agent.domain.permission_profiles import normalize_permission_profile
 from infrastructure.config.execution_policy_manager import (
     ExecApprovalRequirement,
     validate_sandbox_permission_arguments,

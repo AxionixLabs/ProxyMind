@@ -7,6 +7,7 @@ from observability import observe
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.application.approvals.models import ApprovalOutcome
 from agent.application.tools.planning import PLAN_STEPS_TOOL
+from agent.application.tools.authorization import ToolTurnInterrupted
 from agent.ports.transcript import TranscriptSink
 from agent.ports import (
     ApprovalCoordinatorPort,
@@ -364,7 +365,7 @@ class ToolEventHandler:
                 invocation,
                 use_coding_trace=uses_native_tool_view(name),
             )
-        except TurnControlRequestError as error:
+        except (ToolTurnInterrupted, TurnControlRequestError) as error:
             return ToolCallHandlingResult.interrupted(str(error))
 
         await self._post_tool_outcome(invocation, tool_outcome)

@@ -212,6 +212,14 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   Workspace Runtime 在工作区切换时同步替换读取器，旧 `mind_app/client_tools/view_image.py`
   已物理删除。媒体/工作区回归 `51 passed`，扩展工具回归 `242 passed`，职责专项
   `8 passed, 3 warnings`。
+- permissions 能力族已完成状态、规则和用例拆分：权限 profile 的规范化、交并、覆盖和
+  稳定键归 `agent/domain/permission_profiles.py`，`request_permissions` 的 schema、审批和
+  授权写入归 `agent/application/tools/permissions.py`，工具参数授权与 Turn 中断使用独立
+  application 契约。grant store 只持有 Turn/Session 状态，工具通过
+  `ApprovalCoordinatorPort` 和 `PermissionGrantPort` 注入，不再导入具体 store 或 wire client
+  异常；旧 `mind_app/builtin_tools` 和 `native_coding/execution_authorization.py` 已删除。
+  权限/策略回归 `116 passed`，工具/审批扩展回归 `114 + 200 passed`，职责专项
+  `4 passed, 1 warning`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -309,9 +317,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    facade 已删除，`mind_app/runtime/mcp` 源码清零。
 
 4. **本地工具能力族重组（进行中）**：registry、调用上下文、类型契约、稳定结果、
-   planning 与 media 能力已迁入 `infrastructure`、`agent/application/tools` 和具名 ports，
-   八个旧模块已删除。下一步迁移 permissions，再拆分 workspace coding 和 subagent；执行
-   状态归 Harness，操作系统与 SDK 实现归 infrastructure，禁止创建新的总工具 facade。
+   planning、media 与 permissions 能力已迁入 `agent`、`infrastructure` 和具名 ports，对应
+   旧模块与空 builtin 包已删除。下一步拆分 workspace coding 和 subagent：工具 schema 与
+   用例归 application，Agent 调度状态归 Harness，操作系统与 SDK 实现归 infrastructure，
+   禁止创建新的总工具 facade。
 
 5. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
@@ -322,6 +331,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 本次 media 切片的删除条件已满足：应用工具只消费 `ImageReaderPort`，具体文件读取器由
 `mind.py` 注入并由 `WorkspaceRuntimeOwner` 随工作区统一替换；旧 `view_image.py`、旧导入和
 工厂内部路径解析已清零，成功读取、稳定失败和工作区切换均有回归与职责守卫覆盖。
+
+本次 permissions 切片的删除条件已满足：权限算法不再由 store 拥有，申请工具只依赖审批与
+授权 ports，本地工具中断不再借用 wire transport 异常；旧 builtin 源包、旧执行授权模块、
+旧 schema 和旧导入均清零，授权成功、拒绝、取消、交集、覆盖与 inline 权限均有回归覆盖。
 
 本次 MCP 生命周期切片的删除条件已满足：Harness 所有者不得导入 `mind_app` 或具体 MCP 实现；
 组合根必须显式注入 `ExternalMcpRuntime` 工厂；旧 `mind_app.runtime.mcp.lifecycle`
