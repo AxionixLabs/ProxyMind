@@ -47,8 +47,6 @@ from .tools import (
     GenericToolResultView,
     NativeToolResultView,
     ToolStartView,
-    TraceEntry,
-    TracePreview,
 )
 from .tool_display import (
     NATIVE_TOOL_NAMES,
@@ -57,6 +55,7 @@ from .tool_display import (
     is_two_stage_tool,
     tool_display_spec,
     tool_status_text,
+    uses_native_tool_view,
 )
 
 __all__ = (
@@ -98,9 +97,8 @@ __all__ = (
     "ToolStartView",
     "ToolDisplayKind",
     "ToolDisplaySpec",
-    "TraceEntry",
-    "TracePreview",
     "is_two_stage_tool",
     "tool_display_spec",
     "tool_status_text",
+    "uses_native_tool_view",
 )

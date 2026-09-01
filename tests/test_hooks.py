@@ -44,7 +44,7 @@ from mind_app.runtime.hooks.turn import (
     TurnHookEvents
 )
 from agent.application.views.builders.approval import build_approval_view
-from mind_app.presentation.renderers.approval import render_approval_view
+from frontends.terminal.renderers.approval import render_approval_view
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.domain.hooks import HOOK_EVENT_NAMES
 from agent.domain.policies import preset_permissions

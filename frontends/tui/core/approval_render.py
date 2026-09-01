@@ -9,8 +9,8 @@ from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
 )
-from mind_app.approval.models import ApprovalDecisionValue
-from mind_app.approval.presentation import (
+from agent.application.approvals.models import ApprovalDecisionValue
+from agent.application.approvals.presentation import (
     ApplyPatchApprovalPresentation,
     ApprovalCommand,
     ApprovalPresentation,
@@ -19,14 +19,14 @@ from mind_app.approval.presentation import (
     ToolApprovalPresentation,
     ensure_approval_presentation,
 )
-from mind_app.approval.policy import (
+from agent.application.approvals.policy import (
     DECISION_SHORTCUT_LABELS,
     approval_decision_label,
 )
-from mind_app.presentation.stream.tool_traces.command_parts import render_command_parts
+from frontends.terminal.traces.command_parts import render_command_parts
 from agent.ports.presentation import StyledBlock
-from mind_app.presentation.renderers.patch import render_patch_view
-from mind_app.presentation.styles import (
+from frontends.terminal.renderers.patch import render_patch_view
+from frontends.terminal.styles import (
     COMMAND_STYLE,
     COMMAND_FLAG_STYLE,
     COMMAND_HEAD_STYLE,

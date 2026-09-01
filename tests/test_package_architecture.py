@@ -121,6 +121,7 @@ def test_agent_harness_core_does_not_import_legacy_packages() -> None:
         "applications",
         "backend",
         "engine",
+        "frontends",
         "mind_app",
         "mind_core",
         "server",
@@ -146,6 +147,13 @@ def test_agent_harness_core_does_not_import_legacy_packages() -> None:
 def test_agent_responsibility_packages_are_physical() -> None:
     """确保 Agent Harness 的职责重组落在真实子包而非平铺或转发模块。"""
     expected_files = {
+        "application/approvals/__init__.py",
+        "application/approvals/amendments.py",
+        "application/approvals/factory.py",
+        "application/approvals/models.py",
+        "application/approvals/policy.py",
+        "application/approvals/presentation.py",
+        "application/approvals/summary.py",
         "application/agents/fork_context.py",
         "application/agents/messages.py",
         "application/agents/thread.py",
@@ -164,6 +172,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/turns/compact_result.py",
         "application/turns/context.py",
         "application/turns/environment.py",
+        "application/turns/exception_text.py",
         "application/turns/execution.py",
         "application/turns/projections.py",
         "application/turns/run_result.py",
@@ -178,6 +187,9 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/views/builders/plan.py",
         "application/views/builders/progress.py",
         "application/views/builders/run.py",
+        "application/views/builders/tools.py",
+        "application/views/commands.py",
+        "domain/identifiers.py",
         "ports/content.py",
         "ports/output.py",
         "ports/presentation.py",
@@ -419,6 +431,7 @@ def test_agent_capabilities_depend_only_on_protocol_transport() -> None:
             "applications",
             "backend",
             "engine",
+            "frontends",
             "mind_app",
             "mind_core",
             "server",
@@ -3530,6 +3543,7 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
     } == {
         "__init__.py",
         "approval.py",
+        "commands.py",
         "contracts.py",
         "hooks.py",
         "patch.py",
@@ -3547,6 +3561,9 @@ def test_frontend_runtime_and_terminal_are_owned_by_frontends() -> None:
         PROJECT_ROOT / "frontends" / "runtime.py",
         PROJECT_ROOT / "frontends" / "output" / "application.py",
         PROJECT_ROOT / "frontends" / "terminal" / "capabilities.py",
+        PROJECT_ROOT / "frontends" / "terminal" / "highlighting.py",
+        PROJECT_ROOT / "frontends" / "terminal" / "renderers" / "dispatch.py",
+        PROJECT_ROOT / "frontends" / "terminal" / "traces" / "models.py",
         PROJECT_ROOT / "frontends" / "terminal" / "turn_lifecycle.py",
     )
     assert all(path.is_file() for path in target_paths)
@@ -3555,16 +3572,14 @@ def test_frontend_runtime_and_terminal_are_owned_by_frontends() -> None:
         PROJECT_ROOT / "mind_app" / "presentation" / "application.py",
         PROJECT_ROOT / "mind_app" / "presentation" / "application_sinks.py",
     )
-    legacy_terminal = PROJECT_ROOT / "mind_app" / "presentation" / "terminal"
+    legacy_presentation = PROJECT_ROOT / "mind_app" / "presentation"
     assert not any(path.is_file() for path in legacy_paths)
-    assert not tuple(legacy_terminal.glob("*.py")), "legacy terminal sources remain"
+    assert not tuple(legacy_presentation.rglob("*.py")), (
+        "legacy presentation sources remain"
+    )
 
     violations: list[str] = []
-    legacy_modules = (
-        "mind_app.presentation.application",
-        "mind_app.presentation.application_sinks",
-        "mind_app.presentation.terminal",
-    )
+    legacy_modules = ("mind_app.presentation",)
     for path in PROJECT_ROOT.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
         for node in ast.walk(tree):
@@ -3749,6 +3764,15 @@ def test_tui_adapter_is_owned_by_frontends() -> None:
     legacy_root = PROJECT_ROOT / "mind_app" / "tui"
     target_root = PROJECT_ROOT / "frontends" / "tui"
     assert not legacy_root.exists(), "legacy TUI package still exists"
+    assert (
+        PROJECT_ROOT / "agent" / "application" / "approvals" / "presentation.py"
+    ).is_file(), "approval application model is missing"
+    assert not (
+        PROJECT_ROOT / "mind_app" / "approval" / "presentation.py"
+    ).is_file(), "legacy approval presentation remains"
+    assert not (
+        target_root / "core" / "approval_presentation.py"
+    ).is_file(), "approval application model remains in the TUI"
 
     expected_children = {
         "__init__.py",
@@ -4193,9 +4217,16 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.agents.thread",
         "agent.application.agents.views",
         "agent.application.agents.messages",
+        "agent.application.approvals.amendments",
+        "agent.application.approvals.factory",
+        "agent.application.approvals.models",
+        "agent.application.approvals.policy",
+        "agent.application.approvals.presentation",
+        "agent.application.approvals.summary",
         "agent.application.turns.context",
         "agent.application.turns.commands",
         "agent.application.turns.environment",
+        "agent.application.turns.exception_text",
         "agent.application.turns.compact_result",
         "agent.application.turns.run_result",
         "agent.application.turns.stream_outcome",
@@ -4207,6 +4238,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.agents.fork_context",
         "agent.application.views",
         "agent.application.views.contracts",
+        "agent.application.views.commands",
         "agent.application.views.tool_display",
         "agent.application.views.builders.approval",
         "agent.application.views.builders.batch",
@@ -4215,9 +4247,11 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.views.builders.plan",
         "agent.application.views.builders.progress",
         "agent.application.views.builders.run",
+        "agent.application.views.builders.tools",
         "agent.application.config.settings",
         "agent.application.config.session_identity",
         "agent.domain.hooks",
+        "agent.domain.identifiers",
         "agent.domain.policies",
         "agent.domain.hook_trust",
         "agent.domain.hook_matching",

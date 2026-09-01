@@ -8,14 +8,14 @@ from observability import (
     observe_exception
 )
 from agent.stores.approvals.ledger import ApprovalCallLedger
-from mind_app.approval.models import ApprovalDecisionValue
-from mind_app.approval.policy import (
+from agent.application.approvals.models import ApprovalDecisionValue
+from agent.application.approvals.policy import (
     approval_decisions,
-    approval_execpolicy_amendment,
     approval_from_event,
     approval_from_snapshot,
     approval_id_from_event
 )
+from agent.application.approvals.amendments import approval_execpolicy_amendment
 from agent.ports import OutputStatusPort
 from agent.application.views.builders.approval import build_approval_view
 from agent.application.views.contracts import PresentationSink

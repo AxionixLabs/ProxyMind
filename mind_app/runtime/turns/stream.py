@@ -68,7 +68,7 @@ from ..hooks.turn import (
     PromptHookBlockedError,
     TurnHookEvents
 )
-from mind_app.presentation.stream.exception_text import friendly_exception_text
+from agent.application.turns.exception_text import friendly_exception_text
 from ..tools.client_call import ClientToolCallRunner
 from ..tools.plan_call import PlanToolCallRunner
 from .executor import (

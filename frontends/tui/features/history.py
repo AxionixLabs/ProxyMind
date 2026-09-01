@@ -21,17 +21,17 @@ from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text
 )
-from mind_app.presentation.renderers.dispatch import (
+from frontends.terminal.renderers.dispatch import (
     render_presentation_raw_view,
     render_presentation_transcript_view,
     render_presentation_view
 )
-from mind_app.presentation.tool_views import (
+from agent.application.views.builders.tools import (
     build_generic_tool_result_view,
     build_native_tool_result_view,
     build_tool_start_view
 )
-from mind_app.presentation.stream.tool_traces import coding_trace_tool
+from agent.application.views import uses_native_tool_view
 from ..adapters.markdown import render_tui_assistant_markdown
 from ..adapters.presentation import render_presentation_fragment_block
 from ..core.document import TranscriptBlock
@@ -478,7 +478,7 @@ def _tool_blocks(
                 return ()
         else:
             view = build_tool_start_view(name, arguments, call_id=call_id)
-    elif coding_trace_tool(name):
+    elif uses_native_tool_view(name):
         result_data = payload.get("result")
         if name == "apply_patch":
             result_data = _patch_result_data(

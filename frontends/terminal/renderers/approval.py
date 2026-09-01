@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.presentation.stream.approval_trace import (
+from frontends.terminal.traces.approval import (
     render_approval_approved_trace,
     render_approval_cancelled_trace,
     render_approval_denied_trace,

@@ -9,7 +9,7 @@ from agent.ports.presentation import (
     ApplicationSink,
     TurnForegroundLifecyclePort,
 )
-from mind_app.presentation.stream.worked import emit_worked_footer
+from frontends.terminal.worked import emit_worked_footer
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind

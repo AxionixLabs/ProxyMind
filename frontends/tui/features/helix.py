@@ -6,7 +6,7 @@ import functools
 from infrastructure.errors import AppError
 from infrastructure.platform.file_assist import FileAssist
 from agent.ports.presentation import ApplicationView
-from mind_app.presentation.mcp_status import (
+from frontends.terminal.mcp_status import (
     McpStatusDetail,
     McpStatusView,
     inbuild_status_view,

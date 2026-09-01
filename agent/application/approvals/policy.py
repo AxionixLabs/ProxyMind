@@ -8,11 +8,13 @@ from protocol.schema.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
     TOOL_APPROVAL_DECISIONS_BY_KIND
 )
-from protocol.schema.identifiers import stable_request_id
 from metadata import const
+from agent.application.approvals.amendments import (
+    ExecPolicyAmendmentProposal,
+    approval_execpolicy_amendment,
+)
 from .models import (
     ApprovalDecisionValue,
-    ExecPolicyAmendmentProposal
 )
 
 DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
@@ -314,43 +316,6 @@ def approval_decisions(
     if kind == "command" and approval_execpolicy_amendment(approval) is not None:
         decisions[1] = "acceptWithExecpolicyAmendment"
     return decisions
-
-
-def approval_execpolicy_amendment(
-    approval: dict[str, typing.Any] | None
-) -> ExecPolicyAmendmentProposal | None:
-    """读取可安全展示和回传的执行策略修订提案。"""
-    if not isinstance(approval, dict):
-        return None
-    raw = approval.get("proposed_execpolicy_amendment")
-    if not isinstance(raw, dict):
-        return None
-
-    command_prefix = raw.get("command")
-    if isinstance(command_prefix, list):
-        if any(not isinstance(value, str) or not value for value in command_prefix):
-            return None
-        command_prefix = tuple(command_prefix)
-        amendment_id = stable_request_id("execpolicy", *command_prefix)
-        display = " ".join(command_prefix)
-    else:
-        amendment_id   = str(raw.get("id") or "").strip()
-        display        = str(raw.get("display") or "").strip()
-        command_prefix = raw.get("command_prefix")
-
-    if (
-        not amendment_id
-        or not display
-        or not isinstance(command_prefix, (list, tuple))
-        or not command_prefix
-        or any(not isinstance(value, str) or not value for value in command_prefix)
-    ):
-        return None
-    return ExecPolicyAmendmentProposal(
-        id=amendment_id,
-        command_prefix=tuple(command_prefix),
-        display=display,
-    )
 
 
 def _approval_prompt_noun(approval: dict[str, typing.Any]) -> str:

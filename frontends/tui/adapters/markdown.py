@@ -13,7 +13,7 @@ from prompt_toolkit.utils import get_cwidth
 from pygments import lex
 from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
-from mind_app.presentation.code_highlight import (
+from frontends.terminal.highlighting import (
     StreamingCodeHighlighter,
     code_token_style
 )

@@ -8,7 +8,7 @@ from agent.ports.presentation import (
     TextStyle
 )
 from ..command_parts import render_command_parts
-from mind_app.presentation.styles import (
+from frontends.terminal.styles import (
     ACTION_EDIT_STYLE,
     ACTION_RUN_STYLE,
     ACTION_TOOL_CALLING_STYLE,

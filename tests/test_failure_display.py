@@ -5,12 +5,12 @@ from agent.application.views import (
     FailureView,
     RunIncompleteView,
 )
-from mind_app.presentation.renderers.dispatch import (
+from frontends.terminal.renderers.dispatch import (
     render_presentation_transcript_view,
     render_presentation_view,
 )
 from frontends.terminal.text_layout import text_display_width
-from mind_app.presentation.stream.failure_display import (
+from frontends.terminal.renderers.failure import (
     render_failure_block,
     render_failure_display_parts,
     render_failure_text

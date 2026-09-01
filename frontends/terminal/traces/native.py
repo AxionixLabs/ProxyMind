@@ -3,7 +3,7 @@
 
 import typing
 import textwrap
-from mind_app.presentation.stream.command_preview import command_text
+from agent.application.views.commands import command_text
 from frontends.terminal.text_layout import (
     clip_display_text,
     text_display_width
@@ -12,7 +12,6 @@ from frontends.terminal.text import sanitize_terminal_line
 from .common import (
     MAX_PREVIEW_WIDTH,
     SCREEN_PREVIEW_LINES,
-    TracePreview,
     _plain_trace_preview_from_lines,
     _result_payload,
     _short_text,
@@ -22,11 +21,14 @@ from .common import (
     _trace_code_preview_from_lines,
     _trace_preview_from_lines
 )
-from agent.application.views import TraceEntry
 from agent.application.views.tool_display import (
     NATIVE_TOOL_NAMES,
     ToolDisplayKind,
     tool_display_spec
+)
+from .models import (
+    TraceEntry,
+    TracePreview,
 )
 from .shell_errors import (
     normalize_shell_output_text,

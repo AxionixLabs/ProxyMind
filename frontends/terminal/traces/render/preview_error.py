@@ -8,7 +8,7 @@ from agent.ports.presentation import (
     TextStyle,
 )
 
-from mind_app.presentation.styles import (
+from frontends.terminal.styles import (
     ERROR_PREVIEW_HEAD_STYLE,
     ERROR_PREVIEW_LINE_STYLE,
     ERROR_PREVIEW_MESSAGE_STYLE,

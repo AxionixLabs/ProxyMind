@@ -5,7 +5,7 @@ import typing
 from mind_app.client_tools.update_plan import UPDATE_PLAN_TOOL
 from agent.application.views.contracts import PresentationSink
 from agent.application.views.builders.plan import build_plan_update_view
-from mind_app.presentation.tool_views import (
+from agent.application.views.builders.tools import (
     build_generic_tool_result_view,
     build_native_tool_result_view,
     build_tool_start_view

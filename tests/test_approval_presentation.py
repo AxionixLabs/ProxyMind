@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.approval.presentation import (
+from agent.application.approvals.presentation import (
     ApplyPatchApprovalPresentation,
     ExecApprovalPresentation,
     RequestPermissionsApprovalPresentation,
@@ -8,9 +8,9 @@ from mind_app.approval.presentation import (
     build_approval_presentation,
     ensure_approval_presentation,
 )
-from mind_app.approval.factory import build_approval_request
+from agent.application.approvals.factory import build_approval_request
 from agent.application.views.builders.approval import build_approval_view
-from mind_app.presentation.renderers.approval import render_approval_view
+from frontends.terminal.renderers.approval import render_approval_view
 
 
 def test_command_payload_is_normalized_to_exec_presentation() -> None:

@@ -42,10 +42,10 @@ from agent.application.hooks.models import (
     ToolResultSnapshot
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
-from mind_app.presentation.stream.tool_traces import coding_trace_tool
 from agent.application.views.tool_display import (
     is_two_stage_tool,
-    tool_status_text
+    tool_status_text,
+    uses_native_tool_view,
 )
 from metadata import const
 from .display import (
@@ -642,7 +642,7 @@ class ClientToolCallRunner:
                 name=tool_name,
                 arguments=arguments,
             ),
-            use_coding_trace=coding_trace_tool(tool_name),
+            use_coding_trace=uses_native_tool_view(tool_name),
             display=False,
         )
         result = outcome.result

@@ -33,7 +33,7 @@ from agent.application.views import (
     RunIncompleteView,
     ToolStartView
 )
-from mind_app.presentation.renderers.dispatch import (
+from frontends.terminal.renderers.dispatch import (
     render_presentation_raw_view,
     render_presentation_transcript_view,
     render_presentation_view

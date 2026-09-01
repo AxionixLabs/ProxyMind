@@ -21,7 +21,7 @@ from frontends.terminal.progress import (
     PassiveTerminalProgress,
     TerminalProgress
 )
-from mind_app.approval.models import (
+from agent.application.approvals.models import (
     ApprovalDecisionValue,
     ApprovalQueueSnapshot,
     ApprovalRequest

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.approval.models import (
+from agent.application.approvals.models import (
     ApprovalDecisionSource,
     ApprovalDecisionValue,
     ApprovalQueueSnapshot,

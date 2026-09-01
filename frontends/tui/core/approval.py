@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
-from mind_app.approval.models import (
+from agent.application.approvals.models import (
     ApprovalDecisionValue,
     ApprovalQueueSnapshot
 )
-from mind_app.approval.presentation import (
+from agent.application.approvals.presentation import (
     ApprovalPresentation,
     ensure_approval_presentation
 )

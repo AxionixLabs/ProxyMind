@@ -38,8 +38,8 @@ from frontends.terminal.turn_lifecycle import (
     ControllerTurnForegroundLifecycle,
     run_foreground_turn,
 )
-from mind_app.presentation.stream.worked import emit_worked_footer
-from mind_app.presentation.mcp_status import (
+from frontends.terminal.worked import emit_worked_footer
+from frontends.terminal.mcp_status import (
     external_mcp_status_view,
     inbuild_status_view,
 )

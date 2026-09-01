@@ -4,7 +4,7 @@
 import typing
 from infrastructure.errors import AppError
 from agent.ports.presentation import ApplicationView
-from mind_app.presentation.mcp_status import (
+from frontends.terminal.mcp_status import (
     McpStatusDetail,
     McpStatusView,
     render_mcp_status_block,

@@ -4,10 +4,10 @@
 import typing
 from agent.ports.presentation import TextSpan
 from .common import (
-    TracePreview,
     _normalize_preview_lines,
     _trace_preview_from_lines
 )
+from .models import TracePreview
 from .render import render_tool_trace_parts
 
 

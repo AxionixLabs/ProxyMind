@@ -12,16 +12,16 @@ from frontends.runtime import (
     WaitRetryState
 )
 from agent.ports.presentation import TextStyle
-from mind_app.presentation.renderers.upload import (
+from frontends.terminal.renderers.upload import (
     upload_idle_block,
     upload_progress_block,
     upload_summary_block
 )
-from mind_app.presentation.renderers.download import (
+from frontends.terminal.renderers.download import (
     download_progress_block,
     download_summary_block
 )
-from mind_app.presentation.mcp_status import (
+from frontends.terminal.mcp_status import (
     McpStatusView,
     external_mcp_status_view,
     inbuild_status_view,

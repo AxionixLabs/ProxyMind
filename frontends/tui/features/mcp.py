@@ -5,7 +5,7 @@ import typing
 from collections import defaultdict
 from prompt_toolkit.utils import get_cwidth
 from agent.ports.presentation import ApplicationView
-from mind_app.presentation.mcp_status import (
+from frontends.terminal.mcp_status import (
     McpStatusDetail,
     McpStatusView,
     external_mcp_status_view,

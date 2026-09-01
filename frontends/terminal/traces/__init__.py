@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from agent.application.views import TraceEntry, TracePreview
-from mind_app.presentation.styles import (
+from frontends.terminal.styles import (
     ACTION_EDIT_STYLE,
     ACTION_RUN_STYLE,
     ACTION_TOOL_STYLE,
@@ -27,6 +26,10 @@ from mind_app.presentation.styles import (
     PREVIEW_TEXT_STYLE,
     SUCCESS_DOT_STYLE,
     TITLE_STYLE,
+)
+from .models import (
+    TraceEntry,
+    TracePreview,
 )
 from .generic import (
     render_generic_tool_result_parts,

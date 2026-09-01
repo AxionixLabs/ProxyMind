@@ -5,32 +5,11 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
-class TracePreview:
-    """保存完整预览、屏幕预览和省略行数。"""
-
-    full: str = ""
-    screen: str = ""
-    omitted_lines: int = 0
-    kind: str = "text"
-
-
-@dataclass(frozen=True, slots=True)
-class TraceEntry:
-    """保存一条可独立展示的工具轨迹。"""
-
-    title: str
-    preview: TracePreview
-    ok: bool = True
-
-
-@dataclass(frozen=True, slots=True)
 class ToolStartView:
     """描述普通工具开始执行时的展示数据。"""
 
     name: str
     arguments: dict[str, typing.Any]
-    title: str
-    preview: TracePreview
     call_id: str = ""
 
 
@@ -41,8 +20,6 @@ class GenericToolResultView:
     name: str
     text: str
     ok: bool
-    title: str
-    preview: TracePreview
     call_id: str = ""
 
 
@@ -55,7 +32,6 @@ class NativeToolResultView:
     ok: bool
     data: typing.Any
     cost_ms: int | None
-    entries: tuple[TraceEntry, ...]
     call_id: str = ""
 
 

@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.presentation.formatting import format_duration_ms
+from frontends.terminal.formatting import format_duration_ms
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
@@ -12,7 +12,7 @@ from agent.application.views import (
     HookOutputView,
     HookRunView,
 )
-from mind_app.presentation.styles import (
+from frontends.terminal.styles import (
     ERROR_DOT_STYLE,
     SUCCESS_DOT_STYLE,
     TITLE_STYLE

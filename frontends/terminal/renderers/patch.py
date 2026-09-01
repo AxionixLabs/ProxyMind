@@ -10,7 +10,7 @@ from frontends.terminal.capabilities import (
     TerminalColorLevel
 )
 from frontends.terminal.palette import best_color, is_light_color
-from mind_app.presentation.code_highlight import highlight_code_lines
+from frontends.terminal.highlighting import highlight_code_lines
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,

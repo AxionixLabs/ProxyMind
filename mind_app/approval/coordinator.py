@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from collections import deque
 from dataclasses import dataclass
 from observability import observe_exception
-from mind_app.approval.models import (
+from agent.application.approvals.models import (
     ApprovalDecisionSource,
     ApprovalDecisionValue,
     ApprovalOutcome,
@@ -19,7 +19,7 @@ from mind_app.approval.models import (
     ApprovalRequestKey,
     ApprovalResolutionReason
 )
-from mind_app.approval.factory import build_approval_request
+from agent.application.approvals.factory import build_approval_request
 from mind_app.interaction.contracts import ApprovalPresenterPort
 
 DEFAULT_APPROVAL_QUEUE_LIMIT = 64

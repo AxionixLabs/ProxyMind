@@ -6,7 +6,7 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle
 )
-from mind_app.presentation.styles import (
+from frontends.terminal.styles import (
     COMMAND_FLAG_STYLE,
     COMMAND_HEAD_STYLE,
     COMMAND_NUMBER_STYLE,

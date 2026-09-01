@@ -27,7 +27,7 @@ from agent.application.views import (
     RunIncompleteView,
     RunStartedView,
 )
-from mind_app.presentation.tool_views import build_native_tool_result_view
+from agent.application.views.builders.tools import build_native_tool_result_view
 
 
 class _RecordWriter(object):

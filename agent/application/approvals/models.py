@@ -119,13 +119,5 @@ class ApprovalQueueSnapshot(object):
         return (1 if self.current is not None else 0) + len(self.pending)
 
 
-@dataclass(frozen=True, slots=True)
-class ExecPolicyAmendmentProposal(object):
-    """保存服务端提供的执行策略修订提案。"""
-    id: str
-    command_prefix: tuple[str, ...]
-    display: str
-
-
 if __name__ == '__main__':
     pass

@@ -26,7 +26,7 @@ from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.approval.coordinator import ApprovalCoordinator
-from mind_app.approval.models import ApprovalDecisionValue
+from agent.application.approvals.models import ApprovalDecisionValue
 from agent.ports.presentation import ApplicationView
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
@@ -51,7 +51,7 @@ from agent.application.views.builders.batch import (
     build_batch_completed_view,
     build_batch_start_view,
 )
-from mind_app.presentation import code_highlight
+from frontends.terminal import highlighting as code_highlight
 from agent.application.views.builders.lifecycle import build_failure_view
 from agent.application.views import (
     NativeToolResultView,
@@ -62,7 +62,7 @@ from agent.application.views import (
     ToolStartView,
 )
 from frontends.terminal.text import sanitize_terminal_text
-from mind_app.presentation.tool_views import (
+from agent.application.views.builders.tools import (
     build_generic_tool_result_view,
     build_native_tool_result_view,
     build_tool_start_view,

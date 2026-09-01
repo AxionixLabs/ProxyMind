@@ -6,7 +6,7 @@ from agent.application.views import (
     PlanStepsStartView,
     PlanUpdateView,
 )
-from mind_app.presentation.renderers.plan import (
+from frontends.terminal.renderers.plan import (
     render_plan_steps_start_view,
     render_plan_update_view,
 )

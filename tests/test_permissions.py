@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from mind import create_native_coding
-from mind_app.approval.policy import (
+from agent.application.approvals.policy import (
     approval_decisions,
     approval_decision_label,
     approval_from_event,

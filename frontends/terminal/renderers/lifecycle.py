@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.presentation.stream.failure_display import render_failure_block
-from mind_app.presentation.stream.lifecycle_display import render_lifecycle_display_parts
+from frontends.terminal.renderers.failure import render_failure_block
+from frontends.terminal.renderers.lifecycle_parts import render_lifecycle_display_parts
 from agent.application.views import (
     FailureView,
     LifecycleView,

@@ -118,6 +118,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - 工具展示策略已拆分：`agent/domain/tool_policy.py` 持有工具过滤和审批专用判定，
   `agent/application/views/tool_display.py` 持有展示分类、阶段和状态文案；旧
   `mind_app.presentation.tool_policy` 已删除，runtime、renderer、TUI 和测试不再依赖旧路径。
+- 旧 `mind_app/presentation` 源包已完全删除：运行期错误摘要、工具 view builder 和审批
+  修订提案解析归 `agent/application`，终端 renderer、trace、高亮、样式、MCP 状态与 worked
+  footer 归 `frontends/terminal`。工具 application view 不再保存终端 title、preview 或
+  trace entries，runtime 不再导入终端实现判断工具展示类型。
 - Subscription 的 Turn application 装配已改为显式 `TurnApplicationFactory`：组合根 `mind.py`
   负责绑定持久 application，`frontends/subscription/runtime.py` 不再通过宿主动态属性发现
   `runtime_services`，关闭时继续由订阅执行器回收 application。
@@ -229,9 +233,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
       跨入口应用展示端口和纯文本值对象已归入 `agent/ports/presentation.py`；应用结果
       view 已按语义拆入 `agent/application/views`，前端和运行侧只依赖显式契约，交互和
       输出生命周期未混入 ports。下一切片补齐四类入口独立启动/恢复证据，并开始迁移
-      `mind_app.presentation` 的 renderer/stream 实现到前端或 application adapter，
-      继续保持 view 与具体终端渲染解耦。工具展示策略和 Subscription 显式装配前置切片
-      已完成，下一条只补齐 CLI、TUI、MCP、Subscription 四类入口独立启动/恢复证据。
+      `mind_app.presentation` 的 renderer/stream 实现已按 application 投影和终端渲染完成
+      拆分，旧包已删除。下一条只补齐 CLI、TUI、MCP、Subscription 四类入口独立启动/
+      恢复证据，并继续按导入图删除其他历史包。
       TUI 输入控制器、session loop 和 CLI durable exec 的 Protocol Client/application
       factory 已改为组合根显式注入；下一条收口 TUI 对话 fork feature 的 Protocol Client
       发现，再补四类入口独立启动/恢复证据。
@@ -648,6 +652,18 @@ Approval、Patch 七类纯 builder 已迁入 `agent/application/views/builders`�
 `mind_app/presentation/renderers` 与终端 stream/trace 链到 `frontends`，并拆出仍混在
 `tool_views.py` 中的 application builder。
 
+本次 presentation 收口已完成结构改造：`mind_app/presentation` 的 renderer、stream、trace、
+高亮、样式、MCP 状态和 worked footer 全部迁入 `frontends/terminal`；HTTP/运行期错误摘要、
+工具 view builder、执行策略修订提案和值对象分别迁入 `agent/application/turns`、
+`agent/application/views/builders` 和 `agent/application/approvals`，确定性标识派生下沉到
+`agent/domain/identifiers.py`。工具 view 删除预渲染的终端 title、preview 和 entries，终端
+renderer 在消费纯语义 view 时生成轨迹；runtime 使用 application 展示策略，不再导入
+frontend trace。审批 models/factory/policy/presentation 及摘要同步迁入
+`agent/application/approvals`，终端/TUI 只保留渲染和交互，消除审批 application 对前端
+trace 的反向依赖。旧 `mind_app/presentation` 没有保留 facade 或源码，验证证据见本阶段
+出口记录。阶段出口行为回归 `926 passed`，职责守卫 `8 passed, 3 warnings`，依赖图、
+`compileall` 和 `git diff --check` 通过。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -776,3 +792,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | `run_root_turn` 改为直接消费 `RootTurnSessionPort` 与 `TurnExecutionRuntimePort`，偏好配置、默认权限、审批账本和生命周期 owner 脱离 Controller 入口 | CLI/TUI/根轮次/Subagent `161 passed`；根准备/执行端口专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | SubagentRuntime 删除 `execution_runtime or controller` 回退，改为读取 Controller 已装配的显式 `turn_execution_runtime` 端口 | Subagent/工具 `39 passed`；端口与导入边界、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | SubagentRuntime 的流式 owner、Hook scope、权限授予和停止清理改为显式端口，删除 `_controller` 状态及流式调用传递 | Subagent/工具 `39 passed`；生命周期专项 `5 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 删除 `mind_app/presentation` 源包，将纯工具 view/错误摘要/审批 application 迁入 `agent`，将终端 renderer/trace/样式迁入 `frontends/terminal`，并移除 application view 的终端预渲染字段 | 展示、TUI、审批、协议效果回归 `926 passed`；职责守卫 `8 passed, 3 warnings`；依赖图、`compileall`、`git diff --check` 通过 |

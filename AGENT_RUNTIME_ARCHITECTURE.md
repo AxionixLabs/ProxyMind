@@ -573,8 +573,8 @@ running -> cancelled
 | `mind_app/runtime/subagents/context.py`（已删除） | `agent/adapters/agents/fork_context.py` + `agent/application/agents/fork_context.py` | fork history adapter 只接收组合根注入的 Transcript 条目读取 callable；继承范围、渲染和字符预算算法由 application 持有，SubagentRuntime 不实例化文件 Store |
 | `mind_app/presentation/application.py`（已删除） | `agent/ports/presentation.py`、`frontends/runtime.py` | `ApplicationView`、`ApplicationSink`、`Viewport` 是跨入口纯端口；`FrontendRuntime`、空实现和 `Frontend` 聚合属于可替换前端装配，不下沉到 Harness |
 | `mind_app/presentation/models.py`（已删除的混合视图定义） | `agent/application/views/` | Run、工具、计划、补丁、审批、Hook 和进度 view 按语义拆分；`PresentationView/PresentationSink` 归 `views/contracts.py`，纯文本原语仍归 `agent/ports/presentation.py`；旧总模型不得保留兼容入口 |
-| `mind_app/presentation/*_views.py`（Run、Lifecycle、Progress、Plan、Batch、Approval、Patch） | `agent/application/views/builders/` | 纯 builder 只把已校验的执行输入转换为 application view；不做终端渲染、不持有状态、不依赖旧包或基础设施 |
-| `mind_app/presentation/stream/assistant_boundary.py`、`lifecycle.py` | `agent/application/turns/stream_boundaries.py`、`lifecycle.py` | 协议事件的 assistant 边界判定和 lifecycle view 投影属于 Turn application；终端 stream 包只保留文本、轨迹、样式与渲染 |
+| `mind_app/presentation/*_views.py`、`tool_views.py` | `agent/application/views/builders/` | 纯 builder 只把已校验的执行输入转换为 application view；工具 view 只携带名称、参数、结果、耗时和调用身份，不预渲染终端 title、preview 或 trace entries |
+| `mind_app/presentation/stream/assistant_boundary.py`、`lifecycle.py`、`exception_text.py` | `agent/application/turns/stream_boundaries.py`、`lifecycle.py`、`exception_text.py` | 协议事件的 assistant 边界、lifecycle view 投影和运行期错误摘要属于 Turn application；不依赖具体前端或旧展示包 |
 | `mind_app/runtime/subagents/delivery.py` | `agent/ports/agent_messages.py`、`agent/adapters/agents/messages.py`、`agent/harness/agents/delivery.py` | 消息回执和投递端口归 ports，`/turn/steer` 归 Protocol Client adapter，Harness 维护活动轮次就绪和 pending 输入状态 |
 | `mind_app/history/ids.py` | `protocol/schema/identifiers.py` | `cid/sid` 正则和关联校验属于 wire identity schema；历史、交互、Controller 和 Harness 复用协议边界，不在 history 保留身份实现 |
 | `mind_app/history/contracts.py`（已删除） | `agent/ports/transcript.py` | TranscriptSink 是 runtime、Hook、执行器和历史 writer 共享的最小写入端口；端口不依赖旧包或基础设施 |
@@ -597,15 +597,16 @@ running -> cancelled
 | `engine/animation.py`、`engine/signals.py` | `infrastructure/platform/` | 通用异步动画与任务中断检测属于平台运行时；不向 Harness 或协议层暴露平台句柄 |
 | `mind_core/licensing.py` | `infrastructure/services/licensing.py` | 签名验证、设备指纹、授权续期和网络授时属于基础设施服务；配置/策略包不直接拥有外部网络或平台进程依赖 |
 | `mind_core/remote_services.py` | `infrastructure/services/remote_services.py` | 远程服务元数据和授权状态查询归服务基础设施；工具增强只依赖该服务边界，不读取 `mind_core` 内部实现 |
-| `mind_core/mcp_status.py` | `mind_app/presentation/mcp_status.py` | MCP 状态值对象、快照归约和渲染器共同归入展示边界；配置核心不持有 UI 状态语义 |
+| `mind_core/mcp_status.py`、`mind_app/presentation/mcp_status.py` | `frontends/terminal/mcp_status.py` | MCP 状态值对象、快照归约和终端渲染共同归入终端前端；配置核心和 Harness 不持有 UI 状态语义 |
 | `mind_core/design/`、`mind_app/presentation/terminal/` | `frontends/terminal/` | 终端能力探测、文本净化/布局、颜色调色板、标题进度、启动动画和下载渲染属于可替换前端展示基础设施；不让配置或 Harness 持有终端句柄 |
 | `mind_app/runtime/design.py` | `frontends/terminal/contracts.py` | 下载进度渲染端口与终端实现放在同一前端展示边界；删除 runtime 级一次转发协议文件 |
 | `mind_app/frontend/`、`mind_app/presentation/application.py`、`application_sinks.py` | `frontends/runtime.py`、`frontends/output/application.py` | 前端运行期、组合聚合和 CLI/JSON/Null application sink 由 `frontends` 持有；跨入口展示值仍只归 `agent.ports` |
 | `mind_app/output/`、`mind_app/presentation/output/` | `frontends/output/` | 单轮文本/JSONL/静默/终端内容 sink、来源文本和记录边界属于可替换前端输出适配器；不把输出生命周期放入 Harness |
 | `mind_app/presentation/output/contracts.py`、`content.py`、`session.py` | `agent/ports/content.py`、`agent/ports/output.py` | `ContentOutput`、正文 sink、输出控制/状态端口、展示端口、`OutputSession` 和 `OutputSessionFactory` 均是跨前端能力契约；具体输出实现不再由旧 presentation 包导出 |
-| `mind_app/stream_events/` | `mind_app/presentation/stream/` | 流事件到展示视图的投影、工具 trace 和生命周期渲染归入 presentation；运行时只消费公开投影函数 |
+| `mind_app/stream_events/`、`mind_app/presentation/renderers/`、`presentation/stream/` | `agent/application/views/`、`frontends/terminal/renderers/`、`frontends/terminal/traces/` | 运行时只生成纯语义 view；终端标题、宽度裁剪、高亮、轨迹预览和 styled block 仅由终端前端生成，旧 presentation 包完全删除 |
 | `mind_app/stream_io/`、`stream_state/` | `mind_app/presentation/output/recording.py`、`boundary.py` | 输出记录和段间边界状态归入输出适配器；单调用者 spacing 逻辑内聚到 boundary，不保留平铺状态包 |
 | `mind_app/approval/permission_grants.py`、`ledger.py` | `agent/stores/approvals/permissions.py`、`ledger.py` | 会话权限授权和审批消费状态由 stores 持有；协调器、策略和展示模型不随状态存储迁移 |
+| `mind_app/approval/models.py`、`factory.py`、`policy.py`、`presentation.py` | `agent/application/approvals/` | 审批请求、队列结果、策略、结构化卡片模型与摘要属于 application；终端/TUI 只渲染或交互，不拥有审批状态，也不让 application 反向依赖前端 trace |
 | `mind_app/reporting.py` | `observability/reporting.py` | 单次运行报告目录、诊断日志 sink 和输出记录路径由可观测性基础设施统一管理；控制器只持有注入的报告对象 |
 | `mind_app/paths.py` | `infrastructure/config/runtime_paths.py` | 用户数据目录、报告/会话/历史/效果/运行时数据库路径和子进程环境属于配置基础设施；入口布局解析保持在 `config/paths.py` |
 | `mind_app/assets.py` | `infrastructure/update/assets.py` 与 `frontends/terminal/download_renderer.py` | 资产存在性和升级触发属于更新基础设施；动画管理器到终端进度端口的适配属于 frontend，不让更新层依赖 UI |
@@ -629,7 +630,8 @@ running -> cancelled
 | `mind_app/runtime/support/session_identity.py` | `agent/application/config/session_identity.py` | 远端 `cid/sid` 到本地持久化 Session 身份的确定性派生属于 application 身份用例；不让 CLI/TUI 各自复制哈希规则，也不把本地语义塞入线上 `protocol` |
 | `mind_app/runtime/support/conversation.py` | `mind_app/interaction/conversation.py` | 本地会话标识、轮次边界和一次性上下文属于交互输入状态；Controller 只持有交互状态，不让 runtime support 继续承接会话生命周期 |
 | `mind_app/runtime/support/clipboard.py` | `mind_app/tui/adapters/clipboard.py` | 系统剪贴板是 TUI 的平台 adapter；展示功能显式依赖该 adapter，不让通用 runtime support 持有 UI 专属 I/O |
-| `mind_app/runtime/support/session_policy.py` | `mind_app/runtime/mcp/errors.py`、`mind_app/presentation/stream/exception_text.py` | MCP 传输关闭判断归 MCP 错误边界；HTTP/运行期异常的一行用户摘要归 stream presentation，按职责拆分，不保留混合 session policy |
+| `mind_app/runtime/support/session_policy.py` | `mind_app/runtime/mcp/errors.py`、`agent/application/turns/exception_text.py` | MCP 传输关闭判断归 MCP 错误边界；HTTP/运行期异常的一行用户摘要归 Turn application，按职责拆分，不保留混合 session policy |
+| `mind_app/approval/models.py::ExecPolicyAmendmentProposal`、`approval/policy.py::approval_execpolicy_amendment` | `agent/application/approvals/amendments.py` | 执行策略修订提案的具名值和结构校验属于审批 application 语义；终端审批 renderer 不反向导入 legacy application |
 | `mind_app/runtime/conversation.py` | `mind_app/runtime/compaction.py`、`agent/application/turns/compact_result.py` | 上下文压缩的运行时 Hook/Transcript 编排与不可变结果契约分离；runtime 只负责执行生命周期，application 只暴露稳定结果 |
 | `mind_app/runtime/execution.py` | `agent/application/turns/context.py` | Agent、Turn 和工具调用上下文是跨能力共享的 application 执行契约；不让 MCP、Hook、工具和子 Agent 继续依赖 runtime 平铺实现模块 |
 | `agent/stores/approvals/permissions.py` | `agent/ports/permissions.py` | application 只依赖 `PermissionGrantReader` 读取端口；具体授权存储留在 stores，由组合根注入，避免执行上下文反向依赖持久化实现 |

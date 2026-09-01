@@ -7,12 +7,11 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
-from agent.application.views import TracePreview
 from frontends.terminal.text_layout import (
     clip_display_text,
     text_display_width
 )
-from mind_app.presentation.styles import (
+from frontends.terminal.styles import (
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
     PREVIEW_COUNT_STYLE,
@@ -23,8 +22,9 @@ from mind_app.presentation.styles import (
     PREVIEW_STYLE,
     PREVIEW_TEXT_STYLE
 )
-from mind_app.presentation.code_highlight import code_parts
+from frontends.terminal.highlighting import code_parts
 from ..common import _preview_text
+from ..models import TracePreview
 from .preview_error import error_preview_line_parts
 from .title_parts import title_parts
 

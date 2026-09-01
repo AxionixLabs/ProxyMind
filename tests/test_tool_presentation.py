@@ -10,13 +10,13 @@ from frontends.terminal.capabilities import (
     TerminalKind,
     TerminalTheme,
 )
-from mind_app.presentation.mcp_status import (
+from frontends.terminal.mcp_status import (
     McpStatusDetail,
     McpStatusView,
 )
 
-from mind_app.presentation.mcp_status import render_mcp_status_block
-from mind_app.presentation.renderers.tool import (
+from frontends.terminal.mcp_status import render_mcp_status_block
+from frontends.terminal.renderers.tool import (
     render_generic_tool_result_view,
     render_javascript_result_raw_text,
     render_javascript_result_transcript_view,
@@ -24,10 +24,10 @@ from mind_app.presentation.renderers.tool import (
     render_native_tool_result_view,
     render_tool_start_view,
 )
-from mind_app.presentation.renderers.hook import render_hook_run_view
+from frontends.terminal.renderers.hook import render_hook_run_view
 from agent.ports.presentation import TextStyle
 from agent.application.views import HookOutputView, HookRunView
-from mind_app.presentation.renderers.patch import (
+from frontends.terminal.renderers.patch import (
     PATCH_ADD_STYLE,
     PATCH_ERROR_STYLE,
     PATCH_REMOVE_STYLE,
@@ -36,12 +36,12 @@ from agent.application.views.builders.batch import (
     build_batch_completed_view,
     build_batch_start_view,
 )
-from mind_app.presentation.renderers.dispatch import (
+from frontends.terminal.renderers.dispatch import (
     render_presentation_raw_view,
     render_presentation_transcript_view,
     render_presentation_view,
 )
-from mind_app.presentation.styles import (
+from frontends.terminal.styles import (
     ACTION_TERMINAL_STYLE,
     ACTION_RUN_STYLE,
     ACTION_TOOL_CALLING_STYLE,
@@ -51,7 +51,7 @@ from mind_app.presentation.styles import (
     SUCCESS_DOT_STYLE,
     TOOL_CALLING_DOT_STYLE,
 )
-from mind_app.presentation.tool_views import (
+from agent.application.views.builders.tools import (
     build_generic_tool_result_view,
     build_native_tool_result_view,
     build_tool_start_view,
@@ -277,7 +277,6 @@ def test_write_stdin_has_no_start_display() -> None:
         {"session_id": "session-1", "stdin": "\n"},
     )
 
-    assert view.title == ""
     assert render_tool_start_view(view).plain_text == ""
     assert render_presentation_transcript_view(view)[0].plain_text == ""
     assert render_presentation_raw_view(view) == ("",)

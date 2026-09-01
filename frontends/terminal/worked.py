@@ -8,8 +8,8 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
-from mind_app.presentation.stream.compact_rule import full_rule_width
-from mind_app.presentation.formatting import format_elapsed
+from frontends.terminal.layout_rules import full_rule_width
+from frontends.terminal.formatting import format_elapsed
 
 WORKED_RULE_STYLE  = TextStyle(foreground="#414A54")
 WORKED_LABEL_STYLE = TextStyle(foreground="#626D78")

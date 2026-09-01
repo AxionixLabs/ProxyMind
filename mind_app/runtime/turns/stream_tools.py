@@ -5,7 +5,7 @@ import typing
 from dataclasses import dataclass
 from observability import observe
 from agent.stores.approvals.ledger import ApprovalCallLedger
-from mind_app.approval.models import ApprovalOutcome
+from agent.application.approvals.models import ApprovalOutcome
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from agent.ports.transcript import TranscriptSink
 from agent.ports import (
@@ -28,7 +28,7 @@ from mind_app.runtime.tools.client_call import ClientToolCallRunner
 from mind_app.runtime.tools.display import show_tool_result
 from mind_app.runtime.tools.plan_call import PlanToolCallRunner
 from mind_app.runtime.tools.run import server_tool_output_result
-from mind_app.presentation.stream.tool_traces import coding_trace_tool
+from agent.application.views import uses_native_tool_view
 from protocol.client.tools import build_tool_result_envelope
 from protocol.client.turn_control import TurnControlRequestError
 from protocol.schema.stream_events import (
@@ -362,7 +362,7 @@ class ToolEventHandler:
         try:
             tool_outcome = await self.client_runner.execute(
                 invocation,
-                use_coding_trace=coding_trace_tool(name),
+                use_coding_trace=uses_native_tool_view(name),
             )
         except TurnControlRequestError as error:
             return ToolCallHandlingResult.interrupted(str(error))
@@ -378,7 +378,7 @@ class ToolEventHandler:
             return
 
         arguments        = dict(event.arguments)
-        use_coding_trace = coding_trace_tool(name)
+        use_coding_trace = uses_native_tool_view(name)
         tool_run         = server_tool_output_result(event.payload)
 
         self.transcript.append(

@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from mind_app.approval.models import (
+from agent.application.approvals.models import (
     ApprovalDecisionSource,
     ApprovalDecisionValue,
     ApprovalQueueSnapshot,

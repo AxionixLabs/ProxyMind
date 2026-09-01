@@ -71,6 +71,12 @@ def is_two_stage_tool(name: str) -> bool:
     return tool_display_spec(name).two_stage
 
 
+def uses_native_tool_view(name: str) -> bool:
+    """判断工具是否使用结构化原生工具视图。"""
+
+    return tool_display_spec(name).kind is not ToolDisplayKind.GENERIC
+
+
 def tool_status_text(name: str) -> str | None:
     """返回工具执行期间使用的状态文本。"""
 

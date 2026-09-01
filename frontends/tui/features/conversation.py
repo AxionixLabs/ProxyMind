@@ -13,7 +13,7 @@ from observability import (
     observe,
     observe_exception
 )
-from mind_app.presentation.mcp_status import (
+from frontends.terminal.mcp_status import (
     external_mcp_status_view,
     render_mcp_status_block,
 )

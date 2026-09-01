@@ -3,8 +3,8 @@
 
 import time
 import typing
-from mind_app.approval.models import ApprovalDecisionValue
-from mind_app.approval.policy import approval_execpolicy_amendment
+from agent.application.approvals.models import ApprovalDecisionValue
+from agent.application.approvals.amendments import approval_execpolicy_amendment
 from agent.stores.approvals.permissions import normalize_permission_profile
 from infrastructure.config.execution_policy_manager import (
     ExecApprovalRequirement,

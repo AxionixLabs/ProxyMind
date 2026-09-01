@@ -3,12 +3,19 @@
 
 import json
 import typing
-from mind_app.presentation.stream.command_preview import command_text
-from mind_app.presentation.stream.tool_traces.native import (
+from agent.application.views.commands import command_text
+from frontends.terminal.traces.native import (
+    render_tool_result_entries,
+    render_tool_start_preview,
     render_tool_start_trace,
     render_tool_trace
 )
-from mind_app.presentation.stream.tool_traces.render import render_tool_trace_parts
+from frontends.terminal.traces.generic import render_generic_tool_result_preview
+from frontends.terminal.traces.models import (
+    TraceEntry,
+    TracePreview,
+)
+from frontends.terminal.traces.render import render_tool_trace_parts
 from agent.application.views.tool_display import (
     ToolDisplayKind,
     tool_display_spec
@@ -23,7 +30,6 @@ from agent.application.views import (
     GenericToolResultView,
     NativeToolResultView,
     ToolStartView,
-    TracePreview
 )
 from agent.ports.presentation import (
     StyledBlock,
@@ -46,23 +52,22 @@ def render_tool_start_view(
     spec = tool_display_spec(view.name)
 
     title = _display_title(
-        (
-            render_tool_start_trace(
-                view.name,
-                view.arguments,
-                terminal_width=terminal_width,
-                measure_width=measure_width,
-            )
-            if spec.kind is ToolDisplayKind.SHELL
-            else view.title
+        render_tool_start_trace(
+            view.name,
+            view.arguments,
+            terminal_width=(
+                terminal_width if spec.kind is ToolDisplayKind.SHELL else None
+            ),
+            measure_width=measure_width,
         ),
         terminal_width=terminal_width,
         measure_width=measure_width,
     )
+    preview = render_tool_start_preview(view.arguments, name=view.name)
 
     spans = tuple(render_tool_trace_parts(
         title,
-        preview=view.preview,
+        preview=preview,
         ok=None,
         terminal_width=terminal_width,
         measure_width=measure_width,
@@ -85,14 +90,15 @@ def render_generic_tool_result_view(
     measure_width: typing.Callable[[str], int] | None = None,
 ) -> StyledBlock:
     """把普通工具结果视图转换为中立展示块。"""
+    preview = render_generic_tool_result_preview(view.text)
     title = _display_title(
-        view.title,
+        _generic_result_title(view),
         terminal_width=terminal_width,
         measure_width=measure_width,
     )
     spans = tuple(render_tool_trace_parts(
         title,
-        preview=view.preview,
+        preview=preview,
         ok=view.ok,
         terminal_width=terminal_width,
         measure_width=measure_width,
@@ -101,7 +107,7 @@ def render_generic_tool_result_view(
         plain_text=(
             "".join(span.text for span in spans)
             if isinstance(terminal_width, int) and terminal_width > 0
-            else _generic_trace_text(title, view.preview)
+            else _generic_trace_text(title, preview)
         ),
         spans=spans,
         preserve_spans=True,
@@ -125,7 +131,7 @@ def render_native_tool_result_view(
 
     blocks: list[StyledBlock] = []
 
-    for entry in view.entries:
+    for entry in _native_entries(view):
         title = _native_result_title(
             view,
             entry.title,
@@ -159,7 +165,8 @@ def render_javascript_result_view(
     measure_width: typing.Callable[[str], int] | None = None
 ) -> StyledBlock:
     """把 JavaScript 执行结果转换为完成态展示块。"""
-    entry          = view.entries[0] if view.entries else None
+    entries        = _native_entries(view)
+    entry          = entries[0] if entries else None
     title          = entry.title if entry is not None else "• JavaScript"
     result_preview = entry.preview if entry is not None else TracePreview()
 
@@ -178,7 +185,8 @@ def render_javascript_result_view(
 
 def render_javascript_result_transcript_view(view: NativeToolResultView) -> StyledBlock:
     """把 JavaScript 执行结果转换为完整记录块。"""
-    title  = view.entries[0].title if view.entries else "• JavaScript"
+    entries = _native_entries(view)
+    title  = entries[0].title if entries else "• JavaScript"
     output = _javascript_result_text(view)
 
     return _transcript_block(title, output)
@@ -195,21 +203,30 @@ def render_tool_start_transcript_view(view: ToolStartView) -> StyledBlock:
 
     if spec.kind is ToolDisplayKind.SHELL:
         command = _command_text(view.arguments.get("command"))
-        return _transcript_block(view.title, f"$ {command}" if command else "")
+        return _transcript_block(
+            render_tool_start_trace(view.name, view.arguments),
+            f"$ {command}" if command else "",
+        )
     if spec.kind is ToolDisplayKind.STDIN:
         return _transcript_block("", "")
     if spec.kind is ToolDisplayKind.JAVASCRIPT:
         source_field = spec.source_field
         source       = view.arguments.get(source_field) if source_field else ""
 
-        return _transcript_block(view.title, str(source or ""))
+        return _transcript_block(
+            render_tool_start_trace(view.name, view.arguments),
+            str(source or ""),
+        )
 
-    return _transcript_block(view.title, _json_text(view.arguments))
+    return _transcript_block(
+        render_tool_start_trace(view.name, view.arguments),
+        _json_text(view.arguments),
+    )
 
 
 def render_generic_tool_result_transcript_view(view: GenericToolResultView) -> StyledBlock:
     """把普通工具结果转换为完整记录块。"""
-    return _transcript_block(view.title, view.text)
+    return _transcript_block(_generic_result_title(view), view.text)
 
 
 def render_native_tool_result_transcript_view(view: NativeToolResultView) -> tuple[StyledBlock, ...]:
@@ -219,7 +236,8 @@ def render_native_tool_result_transcript_view(view: NativeToolResultView) -> tup
         return (render_javascript_result_transcript_view(view),)
 
     payload = _native_payload(view.data)
-    title   = view.entries[0].title if view.entries else f"• Ran {view.name}"
+    entries = _native_entries(view)
+    title   = entries[0].title if entries else f"• Ran {view.name}"
 
     if spec.kind is ToolDisplayKind.SHELL:
         command = _command_text(
@@ -297,6 +315,24 @@ def render_native_tool_result_raw_text(view: NativeToolResultView) -> tuple[str,
         return ("\n".join(item for item in (heading, input_text) if item),)
 
     return (_json_text(payload or view.data),)
+
+
+def _generic_result_title(view: GenericToolResultView) -> str:
+    """返回普通工具结果的终端标题。"""
+    if view.name == "view_image":
+        return "• Viewed"
+    return f"• Function Invoked {view.name}"
+
+
+def _native_entries(view: NativeToolResultView) -> tuple[TraceEntry, ...]:
+    """在终端边界从语义视图生成工具轨迹。"""
+    return tuple(render_tool_result_entries(
+        view.name,
+        view.arguments,
+        ok=view.ok,
+        data=view.data,
+        cost_ms=view.cost_ms,
+    ))
 
 
 def _transcript_block(title: str, body: str) -> StyledBlock:

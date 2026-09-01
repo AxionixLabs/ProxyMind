@@ -6,7 +6,11 @@ import copy
 from dataclasses import dataclass
 from agent.application.views import PatchView
 from agent.application.views.builders.patch import build_patch_start_view
-from mind_app.presentation.stream.approval_trace import (
+from agent.application.approvals.amendments import (
+    ExecPolicyAmendmentProposal,
+    approval_execpolicy_amendment,
+)
+from .summary import (
     approval_shell_commands,
     approval_summary
 )
@@ -14,11 +18,9 @@ from .models import (
     ApprovalDecisionValue,
     ApprovalRequestKey,
     ApprovalRequestKind,
-    ExecPolicyAmendmentProposal
 )
 from .policy import (
     approval_decisions,
-    approval_execpolicy_amendment,
     approval_prompt
 )
 

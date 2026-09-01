@@ -31,14 +31,13 @@ from agent.application.views import (
     HookRunView,
     NativeToolResultView,
     ProgressView,
-    TracePreview,
 )
 from agent.application.views.builders.run import build_run_started_view
 from frontends.terminal.turn_lifecycle import (
     ControllerTurnForegroundLifecycle,
     run_foreground_turn,
 )
-from mind_app.presentation.stream.worked import (
+from frontends.terminal.worked import (
     emit_worked_footer,
     worked_footer_text,
 )
@@ -248,7 +247,6 @@ async def test_text_write_stdin_only_emits_completed_result() -> None:
         ok=True,
         data={"session_id": "session-1", "output": "ready"},
         cost_ms=3,
-        entries=(),
     ))
 
     assert stderr.getvalue() == (
@@ -293,8 +291,6 @@ async def test_text_tool_events_color_only_the_tool_name() -> None:
         name="mcp__docs__search",
         text="result",
         ok=True,
-        title="",
-        preview=TracePreview(),
     ))
     await sink.emit(ProgressView(
         text="loading",

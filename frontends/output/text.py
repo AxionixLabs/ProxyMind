@@ -45,7 +45,7 @@ from agent.ports import (
     OutputStatusPort,
     SourcesOutput,
 )
-from mind_app.presentation.renderers.approval import render_approval_view
+from frontends.terminal.renderers.approval import render_approval_view
 
 ANSI_RESET   = "\x1b[0m"
 ANSI_BOLD    = "\x1b[1m"

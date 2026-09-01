@@ -2,11 +2,13 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from agent.application.views import TracePreview
+
 from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text,
 )
+
+from .models import TracePreview
 
 MISSING = object()
 

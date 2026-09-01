@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mind_app.approval.models import ApprovalOutcome
+from agent.application.approvals.models import ApprovalOutcome
 from agent.stores.approvals.permissions import PermissionGrantStore
 from mind_app.builtin_tools.permissions import permission_tools
 from mind_app.client_tools.coding.native import coding_tools

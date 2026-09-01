@@ -6,7 +6,8 @@ import time
 import uuid
 import base64
 import typing
-import hashlib
+
+from agent.domain.identifiers import derive_stable_id
 
 TURN_ID_PATTERN    = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,160}$")
@@ -109,11 +110,7 @@ def resolve_request_id(
 def stable_request_id(prefix: str, *parts: typing.Any) -> str:
     """根据一项逻辑命令的稳定字段派生幂等请求标识。"""
     normalized_prefix = str(prefix or "request").strip("_-") or "request"
-
-    encoded = "\x1f".join(str(part or "") for part in parts).encode("utf-8")
-    digest  = hashlib.sha256(encoded).hexdigest()[:40]
-
-    return normalize_request_id(f"{normalized_prefix}_{digest}")
+    return normalize_request_id(derive_stable_id(normalized_prefix, *parts))
 
 
 if __name__ == '__main__':

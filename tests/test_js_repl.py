@@ -39,6 +39,7 @@ from infrastructure.platform.javascript_repl import (
     _stderr_tail_bytes,
 )
 from agent.application.views import NativeToolResultView, ToolStartView
+from frontends.terminal.traces.native import render_tool_result_entries
 from agent.application.turns.context import AgentContext, ToolInvocation, TurnContext
 from agent.application.hooks.models import (
     HookVisibleToolResult,
@@ -1264,8 +1265,19 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
     assert [view.name for view in native_views] == [
         "js_repl",
     ]
-    assert all("Running" not in view.entries[0].title for view in native_views)
-    assert all("Ran" not in view.entries[0].title for view in native_views)
+    titles = [
+        entry.title
+        for view in native_views
+        for entry in render_tool_result_entries(
+            view.name,
+            view.arguments,
+            ok=view.ok,
+            data=view.data,
+            cost_ms=view.cost_ms,
+        )
+    ]
+    assert all("Running" not in title for title in titles)
+    assert all("Ran" not in title for title in titles)
     coding.shell_command.assert_awaited_once()
     assert outcome.result.fields["data"]["output"] == ""
 

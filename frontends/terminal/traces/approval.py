@@ -2,19 +2,21 @@
 # Notes: ==== Mind™ ====
 
 import typing
-import unicodedata
 from metadata import const
-from mind_app.approval.policy import approval_execpolicy_amendment
+from agent.application.approvals.summary import (
+    approval_amendment_snippet,
+    approval_summary,
+)
 from agent.ports.presentation import (
     TextSpan,
     TextStyle
 )
 from agent.application.views import ApprovalSource
-from .command_preview import command_preview
-from .tool_traces import (
+from frontends.terminal.styles import (
+    ERROR_STYLE,
     TITLE_STYLE,
-    ERROR_STYLE
 )
+
 
 APPROVAL_APPROVED_STYLE = TextStyle(foreground="#6EE7A8", bold=True)
 APPROVAL_DENIED_STYLE   = ERROR_STYLE
@@ -23,137 +25,6 @@ APPROVAL_TOOL_STYLE     = TextStyle(foreground="#7DD3FC", bold=True)
 APPROVAL_ARG_STYLE      = TextStyle(foreground="#A7F3D0", bold=True)
 APPROVAL_RES_STYLE      = TextStyle(foreground="#8FA4B8", dim=True)
 APPROVAL_SCOPE_STYLE    = TextStyle(foreground="#A7F3D0", bold=True)
-
-APPROVAL_SNIPPET_MAX_GRAPHEMES = 80
-
-
-def approval_summary(approval: dict[str, typing.Any]) -> str:
-    """生成审批请求的简短摘要。"""
-    command = _approval_command_summary(approval)
-    if not command:
-        command = command_preview(approval.get("command")).title
-    tool = str(approval.get("tool") or "").strip()
-    return _short_approval_summary(command or tool or "tool call")
-
-
-def _short_approval_summary(value: typing.Any) -> str:
-    """截断审批提示里的单行命令摘要。"""
-    return _truncate_approval_snippet(value)
-
-
-def _truncate_approval_snippet(value: typing.Any) -> str:
-    """按审批历史规则生成单行命令摘要。"""
-    text = str(value or "").strip()
-    if not text:
-        return ""
-
-    lines = text.splitlines()
-    if len(lines) > 1:
-        text = f"{lines[0]} ..."
-
-    units = list(_approval_graphemes(text))
-    if len(units) <= APPROVAL_SNIPPET_MAX_GRAPHEMES:
-        return text
-    return "".join(units[:APPROVAL_SNIPPET_MAX_GRAPHEMES - 3]) + "..."
-
-
-def _approval_graphemes(text: str) -> typing.Iterator[str]:
-    """迭代审批摘要中不应被截断的 Unicode 文本单元。"""
-    value = str(text or "")
-    start = 0
-    while start < len(value):
-        end = _approval_grapheme_end(value, start)
-        yield value[start:end]
-        start = end
-
-
-def _approval_grapheme_end(text: str, start: int) -> int:
-    """返回一个审批摘要文本单元的结束位置。"""
-    limit = len(text)
-    index = min(limit, max(0, int(start)))
-    if index >= limit:
-        return limit
-
-    first = text[index]
-    index += 1
-    if _approval_regional_indicator(first):
-        if index < limit and _approval_regional_indicator(text[index]):
-            index += 1
-        return index
-
-    while index < limit:
-        char = text[index]
-        if _approval_extends_grapheme(char):
-            index += 1
-            continue
-        if char == "\u200d" and index + 1 < limit:
-            index += 2
-            continue
-        break
-    return index
-
-
-def _approval_extends_grapheme(char: str) -> bool:
-    """判断字符是否延续前一个审批摘要文本单元。"""
-    codepoint = ord(char)
-    return bool(
-        unicodedata.combining(char)
-        or unicodedata.category(char).startswith("M")
-        or 0xFE00 <= codepoint <= 0xFE0F
-        or 0xE0100 <= codepoint <= 0xE01EF
-        or 0x1F3FB <= codepoint <= 0x1F3FF
-    )
-
-
-def _approval_regional_indicator(char: str) -> bool:
-    """判断字符是否为区域指示符。"""
-    return 0x1F1E6 <= ord(char) <= 0x1F1FF
-
-
-def _approval_arguments(approval: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    raw = approval.get("arguments", approval.get("args"))
-    return dict(raw) if isinstance(raw, dict) else {}
-
-
-def approval_shell_commands(approval: dict[str, typing.Any]) -> list[typing.Any]:
-    """从审批参数里提取单条 shell 命令，兼容预览字段。"""
-    arguments        = _approval_arguments(approval)
-    argument_command = arguments.get("command")
-
-    if isinstance(argument_command, list):
-        return [argument_command]
-
-    text = str(argument_command or "").strip()
-    if text:
-        return [text]
-
-    command = approval.get("command", approval.get("resolved_command"))
-    if isinstance(command, list):
-        return [command]
-
-    text = str(command or "").strip()
-    if text:
-        return [text]
-
-    return []
-
-
-def _approval_command_summary(approval: dict[str, typing.Any]) -> str:
-    """生成 shell 命令审批摘要。"""
-    commands = approval_shell_commands(approval)
-    if not commands:
-        return ""
-    return command_preview(commands[0]).title or commands[0]
-
-
-def _approval_amendment_snippet(approval: dict[str, typing.Any]) -> str:
-    """生成命令前缀策略批准后的单行前缀摘要。"""
-    amendment = approval_execpolicy_amendment(approval)
-    if amendment is None:
-        return ""
-
-    return _truncate_approval_snippet(amendment.display)
-
 
 def render_approval_approved_trace(
     approval: dict[str, typing.Any],
@@ -173,7 +44,7 @@ def render_approval_approved_trace(
         return f"✔ Auto review approved {summary}{suffix}".rstrip()
 
     if decision == "acceptWithExecpolicyAmendment":
-        amendment = _approval_amendment_snippet(approval)
+        amendment = approval_amendment_snippet(approval)
         if amendment:
             return (
                 f"✔ You approved {const.APP_NAME} to always run commands that "
@@ -241,7 +112,7 @@ def _approval_title_parts(
     base_style: TextStyle
 ) -> list[TextSpan]:
     """把审批 trace 标题拆成状态文本、工具名和参数。"""
-    amendment = _approval_amendment_snippet(approval)
+    amendment = approval_amendment_snippet(approval)
     if (
         base_style == APPROVAL_APPROVED_STYLE
         and amendment
