@@ -63,6 +63,7 @@ from .runtime.turns.session_context import (
 )
 from .runtime.turns.execution_runtime import ControllerTurnExecutionRuntime
 from .runtime.turns.root_session import ControllerRootTurnSession
+from .runtime.turns.executor import resolve_turn_hook_scope
 from agent.stores import AgentGraphStore
 from infrastructure.config.runtime_paths import (
     agent_graph_db_path,
@@ -265,6 +266,7 @@ class Mind(object):
                 ),
                 execution_policy=self.workspace_runtime.execution_policy,
                 approval_coordinator=self.approval_coordinator,
+                permission_grants=self.permission_grants,
                 effect_journal_factory=self.runtime_services.create_effect_journal,
                 approval_ledger=(
                     self.approval_call_ledger
@@ -280,6 +282,10 @@ class Mind(object):
                     lambda path: self.transcripts.reader(path).read()
                 ),
                 execution_runtime=self.turn_execution_runtime,
+                hook_scope_for=lambda context: resolve_turn_hook_scope(
+                    self,
+                    context,
+                ),
                 session_cleanup=self._close_repl_session,
                 graph_store=(
                     kwargs.get("agent_graph_store")

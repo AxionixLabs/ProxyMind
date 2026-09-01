@@ -31,6 +31,8 @@ from agent.ports import (
     TranscriptFactory,
     TurnInputEventHandler,
     TurnExecutionRuntimePort,
+    HookExecutionScopePort,
+    PermissionGrantReader,
 )
 from agent.adapters.agents.execution import StreamSubagentExecution
 from agent.harness.execution.subagent_runner import SubagentRunner
@@ -73,6 +75,7 @@ if typing.TYPE_CHECKING:
 
 TranscriptPathResolver = typing.Callable[[str], str]
 SessionCleanup         = typing.Callable[[str], typing.Awaitable[typing.Any]]
+HookScopeResolver       = typing.Callable[[TurnContext], HookExecutionScopePort]
 
 
 class SubagentRuntime:
@@ -95,17 +98,18 @@ class SubagentRuntime:
         protocol_client: ProtocolCommandClient | None = None,
         execution_policy: ExecutionPolicy | None = None,
         approval_coordinator: ApprovalCoordinatorPort | None = None,
+        permission_grants: PermissionGrantReader | None = None,
         effect_journal_factory: EffectJournalFactory | None = None,
         approval_ledger: ApprovalLedger | None = None,
         transcript_factory: TranscriptFactory | None = None,
         cleanup: TurnCleanupPort | None = None,
         patch_preview: PatchPreviewPort | None = None,
         execution_runtime: TurnExecutionRuntimePort | None = None,
+        hook_scope_for: HookScopeResolver | None = None,
     ) -> None:
         if not isinstance(enabled, bool):
             raise TypeError("subagent runtime enabled state must be a boolean")
 
-        self._controller       = controller
         self._settings         = settings or AgentSettings()
         self._executor         = executor or StreamSubagentExecution(self._run_stream)
         self._message_delivery = message_delivery or SteeringMessageDelivery()
@@ -133,9 +137,13 @@ class SubagentRuntime:
         if execution_runtime is None:
             execution_runtime = controller.turn_execution_runtime
         self._execution_runtime = execution_runtime
+        self._hook_scope_for = hook_scope_for or (
+            lambda context: resolve_turn_hook_scope(controller, context)
+        )
+        runner_cleanup = cleanup or execution_runtime
         runner = SubagentRunner(
             turn_runner=self._run_turn,
-            cleanup=controller,
+            cleanup=runner_cleanup,
         )
         self._control_registry = AgentControlRegistry(
             self._build_control,
@@ -148,11 +156,8 @@ class SubagentRuntime:
             executor=self._executor,
             message_delivery=self._message_delivery,
             active_deliveries=self._active_deliveries,
-            hook_scope_for=lambda context: resolve_turn_hook_scope(
-                self._controller,
-                context,
-            ),
-            permission_grants=getattr(controller, "permission_grants", None),
+            hook_scope_for=self._hook_scope_for,
+            permission_grants=permission_grants,
             execution_policy=execution_policy,
             approval_coordinator=approval_coordinator,
             approval_ledger=approval_ledger,
@@ -194,7 +199,7 @@ class SubagentRuntime:
         from mind_app.runtime.turns.stream import stream_turn
 
         return await stream_turn(
-            self._controller,
+            self._execution_runtime,
             session=session,
             pref_config=pref_config,
             tools=tools,

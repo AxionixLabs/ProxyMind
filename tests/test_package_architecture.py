@@ -2747,6 +2747,40 @@ def test_root_turn_preparation_uses_session_port() -> None:
     assert not controller_accesses
 
 
+def test_subagent_runtime_does_not_store_controller_owner() -> None:
+    """确保 Subagent runtime 的流式 owner 使用显式执行端口。"""
+    target_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py"
+    tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+
+    stored_controller = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "self"
+        and node.attr == "_controller"
+    ]
+    assert not stored_controller
+
+    stream_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "stream_turn"
+    ]
+    assert stream_calls
+    for call in stream_calls:
+        assert call.args
+        owner = call.args[0]
+        assert (
+            isinstance(owner, ast.Attribute)
+            and isinstance(owner.value, ast.Name)
+            and owner.value.id == "self"
+            and owner.attr == "_execution_runtime"
+        )
+
+
 def test_mcp_session_contract_is_owned_by_agent_ports() -> None:
     """确保 MCP 会话只由 agent ports 定义，runtime 不保留协议契约。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "contracts.py"
