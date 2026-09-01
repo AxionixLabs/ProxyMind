@@ -46,10 +46,9 @@ def _flush_win32_console_input(input_obj: Input) -> None:
 
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
-        flush_console_input_buffer          = kernel32.FlushConsoleInputBuffer
+        flush_console_input_buffer = kernel32.FlushConsoleInputBuffer
         flush_console_input_buffer.argtypes = [wintypes.HANDLE]
-        flush_console_input_buffer.restype  = wintypes.BOOL
-
+        flush_console_input_buffer.restype = wintypes.BOOL
         flush_console_input_buffer(handle)
 
 

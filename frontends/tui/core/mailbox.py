@@ -5,16 +5,16 @@ import typing
 import asyncio
 from frontends.terminal.text import (
     sanitize_terminal_line,
-    sanitize_terminal_text
+    sanitize_terminal_text,
 )
 from .models import (
     FormattedText,
-    MailboxEntry
+    MailboxEntry,
 )
 from ..rendering.fragments import (
     clip_text,
     join_formatted_lines,
-    wrap_formatted_lines
+    wrap_formatted_lines,
 )
 
 MAILBOX_COUNT_DISPLAY_LIMIT: typing.Final[int] = 999
@@ -38,15 +38,14 @@ class TuiMailboxOverlay(object):
         get_height: typing.Callable[[], int],
         invalidate: typing.Callable[[], None]
     ) -> None:
-        self._get_width  = get_width
+        self._get_width = get_width
         self._get_height = get_height
         self._invalidate = invalidate
-
-        self.active: bool                      = False
-        self.listener_active: bool             = False
+        self.active: bool = False
+        self.listener_active: bool = False
         self.entries: tuple[MailboxEntry, ...] = ()
-        self.selected_key: str                 = ""
-        self.message_offset: int               = 0
+        self.selected_key: str = ""
+        self.message_offset: int = 0
 
         self._closed_future: asyncio.Future[None] | None = None
 
@@ -67,6 +66,44 @@ class TuiMailboxOverlay(object):
             None,
         )
 
+    @staticmethod
+    def _sanitize_entry(entry: MailboxEntry) -> MailboxEntry:
+        """过滤一条消息中的终端控制字符。"""
+        key = str(entry.key)
+        title = sanitize_terminal_line(entry.title)
+        message = sanitize_terminal_text(entry.message)
+        detail = sanitize_terminal_line(entry.detail)
+
+        return MailboxEntry(
+            key=key,
+            title=title or "Untitled message",
+            message=message if message.strip() else "(empty message)",
+            detail=detail,
+        )
+
+    def _message_height(self) -> int:
+        """返回扣除消息摘要后的正文可用高度。"""
+        height = max(0, self._get_height())
+        return max(0, height - 4)
+
+    def _message_rows(self) -> list[FormattedText]:
+        """按当前终端宽度折行选中消息正文。"""
+        entry = self.selected_entry
+        if entry is None:
+            return []
+
+        width = max(1, self._get_width() - 2)
+
+        rows = wrap_formatted_lines(
+            [("class:mailbox.message", entry.message)],
+            width=width,
+        )
+
+        return [
+            [("class:mailbox.message", "  "), *row]
+            for row in rows
+        ]
+
     def update(
         self,
         entries: typing.Iterable[MailboxEntry],
@@ -74,7 +111,7 @@ class TuiMailboxOverlay(object):
         listener_active: bool
     ) -> bool:
         """替换只读消息快照并尽量保留当前选择。"""
-        previous        = self.selected_entry
+        previous = self.selected_entry
         previous_by_key = {entry.key: entry for entry in self.entries}
 
         normalized = tuple(
@@ -87,7 +124,7 @@ class TuiMailboxOverlay(object):
         if normalized == self.entries and active == self.listener_active:
             return False
 
-        self.entries         = normalized
+        self.entries = normalized
         self.listener_active = active
 
         selected = self.selected_entry
@@ -110,8 +147,8 @@ class TuiMailboxOverlay(object):
         if not any(entry.key == entry_key for entry in self.entries):
             return False
 
-        self.active         = True
-        self.selected_key   = entry_key
+        self.active = True
+        self.selected_key = entry_key
         self.message_offset = 0
 
         self._closed_future = asyncio.get_running_loop().create_future()
@@ -119,19 +156,12 @@ class TuiMailboxOverlay(object):
 
         return True
 
-    async def wait_closed(self) -> None:
-        """等待当前全屏消息详情关闭。"""
-        future = self._closed_future
-        if future is None:
-            raise RuntimeError("mailbox detail is not active")
-        await future
-
     def close(self) -> None:
         """关闭消息详情并完成当前等待。"""
         future = self._closed_future
 
-        self.active         = False
-        self.selected_key   = ""
+        self.active = False
+        self.selected_key = ""
         self.message_offset = 0
 
         if future is not None and not future.done():
@@ -142,8 +172,8 @@ class TuiMailboxOverlay(object):
         """在全屏切换失败时丢弃详情状态且不触发额外绘制。"""
         future = self._closed_future
 
-        self.active         = False
-        self.selected_key   = ""
+        self.active = False
+        self.selected_key = ""
         self.message_offset = 0
 
         if future is not None and not future.done():
@@ -193,7 +223,7 @@ class TuiMailboxOverlay(object):
             ]
             return join_formatted_lines(lines[:height])
 
-        width  = max(1, self._get_width())
+        width = max(1, self._get_width())
         detail = entry.detail or sanitize_terminal_line(entry.key)
 
         lines = [
@@ -215,9 +245,9 @@ class TuiMailboxOverlay(object):
             [],
         ][:height]
 
-        available    = max(0, height - len(lines))
+        available = max(0, height - len(lines))
         message_rows = self._message_rows()
-        maximum      = max(0, len(message_rows) - available)
+        maximum = max(0, len(message_rows) - available)
 
         self.message_offset = min(self.message_offset, maximum)
 
@@ -231,56 +261,25 @@ class TuiMailboxOverlay(object):
 
     def message_progress(self) -> tuple[int, int]:
         """返回选中消息正文的当前页和总页数。"""
-        rows   = self._message_rows()
+        rows = self._message_rows()
         height = self._message_height()
 
         if not rows or height <= 0:
             return 0, 0
 
-        total   = max(1, (len(rows) + height - 1) // height)
+        total = max(1, (len(rows) + height - 1) // height)
         maximum = max(0, len(rows) - height)
-        offset  = min(self.message_offset, maximum)
+        offset = min(self.message_offset, maximum)
         current = min(total, (offset + height - 1) // height + 1)
 
         return current, total
 
-    def _message_height(self) -> int:
-        """返回扣除消息摘要后的正文可用高度。"""
-        height = max(0, self._get_height())
-        return max(0, height - 4)
-
-    def _message_rows(self) -> list[FormattedText]:
-        """按当前终端宽度折行选中消息正文。"""
-        entry = self.selected_entry
-        if entry is None:
-            return []
-
-        width = max(1, self._get_width() - 2)
-
-        rows = wrap_formatted_lines(
-            [("class:mailbox.message", entry.message)],
-            width=width,
-        )
-
-        return [
-            [("class:mailbox.message", "  "), *row]
-            for row in rows
-        ]
-
-    @staticmethod
-    def _sanitize_entry(entry: MailboxEntry) -> MailboxEntry:
-        """过滤一条消息中的终端控制字符。"""
-        key     = str(entry.key)
-        title   = sanitize_terminal_line(entry.title)
-        message = sanitize_terminal_text(entry.message)
-        detail  = sanitize_terminal_line(entry.detail)
-
-        return MailboxEntry(
-            key=key,
-            title=title or "Untitled message",
-            message=message if message.strip() else "(empty message)",
-            detail=detail,
-        )
+    async def wait_closed(self) -> None:
+        """等待当前全屏消息详情关闭。"""
+        future = self._closed_future
+        if future is None:
+            raise RuntimeError("mailbox detail is not active")
+        await future
 
 
 if __name__ == '__main__':

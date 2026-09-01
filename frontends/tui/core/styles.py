@@ -2,37 +2,38 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from agent.ports.presentation import (
+    StyledBlock,
+    TextSpan,
+    TextStyle,
+)
 from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     RgbColor,
-    TerminalCapabilities
+    TerminalCapabilities,
 )
 from frontends.terminal.palette import (
     best_color,
     is_light_color,
     selection_color,
-    semantic_color
+    semantic_color,
 )
-from agent.ports.presentation import (
-    StyledBlock,
-    TextSpan,
-    TextStyle
-)
+
 from metadata import const
 from prompt_toolkit.styles import (
     BaseStyle,
     Style,
-    merge_styles
+    merge_styles,
 )
+from .models import (
+    FragmentBlock,
+    LineFill,
+)
+from .hyperlinks import terminal_hyperlink_style
 from ..prompting.commands import (
     canonical_command_label,
     resolve_slash_command
 )
-from .models import (
-    FragmentBlock,
-    LineFill
-)
-from .hyperlinks import terminal_hyperlink_style
 from ..rendering.fragments import (
     ZERO_WIDTH_ESCAPE_STYLE,
     clip_fragments,
@@ -44,26 +45,26 @@ from ..rendering.fragments import (
 from ..rendering.text_sanitize import sanitize_fragment_block
 
 # Fragment-level brand colors remain product-specific; class-based styles use the palette resolver.
-MUTED_STYLE   = TextStyle(foreground="#7F8C9A", dim=True)
-ACCENT_STYLE  = TextStyle(foreground="#AFC7D8", bold=True)
-BRIGHT_STYLE  = TextStyle(foreground="#F4F7FA", bold=True)
-BODY_STYLE    = TextStyle(foreground="#DDE7EF")
+MUTED_STYLE = TextStyle(foreground="#7F8C9A", dim=True)
+ACCENT_STYLE = TextStyle(foreground="#AFC7D8", bold=True)
+BRIGHT_STYLE = TextStyle(foreground="#F4F7FA", bold=True)
+BODY_STYLE = TextStyle(foreground="#DDE7EF")
 SUCCESS_STYLE = TextStyle(foreground="#5FD7AF", bold=True)
 WARNING_STYLE = TextStyle(foreground="#FFB86B", bold=True)
 FAILURE_STYLE = TextStyle(foreground="#FF6B6B")
 COMMAND_STYLE = TextStyle(foreground="ansimagenta")
 
 # 终端摘要文本只降低亮度，命令文本使用 ANSI 青色。
-TERMINAL_DIM_STYLE   = TextStyle(dim=True)
-TERMINAL_CYAN_STYLE  = TextStyle(foreground="ansicyan")
+TERMINAL_DIM_STYLE = TextStyle(dim=True)
+TERMINAL_CYAN_STYLE = TextStyle(foreground="ansicyan")
 TERMINAL_TITLE_STYLE = TextStyle(bold=True)
 
 ASSISTANT_PREFIX_CLASS = "class:assistant.prefix"
 
-QUERY_PREFIX              = "› "
+QUERY_PREFIX = "› "
 QUERY_CONTINUATION_PREFIX = "  "
-QUERY_PREFIX_WIDTH        = 2
-QUERY_RIGHT_MARGIN_WIDTH  = 1
+QUERY_PREFIX_WIDTH = 2
+QUERY_RIGHT_MARGIN_WIDTH = 1
 
 TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "assistant.prefix": "bold fg:#7F8C9A",
@@ -223,7 +224,7 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
     if not capabilities.dynamic_surfaces or terminal_background is None:
         return Style.from_dict({})
 
-    light   = _is_light_color(terminal_background)
+    light = _is_light_color(terminal_background)
     overlay = (0, 0, 0) if light else (255, 255, 255)
 
     surface_background = (
@@ -649,7 +650,7 @@ def _assistant_continuation_fragments(
     continuation: bool = False
 
     for style, text in fragments:
-        lines      = text.split("\n")
+        lines = text.split("\n")
         last_index = len(lines) - 1
 
         for index, line in enumerate(lines):
@@ -799,8 +800,8 @@ def query_preview_block(
         return block
 
     retained = limit - 1
-    omitted  = len(rows) - retained
-    marker   = f"… +{omitted} lines"
+    omitted = len(rows) - retained
+    marker = f"… +{omitted} lines"
 
     hint = transcript_hint(
         marker,

@@ -8,17 +8,17 @@ from pathlib import Path
 from prompt_toolkit.auto_suggest import AutoSuggest
 from prompt_toolkit.application.current import (
     get_app,
-    get_app_or_none
+    get_app_or_none,
 )
 from prompt_toolkit.buffer import CompletionState
 from prompt_toolkit.completion import (
     CompleteEvent,
-    Completion
+    Completion,
 )
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import (
     Condition,
-    has_focus
+    has_focus,
 )
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -215,7 +215,7 @@ class TuiAutoSuggest(AutoSuggest):
         if getattr(buffer, "complete_state", None) is not None:
             return None
 
-        text         = document.text_before_cursor
+        text = document.text_before_cursor
         current_line = text.splitlines()[-1] if text.splitlines() else text
 
         if text.endswith("\n"):
@@ -261,60 +261,45 @@ class TuiInputModel(object):
             if workspace_root is not None
             else None
         )
-
         self.file_search = FileSearchManager()
-        self.history   = TuiInputHistory()
+        self.history = TuiInputHistory()
         self.completer = SlashCommandCompleter(
             lambda: self.skills,
             lambda: self.workspace_root,
             self.file_search,
         )
-
         self.auto_suggest = TuiAutoSuggest()
-
         self.lexer = SkillTokenLexer(
             self._active_paste_placeholders,
             lambda: self.skills,
         )
-
         self.interrupt_handler: typing.Callable[[], InterruptDisposition] = (
             _ignore_interrupt
         )
-
         self.exit_handler: typing.Callable[[], None] = _ignore_action
-
         self._input_layout_handler: typing.Callable[[], None] = (
             _ignore_input_layout
         )
-
-        self.can_exit: typing.Callable[[], bool]                     = _deny_action
-        self.can_submit_queue: typing.Callable[[], bool]             = _deny_action
-        self.can_rollback_queue: typing.Callable[[], bool]           = _deny_action
-        self.can_backtrack_history: typing.Callable[[], bool]        = _deny_action
+        self.can_exit: typing.Callable[[], bool] = _deny_action
+        self.can_submit_queue: typing.Callable[[], bool] = _deny_action
+        self.can_rollback_queue: typing.Callable[[], bool] = _deny_action
+        self.can_backtrack_history: typing.Callable[[], bool] = _deny_action
         self.can_report_missing_backtrack: typing.Callable[[], bool] = _deny_action
-
         self.rollback_queue_handler: typing.Callable[[], bool] = _deny_action
-
         self.queue_submission_handler: typing.Callable[[typing.Any], None] = (
             _ignore_buffer_action
         )
         self.backtrack_history_handler: typing.Callable[[], None] = _ignore_action
         self.missing_backtrack_handler: typing.Callable[[], None] = _ignore_action
-
         self.shell_mode: bool = False
-
         self._shell_mode_undo_transition: tuple[str, str] | None = None
-
         self.history_backtrack_primed: bool = False
-
         self._history_entries: tuple[TuiInputHistoryEntry, ...] = ()
-
-        self._history_index: int | None          = None
+        self._history_index: int | None = None
         self._history_completion_dismissed: bool = False
-
         self._token_menu_state: TokenMenuState = TokenMenuState()
-        self._skill_search_mode_index: int     = 0
-        self._mention_popup_active: bool       = False
+        self._skill_search_mode_index: int = 0
+        self._mention_popup_active: bool = False
 
         self.key_bindings = self._build_key_bindings()
 
@@ -373,33 +358,10 @@ class TuiInputModel(object):
             "tui-menu.footer.right.plugins.current": "bold nodim ansimagenta",
         })
 
-    @staticmethod
-    def theme() -> dict[str, str]:
-        """返回 TUI 主题颜色。"""
-        return {"brand": "#5B8DEF", "soft": "#315A9B"}
-
-    @staticmethod
-    def apply_completion(buffer, completion: Completion) -> None:
-        """应用补全，并让斜杠命令替换光标后的剩余输入。"""
-        state    = buffer.complete_state
-        document = state.original_document if state is not None else buffer.document
-        cursor   = document.cursor_position
-        start    = cursor + completion.start_position
-
-        command  = (
-            slash_command_query(document) is not None
-            or document.text_before_cursor.lstrip().startswith("/")
-        )
-
-        suffix = "" if command else document.text_after_cursor
-        text   = document.text[:start] + completion.text + suffix
-
-        buffer.complete_state = None
-
-        buffer.document = Document(
-            text,
-            cursor_position=start + len(completion.text),
-        )
+    @property
+    def skill_search_mode(self) -> str:
+        """返回 `@` popup 当前搜索模式名称。"""
+        return SKILL_SEARCH_MODES[self._skill_search_mode_index]
 
     @staticmethod
     def _history_entry_state(entry: TuiInputHistoryEntry) -> tuple[str, bool]:
@@ -500,7 +462,7 @@ class TuiInputModel(object):
             return None
 
         token_start = document.cursor_position - len(prefix)
-        text        = document.text
+        text = document.text
 
         if (
             token_start < 0
@@ -560,6 +522,34 @@ class TuiInputModel(object):
     def _history_cursor_at_boundary(buffer) -> bool:
         """判断光标是否位于整个输入文本的首尾。"""
         return buffer.cursor_position in (0, len(buffer.text))
+
+    @staticmethod
+    def theme() -> dict[str, str]:
+        """返回 TUI 主题颜色。"""
+        return {"brand": "#5B8DEF", "soft": "#315A9B"}
+
+    @staticmethod
+    def apply_completion(buffer, completion: Completion) -> None:
+        """应用补全，并让斜杠命令替换光标后的剩余输入。"""
+        state = buffer.complete_state
+        document = state.original_document if state is not None else buffer.document
+        cursor = document.cursor_position
+        start = cursor + completion.start_position
+
+        command  = (
+            slash_command_query(document) is not None
+            or document.text_before_cursor.lstrip().startswith("/")
+        )
+
+        suffix = "" if command else document.text_after_cursor
+        text = document.text[:start] + completion.text + suffix
+
+        buffer.complete_state = None
+
+        buffer.document = Document(
+            text,
+            cursor_position=start + len(completion.text),
+        )
 
     def _selected_menu_completion(self, buffer) -> Completion | None:
         """返回当前补全菜单中准备确认的候选项。"""
@@ -1398,6 +1388,15 @@ class TuiInputModel(object):
                     buffer.cancel_completion()
             self.sync_completion_menu(buffer)
 
+    def _skill_mention_popup_open(self, buffer) -> bool:
+        """判断当前是否正在展示 `@` skill popup。"""
+        query = skill_query_token(buffer.document.text_before_cursor)
+        return bool(
+            query
+            and query.startswith("@")
+            and self.completion_menu_completions(buffer.document) is not None
+        )
+
     def new_placeholder(self) -> str:
         """为新的输入轮次生成一次占位文案。"""
         prompt  = random.choice(self.PLACEHOLDER_PROMPTS)
@@ -1461,11 +1460,6 @@ class TuiInputModel(object):
         self.sync_completion_menu(buffer)
         self.notify_input_layout()
 
-    @property
-    def skill_search_mode(self) -> str:
-        """返回 `@` popup 当前搜索模式名称。"""
-        return SKILL_SEARCH_MODES[self._skill_search_mode_index]
-
     def cycle_skill_search_mode(self, step: int) -> None:
         """循环切换 `@` popup 搜索模式并刷新布局。"""
         self._skill_search_mode_index = (
@@ -1477,15 +1471,6 @@ class TuiInputModel(object):
             if getattr(buffer, "name", None) == INPUT_BUFFER_NAME:
                 self.refresh_completion_menu(buffer)
         self.notify_input_layout()
-
-    def _skill_mention_popup_open(self, buffer) -> bool:
-        """判断当前是否正在展示 `@` skill popup。"""
-        query = skill_query_token(buffer.document.text_before_cursor)
-        return bool(
-            query
-            and query.startswith("@")
-            and self.completion_menu_completions(buffer.document) is not None
-        )
 
     def set_shell_mode(self, active: bool) -> None:
         """更新输入框的 Shell 前缀模式。"""
@@ -1698,7 +1683,10 @@ class TuiInputModel(object):
         )
         buffer.on_completions_changed.fire()
 
-    def refresh_inserted_completion_menu(self, buffer) -> None:
+    def refresh_inserted_completion_menu(
+        self,
+        buffer
+    ) -> None:
         """在字符插入后同步刷新可用的补全菜单。"""
         self.sync_completion_menu(buffer)
 

@@ -4,21 +4,21 @@
 import typing
 from pathlib import (
     Path,
-    PurePath
+    PurePath,
 )
 from infrastructure.config.preferences import config_to_preferences
 from infrastructure.config.schema import (
     ModelConfigField,
-    model_config_field_values
+    model_config_field_values,
 )
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.providers import (
     DEFAULT_REASONING_EFFORT,
-    SUPPORTED_REASONING_EFFORTS
+    SUPPORTED_REASONING_EFFORTS,
 )
 
 WORKSPACE_LABEL_REFRESH: float = 5.0
-WORKSPACE_LABEL_UNKNOWN: str   = "?"
+WORKSPACE_LABEL_UNKNOWN: str = "?"
 
 
 def ignored_tui_input(raw: str) -> bool:
@@ -143,7 +143,7 @@ def split_exec_snapshot_by_origin(
     snapshot: typing.Any
 ) -> tuple[dict[str, typing.Any], dict[str, typing.Any]]:
     """按用户 Shell 来源拆分后台终端快照。"""
-    current   = dict(snapshot) if isinstance(snapshot, dict) else {}
+    current = dict(snapshot) if isinstance(snapshot, dict) else {}
     raw_items = current.get("items")
 
     items = [

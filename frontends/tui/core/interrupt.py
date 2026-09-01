@@ -5,7 +5,10 @@ import time
 import enum
 import typing
 
-TuiExitReason = typing.Literal["interrupt", "eof"]
+TuiExitReason = typing.Literal[
+    "interrupt",
+    "eof"
+]
 
 
 class InterruptDisposition(enum.Enum):

@@ -5,9 +5,8 @@ import re
 import typing
 from agent.ports.presentation import (
     TextSpan,
-    TextStyle
+    TextStyle,
 )
-from ..command_parts import render_command_parts
 from frontends.terminal.styles import (
     ACTION_EDIT_STYLE,
     ACTION_RUN_STYLE,
@@ -23,6 +22,7 @@ from frontends.terminal.styles import (
     TITLE_STYLE,
     PREVIEW_STYLE
 )
+from ..command_parts import render_command_parts
 
 
 def title_parts(
@@ -102,8 +102,8 @@ def _styled_action_body_parts(
         return _plain_body_parts(body, base_style=base_style, ok=ok, part=part)
 
     leading_len = len(body) - len(body.lstrip(" "))
-    leading     = body[:leading_len]
-    rest        = body[leading_len:]
+    leading = body[:leading_len]
+    rest = body[leading_len:]
 
     action, tail = _split_action(rest)
 
@@ -152,8 +152,8 @@ def _command_tail_parts(
     _ = ok
 
     leading_len = len(command_body) - len(command_body.lstrip(" "))
-    leading     = command_body[:leading_len]
-    command     = command_body[leading_len:]
+    leading = command_body[:leading_len]
+    command = command_body[leading_len:]
 
     parts: list[TextSpan] = []
     if leading:
@@ -197,7 +197,7 @@ def _action_style_for_body(
     body: str
 ) -> TextStyle | None:
     """返回标题动作前缀的弱分类颜色。"""
-    text  = body.lstrip()
+    text = body.lstrip()
 
     first, _tail = _split_action(text)
 

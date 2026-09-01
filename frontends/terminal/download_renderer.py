@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import asyncio
 import typing
+import asyncio
 from rich.console import Console
 from infrastructure.platform.animation import AsyncAnimManager
 from .download import download_animation

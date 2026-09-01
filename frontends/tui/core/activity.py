@@ -15,11 +15,11 @@ from agent.ports.presentation import TextStyle
 from frontends.terminal.renderers.upload import (
     upload_idle_block,
     upload_progress_block,
-    upload_summary_block
+    upload_summary_block,
 )
 from frontends.terminal.renderers.download import (
     download_progress_block,
-    download_summary_block
+    download_summary_block,
 )
 from frontends.terminal.mcp_status import (
     McpStatusView,
@@ -33,17 +33,17 @@ from .styles import (
     BODY_STYLE,
     SUCCESS_STYLE,
     prompt_style,
-    styled_block_fragments
+    styled_block_fragments,
 )
 from .status_frames import (
     StatusFamily,
     render_status_fragments,
     spinner_indicator_fragment,
     status_interval,
-    status_phase_rate
+    status_phase_rate,
 )
 
-STATUS_MUTED   = TextStyle(foreground="#7F8C9A", dim=True)
+STATUS_MUTED = TextStyle(foreground="#7F8C9A", dim=True)
 STATUS_WARNING = TextStyle(foreground="#FFB86B")
 STATUS_FAILURE = TextStyle(foreground="#FF6B6B")
 
@@ -59,13 +59,13 @@ ActivitySlotKey = typing.Literal[
 ]
 
 _SLOT_KEYS: dict[ActivityStatusKind, ActivitySlotKey] = {
-    "wait"         : "foreground",
-    "upload"       : "attachment",
-    "download"     : "runtime",
-    "inbuild"      : "runtime",
-    "external_mcp" : "external_mcp",
-    "compact"      : "compact",
-    "operation"    : "operation",
+    "wait": "foreground",
+    "upload": "attachment",
+    "download": "runtime",
+    "inbuild": "runtime",
+    "external_mcp": "external_mcp",
+    "compact": "compact",
+    "operation": "operation",
 }
 
 
@@ -106,13 +106,13 @@ class _ActivitySlot(object):
         ] = _no_final_block,
         phase: float = 0.0
     ) -> None:
-        self.key        = key
-        self.kind       = kind
-        self.render     = render
-        self.finalize   = finalize
-        self.phase      = phase
+        self.key = key
+        self.kind = kind
+        self.render = render
+        self.finalize = finalize
+        self.phase = phase
         self.generation = 0
-        self.frozen     = False
+        self.frozen = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,28 +134,21 @@ class TuiActivity(object):
         get_width: typing.Callable[[], int] = lambda: 80,
         color_level: TerminalColorLevel = TerminalColorLevel.UNKNOWN
     ) -> None:
-        self.set_renderable   = set_renderable
+        self.set_renderable = set_renderable
         self.clear_renderable = clear_renderable
-
-        self.get_width   = get_width
+        self.get_width = get_width
         self.color_level = color_level
-
         self.task: asyncio.Task[None] | None = None
-
         self._settle_task: asyncio.Task[None] | None = None
         self._retired_tasks: set[asyncio.Task[None]] = set()
-
         self._generation: int = 0
-
-        self._wait_elapsed_sec: float       = 0.0
+        self._wait_elapsed_sec: float = 0.0
         self._wait_started_at: float | None = None
-        self._wait_phase: float             = 0.0
-        self._wait_paused: bool             = False
-        self._terminal_wait_command: str    = ""
-        self._terminal_wait_active: bool    = False
-
+        self._wait_phase: float = 0.0
+        self._wait_paused: bool = False
+        self._terminal_wait_command: str = ""
+        self._terminal_wait_active: bool = False
         self._wait_retry_state: RetryState = "idle"
-
         self._slots: dict[ActivitySlotKey, _ActivitySlot]    = {}
         self._settle_deadlines: dict[ActivitySlotKey, float] = {}
 
@@ -167,14 +160,12 @@ class TuiActivity(object):
     async def begin_wait(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""
         await self._discard("wait")
-
         self._reset_terminal_wait()
-
         self._wait_elapsed_sec = 0.0
-        self._wait_phase       = 0.0
-        self._wait_paused      = False
+        self._wait_phase = 0.0
+        self._wait_paused = False
         self._wait_retry_state = "idle"
-        self._wait_started_at  = time.perf_counter()
+        self._wait_started_at = time.perf_counter()
 
         await self._set_slot(_ActivitySlot(
             key="foreground",
@@ -454,9 +445,9 @@ class TuiActivity(object):
         if started_at is not None:
             self._wait_elapsed_sec += max(0.0, time.perf_counter() - started_at)
 
-        self._wait_phase      = slot.phase
+        self._wait_phase = slot.phase
         self._wait_started_at = None
-        self._wait_paused     = True
+        self._wait_paused = True
 
         await self._refresh_task()
         return True
@@ -466,7 +457,7 @@ class TuiActivity(object):
         if not self._wait_paused or "foreground" in self._slots:
             return None
 
-        self._wait_paused     = False
+        self._wait_paused = False
         self._wait_started_at = time.perf_counter()
 
         await self._set_slot(_ActivitySlot(
@@ -576,8 +567,8 @@ class TuiActivity(object):
 
     async def _render_loop(self) -> None:
         """持续合成全部活动槽位的动画帧。"""
-        interval      = status_interval("wait")
-        loop          = asyncio.get_running_loop()
+        interval = status_interval("wait")
+        loop = asyncio.get_running_loop()
         previous_tick = loop.time()
 
         try:
@@ -735,9 +726,9 @@ class TuiActivity(object):
     def _reset_wait(self) -> None:
         """清空等待动画和耗时统计。"""
         self._wait_elapsed_sec = 0.0
-        self._wait_started_at  = None
-        self._wait_phase       = 0.0
-        self._wait_paused      = False
+        self._wait_started_at = None
+        self._wait_phase = 0.0
+        self._wait_paused = False
         self._wait_retry_state = "idle"
 
     def _reset_terminal_wait(self) -> None:
@@ -869,7 +860,7 @@ def _mcp_final_block(view: McpStatusView, *, width: int) -> FragmentBlock | None
     }.get(view.level, BODY_STYLE)
 
     summary_style = STATUS_FAILURE if view.level == "failed" else BODY_STYLE
-    line_limit    = max(12, int(width) - 3)
+    line_limit = max(12, int(width) - 3)
 
     fragments: list[tuple[str, str]] = [
         (prompt_style(marker_style), "■"),
@@ -970,7 +961,7 @@ def _elapsed_label(elapsed: float) -> str:
 
 def _truncate_display_text(text: str, *, limit: int) -> str:
     """按终端显示宽度截断单行状态文本。"""
-    value       = " ".join(str(text or "").split())
+    value = " ".join(str(text or "").split())
     width_limit = max(1, int(limit))
 
     if get_cwidth(value) <= width_limit:
@@ -1003,7 +994,7 @@ def _clip_activity_line(
     if get_cwidth("".join(text for _, text in line)) <= limit:
         return line
 
-    clipped        = clip_fragments(line, width=max(0, limit - 1))
+    clipped = clip_fragments(line, width=max(0, limit - 1))
     ellipsis_style = clipped[-1][0] if clipped else ""
 
     return [*clipped, (ellipsis_style, "…")]

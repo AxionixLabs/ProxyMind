@@ -4,7 +4,7 @@
 import re
 from agent.ports.presentation import (
     TextSpan,
-    TextStyle
+    TextStyle,
 )
 from frontends.terminal.styles import (
     COMMAND_FLAG_STYLE,
@@ -13,7 +13,7 @@ from frontends.terminal.styles import (
     COMMAND_OPERATOR_STYLE,
     COMMAND_PATH_STYLE,
     COMMAND_STRING_STYLE,
-    COMMAND_STYLE
+    COMMAND_STYLE,
 )
 
 SHELL_OPERATORS = {
@@ -23,7 +23,7 @@ SHELL_OPERATORS = {
 
 def render_command_parts(command: str) -> list[TextSpan]:
     """按展示语义拆分命令文本，不改变原始字符顺序。"""
-    tokens          = _command_tokens(command)
+    tokens = _command_tokens(command)
     first_word_seen = False
 
     parts: list[TextSpan] = []
@@ -95,8 +95,8 @@ def _command_tokens(command: str) -> list[str]:
 
 def _quoted_end(text: str, start: int, quote: str) -> int:
     """返回引号 token 的结束位置；不尝试完整 shell 转义解析。"""
-    index   = start + 1
-    escaped = False
+    index = start + 1
+    escaped: bool = False
 
     while index < len(text):
         char = text[index]

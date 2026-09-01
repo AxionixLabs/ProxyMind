@@ -14,7 +14,7 @@ from frontends.tui.contracts.resume import (
     ResumePreview,
     ResumePreviewStatus,
     ResumeRow,
-    ResumeSessionStatus
+    ResumeSessionStatus,
 )
 from frontends.tui.contracts.text import FormattedText
 from ..rendering.menu.resume_picker import (
@@ -39,7 +39,7 @@ from ..rendering.menu.resume_picker import (
     set_resume_preview,
     set_resume_query,
     toggle_resume_density,
-    toggle_resume_expansion
+    toggle_resume_expansion,
 )
 
 
@@ -56,21 +56,16 @@ class TuiResumePicker(object):
         request_transcript: typing.Callable[[ResumeRow, int, int], None],
         cancel_preview: typing.Callable[[], None],
     ) -> None:
-        self._invalidate         = invalidate
-        self._get_width          = get_width
-        self._get_height         = get_height
-        self._request_preview    = request_preview
+        self._invalidate = invalidate
+        self._get_width = get_width
+        self._get_height = get_height
+        self._request_preview = request_preview
         self._request_transcript = request_transcript
-        self._cancel_preview     = cancel_preview
-
+        self._cancel_preview = cancel_preview
         self.active: bool = False
-
         self.state: ResumePickerState | None = None
-
         self._future: asyncio.Future[ResumePickerResult] | None = None
-
         self._archive_task: asyncio.Task[None] | None = None
-
         self.key_bindings = self._build_key_bindings()
 
     @property

@@ -11,24 +11,24 @@ from frontends.tui.contracts.menu import (
     MenuEmptyAcceptAction,
     MenuOption,
     MenuRequest,
-    MenuTab
+    MenuTab,
 )
 from frontends.tui.contracts.text import (
     FormattedLine,
     FormattedText,
     FragmentBlock,
-    LineFill
+    LineFill,
 )
 from frontends.tui.contracts.transcript import (
     MailboxEntry,
     MailboxRunRequest,
     TranscriptBacktrackRequest,
     TranscriptExportFormat,
-    TranscriptExportResult
+    TranscriptExportResult,
 )
 from frontends.tui.contracts.views import (
     ViewCompletion,
-    ViewIdentity
+    ViewIdentity,
 )
 from frontends.tui.contracts.pager import StaticPagerRequest
 

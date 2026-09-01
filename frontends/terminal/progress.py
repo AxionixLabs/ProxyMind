@@ -12,7 +12,7 @@ TERMINAL_TITLE_SPINNER_FRAMES = (
 )
 
 TERMINAL_TITLE_SPINNER_INTERVAL = 0.1
-TERMINAL_TITLE_ACTION_INTERVAL  = 1.0
+TERMINAL_TITLE_ACTION_INTERVAL = 1.0
 
 TERMINAL_TITLE_ACTION_PREFIXES  = (
     "[ ! ] Action Required",
@@ -79,12 +79,11 @@ class OscTerminalProgress(object):
 
     def __init__(self, stream: typing.TextIO) -> None:
         self.stream = stream
-
         self._mode: typing.Literal["spinner", "action"] | None = None
-        self._frame_index: int                                 = 0
-        self._title: str | None                                = None
-        self._workspace_title: str                             = ""
-        self._animation_task: asyncio.Task[None] | None        = None
+        self._frame_index: int = 0
+        self._title: str | None = None
+        self._workspace_title: str = ""
+        self._animation_task: asyncio.Task[None] | None = None
 
     def set_workspace_title(self, title: str) -> None:
         """更新终端标题中使用的工作区名称。"""
@@ -124,10 +123,8 @@ class OscTerminalProgress(object):
     def _start(self, mode: typing.Literal["spinner", "action"]) -> None:
         """切换标题动画并立即写入首帧。"""
         self._cancel_animation()
-
-        self._mode        = mode
+        self._mode = mode
         self._frame_index = 0
-
         self._write_frame()
         self._start_animation(mode)
 

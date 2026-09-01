@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle
+    TextStyle,
 )
 from .text_layout import text_display_width
 
@@ -209,12 +209,12 @@ def sanitize_text_spans(
         measure_width=measure_width,
     )
 
-    out: list[TextSpan]        = []
-    last_style: TextStyle      = TextStyle()
+    out: list[TextSpan] = []
+    last_style: TextStyle = TextStyle()
     last_hyperlink: str | None = None
 
     for span in spans:
-        last_style     = span.style
+        last_style = span.style
         last_hyperlink = sanitize_terminal_hyperlink(span.hyperlink)
 
         _append_span(

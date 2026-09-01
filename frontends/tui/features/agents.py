@@ -4,17 +4,15 @@
 import json
 import typing
 from prompt_toolkit.utils import get_cwidth
-from infrastructure.persistence.transcripts import (
-    TranscriptReader,
-)
+from agent.application.agents.views import AgentSnapshot
+from agent.harness.agents.control import AgentNotFoundError
 from agent.stores.transcripts import (
     TranscriptEntry,
     TranscriptReplay,
 )
 from agent.ports.presentation import TextSpan
 from frontends.terminal.text import sanitize_terminal_text
-from agent.application.agents.views import AgentSnapshot
-from agent.harness.agents.control import AgentNotFoundError
+from infrastructure.persistence.transcripts import TranscriptReader
 from ..core.models import (
     CLOSE_MENU_FOOTER_HINT,
     FragmentBlock,
@@ -22,14 +20,14 @@ from ..core.models import (
     MenuDescriptionLayout,
     MenuOption,
     MenuRequest,
-    STANDARD_MENU_FOOTER_HINT
+    STANDARD_MENU_FOOTER_HINT,
 )
 from ..core.styles import (
     COMMAND_STYLE,
     TERMINAL_CYAN_STYLE,
     TERMINAL_DIM_STYLE,
     TERMINAL_TITLE_STYLE,
-    fragment_block
+    fragment_block,
 )
 from ..rendering.fragments import clip_text
 
@@ -37,14 +35,17 @@ if typing.TYPE_CHECKING:
     from ...controller import Mind
     from ..core.runtime import TuiRuntime
 
-_MAIN_ACTION      = object()
-_BACK_ACTION      = object()
-_SHOW_ACTION      = object()
+_MAIN_ACTION = object()
+_BACK_ACTION = object()
+_SHOW_ACTION = object()
 _INTERRUPT_ACTION = object()
-_RESUME_ACTION    = object()
-_CLOSE_ACTION     = object()
+_RESUME_ACTION = object()
+_CLOSE_ACTION = object()
 
-_ACTIVE_STATUSES = frozenset({"pending", "running"})
+_ACTIVE_STATUSES = frozenset({
+    "pending",
+    "running"
+})
 
 
 async def manage_agents(
@@ -53,7 +54,7 @@ async def manage_agents(
 ) -> None:
     """在主 TUI 中查看并管理当前根会话的子执行线程。"""
     root_session_id = current_agent_root_session_id(mind)
-    snapshots       = await _agent_snapshots(mind, root_session_id)
+    snapshots = await _agent_snapshots(mind, root_session_id)
 
     def root_menu(items: tuple[AgentSnapshot, ...]) -> MenuRequest:
         return agent_list_menu(
@@ -446,7 +447,7 @@ def _activity_text(entry: TranscriptEntry) -> str:
 
 def _inline_text(value: typing.Any, limit: int = 240) -> str:
     """返回适合菜单正文的单行有界文本。"""
-    text       = sanitize_terminal_text(str(value or ""))
+    text = sanitize_terminal_text(str(value or ""))
     normalized = " ".join(text.split())
 
     return (

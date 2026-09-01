@@ -5,10 +5,6 @@ import re
 import typing
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
-from frontends.terminal.capabilities import (
-    DEGRADED_TERMINAL_CAPABILITIES,
-    TerminalCapabilities
-)
 from agent.application.approvals.models import ApprovalDecisionValue
 from agent.application.approvals.presentation import (
     ApplyPatchApprovalPresentation,
@@ -23,8 +19,13 @@ from agent.application.approvals.policy import (
     DECISION_SHORTCUT_LABELS,
     approval_decision_label,
 )
-from frontends.terminal.traces.command_parts import render_command_parts
 from agent.ports.presentation import StyledBlock
+from frontends.terminal.capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilities
+)
+from frontends.terminal.traces.command_parts import render_command_parts
+from frontends.tui.contracts.text import FormattedLine
 from frontends.terminal.renderers.patch import render_patch_view
 from frontends.terminal.styles import (
     COMMAND_STYLE,
@@ -37,7 +38,6 @@ from frontends.terminal.styles import (
 )
 from .styles import prompt_style, styled_block_fragments
 from ..rendering.text_sanitize import sanitize_formatted_text
-from frontends.tui.contracts.text import FormattedLine
 
 TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-card": "",
@@ -559,12 +559,12 @@ def _command_raw_lines(command: typing.Any) -> list[str]:
 def _command_parts(command: str) -> list[tuple[str, str]]:
     """把命令片段映射为浅色审批面板样式。"""
     styles = {
-        COMMAND_HEAD_STYLE     : "class:approval-command-head",
-        COMMAND_FLAG_STYLE     : "class:approval-command-flag",
-        COMMAND_PATH_STYLE     : "class:approval-command-path",
-        COMMAND_STRING_STYLE   : "class:approval-command-string",
-        COMMAND_NUMBER_STYLE   : "class:approval-command-number",
-        COMMAND_OPERATOR_STYLE : "class:approval-command-operator",
+        COMMAND_HEAD_STYLE: "class:approval-command-head",
+        COMMAND_FLAG_STYLE: "class:approval-command-flag",
+        COMMAND_PATH_STYLE: "class:approval-command-path",
+        COMMAND_STRING_STYLE: "class:approval-command-string",
+        COMMAND_NUMBER_STYLE: "class:approval-command-number",
+        COMMAND_OPERATOR_STYLE: "class:approval-command-operator",
     }
     return [
         (styles.get(part.style, "class:approval-command"), part.text)
@@ -828,11 +828,11 @@ def _truncate_command_lines(
             max_width=max_width,
         )]
 
-    payload    = limit - 1
+    payload = limit - 1
     head_count = max(1, (payload + 1) // 2)
     tail_count = max(0, payload - head_count)
-    omitted    = len(lines) - head_count - tail_count
-    noun       = "line" if omitted == 1 else "lines"
+    omitted = len(lines) - head_count - tail_count
+    noun = "line" if omitted == 1 else "lines"
 
     marker = _clip_plain_line(
         f"  … {omitted} display {noun} omitted",
@@ -893,8 +893,8 @@ def _wrap_prefixed_line(
 ) -> list[list[tuple[str, str]]]:
     """按固定前缀宽度换行，并让续行正文保持对齐。"""
     prefix_width = max(0, get_cwidth(prefix[1]))
-    body_width   = max(1, max_width - prefix_width)
-    body_lines   = _wrap_fragment_line(body, max_width=body_width)
+    body_width = max(1, max_width - prefix_width)
+    body_lines = _wrap_fragment_line(body, max_width=body_width)
     continuation = (prefix[0], " " * prefix_width)
 
     return [
@@ -911,10 +911,8 @@ def _wrap_fragment_line(
     """按终端显示宽度换行格式化片段。"""
     parts = sanitize_formatted_text(parts)
     limit = max(1, int(max_width))
-
     lines: list[list[tuple[str, str]]] = []
-    current: list[tuple[str, str]]     = []
-
+    current: list[tuple[str, str]] = []
     used: int = 0
 
     for style, text in parts:
@@ -971,7 +969,7 @@ def _line_with_suffix(
 ) -> list[tuple[str, str]]:
     """裁剪单行并追加可见的省略标记。"""
     suffix_width = max(0, get_cwidth(suffix))
-    body_width   = max(0, max_width - suffix_width)
+    body_width = max(0, max_width - suffix_width)
 
     out = _clip_fragment_line(line, max_width=body_width)
     out.append((suffix_style, suffix))
@@ -1013,8 +1011,8 @@ def _clip_fragment_line(
 def _take_display_width(text: str, max_width: int) -> tuple[str, str]:
     """从文本开头取出不超过指定显示宽度的部分。"""
     limit = max(0, int(max_width))
-    used  = 0
-    end   = 0
+    used = 0
+    end = 0
 
     for index, char in enumerate(str(text)):
         char_width = max(0, get_cwidth(char))
@@ -1056,9 +1054,10 @@ def _decision_parts(
         if isinstance(approval, ExecApprovalPresentation)
         else None
     )
-    label    = approval_decision_label(decision, amendment=amendment)
+
+    label = approval_decision_label(decision, amendment=amendment)
     shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
-    parts    = [(label_style, label)]
+    parts = [(label_style, label)]
 
     if shortcut:
         parts.extend([

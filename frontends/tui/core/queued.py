@@ -6,7 +6,7 @@ import typing
 import collections
 from dataclasses import (
     dataclass,
-    field
+    field,
 )
 from prompt_toolkit.utils import get_cwidth
 from protocol.schema.identifiers import short_uid
@@ -142,7 +142,7 @@ class TuiPendingSteers(object):
     """保存等待写入当前执行轮次的输入。"""
 
     def __init__(self) -> None:
-        self._items: dict[str, TuiSubmission]     = {}
+        self._items: dict[str, TuiSubmission] = {}
         self._uncertain: dict[str, TuiSubmission] = {}
 
     @property

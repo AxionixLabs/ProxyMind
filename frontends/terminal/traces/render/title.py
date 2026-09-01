@@ -9,7 +9,7 @@ from agent.ports.presentation import (
 )
 from frontends.terminal.text_layout import (
     clip_display_text,
-    text_display_width
+    text_display_width,
 )
 from frontends.terminal.styles import (
     DELTA_ADD_STYLE,
@@ -20,7 +20,7 @@ from frontends.terminal.styles import (
     PREVIEW_MORE_STYLE,
     PREVIEW_PATH_STYLE,
     PREVIEW_STYLE,
-    PREVIEW_TEXT_STYLE
+    PREVIEW_TEXT_STYLE,
 )
 from frontends.terminal.highlighting import code_parts
 from ..common import _preview_text
@@ -43,7 +43,7 @@ def render_tool_trace_parts(
     measure_width: typing.Callable[[str], int] | None = None
 ) -> list[TextSpan]:
     """把轨迹标题和预览内容转换为带样式的文本片段。"""
-    parts        = title_parts(title, ok=ok, part=_part)
+    parts = title_parts(title, ok=ok, part=_part)
     preview_text = preview.screen if isinstance(preview, TracePreview) else _preview_text(preview)
 
     preview_text = _clip_text_preview(
@@ -113,9 +113,9 @@ def _clip_text_preview(
     if not isinstance(terminal_width, int) or terminal_width <= 0:
         return "\n".join(lines)
 
-    width_of     = measure_width or text_display_width
+    width_of = measure_width or text_display_width
     prefix_width = max(width_of("  └ "), width_of("    "))
-    available    = max(0, terminal_width - prefix_width)
+    available = max(0, terminal_width - prefix_width)
 
     return "\n".join(
         clip_display_text(

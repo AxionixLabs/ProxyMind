@@ -4,6 +4,11 @@
 import typing
 import textwrap
 from agent.application.views.commands import command_text
+from agent.application.views.tool_display import (
+    NATIVE_TOOL_NAMES,
+    ToolDisplayKind,
+    tool_display_spec,
+)
 from frontends.terminal.text_layout import (
     clip_display_text,
     text_display_width
@@ -21,11 +26,6 @@ from .common import (
     _trace_code_preview_from_lines,
     _trace_preview_from_lines
 )
-from agent.application.views.tool_display import (
-    NATIVE_TOOL_NAMES,
-    ToolDisplayKind,
-    tool_display_spec
-)
 from .models import (
     TraceEntry,
     TracePreview,
@@ -37,7 +37,7 @@ from .shell_errors import (
 )
 
 NATIVE_CODING_TRACE_TOOLS = NATIVE_TOOL_NAMES
-SHELL_TRACE_TITLE_PREFIX  = "• Running "
+SHELL_TRACE_TITLE_PREFIX = "• Running "
 
 
 def coding_trace_tool(name: str) -> bool:
@@ -84,7 +84,7 @@ def render_tool_start_preview(
 
     if spec.kind is ToolDisplayKind.JAVASCRIPT:
 
-        code  = str(arguments.get(spec.source_field or "") or "")
+        code = str(arguments.get(spec.source_field or "") or "")
         lines = _javascript_preview_lines(code)
 
         if not any(line.strip() for line in lines):
@@ -108,7 +108,7 @@ def render_tool_start_preview(
 def _javascript_preview_lines(code: str) -> list[str]:
     """清理源码边界空行并移除外层文本带入的公共缩进。"""
     normalized = str(code or "").replace("\r\n", "\n").replace("\r", "\n")
-    trimmed    = normalized.strip("\n")
+    trimmed = normalized.strip("\n")
 
     lines = trimmed.split("\n") if trimmed else []
     if len(lines) < 2 or lines[0] != lines[0].lstrip():
@@ -158,8 +158,8 @@ def render_tool_result_preview(
             lines = _shell_command_ordered_output_lines(data)
             if not lines:
                 stdout_source = data.get("output") or data.get("stdout")
-                lines         = shell_output_lines(stdout_source)
-                err_lines     = shell_output_lines(data.get("stderr"))
+                lines = shell_output_lines(stdout_source)
+                err_lines = shell_output_lines(data.get("stderr"))
 
                 if lines and err_lines:
                     lines.extend(err_lines)
@@ -230,9 +230,9 @@ def render_tool_trace(
     """生成工具执行完成后的轨迹标题。"""
     _ = cost_ms
 
-    args    = arguments if isinstance(arguments, dict) else {}
+    args = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
-    kind    = tool_display_spec(name).kind
+    kind = tool_display_spec(name).kind
 
     if kind in {ToolDisplayKind.SHELL, ToolDisplayKind.STDIN}:
         if kind is ToolDisplayKind.STDIN:
@@ -276,7 +276,7 @@ def render_tool_trace(
         return "• Reset JavaScript"
 
     summary = _short_text(args, 100)
-    detail  = f" {summary}" if summary else ""
+    detail = f" {summary}" if summary else ""
 
     return f"• Ran {name}{detail}"
 
@@ -369,7 +369,7 @@ def _shell_command_empty_preview_lines(
 
     runtime = data.get("runtime")
     if isinstance(runtime, dict):
-        name   = str(runtime.get("name") or "").strip()
+        name = str(runtime.get("name") or "").strip()
         prefix = runtime.get("prefix")
 
         if isinstance(prefix, list):
@@ -395,14 +395,14 @@ def _shell_command_title(
     measure_width: typing.Callable[[str], int] | None = None
 ) -> str:
     """生成 shell_command 标题中的命令摘要。"""
-    lines  = _shell_command_raw_lines(command)
+    lines = _shell_command_raw_lines(command)
     source = lines[0] if lines else "shell command"
 
     if not isinstance(terminal_width, int) or terminal_width <= 0:
         return _short_text(source, MAX_PREVIEW_WIDTH)
 
     width_of = measure_width or text_display_width
-    text     = sanitize_terminal_line(source, measure_width=width_of) or "shell command"
+    text = sanitize_terminal_line(source, measure_width=width_of) or "shell command"
 
     available = max(
         0,
@@ -418,7 +418,7 @@ def _shell_command_title(
 
 def _shell_command_raw_lines(command: typing.Any) -> list[str]:
     """按原始换行拆分命令；数组命令保持参数间空格。"""
-    text  = command_text(command) if isinstance(command, list) else str(command or "").strip()
+    text = command_text(command) if isinstance(command, list) else str(command or "").strip()
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
     while lines and not lines[-1]:

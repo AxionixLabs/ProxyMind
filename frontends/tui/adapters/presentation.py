@@ -4,13 +4,9 @@
 import re
 import typing
 from functools import partial
-from frontends.terminal.capabilities import (
-    DEGRADED_TERMINAL_CAPABILITIES,
-    TerminalCapabilities
-)
 from agent.application.views.contracts import (
     PresentationSink,
-    PresentationView
+    PresentationView,
 )
 from agent.ports.presentation import (
     StyledBlock,
@@ -31,12 +27,16 @@ from agent.application.views import (
     ProgressView,
     RunCompletedView,
     RunIncompleteView,
-    ToolStartView
+    ToolStartView,
 )
 from frontends.terminal.renderers.dispatch import (
     render_presentation_raw_view,
     render_presentation_transcript_view,
-    render_presentation_view
+    render_presentation_view,
+)
+from frontends.terminal.capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilities,
 )
 from prompt_toolkit.utils import get_cwidth
 from ..core.document import TuiBlockKind
@@ -278,10 +278,6 @@ class TuiPresentationSink(PresentationSink):
         for session_id in session_ids:
             await self._flush_terminal_wait(session_id)
 
-    async def flush_terminal_waits_before_assistant_output(self) -> None:
-        """在助手正文开始前提交后台终端等待记录。"""
-        await self._flush_all_terminal_waits()
-
     async def _emit_patch(self, view: PatchView) -> None:
         """按补丁生命周期提交稳定单元和失败单元。"""
         terminal_width = self.output.terminal_width
@@ -370,7 +366,7 @@ class TuiPresentationSink(PresentationSink):
             await self._emit_patch(view)
             return None
 
-        block_kind     = _presentation_block_kind(view)
+        block_kind = _presentation_block_kind(view)
         terminal_width = self.output.terminal_width
 
         blocks = render_presentation_view(
@@ -393,7 +389,7 @@ class TuiPresentationSink(PresentationSink):
             raise ValueError("presentation block projections differ in count")
 
         transcript_key = self.output.runtime.keymap.open_transcript_label
-        width_aware    = isinstance(view, _WIDTH_AWARE_VIEWS)
+        width_aware = isinstance(view, _WIDTH_AWARE_VIEWS)
 
         for index, (block, transcript_block, raw_text) in enumerate(zip(
             blocks, transcript_blocks, raw_blocks, strict=True,
@@ -467,6 +463,10 @@ class TuiPresentationSink(PresentationSink):
             await self._flush_all_terminal_waits()
 
         await self._emit_view(view)
+
+    async def flush_terminal_waits_before_assistant_output(self) -> None:
+        """在助手正文开始前提交后台终端等待记录。"""
+        await self._flush_all_terminal_waits()
 
 
 if __name__ == '__main__':

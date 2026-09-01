@@ -226,6 +226,14 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `agent/domain/agents.py`，application schema 与 mailbox 校验共用同一值；同时收窄
   `AgentMessageEvent` 和 `AgentSnapshot.result` 契约，删除动态结果属性猜测。Subagent/TUI/
   store 回归 `102 passed`，职责专项 `4 passed, 1 warning`。
+- workspace coding 已完成 schema 与补丁用例切片：全部 coding schema 迁入
+  `agent/application/tools/coding_schemas.py`，`apply_patch` 的权限门禁、参数规范化、结果投影
+  和工具定义迁入 `agent/application/tools/patching.py`，执行只通过新增的
+  `WorkspacePatchPort` 访问工作区实现。通用本地执行结果信封在 application 边界校验并冻结，
+  旧 schema 文件和旧补丁 handler 已删除；补丁/权限快速回归 `74 passed`，schema/职责专项
+  `4 passed, 1 warning`，重型 workspace/JS/架构扩展回归 `188 passed / 3 stale assertions`，
+  三项过期断言修正后 `5 passed, 1 warning`；同提交纳入的前端整理通过 TUI/terminal
+  定向回归 `1551 + 415 passed`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -323,10 +331,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    facade 已删除，`mind_app/runtime/mcp` 源码清零。
 
 4. **本地工具能力族重组（进行中）**：registry、调用上下文、类型契约、稳定结果、
-   planning、media 与 permissions 能力已迁入 `agent`、`infrastructure` 和具名 ports，对应
-   旧模块与空 builtin 包已删除，subagent 工具也已通过控制端口迁出 legacy。下一步拆分
-   workspace coding：工具 schema 与用例归 application，工作区资源生命周期归 Harness，
-   操作系统与 SDK 实现归 infrastructure，禁止创建新的总工具 facade。
+   planning、media、permissions 与 subagent 能力已迁入 `agent`、`infrastructure` 和具名
+   ports；workspace coding 的全部 schema 与 `apply_patch` 用例也已迁出 legacy。下一步按完整
+   用例拆分 `shell_command`/`exec_command`/`write_stdin` 与 JS REPL：先建立进程执行和嵌套
+   工具结果端口，再迁移审批/策略编排；不得把 MCP SDK、具体 `ExecPolicyManager` 或
+   `NativeCoding` 类型搬进 application，也不得创建新的总工具 facade。
 
 5. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
@@ -345,6 +354,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 本次 subagent 工具切片的删除条件已满足：application 工具只依赖 `SubagentControlPort`，
 具体 Harness runtime 和 mailbox store 均不进入工具包；旧 `client_tools/subagents.py` 和生产
 导入清零，八类控制命令、消息交付、等待、关闭与 TUI 视图均有联合回归覆盖。
+
+本次 workspace patch 切片的删除条件已满足：application 只通过 `WorkspacePatchPort` 执行
+补丁，结果信封在 application 边界转换为不可变 `LocalToolResult`；旧 coding schema 和
+`native.py` 内的补丁 handler 已删除，read-only 拒绝、补丁格式、SHA256 基线与差异跟踪均
+沿用现有行为。进程与 REPL handler 仍留在 legacy，未以本切片完成推断整个 coding 迁移完成。
 
 本次 MCP 生命周期切片的删除条件已满足：Harness 所有者不得导入 `mind_app` 或具体 MCP 实现；
 组合根必须显式注入 `ExternalMcpRuntime` 工厂；旧 `mind_app.runtime.mcp.lifecycle`
@@ -901,3 +915,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 外部 MCP SDK 与连接生命周期基础设施化，删除旧 runtime 下的 errors/external/group/local/status 模块 | MCP group `11 passed`、TUI/运行入口 `95 passed`、工具链路 `63 passed`、架构专项 `3 passed, 2 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 工具会话组合基础设施化：新增工具 runtime/source/registry ports，将 Composite session、tool catalog 和 runtime 迁出旧应用并由组合根构造 | 工具会话 `26 + 81 + 35 passed`、Turn/Subagent `51 passed`、工具结果/权限 `70 passed`、CLI/TUI/清理 `39 + 123 passed`、架构专项 `5 passed, 2 warnings`；导入图和语法检查通过 |
 | 2026-09-01 | 退役旧 MCP runtime 源目录：SDK 结果归一化、目录查询和进度语义分别归入 infrastructure、application、domain/执行路由 | 工具结果/进度/计划 `24 passed`、客户端工具链 `48 passed`、流式结果 `70 passed`、架构专项 `4 passed, 2 warnings`；旧路径扫描、`compileall`、差异检查通过 |
+| 2026-09-01 | 迁移全部 coding schema 与 `apply_patch` 用例，新增 `WorkspacePatchPort` 和本地执行结果投影，删除旧 schema 与补丁 handler | 补丁/权限/工具上下文 `74 passed`；schema/职责专项 `4 passed, 1 warning`；重型扩展 `188 passed / 3 stale assertions`，修正后失败节点 `5 passed, 1 warning`；同提交前端回归 `1551 + 415 passed`；导入图、`compileall`、差异检查通过 |

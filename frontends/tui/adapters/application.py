@@ -2,36 +2,36 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
-from frontends.terminal.intro import (
-    IntroFrame,
-    intro_frames
-)
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,
-    Viewport
+    Viewport,
 )
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle
+    TextStyle,
+)
+from frontends.terminal.intro import (
+    IntroFrame,
+    intro_frames,
 )
 from metadata import const
 from ..core.document import TuiBlockKind
 from ..core.models import (
     FragmentBlock,
-    LineFill
+    LineFill,
 )
 from ..core.runtime import TuiRuntime
 from ..core.styles import styled_block_fragments
 from ..core.styles import text_block
 
-MUTED        = TextStyle(foreground="#7F8C9A", dim=True)
-ACCENT       = TextStyle(foreground="#AFC7D8", bold=True)
-BRIGHT       = TextStyle(foreground="#F4F7FA", bold=True)
-SUCCESS      = TextStyle(foreground="#5FD7AF", bold=True)
-WARNING      = TextStyle(foreground="#FFD75F", bold=True)
-FAILURE      = TextStyle(foreground="#FF6B6B", bold=True)
+MUTED = TextStyle(foreground="#7F8C9A", dim=True)
+ACCENT = TextStyle(foreground="#AFC7D8", bold=True)
+BRIGHT = TextStyle(foreground="#F4F7FA", bold=True)
+SUCCESS = TextStyle(foreground="#5FD7AF", bold=True)
+WARNING = TextStyle(foreground="#FFD75F", bold=True)
+FAILURE = TextStyle(foreground="#FF6B6B", bold=True)
 FAILURE_BODY = TextStyle(foreground="#FF6B6B")
 
 _BACKGROUND_VIEW_TYPES = frozenset({

@@ -1496,6 +1496,19 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
 历史包的物理目录可以分批删除，但每一批都必须保持可构建、可启动、可恢复。
 不得用一次性 `Move-Item` 或批量改名替代上述出口条件。
 
+### 已完成切片：Workspace Patch 用例与 Coding Schema 归位
+
+- [x] 将全部 coding 工具 schema 迁入 `agent/application/tools/coding_schemas.py`，删除旧
+  `mind_app/client_tools/coding/schemas.py`，不保留兼容导出。
+- [x] 新增 `WorkspacePatchPort`，将 `apply_patch` 工具定义、权限门禁、参数规范化与结果投影
+  迁入 application；工作区文件修改和 Turn 差异状态继续由绑定工作区的编码实现持有。
+- [x] 抽取本地执行结果信封校验，application 工具不接触 MCP SDK 或具体基础设施类型。
+- [x] 补丁/权限/工具上下文快速回归 `74 passed`；schema/职责专项
+  `4 passed, 1 warning`；重型扩展回归 `188 passed / 3 stale assertions`，过期断言修正后
+  `5 passed, 1 warning`；同提交前端整理回归 `1551 + 415 passed`。整份 JS 生命周期回归保留为
+  扩展证据，后续日常切片按场景选择节点。
+- [x] 下一切片拆分进程工具与 JS REPL 的执行、审批和嵌套工具结果边界，不创建总工具 facade。
+
 ## 过渡入口登记
 
 | 入口 | 保留原因 | 删除条件 | 所属阶段 |
@@ -1735,3 +1748,4 @@ python website/mind/scripts/check_docs.py
 | 2026-09-01 | 阶段 5 media 工具能力与文件 IO 边界归位 | 将 view_image schema、稳定错误与结果投影迁入 `agent/application/tools/media.py`，新增 `ImageReaderPort` 和工作区绑定的 `FileImageReader`；由 Workspace Runtime 统一替换读取器并删除旧 `mind_app/client_tools/view_image.py` | 媒体/工作区回归 `51 passed`，扩展工具回归 `242 passed`，职责专项 `8 passed, 3 warnings`；旧路径扫描、导入图、`compileall` 和差异检查通过；下一切片迁移 permissions 能力 |
 | 2026-09-01 | 阶段 5 permissions 领域规则与申请用例归位 | 将权限 profile 规范化、交并、覆盖和稳定键从 grant store 拆入 domain，将 request_permissions schema/审批/授权写入迁入 application，并以具名中断异常替代本地工具对 wire client 异常的依赖；删除旧 builtin 包与 execution_authorization 模块 | 权限/策略回归 `116 passed`，工具执行回归 `114 passed`，审批扩展回归 `200 passed`，职责专项 `4 passed, 1 warning`；旧路径扫描、导入图、`compileall` 和差异检查通过；下一切片拆分 workspace coding 与 subagent 工具 |
 | 2026-09-01 | 阶段 5 subagent 控制工具端口化 | 新增 `SubagentControlPort`，将八个 Agent 控制工具整体迁入 application；消息长度约束归 domain，mailbox 与工具 schema 复用同一值，工具展示删除对 RunResult 的动态属性猜测 | Subagent/TUI/store 回归 `102 passed`，职责专项 `4 passed, 1 warning`；application tools 禁止依赖 Harness/store/infrastructure，旧路径扫描、导入图、`compileall` 和差异检查通过；下一切片拆分 workspace coding 工具 |
+| 2026-09-01 | 阶段 5 Workspace Patch 与 Coding Schema 归位 | 将全部 coding schema、补丁工具定义、权限门禁和结果投影迁入 application，新增 `WorkspacePatchPort`，删除旧 schema 与旧补丁 handler | 快速行为回归 `74 passed`，schema/职责专项 `4 passed, 1 warning`；重型扩展 `188 passed / 3 stale assertions`，修正后失败节点 `5 passed, 1 warning`；同提交前端回归 `1551 + 415 passed`；导入图、`compileall` 和差异检查通过；下一切片拆分进程工具与 JS REPL 边界 |

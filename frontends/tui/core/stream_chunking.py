@@ -5,14 +5,14 @@ import enum
 import typing
 from dataclasses import dataclass
 
-ENTER_QUEUE_DEPTH_ROWS: typing.Final[int]      = 8
-ENTER_OLDEST_AGE_SEC: typing.Final[float]      = 0.12
-EXIT_QUEUE_DEPTH_ROWS: typing.Final[int]       = 2
-EXIT_OLDEST_AGE_SEC: typing.Final[float]       = 0.04
-EXIT_HOLD_SEC: typing.Final[float]             = 0.25
+ENTER_QUEUE_DEPTH_ROWS: typing.Final[int] = 8
+ENTER_OLDEST_AGE_SEC: typing.Final[float] = 0.12
+EXIT_QUEUE_DEPTH_ROWS: typing.Final[int] = 2
+EXIT_OLDEST_AGE_SEC: typing.Final[float] = 0.04
+EXIT_HOLD_SEC: typing.Final[float] = 0.25
 REENTER_CATCH_UP_HOLD_SEC: typing.Final[float] = 0.25
-SEVERE_QUEUE_DEPTH_ROWS: typing.Final[int]     = 64
-SEVERE_OLDEST_AGE_SEC: typing.Final[float]     = 0.30
+SEVERE_QUEUE_DEPTH_ROWS: typing.Final[int] = 64
+SEVERE_OLDEST_AGE_SEC: typing.Final[float] = 0.30
 
 
 class StreamChunkingMode(enum.Enum):

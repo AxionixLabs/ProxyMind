@@ -173,9 +173,12 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/tools/__init__.py",
         "application/tools/authorization.py",
         "application/tools/catalog.py",
+        "application/tools/coding_schemas.py",
         "application/tools/context.py",
         "application/tools/definitions.py",
+        "application/tools/execution_results.py",
         "application/tools/media.py",
+        "application/tools/patching.py",
         "application/tools/permissions.py",
         "application/tools/planning.py",
         "application/tools/plan_update.py",
@@ -1230,6 +1233,7 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
         PROJECT_ROOT / "mind_app" / "client_tools" / "types.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "update_plan.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "view_image.py",
+        PROJECT_ROOT / "mind_app" / "client_tools" / "coding" / "schemas.py",
         PROJECT_ROOT / "mind_app" / "native_coding" / "execution_authorization.py",
     )
     assert not any(path.is_file() for path in legacy_paths)
@@ -1248,6 +1252,7 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
         "mind_app.client_tools.types",
         "mind_app.client_tools.update_plan",
         "mind_app.client_tools.view_image",
+        "mind_app.client_tools.coding.schemas",
         "mind_app.native_coding.execution_authorization",
     }
     violations = _forbidden_module_imports(".", legacy_modules)
@@ -3108,6 +3113,7 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
             "SubagentOperation",
             "SubagentTurnRunner",
             "SubagentCleanupPort",
+            "SubagentControlPort",
             "SubagentRuntimeHostPort",
         },
     }
@@ -4682,9 +4688,12 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.config.session_identity",
         "agent.application.tools.catalog",
         "agent.application.tools.authorization",
+        "agent.application.tools.coding_schemas",
         "agent.application.tools.context",
         "agent.application.tools.definitions",
+        "agent.application.tools.execution_results",
         "agent.application.tools.media",
+        "agent.application.tools.patching",
         "agent.application.tools.permissions",
         "agent.application.tools.planning",
         "agent.application.tools.plan_update",

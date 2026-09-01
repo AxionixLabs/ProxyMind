@@ -2,7 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from abc import ABC, abstractmethod
+from abc import (
+    ABC,
+    abstractmethod,
+)
 from .resume import (
     ResumePickerRequest,
     ResumePickerResult,

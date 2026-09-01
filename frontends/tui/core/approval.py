@@ -9,21 +9,21 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from agent.application.approvals.models import (
     ApprovalDecisionValue,
-    ApprovalQueueSnapshot
+    ApprovalQueueSnapshot,
 )
 from agent.application.approvals.presentation import (
     ApprovalPresentation,
-    ensure_approval_presentation
+    ensure_approval_presentation,
 )
 from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
-    TerminalCapabilities
+    TerminalCapabilities,
 )
 from frontends.tui.contracts.pager import StaticPagerRequest
 from .approval_render import (
     approval_command_pager_lines,
     approval_pager_title,
-    tui_approval_content_lines
+    tui_approval_content_lines,
 )
 
 
@@ -49,23 +49,17 @@ class TuiApproval(object):
         terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
         open_static_pager: typing.Callable[[StaticPagerRequest], bool] | None = None,
     ) -> None:
-        self.invalidate     = invalidate
-        self.focus_card     = focus_card
-        self.focus_input    = focus_input
-        self.get_width      = get_width
+        self.invalidate = invalidate
+        self.focus_card = focus_card
+        self.focus_input = focus_input
+        self.get_width = get_width
         self.get_max_height = get_max_height
-
         self.terminal_capabilities = terminal_capabilities
-        self.open_static_pager     = open_static_pager
-
+        self.open_static_pager = open_static_pager
         self.state: ApprovalState | None = None
-
         self._default_wait_state: ApprovalState | None = None
-
         self.selected_index: int = 0
-
         self._session_active: bool = False
-
         self._snapshot = ApprovalQueueSnapshot(
             current=None,
             pending=(),
@@ -82,6 +76,24 @@ class TuiApproval(object):
     def pending_count(self) -> int:
         """返回应用层快照中的排队审批数量。"""
         return self._snapshot.pending_count
+
+    @staticmethod
+    def _format_lines(
+        lines: list[list[tuple[str, str]]],
+        *,
+        prefix_style: str = "class:approval-card",
+    ) -> StyleAndTextTuples:
+        """把审批行转换为带统一左侧留白的格式化文本。"""
+        if not lines:
+            return []
+
+        out: StyleAndTextTuples = []
+        for index, line in enumerate(lines):
+            out.append((prefix_style, "  "))
+            out.extend(line)
+            if index < len(lines) - 1:
+                out.append((prefix_style, "\n"))
+        return out
 
     def begin_session(self) -> None:
         """激活连续审批批次并接管 bottom pane 焦点。"""
@@ -100,6 +112,40 @@ class TuiApproval(object):
             return None
         self._snapshot = snapshot
         self.invalidate()
+
+    def begin(
+        self,
+        presentation: ApprovalPresentation | dict[str, typing.Any]
+    ) -> bool:
+        """建立单条审批状态，供控件级调用方分步等待。"""
+        presentation = ensure_approval_presentation(presentation)
+        if not self._session_active:
+            self.begin_session()
+        state = self._present(presentation)
+        self._default_wait_state = state
+        return state is not None
+
+    def fragments(self) -> StyleAndTextTuples:
+        """生成带表面背景的审批卡片内容。"""
+        card_lines, _footer_lines = self._render_lines()
+        return self._format_lines(card_lines)
+
+    def footer_fragments(self) -> StyleAndTextTuples:
+        """生成审批卡片下方的透明操作提示。"""
+        _card_lines, footer_lines = self._render_lines()
+        return self._format_lines(
+            footer_lines,
+            prefix_style="class:approval-footer",
+        )
+
+    def finish(self, decision: ApprovalDecisionValue) -> None:
+        """在当前请求允许时提交审批结果。"""
+        state = self.state
+        if state is None or state.future.done():
+            return None
+        if decision not in state.decisions and decision != "cancel":
+            return None
+        state.future.set_result(decision)
 
     async def request(
         self,
@@ -122,18 +168,6 @@ class TuiApproval(object):
             self._clear_state(state)
             if owns_session:
                 await self.end_session()
-
-    def begin(
-        self,
-        presentation: ApprovalPresentation | dict[str, typing.Any]
-    ) -> bool:
-        """建立单条审批状态，供控件级调用方分步等待。"""
-        presentation = ensure_approval_presentation(presentation)
-        if not self._session_active:
-            self.begin_session()
-        state = self._present(presentation)
-        self._default_wait_state = state
-        return state is not None
 
     async def wait(
         self,
@@ -173,19 +207,6 @@ class TuiApproval(object):
         """关闭审批表面并拒绝仍在展示的请求。"""
         await self.end_session(restore_focus=False)
 
-    def fragments(self) -> StyleAndTextTuples:
-        """生成带表面背景的审批卡片内容。"""
-        card_lines, _footer_lines = self._render_lines()
-        return self._format_lines(card_lines)
-
-    def footer_fragments(self) -> StyleAndTextTuples:
-        """生成审批卡片下方的透明操作提示。"""
-        _card_lines, footer_lines = self._render_lines()
-        return self._format_lines(
-            footer_lines,
-            prefix_style="class:approval-footer",
-        )
-
     def _render_lines(
         self,
     ) -> tuple[
@@ -211,33 +232,6 @@ class TuiApproval(object):
             if any(style == "class:approval-footer" for style, _text in line)
         ), len(lines))
         return lines[:footer_start], lines[footer_start:]
-
-    @staticmethod
-    def _format_lines(
-        lines: list[list[tuple[str, str]]],
-        *,
-        prefix_style: str = "class:approval-card",
-    ) -> StyleAndTextTuples:
-        """把审批行转换为带统一左侧留白的格式化文本。"""
-        if not lines:
-            return []
-
-        out: StyleAndTextTuples = []
-        for index, line in enumerate(lines):
-            out.append((prefix_style, "  "))
-            out.extend(line)
-            if index < len(lines) - 1:
-                out.append((prefix_style, "\n"))
-        return out
-
-    def finish(self, decision: ApprovalDecisionValue) -> None:
-        """在当前请求允许时提交审批结果。"""
-        state = self.state
-        if state is None or state.future.done():
-            return None
-        if decision not in state.decisions and decision != "cancel":
-            return None
-        state.future.set_result(decision)
 
     def _clear_state(self, state: ApprovalState) -> None:
         """只清理仍属于本次展示的请求状态。"""

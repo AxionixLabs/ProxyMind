@@ -2,29 +2,28 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from metadata import const
 from agent.application.approvals.summary import (
     approval_amendment_snippet,
     approval_summary,
 )
 from agent.ports.presentation import (
     TextSpan,
-    TextStyle
+    TextStyle,
 )
 from agent.application.views import ApprovalSource
 from frontends.terminal.styles import (
     ERROR_STYLE,
     TITLE_STYLE,
 )
-
+from metadata import const
 
 APPROVAL_APPROVED_STYLE = TextStyle(foreground="#6EE7A8", bold=True)
-APPROVAL_DENIED_STYLE   = ERROR_STYLE
-APPROVAL_COMMAND_STYLE  = TITLE_STYLE
-APPROVAL_TOOL_STYLE     = TextStyle(foreground="#7DD3FC", bold=True)
-APPROVAL_ARG_STYLE      = TextStyle(foreground="#A7F3D0", bold=True)
-APPROVAL_RES_STYLE      = TextStyle(foreground="#8FA4B8", dim=True)
-APPROVAL_SCOPE_STYLE    = TextStyle(foreground="#A7F3D0", bold=True)
+APPROVAL_DENIED_STYLE = ERROR_STYLE
+APPROVAL_COMMAND_STYLE = TITLE_STYLE
+APPROVAL_TOOL_STYLE = TextStyle(foreground="#7DD3FC", bold=True)
+APPROVAL_ARG_STYLE = TextStyle(foreground="#A7F3D0", bold=True)
+APPROVAL_RES_STYLE = TextStyle(foreground="#8FA4B8", dim=True)
+APPROVAL_SCOPE_STYLE = TextStyle(foreground="#A7F3D0", bold=True)
 
 def render_approval_approved_trace(
     approval: dict[str, typing.Any],

@@ -7,7 +7,7 @@ from prompt_toolkit.data_structures import Size
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.screen import (
     Char,
-    Screen
+    Screen,
 )
 from prompt_toolkit.output import (
     ColorDepth,
@@ -19,7 +19,7 @@ from .models import FormattedText
 
 OSC8_PREFIX = "\x1b]8;;"
 OSC8_SUFFIX = "\x1b\\"
-OSC8_CLOSE  = f"{OSC8_PREFIX}{OSC8_SUFFIX}"
+OSC8_CLOSE = f"{OSC8_PREFIX}{OSC8_SUFFIX}"
 
 
 class _ScreenWritePosition(typing.Protocol):
@@ -151,7 +151,7 @@ class TerminalHyperlinkOutput(Output):
 
     def __init__(self, output: Output) -> None:
         self._output = output
-        self.stdout  = output.stdout
+        self.stdout = output.stdout
 
     @property
     def vt100_output(self) -> Output:

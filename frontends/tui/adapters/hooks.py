@@ -5,16 +5,12 @@ import typing
 from functools import partial
 from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
-from frontends.terminal.formatting import format_duration_ms
 from agent.ports.presentation import TextStyle
 from agent.application.hooks.models import (
     HookOutputEntry,
-    HookRunSummary
+    HookRunSummary,
 )
-from ..core.models import (
-    FormattedText,
-    FragmentBlock
-)
+from frontends.terminal.formatting import format_duration_ms
 from ..rendering.fragments import (
     clip_fragments,
     fragments_text,
@@ -22,6 +18,10 @@ from ..rendering.fragments import (
     split_formatted_lines,
     transcript_hint,
     wrap_formatted_lines
+)
+from ..core.models import (
+    FormattedText,
+    FragmentBlock,
 )
 from ..core.runtime import TuiRuntime
 from ..core.styles import (
@@ -239,8 +239,8 @@ def _context_preview(
         return rows
 
     retained = HOOK_CONTEXT_MAX_DISPLAY_ROWS - 1
-    omitted  = len(rows) - retained
-    marker   = f"… +{omitted} lines"
+    omitted = len(rows) - retained
+    marker = f"… +{omitted} lines"
 
     hint_suffix = transcript_hint(
         marker,

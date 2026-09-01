@@ -10,7 +10,7 @@ from agent.ports import (
     AssistantTextDelta,
     ContentOutput,
     ContentSink,
-    SourcesOutput
+    SourcesOutput,
 )
 from frontends.output.source_text import render_sources_text
 from .output import TuiOutputControl

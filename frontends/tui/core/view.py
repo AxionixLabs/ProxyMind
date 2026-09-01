@@ -6,7 +6,7 @@ from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from frontends.tui.contracts.views import (
     ViewCompletion,
-    ViewIdentity
+    ViewIdentity,
 )
 
 

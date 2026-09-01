@@ -6,12 +6,12 @@ import typing
 import asyncio
 from frontends.terminal.text import sanitize_terminal_text
 from .models import FormattedText
-from ..rendering.fragments import clip_fragments
 from .status_frames import (
     render_status_fragments,
     status_indicator_fragment,
-    status_interval
+    status_interval,
 )
+from ..rendering.fragments import clip_fragments
 
 
 class TuiProcessStatus(object):
@@ -24,8 +24,8 @@ class TuiProcessStatus(object):
         get_width: typing.Callable[[], int],
     ) -> None:
         self._invalidate = invalidate
-        self._get_width  = get_width
-        self.label: str  = ""
+        self._get_width = get_width
+        self.label: str = ""
         self._animation_task: asyncio.Task[None] | None = None
         self._animated: bool = False
 

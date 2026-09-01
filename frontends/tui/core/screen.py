@@ -10,27 +10,27 @@ from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.data_structures import (
     Point,
-    Size
+    Size,
 )
 from prompt_toolkit.filters import (
     Condition,
     has_focus,
-    to_filter
+    to_filter,
 )
 from prompt_toolkit.formatted_text import (
     FormattedText as PromptFormattedText,
-    StyleAndTextTuples
+    StyleAndTextTuples,
 )
 from prompt_toolkit.input import DummyInput
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.key_binding import (
     KeyBindings,
-    merge_key_bindings
+    merge_key_bindings,
 )
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import (
     Dimension,
-    Layout
+    Layout,
 )
 from prompt_toolkit.layout.containers import (
     ConditionalContainer,
@@ -38,12 +38,12 @@ from prompt_toolkit.layout.containers import (
     ScrollOffsets,
     VerticalAlign,
     VSplit,
-    Window
+    Window,
 )
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.processors import (
     AfterInput,
-    ConditionalProcessor
+    ConditionalProcessor,
 )
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.base import Output
@@ -55,16 +55,23 @@ from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
 )
-from ..prompting.commands import (
-    completion_changes_input,
-    slash_command_query
+from frontends.tui.contracts.resume import (
+    ResumePickerRequest,
+    ResumePickerResult,
+    ResumePreview,
+    ResumeRow,
 )
-from ..prompting.skills import skill_query_token
+from frontends.tui.contracts.transcript import MailboxEntry
+from frontends.tui.contracts.pager import StaticPagerRequest
+from frontends.tui.contracts.screen import (
+    MailboxScreenPort,
+    ResumePickerScreenPort,
+)
 from .approval import TuiApproval
 from .approval_render import TUI_APPROVAL_STYLE
 from .bottom_pane import (
     BottomSurface,
-    TuiBottomPane
+    TuiBottomPane,
 )
 from .document import (
     TranscriptBlock,
@@ -84,7 +91,7 @@ from .keymap import (
     TuiKeyBinding,
     TuiRuntimeKeymap,
     binding_labels,
-    primary_binding_label
+    primary_binding_label,
 )
 from .mailbox import (
     TuiMailboxOverlay,
@@ -92,20 +99,20 @@ from .mailbox import (
 )
 from .menu import (
     TUI_MENU_STYLE,
-    TuiMenu
+    TuiMenu,
 )
 from .models import (
     FormattedText,
     FragmentBlock,
     TranscriptBacktrackRequest,
     TranscriptExportFormat,
-    TranscriptExportResult
+    TranscriptExportResult,
 )
 from .process_status import TuiProcessStatus
 from .resume_picker import TuiResumePicker
 from .queued import (
     TuiPendingSteers,
-    TuiQueuedMessages
+    TuiQueuedMessages,
 )
 from ..rendering.fragments import (
     clip_fragments,
@@ -115,22 +122,27 @@ from ..rendering.fragments import (
     fragment_continuation_widths,
     fragments_text,
     join_formatted_lines,
-    split_formatted_lines
+    split_formatted_lines,
 )
 from .styles import (
     ASSISTANT_PREFIX_CLASS,
     QUERY_PREFIX_WIDTH,
     QUERY_RIGHT_MARGIN_WIDTH,
     build_tui_application_style,
-    exit_summary_fragments
+    exit_summary_fragments,
 )
 from .token_menu import (
     TOKEN_MENU_LEFT_PADDING,
     TokenCompletionMenuControl,
-    token_menu_display_height
+    token_menu_display_height,
 )
 from .transcript_overlay import TuiTranscriptOverlay
 from .static_pager import TuiStaticPager
+from ..prompting.commands import (
+    completion_changes_input,
+    slash_command_query,
+)
+from ..prompting.skills import skill_query_token
 from ..rendering.screen.geometry import (
     ActiveViewLayout,
     BottomPaneLayout,
@@ -174,18 +186,6 @@ from ..rendering.screen.terminal import (
     set_alternate_scroll_mode as _set_alternate_scroll_mode,
     set_synchronized_output as _set_synchronized_output,
     supports_vt_control as _supports_vt_control
-)
-from frontends.tui.contracts.resume import (
-    ResumePickerRequest,
-    ResumePickerResult,
-    ResumePreview,
-    ResumeRow
-)
-from frontends.tui.contracts.transcript import MailboxEntry
-from frontends.tui.contracts.pager import StaticPagerRequest
-from frontends.tui.contracts.screen import (
-    MailboxScreenPort,
-    ResumePickerScreenPort
 )
 
 

@@ -18,13 +18,13 @@ from ..rendering.fragments import (
     next_text_unit_end,
     split_formatted_lines,
     transcript_hint,
-    wrap_formatted_lines
+    wrap_formatted_lines,
 )
 from ..rendering.text_sanitize import (
     OSC8_PREFIX,
     OSC8_SUFFIX,
     sanitize_formatted_text,
-    sanitize_fragment_block
+    sanitize_fragment_block,
 )
 
 __all__ = (

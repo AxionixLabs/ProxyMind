@@ -241,10 +241,9 @@ def test_unified_diff_keeps_workspace_path_guard(tmp_path) -> None:
 def test_apply_patch_tool_exposes_patch_shape_and_formats(tmp_path) -> None:
     coding = create_native_coding(root=tmp_path, application_layout=None)
     tool = next(item for item in coding_tools(coding) if item.name == "apply_patch")
-    wire = tool.to_mcp_tool()
-    patch_schema = wire.inputSchema["properties"]["patch"]
+    patch_schema = tool.input_schema["properties"]["patch"]
 
-    assert wire.inputSchema["required"] == ["patch"]
+    assert tool.input_schema["required"] == ["patch"]
     assert "unified diff" in patch_schema["description"]
     assert "git diff" in patch_schema["description"]
     assert '{"patch": "补丁文本"}' in tool.description

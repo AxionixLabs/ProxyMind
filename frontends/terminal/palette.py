@@ -4,7 +4,7 @@
 import math
 from .capabilities import (
     RgbColor,
-    TerminalColorLevel
+    TerminalColorLevel,
 )
 
 __all__ = [
@@ -15,7 +15,7 @@ __all__ = [
     "semantic_color",
 ]
 
-_DARK_SELECTION_RGB: RgbColor  = (91, 141, 239)
+_DARK_SELECTION_RGB: RgbColor = (91, 141, 239)
 _LIGHT_SELECTION_RGB: RgbColor = (0, 95, 135)
 
 
@@ -61,9 +61,7 @@ def blend_color(
 ) -> RgbColor:
     """把颜色按表面混合比例叠加到背景。"""
     ratio = max(0.0, min(1.0, amount))
-
     overlay_red, overlay_green, overlay_blue = color
-
     base_red, base_green, base_blue = background
 
     return (

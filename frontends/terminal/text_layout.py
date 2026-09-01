@@ -23,8 +23,8 @@ def clip_display_text(
     measure_width: typing.Callable[[str], int] | None = None
 ) -> str:
     """按终端显示宽度裁剪单行文本并保留组合字符边界。"""
-    value    = str(text or "")
-    limit    = max(0, int(width))
+    value = str(text or "")
+    limit = max(0, int(width))
     width_of = measure_width or text_display_width
 
     if limit <= 0:
@@ -133,7 +133,7 @@ def wrap_styled_lines(
     if not cells:
         return [[]]
 
-    width_of   = measure_width or text_display_width
+    width_of = measure_width or text_display_width
     line_width = max(1, int(terminal_width or 0))
 
     lines = _wrap_styled_cells(
@@ -214,7 +214,7 @@ def _wrap_styled_cells(
     lines: list[list[TextSpan]] = []
 
     remaining = cells
-    width     = first_width
+    width = first_width
 
     while remaining:
         line, remaining = _take_wrapped_line(
@@ -250,12 +250,12 @@ def _take_wrapped_line(
 
     line: list[TextSpan] = []
 
-    width      = 0
-    cursor     = 0
+    width = 0
+    cursor = 0
     last_space = -1
 
     while cursor < len(cells):
-        cell       = cells[cursor]
+        cell = cells[cursor]
         char_width = max(0, measure_width(cell.text))
 
         if line and width + char_width > limit:

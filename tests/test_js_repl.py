@@ -21,7 +21,7 @@ from mind_app.client_tools.coding.native import (
     _js_repl_arguments,
     _nested_tool_response,
 )
-from mind_app.client_tools.coding.schemas import JS_REPL_INPUT_SCHEMA
+from agent.application.tools.coding_schemas import JS_REPL_INPUT_SCHEMA
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.authorization import ToolTurnInterrupted
 from infrastructure.mcp.local_tool_registry import ToolRegistry

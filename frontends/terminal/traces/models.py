@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 from dataclasses import dataclass
 
@@ -20,3 +21,7 @@ class TraceEntry:
     title: str
     preview: TracePreview
     ok: bool = True
+
+
+if __name__ == '__main__':
+    pass

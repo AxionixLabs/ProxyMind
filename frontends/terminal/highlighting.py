@@ -7,19 +7,19 @@ from pygments import lex
 from pygments.lexer import RegexLexer
 from pygments.lexers import (
     get_lexer_by_name,
-    get_lexer_for_filename
+    get_lexer_for_filename,
 )
 from pygments.token import (
     Error,
     Token,
-    Whitespace
+    Whitespace,
 )
 from pygments.util import ClassNotFound
-from metadata import const
 from agent.ports.presentation import (
     TextSpan,
-    TextStyle
+    TextStyle,
 )
+from metadata import const
 from .styles import (
     PREVIEW_CODE_COMMENT_STYLE,
     PREVIEW_CODE_KEYWORD_STYLE,
@@ -28,11 +28,11 @@ from .styles import (
     PREVIEW_CODE_OPERATOR_STYLE,
     PREVIEW_CODE_STRING_STYLE,
     PREVIEW_CODE_TEXT_STYLE,
-    PREVIEW_TEXT_STYLE
+    PREVIEW_TEXT_STYLE,
 )
 
-MAX_HIGHLIGHT_BYTES      = 512 * 1024
-MAX_HIGHLIGHT_LINES      = 10_000
+MAX_HIGHLIGHT_BYTES = 512 * 1024
+MAX_HIGHLIGHT_LINES = 10_000
 MAX_HIGHLIGHT_LINE_BYTES = 4 * 1024
 
 _TOKEN_TYPE = type(Token.Text)
@@ -43,12 +43,12 @@ _INCREMENTAL_LEXER_CLASSES: typing.Final[frozenset[str]] = frozenset({
     "PythonLexer",
 })
 
-_LIGHT_CODE_TEXT_STYLE     = TextStyle(foreground="#4C4F69")
-_LIGHT_CODE_KEYWORD_STYLE  = TextStyle(foreground="#8839EF", bold=True)
-_LIGHT_CODE_NAME_STYLE     = TextStyle(foreground="#1E66F5")
-_LIGHT_CODE_STRING_STYLE   = TextStyle(foreground="#40A02B")
-_LIGHT_CODE_NUMBER_STYLE   = TextStyle(foreground="#FE640B")
-_LIGHT_CODE_COMMENT_STYLE  = TextStyle(foreground="#6C6F85", dim=True)
+_LIGHT_CODE_TEXT_STYLE = TextStyle(foreground="#4C4F69")
+_LIGHT_CODE_KEYWORD_STYLE = TextStyle(foreground="#8839EF", bold=True)
+_LIGHT_CODE_NAME_STYLE = TextStyle(foreground="#1E66F5")
+_LIGHT_CODE_STRING_STYLE = TextStyle(foreground="#40A02B")
+_LIGHT_CODE_NUMBER_STYLE = TextStyle(foreground="#FE640B")
+_LIGHT_CODE_COMMENT_STYLE = TextStyle(foreground="#6C6F85", dim=True)
 _LIGHT_CODE_OPERATOR_STYLE = TextStyle(foreground="#179299")
 
 
@@ -58,7 +58,7 @@ class StreamingCodeHighlighter(object):
     def __init__(self) -> None:
         self._lexer: RegexLexer | None = None
         self._lexer_name: str | None = None
-        self._source = ""
+        self._source: str = ""
         self._state_stack: tuple[str, ...] = ("root",)
         self._lines: list[list[TextSpan]] = [[]]
 
@@ -180,7 +180,7 @@ def _lex_regex_suffix(
     if not token_definitions:
         raise TypeError("RegexLexer token definitions are unavailable")
 
-    position = 0
+    position: int = 0
     state_stack = list(initial_stack)
     state_tokens = token_definitions[state_stack[-1]]
     tokens: list[tuple[typing.Any, str]] = []
@@ -269,7 +269,7 @@ def highlight_code_lines(
     light_theme: bool = False
 ) -> tuple[tuple[TextSpan, ...], ...] | None:
     """按文件扩展名高亮完整代码块，并保留跨行解析状态。"""
-    source       = str(code or "")
+    source = str(code or "")
     source_lines = source.split("\n")
 
     if not source or _exceeds_highlight_limits(source, source_lines):

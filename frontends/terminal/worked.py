@@ -11,17 +11,17 @@ from agent.ports.presentation import (
 from frontends.terminal.layout_rules import full_rule_width
 from frontends.terminal.formatting import format_elapsed
 
-WORKED_RULE_STYLE  = TextStyle(foreground="#414A54")
+WORKED_RULE_STYLE = TextStyle(foreground="#414A54")
 WORKED_LABEL_STYLE = TextStyle(foreground="#626D78")
-WORKED_RULE_CHAR   = "─"
+WORKED_RULE_CHAR = "─"
 
 
 def worked_footer_text(elapsed_sec: float, *, width: int | None = None) -> str:
     """生成单行耗时页脚文本。"""
-    elapsed      = format_elapsed(max(0.0, float(elapsed_sec or 0.0)))
-    label        = f" Finished in {elapsed} "
+    elapsed = format_elapsed(max(0.0, float(elapsed_sec or 0.0)))
+    label = f" Finished in {elapsed} "
     target_width = worked_footer_width(label, terminal_width=width)
-    right        = WORKED_RULE_CHAR * max(1, target_width - len(label) - 1)
+    right = WORKED_RULE_CHAR * max(1, target_width - len(label) - 1)
     return f"{WORKED_RULE_CHAR}{label}{right}"
 
 
@@ -38,7 +38,7 @@ def render_worked_footer(
     width: int | None = None,
 ) -> StyledBlock:
     """渲染耗时页脚。"""
-    line  = worked_footer_text(elapsed_sec, width=width)
+    line = worked_footer_text(elapsed_sec, width=width)
     label = f" Finished in {format_elapsed(max(0.0, float(elapsed_sec or 0.0)))} "
     start = line.find(label)
 

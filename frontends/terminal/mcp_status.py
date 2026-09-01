@@ -6,18 +6,26 @@ from dataclasses import dataclass
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle
+    TextStyle,
 )
+from frontends.terminal.text import sanitize_terminal_text
+from frontends.terminal.text_layout import layout_styled_line
 from .styles import (
     ERROR_DOT_STYLE,
     ERROR_PREVIEW_MESSAGE_STYLE,
     PREVIEW_MORE_STYLE,
-    SUCCESS_DOT_STYLE
+    SUCCESS_DOT_STYLE,
 )
-from frontends.terminal.text import sanitize_terminal_text
-from frontends.terminal.text_layout import layout_styled_line
 
-McpStatusLevel = typing.Literal["running", "ready", "warning", "failed"]
+McpStatusLevel = typing.Literal[
+    "running",
+    "ready",
+    "warning",
+    "failed"
+]
+
+MCP_STATUS_BODY_STYLE = TextStyle(foreground="#DDE7EF")
+MCP_STATUS_WARNING_STYLE = TextStyle(foreground="#F59E0B")
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,11 +95,11 @@ def external_mcp_status_view(
             done=done,
         )
 
-    ready_count = 0
-    connected_count = 0
-    failed_count = 0
-    total_tools = 0
-    total_filtered = 0
+    ready_count: int = 0
+    connected_count: int = 0
+    failed_count: int = 0
+    total_tools: int = 0
+    total_filtered: int = 0
 
     for item in items:
         state = str(item.get("state") or "").strip().lower()
@@ -162,6 +170,7 @@ def _failure_details(
 
     visible_limit = max(0, min(int(limit), len(failed)))
     visible_count = visible_limit + (1 if len(failed) > visible_limit else 0)
+
     details = [
         McpStatusDetail(
             text=f"{_detail_connector(index, visible_count)}{_item_text(item)}",
@@ -192,9 +201,6 @@ def _detail_connector(index: int, count: int) -> str:
         return "  └ "
     return "  └ " if index >= count - 1 else "  ├ "
 
-MCP_STATUS_BODY_STYLE    = TextStyle(foreground="#DDE7EF")
-MCP_STATUS_WARNING_STYLE = TextStyle(foreground="#F59E0B")
-
 
 def render_mcp_status_block(
     view: McpStatusView,
@@ -212,6 +218,7 @@ def render_mcp_status_block(
         "warning": MCP_STATUS_WARNING_STYLE,
         "failed": ERROR_DOT_STYLE,
     }.get(view.level, MCP_STATUS_BODY_STYLE)
+
     summary_style = (
         ERROR_PREVIEW_MESSAGE_STYLE
         if view.level == "failed"

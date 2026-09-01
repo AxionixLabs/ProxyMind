@@ -13,30 +13,30 @@ from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.eventloop.utils import call_soon_threadsafe
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.output.base import Output
-from frontends.terminal.capabilities import (
-    DEGRADED_TERMINAL_CAPABILITIES,
-    TerminalCapabilities
-)
-from frontends.terminal.progress import (
-    PassiveTerminalProgress,
-    TerminalProgress
-)
 from agent.application.approvals.models import (
     ApprovalDecisionValue,
     ApprovalQueueSnapshot,
-    ApprovalRequest
+    ApprovalRequest,
 )
 from agent.ports import (
     ActivityRuntimePort,
     ActivityStatusKind,
     RetryState,
 )
+from frontends.terminal.capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilities,
+)
+from frontends.terminal.progress import (
+    PassiveTerminalProgress,
+    TerminalProgress,
+)
 from frontends.interaction.contracts import PromptContext
 from frontends.terminal.text import sanitize_terminal_line
 from frontends.tui.contracts.resume import (
     ResumePickerRequest,
     ResumePickerResult,
-    ResumeRow
+    ResumeRow,
 )
 from .models import (
     CLOSE_MENU_FOOTER_HINT,
@@ -154,18 +154,14 @@ class TuiRuntime(object):
         ] | None = None
     ) -> None:
         self.input_model = input_model or TuiInputModel()
-        self.context     = PromptContext(model="")
-        self.keymap      = keymap or TuiRuntimeKeymap.defaults()
-
+        self.context = PromptContext(model="")
+        self.keymap = keymap or TuiRuntimeKeymap.defaults()
         self.terminal_capabilities = terminal_capabilities
-
         self.task_state = TuiTaskState(
             activity_running=lambda: self.activity.active,
         )
         self.document = TuiDocument()
-
         self._consumed_submission: TuiSubmission | None = None
-
         self._background_tasks = BackgroundTaskManager(
             lambda error: self._report_runtime_error(
                 "Background task failed",
@@ -173,52 +169,35 @@ class TuiRuntime(object):
             ),
         )
         self._background_blocks = DeferredBlockBuffer()
-
         self._menu_actions: deque[MenuAction] = deque()
-        self._menu_action_scheduled: bool     = False
-
-        self._running_process_status_label: str          = ""
-        self._running_user_shell_status_label: str       = ""
+        self._menu_action_scheduled: bool = False
+        self._running_process_status_label: str = ""
+        self._running_user_shell_status_label: str = ""
         self._running_background_shell_status_label: str = ""
-
-        self._inline_process_session_id: str                           = ""
+        self._inline_process_session_id: str = ""
         self._inline_process_future: asyncio.Future[typing.Any] | None = None
-        self._inline_process_settled: asyncio.Event | None             = None
-        self._inline_process_states: dict[str, _InlineProcessState]    = {}
-
+        self._inline_process_settled: asyncio.Event | None = None
+        self._inline_process_states: dict[str, _InlineProcessState] = {}
         self._inline_process_start_lock: asyncio.Lock = asyncio.Lock()
-
         self._background_process_session_ids: set[str] = set()
-
         self._process_completions = ProcessCompletionStore()
-
         self._process_routing_settled: asyncio.Event = asyncio.Event()
         self._process_routing_settled.set()
-
         self._activity_handoff = ActivityHandoffState()
-        self._command_layout   = CommandLayoutState()
-
-        self._open_callbacks: list[typing.Callable[[], None]]          = []
+        self._command_layout = CommandLayoutState()
+        self._open_callbacks: list[typing.Callable[[], None]] = []
         self._turn_finished_callbacks: list[typing.Callable[[], None]] = []
-
         self._startup_presentations = StartupPresentationQueue()
-
         self._closing: bool = False
-
         self._directory_trust_preserved_startup_gate: bool = False
-
         self._modal_depth: int = 0
-
         self._turn_progress_active: bool = False
-
-        self._approval_session_lock         = asyncio.Lock()
+        self._approval_session_lock: asyncio.Lock = asyncio.Lock()
         self._approval_session_active: bool = False
-        self._approval_wait_paused: bool    = False
-
+        self._approval_wait_paused: bool = False
         self.terminal_progress = (
             terminal_progress or PassiveTerminalProgress()
         )
-
         self.submissions = TuiSubmissionFlow(
             input_model=self.input_model,
             is_submission_deferred=lambda: self.submission_deferred,

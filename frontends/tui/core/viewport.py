@@ -8,12 +8,14 @@ from functools import partial
 from dataclasses import dataclass
 from prompt_toolkit.application import (
     Application,
-    in_terminal
+    in_terminal,
 )
 from prompt_toolkit.layout.containers import WindowRenderInfo
 from infrastructure.config.schema import DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT
 from .document import TuiDocument
 from .models import FormattedText
+from .hyperlinks import decorate_scrollback_hyperlinks
+from .styles import ASSISTANT_PREFIX_CLASS
 from ..rendering.fragments import (
     display_line_count,
     fragment_continuation_widths,
@@ -21,8 +23,6 @@ from ..rendering.fragments import (
     join_formatted_lines,
     wrap_formatted_lines
 )
-from .hyperlinks import decorate_scrollback_hyperlinks
-from .styles import ASSISTANT_PREFIX_CLASS
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,8 +42,7 @@ class TuiTranscriptViewport(object):
 
     SCROLLBACK_REFLOW_DEBOUNCE_SEC: typing.Final[float] = 0.08
     STREAM_SCROLLBACK_DEBOUNCE_SEC: typing.Final[float] = 0.08
-    STREAM_SCROLLBACK_BATCH_LINES: typing.Final[int]    = 4
-
+    STREAM_SCROLLBACK_BATCH_LINES: typing.Final[int] = 4
     RESTORED_HISTORY_NOTICE: typing.Final[str] = (
         "Earlier messages are available — press {} to view the full transcript"
     )
@@ -75,62 +74,46 @@ class TuiTranscriptViewport(object):
         )
     ) -> None:
         self.document = document
-
-        self._is_application_active         = is_application_active
-        self._is_scrollback_deferred        = is_scrollback_deferred
+        self._is_application_active = is_application_active
+        self._is_scrollback_deferred = is_scrollback_deferred
         self._is_full_screen_overlay_active = is_full_screen_overlay_active
-        self._is_closing                    = is_closing
-
-        self._get_application           = get_application
-        self._get_terminal_geometry     = get_terminal_geometry
-        self._get_terminal_width        = get_terminal_width
-        self._get_available_height      = get_available_height
-        self._get_transcript_fragments  = get_transcript_fragments
-        self._get_render_info           = get_render_info
-        self._get_render_revision       = get_render_revision
+        self._is_closing = is_closing
+        self._get_application = get_application
+        self._get_terminal_geometry = get_terminal_geometry
+        self._get_terminal_width = get_terminal_width
+        self._get_available_height = get_available_height
+        self._get_transcript_fragments = get_transcript_fragments
+        self._get_render_info = get_render_info
+        self._get_render_revision = get_render_revision
         self._get_open_transcript_label = get_open_transcript_label
         self._clear_terminal_scrollback = clear_terminal_scrollback
-
         self._clear_terminal_for_resize_replay = (
             clear_terminal_for_resize_replay
         )
-
         self._begin_synchronized_output = begin_synchronized_output
-        self._end_synchronized_output   = end_synchronized_output
-        self._report_error              = report_error
-
+        self._end_synchronized_output = end_synchronized_output
+        self._report_error = report_error
         self._invalidate = invalidate
-
         self.scrollback_reflow_line_limit: int = 0
-
         self.configure_scrollback_reflow_line_limit(
             scrollback_reflow_line_limit
         )
-
         self.view_row: int | None = None
-
         self._scrollback_task: asyncio.Task[None] | None = None
-
-        self._restored_history_truncated: bool      = False
+        self._restored_history_truncated: bool = False
         self._restored_history_notice_printed: bool = False
-
         self._observed_geometry: tuple[int, int] | None = None
         self._reflowed_geometry: tuple[int, int] | None = None
-
-        self._reflow_generation: int     = 0
-        self._reflow_required: bool      = False
+        self._reflow_generation: int = 0
+        self._reflow_required: bool = False
         self._resize_during_stream: bool = False
-
         self._failed_scrollback_generation: int | None = None
-
         self._rendered_revision: int = 0
-
-        self._scrollback_render_revision: int | None                = None
-        self._scrollback_reflow_handle: asyncio.TimerHandle | None  = None
+        self._scrollback_render_revision: int | None = None
+        self._scrollback_reflow_handle: asyncio.TimerHandle | None = None
         self._scrollback_recheck_handle: asyncio.TimerHandle | None = None
-        self._stream_scrollback_handle: asyncio.TimerHandle | None  = None
-        self._scrollback_reflow_task: asyncio.Task[None] | None     = None
-
+        self._stream_scrollback_handle: asyncio.TimerHandle | None = None
+        self._scrollback_reflow_task: asyncio.Task[None] | None = None
         self._reflow_reschedule_after_task: bool = False
 
     @property
@@ -451,7 +434,7 @@ class TuiTranscriptViewport(object):
                 return None
 
         display_width = max(1, int(self._get_terminal_width()))
-        line_count    = self._scrollback_prefix_line_count()
+        line_count = self._scrollback_prefix_line_count()
 
         include_notice = bool(
             not self._restored_history_notice_printed
@@ -613,7 +596,7 @@ class TuiTranscriptViewport(object):
 
     def clear_restored_history_notice(self) -> None:
         """清除只属于恢复回放的完整记录提示状态。"""
-        self._restored_history_truncated      = False
+        self._restored_history_truncated = False
         self._restored_history_notice_printed = False
 
     def observe_terminal_geometry(self, width: int, height: int) -> None:
@@ -658,7 +641,7 @@ class TuiTranscriptViewport(object):
     def refresh_geometry(self) -> bool:
         """在终端恢复后重新读取尺寸并刷新正文布局。"""
         previous = self._observed_geometry
-        current  = self._current_geometry()
+        current = self._current_geometry()
 
         self.observe_terminal_geometry(*current)
         self._invalidate()
@@ -762,7 +745,7 @@ class TuiTranscriptViewport(object):
             else min(self.view_row, last_row)
         )
 
-        page_rows  = max(1, window_height - 1)
+        page_rows = max(1, window_height - 1)
         target_row = max(0, min(last_row, current_row + direction * page_rows))
 
         self.view_row = None if target_row >= last_row else target_row
@@ -839,7 +822,7 @@ class TuiTranscriptViewport(object):
         current_task = asyncio.current_task()
 
         reschedule: bool = False
-        failed: bool     = False
+        failed: bool = False
 
         try:
             if not self._scrollback_candidate_still_valid(candidate):
@@ -986,7 +969,7 @@ class TuiTranscriptViewport(object):
             return None
 
         synchronized: bool = False
-        completed: bool    = False
+        completed: bool = False
 
         try:
             synchronized = self._begin_synchronized_output()

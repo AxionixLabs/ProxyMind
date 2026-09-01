@@ -25,11 +25,9 @@ class TuiBottomPane(object):
         invalidate: typing.Callable[[], None]
     ) -> None:
         self._focus_surface = focus_surface
-        self._focus_input   = focus_input
-        self._invalidate    = invalidate
-
+        self._focus_input = focus_input
+        self._invalidate = invalidate
         self._stack: list[BottomSurface] = []
-
         self.view_stack = BottomPaneViewStack(
             changed=self._view_stack_changed,
         )
@@ -61,6 +59,19 @@ class TuiBottomPane(object):
         """返回当前选择视图的稳定身份快照。"""
         view = self.active_view
         return view.identity() if view is not None else None
+
+    def _view_stack_changed(self, active: bool) -> None:
+        """让选择视图栈与 menu 表面的生命周期保持一致。"""
+        if active:
+            if "menu" not in self._stack:
+                self.activate("menu")
+            elif self.active_surface == "menu":
+                self._focus_surface("menu")
+                self._invalidate()
+            else:
+                self._invalidate()
+            return None
+        self.deactivate("menu")
 
     def is_active(self, surface: BottomSurface) -> bool:
         """返回指定表面是否位于交互栈顶。"""
@@ -96,19 +107,6 @@ class TuiBottomPane(object):
         self._stack.clear()
         self._focus_input()
         self._invalidate()
-
-    def _view_stack_changed(self, active: bool) -> None:
-        """让选择视图栈与 menu 表面的生命周期保持一致。"""
-        if active:
-            if "menu" not in self._stack:
-                self.activate("menu")
-            elif self.active_surface == "menu":
-                self._focus_surface("menu")
-                self._invalidate()
-            else:
-                self._invalidate()
-            return None
-        self.deactivate("menu")
 
 
 if __name__ == '__main__':

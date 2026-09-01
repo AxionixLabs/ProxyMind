@@ -12,8 +12,9 @@ from agent.application.tools.authorization import (
 )
 from agent.application.tools.results import (
     LocalToolResult,
-    LocalToolSource,
 )
+from agent.application.tools.execution_results import client_execution_result
+from agent.application.tools.patching import patch_tools
 from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from agent.application.approvals.amendments import approval_execpolicy_amendment
 from agent.domain.permission_profiles import normalize_permission_profile
@@ -23,8 +24,7 @@ from infrastructure.config.execution_policy_manager import (
     validate_sandbox_permission_arguments
 )
 from infrastructure.mcp.tool_results import normalize_call_tool_result
-from .schemas import (
-    APPLY_PATCH_INPUT_SCHEMA,
+from agent.application.tools.coding_schemas import (
     JS_REPL_INPUT_SCHEMA,
     JS_REPL_RESET_INPUT_SCHEMA,
     exec_command_input_schema,
@@ -74,28 +74,11 @@ def build_coding_result(
     target: str
 ) -> LocalToolResult:
     """构造编码工具调用结果。"""
-    output = dict(raw or {})
-    ok     = bool(output.get("ok"))
-
-    data = output.get("data")
-    if not isinstance(data, dict):
-        data = {}
-    else:
-        data = dict(data)
-    data["target"] = target
-
-    text        = str(output.get("text") or data or "")
-    result_text = f"tool={tool} target={target} ok={ok} {text}"
-
-    return LocalToolResult(
+    return client_execution_result(
         tool=tool,
-        source=LocalToolSource.CLIENT,
-        ok=ok,
-        text=result_text,
-        args=dict(args or {}),
-        attachments=tuple(output.get("attachments") or ()),
-        data=data,
-        logs=tuple(output.get("logs") or ()),
+        arguments=args,
+        result=raw,
+        target=target,
     )
 
 
@@ -144,21 +127,6 @@ def sandbox_failure_result(
         raw=raw,
         target=coding.agent_id,
     )
-
-
-def read_only_sandbox(runtime: ToolHandlerContext) -> bool:
-    """判断当前客户端工具是否运行在只读沙箱中。"""
-    return runtime.turn_context.permissions.sandbox_mode == "read-only"
-
-
-def validate_workspace_write_authorization(runtime: ToolHandlerContext) -> None:
-    """校验客户端工作区写入权限。"""
-    permissions = runtime.turn_context.permissions
-    if permissions.sandbox_mode == "read-only":
-        raise ExecutionAuthorizationError(
-            "sandbox_read_only",
-            "read-only mode does not allow workspace writes"
-        )
 
 
 def coding_tools(
@@ -331,45 +299,6 @@ def coding_tools(
             target=coding.agent_id
         )
 
-    async def apply_patch_handler(
-        arguments: dict[str, typing.Any],
-        runtime: ToolHandlerContext
-    ) -> LocalToolResult:
-        """应用补丁。"""
-        if read_only_sandbox(runtime):
-            return sandbox_failure_result(
-                coding,
-                tool="apply_patch",
-                arguments=arguments,
-            )
-
-        try:
-            reject_model_execution(arguments)
-            validate_workspace_write_authorization(runtime)
-        except ExecutionAuthorizationError as exc:
-            return authorization_failure_result(
-                coding, tool="apply_patch", arguments=arguments, error=exc
-            )
-
-        args = {
-            "patch"           : str(arguments.get("patch") or ""),
-            "expected_sha256" : arguments.get("expected_sha256"),
-            "force"           : bool(arguments.get("force", False))
-        }
-
-        raw  = coding.apply_patch(**args)
-        data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
-
-        if "delta" in data:
-            coding.track_patch_delta(data.get("delta"))
-
-        return build_coding_result(
-            tool="apply_patch",
-            args=args,
-            raw=raw,
-            target=coding.agent_id
-        )
-
     async def exec_command_handler(
         arguments: dict[str, typing.Any],
         runtime: ToolHandlerContext
@@ -498,19 +427,8 @@ def coding_tools(
             meta={"hidden": False, "domain": "coding", "class": "shell"},
             handler=write_stdin_handler,
         ),
-        ClientTool(
-            name="apply_patch",
-            description=(
-                "应用文本补丁修改工作区文件。调用参数是对象，必填字段为 patch，形状为 "
-                "{\"patch\": \"补丁文本\"}。支持 *** Begin Patch、标准 unified diff 和 "
-                "git diff，以及多文件、新建、更新、删除和上下文校验。"
-            ),
-            input_schema=APPLY_PATCH_INPUT_SCHEMA,
-            meta={"hidden": False, "domain": "coding", "class": "workspace"},
-            handler=apply_patch_handler,
-        ),
     ]
-    return tools
+    return [*tools, *patch_tools(coding)]
 
 
 def _js_repl_arguments(arguments: dict[str, typing.Any]) -> dict[str, typing.Any]:

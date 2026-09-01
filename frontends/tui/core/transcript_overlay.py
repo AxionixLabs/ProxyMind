@@ -67,43 +67,37 @@ class TuiTranscriptOverlay(object):
         get_snapshot: typing.Callable[[], TranscriptSnapshot],
         invalidate: typing.Callable[[], None]
     ) -> None:
-        self.document    = document
-        self._get_width  = get_width
+        self.document = document
+        self._get_width = get_width
         self._get_height = get_height
         self._get_snapshot = get_snapshot
         self._invalidate = invalidate
-
-        self.active: bool           = False
-        self.raw_mode: bool         = False
-        self.scroll_offset: int     = 0
-        self.follow_bottom: bool    = True
+        self.active: bool = False
+        self.raw_mode: bool = False
+        self.scroll_offset: int = 0
+        self.follow_bottom: bool = True
         self.backtrack_active: bool = False
-
-        self.search_editing: bool     = False
-        self.search_query: str        = ""
-        self.export_status: str       = ""
-        self.export_failed: bool      = False
+        self.search_editing: bool = False
+        self.search_query: str = ""
+        self.export_status: str = ""
+        self.export_failed: bool = False
         self.export_in_progress: bool = False
         self._export_request_id: int  = 0
-
         self._selected_cell: TranscriptBlock | None = None
-
         self._search_matches: tuple[TranscriptBlock, ...] = ()
-        self._search_match_index: int                     = -1
-        self._search_revision: int                        = -1
-
+        self._search_match_index: int = -1
+        self._search_revision: int = -1
         self._cached_stable_revision: int = -1
-        self._cached_width: int           = -1
+        self._cached_width: int = -1
         self._cached_live_tail_key: TranscriptRenderKey | None = None
-
         self._cached_stable_cells: tuple[TranscriptBlock, ...] = ()
-        self._cached_live_tail_lines: list[FormattedText]      = []
-        self._stable_cell_cache: dict[int, _CellRender]        = {}
-        self._stable_cell_line_counts: dict[int, int]          = {}
-        self._stable_cell_rows: list[_CellRows]                = []
-        self._stable_cell_row_stops: list[int]                 = []
-        self._stable_cell_rows_by_id: dict[int, _CellRows]     = {}
-        self._stable_line_count: int                           = 0
+        self._cached_live_tail_lines: list[FormattedText] = []
+        self._stable_cell_cache: dict[int, _CellRender] = {}
+        self._stable_cell_line_counts: dict[int, int] = {}
+        self._stable_cell_rows: list[_CellRows] = []
+        self._stable_cell_row_stops: list[int] = []
+        self._stable_cell_rows_by_id: dict[int, _CellRows] = {}
+        self._stable_line_count: int = 0
 
     @property
     def has_backtrack_target(self) -> bool:
@@ -136,7 +130,7 @@ class TuiTranscriptOverlay(object):
         )
 
         rows: list[FormattedText] = []
-        current: FormattedText    = []
+        current: FormattedText = []
 
         used_width: int = 0
 
@@ -144,8 +138,7 @@ class TuiTranscriptOverlay(object):
             unit_width = max(0, get_cwidth(fragments_text(unit)))
             if current and used_width + unit_width > width:
                 rows.append(current)
-
-                current    = list(continuation)
+                current = list(continuation)
                 used_width = sum(get_cwidth(value) for _style, value in current)
 
             for style, text in unit:
@@ -401,7 +394,7 @@ class TuiTranscriptOverlay(object):
         if not self.backtrack_active or self._selected_cell not in cells:
             target = cells[-1]
         else:
-            index  = cells.index(self._selected_cell)
+            index = cells.index(self._selected_cell)
             target = cells[max(0, index - 1)]
 
         self.backtrack_active = True
@@ -499,7 +492,7 @@ class TuiTranscriptOverlay(object):
         start: int
     ) -> list[FormattedText]:
         """给当前视口内选中的用户输入追加高亮样式。"""
-        selected_range  = self._selected_line_range()
+        selected_range = self._selected_line_range()
         highlight_class = "class:transcript.overlay.selection"
 
         if selected_range is None:
@@ -534,7 +527,7 @@ class TuiTranscriptOverlay(object):
     def _scroll(self, direction: int, amount: int) -> None:
         """按给定视觉行数更新记录视口。"""
         max_offset = self._max_scroll_offset()
-        current    = max_offset if self.follow_bottom else self.scroll_offset
+        current = max_offset if self.follow_bottom else self.scroll_offset
 
         target = max(
             0,
@@ -581,7 +574,7 @@ class TuiTranscriptOverlay(object):
         count: int
     ) -> list[FormattedText]:
         """从稳定行和动态尾部中提取连续的可见行。"""
-        stop         = start + max(0, count)
+        stop = start + max(0, count)
         stable_count = self._stable_line_count
 
         out = self._stable_lines(start, min(stop, stable_count))
@@ -596,7 +589,7 @@ class TuiTranscriptOverlay(object):
     def _stable_lines(self, start: int, stop: int) -> list[FormattedText]:
         """按轻量索引渲染稳定记录中的指定视觉行。"""
         start = max(0, int(start))
-        stop  = min(self._stable_line_count, max(start, int(stop)))
+        stop = min(self._stable_line_count, max(start, int(stop)))
 
         if start >= stop:
             return []
@@ -696,12 +689,12 @@ class TuiTranscriptOverlay(object):
         """重建稳定记录的视觉行范围并限制昂贵渲染缓存。"""
         previous_cache = self._stable_cell_cache
 
-        self._stable_cell_cache       = {}
+        self._stable_cell_cache = {}
         self._stable_cell_line_counts = {}
-        self._stable_cell_rows        = []
-        self._stable_cell_row_stops   = []
-        self._stable_cell_rows_by_id  = {}
-        self._stable_line_count       = 0
+        self._stable_cell_rows = []
+        self._stable_cell_row_stops = []
+        self._stable_cell_rows_by_id = {}
+        self._stable_line_count = 0
 
         for cell in cells:
             rendered = self._cell_render_from_cache(
@@ -767,7 +760,7 @@ class TuiTranscriptOverlay(object):
         preserve_selection: bool = True
     ) -> None:
         """按稳定记录版本更新搜索结果并尽量保留当前选中项。"""
-        query    = self.search_query.casefold()
+        query = self.search_query.casefold()
         snapshot = self._get_snapshot()
 
         if not query:

@@ -12,10 +12,13 @@ from prompt_toolkit.utils import get_cwidth
 from frontends.terminal.text import sanitize_terminal_text
 from ..rendering.fragments import (
     fragments_text,
-    iter_text_units
+    iter_text_units,
 )
 
-DirectoryTrustChoice: typing.TypeAlias = typing.Literal["trust", "quit"]
+DirectoryTrustChoice: typing.TypeAlias = typing.Literal[
+    "trust",
+    "quit"
+]
 
 
 @dataclass
@@ -40,14 +43,12 @@ class TuiDirectoryTrust(object):
         get_width: typing.Callable[[], int],
         get_max_height: typing.Callable[[], int]
     ) -> None:
-        self.invalidate     = invalidate
-        self.focus_prompt   = focus_prompt
-        self.focus_input    = focus_input
-        self.get_width      = get_width
+        self.invalidate = invalidate
+        self.focus_prompt = focus_prompt
+        self.focus_input = focus_input
+        self.get_width = get_width
         self.get_max_height = get_max_height
-
         self.state: DirectoryTrustState | None = None
-
         self.key_bindings = self._build_key_bindings()
 
     @property
@@ -82,9 +83,9 @@ class TuiDirectoryTrust(object):
         if state is None:
             return None
 
-        state.error       = sanitize_terminal_text(message).strip()
+        state.error = sanitize_terminal_text(message).strip()
         state.highlighted = "trust"
-        state.future      = _new_future()
+        state.future = _new_future()
 
         self.invalidate()
 

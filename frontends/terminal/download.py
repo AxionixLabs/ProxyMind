@@ -19,8 +19,8 @@ async def download_animation(
 
     def fmt_size(num: float) -> str:
         unit = ["B", "KB", "MB", "GB", "TB"]
-        idx  = 0
-        n    = float(max(0.0, num))
+        idx = 0
+        n = float(max(0.0, num))
 
         while n >= 1024.0 and idx < len(unit) - 1:
             n /= 1024.0
@@ -52,7 +52,7 @@ async def download_animation(
 
     def progress_bar(*, phase: float, total: int, tick: int, bar_width: int) -> str:
         cursor = int((bar_width - 1) * (0.5 + 0.5 * math.sin(tick * 0.22)))
-        fill   = int(bar_width * clamp01(phase)) if total > 0 else 0
+        fill = int(bar_width * clamp01(phase)) if total > 0 else 0
 
         chars: list[str] = []
         for i in range(bar_width):
@@ -120,17 +120,17 @@ async def download_animation(
 
     def final_frame() -> Text:
         """构建下载完成后的最终展示行。"""
-        done         = int(state.get("done") or 0)
-        total        = int(state.get("total") or 0)
-        phase        = float(state.get("phase") or 0.0)
-        final_icon   = str(state.get("final_icon") or "✓")
-        final_label  = str(state.get("final_label") or "complete")
-        final_style  = str(state.get("final_style") or "bold #87FFAF")
+        done = int(state.get("done") or 0)
+        total = int(state.get("total") or 0)
+        phase = float(state.get("phase") or 0.0)
+        final_icon = str(state.get("final_icon") or "✓")
+        final_label = str(state.get("final_label") or "complete")
+        final_style = str(state.get("final_style") or "bold #87FFAF")
 
         out = Text()
 
         headline = f"{final_icon} {final_label}"
-        detail   = f" · {fmt_percent(phase, total)} · {fmt_transfer(done, total, 0.0)}"
+        detail = f" · {fmt_percent(phase, total)} · {fmt_transfer(done, total, 0.0)}"
 
         out.append(headline, style=final_style)
         out.append(detail, style="bold dim #8A8A8A")
@@ -147,7 +147,7 @@ async def download_animation(
 
             stage = str(state.get("stage") or "warming")
             phase = float(state.get("phase") or 0.0)
-            done  = int(state.get("done") or 0)
+            done = int(state.get("done") or 0)
             total = int(state.get("total") or 0)
             speed = float(state.get("speed") or 0.0)
 
@@ -174,8 +174,8 @@ async def download_animation(
             await asyncio.sleep(0.06)
 
     line_width = 56
-    spin       = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-    agen       = frames()
+    spin = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    agen = frames()
 
     first = await agen.__anext__()
     with Live(first, console=console, refresh_per_second=18, transient=True) as live:

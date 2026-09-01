@@ -8,15 +8,18 @@ from prompt_toolkit.utils import get_cwidth
 from frontends.terminal.capabilities import TerminalColorLevel
 from .models import FormattedText
 
-StatusFamily = typing.Literal["tool", "wait", "retry", "provider_retry"]
+StatusFamily = typing.Literal[
+    "tool",
+    "wait",
+    "retry",
+    "provider_retry"
+]
 
-SWEEP_GLOW_SPAN    = 2.8
+SWEEP_GLOW_SPAN = 2.8
 SWEEP_MIN_DURATION = 1.22
 SWEEP_MAX_DURATION = 1.48
-
-SWEEP_REFRESH_PER_SECOND   = 30
+SWEEP_REFRESH_PER_SECOND = 30
 SPINNER_REFRESH_PER_SECOND = 10
-
 SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 
@@ -353,9 +356,9 @@ def _sweep_fragments(
     color_level: TerminalColorLevel
 ) -> FormattedText:
     """按字符到光带中心的距离生成局部扫光。"""
-    cells     = _character_cells(text)
-    span      = max(1, _display_span(cells))
-    focus     = _sweep_focus(float(phase), span=span, profile=profile)
+    cells = _character_cells(text)
+    span = max(1, _display_span(cells))
+    focus = _sweep_focus(float(phase), span=span, profile=profile)
     dim_color = palette.color_stops[0][1]
 
     out: FormattedText = []
@@ -394,18 +397,18 @@ def _sweep_focus(
     profile: SweepProfile
 ) -> float:
     """按真实时间计算带静默间隔的局部光带中心。"""
-    width           = max(1, int(span))
-    last_position   = float(max(0, width - 1))
-    band_extent     = profile.peak_radius + profile.glow_span
+    width = max(1, int(span))
+    last_position = float(max(0, width - 1))
+    band_extent = profile.peak_radius + profile.glow_span
     active_duration = _sweep_duration(width) / profile.speed_factor
-    cycle_duration  = active_duration + profile.rest_duration
-    cycle_elapsed   = max(0.0, float(elapsed)) % cycle_duration
+    cycle_duration = active_duration + profile.rest_duration
+    cycle_elapsed = max(0.0, float(elapsed)) % cycle_duration
 
     if cycle_elapsed >= active_duration:
         return last_position + band_extent
 
     progress = cycle_elapsed / max(0.001, active_duration)
-    travel   = last_position + (band_extent * 2.0)
+    travel = last_position + (band_extent * 2.0)
 
     return -band_extent + (travel * progress)
 
@@ -425,7 +428,7 @@ def _sweep_intensity(
         return 1.0 - (0.05 * _smoothstep(core))
 
     normalized = (distance - peak_radius) / max(0.001, glow_span)
-    intensity  = 0.95 * (1.0 - _smoothstep(normalized))
+    intensity = 0.95 * (1.0 - _smoothstep(normalized))
 
     return max(0.0, min(1.0, intensity))
 
@@ -437,11 +440,11 @@ def _animated_palette(profile: SweepProfile, elapsed: float) -> SweepPalette:
         return palettes[0]
 
     position = max(0.0, float(elapsed)) / max(0.001, profile.palette_period)
-    index    = int(position) % len(palettes)
-    blend    = _smoothstep(position - int(position))
+    index = int(position) % len(palettes)
+    blend = _smoothstep(position - int(position))
 
     start = palettes[index]
-    end   = palettes[(index + 1) % len(palettes)]
+    end = palettes[(index + 1) % len(palettes)]
 
     color_stops = tuple(
         (
@@ -511,10 +514,9 @@ def _display_span(cells: list[tuple[float, str]]) -> int:
 def _mix_hex_color(start: str, end: str, weight: float) -> str:
     """按给定权重混合两个十六进制颜色。"""
     ratio = max(0.0, min(1.0, float(weight)))
-    left  = tuple(int(start[index:index + 2], 16) for index in (1, 3, 5))
+    left = tuple(int(start[index:index + 2], 16) for index in (1, 3, 5))
     right = tuple(int(end[index:index + 2], 16) for index in (1, 3, 5))
     mixed = tuple(round(a + ((b - a) * ratio)) for a, b in zip(left, right))
-
     return "#" + "".join(f"{value:02X}" for value in mixed)
 
 

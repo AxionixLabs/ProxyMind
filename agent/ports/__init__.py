@@ -75,6 +75,7 @@ from .media import (
     ImageReaderFactory,
     ImageReaderPort,
 )
+from .patching import WorkspacePatchPort
 from .tool_runtime import (
     BeforeToolSession,
     ExternalToolGroupPort,
@@ -230,6 +231,7 @@ __all__ = (
     "ImageReadError",
     "ImageReaderFactory",
     "ImageReaderPort",
+    "WorkspacePatchPort",
     "BeforeToolSession",
     "ExternalToolGroupPort",
     "ToolRegistryPort",

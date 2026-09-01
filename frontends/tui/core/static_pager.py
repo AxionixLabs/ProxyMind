@@ -21,15 +21,13 @@ class TuiStaticPager(object):
         invalidate: typing.Callable[[], None]
     ) -> None:
         """绑定页面尺寸和重绘入口。"""
-        self._get_width  = get_width
+        self._get_width = get_width
         self._get_height = get_height
         self._invalidate = invalidate
-
         self.active: bool = False
         self.title: str = ""
         self.lines: tuple[tuple[tuple[str, str], ...], ...] = ()
         self.scroll_offset: int = 0
-
         self._cached_width: int = -1
         self._cached_rows: tuple[tuple[tuple[str, str], ...], ...] = ()
 
@@ -64,15 +62,12 @@ class TuiStaticPager(object):
 
     def visible_fragments(self) -> FormattedText:
         """返回当前窗口可见的格式化页面内容。"""
-        rows    = self._rows()
-        height  = max(0, self._get_height())
+        rows = self._rows()
+        height = max(0, self._get_height())
         maximum = max(0, len(rows) - height)
-
         self.scroll_offset = min(self.scroll_offset, maximum)
         visible = rows[self.scroll_offset:self.scroll_offset + height]
-
         display_rows = [list(row) for row in visible]
-
         display_rows.extend(
             [("class:static-pager.filler", "~")]
             for _index in range(max(0, height - len(display_rows)))
@@ -82,10 +77,10 @@ class TuiStaticPager(object):
 
     def scroll_lines(self, step: int) -> None:
         """按物理行移动静态页面。"""
-        rows    = self._rows()
-        height  = max(0, self._get_height())
+        rows = self._rows()
+        height = max(0, self._get_height())
         maximum = max(0, len(rows) - height)
-        target  = max(0, min(maximum, self.scroll_offset + int(step)))
+        target = max(0, min(maximum, self.scroll_offset + int(step)))
 
         if target == self.scroll_offset:
             return None
@@ -104,7 +99,7 @@ class TuiStaticPager(object):
     def jump(self, *, to_end: bool) -> None:
         """跳转到静态页面开头或末尾。"""
         maximum = max(0, len(self._rows()) - max(0, self._get_height()))
-        target  = maximum if to_end else 0
+        target = maximum if to_end else 0
 
         if target == self.scroll_offset:
             return None

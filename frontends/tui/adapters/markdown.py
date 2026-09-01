@@ -5,7 +5,7 @@ import re
 import typing
 from dataclasses import (
     dataclass,
-    replace
+    replace,
 )
 from markdown_it import MarkdownIt
 from markdown_it.tree import SyntaxTreeNode
@@ -15,12 +15,12 @@ from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
 from frontends.terminal.highlighting import (
     StreamingCodeHighlighter,
-    code_token_style
+    code_token_style,
 )
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle
+    TextStyle,
 )
 from frontends.terminal.text import sanitize_styled_block
 from ..core.models import FragmentBlock
@@ -37,23 +37,23 @@ MARKDOWN_H3_STYLE = TextStyle(bold=True, italic=True)
 MARKDOWN_H4_STYLE = TextStyle(dim=True, italic=True)
 
 MARKDOWN_UNORDERED_MARKER_STYLE = TextStyle(dim=True)
-MARKDOWN_ORDERED_MARKER_STYLE   = TextStyle(foreground="ansiblue")
-MARKDOWN_QUOTE_MARKER_STYLE     = TextStyle(foreground="ansigreen", dim=True)
-MARKDOWN_QUOTE_STYLE            = TextStyle(dim=True)
-MARKDOWN_INLINE_CODE_STYLE      = TextStyle(foreground="ansicyan")
-MARKDOWN_LINK_STYLE             = TextStyle(foreground="ansicyan", underline=True)
-MARKDOWN_TABLE_HEADER_STYLE     = TextStyle(foreground="ansiblue", bold=True)
-MARKDOWN_SEPARATOR_STYLE        = TextStyle(dim=True)
+MARKDOWN_ORDERED_MARKER_STYLE = TextStyle(foreground="ansiblue")
+MARKDOWN_QUOTE_MARKER_STYLE = TextStyle(foreground="ansigreen", dim=True)
+MARKDOWN_QUOTE_STYLE = TextStyle(dim=True)
+MARKDOWN_INLINE_CODE_STYLE = TextStyle(foreground="ansicyan")
+MARKDOWN_LINK_STYLE = TextStyle(foreground="ansicyan", underline=True)
+MARKDOWN_TABLE_HEADER_STYLE = TextStyle(foreground="ansiblue", bold=True)
+MARKDOWN_SEPARATOR_STYLE = TextStyle(dim=True)
 
-TABLE_COLUMN_GAP                   = 2
-TABLE_LEADING_PADDING              = 1
-TABLE_MIN_COLUMN_WIDTH             = 3
-TABLE_MIN_SCANNABLE_WIDTH          = 12
-TABLE_MIN_ALIGNED_VALUE_WIDTH      = 12
-TABLE_CRAMPED_CELL_LINES           = 4
+TABLE_COLUMN_GAP = 2
+TABLE_LEADING_PADDING = 1
+TABLE_MIN_COLUMN_WIDTH = 3
+TABLE_MIN_SCANNABLE_WIDTH = 12
+TABLE_MIN_ALIGNED_VALUE_WIDTH = 12
+TABLE_CRAMPED_CELL_LINES = 4
 TABLE_CATASTROPHIC_NARRATIVE_LINES = 7
-TABLE_RECORD_FIELD_GAP             = 2
-TABLE_RECORD_VALUE_INDENT          = 2
+TABLE_RECORD_FIELD_GAP = 2
+TABLE_RECORD_VALUE_INDENT = 2
 
 _MARKDOWN = MarkdownIt("commonmark").enable(("table", "strikethrough"))
 
@@ -157,8 +157,7 @@ class TuiMarkdownStreamRenderer(object):
     ) -> FragmentBlock:
         """渲染完整源码行，并只重复处理仍可能变化的末尾块。"""
         original_source = str(text or "")
-        source          = _normalize_markdown_table_fences(original_source)
-
+        source = _normalize_markdown_table_fences(original_source)
         source_compatible = source == original_source
 
         render_width = max(1, int(width)) if width is not None else None
@@ -261,7 +260,7 @@ class TuiMarkdownStreamRenderer(object):
         self._streaming_table = None
 
         stable_count = _stable_node_count(tail, nodes, final=final)
-        stable_end   = _stable_source_end(tail, nodes, stable_count)
+        stable_end = _stable_source_end(tail, nodes, stable_count)
 
         if stable_end:
             previous_stable_end = self._stable_source_len
@@ -339,8 +338,8 @@ class TuiMarkdownStreamRenderer(object):
             final=final,
         )
 
-        self._stable_source_len      = 0
-        self._stable_lines           = []
+        self._stable_source_len = 0
+        self._stable_lines = []
         self._committable_source_len = committable_end
 
         self._committable_lines = _render_blocks(
@@ -348,7 +347,7 @@ class TuiMarkdownStreamRenderer(object):
             width=width,
         )
 
-        self._streaming_table           = None
+        self._streaming_table = None
         self._streaming_code.reset()
         self._has_reference_definitions = bool(env.get("references"))
 
@@ -463,7 +462,7 @@ class TuiMarkdownStreamRenderer(object):
                     )
             else:
                 record_layout = not state.record_layout
-                column_kinds  = []
+                column_kinds = []
                 affected_rows = 0
 
             can_append_layout = bool(
@@ -488,9 +487,9 @@ class TuiMarkdownStreamRenderer(object):
                     )
 
                 state.natural_widths = natural_widths
-                state.fitted_widths  = fitted_widths
-                state.column_kinds   = column_kinds
-                state.affected_rows  = affected_rows
+                state.fitted_widths = fitted_widths
+                state.column_kinds = column_kinds
+                state.affected_rows = affected_rows
 
             else:
                 (
@@ -681,7 +680,7 @@ def _coalesce_spans(spans: list[TextSpan]) -> list[TextSpan]:
 
     out: list[TextSpan] = []
 
-    run_style     = spans[0].style
+    run_style = spans[0].style
     run_hyperlink = spans[0].hyperlink
 
     run_text: list[str] = []
@@ -761,15 +760,15 @@ def _committable_prefix_boundary(
 ) -> tuple[int, int]:
     """返回允许写入终端历史的稳定节点数量和源码边界。"""
     stable_count = max(0, min(int(stable_count), len(nodes)))
-    stable_end   = _stable_source_end(source, nodes, stable_count)
+    stable_end = _stable_source_end(source, nodes, stable_count)
 
     if final or stable_count <= 0:
         return stable_count, stable_end
 
-    offsets           = _line_start_offsets(source)
-    definition_start  = _reference_definition_start(env, offsets)
+    offsets = _line_start_offsets(source)
+    definition_start = _reference_definition_start(env, offsets)
     committable_count = 0
-    boundary          = definition_start
+    boundary = definition_start
 
     for node in nodes[:stable_count]:
         node_start = _node_source_start(node, offsets)
@@ -909,13 +908,13 @@ def _closed_fence(source: str, node: SyntaxTreeNode) -> bool:
         return False
 
     candidate = lines[end_line]
-    stripped  = candidate.lstrip(" ")
+    stripped = candidate.lstrip(" ")
 
     if len(candidate) - len(stripped) > 3:
         return False
 
     marker = node.markup[0]
-    count  = len(stripped) - len(stripped.lstrip(marker))
+    count = len(stripped) - len(stripped.lstrip(marker))
 
     return bool(
         count >= len(node.markup)
@@ -1057,11 +1056,11 @@ def _list_lines(
     """渲染有序或无序列表。"""
     lines: list[list[TextSpan]] = []
 
-    start  = int(node.attrs.get("start") or 1) if ordered else 1
+    start = int(node.attrs.get("start") or 1) if ordered else 1
     indent = "    " * depth
 
     for index, item in enumerate(node.children):
-        marker       = f"{start + index}. " if ordered else "- "
+        marker = f"{start + index}. " if ordered else "- "
         marker_width = len(marker)
 
         marker_style = (
@@ -1070,7 +1069,7 @@ def _list_lines(
             else MARKDOWN_UNORDERED_MARKER_STYLE
         )
 
-        item_lines: list[list[TextSpan]]   = []
+        item_lines: list[list[TextSpan]] = []
         nested_lines: list[list[TextSpan]] = []
 
         for child in item.children:
@@ -1093,7 +1092,7 @@ def _list_lines(
         if not item_lines:
             item_lines = [[]]
 
-        item_start    = len(lines)
+        item_start = len(lines)
         first_content = True
 
         for line in item_lines:
@@ -1244,14 +1243,14 @@ def _table_layout_from_rows(
         return [], [], [], False
 
     column_count = max(len(cells) for _header, cells, _alignments in rendered_rows)
-    widths       = [1] * column_count
+    widths = [1] * column_count
 
     for _header, cells, _alignments in rendered_rows:
         for index, spans in enumerate(cells):
             widths[index] = max(widths[index], _spans_width(spans))
 
     natural_widths = list(widths)
-    widths         = _fit_table_widths(widths, width=width)
+    widths = _fit_table_widths(widths, width=width)
 
     record_layout = _table_should_render_records(
         rendered_rows,
@@ -1294,7 +1293,7 @@ def _parse_appended_table_rows(
 ) -> list[_RenderedTableRow] | None:
     """解析追加到既有表格尾部的新数据行。"""
     candidate = header_source + suffix
-    root      = SyntaxTreeNode(_MARKDOWN.parse(candidate))
+    root = SyntaxTreeNode(_MARKDOWN.parse(candidate))
 
     if len(root.children) != 1 or root.children[0].type != "table":
         return None
@@ -1303,7 +1302,7 @@ def _parse_appended_table_rows(
     if table.map is None or table.map[1] != len(candidate.splitlines()):
         return None
 
-    rows      = _table_rendered_rows(table)
+    rows = _table_rendered_rows(table)
     body_rows = [row for row in rows if not row[0]]
 
     return body_rows or None
@@ -1366,7 +1365,7 @@ def _fit_table_widths(
         else:
             high = cap - 1
 
-    fitted    = [min(value, low) for value in widths]
+    fitted = [min(value, low) for value in widths]
     remaining = content_budget - sum(fitted)
 
     for index, natural in enumerate(widths):
@@ -1385,7 +1384,7 @@ def _wrap_spans(
     width: int
 ) -> list[list[TextSpan]]:
     """优先在词边界折行，并保留样式与链接边界。"""
-    limit      = max(1, int(width))
+    limit = max(1, int(width))
     plain_text = "".join(span.text for span in spans)
 
     if (
@@ -1401,7 +1400,7 @@ def _wrap_spans(
         return [list(spans)]
 
     lines: list[list[TextSpan]] = []
-    current: list[TextSpan]     = []
+    current: list[TextSpan] = []
 
     used: int = 0
 
@@ -1412,20 +1411,16 @@ def _wrap_spans(
             unit_width = max(0, get_cwidth(unit))
             if current and unit_width and used + unit_width > limit:
                 if last_space is not None:
-
                     before = current[:last_space]
-                    after  = current[last_space + 1:]
-
+                    after = current[last_space + 1:]
                     lines.append(_merge_text_span_units(before))
-
                     current = after
-                    used    = sum(_spans_width([item]) for item in current)
+                    used = sum(_spans_width([item]) for item in current)
 
                 else:
                     lines.append(_merge_text_span_units(current))
-
                     current = []
-                    used    = 0
+                    used = 0
 
                 last_space = next((
                     index
@@ -1561,10 +1556,9 @@ def _table_grid_row(
     out = [TextSpan(" " * TABLE_LEADING_PADDING)]
 
     for index, width in enumerate(widths):
-
-        spans     = cells[index]
-        used      = _spans_width(spans)
-        padding   = max(0, width - used)
+        spans = cells[index]
+        used = _spans_width(spans)
+        padding = max(0, width - used)
         alignment = alignments[index]
 
         if alignment == "right":
@@ -1682,8 +1676,8 @@ def _table_row_is_affected(
     kinds: list[str]
 ) -> bool:
     """判断一条数据行在压缩网格中是否已经难以阅读。"""
-    fragmented: bool             = False
-    starved_expansive: int       = 0
+    fragmented: bool = False
+    starved_expansive: int = 0
     catastrophic_narrative: bool = False
 
     for cell, column_width, kind in zip(cells, widths, kinds):
@@ -1736,8 +1730,8 @@ def _table_column_kinds(
             if index < len(cells)
         ]
 
-        body_values   = values[1:] or values
-        word_counts   = [len(value.split()) for value in body_values]
+        body_values = values[1:] or values
+        word_counts = [len(value.split()) for value in body_values]
         average_words = sum(word_counts) / max(1, len(word_counts))
 
         average_width = sum(
@@ -1776,14 +1770,14 @@ def _table_record_lines(
     width: int | None
 ) -> list[list[TextSpan]]:
     """把窄屏表格转置为按记录排列的键值字段。"""
-    headers   = next((cells for header, cells, _alignments in rows if header), [])
+    headers = next((cells for header, cells, _alignments in rows if header), [])
     body_rows = [cells for header, cells, _alignments in rows if not header]
 
     if not headers or not body_rows:
         natural = [max(1, _spans_width(cell)) for cell in headers]
         return _table_grid_lines(rows, widths=natural)
 
-    available   = max(1, int(width)) if width is not None else None
+    available = max(1, int(width)) if width is not None else None
     label_width = max(_spans_width(header) for header in headers)
 
     aligned = bool(
@@ -1837,7 +1831,7 @@ def _extend_table_record_lines(
         return None
 
     incremental_rows = [headers, *appended]
-    appended_lines   = _table_record_lines(incremental_rows, width=width)
+    appended_lines = _table_record_lines(incremental_rows, width=width)
 
     if body_started and appended_lines:
         separator_width = max(1, int(width)) if width is not None else max(
@@ -2003,9 +1997,9 @@ def _code_lines(text: str, *, language: str) -> list[list[TextSpan]]:
     if not code:
         return [[]]
 
-    lexer         = None
+    lexer = None
     language_info = str(language or "").strip()
-    lexer_name    = language_info.split(maxsplit=1)[0] if language_info else ""
+    lexer_name = language_info.split(maxsplit=1)[0] if language_info else ""
 
     if lexer_name:
         try:

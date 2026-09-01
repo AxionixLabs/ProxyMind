@@ -2,20 +2,18 @@
 # Notes: ==== Mind™ ====
 
 import typing
-
 from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text,
 )
-
 from .models import TracePreview
 
 MISSING = object()
 
-MAX_PREVIEW_LINES         = 8
-SCREEN_PREVIEW_LINES      = 5
-MAX_PREVIEW_WIDTH         = 120
-MAX_CODE_PREVIEW_LINES    = 48
+MAX_PREVIEW_LINES = 8
+SCREEN_PREVIEW_LINES = 5
+MAX_PREVIEW_WIDTH = 120
+MAX_CODE_PREVIEW_LINES = 48
 SCREEN_CODE_PREVIEW_LINES = 18
 
 
@@ -69,10 +67,10 @@ def _format_middle_preview_lines(
     if len(clipped) <= limit:
         return "\n".join(clipped), 0
 
-    retained   = limit - 1
+    retained = limit - 1
     head_count = retained // 2
     tail_count = retained - head_count
-    omitted    = len(clipped) - retained
+    omitted = len(clipped) - retained
 
     folded = [
         *clipped[:head_count],

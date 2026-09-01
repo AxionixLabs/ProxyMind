@@ -7,8 +7,8 @@ import sys
 import time
 import typing
 import select
-import subprocess
 import threading
+import subprocess
 from dataclasses import dataclass
 from enum import Enum
 
@@ -20,31 +20,31 @@ TERMINAL_QUERY_TIMEOUT_SEC = 0.1
 class TerminalKind(str, Enum):
     """描述当前交互终端的已知身份。"""
     WINDOWS_TERMINAL = "windows_terminal"
-    ITERM2           = "iterm2"
-    WEZTERM          = "wezterm"
-    GHOSTTY          = "ghostty"
-    KITTY            = "kitty"
-    ALACRITTY        = "alacritty"
-    KONSOLE          = "konsole"
-    FOOT             = "foot"
-    RIO              = "rio"
-    WARP             = "warp"
-    APPLE_TERMINAL   = "apple_terminal"
-    GNOME_TERMINAL   = "gnome_terminal"
-    VSCODE           = "vscode"
-    VTE              = "vte"
-    TMUX             = "tmux"
-    ZELLIJ           = "zellij"
-    DUMB             = "dumb"
-    UNKNOWN          = "unknown"
+    ITERM2 = "iterm2"
+    WEZTERM = "wezterm"
+    GHOSTTY = "ghostty"
+    KITTY = "kitty"
+    ALACRITTY = "alacritty"
+    KONSOLE = "konsole"
+    FOOT = "foot"
+    RIO = "rio"
+    WARP = "warp"
+    APPLE_TERMINAL = "apple_terminal"
+    GNOME_TERMINAL = "gnome_terminal"
+    VSCODE = "vscode"
+    VTE = "vte"
+    TMUX = "tmux"
+    ZELLIJ = "zellij"
+    DUMB = "dumb"
+    UNKNOWN = "unknown"
 
 
 class TerminalColorLevel(str, Enum):
     """描述标准输出可安全使用的颜色级别。"""
     TRUECOLOR = "truecolor"
-    ANSI256   = "ansi256"
-    ANSI16    = "ansi16"
-    UNKNOWN   = "unknown"
+    ANSI256 = "ansi256"
+    ANSI16 = "ansi16"
+    UNKNOWN = "unknown"
 
 
 HIGH_CAPABILITY_TERMINALS = frozenset({
@@ -138,6 +138,7 @@ ColorProbe: typing.TypeAlias = typing.Callable[
     [object, object, float],
     TerminalTheme,
 ]
+
 TmuxProbe: typing.TypeAlias = typing.Callable[[], tuple[str, str] | None]
 
 
@@ -182,11 +183,11 @@ def detect_terminal_capabilities(
     input_replay: typing.Callable[[bytes], None] | None = None,
 ) -> TerminalCapabilities:
     """探测交互终端身份、色深和默认主题颜色。"""
-    env      = os.environ if environ is None else environ
+    env = os.environ if environ is None else environ
     identity = detect_terminal_identity(env, tmux_probe=tmux_probe)
-    stdin    = sys.stdin if input_stream is None else input_stream
-    stdout   = sys.stdout if output_stream is None else output_stream
-    level    = detect_terminal_color_level(
+    stdin = sys.stdin if input_stream is None else input_stream
+    stdout = sys.stdout if output_stream is None else output_stream
+    level = detect_terminal_color_level(
         env,
         identity=identity,
         output_stream=stdout,
@@ -590,15 +591,15 @@ def _query_unix_theme(
     original: list[typing.Any] | None = None
 
     try:
-        input_fd  = int(input_stream.fileno())   # type: ignore[attr-defined]
+        input_fd = int(input_stream.fileno())   # type: ignore[attr-defined]
         output_fd = int(output_stream.fileno())  # type: ignore[attr-defined]
 
         if os.isatty(input_fd) and os.isatty(output_fd):
-            read_fd  = os.dup(input_fd)
+            read_fd = os.dup(input_fd)
             write_fd = os.dup(output_fd)
         else:
-            tty_fd   = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
-            read_fd  = os.dup(tty_fd)
+            tty_fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
+            read_fd = os.dup(tty_fd)
             write_fd = os.dup(tty_fd)
 
         original = termios.tcgetattr(read_fd)
@@ -751,9 +752,9 @@ def _windows_palette_theme(output_stream: object) -> TerminalTheme:
     if handle is None:
         return TerminalTheme()
 
-    info        = ScreenBufferInfo()
+    info = ScreenBufferInfo()
     info.cbSize = ctypes.sizeof(info)
-    kernel32    = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
     get_screen_buffer_info = kernel32["GetConsoleScreenBufferInfoEx"]
 

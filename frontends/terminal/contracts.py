@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import asyncio
 import typing
+import asyncio
 
 
 class TerminalDesign(typing.Protocol):

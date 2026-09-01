@@ -4,7 +4,7 @@
 import typing
 from dataclasses import (
     dataclass,
-    fields
+    fields,
 )
 from prompt_toolkit.key_binding import KeyBindings
 
@@ -51,7 +51,7 @@ class TuiRuntimeKeymap(object):
     def from_config(cls, config: typing.Any) -> "TuiRuntimeKeymap":
         """从有效配置中解析完整记录相关按键。"""
         root = config if isinstance(config, dict) else {}
-        tui  = root.get("tui") if isinstance(root.get("tui"), dict) else {}
+        tui = root.get("tui") if isinstance(root.get("tui"), dict) else {}
 
         keymap = (
             tui.get("keymap")
@@ -133,7 +133,7 @@ def _resolve_bindings(
     ):
         raise ValueError(f"{path} must be a string or an array of strings")
 
-    out: list[TuiKeyBinding]          = []
+    out: list[TuiKeyBinding] = []
     seen: set[tuple[typing.Any, ...]] = set()
 
     for value in values:
@@ -236,16 +236,16 @@ def _parse_binding(value: str, *, path: str) -> TuiKeyBinding:
         if len(prompt_key) != 1:
             raise ValueError(f"{path} has unsupported key binding: {value}")
 
-        keys  = (f"c-{prompt_key}",)
+        keys = (f"c-{prompt_key}",)
         label = f"Ctrl+{label}"
 
     elif modifier == "alt":
-        keys  = ("escape", prompt_key)
+        keys = ("escape", prompt_key)
         label = f"Alt+{label}"
 
     elif modifier == "shift":
         if prompt_key == "tab":
-            keys  = ("s-tab",)
+            keys = ("s-tab",)
             label = "Shift+Tab"
         elif len(prompt_key) == 1 and prompt_key.isalpha():
             keys  = (prompt_key.upper(),)
@@ -343,7 +343,7 @@ def _validate_reserved_pager_bindings(keymap: TuiPagerKeymap) -> None:
     }
 
     for field in fields(keymap):
-        action   = field.name
+        action = field.name
         bindings = typing.cast(tuple[TuiKeyBinding, ...], getattr(keymap, action))
 
         for binding in bindings:

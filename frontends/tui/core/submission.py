@@ -95,58 +95,42 @@ class TuiSubmissionFlow(object):
         invalidate: typing.Callable[[], None]
     ) -> None:
         self.input_model = input_model
-
         self.message_queue: asyncio.Queue[typing.Any] = asyncio.Queue()
-
         self.queued_messages = TuiQueuedMessages()
-        self.pending_steers  = TuiPendingSteers()
-
+        self.pending_steers = TuiPendingSteers()
         self._rejected_steers: collections.deque[TuiSubmission] = (
             collections.deque()
         )
-
         self.interrupt_state = TuiInterruptState(
             timeout_sec=self.EXIT_CONFIRM_TIMEOUT_SEC
         )
-
         self.placeholder_text = self.input_model.new_placeholder()
-
         self.queued_submission_text: str | None = None
-        self.surface_submission_pending: bool   = False
-        self._queue_submission_requested: bool  = False
-        self._input_handoff_pending: bool       = False
-
+        self.surface_submission_pending: bool = False
+        self._queue_submission_requested: bool = False
+        self._input_handoff_pending: bool = False
         self._is_submission_deferred = is_submission_deferred
-        self._get_input_buffer       = get_input_buffer
-        self._append_notice          = append_notice
-
+        self._get_input_buffer = get_input_buffer
+        self._append_notice = append_notice
         self._invalidate = invalidate
         self._exit_event = asyncio.Event()
-
         self._exit_expiry_task: asyncio.Task[None] | None  = None
-
         self._interrupt_handler: typing.Callable[
             [], InterruptDisposition
         ] = _ignore_interrupt
-
         self._stream_command_handler: typing.Callable[[str], bool] = (
             _ignore_stream_command
         )
-
         self._turn_input_handler: typing.Callable[
             [TuiSubmission, bool], bool
         ] = _ignore_turn_input
-
         self._queued_restore_handler: typing.Callable[[TuiSubmission], None] = (
             _ignore_queued_restore
         )
-
         self._has_pending_attachments: typing.Callable[[], bool] = (
             _no_pending_attachments
         )
-
         self.input_model.bind_interrupt(self.interrupt_input)
-
         self.input_model.bind_exit(
             lambda: not self._is_submission_deferred(),
             self.exit_input,
@@ -155,7 +139,6 @@ class TuiSubmissionFlow(object):
             self._is_submission_deferred,
             self.queue_input,
         )
-
         self.input_model.bind_queue_rollback(
             lambda: (
                 (
@@ -176,6 +159,15 @@ class TuiSubmissionFlow(object):
     def has_pending_attachments(self) -> bool:
         """返回当前是否存在可随空消息发送的附件。"""
         return bool(self._has_pending_attachments())
+
+    @property
+    def can_rollback_queued_input(self) -> bool:
+        """返回是否存在可取回的 Tab 输入或被退回即时输入。"""
+        return bool(
+            self.queued_messages.can_rollback
+            or self._rejected_steers
+            or self.pending_steers.uncertain_active
+        )
 
     def _schedule_exit_expiry(self) -> None:
         """安排退出确认窗口到期后的界面恢复。"""
@@ -263,15 +255,6 @@ class TuiSubmissionFlow(object):
         """把用户主动排队的输入保留到后续轮次。"""
         self.queued_messages.append(submission)
         self._invalidate()
-
-    @property
-    def can_rollback_queued_input(self) -> bool:
-        """返回是否存在可取回的 Tab 输入或被退回即时输入。"""
-        return bool(
-            self.queued_messages.can_rollback
-            or self._rejected_steers
-            or self.pending_steers.uncertain_active
-        )
 
     def defer_rejected_steer(self, submission: TuiSubmission) -> None:
         """把未被当前轮次消费的即时输入保留到优先重试队列。"""

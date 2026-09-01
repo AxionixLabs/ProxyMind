@@ -21,9 +21,10 @@ TokenMenuKind = typing.Literal[
     "completion"
 ]
 
-TOKEN_MENU_LEFT_PADDING           = 2
-TOKEN_MENU_META_WIDTH_NUMERATOR   = 7
+TOKEN_MENU_LEFT_PADDING = 2
+TOKEN_MENU_META_WIDTH_NUMERATOR = 7
 TOKEN_MENU_META_WIDTH_DENOMINATOR = 10
+
 MENTION_MENU_KINDS = frozenset({
     "skill-mention",
     "plugin-mention",
@@ -98,8 +99,8 @@ class TokenMenuState(object):
 
     def __init__(self) -> None:
         self._dismissed_command_token = None
-        self._dismissed_skill_token   = None
-        self._committed_skill_query   = None
+        self._dismissed_skill_token = None
+        self._committed_skill_query = None
 
     def command_dismissal_token(self) -> str | None:
         """返回已关闭的命令 token。"""
@@ -165,7 +166,7 @@ def _fit_text(text: str, width: int) -> str:
 
     parts: list[str] = []
 
-    used: int  = 0
+    used: int = 0
     limit: int = width - 3
 
     for char in text:
@@ -262,7 +263,7 @@ def prefix_match_indices(
     offset: int = 0
 ) -> tuple[int, ...] | None:
     """返回前缀匹配在显示文本中的字符位置。"""
-    folded_text  = str(text or "").casefold()
+    folded_text = str(text or "").casefold()
     folded_query = str(query or "").casefold()
 
     if not folded_query:
@@ -281,14 +282,14 @@ def subsequence_match_indices(
     query: str
 ) -> tuple[int, ...] | None:
     """返回非连续匹配在显示文本中的字符位置。"""
-    folded_text  = str(text or "").casefold()
+    folded_text = str(text or "").casefold()
     folded_query = str(query or "").casefold()
 
     if not folded_query:
         return None
 
     indices: list[int] = []
-    cursor: int        = 0
+    cursor: int = 0
 
     for char in folded_query:
         index = folded_text.find(char, cursor)
@@ -367,7 +368,7 @@ class TokenCompletionMenuControl(UIControl):
         fragments: StyleAndTextTuples = []
 
         current_style: str | None = None
-        current_text: list[str]   = []
+        current_text: list[str] = []
 
         def flush() -> None:
             if current_text:
@@ -380,7 +381,7 @@ class TokenCompletionMenuControl(UIControl):
             if style != current_style:
                 flush()
                 current_style = style
-                current_text  = [char]
+                current_text = [char]
             else:
                 current_text.append(char)
 
@@ -400,8 +401,8 @@ class TokenCompletionMenuControl(UIControl):
         main_width: int
     ) -> StyleAndTextTuples:
         """返回候选名称列的渲染片段。"""
-        suffix        = ".current" if current else ""
-        item_style    = f"class:token-menu.{item.kind}{suffix}"
+        suffix = ".current" if current else ""
+        item_style = f"class:token-menu.{item.kind}{suffix}"
         display_width = max(0, main_width - TOKEN_MENU_LEFT_PADDING - 1)
 
         marker = "> " if current and item.kind in {
@@ -453,7 +454,7 @@ class TokenCompletionMenuControl(UIControl):
         meta_width: int
     ) -> StyleAndTextTuples:
         """返回单行候选片段。"""
-        suffix     = ".current" if current else ""
+        suffix = ".current" if current else ""
         item_style = f"class:token-menu.{item.kind}{suffix}"
         meta_style = f"class:token-menu.meta.{item.kind}{suffix}"
 
@@ -484,10 +485,9 @@ class TokenCompletionMenuControl(UIControl):
                     (category_style, f"{category} "),
                 ])
             elif item.kind in {"file-mention", "directory-mention"}:
-
-                meta        = item.meta_text.strip()
-                category    = meta.rsplit(None, 1)[-1] if meta else ""
-                parent      = meta[:-(len(category) + 1)] if category else meta
+                meta = item.meta_text.strip()
+                category = meta.rsplit(None, 1)[-1] if meta else ""
+                parent = meta[:-(len(category) + 1)] if category else meta
                 inner_width = max(0, meta_width - 2)
 
                 category_width = min(
@@ -495,7 +495,7 @@ class TokenCompletionMenuControl(UIControl):
                     max(0, inner_width - 1),
                 )
 
-                parent_width   = max(0, inner_width - category_width - 1)
+                parent_width = max(0, inner_width - category_width - 1)
                 category_style = item_style
 
                 fragments.extend([
@@ -549,9 +549,9 @@ class TokenCompletionMenuControl(UIControl):
                 meta_width=meta_width,
             )]
 
-        suffix     = ".current" if current else ""
+        suffix = ".current" if current else ""
         meta_style = f"class:token-menu.meta.{item.kind}{suffix}"
-        rows       = _wrap_display_text(item.meta_text, content_width)
+        rows = _wrap_display_text(item.meta_text, content_width)
 
         first = list(self._name_fragments(
             item,
@@ -578,7 +578,6 @@ class TokenCompletionMenuControl(UIControl):
     ) -> tuple[int, int]:
         """根据当前窗口宽度计算名称列和说明列宽度。"""
         main_width = self._main_width(width, items)
-
         meta_width = TokenCompletionMenuControl._meta_width(
             width - main_width,
             items,
@@ -618,7 +617,6 @@ class TokenCompletionMenuControl(UIControl):
             return max(0, int(max_available_width))
 
         main_width = self._main_width(max_available_width, snapshot.items)
-
         meta_width = TokenCompletionMenuControl._meta_width(
             max_available_width - main_width,
             snapshot.items,
@@ -650,7 +648,7 @@ class TokenCompletionMenuControl(UIControl):
         if snapshot is None or not snapshot.items:
             return UIContent()
 
-        items    = snapshot.items
+        items = snapshot.items
         selected = snapshot.normalized_selected
 
         main_width, meta_width = self._layout_widths(width, items)

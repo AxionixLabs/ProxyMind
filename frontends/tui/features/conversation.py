@@ -9,17 +9,15 @@ from agent.ports import (
     ProtocolCommandError,
 )
 from agent.ports.presentation import ApplicationView
-from observability import (
-    observe,
-    observe_exception
-)
+from agent.application.turns.compact_result import CompactResult
+
 from frontends.terminal.mcp_status import (
     external_mcp_status_view,
     render_mcp_status_block,
 )
 from agent.ports.presentation import (
     StyledBlock,
-    TextSpan
+    TextSpan,
 )
 from frontends.tui.adapters.clipboard import (
     ClipboardError,
@@ -27,15 +25,17 @@ from frontends.tui.adapters.clipboard import (
 )
 from protocol.schema.identifiers import valid_session_ids
 from protocol.client.fork import ResubmittablePrompt
+from observability import (
+    observe,
+    observe_exception,
+)
 from metadata import const
-from agent.application.turns.compact_result import CompactResult
-
 from ..core.models import FragmentBlock
 from ..core.models import (
     MenuDescriptionLayout,
     MenuOption,
     MenuRequest,
-    STANDARD_MENU_FOOTER_HINT
+    STANDARD_MENU_FOOTER_HINT,
 )
 from ..core.styles import (
     BODY_STYLE,
@@ -44,10 +44,14 @@ from ..core.styles import (
     command_result_block,
     failure_text_block,
     fragment_block,
-    interrupted_status_block
+    interrupted_status_block,
 )
 
-PromptSource: typing.TypeAlias = typing.Literal["none", "server", "client"]
+PromptSource: typing.TypeAlias = typing.Literal[
+    "none",
+    "server",
+    "client"
+]
 
 
 class ConversationCompactor(typing.Protocol):
@@ -151,9 +155,9 @@ class CompactLiveStatus(object):
     """记录上下文压缩的流式阶段状态。"""
 
     def __init__(self) -> None:
-        self._message = "Context compacting..."
-        self._state   = "linking"
-        self._done    = False
+        self._message: str = "Context compacting..."
+        self._state: str = "linking"
+        self._done: bool = False
 
     def snapshot(self) -> dict[str, typing.Any]:
         """返回可复用外部 MCP 动画渲染的状态快照。"""
@@ -172,20 +176,20 @@ class CompactLiveStatus(object):
     def running(self, message: str) -> None:
         """更新压缩进行中的提示。"""
         self._message = message or "Context compacting..."
-        self._state   = "linking"
-        self._done    = False
+        self._state = "linking"
+        self._done = False
 
     def completed(self, message: str, detail: str) -> None:
         """更新压缩完成提示。"""
         self._message = f"{message or 'Context compacted.'}{detail}"
-        self._state   = "ready"
-        self._done    = True
+        self._state = "ready"
+        self._done = True
 
     def failed(self, message: str) -> None:
         """更新压缩失败提示。"""
         self._message = message or "Context compaction failed. Please try again."
-        self._state   = "failed"
-        self._done    = True
+        self._state = "failed"
+        self._done = True
 
 
 class ForkLiveStatus(object):
@@ -193,11 +197,9 @@ class ForkLiveStatus(object):
 
     def __init__(self) -> None:
         self._message = "Forking conversation..."
-        self._state   = "linking"
-        self._done    = False
-
+        self._state = "linking"
+        self._done = False
         self._prompt: ResubmittablePrompt | None = None
-
         self._source_session: tuple[str, str] | None = None
         self._target_session: tuple[str, str] | None = None
 
@@ -245,21 +247,18 @@ class ForkLiveStatus(object):
     ) -> None:
         """更新分支创建完成状态。"""
         suffix = f" · {copied_items} items" if copied_items > 0 else ""
-
         self._message = f"Conversation forked.{suffix}"
-        self._state   = "ready"
-        self._done    = True
-
-        self._prompt  = prompt
-
+        self._state = "ready"
+        self._done = True
+        self._prompt = prompt
         self._source_session = source_session
         self._target_session = target_session
 
     def failed(self, message: str) -> None:
         """更新分支创建失败状态。"""
         self._message = message or "Conversation fork failed. Try /fork again."
-        self._state   = "failed"
-        self._done    = True
+        self._state = "failed"
+        self._done = True
 
     def created_empty(
         self,
@@ -269,9 +268,8 @@ class ForkLiveStatus(object):
     ) -> None:
         """记录空来源直接切换到新会话的结果。"""
         self._message = "New conversation started."
-        self._state   = "ready"
-        self._done    = True
-
+        self._state = "ready"
+        self._done = True
         self._source_session = source_session
         self._target_session = target_session
 
@@ -346,9 +344,9 @@ async def fork_current_conversation(
     protocol_client: ProtocolCommandClient | None = None,
 ) -> ForkLiveStatus:
     """复制完整或指定轮次之前的上下文并按需切换会话标识。"""
-    source   = mind.conversation.snapshot()
+    source = mind.conversation.snapshot()
     boundary = str(before_turn_id or "").strip()
-    status   = ForkLiveStatus()
+    status = ForkLiveStatus()
 
     if (
         bind_target
@@ -406,10 +404,10 @@ async def fork_current_conversation(
                 before_turn_id=boundary or None,
             )
 
-        target_cid   = str(result.get("cid") or "").strip()
-        target_sid   = str(result.get("sid") or "").strip()
+        target_cid = str(result.get("cid") or "").strip()
+        target_sid = str(result.get("sid") or "").strip()
         copied_items = _positive_int(result.get("copied_items"))
-        prompt       = result.get("prompt")
+        prompt = result.get("prompt")
 
         if boundary and not isinstance(prompt, ResubmittablePrompt):
             prompt = fallback_prompt
@@ -585,13 +583,12 @@ async def fork_current_conversation(
                     request_id=request_id,
                 )
                 return status
-        message = str(error).strip()
-        detail  = f": {message}" if message else ""
 
+        message = str(error).strip()
+        detail = f": {message}" if message else ""
         status.failed(
             f"Conversation fork failed: {type(error).__name__}{detail}"
         )
-
         observe_exception(
             "conversation.fork.failed",
             error,
@@ -695,7 +692,7 @@ def render_compact_interrupted(mind: "Mind") -> None:
 def compact_result_detail(result: CompactResult) -> str:
     """返回压缩完成事件的简短统计。"""
     before_items = result.before_items
-    after_items  = result.after_items
+    after_items = result.after_items
 
     if isinstance(before_items, int) and isinstance(after_items, int):
         return f" · {before_items} -> {after_items} items"

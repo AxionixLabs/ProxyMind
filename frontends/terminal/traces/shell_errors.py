@@ -85,7 +85,7 @@ def _diagnostic_summary(lines: list[str]) -> str:
 
 def _join_summary_head(head: str, message: str) -> str:
     """合并错误头和具体原因，避免重复。"""
-    head    = str(head or "").strip()
+    head = str(head or "").strip()
     message = str(message or "").strip()
 
     if not head:
@@ -222,7 +222,8 @@ def _clip_diagnostic_block(block: list[str], *, max_lines: int) -> list[str]:
 
     head_count = max(1, limit // 2)
     tail_count = max(1, limit - head_count - 1)
-    omitted    = len(block) - head_count - tail_count
+
+    omitted = len(block) - head_count - tail_count
 
     return [
         *block[:head_count],
@@ -238,7 +239,7 @@ def _is_error_header_line(line: str) -> bool:
 
 def _is_powershell_line_detail(line: str) -> bool:
     """判断是否是 PowerShell Line | 块的详情行。"""
-    text     = str(line or "")
+    text = str(line or "")
     stripped = text.strip()
 
     return bool(

@@ -91,6 +91,7 @@ TUI_MENU_STYLE = Style.from_dict({
     "tui-menu.category": "dim",
 })
 
+
 class TuiMenu(object):
     """管理主 TUI Application 内的无边框选择菜单。"""
 
@@ -101,14 +102,11 @@ class TuiMenu(object):
         min_detail_width=12,
         max_detail_reserve=24,
     )
-
     VISIBLE_ROWS: typing.Final[int] = _RENDER_CONFIG.visible_rows
-
     SURFACE_HORIZONTAL_INSET: typing.Final[int] = _RENDER_CONFIG.horizontal_inset
-    SURFACE_VERTICAL_INSET: typing.Final[int]   = 1
-
-    MIN_LABEL_WIDTH: typing.Final[int]    = _RENDER_CONFIG.min_label_width
-    MIN_DETAIL_WIDTH: typing.Final[int]   = _RENDER_CONFIG.min_detail_width
+    SURFACE_VERTICAL_INSET: typing.Final[int] = 1
+    MIN_LABEL_WIDTH: typing.Final[int] = _RENDER_CONFIG.min_label_width
+    MIN_DETAIL_WIDTH: typing.Final[int] = _RENDER_CONFIG.min_detail_width
     MAX_DETAIL_RESERVE: typing.Final[int] = _RENDER_CONFIG.max_detail_reserve
 
     def __init__(
@@ -120,20 +118,17 @@ class TuiMenu(object):
         get_width: typing.Callable[[], int],
         view_stack: BottomPaneViewStack | None = None
     ) -> None:
-        self.invalidate  = invalidate
-        self.focus_menu  = focus_menu
+        self.invalidate = invalidate
+        self.focus_menu = focus_menu
         self.focus_input = focus_input
-        self.get_width   = get_width
-
+        self.get_width = get_width
         self._view_stack = (
             view_stack
             if view_stack is not None
             else BottomPaneViewStack(changed=self._standalone_stack_changed)
         )
         self._generations: dict[str, int] = {}
-
         self._session_generation: int = 0
-
         self.key_bindings = self._build_key_bindings()
 
     @property
@@ -154,6 +149,11 @@ class TuiMenu(object):
         return state.session_id if state is not None else None
 
     @staticmethod
+    def _normalize_filtered_state(state: MenuState) -> None:
+        """在刷新或查询变化后把选中项限制在过滤结果内。"""
+        state.selected = normalized_filtered_selection(state)
+
+    @staticmethod
     def state_dismisses_after_child_accept(state: MenuState) -> bool:
         """返回指定菜单状态的父级关闭标记。"""
         return state.dismiss_after_child_accept
@@ -162,6 +162,29 @@ class TuiMenu(object):
     def clear_state_child_dismissal(state: MenuState) -> None:
         """清除指定菜单状态的父级关闭标记。"""
         state.dismiss_after_child_accept = False
+
+    async def request(self, request: MenuRequest) -> typing.Any:
+        """显示根菜单并等待其完成。"""
+        if self.active:
+            return await self.push(request)
+
+        future = self.push(request)
+        session_id = self.active_session_id
+        try:
+            return await future
+        finally:
+            if (
+                session_id is not None
+                and self.session_is_active(session_id)
+            ):
+                await self.close()
+
+    async def close(self) -> None:
+        """取消全部菜单并恢复输入焦点。"""
+        while self.active:
+            self._settle_current(None, ViewCompletion.CANCELLED)
+        self.focus_input()
+        self.invalidate()
 
     def active_view_id(self) -> str | None:
         """返回当前栈顶菜单的稳定标识。"""
@@ -229,29 +252,6 @@ class TuiMenu(object):
         self._update_query(current.query + pasted)
         return True
 
-    async def request(self, request: MenuRequest) -> typing.Any:
-        """显示根菜单并等待其完成。"""
-        if self.active:
-            return await self.push(request)
-
-        future = self.push(request)
-        session_id = self.active_session_id
-        try:
-            return await future
-        finally:
-            if (
-                session_id is not None
-                and self.session_is_active(session_id)
-            ):
-                await self.close()
-
-    async def close(self) -> None:
-        """取消全部菜单并恢复输入焦点。"""
-        while self.active:
-            self._settle_current(None, ViewCompletion.CANCELLED)
-        self.focus_input()
-        self.invalidate()
-
     def push(self, request: MenuRequest) -> asyncio.Future[typing.Any]:
         """压入一个子菜单并返回只属于该 view 的 future。"""
         request = self._with_generation(_sanitize_menu_request(request))
@@ -280,23 +280,6 @@ class TuiMenu(object):
         )
         self._view_stack.push(MenuView(self, state))
         return future
-
-    def _switch_tab(self, step: int) -> None:
-        """按方向切换页签并重置查询和选中项。"""
-        state = self.state
-        if state is None:
-            return None
-        request = switched_tab_request(
-            state.request,
-            step=step,
-            base_footer_hint=state.base_footer_hint,
-        )
-        if request is None:
-            return None
-        state.request = request
-        state.query = ""
-        state.selected = initial_selection(request.options, request.selected)
-        self.invalidate()
 
     def fragments(self) -> StyleAndTextTuples:
         """生成当前菜单可见窗口的格式化片段。"""
@@ -361,37 +344,6 @@ class TuiMenu(object):
             return 0
         return self._height(state, width=self.get_width())
 
-    def _height(self, state: MenuState, *, width: int) -> int:
-        """返回指定菜单 frame 占用的显示行数。"""
-        footer = render_surface_footer_fragments(
-            state,
-            width=width,
-            config=self._RENDER_CONFIG,
-        )
-        return (
-            self._content_height(state, width=width)
-            + int(bool(footer))
-            + line_count(footer)
-        )
-
-    def _content_height(self, state: MenuState, *, width: int) -> int:
-        """返回指定菜单表面内容占用的显示行数。"""
-        content = render_surface_fragments(
-            state,
-            width=width,
-            config=self._RENDER_CONFIG,
-        )
-        return line_count(content)
-
-    def _footer_height(self, state: MenuState, *, width: int) -> int:
-        """返回指定菜单透明 footer 占用的显示行数。"""
-        footer = render_footer_fragments(
-            state,
-            width=width,
-            inset=self._RENDER_CONFIG.horizontal_inset,
-        )
-        return line_count(footer)
-
     def desired_height(self, width: int) -> int:
         """按底部面板协议返回菜单所需高度。"""
         state = self.state
@@ -414,37 +366,6 @@ class TuiMenu(object):
             return None
         self._replace_state_request(state, request)
         self.invalidate()
-
-    def _replace_state_request(
-        self,
-        state: MenuState,
-        request: MenuRequest
-    ) -> None:
-        """在不改变 view 对象的情况下替换其请求内容。"""
-        previous_value    = selected_value(state)
-        previous_selected = state.selected
-        request           = self._with_generation(_sanitize_menu_request(request))
-
-        state.base_footer_hint = request.footer_hint
-
-        request = request_for_tab(
-            request,
-            preferred_tab_id=state.request.active_tab_id,
-        )
-
-        state.request = request
-
-        if not request.searchable:
-            state.query = ""
-        if request.options:
-            state.selected = selection_for_request(
-                request.options,
-                previous_selected,
-                previous_value,
-            )
-        else:
-            state.selected = 0
-        self._normalize_filtered_state(state)
 
     def replace_active_if_id(
         self,
@@ -515,22 +436,6 @@ class TuiMenu(object):
         if prepared:
             self.invalidate()
         return len(prepared)
-
-    def _with_generation(self, request: MenuRequest) -> MenuRequest:
-        """为带 view 标识的请求分配单调显示代数。"""
-        view_id = request.view_id
-        if not view_id:
-            return request
-        current = self._generations.get(view_id, 0)
-        generation = (
-            current + 1
-            if request.generation <= 0
-            else max(current, request.generation)
-        )
-        self._generations[view_id] = max(current, generation)
-        if request.generation == generation:
-            return request
-        return replace(request, generation=generation)
 
     def dismiss_view_by_id(
         self,
@@ -672,6 +577,101 @@ class TuiMenu(object):
             return False
         return True
 
+    def _switch_tab(self, step: int) -> None:
+        """按方向切换页签并重置查询和选中项。"""
+        state = self.state
+        if state is None:
+            return None
+        request = switched_tab_request(
+            state.request,
+            step=step,
+            base_footer_hint=state.base_footer_hint,
+        )
+        if request is None:
+            return None
+        state.request = request
+        state.query = ""
+        state.selected = initial_selection(request.options, request.selected)
+        self.invalidate()
+
+    def _height(self, state: MenuState, *, width: int) -> int:
+        """返回指定菜单 frame 占用的显示行数。"""
+        footer = render_surface_footer_fragments(
+            state,
+            width=width,
+            config=self._RENDER_CONFIG,
+        )
+        return (
+            self._content_height(state, width=width)
+            + int(bool(footer))
+            + line_count(footer)
+        )
+
+    def _content_height(self, state: MenuState, *, width: int) -> int:
+        """返回指定菜单表面内容占用的显示行数。"""
+        content = render_surface_fragments(
+            state,
+            width=width,
+            config=self._RENDER_CONFIG,
+        )
+        return line_count(content)
+
+    def _footer_height(self, state: MenuState, *, width: int) -> int:
+        """返回指定菜单透明 footer 占用的显示行数。"""
+        footer = render_footer_fragments(
+            state,
+            width=width,
+            inset=self._RENDER_CONFIG.horizontal_inset,
+        )
+        return line_count(footer)
+
+    def _replace_state_request(
+        self,
+        state: MenuState,
+        request: MenuRequest
+    ) -> None:
+        """在不改变 view 对象的情况下替换其请求内容。"""
+        previous_value = selected_value(state)
+        previous_selected = state.selected
+        request = self._with_generation(_sanitize_menu_request(request))
+
+        state.base_footer_hint = request.footer_hint
+
+        request = request_for_tab(
+            request,
+            preferred_tab_id=state.request.active_tab_id,
+        )
+
+        state.request = request
+
+        if not request.searchable:
+            state.query = ""
+        if request.options:
+            state.selected = selection_for_request(
+                request.options,
+                previous_selected,
+                previous_value,
+            )
+        else:
+            state.selected = 0
+        self._normalize_filtered_state(state)
+
+    def _with_generation(self, request: MenuRequest) -> MenuRequest:
+        """为带 view 标识的请求分配单调显示代数。"""
+        view_id = request.view_id
+        if not view_id:
+            return request
+        current = self._generations.get(view_id, 0)
+        generation = (
+            current + 1
+            if request.generation <= 0
+            else max(current, request.generation)
+        )
+        self._generations[view_id] = max(current, generation)
+        if request.generation == generation:
+            return request
+        return replace(request, generation=generation)
+
     def _complete(
         self,
         state: MenuState | None,
@@ -768,11 +768,6 @@ class TuiMenu(object):
         state.query = query
         self._normalize_filtered_state(state)
         self.invalidate()
-
-    @staticmethod
-    def _normalize_filtered_state(state: MenuState) -> None:
-        """在刷新或查询变化后把选中项限制在过滤结果内。"""
-        state.selected = normalized_filtered_selection(state)
 
     def _visible_indices(
         self,

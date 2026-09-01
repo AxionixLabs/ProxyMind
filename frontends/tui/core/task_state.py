@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import enum
+import typing
 
 
 class TurnPhase(enum.Enum):
@@ -21,9 +21,9 @@ class TuiTaskState(object):
         *,
         activity_running: typing.Callable[[], bool] = lambda: False
     ) -> None:
-        self.turn_phase         = TurnPhase.IDLE
+        self.turn_phase = TurnPhase.IDLE
         self.foreground_running = False
-        self._activity_running   = activity_running
+        self._activity_running = activity_running
 
     @property
     def turn_running(self) -> bool:
@@ -92,7 +92,7 @@ class TuiTaskState(object):
 
     def clear(self) -> None:
         """清空模型轮次状态。"""
-        self.turn_phase         = TurnPhase.IDLE
+        self.turn_phase = TurnPhase.IDLE
         self.foreground_running = False
 
 
