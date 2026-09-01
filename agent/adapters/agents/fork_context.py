@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
-
 from agent.application.agents.fork_context import (
     ForkContextEntry,
     ForkContextSnapshot,
@@ -40,6 +40,7 @@ def load_fork_context(
     entries = TranscriptReplay(
         transcript_entries_for(transcript_path)
     ).build()
+
     return build_fork_context(
         tuple(
             ForkContextEntry(
@@ -55,3 +56,7 @@ def load_fork_context(
         normalized_fork_turns,
         max_chars=max_chars,
     )
+
+
+if __name__ == '__main__':
+    pass

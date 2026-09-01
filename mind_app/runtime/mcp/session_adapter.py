@@ -6,7 +6,7 @@ from observability import observe_exception
 from mcp import ClientSession, types as mcp_types
 from mind_app.client_tools import ClientToolRegistry
 from mind_app.builtin_tools import BuiltinToolRegistry
-from .config import truncate_text
+from infrastructure.mcp.values import truncate_text
 from agent.ports import McpSessionPort
 from .status import should_reraise_external
 

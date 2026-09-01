@@ -504,6 +504,28 @@ def test_foreground_turn_lifecycle_is_owned_by_terminal_presentation() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
     assert target_functions == {"run_foreground_turn"}
+    target_classes = {
+        node.name
+        for node in target_tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+    assert "TerminalTurnHost" in target_classes
+
+    imported_modules = {
+        node.module or ""
+        for node in ast.walk(target_tree)
+        if isinstance(node, ast.ImportFrom) and node.level == 0
+    }
+    assert not any(
+        module == "mind_app" or module.startswith("mind_app.")
+        for module in imported_modules
+    )
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        for node in ast.walk(target_tree)
+    )
 
 
 def test_infrastructure_does_not_depend_on_legacy_runtime() -> None:
@@ -1040,14 +1062,30 @@ def test_helix_lifecycle_adapter_is_owned_by_infrastructure() -> None:
 
 
 def test_service_runtime_setup_is_infrastructure_owned() -> None:
-    """确保服务路径、环境和权限 setup 不再由 runtime 模块定义。"""
+    """确保服务 setup 归基础设施、前台启动编排归可替换前端。"""
     setup_path = PROJECT_ROOT / "infrastructure" / "services" / "runtime_setup.py"
-    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "service_runtime.py"
+    environment_path = (
+        PROJECT_ROOT
+        / "infrastructure"
+        / "services"
+        / "helix_environment.py"
+    )
+    runtime_path = PROJECT_ROOT / "frontends" / "helix" / "runtime.py"
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "service_runtime.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "service_exec_env.py",
+    )
     assert setup_path.is_file(), "service runtime setup module is missing"
-    assert runtime_path.is_file(), "service runtime orchestration is missing"
+    assert environment_path.is_file(), "Helix environment adapter is missing"
+    assert runtime_path.is_file(), "frontend Helix orchestration is missing"
+    assert not any(path.is_file() for path in legacy_paths)
 
     setup_source = setup_path.read_text(encoding="utf-8-sig")
+    environment_source = environment_path.read_text(encoding="utf-8-sig")
+    runtime_source = runtime_path.read_text(encoding="utf-8-sig")
     assert "mind_app" not in setup_source
+    assert "mind_app" not in environment_source
+    assert "mind_app" not in runtime_source
 
     moved_names = {
         "runtime_status",
@@ -1075,19 +1113,72 @@ def test_service_runtime_setup_is_infrastructure_owned() -> None:
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom) or node.level != 0:
                 continue
-            if node.module != "mind_app.runtime.mcp.service_runtime":
+            if node.module not in {
+                "mind_app.runtime.mcp.service_runtime",
+                "mind_app.runtime.mcp.service_exec_env",
+            }:
                 continue
-            imported_names = {
-                alias.name
-                for alias in node.names
-            }
-            moved = imported_names.intersection(moved_names)
-            if moved:
-                violations.append(
-                    f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> "
-                    + ", ".join(sorted(moved))
-                )
-    assert not violations, "legacy setup imports remain:\n" + "\n".join(violations)
+            violations.append(
+                f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> "
+                f"{node.module}"
+            )
+    assert not violations, "legacy Helix imports remain:\n" + "\n".join(violations)
+
+
+def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
+    """确保 MCP 设置、值、SDK 传输和配置写入不再由旧 runtime 混合持有。"""
+    target_root = PROJECT_ROOT / "infrastructure" / "mcp"
+    assert {
+        path.name
+        for path in target_root.glob("*.py")
+    } == {
+        "__init__.py",
+        "registry.py",
+        "settings.py",
+        "transport.py",
+        "values.py",
+    }
+
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "config.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "registry.py",
+    )
+    assert not any(path.is_file() for path in legacy_paths)
+
+    violations = _forbidden_imports(
+        "infrastructure/mcp",
+        {"backend", "engine", "frontends", "mind_app", "mind_core", "server"},
+    )
+    assert not violations, "MCP infrastructure crosses its boundary:\n" + (
+        "\n".join(violations)
+    )
+
+    legacy_imports = _forbidden_module_imports(
+        ".",
+        {
+            "mind_app.runtime.mcp.config",
+            "mind_app.runtime.mcp.registry",
+        },
+    )
+    assert not legacy_imports, "legacy MCP infrastructure imports remain:\n" + (
+        "\n".join(legacy_imports)
+    )
+
+
+def test_frontend_output_sanitizer_has_no_legacy_source() -> None:
+    """确保前端输出脱敏不再由旧应用平铺模块持有。"""
+    target_path = PROJECT_ROOT / "frontends" / "output" / "sanitize.py"
+    legacy_path = PROJECT_ROOT / "mind_app" / "stream_sanitize.py"
+    assert target_path.is_file()
+    assert not legacy_path.is_file()
+
+    legacy_imports = _forbidden_module_imports(
+        ".",
+        {"mind_app.stream_sanitize"},
+    )
+    assert not legacy_imports, "legacy sanitizer imports remain:\n" + (
+        "\n".join(legacy_imports)
+    )
 
 
 def test_process_encoding_has_one_platform_owner() -> None:
@@ -4078,6 +4169,7 @@ def test_presentation_output_has_no_legacy_package_or_imports() -> None:
         "boundary.py",
         "jsonl.py",
         "recording.py",
+        "sanitize.py",
         "silent.py",
         "source_text.py",
         "terminal_content.py",

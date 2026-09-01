@@ -11,6 +11,8 @@ from agent.ports import (
     TurnInputEventHandler,
 )
 
+__all__ = ("StreamSubagentExecution",)
+
 
 class StreamSubagentExecution:
     """通过注入的流式端口执行无前台输出的子轮次。"""
@@ -44,4 +46,5 @@ class StreamSubagentExecution:
         )
 
 
-__all__ = ("StreamSubagentExecution",)
+if __name__ == '__main__':
+    pass

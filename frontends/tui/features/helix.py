@@ -18,7 +18,7 @@ from agent.ports.presentation import (
 )
 from infrastructure.services.runtime_context import ServiceRuntimeContext
 from infrastructure.services.runtime_setup import service_runtime_asset_missing
-from mind_app.runtime.mcp.service_runtime import (
+from frontends.helix.runtime import (
     ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
 )

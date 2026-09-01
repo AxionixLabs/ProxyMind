@@ -1,0 +1,200 @@
+# -*- coding: utf-8 -*-
+
+import math
+import os
+import typing
+from fnmatch import fnmatchcase
+
+from .values import slugify_mcp_name
+
+DEFAULT_MCP_TRANSPORT = "streamable_http"
+DEFAULT_MCP_START_TIMEOUT_SEC = 10.0
+DEFAULT_MCP_REQ_TIMEOUT_SEC = 60.0
+DEFAULT_MCP_SSE_TIMEOUT_SEC = 30 * 60
+
+
+class McpConfigError(ValueError):
+    """表示外部 MCP 配置无法解析。"""
+
+
+def positive_float(value: typing.Any, fallback: float) -> float:
+    """把输入转换为正浮点数，失败时返回给定默认值。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return fallback
+
+    if not math.isfinite(number) or number <= 0:
+        return fallback
+    return number
+
+
+def string_map(value: typing.Any) -> dict[str, str]:
+    """把映射型配置规范化为字符串键值字典。"""
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(map_key).strip(): str(map_value)
+        for map_key, map_value in value.items()
+        if str(map_key).strip()
+    }
+
+
+def string_list(value: typing.Any) -> list[str]:
+    """把列表型配置规范化为字符串列表。"""
+    if not isinstance(value, list):
+        return []
+    return [
+        str(item)
+        for item in value
+        if isinstance(item, (str, int, float, bool))
+    ]
+
+
+def _tool_patterns(value: typing.Any) -> list[str]:
+    """规范化外接 MCP 工具匹配模式，并保持配置顺序。"""
+    if not isinstance(value, list):
+        return []
+
+    patterns: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        pattern = item.strip()
+        if not pattern or pattern in seen:
+            continue
+        seen.add(pattern)
+        patterns.append(pattern)
+    return patterns
+
+
+def is_mcp_tool_allowed(name: str, rules: typing.Any) -> bool:
+    """按原始工具名判断外接 MCP 工具是否允许暴露。"""
+    policy = rules if isinstance(rules, dict) else {}
+    tool_name = str(name)
+
+    allow = policy.get("allow")
+    if "allow" in policy and not any(
+        fnmatchcase(tool_name, pattern) for pattern in list(allow or [])
+    ):
+        return False
+
+    deny = policy.get("deny")
+    return not any(
+        fnmatchcase(tool_name, pattern) for pattern in list(deny or [])
+    )
+
+
+def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
+    """把有效配置中的 MCP 服务表规范化为内部服务列表。"""
+    if not isinstance(raw, dict):
+        return []
+
+    normalized: list[dict[str, typing.Any]] = []
+    seen_names: set[str] = set()
+
+    for index, (key, item) in enumerate(raw.items(), start=1):
+        if not isinstance(item, dict):
+            continue
+
+        name = str(key or "").strip() or f"server-{index}"
+        slug = slugify_mcp_name(name, fallback=f"server-{index}")
+        url = str(item.get("url", "") or "").strip()
+        command = str(item.get("command", "") or "").strip()
+
+        if command and url:
+            continue
+        transport = (
+            "stdio"
+            if command
+            else "sse" if url.lower().rstrip("/").endswith("/sse")
+            else DEFAULT_MCP_TRANSPORT
+        )
+        if transport == "stdio":
+            if not command:
+                continue
+        elif not url:
+            continue
+
+        timeout_sec = positive_float(
+            item.get("tool_timeout_sec"),
+            DEFAULT_MCP_REQ_TIMEOUT_SEC,
+        )
+        tool_rules: dict[str, list[str]] = {}
+        if "allow" in item:
+            tool_rules["allow"] = _tool_patterns(item.get("allow"))
+        if "deny" in item:
+            tool_rules["deny"] = _tool_patterns(item.get("deny"))
+
+        unique_slug = slug
+        suffix = 2
+        while unique_slug in seen_names:
+            unique_slug = f"{slug}-{suffix}"
+            suffix += 1
+        seen_names.add(unique_slug)
+
+        base = {
+            "name": unique_slug,
+            "enabled": item.get("enabled", True) is not False,
+            "required": item.get("required", False) is True,
+            "transport": transport,
+            "startup_timeout_sec": positive_float(
+                item.get("startup_timeout_sec"),
+                DEFAULT_MCP_START_TIMEOUT_SEC,
+            ),
+            "timeout_sec": timeout_sec,
+            "tools": tool_rules,
+        }
+
+        if transport == "stdio":
+            cwd = str(item.get("cwd", "") or "").strip()
+            normalized.append({
+                **base,
+                "command": command,
+                "args": string_list(item.get("args")),
+                "env": string_map(item.get("env")),
+                "cwd": cwd,
+                "encoding": "utf-8",
+                "encoding_error_handler": "strict",
+            })
+            continue
+
+        headers = string_map(item.get("http_headers"))
+        for header, environment_name in string_map(
+            item.get("env_http_headers")
+        ).items():
+            environment_value = os.environ.get(environment_name)
+            if environment_value is not None:
+                headers[header] = environment_value
+
+        bearer_name = str(item.get("bearer_token_env_var") or "").strip()
+        bearer_token = os.environ.get(bearer_name) if bearer_name else None
+        if bearer_token:
+            headers["Authorization"] = f"Bearer {bearer_token}"
+
+        normalized.append({
+            **base,
+            "url": url,
+            "headers": headers,
+            "sse_read_timeout_sec": timeout_sec,
+            "terminate_on_close": True,
+        })
+
+    return normalized
+
+
+def request_timeout_sec(server: dict[str, typing.Any]) -> float:
+    """读取外部 MCP 服务的请求超时时间。"""
+    return positive_float(
+        server.get("timeout_sec"),
+        DEFAULT_MCP_REQ_TIMEOUT_SEC,
+    )
+
+
+def startup_timeout_sec(server: dict[str, typing.Any]) -> float:
+    """读取外部 MCP 服务的启动超时时间。"""
+    return positive_float(
+        server.get("startup_timeout_sec"),
+        DEFAULT_MCP_START_TIMEOUT_SEC,
+    )

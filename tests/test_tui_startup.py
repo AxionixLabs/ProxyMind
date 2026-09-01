@@ -10,7 +10,7 @@ from frontends.cli import bootstrap
 from mind_app.controller import Mind
 from frontends.interaction.contracts import PromptContext
 from mind_app.runtime.mcp import external
-from mind_app.runtime.mcp import service_runtime
+from frontends.helix import runtime as service_runtime
 from mind_app.runtime.mcp import tool_runtime
 from mind_app.runtime.mcp.external import ExternalMcpRuntime
 from agent.harness.mcp.owner import McpRuntimeOwner

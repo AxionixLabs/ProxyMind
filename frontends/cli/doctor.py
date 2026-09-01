@@ -8,7 +8,7 @@ import typing
 from dataclasses import dataclass
 from pathlib import Path
 from infrastructure.errors import AppError
-from mind_app.runtime.mcp.config import normalize_mcp_servers
+from infrastructure.mcp.settings import normalize_mcp_servers
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,

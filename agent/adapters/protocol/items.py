@@ -7,11 +7,11 @@ import dataclasses
 from collections.abc import Mapping
 from dataclasses import (
     dataclass,
-    field
+    field,
 )
 from agent.protocol import (
     CanonicalItem,
-    ModelEvent
+    ModelEvent,
 )
 from agent.protocol.json_value import ThawedJsonValue
 
@@ -51,6 +51,7 @@ _ITEM_STATUS_TRANSITIONS = {
     "cancelled": frozenset({"cancelled"}),
     "reconciliation_required": frozenset({"reconciliation_required"}),
 }
+
 _COMMON_EVENT_FIELDS = frozenset({
     "type",
     "proto",
@@ -65,6 +66,7 @@ _COMMON_EVENT_FIELDS = frozenset({
     "item_kind",
     "item_status",
 })
+
 _TEXT_META_FIELDS = (
     "annotations",
     "citations",
@@ -196,147 +198,29 @@ class CanonicalItemReducer:
                     collected.append(source)
         return tuple(collected)
 
-    def apply(self, event: ModelEvent) -> CanonicalItem | None:
-        """应用一条已完成公共字段校验的正式协议事件。"""
-        self._validate_coordinates(event)
-        if event.type == "turn.retrying":
-            self._apply_retry(event)
-            return None
-        if event.type == "presentation.superseded":
-            self._apply_presentation_superseded(event)
-            return None
-
-        item_id = str(getattr(event, "item_id", "") or "").strip()
-        if not item_id:
-            return None
-        item_kind = _required_text(
-            getattr(event, "item_kind", None),
-            f"{event.type} item_kind",
-        )
-        item_status = _required_text(
-            getattr(event, "item_status", None),
-            f"{event.type} item_status",
-        )
-        event_seq = _positive_int(event.event_seq, f"{event.type} event_seq")
-        if event.type == "tool.approval_required":
-            snapshot_status = self._approval_snapshot_statuses.get(item_id)
-            if (
-                snapshot_status is not None
-                and event_seq <= self._approval_snapshot_watermark
-            ):
-                state = self._active_item_state(item_id)
-                return state.snapshot() if state is not None else None
-            item_status = _approval_item_status(
-                getattr(event, "status", "pending")
+    @staticmethod
+    def _merge_event_payload(
+        state: _CanonicalItemState,
+        event: ModelEvent,
+    ) -> None:
+        """按事件族合并可渲染载荷。"""
+        if event.type == "text.delta":
+            state.payload["text"] = (
+                str(state.payload.get("text") or "")
+                + str(getattr(event, "text", "") or "")
             )
-        round_no, attempt = self._response_position(event)
-        if (
-            item_id,
-            event.presentation_epoch,
-            round_no,
-        ) in self._retired_response_items:
-            return None
-        key = (item_id, event.presentation_epoch, round_no, attempt)
-        if item_status not in _ITEM_STATUS_TRANSITIONS:
-            raise ValueError("canonical item status is invalid")
-
-        if event.type == "text.meta" and key not in self._items:
-            pending_first_seq, pending_last_seq, pending_payload = (
-                self._pending_text_meta.get(
-                    key,
-                    (event_seq, 0, {}),
-                )
-            )
-            if event_seq <= pending_last_seq:
-                raise ValueError("canonical item event sequence must increase")
-            pending_payload.update(_text_meta_payload(event))
-            self._pending_text_meta[key] = (
-                pending_first_seq,
-                event_seq,
-                pending_payload,
-            )
-            return None
-
-        state = self._items.get(key)
-        if state is None:
-            self._reject_parallel_item_revision(item_id=item_id, key=key)
-            pending = self._pending_text_meta.pop(key, None)
-            if pending is None:
-                pending_first_seq = event_seq
-                pending_payload = {}
+            return
+        if event.type == "text.done":
+            final_text = getattr(event, "final_text", None)
+            if final_text is not None:
+                state.payload["text"] = str(final_text)
             else:
-                pending_first_seq, pending_last_seq, pending_payload = pending
-                if item_kind != "text":
-                    raise ValueError("text metadata cannot attach to another item kind")
-                if event_seq <= pending_last_seq:
-                    raise ValueError("canonical item event sequence must increase")
-            state = _CanonicalItemState(
-                cid=self._cid,
-                sid=self._sid,
-                turn_id=self._turn_id,
-                item_id=item_id,
-                item_kind=item_kind,
-                item_status=item_status,
-                presentation_epoch=event.presentation_epoch,
-                round_no=round_no,
-                attempt=attempt,
-                first_event_seq=pending_first_seq,
-                last_event_seq=event_seq,
-                last_event_type=event.type,
-                payload=pending_payload,
-            )
-            self._items[key] = state
-        else:
-            if state.superseded:
-                raise ValueError("superseded canonical item cannot receive new events")
-            if state.item_kind != item_kind:
-                raise ValueError("canonical item kind cannot change")
-            _validate_status_transition(state.item_status, item_status)
-            if event_seq <= state.last_event_seq:
-                raise ValueError("canonical item event sequence must increase")
-            state.item_status = item_status
-            state.last_event_seq = event_seq
-            state.last_event_type = event.type
-
-        self._merge_event_payload(state, event)
-        return state.snapshot()
-
-    def apply_approval_snapshot(
-        self,
-        snapshot: object,
-    ) -> tuple[CanonicalItem, ...]:
-        """按快照水位归约审批状态，但不改变事件确认游标。"""
-        if (
-            getattr(snapshot, "cid", None) != self._cid
-            or getattr(snapshot, "sid", None) != self._sid
-            or getattr(snapshot, "turn_id", None) != self._turn_id
-        ):
-            raise ValueError("approval snapshot coordinates do not match reducer")
-        watermark = _nonnegative_int(
-            getattr(snapshot, "last_event_seq", None),
-            "approval snapshot last_event_seq",
-        )
-        if watermark < self._approval_snapshot_watermark:
-            raise ValueError("approval snapshot watermark cannot move backwards")
-        approvals = getattr(snapshot, "approvals", None)
-        if not isinstance(approvals, (tuple, list)):
-            raise TypeError("approval snapshot approvals must be a sequence")
-        if approvals and watermark < 1:
-            raise ValueError("approval snapshot with items requires a positive watermark")
-
-        candidate = copy.deepcopy(self)
-        for item in approvals:
-            candidate._apply_approval_snapshot_item(
-                item,
-                watermark=watermark,
-            )
-        candidate._approval_snapshot_watermark = watermark
-        self._items = candidate._items
-        self._approval_snapshot_statuses = (
-            candidate._approval_snapshot_statuses
-        )
-        self._approval_snapshot_watermark = watermark
-        return self.pending_approval_items
+                state.payload.setdefault("text", "")
+            return
+        if event.type == "text.meta":
+            state.payload.update(_text_meta_payload(event))
+            return
+        state.payload.update(_event_payload(event))
 
     def _apply_approval_snapshot_item(
         self,
@@ -540,30 +424,6 @@ class CanonicalItemReducer:
             None,
         )
 
-    @staticmethod
-    def _merge_event_payload(
-        state: _CanonicalItemState,
-        event: ModelEvent,
-    ) -> None:
-        """按事件族合并可渲染载荷。"""
-        if event.type == "text.delta":
-            state.payload["text"] = (
-                str(state.payload.get("text") or "")
-                + str(getattr(event, "text", "") or "")
-            )
-            return
-        if event.type == "text.done":
-            final_text = getattr(event, "final_text", None)
-            if final_text is not None:
-                state.payload["text"] = str(final_text)
-            else:
-                state.payload.setdefault("text", "")
-            return
-        if event.type == "text.meta":
-            state.payload.update(_text_meta_payload(event))
-            return
-        state.payload.update(_event_payload(event))
-
     def _validate_coordinates(self, event: ModelEvent) -> None:
         """拒绝把其他 Session 或 Turn 的事件写入当前 reducer。"""
         if (
@@ -572,6 +432,148 @@ class CanonicalItemReducer:
             or event.turn_id != self._turn_id
         ):
             raise ValueError("canonical item event coordinates do not match reducer")
+
+    def apply(self, event: ModelEvent) -> CanonicalItem | None:
+        """应用一条已完成公共字段校验的正式协议事件。"""
+        self._validate_coordinates(event)
+        if event.type == "turn.retrying":
+            self._apply_retry(event)
+            return None
+        if event.type == "presentation.superseded":
+            self._apply_presentation_superseded(event)
+            return None
+
+        item_id = str(getattr(event, "item_id", "") or "").strip()
+        if not item_id:
+            return None
+        item_kind = _required_text(
+            getattr(event, "item_kind", None),
+            f"{event.type} item_kind",
+        )
+        item_status = _required_text(
+            getattr(event, "item_status", None),
+            f"{event.type} item_status",
+        )
+        event_seq = _positive_int(event.event_seq, f"{event.type} event_seq")
+        if event.type == "tool.approval_required":
+            snapshot_status = self._approval_snapshot_statuses.get(item_id)
+            if (
+                snapshot_status is not None
+                and event_seq <= self._approval_snapshot_watermark
+            ):
+                state = self._active_item_state(item_id)
+                return state.snapshot() if state is not None else None
+            item_status = _approval_item_status(
+                getattr(event, "status", "pending")
+            )
+        round_no, attempt = self._response_position(event)
+        if (
+            item_id,
+            event.presentation_epoch,
+            round_no,
+        ) in self._retired_response_items:
+            return None
+        key = (item_id, event.presentation_epoch, round_no, attempt)
+        if item_status not in _ITEM_STATUS_TRANSITIONS:
+            raise ValueError("canonical item status is invalid")
+
+        if event.type == "text.meta" and key not in self._items:
+            pending_first_seq, pending_last_seq, pending_payload = (
+                self._pending_text_meta.get(
+                    key,
+                    (event_seq, 0, {}),
+                )
+            )
+            if event_seq <= pending_last_seq:
+                raise ValueError("canonical item event sequence must increase")
+            pending_payload.update(_text_meta_payload(event))
+            self._pending_text_meta[key] = (
+                pending_first_seq,
+                event_seq,
+                pending_payload,
+            )
+            return None
+
+        state = self._items.get(key)
+        if state is None:
+            self._reject_parallel_item_revision(item_id=item_id, key=key)
+            pending = self._pending_text_meta.pop(key, None)
+            if pending is None:
+                pending_first_seq = event_seq
+                pending_payload = {}
+            else:
+                pending_first_seq, pending_last_seq, pending_payload = pending
+                if item_kind != "text":
+                    raise ValueError("text metadata cannot attach to another item kind")
+                if event_seq <= pending_last_seq:
+                    raise ValueError("canonical item event sequence must increase")
+            state = _CanonicalItemState(
+                cid=self._cid,
+                sid=self._sid,
+                turn_id=self._turn_id,
+                item_id=item_id,
+                item_kind=item_kind,
+                item_status=item_status,
+                presentation_epoch=event.presentation_epoch,
+                round_no=round_no,
+                attempt=attempt,
+                first_event_seq=pending_first_seq,
+                last_event_seq=event_seq,
+                last_event_type=event.type,
+                payload=pending_payload,
+            )
+            self._items[key] = state
+        else:
+            if state.superseded:
+                raise ValueError("superseded canonical item cannot receive new events")
+            if state.item_kind != item_kind:
+                raise ValueError("canonical item kind cannot change")
+            _validate_status_transition(state.item_status, item_status)
+            if event_seq <= state.last_event_seq:
+                raise ValueError("canonical item event sequence must increase")
+            state.item_status = item_status
+            state.last_event_seq = event_seq
+            state.last_event_type = event.type
+
+        self._merge_event_payload(state, event)
+        return state.snapshot()
+
+    def apply_approval_snapshot(
+        self,
+        snapshot: object,
+    ) -> tuple[CanonicalItem, ...]:
+        """按快照水位归约审批状态，但不改变事件确认游标。"""
+        if (
+            getattr(snapshot, "cid", None) != self._cid
+            or getattr(snapshot, "sid", None) != self._sid
+            or getattr(snapshot, "turn_id", None) != self._turn_id
+        ):
+            raise ValueError("approval snapshot coordinates do not match reducer")
+        watermark = _nonnegative_int(
+            getattr(snapshot, "last_event_seq", None),
+            "approval snapshot last_event_seq",
+        )
+        if watermark < self._approval_snapshot_watermark:
+            raise ValueError("approval snapshot watermark cannot move backwards")
+        approvals = getattr(snapshot, "approvals", None)
+        if not isinstance(approvals, (tuple, list)):
+            raise TypeError("approval snapshot approvals must be a sequence")
+        if approvals and watermark < 1:
+            raise ValueError("approval snapshot with items requires a positive watermark")
+
+        candidate = copy.deepcopy(self)
+        for item in approvals:
+            candidate._apply_approval_snapshot_item(
+                item,
+                watermark=watermark,
+            )
+        candidate._approval_snapshot_watermark = watermark
+        self._items = candidate._items
+        self._approval_snapshot_statuses = (
+            candidate._approval_snapshot_statuses
+        )
+        self._approval_snapshot_watermark = watermark
+        return self.pending_approval_items
 
 
 def _validate_status_transition(previous: str, current: str) -> None:

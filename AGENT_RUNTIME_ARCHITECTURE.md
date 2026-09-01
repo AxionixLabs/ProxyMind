@@ -560,7 +560,7 @@ running -> cancelled
 | `mind_app/runtime/turns/subagent_adapter.py` | 组合根执行适配器；后续由 `agent/harness` 消费 | `execute_turn`、`stream_turn` 和输出会话通过显式 `SessionFactory` 注入；Subagent 编排不得直接依赖旧 runtime 或具体输出实现，旧 Turn 流退役后删除此适配器 |
 | `mind_app/runtime/mcp/*`、`subscription/lifecycle.py` | capabilities、adapters、harness supervisor；MCP 生命周期所有者归 `agent/harness/mcp/owner.py`，Subscription 生命周期所有者归 `agent/harness/subscription/owner.py` | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运；具体 MCP/Subscription runtime 均由组合根工厂注入 |
 | `frontends/subscription/runtime.py::_build_default_executor` | `frontends/subscription/runtime.py` + 组合根 `mind.py` | `AgentRuntime` 只接受显式 `TurnApplicationFactory`；持久 application 由 `mind.py` 绑定，前端不通过宿主动态属性发现 `RuntimeServices`，关闭时由执行器回收 application |
-| `mind_app/runtime/mcp/service_lifecycle.py`、`keepalive.py`、`service_runtime.py` 中的服务上下文值对象与 setup helpers | `infrastructure/services/runtime_owner.py`、`keepalive.py`、`runtime_context.py`、`runtime_setup.py` | 本地 Helix 服务的启动任务、保活、端口终止、路径解析和上下文规格属于基础设施；TUI/CLI 只消费服务生命周期入口，不让 runtime 持有平台资源所有权 |
+| `mind_app/runtime/mcp/service_lifecycle.py`、`keepalive.py`、`service_runtime.py`、`service_exec_env.py` | `infrastructure/services/runtime_owner.py`、`keepalive.py`、`runtime_context.py`、`runtime_setup.py`、`helix_environment.py` 与 `frontends/helix/runtime.py` | 本地 Helix 服务的进程、保活、路径解析、上下文和环境聚合属于基础设施；启动展示、等待与前端宿主协调属于可替换前端。两侧只通过具名生命周期协议连接，不让 legacy runtime 或 Controller 成为能力对象 |
 | `mind_app/runtime/subagents/control.py` | `agent/harness/agents/control.py`；状态值对象归 `agent/domain/agents.py`、图归 `agent/stores/agents/graph.py` | AgentControl 只保留可变树调度、mailbox 协调和观察快照；Harness 持有状态机，domain/stores 不反向依赖它 |
 | `SubagentRuntime._execute_submission` | `agent/harness/execution/subagent_submission.py` | 已分配提交的 mailbox claim、Turn 上下文构造、活动轮次投递、结果确认和失败收束归 Harness；runtime 只注入会话端口、Hook scope 与执行适配器，执行器不把 Controller 当作能力对象 |
 | `SubagentRuntime._controls`、根会话生命周期锁 | `agent/harness/agents/registry.py` | AgentControlRegistry 串行管理根会话 control 的创建、恢复、移除和关闭；runtime 不再持有执行树注册表或 shutdown 状态 |
@@ -604,14 +604,14 @@ running -> cancelled
 | `mind_app/output/`、`mind_app/presentation/output/` | `frontends/output/` | 单轮文本/JSONL/静默/终端内容 sink、来源文本和记录边界属于可替换前端输出适配器；不把输出生命周期放入 Harness |
 | `mind_app/presentation/output/contracts.py`、`content.py`、`session.py` | `agent/ports/content.py`、`agent/ports/output.py` | `ContentOutput`、正文 sink、输出控制/状态端口、展示端口、`OutputSession` 和 `OutputSessionFactory` 均是跨前端能力契约；具体输出实现不再由旧 presentation 包导出 |
 | `mind_app/stream_events/`、`mind_app/presentation/renderers/`、`presentation/stream/` | `agent/application/views/`、`frontends/terminal/renderers/`、`frontends/terminal/traces/` | 运行时只生成纯语义 view；终端标题、宽度裁剪、高亮、轨迹预览和 styled block 仅由终端前端生成，旧 presentation 包完全删除 |
-| `mind_app/stream_io/`、`stream_state/` | `mind_app/presentation/output/recording.py`、`boundary.py` | 输出记录和段间边界状态归入输出适配器；单调用者 spacing 逻辑内聚到 boundary，不保留平铺状态包 |
+| `mind_app/stream_io/`、`stream_state/`、`stream_sanitize.py` | `frontends/output/recording.py`、`boundary.py`、`sanitize.py` | 输出记录、段间边界状态和终端安全文本净化归入可替换输出适配器；单调用者 spacing 逻辑内聚到 boundary，不保留平铺状态包或 legacy 净化入口 |
 | `mind_app/approval/permission_grants.py`、`ledger.py` | `agent/stores/approvals/permissions.py`、`ledger.py` | 会话权限授权和审批消费状态由 stores 持有；协调器、策略和展示模型不随状态存储迁移 |
 | `mind_app/approval/` | `agent/application/approvals/` | 审批请求、队列结果、策略、协调器、presenter 契约、结构化卡片模型与摘要属于 application；终端/TUI 只实现交互，快照通知失败观测由组合根注入，不让 application 反向依赖前端、interaction 或 observability |
 | `mind_app/reporting.py` | `observability/reporting.py` | 单次运行报告目录、诊断日志 sink 和输出记录路径由可观测性基础设施统一管理；控制器只持有注入的报告对象 |
 | `mind_app/paths.py` | `infrastructure/config/runtime_paths.py` | 用户数据目录、报告/会话/历史/效果/运行时数据库路径和子进程环境属于配置基础设施；入口布局解析保持在 `config/paths.py` |
 | `mind_app/assets.py` | `infrastructure/update/assets.py` 与 `frontends/terminal/download_renderer.py` | 资产存在性和升级触发属于更新基础设施；动画管理器到终端进度端口的适配属于 frontend，不让更新层依赖 UI |
 | `mind_app/attach.py`、`mind_app/interaction/attachments.py` | `frontends/interaction/attachments.py` | 待发送附件的路径解析、分类、快照和消费属于前端输入状态；不把一次输入状态伪装成持久化 Store 或协议模型，Controller 仅在迁移期持有该前端状态 |
-| `mind_app/mcp/` | `mind_app/runtime/mcp/` | MCP 配置、外部连接、会话组合、工具结果和 stdio 服务同属运行时适配边界；不在应用根保留平铺包或转发 facade |
+| `mind_app/mcp/`、`mind_app/runtime/mcp/config.py`、`registry.py` | `infrastructure/mcp/settings.py`、`transport.py`、`values.py`、`registry.py` | 外部 MCP 配置校验、SDK 参数构造、网络预检、工具名规范化和注册表持久化属于基础设施 adapter；运行时会话组合仍按后续切片迁移，不得把 SDK/网络实现提升到 Harness，也不保留旧配置 facade |
 | `mind_app/native_coding/encoding.py` | `infrastructure/platform/encoding.py` | 进程输出编码探测、规范化和解码是跨能力的平台事实；native coding 只消费平台端口，不拥有第二套解码器 |
 | `mind_app/runtime/processes.py` | `infrastructure/platform/processes.py` | 进程组创建、stdin 收束、树级中断/终止和 Windows/POSIX 差异属于平台生命周期能力 |
 | `mind_app/native_coding/workspace_command.py` | `infrastructure/platform/workspace.py` | 无 shell 工作区命令、超时和输出上限属于平台命令执行能力；native coding 不拥有进程树实现 |

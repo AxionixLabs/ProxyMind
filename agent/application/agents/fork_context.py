@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import json
+import typing
 from dataclasses import dataclass
 from collections.abc import Iterable
 from ..config.settings import (
@@ -11,6 +11,7 @@ from ..config.settings import (
 )
 
 ForkTurns: typing.TypeAlias = str
+
 ForkContextRole: typing.TypeAlias = typing.Literal["user", "assistant"]
 
 

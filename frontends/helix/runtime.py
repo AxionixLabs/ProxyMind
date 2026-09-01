@@ -4,7 +4,16 @@
 import time
 import typing
 import asyncio
+from collections.abc import (
+    Awaitable,
+    Callable,
+)
+
+from agent.domain.tool_policy import ToolFilterMode
+from frontends.runtime import ActivityStatusKind
 from infrastructure.platform.animation import AsyncAnimManager
+from infrastructure.services.helix_environment import fetch_service_exec_env
+from infrastructure.services.server_manager import ServerManage
 from infrastructure.update.assets import ensure_asset
 from infrastructure.update.runtime import UpgradeProgress
 from frontends.terminal.contracts import TerminalDesign
@@ -13,7 +22,6 @@ from observability import (
     observe,
     observe_exception
 )
-from agent.domain.tool_policy import ToolFilterMode
 from infrastructure.services.runtime_context import (
     ServiceRuntimeContext,
     ServiceRuntimeSpec,
@@ -25,10 +33,82 @@ from infrastructure.services.runtime_setup import (
     service_runtime_asset_missing,
     verify_runtime_paths,
 )
-from .service_exec_env import fetch_service_exec_env
 
-if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
+
+class HelixServiceRuntimePort(typing.Protocol):
+    """描述 Helix 启动编排使用的服务生命周期能力。
+
+    实现方持有服务进程、启动互斥和保活资源；调用方不得绕过该端口创建或关闭
+    进程所有者。
+    """
+
+    @property
+    def manager(self) -> ServerManage | None:
+        """返回已绑定的服务进程管理器。"""
+        ...
+
+    async def ensure_ready(self, *, wait_sec: float = 10.0) -> None:
+        """确保服务在预算内进入就绪状态。"""
+        ...
+
+    def require_context(self) -> ServiceRuntimeContext:
+        """返回已绑定的服务准备上下文。"""
+        ...
+
+    async def run_startup(
+        self,
+        operation: Callable[[], Awaitable[bool]],
+    ) -> bool:
+        """串行执行或复用当前服务准备任务。"""
+        ...
+
+    def start_keepalive(self) -> None:
+        """启动服务保活任务。"""
+        ...
+
+
+class HelixRuntimeHost(typing.Protocol):
+    """描述 Helix 前台启动编排所需的最小宿主。
+
+    实现方拥有服务运行时和前端活动状态；本模块只串行准备、展示并链接一次服务，
+    不接管宿主或后台服务的最终关闭生命周期。
+    """
+
+    anim_manager: AsyncAnimManager
+    design: TerminalDesign | None
+    service_runtime: HelixServiceRuntimePort
+
+    async def start_inbuild_startup_anim(
+        self,
+        snapshot: Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """开始展示服务启动状态。"""
+        ...
+
+    async def stop_anim(
+        self,
+        kind: ActivityStatusKind | None = None,
+        *,
+        settle: bool = True,
+    ) -> None:
+        """结束指定的前端活动状态。"""
+        ...
+
+    async def await_cleanup(
+        self,
+        awaitable: Awaitable[typing.Any],
+    ) -> typing.Any:
+        """在调用方取消时仍等待清理完成。"""
+        ...
+
+    def link_service_mcp(
+        self,
+        exec_env: dict[str, typing.Any] | None = None,
+        *,
+        tool_profile: ToolFilterMode = "app",
+    ) -> None:
+        """把已就绪服务链接到当前工具会话。"""
+        ...
 
 
 async def ensure_runtime_asset(
@@ -104,7 +184,7 @@ async def prepare_service_runtime(
 
 
 async def start_service_runtime(
-    mind: "Mind",
+    mind: HelixRuntimeHost,
     *,
     label: str = "Helix MCP",
     defer_activity_stop: bool = False
@@ -148,7 +228,7 @@ async def start_service_runtime(
 
 
 async def prepare_and_start_service_runtime(
-    mind: "Mind",
+    mind: HelixRuntimeHost,
     *,
     tool_profile: ToolFilterMode = "app",
     label: str = "Helix MCP",

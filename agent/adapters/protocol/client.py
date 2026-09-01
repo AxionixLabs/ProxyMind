@@ -25,9 +25,7 @@ from agent.protocol import (
     validate_model_event,
 )
 from agent.protocol.json_value import ThawedJsonValue
-from protocol.client.effects import (
-    post_effect_reconciliation as _post_effect_reconciliation,
-)
+from protocol.client.effects import post_effect_reconciliation as _post_effect_reconciliation
 from protocol.client.tools import (
     ToolApprovalRequestError,
     ToolResultRequestError,

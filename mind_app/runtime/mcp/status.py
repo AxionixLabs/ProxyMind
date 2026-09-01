@@ -5,7 +5,7 @@ import time
 import typing
 import asyncio
 from .errors import flatten_exceptions, summarize_exception
-from .config import slugify_mcp_name
+from infrastructure.mcp.values import slugify_mcp_name
 
 
 class ExternalMcpStatus(object):

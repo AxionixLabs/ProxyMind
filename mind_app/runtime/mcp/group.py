@@ -22,15 +22,19 @@ from mcp.client.session_group import (
     SseServerParameters
 )
 from mcp.shared.exceptions import McpError
-from .config import (
+from infrastructure.mcp.settings import (
+    is_mcp_tool_allowed,
+    request_timeout_sec,
+    startup_timeout_sec,
+)
+from infrastructure.mcp.transport import (
     build_server_params,
     external_http_client,
-    is_mcp_tool_allowed,
     preflight_server,
-    request_timeout_sec,
+)
+from infrastructure.mcp.values import (
     slugify_mcp_name,
-    startup_timeout_sec,
-    tool_name_hook
+    tool_name_hook,
 )
 from .status import (
     ExternalMcpStatus,

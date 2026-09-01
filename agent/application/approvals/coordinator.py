@@ -16,7 +16,7 @@ from agent.application.approvals.models import (
     ApprovalQueueSnapshot,
     ApprovalRequest,
     ApprovalRequestKey,
-    ApprovalResolutionReason
+    ApprovalResolutionReason,
 )
 from agent.application.approvals.factory import build_approval_request
 from agent.application.approvals.presenter import ApprovalPresenterPort
@@ -68,6 +68,358 @@ class ApprovalCoordinator:
     def snapshot(self) -> ApprovalQueueSnapshot:
         """返回当前审批队列的不可变快照。"""
         return self._snapshot()
+
+    @staticmethod
+    def _copy_request(request: ApprovalRequest) -> ApprovalRequest:
+        """复制快照中的请求载荷，避免观察者修改内部队列。"""
+        return ApprovalRequest(
+            key=request.key,
+            payload=copy.deepcopy(request.payload),
+            presentation=copy.deepcopy(request.presentation),
+            decisions=request.decisions,
+        )
+
+    @staticmethod
+    def _outcome(
+        decision: ApprovalDecisionValue,
+        *,
+        source: ApprovalDecisionSource,
+        reason: ApprovalResolutionReason,
+    ) -> ApprovalOutcome:
+        """构造协调器统一使用的审批终态。"""
+        return ApprovalOutcome.create(
+            decision,
+            source=source,
+            reason=reason,
+        )
+
+    @staticmethod
+    def _cancel_presentation(entry: _QueuedApproval) -> None:
+        """取消不再对应未决请求的前端展示任务。"""
+        task = entry.presentation_task
+        entry.presentation_task = None
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+
+    @staticmethod
+    def _text(value: typing.Any) -> str:
+        """把可选协议字段规范化为去除首尾空白的文本。"""
+        return str(value or "").strip()
+
+    def _normalize_request(
+        self,
+        approval: Mapping[str, typing.Any] | ApprovalRequest,
+    ) -> ApprovalRequest:
+        """把审批载荷统一转换为稳定应用层请求。"""
+        if isinstance(approval, ApprovalRequest):
+            return approval
+        return build_approval_request(approval)
+
+    def _immediate_outcome(
+        self,
+    ) -> ApprovalOutcome | None:
+        """返回无需进入交互队列即可确定的结果。"""
+        if self._closed:
+            return self._outcome(
+                "decline",
+                source="policy",
+                reason="closed",
+            )
+        return None
+
+    def _ensure_worker(self) -> None:
+        """确保唯一审批 worker 正在运行。"""
+        if self._worker_task is not None:
+            return None
+        self._worker_task = asyncio.create_task(
+            self._run(),
+            name="approval coordinator",
+        )
+
+    def _settle_batch_cancel(self, current: _QueuedApproval) -> None:
+        """使用 cancel 收束当前请求和整个等待队列。"""
+        entries = tuple(
+            queued for queued in self._by_request_id.values()
+        )
+        for queued in entries:
+            self._settle_entry(
+                queued,
+                self._outcome(
+                    "cancel",
+                    source=self._interaction.approval_source,
+                    reason="batch_cancelled",
+                ),
+                cancel_presentation=queued is not current,
+            )
+
+    def _settle_entry(
+        self,
+        entry: _QueuedApproval,
+        outcome: ApprovalOutcome,
+        *,
+        cancel_presentation: bool = True,
+    ) -> None:
+        """幂等完成指定请求并从 current/pending 索引移除。"""
+        if entry.future.done():
+            return None
+
+        self._remove_entry(entry)
+        entry.future.set_result(outcome)
+        if cancel_presentation:
+            self._cancel_presentation(entry)
+        self._cancel_empty_session_start()
+
+    def _changed(self) -> None:
+        """增加队列版本并把最新快照通知交互前端。"""
+        self._revision += 1
+        try:
+            self._interaction.approval_snapshot_changed(self._snapshot())
+        except Exception as error:
+            handler = self._snapshot_error_handler
+            if handler is not None:
+                handler(error, self._coordinator_id, self._revision)
+
+    def _snapshot(self) -> ApprovalQueueSnapshot:
+        """在当前状态上构建不可变审批快照。"""
+        return ApprovalQueueSnapshot(
+            current=(
+                self._copy_request(self._current.request)
+                if self._current is not None
+                else None
+            ),
+            pending=tuple(
+                entry.request.key for entry in self._pending
+                if not entry.future.done()
+            ),
+            revision=self._revision,
+            coordinator_id=self._coordinator_id,
+            closed=self._closed,
+        )
+
+    def _fail_entry(
+        self,
+        entry: _QueuedApproval,
+        error: BaseException,
+    ) -> None:
+        """让展示异常只终止对应请求，并继续处理剩余队列。"""
+        if entry.future.done():
+            return None
+        self._remove_entry(entry)
+        if entry.waiters:
+            entry.future.set_exception(error)
+        else:
+            entry.future.set_result(
+                self._outcome(
+                    "decline",
+                    source="policy",
+                    reason="presentation_failed",
+                )
+            )
+        self._cancel_empty_session_start()
+
+    def _remove_entry(self, entry: _QueuedApproval) -> None:
+        """从 current、pending 和身份索引中移除指定请求。"""
+        if self._current is entry:
+            self._current = None
+        else:
+            self._pending = deque(
+                queued for queued in self._pending if queued is not entry
+            )
+        self._by_request_id.pop(entry.request.key.request_id, None)
+
+    def _take_pending(self) -> _QueuedApproval | None:
+        """按 FIFO 取得下一条仍未完成的审批。"""
+        while self._pending:
+            entry = self._pending.popleft()
+            if not entry.future.done():
+                return entry
+        return None
+
+    def _cancel_empty_session_start(self) -> None:
+        """在启动阶段已无请求时取消 worker，避免留下空审批会话。"""
+        worker = self._worker_task
+        if (
+            self._by_request_id
+            or self._session_active
+            or worker is None
+            or worker is asyncio.current_task()
+        ):
+            return None
+        worker.cancel()
+
+    def _find(
+        self,
+        request: ApprovalRequestKey | str,
+    ) -> _QueuedApproval | None:
+        """按完整 key 或任一稳定协议 ID 查找未决请求。"""
+        if isinstance(request, ApprovalRequestKey):
+            entry = self._by_request_id.get(request.request_id)
+            if entry is not None and entry.request.key == request:
+                return entry
+            return None
+        identity = self._text(request)
+        if not identity:
+            return None
+        matches = tuple(
+            entry
+            for entry in self._by_request_id.values()
+            if identity in {
+                entry.request.key.request_id,
+                entry.request.key.approval_id,
+                entry.request.key.call_id,
+            }
+        )
+        return matches[0] if len(matches) == 1 else None
+
+    async def _run(self) -> None:
+        """串行驱动当前审批展示并保持一个连续前端批次。"""
+        try:
+            if not self._closed:
+                await self._begin_session()
+
+            while True:
+                async with self._lock:
+                    if self._current is None:
+                        self._current = self._take_pending()
+                        if self._current is not None:
+                            self._changed()
+
+                    current = self._current
+                    if current is None:
+                        try:
+                            await self._end_session()
+                        finally:
+                            self._worker_task = None
+                        return None
+
+                    presentation = asyncio.create_task(
+                        self._interaction.present_approval(
+                            self._copy_request(current.request)
+                        ),
+                        name="approval presentation",
+                    )
+                    current.presentation_task = presentation
+
+                try:
+                    decision = await presentation
+                except asyncio.CancelledError:
+                    async with self._lock:
+                        if not current.future.done():
+                            cancellation_reason: ApprovalResolutionReason
+                            if self._closed:
+                                cancellation_reason = "closed"
+                            else:
+                                cancellation_reason = "caller_cancelled"
+                            self._settle_entry(
+                                current,
+                                self._outcome(
+                                    "decline",
+                                    source="policy",
+                                    reason=cancellation_reason,
+                                ),
+                            )
+                            self._changed()
+                except Exception as error:
+                    async with self._lock:
+                        if not current.future.done():
+                            self._fail_entry(current, error)
+                            self._changed()
+                else:
+                    async with self._lock:
+                        if current.future.done():
+                            continue
+                        if decision not in current.request.decisions and decision != "cancel":
+                            self._fail_entry(
+                                current,
+                                ValueError(
+                                    f"unsupported approval decision: {decision}"
+                                ),
+                            )
+                            self._changed()
+                            continue
+                        if decision == "cancel":
+                            self._settle_batch_cancel(current)
+                        else:
+                            decision_source = self._interaction.approval_source
+                            if decision_source == "user":
+                                resolution_reason = "user"
+                            elif decision_source == "policy":
+                                resolution_reason = "policy"
+                            else:
+                                resolution_reason = "external"
+                            self._settle_entry(
+                                current,
+                                self._outcome(
+                                    decision,
+                                    source=decision_source,
+                                    reason=resolution_reason,
+                                ),
+                            )
+                        self._changed()
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            async with self._lock:
+                entries = tuple(
+                    queued
+                    for queued in self._by_request_id.values()
+                    if not queued.future.done()
+                )
+                if entries:
+                    self._fail_entry(entries[0], error)
+                for queued in entries[1:]:
+                    self._settle_entry(
+                        queued,
+                        self._outcome(
+                            "decline",
+                            source="policy",
+                            reason="presentation_failed",
+                        ),
+                    )
+                if entries:
+                    self._changed()
+        finally:
+            async with self._lock:
+                if self._worker_task is asyncio.current_task():
+                    try:
+                        await self._end_session()
+                    finally:
+                        self._worker_task = None
+
+    async def _release_waiter(
+        self,
+        entry: _QueuedApproval,
+        *,
+        cancelled: bool,
+    ) -> None:
+        """释放调用方等待，并在无人等待时移除其未决请求。"""
+        async with self._lock:
+            entry.waiters = max(0, entry.waiters - 1)
+            if not cancelled or entry.waiters or entry.future.done():
+                return None
+            self._settle_entry(
+                entry,
+                self._outcome(
+                    "decline",
+                    source="policy",
+                    reason="caller_cancelled",
+                ),
+            )
+            self._changed()
+
+    async def _begin_session(self) -> None:
+        """通知前端开始一个连续审批批次。"""
+        if self._session_active:
+            return None
+        await self._interaction.begin_approval_session()
+        self._session_active = True
+
+    async def _end_session(self) -> None:
+        """通知前端结束连续审批批次。"""
+        if not self._session_active:
+            return None
+        self._session_active = False
+        await self._interaction.end_approval_session()
 
     async def request(
         self,
@@ -216,357 +568,6 @@ class ApprovalCoordinator:
             with contextlib.suppress(asyncio.CancelledError):
                 await worker
 
-    def _normalize_request(
-        self,
-        approval: Mapping[str, typing.Any] | ApprovalRequest,
-    ) -> ApprovalRequest:
-        """把审批载荷统一转换为稳定应用层请求。"""
-        if isinstance(approval, ApprovalRequest):
-            return approval
-        return build_approval_request(approval)
-
-    def _immediate_outcome(
-        self,
-    ) -> ApprovalOutcome | None:
-        """返回无需进入交互队列即可确定的结果。"""
-        if self._closed:
-            return self._outcome(
-                "decline",
-                source="policy",
-                reason="closed",
-            )
-        return None
-
-    def _ensure_worker(self) -> None:
-        """确保唯一审批 worker 正在运行。"""
-        if self._worker_task is not None:
-            return None
-        self._worker_task = asyncio.create_task(
-            self._run(),
-            name="approval coordinator",
-        )
-
-    async def _run(self) -> None:
-        """串行驱动当前审批展示并保持一个连续前端批次。"""
-        try:
-            if not self._closed:
-                await self._begin_session()
-
-            while True:
-                async with self._lock:
-                    if self._current is None:
-                        self._current = self._take_pending()
-                        if self._current is not None:
-                            self._changed()
-
-                    current = self._current
-                    if current is None:
-                        try:
-                            await self._end_session()
-                        finally:
-                            self._worker_task = None
-                        return None
-
-                    presentation = asyncio.create_task(
-                        self._interaction.present_approval(
-                            self._copy_request(current.request)
-                        ),
-                        name="approval presentation",
-                    )
-                    current.presentation_task = presentation
-
-                try:
-                    decision = await presentation
-                except asyncio.CancelledError:
-                    async with self._lock:
-                        if not current.future.done():
-                            cancellation_reason: ApprovalResolutionReason
-                            if self._closed:
-                                cancellation_reason = "closed"
-                            else:
-                                cancellation_reason = "caller_cancelled"
-                            self._settle_entry(
-                                current,
-                                self._outcome(
-                                    "decline",
-                                    source="policy",
-                                    reason=cancellation_reason,
-                                ),
-                            )
-                            self._changed()
-                except Exception as error:
-                    async with self._lock:
-                        if not current.future.done():
-                            self._fail_entry(current, error)
-                            self._changed()
-                else:
-                    async with self._lock:
-                        if current.future.done():
-                            continue
-                        if decision not in current.request.decisions and decision != "cancel":
-                            self._fail_entry(
-                                current,
-                                ValueError(
-                                    f"unsupported approval decision: {decision}"
-                                ),
-                            )
-                            self._changed()
-                            continue
-                        if decision == "cancel":
-                            self._settle_batch_cancel(current)
-                        else:
-                            decision_source = self._interaction.approval_source
-                            if decision_source == "user":
-                                resolution_reason = "user"
-                            elif decision_source == "policy":
-                                resolution_reason = "policy"
-                            else:
-                                resolution_reason = "external"
-                            self._settle_entry(
-                                current,
-                                self._outcome(
-                                    decision,
-                                    source=decision_source,
-                                    reason=resolution_reason,
-                                ),
-                            )
-                        self._changed()
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:
-            async with self._lock:
-                entries = tuple(
-                    queued
-                    for queued in self._by_request_id.values()
-                    if not queued.future.done()
-                )
-                if entries:
-                    self._fail_entry(entries[0], error)
-                for queued in entries[1:]:
-                    self._settle_entry(
-                        queued,
-                        self._outcome(
-                            "decline",
-                            source="policy",
-                            reason="presentation_failed",
-                        ),
-                    )
-                if entries:
-                    self._changed()
-        finally:
-            async with self._lock:
-                if self._worker_task is asyncio.current_task():
-                    try:
-                        await self._end_session()
-                    finally:
-                        self._worker_task = None
-
-    async def _release_waiter(
-        self,
-        entry: _QueuedApproval,
-        *,
-        cancelled: bool,
-    ) -> None:
-        """释放调用方等待，并在无人等待时移除其未决请求。"""
-        async with self._lock:
-            entry.waiters = max(0, entry.waiters - 1)
-            if not cancelled or entry.waiters or entry.future.done():
-                return None
-            self._settle_entry(
-                entry,
-                self._outcome(
-                    "decline",
-                    source="policy",
-                    reason="caller_cancelled",
-                ),
-            )
-            self._changed()
-
-    def _settle_batch_cancel(self, current: _QueuedApproval) -> None:
-        """使用 cancel 收束当前请求和整个等待队列。"""
-        entries = tuple(
-            queued for queued in self._by_request_id.values()
-        )
-        for queued in entries:
-            self._settle_entry(
-                queued,
-                self._outcome(
-                    "cancel",
-                    source=self._interaction.approval_source,
-                    reason="batch_cancelled",
-                ),
-                cancel_presentation=queued is not current,
-            )
-
-    def _settle_entry(
-        self,
-        entry: _QueuedApproval,
-        outcome: ApprovalOutcome,
-        *,
-        cancel_presentation: bool = True,
-    ) -> None:
-        """幂等完成指定请求并从 current/pending 索引移除。"""
-        if entry.future.done():
-            return None
-
-        self._remove_entry(entry)
-        entry.future.set_result(outcome)
-        if cancel_presentation:
-            self._cancel_presentation(entry)
-        self._cancel_empty_session_start()
-
-    def _fail_entry(
-        self,
-        entry: _QueuedApproval,
-        error: BaseException,
-    ) -> None:
-        """让展示异常只终止对应请求，并继续处理剩余队列。"""
-        if entry.future.done():
-            return None
-        self._remove_entry(entry)
-        if entry.waiters:
-            entry.future.set_exception(error)
-        else:
-            entry.future.set_result(
-                self._outcome(
-                    "decline",
-                    source="policy",
-                    reason="presentation_failed",
-                )
-            )
-        self._cancel_empty_session_start()
-
-    def _remove_entry(self, entry: _QueuedApproval) -> None:
-        """从 current、pending 和身份索引中移除指定请求。"""
-        if self._current is entry:
-            self._current = None
-        else:
-            self._pending = deque(
-                queued for queued in self._pending if queued is not entry
-            )
-        self._by_request_id.pop(entry.request.key.request_id, None)
-
-    def _take_pending(self) -> _QueuedApproval | None:
-        """按 FIFO 取得下一条仍未完成的审批。"""
-        while self._pending:
-            entry = self._pending.popleft()
-            if not entry.future.done():
-                return entry
-        return None
-
-    def _cancel_empty_session_start(self) -> None:
-        """在启动阶段已无请求时取消 worker，避免留下空审批会话。"""
-        worker = self._worker_task
-        if (
-            self._by_request_id
-            or self._session_active
-            or worker is None
-            or worker is asyncio.current_task()
-        ):
-            return None
-        worker.cancel()
-
-    def _find(
-        self,
-        request: ApprovalRequestKey | str,
-    ) -> _QueuedApproval | None:
-        """按完整 key 或任一稳定协议 ID 查找未决请求。"""
-        if isinstance(request, ApprovalRequestKey):
-            entry = self._by_request_id.get(request.request_id)
-            if entry is not None and entry.request.key == request:
-                return entry
-            return None
-        identity = self._text(request)
-        if not identity:
-            return None
-        matches = tuple(
-            entry
-            for entry in self._by_request_id.values()
-            if identity in {
-                entry.request.key.request_id,
-                entry.request.key.approval_id,
-                entry.request.key.call_id,
-            }
-        )
-        return matches[0] if len(matches) == 1 else None
-
-    async def _begin_session(self) -> None:
-        """通知前端开始一个连续审批批次。"""
-        if self._session_active:
-            return None
-        await self._interaction.begin_approval_session()
-        self._session_active = True
-
-    async def _end_session(self) -> None:
-        """通知前端结束连续审批批次。"""
-        if not self._session_active:
-            return None
-        self._session_active = False
-        await self._interaction.end_approval_session()
-
-    def _changed(self) -> None:
-        """增加队列版本并把最新快照通知交互前端。"""
-        self._revision += 1
-        try:
-            self._interaction.approval_snapshot_changed(self._snapshot())
-        except Exception as error:
-            handler = self._snapshot_error_handler
-            if handler is not None:
-                handler(error, self._coordinator_id, self._revision)
-
-    def _snapshot(self) -> ApprovalQueueSnapshot:
-        """在当前状态上构建不可变审批快照。"""
-        return ApprovalQueueSnapshot(
-            current=(
-                self._copy_request(self._current.request)
-                if self._current is not None
-                else None
-            ),
-            pending=tuple(
-                entry.request.key for entry in self._pending
-                if not entry.future.done()
-            ),
-            revision=self._revision,
-            coordinator_id=self._coordinator_id,
-            closed=self._closed,
-        )
-
-    @staticmethod
-    def _copy_request(request: ApprovalRequest) -> ApprovalRequest:
-        """复制快照中的请求载荷，避免观察者修改内部队列。"""
-        return ApprovalRequest(
-            key=request.key,
-            payload=copy.deepcopy(request.payload),
-            presentation=copy.deepcopy(request.presentation),
-            decisions=request.decisions,
-        )
-
-    @staticmethod
-    def _outcome(
-        decision: ApprovalDecisionValue,
-        *,
-        source: ApprovalDecisionSource,
-        reason: ApprovalResolutionReason,
-    ) -> ApprovalOutcome:
-        """构造协调器统一使用的审批终态。"""
-        return ApprovalOutcome.create(
-            decision,
-            source=source,
-            reason=reason,
-        )
-
-    @staticmethod
-    def _cancel_presentation(entry: _QueuedApproval) -> None:
-        """取消不再对应未决请求的前端展示任务。"""
-        task = entry.presentation_task
-        entry.presentation_task = None
-        if task is not None and task is not asyncio.current_task():
-            task.cancel()
-
-    @staticmethod
-    def _text(value: typing.Any) -> str:
-        """把可选协议字段规范化为去除首尾空白的文本。"""
-        return str(value or "").strip()
 
 if __name__ == '__main__':
     pass

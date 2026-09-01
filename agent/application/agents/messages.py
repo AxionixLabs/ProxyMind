@@ -8,12 +8,13 @@ from agent.ports.agent_messages import (
     AgentMessageReceipt,
 )
 
+__all__ = ("AgentMessageDispatch", "AgentMessageEvent")
+
+
 class AgentMessageEvent(typing.Protocol):
     """定义消息派发结果所需的最小邮箱事件形状。"""
 
     event_id: str
-
-__all__ = ("AgentMessageDispatch", "AgentMessageEvent")
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,3 +36,7 @@ class AgentMessageDispatch:
                 raise ValueError("agent message receipt does not match event")
         elif self.receipt is not None:
             raise ValueError("mailbox delivery cannot include a receipt")
+
+
+if __name__ == '__main__':
+    pass

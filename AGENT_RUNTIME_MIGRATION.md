@@ -134,6 +134,14 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   改由 CLI 组合边界显式注入，不再从 `Mind` 动态读取。
 - `protocol/schema/identifiers.py` 已恢复独立 wire 所有权，不再为稳定请求 ID 反向导入
   `agent.domain`；协议到 Harness 的反向依赖和初始化环已清零。
+- 外部 MCP 的配置规范化、SDK 参数构造、网络预检、工具名和值截断、注册表持久化已按
+  职责拆入 `infrastructure/mcp`；旧 `mind_app/runtime/mcp/config.py` 与 `registry.py`
+  已删除，运行时会话组合只消费这些基础设施入口。
+- Helix 环境聚合已迁入 `infrastructure/services/helix_environment.py`，启动展示和前端
+  宿主协调已迁入 `frontends/helix/runtime.py`；终端轮次生命周期通过
+  `TerminalTurnHost` 显式消费前端运行时，不再使用 Controller 类型或动态方法探测。
+- 流式输出净化已迁入 `frontends/output/sanitize.py`，旧 `mind_app/stream_sanitize.py`
+  已删除；净化行为与输出适配器同属可替换前端边界。
 
 ### 最新证据
 
@@ -144,7 +152,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - Interaction/Protocol/TUI 边界架构专项通过；旧 `mind_app/interaction` 源文件和生产
   导入均清零，`protocol -> agent` 反向边清零。
 - 导入图中 `frontends -> mind_app` 从 `17 files / 21 edges` 降至
-  `11 files / 14 edges`；下一批只处理这 11 个入口依赖，不扩散到无关包。
+  `5 files / 7 edges`；本批从 `11 files / 14 edges` 再减少 `6 files / 7 edges`。
+- MCP/Helix/输出拆分行为回归分别为 `287 passed`、`193 passed`、`146 passed`；
+  新增 MCP 基础设施契约回归 `3 passed`，终端轮次端口扩展回归 `107 passed`。
+- MCP、Helix、输出职责架构专项 `6 passed, 4 warnings`；旧源路径与生产导入清零，
+  `infrastructure/mcp` 和 `frontends/helix` 均无 legacy 反向依赖。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -223,9 +235,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 当前只允许进入以下顺序，不以补丁式需求插队：
 
-0. **前端旧依赖清零**：以导入图剩余 `11 files / 14 edges` 为唯一范围，先成组迁移
-   MCP 配置/注册与通用值清理，再迁移 TUI Turn adapter；每组都必须删除旧源路径并
-   保持 execution/session 端口由组合根注入，禁止建立 `frontends -> mind_app` facade。
+0. **前端旧依赖清零**：以导入图剩余 `5 files / 7 edges` 为唯一范围，先迁移 TUI Turn
+   与 compaction adapter，再收口 CLI/MCP 对 Controller 的组合与类型边；每组都必须删除
+   旧源路径并保持 execution/session 端口由组合根注入，禁止建立
+   `frontends -> mind_app` facade。
 
 1. **入口与数据迁移**：`mind_core` 的配置、权限、hooks、skills 已完成生产导入清零，
    终端轮次生命周期已迁入 `frontends/terminal`；Hook 命令执行器已归属

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from dataclasses import dataclass
-
 from agent.domain.identifiers import derive_stable_id
 
 
@@ -50,3 +50,7 @@ def approval_execpolicy_amendment(
         command_prefix=tuple(command_prefix),
         display=display,
     )
+
+
+if __name__ == '__main__':
+    pass

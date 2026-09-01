@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 from observability import observe_exception
 from agent.ports.agent_messages import (
@@ -13,6 +14,8 @@ from protocol.client.turn_control import (
 )
 from protocol.schema.identifiers import new_request_id
 from protocol.schema.turn_inputs import TurnInput
+
+__all__ = ("SteeringMessageDelivery",)
 
 STEERING_ATTEMPTS = 2
 
@@ -62,18 +65,13 @@ class SteeringMessageDelivery:
         )
 
 
-def _receipt_status(
-    value: TurnControlStatus,
-) -> AgentMessageReceiptStatus | None:
+def _receipt_status(value: TurnControlStatus) -> AgentMessageReceiptStatus | None:
     """把远端控制状态收窄为可确认的消息回执状态。"""
     if value == "accepted":
         return "accepted"
     if value == "duplicate":
         return "duplicate"
     return None
-
-
-__all__ = ("SteeringMessageDelivery",)
 
 
 if __name__ == '__main__':

@@ -57,7 +57,7 @@ from infrastructure.services.runtime_context import (
     ServiceRuntimeSpec,
 )
 from infrastructure.services.runtime_setup import resolve_service_runtime
-from mind_app.runtime.mcp.service_runtime import (
+from frontends.helix.runtime import (
     ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
 )

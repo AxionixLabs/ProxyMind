@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from dataclasses import dataclass
-
 from agent.domain.agents import (
     AgentStatus,
     AgentSubmission,
@@ -10,6 +10,12 @@ from agent.domain.agents import (
 from .messages import AgentMessageEvent
 from .thread import AgentThreadContext
 from ..turns.context import AgentContext
+
+__all__ = (
+    "AgentMailboxWaitResult",
+    "AgentSnapshot",
+    "AgentWaitResult",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,8 +59,5 @@ class AgentMailboxWaitResult:
     timed_out: bool = False
 
 
-__all__ = (
-    "AgentMailboxWaitResult",
-    "AgentSnapshot",
-    "AgentWaitResult",
-)
+if __name__ == '__main__':
+    pass

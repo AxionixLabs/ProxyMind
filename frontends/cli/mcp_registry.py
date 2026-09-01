@@ -12,7 +12,7 @@ from urllib.parse import (
     urlunsplit
 )
 from infrastructure.errors import AppError
-from mind_app.runtime.mcp.registry import McpServerRegistry
+from infrastructure.mcp.registry import McpServerRegistry
 from infrastructure.config.runtime_paths import mind_config_path
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession

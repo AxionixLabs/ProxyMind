@@ -15,7 +15,7 @@ from frontends.terminal.text import (
     sanitize_terminal_text
 )
 from frontends.output.recording import StreamRecordWriter
-from mind_app.stream_sanitize import sanitize_value
+from frontends.output.sanitize import sanitize_value
 from ..core.assistant import TuiAssistantStream
 from ..core.document import (
     TranscriptCellSource,

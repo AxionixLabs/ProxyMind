@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import httpx
 import typing
-from observability import observe_exception
+
+import httpx
+
 from metadata import const
+from observability import observe_exception
 
 
 async def fetch_service_exec_env(timeout: float = 1.5) -> dict[str, typing.Any] | None:

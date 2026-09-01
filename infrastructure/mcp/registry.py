@@ -2,8 +2,9 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from infrastructure.config.session import ConfigSession
-from mind_app.runtime.mcp.config import McpConfigError
+from .settings import McpConfigError
 
 
 class McpServerRegistry(object):

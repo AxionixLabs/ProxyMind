@@ -9,16 +9,48 @@ from agent.ports.presentation import (
     ApplicationSink,
     TurnForegroundLifecyclePort,
 )
+from frontends.runtime import (
+    ActivityStatusKind,
+    Frontend,
+)
 from frontends.terminal.worked import emit_worked_footer
 
-if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
+
+class TerminalTurnHost(typing.Protocol):
+    """描述终端轮次生命周期适配器所需的最小宿主。
+
+    实现方持有前端和动画清理生命周期；适配器只协调一次前台 Turn，不保存或
+    修改 Harness 状态。
+    """
+
+    frontend: Frontend
+    animate: bool
+
+    async def start_anim(self) -> None:
+        """开始当前轮次动画。"""
+        ...
+
+    async def stop_anim(
+        self,
+        kind: ActivityStatusKind | None = None,
+        *,
+        settle: bool = True,
+    ) -> None:
+        """停止指定活动动画。"""
+        ...
+
+    async def await_cleanup(
+        self,
+        awaitable: typing.Awaitable[None],
+    ) -> None:
+        """在调用方取消时仍等待清理完成。"""
+        ...
 
 
 class ControllerTurnForegroundLifecycle(TurnForegroundLifecyclePort):
     """把 Controller 的前台运行能力适配为终端轮次生命周期端口。"""
 
-    def __init__(self, controller: "Mind") -> None:
+    def __init__(self, controller: TerminalTurnHost) -> None:
         """绑定组合根提供的 Controller 生命周期实现。"""
         self._controller = controller
 
@@ -46,9 +78,7 @@ class ControllerTurnForegroundLifecycle(TurnForegroundLifecyclePort):
 
     def finish_turn_wait(self) -> None:
         """结束当前轮次等待展示。"""
-        finish = getattr(self._controller.frontend.runtime, "finish_turn_wait", None)
-        if callable(finish):
-            finish()
+        self._controller.frontend.runtime.finish_turn_wait()
 
     async def stop_animation(self) -> None:
         """停止当前轮次动画。"""

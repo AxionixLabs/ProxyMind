@@ -56,12 +56,12 @@ class AgentThreadContext:
         if not isinstance(self.permissions, PermissionSettings):
             raise TypeError("agent thread permissions are required")
 
-        source        = str(self.source or "").strip()
-        cwd           = str(self.cwd or "").strip()
+        source = str(self.source or "").strip()
+        cwd = str(self.cwd or "").strip()
         spawn_turn_id = str(self.spawn_turn_id or "").strip()
-        fork_turns    = normalize_fork_turns(self.fork_turns)
+        fork_turns = normalize_fork_turns(self.fork_turns)
 
-        transcript_path        = str(self.transcript_path or "").strip()
+        transcript_path = str(self.transcript_path or "").strip()
         parent_transcript_path = str(self.parent_transcript_path or "").strip()
 
         if not source or not cwd or not spawn_turn_id:

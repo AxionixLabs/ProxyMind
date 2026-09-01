@@ -11,7 +11,7 @@ import pytest
 from mcp import types as mcp_types
 
 from mind_app.runtime.mcp import group as mcp_group
-from mind_app.runtime.mcp import config as mcp_config
+from infrastructure.mcp import transport as mcp_transport
 from mind_app.runtime.mcp.group import ExternalMcpGroup
 from mind_app.runtime.mcp.status import ExternalMcpStatus
 
@@ -195,10 +195,14 @@ async def test_stdio_preflight_does_not_block_event_loop(monkeypatch) -> None:
         await asyncio.sleep(0)
         marker_reached.set()
 
-    monkeypatch.setattr(mcp_config, "preflight_stdio_server", blocking_preflight)
+    monkeypatch.setattr(
+        mcp_transport,
+        "preflight_stdio_server",
+        blocking_preflight,
+    )
 
     marker = asyncio.create_task(mark_scheduled())
-    await mcp_config.preflight_server({
+    await mcp_transport.preflight_server({
         "transport": "stdio",
         "command": "server",
     })

@@ -650,6 +650,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
     runtime = SimpleNamespace(
         begin_terminal_progress=Mock(),
         end_terminal_progress=Mock(),
+        finish_turn_wait=Mock(),
     )
     report = _Report()
     captured = []
@@ -722,6 +723,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
     )
 
     assert result.status == "completed"
+    runtime.finish_turn_wait.assert_called_once_with()
     mind.begin_conversation_turn.assert_called_once_with(
         cid=None,
         sid=None,
