@@ -11,6 +11,7 @@ from agent.ports import (
     EffectJournalFactory,
     ModelCapability,
     ProtocolCommandClient,
+    PatchPreviewPort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -63,6 +64,7 @@ async def prepare_root_turn(
     approval_ledger: ApprovalLedger | None = None,
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
+    patch_preview: PatchPreviewPort | None = None,
 ) -> TurnExecution:
     """固定根轮次的会话身份、输入快照和执行上下文。"""
     supplied_metadata = dict(metadata)
@@ -89,6 +91,7 @@ async def prepare_root_turn(
         approval_ledger=approval_ledger,
         transcript_factory=transcript_factory,
         cleanup=cleanup,
+        patch_preview=patch_preview,
         output_record_path=str(controller.report.output_record_path or ""),
         transcript_path=controller.transcripts.path_for_session(sid),
         turn_id=turn_id,
@@ -121,6 +124,7 @@ async def run_root_turn(
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
+    patch_preview: PatchPreviewPort | None = None,
     **kwargs: typing.Any,
 ) -> RunResult:
     """准备根轮次并通过主前端生命周期执行。"""
@@ -154,6 +158,7 @@ async def run_root_turn(
         approval_ledger=controller.approval_call_ledger,
         transcript_factory=transcript_factory,
         cleanup=cleanup,
+        patch_preview=patch_preview,
     )
     event_report = kwargs.pop("ev_report", None)
 

@@ -435,6 +435,12 @@ CLI、Subagent 和 Transcript setup failure 回归 `233 passed`；端口边界�
 回归 `233 passed`；端口边界专项 `4 passed, 1 warning`，导入图、`compileall` 和
 `git diff --check` 通过。下一切片收口动画状态、工作区补丁预览和会话上下文端口。
 
+本次工作区补丁预览切片已满足上述条件：新增 `agent.ports.PatchPreviewPort`，通过
+`TurnContext` 显式注入根轮次、TUI 和 Subagent；`stream.py`、客户端工具和本地审批策略
+只消费只读预览端口，不再访问完整 `WorkspaceRuntime`。工作区审批、流式、根轮次、TUI、
+CLI、Subagent 回归 `272 passed`；端口边界专项 `4 passed, 1 warning`，导入图、
+`compileall` 和 `git diff --check` 通过。下一切片收口动画状态与会话上下文端口。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -548,3 +554,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 将流式输出 `SessionFactory` 从 `controller.frontend` 反射兜底改为组合根、CLI、TUI 和 Subagent 显式注入，并沿续跑传递 | 输出准备/流式/TUI/CLI 回归 `211 passed`；缺失工厂门禁通过；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `agent.ports.TranscriptFactory`，通过 `TurnContext` 显式注入根轮次、TUI、Subagent 和 session setup failure，删除 `stream.py` 与执行收束对 `controller.transcripts` 的访问 | 流式/根轮次/TUI/CLI/Subagent/Transcript 回归 `233 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `agent.ports.TurnCleanupPort` 并通过 `TurnContext` 显式注入流式 Finalizer、根轮次、TUI、Subagent 和 CLI，删除 `stream.py` 对 `mind.await_cleanup` 的直接依赖 | 流式/根轮次/TUI/CLI/Subagent 回归 `233 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 新增 `agent.ports.PatchPreviewPort` 并通过 `TurnContext` 显式注入工具审批和客户端工具，删除 `stream.py` 对完整 `WorkspaceRuntime.coding` 的直接访问 | 工作区审批/流式/根轮次/TUI/CLI/Subagent 回归 `272 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |

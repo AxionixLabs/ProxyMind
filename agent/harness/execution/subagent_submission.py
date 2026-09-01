@@ -19,6 +19,7 @@ from agent.ports import (
     HookExecutionScopePort,
     McpSessionPort,
     PermissionGrantReader,
+    PatchPreviewPort,
     SubagentExecutionPort,
     SubagentOperation,
     TurnCleanupPort,
@@ -68,6 +69,7 @@ class SubagentSubmissionExecutor:
         approval_ledger: ApprovalLedger | None = None,
         transcript_factory: TranscriptFactory | None = None,
         cleanup: TurnCleanupPort | None = None,
+        patch_preview: PatchPreviewPort | None = None,
     ) -> None:
         """绑定 Harness 所需端口，不依赖具体 Controller。"""
         self._control_for = control_for
@@ -80,6 +82,7 @@ class SubagentSubmissionExecutor:
         self._approval_ledger = approval_ledger
         self._transcript_factory = transcript_factory
         self._cleanup = cleanup
+        self._patch_preview = patch_preview
 
     async def execute(
         self,
@@ -110,6 +113,7 @@ class SubagentSubmissionExecutor:
                 approval_ledger=self._approval_ledger,
                 transcript_factory=self._transcript_factory,
                 cleanup=self._cleanup,
+                patch_preview=self._patch_preview,
                 transcript_path=thread.transcript_path,
                 parent_transcript_path=thread.parent_transcript_path,
                 session_started=turn.turn_index == 1,

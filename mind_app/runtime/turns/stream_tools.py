@@ -8,6 +8,7 @@ from agent.stores.approvals.ledger import ApprovalCallLedger
 from mind_app.approval.models import ApprovalOutcome
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from agent.ports.transcript import TranscriptSink
+from agent.ports import PatchPreviewPort
 from mind_app.runtime.mcp.tool_store import meta_for_tool
 from infrastructure.config.execution_policy_manager import ExecApprovalRequirement
 from mind_app.presentation.output import OutputStatusPort
@@ -196,6 +197,7 @@ class ToolEventHandler:
         *,
         controller: "Mind",
         turn_context: TurnContext,
+        patch_preview: PatchPreviewPort | None = None,
         tools: list[dict[str, typing.Any]],
         ledger: ApprovalCallLedger,
         coordinator: ToolCallCoordinator,
@@ -210,6 +212,7 @@ class ToolEventHandler:
         """绑定当前轮次拥有的工具执行依赖。"""
         self.controller     = controller
         self.turn_context   = turn_context
+        self.patch_preview  = patch_preview
         self.tools          = tools
         self.ledger         = ledger
         self.coordinator    = coordinator
@@ -419,7 +422,10 @@ class ToolEventHandler:
         """处理本地补丁专用审批，批准时允许继续执行。"""
         approval_coordinator = self.controller.approval_coordinator
 
-        patch_approval = local_patch_approval(self.controller, invocation)
+        patch_approval = local_patch_approval(
+            self.patch_preview,
+            invocation,
+        )
         execution_policy = self.controller.workspace_runtime.execution_policy
 
         patch_session_approved = execution_policy.patch_scope_approved_for_session(

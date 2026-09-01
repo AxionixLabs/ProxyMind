@@ -10,6 +10,7 @@ __all__ = (
     "CodingRuntime",
     "ExecutionPolicy",
     "ExecutionPolicyFactory",
+    "PatchPreviewPort",
     "WorkspaceRoot",
     "WorkspaceRuntime",
     "WorkspaceRuntimeFactory",
@@ -25,6 +26,20 @@ class CodingRuntime(typing.Protocol):
 
     async def close(self) -> None:
         """释放编码能力持有的全部资源。"""
+        ...
+
+
+class PatchPreviewPort(typing.Protocol):
+    """定义只读生成工作区补丁预览的端口。"""
+
+    def __call__(
+        self,
+        *,
+        patch: str,
+        expected_sha256: dict[str, str] | None = None,
+        force: bool = False,
+    ) -> dict[str, typing.Any]:
+        """返回补丁预览结果，不修改工作区。"""
         ...
 
 

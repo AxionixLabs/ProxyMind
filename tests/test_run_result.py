@@ -676,6 +676,11 @@ async def _run_stream(
         approval_ledger=ApprovalCallLedger(),
         transcript_factory=mind.transcripts.writer,
         cleanup=mind,
+        patch_preview=getattr(
+            mind.workspace_runtime.coding,
+            "preview_patch",
+            None,
+        ),
         turn_id="turn_test",
         session_started=session_started,
         session_start_reason="initial" if session_started else "",

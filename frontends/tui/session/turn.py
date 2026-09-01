@@ -14,6 +14,7 @@ from agent.ports import (
     McpSessionPort,
     ModelCapability,
     ProtocolCommandClient,
+    PatchPreviewPort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -214,6 +215,7 @@ async def run_tui_model_turn(
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
+    patch_preview: PatchPreviewPort | None = None,
     on_prompt_prepared: typing.Callable[
         [list[dict[str, typing.Any]]],
         None,
@@ -263,6 +265,7 @@ async def run_tui_model_turn(
         approval_ledger=approval_ledger,
         transcript_factory=transcript_factory,
         cleanup=cleanup,
+        patch_preview=patch_preview,
         turn_id=turn_id,
     )
 

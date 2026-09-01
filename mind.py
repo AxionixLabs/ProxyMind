@@ -72,6 +72,7 @@ def bind_root_turn_runner(
             session_factory=controller.frontend.session_factory,
             transcript_factory=controller.transcripts.writer,
             cleanup=controller,
+            patch_preview=controller.workspace_runtime.coding.preview_patch,
             **kwargs,
         )
 

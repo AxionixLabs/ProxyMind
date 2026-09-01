@@ -450,11 +450,7 @@ async def stream_turn(
                 effect_journal_db_path()
             ),
             effect_reconciler=protocol_client.post_effect_reconciliation,
-            patch_preview=getattr(
-                mind.workspace_runtime.coding,
-                "preview_patch",
-                None,
-            ),
+            patch_preview=turn_context.patch_preview,
             interrupt_turn=interrupt_nested_turn,
         )
         tool_result_delivery = ToolResultDelivery(
@@ -476,6 +472,7 @@ async def stream_turn(
         tool_event_handler = ToolEventHandler(
             controller=mind,
             turn_context=turn_context,
+            patch_preview=turn_context.patch_preview,
             tools=tools,
             ledger=approval_ledger,
             coordinator=tool_call_coordinator,

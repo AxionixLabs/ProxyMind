@@ -252,6 +252,7 @@ class Mind(object):
                 ),
                 transcript_factory=self.transcripts.writer,
                 cleanup=self,
+                patch_preview=self.workspace_runtime.coding.preview_patch,
                 skills_provider=skills_provider,
                 transcript_path_for=self.transcripts.path_for_session,
                 transcript_entries_for=(

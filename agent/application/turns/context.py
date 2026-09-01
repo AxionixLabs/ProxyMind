@@ -10,6 +10,7 @@ from agent.domain.policies import PermissionSettings
 from agent.ports import (
     ApprovalLedger,
     PermissionGrantReader,
+    PatchPreviewPort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -167,6 +168,7 @@ class TurnContext:
     approval_ledger: ApprovalLedger | None = None
     transcript_factory: TranscriptFactory | None = None
     cleanup: TurnCleanupPort | None = None
+    patch_preview: PatchPreviewPort | None = None
     output_record_path: str = ""
     transcript_path: str = ""
     parent_transcript_path: str = ""
@@ -188,6 +190,7 @@ class TurnContext:
         approval_ledger: ApprovalLedger | None = None,
         transcript_factory: TranscriptFactory | None = None,
         cleanup: TurnCleanupPort | None = None,
+        patch_preview: PatchPreviewPort | None = None,
         output_record_path: str = "",
         transcript_path: str = "",
         parent_transcript_path: str = "",
@@ -225,6 +228,7 @@ class TurnContext:
             approval_ledger=approval_ledger,
             transcript_factory=transcript_factory,
             cleanup=cleanup,
+            patch_preview=patch_preview,
             output_record_path=str(output_record_path or "").strip(),
             transcript_path=str(transcript_path or "").strip(),
             parent_transcript_path=str(parent_transcript_path or "").strip(),

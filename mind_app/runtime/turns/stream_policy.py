@@ -15,9 +15,7 @@ from agent.application.turns.context import (
     ToolInvocation,
     TurnContext,
 )
-
-if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
+from agent.ports import PatchPreviewPort
 
 LOCAL_EXEC_POLICY_TOOLS = frozenset({
     "shell_command",
@@ -213,7 +211,7 @@ def local_exec_policy_approval(
 
 
 def local_patch_approval(
-    controller: "Mind",
+    patch_preview: PatchPreviewPort | None,
     invocation: ToolInvocation
 ) -> dict[str, typing.Any]:
     """构造补丁专用的本地审批请求。"""
@@ -226,10 +224,14 @@ def local_patch_approval(
     if not isinstance(expected_sha256, dict):
         expected_sha256 = None
     try:
-        candidate = controller.workspace_runtime.coding.preview_patch(
-            patch=patch,
-            expected_sha256=expected_sha256,
-            force=bool(arguments.get("force", False)),
+        candidate = (
+            patch_preview(
+                patch=patch,
+                expected_sha256=expected_sha256,
+                force=bool(arguments.get("force", False)),
+            )
+            if patch_preview is not None
+            else None
         )
     except (OSError, TypeError, ValueError, UnicodeError, KeyError):
         candidate = None
