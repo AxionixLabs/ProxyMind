@@ -84,10 +84,10 @@ from .stream_tools import (
     ToolEventHandler,
 )
 from .stream_setup import prepare_stream_turn
-from .stream_model import ModelStreamEventHandler
-from .stream_effects import ToolResultDelivery
+from agent.adapters.protocol.model_events import ModelStreamEventHandler
+from agent.adapters.protocol.tool_results import ToolResultDelivery
 from .stream_finalize import StreamTurnFinalizer
-from .stream_presentation import (
+from agent.application.turns.presentation import (
     FailureProjectionMode,
     StreamTurnPresentation,
 )

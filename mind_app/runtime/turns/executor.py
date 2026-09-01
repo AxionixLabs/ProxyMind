@@ -10,12 +10,12 @@ from observability import (
     observe,
     observe_exception
 )
-from protocol.transport.events import EventReport
 from agent.ports.transcript import TranscriptSink
 from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
 from agent.application.turns.context import TurnContext
 from agent.ports import (
+    EventReportPort,
     TurnOperation,
     TurnResultValue,
     TurnExecutionRuntimePort,
@@ -191,7 +191,7 @@ async def execute_turn(
     execution: TurnExecution,
     operation: TurnOperation[TurnResultValue],
     *,
-    event_report: EventReport | None = None,
+    event_report: EventReportPort | None = None,
     tool_filter_mode: (
         ToolFilterMode | None | _UnspecifiedToolFilterMode
     ) = _UNSPECIFIED_TOOL_FILTER_MODE,

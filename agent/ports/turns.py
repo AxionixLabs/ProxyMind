@@ -8,7 +8,6 @@ from collections.abc import (
 
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
-from protocol.transport.events import EventReport
 from agent.domain.policies import PermissionSettings
 from .approvals import ApprovalLedger
 from .hooks import (
@@ -28,6 +27,31 @@ RetryState: typing.TypeAlias = typing.Literal[
     "transport",
     "provider",
 ]
+
+
+class EventReportPort(typing.Protocol):
+    """定义单轮事件报告的最小传输边界及调用方生命周期约束。"""
+
+    def begin_turn(
+        self,
+        turn_id: str | None = None,
+        *,
+        round_no: int | None = None,
+    ) -> str:
+        """绑定新的逻辑轮次身份并返回最终 Turn ID。"""
+        ...
+
+    def bind_event(self, event: StreamEvent) -> None:
+        """同步权威事件携带的协议与模型轮次元数据。"""
+        ...
+
+    def emit(self, event: dict[str, typing.Any]) -> None:
+        """按当前报告上下文登记一条待发送事件。"""
+        ...
+
+    async def flush(self) -> None:
+        """等待当前已登记事件完成发送。"""
+        ...
 
 
 class TurnResultPort(typing.Protocol):
@@ -54,7 +78,7 @@ class TurnOperation(typing.Protocol[TurnResultValue]):
         execution: "TurnExecution",
         session: McpSessionPort,
         tools: list[dict[str, typing.Any]],
-        event_report: EventReport,
+        event_report: EventReportPort,
     ) -> TurnResultValue:
         """执行模型轮次并返回稳定结果。"""
         ...
@@ -80,7 +104,7 @@ class TurnCleanupPort(typing.Protocol):
 class TurnEventReportHandle(typing.Protocol):
     """定义单轮事件报告租约的最小释放接口。"""
 
-    report: EventReport
+    report: EventReportPort
 
     async def release(self, *, interrupted: bool) -> None:
         """释放报告租约并按中断状态收束输出。"""
@@ -283,6 +307,7 @@ __all__ = (
     "RootTurnSessionPort",
     "TurnOperation",
     "RetryState",
+    "EventReportPort",
     "RetryStatePort",
     "TurnAnimationPort",
     "TurnSessionContextPort",

@@ -14,7 +14,7 @@ from agent.ports import (
     ResponseIdentity,
 )
 from agent.ports.transcript import TranscriptSink
-from mind_app.runtime.turns.stream_model import ModelStreamEventHandler
+from agent.adapters.protocol.model_events import ModelStreamEventHandler
 from protocol.schema.stream_events import (
     StreamEvent,
     TextDeltaEvent,

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from agent.ports import ProtocolCommandError
-from mind_app.runtime.turns.stream_effects import ToolResultDelivery
+from agent.adapters.protocol.tool_results import ToolResultDelivery
 from protocol.client.tools import ToolResultRequestError
 
 

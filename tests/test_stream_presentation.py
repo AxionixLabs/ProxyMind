@@ -12,7 +12,7 @@ from agent.application.views import (
     RunStartedView,
 )
 from agent.application.turns.stream_outcome import StreamTurnOutcome
-from mind_app.runtime.turns.stream_presentation import (
+from agent.application.turns.presentation import (
     FailureProjectionMode,
     StreamTurnPresentation,
 )

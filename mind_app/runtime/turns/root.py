@@ -3,12 +3,12 @@
 
 import typing
 from collections.abc import Mapping
-from protocol.transport.events import EventReport
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.execution import TurnExecution
 from agent.application.turns.foreground import run_foreground_turn
 from agent.application.tools.execution import ToolExecutionAdapter
 from agent.ports import (
+    EventReportPort,
     ApprovalCoordinatorPort,
     ApprovalLedger,
     EffectJournalFactory,
@@ -203,7 +203,7 @@ async def run_root_turn(
         prepared: TurnExecution,
         session: "McpSessionPort",
         tools: list[dict[str, typing.Any]],
-        report: EventReport,
+        report: EventReportPort,
     ) -> RunResult:
         """使用主前端生命周期执行已经准备好的根轮次。"""
         stream_kwargs: dict[str, typing.Any] = dict(kwargs)

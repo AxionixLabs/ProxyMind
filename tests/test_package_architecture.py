@@ -195,6 +195,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/turns/projections.py",
         "application/turns/run_result.py",
         "application/turns/lifecycle.py",
+        "application/turns/presentation.py",
         "application/turns/stream_boundaries.py",
         "application/turns/stream_outcome.py",
         "application/views/builders/__init__.py",
@@ -255,6 +256,8 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "adapters/agents/messages.py",
         "adapters/protocol/client.py",
         "adapters/protocol/items.py",
+        "adapters/protocol/model_events.py",
+        "adapters/protocol/tool_results.py",
     }
     missing = [
         relative
@@ -3175,6 +3178,7 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
     """确保 Turn/Subagent 调用协议不由具体 runtime executor 定义。"""
     targets = {
             PROJECT_ROOT / "agent" / "ports" / "turns.py": {
+                "EventReportPort",
                 "TurnCleanupPort",
                 "TurnEventReportHandle",
                 "TurnEventReportingPort",
@@ -3525,11 +3529,11 @@ def test_tool_progress_policy_and_dispatch_have_single_owners() -> None:
     policy = (
         PROJECT_ROOT / "agent" / "domain" / "tool_policy.py"
     ).read_text(encoding="utf-8-sig")
-    router = (
-        PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "router.py"
+    projection = (
+        PROJECT_ROOT / "agent" / "application" / "views" / "tool_execution.py"
     ).read_text(encoding="utf-8-sig")
     assert "def supports_progress_notifications(" in policy
-    assert "async def _emit_tool_progress(" in router
+    assert "async def show_tool_progress(" in projection
 
 
 def test_hook_execution_ports_are_owned_by_agent_ports() -> None:
@@ -3981,6 +3985,7 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
         "progress.py",
         "run.py",
         "tool_display.py",
+        "tool_execution.py",
         "tools.py",
     }
 
@@ -4282,6 +4287,62 @@ def test_turn_stream_projection_is_owned_by_application() -> None:
     assert not violations, "turn stream projection crosses legacy boundary:\n" + (
         "\n".join(violations)
     )
+
+
+def test_turn_stream_protocol_boundaries_have_single_owners() -> None:
+    """确保模型事件、工具结果和终态展示不再混居旧 Turn 运行时。"""
+    legacy_root = PROJECT_ROOT / "mind_app" / "runtime" / "turns"
+    legacy_names = {
+        "stream_effects.py",
+        "stream_model.py",
+        "stream_presentation.py",
+    }
+    assert not any((legacy_root / name).is_file() for name in legacy_names)
+
+    adapter_paths = (
+        PROJECT_ROOT / "agent" / "adapters" / "protocol" / "model_events.py",
+        PROJECT_ROOT / "agent" / "adapters" / "protocol" / "tool_results.py",
+    )
+    assert all(path.is_file() for path in adapter_paths)
+    adapter_violations = _forbidden_imports(
+        "agent/adapters/protocol",
+        {
+            "backend",
+            "engine",
+            "frontends",
+            "infrastructure",
+            "mind_app",
+            "mind_core",
+            "server",
+        },
+    )
+    assert not adapter_violations, "protocol adapters cross host boundaries:\n" + (
+        "\n".join(adapter_violations)
+    )
+
+    presentation_path = (
+        PROJECT_ROOT / "agent" / "application" / "turns" / "presentation.py"
+    )
+    assert presentation_path.is_file()
+    presentation_source = presentation_path.read_text(encoding="utf-8-sig")
+    assert "protocol.transport" not in presentation_source
+    assert "protocol.client" not in presentation_source
+    assert "infrastructure" not in presentation_source
+
+    report_port_consumers = (
+        PROJECT_ROOT / "agent" / "ports" / "turns.py",
+        PROJECT_ROOT / "agent" / "ports" / "subagents.py",
+        PROJECT_ROOT / "agent" / "harness" / "execution" / "subagent_runner.py",
+        PROJECT_ROOT
+        / "agent"
+        / "harness"
+        / "execution"
+        / "subagent_submission.py",
+    )
+    for path in report_port_consumers:
+        source = path.read_text(encoding="utf-8-sig")
+        assert "protocol.transport.events" not in source
+        assert "EventReportPort" in source
 
 
 def test_tui_contracts_are_owned_by_frontends() -> None:
@@ -4915,6 +4976,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.turns.stream_outcome",
         "agent.application.turns.projections",
         "agent.application.turns.lifecycle",
+        "agent.application.turns.presentation",
         "agent.application.turns.stream_boundaries",
         "agent.application.hooks.context",
         "agent.application.turns.execution",
@@ -4924,6 +4986,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.views.contracts",
         "agent.application.views.commands",
         "agent.application.views.tool_display",
+        "agent.application.views.tool_execution",
         "agent.application.views.builders.approval",
         "agent.application.views.builders.batch",
         "agent.application.views.builders.lifecycle",
@@ -4940,6 +5003,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.tools.context",
         "agent.application.tools.definitions",
         "agent.application.tools.execution_results",
+        "agent.application.tools.execution",
         "agent.application.tools.media",
         "agent.application.tools.patching",
         "agent.application.tools.processes",
@@ -4967,6 +5031,8 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.adapters.agents.messages",
         "agent.adapters.agents.execution",
         "agent.adapters.agents.fork_context",
+        "agent.adapters.protocol.model_events",
+        "agent.adapters.protocol.tool_results",
         "agent.adapters.turns.root",
         "agent.harness.agents.control",
         "agent.harness.agents.delivery",
@@ -4974,11 +5040,18 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.harness.agents.runtime",
         "agent.harness.hooks.runtime",
         "agent.harness.hooks.scope",
+        "agent.harness.hooks.compaction",
+        "agent.harness.hooks.presentation",
+        "agent.harness.hooks.session_lifecycle",
+        "agent.harness.hooks.tool_lifecycle",
+        "agent.harness.hooks.turn_lifecycle",
         "agent.harness.mcp.owner",
         "agent.harness.sessions.conversation",
         "agent.harness.subscription.owner",
         "agent.harness.execution.subagent_runner",
         "agent.harness.execution.subagent_submission",
+        "agent.harness.tools.client_calls",
+        "agent.harness.tools.plan_calls",
         "agent.ports.subscription",
         "agent.protocol.json_value",
         "agent.protocol",

@@ -667,6 +667,7 @@ running -> cancelled
 | `agent/stores/approvals/permissions.py` | `agent/domain/permission_profiles.py`、`agent/ports/permissions.py` | 权限对象算法由 domain 单一持有，store 只保存 Turn/Session 授权状态；执行上下文依赖读取端口，权限申请工具依赖写入端口，具体 store 由组合边界注入 |
 | `mind_app/runtime/turns/result.py` | `agent/application/turns/run_result.py` | 单次模型 Run 的稳定结果值对象属于 application 出站契约；前端和 Subagent 只消费公开结果，不从 runtime turns 导入 |
 | `mind_app/runtime/turns/stream_outcome.py` | `agent/application/turns/stream_outcome.py` | 流式终态优先级、协议终态归并和 `RunResult` 构建属于 application 结果聚合；协议事件只在边界输入，不持有 UI 或执行副作用 |
+| `mind_app/runtime/turns/stream_model.py`、`stream_effects.py`、`stream_presentation.py` | `agent/adapters/protocol/model_events.py`、`tool_results.py` 与 `agent/application/turns/presentation.py` | Canonical 模型事件到 Transcript/展示的投影和工具结果可靠交付属于线上协议 adapter；Turn 启动、失败与终态 view 编排属于 application。共享执行链只消费 `EventReportPort`，不再依赖具体 transport 报告器，三个旧模块同批删除 |
 | `agent/harness/sessions/owner.py`、`loop.py` | `agent/ports/sessions.py` | Session runtime 的执行、取消、恢复和关闭契约归入 ports；Harness 只提供实现，application 通过显式 factory 使用，不直接装配 owner |
 | `agent/harness/workspace_runtime.py` | `agent/ports/workspace.py` | 工作区资源生命周期和组合工厂契约归入 ports；Harness 只持有具体资源替换/关闭实现，路径由组合边界解析 |
 | `mind_app/runtime/support/idle_status.py` | `infrastructure/platform/idle_status.py` | asyncio 延迟状态计时器只管理平台任务生命周期；stream runtime 通过显式平台实现使用，不让 support 目录继续承接无归属基础设施 |

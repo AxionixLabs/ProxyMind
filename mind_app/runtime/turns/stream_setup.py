@@ -5,9 +5,9 @@ import copy
 import time
 import typing
 from dataclasses import dataclass
-from protocol.transport.events import EventReport
 from protocol.schema.environment import normalize_client_environment_snapshot
 from agent.ports import (
+    EventReportPort,
     OutputSession,
     OutputSessionFactory,
 )
@@ -106,7 +106,7 @@ class PreparedStreamTurn:
     started_at: float
     request_kwargs: dict[str, typing.Any]
     continuation_kwargs: dict[str, typing.Any]
-    event_report: EventReport | None
+    event_report: EventReportPort | None
     output_session: OutputSession
 
 
@@ -121,7 +121,7 @@ def prepare_stream_turn(
     callbacks = StreamTurnCallbacks.take_from(request_kwargs)
     continuation_kwargs = callbacks.continuation_kwargs(request_kwargs)
     started_at = time.perf_counter()
-    event_report: EventReport | None = request_kwargs.pop("ev_report", None)
+    event_report: EventReportPort | None = request_kwargs.pop("ev_report", None)
 
     if not isinstance(execution, TurnExecution):
         raise TypeError("turn_execution is required")

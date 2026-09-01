@@ -7,6 +7,7 @@ from agent.application.turns.run_result import RunResult
 from agent.application.tools.execution import ToolExecutionAdapter
 from agent.ports import (
     EffectJournalFactory,
+    EventReportPort,
     McpSessionPort,
     ModelCapability,
     ProtocolCommandClient,
@@ -18,7 +19,6 @@ from agent.ports import (
 )
 from mind_app.runtime.turns.executor import execute_turn
 from mind_app.runtime.turns.stream import stream_turn
-from protocol.transport.events import EventReport
 
 
 class ControllerSubagentTurnRunner:
@@ -34,7 +34,7 @@ class ControllerSubagentTurnRunner:
         execution: TurnExecution,
         operation: SubagentOperation[RunResult],
         *,
-        event_report: EventReport | None = None,
+        event_report: EventReportPort | None = None,
     ) -> RunResult:
         """使用固定运行时执行一次子 Agent Turn。"""
         return await execute_turn(
@@ -74,7 +74,7 @@ class ControllerSubagentExecution(SubagentExecutionPort):
         execution: TurnExecution,
         session: McpSessionPort,
         tools: list[dict[str, typing.Any]],
-        event_report: EventReport,
+        event_report: EventReportPort,
         on_turn_input_event: TurnInputEventHandler | None = None,
     ) -> RunResult:
         """使用静默输出会话执行一次子 Agent 流。"""

@@ -267,9 +267,15 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   continuation 与展示通道适配归 `agent/harness/hooks`，运行快照到中立 Hook view 的纯映射归
   `agent/application/views/builders/hooks.py`。旧 `mind_app/runtime/hooks` 源包已删除；Hook、
   压缩和流式回归 `167 passed`，职责守卫 `4 passed`。
+- Turn 协议边界第一组已完成归位：模型 Canonical Item 交付和工具结果投递/对账迁入
+  `agent/adapters/protocol`，Turn 启动、失败、来源与终态展示迁入
+  `agent/application/turns/presentation.py`。新增 `EventReportPort` 后 Harness、Subagent 与 Turn
+  契约不再导入具体 `protocol.transport.events.EventReport`；三个旧 stream 模块已删除，定向
+  回归 `88 passed`、扩展主链 `326 passed`、职责守卫 `3 passed`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
-- 完整架构守卫：`75 passed, 51 warnings`。
+- 完整架构守卫：本轮全量扫描 `109 passed, 4 stale assertions, 66 warnings`；陈旧断言
+  修正后相关节点 `5 passed, 2 warnings`。警告仍来自 Nuitka `glob2` 的弃用转义。
 - `agent_runtime_import_graph.py --write/--check` 通过，导入图已刷新。
 - `compileall`、`git diff --check` 通过；旧平铺路径和旧导入扫描无结果。
 - 组合根切片定向回归：`76 passed`；新增组合/架构守卫：`4 passed`。
@@ -394,6 +400,12 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 application 契约和统一 observability，展示 adapter 不拥有 view 构建规则；旧 Hook 源目录无
 源码且生产导入清零。SessionEnd 重复关闭、清理失败、Prompt 阻断、Stop continuation 与压缩
 后恢复均由现有回归覆盖。
+
+本次 Turn 协议边界第一组的删除条件已满足：模型事件和工具结果只在 protocol adapter 解释
+wire schema，application 终态展示只消费中立输出与报告端口；Harness 和 Subagent 的具体
+`EventReport` 导入清零，旧 `stream_model.py`、`stream_effects.py`、`stream_presentation.py`
+物理删除。provider retry 替换、并发结果去重、effect reconciliation、失败上报顺序和真实入口
+组合均有回归覆盖。
 
 本次 media 切片的删除条件已满足：应用工具只消费 `ImageReaderPort`，具体文件读取器由
 `mind.py` 注入并由 `WorkspaceRuntimeOwner` 随工作区统一替换；旧 `view_image.py`、旧导入和
@@ -928,6 +940,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 拆分 Turn 协议边界第一组：模型事件与工具结果归 protocol adapters，终态展示归 application，并以 `EventReportPort` 替代 Harness 对具体 transport 报告器的依赖 | 定向 `88 passed`；扩展主链 `326 passed`；全量架构 `109 passed / 4 stale assertions`，修正后相关 `5 passed, 2 warnings`；导入图、`compileall` 与旧导入扫描通过 |
 | 2026-09-02 | 将 Compact/Session/Turn Hook 生命周期迁入 Harness，拆出纯 Hook view builder 并删除旧 `mind_app/runtime/hooks` 源包 | Hook/压缩/流式 `167 passed`；职责守卫 `4 passed`；导入图、`compileall`、旧导入扫描和差异检查通过 |
 | 2026-09-02 | 完成工具执行编排归位：新增 SDK-free 执行契约与组合根 adapter，迁移客户端工具、计划和 Hook 生命周期，删除 `mind_app/runtime/tools` 与旧工具 Hook 路径 | 工具/计划/嵌套 `82 passed`；Turn/Subagent `117 passed`；入口 `151 passed`；职责守卫 `5 passed, 1 warning`；导入图、`compileall`、旧导入扫描和差异检查通过 |
 | 2026-08-31 | `agent/` 按职责重组；新增 Session/Workspace 生命周期端口；Skills provider 移至组合根；删除旧平铺路径 | 行为 `495 passed`；架构 `74 passed, 51 warnings`；导入图、`compileall`、`git diff --check` 通过 |

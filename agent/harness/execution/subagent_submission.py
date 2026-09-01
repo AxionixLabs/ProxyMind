@@ -7,13 +7,13 @@ from collections.abc import (
     Awaitable,
     Callable
 )
-from protocol.transport.events import EventReport
 from agent.application.agents.thread import AgentTurnContext
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.execution import TurnExecution
 from agent.application.turns.context import TurnContext
 from agent.domain.agents import AgentSubmission
 from agent.ports import (
+    EventReportPort,
     AgentMessageDeliveryPort,
     ApprovalCoordinatorPort,
     ApprovalLedger,
@@ -169,7 +169,7 @@ class SubagentSubmissionExecutor:
                 prepared: TurnExecution,
                 session: McpSessionPort,
                 tools: list[dict[str, typing.Any]],
-                event_report: EventReport,
+                event_report: EventReportPort,
             ) -> RunResult:
                 """通过运行时装配的执行端口运行固定子轮次。"""
                 active = AgentActiveTurn(

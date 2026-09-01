@@ -4,8 +4,8 @@
 import typing
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.execution import TurnExecution
-from protocol.transport.events import EventReport
 from agent.ports import (
+    EventReportPort,
     McpSessionPort,
     SubagentStreamPort,
     TurnInputEventHandler,
@@ -28,7 +28,7 @@ class StreamSubagentExecution:
         execution: TurnExecution,
         session: McpSessionPort,
         tools: list[dict[str, typing.Any]],
-        event_report: EventReport,
+        event_report: EventReportPort,
         on_turn_input_event: TurnInputEventHandler | None = None,
     ) -> RunResult:
         """使用独立静默输出会话执行固定子轮次。"""

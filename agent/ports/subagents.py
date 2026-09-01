@@ -10,9 +10,9 @@ from collections.abc import (
 
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
-from protocol.transport.events import EventReport
 from .mcp_session import McpSessionPort
 from .turns import (
+    EventReportPort,
     TurnInputEventHandler,
 )
 
@@ -42,7 +42,7 @@ class SubagentExecutionPort(typing.Protocol):
         execution: "TurnExecution",
         session: McpSessionPort,
         tools: list[dict[str, typing.Any]],
-        event_report: EventReport,
+        event_report: EventReportPort,
         on_turn_input_event: (
             typing.Callable[[StreamEvent], TurnInput | None] | None
         ) = None,
@@ -61,7 +61,7 @@ class SubagentStreamPort(typing.Protocol):
         tools: list[dict[str, typing.Any]],
         *,
         turn_execution: "TurnExecution",
-        event_report: EventReport,
+        event_report: EventReportPort,
         skills: list[dict[str, str]],
         on_turn_input_event: TurnInputEventHandler | None = None,
     ) -> "RunResult":
@@ -84,7 +84,7 @@ class SubagentOperation(typing.Protocol[SubagentResultValue]):
         execution: "TurnExecution",
         session: McpSessionPort,
         tools: list[dict[str, typing.Any]],
-        event_report: EventReport,
+        event_report: EventReportPort,
     ) -> SubagentResultValue:
         """执行子轮次并返回稳定结果。"""
         ...
@@ -99,7 +99,7 @@ class SubagentTurnRunner(typing.Protocol):
         execution: "TurnExecution",
         operation: SubagentOperation["RunResult"],
         *,
-        event_report: EventReport | None = None,
+        event_report: EventReportPort | None = None,
     ) -> "RunResult":
         """运行固定子轮次并返回结果。"""
         ...

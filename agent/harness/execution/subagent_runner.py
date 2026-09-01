@@ -8,7 +8,6 @@ from observability import (
     observe,
     observe_exception
 )
-from protocol.transport.events import EventReport
 from agent.application.hooks.subagent import SubagentHookEvents
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.execution import (
@@ -17,6 +16,7 @@ from agent.application.turns.execution import (
 )
 from agent.application.hooks.models import SubagentStopDecision
 from agent.ports import (
+    EventReportPort,
     SubagentCleanupPort,
     McpSessionPort,
     SubagentOperation,
@@ -52,7 +52,7 @@ class SubagentRunner:
         execution: TurnExecution,
         operation: SubagentOperation[RunResult],
         *,
-        event_report: EventReport | None = None
+        event_report: EventReportPort | None = None
     ) -> RunResult:
         """执行子轮次并应用开始上下文与停止继续决定。"""
         if execution.context.agent.depth == 0:
@@ -64,7 +64,7 @@ class SubagentRunner:
             turn_execution: TurnExecution,
             session: "McpSessionPort",
             tools: list[dict[str, typing.Any]],
-            report: EventReport
+            report: EventReportPort
         ) -> RunResult:
             """执行使用固定轮次上下文的子轮次操作。"""
             return await operation(

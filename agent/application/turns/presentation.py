@@ -6,10 +6,10 @@ import time
 import typing
 from agent.domain.policies import PermissionSettings
 from agent.application.turns.stream_outcome import StreamTurnOutcome
-from protocol.transport.events import EventReport
 from agent.ports import OutputStatusPort
 from agent.ports import (
     ContentSink,
+    EventReportPort,
     SourcesOutput,
 )
 from agent.application.views.contracts import PresentationSink
@@ -39,7 +39,7 @@ class StreamTurnPresentation:
         status_control: OutputStatusPort,
         content: ContentSink,
         presentation: PresentationSink,
-        event_report: EventReport | None,
+        event_report: EventReportPort | None,
     ) -> None:
         """绑定单轮终态快照和与具体前端无关的输出端口。"""
         self._outcome = outcome
