@@ -106,6 +106,16 @@ class SubagentRuntimeHostPort(typing.Protocol):
     """定义 SubagentRuntime 所需的组合根宿主端口。"""
 
     @property
+    def subagent_execution(self) -> SubagentExecutionPort:
+        """返回子 Agent 的模型执行端口。"""
+        ...
+
+    @property
+    def subagent_turn_runner(self) -> SubagentTurnRunner:
+        """返回一次子 Agent Turn 的执行端口。"""
+        ...
+
+    @property
     def turn_execution_runtime(self) -> TurnExecutionRuntimePort:
         """返回子 Agent 轮次使用的执行运行时。"""
         ...

@@ -550,6 +550,16 @@ Subagent/工具回归 `39 passed`，根轮次、TUI、CLI 与 Subagent 回归 `1
 `mind_app.runtime.turns` 与静默输出工厂的历史依赖，评估将 Subagent 运行编排下沉到
 `agent/harness` 的完整删除条件。
 
+本次 Subagent 执行适配切片已满足上述条件：新增
+`mind_app/runtime/subagents/execution.py`，集中承载 `execute_turn`、`stream_turn` 和
+静默输出会话的组合根适配；`SubagentRuntime` 只保留 Agent 树、mailbox、提交和关闭编排，
+不再导入 `mind_app.runtime.turns`、输出实现或 `agent.adapters.agents.execution`，并通过
+`SubagentRuntimeHostPort` 获取执行端口。Subagent/工具回归 `39 passed`，根轮次、TUI、
+CLI、MCP 与清理回归 `167 passed`；Subagent 编排架构专项 `4 passed, 1 warning`，导入图、
+`compileall` 和 `git diff --check` 通过。下一切片将纯编排模块物理迁移到
+`agent/harness/agents/runtime.py`，同步切换客户端工具与组合根入口并删除旧 runtime 路径，
+不保留转发 facade。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |

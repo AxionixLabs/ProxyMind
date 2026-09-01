@@ -58,6 +58,10 @@ from agent.stores.approvals.permissions import PermissionGrantStore
 from .approval.coordinator import ApprovalCoordinator
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from .runtime.subagents.runtime import SubagentRuntime
+from .runtime.subagents.execution import (
+    ControllerSubagentExecution,
+    ControllerSubagentTurnRunner,
+)
 from .runtime.turns.session_context import (
     ControllerTurnSessionContext,
     ControllerTurnSessionState,
@@ -201,6 +205,22 @@ class Mind(object):
             pool=kwargs.get("event_report_pool"),
         )
         self.turn_execution_runtime = ControllerTurnExecutionRuntime(self)
+        self.subagent_turn_runner = ControllerSubagentTurnRunner(
+            self.turn_execution_runtime,
+        )
+        self.subagent_execution = ControllerSubagentExecution(
+            self.turn_execution_runtime,
+            model_capability=self.runtime_services.model_capability,
+            protocol_client=(
+                self.runtime_services.model_capability
+                if isinstance(
+                    self.runtime_services.model_capability,
+                    ProtocolCommandClient,
+                )
+                else None
+            ),
+            effect_journal_factory=self.runtime_services.create_effect_journal,
+        )
         self.root_turn_session = ControllerRootTurnSession(self)
         self._conversation_lifecycle_id: int = 0
 
@@ -256,19 +276,9 @@ class Mind(object):
                 self,
                 enabled=self.features.subagents,
                 settings=kwargs.get("agent_settings") or AgentSettings(),
-                model_capability=self.runtime_services.model_capability,
-                protocol_client=(
-                    self.runtime_services.model_capability
-                    if isinstance(
-                        self.runtime_services.model_capability,
-                        ProtocolCommandClient,
-                    )
-                    else None
-                ),
                 execution_policy=self.workspace_runtime.execution_policy,
                 approval_coordinator=self.approval_coordinator,
                 permission_grants=self.permission_grants,
-                effect_journal_factory=self.runtime_services.create_effect_journal,
                 approval_ledger=(
                     self.approval_call_ledger
                     if isinstance(self.approval_call_ledger, ApprovalLedger)

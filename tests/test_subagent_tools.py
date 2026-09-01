@@ -12,26 +12,17 @@ from mind_app.client_tools.registry import (
 )
 from mind_app.client_tools.subagents import subagent_tools
 from mind_app.runtime.mcp.session_adapter import CompositeToolSession
+from mind_app.presentation.output.silent import create_silent_output_session
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.context import AgentContext, TurnContext
 from agent.application.hooks.context import HookExecutionContext
 from agent.harness.hooks.scope import HookExecutionScope
 from mind_app.runtime.subagents.runtime import SubagentRuntime
-from mind_app.runtime.turns import stream as turn_stream
+from mind_app.runtime.turns.executor import execute_turn
 from protocol.client.reports import EventReportRuntimeOwner
 from agent.application.config.settings import AgentSettings
 from agent.domain.policies import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid
-
-
-@pytest.fixture(autouse=True)
-def stream_operation_adapter(monkeypatch) -> None:
-    """将子轮次流式操作转给测试控制器替身。"""
-    async def stream_turn(controller, **kwargs):
-        """调用测试控制器上的流式执行替身。"""
-        return await controller.run_stream_turn(**kwargs)
-
-    monkeypatch.setattr(turn_stream, "stream_turn", stream_turn)
 
 
 class _Controller:
@@ -39,6 +30,8 @@ class _Controller:
         self.messages = []
         self.turn_execution_runtime = self
         self.stream_handler = None
+        self.subagent_execution = _SubagentExecution(self)
+        self.subagent_turn_runner = self._run_subagent_turn
         self.config_session = SimpleNamespace(load=lambda: {})
         self.event_reporting = EventReportRuntimeOwner(
             report_factory=lambda _cid, _sid: _EventReport(),
@@ -49,6 +42,22 @@ class _Controller:
 
     def turn_hook_scope(self, context):
         return self.hook_scope(HookExecutionContext.from_turn(context))
+
+    async def _run_subagent_turn(
+        self,
+        pref_config,
+        execution,
+        operation,
+        *,
+        event_report=None,
+    ):
+        return await execute_turn(
+            self,
+            pref_config,
+            execution,
+            operation,
+            event_report=event_report,
+        )
 
     async def with_mcp_session(self, pref_config, function):
         return await function("session", [])
@@ -70,6 +79,32 @@ class _Controller:
     @staticmethod
     def tool_profile_for_turn():
         return None
+
+
+class _SubagentExecution:
+    def __init__(self, controller) -> None:
+        self._controller = controller
+
+    async def execute(
+        self,
+        pref_config,
+        skills,
+        execution,
+        session,
+        tools,
+        event_report,
+        on_turn_input_event=None,
+    ):
+        return await self._controller.run_stream_turn(
+            session=session,
+            pref_config=pref_config,
+            tools=tools,
+            turn_execution=execution,
+            event_report=event_report,
+            skills=skills,
+            session_factory=create_silent_output_session,
+            on_turn_input_event=on_turn_input_event,
+        )
 
 
 class _EventReport:

@@ -3012,6 +3012,37 @@ def test_subagent_submission_execution_is_owned_by_harness() -> None:
     assert "_execute_submission" not in runtime_definitions
 
 
+def test_subagent_runtime_only_orchestrates_injected_ports() -> None:
+    """确保 SubagentRuntime 不重新拥有流式和 Turn 执行实现。"""
+    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py"
+    tree = ast.parse(runtime_path.read_text(encoding="utf-8-sig"), filename=str(runtime_path))
+
+    imported_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            imported_modules.add(node.module or "")
+
+    forbidden = {
+        "mind_app.runtime.turns",
+        "mind_app.presentation.output",
+        "agent.adapters.agents.execution",
+    }
+    assert not any(
+        module == target or module.startswith(f"{target}.")
+        for module in imported_modules
+        for target in forbidden
+    ), "SubagentRuntime owns legacy execution dependencies"
+
+    runtime_definitions = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert runtime_definitions == {"SubagentRuntime", "_normalize_task"}
+
+
 def test_subagent_stream_execution_is_owned_by_adapter() -> None:
     """确保具体流式 Subagent 执行器由 adapter 持有且不反向加载旧应用。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "executor.py"

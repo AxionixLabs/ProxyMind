@@ -31,7 +31,7 @@ from agent.harness.agents.control import (
 )
 from agent.ports.agent_messages import AgentMessageReceipt
 from mind_app.runtime.subagents.runtime import SubagentRuntime
-from mind_app.runtime.turns import stream as turn_stream
+from mind_app.runtime.turns.executor import execute_turn
 from protocol.client.reports import EventReportRuntimeOwner
 from agent.stores.agents.graph import AgentGraphStore
 from agent.stores.agents.mailbox import (
@@ -46,22 +46,14 @@ from protocol.schema.stream_events import MarkerEvent
 from protocol.schema.turn_inputs import TurnInput
 
 
-@pytest.fixture(autouse=True)
-def stream_operation_adapter(monkeypatch) -> None:
-    """将子轮次流式操作转给测试控制器替身。"""
-    async def stream_turn(controller, **kwargs):
-        """调用测试控制器上的流式执行替身。"""
-        return await controller.run_stream_turn(**kwargs)
-
-    monkeypatch.setattr(turn_stream, "stream_turn", stream_turn)
-
-
 class _Controller:
     def __init__(self) -> None:
         self.configs = []
         self.turn_execution_runtime = self
         self.stream_calls = []
         self.stream_handler = None
+        self.subagent_execution = _SubagentExecution(self)
+        self.subagent_turn_runner = self._run_subagent_turn
         self.config_session = SimpleNamespace(load=lambda: {
             "skills": {"enabled": ["__test_none__"], "disabled": []},
         })
@@ -74,6 +66,22 @@ class _Controller:
 
     def turn_hook_scope(self, context):
         return self.hook_scope(HookExecutionContext.from_turn(context))
+
+    async def _run_subagent_turn(
+        self,
+        pref_config,
+        execution,
+        operation,
+        *,
+        event_report=None,
+    ):
+        return await execute_turn(
+            self,
+            pref_config,
+            execution,
+            operation,
+            event_report=event_report,
+        )
 
     async def with_mcp_session(self, pref_config, function):
         self.configs.append(pref_config)
@@ -95,6 +103,32 @@ class _Controller:
     @staticmethod
     def tool_profile_for_turn():
         return None
+
+
+class _SubagentExecution:
+    def __init__(self, controller) -> None:
+        self._controller = controller
+
+    async def execute(
+        self,
+        pref_config,
+        skills,
+        execution,
+        session,
+        tools,
+        event_report,
+        on_turn_input_event=None,
+    ):
+        return await self._controller.run_stream_turn(
+            session=session,
+            pref_config=pref_config,
+            tools=tools,
+            turn_execution=execution,
+            event_report=event_report,
+            skills=skills,
+            session_factory=create_silent_output_session,
+            on_turn_input_event=on_turn_input_event,
+        )
 
 
 class _EventReport:

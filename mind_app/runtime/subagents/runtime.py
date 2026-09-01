@@ -12,28 +12,19 @@ from agent.application.agents.views import (
 from agent.application.agents.messages import AgentMessageDispatch
 from agent.application.config.settings import AgentSettings
 from agent.application.agents.thread import AgentThreadContext
-from agent.application.turns.run_result import RunResult
-from agent.application.turns.execution import TurnExecution
-from protocol.transport.events import EventReport
 from agent.ports import (
-    EffectJournalFactory,
     ExecutionPolicy,
     ApprovalCoordinatorPort,
-    McpSessionPort,
     ApprovalLedger,
-    ModelCapability,
-    ProtocolCommandClient,
     PatchPreviewPort,
     SkillsProvider,
     SubagentExecutionPort,
-    SubagentOperation,
+    SubagentTurnRunner,
     TurnCleanupPort,
     TranscriptFactory,
-    TurnInputEventHandler,
     PermissionGrantReader,
     SubagentRuntimeHostPort,
 )
-from agent.adapters.agents.execution import StreamSubagentExecution
 from agent.harness.execution.subagent_runner import SubagentRunner
 from agent.harness.agents.registry import AgentControlRegistry
 from agent.application.turns.context import (
@@ -42,9 +33,6 @@ from agent.application.turns.context import (
 )
 from agent.domain.agents import (
     AgentSubmission,
-)
-from mind_app.runtime.turns.executor import (
-    execute_turn,
 )
 from agent.harness.agents.control import (
     AgentControl,
@@ -88,22 +76,20 @@ class SubagentRuntime:
         transcript_path_for: TranscriptPathResolver | None = None,
         transcript_entries_for: TranscriptEntriesReader | None = None,
         session_cleanup: SessionCleanup | None = None,
-        model_capability: ModelCapability | None = None,
-        protocol_client: ProtocolCommandClient | None = None,
         execution_policy: ExecutionPolicy | None = None,
         approval_coordinator: ApprovalCoordinatorPort | None = None,
         permission_grants: PermissionGrantReader | None = None,
-        effect_journal_factory: EffectJournalFactory | None = None,
         approval_ledger: ApprovalLedger | None = None,
         transcript_factory: TranscriptFactory | None = None,
         cleanup: TurnCleanupPort | None = None,
         patch_preview: PatchPreviewPort | None = None,
+        turn_runner: SubagentTurnRunner | None = None,
     ) -> None:
         if not isinstance(enabled, bool):
             raise TypeError("subagent runtime enabled state must be a boolean")
 
         self._settings         = settings or AgentSettings()
-        self._executor         = executor or StreamSubagentExecution(self._run_stream)
+        self._executor         = executor or host.subagent_execution
         self._message_delivery = message_delivery or SteeringMessageDelivery()
         self._graph_store      = graph_store
 
@@ -117,11 +103,8 @@ class SubagentRuntime:
         self._transcript_path_for = transcript_path_for or (lambda _sid: "")
         self._transcript_entries_for = transcript_entries_for
         self._session_cleanup     = session_cleanup
-        self._model_capability    = model_capability
-        self._protocol_client     = protocol_client
         self._execution_policy    = execution_policy
         self._approval_coordinator = approval_coordinator
-        self._effect_journal_factory = effect_journal_factory
         self._approval_ledger = approval_ledger
         self._transcript_factory = transcript_factory
         self._cleanup = cleanup
@@ -130,7 +113,7 @@ class SubagentRuntime:
         self._hook_scope_for = host.turn_hook_scope
         runner_cleanup = cleanup or self._execution_runtime
         runner = SubagentRunner(
-            turn_runner=self._run_turn,
+            turn_runner=turn_runner or host.subagent_turn_runner,
             cleanup=runner_cleanup,
         )
         self._control_registry = AgentControlRegistry(
@@ -152,53 +135,6 @@ class SubagentRuntime:
             transcript_factory=transcript_factory,
             cleanup=cleanup,
             patch_preview=patch_preview,
-        )
-
-    async def _run_turn(
-        self,
-        pref_config: dict[str, typing.Any],
-        execution: TurnExecution,
-        operation: SubagentOperation[RunResult],
-        *,
-        event_report: EventReport | None = None,
-    ) -> RunResult:
-        """把 Harness Turn 端口绑定到当前 runtime Controller。"""
-        return await execute_turn(
-            self._execution_runtime,
-            pref_config,
-            execution,
-            operation,
-            event_report=event_report,
-        )
-
-    async def _run_stream(
-        self,
-        session: McpSessionPort,
-        pref_config: dict[str, typing.Any],
-        tools: list[dict[str, typing.Any]],
-        *,
-        turn_execution: TurnExecution,
-        event_report: EventReport,
-        skills: list[dict[str, str]],
-        on_turn_input_event: TurnInputEventHandler | None = None,
-    ) -> RunResult:
-        """将当前 Controller 绑定到流式 Subagent adapter 端口。"""
-        from mind_app.presentation.output.silent import create_silent_output_session
-        from mind_app.runtime.turns.stream import stream_turn
-
-        return await stream_turn(
-            self._execution_runtime,
-            session=session,
-            pref_config=pref_config,
-            tools=tools,
-            turn_execution=turn_execution,
-            model_capability=self._model_capability,
-            protocol_client=self._protocol_client,
-            effect_journal_factory=self._effect_journal_factory,
-            ev_report=event_report,
-            skills=skills,
-            session_factory=create_silent_output_session,
-            on_turn_input_event=on_turn_input_event,
         )
 
     @property
