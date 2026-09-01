@@ -662,7 +662,7 @@ running -> cancelled
 | `mind_app/runtime/support/clipboard.py` | `mind_app/tui/adapters/clipboard.py` | 系统剪贴板是 TUI 的平台 adapter；展示功能显式依赖该 adapter，不让通用 runtime support 持有 UI 专属 I/O |
 | `mind_app/runtime/support/session_policy.py` | `infrastructure/mcp/errors.py`、`agent/application/turns/exception_text.py` | MCP 传输关闭判断归 MCP 基础设施错误边界；HTTP/运行期异常的一行用户摘要归 Turn application，按职责拆分，不保留混合 session policy |
 | `mind_app/approval/models.py::ExecPolicyAmendmentProposal`、`approval/policy.py::approval_execpolicy_amendment` | `agent/application/approvals/amendments.py` | 执行策略修订提案的具名值和结构校验属于审批 application 语义；终端审批 renderer 不反向导入 legacy application |
-| `mind_app/runtime/conversation.py` | `mind_app/runtime/compaction.py`、`agent/application/turns/compact_result.py` | 上下文压缩的运行时 Hook/Transcript 编排与不可变结果契约分离；runtime 只负责执行生命周期，application 只暴露稳定结果 |
+| 已删除的 `mind_app/runtime/conversation.py` 与 `runtime/compaction.py` | `agent/harness/execution/compaction.py` + `agent/adapters/protocol/compaction.py` + `agent/ports/compaction.py` + `agent/application/turns/compact_result.py` | Protocol adapter 独占 wire payload/事件字典并输出具名 `CompactEvent`；Harness 只消费 Session/Client ports，编排 Hook、Transcript 和取消收束；application 持有稳定事件/结果，旧 runtime 源目录整体删除 |
 | `mind_app/runtime/execution.py` | `agent/application/turns/context.py` | Agent、Turn 和工具调用上下文是跨能力共享的 application 执行契约；不让 MCP、Hook、工具和子 Agent 继续依赖 runtime 平铺实现模块 |
 | `agent/stores/approvals/permissions.py` | `agent/domain/permission_profiles.py`、`agent/ports/permissions.py` | 权限对象算法由 domain 单一持有，store 只保存 Turn/Session 授权状态；执行上下文依赖读取端口，权限申请工具依赖写入端口，具体 store 由组合边界注入 |
 | `mind_app/runtime/turns/result.py` | `agent/application/turns/run_result.py` | 单次模型 Run 的稳定结果值对象属于 application 出站契约；前端和 Subagent 只消费公开结果，不从 runtime turns 导入 |

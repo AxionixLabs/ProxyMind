@@ -10,16 +10,18 @@ from agent.domain.hooks import (
     CompactTriggerSource,
 )
 from agent.application.hooks.context import HookExecutionContext
-from protocol.client.compact import (
-    build_compact_payload,
-    stream_compact_events
-)
 from agent.application.turns.context import AgentContext
+from agent.ports import (
+    CompactProgress,
+    CompactionClientPort,
+    CompactionSessionPort,
+    HookExecutionScopePort,
+)
 from agent.harness.hooks.compaction import (
     CompactHookBlockedError,
     CompactHookEvents
 )
-from agent.harness.hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import resolve_execution_hook_scope
 from agent.harness.hooks.turn_lifecycle import TurnHookEvents
 from observability import (
     observe,
@@ -27,14 +29,12 @@ from observability import (
 )
 
 if typing.TYPE_CHECKING:
-    from ..controller import Mind
     from agent.application.hooks.models import HookDecision
-
-CompactProgress = typing.Callable[[str], None]
 
 
 async def compact_conversation(
-    mind: "Mind",
+    session: CompactionSessionPort,
+    client: CompactionClientPort,
     *,
     pref_config: dict[str, typing.Any],
     source: str,
@@ -43,26 +43,18 @@ async def compact_conversation(
     on_progress: CompactProgress | None = None
 ) -> CompactResult:
     """执行当前会话的上下文压缩及其生命周期 Hook。"""
-    metadata        = mind.conversation.snapshot()
-    transcript_path = mind.transcripts.path_for_session(metadata["sid"])
+    metadata = dict(session.conversation_identity())
+    transcript_path = session.transcript_path_for_session(metadata["sid"])
 
     context = _hook_context(
-        mind,
+        session,
         metadata=metadata,
         pref_config=pref_config,
         source=source,
         transcript_path=transcript_path,
     )
 
-    try:
-        scope = mind.hook_scope(context)
-    except (OSError, TypeError, ValueError) as error:
-        observe_exception(
-            "hooks.resolve.failed",
-            error,
-            level="WARNING",
-        )
-        scope = HookExecutionScope.empty(context)
+    scope = resolve_execution_hook_scope(session, context)
 
     hook_events = CompactHookEvents(scope)
 
@@ -77,7 +69,7 @@ async def compact_conversation(
 
     attempted: bool = False
 
-    transcript = mind.transcripts.writer(
+    transcript = session.transcript_factory(
         transcript_path,
         session_id=metadata["sid"],
     )
@@ -97,31 +89,25 @@ async def compact_conversation(
         )
         attempted = True
 
-        payload = build_compact_payload({
-            "cid": metadata["cid"],
-            "sid": metadata["sid"],
-            "llm_conf": pref_config,
-            "strategy": "memento",
-        })
-
-        async for event in stream_compact_events(payload):
-            event_type = str(event.get("type") or "")
-            message = str(event.get("message") or "").strip()
-
-            if event_type == "conversation.compact.started":
+        async for event in client.stream(
+            cid=metadata["cid"],
+            sid=metadata["sid"],
+            pref_config=pref_config,
+        ):
+            if event.status == "started":
                 if on_progress is not None:
-                    on_progress(message)
+                    on_progress(event.message)
                 observe("compact.remote.started")
                 continue
 
-            if event_type == "conversation.compact.failed":
+            if event.status == "failed":
                 result = CompactResult(
                     outcome="failed",
                     message=(
-                        message
+                        event.message
                         or "Context compaction failed. Please try again."
                     ),
-                    summary=str(event.get("summary") or message or "").strip(),
+                    summary=event.summary or event.message,
                     transcript_path=transcript_path,
                     trigger=trigger,
                     trigger_source=trigger_source,
@@ -129,19 +115,21 @@ async def compact_conversation(
                 observe(
                     "compact.failed",
                     level="ERROR",
-                    reason=message or "remote_failed",
+                    reason=event.message or "remote_failed",
                 )
                 break
 
-            if event_type == "conversation.compact":
+            if event.status == "completed":
                 result = CompactResult(
                     outcome="completed",
-                    message=message or "Context compacted.",
-                    before_items=_optional_int(event.get("before_items")),
-                    after_items=_optional_int(event.get("after_items")),
-                    summary=str(
-                        event.get("summary") or message or "Context compacted."
-                    ).strip(),
+                    message=event.message or "Context compacted.",
+                    before_items=event.before_items,
+                    after_items=event.after_items,
+                    summary=(
+                        event.summary
+                        or event.message
+                        or "Context compacted."
+                    ),
                     transcript_path=transcript_path,
                     trigger=trigger,
                     trigger_source=trigger_source,
@@ -223,7 +211,7 @@ async def compact_conversation(
             )
             if result.outcome == "completed":
                 try:
-                    post_decision = await mind.await_cleanup(
+                    post_decision = await session.await_cleanup(
                         hook_events.post_compact(
                             trigger=trigger,
                             trigger_source=trigger_source,
@@ -250,7 +238,7 @@ async def compact_conversation(
 
                 if result.ok:
                     result = await _run_compact_session_start(
-                        mind,
+                        session,
                         scope,
                         result,
                     )
@@ -279,13 +267,13 @@ def _apply_post_compact_decision(
 
 
 async def _run_compact_session_start(
-    mind: "Mind",
-    scope: HookExecutionScope,
+    session: CompactionSessionPort,
+    scope: HookExecutionScopePort,
     result: CompactResult
 ) -> CompactResult:
     """在成功压缩后分发压缩来源的会话启动事件。"""
     try:
-        decision = await mind.await_cleanup(
+        decision = await session.await_cleanup(
             TurnHookEvents(scope).session_start(source="compact")
         )
     except Exception as error:
@@ -297,7 +285,7 @@ async def _run_compact_session_start(
         return result
 
     if decision.additional_context:
-        mind.conversation.queue_turn_context(decision.additional_context)
+        session.queue_turn_context(decision.additional_context)
 
     if decision.allowed:
         return result
@@ -311,7 +299,7 @@ async def _run_compact_session_start(
 
 
 def _hook_context(
-    mind: "Mind",
+    session: CompactionSessionPort,
     *,
     metadata: dict[str, str],
     pref_config: dict[str, typing.Any],
@@ -326,12 +314,12 @@ def _hook_context(
         if isinstance(primary, dict)
         else ""
     )
-    permissions = mind.permissions
+    permissions = session.permissions
 
     return HookExecutionContext(
         session_id=agent.root_session_id,
         conversation_id=metadata["cid"],
-        cwd=str(mind.history_workspace),
+        cwd=session.workspace_root,
         model=model,
         source=str(source or "").strip(),
         sandbox_mode=permissions.sandbox_mode,
@@ -343,13 +331,6 @@ def _hook_context(
         root_session_id=agent.root_session_id,
         transcript_path=transcript_path or None,
     )
-
-
-def _optional_int(value: typing.Any) -> int | None:
-    """将整数统计值规范化为可选值。"""
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value
 
 
 if __name__ == '__main__':

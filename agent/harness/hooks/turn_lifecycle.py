@@ -7,7 +7,7 @@ from agent.application.hooks.models import (
     StopHookDecision,
     TurnStartResult,
 )
-from agent.harness.hooks.scope import HookExecutionScope
+from agent.ports import HookExecutionScopePort
 
 SessionStartSource = typing.Literal[
     "startup",
@@ -39,7 +39,7 @@ class PromptHookBlockedError(RuntimeError):
 class TurnHookEvents:
     """构建并聚合模型轮次生命周期事件。"""
 
-    def __init__(self, scope: HookExecutionScope) -> None:
+    def __init__(self, scope: HookExecutionScopePort) -> None:
         self.scope = scope
 
     async def session_start(

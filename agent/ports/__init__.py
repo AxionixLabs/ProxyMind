@@ -156,6 +156,11 @@ from .content import (
     ResponseIdentity,
     SourcesOutput,
 )
+from .compaction import (
+    CompactProgress,
+    CompactionClientPort,
+    CompactionSessionPort,
+)
 from .output import (
     IdleStatusPort,
     BLOCK_OUTPUT,
@@ -302,6 +307,9 @@ __all__ = (
     "AssistantTextDelta",
     "ContentOutput",
     "ContentSink",
+    "CompactProgress",
+    "CompactionClientPort",
+    "CompactionSessionPort",
     "IdleStatusPort",
     "OutputControlPort",
     "OutputDisplay",

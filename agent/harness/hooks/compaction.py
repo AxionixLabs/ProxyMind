@@ -7,7 +7,7 @@ from agent.domain.hooks import (
     CompactTriggerSource
 )
 from agent.application.hooks.models import HookDecision
-from agent.harness.hooks.scope import HookExecutionScope
+from agent.ports import HookExecutionScopePort
 
 
 class CompactHookBlockedError(RuntimeError):
@@ -17,7 +17,7 @@ class CompactHookBlockedError(RuntimeError):
 class CompactHookEvents:
     """构建并聚合上下文压缩生命周期事件。"""
 
-    def __init__(self, scope: HookExecutionScope) -> None:
+    def __init__(self, scope: HookExecutionScopePort) -> None:
         self.scope = scope
 
     async def pre_compact(

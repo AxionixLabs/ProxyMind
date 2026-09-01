@@ -43,7 +43,8 @@ from infrastructure.services.turn_environment import (
     capture_turn_environment,
 )
 from agent.harness.execution.root_runner import run_root_turn
-from mind_app.runtime.compaction import compact_conversation
+from agent.adapters.protocol.compaction import ProtocolCompactionClient
+from agent.harness.execution.compaction import compact_conversation
 from mind_app.controller import Mind
 from frontends.interaction.attachments import Attach
 from frontends.output.silent import create_silent_output_session
@@ -112,7 +113,11 @@ def bind_conversation_compactor(host: object) -> ConversationCompactor:
     """在进程组合根绑定当前 Controller 的会话压缩用例。"""
     if not isinstance(host, Mind):
         raise TypeError("conversation compactor host must be Mind")
-    return functools.partial(compact_conversation, host)
+    return functools.partial(
+        compact_conversation,
+        host,
+        ProtocolCompactionClient(),
+    )
 
 
 def create_application_host(

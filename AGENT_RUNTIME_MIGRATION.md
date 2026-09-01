@@ -301,6 +301,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   Runtime 端口；四个只转发调用的 facade 与空 `mind_app/runtime/turns` 源目录已删除。根、流、
   Controller 与 Subagent 回归 `144 passed`，CLI/TUI/MCP/Subscription 入口回归 `140 passed`，
   根 runner 与目录清零守卫通过。
+- Conversation Compaction 已完成职责化迁移：远端 payload/SSE 字典归
+  `agent/adapters/protocol/compaction.py` 并投影为 `CompactEvent`，Hook、Transcript、取消与
+  SessionStart 编排归 `agent/harness/execution/compaction.py`，依赖由 compaction ports 固定。
+  旧 `mind_app/runtime` 源目录及测试 seam 已删除；压缩/Hook/根 Turn 回归
+  `135 passed, 1 warning`，Harness 无 Protocol Client、基础设施或旧应用导入。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：本轮全量扫描 `109 passed, 4 stale assertions, 66 warnings`；陈旧断言
@@ -415,8 +420,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。当前先收敛仅剩的
-   `mind_app/runtime/turns` 已完成源码清零；下一步收敛 `mind_app/runtime/compaction.py` 与
-   Controller 的剩余 Session/配置/资源组合职责，保持每次迁移都有完整入口和旧路径删除。
+   `mind_app/runtime` 已完成源码清零；下一步按 Session、历史、工具资源与前端生命周期拆分
+   最后的 `mind_app/controller.py`，保持每次迁移都有完整入口和旧路径删除，禁止整体改名搬运。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
 删除、架构守卫和 `compileall` 证据。任一条件不足时只更新本计划，不创建空目录。
@@ -462,6 +467,12 @@ idle timer 不再伪装为平台能力。根与子 Turn 共用同一 stream，St
 Controller 作为现有状态所有者直接满足四个结构化端口，不再保存指回自身的 runtime/session
 包装对象。CLI、TUI、stdio MCP、Subscription、根 Turn 与 Subagent 入口均通过；旧
 `mind_app/runtime/turns` Python 源文件及生产导入清零，并由目录守卫锁定。
+
+本次 Conversation Compaction 切片的删除条件已满足：Harness 只读取
+`CompactionSessionPort` 并消费具名 `CompactEvent`，wire 解析只存在于 Protocol adapter；
+Hook scope 通过结构化 provider 统一降级，Transcript 和清理生命周期由 Session port 提供。
+成功、失败、空流、取消、前后 Hook 和会话启动均有回归；旧 compaction、旧 runtime 空包与
+生产导入清零，没有为测试保留转发函数或 wire seam。
 
 本次 media 切片的删除条件已满足：应用工具只消费 `ImageReaderPort`，具体文件读取器由
 `mind.py` 注入并由 `WorkspaceRuntimeOwner` 随工作区统一替换；旧 `view_image.py`、旧导入和
@@ -996,6 +1007,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 将 Conversation Compaction 拆为 Protocol adapter、Harness 用例、Session/Client ports 和 application 事件/结果，删除旧 runtime 源目录 | 压缩/Hook/根 Turn `135 passed, 1 warning`；职责守卫、`compileall`、旧导入扫描通过 |
 | 2026-09-02 | 将根 Turn runner 迁入 Harness，Controller 直接实现其状态端口，删除四个单调用 facade 并清空旧 runtime/turns 源目录 | 根/流/Controller/Subagent `144 passed`；四入口 `140 passed`；目录与职责守卫通过；`compileall`、旧导入扫描通过 |
 | 2026-09-02 | 将 Turn 协议流拆入 Protocol/Application/Harness，组合根绑定效果账本路径，删除无意义 lifecycle owner、旧 stream 和旧 Subagent 适配器 | 主流 `215 passed`；Controller/根 Turn/Subagent `144 passed`；职责守卫 `7 passed, 2 warnings`；`compileall`、旧导入扫描通过 |
 | 2026-09-02 | 将 Turn 执行器迁入 Harness，以事件报告生命周期和 Hook scope provider 端口消除 Protocol Client/Controller 反向依赖，并删除旧 executor | Turn/stream/Protocol/Subagent `204 passed`；职责守卫 `4 passed, 2 warnings`；`compileall`、旧导入扫描通过 |

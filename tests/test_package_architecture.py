@@ -2372,11 +2372,17 @@ def test_runtime_support_responsibilities_have_explicit_owners() -> None:
 def test_compaction_result_and_runtime_orchestration_have_separate_owners() -> None:
     """确保压缩结果契约与运行时编排不再混在旧 conversation 模块。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "conversation.py"
+    legacy_runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "compaction.py"
     assert not legacy_path.is_file(), "legacy runtime conversation module still exists"
+    assert not legacy_runtime_path.is_file(), "legacy runtime compaction module still exists"
 
-    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "compaction.py"
+    runtime_path = PROJECT_ROOT / "agent" / "harness" / "execution" / "compaction.py"
+    adapter_path = PROJECT_ROOT / "agent" / "adapters" / "protocol" / "compaction.py"
+    ports_path = PROJECT_ROOT / "agent" / "ports" / "compaction.py"
     result_path = PROJECT_ROOT / "agent" / "application" / "turns" / "compact_result.py"
-    assert runtime_path.is_file(), "runtime compaction orchestration is missing"
+    assert runtime_path.is_file(), "Harness compaction orchestration is missing"
+    assert adapter_path.is_file(), "protocol compaction adapter is missing"
+    assert ports_path.is_file(), "compaction ports are missing"
     assert result_path.is_file(), "application compact result contract is missing"
 
     legacy_modules = {"mind_app.runtime.conversation"}
@@ -2403,7 +2409,7 @@ def test_compaction_result_and_runtime_orchestration_have_separate_owners() -> N
         for node in result_tree.body
         if isinstance(node, ast.ClassDef)
     }
-    assert result_classes == {"CompactResult"}
+    assert result_classes == {"CompactEvent", "CompactResult"}
 
     runtime_tree = ast.parse(runtime_path.read_text(encoding="utf-8-sig"), filename=str(runtime_path))
     runtime_classes = {
@@ -2412,6 +2418,14 @@ def test_compaction_result_and_runtime_orchestration_have_separate_owners() -> N
         if isinstance(node, ast.ClassDef)
     }
     assert "CompactResult" not in runtime_classes
+    runtime_source = runtime_path.read_text(encoding="utf-8-sig")
+    assert "protocol." not in runtime_source
+    assert "mind_app" not in runtime_source
+    assert "infrastructure" not in runtime_source
+
+    adapter_source = adapter_path.read_text(encoding="utf-8-sig")
+    assert "mind_app" not in adapter_source
+    assert "infrastructure" not in adapter_source
 
 
 def test_execution_context_contracts_are_owned_by_agent_application() -> None:

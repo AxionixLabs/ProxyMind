@@ -79,6 +79,7 @@ from agent.ports import (
     OutputSessionFactory,
     ProtocolCommandClient,
     SkillsProvider,
+    TranscriptFactory,
 )
 from agent.harness.hooks.scope import (
     HookExecutionScope,
@@ -731,6 +732,15 @@ class Mind(object):
     def transcript_path_for_session(self, sid: str) -> str:
         """返回指定会话的 Transcript 路径。"""
         return self.transcripts.path_for_session(sid)
+
+    @property
+    def transcript_factory(self) -> TranscriptFactory:
+        """返回当前会话使用的 Transcript writer 工厂。"""
+        return self.transcripts.writer
+
+    def conversation_identity(self) -> dict[str, str]:
+        """返回当前会话的稳定身份快照。"""
+        return self.conversation.snapshot()
 
     def capture_environment(
         self,

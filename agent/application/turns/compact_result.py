@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import typing
 from dataclasses import dataclass
 from agent.domain.hooks import (
     CompactOutcome,
@@ -28,6 +29,17 @@ class CompactResult:
     def ok(self) -> bool:
         """返回上下文压缩是否完成。"""
         return self.outcome == "completed" and self.continue_execution
+
+
+@dataclass(frozen=True, slots=True)
+class CompactEvent:
+    """描述协议适配器归一化后的会话压缩进度或终态。"""
+
+    status: typing.Literal["started", "completed", "failed"]
+    message: str = ""
+    summary: str = ""
+    before_items: int | None = None
+    after_items: int | None = None
 
 
 if __name__ == '__main__':

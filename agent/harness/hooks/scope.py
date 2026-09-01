@@ -88,10 +88,20 @@ def resolve_hook_scope(
     context: TurnContext,
 ) -> HookExecutionScopePort:
     """解析宿主提供的 Hook 作用域，并在配置失败时返回空作用域。"""
-    hook_context = HookExecutionContext.from_turn(context)
+    return resolve_execution_hook_scope(
+        provider,
+        HookExecutionContext.from_turn(context),
+    )
+
+
+def resolve_execution_hook_scope(
+    provider: HookScopeProviderPort,
+    context: HookExecutionContext,
+) -> HookExecutionScopePort:
+    """解析既有 Hook 上下文，并在配置失败时返回空作用域。"""
 
     try:
-        scope = provider.hook_scope(hook_context)
+        scope = provider.hook_scope(context)
         if not isinstance(scope, HookExecutionScopePort):
             raise TypeError("hook scope provider returned an invalid scope")
         return scope
@@ -101,7 +111,7 @@ def resolve_hook_scope(
             error,
             level="WARNING",
         )
-        return HookExecutionScope.empty(hook_context)
+        return HookExecutionScope.empty(context)
 
 
 if __name__ == '__main__':

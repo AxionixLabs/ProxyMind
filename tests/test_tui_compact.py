@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from mind_app.runtime import compaction as compact_mode
+from agent.adapters.protocol import compaction as compact_protocol
+from agent.harness.execution import compaction as compact_mode
 from agent.harness.hooks.runtime import HookRuntime
 from agent.harness.hooks.scope import HookExecutionScope
 from frontends.tui.features import conversation
@@ -54,6 +55,48 @@ class _TranscriptStore(object):
 
     def writer(self, *_args, **_kwargs) -> _DiscardTranscriptWriter:
         return _DiscardTranscriptWriter()
+
+
+class _CompactionSession:
+    """把测试宿主的会话状态适配为压缩用例端口。"""
+
+    def __init__(self, host) -> None:
+        self._host = host
+
+    @property
+    def workspace_root(self) -> str:
+        return str(self._host.history_workspace)
+
+    @property
+    def permissions(self):
+        return self._host.permissions
+
+    @property
+    def transcript_factory(self):
+        return self._host.transcripts.writer
+
+    def conversation_identity(self):
+        return self._host.conversation.snapshot()
+
+    def transcript_path_for_session(self, sid):
+        return self._host.transcripts.path_for_session(sid)
+
+    def hook_scope(self, context):
+        return self._host.hook_scope(context)
+
+    async def await_cleanup(self, awaitable):
+        return await self._host.await_cleanup(awaitable)
+
+    def queue_turn_context(self, contexts):
+        self._host.conversation.queue_turn_context(contexts)
+
+
+async def _compact(host, **kwargs):
+    return await compact_mode.compact_conversation(
+        _CompactionSession(host),
+        compact_protocol.ProtocolCompactionClient(),
+        **kwargs,
+    )
 
 
 class _HookedCompactMind(object):
@@ -121,12 +164,12 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
         def hook_scope(self, context):
             return HookExecutionScope.empty(context)
 
-    monkeypatch.setattr(compact_mode, "stream_compact_events", empty_stream)
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", empty_stream)
 
     mind = MindStub()
     status = await conversation.compact_current_conversation(
         mind,
-        functools.partial(compact_mode.compact_conversation, mind),
+        functools.partial(_compact, mind),
         pref_config={},
     )
     conversation.render_compact_result(mind, status)
@@ -172,12 +215,12 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
         def hook_scope(self, context):
             return HookExecutionScope.empty(context)
 
-    monkeypatch.setattr(compact_mode, "stream_compact_events", completed_stream)
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", completed_stream)
 
     mind = MindStub()
     result = await conversation.compact_current_conversation(
         mind,
-        functools.partial(compact_mode.compact_conversation, mind),
+        functools.partial(_compact, mind),
         pref_config={},
     )
     conversation.render_compact_result(mind, result)
@@ -228,12 +271,12 @@ async def test_compact_cancellation_clears_animation_without_failure(
         def hook_scope(self, context):
             return HookExecutionScope.empty(context)
 
-    monkeypatch.setattr(compact_mode, "stream_compact_events", pending_stream)
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", pending_stream)
 
     mind = MindStub()
     task = asyncio.create_task(conversation.compact_current_conversation(
         mind,
-        functools.partial(compact_mode.compact_conversation, mind),
+        functools.partial(_compact, mind),
         pref_config={},
     ))
     await started.wait()
@@ -314,9 +357,9 @@ async def test_pre_compact_hook_blocks_remote_operation(monkeypatch, tmp_path) -
         def hook_scope(self, context):
             return HookExecutionScope(context=context, dispatcher=runtime)
 
-    monkeypatch.setattr(compact_mode, "stream_compact_events", remote_stream)
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", remote_stream)
 
-    result = await compact_mode.compact_conversation(
+    result = await _compact(
         MindStub(),
         pref_config={},
         source="test",
@@ -352,9 +395,9 @@ async def test_pre_compact_hook_failure_does_not_block(monkeypatch, tmp_path) ->
     runner = Runner()
     runtime = _compact_hook_runtime(tmp_path, runner)
     mind = _HookedCompactMind(tmp_path, runtime)
-    monkeypatch.setattr(compact_mode, "stream_compact_events", remote_stream)
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", remote_stream)
 
-    result = await compact_mode.compact_conversation(
+    result = await _compact(
         mind,
         pref_config={},
         source="test",
@@ -409,9 +452,9 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
         def hook_scope(self, context):
             return HookExecutionScope(context=context, dispatcher=runtime)
 
-    monkeypatch.setattr(compact_mode, "stream_compact_events", remote_stream)
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", remote_stream)
 
-    result = await compact_mode.compact_conversation(
+    result = await _compact(
         MindStub(),
         pref_config={"primary": {"model": "test-model"}},
         source="test",
@@ -455,9 +498,9 @@ async def test_compact_failure_skips_post_hook(
         tmp_path,
         _compact_hook_runtime(tmp_path, runner),
     )
-    monkeypatch.setattr(compact_mode, "stream_compact_events", failed_stream)
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", failed_stream)
 
-    result = await compact_mode.compact_conversation(
+    result = await _compact(
         mind,
         pref_config={},
         source="test",
@@ -486,8 +529,8 @@ async def test_compact_cancellation_skips_post_hook(
         tmp_path,
         _compact_hook_runtime(tmp_path, runner),
     )
-    monkeypatch.setattr(compact_mode, "stream_compact_events", pending_stream)
-    task = asyncio.create_task(compact_mode.compact_conversation(
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", pending_stream)
+    task = asyncio.create_task(_compact(
         mind,
         pref_config={},
         source="test",
@@ -536,9 +579,9 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
             (tuple(contexts), system_message)
         )
     )
-    monkeypatch.setattr(compact_mode, "stream_compact_events", completed_stream)
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", completed_stream)
 
-    result = await compact_mode.compact_conversation(
+    result = await _compact(
         mind,
         pref_config={},
         source="test",
@@ -595,9 +638,9 @@ async def test_compact_session_start_queues_next_turn_context(
     mind.conversation.queue_turn_context = (
         lambda contexts: queued.append(tuple(contexts))
     )
-    monkeypatch.setattr(compact_mode, "stream_compact_events", completed_stream)
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", completed_stream)
 
-    result = await compact_mode.compact_conversation(
+    result = await _compact(
         mind,
         pref_config={},
         source="test",
@@ -641,9 +684,9 @@ async def test_compact_session_start_can_block_continuation(
         tmp_path,
         _compact_hook_runtime(tmp_path, runner, hooks),
     )
-    monkeypatch.setattr(compact_mode, "stream_compact_events", completed_stream)
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", completed_stream)
 
-    result = await compact_mode.compact_conversation(
+    result = await _compact(
         mind,
         pref_config={},
         source="test",
