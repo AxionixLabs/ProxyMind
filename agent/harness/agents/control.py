@@ -34,6 +34,7 @@ from agent.stores.agents.mailbox import (
     AgentMailboxStore
 )
 
+
 class AgentControlError(RuntimeError):
     """表示本地执行主体控制操作失败。"""
 
@@ -91,15 +92,15 @@ class _AgentRecord:
     status_before_close: AgentResumeStatus | None
 
     def __init__(self, thread: AgentThreadContext) -> None:
-        self.thread              = thread
-        self.status              = "pending"
-        self.submission          = None
-        self.submission_id       = ""
-        self.turn_count          = 0
-        self.task                = None
-        self.queue               = deque()
-        self.result              = None
-        self.error               = ""
+        self.thread = thread
+        self.status = "pending"
+        self.submission = None
+        self.submission_id = ""
+        self.turn_count = 0
+        self.task = None
+        self.queue = deque()
+        self.result = None
+        self.error = ""
         self.status_before_close = None
 
     @property
@@ -111,7 +112,7 @@ class _AgentRecord:
 class AgentControl:
     """管理单个根会话树中的执行主体和轮次任务。"""
 
-    SHUTDOWN_WAIT_TIMEOUT_SEC: typing.Final[float]       = 2.0
+    SHUTDOWN_WAIT_TIMEOUT_SEC: typing.Final[float] = 2.0
     SHUTDOWN_FORCE_WAIT_TIMEOUT_SEC: typing.Final[float] = 0.1
 
     def __init__(
@@ -142,21 +143,15 @@ class AgentControl:
         if checkpoint_publisher is not None and not callable(checkpoint_publisher):
             raise TypeError("agent graph checkpoint publisher must be callable")
 
-        self._root            = root
-        self._executor        = executor
+        self._root = root
+        self._executor = executor
         self._max_open_agents = max_open_agents
-        self._max_depth       = max_depth
-
+        self._max_depth = max_depth
         self._checkpoint_publisher = checkpoint_publisher
-
         self._condition = asyncio.Condition()
-
         self._records: dict[str, _AgentRecord] = {}
-
         self._records_by_path: dict[str, _AgentRecord] = {}
-
         self._mailbox = AgentMailboxStore()
-
         self._shutdown: bool = False
         self._revision: int  = 0
 
@@ -701,8 +696,8 @@ class AgentControl:
         submission: AgentSubmission,
     ) -> None:
         """在持锁状态下启动一次轮次任务。"""
-        record.status        = "pending"
-        record.submission    = submission
+        record.status = "pending"
+        record.submission = submission
         record.submission_id = submission.submission_id
 
         record.turn_count += 1
@@ -852,7 +847,7 @@ class AgentControl:
     ) -> dict[str, AgentSnapshot]:
         """关闭给定执行主体并等待活动任务退出。"""
         tasks: list[tuple[str, asyncio.Task[None]]] = []
-        previous: dict[str, AgentSnapshot]          = {}
+        previous: dict[str, AgentSnapshot] = {}
 
         async with self._condition:
             if root_agent_id is None:
@@ -1208,7 +1203,7 @@ def _status_for_resume(status: AgentStatus) -> AgentResumeStatus:
 def _bounded_error(error: Exception, limit: int = 2000) -> str:
     """返回包含异常类型的有界错误摘要。"""
     detail = str(error).strip()
-    text   = f"{type(error).__name__}: {detail}" if detail else type(error).__name__
+    text = f"{type(error).__name__}: {detail}" if detail else type(error).__name__
     return text if len(text) <= limit else f"{text[:limit]}..."
 
 

@@ -8,17 +8,16 @@ import typing
 from enum import Enum
 from pathlib import PurePath
 
+_MAX_RECURSION_DEPTH = 8
+_SHELL_NAMES = {"sh", "bash", "zsh", "ksh", "dash", "fish", "ash"}
+_SHELL_SWITCHES = {"-c", "-lc", "-ic", "--command", "/c"}
+
 
 class DangerousCommandMatch(Enum):
     """表示危险命令的具体类别。"""
 
     ForcedRm = "forced_rm"
     Other = "other"
-
-
-_MAX_RECURSION_DEPTH = 8
-_SHELL_NAMES = {"sh", "bash", "zsh", "ksh", "dash", "fish", "ash"}
-_SHELL_SWITCHES = {"-c", "-lc", "-ic", "--command", "/c"}
 
 
 def dangerous_command_match(command: typing.Sequence[str]) -> DangerousCommandMatch | None:

@@ -122,11 +122,6 @@ class HookRuntime:
             ),
         )
 
-    @classmethod
-    def empty(cls) -> "HookRuntime":
-        """返回不包含活动 Hook 的运行时。"""
-        return cls()
-
     @property
     def installed_count(self) -> int:
         """返回已解析 Hook 数量。"""
@@ -141,6 +136,11 @@ class HookRuntime:
     def definitions(self) -> tuple[HookDefinitionConfig, ...]:
         """返回当前轮次中的活动 Hook 定义。"""
         return self._definitions
+
+    @classmethod
+    def empty(cls) -> "HookRuntime":
+        """返回不包含活动 Hook 的运行时。"""
+        return cls()
 
     def status(self) -> HookRuntimeStatus:
         """返回当前不可变运行时状态视图。"""
@@ -316,7 +316,7 @@ class HookRuntime:
     ) -> HookRunSummary:
         """完成生命周期快照并计算单调时钟耗时。"""
         completed_at = time.monotonic()
-        duration_ms  = max(0, int((completed_at - run.started_at) * 1000))
+        duration_ms = max(0, int((completed_at - run.started_at) * 1000))
 
         return replace(
             run,
@@ -363,7 +363,7 @@ class HookRuntime:
         ]
     ) -> HookExecutionRecord:
         """执行单个 Hook 并转换为独立执行记录。"""
-        definition  = registered.definition
+        definition = registered.definition
         stderr_text = ""
 
         try:
@@ -489,8 +489,8 @@ class HookRuntime:
     ) -> HookNormalizedOutput:
         """按处理器阈值把过大的附加上下文写入临时文件。"""
         contexts = normalized.effect.additional_context
-        limit    = definition.handler.effective_additional_context_limit
-        spiller  = self.context_spiller
+        limit = definition.handler.effective_additional_context_limit
+        spiller = self.context_spiller
 
         if not contexts or limit == 0 or spiller is None:
             return normalized
@@ -527,8 +527,8 @@ class HookRuntime:
         normalized: HookNormalizedOutput
     ) -> HookNormalizedOutput:
         """按处理器阈值把过大的续跑提示写入临时文件。"""
-        prompt  = normalized.effect.continuation_prompt
-        limit   = definition.handler.effective_additional_context_limit
+        prompt = normalized.effect.continuation_prompt
+        limit = definition.handler.effective_additional_context_limit
         spiller = self.context_spiller
 
         if (
@@ -628,9 +628,9 @@ class HookRuntime:
     ) -> None:
         """把命令标准错误写入 Hook 审计事件。"""
         fields = {
-            "hook_key"   : definition.key,
-            "hook_event" : definition.event,
-            "stderr"     : stderr[:8192]
+            "hook_key": definition.key,
+            "hook_event": definition.event,
+            "stderr": stderr[:8192]
         }
 
         fields.update({
@@ -649,9 +649,9 @@ class HookRuntime:
     ) -> None:
         """把 Hook systemMessage 记录为警告而非模型指令。"""
         fields = {
-            "hook_key"   : definition.key,
-            "hook_event" : definition.event,
-            "message"    : message[:8192],
+            "hook_key": definition.key,
+            "hook_event": definition.event,
+            "message": message[:8192],
         }
         fields.update({
             key: value

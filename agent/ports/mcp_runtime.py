@@ -1,7 +1,19 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
-from collections.abc import Awaitable, Callable
+from collections.abc import (
+    Awaitable,
+    Callable
+)
+
+__all__ = (
+    "McpRuntime",
+    "McpConfigReader",
+    "McpRuntimeHost",
+    "McpRuntimeFactory",
+    "McpRuntimeBuilder",
+)
 
 
 class McpRuntime(typing.Protocol):
@@ -66,14 +78,6 @@ class McpRuntimeHost(typing.Protocol):
 
 McpRuntimeFactory: typing.TypeAlias = Callable[[], McpRuntime]
 McpRuntimeBuilder: typing.TypeAlias = Callable[[McpRuntimeHost], McpRuntime]
-
-__all__ = (
-    "McpRuntime",
-    "McpConfigReader",
-    "McpRuntimeHost",
-    "McpRuntimeFactory",
-    "McpRuntimeBuilder",
-)
 
 
 if __name__ == '__main__':

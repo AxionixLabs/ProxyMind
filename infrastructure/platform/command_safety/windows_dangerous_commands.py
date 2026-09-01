@@ -5,7 +5,6 @@ import re
 import typing
 from pathlib import PurePath
 
-
 _URL = re.compile(r"(?i)\b(?:https?|ftp)://[^\s'\"<>]+")
 
 _FORCE_DELETE = {"remove-item", "ri", "rm", "del", "erase", "rd", "rmdir"}

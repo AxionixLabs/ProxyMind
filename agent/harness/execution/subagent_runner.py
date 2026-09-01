@@ -22,6 +22,7 @@ from agent.ports import (
     SubagentOperation,
     SubagentTurnRunner,
 )
+
 SubagentOutcome = typing.Literal[
     "completed",
     "failed",
@@ -245,7 +246,7 @@ def _result_additional_context(result: typing.Any) -> tuple[str, ...]:
 def _bounded_error(error: BaseException) -> str:
     """返回包含异常类型的有界错误摘要。"""
     detail = str(error).strip()
-    text   = f"{type(error).__name__}: {detail}" if detail else type(error).__name__
+    text = f"{type(error).__name__}: {detail}" if detail else type(error).__name__
     return _bounded_text(text)
 
 

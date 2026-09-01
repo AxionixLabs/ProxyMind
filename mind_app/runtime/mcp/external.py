@@ -22,13 +22,10 @@ class ExternalMcpRuntime(object):
     def __init__(self, host: McpRuntimeHost) -> None:
         """绑定应用生命周期端口，并初始化外部 MCP 运行时状态。"""
         self._host = host
-
         self._group: typing.Optional[ExternalMcpGroup] = None
-
-        self._started: bool       = False
+        self._started: bool = False
         self._last_start_snapshot: dict[str, typing.Any] = {}
-
-        self._lifecycle_lock = asyncio.Lock()
+        self._lifecycle_lock: asyncio.Lock = asyncio.Lock()
 
     @property
     def group(self) -> typing.Optional[ExternalMcpGroup]:
@@ -81,7 +78,7 @@ class ExternalMcpRuntime(object):
 
         self._last_start_snapshot = {}
 
-        config  = self._host.config_session.load()
+        config = self._host.config_session.load()
         servers = normalize_mcp_servers(config.get("mcp_servers"))
 
         if include_disabled:
@@ -98,8 +95,8 @@ class ExternalMcpRuntime(object):
             include_disabled=include_disabled,
         )
 
-        status: ExternalMcpStatus      = ExternalMcpStatus(servers)
-        external_anim_started: bool    = False
+        status: ExternalMcpStatus = ExternalMcpStatus(servers)
+        external_anim_started: bool = False
         group: ExternalMcpGroup | None = None
 
         try:
@@ -164,7 +161,7 @@ class ExternalMcpRuntime(object):
 
     async def _stop_unlocked(self) -> None:
         """在生命周期锁内关闭外部 MCP。"""
-        group       = self._group
+        group = self._group
         was_started = self._started
         self._group = None
 

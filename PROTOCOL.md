@@ -261,7 +261,7 @@ Hosted 工具通过 `hosted_tools.enabled_groups` 按组启用。启用 `sandbox
 #### `turn.retrying`
 
 - 表示 provider 请求失败后，服务端将以同一模型 round 的后续 attempt 重新发起请求。重试不按 HTTP 状态码、异常类名或 provider 错误类型白名单筛选；取消和本地请求前置校验除外。
-- 必须携带 `round`、大于 1 且不超过 `max_attempts` 的 `attempt`、非负 `retry_in_ms`、稳定 `reason` 和同值 `error_type`。`error_type` 是客户端可直接展示的稳定错误类别，失败事件中的 `error.type` 与它一致。
+- 必须携带 `round`、大于 1 且不超过 `max_attempts` 的 `attempt`、非负 `retry_in_ms`、稳定 `reason` 和同值 `error_type`，以及必填的 `error` 对象。`error.type` 必须与 `error_type` 相同，`error.source` 必须是非空字符串，`error.retryable` 必须为 `true`。`error_type` 是客户端可直接展示的稳定错误类别。
 - 客户端只替换同一 `presentation_epoch + round` 中更早 attempt 的正文；前序已完成 round 保留。首个正文前重试不得创建空 assistant block。
 - 该事件是瞬时事件，不属于 `/turn/status` 的持久状态；退避期间 Turn 状态仍为 `running`。
 
@@ -353,7 +353,7 @@ provider 无法稳定下发 built-in tool 过程时，服务端可以根据完�
 - provider 流对所有 provider 失败事件执行有界重试，不按错误类型筛选；本地 context budget、取消和已经进入不可重放的 provider 内置工具屏障除外。每个失败事件都必须带 `error_type`、`error.type`、`error.source` 和 `error.retryable`。
 - Responses provider 内置工具一旦开始执行即形成自动重放屏障；后续断流直接失败收口，不重新触发搜索、代码解释器或图片生成。客户端本地工具只有在完整模型响应提交后才会下发，不属于该屏障。
 - `max_retries` 默认允许首次请求之外再重试 5 次；`stream_max_attempts` 默认允许一次模型流最多 5 次 provider attempt。`stream_retry_max_elapsed_sec` 只限制首次失败后的退避预算；这些设置均不限制 Turn 总时长、健康流持续时间或工具轮数。
-- 每次重试前先持久化 `turn.retrying`，再启动后续 provider attempt。事件携带模型 `round`、该 round 内的 `attempt`、`max_attempts`、`retry_in_ms`、`reason` 和 `error_type`；收到该事件即表示原子替换当前 round 的既有 attempt，后续模型 round 必须从 attempt 1 重新计数。
+- 每次重试前先持久化 `turn.retrying`，再启动后续 provider attempt。事件携带模型 `round`、该 round 内的 `attempt`、`max_attempts`、`retry_in_ms`、`reason`、`error_type` 和规范化 `error`；收到该事件即表示原子替换当前 round 的既有 attempt，后续模型 round 必须从 attempt 1 重新计数。
 - provider 已产生部分正文时允许替换当前回答；客户端必须在同一 Turn 内隔离先前 provider attempt，不能把先前正文并入最终回答。首个正文前重试不得制造空展示块。
 - Worker 进程退出不属于 provider 内部重试。接管进程通过 lease 接管并递增持久 Worker Attempt；只有重新进入模型或工具执行时才创建展示 epoch，并先发送 `presentation.superseded`。`terminal_ready` 的纯终结接管不创建展示 epoch。
 - `/turn/status` 不增加 `retrying` 状态；provider 退避期间持久 Turn 状态保持 `running`，从而避免事件类型与控制面状态混用。
@@ -361,7 +361,7 @@ provider 无法稳定下发 built-in tool 过程时，服务端可以根据完�
 ## Process Roles And Scheduling
 
 - `RUNTIME_PROCESS_ROLE` 只允许 `http`、`worker` 或 `all`，未配置时默认为 `all`，保持 `uvicorn main:app` 的单进程运行方式。
-- `http` 角色提供路由、SSE、attach/replay、命令写入和事件 relay，但不创建本地 Worker Scheduler，也不执行事件投递状态维护。`POST /mind-chat` 先把 Turn 持久化为 `queued`；本地 wake 只是可选延迟优化，不是任务交付条件。
+- `http` 角色提供路由、SSE、attach/replay、命令写入和事件 relay，但不创建本地 Worker Scheduler、outbox dispatcher 或事件投递状态维护。`POST /mind-chat` 先把 Turn 持久化为 `queued`；本地 wake 只是可选延迟优化，不是任务交付条件。
 - `worker` 角色通过 `python worker.py` 启动无 HTTP 路由的独立执行进程，执行 outbox 派发和事件投递状态维护，但不订阅无本地客户端消费者的 Redis relay。数据库轮询是领取 Turn 的权威机制，因此 HTTP 与 Worker 可以独立启动、滚动重启和扩缩容。
 - `all` 同时承担 HTTP 与 Worker 职责，仅用于单进程运行或本地开发。生产环境可以分别使用 `RUNTIME_PROCESS_ROLE=http` 启动 `uvicorn main:app`，并使用 `python worker.py` 启动一个或多个 Worker。
 - Worker 正常退出时取消本地 claim 生命周期并主动 relinquish 尚未终结的租约；进程被强杀时不依赖清理回调，其他 Worker 在 lease 过期后接管。所有接管继续受 `worker_id + lease_token` fencing 约束。

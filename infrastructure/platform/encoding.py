@@ -10,7 +10,7 @@ import unicodedata
 from dataclasses import dataclass
 from metadata import const
 
-UTF8_ENCODING     = codecs.lookup("utf-8").name
+UTF8_ENCODING = codecs.lookup("utf-8").name
 UTF8_SIG_ENCODING = codecs.lookup("utf-8-sig").name
 
 
@@ -191,7 +191,7 @@ def _decoded_text_score(text: str, *, encoding: str, data: bytes) -> float:
 def _character_score(char: str) -> float:
     """返回单个字符的文本质量分值。"""
     codepoint = ord(char)
-    category  = unicodedata.category(char)
+    category = unicodedata.category(char)
 
     if char in "\t ":
         return 0.2
@@ -260,7 +260,7 @@ def process_output_encodings() -> list[str]:
         candidates.extend(["mbcs", "oem", "cp936", "gbk"])
 
     encodings: list[str] = []
-    seen: set[str]       = set()
+    seen: set[str] = set()
 
     for item in candidates:
         encoding = str(item or "").strip()

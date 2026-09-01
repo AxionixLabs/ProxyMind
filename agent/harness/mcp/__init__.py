@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-
-"""Harness MCP 生命周期所有者。"""
+# Notes: ==== Mind™ ====
 
 from .owner import (
     McpRuntime,
@@ -13,3 +12,7 @@ __all__ = (
     "McpRuntimeFactory",
     "McpRuntimeOwner",
 )
+
+
+if __name__ == '__main__':
+    pass

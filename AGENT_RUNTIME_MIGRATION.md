@@ -642,8 +642,9 @@ Approval、Patch 七类纯 builder 已迁入 `agent/application/views/builders`�
 `frontends/output/application.py`，终端能力、进度、动画、下载、文本净化和布局整体迁入
 `frontends/terminal`；CLI、TUI、MCP、Controller、升级和测试调用点全部切换，旧
 `mind_app/presentation/application.py`、`application_sinks.py`、`terminal/`、
-`terminal_text.py` 和 `text_layout.py` 已删除。广覆盖行为回归 `807 passed`，架构专项
-`4 passed, 3 warnings`，`compileall` 和 `git diff --check` 通过。下一切片迁移剩余
+`terminal_text.py` 和 `text_layout.py` 已删除。广覆盖行为回归 `807 passed`；后续联合复核
+`352 passed` 并发现 3 个仍引用旧目录或旧准入清单的过期守卫，修正后定向复核
+`3 passed, 1 warning`；`compileall`、依赖图和 `git diff --check` 通过。下一切片迁移剩余
 `mind_app/presentation/renderers` 与终端 stream/trace 链到 `frontends`，并拆出仍混在
 `tool_views.py` 中的 application builder。
 

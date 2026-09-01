@@ -192,3 +192,7 @@ def _turn_input_from_event(event: AgentMailboxEvent) -> TurnInput:
             },
         },
     )
+
+
+if __name__ == '__main__':
+    pass

@@ -120,3 +120,7 @@ class WorkspaceRuntimeOwner:
         self._close_tasks.discard(task)
         if not task.cancelled():
             task.exception()
+
+
+if __name__ == '__main__':
+    pass

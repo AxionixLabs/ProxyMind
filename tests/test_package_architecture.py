@@ -461,8 +461,7 @@ def test_foreground_turn_lifecycle_is_owned_by_terminal_presentation() -> None:
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "root.py"
     target_path = (
         PROJECT_ROOT
-        / "mind_app"
-        / "presentation"
+        / "frontends"
         / "terminal"
         / "turn_lifecycle.py"
     )
@@ -3972,6 +3971,7 @@ def test_presentation_output_has_no_legacy_package_or_imports() -> None:
         for path in frontend_output_root.glob("*.py")
     } == {
         "__init__.py",
+        "application.py",
         "boundary.py",
         "jsonl.py",
         "recording.py",
@@ -4200,12 +4200,21 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.turns.run_result",
         "agent.application.turns.stream_outcome",
         "agent.application.turns.projections",
+        "agent.application.turns.lifecycle",
+        "agent.application.turns.stream_boundaries",
         "agent.application.hooks.context",
         "agent.application.turns.execution",
         "agent.application.agents.fork_context",
         "agent.application.views",
         "agent.application.views.contracts",
         "agent.application.views.tool_display",
+        "agent.application.views.builders.approval",
+        "agent.application.views.builders.batch",
+        "agent.application.views.builders.lifecycle",
+        "agent.application.views.builders.patch",
+        "agent.application.views.builders.plan",
+        "agent.application.views.builders.progress",
+        "agent.application.views.builders.run",
         "agent.application.config.settings",
         "agent.application.config.session_identity",
         "agent.domain.hooks",
