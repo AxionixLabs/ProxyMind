@@ -46,6 +46,7 @@ from agent.harness.agents.delivery import (
     AgentDeliveryRegistry,
 )
 from agent.harness.execution.subagent_submission import SubagentSubmissionExecutor
+from agent.harness.hooks.scope import resolve_hook_scope
 from agent.adapters.agents.messages import SteeringMessageDelivery
 from agent.ports.agent_messages import AgentMessageDeliveryPort
 from agent.stores.agents.graph import (
@@ -105,7 +106,10 @@ class SubagentRuntime:
         self._transcript_factory = transcript_factory
         self._cleanup = cleanup
         self._patch_preview = patch_preview
-        self._hook_scope_for = host.turn_hook_scope
+        self._hook_scope_for = lambda context: resolve_hook_scope(
+            host.hook_scope_provider,
+            context,
+        )
         runner_cleanup = cleanup or host.subagent_cleanup
         runner = SubagentRunner(
             turn_runner=host.subagent_turn_runner,

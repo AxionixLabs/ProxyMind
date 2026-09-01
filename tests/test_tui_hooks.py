@@ -39,6 +39,29 @@ from frontends.tui.core.menu import TuiMenu
 from prompt_toolkit.utils import get_cwidth
 
 
+class _HookMind(SimpleNamespace):
+    """构建同时暴露宿主状态和独立 Hook 管理端口的测试对象。"""
+
+    def __init__(self, **kwargs) -> None:
+        inspect = kwargs.pop("inspect_hooks", Mock())
+        trust = kwargs.pop("trust_hook", Mock())
+        trust_many = kwargs.pop("trust_hooks", Mock())
+        set_enabled = kwargs.pop("set_hook_enabled", Mock())
+        super().__init__(
+            **kwargs,
+            hooks=SimpleNamespace(
+                inspect=inspect,
+                trust=trust,
+                trust_many=trust_many,
+                set_enabled=set_enabled,
+            ),
+            inspect_hooks=inspect,
+            trust_hook=trust,
+            trust_hooks=trust_many,
+            set_hook_enabled=set_enabled,
+        )
+
+
 def _catalog(
     tmp_path: Path,
     *,
@@ -315,7 +338,7 @@ async def test_startup_hooks_review_trusts_current_hashes_in_one_update(
 ) -> None:
     catalog = _catalog(tmp_path, trust_state="untrusted")
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    mind = _HookMind(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=catalog),
         trust_hooks=Mock(return_value=catalog),
@@ -342,7 +365,7 @@ async def test_startup_hooks_review_trusts_current_hashes_in_one_update(
 async def test_startup_hooks_review_returns_full_browser_catalog(tmp_path) -> None:
     catalog = _catalog(tmp_path, trust_state="untrusted")
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    mind = _HookMind(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=catalog),
         trust_hook=Mock(),
@@ -493,7 +516,7 @@ async def test_hooks_browser_opens_and_returns_to_review_event(tmp_path) -> None
 async def test_hooks_browser_ctrl_c_closes_all_pages_to_input(tmp_path) -> None:
     catalog = _catalog(tmp_path, trust_state="trusted")
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    mind = _HookMind(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=catalog),
         frontend=SimpleNamespace(
@@ -521,7 +544,7 @@ async def test_hooks_browser_escape_returns_to_events_before_closing(
 ) -> None:
     catalog = _catalog(tmp_path, trust_state="trusted")
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    mind = _HookMind(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=catalog),
         frontend=SimpleNamespace(
@@ -776,7 +799,7 @@ async def test_hooks_menu_trusts_all_review_hooks_from_root(tmp_path) -> None:
         ),
     )
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    mind = _HookMind(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(side_effect=[initial, updated]),
         trust_hooks=Mock(),
@@ -807,7 +830,7 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
     updated = _catalog(tmp_path, trust_state="trusted")
     runtime = TuiRuntime()
     views = []
-    mind = SimpleNamespace(
+    mind = _HookMind(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(side_effect=[initial, updated]),
         trust_hook=Mock(return_value=updated),
@@ -854,7 +877,7 @@ async def test_hooks_menu_refreshes_after_stale_trust_request(tmp_path) -> None:
     initial = _catalog(tmp_path, trust_state="untrusted")
     runtime = TuiRuntime()
     views = []
-    mind = SimpleNamespace(
+    mind = _HookMind(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=initial),
         trust_hook=Mock(
@@ -1054,7 +1077,7 @@ async def test_hook_list_menu_space_or_enter_toggles_trusted_hook(
     initial = _catalog(tmp_path, trust_state="trusted")
     updated = _catalog(tmp_path, trust_state="trusted", enabled=False)
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    mind = _HookMind(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(side_effect=[initial, updated]),
         trust_hook=Mock(),
@@ -1089,7 +1112,7 @@ async def test_hook_list_menu_t_trusts_review_hook(tmp_path) -> None:
     initial = _catalog(tmp_path, trust_state="untrusted")
     updated = _catalog(tmp_path, trust_state="trusted")
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    mind = _HookMind(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(side_effect=[initial, updated]),
         trust_hook=Mock(return_value=updated),
@@ -1132,7 +1155,7 @@ async def test_hook_list_menu_t_is_noop_for_trusted_or_managed_hook(
         trust_policy=trust_policy,
     )
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    mind = _HookMind(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=initial),
         trust_hook=Mock(),
@@ -1175,7 +1198,7 @@ async def test_hook_list_enter_and_space_do_not_toggle_read_only_hook(
         trust_policy=trust_policy,
     )
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    mind = _HookMind(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=initial),
         trust_hook=Mock(),
@@ -1228,7 +1251,7 @@ async def test_hook_list_enter_toggles_trusted_hook(
         enabled=expected_enabled,
     )
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    mind = _HookMind(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(side_effect=[initial, updated]),
         trust_hook=Mock(),

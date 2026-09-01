@@ -17,7 +17,6 @@ from agent.application.config.settings import (
     AgentSettings,
     FeatureSettings,
 )
-from agent.application.turns.context import TurnContext
 from agent.application.turns.foreground import (
     ApplicationTurnForegroundLifecycle,
     FrontendTurnAnimation,
@@ -27,7 +26,6 @@ from agent.domain.policies import (
     resolve_permissions
 )
 from agent.domain.hooks import (
-    HookDefinitionConfig,
     SessionEndReason
 )
 from agent.harness.mcp.owner import McpRuntimeOwner
@@ -74,23 +72,15 @@ from agent.ports.frontend import (
 )
 from agent.ports import (
     ApprovalLedger,
-    HookExecutionScopePort,
+    HookScopeProviderPort,
     HookRegistryPort,
     OutputSessionFactory,
     ProtocolCommandClient,
     SkillsProvider,
     TranscriptFactory,
 )
-from agent.harness.hooks.scope import (
-    HookExecutionScope,
-    resolve_hook_scope,
-)
 from agent.harness.hooks.session_lifecycle import SessionLifecycleGateway
 from agent.harness.hooks.tool_lifecycle import CommandHookSessionStore
-from agent.application.hooks.catalog import (
-    HookCatalogSnapshot,
-    HookCatalogStaleError
-)
 from agent.stores.sessions import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
@@ -99,6 +89,7 @@ from agent.stores.sessions import (
 from infrastructure.persistence.transcripts import (
     ConversationTranscriptStore,
 )
+from infrastructure.config.hooks import HookManager
 from agent.stores.transcripts import TranscriptEntry
 from agent.ports import (
     McpRuntime,
@@ -190,12 +181,15 @@ class Mind(object):
         hook_registry = kwargs.get("hook_registry")
         if not isinstance(hook_registry, HookRegistryPort):
             raise TypeError("hook registry is required")
-        self.hook_registry: HookRegistryPort = hook_registry
         self.hook_startup_warnings = tuple(
             kwargs.get("hook_startup_warnings") or ()
         )
-
-        self.hook_status = kwargs.get("hook_status")
+        self.hooks = HookManager(
+            self.config_session,
+            hook_registry,
+            workspace=lambda: self.history_workspace,
+            status_port=kwargs.get("hook_status"),
+        )
 
         self.command_hook_sessions = CommandHookSessionStore()
 
@@ -254,8 +248,8 @@ class Mind(object):
         self._conversation_lifecycle_id: int = 0
 
         self.session_lifecycle = SessionLifecycleGateway(
-            scope_factory=self.hook_scope,
-            cleanup_session=self.hook_registry.cleanup_session,
+            scope_factory=self.hooks.hook_scope,
+            cleanup_session=self.hooks.cleanup_session,
         )
 
         self.report: RunReport = kwargs["report"]
@@ -468,42 +462,6 @@ class Mind(object):
                 level="WARNING",
                 source=source,
             )
-
-    def _resolve_hook_state_target(
-        self,
-        hook_key: str,
-        *,
-        expected_content_hash: str,
-        workspace: Path | None
-    ) -> tuple[Path, HookDefinitionConfig]:
-        """解析并校验允许修改用户状态的 Hook。"""
-        target_workspace = self._hook_workspace(workspace)
-        resolution = self.config_session.resolve(workspace=target_workspace)
-
-        definition = next(
-            (
-                item
-                for item in resolution.hooks
-                if item.key == hook_key
-            ),
-            None,
-        )
-        if definition is None:
-            raise HookCatalogStaleError(
-                f"hook is unavailable: {hook_key}"
-            )
-
-        expected_hash = str(expected_content_hash or "").strip().lower()
-        if definition.content_hash != expected_hash:
-            raise HookCatalogStaleError(
-                f"hook content changed: {hook_key}"
-            )
-        return target_workspace, definition
-
-    def _hook_workspace(self, workspace: Path | None) -> Path:
-        """返回 Hook 查询使用的绝对工作区路径。"""
-        target = workspace or Path(self.history_workspace)
-        return Path(target).expanduser().resolve()
 
     def _build_client_tools(self) -> ToolRegistryPort:
         """按当前工作区构建客户端工具注册表。"""
@@ -773,136 +731,10 @@ class Mind(object):
         """返回最近一次完整模型回复原文。"""
         return self.last_assistant_reply
 
-    def hook_scope(
-        self,
-        context: HookExecutionContext | TurnContext,
-    ) -> HookExecutionScope:
-        """为指定执行上下文构建固定的 Hook 作用域。"""
-        if isinstance(context, TurnContext):
-            context = HookExecutionContext.from_turn(context)
-        workspace  = self._hook_workspace(Path(context.cwd))
-
-        resolution = self.config_session.resolve(
-            workspace=workspace
-        )
-
-        return HookExecutionScope(
-            context=context,
-            dispatcher=self.hook_registry.build(
-                resolution.hooks,
-                hook_states=resolution.hook_states,
-                warnings=resolution.hook_warnings,
-                status_port=getattr(self, "hook_status", None),
-            ),
-        )
-
-    def turn_hook_scope(self, context: TurnContext) -> HookExecutionScopePort:
-        """为 SubagentRuntime 提供绑定当前轮次的 Hook 作用域。"""
-        return resolve_hook_scope(self, context)
-
-    def inspect_hooks(
-        self,
-        *,
-        workspace: Path | None = None
-    ) -> HookCatalogSnapshot:
-        """返回指定工作区的实时 Hook 管理快照。"""
-        target_workspace = self._hook_workspace(workspace)
-
-        resolution = self.config_session.resolve(
-            workspace=target_workspace
-        )
-
-        return self.hook_registry.inspect(
-            resolution.hooks,
-            hook_states=resolution.hook_states,
-            warnings=resolution.hook_warnings,
-            workspace=target_workspace,
-        )
-
-    def trust_hook(
-        self,
-        hook_key: str,
-        *,
-        expected_content_hash: str,
-        workspace: Path | None = None
-    ) -> HookCatalogSnapshot:
-        """信任指定 Hook 的当前内容。"""
-        return self.trust_hooks(
-            ((hook_key, expected_content_hash),),
-            workspace=workspace,
-        )
-
-    def trust_hooks(
-        self,
-        hooks: typing.Iterable[tuple[str, str]],
-        *,
-        workspace: Path | None = None
-    ) -> HookCatalogSnapshot:
-        """校验并批量信任多个 Hook 的当前内容。"""
-        target_workspace = self._hook_workspace(workspace)
-        resolution = self.config_session.resolve(workspace=target_workspace)
-
-        definitions: dict[str, HookDefinitionConfig] = {}
-
-        for hook_definition in resolution.hooks:
-            definitions[hook_definition.key] = hook_definition
-        updates: dict[tuple[str, ...], str] = {}
-
-        for hook_key, expected_content_hash in hooks:
-            hook_definition = definitions.get(hook_key)
-            if hook_definition is None:
-                raise HookCatalogStaleError(
-                    f"hook is unavailable: {hook_key}"
-                )
-            expected_hash = str(expected_content_hash or "").strip().lower()
-            if hook_definition.content_hash != expected_hash:
-                raise HookCatalogStaleError(
-                    f"hook content changed: {hook_key}"
-                )
-            if hook_definition.trust_policy != "content_hash":
-                raise ValueError(
-                    f"{hook_definition.trust_policy} hook trust cannot be changed"
-                )
-            updates[(
-                "hooks",
-                "state",
-                hook_definition.key,
-                "trusted_hash",
-            )] = hook_definition.content_hash
-
-        if updates:
-            self.config_session.update_user(updates)
-        return self.inspect_hooks(workspace=target_workspace)
-
-    def set_hook_enabled(
-        self,
-        hook_key: str,
-        *,
-        expected_content_hash: str,
-        enabled: bool,
-        workspace: Path | None = None
-    ) -> HookCatalogSnapshot:
-        """更新指定 Hook 的独立启用状态。"""
-        target_workspace, definition = self._resolve_hook_state_target(
-            hook_key,
-            expected_content_hash=expected_content_hash,
-            workspace=workspace,
-        )
-        if definition.trust_policy == "managed":
-            raise ValueError(
-                "managed hook enabled state cannot be changed"
-            )
-
-        self.config_session.update_user({
-            (
-                "hooks",
-                "state",
-                definition.key,
-                "enabled",
-            ): bool(enabled),
-        })
-
-        return self.inspect_hooks(workspace=target_workspace)
+    @property
+    def hook_scope_provider(self) -> HookScopeProviderPort:
+        """返回根轮次和子 Agent 共享的 Hook 作用域提供器。"""
+        return self.hooks
 
     def apply_permissions(self, settings: PermissionSettings) -> PermissionSettings:
         """原子保存权限设置并同步当前控制器状态。"""
@@ -1101,7 +933,7 @@ class Mind(object):
         subagent_snapshots = await self.subagents.shutdown_root(sid)
 
         for snapshot in subagent_snapshots:
-            await self.hook_registry.cleanup_session(snapshot.thread.sid)
+            await self.hooks.cleanup_session(snapshot.thread.sid)
             with contextlib.suppress(Exception):
                 await self.workspace_runtime.coding.close_js_repl_session(
                     snapshot.thread.sid
@@ -1220,7 +1052,7 @@ class Mind(object):
             if approval_coordinator is not None:
                 await approval_coordinator.close()
             self.command_hook_sessions.clear()
-            await self.hook_registry.close()
+            await self.hooks.close()
             await self.event_reporting.close()
 
             await self.workspace_runtime.close()

@@ -306,6 +306,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   SessionStart 编排归 `agent/harness/execution/compaction.py`，依赖由 compaction ports 固定。
   旧 `mind_app/runtime` 源目录及测试 seam 已删除；压缩/Hook/根 Turn 回归
   `135 passed, 1 warning`，Harness 无 Protocol Client、基础设施或旧应用导入。
+- Hook 配置管理已从 Controller 拆出：`infrastructure/config/hooks.py::HookManager`
+  单一拥有配置快照、清单检查、信任/启用状态、执行作用域和 registry 资源关闭；TUI 只消费
+  `HookManagementPort`，根 Turn、压缩和 Subagent 只读取 `HookScopeProviderPort`。Controller
+  已删除六个 Hook 实现/facade，Hook/TUI/根 Turn/Subagent/Controller 回归 `149 passed`；
+  完整架构 `109 passed / 4 stale assertions`，修正既有陈旧路径断言后相关 `4 passed`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：本轮全量扫描 `109 passed, 4 stale assertions, 66 warnings`；陈旧断言
@@ -420,8 +425,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。当前先收敛仅剩的
-   `mind_app/runtime` 已完成源码清零；下一步按 Session、历史、工具资源与前端生命周期拆分
-   最后的 `mind_app/controller.py`，保持每次迁移都有完整入口和旧路径删除，禁止整体改名搬运。
+   `mind_app/runtime` 已完成源码清零，Hook 管理与资源所有权也已迁出；下一步将 Session 状态、
+   历史游标、Transcript 和根会话结束事务从最后的 `mind_app/controller.py` 拆入职责化协作者，
+   再处理工具资源与前端生命周期。每次迁移都要完成入口切换和旧实现删除，禁止整体改名搬运。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
 删除、架构守卫和 `compileall` 证据。任一条件不足时只更新本计划，不创建空目录。
@@ -1007,6 +1013,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 将 Hook 配置管理、执行作用域和 registry 资源生命周期迁出 Controller，三类执行入口改用显式 scope provider，TUI 改用独立管理端口 | Hook/TUI/根 Turn/Subagent/Controller `149 passed`；完整架构 `109 passed / 4 stale assertions`，修正后相关 `4 passed`；导入图和差异检查通过 |
 | 2026-09-02 | 将 Conversation Compaction 拆为 Protocol adapter、Harness 用例、Session/Client ports 和 application 事件/结果，删除旧 runtime 源目录 | 压缩/Hook/根 Turn `135 passed, 1 warning`；职责守卫、`compileall`、旧导入扫描通过 |
 | 2026-09-02 | 将根 Turn runner 迁入 Harness，Controller 直接实现其状态端口，删除四个单调用 facade 并清空旧 runtime/turns 源目录 | 根/流/Controller/Subagent `144 passed`；四入口 `140 passed`；目录与职责守卫通过；`compileall`、旧导入扫描通过 |
 | 2026-09-02 | 将 Turn 协议流拆入 Protocol/Application/Harness，组合根绑定效果账本路径，删除无意义 lifecycle owner、旧 stream 和旧 Subagent 适配器 | 主流 `215 passed`；Controller/根 Turn/Subagent `144 passed`；职责守卫 `7 passed, 2 warnings`；`compileall`、旧导入扫描通过 |

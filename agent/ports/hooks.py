@@ -164,6 +164,48 @@ class HookScopeProviderPort(typing.Protocol):
         ...
 
 
+class HookManagementPort(typing.Protocol):
+    """定义前端管理 Hook 清单和用户状态所需的应用边界。"""
+
+    def inspect(
+        self,
+        *,
+        workspace: Path | None = None,
+    ) -> "HookCatalogSnapshot":
+        """返回指定工作区的实时 Hook 清单。"""
+        ...
+
+    def trust(
+        self,
+        hook_key: str,
+        *,
+        expected_content_hash: str,
+        workspace: Path | None = None,
+    ) -> "HookCatalogSnapshot":
+        """信任指定 Hook 的当前内容。"""
+        ...
+
+    def trust_many(
+        self,
+        hooks: Iterable[tuple[str, str]],
+        *,
+        workspace: Path | None = None,
+    ) -> "HookCatalogSnapshot":
+        """批量信任已经核对内容哈希的 Hook。"""
+        ...
+
+    def set_enabled(
+        self,
+        hook_key: str,
+        *,
+        expected_content_hash: str,
+        enabled: bool,
+        workspace: Path | None = None,
+    ) -> "HookCatalogSnapshot":
+        """更新指定 Hook 的用户启用状态。"""
+        ...
+
+
 @typing.runtime_checkable
 class HookRegistryPort(typing.Protocol):
     """定义 Hook 发现、构建和资源关闭的组合端口。"""

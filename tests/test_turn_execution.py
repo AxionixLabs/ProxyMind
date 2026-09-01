@@ -704,7 +704,9 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         stop_anim=AsyncMock(),
         animate=False,
             frontend=SimpleNamespace(runtime=runtime),
-                hook_scope=Mock(side_effect=hook_scope),
+                hook_scope_provider=SimpleNamespace(
+                    hook_scope=Mock(side_effect=hook_scope),
+                ),
                 approval_call_ledger=ApprovalCallLedger(),
                 approval_ledger=ApprovalCallLedger(),
                 tool_profile_for_turn=Mock(return_value=None),
@@ -736,7 +738,9 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
     assert context.output_record_path == "D:/logs/output.log"
     assert context.transcript_path == "D:/sessions/session.jsonl"
     assert streamed_execution.hook_scope is resolved_scopes[0]
-    mind.hook_scope.assert_called_once_with(context)
+    mind.hook_scope_provider.hook_scope.assert_called_once_with(
+        HookExecutionContext.from_turn(context)
+    )
     assert dict(streamed_execution.metadata) == {
         "origin": "test",
         "cid": "cid_root",

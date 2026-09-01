@@ -524,13 +524,14 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
         ),
         runtime=runtime,
     )
+    inspect_hooks = Mock(side_effect=lambda **_kwargs: (
+        events.append("hooks"),
+        SimpleNamespace(hooks=()),
+    )[1])
     controller = SimpleNamespace(
         frontend=frontend,
         history_workspace=str(tmp_path),
-        inspect_hooks=Mock(side_effect=lambda **_kwargs: (
-            events.append("hooks"),
-            SimpleNamespace(hooks=()),
-        )[1]),
+        hooks=SimpleNamespace(inspect=inspect_hooks),
         service_runtime=SimpleNamespace(bind=Mock()),
         external_mcp=SimpleNamespace(current=None),
         is_service_mcp_linked=lambda: False,

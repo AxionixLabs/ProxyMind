@@ -493,8 +493,7 @@ def test_root_turn_command_adapter_is_controller_independent() -> None:
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "root.py"
 
     assert adapter_path.is_file(), "root turn command adapter is missing"
-    legacy_source = legacy_path.read_text(encoding="utf-8-sig")
-    assert "class RootTurnCommandExecutor" not in legacy_source
+    assert not legacy_path.exists(), "legacy root Turn runtime remains"
 
     violations = _forbidden_imports(
         "agent/adapters/turns",
@@ -515,7 +514,9 @@ def test_root_turn_command_adapter_is_controller_independent() -> None:
 
 def test_foreground_turn_orchestration_uses_injected_presentation_port() -> None:
     """确保前台轮次编排只消费注入的展示端口。"""
-    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "root.py"
+    harness_path = (
+        PROJECT_ROOT / "agent" / "harness" / "execution" / "root_runner.py"
+    )
     application_path = (
         PROJECT_ROOT
         / "agent"
@@ -534,16 +535,16 @@ def test_foreground_turn_orchestration_uses_injected_presentation_port() -> None
     assert not legacy_terminal_path.exists(), (
         "legacy terminal turn lifecycle adapter remains"
     )
-    legacy_tree = ast.parse(
-        legacy_path.read_text(encoding="utf-8-sig"),
-        filename=str(legacy_path),
+    harness_tree = ast.parse(
+        harness_path.read_text(encoding="utf-8-sig"),
+        filename=str(harness_path),
     )
-    legacy_functions = {
+    harness_functions = {
         node.name
-        for node in legacy_tree.body
+        for node in harness_tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
-    assert "run_foreground_turn" not in legacy_functions
+    assert "run_foreground_turn" not in harness_functions
 
     application_tree = ast.parse(
         application_path.read_text(encoding="utf-8-sig"),
@@ -4910,6 +4911,7 @@ def test_presentation_output_has_no_legacy_package_or_imports() -> None:
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
     }
     assert output_definitions == {
+        "IdleStatusPort",
         "OutputControlPort",
         "OutputStatusPort",
         "OutputPort",
@@ -5168,6 +5170,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.adapters.protocol.tool_events",
         "agent.adapters.protocol.tool_results",
         "agent.adapters.protocol.turn_setup",
+        "agent.adapters.protocol.subagent_stream",
         "agent.adapters.turns.root",
         "agent.harness.agents.control",
         "agent.harness.agents.delivery",
@@ -5185,6 +5188,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.harness.subscription.owner",
         "agent.harness.execution.subagent_runner",
         "agent.harness.execution.subagent_submission",
+        "agent.harness.execution.turn_runner",
         "agent.harness.execution.turn_finalizer",
         "agent.harness.tools.client_calls",
         "agent.harness.tools.plan_calls",
@@ -5418,6 +5422,17 @@ def test_controller_does_not_expose_runtime_facades() -> None:
         "stop_subscription_listener",
         "stream_turn",
     } & methods
+    assert not {
+        "hook_scope",
+        "inspect_hooks",
+        "set_hook_enabled",
+        "trust_hook",
+        "trust_hooks",
+        "turn_hook_scope",
+    } & methods
+    assert (
+        PROJECT_ROOT / "infrastructure" / "config" / "hooks.py"
+    ).is_file(), "configured Hook manager is missing"
     assert not (
         PROJECT_ROOT / "mind_app" / "runtime" / "support" / "calling.py"
     ).exists()

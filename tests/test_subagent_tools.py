@@ -39,8 +39,9 @@ class _Controller:
     def hook_scope(self, context):
         return HookExecutionScope.empty(context)
 
-    def turn_hook_scope(self, context):
-        return self.hook_scope(HookExecutionContext.from_turn(context))
+    @property
+    def hook_scope_provider(self):
+        return self
 
     async def _run_subagent_turn(
         self,

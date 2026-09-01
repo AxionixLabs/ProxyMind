@@ -29,7 +29,7 @@ if typing.TYPE_CHECKING:
     from agent.application.turns.run_result import RunResult
     from agent.application.turns.execution import TurnExecution
     from agent.application.turns.context import TurnContext
-    from .hooks import HookExecutionScopePort
+    from .hooks import HookScopeProviderPort
 
 
 class SubagentExecutionPort(typing.Protocol):
@@ -232,8 +232,9 @@ class SubagentRuntimeHostPort(typing.Protocol):
         """返回子 Agent 轮次的异步清理端口。"""
         ...
 
-    def turn_hook_scope(self, context: "TurnContext") -> "HookExecutionScopePort":
-        """为子 Agent 轮次创建固定 Hook 作用域。"""
+    @property
+    def hook_scope_provider(self) -> "HookScopeProviderPort":
+        """返回子 Agent 轮次使用的 Hook 作用域提供器。"""
         ...
 
 

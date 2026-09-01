@@ -12,7 +12,7 @@ from agent.domain.policies import PermissionSettings
 from .approvals import ApprovalLedger
 from .hooks import (
     CommandHookSessionPort,
-    HookExecutionScopePort,
+    HookScopeProviderPort,
 )
 from .permissions import PermissionGrantReader
 from .mcp_session import McpSessionPort
@@ -223,8 +223,9 @@ class RootTurnSessionPort(typing.Protocol):
         """返回指定会话的 Transcript 路径。"""
         ...
 
-    def hook_scope(self, context: "TurnContext") -> HookExecutionScopePort:
-        """为当前轮次创建固定 Hook 作用域。"""
+    @property
+    def hook_scope_provider(self) -> HookScopeProviderPort:
+        """返回根轮次使用的 Hook 作用域提供器。"""
         ...
 
 

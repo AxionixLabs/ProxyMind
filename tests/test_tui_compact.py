@@ -81,8 +81,9 @@ class _CompactionSession:
     def transcript_path_for_session(self, sid):
         return self._host.transcripts.path_for_session(sid)
 
-    def hook_scope(self, context):
-        return self._host.hook_scope(context)
+    @property
+    def hook_scope_provider(self):
+        return self._host
 
     async def await_cleanup(self, awaitable):
         return await self._host.await_cleanup(awaitable)

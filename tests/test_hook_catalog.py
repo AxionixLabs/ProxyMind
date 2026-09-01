@@ -7,9 +7,9 @@ from unittest.mock import Mock
 import pytest
 from metadata import const
 
-from mind_app.controller import Mind
 from agent.application.hooks.catalog import HookCatalogStaleError
 from agent.harness.hooks.registry import HookRegistry
+from infrastructure.config.hooks import HookManager
 from infrastructure.config.layers import PROJECT_CONFIG_DIR
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
@@ -49,15 +49,15 @@ def _definitions(source_path: Path):
     return project, user
 
 
-def _controller(tmp_path: Path, config_session) -> Mind:
-    controller = object.__new__(Mind)
-    controller.history_workspace = str(tmp_path)
-    controller.config_session = config_session
-    controller.hook_registry = HookRegistry()
-    return controller
+def _controller(tmp_path: Path, config_session) -> HookManager:
+    return HookManager(
+        config_session,
+        HookRegistry(),
+        workspace=lambda: tmp_path,
+    )
 
 
-def _user_controller(tmp_path: Path) -> tuple[Mind, ConfigStore]:
+def _user_controller(tmp_path: Path) -> tuple[HookManager, ConfigStore]:
     store = ConfigStore(tmp_path / "config.toml")
     store.update({
         ("hooks", "PreToolUse"): [_hook("check-user")],
@@ -185,7 +185,7 @@ def test_controller_inspection_uses_resolved_workspace(tmp_path) -> None:
     )
     controller = _controller(tmp_path, config_session)
 
-    catalog = controller.inspect_hooks()
+    catalog = controller.inspect()
 
     assert catalog.workspace == str(tmp_path.resolve())
     config_session.resolve.assert_called_once_with(
@@ -195,19 +195,19 @@ def test_controller_inspection_uses_resolved_workspace(tmp_path) -> None:
 
 def test_controller_rejects_stale_hash_then_persists_trust(tmp_path) -> None:
     controller, store = _user_controller(tmp_path)
-    original = controller.inspect_hooks().hooks[0]
+    original = controller.inspect().hooks[0]
     store.update({
         ("hooks", "PreToolUse"): [_hook("changed-user")],
     })
-    changed = controller.inspect_hooks().hooks[0]
+    changed = controller.inspect().hooks[0]
 
     with pytest.raises(HookCatalogStaleError, match="content changed"):
-        controller.trust_hook(
+        controller.trust(
             changed.key,
             expected_content_hash=original.content_hash,
         )
 
-    catalog = controller.trust_hook(
+    catalog = controller.trust(
         changed.key,
         expected_content_hash=changed.content_hash,
     )
@@ -225,17 +225,17 @@ def test_controller_validates_all_hashes_before_batch_trust(tmp_path) -> None:
         ("hooks", "PostToolUse"): [_hook("audit-user")],
     })
     controller = _controller(tmp_path, ConfigSession(store))
-    first, second = controller.inspect_hooks().hooks
+    first, second = controller.inspect().hooks
 
     with pytest.raises(HookCatalogStaleError, match="content changed"):
-        controller.trust_hooks((
+        controller.trust_many((
             (first.key, first.content_hash),
             (second.key, "sha256:stale"),
         ))
 
     assert "state" not in store.read_raw()["hooks"]
 
-    trusted = controller.trust_hooks((
+    trusted = controller.trust_many((
         (first.key, first.content_hash),
         (second.key, second.content_hash),
     ))
@@ -253,9 +253,9 @@ def test_controller_trusts_json_and_inline_hooks_independently(tmp_path) -> None
         encoding="utf-8",
     )
 
-    initial = controller.inspect_hooks()
+    initial = controller.inspect()
     json_hook, inline_hook = initial.hooks
-    updated = controller.trust_hook(
+    updated = controller.trust(
         json_hook.key,
         expected_content_hash=json_hook.content_hash,
     )
@@ -280,12 +280,12 @@ def test_controller_preserves_disabled_state_when_retrusting_modified_hook(
     tmp_path,
 ) -> None:
     controller, store = _user_controller(tmp_path)
-    original = controller.inspect_hooks().hooks[0]
-    controller.trust_hook(
+    original = controller.inspect().hooks[0]
+    controller.trust(
         original.key,
         expected_content_hash=original.content_hash,
     )
-    disabled = controller.set_hook_enabled(
+    disabled = controller.set_enabled(
         original.key,
         expected_content_hash=original.content_hash,
         enabled=False,
@@ -298,12 +298,12 @@ def test_controller_preserves_disabled_state_when_retrusting_modified_hook(
     store.update({
         ("hooks", "PreToolUse"): [_hook("changed-user")],
     })
-    modified = controller.inspect_hooks().hooks[0]
+    modified = controller.inspect().hooks[0]
 
     assert modified.trust_state == "modified"
     assert not modified.enabled
 
-    retrusted = controller.trust_hook(
+    retrusted = controller.trust(
         modified.key,
         expected_content_hash=modified.content_hash,
     ).hooks[0]
@@ -330,12 +330,12 @@ def test_controller_rejects_managed_hook_state_changes(tmp_path) -> None:
     controller = _controller(tmp_path, config_session)
 
     with pytest.raises(ValueError, match="managed hook trust"):
-        controller.trust_hook(
+        controller.trust(
             definition.key,
             expected_content_hash=definition.content_hash,
         )
     with pytest.raises(ValueError, match="managed hook enabled"):
-        controller.set_hook_enabled(
+        controller.set_enabled(
             definition.key,
             expected_content_hash=definition.content_hash,
             enabled=False,
@@ -455,12 +455,12 @@ def test_controller_reuses_root_hook_trust_across_linked_worktree(
         ConfigSession(store, workspace=worktree_root),
     )
 
-    initial = controller.inspect_hooks().hooks[0]
-    trusted = controller.trust_hook(
+    initial = controller.inspect().hooks[0]
+    trusted = controller.trust(
         initial.key,
         expected_content_hash=initial.content_hash,
     ).hooks[0]
-    main = controller.inspect_hooks(workspace=repository_root).hooks[0]
+    main = controller.inspect(workspace=repository_root).hooks[0]
 
     assert initial.source_path == str(repository_config.resolve())
     assert initial.trust_state == "untrusted"

@@ -126,7 +126,7 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     controller.command_hook_sessions = SimpleNamespace(
         clear=lambda: timeline.append("command_hooks"),
     )
-    controller.hook_registry = SimpleNamespace(
+    controller.hooks = SimpleNamespace(
         close=lambda: step("hooks"),
     )
     controller.event_reporting = SimpleNamespace(
@@ -193,7 +193,7 @@ async def test_controller_session_end_uses_current_root_snapshot(
             thread=SimpleNamespace(sid="sid_child"),
         ),)),
     )
-    controller.hook_registry = SimpleNamespace(
+    controller.hooks = SimpleNamespace(
         cleanup_session=AsyncMock(),
     )
     controller.command_hook_sessions = SimpleNamespace(
@@ -222,7 +222,7 @@ async def test_controller_session_end_uses_current_root_snapshot(
     controller.subagents.shutdown_root.assert_awaited_once_with(
         "sid_test_1_abcdef"
     )
-    controller.hook_registry.cleanup_session.assert_awaited_once_with(
+    controller.hooks.cleanup_session.assert_awaited_once_with(
         "sid_child"
     )
     assert [

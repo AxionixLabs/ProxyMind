@@ -54,7 +54,7 @@ async def compact_conversation(
         transcript_path=transcript_path,
     )
 
-    scope = resolve_execution_hook_scope(session, context)
+    scope = resolve_execution_hook_scope(session.hook_scope_provider, context)
 
     hook_events = CompactHookEvents(scope)
 

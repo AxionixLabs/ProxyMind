@@ -10,6 +10,7 @@ from agent.ports.presentation import (
     ApplicationView
 )
 from agent.ports.presentation import TextSpan
+from agent.ports import HookManagementPort
 from agent.application.hooks.catalog import (
     HookCatalogEntry,
     HookCatalogSnapshot
@@ -30,8 +31,21 @@ from ..core.styles import (
 )
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
     from ..core.runtime import TuiRuntime
+
+
+class _HookFrontendPort(typing.Protocol):
+    """定义 Hook 界面发布应用视图所需的前端边界。"""
+
+    application: ApplicationSink
+
+
+class HookUiHostPort(typing.Protocol):
+    """定义 Hook 界面读取宿主状态所需的最小边界。"""
+
+    history_workspace: str
+    frontend: _HookFrontendPort
+    hooks: HookManagementPort
 
 _TRUST_ACTION     = "trust"
 _ENABLE_ACTION    = "enable"
@@ -42,7 +56,7 @@ _STARTUP_CONTINUE = "continue"
 
 def _trust_startup_hooks(
     runtime: "TuiRuntime",
-    mind: "Mind",
+    mind: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot
 ) -> None:
@@ -72,7 +86,7 @@ def _trust_startup_hooks(
 
 def _startup_hooks_review_request(
     runtime: "TuiRuntime",
-    mind: "Mind",
+    mind: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot,
     *,
@@ -95,7 +109,7 @@ def _startup_hooks_review_request(
 
 def _queue_batch_trust(
     runtime: "TuiRuntime",
-    mind: "Mind",
+    mind: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot
 ) -> None:
@@ -114,7 +128,7 @@ def _queue_batch_trust(
 
 
 def _refresh_catalog(
-    mind: "Mind",
+    mind: HookUiHostPort,
     workspace: Path,
     fallback: HookCatalogSnapshot,
     *,
@@ -123,7 +137,7 @@ def _refresh_catalog(
 ) -> HookCatalogSnapshot:
     """重新读取 Hook 清单，失败时保留已有快照。"""
     try:
-        return mind.inspect_hooks(workspace=workspace)
+        return mind.hooks.inspect(workspace=workspace)
     except (ConfigStoreError, ConfigValidationError) as error:
         if runtime.menu_session_is_active(session_id):
             render_hooks_failure(mind.frontend.application, error)
@@ -132,7 +146,7 @@ def _refresh_catalog(
 
 def _push_hook_list(
     runtime: "TuiRuntime",
-    mind: "Mind",
+    mind: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot,
     event: str
@@ -199,7 +213,7 @@ def _handler_summary(entry: HookCatalogEntry) -> str:
 
 def _hook_list_request(
     runtime: "TuiRuntime",
-    mind: "Mind",
+    mind: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot,
     event: str
@@ -396,7 +410,7 @@ def _hook_trust_label(entry: HookCatalogEntry) -> str:
 
 def _hook_root_request(
     runtime: "TuiRuntime",
-    mind: "Mind",
+    mind: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot
 ) -> MenuRequest:
@@ -701,7 +715,7 @@ def render_hooks_failure(
 
 async def _run_hook_action(
     runtime: "TuiRuntime",
-    mind: "Mind",
+    mind: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot,
     entry: HookCatalogEntry,
@@ -719,13 +733,13 @@ async def _run_hook_action(
 
     try:
         if action == _TRUST_ACTION:
-            mind.trust_hook(
+            mind.hooks.trust(
                 entry.key,
                 expected_content_hash=entry.content_hash,
                 workspace=workspace,
             )
         else:
-            mind.set_hook_enabled(
+            mind.hooks.set_enabled(
                 entry.key,
                 expected_content_hash=entry.content_hash,
                 enabled=action == _ENABLE_ACTION,
@@ -766,7 +780,7 @@ async def _run_hook_action(
 
 async def _run_batch_trust(
     runtime: "TuiRuntime",
-    mind: "Mind",
+    mind: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot,
     *,
@@ -782,7 +796,7 @@ async def _run_batch_trust(
     pending = tuple(item for item in catalog.hooks if item.needs_review)
 
     try:
-        mind.trust_hooks(
+        mind.hooks.trust_many(
             tuple((entry.key, entry.content_hash) for entry in pending),
             workspace=workspace,
         )
@@ -824,7 +838,7 @@ async def _run_batch_trust(
 
 async def manage_hooks(
     runtime: "TuiRuntime",
-    mind: "Mind",
+    mind: HookUiHostPort,
     *,
     catalog: HookCatalogSnapshot | None = None
 ) -> None:
@@ -832,7 +846,7 @@ async def manage_hooks(
     workspace = Path(mind.history_workspace)
     if catalog is None:
         try:
-            catalog = mind.inspect_hooks(workspace=workspace)
+            catalog = mind.hooks.inspect(workspace=workspace)
         except (ConfigStoreError, ConfigValidationError) as error:
             render_hooks_failure(mind.frontend.application, error)
             return None
@@ -844,7 +858,7 @@ async def manage_hooks(
 
 async def review_startup_hooks(
     runtime: "TuiRuntime",
-    mind: "Mind"
+    mind: HookUiHostPort
 ) -> HookCatalogSnapshot | None:
     """在交互会话启动前选择是否打开 Hook 审核浏览器。"""
     owns_startup_gate = not runtime.startup_gate_active
@@ -854,7 +868,7 @@ async def review_startup_hooks(
     try:
         workspace = Path(mind.history_workspace)
         try:
-            catalog = mind.inspect_hooks(workspace=workspace)
+            catalog = mind.hooks.inspect(workspace=workspace)
         except (ConfigStoreError, ConfigValidationError):
             return None
 
@@ -872,7 +886,7 @@ async def review_startup_hooks(
 
 async def _run_startup_hook_trust(
     runtime: "TuiRuntime",
-    mind: "Mind",
+    mind: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot,
     *,
@@ -883,7 +897,7 @@ async def _run_startup_hook_trust(
     try:
         if not runtime.menu_session_is_active(session_id):
             return None
-        mind.trust_hooks(
+        mind.hooks.trust_many(
             tuple(
                 (entry.key, entry.content_hash)
                 for entry in catalog.hooks
@@ -896,7 +910,7 @@ async def _run_startup_hook_trust(
             return None
 
         try:
-            refreshed = mind.inspect_hooks(workspace=workspace)
+            refreshed = mind.hooks.inspect(workspace=workspace)
         except (ConfigStoreError, ConfigValidationError):
             refreshed = catalog
 

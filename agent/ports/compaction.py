@@ -9,7 +9,7 @@ from collections.abc import (
 )
 
 from agent.domain.policies import PermissionSettings
-from agent.ports.hooks import HookExecutionScopePort
+from agent.ports.hooks import HookScopeProviderPort
 from agent.ports.transcript import TranscriptFactory
 
 if typing.TYPE_CHECKING:
@@ -61,11 +61,9 @@ class CompactionSessionPort(typing.Protocol):
         """返回指定会话的 Transcript 路径。"""
         ...
 
-    def hook_scope(
-        self,
-        context: "HookExecutionContext",
-    ) -> HookExecutionScopePort:
-        """为压缩生命周期创建固定 Hook 作用域。"""
+    @property
+    def hook_scope_provider(self) -> HookScopeProviderPort:
+        """返回压缩生命周期使用的 Hook 作用域提供器。"""
         ...
 
     async def await_cleanup(

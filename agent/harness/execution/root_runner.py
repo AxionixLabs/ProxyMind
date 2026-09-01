@@ -33,6 +33,7 @@ from agent.application.turns.context import (
 from agent.harness.execution.turn_runner import execute_turn
 from agent.application.turns.transcript import build_turn_input_payload
 from agent.adapters.protocol.turn_stream import stream_turn
+from agent.harness.hooks.scope import resolve_hook_scope
 from agent.ports import OutputSessionFactory
 from agent.domain.policies import PermissionSettings
 
@@ -104,7 +105,7 @@ async def prepare_root_turn(
     return TurnExecution(
         context=context,
         message=message,
-        hook_scope=session.hook_scope(context),
+        hook_scope=resolve_hook_scope(session.hook_scope_provider, context),
         metadata=canonical_metadata,
         additional_context=conversation_turn.additional_context,
         system_message=conversation_turn.system_message,

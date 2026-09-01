@@ -556,7 +556,7 @@ running -> cancelled
 | 当前位置 | 目标归属 | 迁移要求 |
 | --- | --- | --- |
 | `mind.py`、`agent/composition.py` | `composition.py` | `mind.py` 已创建单个 `RuntimeServices` 并注入全部进程入口；根轮次 runner 在组合根绑定 Model/Protocol/Effect 能力，具体 store 和 capability 只能在 `agent/composition.py` 装配 |
-| `mind_app/controller.py` | application 公开门面 | 只借用入口注入的 `RuntimeServices` 与 `FrontendPort`；附件、静默输出、审批和完成投影均由 `mind.py` 注入，不导入或选择具体前端实现；已有可变状态按完整生命周期迁出 |
+| `mind_app/controller.py` | 迁移期应用宿主 | 只借用入口注入的 `RuntimeServices` 与 `FrontendPort`；Hook 配置/执行作用域已由独立管理器拥有，附件、静默输出、审批和完成投影均由 `mind.py` 注入；剩余 Session、历史、工具资源和前端生命周期必须按完整用例迁出，不能整体改名 |
 | 已删除的 `mind_app/runtime/turns/root.py` | `agent/harness/execution/root_runner.py` + `agent/application/turns/commands.py` + `agent/adapters/turns/root.py` | CLI、TUI、MCP 和 Subscription 由类型化 Command 驱动；入站映射归 adapter，根轮次准备、前台执行与模型会话编排归 Harness。runner 只消费 `RootTurnSessionPort` 与 `TurnExecutionRuntimePort`，不导入 Controller、基础设施或前端 |
 | `mind_app/runtime/turns/root.py` 的前台轮次编排 | `agent/application/turns/foreground.py` + `agent/ports/frontend.py` + `agent/ports/presentation.py::TurnForegroundLifecyclePort` | application 只编排执行、完成和清理顺序并适配稳定 Activity/Frontend 端口；worked footer renderer 由 `mind.py` 注入，runtime root 与 Controller 都不导入具体前端 |
 | 已删除的 `mind_app/runtime/turns/stream.py` | `agent/adapters/protocol/turn_stream.py`、`model_request.py`、`turn_interrupts.py` + `agent/application/turns/retry_status.py` | `mind.chat` 事件路由、模型请求和稳定控制命令归 Protocol adapter，重试展示合并归 application；主适配器低于 800 行，不接收无意义宿主参数，不读取基础设施路径。模型、控制、无参效果账本工厂和输出工厂由组合根显式绑定并贯穿 continuation |
@@ -679,6 +679,7 @@ running -> cancelled
 | `mind_app/runtime/hooks/runtime.py` 中的 `HookCommandRunner`、`HookContextSpiller` | `agent/ports/hooks.py` | Hook 命令执行和上下文 spill 是 runtime 调用具体实现的端口；协议值对象只声明已校验结果字段，状态展示端口仍由 runtime 持有 |
 | `HookRegistry`/`HookRuntime` 的执行器资源推断 | 显式 `context_spiller`、`cleanup_session`、`close` 注入 | Hook 执行、超限 spill 和资源清理按端口绑定；runtime 不通过 `isinstance` 猜测具体执行器能力，默认执行器仅在构造分支集中绑定 |
 | `HookRegistry` 在 CLI/MCP/Controller 内的隐式构造 | `agent.ports.HookRegistryFactory`，由 `mind.py` 注入 `RuntimeServices` | 具体 registry 只在进程组合根创建；入口、Controller 和 Hook scope 仅依赖 registry/dispatcher/status port，不反向导入 runtime 实现 |
+| `mind_app/controller.py` 中的 Hook 清单、用户状态、scope 和关闭逻辑 | `infrastructure/config/hooks.py::HookManager` + `agent.ports.HookManagementPort/HookScopeProviderPort` | 配置解析、信任/启用写入和 registry 资源由一个管理器拥有；TUI 只消费管理端口，根 Turn、压缩和 Subagent 只消费作用域提供器，Controller 不保留同义方法或一次转发 facade |
 | `mind_app/runtime/hooks/models.py` | `agent/application/hooks/models.py` | Hook 生命周期快照、决定、输出和工具结果是跨 runtime/TUI 的 application contract；Hook 执行器、注册器和 scope 仍由 runtime 持有，不把执行副作用放入值对象 |
 | `mind_app/runtime/hooks/scope.py` 中的 `HookExecutionContext` | `agent/application/hooks/context.py`；`HookExecutionScope` 归 `agent/harness/hooks/scope.py` | Hook 输入上下文只依赖 Turn、domain 事件名和 schema 构建；执行作用域持有 Harness dispatcher 和生命周期，不把具体执行器带入 application |
 | 已删除的 `mind_app/runtime/turns/executor.py` 中的 `TurnExecution` 与 Hook scope resolver | `agent/application/turns/execution.py`；`HookExecutionScopePort`、`HookScopeProviderPort` 归 `agent/ports/hooks.py`；resolver 归 `agent/harness/hooks/scope.py` | Turn 执行值对象只依赖固定 scope 端口；Harness 校验宿主提供的结构化作用域并统一执行配置失败降级，不通过 `object` 或动态属性猜测 Controller |
