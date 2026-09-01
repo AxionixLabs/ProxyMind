@@ -564,10 +564,10 @@ CLI、MCP 与清理回归 `167 passed`；Subagent 编排架构专项 `4 passed, 
 `agent/harness/agents/runtime.py`，Controller、客户端工具和测试全部切换到 Harness
 公开路径，`mind_app/runtime/subagents/runtime.py` 已删除且没有保留转发 facade。Harness
 仍只依赖 Agent application、ports、stores 和 adapters；旧执行流依赖继续隔离在
-`mind_app/runtime/subagents/execution.py` 组合适配器。Subagent、工具、MCP、清理和根入口
+`mind_app/runtime/turns/subagent_adapter.py` 组合适配器。Subagent、工具、MCP、清理和根入口
 回归 `167 passed`；Subagent 编排架构专项 `4 passed, 1 warning`，导入图、`compileall`
-和 `git diff --check` 通过。下一切片复核 `mind_app/runtime/subagents/execution.py` 的
-适配职责，评估将其拆分为 Harness 可消费的 Model/Output 能力端口并继续清理
+和 `git diff --check` 通过。下一切片复核 `mind_app/runtime/turns/subagent_adapter.py`
+的适配职责，评估将其拆分为 Harness 可消费的 Model/Output 能力端口并继续清理
 `mind_app/runtime/turns` 依赖。
 
 本次 Subagent 宿主清理端口收窄已满足上述条件：`SubagentRuntimeHostPort` 删除通用
@@ -581,8 +581,14 @@ Subagent、工具、MCP、清理和根入口回归 `167 passed`；架构专项 `
 `executor`/`turn_runner` 构造参数及对应生产类型依赖，执行端口统一由
 `SubagentRuntimeHostPort` 提供，消除调用方绕过宿主契约的装配分叉。Subagent、工具、MCP、
 清理和根入口回归 `167 passed`；架构专项 `4 passed`，导入图、`compileall` 和
-`git diff --check` 通过。下一切片复核 Subagent 执行适配器的旧 `mind_app.runtime.turns`
-依赖，设计可由 Harness 消费的模型流与输出会话端口，继续缩小历史包边界。
+`git diff --check` 通过。下一切片复核 `mind_app/runtime/turns/subagent_adapter.py` 的
+适配职责，设计可由 Harness 消费的模型流与输出会话端口，继续缩小历史包边界。
+
+本次 Subagent 适配目录收口已满足上述条件：`execution.py` 已物理迁入
+`mind_app/runtime/turns/subagent_adapter.py`，空的 `mind_app/runtime/subagents` 包已删除，
+组合根入口同步切换且没有新增兼容 facade。Subagent、工具、MCP、清理和根入口回归
+`167 passed`；架构专项 `4 passed`，导入图、`compileall` 和 `git diff --check` 通过。
+下一切片复核 Turn 流适配器的 Model/Output 端口边界，优先删除其对旧输出实现的直接依赖。
 
 ## 过渡入口与删除条件
 

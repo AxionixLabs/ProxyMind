@@ -58,7 +58,7 @@ from agent.stores.approvals.permissions import PermissionGrantStore
 from .approval.coordinator import ApprovalCoordinator
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.harness.agents.runtime import SubagentRuntime
-from .runtime.subagents.execution import (
+from .runtime.turns.subagent_adapter import (
     ControllerSubagentExecution,
     ControllerSubagentTurnRunner,
 )
