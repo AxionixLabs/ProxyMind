@@ -3,7 +3,7 @@
 
 import typing
 from observability import observe_exception
-from agent.ports.transcript import TranscriptSink
+from agent.ports.transcript import TranscriptLifecyclePort
 from agent.ports import OutputControlPort
 from agent.application.turns.stream_outcome import StreamTurnOutcome
 from agent.application.hooks.models import StopHookDecision
@@ -17,24 +17,6 @@ class _TurnStateStore(typing.Protocol):
 
     def clear_turn(self, *, cid: str, sid: str, turn_id: str) -> None:
         """清除给定逻辑轮次拥有的临时状态。"""
-        ...
-
-
-class _TranscriptLifecycle(typing.Protocol):
-    """定义单轮记录写入和关闭端口；实现方必须允许关闭前追加并保证关闭幂等。"""
-
-    def append(
-        self,
-        event: str,
-        *,
-        actor: typing.Any = None,
-        payload: dict[str, typing.Any] | None = None,
-    ) -> None:
-        """追加一个结构化记录。"""
-        ...
-
-    def close(self) -> None:
-        """关闭当前记录生命周期。"""
         ...
 
 
@@ -63,7 +45,7 @@ class StreamTurnFinalizer:
         turn_id: str,
         outcome: StreamTurnOutcome,
         turn_state_stores: typing.Iterable[_TurnStateStore],
-        transcript: _TranscriptLifecycle,
+        transcript: TranscriptLifecyclePort,
         model_output: _ModelOutputLifecycle,
         retry_state_close: typing.Callable[[], None],
         stream_end: typing.Callable[[str], None] | None,
@@ -104,7 +86,7 @@ class StreamTurnFinalizer:
 
         self._model_output.flush_pending()
         record_turn_finished(
-            typing.cast(TranscriptSink, self._transcript),
+            self._transcript,
             status=self._outcome.status,
             usage=self._outcome.usage,
             error=self._outcome.error,

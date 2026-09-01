@@ -78,8 +78,8 @@ from .executor import (
     turn_continuation_count
 )
 from infrastructure.platform.idle_status import IdleStatusTimer
-from .stream_approval import ApprovalEventHandler
-from .stream_tools import (
+from agent.adapters.protocol.approval_events import ApprovalEventHandler
+from agent.adapters.protocol.tool_events import (
     ToolCallBatchBuffer,
     ToolEventHandler,
 )
@@ -515,6 +515,7 @@ async def stream_turn(
             coordinator=tool_call_coordinator,
             client_runner=client_tool_runner,
             plan_runner=plan_tool_runner,
+            tool_execution=tool_execution,
             status_control=status_control,
             presentation=presentation,
             transcript=transcript,

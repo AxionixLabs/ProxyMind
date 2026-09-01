@@ -13,7 +13,10 @@ from agent.application.approvals.amendments import (
     ExecPolicyAmendmentProposal,
     approval_execpolicy_amendment,
 )
-from .models import ApprovalDecisionValue
+from .models import (
+    ApprovalDecisionValue,
+    normalize_approval_decision,
+)
 
 DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
     "accept",
@@ -291,7 +294,7 @@ def approval_decisions(
             if decision == "cancel":
                 continue
             seen.add(decision)
-            decisions.append(typing.cast(ApprovalDecisionValue, decision))
+            decisions.append(normalize_approval_decision(decision))
         if approval_execpolicy_amendment(approval) is None:
             decisions = [
                 decision

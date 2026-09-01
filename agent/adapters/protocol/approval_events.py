@@ -8,7 +8,10 @@ from observability import (
     observe_exception
 )
 from agent.stores.approvals.ledger import ApprovalCallLedger
-from agent.application.approvals.models import ApprovalDecisionValue
+from agent.application.approvals.models import (
+    ApprovalDecisionValue,
+    normalize_approval_decision,
+)
 from agent.application.approvals.policy import (
     approval_decisions,
     approval_from_event,
@@ -36,11 +39,24 @@ from protocol.schema.tool_approval import (
     ToolApprovalSnapshot
 )
 
-from .stream_policy import (
+from agent.application.approvals.local_policy import (
     LOCAL_EXEC_POLICY_TOOLS,
     apply_local_exec_policy_approval
 )
-from .stream_tools import tool_invocation_from_event
+from agent.adapters.protocol.tool_events import tool_invocation_from_event
+
+
+def _approval_source(value: object) -> ApprovalSource:
+    """校验审批协调器返回的展示来源。"""
+    if value == "user":
+        return "user"
+    if value == "hook":
+        return "hook"
+    if value == "policy":
+        return "policy"
+    if value == "auto_review":
+        return "auto_review"
+    raise ValueError(f"unsupported approval source: {value}")
 
 def approval_with_updated_input(
     approval: dict[str, typing.Any],
@@ -104,7 +120,7 @@ def approval_report_kwargs(
         permissions = approval.get("permissions")
         if not isinstance(permissions, dict):
             raise RuntimeError("permission approval is missing permissions")
-        fields["permissions"] = typing.cast(dict[str, typing.Any], permissions)
+        fields["permissions"] = dict(permissions)
         fields["scope"] = (
             "session" if decision == "grantForSession" else "turn"
         )
@@ -160,7 +176,7 @@ class ApprovalEventHandler:
             ):
                 self._apply_permission_grant(
                     approval_from_snapshot(item.approval),
-                    decision=typing.cast(ApprovalDecisionValue, item.decision),
+                    decision=normalize_approval_decision(item.decision),
                 )
                 self.ledger.record_approved(
                     cid=snapshot.cid,
@@ -206,10 +222,7 @@ class ApprovalEventHandler:
                 **approval_report_kwargs(
                     restored_approval,
                     decision=restored_decision,
-                    source=typing.cast(
-                        ApprovalSource,
-                        restored_outcome.source,
-                    ),
+                    source=_approval_source(restored_outcome.source),
                     turn_id=snapshot.turn_id,
                 ),
             )
@@ -277,10 +290,7 @@ class ApprovalEventHandler:
                     if ack_decision in TOOL_APPROVAL_ACCEPT_DECISIONS:
                         self._apply_permission_grant(
                             approval,
-                            decision=typing.cast(
-                                ApprovalDecisionValue,
-                                ack_decision,
-                            ),
+                            decision=normalize_approval_decision(ack_decision),
                         )
                 self.ledger.record_approved(
                     cid=turn_context.cid,

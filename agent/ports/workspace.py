@@ -3,6 +3,10 @@
 
 import os
 import typing
+from agent.domain.execution_policy import (
+    ExecutionPolicyAmendment,
+    ExecutionPolicyRequirement,
+)
 from .capabilities import ProcessCapability
 from .javascript import WorkspaceJavaScriptPort
 from .media import ImageReaderPort
@@ -58,29 +62,6 @@ class PatchPreviewPort(typing.Protocol):
     ) -> dict[str, typing.Any]:
         """返回补丁预览结果，不修改工作区。"""
         ...
-
-
-ExecutionPolicyState = typing.Literal[
-    "forbidden",
-    "needs_approval",
-    "skip",
-]
-
-
-class ExecutionPolicyAmendment(typing.Protocol):
-    """定义本地执行策略规则提案的只读字段。"""
-
-    id: str
-    command_prefix: tuple[str, ...]
-    display: str
-
-
-class ExecutionPolicyRequirement(typing.Protocol):
-    """定义本地命令执行策略的判定结果。"""
-
-    state: ExecutionPolicyState
-    reason: str | None
-    proposed_execpolicy_amendment: ExecutionPolicyAmendment | None
 
 
 @typing.runtime_checkable

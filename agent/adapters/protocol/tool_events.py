@@ -8,6 +8,7 @@ from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.application.approvals.models import ApprovalOutcome
 from agent.application.tools.planning import PLAN_STEPS_TOOL
 from agent.application.tools.authorization import ToolTurnInterrupted
+from agent.application.tools.execution import ToolExecutionAdapter
 from agent.ports.transcript import TranscriptSink
 from agent.ports import (
     ApprovalCoordinatorPort,
@@ -15,7 +16,7 @@ from agent.ports import (
     PatchPreviewPort,
 )
 from agent.application.tools.catalog import meta_for_tool
-from infrastructure.config.execution_policy_manager import ExecApprovalRequirement
+from agent.domain.execution_policy import ExecutionPolicyRequirement
 from agent.ports import OutputStatusPort
 from agent.application.views.builders.approval import build_approval_view
 from agent.application.views.contracts import PresentationSink
@@ -28,7 +29,6 @@ from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from agent.harness.tools.client_calls import ClientToolCallRunner
 from agent.harness.tools.plan_calls import PlanToolCallRunner
 from agent.application.views.tool_execution import show_tool_result
-from infrastructure.mcp.tool_execution import server_tool_output_result
 from agent.application.views import uses_native_tool_view
 from protocol.client.tools import build_tool_result_envelope
 from protocol.client.turn_control import TurnControlRequestError
@@ -41,7 +41,7 @@ from protocol.schema.stream_events import (
     ToolOutputEvent,
 )
 from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
-from .stream_policy import (
+from agent.application.approvals.local_policy import (
     apply_local_exec_policy_approval,
     apply_local_patch_approval,
     local_exec_policy_approval,
@@ -204,6 +204,7 @@ class ToolEventHandler:
         coordinator: ToolCallCoordinator,
         client_runner: ClientToolCallRunner,
         plan_runner: PlanToolCallRunner,
+        tool_execution: ToolExecutionAdapter,
         status_control: OutputStatusPort,
         presentation: PresentationSink,
         transcript: TranscriptSink,
@@ -220,6 +221,7 @@ class ToolEventHandler:
         self.coordinator    = coordinator
         self.client_runner  = client_runner
         self.plan_runner    = plan_runner
+        self.tool_execution = tool_execution
         self.status_control = status_control
         self.presentation   = presentation
         self.transcript     = transcript
@@ -380,7 +382,7 @@ class ToolEventHandler:
 
         arguments        = dict(event.arguments)
         use_coding_trace = uses_native_tool_view(name)
-        tool_run         = server_tool_output_result(event.payload)
+        tool_run         = self.tool_execution.project_server_output(event.payload)
 
         self.transcript.append(
             "tool.failed" if tool_run.status == "failed" else "tool.completed",
@@ -517,7 +519,7 @@ class ToolEventHandler:
         self,
         invocation: ToolInvocation,
         *,
-        requirement: ExecApprovalRequirement
+        requirement: ExecutionPolicyRequirement
     ) -> ToolCallHandlingResult | None:
         """处理本地执行策略要求的审批，批准时允许继续执行。"""
         if self.turn_context.permissions.approval_policy == "never":

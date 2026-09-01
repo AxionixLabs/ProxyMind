@@ -20,7 +20,7 @@ from protocol.schema.stream_events import (
     UnknownStreamEvent,
     parse_stream_event as _parse_stream_event,
 )
-from mind_app.runtime.turns.stream_tools import ToolCallBatchBuffer
+from agent.adapters.protocol.tool_events import ToolCallBatchBuffer
 
 
 def parse_stream_event(payload):

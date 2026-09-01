@@ -404,6 +404,13 @@ class McpToolExecutionAdapter(ToolExecutionAdapter):
             pref_config=pref_config,
         )
 
+    def project_server_output(
+        self,
+        payload: Mapping[str, typing.Any],
+    ) -> ToolExecutionResult:
+        """把协议载荷交给 MCP 结果归一化边界。"""
+        return server_tool_output_result(dict(payload))
+
 
 def hook_tool_response(
     name: str,

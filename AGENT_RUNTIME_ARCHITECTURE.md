@@ -593,7 +593,7 @@ running -> cancelled
 | `mind_app/presentation/stream/assistant_boundary.py`、`lifecycle.py`、`exception_text.py` | `agent/application/turns/stream_boundaries.py`、`lifecycle.py`、`exception_text.py` | 协议事件的 assistant 边界、lifecycle view 投影和运行期错误摘要属于 Turn application；不依赖具体前端或旧展示包 |
 | `mind_app/runtime/subagents/delivery.py` | `agent/ports/agent_messages.py`、`agent/adapters/agents/messages.py`、`agent/harness/agents/delivery.py` | 消息回执和投递端口归 ports，`/turn/steer` 归 Protocol Client adapter，Harness 维护活动轮次就绪和 pending 输入状态 |
 | `mind_app/history/ids.py` | `protocol/schema/identifiers.py` | `cid/sid` 正则和关联校验属于 wire identity schema；历史、交互、Controller 和 Harness 复用协议边界，不在 history 保留身份实现 |
-| `mind_app/history/contracts.py`（已删除） | `agent/ports/transcript.py` | TranscriptSink 是 runtime、Hook、执行器和历史 writer 共享的最小写入端口；端口不依赖旧包或基础设施 |
+| `mind_app/history/contracts.py`（已删除） | `agent/ports/transcript.py` | `TranscriptSink` 是 runtime、Hook、执行器和历史 writer 共享的最小写入端口；`TranscriptLifecyclePort` 额外约束单轮关闭所有权，使 finalizer 无需强制类型声明。端口不依赖旧包或基础设施 |
 | `mind_app/history/transcript.py` 中的 `TranscriptEntry`、`TranscriptReplay` | `agent/stores/transcripts/records.py`、`replay.py` | 共享记录值和事件归约器不依赖本地文件、观测或展示；工具归并策略由 `agent.domain.tool_policy` 提供 |
 | `mind_app/history/transcript.py`（已删除） | `infrastructure/persistence/transcripts.py` | JSONL Reader/Writer、Session 日期路径、编码和损坏记录观测属于基础设施；实现依赖 `agent` 的记录值与 Sink 端口，不反向依赖旧应用 |
 | `mind_app/presentation/tool_policy.py` | `agent/domain/tool_policy.py`、`agent/application/views/tool_display.py` | 工具过滤和 `is_approval_only_tool` 属于领域规则；`ToolDisplayKind`、`ToolDisplaySpec` 和 renderer 分类归应用 view policy；旧 presentation policy 文件删除，不保留兼容 facade |
@@ -668,6 +668,7 @@ running -> cancelled
 | `mind_app/runtime/turns/result.py` | `agent/application/turns/run_result.py` | 单次模型 Run 的稳定结果值对象属于 application 出站契约；前端和 Subagent 只消费公开结果，不从 runtime turns 导入 |
 | `mind_app/runtime/turns/stream_outcome.py` | `agent/application/turns/stream_outcome.py` | 流式终态优先级、协议终态归并和 `RunResult` 构建属于 application 结果聚合；协议事件只在边界输入，不持有 UI 或执行副作用 |
 | `mind_app/runtime/turns/stream_model.py`、`stream_effects.py`、`stream_presentation.py` | `agent/adapters/protocol/model_events.py`、`tool_results.py` 与 `agent/application/turns/presentation.py` | Canonical 模型事件到 Transcript/展示的投影和工具结果可靠交付属于线上协议 adapter；Turn 启动、失败与终态 view 编排属于 application。共享执行链只消费 `EventReportPort`，不再依赖具体 transport 报告器，三个旧模块同批删除 |
+| `mind_app/runtime/turns/stream_policy.py`、`stream_approval.py`、`stream_tools.py` | `agent/application/approvals/local_policy.py`、`agent/adapters/protocol/approval_events.py`、`tool_events.py` 与 `agent/domain/execution_policy/requirements.py` | 本地命令/补丁审批规则归 application，协议审批和工具批次事件归 adapters，不可变策略判定归 domain；具体策略 manager 实现端口但不再拥有跨层结果类型，hosted 输出通过注入的 `ToolExecutionAdapter` 投影。旧三模块和旧 `Exec*` 结果类型同批删除 |
 | `agent/harness/sessions/owner.py`、`loop.py` | `agent/ports/sessions.py` | Session runtime 的执行、取消、恢复和关闭契约归入 ports；Harness 只提供实现，application 通过显式 factory 使用，不直接装配 owner |
 | `agent/harness/workspace_runtime.py` | `agent/ports/workspace.py` | 工作区资源生命周期和组合工厂契约归入 ports；Harness 只持有具体资源替换/关闭实现，路径由组合边界解析 |
 | `mind_app/runtime/support/idle_status.py` | `infrastructure/platform/idle_status.py` | asyncio 延迟状态计时器只管理平台任务生命周期；stream runtime 通过显式平台实现使用，不让 support 目录继续承接无归属基础设施 |

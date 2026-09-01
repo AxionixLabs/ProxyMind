@@ -2,10 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from abc import (
-    ABC,
-    abstractmethod
-)
 
 TranscriptActor: typing.TypeAlias = typing.Literal[
     "user",
@@ -15,10 +11,10 @@ TranscriptActor: typing.TypeAlias = typing.Literal[
 ]
 
 
-class TranscriptSink(ABC):
+@typing.runtime_checkable
+class TranscriptSink(typing.Protocol):
     """定义结构化会话事件的追加写入能力。"""
 
-    @abstractmethod
     def append(
         self,
         event: str,
@@ -27,6 +23,15 @@ class TranscriptSink(ABC):
         payload: dict[str, typing.Any] | None = None
     ) -> None:
         """追加一个结构化事件。"""
+        ...
+
+
+@typing.runtime_checkable
+class TranscriptLifecyclePort(TranscriptSink, typing.Protocol):
+    """定义单轮 Transcript 在完成追加后的关闭生命周期。"""
+
+    def close(self) -> None:
+        """幂等关闭当前 Transcript 写入生命周期。"""
         ...
 
 

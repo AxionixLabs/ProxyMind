@@ -36,6 +36,30 @@ ApprovalResolutionReason = typing.Literal[
 ]
 
 
+def normalize_approval_decision(value: object) -> ApprovalDecisionValue:
+    """校验外部审批决定并返回精确的稳定枚举值。"""
+    normalized = str(value or "").strip()
+    if normalized == "accept":
+        return "accept"
+    if normalized == "acceptForSession":
+        return "acceptForSession"
+    if normalized == "acceptWithExecpolicyAmendment":
+        return "acceptWithExecpolicyAmendment"
+    if normalized == "applyNetworkPolicyAmendment":
+        return "applyNetworkPolicyAmendment"
+    if normalized == "grantForTurn":
+        return "grantForTurn"
+    if normalized == "grantForTurnWithStrictAutoReview":
+        return "grantForTurnWithStrictAutoReview"
+    if normalized == "grantForSession":
+        return "grantForSession"
+    if normalized == "decline":
+        return "decline"
+    if normalized == "cancel":
+        return "cancel"
+    raise ValueError(f"unsupported approval decision: {normalized}")
+
+
 @dataclass(frozen=True, slots=True)
 class ApprovalRequestKey(object):
     """稳定标识一个审批请求，供去重和外部解决使用。"""

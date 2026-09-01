@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 
 from infrastructure.config.execution_policy_manager import (
-    ExecApprovalRequirement,
     ExecPolicyManager,
     commands_for_exec_policy,
     render_decision_for_unmatched_command,
 )
+from agent.domain.execution_policy import ExecutionPolicyRequirement
 from agent.domain.execution_policy import (
     Decision,
     effective_sandbox_mode,
@@ -215,7 +215,7 @@ def test_requirement_matches_codex_three_state_amendment_and_bypass(tmp_path) ->
         approval_policy="on-request",
         amendment_id="allow-1",
     )
-    assert allowed == ExecApprovalRequirement.skip(bypass_sandbox=True)
+    assert allowed == ExecutionPolicyRequirement.skip(bypass_sandbox=True)
 
     prompted = manager.create_exec_approval_requirement_for_command(
         ["cargo", "build"],

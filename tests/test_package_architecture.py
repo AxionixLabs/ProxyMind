@@ -151,6 +151,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/approvals/amendments.py",
         "application/approvals/coordinator.py",
         "application/approvals/factory.py",
+        "application/approvals/local_policy.py",
         "application/approvals/models.py",
         "application/approvals/policy.py",
         "application/approvals/presentation.py",
@@ -212,6 +213,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/views/tool_execution.py",
         "domain/identifiers.py",
         "domain/execution_policy/sandbox.py",
+        "domain/execution_policy/requirements.py",
         "domain/permission_profiles.py",
         "ports/content.py",
         "ports/media.py",
@@ -255,8 +257,10 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "adapters/agents/fork_context.py",
         "adapters/agents/messages.py",
         "adapters/protocol/client.py",
+        "adapters/protocol/approval_events.py",
         "adapters/protocol/items.py",
         "adapters/protocol/model_events.py",
+        "adapters/protocol/tool_events.py",
         "adapters/protocol/tool_results.py",
     }
     missing = [
@@ -2620,7 +2624,16 @@ def test_transcript_sink_port_is_owned_by_agent_ports() -> None:
     assert not legacy_path.is_file(), "legacy history contract module still exists"
     assert target_path.is_file(), "agent transcript port is missing"
 
-    tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    target_source = target_path.read_text(encoding="utf-8-sig")
+    assert "class TranscriptSink" in target_source
+    assert "class TranscriptLifecyclePort" in target_source
+    finalizer_source = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "stream_finalize.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "TranscriptLifecyclePort" in finalizer_source
+    assert "typing.cast" not in finalizer_source
+
+    tree = ast.parse(target_source, filename=str(target_path))
     forbidden: list[str] = []
     for node in ast.walk(tree):
         modules: tuple[str, ...] = ()
@@ -3695,6 +3708,14 @@ def test_execution_policy_is_split_between_domain_and_config() -> None:
     )
     assert not legacy_manager.is_file(), "legacy execution policy manager still exists"
     assert manager_path.is_file(), "infrastructure execution policy manager is missing"
+    requirement_path = (
+        PROJECT_ROOT
+        / "agent"
+        / "domain"
+        / "execution_policy"
+        / "requirements.py"
+    )
+    assert requirement_path.is_file(), "execution policy requirement domain is missing"
 
     legacy_root = PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "execpolicy"
     legacy_sources = tuple(legacy_root.rglob("*.py"))
@@ -3753,6 +3774,13 @@ def test_execution_policy_is_split_between_domain_and_config() -> None:
         "execution policy domain imports infrastructure/application code:\n"
         + "\n".join(domain_violations)
     )
+
+    manager_source = manager_path.read_text(encoding="utf-8-sig")
+    requirement_source = requirement_path.read_text(encoding="utf-8-sig")
+    assert "class ExecApprovalRequirement" not in manager_source
+    assert "class ExecPolicyAmendment" not in manager_source
+    assert "class ExecutionPolicyRequirement" in requirement_source
+    assert "class ExecutionPolicyAmendment" in requirement_source
 
 
 def test_terminal_presentation_has_no_legacy_design_sources_or_imports() -> None:
@@ -4293,14 +4321,19 @@ def test_turn_stream_protocol_boundaries_have_single_owners() -> None:
     """确保模型事件、工具结果和终态展示不再混居旧 Turn 运行时。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "runtime" / "turns"
     legacy_names = {
+        "stream_approval.py",
         "stream_effects.py",
         "stream_model.py",
         "stream_presentation.py",
+        "stream_policy.py",
+        "stream_tools.py",
     }
     assert not any((legacy_root / name).is_file() for name in legacy_names)
 
     adapter_paths = (
         PROJECT_ROOT / "agent" / "adapters" / "protocol" / "model_events.py",
+        PROJECT_ROOT / "agent" / "adapters" / "protocol" / "approval_events.py",
+        PROJECT_ROOT / "agent" / "adapters" / "protocol" / "tool_events.py",
         PROJECT_ROOT / "agent" / "adapters" / "protocol" / "tool_results.py",
     )
     assert all(path.is_file() for path in adapter_paths)
@@ -4328,6 +4361,18 @@ def test_turn_stream_protocol_boundaries_have_single_owners() -> None:
     assert "protocol.transport" not in presentation_source
     assert "protocol.client" not in presentation_source
     assert "infrastructure" not in presentation_source
+
+    local_policy_path = (
+        PROJECT_ROOT
+        / "agent"
+        / "application"
+        / "approvals"
+        / "local_policy.py"
+    )
+    local_policy_source = local_policy_path.read_text(encoding="utf-8-sig")
+    assert "protocol." not in local_policy_source
+    assert "infrastructure" not in local_policy_source
+    assert "typing.cast" not in local_policy_source
 
     report_port_consumers = (
         PROJECT_ROOT / "agent" / "ports" / "turns.py",
@@ -4962,6 +5007,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.approvals.amendments",
         "agent.application.approvals.coordinator",
         "agent.application.approvals.factory",
+        "agent.application.approvals.local_policy",
         "agent.application.approvals.models",
         "agent.application.approvals.policy",
         "agent.application.approvals.presentation",
@@ -5032,6 +5078,8 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.adapters.agents.execution",
         "agent.adapters.agents.fork_context",
         "agent.adapters.protocol.model_events",
+        "agent.adapters.protocol.approval_events",
+        "agent.adapters.protocol.tool_events",
         "agent.adapters.protocol.tool_results",
         "agent.adapters.turns.root",
         "agent.harness.agents.control",

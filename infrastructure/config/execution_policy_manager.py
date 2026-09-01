@@ -7,12 +7,12 @@ import json
 import shlex
 import hashlib
 import threading
+from collections.abc import (
+    Iterable,
+    Sequence,
+)
 from dataclasses import dataclass
 from pathlib import Path
-from typing import (
-    Iterable,
-    Sequence
-)
 from infrastructure.config.paths import default_application_home
 from metadata import const
 from infrastructure.platform.command_safety.is_dangerous_command import (
@@ -22,6 +22,8 @@ from infrastructure.platform.command_safety.is_dangerous_command import (
 from agent.domain.execution_policy import (
     Decision,
     Evaluation,
+    ExecutionPolicyAmendment,
+    ExecutionPolicyRequirement,
     MatchOptions,
     Policy,
     PrefixPattern,
@@ -79,11 +81,10 @@ def _normalize_patch_scope(value: object) -> tuple[str, ...]:
         return ()
     if isinstance(value, (str, Path)):
         values = (str(value),)
+    elif isinstance(value, Iterable):
+        values = tuple(str(item) for item in value)
     else:
-        try:
-            values = tuple(str(item) for item in value)  # type: ignore[arg-type]
-        except TypeError:
-            values = (str(value),)
+        values = (str(value),)
     return tuple(sorted({item.strip() for item in values if item.strip()}))
 
 
@@ -115,57 +116,6 @@ class ExecApprovalRequest:
             cwd=str(cwd or ""),
             sandbox_permissions=normalize_sandbox_permission(sandbox_permissions),
         )
-
-
-@dataclass(frozen=True, slots=True)
-class ExecPolicyAmendment:
-    """表示一次可持久化的命令前缀修订提案。"""
-    id: str
-    command_prefix: tuple[str, ...]
-    display: str
-
-
-@dataclass(frozen=True, slots=True)
-class ExecApprovalRequirement:
-    """描述命令执行的跳过、审批或禁止要求。"""
-
-    state: str
-    reason: str | None = None
-    proposed_execpolicy_amendment: ExecPolicyAmendment | None = None
-    bypass_sandbox: bool = False
-
-    @classmethod
-    def skip(
-        cls,
-        *,
-        bypass_sandbox: bool = False,
-        proposed_execpolicy_amendment: ExecPolicyAmendment | None = None,
-    ) -> "ExecApprovalRequirement":
-        """创建无需进一步审批的要求。"""
-        return cls(
-            state="skip",
-            bypass_sandbox=bypass_sandbox,
-            proposed_execpolicy_amendment=proposed_execpolicy_amendment,
-        )
-
-    @classmethod
-    def needs_approval(
-        cls,
-        *,
-        reason: str | None = None,
-        proposed_execpolicy_amendment: ExecPolicyAmendment | None = None,
-    ) -> "ExecApprovalRequirement":
-        """创建需要用户审批的要求。"""
-        return cls(
-            state="needs_approval",
-            reason=reason,
-            proposed_execpolicy_amendment=proposed_execpolicy_amendment,
-        )
-
-    @classmethod
-    def forbidden(cls, reason: str) -> "ExecApprovalRequirement":
-        """创建禁止执行的要求。"""
-        return cls(state="forbidden", reason=str(reason or "command forbidden"))
 
 
 class ExecPolicyManager:
@@ -294,7 +244,7 @@ class ExecPolicyManager:
         additional_permissions: object = None,
         policy_fingerprint: object = None,
         patch_scope: object = None,
-    ) -> ExecApprovalRequirement:
+    ) -> ExecutionPolicyRequirement:
         """按三态模型生成本地执行要求。"""
         permission = normalize_sandbox_permission(sandbox_permissions)
 
@@ -316,10 +266,10 @@ class ExecPolicyManager:
                 not evaluation.matched_rules
                 and str(approval_policy or "").strip().casefold() == "never"
             ):
-                return ExecApprovalRequirement.forbidden(
+                return ExecutionPolicyRequirement.forbidden(
                     "approval required by policy, but approval policy is never"
                 )
-            return ExecApprovalRequirement.forbidden(
+            return ExecutionPolicyRequirement.forbidden(
                 _evaluation_reason(evaluation, "local execution policy forbids command")
             )
 
@@ -332,10 +282,10 @@ class ExecPolicyManager:
 
         if evaluation.decision == Decision.Prompt:
             if str(approval_policy or "").strip().casefold() == "never":
-                return ExecApprovalRequirement.forbidden(
+                return ExecutionPolicyRequirement.forbidden(
                     "approval required by policy, but approval policy is never"
                 )
-            return ExecApprovalRequirement.needs_approval(
+            return ExecutionPolicyRequirement.needs_approval(
                 reason=_evaluation_reason(evaluation, "command requires approval"),
                 proposed_execpolicy_amendment=(
                     _as_exec_policy_amendment(proposal)
@@ -364,10 +314,10 @@ class ExecPolicyManager:
             and not session_approved
         ):
             if str(approval_policy or "").strip().casefold() == "never":
-                return ExecApprovalRequirement.forbidden(
+                return ExecutionPolicyRequirement.forbidden(
                     "host shell execution requires approval, but approval policy is never"
                 )
-            return ExecApprovalRequirement.needs_approval(
+            return ExecutionPolicyRequirement.needs_approval(
                 reason="require_escalated requests host shell execution",
                 proposed_execpolicy_amendment=(
                     _as_exec_policy_amendment(proposal)
@@ -376,7 +326,7 @@ class ExecPolicyManager:
                 ),
             )
 
-        return ExecApprovalRequirement.skip(
+        return ExecutionPolicyRequirement.skip(
             bypass_sandbox=self._all_commands_explicitly_allowed(command),
             proposed_execpolicy_amendment=(
                 _as_exec_policy_amendment(proposal)
@@ -848,7 +798,9 @@ def _evaluation_reason(evaluation: Evaluation, fallback: str) -> str:
     return fallback
 
 
-def _as_exec_policy_amendment(value: dict[str, object] | None) -> ExecPolicyAmendment | None:
+def _as_exec_policy_amendment(
+    value: dict[str, object] | None,
+) -> ExecutionPolicyAmendment | None:
     """把内部修订字典转换成稳定的策略提案对象。"""
     if not isinstance(value, dict):
         return None
@@ -862,7 +814,7 @@ def _as_exec_policy_amendment(value: dict[str, object] | None) -> ExecPolicyAmen
     )
     if len(prefix) != len(raw_prefix):
         return None
-    return ExecPolicyAmendment(
+    return ExecutionPolicyAmendment(
         id=amendment_id,
         command_prefix=prefix,
         display=str(value.get("display") or "").strip(),

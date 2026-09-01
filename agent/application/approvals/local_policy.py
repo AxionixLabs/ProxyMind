@@ -6,10 +6,10 @@ import typing
 from agent.application.approvals.models import ApprovalDecisionValue
 from agent.application.approvals.amendments import approval_execpolicy_amendment
 from agent.domain.permission_profiles import normalize_permission_profile
-from infrastructure.config.execution_policy_manager import (
-    ExecApprovalRequirement,
+from agent.domain.execution_policy import (
+    ExecutionPolicyRequirement,
+    validate_sandbox_permission_arguments,
 )
-from agent.domain.execution_policy import validate_sandbox_permission_arguments
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext,
@@ -33,7 +33,7 @@ def local_exec_policy_requirement(
     tool: str,
     arguments: dict[str, typing.Any],
     call_id: str
-) -> ExecApprovalRequirement | None:
+) -> ExecutionPolicyRequirement | None:
     """返回 shell/exec 工具的本地执行要求。"""
     if tool not in LOCAL_EXEC_POLICY_TOOLS:
         return None
@@ -48,7 +48,7 @@ def local_exec_policy_requirement(
     try:
         sandbox_permissions = validate_sandbox_permission_arguments(arguments)
     except ValueError as error:
-        return ExecApprovalRequirement.forbidden(str(error))
+        return ExecutionPolicyRequirement.forbidden(str(error))
 
     command_cwd = arguments.get("cwd") or turn_context.cwd
     additional_permissions = arguments.get("additional_permissions")
@@ -59,7 +59,7 @@ def local_exec_policy_requirement(
                 cwd=command_cwd,
             )
         except ValueError as error:
-            return ExecApprovalRequirement.forbidden(str(error))
+            return ExecutionPolicyRequirement.forbidden(str(error))
 
     try:
         requirement = manager.create_exec_approval_requirement_for_command(
@@ -77,7 +77,7 @@ def local_exec_policy_requirement(
             patch_scope=arguments.get("patch_scope"),
         )
     except ValueError as error:
-        return ExecApprovalRequirement.forbidden(str(error))
+        return ExecutionPolicyRequirement.forbidden(str(error))
 
     if (
         sandbox_permissions == "with_additional_permissions"
@@ -92,10 +92,10 @@ def local_exec_policy_requirement(
         if requirement.state == "forbidden":
             return requirement
         if turn_context.permissions.approval_policy == "never":
-            return ExecApprovalRequirement.forbidden(
+            return ExecutionPolicyRequirement.forbidden(
                 "additional permissions require approval, but approval policy is never"
             )
-        return ExecApprovalRequirement.needs_approval(
+        return ExecutionPolicyRequirement.needs_approval(
             reason="additional permissions require approval",
             proposed_execpolicy_amendment=requirement.proposed_execpolicy_amendment,
         )
@@ -141,7 +141,7 @@ def _has_permission_grant(
 def local_exec_policy_approval(
     *,
     invocation: ToolInvocation,
-    requirement: ExecApprovalRequirement
+    requirement: ExecutionPolicyRequirement
 ) -> dict[str, typing.Any]:
     """构造客户端本地执行策略审批请求。"""
     command = str(
@@ -356,7 +356,9 @@ def apply_local_exec_policy_approval(
     return None
 
 
-def local_exec_policy_denied_result(requirement: ExecApprovalRequirement) -> dict[str, typing.Any]:
+def local_exec_policy_denied_result(
+    requirement: ExecutionPolicyRequirement,
+) -> dict[str, typing.Any]:
     """构造本地执行策略拒绝结果。"""
     return {
         "execution_denied": True,

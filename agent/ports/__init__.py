@@ -129,6 +129,7 @@ from .turns import (
     TurnResultValue,
 )
 from .transcript import (
+    TranscriptLifecyclePort,
     TranscriptActor,
     TranscriptFactory,
     TranscriptSink,
@@ -288,6 +289,7 @@ __all__ = (
     "TurnOperation",
     "TurnResultPort",
     "TurnResultValue",
+    "TranscriptLifecyclePort",
     "BLOCK_OUTPUT",
     "AssistantOutputBoundary",
     "AssistantPresentationSuperseded",

@@ -7,6 +7,11 @@ from agent.domain.execution_policy.policy import (
     MatchOptions,
     Policy,
 )
+from agent.domain.execution_policy.requirements import (
+    ExecutionPolicyAmendment,
+    ExecutionPolicyRequirement,
+    ExecutionPolicyState,
+)
 from agent.domain.execution_policy.rule import (
     HostExecutable,
     NetworkRule,
@@ -26,6 +31,9 @@ from agent.domain.execution_policy.sandbox import (
 __all__ = (
     "Decision",
     "Evaluation",
+    "ExecutionPolicyAmendment",
+    "ExecutionPolicyRequirement",
+    "ExecutionPolicyState",
     "HostExecutable",
     "MatchOptions",
     "NetworkRule",

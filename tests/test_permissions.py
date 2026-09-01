@@ -16,7 +16,7 @@ from agent.application.approvals.policy import (
     approval_prompt,
     approval_reason,
 )
-from mind_app.runtime.turns.stream_policy import (
+from agent.application.approvals.local_policy import (
     apply_local_patch_approval,
     local_patch_approval,
 )

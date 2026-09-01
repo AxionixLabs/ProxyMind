@@ -13,11 +13,11 @@ from agent.stores.approvals.permissions import PermissionGrantStore
 from agent.application.tools.coding import coding_tools
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.application.turns.context import AgentContext, TurnContext
-from mind_app.runtime.turns.stream_policy import (
+from agent.application.approvals.local_policy import (
     local_exec_policy_requirement,
 )
 from agent.domain.policies import preset_permissions
-from mind_app.runtime.turns.stream_approval import approval_report_kwargs
+from agent.adapters.protocol.approval_events import approval_report_kwargs
 
 
 def _profile(path: str = "D:/workspace/out") -> dict[str, object]:

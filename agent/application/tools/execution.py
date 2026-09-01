@@ -88,6 +88,13 @@ class ToolExecutionAdapter(typing.Protocol):
         """执行由上层批次生命周期统一展示的内部步骤。"""
         ...
 
+    def project_server_output(
+        self,
+        payload: Mapping[str, typing.Any],
+    ) -> ToolExecutionResult:
+        """把服务端托管工具输出投影为同一稳定执行结果。"""
+        ...
+
 
 def build_client_tool_result(
     *,
