@@ -38,7 +38,6 @@ from mind_app.presentation.output import SessionFactory
 from agent.domain.policies import PermissionSettings
 
 if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
     from agent.ports import McpSessionPort
 
 
@@ -47,7 +46,7 @@ class RootTurnRunner(typing.Protocol):
 
     async def __call__(
         self,
-        controller: "Mind",
+        session: RootTurnSessionPort,
         pref_config: dict[str, typing.Any] | None = None,
         *,
         message: str,
@@ -134,7 +133,7 @@ async def prepare_root_turn(
 
 
 async def run_root_turn(
-    controller: "Mind",
+    session: RootTurnSessionPort,
     pref_config: dict[str, typing.Any] | None = None,
     *,
     message: str,
@@ -144,7 +143,6 @@ async def run_root_turn(
     approval_coordinator: ApprovalCoordinatorPort | None = None,
     execution_policy: ExecutionPolicy | None = None,
     execution_runtime: TurnExecutionRuntimePort,
-    root_session: RootTurnSessionPort,
     lifecycle: TurnForegroundLifecyclePort | None = None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -161,9 +159,9 @@ async def run_root_turn(
         return RunResult(status="failed", error="message is empty")
 
     if pref_config is None:
-        pref_config = await controller.fresh_pref_config(ttl_sec=0.0)
+        pref_config = await session.fresh_pref_config(ttl_sec=0.0)
 
-    permissions = kwargs.pop("permissions", None) or controller.permissions
+    permissions = kwargs.pop("permissions", None) or session.permissions
     raw_metadata = kwargs.pop("metadata", None)
     metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
     raw_attachments = kwargs.get("attachments")
@@ -174,7 +172,7 @@ async def run_root_turn(
     )
     raw_extras = kwargs.get("extras")
     execution = await prepare_root_turn(
-        root_session,
+        session,
         message=message,
         title=message,
         source="calling",
@@ -184,7 +182,7 @@ async def run_root_turn(
         attachments=attachments,
         extras=raw_extras if isinstance(raw_extras, dict) else None,
         turn_id=kwargs.pop("turn_id", None),
-        approval_ledger=controller.approval_call_ledger,
+        approval_ledger=session.approval_ledger,
         approval_coordinator=approval_coordinator,
         execution_policy=execution_policy,
         transcript_factory=transcript_factory,
@@ -216,7 +214,7 @@ async def run_root_turn(
         return await run_foreground_turn(
             lifecycle,
             stream_turn,
-            controller,
+            execution_runtime,
             session=session,
             pref_config=pref_config,
             tools=tools,

@@ -5,11 +5,13 @@ import typing
 from agent.application.turns.context import TurnContext
 from agent.harness.hooks.scope import HookExecutionScope
 from agent.ports import (
+    ApprovalLedger,
     HookExecutionScopePort,
     PermissionGrantReader,
     RootTurnSessionPort,
     TurnStartResultPort,
 )
+from agent.domain.policies import PermissionSettings
 from mind_app.runtime.turns.executor import resolve_turn_hook_scope
 
 if typing.TYPE_CHECKING:
@@ -38,6 +40,24 @@ class ControllerRootTurnSession(RootTurnSessionPort):
         """返回根轮次输出记录路径。"""
         report = self._controller.report
         return str(report.output_record_path or "")
+
+    @property
+    def permissions(self) -> PermissionSettings:
+        """返回当前根会话的默认权限设置。"""
+        return self._controller.permissions
+
+    @property
+    def approval_ledger(self) -> ApprovalLedger | None:
+        """返回根轮次使用的审批调用账本。"""
+        return self._controller.approval_call_ledger
+
+    async def fresh_pref_config(
+        self,
+        *,
+        ttl_sec: float,
+    ) -> dict[str, typing.Any]:
+        """读取当前有效的偏好配置快照。"""
+        return await self._controller.fresh_pref_config(ttl_sec=ttl_sec)
 
     async def begin_conversation_turn(
         self,

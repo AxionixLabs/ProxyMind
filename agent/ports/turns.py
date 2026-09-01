@@ -9,6 +9,8 @@ from collections.abc import (
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
 from protocol.transport.events import EventReport
+from agent.domain.policies import PermissionSettings
+from .approvals import ApprovalLedger
 from .hooks import (
     CommandHookSessionPort,
     HookExecutionScopePort,
@@ -158,6 +160,24 @@ class RootTurnSessionPort(typing.Protocol):
     @property
     def output_record_path(self) -> str:
         """返回根轮次输出记录路径。"""
+        ...
+
+    @property
+    def permissions(self) -> PermissionSettings:
+        """返回当前根会话的默认权限设置。"""
+        ...
+
+    @property
+    def approval_ledger(self) -> ApprovalLedger | None:
+        """返回根轮次使用的审批调用账本。"""
+        ...
+
+    async def fresh_pref_config(
+        self,
+        *,
+        ttl_sec: float,
+    ) -> dict[str, typing.Any]:
+        """读取当前有效的偏好配置快照。"""
         ...
 
     async def begin_conversation_turn(

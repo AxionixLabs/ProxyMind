@@ -705,9 +705,10 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         stop_anim=AsyncMock(),
         animate=False,
             frontend=SimpleNamespace(runtime=runtime),
-            hook_scope=Mock(side_effect=hook_scope),
-            approval_call_ledger=ApprovalCallLedger(),
-            tool_profile_for_turn=Mock(return_value=None),
+                hook_scope=Mock(side_effect=hook_scope),
+                approval_call_ledger=ApprovalCallLedger(),
+                approval_ledger=ApprovalCallLedger(),
+                tool_profile_for_turn=Mock(return_value=None),
         )
 
     result = await root_turns.run_root_turn(
@@ -717,7 +718,6 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         metadata={"origin": "test"},
         ev_report=report,
         execution_runtime=mind,
-        root_session=mind,
         lifecycle=ControllerTurnForegroundLifecycle(mind),
     )
 
