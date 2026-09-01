@@ -20,7 +20,7 @@ from .update_plan import update_plan_tools
 from .view_image import view_image_tools
 
 if typing.TYPE_CHECKING:
-    from mind_app.approval.coordinator import ApprovalCoordinator
+    from agent.application.approvals.coordinator import ApprovalCoordinator
     from infrastructure.config.execution_policy_manager import ExecPolicyManager
     from agent.harness.agents.runtime import SubagentRuntime
 

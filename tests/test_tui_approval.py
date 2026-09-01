@@ -21,7 +21,7 @@ from frontends.tui.core.approval_render import (
     tui_approval_content_lines,
 )
 from frontends.tui.core.runtime import TuiRuntime
-from mind_app.approval.coordinator import ApprovalCoordinator
+from agent.application.approvals.coordinator import ApprovalCoordinator
 from frontends.tui.core.styles import build_tui_application_style
 
 

@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from mind_app.approval.coordinator import ApprovalCoordinator
+from agent.application.approvals.coordinator import ApprovalCoordinator
 from mind_app.interaction.noninteractive import NonInteractiveInteraction
 
 
@@ -291,7 +291,19 @@ async def test_snapshot_observer_failure_does_not_break_approval() -> None:
             raise RuntimeError("snapshot observer failed")
 
     interaction = FaultyObserverInteraction()
-    coordinator = ApprovalCoordinator(interaction)
+    observed: list[tuple[BaseException, str, int]] = []
+
+    def observe_failure(
+        error: BaseException,
+        coordinator_id: str,
+        revision: int,
+    ) -> None:
+        observed.append((error, coordinator_id, revision))
+
+    coordinator = ApprovalCoordinator(
+        interaction,
+        snapshot_error_handler=observe_failure,
+    )
     request = asyncio.create_task(coordinator.request({"id": "first"}))
     await interaction.wait_started("first")
 
@@ -300,6 +312,10 @@ async def test_snapshot_observer_failure_does_not_break_approval() -> None:
     assert await request == "accept"
     await asyncio.wait_for(interaction.ended.wait(), timeout=1)
     assert coordinator.snapshot.unresolved_count == 0
+    assert observed
+    assert all(isinstance(item[0], RuntimeError) for item in observed)
+    assert len({item[1] for item in observed}) == 1
+    assert [item[2] for item in observed] == sorted(item[2] for item in observed)
 
 
 @pytest.mark.anyio

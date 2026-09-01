@@ -149,10 +149,12 @@ def test_agent_responsibility_packages_are_physical() -> None:
     expected_files = {
         "application/approvals/__init__.py",
         "application/approvals/amendments.py",
+        "application/approvals/coordinator.py",
         "application/approvals/factory.py",
         "application/approvals/models.py",
         "application/approvals/policy.py",
         "application/approvals/presentation.py",
+        "application/approvals/presenter.py",
         "application/approvals/summary.py",
         "application/agents/fork_context.py",
         "application/agents/messages.py",
@@ -3773,6 +3775,9 @@ def test_tui_adapter_is_owned_by_frontends() -> None:
     assert not (
         target_root / "core" / "approval_presentation.py"
     ).is_file(), "approval application model remains in the TUI"
+    assert not tuple(
+        (PROJECT_ROOT / "mind_app" / "approval").glob("*.py")
+    ), "legacy approval application sources remain"
 
     expected_children = {
         "__init__.py",
@@ -4218,10 +4223,12 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.agents.views",
         "agent.application.agents.messages",
         "agent.application.approvals.amendments",
+        "agent.application.approvals.coordinator",
         "agent.application.approvals.factory",
         "agent.application.approvals.models",
         "agent.application.approvals.policy",
         "agent.application.approvals.presentation",
+        "agent.application.approvals.presenter",
         "agent.application.approvals.summary",
         "agent.application.turns.context",
         "agent.application.turns.commands",

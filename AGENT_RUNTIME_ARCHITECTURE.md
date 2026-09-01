@@ -606,7 +606,7 @@ running -> cancelled
 | `mind_app/stream_events/`、`mind_app/presentation/renderers/`、`presentation/stream/` | `agent/application/views/`、`frontends/terminal/renderers/`、`frontends/terminal/traces/` | 运行时只生成纯语义 view；终端标题、宽度裁剪、高亮、轨迹预览和 styled block 仅由终端前端生成，旧 presentation 包完全删除 |
 | `mind_app/stream_io/`、`stream_state/` | `mind_app/presentation/output/recording.py`、`boundary.py` | 输出记录和段间边界状态归入输出适配器；单调用者 spacing 逻辑内聚到 boundary，不保留平铺状态包 |
 | `mind_app/approval/permission_grants.py`、`ledger.py` | `agent/stores/approvals/permissions.py`、`ledger.py` | 会话权限授权和审批消费状态由 stores 持有；协调器、策略和展示模型不随状态存储迁移 |
-| `mind_app/approval/models.py`、`factory.py`、`policy.py`、`presentation.py` | `agent/application/approvals/` | 审批请求、队列结果、策略、结构化卡片模型与摘要属于 application；终端/TUI 只渲染或交互，不拥有审批状态，也不让 application 反向依赖前端 trace |
+| `mind_app/approval/` | `agent/application/approvals/` | 审批请求、队列结果、策略、协调器、presenter 契约、结构化卡片模型与摘要属于 application；终端/TUI 只实现交互，快照通知失败观测由组合根注入，不让 application 反向依赖前端、interaction 或 observability |
 | `mind_app/reporting.py` | `observability/reporting.py` | 单次运行报告目录、诊断日志 sink 和输出记录路径由可观测性基础设施统一管理；控制器只持有注入的报告对象 |
 | `mind_app/paths.py` | `infrastructure/config/runtime_paths.py` | 用户数据目录、报告/会话/历史/效果/运行时数据库路径和子进程环境属于配置基础设施；入口布局解析保持在 `config/paths.py` |
 | `mind_app/assets.py` | `infrastructure/update/assets.py` 与 `frontends/terminal/download_renderer.py` | 资产存在性和升级触发属于更新基础设施；动画管理器到终端进度端口的适配属于 frontend，不让更新层依赖 UI |

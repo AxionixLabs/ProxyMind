@@ -122,6 +122,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   修订提案解析归 `agent/application`，终端 renderer、trace、高亮、样式、MCP 状态与 worked
   footer 归 `frontends/terminal`。工具 application view 不再保存终端 title、preview 或
   trace entries，runtime 不再导入终端实现判断工具展示类型。
+- 旧 `mind_app/approval` 源包已完全删除：请求模型、策略、协调器、presenter 契约和
+  展示摘要归 `agent/application/approvals`；协调器不依赖 interaction 或 observability，
+  生产观测回调由组合根显式注入。
 - Subscription 的 Turn application 装配已改为显式 `TurnApplicationFactory`：组合根 `mind.py`
   负责绑定持久 application，`frontends/subscription/runtime.py` 不再通过宿主动态属性发现
   `runtime_services`，关闭时继续由订阅执行器回收 application。
@@ -660,9 +663,10 @@ Approval、Patch 七类纯 builder 已迁入 `agent/application/views/builders`�
 renderer 在消费纯语义 view 时生成轨迹；runtime 使用 application 展示策略，不再导入
 frontend trace。审批 models/factory/policy/presentation 及摘要同步迁入
 `agent/application/approvals`，终端/TUI 只保留渲染和交互，消除审批 application 对前端
-trace 的反向依赖。旧 `mind_app/presentation` 没有保留 facade 或源码，验证证据见本阶段
-出口记录。阶段出口行为回归 `926 passed`，职责守卫 `8 passed, 3 warnings`，依赖图、
-`compileall` 和 `git diff --check` 通过。
+trace 的反向依赖；随后协调器与 presenter 契约一并迁入，快照通知失败由组合根注入统一
+observability 回调，旧 `mind_app/approval` 源包删除。旧 `mind_app/presentation` 没有保留
+facade 或源码。第一轮阶段出口行为回归 `926 passed`，职责守卫 `8 passed, 3 warnings`；
+审批协调器收口证据见下一条迁移记录。
 
 ## 过渡入口与删除条件
 
@@ -793,3 +797,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | SubagentRuntime 删除 `execution_runtime or controller` 回退，改为读取 Controller 已装配的显式 `turn_execution_runtime` 端口 | Subagent/工具 `39 passed`；端口与导入边界、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | SubagentRuntime 的流式 owner、Hook scope、权限授予和停止清理改为显式端口，删除 `_controller` 状态及流式调用传递 | Subagent/工具 `39 passed`；生命周期专项 `5 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 删除 `mind_app/presentation` 源包，将纯工具 view/错误摘要/审批 application 迁入 `agent`，将终端 renderer/trace/样式迁入 `frontends/terminal`，并移除 application view 的终端预渲染字段 | 展示、TUI、审批、协议效果回归 `926 passed`；职责守卫 `8 passed, 3 warnings`；依赖图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将审批 Coordinator 与 presenter 契约迁入 `agent/application/approvals`，由组合根注入快照失败观测回调并删除 `mind_app/approval` 源包 | 审批/TUI/终端交互回归 `283 passed`，Controller/启动回归 `42 passed`；职责守卫 `4 passed`；依赖图、`compileall`、`git diff --check` 通过 |

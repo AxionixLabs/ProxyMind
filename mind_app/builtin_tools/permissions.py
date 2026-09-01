@@ -15,7 +15,7 @@ from mind_app.native_coding.execution_authorization import (
 from .types import BuiltinTool
 
 if typing.TYPE_CHECKING:
-    from mind_app.approval.coordinator import ApprovalCoordinator
+    from agent.application.approvals.coordinator import ApprovalCoordinator
 
 
 def permission_response_result(

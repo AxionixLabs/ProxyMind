@@ -9,7 +9,6 @@ import contextlib
 from collections.abc import Mapping
 from collections import deque
 from dataclasses import dataclass
-from observability import observe_exception
 from agent.application.approvals.models import (
     ApprovalDecisionSource,
     ApprovalDecisionValue,
@@ -20,7 +19,12 @@ from agent.application.approvals.models import (
     ApprovalResolutionReason
 )
 from agent.application.approvals.factory import build_approval_request
-from mind_app.interaction.contracts import ApprovalPresenterPort
+from agent.application.approvals.presenter import ApprovalPresenterPort
+
+ApprovalSnapshotErrorHandler: typing.TypeAlias = typing.Callable[
+    [BaseException, str, int],
+    None,
+]
 
 DEFAULT_APPROVAL_QUEUE_LIMIT = 64
 
@@ -42,12 +46,14 @@ class ApprovalCoordinator:
         interaction: ApprovalPresenterPort,
         *,
         queue_limit: int = DEFAULT_APPROVAL_QUEUE_LIMIT,
+        snapshot_error_handler: ApprovalSnapshotErrorHandler | None = None,
     ) -> None:
         if queue_limit < 1:
             raise ValueError("approval queue_limit must be positive")
 
         self._interaction = interaction
         self._queue_limit = queue_limit
+        self._snapshot_error_handler = snapshot_error_handler
         self._lock = asyncio.Lock()
         self._pending: deque[_QueuedApproval] = deque()
         self._current: _QueuedApproval | None = None
@@ -504,13 +510,9 @@ class ApprovalCoordinator:
         try:
             self._interaction.approval_snapshot_changed(self._snapshot())
         except Exception as error:
-            observe_exception(
-                "approval.snapshot_notify_failed",
-                error,
-                level="WARNING",
-                coordinator_id=self._coordinator_id,
-                revision=self._revision,
-            )
+            handler = self._snapshot_error_handler
+            if handler is not None:
+                handler(error, self._coordinator_id, self._revision)
 
     def _snapshot(self) -> ApprovalQueueSnapshot:
         """在当前状态上构建不可变审批快照。"""

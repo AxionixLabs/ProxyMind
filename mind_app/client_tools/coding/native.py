@@ -31,7 +31,7 @@ from .schemas import (
 )
 
 if typing.TYPE_CHECKING:
-    from mind_app.approval.coordinator import ApprovalCoordinator
+    from agent.application.approvals.coordinator import ApprovalCoordinator
 
 NESTED_PROCESS_TOOLS = {
     "shell_command",

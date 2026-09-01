@@ -12,7 +12,7 @@ from frontends.terminal.turn_lifecycle import (
     ControllerTurnForegroundLifecycle,
     run_foreground_turn,
 )
-from mind_app.approval.coordinator import ApprovalCoordinator
+from agent.application.approvals.coordinator import ApprovalCoordinator
 from mind_app.interaction.contracts import PromptContext
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.terminal.progress import (

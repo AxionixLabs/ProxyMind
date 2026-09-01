@@ -55,7 +55,7 @@ from .client_tools import (
 )
 from .builtin_tools import BuiltinToolRegistry, permission_tools
 from agent.stores.approvals.permissions import PermissionGrantStore
-from .approval.coordinator import ApprovalCoordinator
+from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.harness.agents.runtime import SubagentRuntime
 from .runtime.turns.subagent_adapter import (
@@ -132,6 +132,21 @@ def _normalize_tool_profile(value: str) -> ToolFilterMode:
     if value not in {"app", "api"}:
         raise ValueError(f"Invalid Helix tool profile: {value}")
     return value
+
+
+def _observe_approval_snapshot_failure(
+    error: BaseException,
+    coordinator_id: str,
+    revision: int,
+) -> None:
+    """把审批快照通知失败交给统一可观测边界。"""
+    observe_exception(
+        "approval.snapshot_notify_failed",
+        error,
+        level="WARNING",
+        coordinator_id=coordinator_id,
+        revision=revision,
+    )
 
 
 class Mind(object):
@@ -237,7 +252,8 @@ class Mind(object):
         self.attach: Attach = Attach()
 
         self.approval_coordinator = ApprovalCoordinator(
-            self.frontend.interaction
+            self.frontend.interaction,
+            snapshot_error_handler=_observe_approval_snapshot_failure,
         )
         self.approval_call_ledger = ApprovalCallLedger()
 

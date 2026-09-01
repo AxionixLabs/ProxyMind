@@ -11,7 +11,7 @@ from prompt_toolkit.layout.mouse_handlers import MouseHandlers
 from prompt_toolkit.layout.screen import Screen, WritePosition
 from prompt_toolkit.output import DummyOutput
 
-from mind_app.approval.coordinator import ApprovalCoordinator
+from agent.application.approvals.coordinator import ApprovalCoordinator
 from mind_app.controller import Mind
 from agent.ports.presentation import ApplicationView
 from mind_app.interaction import PromptContext

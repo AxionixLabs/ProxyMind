@@ -25,7 +25,7 @@ from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.utils import get_cwidth
 
-from mind_app.approval.coordinator import ApprovalCoordinator
+from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.application.approvals.models import ApprovalDecisionValue
 from agent.ports.presentation import ApplicationView
 from frontends.terminal.capabilities import (
