@@ -476,6 +476,14 @@ CLI、Subagent 回归 `272 passed`；端口边界专项 `4 passed, 1 warning`，
 `181 passed`；架构专项 `5 passed, 2 warnings`，导入图、`compileall` 和
 `git diff --check` 通过。下一切片复核剩余 `stream.py` Controller 结果依赖。
 
+本次工作区与 Hook 会话上下文切片已满足上述条件：扩展
+`agent.ports.TurnSessionContextPort`，由 `ControllerTurnSessionContext` 提供工作区、
+启动告警和持续命令 Hook 会话；`CommandHookSessionPort` 归入 Hook 端口，`stream.py`
+不再反射读取 `history_workspace`、`hook_startup_warnings` 或
+`command_hook_sessions`。流式启动展示、持续命令 Hook、TUI 和 Subagent 回归
+`280 passed`；架构专项 `5 passed, 2 warnings`，导入图、`compileall` 和
+`git diff --check` 通过。下一切片收口审批协调器和权限授予依赖。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -595,3 +603,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 新增 `agent.ports.TurnSessionContextPort` 和 `ControllerTurnSessionContext`，删除 `stream_setup.py` 的 Controller、配置、环境和 skills 直接依赖 | 流式/TUI/CLI/输出/重试/终端动画回归 `280 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `agent.ports.TurnSessionStatePort` 和 `ControllerTurnSessionState`，通过 `TurnContext` 显式注入失败上下文/最近回复写回，删除 `stream.py` 对 `ConversationState` 与 Controller 结果属性的直接访问 | 流式/TUI/CLI/输出/重试/终端动画回归 `280 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `agent.ports.ExecutionPolicy` 及判定结果契约，通过 `TurnContext` 显式注入本地执行策略，删除流式工具/审批处理器对 `WorkspaceRuntime` 策略的直接访问 | 核心流式/TUI/Subagent/权限/执行策略回归 `181 passed`；架构专项 `5 passed, 2 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 扩展 `TurnSessionContextPort` 提供工作区、Hook 告警和持续命令会话，新增 `CommandHookSessionPort`，删除 `stream.py` 对 Controller 会话属性的直接反射 | 流式启动展示/持续命令 Hook/TUI/Subagent 回归 `280 passed`；架构专项 `5 passed, 2 warnings`；导入图、`compileall`、`git diff --check` 通过 |

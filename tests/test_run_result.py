@@ -425,6 +425,18 @@ def _mind(
         def animate(self) -> bool:
             return True
 
+        @property
+        def workspace_root(self) -> str:
+            return "."
+
+        @property
+        def hook_startup_warnings(self) -> tuple[str, ...]:
+            return ()
+
+        @property
+        def command_hook_sessions(self):
+            return None
+
         def capture_environment(self, **_kwargs):
             return None
 

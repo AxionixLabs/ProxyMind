@@ -11,6 +11,7 @@ from dataclasses import (
     replace,
 )
 from agent.application.turns.context import ToolInvocation
+from agent.ports import CommandHookSessionPort
 from agent.ports.transcript import TranscriptSink
 from metadata import const
 from agent.domain.hook_matching import hook_tool_name
@@ -285,7 +286,7 @@ class ToolCallCoordinator:
         self,
         scope: HookExecutionScope,
         transcript: TranscriptSink | None = None,
-        command_sessions: CommandHookSessionStore | None = None,
+        command_sessions: CommandHookSessionPort | None = None,
         failure_context_sink: FailureContextSink | None = None,
     ) -> None:
         self.events           = ToolHookEvents(scope)

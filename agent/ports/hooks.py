@@ -28,6 +28,30 @@ HookSessionCleanup: typing.TypeAlias = Callable[[str], Awaitable[None]]
 HookResourceClose: typing.TypeAlias = Callable[[], Awaitable[None]]
 
 
+class DeferredCommandHook(typing.Protocol):
+    """定义持续命令 Hook 暂存记录的只读调用字段。"""
+
+    invocation: "ToolInvocation"
+
+
+@typing.runtime_checkable
+class CommandHookSessionPort(typing.Protocol):
+    """定义跨工具调用保存持续命令 Hook 的会话端口。"""
+
+    def defer(
+        self,
+        session_id: str,
+        *,
+        invocation: "ToolInvocation",
+    ) -> None:
+        """暂存持续命令的原始调用。"""
+        ...
+
+    def take(self, session_id: str) -> DeferredCommandHook | None:
+        """取出并移除指定进程会话的待完成 Hook。"""
+        ...
+
+
 class HookCommandResult(typing.Protocol):
     """定义命令 Hook 执行器返回的已校验结果字段。"""
 

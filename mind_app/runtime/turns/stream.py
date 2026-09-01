@@ -19,6 +19,7 @@ from agent.ports import (
     ProtocolCommandError,
     RetryState,
     TurnAnimationPort,
+    TurnSessionContextPort,
     TurnSessionStatePort,
 )
 from agent.protocol import (
@@ -317,6 +318,7 @@ async def stream_turn(
     execution_policy = turn_context.execution_policy
     if not isinstance(execution_policy, ExecutionPolicy):
         raise RuntimeError("execution policy is required")
+    session_context = turn_context.session_context
     animation = turn_context.animation
     if turn_context.agent.depth == 0 and not isinstance(
         animation,
@@ -399,13 +401,20 @@ async def stream_turn(
             metadata=metadata,
             message=message,
             pref_config=pref_config,
-            workdir=str(getattr(mind, "history_workspace", "") or ""),
+            workdir=(
+                session_context.workspace_root
+                if isinstance(session_context, TurnSessionContextPort)
+                else turn_context.cwd
+            ),
             permissions=turn_context.permissions,
             turn_id=str(kwargs.get("turn_id") or ""),
             hook_warnings=(
-                getattr(mind, "hook_startup_warnings", ())
-                if turn_context.agent.depth == 0
-                and turn_context.session_started
+                session_context.hook_startup_warnings
+                if (
+                    isinstance(session_context, TurnSessionContextPort)
+                    and turn_context.agent.depth == 0
+                    and turn_context.session_started
+                )
                 else ()
             ),
         )
@@ -413,7 +422,11 @@ async def stream_turn(
         tool_call_coordinator = ToolCallCoordinator(
             hook_scope,
             transcript=transcript,
-            command_sessions=getattr(mind, "command_hook_sessions", None),
+            command_sessions=(
+                session_context.command_hook_sessions
+                if isinstance(session_context, TurnSessionContextPort)
+                else None
+            ),
             failure_context_sink=failed_tool_context.extend,
         )
         approval_handler = ApprovalEventHandler(

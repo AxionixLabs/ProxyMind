@@ -4,6 +4,7 @@ import typing
 from pathlib import Path
 
 from agent.ports import (
+    CommandHookSessionPort,
     TurnSessionContextPort,
     TurnSessionStatePort,
 )
@@ -26,6 +27,27 @@ class ControllerTurnSessionContext(TurnSessionContextPort):
     def animate(self) -> bool:
         """返回当前输出是否启用动画。"""
         return bool(getattr(self._controller, "animate", True))
+
+    @property
+    def workspace_root(self) -> str:
+        """返回当前会话绑定的工作区路径。"""
+        return str(getattr(self._controller, "history_workspace", "") or "")
+
+    @property
+    def hook_startup_warnings(self) -> tuple[str, ...]:
+        """返回当前会话首次启动时的 Hook 告警。"""
+        raw_warnings = getattr(self._controller, "hook_startup_warnings", ())
+        return tuple(
+            str(value).strip()
+            for value in raw_warnings
+            if str(value).strip()
+        )
+
+    @property
+    def command_hook_sessions(self) -> CommandHookSessionPort | None:
+        """返回持续命令 Hook 的会话存储。"""
+        sessions = getattr(self._controller, "command_hook_sessions", None)
+        return sessions if isinstance(sessions, CommandHookSessionPort) else None
 
     def capture_environment(
         self,

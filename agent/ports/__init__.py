@@ -28,6 +28,8 @@ from .approvals import (
     ApprovalLedgerState,
 )
 from .hooks import (
+    CommandHookSessionPort,
+    DeferredCommandHook,
     HookCommandResult,
     HookCommandRunner,
     HookContextSpiller,
@@ -124,6 +126,8 @@ from .sessions import (
 __all__ = (
     "ApprovalLedger",
     "ApprovalLedgerState",
+    "CommandHookSessionPort",
+    "DeferredCommandHook",
     "EffectIntent",
     "EffectJournal",
     "EffectJournalDecision",

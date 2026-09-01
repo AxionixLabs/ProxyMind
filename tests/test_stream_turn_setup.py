@@ -39,6 +39,18 @@ class _SessionContext:
     def animate(self) -> bool:
         return False
 
+    @property
+    def workspace_root(self) -> str:
+        return "."
+
+    @property
+    def hook_startup_warnings(self) -> tuple[str, ...]:
+        return ()
+
+    @property
+    def command_hook_sessions(self):
+        return None
+
     def capture_environment(self, **kwargs) -> dict | None:
         return self.capture_mock(**kwargs)
 

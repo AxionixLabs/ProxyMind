@@ -6,6 +6,7 @@ from collections.abc import Awaitable
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
 from protocol.transport.events import EventReport
+from .hooks import CommandHookSessionPort
 from .mcp_session import McpSessionPort
 
 if typing.TYPE_CHECKING:
@@ -96,6 +97,21 @@ class TurnSessionContextPort(typing.Protocol):
     @property
     def animate(self) -> bool:
         """返回当前输出是否启用动画。"""
+        ...
+
+    @property
+    def workspace_root(self) -> str:
+        """返回当前轮次用于展示和 Hook 的工作区路径。"""
+        ...
+
+    @property
+    def hook_startup_warnings(self) -> tuple[str, ...]:
+        """返回根会话首次启动时需要展示的 Hook 告警。"""
+        ...
+
+    @property
+    def command_hook_sessions(self) -> CommandHookSessionPort | None:
+        """返回持续命令 Hook 的会话存储端口。"""
         ...
 
     def capture_environment(
