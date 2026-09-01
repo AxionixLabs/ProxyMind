@@ -30,5 +30,19 @@ class TranscriptSink(ABC):
         ...
 
 
+class TranscriptFactory(typing.Protocol):
+    """定义按会话和轮次创建 Transcript 写入器的端口。"""
+
+    def __call__(
+        self,
+        path: str,
+        *,
+        session_id: str,
+        turn_id: str | None = None,
+    ) -> TranscriptSink:
+        """创建绑定固定会话坐标的 Transcript 写入器。"""
+        ...
+
+
 if __name__ == '__main__':
     pass

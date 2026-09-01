@@ -14,6 +14,7 @@ from agent.ports import (
     McpSessionPort,
     ModelCapability,
     ProtocolCommandClient,
+    TranscriptFactory,
 )
 from agent.ports.presentation import TextSpan
 from protocol.transport.events import EventReport
@@ -210,6 +211,7 @@ async def run_tui_model_turn(
     effect_journal_factory: EffectJournalFactory | None = None,
     approval_ledger: ApprovalLedger | None = None,
     session_factory: SessionFactory | None = None,
+    transcript_factory: TranscriptFactory | None = None,
     on_prompt_prepared: typing.Callable[
         [list[dict[str, typing.Any]]],
         None,
@@ -257,6 +259,7 @@ async def run_tui_model_turn(
         attachments=attachment_values,
         extras=extras,
         approval_ledger=approval_ledger,
+        transcript_factory=transcript_factory,
         turn_id=turn_id,
     )
 

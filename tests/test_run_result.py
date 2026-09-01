@@ -674,6 +674,7 @@ async def _run_stream(
         cwd=".",
         permissions=permissions,
         approval_ledger=ApprovalCallLedger(),
+        transcript_factory=mind.transcripts.writer,
         turn_id="turn_test",
         session_started=session_started,
         session_start_reason="initial" if session_started else "",

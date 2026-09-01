@@ -311,7 +311,10 @@ def _record_session_setup_failure(
     context = execution.context
 
     try:
-        transcript = controller.transcripts.writer(
+        transcript_factory = context.transcript_factory
+        if not callable(transcript_factory):
+            raise RuntimeError("transcript factory is required")
+        transcript = transcript_factory(
             context.transcript_path,
             session_id=context.sid,
             turn_id=context.turn_id,

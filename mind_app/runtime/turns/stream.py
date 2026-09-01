@@ -317,7 +317,10 @@ async def stream_turn(
     event_stream  = None
     assistant_text = ""
 
-    transcript = mind.transcripts.writer(
+    transcript_factory = turn_context.transcript_factory
+    if not callable(transcript_factory):
+        raise RuntimeError("transcript factory is required")
+    transcript = transcript_factory(
         turn_context.transcript_path,
         session_id=turn_context.sid,
         turn_id=turn_context.turn_id,

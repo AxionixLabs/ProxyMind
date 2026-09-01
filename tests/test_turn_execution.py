@@ -584,6 +584,7 @@ async def test_execute_turn_records_input_when_session_setup_stops(
     context = replace(
         prepared.context,
         transcript_path=str(path),
+        transcript_factory=ConversationTranscriptStore.writer,
         session_started=True,
         session_start_reason="initial",
     )

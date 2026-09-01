@@ -86,6 +86,7 @@ from .turns import (
 )
 from .transcript import (
     TranscriptActor,
+    TranscriptFactory,
     TranscriptSink,
 )
 from .workspace import (
@@ -173,6 +174,7 @@ __all__ = (
     "TurnResultPort",
     "TurnResultValue",
     "TranscriptActor",
+    "TranscriptFactory",
     "TranscriptSink",
     "CodingFactory",
     "CodingRuntime",

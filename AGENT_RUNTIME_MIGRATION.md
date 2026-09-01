@@ -423,6 +423,12 @@ API/legacy 边界架构断言 `4 passed, 1 warning`，导入图、`compileall` �
 新增缺失工厂门禁，导入图、`compileall` 和 `git diff --check` 通过。下一切片收口
 `stream.py` 的 Transcript、清理和工作区上下文依赖。
 
+本次 Transcript 所有权切片已满足上述条件：新增 `agent.ports.TranscriptFactory`，由
+`TurnContext` 携带按轮次创建 writer 的能力；根轮次、TUI、Subagent 和执行建立失败路径
+均使用显式工厂，`stream.py` 不再访问 `controller.transcripts`。流式结果、根轮次、TUI、
+CLI、Subagent 和 Transcript setup failure 回归 `233 passed`；端口边界专项 `4 passed`，
+导入图、`compileall` 和 `git diff --check` 通过。下一切片继续收口清理和工作区上下文。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -534,3 +540,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 将流式执行的 Model/Protocol/Effect Journal 依赖沿组合根、根轮次、TUI、CLI、订阅/MCP 与 Subagent 显式注入，删除 `stream.py` 对 `Mind.runtime_services` 的反射 | 流式结果、CLI、TUI、Subagent、MCP 定向回归 `205 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将审批调用账本提升为 `agent.ports.ApprovalLedger`，通过 `TurnContext` 注入根轮次、TUI 和 Subagent，删除 `stream.py` 的隐式账本创建和宿主反射 | 流式结果、根轮次、TUI、CLI、Subagent 回归 `213 passed`；端口/public API/legacy 架构断言 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将流式输出 `SessionFactory` 从 `controller.frontend` 反射兜底改为组合根、CLI、TUI 和 Subagent 显式注入，并沿续跑传递 | 输出准备/流式/TUI/CLI 回归 `211 passed`；缺失工厂门禁通过；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 新增 `agent.ports.TranscriptFactory`，通过 `TurnContext` 显式注入根轮次、TUI、Subagent 和 session setup failure，删除 `stream.py` 与执行收束对 `controller.transcripts` 的访问 | 流式/根轮次/TUI/CLI/Subagent/Transcript 回归 `233 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |

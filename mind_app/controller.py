@@ -250,6 +250,7 @@ class Mind(object):
                     if isinstance(self.approval_call_ledger, ApprovalLedger)
                     else None
                 ),
+                transcript_factory=self.transcripts.writer,
                 skills_provider=skills_provider,
                 transcript_path_for=self.transcripts.path_for_session,
                 transcript_entries_for=(
