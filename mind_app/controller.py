@@ -73,6 +73,9 @@ from .presentation.application import (
 )
 from .presentation.terminal.contracts import TerminalDesign
 from .presentation.terminal.animation import TurnAnimationAdapter
+from .presentation.terminal.turn_lifecycle import (
+    ControllerTurnForegroundLifecycle,
+)
 from agent.ports import (
     ApprovalLedger,
     HookRegistryPort,
@@ -175,6 +178,7 @@ class Mind(object):
             self.frontend.runtime,
             self.stop_anim,
         )
+        self.turn_foreground_lifecycle = ControllerTurnForegroundLifecycle(self)
         self.turn_session_context = ControllerTurnSessionContext(self)
 
         self.design: TerminalDesign | None = kwargs.get("design")

@@ -25,6 +25,7 @@ from agent.ports import (
     TurnAnimationPort,
     TurnSessionContextPort,
     TurnSessionStatePort,
+    TurnForegroundLifecyclePort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -110,6 +111,7 @@ async def run_selected_command(
     effect_journal_factory: EffectJournalFactory | None = None,
     execution_policy: ExecutionPolicy | None = None,
     approval_coordinator: ApprovalCoordinatorPort | None = None,
+    lifecycle: TurnForegroundLifecyclePort | None = None,
     approval_ledger: ApprovalLedger | None = None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -152,6 +154,7 @@ async def run_selected_command(
                 effect_journal_factory=effect_journal_factory,
                 execution_policy=execution_policy,
                 approval_coordinator=approval_coordinator,
+                lifecycle=lifecycle,
                 approval_ledger=approval_ledger,
                 session_factory=session_factory,
                 transcript_factory=transcript_factory,
@@ -236,6 +239,7 @@ async def run_selected_command(
                 effect_journal_factory=effect_journal_factory,
                 execution_policy=execution_policy,
                 approval_coordinator=approval_coordinator,
+                lifecycle=lifecycle,
                 approval_ledger=approval_ledger,
                 session_factory=session_factory,
                 transcript_factory=transcript_factory,
@@ -286,6 +290,7 @@ async def run_selected_command(
                     effect_journal_factory=effect_journal_factory,
                     execution_policy=execution_policy,
                     approval_coordinator=approval_coordinator,
+                    lifecycle=lifecycle,
                     approval_ledger=approval_ledger,
                     session_factory=session_factory,
                     transcript_factory=transcript_factory,
@@ -335,6 +340,7 @@ async def _run_agent_listener_session(
     effect_journal_factory: EffectJournalFactory | None,
     execution_policy: ExecutionPolicy | None,
     approval_coordinator: ApprovalCoordinatorPort | None,
+    lifecycle: TurnForegroundLifecyclePort | None,
     approval_ledger: ApprovalLedger | None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -358,6 +364,7 @@ async def _run_agent_listener_session(
         effect_journal_factory=effect_journal_factory,
         execution_policy=execution_policy,
         approval_coordinator=approval_coordinator,
+        lifecycle=lifecycle,
         approval_ledger=approval_ledger,
         session_factory=session_factory,
         transcript_factory=transcript_factory,
@@ -382,6 +389,7 @@ async def _run_tui_session(
     effect_journal_factory: EffectJournalFactory | None,
     execution_policy: ExecutionPolicy | None,
     approval_coordinator: ApprovalCoordinatorPort | None,
+    lifecycle: TurnForegroundLifecyclePort | None,
     approval_ledger: ApprovalLedger | None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -416,6 +424,8 @@ async def _run_tui_session(
             loop_kwargs["execution_policy"] = execution_policy
         if approval_coordinator is not None:
             loop_kwargs["approval_coordinator"] = approval_coordinator
+        if lifecycle is not None:
+            loop_kwargs["lifecycle"] = lifecycle
         if approval_ledger is not None:
             loop_kwargs["approval_ledger"] = approval_ledger
         if session_factory is not None:

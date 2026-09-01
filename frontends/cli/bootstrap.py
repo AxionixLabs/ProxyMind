@@ -72,6 +72,7 @@ from agent.ports import (
     TurnAnimationPort,
     TurnSessionContextPort,
     TurnSessionStatePort,
+    TurnForegroundLifecyclePort,
 )
 from agent.domain.tool_policy import ToolFilterMode
 from .commands import (
@@ -713,6 +714,7 @@ async def _run_controller(
         session_state: TurnSessionStatePort | None = None
         execution_policy: ExecutionPolicy | None = None
         approval_coordinator: ApprovalCoordinatorPort | None = None
+        lifecycle: TurnForegroundLifecyclePort | None = None
         if runtime_services is not None:
             turn_application_factory = runtime_services.create_turn_application
             model_capability = runtime_services.model_capability
@@ -728,6 +730,7 @@ async def _run_controller(
             session_state = controller.turn_session_state
             execution_policy = controller.workspace_runtime.execution_policy
             approval_coordinator = controller.approval_coordinator
+            lifecycle = controller.turn_foreground_lifecycle
             if isinstance(
                 runtime_services.model_capability,
                 ProtocolCommandClient,
@@ -754,6 +757,7 @@ async def _run_controller(
             session_state=session_state,
             execution_policy=execution_policy,
             approval_coordinator=approval_coordinator,
+            lifecycle=lifecycle,
         )
         completed = True
         observe("app.complete", exit_code=controller.exit_code)

@@ -78,8 +78,47 @@ class ApplicationSink(ABC):
         raise NotImplementedError
 
 
+class TurnForegroundLifecyclePort(typing.Protocol):
+    """定义终端前台轮次进度、动画和资源清理端口。"""
+
+    @property
+    def application(self) -> ApplicationSink:
+        """返回用于投影 worked footer 的应用展示端。"""
+        ...
+
+    @property
+    def animate(self) -> bool:
+        """返回当前前台是否启用轮次动画。"""
+        ...
+
+    def begin_terminal_progress(self) -> None:
+        """启动终端轮次进度。"""
+        ...
+
+    def end_terminal_progress(self) -> None:
+        """结束终端轮次进度。"""
+        ...
+
+    async def start_animation(self) -> None:
+        """开始当前轮次动画。"""
+        ...
+
+    def finish_turn_wait(self) -> None:
+        """结束当前轮次等待展示。"""
+        ...
+
+    async def stop_animation(self) -> None:
+        """停止当前轮次动画。"""
+        ...
+
+    async def await_cleanup(self, awaitable: typing.Awaitable[None]) -> None:
+        """等待动画和其他异步资源完成清理。"""
+        ...
+
+
 __all__ = [
     "ApplicationSink",
+    "TurnForegroundLifecyclePort",
     "ApplicationView",
     "StyledBlock",
     "TextSpan",

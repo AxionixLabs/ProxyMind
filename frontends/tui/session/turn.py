@@ -21,6 +21,7 @@ from agent.ports import (
     TurnAnimationPort,
     TurnSessionContextPort,
     TurnSessionStatePort,
+    TurnForegroundLifecyclePort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -219,6 +220,7 @@ async def run_tui_model_turn(
     effect_journal_factory: EffectJournalFactory | None = None,
     execution_policy: ExecutionPolicy | None = None,
     approval_coordinator: ApprovalCoordinatorPort | None = None,
+    lifecycle: TurnForegroundLifecyclePort | None = None,
     approval_ledger: ApprovalLedger | None = None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -321,7 +323,7 @@ async def run_tui_model_turn(
             prompt_kwargs["on_turn_interrupted"] = on_interrupt_acknowledged
 
         return await run_foreground_turn(
-            mind,
+            lifecycle,
             stream_turn,
             mind,
             session=session,

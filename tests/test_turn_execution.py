@@ -22,6 +22,9 @@ from agent.harness.hooks.scope import HookExecutionScope
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from mind_app.interaction import ConversationTurn
 from mind_app.runtime.turns import root as root_turns
+from mind_app.presentation.terminal.turn_lifecycle import (
+    ControllerTurnForegroundLifecycle,
+)
 from mind_app.runtime.turns.executor import (
     build_turn_input_payload,
     execute_turn,
@@ -701,6 +704,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         message="hello",
         metadata={"origin": "test"},
         ev_report=report,
+        lifecycle=ControllerTurnForegroundLifecycle(mind),
     )
 
     assert result.status == "completed"

@@ -135,9 +135,10 @@ def tui_turn_operations(monkeypatch):
     """替换 TUI 用例直接依赖的流式和前台生命周期操作。"""
     stream_operation = object()
 
-    async def run_foreground_turn(controller, operation, *args, **kwargs):
+    async def run_foreground_turn(lifecycle, operation, *args, **kwargs):
         """记录前台生命周期调用并返回测试结果。"""
-        assert args == (controller,)
+        controller = args[0]
+        assert lifecycle is None
         controller.events.append("operation")
         controller.lifecycle_calls.append((operation, kwargs))
         if controller.failure is not None:

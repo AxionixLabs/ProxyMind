@@ -498,6 +498,13 @@ TUI 的终端生命周期调用保持不变，流式与子 Agent 回归 `123 pas
 `git diff --check` 通过。下一切片迁移剩余运行时服务依赖并评估 `run_foreground_turn`
 的展示生命周期端口。
 
+本次终端前台生命周期切片已满足上述条件：新增
+`agent.ports.TurnForegroundLifecyclePort` 和 `ControllerTurnForegroundLifecycle` 适配器，
+根轮次/TUI 通过组合根显式传入，`run_foreground_turn` 不再读取 Controller 的前端、动画、
+进度或清理属性。终端进度、worked footer、动画停止顺序和异常收束语义保持不变；根轮次、
+TUI、流式和输出回归 `318 passed`；架构专项 `4 passed`，导入图、`compileall` 和
+`git diff --check` 通过。下一切片复核剩余运行时服务依赖。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -620,3 +627,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 扩展 `TurnSessionContextPort` 提供工作区、Hook 告警和持续命令会话，新增 `CommandHookSessionPort`，删除 `stream.py` 对 Controller 会话属性的直接反射 | 流式启动展示/持续命令 Hook/TUI/Subagent 回归 `280 passed`；架构专项 `5 passed, 2 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `ApprovalCoordinatorPort`、`ApprovalOutcomePort` 和 `PermissionGrantPort`，通过 `TurnContext` 显式注入审批等待与权限授予，删除流式工具/审批处理器对 Controller 审批和权限属性的直接访问 | 核心流式/TUI/Subagent 回归 `123 passed`；架构专项 `5 passed, 2 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 删除 `stream_turn` 的 Controller 类型依赖，生命周期 owner 仅作为不透明操作参数传递，保持根轮次/TUI/Subagent 生命周期调用兼容 | 流式/TUI/Subagent 回归 `123 passed`；`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 新增 `TurnForegroundLifecyclePort` 与 Controller 前台适配器，根轮次/TUI 显式传递终端生命周期，删除 `run_foreground_turn` 对 Controller 嵌套属性的直接读取 | 根轮次/TUI/流式/输出回归 `318 passed`；架构专项 `4 passed`；导入图、`compileall`、`git diff --check` 通过 |

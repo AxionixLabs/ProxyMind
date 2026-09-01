@@ -102,6 +102,7 @@ from .transcript import (
     TranscriptFactory,
     TranscriptSink,
 )
+from .presentation import TurnForegroundLifecyclePort
 from .workspace import (
     CodingFactory,
     CodingRuntime,
@@ -203,6 +204,7 @@ __all__ = (
     "TranscriptActor",
     "TranscriptFactory",
     "TranscriptSink",
+    "TurnForegroundLifecyclePort",
     "CodingFactory",
     "CodingRuntime",
     "ExecutionPolicy",
