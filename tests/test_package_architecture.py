@@ -1133,13 +1133,18 @@ def test_service_runtime_setup_is_infrastructure_owned() -> None:
 
 
 def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
-    """确保 MCP 设置、值、SDK 传输和配置写入不再由旧 runtime 混合持有。"""
+    """确保 MCP 配置、SDK 会话和连接生命周期归属基础设施。"""
     target_root = PROJECT_ROOT / "infrastructure" / "mcp"
     assert {
         path.name
         for path in target_root.glob("*.py")
     } == {
         "__init__.py",
+        "errors.py",
+        "external_group.py",
+        "external_runtime.py",
+        "external_status.py",
+        "local_session.py",
         "registry.py",
         "settings.py",
         "transport.py",
@@ -1148,7 +1153,12 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
 
     legacy_paths = (
         PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "config.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "errors.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "external.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "group.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "local.py",
         PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "registry.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "status.py",
     )
     assert not any(path.is_file() for path in legacy_paths)
 
@@ -1164,7 +1174,12 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         ".",
         {
             "mind_app.runtime.mcp.config",
+            "mind_app.runtime.mcp.errors",
+            "mind_app.runtime.mcp.external",
+            "mind_app.runtime.mcp.group",
+            "mind_app.runtime.mcp.local",
             "mind_app.runtime.mcp.registry",
+            "mind_app.runtime.mcp.status",
         },
     )
     assert not legacy_imports, "legacy MCP infrastructure imports remain:\n" + (

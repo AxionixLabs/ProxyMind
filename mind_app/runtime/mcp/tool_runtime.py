@@ -8,7 +8,7 @@ import contextlib
 from observability import observe_exception
 from agent.ports import McpSessionPort
 from mind_app.runtime.mcp.tools import build_tool_context
-from .local import open_local_mcp_session
+from infrastructure.mcp.local_session import open_local_mcp_session
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind

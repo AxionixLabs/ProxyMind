@@ -134,9 +134,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   改由 CLI 组合边界显式注入，不再从 `Mind` 动态读取。
 - `protocol/schema/identifiers.py` 已恢复独立 wire 所有权，不再为稳定请求 ID 反向导入
   `agent.domain`；协议到 Harness 的反向依赖和初始化环已清零。
-- 外部 MCP 的配置规范化、SDK 参数构造、网络预检、工具名和值截断、注册表持久化已按
-  职责拆入 `infrastructure/mcp`；旧 `mind_app/runtime/mcp/config.py` 与 `registry.py`
-  已删除，运行时会话组合只消费这些基础设施入口。
+- 外部 MCP 的配置规范化、SDK 参数构造、网络预检、工具名和值截断、注册表持久化、
+  连接组、启动状态、错误分类和本地/外部 SDK 会话已按职责拆入 `infrastructure/mcp`；
+  对应旧模块全部删除，Harness 生命周期 owner 只消费组合根注入的 runtime。
 - Helix 环境聚合已迁入 `infrastructure/services/helix_environment.py`，启动展示和前端
   宿主协调已迁入 `frontends/helix/runtime.py`；资源下载显式消费 `UpgradeProgress`，
   Controller 不再保存 `TerminalDesign` 或替前端选择下载展示实现。
@@ -182,6 +182,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - 四类入口已在同一基线下分别完成启动/恢复证据：CLI Resume、失败恢复和最终清理
   `14 passed`，TUI 启动门禁与 backtrack 事务恢复 `29 passed`，stdio MCP 会话续接和
   清理失败 `14 passed`，Subscription 暂停续接、ready 超时与重启 `18 passed`。
+- 外部 MCP runtime/adapters 第一批已完成：五个 SDK/连接生命周期模块迁入
+  `infrastructure/mcp`，旧文件和生产导入清零；MCP group `11 passed`，TUI/运行入口
+  `95 passed`，工具上下文与结果链路 `63 passed`，架构专项 `3 passed, 2 warnings`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -269,10 +272,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    覆盖启动、恢复/续接及关键清理失败；入口均消费组合根绑定的 application/Protocol
    能力，前端不通过 Controller 动态发现运行时服务。
 
-2. **外部 MCP runtime/adapters 拆分**：先审计 `mind_app/runtime/mcp` 中进程生命周期、
-   SDK session、工具值转换和展示状态的真实所有权；通用 owner 继续归
-   `agent/harness/mcp`，网络/SDK 实现归 `infrastructure/mcp`，仅交互展示归 `frontends`。
-   每次迁移必须切换完整启动/重启/取消用例并删除旧路径，不创建新的 `mcp` 聚合 facade。
+2. **外部 MCP runtime/adapters 拆分（进行中）**：SDK session、外部连接组、启动状态、
+   错误分类和应用级 runtime 已迁入 `infrastructure/mcp`，旧路径已删除；通用 owner 保持在
+   `agent/harness/mcp`。下一切片先为客户端/内置工具注册表建立最小端口，再迁移
+   `session_adapter.py` 和 `tools.py` 的组合职责，禁止基础设施反向导入 `mind_app`，也不创建
+   新的 `mcp` 聚合 facade。
 
 3. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
@@ -832,3 +836,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 将审批 Coordinator 与 presenter 契约迁入 `agent/application/approvals`，由组合根注入快照失败观测回调并删除 `mind_app/approval` 源包 | 审批/TUI/终端交互回归 `283 passed`，Controller/启动回归 `42 passed`；职责守卫 `4 passed`；依赖图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | Controller 前端边界收口：新增 Frontend/Activity/Attachment ports，组合根注入具体附件、静默输出、审批与完成投影；删除 terminal lifecycle/animation，并显式注入 Helix UpgradeProgress | 生命周期 `121 passed`；CLI/TUI `236 passed`；MCP `14 passed`；Controller `49 passed`；完整架构扫描 `104 passed`，修正两项过期路径断言后专项 `5 passed`；导入图双向边清零，`compileall`、差异检查通过 |
 | 2026-09-01 | 四入口独立启动/恢复证据收口，并将下一迁移切片推进到外部 MCP runtime/adapters | CLI `14 passed`、TUI `29 passed`、stdio MCP `14 passed`、Subscription `18 passed`；覆盖续接、事务回退、ready 超时、重启和清理失败 |
+| 2026-09-01 | 外部 MCP SDK 与连接生命周期基础设施化，删除旧 runtime 下的 errors/external/group/local/status 模块 | MCP group `11 passed`、TUI/运行入口 `95 passed`、工具链路 `63 passed`、架构专项 `3 passed, 2 warnings`；导入图、`compileall`、`git diff --check` 通过 |

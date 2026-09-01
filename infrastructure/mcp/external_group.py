@@ -7,9 +7,15 @@ import asyncio
 import contextlib
 from datetime import timedelta
 from dataclasses import dataclass
-from mcp import ClientSession, types as mcp_types
+from mcp import (
+    ClientSession,
+    types as mcp_types,
+)
 from infrastructure.errors import AppError
-from observability import observe, observe_exception
+from observability import (
+    observe,
+    observe_exception,
+)
 from observability.third_party import route_session_termination_warnings
 from mcp.client.sse import sse_client
 from mcp.client.stdio import (
@@ -36,10 +42,10 @@ from infrastructure.mcp.values import (
     slugify_mcp_name,
     tool_name_hook,
 )
-from .status import (
+from infrastructure.mcp.external_status import (
     ExternalMcpStatus,
     external_status_detail_from_exception,
-    should_reraise_external
+    should_reraise_external,
 )
 
 EXTERNAL_MCP_CONNECT_CONCURRENCY   = 2

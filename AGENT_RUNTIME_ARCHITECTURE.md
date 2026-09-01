@@ -611,7 +611,7 @@ running -> cancelled
 | `mind_app/paths.py` | `infrastructure/config/runtime_paths.py` | 用户数据目录、报告/会话/历史/效果/运行时数据库路径和子进程环境属于配置基础设施；入口布局解析保持在 `config/paths.py` |
 | `mind_app/assets.py` | `infrastructure/update/assets.py` 与 `frontends/terminal/download_renderer.py` | 资产存在性和升级触发属于更新基础设施；动画管理器到终端进度端口的适配属于 frontend，不让更新层依赖 UI |
 | `mind_app/attach.py`、`mind_app/interaction/attachments.py` | `frontends/interaction/attachments.py` | 待发送附件的路径解析、分类、快照和消费属于前端输入状态；不把一次输入状态伪装成持久化 Store 或协议模型，Controller 仅在迁移期持有该前端状态 |
-| `mind_app/mcp/`、`mind_app/runtime/mcp/config.py`、`registry.py` | `infrastructure/mcp/settings.py`、`transport.py`、`values.py`、`registry.py` | 外部 MCP 配置校验、SDK 参数构造、网络预检、工具名规范化和注册表持久化属于基础设施 adapter；运行时会话组合仍按后续切片迁移，不得把 SDK/网络实现提升到 Harness，也不保留旧配置 facade |
+| `mind_app/mcp/`、`mind_app/runtime/mcp/config.py`、`registry.py`、`errors.py`、`external.py`、`group.py`、`local.py`、`status.py` | `infrastructure/mcp/settings.py`、`transport.py`、`values.py`、`registry.py`、`errors.py`、`external_runtime.py`、`external_group.py`、`local_session.py`、`external_status.py` | 外部 MCP 配置校验、SDK 参数构造、网络预检、工具名规范化、注册表持久化、连接组、启动状态、错误分类和本地/外部 SDK 会话都属于基础设施 adapter；通用生命周期 owner 仍归 Harness，组合根只注入 runtime，旧路径不保留 facade |
 | `mind_app/native_coding/encoding.py` | `infrastructure/platform/encoding.py` | 进程输出编码探测、规范化和解码是跨能力的平台事实；native coding 只消费平台端口，不拥有第二套解码器 |
 | `mind_app/runtime/processes.py` | `infrastructure/platform/processes.py` | 进程组创建、stdin 收束、树级中断/终止和 Windows/POSIX 差异属于平台生命周期能力 |
 | `mind_app/native_coding/workspace_command.py` | `infrastructure/platform/workspace.py` | 无 shell 工作区命令、超时和输出上限属于平台命令执行能力；native coding 不拥有进程树实现 |
@@ -630,7 +630,7 @@ running -> cancelled
 | `mind_app/runtime/support/session_identity.py` | `agent/application/config/session_identity.py` | 远端 `cid/sid` 到本地持久化 Session 身份的确定性派生属于 application 身份用例；不让 CLI/TUI 各自复制哈希规则，也不把本地语义塞入线上 `protocol` |
 | `mind_app/runtime/support/conversation.py`、`mind_app/interaction/conversation.py` | `agent/harness/sessions/conversation.py` | 本地会话标识、轮次边界和一次性上下文属于 Harness Session 生命周期；Controller 迁移期只持有实例，不让 runtime support 或具体前端拥有状态机 |
 | `mind_app/runtime/support/clipboard.py` | `mind_app/tui/adapters/clipboard.py` | 系统剪贴板是 TUI 的平台 adapter；展示功能显式依赖该 adapter，不让通用 runtime support 持有 UI 专属 I/O |
-| `mind_app/runtime/support/session_policy.py` | `mind_app/runtime/mcp/errors.py`、`agent/application/turns/exception_text.py` | MCP 传输关闭判断归 MCP 错误边界；HTTP/运行期异常的一行用户摘要归 Turn application，按职责拆分，不保留混合 session policy |
+| `mind_app/runtime/support/session_policy.py` | `infrastructure/mcp/errors.py`、`agent/application/turns/exception_text.py` | MCP 传输关闭判断归 MCP 基础设施错误边界；HTTP/运行期异常的一行用户摘要归 Turn application，按职责拆分，不保留混合 session policy |
 | `mind_app/approval/models.py::ExecPolicyAmendmentProposal`、`approval/policy.py::approval_execpolicy_amendment` | `agent/application/approvals/amendments.py` | 执行策略修订提案的具名值和结构校验属于审批 application 语义；终端审批 renderer 不反向导入 legacy application |
 | `mind_app/runtime/conversation.py` | `mind_app/runtime/compaction.py`、`agent/application/turns/compact_result.py` | 上下文压缩的运行时 Hook/Transcript 编排与不可变结果契约分离；runtime 只负责执行生命周期，application 只暴露稳定结果 |
 | `mind_app/runtime/execution.py` | `agent/application/turns/context.py` | Agent、Turn 和工具调用上下文是跨能力共享的 application 执行契约；不让 MCP、Hook、工具和子 Agent 继续依赖 runtime 平铺实现模块 |

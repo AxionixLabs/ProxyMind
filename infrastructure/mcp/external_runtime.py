@@ -5,16 +5,17 @@ import typing
 import asyncio
 from agent.ports import McpRuntimeHost
 from infrastructure.errors import AppError
-from infrastructure.mcp.settings import normalize_mcp_servers
-from mind_app.runtime.mcp.group import ExternalMcpGroup
-from mind_app.runtime.mcp.status import (
+from infrastructure.mcp.external_group import ExternalMcpGroup
+from infrastructure.mcp.external_status import (
     ExternalMcpStatus,
-    external_status_detail_from_exception
+    external_status_detail_from_exception,
 )
+from infrastructure.mcp.settings import normalize_mcp_servers
 from observability import (
     observe,
     observe_exception
 )
+
 
 class ExternalMcpRuntime(object):
     """管理应用生命周期内的外部 MCP 连接和状态。"""

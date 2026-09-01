@@ -9,10 +9,10 @@ import pytest
 from frontends.cli import bootstrap
 from mind_app.controller import Mind
 from frontends.interaction.contracts import PromptContext
-from mind_app.runtime.mcp import external
+from infrastructure.mcp import external_runtime as external
 from frontends.helix import runtime as service_runtime
 from mind_app.runtime.mcp import tool_runtime
-from mind_app.runtime.mcp.external import ExternalMcpRuntime
+from infrastructure.mcp.external_runtime import ExternalMcpRuntime
 from agent.harness.mcp.owner import McpRuntimeOwner
 from mind_app.runtime.mcp.tool_runtime import CompositeToolRuntime
 from frontends.tui.core.render import fragments_text

@@ -8,7 +8,7 @@ from mind_app.client_tools import ClientToolRegistry
 from mind_app.builtin_tools import BuiltinToolRegistry
 from infrastructure.mcp.values import truncate_text
 from agent.ports import McpSessionPort
-from .status import should_reraise_external
+from infrastructure.mcp.external_status import should_reraise_external
 
 if typing.TYPE_CHECKING:
     from agent.application.turns.context import TurnContext
