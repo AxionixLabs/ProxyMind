@@ -15,9 +15,7 @@ from agent.ports.transcript import (
     TranscriptActor,
     TranscriptSink
 )
-from agent.stores.transcripts import (
-    TranscriptEntry,
-)
+from agent.domain.transcripts import TranscriptEntry
 from protocol.schema.identifiers import SID_RE
 
 

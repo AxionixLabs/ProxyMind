@@ -162,10 +162,6 @@ class CliApplicationHost(CliCommandHost, typing.Protocol):
         """在取消边界内等待清理完成。"""
         ...
 
-    async def end_conversation(self, *, reason: str) -> None:
-        """结束当前会话。"""
-        ...
-
     async def close_runtime_resources(self) -> None:
         """释放应用持有的运行时资源。"""
         ...
@@ -952,7 +948,7 @@ async def finalize_application(
     )
     try:
         try:
-            await controller.await_cleanup(controller.end_conversation(
+            await controller.await_cleanup(controller.conversation.end(
                 reason="exit" if completed else "error",
             ))
         except BaseException as error:

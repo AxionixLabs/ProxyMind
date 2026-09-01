@@ -1,17 +1,85 @@
 # -*- coding: utf-8 -*-
 
+import math
 import typing
-from dataclasses import replace
+from dataclasses import (
+    dataclass,
+    field,
+    replace,
+)
 
 from agent.domain.tool_policy import merges_tool_start_event
-from .records import TranscriptEntry
+
+TranscriptActor: typing.TypeAlias = typing.Literal[
+    "user",
+    "assistant",
+    "system",
+    "tool",
+]
 
 
-class TranscriptReplay(object):
+@dataclass(frozen=True, slots=True)
+class TranscriptEntry:
+    """描述会话记录中的单个结构化事件。"""
+
+    timestamp: str
+    event: str
+    session_id: str
+    turn_id: str | None
+    actor: TranscriptActor | None
+    payload: dict[str, typing.Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, value: typing.Any) -> "TranscriptEntry":
+        """把结构化对象解析为会话事件。"""
+        if not isinstance(value, dict):
+            raise ValueError("transcript entry must be an object")
+
+        timestamp = _required_text(value.get("timestamp"), "timestamp")
+        event = _required_text(value.get("event"), "event")
+        session_id = _required_text(value.get("session_id"), "session_id")
+
+        turn_value = value.get("turn_id")
+        if turn_value is not None and not isinstance(turn_value, str):
+            raise ValueError("transcript turn_id must be a string or null")
+        turn_id = str(turn_value or "").strip() or None
+
+        actor_value = value.get("actor")
+        if actor_value is not None and (
+            not isinstance(actor_value, str)
+            or actor_value not in ("user", "assistant", "system", "tool")
+        ):
+            raise ValueError("transcript actor is invalid")
+
+        payload = value.get("payload", {})
+        if not isinstance(payload, dict):
+            raise ValueError("transcript payload must be an object")
+
+        return cls(
+            timestamp=timestamp,
+            event=event,
+            session_id=session_id,
+            turn_id=turn_id,
+            actor=actor_value,
+            payload=dict(payload),
+        )
+
+    def to_dict(self) -> dict[str, typing.Any]:
+        """返回可逐行序列化的事件对象。"""
+        return {
+            "timestamp": self.timestamp,
+            "event": self.event,
+            "session_id": self.session_id,
+            "turn_id": self.turn_id,
+            "actor": self.actor,
+            "payload": _json_value(self.payload),
+        }
+
+
+class TranscriptReplay:
     """把持久事件归并为可恢复的消息和工具记录。"""
 
     def __init__(self, entries: typing.Iterable[TranscriptEntry]) -> None:
-        """保存待归并的结构化会话事件。"""
         self.entries = tuple(entries)
 
     @staticmethod
@@ -24,17 +92,14 @@ class TranscriptReplay(object):
             return False
 
         scope = _payload_text(marker.payload, "scope")
-
         supersedes_item_id = _payload_text(marker.payload, "supersedes_item_id")
         if supersedes_item_id:
             return _payload_text(item.payload, "item_id") == supersedes_item_id
 
         marker_epoch = _payload_positive_int(marker.payload, "presentation_epoch")
         item_epoch = _payload_positive_int(item.payload, "presentation_epoch")
-
         if marker_epoch is None or item_epoch is None:
             return False
-
         if scope == "presentation":
             return item_epoch <= marker_epoch
         if scope != "response" or item_epoch != marker_epoch:
@@ -44,7 +109,6 @@ class TranscriptReplay(object):
         marker_attempt = _payload_positive_int(marker.payload, "attempt")
         item_round = _payload_positive_int(item.payload, "round")
         item_attempt = _payload_positive_int(item.payload, "attempt")
-
         return (
             marker_round is not None
             and marker_attempt is not None
@@ -59,7 +123,6 @@ class TranscriptReplay(object):
         user_by_turn: dict[str, int] = {}
         last_user_index: int | None = None
         pending_tools: dict[str, int] = {}
-
         pending_unmerged_tools: dict[str, dict[str, typing.Any]] = {}
 
         for entry in self.entries:
@@ -77,7 +140,6 @@ class TranscriptReplay(object):
                     continue
                 if not isinstance(content, str) or not content:
                     continue
-
                 replay.append(entry)
                 if entry.actor == "user":
                     last_user_index = len(replay) - 1
@@ -96,8 +158,10 @@ class TranscriptReplay(object):
                         for index in range(len(replay) - 1, -1, -1)
                         if (
                             replay[index].actor == "assistant"
-                            and _payload_text(replay[index].payload, "item_id")
-                            == item_id
+                            and _payload_text(
+                                replay[index].payload,
+                                "item_id",
+                            ) == item_id
                         )
                     ),
                     None,
@@ -117,7 +181,6 @@ class TranscriptReplay(object):
                 content = entry.payload.get("content")
                 if not isinstance(content, str) or not content:
                     continue
-
                 target = (
                     user_by_turn.get(entry.turn_id)
                     if entry.turn_id
@@ -138,10 +201,8 @@ class TranscriptReplay(object):
                 ):
                     continue
                 replay.append(entry)
-
                 call_id = _payload_text(entry.payload, "call_id")
                 name = _payload_text(entry.payload, "name")
-
                 if call_id and merges_tool_start_event(name):
                     pending_tools[call_id] = len(replay) - 1
                 elif call_id:
@@ -164,7 +225,6 @@ class TranscriptReplay(object):
                 continue
 
             call_id = _payload_text(entry.payload, "call_id")
-
             target = pending_tools.pop(call_id, None) if call_id else None
             if target is None:
                 metadata = (
@@ -182,14 +242,12 @@ class TranscriptReplay(object):
                 continue
 
             started = replay[target]
-
             if (
                 entry.event == "tool.failed"
                 and _payload_text(started.payload, "name") == "apply_patch"
             ):
                 replay.append(entry)
                 continue
-
             replay[target] = replace(
                 entry,
                 turn_id=entry.turn_id or started.turn_id,
@@ -199,13 +257,23 @@ class TranscriptReplay(object):
         return tuple(replay)
 
 
+def _required_text(value: typing.Any, field_name: str) -> str:
+    """返回必填文本字段并拒绝空值。"""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"transcript {field_name} must be a non-empty string")
+    return value.strip()
+
+
 def _payload_text(payload: dict[str, typing.Any], key: str) -> str:
     """返回事件载荷中的非空文本字段。"""
     value = payload.get(key)
     return str(value).strip() if isinstance(value, str) else ""
 
 
-def _payload_positive_int(payload: dict[str, typing.Any], key: str) -> int | None:
+def _payload_positive_int(
+    payload: dict[str, typing.Any],
+    key: str,
+) -> int | None:
     """返回事件载荷中的正整数字段。"""
     value = payload.get(key)
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
@@ -213,5 +281,28 @@ def _payload_positive_int(payload: dict[str, typing.Any], key: str) -> int | Non
     return value
 
 
-if __name__ == '__main__':
+def _json_value(value: typing.Any) -> typing.Any:
+    """递归转换为可稳定写入 JSON 的普通值。"""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
+    if isinstance(value, dict):
+        return {
+            str(key): _json_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_json_value(item) for item in value]
+    return str(value)
+
+
+__all__ = (
+    "TranscriptActor",
+    "TranscriptEntry",
+    "TranscriptReplay",
+)
+
+
+if __name__ == "__main__":
     pass

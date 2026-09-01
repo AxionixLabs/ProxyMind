@@ -13,7 +13,7 @@ from frontends.terminal.capabilities import (
 )
 from agent.stores.sessions import normalize_workspace
 from protocol.schema.identifiers import valid_session_ids
-from agent.stores.transcripts import (
+from agent.domain.transcripts import (
     TranscriptEntry,
     TranscriptReplay,
 )
@@ -254,7 +254,7 @@ def load_history_transcript(
     """读取会话事件并在内容缺失时生成最小恢复块。"""
     entries = (
         entry
-        for entry in controller.read_conversation_transcript(session_id)
+        for entry in controller.conversation.history.read_transcript(session_id)
         if entry.session_id == session_id
     )
 

@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
 
+from types import SimpleNamespace
+
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
-from agent.stores.transcripts import TranscriptEntry, TranscriptReplay
+from agent.domain.transcripts import (
+    TranscriptEntry,
+    TranscriptReplay,
+)
 from frontends.tui.core.document import TuiDocument
 from frontends.tui.core.render import fragments_text
 from frontends.tui.features import history
@@ -16,6 +21,15 @@ from frontends.tui.contracts.resume import (
     ResumeSessionStatus,
     ResumeSortKey,
 )
+
+
+def _history_host(reader) -> SimpleNamespace:
+    """构造只暴露正式会话历史端口的测试宿主。"""
+    return SimpleNamespace(
+        conversation=SimpleNamespace(
+            history=SimpleNamespace(read_transcript=reader),
+        ),
+    )
 
 
 @pytest.mark.anyio
@@ -112,12 +126,8 @@ async def test_history_resume_preview_loader_returns_recent_conversation() -> No
         ))
     )
 
-    class Controller(object):
-        @staticmethod
-        def read_conversation_transcript(_session_id):
-            return entries
-
-    preview = await history.HistoryResumePreviewLoader(Controller()).load(
+    controller = _history_host(lambda _session_id: entries)
+    preview = await history.HistoryResumePreviewLoader(controller).load(
         row,
         width=40,
     )
@@ -156,13 +166,8 @@ async def test_history_resume_transcript_loader_preserves_full_rendered_blocks()
         ))
     )
 
-    class Controller(object):
-        @staticmethod
-        def read_conversation_transcript(_session_id):
-            return entries
-
     transcript = await history.HistoryResumeTranscriptLoader(
-        Controller()
+        _history_host(lambda _session_id: entries)
     ).load(row, width=40)
 
     assert transcript.row_key == row.key
@@ -229,13 +234,12 @@ def test_history_transcript_replays_messages_and_tool_result() -> None:
         ),
     )
 
-    class Controller(object):
-        def read_conversation_transcript(self, session_id):
-            assert session_id == "session_test"
-            return entries
+    def read_transcript(session_id):
+        assert session_id == "session_test"
+        return entries
 
     blocks = history.load_history_transcript(
-        Controller(),
+        _history_host(read_transcript),
         "session_test",
         terminal_width=60,
     )
@@ -361,13 +365,12 @@ def test_history_transcript_merges_patch_lifecycle_into_one_cell() -> None:
         }),
     )
 
-    class Controller(object):
-        def read_conversation_transcript(self, session_id):
-            assert session_id == "session_patch"
-            return entries
+    def read_transcript(session_id):
+        assert session_id == "session_patch"
+        return entries
 
     blocks = history.load_history_transcript(
-        Controller(),
+        _history_host(read_transcript),
         "session_patch",
         terminal_width=60,
     )
@@ -568,13 +571,8 @@ def test_history_transcript_keeps_javascript_source_out_of_result_block() -> Non
         ),
     )
 
-    class Controller(object):
-        @staticmethod
-        def read_conversation_transcript(_session_id):
-            return entries
-
     blocks = history.load_history_transcript(
-        Controller(),
+        _history_host(lambda _session_id: entries),
         "session_test",
         terminal_width=80,
     )
@@ -594,13 +592,8 @@ def test_history_transcript_keeps_javascript_source_out_of_result_block() -> Non
 
 
 def test_history_transcript_falls_back_to_legacy_cursor_title() -> None:
-    class Controller(object):
-        @staticmethod
-        def read_conversation_transcript(_session_id):
-            return ()
-
     blocks = history.load_history_transcript(
-        Controller(),
+        _history_host(lambda _session_id: ()),
         "session_legacy",
         terminal_width=60,
         record={"title": "legacy question"},
@@ -613,13 +606,8 @@ def test_history_transcript_falls_back_to_legacy_cursor_title() -> None:
 
 
 def test_history_transcript_uses_placeholder_when_content_is_unavailable() -> None:
-    class Controller(object):
-        @staticmethod
-        def read_conversation_transcript(_session_id):
-            return ()
-
     blocks = history.load_history_transcript(
-        Controller(),
+        _history_host(lambda _session_id: ()),
         "session_missing",
         terminal_width=60,
     )
@@ -653,13 +641,8 @@ def test_history_transcript_marks_terminal_notices(event, payload, expected) -> 
         payload=payload,
     )
 
-    class Controller(object):
-        @staticmethod
-        def read_conversation_transcript(_session_id):
-            return (entry,)
-
     blocks = history.load_history_transcript(
-        Controller(),
+        _history_host(lambda _session_id: (entry,)),
         "session_notice",
         terminal_width=60,
     )
@@ -679,19 +662,14 @@ def test_history_transcript_restores_markdown_hyperlink_metadata() -> None:
         payload={"content": "[docs](https://example.com/docs)"},
     )
 
-    class Controller(object):
-        @staticmethod
-        def read_conversation_transcript(_session_id):
-            return (entry,)
-
     linked = history.load_history_transcript(
-        Controller(),
+        _history_host(lambda _session_id: (entry,)),
         "session_link",
         terminal_width=60,
         hyperlinks=True,
     )
     plain = history.load_history_transcript(
-        Controller(),
+        _history_host(lambda _session_id: (entry,)),
         "session_link",
         terminal_width=60,
         hyperlinks=False,
@@ -723,13 +701,8 @@ def test_history_transcript_restores_responsive_markdown_tables() -> None:
         payload={"content": source},
     )
 
-    class Controller(object):
-        @staticmethod
-        def read_conversation_transcript(_session_id):
-            return (entry,)
-
     cell = history.load_history_transcript(
-        Controller(),
+        _history_host(lambda _session_id: (entry,)),
         "session_table",
         terminal_width=24,
     )[0]
@@ -779,13 +752,8 @@ def test_history_shell_display_reflows_without_changing_transcript() -> None:
         }),
     )
 
-    class Controller(object):
-        @staticmethod
-        def read_conversation_transcript(_session_id):
-            return entries
-
     blocks = history.load_history_transcript(
-        Controller(),
+        _history_host(lambda _session_id: entries),
         "session_shell_resize",
         terminal_width=20,
     )

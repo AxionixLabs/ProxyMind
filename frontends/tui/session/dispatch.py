@@ -785,7 +785,7 @@ class TuiCommandDispatcher(object):
 
     async def _resume_conversation(self) -> None:
         """选择并恢复最近的会话。"""
-        records = self.mind.recent_conversation_sessions(
+        records = self.mind.conversation.history.recent(
             workspace=self.mind.history_workspace,
             sources=INTERACTIVE_HISTORY_SOURCES,
         )
@@ -822,7 +822,7 @@ class TuiCommandDispatcher(object):
 
         resume_error: str | None = None
         try:
-            resumed = await self.mind.resume_conversation(
+            resumed = await self.mind.conversation.resume(
                 selected,
                 source="tui:resume",
             )
@@ -847,11 +847,14 @@ class TuiCommandDispatcher(object):
         current = (self.mind.conversation.cid, self.mind.conversation.sid)
         if row.key == current:
             raise ValueError("Use /archive to archive the current session and exit.")
-        await self.mind.archive_conversation_session(row.cid, row.sid)
+        await self.mind.conversation.archive(row.cid, row.sid)
 
     async def _unarchive_resume_row(self, row: "ResumeRow") -> "ResumeRow":
         """恢复 Resume picker 中的 archived 会话。"""
-        await self.mind.unarchive_conversation(row.cid, row.sid)
+        await self.mind.conversation.history.unarchive(
+            cid=row.cid,
+            sid=row.sid,
+        )
         return replace(row, status=ResumeSessionStatus.ACTIVE)
 
     async def _download_missing_helix_runtime(
@@ -1000,7 +1003,7 @@ class TuiCommandDispatcher(object):
             try:
                 if not await confirm_archive_session(self.runtime):
                     return DispatchAction.HANDLED
-                await self.mind.archive_conversation()
+                await self.mind.conversation.archive_current()
             except Exception as failure:
                 message = str(failure).strip()
                 if message == "conversation session is not started":
@@ -1029,7 +1032,7 @@ class TuiCommandDispatcher(object):
             if title:
                 reset_kwargs["title"] = title
             try:
-                await self.mind.reset_conversation(**reset_kwargs)
+                await self.mind.conversation.reset(**reset_kwargs)
             except Exception as failure:
                 self._present(failure_text_block(
                     f"Failed to start a fresh session: {failure}",

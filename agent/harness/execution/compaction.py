@@ -43,7 +43,7 @@ async def compact_conversation(
     on_progress: CompactProgress | None = None
 ) -> CompactResult:
     """执行当前会话的上下文压缩及其生命周期 Hook。"""
-    metadata = dict(session.conversation_identity())
+    metadata = dict(session.snapshot())
     transcript_path = session.transcript_path_for_session(metadata["sid"])
 
     context = _hook_context(

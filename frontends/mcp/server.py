@@ -27,6 +27,7 @@ from agent.domain.policies import (
     PermissionSettings,
     resolve_permissions,
 )
+from agent.ports import RootConversationPort
 from infrastructure.config.paths import (
     ApplicationLayout,
     resolve_application_layout,
@@ -74,40 +75,10 @@ class McpApplicationHost(typing.Protocol):
     external_mcp: _ExternalMcpStarter
     history_workspace: str
     permissions: PermissionSettings
+    conversation: RootConversationPort
 
     def set_history_workspace(self, workspace: str | Path) -> None:
         """切换当前调用使用的工作区。"""
-        ...
-
-    async def reset_conversation(
-        self,
-        *,
-        reason: str,
-        source: str,
-    ) -> dict[str, str]:
-        """创建新的 MCP 会话。"""
-        ...
-
-    def find_conversation_session(
-        self,
-        session_id: str,
-        *,
-        workspace: str | Path | None = None,
-    ) -> dict[str, typing.Any] | None:
-        """查找可续接的 MCP 会话。"""
-        ...
-
-    async def resume_conversation(
-        self,
-        record: dict[str, typing.Any],
-        *,
-        source: str,
-    ) -> dict[str, str] | None:
-        """恢复指定 MCP 会话。"""
-        ...
-
-    async def end_conversation(self, *, reason: str) -> None:
-        """结束当前 MCP 会话。"""
         ...
 
     async def close_runtime_resources(self) -> None:
@@ -338,7 +309,7 @@ class MindMcpRuntime(object):
     async def close(self) -> None:
         """关闭应用运行时，并最后释放进程报告。"""
         try:
-            await self.mind.end_conversation(reason="exit")
+            await self.mind.conversation.end(reason="exit")
         finally:
             try:
                 await self._turn_application.close(cancel_running=True)
@@ -441,12 +412,12 @@ class MindMcpRuntime(object):
         self.mind.set_history_workspace(workspace)
 
         if requested_session_id is None:
-            metadata = await self.mind.reset_conversation(
+            metadata = await self.mind.conversation.reset(
                 reason="mcp_tool_call",
                 source="mcp_server",
             )
         else:
-            record = self.mind.find_conversation_session(
+            record = self.mind.conversation.history.find(
                 requested_session_id,
                 workspace=workspace,
             )
@@ -454,7 +425,7 @@ class MindMcpRuntime(object):
                 return self._failed(
                     "session_id is unavailable for this working directory"
                 )
-            metadata = await self.mind.resume_conversation(
+            metadata = await self.mind.conversation.resume(
                 record,
                 source="mcp_server",
             )

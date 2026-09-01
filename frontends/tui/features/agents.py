@@ -6,7 +6,7 @@ import typing
 from prompt_toolkit.utils import get_cwidth
 from agent.application.agents.views import AgentSnapshot
 from agent.harness.agents.control import AgentNotFoundError
-from agent.stores.transcripts import (
+from agent.domain.transcripts import (
     TranscriptEntry,
     TranscriptReplay,
 )

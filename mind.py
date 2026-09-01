@@ -83,7 +83,7 @@ def bind_root_turn_runner(
     ) -> RunResult:
         """执行绑定进程级能力的根轮次。"""
         return await run_root_turn(
-            controller,
+            controller.conversation,
             pref_config,
             message=message,
             model_capability=model_capability,
@@ -96,13 +96,13 @@ def bind_root_turn_runner(
             lifecycle=controller.turn_foreground_lifecycle,
             approval_ledger=controller.approval_call_ledger,
             session_factory=controller.frontend.session_factory,
-            transcript_factory=controller.transcripts.writer,
+            transcript_factory=controller.conversation.transcript_factory,
             cleanup=controller,
             patch_preview=controller.workspace_runtime.coding.preview_patch,
             retry_state=controller.frontend.runtime,
             animation=controller.turn_animation,
             session_context=controller,
-            session_state=controller,
+            session_state=controller.conversation,
             **kwargs,
         )
 
@@ -115,7 +115,7 @@ def bind_conversation_compactor(host: object) -> ConversationCompactor:
         raise TypeError("conversation compactor host must be Mind")
     return functools.partial(
         compact_conversation,
-        host,
+        host.conversation,
         ProtocolCompactionClient(),
     )
 

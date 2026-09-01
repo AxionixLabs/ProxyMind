@@ -10,7 +10,7 @@ from infrastructure.persistence.transcripts import (
     TranscriptWriter,
 )
 from agent.ports.transcript import TranscriptSink
-from agent.stores.transcripts import (
+from agent.domain.transcripts import (
     TranscriptEntry,
     TranscriptReplay,
 )

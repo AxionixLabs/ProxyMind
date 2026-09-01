@@ -96,6 +96,22 @@ def _runtime_services(model_capability: object | None = None) -> SimpleNamespace
     )
 
 
+def _conversation(
+    *,
+    reset: AsyncMock | None = None,
+    find: Mock | None = None,
+    resume: AsyncMock | None = None,
+    end: AsyncMock | None = None,
+) -> SimpleNamespace:
+    """构造 MCP 测试使用的根会话边界。"""
+    return SimpleNamespace(
+        reset=reset or AsyncMock(),
+        history=SimpleNamespace(find=find or Mock(return_value=None)),
+        resume=resume or AsyncMock(),
+        end=end or AsyncMock(),
+    )
+
+
 def test_mind_mcp_server_exposes_one_structured_tool(tmp_path) -> None:
     server = create_mind_mcp_server(
         layout=_source_layout(tmp_path),
@@ -129,8 +145,10 @@ async def test_mind_mcp_runtime_closes_report_after_runtime_resources(
     timeline = []
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
-        end_conversation=AsyncMock(
-            side_effect=lambda **_kwargs: timeline.append("session"),
+        conversation=_conversation(
+            end=AsyncMock(
+                side_effect=lambda **_kwargs: timeline.append("session"),
+            ),
         ),
         close_runtime_resources=AsyncMock(
             side_effect=lambda: timeline.append("resources"),
@@ -140,7 +158,7 @@ async def test_mind_mcp_runtime_closes_report_after_runtime_resources(
         close=Mock(side_effect=lambda: timeline.append("report")),
     )
     runtime = MindMcpRuntime(
-        typing.cast(typing.Any, mind),
+        mind,
         report=report,
         turn_runner=AsyncMock(),
         turn_application=TurnApplication(runtime_factory=SessionRuntimeOwner),
@@ -158,7 +176,9 @@ async def test_mind_mcp_runtime_releases_resources_when_session_close_fails(
     timeline = []
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
-        end_conversation=AsyncMock(side_effect=RuntimeError("session failed")),
+        conversation=_conversation(
+            end=AsyncMock(side_effect=RuntimeError("session failed")),
+        ),
         close_runtime_resources=AsyncMock(
             side_effect=lambda: timeline.append("resources"),
         ),
@@ -167,7 +187,7 @@ async def test_mind_mcp_runtime_releases_resources_when_session_close_fails(
         close=Mock(side_effect=lambda: timeline.append("report")),
     )
     runtime = MindMcpRuntime(
-        typing.cast(typing.Any, mind),
+        mind,
         report=report,
         turn_runner=AsyncMock(),
         turn_application=TurnApplication(runtime_factory=SessionRuntimeOwner),
@@ -186,7 +206,7 @@ async def test_mind_mcp_runtime_closes_report_when_resource_cleanup_fails(
     timeline = []
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
-        end_conversation=AsyncMock(),
+        conversation=_conversation(),
         close_runtime_resources=AsyncMock(
             side_effect=RuntimeError("cleanup failed"),
         ),
@@ -195,7 +215,7 @@ async def test_mind_mcp_runtime_closes_report_when_resource_cleanup_fails(
         close=Mock(side_effect=lambda: timeline.append("report")),
     )
     runtime = MindMcpRuntime(
-        typing.cast(typing.Any, mind),
+        mind,
         report=report,
         turn_runner=AsyncMock(),
         turn_application=TurnApplication(runtime_factory=SessionRuntimeOwner),
@@ -257,7 +277,7 @@ async def test_mind_mcp_runtime_injects_model_capability(
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         external_mcp=SimpleNamespace(start=AsyncMock()),
-        end_conversation=AsyncMock(),
+        conversation=_conversation(),
         close_runtime_resources=AsyncMock(),
     )
 
@@ -313,11 +333,11 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
         is_service_mcp_linked=Mock(return_value=False),
         service_exec_env_snapshot=Mock(return_value=None),
         set_history_workspace=Mock(),
-        reset_conversation=AsyncMock(return_value=metadata),
-        find_conversation_session=Mock(return_value=None),
-        resume_conversation=AsyncMock(),
+        conversation=_conversation(
+            reset=AsyncMock(return_value=metadata),
+        ),
     )
-    runtime = _runtime(typing.cast(typing.Any, mind), turn_runner)
+    runtime = _runtime(mind, turn_runner)
 
     actual = await runtime.execute(
         prompt="inspect",
@@ -331,7 +351,7 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
     assert actual.projection is not None
     assert actual.to_dict()["assistant_text"] == "done"
     mind.set_history_workspace.assert_called_once_with(tmp_path.resolve())
-    mind.reset_conversation.assert_called_once_with(
+    mind.conversation.reset.assert_called_once_with(
         reason="mcp_tool_call",
         source="mcp_server",
     )
@@ -383,10 +403,9 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
         is_service_mcp_linked=Mock(return_value=False),
         service_exec_env_snapshot=Mock(return_value=None),
         set_history_workspace=Mock(),
-        reset_conversation=AsyncMock(return_value=metadata),
-        find_conversation_session=Mock(return_value=None),
-        resume_conversation=AsyncMock(),
-        end_conversation=AsyncMock(),
+        conversation=_conversation(
+            reset=AsyncMock(return_value=metadata),
+        ),
         close_runtime_resources=AsyncMock(),
     )
     runtime = MindMcpRuntime(
@@ -434,11 +453,11 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
         history_workspace=str(tmp_path),
         permissions=PermissionSettings("workspace-write", "on-request"),
         set_history_workspace=Mock(),
-        reset_conversation=AsyncMock(return_value=metadata),
-        find_conversation_session=Mock(return_value=None),
-        resume_conversation=AsyncMock(),
+        conversation=_conversation(
+            reset=AsyncMock(return_value=metadata),
+        ),
     )
-    runtime = _runtime(typing.cast(typing.Any, mind), turn_runner)
+    runtime = _runtime(mind, turn_runner)
 
     await runtime.execute(
         prompt="inspect",
@@ -470,11 +489,12 @@ async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
-        reset_conversation=AsyncMock(),
-        find_conversation_session=Mock(return_value=record),
-        resume_conversation=AsyncMock(return_value=metadata),
+        conversation=_conversation(
+            find=Mock(return_value=record),
+            resume=AsyncMock(return_value=metadata),
+        ),
     )
-    runtime = _runtime(typing.cast(typing.Any, mind), turn_runner)
+    runtime = _runtime(mind, turn_runner)
 
     actual = await runtime.execute(
         prompt="continue",
@@ -486,12 +506,12 @@ async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
 
     assert actual.run is result
     assert actual.session_id == metadata["sid"]
-    mind.reset_conversation.assert_not_called()
-    mind.find_conversation_session.assert_called_once_with(
+    mind.conversation.reset.assert_not_called()
+    mind.conversation.history.find.assert_called_once_with(
         metadata["sid"],
         workspace=tmp_path.resolve(),
     )
-    mind.resume_conversation.assert_called_once_with(
+    mind.conversation.resume.assert_called_once_with(
         record,
         source="mcp_server",
     )
@@ -503,11 +523,9 @@ async def test_mind_mcp_runtime_rejects_unknown_session(tmp_path) -> None:
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
-        reset_conversation=AsyncMock(),
-        find_conversation_session=Mock(return_value=None),
-        resume_conversation=AsyncMock(),
+        conversation=_conversation(),
     )
-    runtime = _runtime(typing.cast(typing.Any, mind), turn_runner)
+    runtime = _runtime(mind, turn_runner)
 
     actual = await runtime.execute(
         prompt="continue",
@@ -543,11 +561,11 @@ async def test_mind_mcp_runtime_times_out_and_releases_call_lock(tmp_path) -> No
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
-        reset_conversation=AsyncMock(return_value=metadata),
-        find_conversation_session=Mock(return_value=None),
-        resume_conversation=AsyncMock(),
+        conversation=_conversation(
+            reset=AsyncMock(return_value=metadata),
+        ),
     )
-    runtime = _runtime(typing.cast(typing.Any, mind), turn_runner)
+    runtime = _runtime(mind, turn_runner)
 
     timed_out = await runtime.execute(
         prompt="wait",
@@ -597,11 +615,11 @@ async def test_mind_mcp_runtime_propagates_cancellation(tmp_path) -> None:
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
-        reset_conversation=AsyncMock(return_value=metadata),
-        find_conversation_session=Mock(return_value=None),
-        resume_conversation=AsyncMock(),
+        conversation=_conversation(
+            reset=AsyncMock(return_value=metadata),
+        ),
     )
-    runtime = _runtime(typing.cast(typing.Any, mind), turn_runner)
+    runtime = _runtime(mind, turn_runner)
 
     task = asyncio.create_task(runtime.execute(
         prompt="wait",

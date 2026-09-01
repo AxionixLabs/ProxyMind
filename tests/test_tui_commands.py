@@ -18,7 +18,7 @@ from infrastructure.config.store import ConfigStore
 from frontends.terminal.capabilities import DEGRADED_TERMINAL_CAPABILITIES
 from infrastructure.skills import SkillSpec
 from metadata import const
-from agent.stores.transcripts import TranscriptEntry
+from agent.domain.transcripts import TranscriptEntry
 from frontends.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
@@ -52,6 +52,38 @@ from frontends.tui.session.dispatch import (
     DispatchAction,
     TuiCommandDispatcher,
 )
+
+
+def _conversation(
+    *,
+    reset: AsyncMock | None = None,
+    archive_current: AsyncMock | None = None,
+    recent: Mock | None = None,
+    read_transcript: Mock | None = None,
+    resume: AsyncMock | None = None,
+) -> SimpleNamespace:
+    """构造 TUI 命令测试使用的根会话边界。"""
+    return SimpleNamespace(
+        cid=None,
+        sid=None,
+        reset=reset if reset is not None else AsyncMock(),
+        archive_current=(
+            archive_current
+            if archive_current is not None
+            else AsyncMock()
+        ),
+        archive=AsyncMock(),
+        resume=resume if resume is not None else AsyncMock(),
+        history=SimpleNamespace(
+            recent=recent if recent is not None else Mock(return_value=[]),
+            read_transcript=(
+                read_transcript
+                if read_transcript is not None
+                else Mock(return_value=())
+            ),
+            unarchive=AsyncMock(),
+        ),
+    )
 
 
 def test_root_command_completion_order_is_stable() -> None:
@@ -860,10 +892,12 @@ async def test_new_conversation_clears_structured_prompt_draft() -> None:
             application=SimpleNamespace(emit=views.append),
         ),
         attach=attach,
-        reset_conversation=AsyncMock(return_value={
-            "cid": "cid_new_12345678",
-            "sid": "sid_new_1_abcdef",
-        }),
+        conversation=_conversation(
+            reset=AsyncMock(return_value={
+                "cid": "cid_new_12345678",
+                "sid": "sid_new_1_abcdef",
+            }),
+        ),
     )
     dispatcher = TuiCommandDispatcher(
         mind,
@@ -918,7 +952,7 @@ async def test_archive_command_cancels_before_mutating_session(monkeypatch) -> N
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
-        archive_conversation=AsyncMock(),
+        conversation=_conversation(),
     )
     confirm = AsyncMock(return_value=False)
     monkeypatch.setattr(dispatch_module, "confirm_archive_session", confirm)
@@ -933,7 +967,7 @@ async def test_archive_command_cancels_before_mutating_session(monkeypatch) -> N
 
     assert action is DispatchAction.HANDLED
     confirm.assert_awaited_once_with(dispatcher.runtime)
-    mind.archive_conversation.assert_not_awaited()
+    mind.conversation.archive_current.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -962,7 +996,9 @@ async def test_archive_command_uses_codex_failure_messages(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
-        archive_conversation=AsyncMock(side_effect=failure),
+        conversation=_conversation(
+            archive_current=AsyncMock(side_effect=failure),
+        ),
     )
     monkeypatch.setattr(
         dispatch_module,
@@ -993,7 +1029,9 @@ async def test_new_conversation_failure_uses_fresh_session_error_notice() -> Non
             application=SimpleNamespace(emit=views.append),
         ),
         attach=attach,
-        reset_conversation=AsyncMock(side_effect=RuntimeError("boom")),
+        conversation=_conversation(
+            reset=AsyncMock(side_effect=RuntimeError("boom")),
+        ),
     )
     dispatcher = TuiCommandDispatcher(
         mind,
@@ -1027,7 +1065,7 @@ async def test_named_new_conversation_persists_title_without_result_copy() -> No
             application=SimpleNamespace(emit=lambda _view: None),
         ),
         attach=attach,
-        reset_conversation=AsyncMock(),
+        conversation=_conversation(),
     )
     runtime = SimpleNamespace(
         append_block=Mock(),
@@ -1043,7 +1081,7 @@ async def test_named_new_conversation_persists_title_without_result_copy() -> No
     action = await dispatcher.dispatch("/new review-auth")
 
     assert action is DispatchAction.HANDLED
-    mind.reset_conversation.assert_awaited_once_with(
+    mind.conversation.reset.assert_awaited_once_with(
         reason="command:/new",
         source="tui:new",
         title="review-auth",
@@ -1062,15 +1100,18 @@ async def test_resume_conversation_clears_structured_prompt_draft(
     }
     state = SimpleNamespace(clear_pending_prompt_extras=Mock())
     attach = SimpleNamespace(clear_pending_attachments=Mock())
+    read_transcript = Mock(return_value=())
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
         attach=attach,
         history_workspace="D:/workspace",
-        recent_conversation_sessions=Mock(return_value=[record]),
-        read_conversation_transcript=Mock(return_value=()),
-        resume_conversation=AsyncMock(return_value=record),
+        conversation=_conversation(
+            recent=Mock(return_value=[record]),
+            read_transcript=read_transcript,
+            resume=AsyncMock(return_value=record),
+        ),
     )
     monkeypatch.setattr(
         dispatch_module,
@@ -1094,7 +1135,7 @@ async def test_resume_conversation_clears_structured_prompt_draft(
 
     state.clear_pending_prompt_extras.assert_called_once_with()
     attach.clear_pending_attachments.assert_called_once_with()
-    mind.read_conversation_transcript.assert_called_once_with(record["sid"])
+    read_transcript.assert_called_once_with(record["sid"])
     restored = runtime.replace_transcript.call_args.args[0]
     assert len(restored) == 1
     assert restored[0].kind == "notice"
@@ -1110,13 +1151,16 @@ async def test_resume_conversation_opens_picker_for_empty_snapshot(
     runtime = SimpleNamespace(
         terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
     )
+    resume = AsyncMock()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
         history_workspace="D:/workspace",
-        recent_conversation_sessions=Mock(return_value=[]),
-        resume_conversation=AsyncMock(),
+        conversation=_conversation(
+            recent=Mock(return_value=[]),
+            resume=resume,
+        ),
     )
     monkeypatch.setattr(dispatch_module, "choose_history_session", choose)
     dispatcher = TuiCommandDispatcher(
@@ -1135,7 +1179,7 @@ async def test_resume_conversation_opens_picker_for_empty_snapshot(
         call.kwargs["preview_loader"],
         dispatch_module.HistoryResumePreviewLoader,
     )
-    mind.resume_conversation.assert_not_awaited()
+    resume.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -1158,9 +1202,11 @@ async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
         ),
         attach=SimpleNamespace(clear_pending_attachments=Mock()),
         history_workspace="D:/workspace",
-        recent_conversation_sessions=Mock(return_value=[record]),
-        read_conversation_transcript=Mock(return_value=()),
-        resume_conversation=AsyncMock(return_value=None),
+        conversation=_conversation(
+            recent=Mock(return_value=[record]),
+            read_transcript=Mock(return_value=()),
+            resume=AsyncMock(return_value=None),
+        ),
     )
     monkeypatch.setattr(
         dispatch_module,
@@ -1241,9 +1287,11 @@ async def test_resumed_transcript_supports_search_export_and_backtrack(
         ),
         attach=SimpleNamespace(clear_pending_attachments=Mock()),
         history_workspace="D:/workspace",
-        recent_conversation_sessions=Mock(return_value=[record]),
-        read_conversation_transcript=Mock(return_value=entries),
-        resume_conversation=AsyncMock(return_value=record),
+        conversation=_conversation(
+            recent=Mock(return_value=[record]),
+            read_transcript=Mock(return_value=entries),
+            resume=AsyncMock(return_value=record),
+        ),
     )
     state = SimpleNamespace(clear_pending_prompt_extras=Mock())
     runtime = TuiRuntime()

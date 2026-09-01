@@ -530,7 +530,7 @@ async def _finish_transcript_backtrack(
             return None
 
         try:
-            bound = await mind.bind_conversation(
+            bound = await mind.conversation.bind(
                 target_session[0],
                 target_session[1],
                 source="tui",
@@ -549,7 +549,7 @@ async def _finish_transcript_backtrack(
             state.replace_pending_prompt_extras(prompt.extras)
         except Exception as error:
             try:
-                await mind.bind_conversation(
+                await mind.conversation.bind(
                     source_session[0],
                     source_session[1],
                     source="tui:backtrack-rollback",

@@ -29,6 +29,10 @@ from .approvals import (
     ApprovalLedgerState,
     ApprovalOutcomePort,
 )
+from .conversation import (
+    ConversationHistoryPort,
+    RootConversationPort,
+)
 from .hooks import (
     CommandHookSessionPort,
     DeferredCommandHook,
@@ -135,6 +139,7 @@ from .transcript import (
     TranscriptLifecyclePort,
     TranscriptActor,
     TranscriptFactory,
+    TranscriptSessionPort,
     TranscriptSink,
 )
 from .presentation import TurnForegroundLifecyclePort
@@ -214,6 +219,7 @@ __all__ = (
     "EffectJournalPersistenceError",
     "LocalEffectReconciliationRequired",
     "ApprovalSnapshotCallback",
+    "ConversationHistoryPort",
     "CapabilityError",
     "EnvironmentSnapshotCapability",
     "FilesystemCapability",
@@ -236,6 +242,7 @@ __all__ = (
     "RunPersistenceConflict",
     "RunRecoveryRequired",
     "RunSnapshot",
+    "RootConversationPort",
     "PermissionGrantReader",
     "PermissionGrantPort",
     "AgentMessageDeliveryPort",
@@ -300,6 +307,7 @@ __all__ = (
     "TurnResultPort",
     "TurnResultValue",
     "TranscriptLifecyclePort",
+    "TranscriptSessionPort",
     "BLOCK_OUTPUT",
     "AssistantOutputBoundary",
     "AssistantPresentationSuperseded",

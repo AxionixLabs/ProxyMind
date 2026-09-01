@@ -419,14 +419,14 @@ async def test_successful_backtrack_installs_canonical_prompt() -> None:
     bound = []
     views = []
 
-    async def bind_conversation(cid, sid, *, source):
+    async def bind(cid, sid, *, source):
         bound.append((cid, sid, source))
         return {"cid": cid, "sid": sid}
 
     await loop._finish_transcript_backtrack(
         SimpleNamespace(
             attach=attach,
-            bind_conversation=bind_conversation,
+            conversation=SimpleNamespace(bind=bind),
             frontend=SimpleNamespace(
                 application=SimpleNamespace(emit=views.append),
             ),
@@ -523,13 +523,13 @@ async def test_backtrack_loop_rolls_back_and_keeps_full_draft_on_false_commit(
     bound = []
     views = []
 
-    async def bind_conversation(cid, sid, *, source):
+    async def bind(cid, sid, *, source):
         bound.append((cid, sid, source))
         return {"cid": cid, "sid": sid}
 
     mind = SimpleNamespace(
         attach=attach,
-        bind_conversation=bind_conversation,
+        conversation=SimpleNamespace(bind=bind),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -622,14 +622,14 @@ async def test_backtrack_rolls_conversation_back_if_local_commit_fails() -> None
         target_session=("cid_target_87654321", "sid_target_2_fedcba"),
     )
 
-    async def bind_conversation(cid, sid, *, source):
+    async def bind(cid, sid, *, source):
         bound.append((cid, sid, source))
         return {"cid": cid, "sid": sid}
 
     await loop._finish_transcript_backtrack(
         SimpleNamespace(
             attach=attach,
-            bind_conversation=bind_conversation,
+            conversation=SimpleNamespace(bind=bind),
             frontend=SimpleNamespace(
                 application=SimpleNamespace(emit=views.append),
             ),
@@ -700,7 +700,7 @@ async def test_backtrack_local_failure_restores_full_transaction_state() -> None
     bound = []
     views = []
 
-    async def bind_conversation(cid, sid, *, source):
+    async def bind(cid, sid, *, source):
         bound.append((cid, sid, source))
         return {"cid": cid, "sid": sid}
 
@@ -722,7 +722,7 @@ async def test_backtrack_local_failure_restores_full_transaction_state() -> None
     await loop._finish_transcript_backtrack(
         SimpleNamespace(
             attach=attach,
-            bind_conversation=bind_conversation,
+            conversation=SimpleNamespace(bind=bind),
             frontend=SimpleNamespace(
                 application=SimpleNamespace(emit=views.append),
             ),

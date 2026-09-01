@@ -66,7 +66,7 @@ async def prepare_root_turn(
 ) -> TurnExecution:
     """固定根轮次的会话身份、输入快照和执行上下文。"""
     supplied_metadata = dict(metadata)
-    conversation_turn = await session.begin_conversation_turn(
+    conversation_turn = await session.begin_turn(
         cid=supplied_metadata.get("cid"),
         sid=supplied_metadata.get("sid"),
         title=title,

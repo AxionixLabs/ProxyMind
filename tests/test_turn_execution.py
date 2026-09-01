@@ -689,7 +689,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         transcripts=SimpleNamespace(
             path_for_session=lambda _sid: "D:/sessions/session.jsonl",
         ),
-        begin_conversation_turn=AsyncMock(return_value=ConversationTurn(
+        begin_turn=AsyncMock(return_value=ConversationTurn(
             cid="cid_root",
             sid="sid_root",
             turn_index=1,
@@ -725,7 +725,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
 
     assert result.status == "completed"
     runtime.finish_turn_wait.assert_called_once_with()
-    mind.begin_conversation_turn.assert_called_once_with(
+    mind.begin_turn.assert_called_once_with(
         cid=None,
         sid=None,
         title="hello",

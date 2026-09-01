@@ -3,12 +3,7 @@
 
 import typing
 
-TranscriptActor: typing.TypeAlias = typing.Literal[
-    "user",
-    "assistant",
-    "system",
-    "tool",
-]
+from agent.domain.transcripts import TranscriptActor
 
 
 @typing.runtime_checkable
@@ -35,6 +30,15 @@ class TranscriptLifecyclePort(TranscriptSink, typing.Protocol):
         ...
 
 
+@typing.runtime_checkable
+class TranscriptSessionPort(TranscriptLifecyclePort, typing.Protocol):
+    """定义绑定固定会话坐标的完整 Transcript 写入生命周期。"""
+
+    def open(self) -> None:
+        """幂等打开当前 Transcript 写入生命周期。"""
+        ...
+
+
 class TranscriptFactory(typing.Protocol):
     """定义按会话和轮次创建 Transcript 写入器的端口。"""
 
@@ -44,7 +48,7 @@ class TranscriptFactory(typing.Protocol):
         *,
         session_id: str,
         turn_id: str | None = None,
-    ) -> TranscriptSink:
+    ) -> TranscriptSessionPort:
         """创建绑定固定会话坐标的 Transcript 写入器。"""
         ...
 

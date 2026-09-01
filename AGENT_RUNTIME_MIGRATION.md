@@ -1,6 +1,6 @@
 # Agent Harness 迁移计划
 
-状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4 已完成；阶段 5 进行中（2026-08-31）
+状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4 已完成；阶段 5 进行中（2026-09-02）
 
 本文件是 ProxyMind Agent Harness 迁移的唯一状态权威。它只保留当前决策、阶段准入与
 出口、进行中的切片、风险和最新验证证据。已完成切片的逐项历史、旧测试数字和完整变更
@@ -311,12 +311,21 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `HookManagementPort`，根 Turn、压缩和 Subagent 只读取 `HookScopeProviderPort`。Controller
   已删除六个 Hook 实现/facade，Hook/TUI/根 Turn/Subagent/Controller 回归 `149 passed`；
   完整架构 `109 passed / 4 stale assertions`，修正既有陈旧路径断言后相关 `4 passed`。
+- 根会话、历史和 Transcript 所有权已完成拆分：`RootConversationSession` 单一持有
+  `ConversationState`、轮次上下文、最近回复、根会话结束与归档回滚事务；
+  `LocalConversationHistory` 在基础设施边界组合 SQLite 游标、分支幂等请求和 Transcript
+  reader。CLI、TUI、MCP、Compaction 与根 Turn 直接消费 `RootConversationPort`，Controller
+  删除会话、历史和 Transcript 的全部同义方法及持久化属性。`TranscriptEntry`、
+  `TranscriptReplay` 归入 `agent/domain/transcripts.py`，旧 `agent/stores/transcripts` 源包删除。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
-- 完整架构守卫：本轮全量扫描 `109 passed, 4 stale assertions, 66 warnings`；陈旧断言
-  修正后相关节点 `5 passed, 2 warnings`。警告仍来自 Nuitka `glob2` 的弃用转义。
+- 完整架构守卫：当前全量扫描 `114 passed, 66 warnings`；警告仍来自 Nuitka `glob2`
+  的弃用转义。
 - `agent_runtime_import_graph.py --write/--check` 通过，导入图已刷新。
 - `compileall`、`git diff --check` 通过；旧平铺路径和旧导入扫描无结果。
+- 本次根会话/历史/Transcript 最终回归分组 `378 passed`；本地历史真实组合及故障路径
+  `12 passed`；CLI/MCP `112 passed`、TUI 启动/监听 `40 passed`、Subscription/Agent
+  `42 passed`。
 - 组合根切片定向回归：`76 passed`；新增组合/架构守卫：`4 passed`。
 - Helix 生命周期适配器定向回归：`6 passed`；完整架构守卫：`77 passed, 52 warnings`。
 - Helix 适配器迁移后的导入图已重新生成并通过 `--check`；跨边界循环仍为零。
@@ -424,10 +433,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    `mind_app/runtime/tools` 源包和工具 Hook 旧路径已经清零且由架构守卫锁定。
 
 7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
-   `engine`，并完成存量配置、历史、报告和打包元数据回读。当前先收敛仅剩的
-   `mind_app/runtime` 已完成源码清零，Hook 管理与资源所有权也已迁出；下一步将 Session 状态、
-   历史游标、Transcript 和根会话结束事务从最后的 `mind_app/controller.py` 拆入职责化协作者，
-   再处理工具资源与前端生命周期。每次迁移都要完成入口切换和旧实现删除，禁止整体改名搬运。
+   `engine`，并完成存量配置、历史、报告和打包元数据回读。`mind_app/runtime` 已源码清零，
+   Hook 管理以及 Session/history/Transcript/SessionEnd 所有权已迁出；下一步拆分
+   `mind_app/controller.py` 剩余的工具注册与服务连接资源、偏好/权限刷新和前端资源生命周期，
+   再将纯组合职责提升到 `mind.py`。每次迁移都要完成入口切换和旧实现删除，禁止整体改名搬运。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
 删除、架构守卫和 `compileall` 证据。任一条件不足时只更新本计划，不创建空目录。
@@ -579,20 +588,20 @@ Controller 和线上 Protocol Client 状态所有权不随目录迁移，必须�
 清零；导入图无 `frontends -> mind_app -> frontends` 循环，TUI 启动、交互、恢复和
 关键失败路径回归通过。
 
-本次 TranscriptSink 端口切片的准入与删除条件已满足：`agent/ports/transcript.py` 只依赖标准库，
+本次 TranscriptSink 端口切片的准入与删除条件已满足：`agent/ports/transcript.py` 只依赖 domain，
 runtime、Hook、执行器和 Transcript writer 统一从该端口导入；旧
 `mind_app/history/contracts.py` 文件与生产导入清零，并通过 Transcript、Turn、Hook
 关键路径回归和端口边界守卫验证。TranscriptEntry/TranscriptReplay 已由
-`agent/stores/transcripts` 持有，文件 Reader/Writer 和历史文件路径在本轮迁入
+`agent/domain/transcripts.py` 持有，文件 Reader/Writer 和历史文件路径在本轮迁入
 `infrastructure/persistence`。
 
-本次 Transcript 共享记录切片的准入条件：`agent/stores/transcripts` 只持有不依赖文件系统
-的 `TranscriptEntry` 和 `TranscriptReplay`，工具开始/完成归并策略由 `agent.domain` 提供；
+本次 Transcript 共享记录切片的准入条件已满足：`agent/domain/transcripts.py` 单一持有不依赖
+文件系统的 `TranscriptEntry` 和 `TranscriptReplay`，工具开始/完成归并策略由 domain 提供；
 所有跨层消费者通过新路径读取记录值，文件 Reader/Writer 只作为 infrastructure adapter 使用，且
-stores 不导入 `mind_app`、`infrastructure` 或展示模块。删除条件是旧
+domain 不导入 `mind_app`、`infrastructure` 或展示模块。删除条件是旧
 `mind_app/history/transcript.py` 已删除，文件 adapter 由
 `infrastructure/persistence/transcripts.py` 独立持有，并通过存量读取、追加写入和路径
-失败回归；后续不再在 `mind_app/history` 添加新的实现。
+失败回归；旧 `agent/stores/transcripts` 源包同步删除，不保留转发导出。
 
 本次 Session history store 切片的准入与删除条件已满足：`agent/stores/sessions/history.py` 单一持有
 SQLite 会话游标和待分支请求状态，构造必须接收显式数据库路径，不导入 `mind_app`、
@@ -602,7 +611,7 @@ SQLite 会话游标和待分支请求状态，构造必须接收显式数据库�
 
 本次 Transcript 文件 adapter 切片的准入条件：`infrastructure/persistence/transcripts.py`
 单一持有 JSONL Reader/Writer、Session 日期路径、编码和损坏记录观测；共享记录值与归约
-仍来自 `agent/stores/transcripts`，不得在基础设施复制；所有生产/测试消费者切换新路径，
+来自 `agent/domain/transcripts.py`，不得在基础设施复制；所有生产/测试消费者切换新路径，
 旧 `mind_app/history` 包删除，并通过存量读取、追加写入、尾部读取和路径失败回归。满足后
 才允许继续删除 `mind_app` 的 history 目录及相关启动依赖。
 
@@ -1013,6 +1022,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 将根 Session、历史游标、Transcript 和 SessionEnd/归档事务迁出 Controller；历史组合归 infrastructure，Transcript 值与归约归 domain，删除旧 transcripts store 源包 | 根会话/历史/Transcript 最终分组 `378 passed`；历史成功/故障 `12 passed`；四入口 `194 passed`；完整架构 `114 passed, 66 warnings`；导入图和差异检查通过 |
 | 2026-09-02 | 将 Hook 配置管理、执行作用域和 registry 资源生命周期迁出 Controller，三类执行入口改用显式 scope provider，TUI 改用独立管理端口 | Hook/TUI/根 Turn/Subagent/Controller `149 passed`；完整架构 `109 passed / 4 stale assertions`，修正后相关 `4 passed`；导入图和差异检查通过 |
 | 2026-09-02 | 将 Conversation Compaction 拆为 Protocol adapter、Harness 用例、Session/Client ports 和 application 事件/结果，删除旧 runtime 源目录 | 压缩/Hook/根 Turn `135 passed, 1 warning`；职责守卫、`compileall`、旧导入扫描通过 |
 | 2026-09-02 | 将根 Turn runner 迁入 Harness，Controller 直接实现其状态端口，删除四个单调用 facade 并清空旧 runtime/turns 源目录 | 根/流/Controller/Subagent `144 passed`；四入口 `140 passed`；目录与职责守卫通过；`compileall`、旧导入扫描通过 |

@@ -24,7 +24,7 @@ from ..rendering.fragments import (
 from ..rendering.text_sanitize import sanitize_fragment_block
 
 if typing.TYPE_CHECKING:
-    from agent.stores.transcripts import TranscriptEntry
+    from agent.domain.transcripts import TranscriptEntry
     from agent.application.views.contracts import PresentationView
 
     TranscriptCellSource: typing.TypeAlias = (

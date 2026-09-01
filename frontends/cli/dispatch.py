@@ -5,7 +5,6 @@ import time
 import typing
 import asyncio
 import functools
-from pathlib import Path
 from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application.config.session_identity import derive_local_session_id
 from agent.application.turns.commands import (
@@ -19,8 +18,10 @@ from agent.stores.sessions import (
     INTERACTIVE_HISTORY_SOURCES,
 )
 from agent.domain.policies import PermissionSettings
-from agent.harness.sessions.conversation import ConversationState
-from agent.ports import ProtocolCommandClient
+from agent.ports import (
+    ProtocolCommandClient,
+    RootConversationPort,
+)
 from frontends.tui.features.conversation import ConversationCompactor
 from frontends.runtime import Frontend
 from infrastructure.config.preferences import apply_primary_model_override
@@ -67,7 +68,7 @@ class CliCommandHost(typing.Protocol):
     """描述 CLI 命令分发所需的最小应用宿主。"""
 
     attach: _AttachmentState
-    conversation: ConversationState
+    conversation: RootConversationPort
     exit_code: int
     frontend: Frontend
     history_workspace: str
@@ -81,45 +82,6 @@ class CliCommandHost(typing.Protocol):
         ttl_sec: float,
     ) -> dict[str, typing.Any]:
         """读取当前有效偏好配置。"""
-        ...
-
-    async def resume_conversation(
-        self,
-        record: dict[str, typing.Any],
-        *,
-        source: str,
-    ) -> dict[str, str] | None:
-        """恢复指定历史会话。"""
-        ...
-
-    def find_conversation_session(
-        self,
-        session_id: str,
-        *,
-        workspace: str | Path | None = None,
-        sources: typing.Collection[str] | None = None,
-        status: str | None = None,
-    ) -> dict[str, typing.Any] | None:
-        """查找一个可恢复会话。"""
-        ...
-
-    def recent_conversation_sessions(
-        self,
-        *,
-        workspace: str | Path | None = None,
-        sources: typing.Collection[str] | None = None,
-        status: str | None = None,
-        limit: int = HISTORY_LIMIT,
-    ) -> list[dict[str, typing.Any]]:
-        """读取最近的可恢复会话。"""
-        ...
-
-    async def archive_conversation_session(self, cid: str, sid: str) -> None:
-        """归档指定会话。"""
-        ...
-
-    async def unarchive_conversation(self, cid: str, sid: str) -> None:
-        """恢复指定归档会话。"""
         ...
 
 
@@ -307,7 +269,7 @@ async def run_selected_command(
                     record=record,
                 )
 
-                resumed = await mind.resume_conversation(
+                resumed = await mind.conversation.resume(
                     record,
                     source="tui:resume",
                 )
@@ -429,7 +391,7 @@ async def _select_resume_session(
     workspace = None if command.all_workspaces else mind.history_workspace
 
     if command.session_id is not None:
-        record = mind.find_conversation_session(
+        record = mind.conversation.history.find(
             command.session_id,
             workspace=workspace,
             sources=sources,
@@ -448,7 +410,7 @@ async def _select_resume_session(
     }
     if command.last:
         history_kwargs["status"] = "active"
-    records = mind.recent_conversation_sessions(**history_kwargs)
+    records = mind.conversation.history.recent(**history_kwargs)
     if command.last:
         if not records:
             raise AppError("No resumable sessions were found.")
@@ -465,11 +427,11 @@ async def _select_resume_session(
 
     async def archive_session(row: ResumeRow) -> None:
         """归档 CLI picker 中的活动会话。"""
-        await mind.archive_conversation_session(row.cid, row.sid)
+        await mind.conversation.archive(row.cid, row.sid)
 
     async def unarchive_session(row: ResumeRow) -> ResumeRow:
         """恢复 CLI picker 中选择的 archived 会话。"""
-        await mind.unarchive_conversation(row.cid, row.sid)
+        await mind.conversation.history.unarchive(cid=row.cid, sid=row.sid)
         return replace(row, status=ResumeSessionStatus.ACTIVE)
 
     runtime = require_tui_runtime(mind.frontend.runtime)

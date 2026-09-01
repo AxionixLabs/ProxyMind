@@ -213,6 +213,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/views/commands.py",
         "application/views/tool_execution.py",
         "domain/identifiers.py",
+        "domain/transcripts.py",
         "domain/execution_policy/sandbox.py",
         "domain/execution_policy/requirements.py",
         "domain/permission_profiles.py",
@@ -242,14 +243,12 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "harness/sessions/conversation.py",
         "harness/sessions/loop.py",
         "harness/sessions/owner.py",
+        "harness/sessions/root.py",
         "stores/agents/graph.py",
         "stores/agents/mailbox.py",
         "stores/approvals/ledger.py",
         "stores/approvals/permissions.py",
         "stores/effects/journal.py",
-        "stores/transcripts/__init__.py",
-        "stores/transcripts/records.py",
-        "stores/transcripts/replay.py",
         "stores/sessions/__init__.py",
         "stores/sessions/history.py",
         "stores/runs/records.py",
@@ -265,6 +264,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "adapters/protocol/tool_events.py",
         "adapters/protocol/tool_results.py",
         "adapters/protocol/turn_setup.py",
+        "ports/conversation.py",
     }
     missing = [
         relative
@@ -292,19 +292,24 @@ def test_agent_responsibility_packages_are_physical() -> None:
     } == {"__init__.py"}
 
 
-def test_transcript_shared_values_are_owned_by_stores() -> None:
-    """确保 Transcript 记录值归 stores、文件 adapter 归 infrastructure。"""
-    target_root = PROJECT_ROOT / "agent" / "stores" / "transcripts"
-    assert (target_root / "records.py").is_file()
-    assert (target_root / "replay.py").is_file()
+def test_transcript_shared_values_are_owned_by_domain() -> None:
+    """确保 Transcript 值和归约归 domain、文件 adapter 归 infrastructure。"""
+    target_path = PROJECT_ROOT / "agent" / "domain" / "transcripts.py"
+    legacy_root = PROJECT_ROOT / "agent" / "stores" / "transcripts"
+    assert target_path.is_file()
+    assert not tuple(legacy_root.glob("*.py"))
 
     violations = _forbidden_imports(
-        "agent/stores/transcripts",
+        "agent/domain/transcripts.py",
         {"mind_app", "mind_core", "engine", "server", "infrastructure"},
     )
-    assert not violations, "transcript stores cross their boundary:\n" + (
+    assert not violations, "transcript domain crosses its boundary:\n" + (
         "\n".join(violations)
     )
+
+    target_source = target_path.read_text(encoding="utf-8-sig")
+    assert "class TranscriptEntry" in target_source
+    assert "class TranscriptReplay" in target_source
 
     adapter_path = PROJECT_ROOT / "infrastructure" / "persistence" / "transcripts.py"
     legacy_path = PROJECT_ROOT / "mind_app" / "history" / "transcript.py"
@@ -2651,6 +2656,7 @@ def test_transcript_sink_port_is_owned_by_agent_ports() -> None:
     target_source = target_path.read_text(encoding="utf-8-sig")
     assert "class TranscriptSink" in target_source
     assert "class TranscriptLifecyclePort" in target_source
+    assert "class TranscriptSessionPort" in target_source
     finalizer_source = (
         PROJECT_ROOT / "agent" / "harness" / "execution" / "turn_finalizer.py"
     ).read_text(encoding="utf-8-sig")
@@ -5162,6 +5168,8 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.ports.subagents",
         "agent.ports.agent_messages",
         "agent.ports.transcript",
+        "agent.ports.conversation",
+        "agent.domain.transcripts",
         "agent.adapters.agents.messages",
         "agent.adapters.agents.execution",
         "agent.adapters.agents.fork_context",
@@ -5185,6 +5193,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.harness.hooks.turn_lifecycle",
         "agent.harness.mcp.owner",
         "agent.harness.sessions.conversation",
+        "agent.harness.sessions.root",
         "agent.harness.subscription.owner",
         "agent.harness.execution.subagent_runner",
         "agent.harness.execution.subagent_submission",
@@ -5199,7 +5208,6 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.stores.approvals.permissions",
         "agent.stores.agents.mailbox",
         "agent.stores.agents.graph",
-        "agent.stores.transcripts",
         "agent.stores.sessions",
         "agent.stores",
     }
@@ -5423,12 +5431,26 @@ def test_controller_does_not_expose_runtime_facades() -> None:
         "stream_turn",
     } & methods
     assert not {
+        "archive_conversation",
+        "archive_conversation_session",
+        "begin_conversation_turn",
+        "bind_conversation",
+        "clear_conversation_fork",
+        "end_conversation",
+        "find_conversation_session",
         "hook_scope",
         "inspect_hooks",
+        "last_assistant_reply_snapshot",
+        "prepare_conversation_fork",
+        "read_conversation_transcript",
+        "recent_conversation_sessions",
+        "reset_conversation",
+        "resume_conversation",
         "set_hook_enabled",
         "trust_hook",
         "trust_hooks",
         "turn_hook_scope",
+        "unarchive_conversation",
     } & methods
     assert (
         PROJECT_ROOT / "infrastructure" / "config" / "hooks.py"
@@ -5443,13 +5465,50 @@ def test_controller_does_not_expose_runtime_facades() -> None:
         "_service_start_task",
         "config_service",
         "exec_policy_manager",
+        "history_store",
         "keepalive_stop",
         "keepalive_task",
         "native_coding",
         "server_manager",
         "service_runtime_context",
         "stop_runtime_on_exit",
+        "transcripts",
         "user_shell",
     } & assigned_attributes
     assert "RunReport" not in called_names
     assert not closes_borrowed_report
+
+
+def test_root_conversation_ownership_is_split_by_responsibility() -> None:
+    """确保根会话编排与本地历史持久化不再由 Controller 混合拥有。"""
+    session_path = (
+        PROJECT_ROOT / "agent" / "harness" / "sessions" / "root.py"
+    )
+    history_path = (
+        PROJECT_ROOT
+        / "infrastructure"
+        / "persistence"
+        / "conversation_history.py"
+    )
+    port_path = PROJECT_ROOT / "agent" / "ports" / "conversation.py"
+    assert session_path.is_file()
+    assert history_path.is_file()
+    assert port_path.is_file()
+    assert not (
+        PROJECT_ROOT / "agent" / "harness" / "sessions" / "history.py"
+    ).exists()
+
+    session_source = session_path.read_text(encoding="utf-8-sig")
+    assert "class RootConversationSession" in session_source
+    assert "ConversationHistoryPort" in session_source
+    assert "ConversationHistoryStore" not in session_source
+    assert "infrastructure" not in session_source
+
+    history_source = history_path.read_text(encoding="utf-8-sig")
+    assert "class LocalConversationHistory" in history_source
+    assert "ConversationHistoryStore" in history_source
+    assert "TranscriptEntry" in history_source
+
+    port_source = port_path.read_text(encoding="utf-8-sig")
+    assert "class ConversationHistoryPort" in port_source
+    assert "class RootConversationPort" in port_source

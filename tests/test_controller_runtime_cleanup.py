@@ -11,7 +11,74 @@ import pytest
 
 from mind_app.controller import Mind
 from agent.harness.sessions.conversation import ConversationState
+from agent.harness.sessions.root import RootConversationSession
 from agent.domain.policies import preset_permissions
+from infrastructure.persistence.conversation_history import LocalConversationHistory
+
+
+def _root_session(
+    state: ConversationState | None = None,
+) -> tuple[RootConversationSession, SimpleNamespace]:
+    transcript = SimpleNamespace(open=Mock(), append=Mock(), close=Mock())
+    store = SimpleNamespace(
+        ttl_ms=1000,
+        max_items=10,
+        touch_session=Mock(),
+        archive_session=Mock(return_value={"status": "archived"}),
+        unarchive_session=Mock(return_value={"status": "active"}),
+    )
+    lifecycle = SimpleNamespace(end=AsyncMock(return_value=True))
+    shutdown_root = AsyncMock(return_value=(SimpleNamespace(
+        thread=SimpleNamespace(sid="sid_child"),
+    ),))
+    hook_cleanup = AsyncMock()
+    execution_cleanup = AsyncMock(return_value=True)
+    command_cleanup = Mock()
+    event_close = AsyncMock()
+
+    async def fresh_preferences(_ttl_sec):
+        return {"primary": {"model": "test-model"}}
+
+    async def await_cleanup(awaitable):
+        return await awaitable
+
+    history = LocalConversationHistory(
+        store,
+        existing_transcript_path_for=lambda _sid: "",
+        transcript_entries_for=lambda _path: (),
+    )
+    session = RootConversationSession(
+        history,
+        workspace=lambda: "D:/workspace",
+        permissions=lambda: preset_permissions("auto"),
+        preference_config=lambda: {"primary": {"model": "test-model"}},
+        fresh_preferences=fresh_preferences,
+        permission_grants=None,
+        approval_ledger=None,
+        output_record_path="D:/logs/output.log",
+        transcript_factory=Mock(return_value=transcript),
+        transcript_path_for=lambda _sid: "D:/sessions/session.jsonl",
+        hook_scope_provider=SimpleNamespace(),
+        session_lifecycle=lifecycle,
+        subagent_shutdown=shutdown_root,
+        hook_session_cleanup=hook_cleanup,
+        execution_session_cleanup=execution_cleanup,
+        command_hook_cleanup=command_cleanup,
+        event_session_close=event_close,
+        await_cleanup=await_cleanup,
+    )
+    if state is not None:
+        session._state = state
+    return session, SimpleNamespace(
+        transcript=transcript,
+        store=store,
+        lifecycle=lifecycle,
+        shutdown_root=shutdown_root,
+        hook_cleanup=hook_cleanup,
+        execution_cleanup=execution_cleanup,
+        command_cleanup=command_cleanup,
+        event_close=event_close,
+    )
 
 
 def test_controller_tracks_helix_tool_profile_with_link_state() -> None:
@@ -156,60 +223,21 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("turn_count", [0, 2])
-async def test_controller_session_end_uses_current_root_snapshot(
+async def test_root_session_end_uses_current_snapshot(
     turn_count: int,
 ) -> None:
-    controller = Mind.__new__(Mind)
-    controller.conversation = ConversationState(
+    session, resources = _root_session(ConversationState(
         cid="cid_test_12345678",
         sid="sid_test_1_abcdef",
         turn_count=turn_count,
-    )
-    controller._conversation_lifecycle_id = 4
-    controller.last_assistant_reply = "final answer"
-    controller.history_workspace = "D:/workspace"
-    controller.pref = SimpleNamespace(
-        to_config=lambda: {"primary": {"model": "test-model"}},
-    )
-    controller.permissions = preset_permissions("auto")
-    controller.report = SimpleNamespace(output_record_path="D:/logs/output.log")
-    transcript = SimpleNamespace(
-        open=Mock(),
-        append=Mock(),
-        close=Mock(),
-    )
-    controller.transcripts = SimpleNamespace(
-        path_for_session=lambda _sid: "D:/sessions/session.jsonl",
-        writer=Mock(return_value=transcript),
-    )
-    controller.session_lifecycle = SimpleNamespace(
-        end=AsyncMock(return_value=True),
-    )
-    controller.event_reporting = SimpleNamespace(
-        close_session=AsyncMock(),
-    )
-    controller.subagents = SimpleNamespace(
-        shutdown_root=AsyncMock(return_value=(SimpleNamespace(
-            thread=SimpleNamespace(sid="sid_child"),
-        ),)),
-    )
-    controller.hooks = SimpleNamespace(
-        cleanup_session=AsyncMock(),
-    )
-    controller.command_hook_sessions = SimpleNamespace(
-        clear_root=Mock(),
-    )
-    coding = SimpleNamespace(
-        close_js_repl_session=AsyncMock(return_value=True),
-    )
-    controller.workspace_runtime = SimpleNamespace(
-        coding=coding,
-    )
+    ))
+    session._lifecycle_id = 4
+    session.remember_assistant_reply("final answer")
 
-    ended = await Mind.end_conversation(controller, reason="exit")
+    ended = await session.end(reason="exit")
 
     assert ended is None
-    call = controller.session_lifecycle.end.await_args
+    call = resources.lifecycle.end.await_args
     assert call.args[0] == 4
     context = call.args[1]
     assert context.session_id == "sid_test_1_abcdef"
@@ -219,159 +247,137 @@ async def test_controller_session_end_uses_current_root_snapshot(
     assert call.kwargs["reason"] == "exit"
     assert call.kwargs["transcript_path"] == "D:/sessions/session.jsonl"
     assert call.kwargs["last_assistant_message"] == "final answer"
-    controller.subagents.shutdown_root.assert_awaited_once_with(
+    resources.shutdown_root.assert_awaited_once_with(
         "sid_test_1_abcdef"
     )
-    controller.hooks.cleanup_session.assert_awaited_once_with(
-        "sid_child"
-    )
+    resources.hook_cleanup.assert_awaited_once_with("sid_child")
     assert [
         item.args[0]
-        for item in coding.close_js_repl_session.await_args_list
+        for item in resources.execution_cleanup.await_args_list
     ] == ["sid_child", "sid_test_1_abcdef"]
-    controller.command_hook_sessions.clear_root.assert_called_once_with(
+    resources.command_cleanup.assert_called_once_with(
         "sid_test_1_abcdef"
     )
 
     call.kwargs["before_dispatch"]()
 
-    transcript.open.assert_called_once_with()
-    transcript.append.assert_called_once_with(
+    resources.transcript.open.assert_called_once_with()
+    resources.transcript.append.assert_called_once_with(
         "session.ended",
         actor="system",
         payload={"reason": "exit"},
     )
-    transcript.close.assert_called_once_with()
-    controller.event_reporting.close_session.assert_awaited_once_with(
+    resources.transcript.close.assert_called_once_with()
+    resources.event_close.assert_awaited_once_with(
         "cid_test_12345678",
         "sid_test_1_abcdef",
     )
 
 
 @pytest.mark.anyio
-async def test_controller_archive_migrates_then_ends_current_session() -> None:
-    controller = Mind.__new__(Mind)
-    controller.conversation = ConversationState(
+async def test_root_session_archive_migrates_then_ends_current_session() -> None:
+    session, resources = _root_session(ConversationState(
         cid="cid_test_12345678",
         sid="sid_test_1_abcdef",
         turn_count=1,
-    )
+    ))
     events = []
-    controller.end_conversation = AsyncMock(
+    session.end = AsyncMock(
         side_effect=lambda **_kwargs: events.append("end")
     )
-    controller.history_store = SimpleNamespace(
-        archive_session=Mock(
-            side_effect=lambda **_kwargs: (
-                events.append("archive")
-                or {
-                    "cid": "cid_test_12345678",
-                    "sid": "sid_test_1_abcdef",
-                    "status": "archived",
-                }
-            ),
-        ),
-        unarchive_session=Mock(),
-    )
-
-    result = await Mind.archive_conversation(controller)
-
-    assert result["status"] == "archived"
-    assert events == ["archive", "end"]
-    controller.end_conversation.assert_awaited_once_with(reason="archive")
-    controller.history_store.archive_session.assert_called_once_with(
-        cid="cid_test_12345678",
-        sid="sid_test_1_abcdef",
-    )
-
-
-@pytest.mark.anyio
-async def test_controller_archive_rolls_back_when_lifecycle_end_fails() -> None:
-    controller = Mind.__new__(Mind)
-    controller.conversation = ConversationState(
-        cid="cid_test_12345678",
-        sid="sid_test_1_abcdef",
-        turn_count=1,
-    )
-    controller.end_conversation = AsyncMock(
-        side_effect=RuntimeError("end failed")
-    )
-    controller.history_store = SimpleNamespace(
-        archive_session=Mock(return_value={"status": "archived"}),
-        unarchive_session=Mock(return_value={"status": "active"}),
-    )
-
-    with pytest.raises(RuntimeError, match="end failed"):
-        await Mind.archive_conversation(controller)
-
-    controller.history_store.archive_session.assert_called_once_with(
-        cid="cid_test_12345678",
-        sid="sid_test_1_abcdef",
-    )
-    controller.history_store.unarchive_session.assert_called_once_with(
-        cid="cid_test_12345678",
-        sid="sid_test_1_abcdef",
-    )
-
-
-@pytest.mark.anyio
-async def test_controller_archive_rejects_unstarted_session() -> None:
-    controller = Mind.__new__(Mind)
-    controller.conversation = ConversationState()
-    controller.conversation.snapshot()
-    controller.end_conversation = AsyncMock()
-    controller.history_store = SimpleNamespace(archive_session=Mock())
-
-    with pytest.raises(LookupError, match="session is not started"):
-        await Mind.archive_conversation(controller)
-
-    controller.end_conversation.assert_not_awaited()
-    controller.history_store.archive_session.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_controller_archive_allows_resumed_session_without_local_turn() -> None:
-    controller = Mind.__new__(Mind)
-    controller.conversation = ConversationState(
-        cid="cid_test_12345678",
-        sid="sid_test_1_abcdef",
-    )
-    controller.end_conversation = AsyncMock()
-    controller.history_store = SimpleNamespace(
-        archive_session=Mock(return_value={
+    resources.store.archive_session.side_effect = lambda **_kwargs: (
+        events.append("archive")
+        or {
             "cid": "cid_test_12345678",
             "sid": "sid_test_1_abcdef",
             "status": "archived",
-        }),
-        unarchive_session=Mock(),
+        }
     )
 
-    result = await Mind.archive_conversation(controller)
+    result = await session.archive_current()
 
     assert result["status"] == "archived"
-    controller.history_store.archive_session.assert_called_once_with(
+    assert events == ["archive", "end"]
+    session.end.assert_awaited_once_with(reason="archive")
+    resources.store.archive_session.assert_called_once_with(
         cid="cid_test_12345678",
         sid="sid_test_1_abcdef",
     )
-    controller.end_conversation.assert_awaited_once_with(reason="archive")
 
 
 @pytest.mark.anyio
-async def test_controller_reuses_binding_for_same_session() -> None:
-    controller = Mind.__new__(Mind)
+async def test_root_session_archive_rolls_back_when_lifecycle_end_fails() -> None:
+    session, resources = _root_session(ConversationState(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+        turn_count=1,
+    ))
+    session.end = AsyncMock(
+        side_effect=RuntimeError("end failed")
+    )
+
+    with pytest.raises(RuntimeError, match="end failed"):
+        await session.archive_current()
+
+    resources.store.archive_session.assert_called_once_with(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+    )
+    resources.store.unarchive_session.assert_called_once_with(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+    )
+
+
+@pytest.mark.anyio
+async def test_root_session_archive_rejects_unstarted_session() -> None:
+    session, resources = _root_session()
+    session.snapshot()
+    session.end = AsyncMock()
+
+    with pytest.raises(LookupError, match="session is not started"):
+        await session.archive_current()
+
+    session.end.assert_not_awaited()
+    resources.store.archive_session.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_root_session_archive_allows_resumed_without_local_turn() -> None:
+    session, resources = _root_session(ConversationState(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+    ))
+    session.end = AsyncMock()
+    resources.store.archive_session.return_value = {
+        "cid": "cid_test_12345678",
+        "sid": "sid_test_1_abcdef",
+        "status": "archived",
+    }
+
+    result = await session.archive_current()
+
+    assert result["status"] == "archived"
+    resources.store.archive_session.assert_called_once_with(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+    )
+    session.end.assert_awaited_once_with(reason="archive")
+
+
+@pytest.mark.anyio
+async def test_root_session_reuses_binding_for_same_session() -> None:
     conversation = ConversationState(
         cid="cid_test_12345678",
         sid="sid_test_1_abcdef",
         turn_count=2,
     )
-    controller.conversation = conversation
-    controller._conversation_lifecycle_id = 4
-    controller.last_assistant_reply = "final answer"
-    controller.end_conversation = AsyncMock()
-    controller._touch_history_session = Mock()
+    session, _resources = _root_session(conversation)
+    session._lifecycle_id = 4
+    session.remember_assistant_reply("final answer")
+    session.end = AsyncMock()
 
-    metadata = await Mind.bind_conversation(
-        controller,
+    metadata = await session.bind(
         "cid_test_12345678",
         "sid_test_1_abcdef",
         source="mcp_server",
@@ -381,23 +387,18 @@ async def test_controller_reuses_binding_for_same_session() -> None:
         "cid": "cid_test_12345678",
         "sid": "sid_test_1_abcdef",
     }
-    assert controller.conversation is conversation
-    assert controller.conversation.turn_count == 2
-    assert controller._conversation_lifecycle_id == 4
-    controller.end_conversation.assert_not_awaited()
+    assert session._state is conversation
+    assert session.turn_count == 2
+    assert session._lifecycle_id == 4
+    session.end.assert_not_awaited()
 
 
 @pytest.mark.anyio
-async def test_controller_marks_new_binding_as_forkable_history() -> None:
-    controller = Mind.__new__(Mind)
-    controller.conversation = ConversationState()
-    controller._conversation_lifecycle_id = 0
-    controller.last_assistant_reply = ""
-    controller.end_conversation = AsyncMock()
-    controller._touch_history_session = Mock()
+async def test_root_session_marks_new_binding_as_forkable_history() -> None:
+    session, _resources = _root_session()
+    session.end = AsyncMock()
 
-    metadata = await Mind.bind_conversation(
-        controller,
+    metadata = await session.bind(
         "cid_test_12345678",
         "sid_test_1_abcdef",
         source="tui:resume",
@@ -407,6 +408,6 @@ async def test_controller_marks_new_binding_as_forkable_history() -> None:
         "cid": "cid_test_12345678",
         "sid": "sid_test_1_abcdef",
     }
-    assert controller.conversation.turn_count == 0
-    assert controller.conversation.session_bound is True
-    assert controller.conversation.fork_source_available is True
+    assert session.turn_count == 0
+    assert session.session_bound is True
+    assert session.fork_source_available is True

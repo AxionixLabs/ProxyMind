@@ -33,12 +33,18 @@ class ForkMindStub(object):
                 "cid": "cid_source_12345678",
                 "sid": "sid_source_1_abcdef",
             },
+            history=SimpleNamespace(
+                prepare_fork=self._prepare_fork,
+                clear_fork=self._clear_fork,
+            ),
+            bind=self._bind,
+            reset=self._reset,
         )
         self.frontend = SimpleNamespace(
             application=SimpleNamespace(emit=self.views.append),
         )
 
-    def prepare_conversation_fork(
+    def _prepare_fork(
         self,
         cid,
         sid,
@@ -51,18 +57,18 @@ class ForkMindStub(object):
         assert before_turn_id in {"", "turn_selected"}
         return "fork_request_0001"
 
-    async def bind_conversation(self, cid, sid, *, source):
+    async def _bind(self, cid, sid, *, source):
         self.bound.append((cid, sid, source))
         return {"cid": cid, "sid": sid}
 
-    async def reset_conversation(self, *, reason, source):
+    async def _reset(self, *, reason, source):
         self.resets.append((reason, source))
         return {
             "cid": "cid_target_87654321",
             "sid": "sid_target_2_fedcba",
         }
 
-    def clear_conversation_fork(
+    def _clear_fork(
         self,
         cid,
         sid,

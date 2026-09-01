@@ -283,7 +283,7 @@ async def _replace_empty_fork_source(
     request_id: str = "",
 ) -> ForkLiveStatus:
     """把没有远端历史的分支请求转换为新会话。"""
-    target = await mind.reset_conversation(
+    target = await mind.conversation.reset(
         reason="command:/fork-empty",
         source="tui:fork-empty",
     )
@@ -360,7 +360,7 @@ async def fork_current_conversation(
             event="conversation.fork.skipped",
         )
 
-    request_id = mind.prepare_conversation_fork(
+    request_id = mind.conversation.history.prepare_fork(
         source["cid"],
         source["sid"],
         boundary,
@@ -413,7 +413,7 @@ async def fork_current_conversation(
             prompt = fallback_prompt
 
         if boundary and not isinstance(prompt, ResubmittablePrompt):
-            mind.clear_conversation_fork(
+            mind.conversation.history.clear_fork(
                 source["cid"],
                 source["sid"],
                 request_id,
@@ -429,7 +429,7 @@ async def fork_current_conversation(
             return status
 
         if not valid_session_ids(target_cid, target_sid):
-            mind.clear_conversation_fork(
+            mind.conversation.history.clear_fork(
                 source["cid"],
                 source["sid"],
                 request_id,
@@ -450,13 +450,13 @@ async def fork_current_conversation(
         bound_sid = target_sid
 
         if bind_target:
-            bound = await mind.bind_conversation(
+            bound = await mind.conversation.bind(
                 target_cid,
                 target_sid,
                 source="tui",
             )
             if bound is None:
-                mind.clear_conversation_fork(
+                mind.conversation.history.clear_fork(
                     source["cid"],
                     source["sid"],
                     request_id,
@@ -476,7 +476,7 @@ async def fork_current_conversation(
             bound_cid = bound["cid"]
             bound_sid = bound["sid"]
 
-        mind.clear_conversation_fork(
+        mind.conversation.history.clear_fork(
             source["cid"],
             source["sid"],
             request_id,
@@ -512,7 +512,7 @@ async def fork_current_conversation(
     except ProtocolCommandError as error:
         error_code = error.code
         if bind_target and not boundary and error_code == "source_missing":
-            mind.clear_conversation_fork(
+            mind.conversation.history.clear_fork(
                 source["cid"],
                 source["sid"],
                 request_id,
@@ -527,7 +527,7 @@ async def fork_current_conversation(
             )
 
         if not error.retryable:
-            mind.clear_conversation_fork(
+            mind.conversation.history.clear_fork(
                 source["cid"],
                 source["sid"],
                 request_id,
@@ -546,7 +546,7 @@ async def fork_current_conversation(
         if protocol_client is None:
             error_code = str(getattr(error, "code", "") or "").strip()
             if bind_target and not boundary and error_code == "source_missing":
-                mind.clear_conversation_fork(
+                mind.conversation.history.clear_fork(
                     source["cid"],
                     source["sid"],
                     request_id,
@@ -562,7 +562,7 @@ async def fork_current_conversation(
             if hasattr(error, "retryable"):
                 retryable = bool(getattr(error, "retryable", False))
                 if not retryable:
-                    mind.clear_conversation_fork(
+                    mind.conversation.history.clear_fork(
                         source["cid"],
                         source["sid"],
                         request_id,
@@ -711,7 +711,7 @@ def _positive_int(value: typing.Any) -> int:
 
 async def copy_last_assistant_reply(mind: "Mind") -> None:
     """复制最近一次模型回复到剪贴板。"""
-    text = mind.last_assistant_reply_snapshot()
+    text = mind.conversation.last_assistant_reply()
     if not text:
         _present(mind, failure_text_block("No agent response to copy"))
         _present(mind, view_type="tui.gap")

@@ -5,8 +5,6 @@ import copy
 import time
 import typing
 import asyncio
-import sqlite3
-import contextlib
 from pathlib import Path
 from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.errors import AppError
@@ -25,15 +23,7 @@ from agent.domain.policies import (
     PermissionSettings,
     resolve_permissions
 )
-from agent.domain.hooks import (
-    SessionEndReason
-)
 from agent.harness.mcp.owner import McpRuntimeOwner
-from agent.application.hooks.context import HookExecutionContext
-from protocol.schema.identifiers import (
-    short_uid,
-    valid_session_ids,
-)
 from observability.reporting import RunReport
 from observability import (
     observe,
@@ -42,10 +32,7 @@ from observability import (
 from infrastructure.services.runtime_owner import ServiceRuntimeOwner
 from infrastructure.services.turn_environment import capture_turn_environment
 from protocol.client.reports import EventReportRuntimeOwner
-from agent.harness.sessions.conversation import (
-    ConversationState,
-    ConversationTurn,
-)
+from agent.harness.sessions.root import RootConversationSession
 from agent.domain.tool_policy import ToolFilterMode
 from infrastructure.mcp.local_tool_factory import (
     build_builtin_tool_registry,
@@ -77,20 +64,20 @@ from agent.ports import (
     OutputSessionFactory,
     ProtocolCommandClient,
     SkillsProvider,
-    TranscriptFactory,
 )
 from agent.harness.hooks.session_lifecycle import SessionLifecycleGateway
 from agent.harness.hooks.tool_lifecycle import CommandHookSessionStore
 from agent.stores.sessions import (
     ConversationHistoryStore,
-    HISTORY_LIMIT,
     normalize_workspace
 )
 from infrastructure.persistence.transcripts import (
     ConversationTranscriptStore,
 )
+from infrastructure.persistence.conversation_history import (
+    LocalConversationHistory,
+)
 from infrastructure.config.hooks import HookManager
-from agent.stores.transcripts import TranscriptEntry
 from agent.ports import (
     McpRuntime,
     McpSessionPort,
@@ -212,13 +199,12 @@ class Mind(object):
             self,
             turn_completion_presenter,
         )
-        self.conversation: ConversationState = ConversationState()
-        self.history_store: ConversationHistoryStore = (
+        history_store: ConversationHistoryStore = (
             kwargs.get("history_store")
             or ConversationHistoryStore(mind_history_db_path())
         )
 
-        self.transcripts: ConversationTranscriptStore = (
+        transcripts: ConversationTranscriptStore = (
             kwargs.get("transcript_store") or ConversationTranscriptStore()
         )
         self.event_reporting = EventReportRuntimeOwner(
@@ -245,8 +231,6 @@ class Mind(object):
                 session_factory=subagent_session_factory,
             )
         )
-        self._conversation_lifecycle_id: int = 0
-
         self.session_lifecycle = SessionLifecycleGateway(
             scope_factory=self.hooks.hook_scope,
             cleanup_session=self.hooks.cleanup_session,
@@ -283,6 +267,41 @@ class Mind(object):
             ),
         )
         self.permission_grants = PermissionGrantStore()
+        history = LocalConversationHistory(
+            history_store,
+            existing_transcript_path_for=transcripts.existing_path_for_session,
+            transcript_entries_for=(
+                lambda path: transcripts.reader(path).read()
+            ),
+        )
+        self.conversation = RootConversationSession(
+            history,
+            workspace=lambda: self.history_workspace,
+            permissions=lambda: self.permissions,
+            preference_config=self.pref.to_config,
+            fresh_preferences=(
+                lambda ttl_sec: self.fresh_pref_config(ttl_sec=ttl_sec)
+            ),
+            permission_grants=self.permission_grants,
+            approval_ledger=(
+                self.approval_call_ledger
+                if isinstance(self.approval_call_ledger, ApprovalLedger)
+                else None
+            ),
+            output_record_path=str(self.report.output_record_path or ""),
+            transcript_factory=transcripts.writer,
+            transcript_path_for=transcripts.path_for_session,
+            hook_scope_provider=self.hooks,
+            session_lifecycle=self.session_lifecycle,
+            subagent_shutdown=lambda sid: self.subagents.shutdown_root(sid),
+            hook_session_cleanup=self.hooks.cleanup_session,
+            execution_session_cleanup=(
+                self.workspace_runtime.coding.close_js_repl_session
+            ),
+            command_hook_cleanup=self.command_hook_sessions.clear_root,
+            event_session_close=self.event_reporting.close_session,
+            await_cleanup=self.await_cleanup,
+        )
 
         subagent_runtime = kwargs.get("subagent_runtime")
         if subagent_runtime is None:
@@ -298,21 +317,23 @@ class Mind(object):
                     if isinstance(self.approval_call_ledger, ApprovalLedger)
                     else None
                 ),
-                transcript_factory=self.transcripts.writer,
+                transcript_factory=self.conversation.transcript_factory,
                 cleanup=self,
                 patch_preview=self.workspace_runtime.coding.preview_patch,
                 skills_provider=self._skills_provider,
-                transcript_path_for=self.transcripts.path_for_session,
+                transcript_path_for=self.conversation.transcript_path_for_session,
                 transcript_entries_for=(
-                    lambda path: self.transcripts.reader(path).read()
+                    lambda path: transcripts.reader(path).read()
                 ),
-                session_cleanup=self._close_repl_session,
+                session_cleanup=(
+                    self.workspace_runtime.coding.close_js_repl_session
+                ),
                 graph_store=(
                     kwargs.get("agent_graph_store")
                     or AgentGraphStore(
                         agent_graph_db_path(),
-                        ttl_ms=self.history_store.ttl_ms,
-                        max_items=self.history_store.max_items,
+                        ttl_ms=self.conversation.history_ttl_ms,
+                        max_items=self.conversation.history_max_items,
                     )
                 ),
             )
@@ -366,8 +387,6 @@ class Mind(object):
 
         self.exit_code: int = 0
 
-        self.last_assistant_reply: str = ""
-
         observe(
             "controller.ready",
             run_id=getattr(self.report, "run_id", None),
@@ -401,68 +420,6 @@ class Mind(object):
                 await task
             raise
 
-    def _session_hook_context(
-        self,
-        *,
-        cid: str,
-        sid: str
-    ) -> HookExecutionContext:
-        """构建根会话生命周期事件使用的固定上下文。"""
-        pref_config = self.pref.to_config()
-
-        primary = (
-            pref_config.get("primary")
-            if isinstance(pref_config, dict)
-            else None
-        )
-
-        model = (
-            str(primary.get("model") or "").strip()
-            if isinstance(primary, dict)
-            else ""
-        )
-
-        return HookExecutionContext(
-            session_id=sid,
-            root_session_id=sid,
-            conversation_id=cid,
-            turn_id="",
-            cwd=self.history_workspace,
-            model=model,
-            source="session",
-            sandbox_mode=self.permissions.sandbox_mode,
-            permission_mode=self.permissions.approval_policy,
-            agent_id="root",
-            agent_type="root",
-            agent_depth=0,
-        )
-
-    def _touch_history_session(
-        self,
-        metadata: dict[str, str],
-        *,
-        title: str = "",
-        source: str
-    ) -> None:
-        """把 cid/sid 写入本地 history SQLite。"""
-        try:
-            self.history_store.touch_session(
-                cid=metadata["cid"],
-                sid=metadata["sid"],
-                title=title,
-                workspace=self.history_workspace,
-                source=source,
-                branch=metadata.get("branch", ""),
-                status=metadata.get("status", "active"),
-            )
-        except (OSError, sqlite3.Error, ValueError, KeyError) as exc:
-            observe_exception(
-                "history.write.failed",
-                exc,
-                level="WARNING",
-                source=source,
-            )
-
     def _build_client_tools(self) -> ToolRegistryPort:
         """按当前工作区构建客户端工具注册表。"""
         return build_client_tool_registry(
@@ -481,109 +438,6 @@ class Mind(object):
             permission_grants=self.permission_grants,
             features=self.features,
         )
-
-    def recent_conversation_sessions(
-        self,
-        *,
-        workspace: str | Path | None = None,
-        sources: typing.Collection[str] | None = None,
-        status: str | None = None,
-        limit: int = HISTORY_LIMIT
-    ) -> list[dict[str, typing.Any]]:
-        """返回可恢复的本地会话游标。"""
-        try:
-            records = self.history_store.list_sessions(
-                workspace=workspace,
-                sources=sources,
-                status=status,
-                limit=limit,
-            )
-        except (OSError, sqlite3.Error, ValueError) as exc:
-            observe_exception("history.list.failed", exc, level="WARNING")
-            return []
-
-        return [
-            record for record in records
-            if valid_session_ids(record.get("cid"), record.get("sid"))
-        ]
-
-    def find_conversation_session(
-        self,
-        session_id: str,
-        *,
-        workspace: str | Path | None = None,
-        sources: typing.Collection[str] | None = None,
-        status: str | None = None
-    ) -> dict[str, typing.Any] | None:
-        """按会话标识返回可恢复的本地会话游标。"""
-        try:
-            record = self.history_store.find_session(
-                session_id,
-                workspace=workspace,
-                sources=sources,
-                status=status,
-            )
-        except (OSError, sqlite3.Error, ValueError) as exc:
-            observe_exception("history.find.failed", exc, level="WARNING")
-            return None
-
-        if record is None or not valid_session_ids(
-            record.get("cid"),
-            record.get("sid"),
-        ):
-            return None
-        return record
-
-    def read_conversation_transcript(
-        self,
-        session_id: str
-    ) -> tuple[TranscriptEntry, ...]:
-        """读取指定会话已经持久化的结构化事件。"""
-        path = self.transcripts.existing_path_for_session(session_id)
-        if not path:
-            return ()
-        return self.transcripts.reader(path).read()
-
-    def prepare_conversation_fork(
-        self,
-        cid: str,
-        sid: str,
-        before_turn_id: str = ""
-    ) -> str:
-        """持久化并返回当前源会话的稳定分支请求标识。"""
-        candidate = f"fork_{short_uid(20)}"
-        try:
-            return self.history_store.get_or_create_fork_request(
-                cid=cid,
-                sid=sid,
-                request_id=candidate,
-                before_turn_id=before_turn_id,
-            )
-        except (OSError, sqlite3.Error, ValueError) as error:
-            observe_exception("conversation.fork.prepare_failed", error)
-            raise AppError("Unable to persist the conversation fork request.") from error
-
-    def clear_conversation_fork(
-        self,
-        cid: str,
-        sid: str,
-        request_id: str,
-        before_turn_id: str = ""
-    ) -> None:
-        """清除已完成或不可重试的本地分支请求。"""
-        try:
-            self.history_store.clear_fork_request(
-                cid=cid,
-                sid=sid,
-                request_id=request_id,
-                before_turn_id=before_turn_id,
-            )
-        except (OSError, sqlite3.Error, ValueError) as error:
-            observe_exception(
-                "conversation.fork.clear_failed",
-                error,
-                level="WARNING",
-            )
 
     def link_service_mcp(
         self,
@@ -666,39 +520,10 @@ class Mind(object):
             return None
         return copy.deepcopy(self.service_exec_env)
 
-    def remember_last_assistant_reply(self, text: str) -> None:
-        """记录最近一次完整模型回复原文。"""
-        value = str(text or "").strip()
-        if value:
-            self.last_assistant_reply = value
-
     @property
     def workspace_root(self) -> str:
         """返回当前根轮次绑定的工作区。"""
         return str(self.history_workspace or "")
-
-    @property
-    def output_record_path(self) -> str:
-        """返回根轮次输出记录路径。"""
-        return str(self.report.output_record_path or "")
-
-    @property
-    def approval_ledger(self) -> ApprovalLedger | None:
-        """返回当前会话共享的审批调用账本。"""
-        return self.approval_call_ledger
-
-    def transcript_path_for_session(self, sid: str) -> str:
-        """返回指定会话的 Transcript 路径。"""
-        return self.transcripts.path_for_session(sid)
-
-    @property
-    def transcript_factory(self) -> TranscriptFactory:
-        """返回当前会话使用的 Transcript writer 工厂。"""
-        return self.transcripts.writer
-
-    def conversation_identity(self) -> dict[str, str]:
-        """返回当前会话的稳定身份快照。"""
-        return self.conversation.snapshot()
 
     def capture_environment(
         self,
@@ -718,18 +543,6 @@ class Mind(object):
         if self._skills_provider is None:
             return []
         return list(self._skills_provider())
-
-    def queue_turn_context(self, contexts: typing.Iterable[str]) -> None:
-        """把未完成轮次的上下文排入下一轮。"""
-        self.conversation.queue_turn_context(contexts)
-
-    def remember_assistant_reply(self, text: str) -> None:
-        """保存最近一次已完成的 assistant 回复。"""
-        self.remember_last_assistant_reply(text)
-
-    def last_assistant_reply_snapshot(self) -> str:
-        """返回最近一次完整模型回复原文。"""
-        return self.last_assistant_reply
 
     @property
     def hook_scope_provider(self) -> HookScopeProviderPort:
@@ -755,256 +568,6 @@ class Mind(object):
         effective = resolve_permissions(effective_config, interactive=True)
         self.permissions = effective
         return effective
-
-    async def _close_repl_session(self, session_id: str) -> None:
-        """关闭指定执行会话持有的 JavaScript Kernel。"""
-        await self.workspace_runtime.coding.close_js_repl_session(session_id)
-
-    async def begin_conversation_turn(
-        self,
-        cid: typing.Optional[str] = None,
-        sid: typing.Optional[str] = None,
-        *,
-        title: str = "",
-        source: str = "begin"
-    ) -> ConversationTurn:
-        """为新轮次初始化或续用当前会话标识。"""
-        external_cid = str(cid or "").strip()
-        external_sid = str(sid or "").strip()
-        if external_cid or external_sid:
-            if not valid_session_ids(external_cid, external_sid):
-                raise ValueError("valid cid and sid are required")
-            if (
-                self.conversation.cid
-                and self.conversation.sid
-                and (
-                    external_cid != self.conversation.cid
-                    or external_sid != self.conversation.sid
-                )
-            ):
-                await self.end_conversation(reason="switch")
-                self._conversation_lifecycle_id += 1
-                self.last_assistant_reply = ""
-
-        turn = self.conversation.begin_turn(
-            cid=cid,
-            sid=sid,
-            start_reason=source,
-        )
-        metadata = turn.metadata()
-
-        self._touch_history_session(metadata, title=title, source=source)
-
-        observe(
-            "conversation.begin",
-            cid=metadata.get("cid"),
-            sid=metadata.get("sid"),
-            source=source,
-            session_started=turn.session_started,
-            start_reason=turn.start_reason,
-        )
-
-        return turn
-
-    async def reset_conversation(
-        self,
-        *,
-        reason: str = "manual",
-        source: str = "reset",
-        title: str = ""
-    ) -> dict[str, str]:
-        """开始一个新的模型对话。"""
-        await self.end_conversation(reason="reset")
-        metadata = self.conversation.reset(reason=reason)
-        self._conversation_lifecycle_id += 1
-        self.last_assistant_reply = ""
-
-        self._touch_history_session(metadata, title=title, source=source)
-
-        observe(
-            "conversation.reset",
-            cid=metadata.get("cid"),
-            sid=metadata.get("sid"),
-            reason=reason,
-            source=source,
-        )
-
-        return metadata
-
-    async def resume_conversation(
-        self,
-        record: dict[str, typing.Any],
-        *,
-        source: str = "resume"
-    ) -> typing.Optional[dict[str, str]]:
-        """把当前会话绑定到 history 中选中的 cid/sid。"""
-        cid = str(record.get("cid") or "").strip()
-        sid = str(record.get("sid") or "").strip()
-
-        if not valid_session_ids(cid, sid):
-            observe(
-                "history.resume.skipped",
-                level="WARNING",
-                reason="invalid_cursor",
-                cid=cid,
-                sid=sid,
-            )
-            return None
-
-        metadata = await self.bind_conversation(cid, sid, source=source)
-        if metadata is not None:
-            observe("history.resumed", cid=cid, sid=sid)
-        return metadata
-
-    async def bind_conversation(
-        self,
-        cid: str,
-        sid: str,
-        *,
-        source: str = "bind"
-    ) -> typing.Optional[dict[str, str]]:
-        """把当前运行绑定到一组已存在的远端会话标识。"""
-        if not valid_session_ids(cid, sid):
-            observe(
-                "conversation.bind.skipped",
-                level="WARNING",
-                reason="invalid_cursor",
-                cid=cid,
-                sid=sid,
-                source=source,
-            )
-            return None
-
-        if self.conversation.cid == cid and self.conversation.sid == sid:
-            self.conversation.session_bound = True
-            self.conversation.fork_source_available = True
-            metadata = self.conversation.snapshot()
-            self._touch_history_session(metadata, source=source)
-            observe("conversation.reused", cid=cid, sid=sid, source=source)
-            return metadata
-
-        await self.end_conversation(reason="switch")
-        self.conversation = ConversationState(
-            cid=cid,
-            sid=sid,
-            start_reason=source,
-            fork_source_available=True,
-        )
-        self._conversation_lifecycle_id += 1
-        self.last_assistant_reply = ""
-
-        metadata = self.conversation.snapshot()
-
-        self._touch_history_session(metadata, source=source)
-
-        observe("conversation.bound", cid=cid, sid=sid, source=source)
-
-        return metadata
-
-    async def end_conversation(self, *, reason: SessionEndReason) -> None:
-        """结束当前已绑定的根会话生命周期。"""
-        conversation = self.conversation
-
-        cid = str(conversation.cid or "").strip()
-        sid = str(conversation.sid or "").strip()
-
-        if not conversation.session_bound or not valid_session_ids(cid, sid):
-            return None
-
-        transcript_path = self.transcripts.path_for_session(sid)
-
-        transcript = self.transcripts.writer(
-            transcript_path,
-            session_id=sid,
-        )
-
-        def record_session_end() -> None:
-            """在结束 Hook 前写入根会话终态。"""
-            transcript.open()
-            try:
-                transcript.append(
-                    "session.ended",
-                    actor="system",
-                    payload={"reason": reason},
-                )
-            finally:
-                transcript.close()
-
-        subagent_snapshots = await self.subagents.shutdown_root(sid)
-
-        for snapshot in subagent_snapshots:
-            await self.hooks.cleanup_session(snapshot.thread.sid)
-            with contextlib.suppress(Exception):
-                await self.workspace_runtime.coding.close_js_repl_session(
-                    snapshot.thread.sid
-                )
-
-        with contextlib.suppress(Exception):
-            await self.workspace_runtime.coding.close_js_repl_session(sid)
-
-        self.command_hook_sessions.clear_root(sid)
-
-        await self.session_lifecycle.end(
-            self._conversation_lifecycle_id,
-            self._session_hook_context(cid=cid, sid=sid),
-            reason=reason,
-            transcript_path=transcript_path,
-            last_assistant_message=self.last_assistant_reply_snapshot(),
-            before_dispatch=record_session_end,
-        )
-        await self.event_reporting.close_session(cid, sid)
-
-    async def archive_conversation(self) -> dict[str, typing.Any]:
-        """将当前根会话迁移到 archived 集合并结束其生命周期。"""
-        conversation = self.conversation
-
-        cid = str(conversation.cid or "").strip()
-        sid = str(conversation.sid or "").strip()
-
-        if not conversation.session_bound or not valid_session_ids(cid, sid):
-            raise LookupError("conversation session is not started")
-
-        archived = self.history_store.archive_session(cid=cid, sid=sid)
-        try:
-            await self.end_conversation(reason="archive")
-        except BaseException:
-            try:
-                self.history_store.unarchive_session(cid=cid, sid=sid)
-            except Exception as rollback_error:
-                observe_exception(
-                    "history.archive.rollback.failed",
-                    rollback_error,
-                    level="ERROR",
-                    cid=cid,
-                    sid=sid,
-                )
-            raise
-        return archived
-
-    async def archive_conversation_session(
-        self,
-        cid: str,
-        sid: str
-    ) -> dict[str, typing.Any]:
-        """把指定的非当前会话迁移到 archived 集合。"""
-        if not valid_session_ids(cid, sid):
-            raise ValueError("valid cid and sid are required")
-        if (str(self.conversation.cid), str(self.conversation.sid)) == (
-            str(cid),
-            str(sid),
-        ):
-            raise ValueError(
-                "Use /archive to archive the current session and exit."
-            )
-        return self.history_store.archive_session(cid=cid, sid=sid)
-
-    async def unarchive_conversation(
-        self,
-        cid: str,
-        sid: str
-    ) -> dict[str, typing.Any]:
-        """把指定 archived 会话迁移回 active 集合。"""
-        return self.history_store.unarchive_session(cid=cid, sid=sid)
 
     async def refresh_pref_if_stale(
         self,

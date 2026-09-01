@@ -10,7 +10,7 @@ from agent.application.agents.fork_context import (
     normalize_fork_turns,
 )
 from agent.application.config.settings import DEFAULT_MAX_FORK_CONTEXT_CHARS
-from agent.stores.transcripts import (
+from agent.domain.transcripts import (
     TranscriptEntry,
     TranscriptReplay,
 )

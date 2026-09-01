@@ -53,7 +53,7 @@ class CompactionSessionPort(typing.Protocol):
         """返回会话 Transcript writer 工厂。"""
         ...
 
-    def conversation_identity(self) -> Mapping[str, str]:
+    def snapshot(self) -> Mapping[str, str]:
         """返回当前会话的稳定 cid/sid 快照。"""
         ...
 

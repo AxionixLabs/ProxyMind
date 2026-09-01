@@ -75,7 +75,7 @@ class _CompactionSession:
     def transcript_factory(self):
         return self._host.transcripts.writer
 
-    def conversation_identity(self):
+    def snapshot(self):
         return self._host.conversation.snapshot()
 
     def transcript_path_for_session(self, sid):

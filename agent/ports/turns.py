@@ -208,7 +208,7 @@ class RootTurnSessionPort(typing.Protocol):
         """读取当前有效的偏好配置快照。"""
         ...
 
-    async def begin_conversation_turn(
+    async def begin_turn(
         self,
         cid: str | None,
         sid: str | None,

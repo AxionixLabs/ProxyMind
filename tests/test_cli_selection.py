@@ -669,11 +669,14 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         side_effect=lambda *_args, **_kwargs: events.append("run")
     )
     attachments = Mock()
+    recent = Mock(return_value=[record])
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=object()),
         history_workspace=r"D:\workspace",
-        recent_conversation_sessions=Mock(return_value=[record]),
-        resume_conversation=resume_conversation,
+        conversation=SimpleNamespace(
+            history=SimpleNamespace(recent=recent),
+            resume=resume_conversation,
+        ),
         attach=SimpleNamespace(add_pending_attachments=attachments),
         subscription=SimpleNamespace(close=AsyncMock()),
         task_event=asyncio.Event(),
@@ -705,7 +708,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
     )
 
     assert result is None
-    mind.recent_conversation_sessions.assert_called_once_with(
+    recent.assert_called_once_with(
         workspace=r"D:\workspace",
         sources=("tui", "tui:resume"),
         limit=1,
@@ -719,7 +722,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
         record=record,
     )
-    mind.resume_conversation.assert_called_once_with(
+    resume_conversation.assert_called_once_with(
         record,
         source="tui:resume",
     )
@@ -754,11 +757,14 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> Non
         replace_transcript=Mock(),
     )
     run_tui_loop = AsyncMock()
+    resume = AsyncMock(return_value=None)
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=object()),
         history_workspace=r"D:\workspace",
-        recent_conversation_sessions=Mock(return_value=[record]),
-        resume_conversation=AsyncMock(return_value=None),
+        conversation=SimpleNamespace(
+            history=SimpleNamespace(recent=Mock(return_value=[record])),
+            resume=resume,
+        ),
         task_event=asyncio.Event(),
         permissions=preset_permissions("auto"),
     )
@@ -799,10 +805,13 @@ async def test_interactive_cli_resume_opens_picker_for_empty_snapshot(
         terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
     )
     choose = AsyncMock(return_value=None)
+    recent = Mock(return_value=[])
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=object()),
         history_workspace=r"D:\workspace",
-        recent_conversation_sessions=Mock(return_value=[]),
+        conversation=SimpleNamespace(
+            history=SimpleNamespace(recent=recent),
+        ),
     )
     monkeypatch.setattr(
         runtime_module,
@@ -817,7 +826,7 @@ async def test_interactive_cli_resume_opens_picker_for_empty_snapshot(
     )
 
     assert selected is None
-    mind.recent_conversation_sessions.assert_called_once_with(
+    recent.assert_called_once_with(
         workspace=r"D:\workspace",
         sources=("tui", "tui:resume"),
         limit=200,
@@ -836,9 +845,12 @@ async def test_interactive_cli_resume_opens_picker_for_empty_snapshot(
 async def test_resume_last_empty_snapshot_keeps_direct_error() -> None:
     from frontends.cli import dispatch as dispatch_module
 
+    recent = Mock(return_value=[])
     mind = SimpleNamespace(
         history_workspace="D:/workspace",
-        recent_conversation_sessions=Mock(return_value=[]),
+        conversation=SimpleNamespace(
+            history=SimpleNamespace(recent=recent),
+        ),
     )
 
     with pytest.raises(AppError, match="No resumable sessions were found"):
@@ -1364,13 +1376,13 @@ async def test_tui_finalization_prints_summary_after_cleanup(
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         await_cleanup=_await_cleanup,
-        end_conversation=AsyncMock(
-            side_effect=lambda **_kwargs: events.append("session"),
-        ),
         close_runtime_resources=AsyncMock(
             side_effect=lambda: events.append("resources"),
         ),
         conversation=SimpleNamespace(
+            end=AsyncMock(
+                side_effect=lambda **_kwargs: events.append("session"),
+            ),
             turn_count=1,
             sid="sid_test_1_abcdef",
         ),
@@ -1384,7 +1396,7 @@ async def test_tui_finalization_prints_summary_after_cleanup(
     )
 
     assert events == ["session", "runtime", "resources", "summary"]
-    mind.end_conversation.assert_awaited_once_with(reason="exit")
+    mind.conversation.end.assert_awaited_once_with(reason="exit")
     runtime.print_exit_summary.assert_called_once_with("sid_test_1_abcdef")
 
 
@@ -1397,13 +1409,16 @@ async def test_tui_finalization_closes_silently_without_a_conversation() -> None
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         await_cleanup=_await_cleanup,
-        end_conversation=AsyncMock(
-            side_effect=lambda **_kwargs: events.append("session"),
-        ),
         close_runtime_resources=AsyncMock(
             side_effect=lambda: events.append("resources"),
         ),
-        conversation=SimpleNamespace(turn_count=0, sid=None),
+        conversation=SimpleNamespace(
+            end=AsyncMock(
+                side_effect=lambda **_kwargs: events.append("session"),
+            ),
+            turn_count=0,
+            sid=None,
+        ),
         exit_code=0,
     )
 
@@ -1425,7 +1440,7 @@ async def test_tui_finalization_skips_summary_for_incomplete_session() -> None:
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         await_cleanup=_await_cleanup,
-        end_conversation=AsyncMock(),
+        conversation=SimpleNamespace(end=AsyncMock()),
         close_runtime_resources=AsyncMock(),
         exit_code=0,
     )
@@ -1437,7 +1452,7 @@ async def test_tui_finalization_skips_summary_for_incomplete_session() -> None:
     )
 
     runtime.close.assert_awaited_once_with()
-    mind.end_conversation.assert_awaited_once_with(reason="error")
+    mind.conversation.end.assert_awaited_once_with(reason="error")
     mind.close_runtime_resources.assert_awaited_once_with()
     runtime.print_exit_summary.assert_not_called()
 
@@ -1450,7 +1465,7 @@ async def test_tui_finalization_skips_summary_when_cleanup_fails() -> None:
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         await_cleanup=_await_cleanup,
-        end_conversation=AsyncMock(),
+        conversation=SimpleNamespace(end=AsyncMock()),
         close_runtime_resources=AsyncMock(),
         exit_code=0,
     )
@@ -1473,8 +1488,10 @@ async def test_finalization_closes_resources_when_session_end_fails() -> None:
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         await_cleanup=_await_cleanup,
-        end_conversation=AsyncMock(
-            side_effect=RuntimeError("session end failed"),
+        conversation=SimpleNamespace(
+            end=AsyncMock(
+                side_effect=RuntimeError("session end failed"),
+            ),
         ),
         close_runtime_resources=AsyncMock(),
         exit_code=1,
