@@ -10,7 +10,7 @@ from unittest.mock import (
 import pytest
 
 from mind_app.controller import Mind
-from mind_app.interaction import ConversationState
+from agent.harness.sessions.conversation import ConversationState
 from agent.domain.policies import preset_permissions
 
 

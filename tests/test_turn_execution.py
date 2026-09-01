@@ -20,7 +20,7 @@ from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
 from agent.harness.hooks.scope import HookExecutionScope
 from agent.stores.approvals.ledger import ApprovalCallLedger
-from mind_app.interaction import ConversationTurn
+from agent.harness.sessions.conversation import ConversationTurn
 from mind_app.runtime.turns import root as root_turns
 from frontends.terminal.turn_lifecycle import (
     ControllerTurnForegroundLifecycle,

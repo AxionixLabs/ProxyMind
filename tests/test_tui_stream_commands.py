@@ -353,7 +353,7 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
         link_started.set()
         await release_link.wait()
 
-    def run_model_turn(_mind, *, message_text, **_kwargs):
+    def run_model_turn(_mind, *_ports, message_text, **_kwargs):
         async def execute() -> RunResult:
             turn_messages.append(message_text)
             if len(turn_messages) == 1:
@@ -376,7 +376,11 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
     )
 
     runtime.submissions.message_queue.put_nowait("first")
-    run_task = asyncio.create_task(loop.run_tui_loop(mind))
+    run_task = asyncio.create_task(loop.run_tui_loop(
+        mind,
+        execution_runtime=object(),
+        root_session=object(),
+    ))
     await first_turn_started.wait()
 
     runtime.screen.input.buffer.text = "/helix-link"
@@ -450,7 +454,7 @@ async def test_stream_settings_settle_before_queued_model_turn(
         await release_settings.wait()
         return updated_permissions
 
-    def run_model_turn(_mind, *, permissions, **_kwargs):
+    def run_model_turn(_mind, *_ports, permissions, **_kwargs):
         async def execute() -> RunResult:
             turn_permissions.append(permissions)
             if len(turn_permissions) == 1:
@@ -472,7 +476,11 @@ async def test_stream_settings_settle_before_queued_model_turn(
     monkeypatch.setattr(loop, "run_tui_model_turn", run_model_turn)
 
     runtime.submissions.message_queue.put_nowait("first")
-    run_task = asyncio.create_task(loop.run_tui_loop(mind))
+    run_task = asyncio.create_task(loop.run_tui_loop(
+        mind,
+        execution_runtime=object(),
+        root_session=object(),
+    ))
     await first_turn_started.wait()
 
     runtime.screen.input.buffer.text = "/permissions"
@@ -542,7 +550,7 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
         panel_started.set()
         await release_panel.wait()
 
-    def run_model_turn(_mind, *, message_text, **_kwargs):
+    def run_model_turn(_mind, *_ports, message_text, **_kwargs):
         async def execute() -> RunResult:
             turn_messages.append(message_text)
             if len(turn_messages) == 1:
@@ -564,7 +572,11 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
     monkeypatch.setattr(loop, "run_tui_model_turn", run_model_turn)
 
     runtime.submissions.message_queue.put_nowait("first")
-    run_task = asyncio.create_task(loop.run_tui_loop(mind))
+    run_task = asyncio.create_task(loop.run_tui_loop(
+        mind,
+        execution_runtime=object(),
+        root_session=object(),
+    ))
     await first_turn_started.wait()
 
     runtime.screen.input.buffer.text = "/agent"
@@ -633,7 +645,7 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
         finally:
             link_cancelled.set()
 
-    def run_model_turn(_mind, **_kwargs):
+    def run_model_turn(_mind, *_ports, **_kwargs):
         async def execute() -> RunResult:
             turn_started.set()
             await release_turn.wait()
@@ -655,7 +667,11 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
     )
 
     runtime.submissions.message_queue.put_nowait("first")
-    run_task = asyncio.create_task(loop.run_tui_loop(mind))
+    run_task = asyncio.create_task(loop.run_tui_loop(
+        mind,
+        execution_runtime=object(),
+        root_session=object(),
+    ))
     await turn_started.wait()
 
     runtime.screen.input.buffer.text = "/helix-link"
@@ -719,7 +735,7 @@ async def test_idle_mcp_start_commits_result_before_next_query(
         await release_mcp.wait()
         runtime.queue_background_block(text_block("External MCP ready"))
 
-    def run_model_turn(_mind, *, message_text, **_kwargs):
+    def run_model_turn(_mind, *_ports, message_text, **_kwargs):
         async def execute() -> RunResult:
             assert message_text == "hi"
             model_started.set()
@@ -737,7 +753,11 @@ async def test_idle_mcp_start_commits_result_before_next_query(
     monkeypatch.setattr(loop, "run_tui_model_turn", run_model_turn)
 
     runtime.submissions.message_queue.put_nowait(command)
-    run_task = asyncio.create_task(loop.run_tui_loop(mind))
+    run_task = asyncio.create_task(loop.run_tui_loop(
+        mind,
+        execution_runtime=object(),
+        root_session=object(),
+    ))
     await mcp_started.wait()
 
     assert runtime.foreground_active
@@ -817,7 +837,11 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
     )
 
     runtime.submissions.message_queue.put_nowait("/helix-link")
-    run_task = asyncio.create_task(loop.run_tui_loop(mind))
+    run_task = asyncio.create_task(loop.run_tui_loop(
+        mind,
+        execution_runtime=object(),
+        root_session=object(),
+    ))
     await link_started.wait()
 
     runtime.submissions.interrupt_input()

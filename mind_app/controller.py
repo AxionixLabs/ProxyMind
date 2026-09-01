@@ -37,12 +37,12 @@ from observability import (
     observe,
     observe_exception
 )
-from .interaction.attachments import Attach
+from frontends.interaction.attachments import Attach
 from infrastructure.services.runtime_owner import ServiceRuntimeOwner
 from protocol.client.reports import EventReportRuntimeOwner
-from .interaction import (
+from agent.harness.sessions.conversation import (
     ConversationState,
-    ConversationTurn
+    ConversationTurn,
 )
 from .runtime.mcp.tool_runtime import (
     CompositeToolRuntime,

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.interaction import ConversationState
+from agent.harness.sessions.conversation import ConversationState
 from protocol.schema.identifiers import new_cid, new_sid
 
 

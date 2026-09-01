@@ -7,7 +7,7 @@ from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.document import Document
 from prompt_toolkit.keys import Keys
 
-from mind_app.interaction.contracts import PromptContext
+from frontends.interaction.contracts import PromptContext
 from frontends.tui.core.input import TuiInputModel
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime

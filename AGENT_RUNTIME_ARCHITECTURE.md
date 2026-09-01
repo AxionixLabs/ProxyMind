@@ -610,7 +610,7 @@ running -> cancelled
 | `mind_app/reporting.py` | `observability/reporting.py` | 单次运行报告目录、诊断日志 sink 和输出记录路径由可观测性基础设施统一管理；控制器只持有注入的报告对象 |
 | `mind_app/paths.py` | `infrastructure/config/runtime_paths.py` | 用户数据目录、报告/会话/历史/效果/运行时数据库路径和子进程环境属于配置基础设施；入口布局解析保持在 `config/paths.py` |
 | `mind_app/assets.py` | `infrastructure/update/assets.py` 与 `frontends/terminal/download_renderer.py` | 资产存在性和升级触发属于更新基础设施；动画管理器到终端进度端口的适配属于 frontend，不让更新层依赖 UI |
-| `mind_app/attach.py` | `mind_app/interaction/attachments.py` | 待发送附件的路径解析、分类、快照和消费属于交互输入状态；不把一次输入状态伪装成持久化 Store 或协议模型 |
+| `mind_app/attach.py`、`mind_app/interaction/attachments.py` | `frontends/interaction/attachments.py` | 待发送附件的路径解析、分类、快照和消费属于前端输入状态；不把一次输入状态伪装成持久化 Store 或协议模型，Controller 仅在迁移期持有该前端状态 |
 | `mind_app/mcp/` | `mind_app/runtime/mcp/` | MCP 配置、外部连接、会话组合、工具结果和 stdio 服务同属运行时适配边界；不在应用根保留平铺包或转发 facade |
 | `mind_app/native_coding/encoding.py` | `infrastructure/platform/encoding.py` | 进程输出编码探测、规范化和解码是跨能力的平台事实；native coding 只消费平台端口，不拥有第二套解码器 |
 | `mind_app/runtime/processes.py` | `infrastructure/platform/processes.py` | 进程组创建、stdin 收束、树级中断/终止和 Windows/POSIX 差异属于平台生命周期能力 |
@@ -626,9 +626,9 @@ running -> cancelled
 | `mind_app/runtime/hooks/command.py` | `infrastructure/platform/hook_command.py` | Hook 子进程启动、跨平台 shell、输出解析和终止属于平台执行能力；Hook runtime 只消费 `HookCommandRunner`，不拥有操作系统进程句柄 |
 | `mind_app/runtime/hooks/runtime.py`、`registry.py` | `agent/harness/hooks/runtime.py`、`registry.py` | Hook 并发执行、信任解析、scope 构建和资源生命周期属于 Harness；Harness 只依赖 agent ports，具体平台执行器由组合根注入 |
 | `mind_app/runtime/environment/coding_lifecycle.py` | `agent/harness/workspace_runtime.py` | 工作区编码、Shell、执行策略和进程能力的替换/关闭属于 Harness 生命周期；具体 NativeCoding/策略工厂只由根组合注入，Harness 不导入 legacy 或平台实现 |
-| `mind_app/runtime/environment/snapshot.py` | `agent/application/turns/environment.py`、`mind_app/interaction/environment.py` | 环境能力调用与失败收敛属于 application 用例；Controller/Helix 上下文聚合属于 interaction adapter，不让 runtime 持有环境采集逻辑 |
+| `mind_app/runtime/environment/snapshot.py`、`mind_app/interaction/environment.py` | `agent/application/turns/environment.py`、`infrastructure/services/turn_environment.py` | 环境能力调用与失败收敛属于 application 用例；工作区和 Helix provider 聚合属于基础设施 adapter，并只消费最小宿主协议，不导入 Controller 或历史包 |
 | `mind_app/runtime/support/session_identity.py` | `agent/application/config/session_identity.py` | 远端 `cid/sid` 到本地持久化 Session 身份的确定性派生属于 application 身份用例；不让 CLI/TUI 各自复制哈希规则，也不把本地语义塞入线上 `protocol` |
-| `mind_app/runtime/support/conversation.py` | `mind_app/interaction/conversation.py` | 本地会话标识、轮次边界和一次性上下文属于交互输入状态；Controller 只持有交互状态，不让 runtime support 继续承接会话生命周期 |
+| `mind_app/runtime/support/conversation.py`、`mind_app/interaction/conversation.py` | `agent/harness/sessions/conversation.py` | 本地会话标识、轮次边界和一次性上下文属于 Harness Session 生命周期；Controller 迁移期只持有实例，不让 runtime support 或具体前端拥有状态机 |
 | `mind_app/runtime/support/clipboard.py` | `mind_app/tui/adapters/clipboard.py` | 系统剪贴板是 TUI 的平台 adapter；展示功能显式依赖该 adapter，不让通用 runtime support 持有 UI 专属 I/O |
 | `mind_app/runtime/support/session_policy.py` | `mind_app/runtime/mcp/errors.py`、`agent/application/turns/exception_text.py` | MCP 传输关闭判断归 MCP 错误边界；HTTP/运行期异常的一行用户摘要归 Turn application，按职责拆分，不保留混合 session policy |
 | `mind_app/approval/models.py::ExecPolicyAmendmentProposal`、`approval/policy.py::approval_execpolicy_amendment` | `agent/application/approvals/amendments.py` | 执行策略修订提案的具名值和结构校验属于审批 application 语义；终端审批 renderer 不反向导入 legacy application |
@@ -686,7 +686,7 @@ running -> cancelled
 | `mind_core` 配置、权限、hooks、skills | `domain/policies.py`、`application/`、`infrastructure/config`、capability adapters | 配置读取、策略判断和技能/Hook 生命周期拆开，禁止形成新的共享杂物包；完成后删除 `mind_core` |
 | `frontends/cli`、`frontends/tui`、`frontends/mcp`、`frontends/subscription` | `frontends/`、`application/`、Protocol Client | CLI、TUI、MCP、Subscription 四类入口均通过 `RuntimeServices` 接收 application；执行命令已冻结并提交统一入口，CLI 的根轮次 runner/环境快照和 MCP 的对应能力均由 `mind.py` 显式注入；终态观测和回执优先使用 Run/Canonical Event projection；TUI 作为 Protocol Client adapter，桌面/Web 通过同一 fixture 校验协议投影；剩余 UI/控制器依赖迁出后删除 `mind_app` |
 | `mind_app/tui`（已删除） | `frontends/tui` | TUI 输入、会话、渲染和展示 runtime 作为一个可替换前端整体迁移；内部状态仍由 TUI adapter 管理，Harness、Controller 和 Protocol Client 状态不随目录迁移，避免 `frontends -> mind_app -> frontends` 包级循环 |
-| `frontends/tui/session/turn_input.py`、`frontends/tui/session/loop.py`、`frontends/cli/dispatch.py` | `frontends/` + CLI bootstrap 组合根装配 | TUI 输入控制器、TUI durable `TurnApplication` 和 CLI durable exec 均只消费显式注入的 Protocol Client/factory；前端 session/dispatch 不反射发现 `Mind.runtime_services`，输入对账、关闭收敛和短生命周期 application 仍由各自入口持有 |
+| `frontends/tui/session/turn_input.py`、`frontends/tui/session/loop.py`、`frontends/cli/dispatch.py` | `frontends/` + CLI bootstrap 组合根装配 | TUI 输入控制器、TUI durable `TurnApplication` 和 CLI durable exec 均只消费显式注入的 Protocol Client/factory、`TurnExecutionRuntimePort` 与 `RootTurnSessionPort`；前端 session/dispatch 不从 `Mind` 反射发现运行时服务或 Turn 执行端口，输入对账、关闭收敛和短生命周期 application 仍由各自入口持有 |
 | `frontends/tui/features/conversation.py`、TUI `/fork`/backtrack 调用链 | `frontends/tui` + session 组合边界 | 会话分支 feature 只消费显式 `ProtocolCommandClient`；请求幂等、源缺失恢复和本地测试 seam 保留在 feature 边界，不从 `Mind` 反射读取运行时服务 |
 | `mind_app/tui/contracts`（已删除） | `frontends/tui/contracts` | TUI 的菜单、分页、Resume、文本片段、Transcript 和视图契约是无副作用的前端展示输入；只依赖标准库和同包类型，TUI/CLI/测试统一从新路径导入 |
 | `mind_app/runtime/mcp/server.py` | `frontends/mcp/server.py` | stdio MCP 入站适配器整体迁移；`mind_exec` 通过注入的 `TurnApplication`、`RootTurnCommandExecutor`、根轮次 runner 和环境快照 provider 提交 `SubmitTurnCommand`，structured content 优先使用 `RunResultProjection`；MCP runtime 不拥有控制器或模型生命周期，CLI 由组合根注入 runner |

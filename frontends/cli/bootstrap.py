@@ -68,8 +68,10 @@ from agent.ports import (
     ExecutionPolicy,
     HookRegistryPort,
     ProtocolCommandClient,
+    RootTurnSessionPort,
     RetryStatePort,
     TurnAnimationPort,
+    TurnExecutionRuntimePort,
     TurnSessionContextPort,
     TurnSessionStatePort,
     TurnForegroundLifecyclePort,
@@ -712,10 +714,14 @@ async def _run_controller(
         animation_port: TurnAnimationPort | None = None
         session_context: TurnSessionContextPort | None = None
         session_state: TurnSessionStatePort | None = None
+        execution_runtime: TurnExecutionRuntimePort | None = None
+        root_session: RootTurnSessionPort | None = None
         execution_policy: ExecutionPolicy | None = None
         approval_coordinator: ApprovalCoordinatorPort | None = None
         lifecycle: TurnForegroundLifecyclePort | None = None
         if runtime_services is not None:
+            execution_runtime = controller.turn_execution_runtime
+            root_session = controller.root_turn_session
             turn_application_factory = runtime_services.create_turn_application
             model_capability = runtime_services.model_capability
             effect_journal_factory = runtime_services.create_effect_journal
@@ -743,6 +749,8 @@ async def _run_controller(
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
             turn_application_factory=turn_application_factory,
+            execution_runtime=execution_runtime,
+            root_session=root_session,
             model_capability=model_capability,
             protocol_client=protocol_client,
             effect_journal_factory=effect_journal_factory,

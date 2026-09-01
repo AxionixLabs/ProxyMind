@@ -7,7 +7,7 @@ import operator
 from infrastructure.errors import AppError
 from metadata import const
 from frontends.runtime import Frontend
-from mind_app.interaction import NonInteractiveInteraction
+from frontends.interaction import NonInteractiveInteraction
 from frontends.terminal.contracts import TerminalDesign
 from .selection import OutputMode
 

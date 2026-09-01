@@ -4,11 +4,12 @@
 import time
 import typing
 from dataclasses import dataclass
+
 from protocol.schema.identifiers import (
     new_cid,
     new_sid,
+    valid_session_ids,
 )
-from protocol.schema.identifiers import valid_session_ids
 
 
 @dataclass(frozen=True, slots=True)

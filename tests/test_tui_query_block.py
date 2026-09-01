@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
-from mind_app.interaction.contracts import PromptContext
+from frontends.interaction.contracts import PromptContext
 from frontends.tui.core.document import TuiDocument
 from frontends.tui.core.models import FragmentBlock, MenuOption, MenuRequest
 from frontends.tui.core.queued import TuiSubmission

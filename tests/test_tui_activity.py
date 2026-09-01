@@ -14,7 +14,7 @@ from prompt_toolkit.output import DummyOutput
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from mind_app.controller import Mind
 from agent.ports.presentation import ApplicationView
-from mind_app.interaction import PromptContext
+from frontends.interaction import PromptContext
 from frontends.tui.adapters.output import TuiOutputControl
 from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.adapters.session import create_tui_output_session

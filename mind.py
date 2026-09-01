@@ -31,7 +31,7 @@ from frontends.mcp.server import run_mind_mcp_server
 from mind_app.native_coding import NativeCoding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.harness.hooks.registry import HookRegistry
-from mind_app.interaction.environment import (
+from infrastructure.services.turn_environment import (
     capture_active_turn_environment,
     capture_turn_environment,
 )

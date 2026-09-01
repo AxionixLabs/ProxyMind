@@ -12,7 +12,7 @@ from agent.ports.presentation import (
     Viewport,
 )
 from agent.ports import RetryState
-from mind_app.interaction.contracts import InteractionPort
+from frontends.interaction.contracts import InteractionPort
 from agent.ports import OutputSessionFactory
 
 ActivityStatusKind = typing.Literal[

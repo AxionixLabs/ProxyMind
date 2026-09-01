@@ -9,7 +9,7 @@ from prompt_toolkit.utils import get_cwidth
 from unittest.mock import Mock
 
 from agent.ports.presentation import ApplicationView
-from mind_app.interaction.contracts import PromptContext
+from frontends.interaction.contracts import PromptContext
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,

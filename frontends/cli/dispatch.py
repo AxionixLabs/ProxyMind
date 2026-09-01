@@ -21,8 +21,10 @@ from agent.ports import (
     ModelCapability,
     ProtocolCommandClient,
     PatchPreviewPort,
+    RootTurnSessionPort,
     RetryStatePort,
     TurnAnimationPort,
+    TurnExecutionRuntimePort,
     TurnSessionContextPort,
     TurnSessionStatePort,
     TurnForegroundLifecyclePort,
@@ -106,6 +108,8 @@ async def run_selected_command(
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     turn_application_factory: TurnApplicationFactory | None = None,
+    execution_runtime: TurnExecutionRuntimePort | None = None,
+    root_session: RootTurnSessionPort | None = None,
     model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
@@ -149,6 +153,8 @@ async def run_selected_command(
             await _run_agent_listener_session(
                 mind,
                 turn_application_factory=turn_application_factory,
+                execution_runtime=execution_runtime,
+                root_session=root_session,
                 model_capability=model_capability,
                 protocol_client=protocol_client,
                 effect_journal_factory=effect_journal_factory,
@@ -234,6 +240,8 @@ async def run_selected_command(
                 images=command.images,
                 model=command.model,
                 turn_application_factory=turn_application_factory,
+                execution_runtime=execution_runtime,
+                root_session=root_session,
                 model_capability=model_capability,
                 protocol_client=protocol_client,
                 effect_journal_factory=effect_journal_factory,
@@ -285,6 +293,8 @@ async def run_selected_command(
                     images=command.images,
                     model=command.model,
                     turn_application_factory=turn_application_factory,
+                    execution_runtime=execution_runtime,
+                    root_session=root_session,
                     model_capability=model_capability,
                     protocol_client=protocol_client,
                     effect_journal_factory=effect_journal_factory,
@@ -335,6 +345,8 @@ async def _run_agent_listener_session(
     mind: "Mind",
     *,
     turn_application_factory: TurnApplicationFactory | None,
+    execution_runtime: TurnExecutionRuntimePort | None,
+    root_session: RootTurnSessionPort | None,
     model_capability: ModelCapability | None,
     protocol_client: ProtocolCommandClient | None,
     effect_journal_factory: EffectJournalFactory | None,
@@ -359,6 +371,8 @@ async def _run_agent_listener_session(
         images=(),
         model=None,
         turn_application_factory=turn_application_factory,
+        execution_runtime=execution_runtime,
+        root_session=root_session,
         model_capability=model_capability,
         protocol_client=protocol_client,
         effect_journal_factory=effect_journal_factory,
@@ -384,6 +398,8 @@ async def _run_tui_session(
     images: tuple[str, ...],
     model: str | None,
     turn_application_factory: TurnApplicationFactory | None,
+    execution_runtime: TurnExecutionRuntimePort | None,
+    root_session: RootTurnSessionPort | None,
     model_capability: ModelCapability | None,
     protocol_client: ProtocolCommandClient | None,
     effect_journal_factory: EffectJournalFactory | None,
@@ -414,6 +430,10 @@ async def _run_tui_session(
         }
         if turn_application_factory is not None:
             loop_kwargs["turn_application_factory"] = turn_application_factory
+        if execution_runtime is not None:
+            loop_kwargs["execution_runtime"] = execution_runtime
+        if root_session is not None:
+            loop_kwargs["root_session"] = root_session
         if model_capability is not None:
             loop_kwargs["model_capability"] = model_capability
         if protocol_client is not None:

@@ -5,11 +5,11 @@ from agent.application.approvals.models import (
     ApprovalDecisionSource,
     ApprovalDecisionValue,
     ApprovalQueueSnapshot,
-    ApprovalRequest
+    ApprovalRequest,
 )
 from .contracts import (
     InteractionPort,
-    PromptContext
+    PromptContext,
 )
 
 
@@ -23,7 +23,7 @@ class NonInteractiveInteraction(InteractionPort):
 
     def approval_snapshot_changed(
         self,
-        snapshot: ApprovalQueueSnapshot
+        snapshot: ApprovalQueueSnapshot,
     ) -> None:
         """非交互模式忽略审批队列快照。"""
         _ = snapshot
@@ -40,7 +40,7 @@ class NonInteractiveInteraction(InteractionPort):
 
     async def present_approval(
         self,
-        request: ApprovalRequest
+        request: ApprovalRequest,
     ) -> ApprovalDecisionValue:
         """自动拒绝需要人工确认的工具调用。"""
         _ = request

@@ -22,7 +22,7 @@ from frontends.terminal.capabilities import (
     TerminalTheme,
 )
 from infrastructure.skills import SkillSpec
-from mind_app.interaction.contracts import PromptContext
+from frontends.interaction.contracts import PromptContext
 from frontends.tui.adapters.output import TuiOutputControl
 from frontends.tui.core.models import (
     FragmentBlock,

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+from types import SimpleNamespace
+
 import backend.utilities.runtime.exec_env
 
 import pytest
@@ -8,6 +10,9 @@ import pytest
 from agent.application.turns.environment import capture_environment_snapshot
 from agent.capabilities import LocalEnvironmentSnapshotCapability
 from agent.ports import CapabilityError
+from infrastructure.services.turn_environment import (
+    capture_active_turn_environment,
+)
 from protocol.schema.environment import (
     normalize_client_environment_snapshot,
     normalize_environment_provider,
@@ -126,6 +131,49 @@ def test_application_environment_capture_rejects_invalid_result() -> None:
             cwd=".",
             workspace_root=".",
         )
+
+
+def test_turn_environment_adapter_includes_linked_service_provider(tmp_path) -> None:
+    class _RecordingCapability:
+        def capture(self, *, cwd, workspace_root, providers=None):
+            return {
+                "cwd": str(cwd),
+                "workspace_root": str(workspace_root),
+                "providers": dict(providers or {}),
+            }
+
+        def clear_cache(self) -> None:
+            return None
+
+    provider = {"tools": {"shell": {"version": "1"}}}
+    host = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        runtime_services=SimpleNamespace(
+            environment_capability=_RecordingCapability(),
+        ),
+        is_service_mcp_linked=lambda: True,
+        service_exec_env_snapshot=lambda: provider,
+    )
+
+    snapshot = capture_active_turn_environment(host)
+
+    assert snapshot == {
+        "cwd": str(tmp_path),
+        "workspace_root": str(tmp_path),
+        "providers": {"helix": provider},
+    }
+
+
+def test_turn_environment_adapter_rejects_invalid_service_provider(tmp_path) -> None:
+    host = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        runtime_services=SimpleNamespace(environment_capability=object()),
+        is_service_mcp_linked=lambda: True,
+        service_exec_env_snapshot=lambda: [],
+    )
+
+    with pytest.raises(TypeError, match="service environment snapshot"):
+        capture_active_turn_environment(host)
 
 
 def test_helix_provider_keeps_tools_without_runtimes(tmp_path) -> None:

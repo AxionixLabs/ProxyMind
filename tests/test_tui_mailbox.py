@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from mind_app.interaction.contracts import PromptContext
+from frontends.interaction.contracts import PromptContext
 from frontends.subscription.forwarding import AgentInbox
 from frontends.subscription.models import AgentForwardRequest
 from frontends.tui.core.models import (

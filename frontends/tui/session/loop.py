@@ -11,8 +11,10 @@ from agent.ports import (
     ModelCapability,
     ProtocolCommandClient,
     PatchPreviewPort,
+    RootTurnSessionPort,
     RetryStatePort,
     TurnAnimationPort,
+    TurnExecutionRuntimePort,
     TurnSessionContextPort,
     TurnSessionStatePort,
     TurnForegroundLifecyclePort,
@@ -68,7 +70,9 @@ from .turn import (
 )
 from .turn_input import TuiTurnInputControl
 from infrastructure.config.runtime_paths import agent_runtime_db_path
-from mind_app.interaction.environment import capture_active_turn_environment
+from infrastructure.services.turn_environment import (
+    capture_active_turn_environment,
+)
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
@@ -132,6 +136,8 @@ def _pending_attachment_snapshot(
 async def run_tui_loop(
     mind: "Mind",
     *,
+    execution_runtime: TurnExecutionRuntimePort | None = None,
+    root_session: RootTurnSessionPort | None = None,
     initial_prompt: str | None = None,
     initial_images: tuple[str, ...] = (),
     initial_model: str | None = None,
@@ -161,9 +167,15 @@ async def run_tui_loop(
     else:
         turn_application = TurnApplication()
     try:
+        if execution_runtime is None:
+            raise RuntimeError("TUI turn execution runtime is required")
+        if root_session is None:
+            raise RuntimeError("TUI root turn session is required")
         await _run_tui_loop(
             mind,
             turn_application=turn_application,
+            execution_runtime=execution_runtime,
+            root_session=root_session,
             model_capability=model_capability,
             protocol_client=protocol_client,
             effect_journal_factory=effect_journal_factory,
@@ -196,6 +208,8 @@ async def _run_tui_loop(
     mind: "Mind",
     *,
     turn_application: TurnApplication["RunResult"],
+    execution_runtime: TurnExecutionRuntimePort,
+    root_session: RootTurnSessionPort,
     model_capability: ModelCapability | None,
     protocol_client: ProtocolCommandClient | None,
     effect_journal_factory: EffectJournalFactory | None,
@@ -420,8 +434,8 @@ async def _run_tui_loop(
             """把 TUI Command 适配到现有根轮次执行能力。"""
             return await run_tui_model_turn(
                 mind,
-                mind.turn_execution_runtime,
-                mind.root_turn_session,
+                execution_runtime,
+                root_session,
                 message_text=command.message,
                 pref_config=command.pref_config_value() or {},
                 permissions=state.permissions,

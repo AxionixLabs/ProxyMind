@@ -9,7 +9,7 @@ from agent.ports import (
     TurnSessionStatePort,
 )
 from infrastructure.skills import skills_payload
-from mind_app.interaction.environment import capture_turn_environment
+from infrastructure.services.turn_environment import capture_turn_environment
 from observability import observe_exception
 
 if typing.TYPE_CHECKING:

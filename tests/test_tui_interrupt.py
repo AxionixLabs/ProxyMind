@@ -10,7 +10,7 @@ from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from mind_app.interaction.contracts import PromptContext
+from frontends.interaction.contracts import PromptContext
 from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.core.interrupt import (
     InterruptDisposition,
@@ -159,7 +159,11 @@ async def test_double_ctrl_c_returns_normally_from_session_loop(
         AsyncMock(return_value=None),
     )
 
-    session_task = asyncio.create_task(loop.run_tui_loop(mind))
+    session_task = asyncio.create_task(loop.run_tui_loop(
+        mind,
+        execution_runtime=object(),
+        root_session=object(),
+    ))
     await asyncio.sleep(0)
     runtime.submissions.interrupt_input()
     runtime.submissions.interrupt_input()

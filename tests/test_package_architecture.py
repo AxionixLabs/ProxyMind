@@ -203,6 +203,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "harness/execution/subagent_runner.py",
         "harness/execution/subagent_submission.py",
         "harness/subscription/owner.py",
+        "harness/sessions/conversation.py",
         "harness/sessions/loop.py",
         "harness/sessions/owner.py",
         "stores/agents/graph.py",
@@ -3484,6 +3485,79 @@ def test_frontend_contracts_have_no_legacy_package_or_imports() -> None:
                     )
 
     assert not violations, "legacy frontend imports remain:\n" + "\n".join(violations)
+
+
+def test_interaction_state_has_responsibility_owned_modules() -> None:
+    """确保交互状态按 Session、前端输入和环境适配职责拆分。"""
+    legacy_root = PROJECT_ROOT / "mind_app" / "interaction"
+    assert not tuple(legacy_root.rglob("*.py")), (
+        "legacy interaction sources remain"
+    )
+
+    target_paths = (
+        PROJECT_ROOT / "agent" / "harness" / "sessions" / "conversation.py",
+        PROJECT_ROOT / "frontends" / "interaction" / "attachments.py",
+        PROJECT_ROOT / "frontends" / "interaction" / "contracts.py",
+        PROJECT_ROOT / "frontends" / "interaction" / "noninteractive.py",
+        PROJECT_ROOT / "infrastructure" / "services" / "turn_environment.py",
+    )
+    assert all(path.is_file() for path in target_paths)
+
+    legacy_imports = _forbidden_module_imports(
+        ".",
+        {"mind_app.interaction"},
+    )
+    assert not legacy_imports, "legacy interaction imports remain:\n" + (
+        "\n".join(legacy_imports)
+    )
+
+    frontend_violations = _forbidden_imports(
+        "frontends/interaction",
+        {"backend", "engine", "mind_app", "mind_core", "server"},
+    )
+    assert not frontend_violations, (
+        "frontend interaction crosses its boundary:\n"
+        + "\n".join(frontend_violations)
+    )
+
+    environment_violations = _forbidden_module_imports(
+        "infrastructure/services",
+        {"mind_app", "mind_core", "engine"},
+    )
+    assert not environment_violations, (
+        "turn environment adapter imports legacy code:\n"
+        + "\n".join(environment_violations)
+    )
+
+
+def test_tui_turn_loop_consumes_injected_execution_ports() -> None:
+    """确保可替换 TUI 不从旧 Controller 动态发现 Turn 执行端口。"""
+    loop_path = PROJECT_ROOT / "frontends" / "tui" / "session" / "loop.py"
+    tree = ast.parse(
+        loop_path.read_text(encoding="utf-8-sig"),
+        filename=str(loop_path),
+    )
+    loop_function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "run_tui_loop"
+    )
+    keyword_names = {
+        argument.arg
+        for argument in loop_function.args.kwonlyargs
+    }
+    assert {"execution_runtime", "root_session"} <= keyword_names
+
+    forbidden_attributes = {
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "mind"
+        and node.attr in {"turn_execution_runtime", "root_turn_session"}
+    }
+    assert not forbidden_attributes
 
 
 def test_application_presentation_ports_are_owned_by_agent() -> None:

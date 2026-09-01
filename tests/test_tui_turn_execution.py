@@ -10,7 +10,7 @@ from agent.application.turns.context import TurnContext
 from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
 from agent.harness.hooks.scope import HookExecutionScope
-from mind_app.interaction import ConversationTurn
+from agent.harness.sessions.conversation import ConversationTurn
 from protocol.client.reports import EventReportRuntimeOwner
 from frontends.tui.session import turn as tui_turn
 from frontends.tui.session.turn import run_tui_model_turn

@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from agent.application.approvals.coordinator import ApprovalCoordinator
-from mind_app.interaction.noninteractive import NonInteractiveInteraction
+from frontends.interaction.noninteractive import NonInteractiveInteraction
 
 
 class ControlledInteraction(object):

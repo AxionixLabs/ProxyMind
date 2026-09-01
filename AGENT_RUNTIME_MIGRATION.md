@@ -128,10 +128,23 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - Subscription 的 Turn application 装配已改为显式 `TurnApplicationFactory`：组合根 `mind.py`
   负责绑定持久 application，`frontends/subscription/runtime.py` 不再通过宿主动态属性发现
   `runtime_services`，关闭时继续由订阅执行器回收 application。
+- 旧 `mind_app/interaction` 源包已完全删除：会话身份、轮次边界和一次性上下文归
+  `agent/harness/sessions`，提示/附件/非交互输入归 `frontends/interaction`，工作区与
+  Helix 环境聚合归 `infrastructure/services`。TUI 的 execution runtime 和 root session
+  改由 CLI 组合边界显式注入，不再从 `Mind` 动态读取。
+- `protocol/schema/identifiers.py` 已恢复独立 wire 所有权，不再为稳定请求 ID 反向导入
+  `agent.domain`；协议到 Harness 的反向依赖和初始化环已清零。
 
 ### 最新证据
 
-截至 2026-08-31，本切片已完成：
+截至 2026-09-01，本切片已完成：
+
+- Interaction 职责拆分与 TUI 显式端口注入扩展回归：`1651 passed`；先行定向回归
+  `262 passed`，端口注入专项回归 `147 passed`。
+- Interaction/Protocol/TUI 边界架构专项通过；旧 `mind_app/interaction` 源文件和生产
+  导入均清零，`protocol -> agent` 反向边清零。
+- 导入图中 `frontends -> mind_app` 从 `17 files / 21 edges` 降至
+  `11 files / 14 edges`；下一批只处理这 11 个入口依赖，不扩散到无关包。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -209,6 +222,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 ### 下一切片：入口与数据迁移
 
 当前只允许进入以下顺序，不以补丁式需求插队：
+
+0. **前端旧依赖清零**：以导入图剩余 `11 files / 14 edges` 为唯一范围，先成组迁移
+   MCP 配置/注册与通用值清理，再迁移 TUI Turn adapter；每组都必须删除旧源路径并
+   保持 execution/session 端口由组合根注入，禁止建立 `frontends -> mind_app` facade。
 
 1. **入口与数据迁移**：`mind_core` 的配置、权限、hooks、skills 已完成生产导入清零，
    终端轮次生命周期已迁入 `frontends/terminal`；Hook 命令执行器已归属

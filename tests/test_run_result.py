@@ -16,7 +16,7 @@ import pytest
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.application.approvals.models import ApprovalOutcome
-from mind_app.interaction.noninteractive import NonInteractiveInteraction
+from frontends.interaction.noninteractive import NonInteractiveInteraction
 from mind_app.runtime.turns import stream
 from agent.application.turns.run_result import RunResult
 from agent.ports import (

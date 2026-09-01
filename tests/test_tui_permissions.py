@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from metadata import const
 
-from mind_app.interaction.contracts import PromptContext
+from frontends.interaction.contracts import PromptContext
 from frontends.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,

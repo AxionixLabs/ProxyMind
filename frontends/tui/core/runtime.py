@@ -31,7 +31,7 @@ from frontends.runtime import (
     FrontendRuntime,
     WaitRetryState
 )
-from mind_app.interaction.contracts import PromptContext
+from frontends.interaction.contracts import PromptContext
 from frontends.terminal.text import sanitize_terminal_line
 from frontends.tui.contracts.resume import (
     ResumePickerRequest,

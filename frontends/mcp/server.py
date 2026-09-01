@@ -36,7 +36,7 @@ from mcp.server.fastmcp import (
 from mind_app.controller import Mind
 from frontends.runtime import Frontend
 from frontends.output.application import NullApplicationSink
-from mind_app.interaction import NonInteractiveInteraction
+from frontends.interaction import NonInteractiveInteraction
 from frontends.output.silent import create_silent_output_session
 from observability.reporting import RunReport
 from agent.application.config.settings import AgentSettings

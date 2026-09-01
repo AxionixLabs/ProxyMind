@@ -8,7 +8,7 @@ import pytest
 
 from frontends.cli import bootstrap
 from mind_app.controller import Mind
-from mind_app.interaction.contracts import PromptContext
+from frontends.interaction.contracts import PromptContext
 from mind_app.runtime.mcp import external
 from mind_app.runtime.mcp import service_runtime
 from mind_app.runtime.mcp import tool_runtime
@@ -123,7 +123,11 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
 
     monkeypatch.setattr(loop, "monitor_exec_status", monitor)
 
-    run_task = asyncio.create_task(loop.run_tui_loop(MindStub()))
+    run_task = asyncio.create_task(loop.run_tui_loop(
+        MindStub(),
+        execution_runtime=object(),
+        root_session=object(),
+    ))
     await refresh_started.wait()
 
     runtime.screen.input.buffer.text = "show this immediately"

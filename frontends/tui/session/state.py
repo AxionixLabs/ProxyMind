@@ -5,7 +5,7 @@ import time
 import typing
 import asyncio
 from copy import deepcopy
-from mind_app.interaction import PromptContext
+from frontends.interaction import PromptContext
 from infrastructure.platform.workspace_context import fetch_runtime_workspace_root
 from infrastructure.skills import configured_skills
 from infrastructure.config.preferences import apply_primary_model_override

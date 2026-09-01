@@ -50,6 +50,8 @@ async def test_tui_uses_durable_runtime_composition_for_real_layout(
     await loop.run_tui_loop(
         SimpleNamespace(application_layout=object()),
         turn_application_factory=open_application,
+        execution_runtime=object(),
+        root_session=object(),
     )
 
     open_application.assert_called_once_with(db_path)
@@ -65,6 +67,24 @@ async def test_tui_requires_explicit_turn_application_factory_for_real_layout() 
         match="TUI turn application factory is required",
     ):
         await loop.run_tui_loop(SimpleNamespace(application_layout=object()))
+
+
+@pytest.mark.anyio
+async def test_tui_requires_explicit_turn_execution_ports() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="TUI turn execution runtime is required",
+    ):
+        await loop.run_tui_loop(SimpleNamespace())
+
+    with pytest.raises(
+        RuntimeError,
+        match="TUI root turn session is required",
+    ):
+        await loop.run_tui_loop(
+            SimpleNamespace(),
+            execution_runtime=object(),
+        )
 
 
 @pytest.mark.anyio
@@ -145,6 +165,10 @@ async def test_effort_command_updates_footer_context_immediately(
     monkeypatch.setattr(dispatch, "render_model_effort_status", render_status)
 
     runtime.submissions.message_queue.put_nowait("/effort")
-    await loop.run_tui_loop(mind)
+    await loop.run_tui_loop(
+        mind,
+        execution_runtime=object(),
+        root_session=object(),
+    )
 
     assert runtime.context.model == "test-model high"

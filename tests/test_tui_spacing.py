@@ -37,7 +37,7 @@ from frontends.terminal.capabilities import (
 )
 from infrastructure.skills import SkillSpec
 from metadata import const
-from mind_app.interaction.contracts import PromptContext
+from frontends.interaction.contracts import PromptContext
 from agent.ports import (
     AssistantOutputBoundary,
     AssistantSegmentCompleted,
