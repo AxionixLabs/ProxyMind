@@ -262,7 +262,6 @@ async def stream_turn(
 ) -> RunResult:
     """处理流式事件、工具调用和输出上报。"""
     prepared = prepare_stream_turn(
-        mind,
         turn_execution,
         kwargs,
         session_factory=session_factory,

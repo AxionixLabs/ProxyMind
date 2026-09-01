@@ -5,24 +5,20 @@ import copy
 import time
 import typing
 from dataclasses import dataclass
-from observability import observe_exception
-from infrastructure.skills import skills_payload
 from protocol.transport.events import EventReport
 from protocol.schema.environment import normalize_client_environment_snapshot
 from mind_app.presentation.output import (
     OutputSession,
     SessionFactory,
 )
-from mind_app.interaction.environment import capture_turn_environment
 from agent.application.turns.context import TurnContext
-from agent.ports import RetryStatePort
+from agent.ports import (
+    RetryStatePort,
+    TurnSessionContextPort,
+)
 from mind_app.runtime.hooks.presentation import HookPresentationAdapter
 from agent.harness.hooks.scope import HookExecutionScope
 from agent.application.turns.execution import TurnExecution
-
-if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
-
 
 Callback = typing.Callable[..., typing.Any]
 
@@ -115,7 +111,6 @@ class PreparedStreamTurn:
 
 
 def prepare_stream_turn(
-    controller: "Mind",
     execution: TurnExecution,
     options: typing.Mapping[str, typing.Any],
     *,
@@ -133,6 +128,12 @@ def prepare_stream_turn(
 
     context = execution.context
     hook_scope = execution.hook_scope
+    session_context = context.session_context
+    if context.agent.depth == 0 and not isinstance(
+        session_context,
+        TurnSessionContextPort,
+    ):
+        raise RuntimeError("turn session context is required")
 
     if callbacks.retry_state is None and context.agent.depth == 0:
         retry_state = context.retry_state
@@ -167,13 +168,13 @@ def prepare_stream_turn(
                 raw_exec_env
             )
     else:
-        environment_snapshot = capture_turn_environment(
-            controller,
-            cwd=context.cwd,
-            workspace_root=controller.history_workspace,
-        )
-        if environment_snapshot is not None:
-            request_kwargs["exec_env"] = environment_snapshot
+        if isinstance(session_context, TurnSessionContextPort):
+            environment_snapshot = session_context.capture_environment(
+                cwd=context.cwd,
+                workspace_root=context.cwd,
+            )
+            if environment_snapshot is not None:
+                request_kwargs["exec_env"] = environment_snapshot
 
     if "exec_env" in request_kwargs:
         continuation_kwargs["exec_env"] = copy.deepcopy(
@@ -181,16 +182,8 @@ def prepare_stream_turn(
         )
 
     if request_kwargs.get("skills") is None:
-        try:
-            skill_config = controller.config_session.load()
-        except (OSError, TypeError, ValueError) as error:
-            observe_exception(
-                "skills.config.failed",
-                error,
-                level="WARNING",
-            )
-            skill_config = {}
-        request_kwargs["skills"] = skills_payload(skill_config)
+        if isinstance(session_context, TurnSessionContextPort):
+            request_kwargs["skills"] = session_context.skills_payload()
 
     session_factory_value = request_kwargs.pop("session_factory", None)
     if session_factory_value is None:
@@ -200,7 +193,11 @@ def prepare_stream_turn(
 
     output_session = session_factory(
         context.output_record_path,
-        animate=bool(getattr(controller, "animate", True)),
+        animate=(
+            session_context.animate
+            if isinstance(session_context, TurnSessionContextPort)
+            else True
+        ),
     )
     if output_session.show_hook_lifecycle:
         hook_scope = hook_scope.with_default_status_port(

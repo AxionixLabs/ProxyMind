@@ -28,8 +28,28 @@ def _output_session() -> OutputSession:
     )
 
 
-def _execution(*, retry_state=None) -> TurnExecution:
+class _SessionContext:
+    """实现 TurnSessionContextPort 的测试替身。"""
+
+    def __init__(self, snapshot: dict | None = None) -> None:
+        self.capture_mock = Mock(return_value=snapshot)
+        self.skills_mock = Mock(return_value=[{"name": "resolved"}])
+
+    @property
+    def animate(self) -> bool:
+        return False
+
+    def capture_environment(self, **kwargs) -> dict | None:
+        return self.capture_mock(**kwargs)
+
+    def skills_payload(self) -> list[dict]:
+        return self.skills_mock()
+
+
+def _execution(*, retry_state=None, session_context=None) -> TurnExecution:
     """构造具有固定请求上下文的根轮次。"""
+    if session_context is None:
+        session_context = _SessionContext()
     context = TurnContext.create(
         agent=AgentContext.root("sid_test"),
         cid="cid_test",
@@ -39,6 +59,7 @@ def _execution(*, retry_state=None) -> TurnExecution:
         cwd=".",
         permissions=preset_permissions("auto"),
         retry_state=retry_state,
+        session_context=session_context,
         output_record_path="output.jsonl",
         turn_id="turn_test",
     )
@@ -83,54 +104,13 @@ def _exec_env_snapshot() -> dict:
     }
 
 
-def _service_environment_provider() -> dict:
-    """构造固定的服务端环境能力提供方快照。"""
-    return {
-        "tools": {},
-        "extensions": {},
-    }
-
-
-class _EnvironmentCapability:
-    """记录环境捕获调用的能力替身。"""
-
-    def __init__(self, snapshot: dict) -> None:
-        self.capture_mock = Mock(return_value=snapshot)
-
-    def capture(self, **kwargs) -> dict:
-        return self.capture_mock(**kwargs)
-
-    def clear_cache(self) -> None:
-        pass
-
-
-def _controller(
-    session_factory: Mock,
+def _session_context(
     *,
-    retry_state: Mock | None = None,
     environment_snapshot: dict | None = None,
-) -> SimpleNamespace:
-    """构造准备阶段需要的控制器能力。"""
-    environment_capability = _EnvironmentCapability(
-        environment_snapshot or _exec_env_snapshot()
-    )
-    return SimpleNamespace(
-        animate=False,
-        frontend=SimpleNamespace(
-            runtime=SimpleNamespace(
-                set_wait_retry_state=retry_state or Mock(),
-            ),
-            session_factory=session_factory,
-        ),
-        config_session=SimpleNamespace(load=Mock(return_value={})),
-        is_service_mcp_linked=Mock(return_value=True),
-        service_exec_env_snapshot=Mock(
-            return_value=_service_environment_provider()
-        ),
-        runtime_services=SimpleNamespace(
-            environment_capability=environment_capability,
-        ),
-        history_workspace="D:\\PycharmProjects\\ProxyMind",
+) -> _SessionContext:
+    """构造准备阶段需要的会话上下文能力。"""
+    return _SessionContext(
+        environment_snapshot or _exec_env_snapshot(),
     )
 
 
@@ -141,7 +121,6 @@ def test_prepare_stream_turn_separates_request_and_continuation_options() -> Non
     input_event = Mock()
     retry_state = Mock()
     event_report = Mock()
-    controller = _controller(session_factory)
     execution = _execution()
     options = {
         "exec_env": _exec_env_snapshot(),
@@ -155,7 +134,6 @@ def test_prepare_stream_turn_separates_request_and_continuation_options() -> Non
     }
 
     prepared = stream_setup.prepare_stream_turn(
-        controller,
         execution,
         options,
     )
@@ -187,9 +165,7 @@ def test_prepare_stream_turn_separates_request_and_continuation_options() -> Non
     session_factory.assert_called_once_with("output.jsonl", animate=False)
 
 
-def test_prepare_stream_turn_resolves_missing_request_capabilities(
-    monkeypatch,
-) -> None:
+def test_prepare_stream_turn_resolves_missing_request_capabilities() -> None:
     output_session = _output_session()
     session_factory = Mock(return_value=output_session)
     retry_state = Mock()
@@ -197,17 +173,15 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities(
         set_wait_retry_state=retry_state,
     )
     snapshot = _exec_env_snapshot()
-    controller = _controller(
-        session_factory,
-        retry_state=retry_state,
+    session_context = _session_context(
         environment_snapshot=snapshot,
     )
-    build_skills = Mock(return_value=[{"name": "resolved"}])
-    monkeypatch.setattr(stream_setup, "skills_payload", build_skills)
 
     prepared = stream_setup.prepare_stream_turn(
-        controller,
-        _execution(retry_state=retry_state_port),
+        _execution(
+            retry_state=retry_state_port,
+            session_context=session_context,
+        ),
         {"session_factory": session_factory},
     )
 
@@ -218,28 +192,20 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities(
         "exec_env": snapshot,
         "session_factory": session_factory,
     }
-    controller.service_exec_env_snapshot.assert_called_once_with()
-    environment_capability = (
-        controller.runtime_services.environment_capability
-    )
-    environment_capability.capture_mock.assert_called_once_with(
+    session_context.skills_mock.assert_called_once_with()
+    session_context.capture_mock.assert_called_once_with(
         cwd=".",
-        workspace_root="D:\\PycharmProjects\\ProxyMind",
-        providers={"helix": _service_environment_provider()},
+        workspace_root=".",
     )
-    controller.config_session.load.assert_called_once_with()
-    build_skills.assert_called_once_with({})
+    assert session_context.skills_mock.call_count == 1
 
 
 def test_prepare_stream_turn_rejects_missing_session_factory() -> None:
-    controller = _controller(Mock(return_value=_output_session()))
-
     with pytest.raises(
         RuntimeError,
         match="stream output session factory is required",
     ):
         stream_setup.prepare_stream_turn(
-            controller,
             _execution(),
             {
                 "exec_env": _exec_env_snapshot(),
@@ -256,7 +222,6 @@ def test_prepare_stream_turn_rejects_non_callable_callback() -> None:
         match="on_turn_input_event must be callable",
     ):
         stream_setup.prepare_stream_turn(
-            _controller(session_factory),
             _execution(),
             {
                 "exec_env": _exec_env_snapshot(),

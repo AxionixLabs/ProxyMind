@@ -89,6 +89,28 @@ class TurnAnimationPort(typing.Protocol):
         ...
 
 
+@typing.runtime_checkable
+class TurnSessionContextPort(typing.Protocol):
+    """定义流式准备阶段读取会话输入的最小端口。"""
+
+    @property
+    def animate(self) -> bool:
+        """返回当前输出是否启用动画。"""
+        ...
+
+    def capture_environment(
+        self,
+        *,
+        cwd: str,
+        workspace_root: str,
+    ) -> dict[str, typing.Any] | None:
+        """捕获当前轮次使用的客户端环境快照。"""
+        ...
+
+    def skills_payload(self) -> list[dict[str, typing.Any]]:
+        """返回当前配置的 skills 请求 payload。"""
+        ...
+
 __all__ = (
     "TurnInputEventHandler",
     "TurnCleanupPort",
@@ -96,6 +118,7 @@ __all__ = (
     "RetryState",
     "RetryStatePort",
     "TurnAnimationPort",
+    "TurnSessionContextPort",
     "TurnResultPort",
     "TurnResultValue",
 )

@@ -21,6 +21,7 @@ from agent.ports import (
     PatchPreviewPort,
     RetryStatePort,
     TurnAnimationPort,
+    TurnSessionContextPort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -111,6 +112,7 @@ async def run_selected_command(
     patch_preview: PatchPreviewPort | None = None,
     retry_state: RetryStatePort | None = None,
     animation: TurnAnimationPort | None = None,
+    session_context: TurnSessionContextPort | None = None,
 ) -> RunResult | None:
     """按命令行参数分派到直接执行或交互入口。"""
     if isinstance(command, AgentListenCommand):
@@ -149,6 +151,7 @@ async def run_selected_command(
                 patch_preview=patch_preview,
                 retry_state=retry_state,
                 animation=animation,
+                session_context=session_context,
             )
         elif isinstance(command, ExecCommand):
             attachments: list[dict[str, typing.Any]] = []
@@ -229,6 +232,7 @@ async def run_selected_command(
                 patch_preview=patch_preview,
                 retry_state=retry_state,
                 animation=animation,
+                session_context=session_context,
             )
         elif isinstance(command, ResumeCommand):
             record = await _select_resume_session(mind, command)
@@ -320,6 +324,7 @@ async def _run_agent_listener_session(
     patch_preview: PatchPreviewPort | None = None,
     retry_state: RetryStatePort | None = None,
     animation: TurnAnimationPort | None = None,
+    session_context: TurnSessionContextPort | None = None,
 ) -> None:
     """在普通 TUI 生命周期内运行临时远端请求监听器。"""
     mind.subscription.start()
@@ -339,6 +344,7 @@ async def _run_agent_listener_session(
         patch_preview=patch_preview,
         retry_state=retry_state,
         animation=animation,
+        session_context=session_context,
     )
 
 
@@ -359,6 +365,7 @@ async def _run_tui_session(
     patch_preview: PatchPreviewPort | None = None,
     retry_state: RetryStatePort | None = None,
     animation: TurnAnimationPort | None = None,
+    session_context: TurnSessionContextPort | None = None,
 ) -> None:
     """使用现有 TUI 生命周期运行一个交互会话。"""
     from frontends.tui.session.loop import run_tui_loop
@@ -394,6 +401,8 @@ async def _run_tui_session(
             loop_kwargs["retry_state"] = retry_state
         if animation is not None:
             loop_kwargs["animation"] = animation
+        if session_context is not None:
+            loop_kwargs["session_context"] = session_context
         await run_tui_loop(mind, **loop_kwargs)
     finally:
         await mind.subscription.close()

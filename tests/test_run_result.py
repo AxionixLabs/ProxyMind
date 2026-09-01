@@ -418,6 +418,11 @@ def _mind(
         active=frontend_active,
         stop_wait=stop_wait,
     )
+    turn_session_context = SimpleNamespace(
+        animate=True,
+        capture_environment=Mock(return_value=None),
+        skills_payload=Mock(return_value=[]),
+    )
     return SimpleNamespace(
         report=SimpleNamespace(output_record_path=""),
         transcripts=transcripts,
@@ -435,6 +440,7 @@ def _mind(
         ),
         stop_anim=stop_anim,
         turn_animation=turn_animation,
+        turn_session_context=turn_session_context,
         freeze_anim=AsyncMock(),
         await_cleanup=await_cleanup,
         remember_last_assistant_reply=remembered.append,
@@ -694,6 +700,7 @@ async def _run_stream(
         ),
         retry_state=mind.frontend.runtime,
         animation=mind.turn_animation,
+        session_context=mind.turn_session_context,
         turn_id="turn_test",
         session_started=session_started,
         session_start_reason="initial" if session_started else "",

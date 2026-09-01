@@ -455,6 +455,13 @@ CLI、Subagent 回归 `272 passed`；端口边界专项 `4 passed, 1 warning`，
 端口边界专项 `4 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过。
 下一切片收口会话上下文端口。
 
+本次会话上下文切片已满足上述条件：新增 `agent.ports.TurnSessionContextPort` 和
+`ControllerTurnSessionContext` 适配器，通过 `TurnContext` 沿根轮次、TUI、CLI 显式传递；
+`stream_setup.py` 不再接收 Controller，也不再导入配置、环境捕获或 skills 实现，只消费
+环境快照、skills payload 和动画开关。流式、TUI、CLI、输出、重试和终端动画回归
+`280 passed`；端口边界专项 `4 passed, 1 warning`，导入图、`compileall` 和
+`git diff --check` 通过。下一切片收口流式执行剩余的会话结果与工具策略依赖。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -571,3 +578,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 新增 `agent.ports.PatchPreviewPort` 并通过 `TurnContext` 显式注入工具审批和客户端工具，删除 `stream.py` 对完整 `WorkspaceRuntime.coding` 的直接访问 | 工作区审批/流式/根轮次/TUI/CLI/Subagent 回归 `272 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `agent.ports.RetryStatePort` 并通过 `TurnContext` 显式注入重试展示状态，删除 `stream_setup.py` 对 `controller.frontend.runtime` 的隐式读取 | 流式/TUI/CLI/输出/重试回归 `280 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `agent.ports.TurnAnimationPort` 和终端展示适配器，通过 `TurnContext` 显式注入等待动画生命周期，删除 `stream.py` 对 `frontend.runtime.active` 与 `mind.stop_anim` 的直接访问 | 流式/TUI/CLI/输出/重试/终端动画回归 `280 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 新增 `agent.ports.TurnSessionContextPort` 和 `ControllerTurnSessionContext`，删除 `stream_setup.py` 的 Controller、配置、环境和 skills 直接依赖 | 流式/TUI/CLI/输出/重试/终端动画回归 `280 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |

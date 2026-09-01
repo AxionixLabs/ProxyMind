@@ -2749,6 +2749,7 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
                 "TurnOperation",
                 "RetryStatePort",
                 "TurnAnimationPort",
+                "TurnSessionContextPort",
                 "TurnResultPort",
         },
         PROJECT_ROOT / "agent" / "ports" / "subagents.py": {
