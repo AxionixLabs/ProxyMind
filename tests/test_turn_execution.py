@@ -66,6 +66,9 @@ class _ExecutionController(object):
     async def await_cleanup(awaitable) -> None:
         await awaitable
 
+    def tool_profile_for_turn(self):
+        return None
+
 
 class _ReportPool(object):
     def __init__(self, report: _Report) -> None:
@@ -696,6 +699,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
             frontend=SimpleNamespace(runtime=runtime),
             hook_scope=Mock(side_effect=hook_scope),
             approval_call_ledger=ApprovalCallLedger(),
+            tool_profile_for_turn=Mock(return_value=None),
         )
 
     result = await root_turns.run_root_turn(
@@ -704,6 +708,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         message="hello",
         metadata={"origin": "test"},
         ev_report=report,
+        execution_runtime=mind,
         lifecycle=ControllerTurnForegroundLifecycle(mind),
     )
 

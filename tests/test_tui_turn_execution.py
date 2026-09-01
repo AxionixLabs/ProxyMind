@@ -165,6 +165,7 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
 
     result = await run_tui_model_turn(
         controller,
+        controller,
         message_text="",
         pref_config=pref_config,
         permissions=permissions,
@@ -248,6 +249,7 @@ async def test_tui_turn_snapshots_helix_tool_mode_before_session_setup(
 
     await run_tui_model_turn(
         controller,
+        controller,
         message_text="hello",
         pref_config={"primary": {"model": "test-model"}},
         permissions=preset_permissions("auto"),
@@ -278,6 +280,7 @@ async def test_tui_turn_snapshots_unlinked_helix_state_before_session_setup(
 
     await run_tui_model_turn(
         controller,
+        controller,
         message_text="hello",
         pref_config={"primary": {"model": "test-model"}},
         permissions=preset_permissions("auto"),
@@ -300,6 +303,7 @@ async def test_tui_turn_keeps_session_report_after_failure(
     with pytest.raises(RuntimeError, match="stream failed"):
         await run_tui_model_turn(
             controller,
+            controller,
             message_text="hello",
             pref_config={},
             permissions=preset_permissions("auto"),
@@ -318,6 +322,7 @@ async def test_tui_turn_closes_report_without_drain_after_cancellation(
 
     with pytest.raises(asyncio.CancelledError):
         await run_tui_model_turn(
+            controller,
             controller,
             message_text="hello",
             pref_config={},

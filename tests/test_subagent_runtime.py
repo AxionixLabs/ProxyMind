@@ -60,6 +60,10 @@ class _Controller:
     async def await_cleanup(awaitable) -> None:
         await awaitable
 
+    @staticmethod
+    def tool_profile_for_turn():
+        return None
+
 
 def _runner(controller: _Controller) -> SubagentRunner:
     """为测试 Harness runner 注入现有 runtime Turn 执行器。"""

@@ -22,6 +22,7 @@ from agent.ports import (
     TurnSessionContextPort,
     TurnSessionStatePort,
     TurnForegroundLifecyclePort,
+    TurnExecutionRuntimePort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -207,6 +208,7 @@ async def execute_tui_model_turn(
 
 async def run_tui_model_turn(
     mind: "Mind",
+    execution_runtime: TurnExecutionRuntimePort,
     *,
     message_text: str,
     pref_config: dict[str, typing.Any],
@@ -238,7 +240,7 @@ async def run_tui_model_turn(
     on_interrupt_acknowledged: typing.Callable[[], None] | None = None,
 ) -> "RunResult":
     """为单轮 TUI 输入准备上下文并执行统一模型流程。"""
-    tool_filter_mode = mind.tool_profile_for_turn()
+    tool_filter_mode = execution_runtime.tool_profile_for_turn()
     if attachments is None:
         attachment_values = (
             mind.attach.consume_pending_attachments()
@@ -336,7 +338,7 @@ async def run_tui_model_turn(
         )
 
     return await execute_turn(
-        mind,
+        execution_runtime,
         pref_config,
         execution,
         run_tui_turn,

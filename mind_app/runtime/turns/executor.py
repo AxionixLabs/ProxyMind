@@ -18,6 +18,7 @@ from agent.application.turns.context import TurnContext
 from agent.ports import (
     TurnOperation,
     TurnResultValue,
+    TurnExecutionRuntimePort,
 )
 from protocol.client.reports import (
     EventReportLifetime,
@@ -30,7 +31,6 @@ from agent.domain.tool_policy import (
 from agent.harness.hooks.scope import HookExecutionScope
 
 if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
     from agent.ports import McpSessionPort
 
 
@@ -140,7 +140,7 @@ def record_turn_finished(
 
 
 def resolve_turn_hook_scope(
-    controller: "Mind",
+    controller: object,
     context: TurnContext
 ) -> HookExecutionScope:
     """解析并固定模型轮次使用的 Hook 作用域。"""
@@ -168,18 +168,14 @@ def turn_continuation_count(execution: TurnExecution) -> int:
 
 
 def _resolve_tool_filter_mode(
-    controller: object,
+    runtime: TurnExecutionRuntimePort,
     selected: ToolFilterMode | None | _UnspecifiedToolFilterMode,
 ) -> ToolFilterMode | None:
     """解析并校验单轮工具过滤模式。"""
     if not isinstance(selected, _UnspecifiedToolFilterMode):
         return selected
 
-    profile_for_turn = getattr(controller, "tool_profile_for_turn", None)
-    if not callable(profile_for_turn):
-        return None
-
-    profile_mode = profile_for_turn()
+    profile_mode = runtime.tool_profile_for_turn()
     if profile_mode is None:
         return None
     if profile_mode == "app":
@@ -190,7 +186,7 @@ def _resolve_tool_filter_mode(
 
 
 async def execute_turn(
-    mind: "Mind",
+    runtime: TurnExecutionRuntimePort,
     pref_config: dict[str, typing.Any],
     execution: TurnExecution,
     operation: TurnOperation[TurnResultValue],
@@ -225,7 +221,7 @@ async def execute_turn(
             if context.agent.depth == 0
             else EventReportLifetime.TURN
         )
-        report_handle = await mind.event_reporting.acquire(
+        report_handle = await runtime.event_reporting.acquire(
             context.cid,
             context.sid,
             lifetime=lifetime,
@@ -240,7 +236,7 @@ async def execute_turn(
         tools: list[dict[str, typing.Any]]
     ) -> TurnResultValue:
         """在已建立的工具会话中执行模型轮次。"""
-        selected_mode = _resolve_tool_filter_mode(mind, tool_filter_mode)
+        selected_mode = _resolve_tool_filter_mode(runtime, tool_filter_mode)
         visible_tools = filter_mode_tools(selected_mode, tools)
 
         operation_started.set()
@@ -250,12 +246,11 @@ async def execute_turn(
     interrupted: bool = False
 
     try:
-        result = await mind.with_mcp_session(pref_config, run_with_session)
+        result = await runtime.with_mcp_session(pref_config, run_with_session)
     except asyncio.CancelledError:
         interrupted = True
         if not operation_started.is_set():
             _record_session_setup_failure(
-                mind,
                 execution,
                 status="interrupted",
             )
@@ -271,7 +266,6 @@ async def execute_turn(
         interrupted = isinstance(error, (KeyboardInterrupt, SystemExit))
         if not operation_started.is_set():
             _record_session_setup_failure(
-                mind,
                 execution,
                 status="interrupted" if interrupted else "failed",
                 error=None if interrupted else _bounded_error(error),
@@ -295,13 +289,12 @@ async def execute_turn(
         return result
     finally:
         if report_handle is not None:
-            await mind.await_cleanup(
+            await runtime.await_cleanup(
                 report_handle.release(interrupted=interrupted)
             )
 
 
 def _record_session_setup_failure(
-    controller: "Mind",
     execution: TurnExecution,
     *,
     status: str,

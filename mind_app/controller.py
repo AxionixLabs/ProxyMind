@@ -61,6 +61,7 @@ from .runtime.turns.session_context import (
     ControllerTurnSessionContext,
     ControllerTurnSessionState,
 )
+from .runtime.turns.execution_runtime import ControllerTurnExecutionRuntime
 from agent.stores import AgentGraphStore
 from infrastructure.config.runtime_paths import (
     agent_graph_db_path,
@@ -196,6 +197,7 @@ class Mind(object):
         self.event_reporting = EventReportRuntimeOwner(
             pool=kwargs.get("event_report_pool"),
         )
+        self.turn_execution_runtime = ControllerTurnExecutionRuntime(self)
         self._conversation_lifecycle_id: int = 0
 
         self.session_lifecycle = SessionLifecycleGateway(
@@ -275,6 +277,7 @@ class Mind(object):
                 transcript_entries_for=(
                     lambda path: self.transcripts.reader(path).read()
                 ),
+                execution_runtime=self.turn_execution_runtime,
                 session_cleanup=self._close_repl_session,
                 graph_store=(
                     kwargs.get("agent_graph_store")

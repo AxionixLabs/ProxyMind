@@ -30,6 +30,7 @@ from agent.ports import (
     TurnCleanupPort,
     TranscriptFactory,
     TurnInputEventHandler,
+    TurnExecutionRuntimePort,
 )
 from agent.adapters.agents.execution import StreamSubagentExecution
 from agent.harness.execution.subagent_runner import SubagentRunner
@@ -99,6 +100,7 @@ class SubagentRuntime:
         transcript_factory: TranscriptFactory | None = None,
         cleanup: TurnCleanupPort | None = None,
         patch_preview: PatchPreviewPort | None = None,
+        execution_runtime: TurnExecutionRuntimePort | None = None,
     ) -> None:
         if not isinstance(enabled, bool):
             raise TypeError("subagent runtime enabled state must be a boolean")
@@ -128,6 +130,7 @@ class SubagentRuntime:
         self._transcript_factory = transcript_factory
         self._cleanup = cleanup
         self._patch_preview = patch_preview
+        self._execution_runtime = execution_runtime or controller
         runner = SubagentRunner(
             turn_runner=self._run_turn,
             cleanup=controller,
@@ -166,7 +169,7 @@ class SubagentRuntime:
     ) -> RunResult:
         """把 Harness Turn 端口绑定到当前 runtime Controller。"""
         return await execute_turn(
-            self._controller,
+            self._execution_runtime,
             pref_config,
             execution,
             operation,

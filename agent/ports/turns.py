@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 
 import typing
-from collections.abc import Awaitable
+from collections.abc import (
+    Awaitable,
+    Callable,
+)
 
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
@@ -64,6 +67,58 @@ class TurnCleanupPort(typing.Protocol):
 
     async def await_cleanup(self, awaitable: Awaitable[None]) -> None:
         """等待清理协程完成并保留取消态收束语义。"""
+        ...
+
+
+class TurnEventReportHandle(typing.Protocol):
+    """定义单轮事件报告租约的最小释放接口。"""
+
+    report: EventReport
+
+    async def release(self, *, interrupted: bool) -> None:
+        """释放报告租约并按中断状态收束输出。"""
+        ...
+
+
+class TurnEventReportingPort(typing.Protocol):
+    """定义轮次获取事件报告租约所需的端口。"""
+
+    async def acquire(
+        self,
+        cid: str,
+        sid: str,
+        *,
+        lifetime: typing.Any,
+    ) -> TurnEventReportHandle:
+        """获取当前轮次使用的事件报告租约。"""
+        ...
+
+
+TurnSessionCallback: typing.TypeAlias = Callable[
+    [McpSessionPort, list[dict[str, typing.Any]]],
+    Awaitable[typing.Any],
+]
+
+
+class TurnExecutionRuntimePort(typing.Protocol):
+    """定义执行器访问模型会话和报告生命周期的运行时端口。"""
+
+    event_reporting: TurnEventReportingPort
+
+    async def with_mcp_session(
+        self,
+        pref_config: dict[str, typing.Any],
+        callback: TurnSessionCallback,
+    ) -> typing.Any:
+        """在已建立的 MCP 会话中执行一次轮次回调。"""
+        ...
+
+    def tool_profile_for_turn(self) -> str | None:
+        """返回当前轮次的工具过滤档位。"""
+        ...
+
+    async def await_cleanup(self, awaitable: Awaitable[typing.Any]) -> typing.Any:
+        """等待轮次资源清理并保留取消态收束语义。"""
         ...
 
 
@@ -143,6 +198,9 @@ class TurnSessionStatePort(typing.Protocol):
 __all__ = (
     "TurnInputEventHandler",
     "TurnCleanupPort",
+    "TurnEventReportHandle",
+    "TurnEventReportingPort",
+    "TurnExecutionRuntimePort",
     "TurnOperation",
     "RetryState",
     "RetryStatePort",

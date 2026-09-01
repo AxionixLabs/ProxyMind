@@ -18,6 +18,7 @@ from agent.ports import (
     TurnAnimationPort,
     TurnSessionContextPort,
     TurnSessionStatePort,
+    TurnExecutionRuntimePort,
     TurnForegroundLifecyclePort,
     TurnCleanupPort,
     TranscriptFactory,
@@ -142,6 +143,7 @@ async def run_root_turn(
     effect_journal_factory: EffectJournalFactory | None = None,
     approval_coordinator: ApprovalCoordinatorPort | None = None,
     execution_policy: ExecutionPolicy | None = None,
+    execution_runtime: TurnExecutionRuntimePort,
     lifecycle: TurnForegroundLifecyclePort | None = None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -223,7 +225,7 @@ async def run_root_turn(
         )
 
     return await execute_turn(
-        controller,
+        execution_runtime,
         pref_config,
         execution,
         execute_prepared_turn,

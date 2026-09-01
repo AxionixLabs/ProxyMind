@@ -62,6 +62,10 @@ class _Controller:
     async def await_cleanup(awaitable) -> None:
         await awaitable
 
+    @staticmethod
+    def tool_profile_for_turn():
+        return None
+
 
 class _EventReport:
     async def open(self) -> None:

@@ -420,6 +420,7 @@ async def _run_tui_loop(
             """把 TUI Command 适配到现有根轮次执行能力。"""
             return await run_tui_model_turn(
                 mind,
+                mind.turn_execution_runtime,
                 message_text=command.message,
                 pref_config=command.pref_config_value() or {},
                 permissions=state.permissions,
