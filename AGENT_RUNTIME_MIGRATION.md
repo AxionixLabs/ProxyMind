@@ -153,6 +153,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   execution/session/model/tool/report 等具体端口；会话压缩改由注入的
   `ConversationCompactor` 持有 runtime 事务、Hook 和 Transcript 生命周期，TUI 只保留
   动画、命令与结果展示。
+- TUI Turn 控制器强制消费构造器注入的 `ProtocolCommandClient`，模块级 steer/interrupt/
+  reconcile 测试替身和可空回退已删除；Application task、原始错误槽和失败事件不再通过
+  Runtime 代理，错误边界测试改用公开生命周期接口。
 
 ### 最新证据
 
@@ -694,15 +697,14 @@ infrastructure reader；旧 `mind_app/runtime/subagents/context.py` 已删除，
 结果会在边界抛出，shutdown 回收持久 application；导入图、`compileall` 和
 `git diff --check` 通过，`frontends/subscription/runtime.py` 已无 `runtime_services` 动态发现。
 
-下一切片 TUI 输入端口的准入条件：`TuiTurnInputControl` 只接收显式
-`ProtocolCommandClient | None`，生产 session 在创建控制器时绑定能力；无客户端时仅允许
-测试 seam 的命令函数，不读取宿主 `runtime_services`。关键失败路径是客户端类型错误、缺失
-客户端时的明确配置错误和关闭期间输入对账；删除条件是控制器模块动态发现清零，并通过 TUI
-输入、流式命令和架构守卫验证。
+下一切片 TUI 输入端口的准入条件：`TuiTurnInputControl` 只接收显式且必填的
+`ProtocolCommandClient`，生产 session 在创建控制器时绑定能力；控制器不提供模块级命令
+替身，也不读取宿主 `runtime_services`。关键失败路径是客户端类型错误和关闭期间输入对账；
+删除条件是控制器模块动态发现及可空回退清零，并通过 TUI 输入、流式命令和架构守卫验证。
 
 本次 TUI 输入端口切片已满足上述条件：`TuiTurnInputControl` 删除 controller 上的
 `runtime_services`/`model_capability` 反射发现，只接受显式 `ProtocolCommandClient`，类型错误
-在构造边界立即拒绝；缺失客户端时仅使用测试 seam，关闭期间的 steer/interrupt 对账语义保持不变。
+在构造边界立即拒绝；关闭期间的 steer/interrupt 对账语义保持不变。
 TUI 输入、流式命令、中断和前端边界回归 `57 passed`；完整架构守卫 `93 passed, 60 warnings`，
 导入图、`compileall` 和 `git diff --check` 均通过。下一切片收口 `frontends/tui/session/loop.py` 的
 Protocol Client/application factory 装配，使 session loop 和 CLI durable exec 不再从 `Mind`
@@ -1053,6 +1055,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 收紧 TUI 控制与生命周期边界：`ProtocolCommandClient` 改为必填构造依赖，删除模块级命令测试替身、可空回退和 Runtime 生命周期内部状态代理 | 不含 `test_tui_stream_commands.py` 的全行为 `2984 passed, 11 skipped`；Turn 输入与错误边界 `28 passed`；TUI 启动/监听/Run `110 passed`；职责守卫与导入图基线 `3 passed`；导入图、`compileall`、文档契约和差异检查通过 |
 | 2026-09-02 | 删除最后的 `mind_app` 应用宿主，建立显式 `ApplicationHost`、TUI 宿主协议和可重试 `ProcessResourceOwner`，同步官网路径与退役包守卫，完成阶段 5 | 全行为 `3000 passed, 11 skipped`；完整架构 `114 passed, 66 warnings`；文档契约、导入图、`compileall`、旧路径扫描和差异检查通过 |
 | 2026-09-02 | 将进程停止/退出/取消态清理与前端活动展示迁出 Controller，由组合根注入 `ProcessLifecycle` 和 `FrontendActivity`，删除旧状态字段与动画/清理 facade，并修正 stdio MCP 权限来源 | 四入口、生命周期、活动与流式联合回归 `605 passed`；完整架构 `113 passed / 2 stale assertions`，修正后职责专项 `6 passed, 1 warning`；`compileall`、导入图和差异检查通过 |
 | 2026-09-02 | 将根 Session、历史游标、Transcript 和 SessionEnd/归档事务迁出 Controller；历史组合归 infrastructure，Transcript 值与归约归 domain，删除旧 transcripts store 源包 | 根会话/历史/Transcript 最终分组 `378 passed`；历史成功/故障 `12 passed`；四入口 `194 passed`；完整架构 `114 passed, 66 warnings`；导入图和差异检查通过 |

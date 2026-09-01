@@ -53,19 +53,21 @@ async def test_event_loop_error_exits_without_prompt_toolkit_exception_prompt(
         with patch.object(application, "_handle_exception") as prompt_handler:
             await runtime.open()
             try:
+                failure = asyncio.create_task(
+                    runtime.wait_for_application_failure()
+                )
                 error = RuntimeError("event loop boundary probe")
                 loop.call_exception_handler({
                     "message": "event loop boundary probe",
                     "exception": error,
                 })
 
+                assert await asyncio.wait_for(failure, timeout=1.0) is error
                 await _wait_until(
-                    lambda: runtime._application_task is not None
-                    and runtime._application_task.done(),
-                    message="application did not exit after an event-loop error",
+                    lambda: not runtime.active,
+                    message="application remained active after an event-loop error",
                 )
 
-                assert runtime._application_error is error
                 assert prompt_handler.call_count == 0
                 assert loop.get_exception_handler() is previous_handler
             finally:
@@ -96,7 +98,6 @@ async def test_background_task_error_is_reported_without_stopping_application(
             )
 
             assert runtime.active
-            assert runtime._application_error is None
             assert (
                 "Background task failed: RuntimeError: "
                 "background task boundary probe"
@@ -127,6 +128,9 @@ async def test_event_loop_error_cancels_active_model_turn() -> None:
         ))
         try:
             await started.wait()
+            failure = asyncio.create_task(
+                runtime.wait_for_application_failure()
+            )
             error = RuntimeError("active turn boundary probe")
             asyncio.get_running_loop().call_exception_handler({
                 "message": "active turn boundary probe",
@@ -137,7 +141,7 @@ async def test_event_loop_error_cancels_active_model_turn() -> None:
                 await asyncio.wait_for(model_turn, timeout=1.0)
 
             assert cancelled.is_set()
-            assert runtime._application_error is error
+            assert await asyncio.wait_for(failure, timeout=1.0) is error
             assert not runtime.execution_active
         finally:
             if not model_turn.done():
@@ -192,7 +196,6 @@ async def test_resize_reflow_failure_is_reported_once_and_next_resize_recovers(
 
                     assert clear.call_count == 1
                     assert runtime.active
-                    assert runtime._application_error is None
                     assert _transcript_text(runtime).count(
                         "Display refresh failed: RuntimeError: resize replay probe"
                     ) == 1
@@ -250,7 +253,6 @@ async def test_scrollback_print_failure_does_not_retry_until_geometry_changes(
 
                     assert print_text.call_count == 1
                     assert runtime.active
-                    assert runtime._application_error is None
                     assert _transcript_text(runtime).count(
                         "Display refresh failed: RuntimeError: scrollback print probe"
                     ) == 1

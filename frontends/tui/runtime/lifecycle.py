@@ -30,21 +30,6 @@ class ApplicationLifecycle(object):
         self._closing = False
 
     @property
-    def task(self) -> asyncio.Task[None] | None:
-        """返回当前由生命周期对象拥有的 Application 任务。"""
-        return self._task
-
-    @property
-    def error(self) -> BaseException | None:
-        """返回已经记录的 Application 终止错误。"""
-        return self._error
-
-    @property
-    def failure(self) -> asyncio.Event:
-        """返回用于等待 Application 致命停止的事件。"""
-        return self._failure
-
-    @property
     def active(self) -> bool:
         """返回 Application 任务是否仍在运行。"""
         return self._task is not None and not self._task.done()

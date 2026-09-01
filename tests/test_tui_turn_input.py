@@ -6,6 +6,10 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from agent.ports import (
+    ProtocolCommandClient,
+    ProtocolCommandError,
+)
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
@@ -14,7 +18,6 @@ from frontends.tui.core.styles import query_block, text_block
 from frontends.tui.session import turn_input as turn_input_session
 from frontends.tui.session.turn import execute_tui_model_turn
 from frontends.tui.session.turn_input import TuiTurnInputControl
-from protocol.client.turn_control import TurnControlRequestError
 from protocol.schema.stream_events import (
     MarkerEvent,
     TurnInputAcceptedEvent,
@@ -23,8 +26,9 @@ from protocol.schema.stream_events import (
 from protocol.schema.turn_inputs import TurnInput
 
 
-@pytest.fixture(autouse=True)
-def _committed_reconciliation(monkeypatch):
+@pytest.fixture
+def protocol_client() -> ProtocolCommandClient:
+    """返回只记录 TUI 轮次控制命令的协议端口。"""
     async def reconcile(**kwargs):
         client_message_ids = tuple(kwargs["client_message_ids"])
         return SimpleNamespace(
@@ -34,7 +38,15 @@ def _committed_reconciliation(monkeypatch):
             unknown_ids=(),
         )
 
-    monkeypatch.setattr(turn_input_session, "reconcile_turn_inputs", reconcile)
+    client = Mock(spec=ProtocolCommandClient)
+    client.steer_turn = AsyncMock(
+        return_value=SimpleNamespace(status="accepted")
+    )
+    client.interrupt_turn = AsyncMock(
+        return_value=SimpleNamespace(status="accepted")
+    )
+    client.reconcile_turn_inputs = AsyncMock(side_effect=reconcile)
+    return client
 
 
 class _Attachments(object):
@@ -83,11 +95,13 @@ def _mark_started(
 
 
 @pytest.mark.anyio
-async def test_control_requests_wait_for_matching_turn_start(monkeypatch) -> None:
+async def test_control_requests_wait_for_matching_turn_start(
+    protocol_client: ProtocolCommandClient,
+) -> None:
     steer = AsyncMock(return_value=SimpleNamespace(status="accepted"))
     interrupt = AsyncMock(return_value=SimpleNamespace(status="accepted"))
-    monkeypatch.setattr(turn_input_session, "steer_turn", steer)
-    monkeypatch.setattr(turn_input_session, "interrupt_turn", interrupt)
+    protocol_client.steer_turn = steer
+    protocol_client.interrupt_turn = interrupt
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
@@ -96,6 +110,7 @@ async def test_control_requests_wait_for_matching_turn_start(monkeypatch) -> Non
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     assert control.submit(_submission("too early"), False)
     assert runtime.submissions.pending_steers.active
@@ -127,10 +142,10 @@ async def test_control_requests_wait_for_matching_turn_start(monkeypatch) -> Non
 
 @pytest.mark.anyio
 async def test_continuation_activation_preserves_local_steer_fifo(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
     steer = AsyncMock(return_value=SimpleNamespace(status="accepted"))
-    monkeypatch.setattr(turn_input_session, "steer_turn", steer)
+    protocol_client.steer_turn = steer
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
@@ -139,6 +154,7 @@ async def test_continuation_activation_preserves_local_steer_fifo(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
 
     assert control.submit(_submission("first local"), False)
@@ -161,10 +177,10 @@ async def test_continuation_activation_preserves_local_steer_fifo(
 
 @pytest.mark.anyio
 async def test_unsettled_continuation_retains_sent_steer_as_uncertain(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
     steer = AsyncMock(return_value=SimpleNamespace(status="accepted"))
-    monkeypatch.setattr(turn_input_session, "steer_turn", steer)
+    protocol_client.steer_turn = steer
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
@@ -173,6 +189,7 @@ async def test_unsettled_continuation_retains_sent_steer_as_uncertain(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
     submission = _submission("old turn")
@@ -194,10 +211,10 @@ async def test_unsettled_continuation_retains_sent_steer_as_uncertain(
 
 @pytest.mark.anyio
 async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
     steer = AsyncMock(return_value=SimpleNamespace(status="accepted"))
-    monkeypatch.setattr(turn_input_session, "steer_turn", steer)
+    protocol_client.steer_turn = steer
 
     runtime = TuiRuntime()
     attachments = _Attachments([{"kind": "image", "name": "screen.png"}])
@@ -209,6 +226,7 @@ async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
 
@@ -230,8 +248,8 @@ async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
         next_input=TurnInput(
             client_message_id="message_steer_now",
             text="steer now",
-            attachments=sent.attachments,
-            extras=sent.extras,
+            attachments=tuple(dict(item) for item in sent.attachments),
+            extras=dict(sent.extras),
         ),
     ))
 
@@ -251,13 +269,8 @@ async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
 
 @pytest.mark.anyio
 async def test_settled_enter_can_be_restored_after_server_rejection(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
-    monkeypatch.setattr(
-        turn_input_session,
-        "steer_turn",
-        AsyncMock(return_value=SimpleNamespace(status="accepted")),
-    )
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
@@ -266,6 +279,7 @@ async def test_settled_enter_can_be_restored_after_server_rejection(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
     submission = _submission("continue next")
@@ -290,7 +304,9 @@ async def test_settled_enter_can_be_restored_after_server_rejection(
 
 
 @pytest.mark.anyio
-async def test_empty_settlement_keeps_local_tab_queue_fifo() -> None:
+async def test_empty_settlement_keeps_local_tab_queue_fifo(
+    protocol_client: ProtocolCommandClient,
+) -> None:
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
@@ -299,6 +315,7 @@ async def test_empty_settlement_keeps_local_tab_queue_fifo() -> None:
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
 
     assert control.submit(_submission("first local"), True)
@@ -315,7 +332,9 @@ async def test_empty_settlement_keeps_local_tab_queue_fifo() -> None:
     assert second.value == "second local"
 
 
-def test_tab_queue_captures_payload_and_restores_editable_draft() -> None:
+def test_tab_queue_captures_payload_and_restores_editable_draft(
+    protocol_client: ProtocolCommandClient,
+) -> None:
     runtime = TuiRuntime()
     attachments = _Attachments([{"kind": "image", "name": "screen.png"}])
     state = _State({"source": "selection"})
@@ -326,6 +345,7 @@ def test_tab_queue_captures_payload_and_restores_editable_draft() -> None:
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     runtime.bind_queued_restore_handler(control.restore_draft)
 
@@ -414,12 +434,10 @@ async def test_model_turn_keeps_restore_handler_for_uncertain_payload() -> None:
 
 @pytest.mark.anyio
 async def test_not_steerable_input_falls_back_to_local_next_turn(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
-    monkeypatch.setattr(
-        turn_input_session,
-        "steer_turn",
-        AsyncMock(return_value=SimpleNamespace(status="turn_not_steerable")),
+    protocol_client.steer_turn = AsyncMock(
+        return_value=SimpleNamespace(status="turn_not_steerable")
     )
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
@@ -429,6 +447,7 @@ async def test_not_steerable_input_falls_back_to_local_next_turn(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
     submission = _submission("retry next")
@@ -446,13 +465,8 @@ async def test_not_steerable_input_falls_back_to_local_next_turn(
 
 @pytest.mark.anyio
 async def test_sampling_acceptance_removes_immediate_input_from_next_turn(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
-    monkeypatch.setattr(
-        turn_input_session,
-        "steer_turn",
-        AsyncMock(return_value=SimpleNamespace(status="accepted")),
-    )
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
@@ -461,6 +475,7 @@ async def test_sampling_acceptance_removes_immediate_input_from_next_turn(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
     submission = _submission("accepted steer")
@@ -488,13 +503,8 @@ async def test_sampling_acceptance_removes_immediate_input_from_next_turn(
 
 @pytest.mark.anyio
 async def test_sampling_acceptance_binds_input_behind_active_tool(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
-    monkeypatch.setattr(
-        turn_input_session,
-        "steer_turn",
-        AsyncMock(return_value=SimpleNamespace(status="accepted")),
-    )
     runtime = TuiRuntime()
     runtime.append_block(query_block("original request"), kind="user")
     assert runtime.bind_submitted_turn("turn_001", "original request")
@@ -511,6 +521,7 @@ async def test_sampling_acceptance_binds_input_behind_active_tool(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
     submission = _submission("accepted during tool")
@@ -550,13 +561,13 @@ async def test_sampling_acceptance_binds_input_behind_active_tool(
 
 @pytest.mark.anyio
 async def test_response_loss_stays_pending_until_late_acceptance(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
     steer = AsyncMock(side_effect=[
-        TurnControlRequestError("response lost"),
-        TurnControlRequestError("response lost"),
+        ProtocolCommandError("response_lost", "response lost", retryable=True),
+        ProtocolCommandError("response_lost", "response lost", retryable=True),
     ])
-    monkeypatch.setattr(turn_input_session, "steer_turn", steer)
+    protocol_client.steer_turn = steer
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
@@ -565,6 +576,7 @@ async def test_response_loss_stays_pending_until_late_acceptance(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
     submission = _submission("accepted despite response loss")
@@ -593,12 +605,9 @@ async def test_response_loss_stays_pending_until_late_acceptance(
 
 
 @pytest.mark.anyio
-async def test_closing_turn_clears_unsettled_steer_display(monkeypatch) -> None:
-    monkeypatch.setattr(
-        turn_input_session,
-        "steer_turn",
-        AsyncMock(return_value=SimpleNamespace(status="accepted")),
-    )
+async def test_closing_turn_clears_unsettled_steer_display(
+    protocol_client: ProtocolCommandClient,
+) -> None:
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
@@ -607,6 +616,7 @@ async def test_closing_turn_clears_unsettled_steer_display(monkeypatch) -> None:
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
 
@@ -620,7 +630,7 @@ async def test_closing_turn_clears_unsettled_steer_display(monkeypatch) -> None:
 
 @pytest.mark.anyio
 async def test_settlement_cancels_unfinished_steer_without_local_retry(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
     request_started = asyncio.Event()
 
@@ -628,7 +638,7 @@ async def test_settlement_cancels_unfinished_steer_without_local_retry(
         request_started.set()
         await asyncio.Future()
 
-    monkeypatch.setattr(turn_input_session, "steer_turn", steer)
+    protocol_client.steer_turn = AsyncMock(side_effect=steer)
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
@@ -637,6 +647,7 @@ async def test_settlement_cancels_unfinished_steer_without_local_retry(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
     submission = _submission("in flight")
@@ -658,14 +669,8 @@ async def test_settlement_cancels_unfinished_steer_without_local_retry(
 
 @pytest.mark.anyio
 async def test_unconfirmed_sent_steer_is_retried_with_original_payload(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
-    monkeypatch.setattr(
-        turn_input_session,
-        "steer_turn",
-        AsyncMock(return_value=SimpleNamespace(status="accepted")),
-    )
-
     async def retry(**kwargs):
         return SimpleNamespace(
             committed_ids=(),
@@ -674,7 +679,7 @@ async def test_unconfirmed_sent_steer_is_retried_with_original_payload(
             unknown_ids=(),
         )
 
-    monkeypatch.setattr(turn_input_session, "reconcile_turn_inputs", retry)
+    protocol_client.reconcile_turn_inputs = AsyncMock(side_effect=retry)
     runtime = TuiRuntime()
     attachments = _Attachments([{"kind": "image", "name": "screen.png"}])
     state = _State({"source": "selection"})
@@ -685,6 +690,7 @@ async def test_unconfirmed_sent_steer_is_retried_with_original_payload(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
     submission = _submission("retry safely")
@@ -702,14 +708,8 @@ async def test_unconfirmed_sent_steer_is_retried_with_original_payload(
 
 @pytest.mark.anyio
 async def test_multiple_retry_ids_restore_separately_in_fifo(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
-    monkeypatch.setattr(
-        turn_input_session,
-        "steer_turn",
-        AsyncMock(return_value=SimpleNamespace(status="accepted")),
-    )
-
     async def retry(**kwargs):
         return SimpleNamespace(
             committed_ids=(),
@@ -718,7 +718,7 @@ async def test_multiple_retry_ids_restore_separately_in_fifo(
             unknown_ids=(),
         )
 
-    monkeypatch.setattr(turn_input_session, "reconcile_turn_inputs", retry)
+    protocol_client.reconcile_turn_inputs = AsyncMock(side_effect=retry)
     runtime = TuiRuntime()
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
@@ -727,12 +727,13 @@ async def test_multiple_retry_ids_restore_separately_in_fifo(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
 
     assert control.submit(_submission("first retry"), False)
     assert control.submit(_submission("second retry"), False)
-    while turn_input_session.steer_turn.await_count < 2:
+    while protocol_client.steer_turn.await_count < 2:
         await asyncio.sleep(0)
     await control.close()
 
@@ -743,13 +744,9 @@ async def test_multiple_retry_ids_restore_separately_in_fifo(
 
 
 @pytest.mark.anyio
-async def test_unknown_sent_steer_requires_manual_restore(monkeypatch) -> None:
-    monkeypatch.setattr(
-        turn_input_session,
-        "steer_turn",
-        AsyncMock(return_value=SimpleNamespace(status="accepted")),
-    )
-
+async def test_unknown_sent_steer_requires_manual_restore(
+    protocol_client: ProtocolCommandClient,
+) -> None:
     async def unknown(**kwargs):
         return SimpleNamespace(
             committed_ids=(),
@@ -758,7 +755,7 @@ async def test_unknown_sent_steer_requires_manual_restore(monkeypatch) -> None:
             unknown_ids=tuple(kwargs["client_message_ids"]),
         )
 
-    monkeypatch.setattr(turn_input_session, "reconcile_turn_inputs", unknown)
+    protocol_client.reconcile_turn_inputs = AsyncMock(side_effect=unknown)
     runtime = TuiRuntime()
     attachments = _Attachments([{"kind": "image"}])
     state = _State({"source": "selection"})
@@ -769,6 +766,7 @@ async def test_unknown_sent_steer_requires_manual_restore(monkeypatch) -> None:
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     runtime.bind_queued_restore_handler(control.restore_draft)
     _mark_started(control)
@@ -789,12 +787,8 @@ async def test_unknown_sent_steer_requires_manual_restore(monkeypatch) -> None:
 @pytest.mark.anyio
 async def test_pending_reconciliation_retries_until_classified(
     monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
-    monkeypatch.setattr(
-        turn_input_session,
-        "steer_turn",
-        AsyncMock(return_value=SimpleNamespace(status="accepted")),
-    )
     responses = [
         SimpleNamespace(
             committed_ids=(),
@@ -810,7 +804,7 @@ async def test_pending_reconciliation_retries_until_classified(
         ),
     ]
     reconcile = AsyncMock(side_effect=responses)
-    monkeypatch.setattr(turn_input_session, "reconcile_turn_inputs", reconcile)
+    protocol_client.reconcile_turn_inputs = reconcile
     monkeypatch.setattr(
         TuiTurnInputControl,
         "RECONCILE_RETRY_INTERVAL_SEC",
@@ -824,6 +818,7 @@ async def test_pending_reconciliation_retries_until_classified(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
 
@@ -839,9 +834,10 @@ async def test_pending_reconciliation_retries_until_classified(
 @pytest.mark.anyio
 async def test_remote_interrupt_uses_bound_turn_once(
     monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
     interrupt = AsyncMock(return_value=SimpleNamespace(status="accepted"))
-    monkeypatch.setattr(turn_input_session, "interrupt_turn", interrupt)
+    protocol_client.interrupt_turn = interrupt
     monkeypatch.setattr(
         turn_input_session,
         "new_request_id",
@@ -854,6 +850,7 @@ async def test_remote_interrupt_uses_bound_turn_once(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
 
@@ -871,12 +868,12 @@ async def test_remote_interrupt_uses_bound_turn_once(
     )
 @pytest.mark.anyio
 async def test_late_remote_interrupt_accepts_turn_not_steerable(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
     interrupt = AsyncMock(
         return_value=SimpleNamespace(status="turn_not_steerable")
     )
-    monkeypatch.setattr(turn_input_session, "interrupt_turn", interrupt)
+    protocol_client.interrupt_turn = interrupt
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         TuiRuntime(),
@@ -884,6 +881,7 @@ async def test_late_remote_interrupt_accepts_turn_not_steerable(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
 
@@ -895,13 +893,13 @@ async def test_late_remote_interrupt_accepts_turn_not_steerable(
 
 @pytest.mark.anyio
 async def test_remote_interrupt_retries_with_the_same_turn(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
     interrupt = AsyncMock(side_effect=[
-        TurnControlRequestError("response lost"),
+        ProtocolCommandError("response_lost", "response lost", retryable=True),
         SimpleNamespace(status="turn_not_steerable"),
     ])
-    monkeypatch.setattr(turn_input_session, "interrupt_turn", interrupt)
+    protocol_client.interrupt_turn = interrupt
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         TuiRuntime(),
@@ -909,6 +907,7 @@ async def test_remote_interrupt_retries_with_the_same_turn(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
     control.request_interrupt()
@@ -922,7 +921,7 @@ async def test_remote_interrupt_retries_with_the_same_turn(
 
 @pytest.mark.anyio
 async def test_local_interrupt_does_not_wait_for_remote_request(
-    monkeypatch,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
     remote_started = asyncio.Event()
     release_remote = asyncio.Event()
@@ -941,7 +940,7 @@ async def test_local_interrupt_does_not_wait_for_remote_request(
         finally:
             turn_cancelled.set()
 
-    monkeypatch.setattr(turn_input_session, "interrupt_turn", wait_for_remote)
+    protocol_client.interrupt_turn = AsyncMock(side_effect=wait_for_remote)
 
     runtime = TuiRuntime()
     application = SimpleNamespace(emit=Mock())
@@ -952,6 +951,7 @@ async def test_local_interrupt_does_not_wait_for_remote_request(
         cid="cid_1",
         sid="sid_1",
         turn_id="turn_001",
+        protocol_client=protocol_client,
     )
     _mark_started(control)
 

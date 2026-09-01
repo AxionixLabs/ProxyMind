@@ -91,10 +91,11 @@ Hook 和最后回复记忆的唯一正文来源；`current_item` 为当前事件
 revision，`sources` 从 active text/builtin Items 聚合。展示 adapter 不得再从收到的
 delta 自建最终正文、attempt 或来源归属。
 `ProtocolCommandClient` 与模型流共用同一 Protocol Client 身份，但职责单独收敛为
-`turn/interrupt`、`tool-result`、`tool-result/status`、`tool-approval` 和
-`effect/reconcile` 命令；它返回已校验的控制回执或状态快照，TUI 不得直接调用
-`protocol.client` 的 wire 函数。这样桌面端和 Web 可以复用同一命令语义而不引入
-`Mind` 或本地 UI 生命周期。
+`turn/steer`、`turn/interrupt`、`turn/reconcile`、`tool-result`、
+`tool-result/status`、`tool-approval` 和 `effect/reconcile` 命令；它返回已校验的控制回执
+或状态快照。TUI 输入控制器必须在构造时获得该端口，不得通过模块级命令替身、可空依赖
+或 `protocol.client` wire 函数回退。这样桌面端和 Web 可以复用同一命令语义而不引入
+本地应用宿主或 UI 生命周期。
 迁移期间可以复用既有传输，但不能把 `agent.application` 的本地
 `SubmitTurnCommand` 或 `agent.protocol.RunEvent` 暴露为桌面/Web 公共协议。
 
@@ -729,7 +730,8 @@ running -> cancelled
 | `mind_core` 配置、权限、hooks、skills | `domain/policies.py`、`application/`、`infrastructure/config`、capability adapters | 配置读取、策略判断和技能/Hook 生命周期拆开，禁止形成新的共享杂物包；完成后删除 `mind_core` |
 | `frontends/cli`、`frontends/tui`、`frontends/mcp`、`frontends/subscription` | `frontends/`、`application/`、Protocol Client | CLI、TUI、MCP、Subscription 四类入口均通过 `RuntimeServices` 接收 application；执行命令已冻结并提交统一入口，CLI/MCP 只消费各自最小应用宿主 Protocol，具体宿主 factory、根轮次 runner、环境快照和前端依赖由 `mind.py` 注入；`frontends` 不导入 `mind_app`，`mind_app` 也不导入 `frontends`；终态观测和回执优先使用 Run/Canonical Event projection；TUI 作为 Protocol Client adapter，桌面/Web 通过同一 fixture 校验协议投影 |
 | `mind_app/tui`（已删除） | `frontends/tui` | TUI 输入、会话、渲染和展示 runtime 作为一个可替换前端整体迁移；内部状态仍由 TUI adapter 管理，Harness、Controller 和 Protocol Client 状态不随目录迁移，避免 `frontends -> mind_app -> frontends` 包级循环 |
-| `frontends/tui/session/turn_input.py`、`frontends/tui/session/loop.py`、`frontends/cli/dispatch.py` | `frontends/` + CLI bootstrap 组合根装配 | TUI 输入控制器和 durable `TurnApplication` 消费显式注入的 Protocol Client/factory；TUI Turn 只消费已绑定宿主的 `TuiRootTurnRunner` 用例，不再逐层传递或组装 `TurnExecutionRuntimePort`、`RootTurnSessionPort`、模型流与清理实现；CLI durable exec 继续由组合根绑定同一根轮次用例 |
+| `frontends/tui/session/turn_input.py`、`frontends/tui/session/loop.py`、`frontends/cli/dispatch.py` | `frontends/` + CLI bootstrap 组合根装配 | TUI 输入控制器强制消费构造器注入的 `ProtocolCommandClient`，不保留模块级命令替身或可空回退；durable `TurnApplication` 消费显式 factory；TUI Turn 只消费已绑定宿主的 `TuiRootTurnRunner` 用例，不再逐层传递或组装 `TurnExecutionRuntimePort`、`RootTurnSessionPort`、模型流与清理实现；CLI durable exec 继续由组合根绑定同一根轮次用例 |
+| `frontends/tui/core/runtime.py`、`frontends/tui/runtime/lifecycle.py` | TUI 前端生命周期边界 | Runtime 只公开 `active`、`wait_for_application_failure()` 等有业务语义的观察接口；Application task、原始错误槽和同步事件由 lifecycle owner 私有持有，不为测试透传内部状态 |
 | `frontends/tui/features/conversation.py`、TUI `/compact`/`fork`/backtrack 调用链 | `frontends/tui` + session 组合边界 | 会话 feature 只拥有交互与展示；压缩通过组合根绑定的 `ConversationCompactor` 执行事务、Hook 和 Transcript 生命周期，分支只消费显式 `ProtocolCommandClient`；前端不导入旧 compaction runtime，也不从 `Mind` 反射发现运行时服务 |
 | `mind_app/tui/contracts`（已删除） | `frontends/tui/contracts` | TUI 的菜单、分页、Resume、文本片段、Transcript 和视图契约是无副作用的前端展示输入；只依赖标准库和同包类型，TUI/CLI/测试统一从新路径导入 |
 | `mind_app/runtime/mcp/server.py` | `frontends/mcp/server.py` | stdio MCP 入站适配器整体迁移；`mind_exec` 通过注入的 `TurnApplication`、`RootTurnCommandExecutor`、根轮次 runner 和环境快照 provider 提交 `SubmitTurnCommand`，structured content 优先使用 `RunResultProjection`；MCP runtime 只消费 `McpApplicationHost`，具体宿主 factory 由 `mind.py` 注入，不导入或拥有旧 Controller 实现 |

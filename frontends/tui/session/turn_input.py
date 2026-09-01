@@ -34,14 +34,6 @@ if typing.TYPE_CHECKING:
     from .state import TuiSessionState
 
 
-# These names are intentionally unbound in production. They remain a narrow
-# test seam for the legacy unit tests while real TUI construction injects the
-# ProtocolCommandClient from RuntimeServices.
-steer_turn: typing.Any = None
-interrupt_turn: typing.Any = None
-reconcile_turn_inputs: typing.Any = None
-
-
 class TuiTurnInputControl(object):
     """协调活动轮次的即时输入、下一轮输入和远端中断。"""
 
@@ -57,17 +49,14 @@ class TuiTurnInputControl(object):
         cid: str,
         sid: str,
         turn_id: str,
-        protocol_client: ProtocolCommandClient | None = None,
+        protocol_client: ProtocolCommandClient,
     ) -> None:
         """绑定当前会话坐标并初始化输入对账状态。"""
         self._controller = controller
         self._runtime = runtime
         self._state = state
         self._target = (cid, sid, turn_id)
-        if protocol_client is not None and not isinstance(
-            protocol_client,
-            ProtocolCommandClient,
-        ):
+        if not isinstance(protocol_client, ProtocolCommandClient):
             raise TypeError("TUI turn input requires ProtocolCommandClient")
         self._protocol_client = protocol_client
 
@@ -270,35 +259,13 @@ class TuiTurnInputControl(object):
                 break
             try:
                 async with asyncio.timeout_at(deadline):
-                    if self._protocol_client is not None:
-                        response = await self._protocol_client.reconcile_turn_inputs(
-                            cid=cid,
-                            sid=sid,
-                            turn_id=turn_id,
-                            client_message_ids=pending_ids,
-                        )
-                    else:
-                        if not callable(reconcile_turn_inputs):
-                            raise RuntimeError(
-                                "TUI turn input ProtocolCommandClient is required"
-                            )
-                        response = await reconcile_turn_inputs(
-                            cid=cid,
-                            sid=sid,
-                            turn_id=turn_id,
-                            client_message_ids=pending_ids,
-                            timeout=remaining,
-                        )
+                    response = await self._protocol_client.reconcile_turn_inputs(
+                        cid=cid,
+                        sid=sid,
+                        turn_id=turn_id,
+                        client_message_ids=pending_ids,
+                    )
             except (ProtocolCommandError, TimeoutError) as error:
-                observe_exception(
-                    "turn.reconcile.failed",
-                    error,
-                    level="WARNING",
-                )
-                break
-            except Exception as error:
-                if self._protocol_client is not None:
-                    raise
                 observe_exception(
                     "turn.reconcile.failed",
                     error,
@@ -413,34 +380,15 @@ class TuiTurnInputControl(object):
         )
         for attempt in range(2):
             try:
-                if self._protocol_client is not None:
-                    response = await self._protocol_client.steer_turn(
-                        cid=cid,
-                        sid=sid,
-                        turn_id=turn_id,
-                        turn_input=wire_input,
-                        request_id=request_id,
-                    )
-                else:
-                    if not callable(steer_turn):
-                        raise RuntimeError(
-                            "TUI turn input ProtocolCommandClient is required"
-                        )
-                    response = await steer_turn(
-                        cid=cid,
-                        sid=sid,
-                        turn_id=turn_id,
-                        turn_input=turn_input,
-                        request_id=request_id,
-                    )
+                response = await self._protocol_client.steer_turn(
+                    cid=cid,
+                    sid=sid,
+                    turn_id=turn_id,
+                    turn_input=wire_input,
+                    request_id=request_id,
+                )
                 break
             except ProtocolCommandError as error:
-                if attempt == 0:
-                    continue
-                observe_exception("turn.steer.failed", error, level="WARNING")
-            except Exception as error:
-                if self._protocol_client is not None:
-                    raise
                 if attempt == 0:
                     continue
                 observe_exception("turn.steer.failed", error, level="WARNING")
@@ -472,24 +420,12 @@ class TuiTurnInputControl(object):
 
         for attempt in range(2):
             try:
-                if self._protocol_client is not None:
-                    response = await self._protocol_client.interrupt_turn(
-                        cid=cid,
-                        sid=sid,
-                        turn_id=turn_id,
-                        request_id=request_id,
-                    )
-                else:
-                    if not callable(interrupt_turn):
-                        raise RuntimeError(
-                            "TUI turn input ProtocolCommandClient is required"
-                        )
-                    response = await interrupt_turn(
-                        cid=cid,
-                        sid=sid,
-                        turn_id=turn_id,
-                        request_id=request_id,
-                    )
+                response = await self._protocol_client.interrupt_turn(
+                    cid=cid,
+                    sid=sid,
+                    turn_id=turn_id,
+                    request_id=request_id,
+                )
                 observe(
                     "turn.interrupt.remote",
                     cid=cid,
@@ -503,23 +439,6 @@ class TuiTurnInputControl(object):
                 )
                 return None
             except ProtocolCommandError as error:
-                if attempt == 0:
-                    continue
-                observe_exception(
-                    "turn.interrupt.failed",
-                    error,
-                    level="WARNING",
-                    cid=cid,
-                    sid=sid,
-                    turn_id=turn_id,
-                    request_id=request_id,
-                    elapsed_ms=int(
-                        (time.perf_counter() - started_at) * 1000
-                    ),
-                )
-            except Exception as error:
-                if self._protocol_client is not None:
-                    raise
                 if attempt == 0:
                     continue
                 observe_exception(

@@ -4779,6 +4779,77 @@ def test_subscription_adapter_is_owned_by_frontends() -> None:
     )
 
 
+def test_tui_runtime_exposes_only_explicit_control_and_lifecycle_ports() -> None:
+    """确保 TUI 不保留模块命令替身或生命周期内部状态代理。"""
+    turn_input_path = (
+        PROJECT_ROOT / "frontends" / "tui" / "session" / "turn_input.py"
+    )
+    turn_input_source = turn_input_path.read_text(encoding="utf-8-sig")
+    turn_input_tree = ast.parse(turn_input_source, filename=str(turn_input_path))
+    control_class = next(
+        node
+        for node in turn_input_tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "TuiTurnInputControl"
+    )
+    initializer = next(
+        node
+        for node in control_class.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "__init__"
+    )
+    protocol_index = next(
+        index
+        for index, argument in enumerate(initializer.args.kwonlyargs)
+        if argument.arg == "protocol_client"
+    )
+    protocol_argument = initializer.args.kwonlyargs[protocol_index]
+    assert initializer.args.kw_defaults[protocol_index] is None
+    assert protocol_argument.annotation is not None
+    assert ast.unparse(protocol_argument.annotation) == "ProtocolCommandClient"
+
+    forbidden_command_seams = {
+        "steer_turn",
+        "interrupt_turn",
+        "reconcile_turn_inputs",
+    }
+    module_assignments = {
+        node.target.id
+        for node in turn_input_tree.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+    }
+    module_assignments.update(
+        target.id
+        for node in turn_input_tree.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    )
+    assert not forbidden_command_seams.intersection(module_assignments)
+    assert "protocol_client is not None" not in turn_input_source
+
+    runtime_source = (
+        PROJECT_ROOT / "frontends" / "tui" / "core" / "runtime.py"
+    ).read_text(encoding="utf-8-sig")
+    for private_proxy in (
+        "def _application_task(",
+        "def _application_error(",
+        "def _application_failure(",
+    ):
+        assert private_proxy not in runtime_source
+
+    lifecycle_source = (
+        PROJECT_ROOT / "frontends" / "tui" / "runtime" / "lifecycle.py"
+    ).read_text(encoding="utf-8-sig")
+    for raw_state_accessor in (
+        "def task(",
+        "def error(",
+        "def failure(",
+    ):
+        assert raw_state_accessor not in lifecycle_source
+
+
 def test_cli_adapter_is_owned_by_frontends() -> None:
     """确保 CLI 命令解析、路由和入口生命周期归入前端边界。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "cli"

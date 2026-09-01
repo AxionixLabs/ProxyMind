@@ -377,21 +377,6 @@ class TuiRuntime(object):
         return self._application_lifecycle.active
 
     @property
-    def _application_task(self) -> asyncio.Task[None] | None:
-        """返回生命周期协作者当前拥有的任务（迁移期私有观察入口）。"""
-        return self._application_lifecycle.task
-
-    @property
-    def _application_error(self) -> BaseException | None:
-        """返回生命周期协作者记录的错误（迁移期私有观察入口）。"""
-        return self._application_lifecycle.error
-
-    @property
-    def _application_failure(self) -> asyncio.Event:
-        """返回生命周期协作者的失败事件（迁移期私有观察入口）。"""
-        return self._application_lifecycle.failure
-
-    @property
     def execution_active(self) -> bool:
         """返回模型轮次是否正在运行。"""
         return self.task_state.turn_running
