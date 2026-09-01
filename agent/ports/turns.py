@@ -9,10 +9,15 @@ from collections.abc import (
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
 from protocol.transport.events import EventReport
-from .hooks import CommandHookSessionPort
+from .hooks import (
+    CommandHookSessionPort,
+    HookExecutionScopePort,
+)
+from .permissions import PermissionGrantReader
 from .mcp_session import McpSessionPort
 
 if typing.TYPE_CHECKING:
+    from agent.application.turns.context import TurnContext
     from agent.application.turns.execution import TurnExecution
 
 
@@ -122,6 +127,59 @@ class TurnExecutionRuntimePort(typing.Protocol):
         ...
 
 
+class TurnStartResultPort(typing.Protocol):
+    """定义根会话登记后返回的轮次边界快照。"""
+
+    cid: str
+    sid: str
+    session_started: bool
+    start_reason: str
+    additional_context: tuple[str, ...]
+    system_message: str
+
+    def metadata(self) -> dict[str, str]:
+        """返回登记后的会话坐标。"""
+        ...
+
+
+class RootTurnSessionPort(typing.Protocol):
+    """定义根轮次准备读取会话资源和 Hook 作用域的端口。"""
+
+    @property
+    def workspace_root(self) -> str:
+        """返回根轮次绑定的工作区。"""
+        ...
+
+    @property
+    def permission_grants(self) -> PermissionGrantReader | None:
+        """返回当前会话的权限授予读取端口。"""
+        ...
+
+    @property
+    def output_record_path(self) -> str:
+        """返回根轮次输出记录路径。"""
+        ...
+
+    async def begin_conversation_turn(
+        self,
+        cid: str | None,
+        sid: str | None,
+        *,
+        title: str,
+        source: str,
+    ) -> TurnStartResultPort:
+        """登记或续用根会话并返回轮次边界快照。"""
+        ...
+
+    def transcript_path_for_session(self, sid: str) -> str:
+        """返回指定会话的 Transcript 路径。"""
+        ...
+
+    def hook_scope(self, context: "TurnContext") -> HookExecutionScopePort:
+        """为当前轮次创建固定 Hook 作用域。"""
+        ...
+
+
 @typing.runtime_checkable
 class RetryStatePort(typing.Protocol):
     """定义流式重试展示状态的最小端口。"""
@@ -201,6 +259,8 @@ __all__ = (
     "TurnEventReportHandle",
     "TurnEventReportingPort",
     "TurnExecutionRuntimePort",
+    "TurnStartResultPort",
+    "RootTurnSessionPort",
     "TurnOperation",
     "RetryState",
     "RetryStatePort",

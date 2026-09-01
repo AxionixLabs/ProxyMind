@@ -421,6 +421,7 @@ async def _run_tui_loop(
             return await run_tui_model_turn(
                 mind,
                 mind.turn_execution_runtime,
+                mind.root_turn_session,
                 message_text=command.message,
                 pref_config=command.pref_config_value() or {},
                 permissions=state.permissions,

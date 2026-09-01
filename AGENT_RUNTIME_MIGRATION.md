@@ -513,6 +513,14 @@ Subagent 均通过显式端口执行。核心 Turn/TUI/Subagent 回归 `56 passe
 `31 passed`；架构端口专项、`compileall` 和 `git diff --check` 通过。下一切片收口根轮次
 准备阶段的会话登记、Transcript 路径和 Hook scope 端口。
 
+本次根轮次会话端口切片已满足上述条件：新增
+`agent.ports.TurnStartResultPort`、`RootTurnSessionPort` 和
+`ControllerRootTurnSession`，根轮次/TUI 通过组合根显式传入；`prepare_root_turn` 不再
+读取 Controller 的会话、工作区、权限、报告、Transcript 或 Hook 属性，登记结果和
+作用域由端口统一提供。根轮次、TUI、Subagent 回归 `63 passed`；根准备与执行端口专项
+`4 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过。下一切片收口
+`run_root_turn` 的偏好配置、权限和审批账本读取。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -637,3 +645,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 删除 `stream_turn` 的 Controller 类型依赖，生命周期 owner 仅作为不透明操作参数传递，保持根轮次/TUI/Subagent 生命周期调用兼容 | 流式/TUI/Subagent 回归 `123 passed`；`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `TurnForegroundLifecyclePort` 与 Controller 前台适配器，根轮次/TUI 显式传递终端生命周期，删除 `run_foreground_turn` 对 Controller 嵌套属性的直接读取 | 根轮次/TUI/流式/输出回归 `318 passed`；架构专项 `4 passed`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `TurnEventReportHandle`、`TurnEventReportingPort` 和 `TurnExecutionRuntimePort`，由 `ControllerTurnExecutionRuntime` 适配报告、MCP 会话、工具过滤和清理；执行器删除 `Mind` 类型与宿主反射 | Turn/TUI/Subagent `56 passed`，工具补充回归 `31 passed`；端口专项、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 新增 `TurnStartResultPort`、`RootTurnSessionPort` 和 `ControllerRootTurnSession`，根轮次准备改为显式会话端口，删除 `prepare_root_turn` 对 Controller 会话资源和 Hook 属性的直接读取 | 根轮次/TUI/Subagent `63 passed`；根准备/执行端口专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |

@@ -2725,6 +2725,28 @@ def test_turn_executor_uses_runtime_port_without_controller_reflection() -> None
     assert not reflected
 
 
+def test_root_turn_preparation_uses_session_port() -> None:
+    """确保根轮次准备只读取显式会话端口。"""
+    target_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "root.py"
+    tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    prepare = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "prepare_root_turn"
+    )
+
+    assert prepare.args.args[0].arg == "session"
+    controller_accesses = [
+        node
+        for node in ast.walk(prepare)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "controller"
+    ]
+    assert not controller_accesses
+
+
 def test_mcp_session_contract_is_owned_by_agent_ports() -> None:
     """确保 MCP 会话只由 agent ports 定义，runtime 不保留协议契约。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "contracts.py"
@@ -2775,6 +2797,8 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
                 "TurnEventReportHandle",
                 "TurnEventReportingPort",
                 "TurnExecutionRuntimePort",
+                "TurnStartResultPort",
+                "RootTurnSessionPort",
                 "TurnInputEventHandler",
                 "TurnOperation",
                 "RetryStatePort",

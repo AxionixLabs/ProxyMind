@@ -6,7 +6,9 @@ from types import SimpleNamespace
 import pytest
 
 from agent.application.turns.run_result import RunResult
+from agent.application.turns.context import TurnContext
 from agent.harness.hooks.runtime import HookRuntime
+from agent.application.hooks.context import HookExecutionContext
 from agent.harness.hooks.scope import HookExecutionScope
 from mind_app.interaction import ConversationTurn
 from protocol.client.reports import EventReportRuntimeOwner
@@ -70,6 +72,12 @@ class _TuiController:
         self.attach = _Attachments(attachments)
         self.failure = failure
         self.history_workspace = "D:/workspace"
+        self.workspace_root = self.history_workspace
+        self.permission_grants = None
+        self.output_record_path = "D:/logs/output.log"
+        self.transcript_path_for_session = (
+            lambda _sid: "D:/sessions/session.jsonl"
+        )
         self.report = SimpleNamespace(output_record_path="D:/logs/output.log")
         self.transcripts = SimpleNamespace(
             path_for_session=lambda _sid: "D:/sessions/session.jsonl",
@@ -107,6 +115,8 @@ class _TuiController:
         )
 
     def hook_scope(self, context):
+        if isinstance(context, TurnContext):
+            context = HookExecutionContext.from_turn(context)
         scope = HookExecutionScope(
             context=context,
             dispatcher=HookRuntime.empty(),
@@ -164,6 +174,7 @@ async def test_tui_turn_uses_shared_execution_for_attachment_only_prompt(
     prepared_attachments = []
 
     result = await run_tui_model_turn(
+        controller,
         controller,
         controller,
         message_text="",
@@ -250,6 +261,7 @@ async def test_tui_turn_snapshots_helix_tool_mode_before_session_setup(
     await run_tui_model_turn(
         controller,
         controller,
+        controller,
         message_text="hello",
         pref_config={"primary": {"model": "test-model"}},
         permissions=preset_permissions("auto"),
@@ -281,6 +293,7 @@ async def test_tui_turn_snapshots_unlinked_helix_state_before_session_setup(
     await run_tui_model_turn(
         controller,
         controller,
+        controller,
         message_text="hello",
         pref_config={"primary": {"model": "test-model"}},
         permissions=preset_permissions("auto"),
@@ -304,6 +317,7 @@ async def test_tui_turn_keeps_session_report_after_failure(
         await run_tui_model_turn(
             controller,
             controller,
+            controller,
             message_text="hello",
             pref_config={},
             permissions=preset_permissions("auto"),
@@ -322,6 +336,7 @@ async def test_tui_turn_closes_report_without_drain_after_cancellation(
 
     with pytest.raises(asyncio.CancelledError):
         await run_tui_model_turn(
+            controller,
             controller,
             controller,
             message_text="hello",

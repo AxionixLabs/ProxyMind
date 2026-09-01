@@ -19,6 +19,7 @@ from agent.ports import (
     TurnSessionContextPort,
     TurnSessionStatePort,
     TurnExecutionRuntimePort,
+    RootTurnSessionPort,
     TurnForegroundLifecyclePort,
     TurnCleanupPort,
     TranscriptFactory,
@@ -30,7 +31,6 @@ from agent.application.turns.context import (
 from mind_app.runtime.turns.executor import (
     build_turn_input_payload,
     execute_turn,
-    resolve_turn_hook_scope,
 )
 from mind_app.runtime.turns.stream import stream_turn
 from mind_app.presentation.terminal.turn_lifecycle import run_foreground_turn
@@ -58,7 +58,7 @@ class RootTurnRunner(typing.Protocol):
 
 
 async def prepare_root_turn(
-    controller: "Mind",
+    session: RootTurnSessionPort,
     *,
     message: str,
     title: str,
@@ -82,7 +82,7 @@ async def prepare_root_turn(
 ) -> TurnExecution:
     """固定根轮次的会话身份、输入快照和执行上下文。"""
     supplied_metadata = dict(metadata)
-    conversation_turn = await controller.begin_conversation_turn(
+    conversation_turn = await session.begin_conversation_turn(
         cid=supplied_metadata.get("cid"),
         sid=supplied_metadata.get("sid"),
         title=title,
@@ -99,9 +99,9 @@ async def prepare_root_turn(
         sid=sid,
         source=source,
         pref_config=pref_config,
-        cwd=controller.history_workspace,
+        cwd=session.workspace_root,
         permissions=permissions,
-        permission_grants=getattr(controller, "permission_grants", None),
+        permission_grants=session.permission_grants,
         approval_coordinator=approval_coordinator,
         execution_policy=execution_policy,
         approval_ledger=approval_ledger,
@@ -112,8 +112,8 @@ async def prepare_root_turn(
         animation=animation,
         session_context=session_context,
         session_state=session_state,
-        output_record_path=str(controller.report.output_record_path or ""),
-        transcript_path=controller.transcripts.path_for_session(sid),
+        output_record_path=session.output_record_path,
+        transcript_path=session.transcript_path_for_session(sid),
         turn_id=turn_id,
         session_started=conversation_turn.session_started,
         session_start_reason=conversation_turn.start_reason,
@@ -121,7 +121,7 @@ async def prepare_root_turn(
     return TurnExecution(
         context=context,
         message=message,
-        hook_scope=resolve_turn_hook_scope(controller, context),
+        hook_scope=session.hook_scope(context),
         metadata=canonical_metadata,
         additional_context=conversation_turn.additional_context,
         system_message=conversation_turn.system_message,
@@ -144,6 +144,7 @@ async def run_root_turn(
     approval_coordinator: ApprovalCoordinatorPort | None = None,
     execution_policy: ExecutionPolicy | None = None,
     execution_runtime: TurnExecutionRuntimePort,
+    root_session: RootTurnSessionPort,
     lifecycle: TurnForegroundLifecyclePort | None = None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -173,7 +174,7 @@ async def run_root_turn(
     )
     raw_extras = kwargs.get("extras")
     execution = await prepare_root_turn(
-        controller,
+        root_session,
         message=message,
         title=message,
         source="calling",

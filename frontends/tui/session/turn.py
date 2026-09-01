@@ -23,6 +23,7 @@ from agent.ports import (
     TurnSessionStatePort,
     TurnForegroundLifecyclePort,
     TurnExecutionRuntimePort,
+    RootTurnSessionPort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -209,6 +210,7 @@ async def execute_tui_model_turn(
 async def run_tui_model_turn(
     mind: "Mind",
     execution_runtime: TurnExecutionRuntimePort,
+    root_session: RootTurnSessionPort,
     *,
     message_text: str,
     pref_config: dict[str, typing.Any],
@@ -269,7 +271,7 @@ async def run_tui_model_turn(
     extras = dict(prompt_extras or {})
 
     execution = await prepare_root_turn(
-        mind,
+        root_session,
         message=message_text,
         title=session_title,
         source="tui",

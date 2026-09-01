@@ -62,6 +62,7 @@ from .runtime.turns.session_context import (
     ControllerTurnSessionState,
 )
 from .runtime.turns.execution_runtime import ControllerTurnExecutionRuntime
+from .runtime.turns.root_session import ControllerRootTurnSession
 from agent.stores import AgentGraphStore
 from infrastructure.config.runtime_paths import (
     agent_graph_db_path,
@@ -198,6 +199,7 @@ class Mind(object):
             pool=kwargs.get("event_report_pool"),
         )
         self.turn_execution_runtime = ControllerTurnExecutionRuntime(self)
+        self.root_turn_session = ControllerRootTurnSession(self)
         self._conversation_lifecycle_id: int = 0
 
         self.session_lifecycle = SessionLifecycleGateway(

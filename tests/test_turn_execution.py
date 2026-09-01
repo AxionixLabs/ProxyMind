@@ -668,6 +668,8 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         await awaitable
 
     def hook_scope(context):
+        if isinstance(context, TurnContext):
+            context = HookExecutionContext.from_turn(context)
         scope = HookExecutionScope(
             context=context,
             dispatcher=HookRuntime.empty(),
@@ -678,6 +680,12 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
     mind = SimpleNamespace(
         permissions=permissions,
         history_workspace="D:/workspace",
+        workspace_root="D:/workspace",
+        permission_grants=None,
+        output_record_path="D:/logs/output.log",
+        transcript_path_for_session=(
+            lambda _sid: "D:/sessions/session.jsonl"
+        ),
         report=SimpleNamespace(output_record_path="D:/logs/output.log"),
         transcripts=SimpleNamespace(
             path_for_session=lambda _sid: "D:/sessions/session.jsonl",
@@ -709,6 +717,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         metadata={"origin": "test"},
         ev_report=report,
         execution_runtime=mind,
+        root_session=mind,
         lifecycle=ControllerTurnForegroundLifecycle(mind),
     )
 
@@ -726,9 +735,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
     assert context.output_record_path == "D:/logs/output.log"
     assert context.transcript_path == "D:/sessions/session.jsonl"
     assert streamed_execution.hook_scope is resolved_scopes[0]
-    mind.hook_scope.assert_called_once_with(
-        HookExecutionContext.from_turn(context)
-    )
+    mind.hook_scope.assert_called_once_with(context)
     assert dict(streamed_execution.metadata) == {
         "origin": "test",
         "cid": "cid_root",
