@@ -409,6 +409,14 @@ CLI、TUI、Subagent、MCP 定向回归合计 `205 passed`；完整架构守卫 
 Controller 的剩余运行上下文依赖，将 Transcript、输出会话、清理和工作区端口归入
 Harness session application，继续缩小 legacy runtime 的职责面。
 
+本次审批状态所有权切片已满足上述条件：新增 `agent.ports.ApprovalLedger`，由
+`TurnContext` 携带审批消费/终态事实；根轮次、TUI 和 Subagent 在创建执行上下文时显式
+注入，`stream_turn` 删除 `ApprovalCallLedger` 的宿主反射、临时创建和写回，并直接使用
+上下文账本。流式结果、根轮次、TUI、CLI 和 Subagent 定向回归 `213 passed`；端口/public
+API/legacy 边界架构断言 `4 passed, 1 warning`，导入图、`compileall` 和
+`git diff --check` 均通过。下一切片继续收口 `stream.py` 的 Transcript、输出会话、清理
+和工作区上下文，将其迁入 Harness session application。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -437,13 +445,25 @@ Harness session application，继续缩小 legacy runtime 的职责面。
 
 ## 每次切片的最小验证集
 
+日常切片采用快速验证路径：只运行受影响模块的定向回归、与改动边界对应的架构
+专项，以及导入图、语法和 diff 检查。`tests/test_package_architecture.py` 的完整
+守卫会重复扫描整个仓库，保留到阶段出口、跨多个职责边界的变更或发布前复核；它
+不是每个小切片的阻塞条件。若切片删除旧路径或改变公共包边界，仍须在当前切片执行
+相应的架构专项，不能用快速路径掩盖边界回归。
+
 ```text
 受影响模块定向 pytest
-tests/test_package_architecture.py
+架构边界专项 pytest（按改动选择 -k）
 scripts/agent_runtime_import_graph.py --write
 scripts/agent_runtime_import_graph.py --check
 python -m compileall -q agent mind_app infrastructure protocol tests
 git diff --check
+```
+
+阶段出口和发布前复核增加：
+
+```text
+tests/test_package_architecture.py
 ```
 
 Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提交前必须复核
@@ -506,3 +526,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 将 TUI session loop 与 CLI durable exec 的 `TurnApplication`/`ProtocolCommandClient` 改为 bootstrap 显式注入，删除前端对 `Mind.runtime_services` 的动态发现 | TUI/CLI 回归 `145 passed, 1 deselected`，时序测试单独通过；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 TUI conversation fork/backtrack 的 Protocol Client 改为 session 显式注入，删除 feature 对 `Mind.runtime_services` 的动态发现 | Fork/backtrack/command/stream/input 回归 `211 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将流式执行的 Model/Protocol/Effect Journal 依赖沿组合根、根轮次、TUI、CLI、订阅/MCP 与 Subagent 显式注入，删除 `stream.py` 对 `Mind.runtime_services` 的反射 | 流式结果、CLI、TUI、Subagent、MCP 定向回归 `205 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 将审批调用账本提升为 `agent.ports.ApprovalLedger`，通过 `TurnContext` 注入根轮次、TUI 和 Subagent，删除 `stream.py` 的隐式账本创建和宿主反射 | 流式结果、根轮次、TUI、CLI、Subagent 回归 `213 passed`；端口/public API/legacy 架构断言 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |

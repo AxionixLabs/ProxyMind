@@ -9,6 +9,7 @@ from agent.ports.presentation import (
     ApplicationView
 )
 from agent.ports import (
+    ApprovalLedger,
     EffectJournalFactory,
     McpSessionPort,
     ModelCapability,
@@ -206,6 +207,7 @@ async def run_tui_model_turn(
     model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
+    approval_ledger: ApprovalLedger | None = None,
     on_prompt_prepared: typing.Callable[
         [list[dict[str, typing.Any]]],
         None,
@@ -252,6 +254,7 @@ async def run_tui_model_turn(
         metadata={},
         attachments=attachment_values,
         extras=extras,
+        approval_ledger=approval_ledger,
         turn_id=turn_id,
     )
 

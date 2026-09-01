@@ -69,6 +69,7 @@ from .presentation.application import (
 )
 from .presentation.terminal.contracts import TerminalDesign
 from agent.ports import (
+    ApprovalLedger,
     HookRegistryPort,
     ProtocolCommandClient,
 )
@@ -244,6 +245,11 @@ class Mind(object):
                     else None
                 ),
                 effect_journal_factory=self.runtime_services.create_effect_journal,
+                approval_ledger=(
+                    self.approval_call_ledger
+                    if isinstance(self.approval_call_ledger, ApprovalLedger)
+                    else None
+                ),
                 skills_provider=skills_provider,
                 transcript_path_for=self.transcripts.path_for_session,
                 transcript_entries_for=(

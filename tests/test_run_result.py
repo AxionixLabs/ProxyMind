@@ -45,6 +45,7 @@ from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
 from agent.harness.hooks.scope import HookExecutionScope
+from agent.stores.approvals.ledger import ApprovalCallLedger
 from mind_app.runtime.turns.executor import build_turn_input_payload
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.domain.execution_policy import (
@@ -672,6 +673,7 @@ async def _run_stream(
         pref_config={},
         cwd=".",
         permissions=permissions,
+        approval_ledger=ApprovalCallLedger(),
         turn_id="turn_test",
         session_started=session_started,
         session_start_reason="initial" if session_started else "",

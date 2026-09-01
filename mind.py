@@ -68,6 +68,7 @@ def bind_root_turn_runner(
             model_capability=model_capability,
             protocol_client=model_capability,
             effect_journal_factory=effect_journal_factory,
+            approval_ledger=controller.approval_call_ledger,
             **kwargs,
         )
 

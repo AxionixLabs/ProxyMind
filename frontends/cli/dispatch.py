@@ -14,6 +14,7 @@ from agent.application.turns.commands import (
 )
 from agent.application.services import TurnApplicationFactory
 from agent.ports import (
+    ApprovalLedger,
     EffectJournalFactory,
     ModelCapability,
     ProtocolCommandClient,
@@ -97,6 +98,7 @@ async def run_selected_command(
     model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
+    approval_ledger: ApprovalLedger | None = None,
 ) -> RunResult | None:
     """按命令行参数分派到直接执行或交互入口。"""
     if isinstance(command, AgentListenCommand):
@@ -128,6 +130,7 @@ async def run_selected_command(
                 model_capability=model_capability,
                 protocol_client=protocol_client,
                 effect_journal_factory=effect_journal_factory,
+                approval_ledger=approval_ledger,
             )
         elif isinstance(command, ExecCommand):
             attachments: list[dict[str, typing.Any]] = []
@@ -201,6 +204,7 @@ async def run_selected_command(
                 model_capability=model_capability,
                 protocol_client=protocol_client,
                 effect_journal_factory=effect_journal_factory,
+                approval_ledger=approval_ledger,
             )
         elif isinstance(command, ResumeCommand):
             record = await _select_resume_session(mind, command)
@@ -240,6 +244,7 @@ async def run_selected_command(
                     model_capability=model_capability,
                     protocol_client=protocol_client,
                     effect_journal_factory=effect_journal_factory,
+                    approval_ledger=approval_ledger,
                 )
 
     except asyncio.CancelledError:
@@ -278,6 +283,7 @@ async def _run_agent_listener_session(
     model_capability: ModelCapability | None,
     protocol_client: ProtocolCommandClient | None,
     effect_journal_factory: EffectJournalFactory | None,
+    approval_ledger: ApprovalLedger | None,
 ) -> None:
     """在普通 TUI 生命周期内运行临时远端请求监听器。"""
     mind.subscription.start()
@@ -290,6 +296,7 @@ async def _run_agent_listener_session(
         model_capability=model_capability,
         protocol_client=protocol_client,
         effect_journal_factory=effect_journal_factory,
+        approval_ledger=approval_ledger,
     )
 
 
@@ -303,6 +310,7 @@ async def _run_tui_session(
     model_capability: ModelCapability | None,
     protocol_client: ProtocolCommandClient | None,
     effect_journal_factory: EffectJournalFactory | None,
+    approval_ledger: ApprovalLedger | None,
 ) -> None:
     """使用现有 TUI 生命周期运行一个交互会话。"""
     from frontends.tui.session.loop import run_tui_loop
@@ -324,6 +332,8 @@ async def _run_tui_session(
             loop_kwargs["protocol_client"] = protocol_client
         if effect_journal_factory is not None:
             loop_kwargs["effect_journal_factory"] = effect_journal_factory
+        if approval_ledger is not None:
+            loop_kwargs["approval_ledger"] = approval_ledger
         await run_tui_loop(mind, **loop_kwargs)
     finally:
         await mind.subscription.close()

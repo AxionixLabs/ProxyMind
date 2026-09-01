@@ -7,6 +7,7 @@ from protocol.transport.events import EventReport
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.execution import TurnExecution
 from agent.ports import (
+    ApprovalLedger,
     EffectJournalFactory,
     ModelCapability,
     ProtocolCommandClient,
@@ -56,6 +57,7 @@ async def prepare_root_turn(
     attachments: typing.Iterable[Mapping[str, typing.Any]],
     extras: Mapping[str, typing.Any] | None,
     turn_id: str | None,
+    approval_ledger: ApprovalLedger | None = None,
 ) -> TurnExecution:
     """固定根轮次的会话身份、输入快照和执行上下文。"""
     supplied_metadata = dict(metadata)
@@ -79,6 +81,7 @@ async def prepare_root_turn(
         cwd=controller.history_workspace,
         permissions=permissions,
         permission_grants=getattr(controller, "permission_grants", None),
+        approval_ledger=approval_ledger,
         output_record_path=str(controller.report.output_record_path or ""),
         transcript_path=controller.transcripts.path_for_session(sid),
         turn_id=turn_id,
@@ -138,6 +141,7 @@ async def run_root_turn(
         attachments=attachments,
         extras=raw_extras if isinstance(raw_extras, dict) else None,
         turn_id=kwargs.pop("turn_id", None),
+        approval_ledger=controller.approval_call_ledger,
     )
     event_report = kwargs.pop("ev_report", None)
 

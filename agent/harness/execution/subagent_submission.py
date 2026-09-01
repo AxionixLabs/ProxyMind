@@ -15,6 +15,7 @@ from agent.application.turns.context import TurnContext
 from agent.domain.agents import AgentSubmission
 from agent.ports import (
     AgentMessageDeliveryPort,
+    ApprovalLedger,
     HookExecutionScopePort,
     McpSessionPort,
     PermissionGrantReader,
@@ -62,6 +63,7 @@ class SubagentSubmissionExecutor:
         active_deliveries: AgentDeliveryRegistry,
         hook_scope_for: HookScopeResolver,
         permission_grants: PermissionGrantReader | None = None,
+        approval_ledger: ApprovalLedger | None = None,
     ) -> None:
         """绑定 Harness 所需端口，不依赖具体 Controller。"""
         self._control_for = control_for
@@ -71,6 +73,7 @@ class SubagentSubmissionExecutor:
         self._active_deliveries = active_deliveries
         self._hook_scope_for = hook_scope_for
         self._permission_grants = permission_grants
+        self._approval_ledger = approval_ledger
 
     async def execute(
         self,
@@ -98,6 +101,7 @@ class SubagentSubmissionExecutor:
                 cwd=thread.cwd,
                 permissions=thread.permissions,
                 permission_grants=self._permission_grants,
+                approval_ledger=self._approval_ledger,
                 transcript_path=thread.transcript_path,
                 parent_transcript_path=thread.parent_transcript_path,
                 session_started=turn.turn_index == 1,
@@ -189,3 +193,7 @@ class SubagentSubmissionExecutor:
                     submission.submission_id,
                     mailbox_events,
                 )
+
+
+if __name__ == '__main__':
+    pass

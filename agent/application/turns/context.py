@@ -4,14 +4,17 @@
 import typing
 from dataclasses import (
     dataclass,
-    replace,
+    replace
 )
 from agent.domain.policies import PermissionSettings
-from agent.ports import PermissionGrantReader
+from agent.ports import (
+    ApprovalLedger,
+    PermissionGrantReader
+)
 from protocol.schema.stream_events import ExecutionEffect
 from protocol.schema.identifiers import (
     normalize_turn_id,
-    short_uid,
+    short_uid
 )
 
 ROOT_AGENT_ID = "root"
@@ -159,6 +162,7 @@ class TurnContext:
     cwd: str
     permissions: PermissionSettings
     permission_grants: PermissionGrantReader | None = None
+    approval_ledger: ApprovalLedger | None = None
     output_record_path: str = ""
     transcript_path: str = ""
     parent_transcript_path: str = ""
@@ -177,6 +181,7 @@ class TurnContext:
         cwd: str,
         permissions: PermissionSettings,
         permission_grants: PermissionGrantReader | None = None,
+        approval_ledger: ApprovalLedger | None = None,
         output_record_path: str = "",
         transcript_path: str = "",
         parent_transcript_path: str = "",
@@ -211,6 +216,7 @@ class TurnContext:
             cwd=str(cwd or "").strip(),
             permissions=permissions,
             permission_grants=permission_grants,
+            approval_ledger=approval_ledger,
             output_record_path=str(output_record_path or "").strip(),
             transcript_path=str(transcript_path or "").strip(),
             parent_transcript_path=str(parent_transcript_path or "").strip(),

@@ -18,6 +18,7 @@ from protocol.transport.events import EventReport
 from agent.ports import (
     EffectJournalFactory,
     McpSessionPort,
+    ApprovalLedger,
     ModelCapability,
     ProtocolCommandClient,
     SkillsProvider,
@@ -87,6 +88,7 @@ class SubagentRuntime:
         model_capability: ModelCapability | None = None,
         protocol_client: ProtocolCommandClient | None = None,
         effect_journal_factory: EffectJournalFactory | None = None,
+        approval_ledger: ApprovalLedger | None = None,
     ) -> None:
         if not isinstance(enabled, bool):
             raise TypeError("subagent runtime enabled state must be a boolean")
@@ -110,6 +112,7 @@ class SubagentRuntime:
         self._model_capability    = model_capability
         self._protocol_client     = protocol_client
         self._effect_journal_factory = effect_journal_factory
+        self._approval_ledger = approval_ledger
         runner = SubagentRunner(
             turn_runner=self._run_turn,
             cleanup=controller,
@@ -130,6 +133,7 @@ class SubagentRuntime:
                 context,
             ),
             permission_grants=getattr(controller, "permission_grants", None),
+            approval_ledger=approval_ledger,
         )
 
     async def _run_turn(

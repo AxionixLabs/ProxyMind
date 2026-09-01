@@ -23,6 +23,10 @@ from .capabilities import (
     TurnExecutor,
     TurnExecutorResult,
 )
+from .approvals import (
+    ApprovalLedger,
+    ApprovalLedgerState,
+)
 from .hooks import (
     HookCommandResult,
     HookCommandRunner,
@@ -108,6 +112,8 @@ from .sessions import (
 )
 
 __all__ = (
+    "ApprovalLedger",
+    "ApprovalLedgerState",
     "EffectIntent",
     "EffectJournal",
     "EffectJournalDecision",

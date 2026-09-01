@@ -6,7 +6,10 @@ import typing
 import asyncio
 from collections.abc import Mapping
 from agent.ports import (
+    ApprovalLedger,
+    EffectJournalFactory,
     LocalEffectReconciliationRequired,
+    McpSessionPort,
     ModelCapability,
     ModelCapabilityError,
     ModelEventStream,
@@ -17,15 +20,12 @@ from agent.protocol import (
     ModelStreamRequest,
     TurnControlReceipt,
 )
-from agent.ports import EffectJournalFactory
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.stream_outcome import StreamTurnOutcome
 from agent.application.turns.execution import (
     TurnExecution,
     create_continuation_execution,
 )
-from agent.stores.approvals.ledger import ApprovalCallLedger
-from agent.ports import McpSessionPort
 from infrastructure.config.runtime_paths import effect_journal_db_path
 from protocol.schema.identifiers import stable_request_id
 from protocol.client.turn_control import (
@@ -296,12 +296,9 @@ async def stream_turn(
 
     tool_batch_buffer = ToolCallBatchBuffer()
 
-    configured_approval_ledger = getattr(mind, "approval_call_ledger", None)
-    if isinstance(configured_approval_ledger, ApprovalCallLedger):
-        approval_ledger = configured_approval_ledger
-    else:
-        approval_ledger = ApprovalCallLedger()
-        setattr(mind, "approval_call_ledger", approval_ledger)
+    approval_ledger = turn_context.approval_ledger
+    if not isinstance(approval_ledger, ApprovalLedger):
+        raise RuntimeError("approval ledger is required")
 
     prompt_blocked: bool = False
 
@@ -330,7 +327,7 @@ async def stream_turn(
         idle_reschedule=idle_wait.reschedule,
     )
     turn_state_stores = [approval_ledger]
-    permission_grants = getattr(mind, "permission_grants", None)
+    permission_grants = turn_context.permission_grants
     if permission_grants is not None:
         turn_state_stores.insert(0, permission_grants)
     turn_finalizer = StreamTurnFinalizer(

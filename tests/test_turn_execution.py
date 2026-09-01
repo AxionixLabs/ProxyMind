@@ -19,6 +19,7 @@ from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
 from agent.harness.hooks.scope import HookExecutionScope
+from agent.stores.approvals.ledger import ApprovalCallLedger
 from mind_app.interaction import ConversationTurn
 from mind_app.runtime.turns import root as root_turns
 from mind_app.runtime.turns.executor import (
@@ -688,9 +689,10 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         start_anim=AsyncMock(),
         stop_anim=AsyncMock(),
         animate=False,
-        frontend=SimpleNamespace(runtime=runtime),
-        hook_scope=Mock(side_effect=hook_scope),
-    )
+            frontend=SimpleNamespace(runtime=runtime),
+            hook_scope=Mock(side_effect=hook_scope),
+            approval_call_ledger=ApprovalCallLedger(),
+        )
 
     result = await root_turns.run_root_turn(
         mind,
