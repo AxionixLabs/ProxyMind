@@ -76,6 +76,7 @@ from .media import (
     ImageReaderPort,
 )
 from .patching import WorkspacePatchPort
+from .process_tools import WorkspaceProcessPort
 from .tool_runtime import (
     BeforeToolSession,
     ExternalToolGroupPort,
@@ -232,6 +233,7 @@ __all__ = (
     "ImageReaderFactory",
     "ImageReaderPort",
     "WorkspacePatchPort",
+    "WorkspaceProcessPort",
     "BeforeToolSession",
     "ExternalToolGroupPort",
     "ToolRegistryPort",

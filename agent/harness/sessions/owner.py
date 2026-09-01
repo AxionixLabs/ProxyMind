@@ -26,10 +26,10 @@ class SessionRuntimeOwner(typing.Generic[ResultValue]):
         """创建尚未启动任何 SessionLoop 的运行时所有者。"""
         self._persistence = persistence
         self._sessions: dict[str, SessionLoop[ResultValue]] = {}
-        self._lock = asyncio.Lock()
+        self._lock: asyncio.Lock = asyncio.Lock()
         self._close_task: asyncio.Task[None] | None = None
-        self._closing = False
-        self._closed = False
+        self._closing: bool = False
+        self._closed: bool = False
 
     @property
     def closed(self) -> bool:

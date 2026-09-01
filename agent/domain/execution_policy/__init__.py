@@ -16,6 +16,12 @@ from agent.domain.execution_policy.rule import (
     PrefixRule,
     RuleMatch,
 )
+from agent.domain.execution_policy.sandbox import (
+    SandboxPermission,
+    effective_sandbox_mode,
+    normalize_sandbox_permission,
+    validate_sandbox_permission_arguments,
+)
 
 __all__ = (
     "Decision",
@@ -29,6 +35,10 @@ __all__ = (
     "PrefixPattern",
     "PrefixRule",
     "RuleMatch",
+    "SandboxPermission",
+    "effective_sandbox_mode",
+    "normalize_sandbox_permission",
+    "validate_sandbox_permission_arguments",
 )
 
 

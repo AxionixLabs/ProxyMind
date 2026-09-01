@@ -1509,6 +1509,19 @@ retry 和 redispatch 中复用同一 `snapshot_id`。协议 wire decoder 的结�
   扩展证据，后续日常切片按场景选择节点。
 - [x] 下一切片拆分进程工具与 JS REPL 的执行、审批和嵌套工具结果边界，不创建总工具 facade。
 
+### 已完成切片：Workspace Process 工具与 Sandbox 规则归位
+
+- [x] 将 `shell_command`、`exec_command`、`write_stdin` 的定义、参数门禁和结果投影迁入
+  `agent/application/tools/processes.py`，通过 `WorkspaceProcessPort` 调用工作区执行器。
+- [x] 将 sandbox 覆盖的规范化、参数组合校验和有效模式迁入
+  `agent/domain/execution_policy/sandbox.py`，切换策略、Turn 和 native executor 消费者，删除
+  infrastructure 中的规则副本和旧导入。
+- [x] 删除 legacy coding 中三个 handler；application tools 不导入 `NativeCoding`、
+  `ExecPolicyManager`、平台进程或 MCP SDK。
+- [x] 权限、执行策略、工具与完整架构回归 `188 passed, 65 warnings`；同提交 Session 显式
+  类型收窄回归 `29 passed`；警告仍来自测试依赖 Nuitka `glob2`。
+- [x] 下一切片单独迁移 JS REPL 内核执行、嵌套工具结果和审批策略边界。
+
 ## 过渡入口登记
 
 | 入口 | 保留原因 | 删除条件 | 所属阶段 |
@@ -1749,3 +1762,4 @@ python website/mind/scripts/check_docs.py
 | 2026-09-01 | 阶段 5 permissions 领域规则与申请用例归位 | 将权限 profile 规范化、交并、覆盖和稳定键从 grant store 拆入 domain，将 request_permissions schema/审批/授权写入迁入 application，并以具名中断异常替代本地工具对 wire client 异常的依赖；删除旧 builtin 包与 execution_authorization 模块 | 权限/策略回归 `116 passed`，工具执行回归 `114 passed`，审批扩展回归 `200 passed`，职责专项 `4 passed, 1 warning`；旧路径扫描、导入图、`compileall` 和差异检查通过；下一切片拆分 workspace coding 与 subagent 工具 |
 | 2026-09-01 | 阶段 5 subagent 控制工具端口化 | 新增 `SubagentControlPort`，将八个 Agent 控制工具整体迁入 application；消息长度约束归 domain，mailbox 与工具 schema 复用同一值，工具展示删除对 RunResult 的动态属性猜测 | Subagent/TUI/store 回归 `102 passed`，职责专项 `4 passed, 1 warning`；application tools 禁止依赖 Harness/store/infrastructure，旧路径扫描、导入图、`compileall` 和差异检查通过；下一切片拆分 workspace coding 工具 |
 | 2026-09-01 | 阶段 5 Workspace Patch 与 Coding Schema 归位 | 将全部 coding schema、补丁工具定义、权限门禁和结果投影迁入 application，新增 `WorkspacePatchPort`，删除旧 schema 与旧补丁 handler | 快速行为回归 `74 passed`，schema/职责专项 `4 passed, 1 warning`；重型扩展 `188 passed / 3 stale assertions`，修正后失败节点 `5 passed, 1 warning`；同提交前端回归 `1551 + 415 passed`；导入图、`compileall` 和差异检查通过；下一切片拆分进程工具与 JS REPL 边界 |
+| 2026-09-01 | 阶段 5 Workspace Process 工具与 Sandbox 规则归位 | 将三个进程工具迁入 application，新增工作区进程端口，将 sandbox 参数规则迁入 domain，删除 legacy handler 与 infrastructure 规则副本 | 权限/策略/工具/完整架构 `188 passed, 65 warnings`；同提交 Session 回归 `29 passed`；导入图、`compileall` 和差异检查通过；下一切片拆分 JS REPL 嵌套调用边界 |

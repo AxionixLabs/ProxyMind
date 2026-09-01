@@ -27,7 +27,7 @@ from infrastructure.platform.sandbox import (
     sandbox_backend_name,
 )
 from infrastructure.platform.shell_runtime import ShellRuntimeResolver
-from infrastructure.config.execution_policy_manager import (
+from agent.domain.execution_policy import (
     effective_sandbox_mode,
     normalize_sandbox_permission,
 )

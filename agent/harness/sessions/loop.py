@@ -71,12 +71,12 @@ class SessionLoop(typing.Generic[ResultValue]):
         self._fingerprints: dict[str, str] = {}
         self._run_commands: dict[str, str] = {}
         self._worker: asyncio.Task[None] | None = None
-        self._submit_lock = asyncio.Lock()
-        self._initialize_lock = asyncio.Lock()
+        self._submit_lock: asyncio.Lock = asyncio.Lock()
+        self._initialize_lock: asyncio.Lock = asyncio.Lock()
         self._recoveries: tuple[RunSnapshot, ...] = ()
-        self._initialized = False
-        self._closing = False
-        self._closed = False
+        self._initialized: bool = False
+        self._closing: bool = False
+        self._closed: bool = False
 
     @property
     def closed(self) -> bool:

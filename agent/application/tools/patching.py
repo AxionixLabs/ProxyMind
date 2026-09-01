@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import Mapping
-
 from agent.application.tools.authorization import (
     ExecutionAuthorizationError,
     reject_model_execution,
@@ -17,6 +16,11 @@ from agent.application.tools.execution_results import (
 )
 from agent.application.tools.results import LocalToolResult
 from agent.ports.patching import WorkspacePatchPort
+
+__all__ = (
+    "APPLY_PATCH_TOOL",
+    "patch_tools",
+)
 
 APPLY_PATCH_TOOL = "apply_patch"
 
@@ -121,12 +125,6 @@ def _patch_arguments(
         "expected_sha256": hashes,
         "force": bool(arguments.get("force", False)),
     }
-
-
-__all__ = (
-    "APPLY_PATCH_TOOL",
-    "patch_tools",
-)
 
 
 if __name__ == "__main__":

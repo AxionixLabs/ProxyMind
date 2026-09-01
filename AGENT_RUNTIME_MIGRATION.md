@@ -234,6 +234,12 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `4 passed, 1 warning`，重型 workspace/JS/架构扩展回归 `188 passed / 3 stale assertions`，
   三项过期断言修正后 `5 passed, 1 warning`；同提交纳入的前端整理通过 TUI/terminal
   定向回归 `1551 + 415 passed`。
+- workspace coding 已完成进程工具切片：`shell_command`、`exec_command` 和
+  `write_stdin` 的工具定义、参数门禁与结果投影迁入 `agent/application/tools/processes.py`，
+  只通过 `WorkspaceProcessPort` 调用工作区执行器；sandbox 覆盖规范化、参数组合校验与
+  有效模式迁入 `agent/domain/execution_policy/sandbox.py`，基础设施不再拥有纯规则副本。
+  旧 `native.py` 三个 handler 同步删除；权限/执行策略/工具与完整架构回归
+  `188 passed, 65 warnings`，同提交 Session 类型收窄回归 `29 passed`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -332,9 +338,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 4. **本地工具能力族重组（进行中）**：registry、调用上下文、类型契约、稳定结果、
    planning、media、permissions 与 subagent 能力已迁入 `agent`、`infrastructure` 和具名
-   ports；workspace coding 的全部 schema 与 `apply_patch` 用例也已迁出 legacy。下一步按完整
-   用例拆分 `shell_command`/`exec_command`/`write_stdin` 与 JS REPL：先建立进程执行和嵌套
-   工具结果端口，再迁移审批/策略编排；不得把 MCP SDK、具体 `ExecPolicyManager` 或
+   ports；workspace coding 的全部 schema、`apply_patch` 及三个进程工具用例也已迁出
+   legacy，sandbox 参数规则已归 domain。下一步只拆分 JS REPL：建立内核执行与嵌套工具
+   结果端口，将审批/策略编排迁出 legacy；不得把 MCP SDK、具体 `ExecPolicyManager` 或
    `NativeCoding` 类型搬进 application，也不得创建新的总工具 facade。
 
 5. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
@@ -359,6 +365,12 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 补丁，结果信封在 application 边界转换为不可变 `LocalToolResult`；旧 coding schema 和
 `native.py` 内的补丁 handler 已删除，read-only 拒绝、补丁格式、SHA256 基线与差异跟踪均
 沿用现有行为。进程与 REPL handler 仍留在 legacy，未以本切片完成推断整个 coding 迁移完成。
+
+本次 workspace process 切片的删除条件已满足：三个进程工具只消费
+`WorkspaceProcessPort`，application 不导入配置实现、平台进程或 legacy coding；sandbox
+参数规则由 domain 单一声明，执行策略、Turn 审批与嵌套 JS 调用复用同一校验。旧三个 handler
+和 infrastructure 规则定义已删除；JS REPL handler、MCP 结果适配及嵌套审批仍在 legacy，
+因此 workspace coding 尚未整体完成。
 
 本次 MCP 生命周期切片的删除条件已满足：Harness 所有者不得导入 `mind_app` 或具体 MCP 实现；
 组合根必须显式注入 `ExternalMcpRuntime` 工厂；旧 `mind_app.runtime.mcp.lifecycle`
@@ -916,3 +928,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 工具会话组合基础设施化：新增工具 runtime/source/registry ports，将 Composite session、tool catalog 和 runtime 迁出旧应用并由组合根构造 | 工具会话 `26 + 81 + 35 passed`、Turn/Subagent `51 passed`、工具结果/权限 `70 passed`、CLI/TUI/清理 `39 + 123 passed`、架构专项 `5 passed, 2 warnings`；导入图和语法检查通过 |
 | 2026-09-01 | 退役旧 MCP runtime 源目录：SDK 结果归一化、目录查询和进度语义分别归入 infrastructure、application、domain/执行路由 | 工具结果/进度/计划 `24 passed`、客户端工具链 `48 passed`、流式结果 `70 passed`、架构专项 `4 passed, 2 warnings`；旧路径扫描、`compileall`、差异检查通过 |
 | 2026-09-01 | 迁移全部 coding schema 与 `apply_patch` 用例，新增 `WorkspacePatchPort` 和本地执行结果投影，删除旧 schema 与补丁 handler | 补丁/权限/工具上下文 `74 passed`；schema/职责专项 `4 passed, 1 warning`；重型扩展 `188 passed / 3 stale assertions`，修正后失败节点 `5 passed, 1 warning`；同提交前端回归 `1551 + 415 passed`；导入图、`compileall`、差异检查通过 |
+| 2026-09-01 | 将三个 workspace process 工具迁入 application，新增 `WorkspaceProcessPort`，sandbox 参数规则归 domain，删除 legacy handler 与 infrastructure 规则副本 | 权限/策略/工具/完整架构 `188 passed, 65 warnings`；同提交 Session 回归 `29 passed`；导入图、`compileall`、差异检查通过；下一切片拆分 JS REPL 嵌套调用边界 |

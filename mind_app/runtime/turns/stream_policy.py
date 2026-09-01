@@ -8,8 +8,8 @@ from agent.application.approvals.amendments import approval_execpolicy_amendment
 from agent.domain.permission_profiles import normalize_permission_profile
 from infrastructure.config.execution_policy_manager import (
     ExecApprovalRequirement,
-    validate_sandbox_permission_arguments,
 )
+from agent.domain.execution_policy import validate_sandbox_permission_arguments
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext,

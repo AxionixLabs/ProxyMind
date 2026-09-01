@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import Mapping
+
+__all__ = ("WorkspacePatchPort",)
 
 
 class WorkspacePatchPort(typing.Protocol):
@@ -23,9 +25,6 @@ class WorkspacePatchPort(typing.Protocol):
     def track_patch_delta(self, delta: dict[str, typing.Any]) -> str:
         """把一次精确文本变更合并到当前 Turn 的差异快照。"""
         ...
-
-
-__all__ = ("WorkspacePatchPort",)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ from infrastructure.platform.process_sessions import (
 )
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from infrastructure.platform.shell_runtime import ShellRuntimeResolver
-from infrastructure.config.execution_policy_manager import (
+from agent.domain.execution_policy import (
     effective_sandbox_mode,
     normalize_sandbox_permission
 )

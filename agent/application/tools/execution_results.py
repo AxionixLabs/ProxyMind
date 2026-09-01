@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import (
     Iterable,
     Mapping,
 )
-
 from agent.application.tools.results import (
     LocalToolResult,
     LocalToolSource,
+)
+
+__all__ = (
+    "client_execution_failure",
+    "client_execution_result",
 )
 
 
@@ -80,12 +84,6 @@ def _result_items(value: typing.Any) -> tuple[typing.Any, ...]:
     if not isinstance(value, Iterable):
         raise TypeError("local execution result items must be an array")
     return tuple(value)
-
-
-__all__ = (
-    "client_execution_failure",
-    "client_execution_result",
-)
 
 
 if __name__ == "__main__":

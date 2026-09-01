@@ -4,11 +4,13 @@ from infrastructure.config.execution_policy_manager import (
     ExecApprovalRequirement,
     ExecPolicyManager,
     commands_for_exec_policy,
-    effective_sandbox_mode,
-    normalize_sandbox_permission,
     render_decision_for_unmatched_command,
 )
-from agent.domain.execution_policy import Decision
+from agent.domain.execution_policy import (
+    Decision,
+    effective_sandbox_mode,
+    normalize_sandbox_permission,
+)
 from infrastructure.config.execution_policy import PolicyParser
 
 

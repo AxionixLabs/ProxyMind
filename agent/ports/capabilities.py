@@ -32,6 +32,7 @@ from agent.protocol.json_value import (
     freeze_json,
     thaw_object,
 )
+from agent.domain.execution_policy import SandboxPermission
 
 ReconnectStatusCallback: typing.TypeAlias = Callable[[bool], None]
 
@@ -50,13 +51,6 @@ SandboxMode: typing.TypeAlias = typing.Literal[
     "workspace-read",
     "workspace-write",
 ]
-
-SandboxPermission: typing.TypeAlias = typing.Literal[
-    "use_default",
-    "require_escalated",
-    "with_additional_permissions",
-]
-
 
 class CapabilityError(RuntimeError):
     """表示模型、MCP、Helix、进程或文件能力已经归一化的失败。"""

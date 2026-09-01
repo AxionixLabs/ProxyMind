@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import (
     Iterable,
-    Literal,
     Sequence
 )
 from infrastructure.config.paths import default_application_home
@@ -26,16 +25,11 @@ from agent.domain.execution_policy import (
     MatchOptions,
     Policy,
     PrefixPattern,
-    PrefixRule
+    PrefixRule,
+    SandboxPermission,
+    normalize_sandbox_permission,
 )
 from infrastructure.config.execution_policy import PolicyParser
-
-SandboxPermission = Literal[
-    "use_default",
-    "require_escalated",
-    "with_additional_permissions",
-]
-
 
 @dataclass(frozen=True, slots=True)
 class ExecApprovalCacheKey:
@@ -91,54 +85,6 @@ def _normalize_patch_scope(value: object) -> tuple[str, ...]:
         except TypeError:
             values = (str(value),)
     return tuple(sorted({item.strip() for item in values if item.strip()}))
-
-
-def normalize_sandbox_permission(value: object) -> SandboxPermission:
-    """规范化单条命令的沙箱权限覆盖。"""
-    normalized = str(value or "use_default").strip().casefold()
-    if normalized == "use_default":
-        return "use_default"
-    if normalized == "require_escalated":
-        return "require_escalated"
-    if normalized == "with_additional_permissions":
-        return "with_additional_permissions"
-    raise ValueError(
-        "sandbox_permissions must be 'use_default', 'require_escalated', "
-        "or 'with_additional_permissions'"
-    )
-
-
-def validate_sandbox_permission_arguments(
-    arguments: dict[str, object],
-) -> SandboxPermission:
-    """校验命令参数中的沙箱覆盖及审批理由组合。"""
-    permission = normalize_sandbox_permission(arguments.get("sandbox_permissions"))
-    additional = arguments.get("additional_permissions")
-    if permission == "with_additional_permissions":
-        if not isinstance(additional, dict):
-            raise ValueError(
-                "additional permissions are required for with_additional_permissions"
-            )
-    elif additional is not None:
-        raise ValueError(
-            "additional permissions require with_additional_permissions"
-        )
-    if "justification" in arguments and permission == "use_default":
-        raise ValueError(
-            "justification requires an explicit sandbox_permissions value"
-        )
-    return permission
-
-
-def effective_sandbox_mode(
-    sandbox_mode: str,
-    sandbox_permissions: object = "use_default",
-) -> str:
-    """根据单条命令覆盖计算实际执行模式。"""
-    permission = normalize_sandbox_permission(sandbox_permissions)
-    if permission == "require_escalated":
-        return "danger-full-access"
-    return str(sandbox_mode or "workspace-write")
 
 
 @dataclass(frozen=True, slots=True)
