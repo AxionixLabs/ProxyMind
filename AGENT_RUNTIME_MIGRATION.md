@@ -615,6 +615,13 @@ Subagent 调用点改用 `OutputSessionFactory`，旧 `mind_app/presentation/out
 通过。下一切片复核 `mind_app/presentation/output` 的具体 sink 与 `mind_app/presentation`
 渲染器边界，继续把无 UI 状态的适配器归入 `frontends` 或 `infrastructure`。
 
+本次具体输出适配器迁移已满足上述条件：文本、JSONL、静默、终端内容、来源文本、记录器
+和输出边界状态已整体迁入 `frontends/output`，CLI、TUI、MCP 与 Subagent 组合入口均切换
+到新路径，旧 `mind_app/presentation/output` 源包不再存在。输出/流式/TUI/日志和 Subagent
+定向回归、架构归属守卫、导入图、`compileall` 与 `git diff --check` 均通过。下一切片复核
+`mind_app/presentation` 剩余 renderer/stream 模块，按纯 view 投影、前端渲染和协议 adapter
+重新归类并继续删除 legacy presentation 平铺入口。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |

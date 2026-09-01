@@ -37,7 +37,7 @@ from mind_app.controller import Mind
 from mind_app.presentation.application import Frontend
 from mind_app.presentation.application_sinks import NullApplicationSink
 from mind_app.interaction import NonInteractiveInteraction
-from mind_app.presentation.output.silent import create_silent_output_session
+from frontends.output.silent import create_silent_output_session
 from observability.reporting import RunReport
 from agent.application.config.settings import AgentSettings
 from infrastructure.config.schema import ConfigOverride

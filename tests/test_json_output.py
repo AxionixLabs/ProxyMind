@@ -12,7 +12,7 @@ from agent.ports import (
     AssistantTextDelta,
     ResponseIdentity,
 )
-from mind_app.presentation.output.jsonl import (
+from frontends.output.jsonl import (
     JsonContentSink,
     JsonPresentationSink,
     JsonOutputControl,

@@ -3026,7 +3026,7 @@ def test_subagent_runtime_only_orchestrates_injected_ports() -> None:
 
     forbidden = {
         "mind_app.runtime.turns",
-        "mind_app.presentation.output",
+        "frontends.output",
         "agent.adapters.agents.execution",
     }
     assert not any(
@@ -3112,7 +3112,7 @@ def test_subagent_turn_adapter_receives_output_factory() -> None:
         elif isinstance(node, ast.ImportFrom) and node.level == 0:
             imported_modules.add(node.module or "")
 
-    assert "mind_app.presentation.output.silent" not in imported_modules
+    assert "frontends.output.silent" not in imported_modules
     execution_class = next(
         node
         for node in tree.body
@@ -3832,13 +3832,30 @@ def test_cli_adapter_is_owned_by_frontends() -> None:
 
 
 def test_presentation_output_has_no_legacy_package_or_imports() -> None:
-    """确保跨前端输出端口不再由 mind_app presentation 持有。"""
+    """确保跨前端输出端口和实现不再由 mind_app presentation 持有。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "output"
+    legacy_presentation_root = PROJECT_ROOT / "mind_app" / "presentation" / "output"
+    frontend_output_root = PROJECT_ROOT / "frontends" / "output"
     contracts_path = PROJECT_ROOT / "mind_app" / "presentation" / "output" / "contracts.py"
     content_path = PROJECT_ROOT / "agent" / "ports" / "content.py"
     output_path = PROJECT_ROOT / "agent" / "ports" / "output.py"
     legacy_content_path = PROJECT_ROOT / "mind_app" / "presentation" / "output" / "content.py"
     legacy_session_path = PROJECT_ROOT / "mind_app" / "presentation" / "output" / "session.py"
+    legacy_presentation_sources = tuple(legacy_presentation_root.glob("*.py"))
+    assert not legacy_presentation_sources, "legacy presentation output sources remain"
+    assert {
+        path.name
+        for path in frontend_output_root.glob("*.py")
+    } == {
+        "__init__.py",
+        "boundary.py",
+        "jsonl.py",
+        "recording.py",
+        "silent.py",
+        "source_text.py",
+        "terminal_content.py",
+        "text.py",
+    }
     assert not contracts_path.exists(), "legacy output contract module remains"
     assert not legacy_content_path.exists(), "legacy content contract module remains"
     assert not legacy_session_path.exists(), "legacy output session module remains"

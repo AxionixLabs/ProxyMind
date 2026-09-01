@@ -12,7 +12,7 @@ from agent.ports import (
     ContentSink,
     SourcesOutput
 )
-from mind_app.presentation.output.source_text import render_sources_text
+from frontends.output.source_text import render_sources_text
 from .output import TuiOutputControl
 
 

@@ -8,7 +8,7 @@ from metadata import const
 
 from observability.reporting import RunReport
 from observability import observe, observe_exception
-from mind_app.presentation.output.recording import StreamRecordWriter
+from frontends.output.recording import StreamRecordWriter
 
 
 @pytest.mark.anyio

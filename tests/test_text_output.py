@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from mind_app.presentation.application import PassiveFrontendRuntime
-from mind_app.presentation.output.text import (
+from frontends.output.text import (
     ANSI_BOLD,
     ANSI_CYAN,
     ANSI_DIM,

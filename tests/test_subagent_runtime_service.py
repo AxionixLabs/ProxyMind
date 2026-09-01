@@ -20,7 +20,7 @@ from agent.stores.agents.graph import (
     AgentGraphRecord,
 )
 from infrastructure.persistence.transcripts import ConversationTranscriptStore
-from mind_app.presentation.output.silent import create_silent_output_session
+from frontends.output.silent import create_silent_output_session
 from agent.application.turns.context import AgentContext, TurnContext
 from agent.harness.hooks.scope import (
     HookExecutionScope,

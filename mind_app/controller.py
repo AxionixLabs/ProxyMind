@@ -79,7 +79,7 @@ from .presentation.application import (
     ActivityStatusKind,
     Frontend
 )
-from .presentation.output.silent import create_silent_output_session
+from frontends.output.silent import create_silent_output_session
 from .presentation.terminal.contracts import TerminalDesign
 from .presentation.terminal.animation import TurnAnimationAdapter
 from .presentation.terminal.turn_lifecycle import (

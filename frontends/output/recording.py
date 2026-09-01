@@ -5,7 +5,7 @@ import os
 import typing
 from observability import observe_exception
 from metadata import const
-from mind_app.presentation.output.boundary import OutputBoundaryState
+from .boundary import OutputBoundaryState
 
 
 class StreamRecordWriter(object):

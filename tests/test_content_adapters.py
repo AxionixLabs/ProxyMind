@@ -14,7 +14,7 @@ from agent.ports import (
     AssistantSegmentCompleted,
     ResponseIdentity,
 )
-from mind_app.presentation.output.terminal_content import TerminalContentSink
+from frontends.output.terminal_content import TerminalContentSink
 from frontends.tui.adapters.content import TuiContentSink
 
 

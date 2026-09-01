@@ -86,8 +86,8 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
         ConsoleApplicationSink,
         JsonApplicationSink,
     )
-    from mind_app.presentation.output.jsonl import create_json_output_session
-    from mind_app.presentation.output.text import create_text_output_session
+    from frontends.output.jsonl import create_json_output_session
+    from frontends.output.text import create_text_output_session
 
     if output_mode == "json":
         return Frontend(
