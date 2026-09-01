@@ -11,8 +11,8 @@ from agent.application.tools.results import (
 )
 from agent.application.agents.views import AgentSnapshot
 from agent.application.agents.fork_context import normalize_fork_turns
-from agent.stores.agents.mailbox import MAX_AGENT_MESSAGE_CHARS
-from agent.harness.agents.runtime import SubagentRuntime
+from agent.domain.agents import MAX_AGENT_MESSAGE_CHARS
+from agent.ports.subagents import SubagentControlPort
 
 SPAWN_AGENT_TOOL     = "spawn_agent"
 LIST_AGENTS_TOOL     = "list_agents"
@@ -28,7 +28,7 @@ MIN_WAIT_TIMEOUT_MS     = 10_000
 MAX_WAIT_TIMEOUT_MS     = 3_600_000
 
 
-def subagent_tools(agents: SubagentRuntime) -> list[ClientTool]:
+def subagent_tools(agents: SubagentControlPort) -> list[ClientTool]:
     """返回本地多执行主体控制工具。"""
     return [
         ClientTool(
@@ -37,7 +37,7 @@ def subagent_tools(agents: SubagentRuntime) -> list[ClientTool]:
                 "为边界清晰的独立任务创建子 Agent。子 Agent 继承当前轮次的"
                 "运行配置和权限。仅在用户或项目指令允许委派时使用。"
             ),
-            input_schema=_spawn_schema(agents.settings.default_fork_turns),
+            input_schema=_spawn_schema(agents.default_fork_turns),
             handler=_spawn_handler(agents),
             meta=_agent_tool_meta(),
         ),
@@ -110,7 +110,7 @@ def subagent_tools(agents: SubagentRuntime) -> list[ClientTool]:
     ]
 
 
-def _spawn_handler(agents: SubagentRuntime):
+def _spawn_handler(agents: SubagentControlPort):
     """创建新执行主体工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
@@ -123,7 +123,7 @@ def _spawn_handler(agents: SubagentRuntime):
 
             fork_turns = normalize_fork_turns(
                 arguments.get("fork_turns"),
-                default_turns=agents.settings.default_fork_turns,
+                default_turns=agents.default_fork_turns,
             )
 
             snapshot = await agents.spawn(
@@ -168,7 +168,7 @@ def _spawn_handler(agents: SubagentRuntime):
     return handle
 
 
-def _list_handler(agents: SubagentRuntime):
+def _list_handler(agents: SubagentControlPort):
     """创建执行主体发现工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
@@ -200,7 +200,7 @@ def _list_handler(agents: SubagentRuntime):
     return handle
 
 
-def _send_message_handler(agents: SubagentRuntime):
+def _send_message_handler(agents: SubagentControlPort):
     """创建轻量消息投递工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
@@ -253,7 +253,7 @@ def _send_message_handler(agents: SubagentRuntime):
     return handle
 
 
-def _followup_handler(agents: SubagentRuntime):
+def _followup_handler(agents: SubagentControlPort):
     """创建后续任务工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
@@ -287,7 +287,7 @@ def _followup_handler(agents: SubagentRuntime):
     return handle
 
 
-def _interrupt_handler(agents: SubagentRuntime):
+def _interrupt_handler(agents: SubagentControlPort):
     """创建执行主体中断工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
@@ -324,7 +324,7 @@ def _interrupt_handler(agents: SubagentRuntime):
     return handle
 
 
-def _resume_handler(agents: SubagentRuntime):
+def _resume_handler(agents: SubagentControlPort):
     """创建执行主体恢复工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
@@ -355,7 +355,7 @@ def _resume_handler(agents: SubagentRuntime):
     return handle
 
 
-def _wait_handler(agents: SubagentRuntime):
+def _wait_handler(agents: SubagentControlPort):
     """创建执行主体等待工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
@@ -401,7 +401,7 @@ def _wait_handler(agents: SubagentRuntime):
     return handle
 
 
-def _close_handler(agents: SubagentRuntime):
+def _close_handler(agents: SubagentControlPort):
     """创建执行主体关闭工具处理函数。"""
     async def handle(
         arguments: dict[str, typing.Any],
@@ -435,7 +435,11 @@ def _close_handler(agents: SubagentRuntime):
 def _agent_status(snapshot: AgentSnapshot) -> typing.Any:
     """转换执行主体快照为稳定工具状态。"""
     if snapshot.status == "completed":
-        final_message = getattr(snapshot.result, "assistant_text", None)
+        final_message = (
+            snapshot.result.assistant_text
+            if snapshot.result is not None
+            else ""
+        )
         return {"completed": final_message or None}
     if snapshot.status == "failed":
         return {"errored": snapshot.error or "agent execution failed"}

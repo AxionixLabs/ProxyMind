@@ -93,6 +93,7 @@ from .mcp_runtime import (
     McpRuntimeHost,
 )
 from .subagents import (
+    SubagentControlPort,
     SubagentCleanupPort,
     SubagentRuntimeHostPort,
     SubagentExecutionPort,
@@ -252,6 +253,7 @@ __all__ = (
     "SkillsProvider",
     "SubagentStreamPort",
     "SubagentCleanupPort",
+    "SubagentControlPort",
     "SubagentRuntimeHostPort",
     "SubagentOperation",
     "SubagentResultValue",

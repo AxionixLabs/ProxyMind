@@ -8,7 +8,7 @@ import pytest
 from mind import create_native_coding
 from infrastructure.mcp.local_tool_registry import ToolRegistry
 from mind_app.client_tools.factory import default_registry
-from mind_app.client_tools.subagents import subagent_tools
+from agent.application.tools.subagents import subagent_tools
 from infrastructure.mcp.composite_session import CompositeToolSession
 from infrastructure.platform.images import FileImageReader
 from frontends.output.silent import create_silent_output_session

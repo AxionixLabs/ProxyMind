@@ -12,6 +12,7 @@ __all__ = (
     "AgentSubmission",
     "AgentSubmissionKind",
     "FINAL_AGENT_STATUSES",
+    "MAX_AGENT_MESSAGE_CHARS",
     "RESTART_INTERRUPTION_ERROR",
 )
 
@@ -41,6 +42,7 @@ FINAL_AGENT_STATUSES = frozenset({
     "interrupted_by_restart",
     "closed",
 })
+MAX_AGENT_MESSAGE_CHARS = 16_000
 RESTART_INTERRUPTION_ERROR = "agent execution interrupted by process restart"
 
 

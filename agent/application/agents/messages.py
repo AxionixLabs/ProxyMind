@@ -15,6 +15,12 @@ class AgentMessageEvent(typing.Protocol):
     """定义消息派发结果所需的最小邮箱事件形状。"""
 
     event_id: str
+    recipient_agent_id: str
+    recipient_task_path: str
+
+    def to_dict(self) -> dict[str, typing.Any]:
+        """返回事件的稳定 JSON 对象。"""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

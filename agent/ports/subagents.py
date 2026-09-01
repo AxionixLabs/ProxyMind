@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 
 import typing
-from collections.abc import Awaitable, Callable
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Iterable,
+    Mapping,
+)
 
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
@@ -14,6 +19,13 @@ from .turns import (
 SkillsProvider: typing.TypeAlias = Callable[[], list[dict[str, str]]]
 
 if typing.TYPE_CHECKING:
+    from agent.application.agents.fork_context import ForkTurns
+    from agent.application.agents.messages import AgentMessageDispatch
+    from agent.application.agents.views import (
+        AgentMailboxWaitResult,
+        AgentSnapshot,
+    )
+    from agent.application.turns.context import AgentContext
     from agent.application.turns.run_result import RunResult
     from agent.application.turns.execution import TurnExecution
     from agent.application.turns.context import TurnContext
@@ -101,6 +113,107 @@ class SubagentCleanupPort(typing.Protocol):
         ...
 
 
+class SubagentControlPort(typing.Protocol):
+    """定义本地 Agent 控制工具可调用的 Harness 操作边界。"""
+
+    @property
+    def enabled(self) -> bool:
+        """返回当前运行时是否开放子 Agent 控制。"""
+        ...
+
+    @property
+    def default_fork_turns(self) -> int:
+        """返回创建子 Agent 时的默认继承轮次数。"""
+        ...
+
+    async def spawn(
+        self,
+        parent: "TurnContext",
+        message: str,
+        pref_config: Mapping[str, typing.Any],
+        *,
+        agent_type: str,
+        task_name: str,
+        fork_turns: "ForkTurns | None" = None,
+    ) -> "AgentSnapshot":
+        """创建子 Agent 并返回初始快照。"""
+        ...
+
+    async def list_snapshots(
+        self,
+        root_session_id: str,
+        *,
+        caller: "AgentContext",
+        path_prefix: str | None = None,
+    ) -> tuple["AgentSnapshot", ...]:
+        """列出调用者可见的 Agent 快照。"""
+        ...
+
+    async def send_message(
+        self,
+        root_session_id: str,
+        target: str,
+        message: str,
+        *,
+        caller: "AgentContext",
+    ) -> "AgentMessageDispatch":
+        """向目标 Agent 的活动轮次或 mailbox 投递消息。"""
+        ...
+
+    async def followup_task(
+        self,
+        root_session_id: str,
+        target: str,
+        message: str,
+        *,
+        parent_turn_id: str,
+        caller: "AgentContext",
+    ) -> str:
+        """向目标 Agent 提交后续任务。"""
+        ...
+
+    async def interrupt(
+        self,
+        root_session_id: str,
+        target: str,
+        *,
+        caller: "AgentContext",
+    ) -> "AgentSnapshot":
+        """中断目标 Agent 的当前轮次。"""
+        ...
+
+    async def resume(
+        self,
+        root_session_id: str,
+        target: str,
+        *,
+        caller: "AgentContext",
+    ) -> "AgentSnapshot":
+        """重新开放已关闭的目标 Agent。"""
+        ...
+
+    async def wait_updates(
+        self,
+        root_session_id: str,
+        targets: Iterable[str],
+        *,
+        timeout_sec: float | None,
+        caller: "AgentContext",
+    ) -> "AgentMailboxWaitResult":
+        """等待目标 Agent 的 mailbox、队列或终态更新。"""
+        ...
+
+    async def close(
+        self,
+        root_session_id: str,
+        target: str,
+        *,
+        caller: "AgentContext",
+    ) -> "AgentSnapshot":
+        """关闭目标 Agent 及其未关闭后代。"""
+        ...
+
+
 class SubagentRuntimeHostPort(typing.Protocol):
     """定义 SubagentRuntime 所需的组合根宿主端口。"""
 
@@ -132,5 +245,6 @@ __all__ = (
     "SubagentResultValue",
     "SubagentTurnRunner",
     "SubagentCleanupPort",
+    "SubagentControlPort",
     "SubagentRuntimeHostPort",
 )

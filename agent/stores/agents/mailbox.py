@@ -8,12 +8,12 @@ from collections import deque
 from dataclasses import dataclass
 from protocol.schema.identifiers import short_uid
 from agent.application.turns.context import AgentContext
+from agent.domain.agents import MAX_AGENT_MESSAGE_CHARS
 
 AgentMailboxEventKind = typing.Literal["message", "queue", "status"]
 
 MAX_MAILBOX_EVENTS        = 1000
 MAX_MAILBOX_UPDATES       = 50
-MAX_AGENT_MESSAGE_CHARS   = 16_000
 MAX_MAILBOX_CONTEXT_CHARS = 20_000
 
 

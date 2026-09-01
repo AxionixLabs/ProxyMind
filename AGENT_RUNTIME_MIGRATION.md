@@ -220,6 +220,12 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   异常；旧 `mind_app/builtin_tools` 和 `native_coding/execution_authorization.py` 已删除。
   权限/策略回归 `116 passed`，工具/审批扩展回归 `114 + 200 passed`，职责专项
   `4 passed, 1 warning`。
+- subagent 工具能力族已迁入 `agent/application/tools/subagents.py`：八个控制工具只消费
+  新增的 `SubagentControlPort`，不再直接依赖 `SubagentRuntime` 或 mailbox store；Harness
+  通过结构化实现端口继续唯一持有 Agent 树、执行、并发和等待状态。消息长度约束提升到
+  `agent/domain/agents.py`，application schema 与 mailbox 校验共用同一值；同时收窄
+  `AgentMessageEvent` 和 `AgentSnapshot.result` 契约，删除动态结果属性猜测。Subagent/TUI/
+  store 回归 `102 passed`，职责专项 `4 passed, 1 warning`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -318,9 +324,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 4. **本地工具能力族重组（进行中）**：registry、调用上下文、类型契约、稳定结果、
    planning、media 与 permissions 能力已迁入 `agent`、`infrastructure` 和具名 ports，对应
-   旧模块与空 builtin 包已删除。下一步拆分 workspace coding 和 subagent：工具 schema 与
-   用例归 application，Agent 调度状态归 Harness，操作系统与 SDK 实现归 infrastructure，
-   禁止创建新的总工具 facade。
+   旧模块与空 builtin 包已删除，subagent 工具也已通过控制端口迁出 legacy。下一步拆分
+   workspace coding：工具 schema 与用例归 application，工作区资源生命周期归 Harness，
+   操作系统与 SDK 实现归 infrastructure，禁止创建新的总工具 facade。
 
 5. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
@@ -335,6 +341,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 本次 permissions 切片的删除条件已满足：权限算法不再由 store 拥有，申请工具只依赖审批与
 授权 ports，本地工具中断不再借用 wire transport 异常；旧 builtin 源包、旧执行授权模块、
 旧 schema 和旧导入均清零，授权成功、拒绝、取消、交集、覆盖与 inline 权限均有回归覆盖。
+
+本次 subagent 工具切片的删除条件已满足：application 工具只依赖 `SubagentControlPort`，
+具体 Harness runtime 和 mailbox store 均不进入工具包；旧 `client_tools/subagents.py` 和生产
+导入清零，八类控制命令、消息交付、等待、关闭与 TUI 视图均有联合回归覆盖。
 
 本次 MCP 生命周期切片的删除条件已满足：Harness 所有者不得导入 `mind_app` 或具体 MCP 实现；
 组合根必须显式注入 `ExternalMcpRuntime` 工厂；旧 `mind_app.runtime.mcp.lifecycle`

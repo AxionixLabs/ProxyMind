@@ -4,18 +4,18 @@
 import typing
 from agent.application.config.settings import FeatureSettings
 from agent.application.tools.media import media_tools
+from agent.application.tools.subagents import subagent_tools
 from agent.ports.media import ImageReaderPort
+from agent.ports.subagents import SubagentControlPort
 from infrastructure.mcp.local_tool_registry import ToolRegistry
 from mind_app.native_coding import NativeCoding
 from agent.application.tools.planning import planning_tools
 from agent.application.tools.plan_update import update_plan_tools
 from .coding import coding_tools
-from .subagents import subagent_tools
 
 if typing.TYPE_CHECKING:
     from agent.application.approvals.coordinator import ApprovalCoordinator
     from infrastructure.config.execution_policy_manager import ExecPolicyManager
-    from agent.harness.agents.runtime import SubagentRuntime
 
 JS_REPL_TOOL_NAMES = frozenset({"js_repl", "js_repl_reset"})
 
@@ -25,7 +25,7 @@ def default_registry(
     *,
     image_reader: ImageReaderPort,
     exec_policy_manager: "ExecPolicyManager | None" = None,
-    subagent_runtime: "SubagentRuntime | None" = None,
+    subagent_runtime: SubagentControlPort | None = None,
     approval_coordinator: "ApprovalCoordinator | None" = None,
     features: FeatureSettings | None = None,
 ) -> ToolRegistry:

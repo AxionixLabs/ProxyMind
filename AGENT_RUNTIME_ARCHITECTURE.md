@@ -201,7 +201,7 @@ agent/
 │   ├── turns.py             # Turn、消息、工具轮次
 │   ├── plans.py             # 计划、步骤和证据引用
 │   ├── tools.py             # 工具调用意图、结果和失败分类
-│   ├── agents.py            # 子 Agent 状态、关系和任务提交值对象
+│   ├── agents.py            # 子 Agent 状态、任务提交和消息约束
 │   ├── approvals.py         # 审批请求、决定和策略
 │   ├── hook_matching.py     # Hook matcher 解析、工具别名和候选值规则
 │   ├── permission_profiles.py # 权限对象规范化、交并、覆盖与稳定身份
@@ -252,7 +252,8 @@ agent/
 │   │   ├── media.py         # 图片工具 schema、错误映射和结果投影
 │   │   ├── permissions.py   # 权限申请 schema、审批用例和授权结果
 │   │   ├── planning.py      # 宏步骤计划的 schema、校验和工具定义
-│   │   └── plan_update.py   # 工作计划快照的 schema、校验和工具定义
+│   │   ├── plan_update.py   # 工作计划快照的 schema、校验和工具定义
+│   │   └── subagents.py     # Agent 控制工具 schema、校验和结果投影
 │   ├── views/               # 跨前端共享的应用结果 projection/view 契约
 │   │   ├── contracts.py      # PresentationView 与 PresentationSink
 │   │   ├── run.py            # Run 终态、失败和生命周期视图
@@ -276,7 +277,7 @@ agent/
 │   ├── media.py             # 工作区绑定的异步图片读取端口与不可变快照
 │   ├── tool_runtime.py      # 工具来源、注册表和会话 runtime 组合端口
 │   ├── turns.py              # 模型轮次操作和输入事件端口
-│   ├── subagents.py          # 子 Agent 执行和操作端口
+│   ├── subagents.py          # 子 Agent 执行、控制和操作端口
 │   ├── sessions.py           # Turn application 使用的 Session 生命周期端口
 │   ├── workspace.py          # 工作区资源生命周期和组合工厂端口
 │   ├── persistence.py       # 事件、快照、历史和 outbox 端口
@@ -632,6 +633,7 @@ running -> cancelled
 | `mind_app/client_tools/view_image.py` | `agent/application/tools/media.py`、`agent/ports/media.py`、`infrastructure/platform/images.py` | 图片工具定义和结果投影归 application；工作区绑定、阻塞文件读取、大小限制、格式识别和编码归平台 adapter。`WorkspaceRuntimeOwner` 与编码/策略资源一起原子替换读取器，工具工厂不得自行解析工作区或执行同步文件 IO |
 | `mind_app/builtin_tools/permissions.py` | `agent/application/tools/permissions.py`、`agent/domain/permission_profiles.py`、`agent/ports/permissions.py` | `request_permissions` schema、审批与授权用例归 application；权限对象规范化、交并、覆盖和稳定键归 domain；状态写入只通过显式 grant port。应用工具不得导入具体 store、旧 coding schema 或 wire client 异常 |
 | `mind_app/native_coding/execution_authorization.py` | `agent/application/tools/authorization.py` | 模型工具参数的客户端执行门禁和已确认 Turn 中断是跨本地工具的 application 语义；runtime adapter 负责把中断映射到执行收束，不用 wire transport 异常充当应用状态 |
+| `mind_app/client_tools/subagents.py` | `agent/application/tools/subagents.py`、`agent/ports/subagents.py`、`agent/domain/agents.py` | 八个 Agent 控制工具的 schema、输入校验和结果投影归 application，只通过 `SubagentControlPort` 调用 Harness；Agent 树、mailbox、并发和执行状态仍由 Harness/store 持有，消息长度约束由 domain 单一声明 |
 | `mind_app/native_coding/encoding.py` | `infrastructure/platform/encoding.py` | 进程输出编码探测、规范化和解码是跨能力的平台事实；native coding 只消费平台端口，不拥有第二套解码器 |
 | `mind_app/runtime/processes.py` | `infrastructure/platform/processes.py` | 进程组创建、stdin 收束、树级中断/终止和 Windows/POSIX 差异属于平台生命周期能力 |
 | `mind_app/native_coding/workspace_command.py` | `infrastructure/platform/workspace.py` | 无 shell 工作区命令、超时和输出上限属于平台命令执行能力；native coding 不拥有进程树实现 |

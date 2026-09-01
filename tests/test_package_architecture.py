@@ -180,6 +180,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/tools/planning.py",
         "application/tools/plan_update.py",
         "application/tools/results.py",
+        "application/tools/subagents.py",
         "application/turns/commands.py",
         "application/turns/compact_result.py",
         "application/turns/context.py",
@@ -1225,6 +1226,7 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
         PROJECT_ROOT / "mind_app" / "client_tools" / "registry.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "result.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "planning.py",
+        PROJECT_ROOT / "mind_app" / "client_tools" / "subagents.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "types.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "update_plan.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "view_image.py",
@@ -1242,6 +1244,7 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
         "mind_app.client_tools.registry",
         "mind_app.client_tools.result",
         "mind_app.client_tools.planning",
+        "mind_app.client_tools.subagents",
         "mind_app.client_tools.types",
         "mind_app.client_tools.update_plan",
         "mind_app.client_tools.view_image",
@@ -1250,6 +1253,15 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
     violations = _forbidden_module_imports(".", legacy_modules)
     assert not violations, "legacy local tool imports remain:\n" + "\n".join(
         violations
+    )
+
+    tool_boundary_violations = _forbidden_imports(
+        "agent/application/tools",
+        {"agent.harness", "agent.stores", "infrastructure", "mind_app"},
+    )
+    assert not tool_boundary_violations, (
+        "application tools cross their execution boundary:\n"
+        + "\n".join(tool_boundary_violations)
     )
 
     factory_path = PROJECT_ROOT / "mind_app" / "client_tools" / "factory.py"
@@ -4677,6 +4689,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.tools.planning",
         "agent.application.tools.plan_update",
         "agent.application.tools.results",
+        "agent.application.tools.subagents",
         "agent.ports.media",
         "agent.domain.hooks",
         "agent.domain.identifiers",
@@ -4690,6 +4703,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.ports",
         "agent.ports.frontend",
         "agent.ports.presentation",
+        "agent.ports.subagents",
         "agent.ports.agent_messages",
         "agent.ports.transcript",
         "agent.adapters.agents.messages",

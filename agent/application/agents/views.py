@@ -11,6 +11,9 @@ from .messages import AgentMessageEvent
 from .thread import AgentThreadContext
 from ..turns.context import AgentContext
 
+if typing.TYPE_CHECKING:
+    from ..turns.run_result import RunResult
+
 __all__ = (
     "AgentMailboxWaitResult",
     "AgentSnapshot",
@@ -28,7 +31,7 @@ class AgentSnapshot:
     submission_id: str = ""
     turn_count: int = 0
     queued_count: int = 0
-    result: typing.Any = None
+    result: "RunResult | None" = None
     error: str = ""
 
     @property

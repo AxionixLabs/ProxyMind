@@ -142,6 +142,11 @@ class SubagentRuntime:
         """返回运行时是否允许创建和控制子执行主体。"""
         return self._control_registry.enabled
 
+    @property
+    def default_fork_turns(self) -> int:
+        """返回创建子 Agent 时的默认继承轮次数。"""
+        return self._settings.default_fork_turns
+
     async def spawn(
         self,
         parent: TurnContext,
