@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import typing
+from collections.abc import Awaitable
 
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
@@ -49,8 +50,18 @@ class TurnInputEventHandler(typing.Protocol):
         ...
 
 
+@typing.runtime_checkable
+class TurnCleanupPort(typing.Protocol):
+    """定义单轮等待异步资源清理完成的端口。"""
+
+    async def await_cleanup(self, awaitable: Awaitable[None]) -> None:
+        """等待清理协程完成并保留取消态收束语义。"""
+        ...
+
+
 __all__ = (
     "TurnInputEventHandler",
+    "TurnCleanupPort",
     "TurnOperation",
     "TurnResultPort",
     "TurnResultValue",

@@ -79,6 +79,7 @@ from .subagents import (
     SkillsProvider,
 )
 from .turns import (
+    TurnCleanupPort,
     TurnInputEventHandler,
     TurnOperation,
     TurnResultPort,
@@ -170,6 +171,7 @@ __all__ = (
     "SubagentResultValue",
     "SubagentTurnRunner",
     "TurnInputEventHandler",
+    "TurnCleanupPort",
     "TurnOperation",
     "TurnResultPort",
     "TurnResultValue",

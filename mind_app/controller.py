@@ -251,6 +251,7 @@ class Mind(object):
                     else None
                 ),
                 transcript_factory=self.transcripts.writer,
+                cleanup=self,
                 skills_provider=skills_provider,
                 transcript_path_for=self.transcripts.path_for_session,
                 transcript_entries_for=(

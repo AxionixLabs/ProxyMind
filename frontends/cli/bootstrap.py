@@ -699,6 +699,7 @@ async def _run_controller(
         approval_ledger = None
         session_factory = None
         transcript_factory = None
+        cleanup = None
         if runtime_services is not None:
             turn_application_factory = runtime_services.create_turn_application
             model_capability = runtime_services.model_capability
@@ -706,6 +707,7 @@ async def _run_controller(
             approval_ledger = controller.approval_call_ledger
             session_factory = controller.frontend.session_factory
             transcript_factory = controller.transcripts.writer
+            cleanup = controller
             if isinstance(
                 runtime_services.model_capability,
                 ProtocolCommandClient,
@@ -724,6 +726,7 @@ async def _run_controller(
             approval_ledger=approval_ledger,
             session_factory=session_factory,
             transcript_factory=transcript_factory,
+            cleanup=cleanup,
         )
         completed = True
         observe("app.complete", exit_code=controller.exit_code)

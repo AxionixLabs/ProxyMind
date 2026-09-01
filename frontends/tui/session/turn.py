@@ -14,6 +14,7 @@ from agent.ports import (
     McpSessionPort,
     ModelCapability,
     ProtocolCommandClient,
+    TurnCleanupPort,
     TranscriptFactory,
 )
 from agent.ports.presentation import TextSpan
@@ -212,6 +213,7 @@ async def run_tui_model_turn(
     approval_ledger: ApprovalLedger | None = None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
+    cleanup: TurnCleanupPort | None = None,
     on_prompt_prepared: typing.Callable[
         [list[dict[str, typing.Any]]],
         None,
@@ -260,6 +262,7 @@ async def run_tui_model_turn(
         extras=extras,
         approval_ledger=approval_ledger,
         transcript_factory=transcript_factory,
+        cleanup=cleanup,
         turn_id=turn_id,
     )
 

@@ -2743,8 +2743,9 @@ def test_mcp_session_contract_is_owned_by_agent_ports() -> None:
 def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
     """确保 Turn/Subagent 调用协议不由具体 runtime executor 定义。"""
     targets = {
-        PROJECT_ROOT / "agent" / "ports" / "turns.py": {
-            "TurnInputEventHandler",
+            PROJECT_ROOT / "agent" / "ports" / "turns.py": {
+                "TurnCleanupPort",
+                "TurnInputEventHandler",
             "TurnOperation",
             "TurnResultPort",
         },

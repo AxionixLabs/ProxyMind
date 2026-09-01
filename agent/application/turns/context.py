@@ -10,6 +10,7 @@ from agent.domain.policies import PermissionSettings
 from agent.ports import (
     ApprovalLedger,
     PermissionGrantReader,
+    TurnCleanupPort,
     TranscriptFactory,
 )
 from protocol.schema.stream_events import ExecutionEffect
@@ -165,6 +166,7 @@ class TurnContext:
     permission_grants: PermissionGrantReader | None = None
     approval_ledger: ApprovalLedger | None = None
     transcript_factory: TranscriptFactory | None = None
+    cleanup: TurnCleanupPort | None = None
     output_record_path: str = ""
     transcript_path: str = ""
     parent_transcript_path: str = ""
@@ -185,6 +187,7 @@ class TurnContext:
         permission_grants: PermissionGrantReader | None = None,
         approval_ledger: ApprovalLedger | None = None,
         transcript_factory: TranscriptFactory | None = None,
+        cleanup: TurnCleanupPort | None = None,
         output_record_path: str = "",
         transcript_path: str = "",
         parent_transcript_path: str = "",
@@ -221,6 +224,7 @@ class TurnContext:
             permission_grants=permission_grants,
             approval_ledger=approval_ledger,
             transcript_factory=transcript_factory,
+            cleanup=cleanup,
             output_record_path=str(output_record_path or "").strip(),
             transcript_path=str(transcript_path or "").strip(),
             parent_transcript_path=str(parent_transcript_path or "").strip(),

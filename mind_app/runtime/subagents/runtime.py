@@ -24,6 +24,7 @@ from agent.ports import (
     SkillsProvider,
     SubagentExecutionPort,
     SubagentOperation,
+    TurnCleanupPort,
     TranscriptFactory,
     TurnInputEventHandler,
 )
@@ -91,6 +92,7 @@ class SubagentRuntime:
         effect_journal_factory: EffectJournalFactory | None = None,
         approval_ledger: ApprovalLedger | None = None,
         transcript_factory: TranscriptFactory | None = None,
+        cleanup: TurnCleanupPort | None = None,
     ) -> None:
         if not isinstance(enabled, bool):
             raise TypeError("subagent runtime enabled state must be a boolean")
@@ -116,6 +118,7 @@ class SubagentRuntime:
         self._effect_journal_factory = effect_journal_factory
         self._approval_ledger = approval_ledger
         self._transcript_factory = transcript_factory
+        self._cleanup = cleanup
         runner = SubagentRunner(
             turn_runner=self._run_turn,
             cleanup=controller,
@@ -138,6 +141,7 @@ class SubagentRuntime:
             permission_grants=getattr(controller, "permission_grants", None),
             approval_ledger=approval_ledger,
             transcript_factory=transcript_factory,
+            cleanup=cleanup,
         )
 
     async def _run_turn(

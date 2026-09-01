@@ -14,6 +14,7 @@ from agent.ports import (
     ModelCapabilityError,
     ModelEventStream,
     ProtocolCommandClient,
+    TurnCleanupPort,
     ProtocolCommandError,
 )
 from agent.protocol import (
@@ -308,6 +309,9 @@ async def stream_turn(
     approval_ledger = turn_context.approval_ledger
     if not isinstance(approval_ledger, ApprovalLedger):
         raise RuntimeError("approval ledger is required")
+    cleanup = turn_context.cleanup
+    if not isinstance(cleanup, TurnCleanupPort):
+        raise RuntimeError("turn cleanup port is required")
 
     prompt_blocked: bool = False
 
@@ -354,7 +358,7 @@ async def stream_turn(
         stream_end=callbacks.stream_end,
         idle_wait=idle_wait,
         output_control=output_control,
-        await_cleanup=mind.await_cleanup,
+        await_cleanup=cleanup.await_cleanup,
         continuation_count=turn_continuation_count(turn_execution),
     )
 
@@ -592,7 +596,7 @@ async def stream_turn(
                     stop_reason=event.stop_reason,
                 )
                 if turn_context.agent.depth == 0:
-                    await mind.await_cleanup(
+                    await cleanup.await_cleanup(
                         mind.stop_anim("wait", settle=False)
                     )
                 await run_presentation.emit_failure(
@@ -654,7 +658,7 @@ async def stream_turn(
                     turn_released=cancelled,
                 )
                 if turn_context.agent.depth == 0:
-                    await mind.await_cleanup(
+                    await cleanup.await_cleanup(
                         mind.stop_anim("wait", settle=False)
                     )
                 await run_presentation.emit_failure(
@@ -675,7 +679,7 @@ async def stream_turn(
                         callbacks.interrupted()
 
                 if turn_context.agent.depth == 0:
-                    await mind.await_cleanup(
+                    await cleanup.await_cleanup(
                         mind.stop_anim("wait", settle=False)
                     )
                 await status_control.end_status(immediate=True)
@@ -769,7 +773,7 @@ async def stream_turn(
             trace_id=error.trace_id,
         )
         if turn_context.agent.depth == 0:
-            await mind.await_cleanup(mind.stop_anim("wait"))
+            await cleanup.await_cleanup(mind.stop_anim("wait"))
         await run_presentation.emit_failure(
             failure_phase,
         )
@@ -783,7 +787,7 @@ async def stream_turn(
             effect_id=error.effect_id,
         )
         if turn_context.agent.depth == 0:
-            await mind.await_cleanup(mind.stop_anim("wait"))
+            await cleanup.await_cleanup(mind.stop_anim("wait"))
         await run_presentation.emit_failure("turn.reconciliation_required")
 
     except PromptHookBlockedError as error:
@@ -823,7 +827,7 @@ async def stream_turn(
         )
 
         if turn_context.agent.depth == 0:
-            await mind.await_cleanup(mind.stop_anim("wait"))
+            await cleanup.await_cleanup(mind.stop_anim("wait"))
 
         await run_presentation.emit_failure("turn.failed")
 
@@ -854,7 +858,7 @@ async def stream_turn(
         )
 
         if turn_context.agent.depth == 0:
-            await mind.await_cleanup(mind.stop_anim("wait"))
+            await cleanup.await_cleanup(mind.stop_anim("wait"))
 
         await run_presentation.emit_failure("turn.failed")
 
@@ -881,7 +885,7 @@ async def stream_turn(
     finally:
         if event_stream is not None:
             try:
-                await mind.await_cleanup(event_stream.aclose())
+                await cleanup.await_cleanup(event_stream.aclose())
             except asyncio.CancelledError:
                 raise
             except Exception as error:

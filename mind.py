@@ -71,6 +71,7 @@ def bind_root_turn_runner(
             approval_ledger=controller.approval_call_ledger,
             session_factory=controller.frontend.session_factory,
             transcript_factory=controller.transcripts.writer,
+            cleanup=controller,
             **kwargs,
         )
 
