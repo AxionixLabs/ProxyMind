@@ -208,13 +208,13 @@ class TuiForegroundTasks(object):
         command = str(value or "").strip().casefold()
 
         if matches_command(command, "quit"):
-            self.mind.task_event.set()
+            self.mind.lifecycle.request_stop()
             self.cancel()
             cancel_turn()
             return True
         if matches_command(command, "shutdown"):
             self.mind.service_runtime.request_termination_on_close()
-            self.mind.task_event.set()
+            self.mind.lifecycle.request_stop()
             self.cancel()
             cancel_turn()
             return True
@@ -301,7 +301,7 @@ class TuiForegroundTasks(object):
         except asyncio.CancelledError:
             try:
                 if cancel_cleanup is not None:
-                    await self.mind.await_cleanup(cancel_cleanup())
+                    await self.mind.lifecycle.await_cleanup(cancel_cleanup())
             finally:
                 with self.runtime.activity_handoff(activity_kind):
                     if on_cancelled is not None:
@@ -362,10 +362,10 @@ class TuiForegroundTasks(object):
         command = str(value or "").strip().casefold()
 
         if matches_command(command, "quit"):
-            self.mind.task_event.set()
+            self.mind.lifecycle.request_stop()
         elif matches_command(command, "shutdown"):
             self.mind.service_runtime.request_termination_on_close()
-            self.mind.task_event.set()
+            self.mind.lifecycle.request_stop()
         else:
             return False
 

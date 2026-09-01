@@ -2,9 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-import asyncio
 from pathlib import Path
-from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.settings_session import SettingsSession
 from agent.application.config.settings import (
@@ -39,11 +37,12 @@ from infrastructure.config.runtime_paths import (
 )
 from agent.harness.subscription.owner import SubscriptionRuntimeOwner
 from agent.ports.frontend import (
-    ActivityStatusKind,
     AttachmentStatePort,
+    FrontendActivityPort,
     FrontendPort,
     TurnCompletionPresenterPort,
 )
+from agent.ports.process_lifecycle import ProcessLifecyclePort
 from agent.ports import (
     ApprovalLedger,
     HookScopeProviderPort,
@@ -70,9 +69,6 @@ from agent.ports import (
     SubscriptionHost,
     SubscriptionRuntime,
 )
-
-CleanupResult = typing.TypeVar("CleanupResult")
-
 
 def _unconfigured_subscription_runtime(_host: SubscriptionHost) -> SubscriptionRuntime:
     """返回明确配置错误，禁止入口隐式构造订阅实现。"""
@@ -124,6 +120,10 @@ class Mind(object):
             kwargs["permissions"],
         )
         self.frontend: FrontendPort = kwargs["frontend"]
+        lifecycle = kwargs.get("lifecycle")
+        if not isinstance(lifecycle, ProcessLifecyclePort):
+            raise TypeError("process lifecycle is required")
+        self.lifecycle = lifecycle
         skills_provider_factory = getattr(
             self.runtime_services,
             "create_skills_provider",
@@ -150,20 +150,18 @@ class Mind(object):
 
         self.command_hook_sessions = CommandHookSessionStore()
 
-        self.task_event: asyncio.Event = asyncio.Event()
-
-        self.anim_manager: AsyncAnimManager = kwargs.get("anim_manager") or AsyncAnimManager()
-
-        self.animate: bool = bool(kwargs.get("animate", True))
-        self.turn_animation = FrontendTurnAnimation(
-            self.frontend.runtime,
-            self.stop_anim,
-        )
+        activity = kwargs.get("activity")
+        if not isinstance(activity, FrontendActivityPort):
+            raise TypeError("frontend activity is required")
+        self.activity = activity
+        self.turn_animation = FrontendTurnAnimation(self.activity)
         turn_completion_presenter: TurnCompletionPresenterPort = kwargs[
             "turn_completion_presenter"
         ]
         self.turn_foreground_lifecycle = ApplicationTurnForegroundLifecycle(
-            self,
+            self.frontend,
+            self.activity,
+            self.lifecycle,
             turn_completion_presenter,
         )
         history_store: ConversationHistoryStore = (
@@ -234,9 +232,9 @@ class Mind(object):
         mcp_runtime_builder = self.runtime_services.create_mcp_runtime
         mcp_runtime_context = McpRuntimeContext(
             config=self.settings.config,
-            start_activity=self.start_external_mcp_anim,
-            stop_activity=self.stop_anim,
-            await_cleanup=self.await_cleanup,
+            start_activity=self.activity.start_external_mcp,
+            stop_activity=self.activity.stop,
+            await_cleanup=self.lifecycle.await_cleanup,
         )
         external_runtime_factory = (
             (lambda: mcp_runtime_builder(mcp_runtime_context))
@@ -264,7 +262,7 @@ class Mind(object):
                 )
             ),
             external_runtime_factory=external_runtime_factory,
-            await_cleanup=self.await_cleanup,
+            await_cleanup=self.lifecycle.await_cleanup,
         )
         history = LocalConversationHistory(
             history_store,
@@ -301,7 +299,7 @@ class Mind(object):
             )),
             command_hook_cleanup=self.command_hook_sessions.clear_root,
             event_session_close=self.execution.event_reporting.close_session,
-            await_cleanup=self.await_cleanup,
+            await_cleanup=self.lifecycle.await_cleanup,
         )
         self.subagent_turn_runner = TurnRunner(self.execution)
         self.subagent_cleanup = self.conversation
@@ -355,13 +353,11 @@ class Mind(object):
             runtime_factory=subscription_factory,
         )
 
-        self.exit_code: int = 0
-
         observe(
             "controller.ready",
             run_id=getattr(self.report, "run_id", None),
             workspace=self.history_workspace,
-            animate=self.animate,
+            animate=self.activity.enabled,
             client_tools=self.execution.client_tool_count(),
         )
 
@@ -374,21 +370,6 @@ class Mind(object):
     def remote(self, value: dict) -> None:
         """设置远程全局配置，并在异常输入时兜底为空字典。"""
         self.__remote = value if isinstance(value, dict) else {}
-
-    @staticmethod
-    async def await_cleanup(awaitable: typing.Awaitable[CleanupResult]) -> CleanupResult:
-        """在取消态下也等待清理逻辑执行完成。"""
-        task = asyncio.ensure_future(awaitable)
-        try:
-            return await asyncio.shield(task)
-        except asyncio.CancelledError:
-            current = asyncio.current_task()
-            if current is not None and current.cancelling() > 1:
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-            else:
-                await task
-            raise
 
     def set_history_workspace(self, workspace: typing.Any) -> str:
         """更新 history 使用的真实工作区根目录。"""
@@ -459,82 +440,6 @@ class Mind(object):
             raise
         else:
             observe("runtime.close.complete")
-
-    async def stop_anim(
-        self,
-        kind: ActivityStatusKind | None = None,
-        *,
-        settle: bool = True
-    ) -> None:
-        """停止指定类型的活动动画。"""
-        if self.frontend.runtime.active:
-            if kind == "wait":
-                self.frontend.runtime.finish_turn_wait()
-            await self.frontend.runtime.end_activity_status(
-                kind,
-                settle=settle,
-            )
-            return None
-        await self.anim_manager.stop()
-
-    async def freeze_anim(self, kind: ActivityStatusKind) -> None:
-        """冻结指定活动动画并等待后续展示接管。"""
-        if self.frontend.runtime.active:
-            await self.frontend.runtime.freeze_activity_status(kind)
-            return None
-        await self.anim_manager.stop()
-
-    async def start_anim(self) -> None:
-        """启动模型响应等待动画。"""
-        if not self.animate:
-            return None
-        if self.frontend.runtime.active:
-            await self.frontend.runtime.begin_wait_status()
-        return None
-
-    async def start_upload_anim(
-        self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]]
-    ) -> None:
-        """启动附件上传动画，并复用统一动画管理器避免冲突。"""
-        if not self.animate:
-            return None
-        if self.frontend.runtime.active:
-            await self.frontend.runtime.begin_upload_status(snapshot)
-        return None
-
-    async def start_inbuild_startup_anim(
-        self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]]
-    ) -> None:
-        """启动内置运行时启动状态动画。"""
-        if not self.animate:
-            return None
-        if self.frontend.runtime.active:
-            await self.frontend.runtime.begin_inbuild_status(snapshot)
-        return None
-
-    async def start_external_mcp_anim(
-        self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]],
-    ) -> None:
-        """启动外部 MCP 启动状态动画。"""
-        if not self.animate:
-            return None
-        if self.frontend.runtime.active:
-            await self.frontend.runtime.begin_external_mcp_status(snapshot)
-        return None
-
-    async def start_compact_anim(
-        self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]],
-    ) -> None:
-        """启动对话压缩状态动画。"""
-        if not self.animate:
-            return None
-        if self.frontend.runtime.active:
-            await self.frontend.runtime.begin_compact_status(snapshot)
-        return None
 
 if __name__ == '__main__':
     pass

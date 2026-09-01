@@ -998,7 +998,7 @@ class TuiCommandDispatcher(object):
             self._present()
 
         if matches_command(command, "quit"):
-            self.mind.task_event.set()
+            self.mind.lifecycle.request_stop()
             return DispatchAction.EXIT
 
         if matches_command(command, "archive"):
@@ -1020,7 +1020,7 @@ class TuiCommandDispatcher(object):
                 ))
                 self._present()
                 return DispatchAction.HANDLED
-            self.mind.task_event.set()
+            self.mind.lifecycle.request_stop()
             return DispatchAction.EXIT
 
         new_command = resolve_tui_command(command)
@@ -1051,7 +1051,7 @@ class TuiCommandDispatcher(object):
 
         if matches_command(command, "shutdown"):
             self.mind.service_runtime.request_termination_on_close()
-            self.mind.task_event.set()
+            self.mind.lifecycle.request_stop()
             self._present(fragment_block(
                 TextSpan("• ", BODY_STYLE),
                 TextSpan("Stopping backend runtime.", BRIGHT_STYLE),

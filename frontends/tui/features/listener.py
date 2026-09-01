@@ -240,7 +240,7 @@ async def run_listener_action(
         try:
             await listener.wait_until_ready()
         except TimeoutError:
-            await controller.await_cleanup(
+            await controller.lifecycle.await_cleanup(
                 controller.subscription.pause()
             )
             raise

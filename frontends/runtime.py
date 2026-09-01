@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import typing
 from dataclasses import (
     dataclass,
     field,
@@ -9,11 +10,92 @@ from agent.ports import (
     ActivityRuntimePort,
     ActivitySnapshot,
     ActivityStatusKind,
+    FrontendActivityPort,
     OutputSessionFactory,
     RetryState,
 )
 from agent.ports.presentation import ApplicationSink
 from frontends.interaction.contracts import InteractionPort
+
+
+class FallbackAnimationPort(typing.Protocol):
+    """定义非交互前端活动切换所需的最小动画能力。"""
+
+    async def stop(self) -> None:
+        """停止当前后备动画。"""
+        ...
+
+
+class FrontendActivity(FrontendActivityPort):
+    """协调具体前端活动区域和非交互后备动画。"""
+
+    def __init__(
+        self,
+        runtime: ActivityRuntimePort,
+        fallback: FallbackAnimationPort,
+        *,
+        enabled: bool,
+    ) -> None:
+        """绑定活动展示端口与当前入口动画策略。"""
+        self._runtime = runtime
+        self._fallback = fallback
+        self._enabled = bool(enabled)
+
+    @property
+    def active(self) -> bool:
+        """返回具体前端是否接管活动展示。"""
+        return self._runtime.active
+
+    @property
+    def enabled(self) -> bool:
+        """返回当前入口是否启用活动展示。"""
+        return self._enabled
+
+    async def start_wait(self) -> None:
+        """开始模型等待展示。"""
+        if self.enabled and self.active:
+            await self._runtime.begin_wait_status()
+
+    async def start_upload(self, snapshot: ActivitySnapshot) -> None:
+        """开始附件上传展示。"""
+        if self.enabled and self.active:
+            await self._runtime.begin_upload_status(snapshot)
+
+    async def start_inbuild(self, snapshot: ActivitySnapshot) -> None:
+        """开始内置服务启动展示。"""
+        if self.enabled and self.active:
+            await self._runtime.begin_inbuild_status(snapshot)
+
+    async def start_external_mcp(self, snapshot: ActivitySnapshot) -> None:
+        """开始外部 MCP 启动展示。"""
+        if self.enabled and self.active:
+            await self._runtime.begin_external_mcp_status(snapshot)
+
+    async def start_compact(self, snapshot: ActivitySnapshot) -> None:
+        """开始压缩展示。"""
+        if self.enabled and self.active:
+            await self._runtime.begin_compact_status(snapshot)
+
+    async def stop(
+        self,
+        kind: ActivityStatusKind | None = None,
+        *,
+        settle: bool = True,
+    ) -> None:
+        """结束指定活动展示。"""
+        if self.active:
+            if kind == "wait":
+                self._runtime.finish_turn_wait()
+            await self._runtime.end_activity_status(kind, settle=settle)
+            return None
+        await self._fallback.stop()
+
+    async def freeze(self, kind: ActivityStatusKind) -> None:
+        """冻结指定活动展示。"""
+        if self.active:
+            await self._runtime.freeze_activity_status(kind)
+            return None
+        await self._fallback.stop()
 
 
 class PassiveFrontendRuntime(ActivityRuntimePort):

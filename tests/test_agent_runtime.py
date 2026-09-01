@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+
+from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
 
@@ -304,7 +306,7 @@ async def test_agent_supervisor_resumes_session_after_pause(monkeypatch) -> None
         AsyncMock(),
     )
     supervisor = AgentSupervisor(
-        SimpleNamespace(task_event=asyncio.Event()),
+        SimpleNamespace(lifecycle=ProcessLifecycle()),
         connection,
         SimpleNamespace(update=Mock()),
     )
@@ -340,9 +342,9 @@ async def test_agent_supervisor_retries_ready_timeout_as_pre_ready_failure(
         delay,
     )
     live_status = SimpleNamespace(update=Mock())
-    task_event = asyncio.Event()
+    lifecycle = ProcessLifecycle()
     supervisor = AgentSupervisor(
-        SimpleNamespace(task_event=task_event),
+        SimpleNamespace(lifecycle=lifecycle),
         SimpleNamespace(),
         live_status,
     )
@@ -358,7 +360,7 @@ async def test_agent_supervisor_retries_ready_timeout_as_pre_ready_failure(
         "Retrying Link",
         "Handshake not ready yet · retrying WS in 2s",
     )
-    delay.assert_awaited_once_with(2.0, task_event)
+    delay.assert_awaited_once_with(2.0, lifecycle.stop_event)
 
 
 @pytest.mark.anyio

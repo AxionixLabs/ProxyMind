@@ -140,7 +140,6 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
             return {"cid": "cid", "sid": "sid"}
 
     class MindStub(object):
-        animate = True
         conversation = ConversationStub()
         history_workspace = "."
         permissions = preset_permissions("auto")
@@ -148,16 +147,16 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
 
         def __init__(self):
             self.views = []
+            self.activity = SimpleNamespace(
+                enabled=True,
+                start_compact=self._start_compact,
+            )
             self.frontend = SimpleNamespace(
                 application=SimpleNamespace(emit=self.views.append),
             )
 
-        async def start_compact_anim(self, snapshot):
+        async def _start_compact(self, snapshot):
             snapshots.append(snapshot)
-
-        async def stop_anim(self, kind=None, *, settle=True):
-            _ = settle
-            snapshots.append((kind, snapshots[0]()))
 
         async def await_cleanup(self, awaitable):
             return await awaitable
@@ -197,7 +196,6 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
 
     class MindStub(object):
         transcripts = _TranscriptStore()
-        animate = False
         history_workspace = "."
         permissions = preset_permissions("auto")
         conversation = SimpleNamespace(
@@ -206,6 +204,7 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
 
         def __init__(self):
             self.views = []
+            self.activity = SimpleNamespace(enabled=False)
             self.frontend = SimpleNamespace(
                 application=SimpleNamespace(emit=self.views.append),
             )
@@ -246,7 +245,6 @@ async def test_compact_cancellation_clears_animation_without_failure(
 
     class MindStub(object):
         transcripts = _TranscriptStore()
-        animate = True
         history_workspace = "."
         permissions = preset_permissions("auto")
         conversation = SimpleNamespace(
@@ -256,15 +254,16 @@ async def test_compact_cancellation_clears_animation_without_failure(
         def __init__(self):
             self.views = []
             self.stopped = []
+            self.activity = SimpleNamespace(
+                enabled=True,
+                start_compact=self._start_compact,
+            )
             self.frontend = SimpleNamespace(
                 application=SimpleNamespace(emit=self.views.append),
             )
 
-        async def start_compact_anim(self, _snapshot):
+        async def _start_compact(self, _snapshot):
             return None
-
-        async def stop_anim(self, kind=None, *, settle=True):
-            self.stopped.append((kind, settle))
 
         async def await_cleanup(self, awaitable):
             return await awaitable

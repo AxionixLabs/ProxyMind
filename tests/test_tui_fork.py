@@ -18,8 +18,6 @@ from protocol.client.fork import (
 class ForkMindStub(object):
     """提供会话分支功能测试所需的最小控制接口。"""
 
-    animate = True
-
     def __init__(self) -> None:
         self.views = []
         self.started = []
@@ -27,6 +25,10 @@ class ForkMindStub(object):
         self.bound = []
         self.resets = []
         self.stopped = None
+        self.activity = SimpleNamespace(
+            enabled=True,
+            start_compact=self._start_compact,
+        )
         self.conversation = SimpleNamespace(
             fork_source_available=True,
             snapshot=lambda: {
@@ -82,11 +84,8 @@ class ForkMindStub(object):
             before_turn_id,
         ))
 
-    async def start_compact_anim(self, snapshot):
+    async def _start_compact(self, snapshot):
         self.started.append(snapshot)
-
-    async def stop_anim(self, kind=None, *, settle=True):
-        self.stopped = (kind, settle)
 
 
 def test_fork_payload_requires_prompt_source_matching_boundary() -> None:
@@ -182,7 +181,7 @@ async def test_empty_conversation_starts_new_session_without_remote_fork(
     monkeypatch,
 ) -> None:
     mind = ForkMindStub()
-    mind.animate = False
+    mind.activity.enabled = False
     mind.conversation.fork_source_available = False
     request_fork = AsyncMock(
         side_effect=AssertionError("empty conversation must not call /fork")
@@ -213,7 +212,7 @@ async def test_source_missing_response_recovers_as_new_empty_session(
     monkeypatch,
 ) -> None:
     mind = ForkMindStub()
-    mind.animate = False
+    mind.activity.enabled = False
 
     async def request_fork(**_kwargs):
         raise ConversationForkRequestError(
@@ -240,7 +239,7 @@ async def test_source_missing_response_recovers_as_new_empty_session(
 @pytest.mark.anyio
 async def test_retryable_fork_failure_keeps_pending_request(monkeypatch) -> None:
     mind = ForkMindStub()
-    mind.animate = False
+    mind.activity.enabled = False
 
     async def request_fork(**_kwargs):
         raise ConversationForkRequestError(
@@ -460,7 +459,7 @@ async def test_fork_request_defaults_empty_prompt_fields(monkeypatch) -> None:
 @pytest.mark.anyio
 async def test_bounded_fork_accepts_empty_source_prefix(monkeypatch) -> None:
     mind = ForkMindStub()
-    mind.animate = False
+    mind.activity.enabled = False
 
     async def request_fork(**kwargs):
         assert kwargs["before_turn_id"] == "turn_selected"
@@ -508,7 +507,7 @@ async def test_bounded_fork_accepts_empty_source_prefix(monkeypatch) -> None:
 @pytest.mark.anyio
 async def test_bounded_fork_can_defer_target_binding(monkeypatch) -> None:
     mind = ForkMindStub()
-    mind.animate = False
+    mind.activity.enabled = False
 
     async def request_fork(**_kwargs):
         return {
@@ -547,7 +546,7 @@ async def test_bounded_fork_uses_fallback_prompt_when_remote_prompt_missing(
     monkeypatch,
 ) -> None:
     mind = ForkMindStub()
-    mind.animate = False
+    mind.activity.enabled = False
     fallback = ResubmittablePrompt(
         message="local prompt",
         attachments=({"kind": "file", "file_key": "file_123"},),

@@ -9,7 +9,8 @@ from collections.abc import (
     Callable,
 )
 from agent.domain.tool_policy import ToolFilterMode
-from agent.ports.frontend import ActivityStatusKind
+from agent.ports.frontend import FrontendActivityPort
+from agent.ports.process_lifecycle import ProcessLifecyclePort
 from infrastructure.services.helix_environment import fetch_service_exec_env
 from infrastructure.services.server_manager import ServerManage
 from infrastructure.update.assets import ensure_asset
@@ -86,29 +87,8 @@ class HelixRuntimeHost(typing.Protocol):
 
     service_runtime: HelixServiceRuntimePort
     execution: HelixToolLinkPort
-
-    async def start_inbuild_startup_anim(
-        self,
-        snapshot: Callable[[], dict[str, typing.Any]],
-    ) -> None:
-        """开始展示服务启动状态。"""
-        ...
-
-    async def stop_anim(
-        self,
-        kind: ActivityStatusKind | None = None,
-        *,
-        settle: bool = True,
-    ) -> None:
-        """结束指定的前端活动状态。"""
-        ...
-
-    async def await_cleanup(
-        self,
-        awaitable: Awaitable[typing.Any],
-    ) -> typing.Any:
-        """在调用方取消时仍等待清理完成。"""
-        ...
+    activity: FrontendActivityPort
+    lifecycle: ProcessLifecyclePort
 
 
 async def ensure_runtime_asset(
@@ -180,7 +160,7 @@ async def start_service_runtime(
 
     observe("helix.start", label=label)
 
-    await mind.start_inbuild_startup_anim(lambda: dict(status))
+    await mind.activity.start_inbuild(lambda: dict(status))
 
     try:
         ensure_ready = getattr(mind.service_runtime, "ensure_ready", None)
@@ -201,7 +181,10 @@ async def start_service_runtime(
 
     finally:
         if not defer_activity_stop:
-            await mind.await_cleanup(mind.stop_anim("inbuild", settle=False))
+            await mind.lifecycle.await_cleanup(mind.activity.stop(
+                "inbuild",
+                settle=False,
+            ))
 
     mind.service_runtime.start_keepalive()
 

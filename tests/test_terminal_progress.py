@@ -287,11 +287,16 @@ async def test_turn_lifecycle_clears_terminal_progress_on_failure() -> None:
         begin_terminal_progress=lambda: events.append("progress.begin"),
         end_terminal_progress=lambda: events.append("progress.clear"),
     )
-    mind = SimpleNamespace(
-        animate=False,
-        frontend=SimpleNamespace(runtime=frontend_runtime),
-        start_anim=AsyncMock(side_effect=lambda: events.append("anim.begin")),
-        stop_anim=Mock(side_effect=lambda _kind: _stop_anim(events)),
+    frontend = SimpleNamespace(
+        application=SimpleNamespace(),
+        runtime=frontend_runtime,
+    )
+    activity = SimpleNamespace(
+        enabled=False,
+        start_wait=AsyncMock(side_effect=lambda: events.append("anim.begin")),
+        stop=Mock(side_effect=lambda _kind: _stop_anim(events)),
+    )
+    lifecycle = SimpleNamespace(
         await_cleanup=AsyncMock(side_effect=_await_cleanup),
     )
 
@@ -301,7 +306,12 @@ async def test_turn_lifecycle_clears_terminal_progress_on_failure() -> None:
 
     with pytest.raises(RuntimeError, match="failed"):
         await run_foreground_turn(
-            ApplicationTurnForegroundLifecycle(mind, Mock()),
+            ApplicationTurnForegroundLifecycle(
+                frontend,
+                activity,
+                lifecycle,
+                Mock(),
+            ),
             runner,
         )
 

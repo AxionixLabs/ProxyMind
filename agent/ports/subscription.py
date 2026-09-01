@@ -9,6 +9,7 @@ from collections.abc import (
 )
 
 from .conversation import RootConversationPort
+from .process_lifecycle import ProcessLifecyclePort
 
 
 class SubscriptionRequest(typing.Protocol):
@@ -97,7 +98,7 @@ class SubscriptionHost(typing.Protocol):
     """定义组合订阅运行时所需的宿主最小生命周期能力。"""
 
     conversation: RootConversationPort
-    task_event: asyncio.Event
+    lifecycle: ProcessLifecyclePort
 
 
 SubscriptionRuntimeBuilder: typing.TypeAlias = Callable[

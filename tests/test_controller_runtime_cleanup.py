@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import (
     AsyncMock,
@@ -117,38 +116,6 @@ def test_controller_keeps_workspace_when_runtime_replacement_fails(
     assert controller.history_workspace == previous
     controller.command_hook_sessions.clear.assert_not_called()
     controller.execution.rebuild_client_registry.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_repeated_cancellation_forces_shielded_cleanup() -> None:
-    cleanup_started = asyncio.Event()
-    cleanup_cancelled = asyncio.Event()
-
-    async def cleanup() -> None:
-        cleanup_started.set()
-        try:
-            await asyncio.Future()
-        finally:
-            cleanup_cancelled.set()
-
-    async def wait_after_prior_cancellation() -> None:
-        current = asyncio.current_task()
-        assert current is not None
-        current.cancel()
-        try:
-            await asyncio.sleep(0)
-        except asyncio.CancelledError:
-            pass
-        await Mind.await_cleanup(cleanup())
-
-    waiting = asyncio.create_task(wait_after_prior_cancellation())
-    await cleanup_started.wait()
-
-    waiting.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await waiting
-
-    assert cleanup_cancelled.is_set()
 
 
 @pytest.mark.anyio

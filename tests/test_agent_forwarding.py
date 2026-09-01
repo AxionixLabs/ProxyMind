@@ -27,6 +27,7 @@ from frontends.subscription.ws import (
 )
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
+from agent.harness.process_lifecycle import ProcessLifecycle
 from frontends.subscription.client import AgentClient
 from agent.application.turns.run_result import RunResult
 
@@ -719,7 +720,7 @@ def _waiting_ws_client(context: _WsContext, receive_started: asyncio.Event):
 
 def _ws_mind() -> SimpleNamespace:
     return SimpleNamespace(
-        task_event=asyncio.Event(),
+        lifecycle=ProcessLifecycle(),
         conversation=SimpleNamespace(
             fresh_pref_config=AsyncMock(return_value={"primary": {}}),
         ),

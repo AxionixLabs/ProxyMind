@@ -68,7 +68,7 @@ async def monitor_exec_status(
     """同步后台命令会话摘要到 TUI 专属状态行。"""
     revision = -1
     try:
-        while not mind.task_event.is_set():
+        while not mind.lifecycle.stop_event.is_set():
             try:
                 snapshot = await (
                     mind.workspace_runtime.coding.running_exec_sessions()
@@ -96,7 +96,7 @@ async def monitor_exec_status(
                 name="process status event wait",
             )
             stop_task = asyncio.create_task(
-                mind.task_event.wait(),
+                mind.lifecycle.stop_event.wait(),
                 name="process status stop wait",
             )
             wait_tasks = {change_task, stop_task}

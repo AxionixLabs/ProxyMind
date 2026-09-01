@@ -305,7 +305,7 @@ async def _replace_empty_fork_source(
 
 def compact_animation_enabled(mind: "Mind") -> bool:
     """返回当前运行是否启用压缩动画。"""
-    return mind.animate
+    return mind.activity.enabled
 
 
 async def compact_current_conversation(
@@ -319,7 +319,7 @@ async def compact_current_conversation(
 
     if compact_animation_enabled(mind):
         observe("compact.animation.start")
-        await mind.start_compact_anim(status.snapshot)
+        await mind.activity.start_compact(status.snapshot)
 
     result = await compactor(
         pref_config=pref_config,
@@ -380,7 +380,7 @@ async def fork_current_conversation(
     try:
         if compact_animation_enabled(mind):
             observe("conversation.fork.animation.start")
-            await mind.start_compact_anim(status.snapshot)
+            await mind.activity.start_compact(status.snapshot)
 
         if protocol_client is not None:
             receipt = await protocol_client.fork_session(

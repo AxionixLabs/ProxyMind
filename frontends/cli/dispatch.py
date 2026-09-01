@@ -18,6 +18,7 @@ from agent.stores.sessions import (
     INTERACTIVE_HISTORY_SOURCES,
 )
 from agent.ports import (
+    ProcessLifecyclePort,
     ProtocolCommandClient,
     RootConversationPort,
 )
@@ -68,11 +69,10 @@ class CliCommandHost(typing.Protocol):
 
     attach: _AttachmentState
     conversation: RootConversationPort
-    exit_code: int
     frontend: Frontend
     history_workspace: str
+    lifecycle: ProcessLifecyclePort
     subscription: _SubscriptionSession
-    task_event: asyncio.Event
 
 
 class RootTurnRunner(typing.Protocol):
@@ -226,7 +226,7 @@ async def run_selected_command(
                 await turn_application.close(cancel_running=True)
             run_result = execution.value
             run_outcome = execution.projection.status
-            mind.exit_code = execution.projection.exit_code
+            mind.lifecycle.set_exit_code(execution.projection.exit_code)
         elif isinstance(command, InteractiveCommand):
             await _run_tui_session(
                 mind,
@@ -241,7 +241,7 @@ async def run_selected_command(
         elif isinstance(command, ResumeCommand):
             record = await _select_resume_session(mind, command)
             if record is None:
-                mind.task_event.set()
+                mind.lifecycle.request_stop()
             else:
                 from frontends.tui.core.runtime import require_tui_runtime
                 from frontends.tui.features.history import load_history_transcript

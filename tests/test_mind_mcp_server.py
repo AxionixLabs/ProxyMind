@@ -104,6 +104,7 @@ def _conversation(
     find: Mock | None = None,
     resume: AsyncMock | None = None,
     end: AsyncMock | None = None,
+    permissions: PermissionSettings | None = None,
 ) -> SimpleNamespace:
     """构造 MCP 测试使用的根会话边界。"""
     return SimpleNamespace(
@@ -111,6 +112,11 @@ def _conversation(
         history=SimpleNamespace(find=find or Mock(return_value=None)),
         resume=resume or AsyncMock(),
         end=end or AsyncMock(),
+        permissions=(
+            permissions
+            if permissions is not None
+            else PermissionSettings("read-only", "on-request")
+        ),
     )
 
 
@@ -459,10 +465,13 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
     turn_runner = AsyncMock(return_value=RunResult(status="completed"))
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
-        permissions=PermissionSettings("workspace-write", "on-request"),
         set_history_workspace=Mock(),
         conversation=_conversation(
             reset=AsyncMock(return_value=metadata),
+            permissions=PermissionSettings(
+                "workspace-write",
+                "on-request",
+            ),
         ),
     )
     runtime = _runtime(mind, turn_runner)

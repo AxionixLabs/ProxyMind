@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock, Mock, call
 import pytest
 
 from frontends.cli import bootstrap
-from mind_app.controller import Mind
 from frontends.interaction.contracts import PromptContext
 from infrastructure.mcp import external_runtime as external
 from frontends.helix import runtime as service_runtime
 from infrastructure.mcp import tool_runtime
 from infrastructure.mcp.external_runtime import ExternalMcpRuntime
 from agent.harness.mcp.owner import McpRuntimeOwner
+from agent.harness.process_lifecycle import ProcessLifecycle
 from infrastructure.mcp.tool_runtime import CompositeToolRuntime
 from agent.ports import (
     McpRuntimeContext,
@@ -37,8 +37,8 @@ def _mcp_runtime_context(host: object) -> McpRuntimeContext:
         _ = settle
         return None
 
-    async def await_cleanup(awaitable) -> None:
-        await awaitable
+    activity = getattr(host, "activity", None)
+    lifecycle = getattr(host, "lifecycle", None)
 
     return McpRuntimeContext(
         config=getattr(
@@ -46,13 +46,13 @@ def _mcp_runtime_context(host: object) -> McpRuntimeContext:
             "config_session",
             SimpleNamespace(load=lambda: {}),
         ),
-        start_activity=getattr(
-            host,
-            "start_external_mcp_anim",
-            no_activity,
+        start_activity=getattr(activity, "start_external_mcp", no_activity),
+        stop_activity=getattr(activity, "stop", no_stop),
+        await_cleanup=(
+            lifecycle.await_cleanup
+            if lifecycle is not None
+            else ProcessLifecycle().await_cleanup
         ),
-        stop_activity=getattr(host, "stop_anim", no_stop),
-        await_cleanup=getattr(host, "await_cleanup", await_cleanup),
     )
 
 
@@ -136,7 +136,6 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
             return None
 
     class MindStub(object):
-        task_event = asyncio.Event()
         subscription = SimpleNamespace(current=None)
         frontend = SimpleNamespace(
             runtime=runtime,
@@ -145,6 +144,7 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
         )
 
         def __init__(self) -> None:
+            self.lifecycle = ProcessLifecycle()
             self.settings = SimpleNamespace(
                 permissions=preset_permissions("auto"),
                 preference_config=lambda: {
@@ -228,6 +228,8 @@ async def test_tui_starts_external_mcp_before_helix_background(
                 ),
                 is_service_linked=lambda: False,
             )
+            self.activity = SimpleNamespace(stop=self._stop_activity)
+            self.lifecycle = ProcessLifecycle()
 
         async def _start_external_mcp(
             self,
@@ -237,11 +239,8 @@ async def test_tui_starts_external_mcp_before_helix_background(
             assert defer_activity_stop
             calls.append(("external", True))
 
-        async def stop_anim(self, _kind=None, *, settle=True):
+        async def _stop_activity(self, _kind=None, *, settle=True):
             assert not settle
-
-        async def await_cleanup(self, awaitable):
-            await awaitable
 
     monkeypatch.setattr(helix, "prepare_tui_service_runtime", prepare_helix)
 
@@ -269,19 +268,22 @@ async def test_tui_starts_external_mcp_before_helix_background(
 
 @pytest.mark.anyio
 async def test_service_runtime_activity_clears_without_settling() -> None:
+    activity = SimpleNamespace(
+        start_inbuild=AsyncMock(),
+        stop=AsyncMock(),
+    )
     mind = SimpleNamespace(
+        activity=activity,
+        lifecycle=ProcessLifecycle(),
         service_runtime=SimpleNamespace(
             manager=SimpleNamespace(ensure_running=AsyncMock()),
             start_keepalive=Mock(),
         ),
-        start_inbuild_startup_anim=AsyncMock(),
-        stop_anim=AsyncMock(),
-        await_cleanup=lambda awaitable: awaitable,
     )
 
     await service_runtime.start_service_runtime(mind)
 
-    mind.stop_anim.assert_awaited_once_with("inbuild", settle=False)
+    activity.stop.assert_awaited_once_with("inbuild", settle=False)
     mind.service_runtime.start_keepalive.assert_called_once_with()
 
 
@@ -315,15 +317,19 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
             },
         })
 
-        async def start_external_mcp_anim(self, _snapshot):
+        def __init__(self) -> None:
+            self.activity = SimpleNamespace(
+                start_external_mcp=self._start_external_mcp,
+                stop=self._stop_activity,
+            )
+            self.lifecycle = ProcessLifecycle()
+
+        async def _start_external_mcp(self, _snapshot):
             return None
 
-        async def stop_anim(self, _kind=None, *, settle=True):
+        async def _stop_activity(self, _kind=None, *, settle=True):
             self.stop_calls.append((_kind, settle))
             return None
-
-        async def await_cleanup(self, awaitable):
-            await awaitable
 
     monkeypatch.setattr(external, "ExternalMcpGroup", ExternalGroup)
 
@@ -377,15 +383,19 @@ async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> No
             },
         })
 
-        async def start_external_mcp_anim(self, _snapshot):
+        def __init__(self) -> None:
+            self.activity = SimpleNamespace(
+                start_external_mcp=self._start_external_mcp,
+                stop=self._stop_activity,
+            )
+            self.lifecycle = ProcessLifecycle()
+
+        async def _start_external_mcp(self, _snapshot):
             return None
 
-        async def stop_anim(self, _kind=None, *, settle=True):
+        async def _stop_activity(self, _kind=None, *, settle=True):
             _ = settle
             return None
-
-        async def await_cleanup(self, awaitable):
-            await awaitable
 
     monkeypatch.setattr(
         external,
@@ -410,7 +420,7 @@ async def test_external_owner_reuses_runtime_for_start_and_restart() -> None:
         stop=AsyncMock(),
     )
     factory = Mock(return_value=runtime)
-    mind = SimpleNamespace(await_cleanup=Mind.await_cleanup)
+    mind = SimpleNamespace()
     owner = McpRuntimeOwner(runtime_factory=lambda: factory(mind))
 
     await owner.start(include_disabled=True)
@@ -441,17 +451,8 @@ async def test_external_mcp_stop_finishes_cleanup_when_cancelled() -> None:
             await release_cleanup.wait()
             cleanup_finished.set()
 
-    class MindStub(object):
-        @staticmethod
-        async def await_cleanup(awaitable) -> None:
-            task = asyncio.create_task(awaitable)
-            try:
-                await asyncio.shield(task)
-            except asyncio.CancelledError:
-                await task
-                raise
-
-    runtime = ExternalMcpRuntime(_mcp_runtime_context(MindStub()))
+    host = SimpleNamespace(lifecycle=ProcessLifecycle())
+    runtime = ExternalMcpRuntime(_mcp_runtime_context(host))
     runtime._group = ExternalGroup()
     runtime._started = True
 

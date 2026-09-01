@@ -81,6 +81,7 @@ from .media import (
     ImageReaderFactory,
     ImageReaderPort,
 )
+from .process_lifecycle import ProcessLifecyclePort
 from .javascript import (
     NestedToolDispatch,
     NestedToolOutput,
@@ -148,6 +149,7 @@ from .frontend import (
     ActivitySnapshot,
     ActivityStatusKind,
     AttachmentStatePort,
+    FrontendActivityPort,
     FrontendPort,
     TurnCompletionPresenterPort,
 )
@@ -256,6 +258,7 @@ __all__ = (
     "ImageReadError",
     "ImageReaderFactory",
     "ImageReaderPort",
+    "ProcessLifecyclePort",
     "NestedToolDispatch",
     "NestedToolOutput",
     "WorkspaceJavaScriptPort",
@@ -338,6 +341,7 @@ __all__ = (
     "ActivitySnapshot",
     "ActivityStatusKind",
     "AttachmentStatePort",
+    "FrontendActivityPort",
     "FrontendPort",
     "TurnCompletionPresenterPort",
     "CodingFactory",

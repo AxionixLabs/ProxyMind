@@ -47,6 +47,7 @@ from frontends.cli.parser import (
     parse_cli_invocation
 )
 from agent.harness.hooks.registry import HookRegistry
+from agent.harness.process_lifecycle import ProcessLifecycle
 
 
 def _runtime_services() -> SimpleNamespace:
@@ -101,8 +102,11 @@ def frozen_environment_snapshot(monkeypatch) -> dict[str, object]:
     return snapshot
 
 
-async def _await_cleanup(awaitable) -> None:
-    await awaitable
+def _lifecycle(exit_code: int = 0) -> ProcessLifecycle:
+    """创建指定初始退出码的应用生命周期。"""
+    lifecycle = ProcessLifecycle()
+    lifecycle.set_exit_code(exit_code)
+    return lifecycle
 
 
 def test_gravity_option_is_removed() -> None:
@@ -575,7 +579,7 @@ async def test_direct_cli_command_forwards_images_to_initial_request(
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
         ),
-        exit_code=99,
+        lifecycle=_lifecycle(99),
         history_workspace=".",
     )
     command = ExecCommand(
@@ -586,7 +590,7 @@ async def test_direct_cli_command_forwards_images_to_initial_request(
     result = await run_selected_command(mind, command)
 
     assert result is run_result
-    assert mind.exit_code == 0
+    assert mind.lifecycle.exit_code == 0
     attach.add_pending_attachments.assert_called_once_with("screen.png")
     attach.consume_pending_attachments.assert_called_once_with()
     root_turn_adapter.assert_awaited_once_with(
@@ -614,7 +618,7 @@ async def test_direct_cli_command_applies_temporary_model_override(
             fresh_pref_config=fresh_pref_config,
             permissions=preset_permissions("auto"),
         ),
-        exit_code=99,
+        lifecycle=_lifecycle(99),
         history_workspace=".",
     )
 
@@ -684,7 +688,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         ),
         attach=SimpleNamespace(add_pending_attachments=attachments),
         subscription=SimpleNamespace(close=AsyncMock()),
-        task_event=asyncio.Event(),
+        lifecycle=_lifecycle(),
     )
     monkeypatch.setattr(
         runtime_module,
@@ -770,7 +774,7 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> Non
             permissions=preset_permissions("auto"),
             resume=resume,
         ),
-        task_event=asyncio.Event(),
+        lifecycle=_lifecycle(),
     )
     monkeypatch.setattr(
         runtime_module,
@@ -931,14 +935,14 @@ async def test_failed_exec_sets_nonzero_exit_code(root_turn_adapter) -> None:
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
         ),
-        exit_code=0,
+        lifecycle=_lifecycle(),
         history_workspace=".",
     )
 
     result = await run_selected_command(mind, ExecCommand(prompt="hello"))
 
     assert result is run_result
-    assert mind.exit_code == 1
+    assert mind.lifecycle.exit_code == 1
 
 
 @pytest.mark.anyio
@@ -962,14 +966,14 @@ async def test_exec_exit_code_comes_from_agent_event_projection(
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
         ),
-        exit_code=0,
+        lifecycle=_lifecycle(),
         history_workspace=".",
     )
 
     result = await run_selected_command(mind, ExecCommand(prompt="hello"))
 
     assert result is run_result
-    assert mind.exit_code == 7
+    assert mind.lifecycle.exit_code == 7
     submit.assert_awaited_once()
     close.assert_awaited_once_with(cancel_running=True)
     assert observe.call_args_list[-1].kwargs["outcome"] == "projected"
@@ -999,7 +1003,7 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
             permissions=preset_permissions("auto"),
             snapshot=Mock(return_value=coordinates),
         ),
-        exit_code=0,
+        lifecycle=_lifecycle(),
         history_workspace=".",
     )
 
@@ -1027,7 +1031,7 @@ async def test_exec_requires_explicit_turn_application_factory_for_real_layout()
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
         ),
-        exit_code=0,
+        lifecycle=_lifecycle(),
         history_workspace=".",
     )
 
@@ -1053,7 +1057,7 @@ async def test_cancelled_exec_closes_agent_session_worker(
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
         ),
-        exit_code=0,
+        lifecycle=_lifecycle(),
         history_workspace=".",
     )
 
@@ -1141,7 +1145,7 @@ async def test_agent_listen_owns_config_service_lifecycle(
             is_service_linked=lambda: False,
         ),
         set_history_workspace=Mock(),
-        exit_code=0,
+        lifecycle=_lifecycle(),
     )
     preference = SimpleNamespace(load_pref=AsyncMock())
     config_session = SimpleNamespace()
@@ -1395,7 +1399,7 @@ async def test_tui_finalization_prints_summary_after_cleanup(
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
-        await_cleanup=_await_cleanup,
+        lifecycle=_lifecycle(exit_code),
         close_runtime_resources=AsyncMock(
             side_effect=lambda: events.append("resources"),
         ),
@@ -1406,7 +1410,6 @@ async def test_tui_finalization_prints_summary_after_cleanup(
             turn_count=1,
             sid="sid_test_1_abcdef",
         ),
-        exit_code=exit_code,
     )
 
     await bootstrap.finalize_application(
@@ -1428,7 +1431,7 @@ async def test_tui_finalization_closes_silently_without_a_conversation() -> None
     runtime.print_exit_summary = Mock()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
-        await_cleanup=_await_cleanup,
+        lifecycle=_lifecycle(),
         close_runtime_resources=AsyncMock(
             side_effect=lambda: events.append("resources"),
         ),
@@ -1439,7 +1442,6 @@ async def test_tui_finalization_closes_silently_without_a_conversation() -> None
             turn_count=0,
             sid=None,
         ),
-        exit_code=0,
     )
 
     await bootstrap.finalize_application(
@@ -1459,10 +1461,9 @@ async def test_tui_finalization_skips_summary_for_incomplete_session() -> None:
     runtime.print_exit_summary = Mock()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
-        await_cleanup=_await_cleanup,
+        lifecycle=_lifecycle(),
         conversation=SimpleNamespace(end=AsyncMock()),
         close_runtime_resources=AsyncMock(),
-        exit_code=0,
     )
 
     await bootstrap.finalize_application(
@@ -1484,10 +1485,9 @@ async def test_tui_finalization_skips_summary_when_cleanup_fails() -> None:
     runtime.print_exit_summary = Mock()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
-        await_cleanup=_await_cleanup,
+        lifecycle=_lifecycle(),
         conversation=SimpleNamespace(end=AsyncMock()),
         close_runtime_resources=AsyncMock(),
-        exit_code=0,
     )
 
     with pytest.raises(RuntimeError, match="close failed"):
@@ -1507,14 +1507,13 @@ async def test_finalization_closes_resources_when_session_end_fails() -> None:
     runtime.close = AsyncMock()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
-        await_cleanup=_await_cleanup,
+        lifecycle=_lifecycle(1),
         conversation=SimpleNamespace(
             end=AsyncMock(
                 side_effect=RuntimeError("session end failed"),
             ),
         ),
         close_runtime_resources=AsyncMock(),
-        exit_code=1,
     )
 
     with pytest.raises(RuntimeError, match="session end failed"):

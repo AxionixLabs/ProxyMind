@@ -451,7 +451,7 @@ async def link_helix_runtime(
 
 async def finish_helix_activity(mind: "Mind") -> None:
     """结束 Helix 前台操作占用的运行时活动区域。"""
-    await mind.stop_anim("inbuild", settle=False)
+    await mind.activity.stop("inbuild", settle=False)
 
 
 if __name__ == '__main__':

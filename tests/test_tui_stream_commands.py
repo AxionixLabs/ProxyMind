@@ -37,6 +37,32 @@ def _settings(
     )
 
 
+def _lifecycle(stop_event: asyncio.Event | None = None) -> SimpleNamespace:
+    """构造共享同一停止信号的应用生命周期。"""
+    event = stop_event or asyncio.Event()
+
+    async def await_cleanup(awaitable):
+        return await awaitable
+
+    def request_stop(*, exit_code=None) -> None:
+        _ = exit_code
+        event.set()
+
+    return SimpleNamespace(
+        stop_event=event,
+        request_stop=request_stop,
+        await_cleanup=await_cleanup,
+    )
+
+
+def _activity() -> SimpleNamespace:
+    """构造流命令测试使用的活动展示端口。"""
+    return SimpleNamespace(
+        enabled=True,
+        stop=AsyncMock(),
+    )
+
+
 @pytest.fixture(autouse=True)
 def frozen_environment_snapshot(monkeypatch) -> None:
     """固定 TUI 命令提交时捕获的环境事实。"""
@@ -62,8 +88,7 @@ async def test_foreground_result_is_rendered_before_barrier_release() -> None:
     runtime = TuiRuntime()
     events = []
     mind = SimpleNamespace(
-        permissions=preset_permissions("auto"),
-        await_cleanup=lambda awaitable: awaitable,
+        lifecycle=_lifecycle(),
     )
     foreground = barriers.TuiForegroundTasks(runtime, mind)
     await runtime.begin_operation_status(
@@ -102,8 +127,7 @@ async def test_foreground_wait_drains_tasks_started_by_tracked_operation() -> No
     inner_started = asyncio.Event()
     release_inner = asyncio.Event()
     mind = SimpleNamespace(
-        permissions=preset_permissions("auto"),
-        await_cleanup=lambda awaitable: awaitable,
+        lifecycle=_lifecycle(),
     )
     foreground = barriers.TuiForegroundTasks(runtime, mind)
 
@@ -160,8 +184,7 @@ async def test_stream_foreground_result_replaces_frozen_activity_at_flush(
 ) -> None:
     runtime = TuiRuntime()
     mind = SimpleNamespace(
-        permissions=preset_permissions("auto"),
-        await_cleanup=lambda awaitable: awaitable,
+        lifecycle=_lifecycle(),
     )
     foreground = barriers.TuiForegroundTasks(runtime, mind)
     snapshot = {
@@ -213,8 +236,7 @@ async def test_stream_foreground_terminal_outcome_keeps_activity_until_flush(
 ) -> None:
     runtime = TuiRuntime()
     mind = SimpleNamespace(
-        permissions=preset_permissions("auto"),
-        await_cleanup=lambda awaitable: awaitable,
+        lifecycle=_lifecycle(),
     )
     foreground = barriers.TuiForegroundTasks(runtime, mind)
     started = asyncio.Event()
@@ -282,8 +304,7 @@ async def test_replace_transcript_releases_deferred_activity_handoff() -> None:
 async def test_cancel_cleanup_failure_still_releases_activity_handoff() -> None:
     runtime = TuiRuntime()
     mind = SimpleNamespace(
-        permissions=preset_permissions("auto"),
-        await_cleanup=lambda awaitable: awaitable,
+        lifecycle=_lifecycle(),
     )
     foreground = barriers.TuiForegroundTasks(runtime, mind)
     started = asyncio.Event()
@@ -338,7 +359,8 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
         settings=_settings(pref_config),
-        task_event=task_event,
+        lifecycle=_lifecycle(task_event),
+        activity=_activity(),
         service_runtime=SimpleNamespace(
             request_termination_on_close=Mock(),
             require_context=lambda: object(),
@@ -360,8 +382,6 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
             is_service_linked=lambda: False,
             external_mcp=SimpleNamespace(current=None),
         ),
-        stop_anim=AsyncMock(),
-        await_cleanup=lambda awaitable: awaitable,
     )
 
     async def monitor_exec_status(_runtime, _mind) -> None:
@@ -446,7 +466,8 @@ async def test_stream_settings_settle_before_queued_model_turn(
             permissions=initial_permissions,
             apply_permissions=Mock(return_value=updated_permissions),
         ),
-        task_event=task_event,
+        lifecycle=_lifecycle(task_event),
+        activity=_activity(),
         service_runtime=SimpleNamespace(
             request_termination_on_close=Mock(),
         ),
@@ -465,7 +486,6 @@ async def test_stream_settings_settle_before_queued_model_turn(
         execution=SimpleNamespace(
             external_mcp=SimpleNamespace(current=None),
         ),
-        stop_anim=AsyncMock(),
     )
 
     async def choose_permissions(_runtime, current):
@@ -543,7 +563,8 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
         settings=_settings(pref_config),
-        task_event=task_event,
+        lifecycle=_lifecycle(task_event),
+        activity=_activity(),
         service_runtime=SimpleNamespace(
             request_termination_on_close=Mock(),
         ),
@@ -562,7 +583,6 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
         execution=SimpleNamespace(
             external_mcp=SimpleNamespace(current=None),
         ),
-        stop_anim=AsyncMock(),
     )
 
     async def manage_agents(_runtime, _mind) -> None:
@@ -634,7 +654,8 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
         settings=_settings(pref_config),
-        task_event=task_event,
+        lifecycle=_lifecycle(task_event),
+        activity=_activity(),
         service_runtime=SimpleNamespace(
             request_termination_on_close=Mock(),
             require_context=lambda: object(),
@@ -652,8 +673,6 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
             is_service_linked=lambda: False,
             external_mcp=SimpleNamespace(current=None),
         ),
-        stop_anim=AsyncMock(),
-        await_cleanup=lambda awaitable: awaitable,
     )
 
     async def link_helix_runtime(_mind) -> None:
@@ -728,7 +747,8 @@ async def test_idle_mcp_start_commits_result_before_next_query(
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
         settings=_settings(pref_config),
-        task_event=task_event,
+        lifecycle=_lifecycle(task_event),
+        activity=_activity(),
         service_runtime=SimpleNamespace(
             request_termination_on_close=Mock(),
         ),
@@ -743,7 +763,6 @@ async def test_idle_mcp_start_commits_result_before_next_query(
         execution=SimpleNamespace(
             external_mcp=SimpleNamespace(current=None),
         ),
-        stop_anim=AsyncMock(),
     )
 
     async def run_mcp_action(_mind, action) -> None:
@@ -821,7 +840,8 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
         settings=_settings(pref_config),
-        task_event=task_event,
+        lifecycle=_lifecycle(task_event),
+        activity=_activity(),
         service_runtime=SimpleNamespace(
             request_termination_on_close=Mock(),
             cancel_startup=cancel_startup,
@@ -835,8 +855,6 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
         set_history_workspace=Mock(),
-        stop_anim=AsyncMock(),
-        await_cleanup=lambda awaitable: awaitable,
     )
 
     monkeypatch.setattr(

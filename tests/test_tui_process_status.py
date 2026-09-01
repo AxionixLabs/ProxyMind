@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from agent.harness.process_lifecycle import ProcessLifecycle
 from prompt_toolkit.utils import get_cwidth
 
 from frontends.tui.core.process_status import TuiProcessStatus
@@ -264,9 +265,8 @@ def test_command_summary_uses_actual_tree_prefix_width() -> None:
 @pytest.mark.anyio
 async def test_process_status_monitor_updates_and_clears_runtime() -> None:
     runtime = TuiRuntime()
-    task_event = asyncio.Event()
     mind = SimpleNamespace(
-        task_event=task_event,
+        lifecycle=ProcessLifecycle(),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(
                 running_exec_sessions=AsyncMock(return_value={
@@ -306,9 +306,8 @@ async def test_process_status_monitor_updates_and_clears_runtime() -> None:
 @pytest.mark.anyio
 async def test_process_status_monitor_splits_model_and_user_shell_sources() -> None:
     runtime = TuiRuntime()
-    task_event = asyncio.Event()
     mind = SimpleNamespace(
-        task_event=task_event,
+        lifecycle=ProcessLifecycle(),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(
                 running_exec_sessions=AsyncMock(return_value={
@@ -368,7 +367,7 @@ async def test_process_status_excludes_inline_shell_and_shows_background(
         FragmentBlock((("", "• Shell current"),)),
     )
     mind = SimpleNamespace(
-        task_event=asyncio.Event(),
+        lifecycle=ProcessLifecycle(),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(
                 running_exec_sessions=AsyncMock(return_value={

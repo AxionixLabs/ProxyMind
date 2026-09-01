@@ -222,6 +222,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "ports/output.py",
         "ports/presentation.py",
         "ports/process_tools.py",
+        "ports/process_lifecycle.py",
         "harness/agents/control.py",
         "harness/agents/delivery.py",
         "harness/agents/registry.py",
@@ -235,6 +236,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "harness/hooks/presentation.py",
         "harness/hooks/session_lifecycle.py",
         "harness/hooks/turn_lifecycle.py",
+        "harness/process_lifecycle.py",
         "harness/tools/__init__.py",
         "harness/tools/client_calls.py",
         "harness/tools/plan_calls.py",
@@ -281,7 +283,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
     assert {
         path.name
         for path in (PROJECT_ROOT / "agent" / "harness").glob("*.py")
-    } == {"__init__.py", "workspace_runtime.py"}
+    } == {"__init__.py", "process_lifecycle.py", "workspace_runtime.py"}
     assert {
         path.name
         for path in (PROJECT_ROOT / "agent" / "stores").glob("*.py")
@@ -575,11 +577,10 @@ def test_foreground_turn_orchestration_uses_injected_presentation_port() -> None
         for node in application_tree.body
         if isinstance(node, ast.ClassDef)
     }
-    assert {
+    assert application_classes == {
         "ApplicationTurnForegroundLifecycle",
-        "ForegroundTurnHost",
         "FrontendTurnAnimation",
-    }.issubset(application_classes)
+    }
 
 
 def test_infrastructure_does_not_depend_on_legacy_runtime() -> None:
@@ -4062,6 +4063,7 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
     assert frontend_port_definitions == {
         "ActivityRuntimePort",
         "AttachmentStatePort",
+        "FrontendActivityPort",
         "FrontendPort",
         "TurnCompletionPresenterPort",
     }
@@ -5192,6 +5194,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.ports",
         "agent.ports.frontend",
         "agent.ports.presentation",
+        "agent.ports.process_lifecycle",
         "agent.ports.subagents",
         "agent.ports.agent_messages",
         "agent.ports.transcript",
@@ -5436,6 +5439,7 @@ def test_controller_does_not_expose_runtime_facades() -> None:
     )
 
     assert not {
+        "await_cleanup",
         "bind_server_manager",
         "bind_service_runtime_context",
         "apply_permissions",
@@ -5448,16 +5452,23 @@ def test_controller_does_not_expose_runtime_facades() -> None:
         "restart_external_mcp_runtime",
         "run_service_runtime_startup",
         "run_turn_lifecycle",
+        "freeze_anim",
         "fresh_pref_config",
         "refresh_pref_if_stale",
         "start_keepalive_supervisor",
         "start_config_service",
+        "start_anim",
+        "start_compact_anim",
+        "start_external_mcp_anim",
+        "start_inbuild_startup_anim",
+        "start_upload_anim",
         "start_external_mcp_runtime",
         "start_subscription_listener",
         "stop_keepalive_supervisor",
         "stop_config_service",
         "stop_service_runtime",
         "stop_external_mcp_runtime",
+        "stop_anim",
         "stop_subscription_listener",
         "stream_turn",
     } & methods
@@ -5496,21 +5507,76 @@ def test_controller_does_not_expose_runtime_facades() -> None:
         "_service_start_task",
         "config_service",
         "config_session",
+        "exit_code",
         "exec_policy_manager",
         "history_store",
         "keepalive_stop",
         "keepalive_task",
         "native_coding",
+        "anim_manager",
+        "animate",
         "permissions",
         "pref",
         "server_manager",
         "service_runtime_context",
         "stop_runtime_on_exit",
+        "task_event",
         "transcripts",
         "user_shell",
     } & assigned_attributes
     assert "RunReport" not in called_names
+    assert "ProcessLifecycle" not in called_names
     assert not closes_borrowed_report
+
+
+def test_process_lifecycle_and_frontend_activity_are_composed_once() -> None:
+    """确保进程生命周期和前端活动由组合根持有且旧 facade 不会回流。"""
+    composition_path = PROJECT_ROOT / "mind.py"
+    controller_path = PROJECT_ROOT / "mind_app" / "controller.py"
+    composition_source = composition_path.read_text(encoding="utf-8-sig")
+    controller_source = controller_path.read_text(encoding="utf-8-sig")
+
+    assert "from agent.harness.process_lifecycle import ProcessLifecycle" in (
+        composition_source
+    )
+    assert 'kwargs["lifecycle"] = ProcessLifecycle()' in composition_source
+    assert 'kwargs["activity"] = activity' in composition_source
+    assert "ProcessLifecycle(" not in controller_source
+    assert "AsyncAnimManager" not in controller_source
+
+    forbidden_facades = {
+        "freeze_anim",
+        "start_anim",
+        "start_compact_anim",
+        "start_external_mcp_anim",
+        "start_inbuild_startup_anim",
+        "start_upload_anim",
+        "stop_anim",
+        "task_event",
+    }
+    violations: list[str] = []
+    production_roots = (
+        PROJECT_ROOT / "agent",
+        PROJECT_ROOT / "frontends",
+        PROJECT_ROOT / "infrastructure",
+        PROJECT_ROOT / "mind_app",
+        PROJECT_ROOT / "protocol",
+    )
+    for root in production_roots:
+        for path in root.rglob("*.py"):
+            tree = ast.parse(
+                path.read_text(encoding="utf-8-sig"),
+                filename=str(path),
+            )
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Attribute) and node.attr in forbidden_facades:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {node.attr}"
+                    )
+
+    assert not violations, "legacy lifecycle facades remain:\n" + "\n".join(
+        violations
+    )
 
 
 def test_root_conversation_ownership_is_split_by_responsibility() -> None:

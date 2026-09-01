@@ -19,6 +19,7 @@ from frontends.terminal.capabilities import DEGRADED_TERMINAL_CAPABILITIES
 from infrastructure.skills import SkillSpec
 from metadata import const
 from agent.domain.transcripts import TranscriptEntry
+from agent.harness.process_lifecycle import ProcessLifecycle
 from frontends.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
@@ -293,7 +294,7 @@ async def test_model_command_reports_model_and_effort(monkeypatch) -> None:
 @pytest.mark.anyio
 async def test_shutdown_command_reports_stopping_runtime_status() -> None:
     views = []
-    task_event = asyncio.Event()
+    lifecycle = ProcessLifecycle()
     request_termination = Mock()
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
@@ -302,7 +303,7 @@ async def test_shutdown_command_reports_stopping_runtime_status() -> None:
         service_runtime=SimpleNamespace(
             request_termination_on_close=request_termination,
         ),
-        task_event=task_event,
+        lifecycle=lifecycle,
     )
     dispatcher = TuiCommandDispatcher(
         mind,
@@ -315,7 +316,7 @@ async def test_shutdown_command_reports_stopping_runtime_status() -> None:
 
     assert action is DispatchAction.EXIT
     request_termination.assert_called_once_with()
-    assert task_event.is_set()
+    assert lifecycle.stop_event.is_set()
     result = next(
         view for view in views
         if view.type == "tui.output" and view.renderable is not None

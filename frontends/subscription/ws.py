@@ -458,7 +458,7 @@ async def connect_once(
                 message = await recv_json_or_stop(
                     client,
                     connection,
-                    mind.task_event,
+                    mind.lifecycle.stop_event,
                 )
             else:
                 ready_remaining = ready_deadline - asyncio.get_running_loop().time()
@@ -471,7 +471,7 @@ async def connect_once(
                         recv_json_or_stop(
                             client,
                             connection,
-                            mind.task_event,
+                            mind.lifecycle.stop_event,
                         ),
                         timeout=ready_remaining,
                     )

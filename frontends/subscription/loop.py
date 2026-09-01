@@ -277,7 +277,7 @@ class AgentSupervisor(object):
                 "Waiting for Server Tasks", "Long link established and listening"
             )
 
-            while not self.mind.task_event.is_set():
+            while not self.mind.lifecycle.stop_event.is_set():
                 try:
                     await self.connection.connect_once(runtime)
                     return None
@@ -357,27 +357,27 @@ class AgentSupervisor(object):
                 self.live_status.update(
                     "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
                 )
-                await sleep_or_stop(2.0, self.mind.task_event)
+                await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
                 return runtime
             except Exception as reopen_exc:
                 observe_exception("agent.reopen.retry", reopen_exc, level="WARNING")
                 self.live_status.update(
                     "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
                 )
-                await sleep_or_stop(2.0, self.mind.task_event)
+                await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
                 return runtime
 
             await publish_external_access(runtime)
             self.live_status.update(
                 "Reopened and Waiting", "Returning to listening state in 1s"
             )
-            await sleep_or_stop(1.0, self.mind.task_event)
+            await sleep_or_stop(1.0, self.mind.lifecycle.stop_event)
             return runtime
 
         self.live_status.update(
             "Reconnecting", f"{exc.code} · reconnecting in 1s"
         )
-        await sleep_or_stop(1.0, self.mind.task_event)
+        await sleep_or_stop(1.0, self.mind.lifecycle.stop_event)
         return runtime
 
     async def handle_disconnect(
@@ -436,7 +436,7 @@ class AgentSupervisor(object):
             self.live_status.update(
                 "Resume Token Missing", "Retrying session open in 2s"
             )
-            await sleep_or_stop(2.0, self.mind.task_event)
+            await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
             return runtime
 
         return await self.handle_resume(runtime)
@@ -458,7 +458,7 @@ class AgentSupervisor(object):
             self.live_status.update(
                 "Retrying Link", "Handshake not ready yet · retrying WS in 2s"
             )
-            await sleep_or_stop(2.0, self.mind.task_event)
+            await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
             return runtime
 
         self.live_status.update(
@@ -486,21 +486,21 @@ class AgentSupervisor(object):
             self.live_status.update(
                 "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
             )
-            await sleep_or_stop(2.0, self.mind.task_event)
+            await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
             return runtime
         except Exception as reopen_exc:
             observe_exception("agent.pre_ready.reopen_retry", reopen_exc, level="WARNING")
             self.live_status.update(
                 "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
             )
-            await sleep_or_stop(2.0, self.mind.task_event)
+            await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
             return runtime
 
         await publish_external_access(runtime)
         self.live_status.update(
             "Reopened and Waiting", "Returning to listening state in 1s"
         )
-        await sleep_or_stop(1.0, self.mind.task_event)
+        await sleep_or_stop(1.0, self.mind.lifecycle.stop_event)
 
         return runtime
 
@@ -544,21 +544,21 @@ class AgentSupervisor(object):
             self.live_status.update(
                 "Resume Failed", f"{type(resume_exc).__name__} · retrying in 2s"
             )
-            await sleep_or_stop(2.0, self.mind.task_event)
+            await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
             return runtime
         except Exception as resume_exc:
             observe_exception("agent.resume.retry", resume_exc, level="WARNING")
             self.live_status.update(
                 "Resume Crashed", f"{type(resume_exc).__name__} · retrying in 2s"
             )
-            await sleep_or_stop(2.0, self.mind.task_event)
+            await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
             return runtime
 
         self.live_status.update(
             "Resumed and Waiting", "Returning to listening state in 1s"
         )
         await publish_external_access(runtime)
-        await sleep_or_stop(1.0, self.mind.task_event)
+        await sleep_or_stop(1.0, self.mind.lifecycle.stop_event)
         return runtime
 
 

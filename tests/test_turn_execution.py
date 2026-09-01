@@ -28,6 +28,7 @@ from agent.harness.sessions.conversation import ConversationTurn
 from agent.harness.execution import root_runner as root_turns
 from agent.application.turns.transcript import build_turn_input_payload
 from agent.harness.execution.turn_runner import execute_turn
+from agent.harness.process_lifecycle import ProcessLifecycle
 from protocol.client.reports import EventReportRuntimeOwner
 from infrastructure.persistence.transcripts import (
     ConversationTranscriptStore,
@@ -663,9 +664,6 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
     async def with_mcp_session(_pref_config, function):
         return await function("session", [])
 
-    async def await_cleanup(awaitable) -> None:
-        await awaitable
-
     def hook_scope(context):
         if isinstance(context, TurnContext):
             context = HookExecutionContext.from_turn(context)
@@ -699,19 +697,21 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
             system_message="queued system",
         )),
         with_mcp_session=with_mcp_session,
-        await_cleanup=await_cleanup,
-        start_anim=AsyncMock(),
-        stop_anim=AsyncMock(),
-        animate=False,
-            frontend=SimpleNamespace(runtime=runtime),
-                hook_scope_provider=SimpleNamespace(
-                    hook_scope=Mock(side_effect=hook_scope),
-                ),
-                approval_call_ledger=ApprovalCallLedger(),
-                approval_ledger=ApprovalCallLedger(),
-                tool_profile_for_turn=Mock(return_value=None),
-        )
+        frontend=SimpleNamespace(runtime=runtime, application=Mock()),
+        hook_scope_provider=SimpleNamespace(
+            hook_scope=Mock(side_effect=hook_scope),
+        ),
+        approval_call_ledger=ApprovalCallLedger(),
+        approval_ledger=ApprovalCallLedger(),
+        tool_profile_for_turn=Mock(return_value=None),
+    )
 
+    activity = SimpleNamespace(
+        active=True,
+        enabled=False,
+        start_wait=AsyncMock(),
+        stop=AsyncMock(),
+    )
     result = await root_turns.run_root_turn(
         mind,
         {"primary": {"model": "test-model"}},
@@ -720,7 +720,12 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         ev_report=report,
         tool_execution=SimpleNamespace(),
         execution_runtime=mind,
-        lifecycle=ApplicationTurnForegroundLifecycle(mind, Mock()),
+        lifecycle=ApplicationTurnForegroundLifecycle(
+            mind.frontend,
+            activity,
+            ProcessLifecycle(),
+            Mock(),
+        ),
     )
 
     assert result.status == "completed"
@@ -757,8 +762,8 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
     assert report.closed == []
     runtime.begin_terminal_progress.assert_called_once_with()
     runtime.end_terminal_progress.assert_called_once_with()
-    mind.start_anim.assert_awaited_once_with()
-    mind.stop_anim.assert_awaited_once_with("wait")
+    activity.start_wait.assert_awaited_once_with()
+    activity.stop.assert_awaited_once_with("wait")
 
 
 def test_turn_hook_scope_resolution_failure_uses_empty_snapshot() -> None:

@@ -341,10 +341,19 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   访问该所有者，CLI 与 Subscription 复用 `RootConversationPort`，Controller 已删除旧
   `pref/config_session/permissions` 属性及三项设置 facade。外部 MCP 同时改为只消费冻结的
   `McpRuntimeContext`，不再持有完整 Controller 宿主。
+- 进程与前端活动生命周期已从 Controller 拆出：`ProcessLifecycle` 单一持有停止信号、
+  退出码和取消态清理，`FrontendActivity` 单一协调可替换前端活动区与非交互后备动画；
+  两者均由 `mind.py` 构造并通过端口注入。CLI、TUI、Subscription、Helix、MCP 和前台 Turn
+  已删除对 `task_event/exit_code/animate/anim_manager` 以及八个动画/清理 facade 的访问，
+  stdio MCP 同时改为直接读取 `conversation.permissions`，不再静默回退默认权限。
 - 本切片入口、设置、MCP 和执行资源联合回归 `308 passed`；设置并发与失败路径专项
   `4 passed`；完整包架构守卫 `114 passed, 66 warnings`，新增 MCP/Controller 所有权、TUI
   架构和 baseline 门禁 `12 passed, 1 warning`。导入图无跨边界循环，`compileall`、导入图
   `--check` 和 `git diff --check` 通过；警告仍只来自 Nuitka `glob2` 的既有弃用转义。
+- 进程生命周期、前端活动和四入口联合回归 `605 passed`；过期测试替身已全部迁到具名
+  lifecycle/activity/settings 端口。Controller facade、组合根所有权和物理目录专项守卫
+  `4 passed`；完整架构守卫 `113 passed / 2 stale assertions`，修正清单后相关职责专项
+  `6 passed, 1 warning`。`compileall` 与差异检查通过，警告仍来自 Nuitka `glob2`。
 - 组合根切片定向回归：`76 passed`；新增组合/架构守卫：`4 passed`。
 - Helix 生命周期适配器定向回归：`6 passed`；完整架构守卫：`77 passed, 52 warnings`。
 - Helix 适配器迁移后的导入图已重新生成并通过 `--check`；跨边界循环仍为零。
@@ -454,9 +463,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。`mind_app/runtime` 已源码清零，
    Hook 管理、Session/history/Transcript/SessionEnd 以及 Turn 工具执行资源所有权已迁出；
-   偏好、权限刷新和外部 MCP 宿主依赖已经拆出。下一步拆分
-   `mind_app/controller.py` 剩余的前端/进程生命周期，再将纯组合职责提升到 `mind.py` 并删除
-   历史包。每次迁移都要完成入口切换和旧实现删除，禁止整体改名搬运。
+   偏好、权限刷新、外部 MCP 宿主依赖、前端活动和进程生命周期已经拆出。下一步把
+   `mind_app/controller.py` 剩余的资源关闭顺序与协作者组合提升到 `mind.py`/Harness owner，
+   入口改为消费职责化应用宿主后物理删除历史 Controller。每次迁移都要完成入口切换和旧实现
+   删除，禁止整体改名搬运。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
 删除、架构守卫和 `compileall` 证据。任一条件不足时只更新本计划，不创建空目录。
@@ -1042,6 +1052,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 将进程停止/退出/取消态清理与前端活动展示迁出 Controller，由组合根注入 `ProcessLifecycle` 和 `FrontendActivity`，删除旧状态字段与动画/清理 facade，并修正 stdio MCP 权限来源 | 四入口、生命周期、活动与流式联合回归 `605 passed`；完整架构 `113 passed / 2 stale assertions`，修正后职责专项 `6 passed, 1 warning`；`compileall`、导入图和差异检查通过 |
 | 2026-09-02 | 将根 Session、历史游标、Transcript 和 SessionEnd/归档事务迁出 Controller；历史组合归 infrastructure，Transcript 值与归约归 domain，删除旧 transcripts store 源包 | 根会话/历史/Transcript 最终分组 `378 passed`；历史成功/故障 `12 passed`；四入口 `194 passed`；完整架构 `114 passed, 66 warnings`；导入图和差异检查通过 |
 | 2026-09-02 | 将 Hook 配置管理、执行作用域和 registry 资源生命周期迁出 Controller，三类执行入口改用显式 scope provider，TUI 改用独立管理端口 | Hook/TUI/根 Turn/Subagent/Controller `149 passed`；完整架构 `109 passed / 4 stale assertions`，修正后相关 `4 passed`；导入图和差异检查通过 |
 | 2026-09-02 | 将 Conversation Compaction 拆为 Protocol adapter、Harness 用例、Session/Client ports 和 application 事件/结果，删除旧 runtime 源目录 | 压缩/Hook/根 Turn `135 passed, 1 warning`；职责守卫、`compileall`、旧导入扫描通过 |

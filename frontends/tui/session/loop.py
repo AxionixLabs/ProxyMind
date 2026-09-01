@@ -207,9 +207,9 @@ async def _run_tui_loop(
         runtime.submissions.enqueue_message(initial_prompt)
     attachment_start_pending = initial_prompt is None and bool(initial_images)
 
-    while not mind.task_event.is_set():
+    while not mind.lifecycle.stop_event.is_set():
         await foreground_tasks.wait()
-        if mind.task_event.is_set():
+        if mind.lifecycle.stop_event.is_set():
             break
 
         if attachment_start_pending:
@@ -233,11 +233,10 @@ async def _run_tui_loop(
                 state.apply_prompt_context(runtime)
                 await prompt_task
             except TuiInterruptRequested:
-                mind.exit_code = 130
-                mind.task_event.set()
+                mind.lifecycle.request_stop(exit_code=130)
                 break
             except EOFError:
-                mind.task_event.set()
+                mind.lifecycle.request_stop()
                 break
             except UnicodeDecodeError:
                 runtime.set_turn_start_pending(False)
@@ -400,7 +399,7 @@ async def _run_tui_loop(
             show_interrupt_notice=(
                 lambda: (
                     not interrupt_notice.shown
-                    and not mind.task_event.is_set()
+                    and not mind.lifecycle.stop_event.is_set()
                 )
             ),
         )
@@ -408,8 +407,9 @@ async def _run_tui_loop(
         exit_reason = runtime.consume_exit_request()
         if exit_reason is not None:
             if exit_reason == "interrupt":
-                mind.exit_code = 130
-            mind.task_event.set()
+                mind.lifecycle.request_stop(exit_code=130)
+            else:
+                mind.lifecycle.request_stop()
             break
 
 
@@ -436,7 +436,9 @@ async def _handle_mailbox_run(
                     turn_id=turn_id,
                 ),
                 stream_command_handler=dispatcher.handle_stream_command,
-                show_interrupt_notice=lambda: not mind.task_event.is_set(),
+                show_interrupt_notice=(
+                    lambda: not mind.lifecycle.stop_event.is_set()
+                ),
             )
         except Exception as error:
             render_mailbox_failure(

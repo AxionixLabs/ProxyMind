@@ -22,6 +22,8 @@ from agent.ports.presentation import (
 )
 from agent.domain.tool_policy import ToolFilterMode
 from agent.ports import (
+    ProcessLifecyclePort,
+    FrontendActivityPort,
     HookRegistryPort,
     ProtocolCommandClient,
 )
@@ -144,18 +146,13 @@ class _ServiceRuntimeBinding(typing.Protocol):
 class CliApplicationHost(CliCommandHost, typing.Protocol):
     """描述 CLI 启动、运行和关闭应用所需的宿主生命周期。"""
 
+    activity: FrontendActivityPort
     execution: "_CliExecutionResources"
+    lifecycle: ProcessLifecyclePort
     service_runtime: _ServiceRuntimeBinding
 
     def set_history_workspace(self, workspace: str | Path) -> None:
         """切换历史记录使用的工作区。"""
-        ...
-
-    async def await_cleanup(
-        self,
-        awaitable: typing.Awaitable[CleanupResult],
-    ) -> CleanupResult:
-        """在取消边界内等待清理完成。"""
         ...
 
     async def close_runtime_resources(self) -> None:
@@ -826,9 +823,9 @@ async def _run_controller(
             protocol_client=protocol_client,
         )
         completed = True
-        observe("app.complete", exit_code=controller.exit_code)
+        observe("app.complete", exit_code=controller.lifecycle.exit_code)
 
-        return controller.exit_code
+        return controller.lifecycle.exit_code
 
     except asyncio.CancelledError:
         observe("app.interrupted", level="WARNING", output_mode=output_mode)
@@ -866,10 +863,14 @@ async def start_tui_external_mcp(controller: CliApplicationHost) -> None:
             defer_activity_stop=True,
         )
     except asyncio.CancelledError:
-        await controller.await_cleanup(finish_mcp_activity(controller, "start"))
+        await controller.lifecycle.await_cleanup(
+            finish_mcp_activity(controller, "start")
+        )
         raise
     except Exception as error:
-        await controller.await_cleanup(finish_mcp_activity(controller, "start"))
+        await controller.lifecycle.await_cleanup(
+            finish_mcp_activity(controller, "start")
+        )
         render_external_mcp_start_status(controller, error=error)
         return None
 
@@ -897,10 +898,14 @@ async def start_tui_service_runtime(
             download_confirmed=True,
         )
     except asyncio.CancelledError:
-        await controller.await_cleanup(finish_helix_activity(controller))
+        await controller.lifecycle.await_cleanup(
+            finish_helix_activity(controller)
+        )
         raise
     except Exception as error:
-        await controller.await_cleanup(finish_helix_activity(controller))
+        await controller.lifecycle.await_cleanup(
+            finish_helix_activity(controller)
+        )
         render_helix_link_failure(controller, error)
         return None
 
@@ -952,11 +957,11 @@ async def finalize_application(
         "app.shutdown.start",
         output_mode=output_mode,
         completed=completed,
-        exit_code=controller.exit_code,
+        exit_code=controller.lifecycle.exit_code,
     )
     try:
         try:
-            await controller.await_cleanup(controller.conversation.end(
+            await controller.lifecycle.await_cleanup(controller.conversation.end(
                 reason="exit" if completed else "error",
             ))
         except BaseException as error:

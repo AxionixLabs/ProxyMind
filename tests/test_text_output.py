@@ -37,6 +37,7 @@ from agent.application.turns.foreground import (
     ApplicationTurnForegroundLifecycle,
     run_foreground_turn,
 )
+from agent.harness.process_lifecycle import ProcessLifecycle
 from frontends.terminal.worked import (
     emit_worked_footer,
     worked_footer_text,
@@ -513,23 +514,25 @@ def test_elapsed_footer_emits_responsive_line_metadata() -> None:
 async def test_non_animated_mode_does_not_emit_worked_footer() -> None:
     application = _Application()
 
-    async def await_cleanup(awaitable) -> None:
-        await awaitable
-
-    mind = SimpleNamespace(
-        animate=False,
-        frontend=SimpleNamespace(
-            application=application,
-            runtime=PassiveFrontendRuntime(),
-        ),
-        start_anim=AsyncMock(),
-        stop_anim=AsyncMock(),
-        await_cleanup=await_cleanup,
+    frontend = SimpleNamespace(
+        application=application,
+        runtime=PassiveFrontendRuntime(),
+    )
+    activity = SimpleNamespace(
+        active=False,
+        enabled=False,
+        start_wait=AsyncMock(),
+        stop=AsyncMock(),
     )
     runner = AsyncMock()
 
     await run_foreground_turn(
-        ApplicationTurnForegroundLifecycle(mind, emit_worked_footer),
+        ApplicationTurnForegroundLifecycle(
+            frontend,
+            activity,
+            ProcessLifecycle(),
+            emit_worked_footer,
+        ),
         runner,
     )
 
@@ -545,33 +548,35 @@ async def test_worked_footer_precedes_final_animation_cleanup() -> None:
             events.append(view.type)
             super().emit(view)
 
-    async def stop_anim(_kind: str) -> None:
+    async def stop_activity(_kind: str) -> None:
         events.append("anim.clear")
-
-    async def await_cleanup(awaitable) -> None:
-        await awaitable
 
     runtime = SimpleNamespace(
         begin_terminal_progress=lambda: events.append("progress.begin"),
         end_terminal_progress=lambda: events.append("progress.clear"),
         finish_turn_wait=lambda: None,
     )
-    mind = SimpleNamespace(
-        animate=True,
-        frontend=SimpleNamespace(
-            application=Application(),
-            runtime=runtime,
-        ),
-        start_anim=AsyncMock(side_effect=lambda: events.append("anim.begin")),
-        stop_anim=stop_anim,
-        await_cleanup=await_cleanup,
+    frontend = SimpleNamespace(
+        application=Application(),
+        runtime=runtime,
+    )
+    activity = SimpleNamespace(
+        active=True,
+        enabled=True,
+        start_wait=AsyncMock(side_effect=lambda: events.append("anim.begin")),
+        stop=stop_activity,
     )
 
     async def runner() -> None:
         events.append("runner")
 
     await run_foreground_turn(
-        ApplicationTurnForegroundLifecycle(mind, emit_worked_footer),
+        ApplicationTurnForegroundLifecycle(
+            frontend,
+            activity,
+            ProcessLifecycle(),
+            emit_worked_footer,
+        ),
         runner,
     )
 

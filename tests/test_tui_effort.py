@@ -17,6 +17,7 @@ from frontends.tui.session import loop
 from agent.domain.policies import preset_permissions
 from agent.application.turns.commands import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
+from agent.harness.process_lifecycle import ProcessLifecycle
 
 
 @pytest.fixture(autouse=True)
@@ -112,7 +113,7 @@ async def test_effort_command_updates_footer_context_immediately(
     monkeypatch,
 ) -> None:
     runtime = TuiRuntime()
-    task_event = asyncio.Event()
+    lifecycle = ProcessLifecycle()
     stale_config = {
         "primary": {
             "model": "test-model",
@@ -121,22 +122,24 @@ async def test_effort_command_updates_footer_context_immediately(
     }
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
-        permissions=preset_permissions("auto"),
-        task_event=task_event,
-        pref=SimpleNamespace(to_config=lambda: stale_config),
+        lifecycle=lifecycle,
+        settings=SimpleNamespace(
+            preference_config=lambda: stale_config,
+            permissions=preset_permissions("auto"),
+            fresh_preferences=AsyncMock(return_value=stale_config),
+        ),
         frontend=SimpleNamespace(
             runtime=runtime,
             interaction=runtime,
             application=SimpleNamespace(emit=Mock()),
         ),
-        fresh_pref_config=AsyncMock(return_value=stale_config),
     )
 
     async def monitor_exec_status(_runtime, _mind) -> None:
         return None
 
     def render_status(_application, _effort) -> None:
-        task_event.set()
+        lifecycle.request_stop()
 
     monkeypatch.setattr(loop, "monitor_exec_status", monitor_exec_status)
     monkeypatch.setattr(

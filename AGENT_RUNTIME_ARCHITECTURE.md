@@ -208,6 +208,7 @@ agent/
 │   ├── tool_policy.py       # app/api 工具可见性和元数据过滤规则
 │   └── policies.py          # 权限、预算、取消和重试规则
 ├── harness/
+│   ├── process_lifecycle.py # 进程停止、退出码和取消态清理的单一所有者
 │   ├── agents/              # Agent 树状态、活动 Turn 和根会话注册
 │   │   ├── control.py       # Agent 树状态机、队列和 mailbox 协调
 │   │   ├── delivery.py      # 活动 Turn 投递状态
@@ -276,6 +277,7 @@ agent/
 │   ├── agent_messages.py    # 子 Agent 消息回执和投递端口
 │   ├── mcp_session.py       # 工具执行所需的 MCP 会话端口
 │   ├── media.py             # 工作区绑定的异步图片读取端口与不可变快照
+│   ├── process_lifecycle.py # 进程停止、退出结果和清理端口
 │   ├── tool_runtime.py      # 工具来源、注册表和会话 runtime 组合端口
 │   ├── turns.py              # 模型轮次操作和输入事件端口
 │   ├── subagents.py          # 子 Agent 执行、控制和操作端口
@@ -557,7 +559,7 @@ running -> cancelled
 | 当前位置 | 目标归属 | 迁移要求 |
 | --- | --- | --- |
 | `mind.py`、`agent/composition.py` | `composition.py` | `mind.py` 已创建单个 `RuntimeServices` 并注入全部进程入口；根轮次 runner 在组合根绑定 Model/Protocol/Effect 能力，具体 store 和 capability 只能在 `agent/composition.py` 装配 |
-| `mind_app/controller.py` | 迁移期应用宿主 | 只借用入口注入的 `RuntimeServices` 与 `FrontendPort`；Hook、根会话/history/Transcript 和 Turn 执行资源均已有独立所有者，附件、静默输出、审批和完成投影由 `mind.py` 注入；剩余偏好/权限状态与前端资源生命周期必须按完整用例迁出，不能整体改名 |
+| `mind_app/controller.py` | 迁移期应用宿主 | 只借用入口注入的 `RuntimeServices`、设置、进程生命周期与前端端口；Hook、根会话/history/Transcript、Turn 执行资源、偏好/权限、停止信号、退出码和活动展示均已有独立所有者。剩余资源关闭与组合职责必须按完整用例提升到 `mind.py`，不能整体改名 |
 | `mind_app/controller.py` 中的 registry、外部 MCP、Helix 工具链接、执行环境与事件报告资源 | `agent/harness/execution/resources.py::ExecutionResources` + `RuntimeServices` builders | Harness 单一持有动态工具来源和关闭生命周期，只依赖 ports；`mind.py` 注入 client/builtin registry、Composite runtime 和外部 MCP builders。前端、环境采集和根/子 Turn 显式消费 `execution`，Controller 不保留同义方法、状态字段或具体 infrastructure factory 导入 |
 | 已删除的 `mind_app/runtime/turns/root.py` | `agent/harness/execution/root_runner.py` + `agent/application/turns/commands.py` + `agent/adapters/turns/root.py` | CLI、TUI、MCP 和 Subscription 由类型化 Command 驱动；入站映射归 adapter，根轮次准备、前台执行与模型会话编排归 Harness。runner 只消费 `RootTurnSessionPort` 与 `TurnExecutionRuntimePort`，不导入 Controller、基础设施或前端 |
 | `mind_app/runtime/turns/root.py` 的前台轮次编排 | `agent/application/turns/foreground.py` + `agent/ports/frontend.py` + `agent/ports/presentation.py::TurnForegroundLifecyclePort` | application 只编排执行、完成和清理顺序并适配稳定 Activity/Frontend 端口；worked footer renderer 由 `mind.py` 注入，runtime root 与 Controller 都不导入具体前端 |
@@ -715,6 +717,7 @@ running -> cancelled
 | `mind_core/config_layers.py` | `infrastructure/config/layers.py` | 用户、Profile、项目和 CLI 的优先级合并及信任边界解析属于配置基础设施；只消费存储、信任和 schema 契约 |
 | `mind_core/config_session.py` | `infrastructure/config/session.py` | 配置读取、原子更新、覆盖校验和项目信任提交属于配置会话基础设施；应用入口只依赖会话公开接口 |
 | `mind_app/controller.py` 中的偏好刷新、权限写入与 MCP 配置宿主 | `infrastructure/config/settings_session.py` + `agent.ports.McpRuntimeContext` | 进程设置会话单一持有配置、偏好快照、有效权限、刷新 TTL 和并发 generation；CLI/Subscription 的轮次读取复用 `RootConversationPort`。具体 MCP runtime 只接收冻结的配置 reader 与活动/清理回调，不持有完整 Controller 或恢复旧字段 facade |
+| `mind_app/controller.py` 中的停止信号、退出码、取消态清理和动画 facade | `agent/harness/process_lifecycle.py` + `agent/ports/process_lifecycle.py` + `frontends/runtime.py::FrontendActivity` | `mind.py` 单一构造进程生命周期和前端活动协调器；CLI、TUI、Subscription、Helix、MCP 和 Turn 前台生命周期只消费具名端口。Controller 不构造具体生命周期，不再保存 `task_event/exit_code/animate/anim_manager` 或暴露动画、清理转发方法 |
 | `mind_nova/const.py` | `metadata/const.py` | 产品版本、展示、编码和构建元数据已抽出；`setup.py` 与内置配置服务已切换，服务端点、认证和运行时路径仍按职责在后续切片迁移 |
 | `agent/ports/capabilities.py`、`agent/adapters/protocol/client.py` | `ports`、`adapters/protocol/client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | 已删除的 `mind_app/runtime/environment/exec_env.py`、旧 environment 请求模块 | `capabilities/environment.py`、`protocol/schema/environment.py` | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化归属 `protocol.schema`。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |

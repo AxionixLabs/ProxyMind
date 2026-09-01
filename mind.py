@@ -4,6 +4,7 @@
 import os
 import typing
 import functools
+from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.composition import create_runtime_services
 from agent.application import RuntimeServices
 from agent.application.approvals.presenter import ApprovalPresenterPort
@@ -27,6 +28,7 @@ from infrastructure.skills import skills_payload
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.runtime_paths import effect_journal_db_path
 from infrastructure.platform.process_sessions import ProcessSessionManager
+from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.platform.sandbox import SandboxClient
 from infrastructure.platform.hook_command import HookCommandExecutor
 from infrastructure.platform.images import FileImageReader
@@ -38,6 +40,7 @@ from infrastructure.mcp.local_tool_factory import (
 from infrastructure.mcp.tool_runtime import CompositeToolRuntime
 from infrastructure.mcp.tool_execution import McpToolExecutionAdapter
 from frontends.cli.entry import run
+from frontends.runtime import FrontendActivity
 from frontends.mcp.server import run_mind_mcp_server
 from infrastructure.workspace.runtime import WorkspaceCoding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
@@ -134,6 +137,17 @@ def create_application_host(
     frontend = kwargs.get("frontend")
     if not isinstance(frontend, _ComposedFrontend):
         raise TypeError("application frontend is incomplete")
+    fallback_animation = kwargs.get("anim_manager")
+    if not isinstance(fallback_animation, AsyncAnimManager):
+        fallback_animation = AsyncAnimManager()
+    activity = FrontendActivity(
+        frontend.runtime,
+        fallback_animation,
+        enabled=bool(kwargs.pop("animate", True)),
+    )
+    kwargs.pop("anim_manager", None)
+    kwargs["activity"] = activity
+    kwargs["lifecycle"] = ProcessLifecycle()
 
     return Mind(
         level,

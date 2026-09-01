@@ -80,7 +80,6 @@ class McpApplicationHost(typing.Protocol):
 
     execution: _McpExecutionResources
     history_workspace: str
-    permissions: PermissionSettings
     conversation: RootConversationPort
 
     def set_history_workspace(self, workspace: str | Path) -> None:
@@ -358,28 +357,22 @@ class MindMcpRuntime(object):
 
         request = _McpRequestState()
 
-        current_permissions = getattr(self.mind, "permissions", None)
+        current_permissions = self.mind.conversation.permissions
         effective_sandbox_mode: SandboxMode = (
-            getattr(current_permissions, "sandbox_mode", "read-only")
+            current_permissions.sandbox_mode
             if sandbox_mode is None
             else sandbox_mode
         )
         effective_approval_policy: ApprovalPolicy = (
-            getattr(current_permissions, "approval_policy", "on-request")
+            current_permissions.approval_policy
             if approval_policy is None
             else approval_policy
         )
-        effective_approval_reviewer: ApprovalReviewer = getattr(
-            current_permissions,
-            "approvals_reviewer",
-            "user",
+        effective_approval_reviewer: ApprovalReviewer = (
+            current_permissions.approvals_reviewer
         )
         effective_network_access = normalize_network_access(
-            getattr(
-                current_permissions,
-                "network_access",
-                "restricted",
-            )
+            current_permissions.network_access
         )
         permissions = PermissionSettings(
             sandbox_mode=effective_sandbox_mode,

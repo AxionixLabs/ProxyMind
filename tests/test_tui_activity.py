@@ -12,8 +12,9 @@ from prompt_toolkit.layout.screen import Screen, WritePosition
 from prompt_toolkit.output import DummyOutput
 
 from agent.application.approvals.coordinator import ApprovalCoordinator
-from mind_app.controller import Mind
+from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.ports.presentation import ApplicationView
+from frontends.runtime import FrontendActivity
 from frontends.interaction import PromptContext
 from frontends.tui.adapters.output import TuiOutputControl
 from frontends.tui.adapters.application import TuiApplicationSink
@@ -91,7 +92,7 @@ def test_pending_turn_is_busy_and_defers_submission() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("animate", (False, True))
-async def test_stop_anim_does_not_restore_wait_for_auxiliary_activity(
+async def test_frontend_activity_does_not_restore_wait_for_auxiliary_activity(
     animate: bool,
 ) -> None:
     runtime = SimpleNamespace(
@@ -101,11 +102,13 @@ async def test_stop_anim_does_not_restore_wait_for_auxiliary_activity(
         ensure_wait_status_for_turn=AsyncMock(),
         end_activity_status=AsyncMock(),
     )
-    mind = Mind.__new__(Mind)
-    mind.animate = animate
-    mind.frontend = SimpleNamespace(runtime=runtime)
+    activity = FrontendActivity(
+        runtime,
+        SimpleNamespace(stop=AsyncMock()),
+        enabled=animate,
+    )
 
-    await mind.stop_anim("inbuild", settle=False)
+    await activity.stop("inbuild", settle=False)
 
     runtime.ensure_wait_status_for_turn.assert_not_awaited()
     runtime.end_activity_status.assert_awaited_once_with(
@@ -602,18 +605,6 @@ async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
     output = TuiOutputControl("", runtime=runtime, animate=False)
     status = TuiStreamStatusControl()
 
-    class MindStub(object):
-        animate = False
-
-        async def start_anim(self) -> None:
-            await runtime.begin_wait_status()
-
-        async def stop_anim(self, kind: str | None = None) -> None:
-            await runtime.end_activity_status(kind)
-
-        async def await_cleanup(self, awaitable):
-            return await awaitable
-
     async def runner() -> None:
         assert runtime.activity.active
 
@@ -628,11 +619,31 @@ async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
         assert status_text.count("Thinking") == 1
         assert "\n" not in status_text
 
-    mind = MindStub()
-    mind.frontend = SimpleNamespace(runtime=runtime)
+    activity_runtime = SimpleNamespace(
+        active=True,
+        begin_wait_status=runtime.begin_wait_status,
+        finish_turn_wait=runtime.finish_turn_wait,
+        end_activity_status=runtime.end_activity_status,
+        begin_terminal_progress=runtime.begin_terminal_progress,
+        end_terminal_progress=runtime.end_terminal_progress,
+    )
+    frontend = SimpleNamespace(
+        runtime=activity_runtime,
+        application=TuiApplicationSink(runtime),
+    )
+    activity = FrontendActivity(
+        activity_runtime,
+        SimpleNamespace(stop=AsyncMock()),
+        enabled=True,
+    )
 
     await run_foreground_turn(
-        ApplicationTurnForegroundLifecycle(mind, emit_worked_footer),
+        ApplicationTurnForegroundLifecycle(
+            frontend,
+            activity,
+            ProcessLifecycle(),
+            emit_worked_footer,
+        ),
         runner,
     )
 
@@ -1678,7 +1689,9 @@ async def test_foreground_command_keeps_footer_visible_while_running() -> None:
         release = asyncio.Event()
         started = asyncio.Event()
         mind = SimpleNamespace(
-            await_cleanup=lambda awaitable: awaitable,
+            lifecycle=SimpleNamespace(
+                await_cleanup=lambda awaitable: awaitable,
+            ),
         )
         foreground = TuiForegroundTasks(runtime, mind)
 

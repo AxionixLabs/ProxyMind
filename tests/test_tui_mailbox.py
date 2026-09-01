@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from agent.harness.process_lifecycle import ProcessLifecycle
 
 from frontends.interaction.contracts import PromptContext
 from frontends.subscription.forwarding import AgentInbox
@@ -442,7 +443,7 @@ async def test_mailbox_run_uses_main_tui_execution_lifecycle() -> None:
         application=SimpleNamespace(emit=Mock()),
         handle_stream_command=lambda *_args: False,
     )
-    mind = SimpleNamespace(task_event=asyncio.Event())
+    mind = SimpleNamespace(lifecycle=ProcessLifecycle())
     request = MailboxRunRequest("message-1", automatic=True)
 
     task = asyncio.create_task(
@@ -492,7 +493,7 @@ async def test_mailbox_run_failure_is_rendered_and_releases_auto_slot() -> None:
         handle_stream_command=lambda *_args: False,
     )
     mind = SimpleNamespace(
-        task_event=asyncio.Event(),
+        lifecycle=ProcessLifecycle(),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -562,7 +563,7 @@ async def test_mailbox_run_keeps_query_before_approval_tools_and_long_answer() -
         application=SimpleNamespace(emit=Mock()),
         handle_stream_command=lambda *_args: False,
     )
-    mind = SimpleNamespace(task_event=asyncio.Event())
+    mind = SimpleNamespace(lifecycle=ProcessLifecycle())
     request = MailboxRunRequest("message-combined", automatic=False)
 
     await _handle_mailbox_run(mind, runtime, dispatcher, request)
@@ -615,7 +616,7 @@ async def test_mailbox_interrupt_keeps_one_query_and_releases_execution() -> Non
         application=SimpleNamespace(emit=emit),
         handle_stream_command=lambda *_args: False,
     )
-    mind = SimpleNamespace(task_event=asyncio.Event())
+    mind = SimpleNamespace(lifecycle=ProcessLifecycle())
     request = MailboxRunRequest("message-interrupt", automatic=True)
 
     task = asyncio.create_task(

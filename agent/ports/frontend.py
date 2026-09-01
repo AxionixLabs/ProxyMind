@@ -105,6 +105,54 @@ class ActivityRuntimePort(typing.Protocol):
 
 
 @typing.runtime_checkable
+class FrontendActivityPort(typing.Protocol):
+    """定义前端活动展示的高层生命周期。"""
+
+    @property
+    def active(self) -> bool:
+        """返回具体前端是否接管活动展示。"""
+        ...
+
+    @property
+    def enabled(self) -> bool:
+        """返回当前入口是否启用活动展示。"""
+        ...
+
+    async def start_wait(self) -> None:
+        """开始模型等待展示。"""
+        ...
+
+    async def start_upload(self, snapshot: ActivitySnapshot) -> None:
+        """开始附件上传展示。"""
+        ...
+
+    async def start_inbuild(self, snapshot: ActivitySnapshot) -> None:
+        """开始内置服务启动展示。"""
+        ...
+
+    async def start_external_mcp(self, snapshot: ActivitySnapshot) -> None:
+        """开始外部 MCP 启动展示。"""
+        ...
+
+    async def start_compact(self, snapshot: ActivitySnapshot) -> None:
+        """开始压缩展示。"""
+        ...
+
+    async def stop(
+        self,
+        kind: ActivityStatusKind | None = None,
+        *,
+        settle: bool = True,
+    ) -> None:
+        """结束指定活动展示。"""
+        ...
+
+    async def freeze(self, kind: ActivityStatusKind) -> None:
+        """冻结指定活动展示。"""
+        ...
+
+
+@typing.runtime_checkable
 class FrontendPort(typing.Protocol):
     """聚合应用宿主跨前端稳定使用的展示和输出能力。"""
 
@@ -180,6 +228,7 @@ __all__ = (
     "ActivitySnapshot",
     "ActivityStatusKind",
     "AttachmentStatePort",
+    "FrontendActivityPort",
     "FrontendPort",
     "TurnCompletionPresenterPort",
 )

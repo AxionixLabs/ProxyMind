@@ -410,11 +410,11 @@ def _mind(
         effect_journal = open_effect_journal(
             Path(effect_directory.name) / "effects.db"
         )
-    stop_anim = AsyncMock()
+    stop_activity = AsyncMock()
 
     async def stop_wait(*, settle: bool = True) -> None:
-        """把轮次动画端口适配到测试 Controller 动作。"""
-        await stop_anim("wait", settle=settle)
+        """把轮次动画端口适配到测试活动状态。"""
+        await stop_activity("wait", settle=settle)
 
     turn_animation = SimpleNamespace(
         active=frontend_active,
@@ -472,11 +472,10 @@ def _mind(
             coding=SimpleNamespace(),
             execution_policy=execution_policy,
         ),
-        stop_anim=stop_anim,
+        stop_activity=stop_activity,
         turn_animation=turn_animation,
         turn_session_context=turn_session_context,
         turn_session_state=turn_session_state,
-        freeze_anim=AsyncMock(),
         await_cleanup=await_cleanup,
         remember_last_assistant_reply=remembered.append,
         remembered=remembered,
@@ -1463,8 +1462,7 @@ async def test_done_finishes_animation_before_logical_settlement(monkeypatch) ->
     ))
     await stream_advanced.wait()
 
-    mind.stop_anim.assert_awaited_once_with("wait", settle=False)
-    mind.freeze_anim.assert_not_awaited()
+    mind.stop_activity.assert_awaited_once_with("wait", settle=False)
     assert mind.output_session.status.end_calls == [True]
 
     task.cancel()
@@ -1738,7 +1736,7 @@ async def test_child_stream_does_not_mutate_root_frontend_state(monkeypatch) -> 
     assert result.status == "completed"
     assert result.assistant_text == "child answer"
     assert mind.remembered == []
-    mind.stop_anim.assert_not_awaited()
+    mind.stop_activity.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -1757,7 +1755,7 @@ async def test_child_stream_failure_does_not_stop_root_animation(monkeypatch) ->
     )
 
     assert result.status == "failed"
-    mind.stop_anim.assert_not_awaited()
+    mind.stop_activity.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -2448,7 +2446,7 @@ async def test_stream_returns_failed_result(monkeypatch) -> None:
     assert result.status == "failed"
     assert result.error == "request failed"
     assert result.exit_code == 1
-    mind.stop_anim.assert_awaited_once_with("wait", settle=False)
+    mind.stop_activity.assert_awaited_once_with("wait", settle=False)
 
 
 @pytest.mark.anyio

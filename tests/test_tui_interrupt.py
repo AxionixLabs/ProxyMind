@@ -23,6 +23,7 @@ from frontends.tui.session import loop
 from agent.domain.policies import preset_permissions
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
+from agent.harness.process_lifecycle import ProcessLifecycle
 from frontends.tui.session.turn import execute_tui_model_turn
 
 
@@ -138,20 +139,21 @@ async def test_double_ctrl_c_returns_normally_from_session_loop(
     monkeypatch,
 ) -> None:
     runtime = TuiRuntime()
-    task_event = asyncio.Event()
+    lifecycle = ProcessLifecycle()
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
-        permissions=preset_permissions("auto"),
+        lifecycle=lifecycle,
+        settings=SimpleNamespace(
+            preference_config=lambda: pref_config,
+            permissions=preset_permissions("auto"),
+            fresh_preferences=AsyncMock(return_value=pref_config),
+        ),
         frontend=SimpleNamespace(
             runtime=runtime,
             interaction=runtime,
             application=SimpleNamespace(emit=Mock()),
         ),
-        pref=SimpleNamespace(to_config=lambda: pref_config),
-        fresh_pref_config=AsyncMock(return_value=pref_config),
-        task_event=task_event,
-        exit_code=0,
     )
     monkeypatch.setattr(
         loop,
@@ -169,8 +171,8 @@ async def test_double_ctrl_c_returns_normally_from_session_loop(
 
     await asyncio.wait_for(session_task, timeout=1.0)
 
-    assert mind.exit_code == 130
-    assert task_event.is_set()
+    assert lifecycle.exit_code == 130
+    assert lifecycle.stop_event.is_set()
 
 
 @pytest.mark.anyio

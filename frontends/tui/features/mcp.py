@@ -576,7 +576,7 @@ async def finish_mcp_activity(mind: typing.Any, action: McpAction) -> None:
         )
         return None
 
-    await mind.stop_anim("external_mcp", settle=False)
+    await mind.activity.stop("external_mcp", settle=False)
 
 
 async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> bool:
