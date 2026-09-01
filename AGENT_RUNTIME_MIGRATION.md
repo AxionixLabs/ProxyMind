@@ -168,6 +168,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - 导入图中 `frontends -> mind_app` 从 `5 files / 7 edges` 降至 `3 files / 3 edges`；
   `frontends/tui` 已不再导入 `mind_app`，剩余范围仅为 CLI bootstrap/dispatch 与 MCP
   server 对 Controller 的组合和类型依赖。
+- CLI 与 stdio MCP 已分别建立最小 `CliApplicationHost`/`CliCommandHost` 和
+  `McpApplicationHost` 契约，具体宿主构造器由 `mind.py` 注入；前端树对 `mind_app` 的生产
+  导入已从 `3 files / 3 edges` 清零，CLI/MCP/TUI/组合根/baseline 回归
+  `167 passed, 1 warning`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -246,10 +250,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 当前只允许进入以下顺序，不以补丁式需求插队：
 
-0. **前端旧依赖清零**：TUI Turn 与 compaction adapter 已完成，导入图剩余
-   `3 files / 3 edges`；下一步收口 CLI bootstrap/dispatch 与 MCP server 对 Controller 的
-   组合和类型边。必须先建立职责准确的应用宿主端口或组合对象，再删除旧导入，禁止建立
-   `frontends -> mind_app` facade 或把 Controller API 原样复制成宽接口。
+0. **旧应用反向前端依赖清零**：`frontends -> mind_app` 已清零且由全前端守卫锁定；
+   下一步以导入图剩余 `mind_app -> frontends` 的 `2 files / 7 edges` 为范围，拆分
+   `mind_app/controller.py` 与 `mind_app/runtime/turns/root.py` 中仍由旧应用拥有的前端适配
+   职责。必须先确认展示、输出 Session 和宿主生命周期的真实所有者，不允许用新的聚合
+   facade 隐藏反向依赖。
 
 1. **入口与数据迁移**：`mind_core` 的配置、权限、hooks、skills 已完成生产导入清零，
    终端轮次生命周期已迁入 `frontends/terminal`；Hook 命令执行器已归属

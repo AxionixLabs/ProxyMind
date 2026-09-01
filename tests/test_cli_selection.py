@@ -1119,7 +1119,6 @@ async def test_agent_listen_owns_config_service_lifecycle(
     )
     config_service_factory = Mock(return_value=config_service)
 
-    monkeypatch.setattr(bootstrap, "Mind", lambda *_args, **_kwargs: controller)
     monkeypatch.setattr(
         "server.ConfigServiceRuntime",
         config_service_factory,
@@ -1176,6 +1175,7 @@ async def test_agent_listen_owns_config_service_lifecycle(
         power=1,
         output_mode="tui",
         permissions=preset_permissions("auto"),
+        application_host_factory=lambda *_args, **_kwargs: controller,
     )
 
     if start_error is None:
@@ -1217,8 +1217,6 @@ async def test_run_controller_closes_report_when_initialization_fails(
     def fail_controller(*_args, **_kwargs):
         raise RuntimeError("controller failed")
 
-    monkeypatch.setattr(bootstrap, "Mind", fail_controller)
-
     with pytest.raises(RuntimeError, match="controller failed"):
         await bootstrap._run_controller(
             AgentListenCommand(),
@@ -1238,6 +1236,7 @@ async def test_run_controller_closes_report_when_initialization_fails(
             power=1,
             output_mode="text",
             permissions=preset_permissions("auto"),
+            application_host_factory=fail_controller,
         )
 
     report.close.assert_called_once_with()

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import asyncio
-import functools
 import time
 import typing
-
+import asyncio
+import functools
+from pathlib import Path
 from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application.config.session_identity import derive_local_session_id
 from agent.application.turns.commands import (
@@ -13,29 +13,114 @@ from agent.application.turns.commands import (
     TurnApplication,
 )
 from agent.application.services import TurnApplicationFactory
+from agent.domain.policies import PermissionSettings
+from agent.harness.sessions.conversation import ConversationState
 from agent.ports import ProtocolCommandClient
 from agent.application.turns.run_result import RunResult
 from frontends.tui.features.conversation import ConversationCompactor
+from frontends.runtime import Frontend
 from infrastructure.config.preferences import apply_primary_model_override
 from infrastructure.config.runtime_paths import agent_runtime_db_path
 from infrastructure.errors import AppError
 from observability import (
     observe,
-    observe_exception
+    observe_exception,
 )
 from .commands import (
     AgentListenCommand,
     ExecCommand,
     InteractiveCommand,
     ResumeCommand,
-    RuntimeCommand
+    RuntimeCommand,
 )
 from agent.stores.sessions import (
     HISTORY_LIMIT,
-    INTERACTIVE_HISTORY_SOURCES
+    INTERACTIVE_HISTORY_SOURCES,
 )
-if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
+
+
+class _AttachmentState(typing.Protocol):
+    """描述 CLI 冻结输入附件所需的前端状态。"""
+
+    def add_pending_attachments(self, raw_path: str) -> dict[str, typing.Any]:
+        """登记一项待提交附件。"""
+        ...
+
+    def consume_pending_attachments(self) -> list[dict[str, typing.Any]]:
+        """读取并清空待提交附件。"""
+        ...
+
+
+class _SubscriptionSession(typing.Protocol):
+    """描述 CLI 临时订阅会话的生命周期。"""
+
+    def start(self) -> object:
+        """启动订阅监听。"""
+        ...
+
+    async def close(self) -> None:
+        """关闭订阅监听及其资源。"""
+        ...
+
+
+class CliCommandHost(typing.Protocol):
+    """描述 CLI 命令分发所需的最小应用宿主。"""
+
+    attach: _AttachmentState
+    conversation: ConversationState
+    exit_code: int
+    frontend: Frontend
+    history_workspace: str
+    permissions: PermissionSettings
+    subscription: _SubscriptionSession
+    task_event: asyncio.Event
+
+    async def fresh_pref_config(
+        self,
+        *,
+        ttl_sec: float,
+    ) -> dict[str, typing.Any]:
+        """读取当前有效偏好配置。"""
+        ...
+
+    async def resume_conversation(
+        self,
+        record: dict[str, typing.Any],
+        *,
+        source: str,
+    ) -> dict[str, str] | None:
+        """恢复指定历史会话。"""
+        ...
+
+    def find_conversation_session(
+        self,
+        session_id: str,
+        *,
+        workspace: str | Path | None = None,
+        sources: typing.Collection[str] | None = None,
+        status: str | None = None,
+    ) -> dict[str, typing.Any] | None:
+        """查找一个可恢复会话。"""
+        ...
+
+    def recent_conversation_sessions(
+        self,
+        *,
+        workspace: str | Path | None = None,
+        sources: typing.Collection[str] | None = None,
+        status: str | None = None,
+        limit: int = HISTORY_LIMIT,
+    ) -> list[dict[str, typing.Any]]:
+        """读取最近的可恢复会话。"""
+        ...
+
+    async def archive_conversation_session(self, cid: str, sid: str) -> None:
+        """归档指定会话。"""
+        ...
+
+    async def unarchive_conversation(self, cid: str, sid: str) -> None:
+        """恢复指定归档会话。"""
+        ...
 
 
 class RootTurnRunner(typing.Protocol):
@@ -43,7 +128,7 @@ class RootTurnRunner(typing.Protocol):
 
     async def __call__(
         self,
-        controller: "Mind",
+        controller: CliCommandHost,
         *,
         message: str,
         **kwargs: typing.Any,
@@ -55,13 +140,16 @@ class RootTurnRunner(typing.Protocol):
 class EnvironmentSnapshotProvider(typing.Protocol):
     """定义组合根提供的 CLI 环境快照能力。"""
 
-    def __call__(self, controller: "Mind") -> dict[str, typing.Any] | None:
+    def __call__(
+        self,
+        controller: CliCommandHost,
+    ) -> dict[str, typing.Any] | None:
         """捕获当前 CLI Turn 使用的不可变环境快照。"""
         ...
 
 
 async def _require_turn_runner(
-    _controller: "Mind",
+    _controller: CliCommandHost,
     *,
     message: str,
     **_kwargs: typing.Any,
@@ -72,7 +160,7 @@ async def _require_turn_runner(
 
 
 def _require_environment_snapshot(
-    _controller: "Mind",
+    _controller: CliCommandHost,
 ) -> dict[str, typing.Any] | None:
     """在 CLI 未由组合根装配时返回明确配置错误。"""
     raise RuntimeError("CLI environment snapshot provider is required")
@@ -85,7 +173,7 @@ capture_active_turn_environment: EnvironmentSnapshotProvider = (
 
 
 async def run_selected_command(
-    mind: "Mind",
+    mind: CliCommandHost,
     command: RuntimeCommand,
     *,
     turn_runner: RootTurnRunner | None = None,
@@ -268,7 +356,7 @@ async def run_selected_command(
 
 
 async def _run_agent_listener_session(
-    mind: "Mind",
+    mind: CliCommandHost,
     *,
     turn_runner: RootTurnRunner | None,
     turn_application_factory: TurnApplicationFactory | None,
@@ -290,7 +378,7 @@ async def _run_agent_listener_session(
 
 
 async def _run_tui_session(
-    mind: "Mind",
+    mind: CliCommandHost,
     *,
     prompt: str | None,
     images: tuple[str, ...],
@@ -328,7 +416,7 @@ async def _run_tui_session(
 
 
 async def _select_resume_session(
-    mind: "Mind",
+    mind: CliCommandHost,
     command: ResumeCommand
 ) -> dict[str, typing.Any] | None:
     """按命令条件查找或选择一个可恢复会话。"""

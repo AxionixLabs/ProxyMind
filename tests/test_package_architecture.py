@@ -4190,6 +4190,46 @@ def test_cli_adapter_is_owned_by_frontends() -> None:
     )
 
 
+def test_frontends_use_injected_application_hosts() -> None:
+    """确保所有前端通过宿主契约组合，不依赖旧应用实现。"""
+    frontend_root = PROJECT_ROOT / "frontends"
+    violations: list[str] = []
+    for path in frontend_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if module == "mind_app" or module.startswith("mind_app."):
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+    assert not violations, (
+        "frontends import the legacy application:\n" + "\n".join(violations)
+    )
+
+    cli_bootstrap = (
+        frontend_root / "cli" / "bootstrap.py"
+    ).read_text(encoding="utf-8-sig")
+    cli_dispatch = (
+        frontend_root / "cli" / "dispatch.py"
+    ).read_text(encoding="utf-8-sig")
+    mcp_server = (
+        frontend_root / "mcp" / "server.py"
+    ).read_text(encoding="utf-8-sig")
+    composition = (PROJECT_ROOT / "mind.py").read_text(encoding="utf-8-sig")
+
+    assert "class CliApplicationHost(CliCommandHost, typing.Protocol)" in (
+        cli_bootstrap
+    )
+    assert "class CliCommandHost(typing.Protocol)" in cli_dispatch
+    assert "class McpApplicationHost(typing.Protocol)" in mcp_server
+    assert "application_host_factory=Mind" in composition
+
+
 def test_presentation_output_has_no_legacy_package_or_imports() -> None:
     """确保跨前端输出端口和实现不再由 mind_app presentation 持有。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "output"

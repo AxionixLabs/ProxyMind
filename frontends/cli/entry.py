@@ -33,6 +33,7 @@ from frontends.tui.features.conversation import ConversationCompactorFactory
 
 if typing.TYPE_CHECKING:
     from agent.ports.presentation import ApplicationSink
+    from .bootstrap import CliApplicationHostFactory
 
 InterruptHandler: typing.TypeAlias = (
     typing.Callable[[int, FrameType | None], typing.Any]
@@ -166,6 +167,7 @@ async def main(
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     conversation_compactor_factory: ConversationCompactorFactory | None = None,
+    application_host_factory: "CliApplicationHostFactory | None" = None,
 ) -> int:
     """把已解析命令路由到对应的应用组合根。"""
     if isinstance(command, McpServerCommand):
@@ -221,6 +223,18 @@ async def main(
     if runtime_services is None:
         raise AppError("Agent runtime services are required")
 
+    if application_host_factory is None:
+        return await run_application(
+            command,
+            entry_file=entry_file,
+            config_overrides=config_overrides,
+            config_profile=config_profile,
+            runtime_services=runtime_services,
+            turn_runner=turn_runner,
+            environment_snapshot_provider=environment_snapshot_provider,
+            conversation_compactor_factory=conversation_compactor_factory,
+        )
+
     return await run_application(
         command,
         entry_file=entry_file,
@@ -230,6 +244,7 @@ async def main(
         turn_runner=turn_runner,
         environment_snapshot_provider=environment_snapshot_provider,
         conversation_compactor_factory=conversation_compactor_factory,
+        application_host_factory=application_host_factory,
     )
 
 
@@ -245,6 +260,7 @@ async def _run_main(
     turn_runner: RootTurnRunner | None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None,
     conversation_compactor_factory: ConversationCompactorFactory | None,
+    application_host_factory: "CliApplicationHostFactory | None",
 ) -> int:
     """绑定主任务并进入命令路由。"""
     task = asyncio.current_task()
@@ -257,6 +273,7 @@ async def _run_main(
         and turn_runner is None
         and environment_snapshot_provider is None
         and conversation_compactor_factory is None
+        and application_host_factory is None
     ):
         return await main(
             command,
@@ -275,6 +292,7 @@ async def _run_main(
         turn_runner=turn_runner,
         environment_snapshot_provider=environment_snapshot_provider,
         conversation_compactor_factory=conversation_compactor_factory,
+        application_host_factory=application_host_factory,
     )
 
 
@@ -287,6 +305,7 @@ def run(
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     conversation_compactor_factory: ConversationCompactorFactory | None = None,
+    application_host_factory: "CliApplicationHostFactory | None" = None,
 ) -> int:
     """解析命令并运行统一的进程级异步生命周期。"""
     invocation = parse_cli_invocation(arguments)
@@ -312,6 +331,7 @@ def run(
                 turn_runner=turn_runner,
                 environment_snapshot_provider=environment_snapshot_provider,
                 conversation_compactor_factory=conversation_compactor_factory,
+                application_host_factory=application_host_factory,
             ))
     except AppError as error:
         emit_entry_failure(command, error, phase="runtime")

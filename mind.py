@@ -193,9 +193,11 @@ if __name__ == "__main__":
         runtime_services=runtime_services,
         mcp_server_runner=functools.partial(
             run_mind_mcp_server,
+            application_host_factory=Mind,
             turn_runner=root_turn_runner,
             environment_snapshot_provider=capture_turn_environment,
         ),
+        application_host_factory=Mind,
         turn_runner=root_turn_runner,
         environment_snapshot_provider=capture_active_turn_environment,
         conversation_compactor_factory=bind_conversation_compactor,

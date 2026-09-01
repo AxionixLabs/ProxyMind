@@ -280,7 +280,6 @@ async def test_mind_mcp_runtime_injects_model_capability(
         lambda *_args, **_kwargs: config_session,
     )
     monkeypatch.setattr(mcp_server, "Preferences", lambda _session: pref)
-    monkeypatch.setattr(mcp_server, "Mind", build_controller)
     monkeypatch.setattr(mcp_server, "route_shell_tools", Mock())
     monkeypatch.setattr(
         mcp_server,
@@ -292,6 +291,7 @@ async def test_mind_mcp_runtime_injects_model_capability(
     runtime = await MindMcpRuntime.open(
         _source_layout(tmp_path),
         runtime_services=runtime_services,
+        application_host_factory=build_controller,
     )
 
     assert captured["runtime_services"] is runtime_services

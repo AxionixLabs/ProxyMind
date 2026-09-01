@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import asyncio
-import contextlib
-import functools
-import math
 import os
+import math
 import typing
+import asyncio
+import functools
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
-
+from mcp.server.fastmcp import (
+    Context,
+    FastMCP
+)
 from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application import RuntimeServices
 from agent.application.turns.commands import (
@@ -18,38 +21,33 @@ from agent.application.turns.commands import (
 )
 from agent.application.turns.projections import RunResultProjection
 from agent.application.turns.run_result import RunResult
+from agent.application.config.settings import AgentSettings
+from agent.application.config.settings import FeatureSettings
+from agent.domain.policies import (
+    PermissionSettings,
+    resolve_permissions,
+)
 from infrastructure.config.paths import (
     ApplicationLayout,
-    resolve_application_layout
+    resolve_application_layout,
 )
 from infrastructure.config.runtime_paths import (
     agent_runtime_db_path,
     ensure_mind_home,
     mind_config_path,
-    mind_reports_dir
+    mind_reports_dir,
 )
+from infrastructure.config.schema import ConfigOverride
+from infrastructure.config.session import ConfigSession
+from infrastructure.config.store import ConfigStore
+from infrastructure.config.preferences import Preferences
+from infrastructure.services.service_config import ServiceConfig
 from infrastructure.platform.shell_tools import route_shell_tools
-from mcp.server.fastmcp import (
-    Context,
-    FastMCP
-)
-from mind_app.controller import Mind
 from frontends.runtime import Frontend
 from frontends.output.application import NullApplicationSink
 from frontends.interaction import NonInteractiveInteraction
 from frontends.output.silent import create_silent_output_session
 from observability.reporting import RunReport
-from agent.application.config.settings import AgentSettings
-from infrastructure.config.schema import ConfigOverride
-from infrastructure.config.session import ConfigSession
-from infrastructure.config.store import ConfigStore
-from agent.application.config.settings import FeatureSettings
-from infrastructure.config.preferences import Preferences
-from agent.domain.policies import (
-    PermissionSettings,
-    resolve_permissions
-)
-from infrastructure.services.service_config import ServiceConfig
 from protocol.schema.permissions import (
     ApprovalPolicy,
     ApprovalReviewer,
@@ -62,12 +60,91 @@ from metadata import const
 DEFAULT_MCP_EXEC_TIMEOUT_SEC = 900.0
 
 
+class _ExternalMcpStarter(typing.Protocol):
+    """描述 MCP 应用宿主启动外部工具会话所需的能力。"""
+
+    async def start(self) -> None:
+        """启动外部 MCP 会话。"""
+        ...
+
+
+class McpApplicationHost(typing.Protocol):
+    """描述 stdio MCP 前端执行会话所需的最小应用宿主。"""
+
+    external_mcp: _ExternalMcpStarter
+    history_workspace: str
+    permissions: PermissionSettings
+
+    def set_history_workspace(self, workspace: str | Path) -> None:
+        """切换当前调用使用的工作区。"""
+        ...
+
+    async def reset_conversation(
+        self,
+        *,
+        reason: str,
+        source: str,
+    ) -> dict[str, str]:
+        """创建新的 MCP 会话。"""
+        ...
+
+    def find_conversation_session(
+        self,
+        session_id: str,
+        *,
+        workspace: str | Path | None = None,
+    ) -> dict[str, typing.Any] | None:
+        """查找可续接的 MCP 会话。"""
+        ...
+
+    async def resume_conversation(
+        self,
+        record: dict[str, typing.Any],
+        *,
+        source: str,
+    ) -> dict[str, str] | None:
+        """恢复指定 MCP 会话。"""
+        ...
+
+    async def end_conversation(self, *, reason: str) -> None:
+        """结束当前 MCP 会话。"""
+        ...
+
+    async def close_runtime_resources(self) -> None:
+        """释放应用宿主持有的运行时资源。"""
+        ...
+
+
+class McpApplicationHostFactory(typing.Protocol):
+    """描述组合根注入的 MCP 应用宿主构造器。"""
+
+    def __call__(
+        self,
+        show_level: str,
+        power: int,
+        state: dict[str, object],
+        **kwargs: object,
+    ) -> McpApplicationHost:
+        """使用已解析依赖创建一个 MCP 应用宿主。"""
+        ...
+
+
+def _require_application_host_factory(
+    _show_level: str,
+    _power: int,
+    _state: dict[str, object],
+    **_kwargs: object,
+) -> McpApplicationHost:
+    """在 MCP 未由组合根装配时返回明确配置错误。"""
+    raise RuntimeError("MCP application host factory is required")
+
+
 class RootTurnRunner(typing.Protocol):
     """定义组合根提供的 MCP 根轮次执行能力。"""
 
     async def __call__(
         self,
-        controller: Mind,
+        controller: McpApplicationHost,
         *,
         message: str,
         **kwargs: typing.Any,
@@ -81,7 +158,7 @@ class EnvironmentSnapshotProvider(typing.Protocol):
 
     def __call__(
         self,
-        controller: Mind,
+        controller: McpApplicationHost,
         *,
         cwd: str | Path,
         workspace_root: str | Path,
@@ -91,7 +168,7 @@ class EnvironmentSnapshotProvider(typing.Protocol):
 
 
 async def _require_turn_runner(
-    _controller: Mind,
+    _controller: McpApplicationHost,
     *,
     message: str,
     **_kwargs: typing.Any,
@@ -102,7 +179,7 @@ async def _require_turn_runner(
 
 
 def _require_environment_snapshot(
-    _controller: Mind,
+    _controller: McpApplicationHost,
     *,
     cwd: str | Path,
     workspace_root: str | Path,
@@ -142,7 +219,7 @@ class MindMcpRuntime(object):
 
     def __init__(
         self,
-        mind: Mind,
+        mind: McpApplicationHost,
         *,
         report: RunReport,
         turn_runner: RootTurnRunner = _require_turn_runner,
@@ -169,6 +246,9 @@ class MindMcpRuntime(object):
         config_profile: str | None = None,
         *,
         runtime_services: RuntimeServices,
+        application_host_factory: McpApplicationHostFactory = (
+            _require_application_host_factory
+        ),
         turn_runner: RootTurnRunner = _require_turn_runner,
         environment_snapshot_provider: EnvironmentSnapshotProvider = (
             _require_environment_snapshot
@@ -205,7 +285,7 @@ class MindMcpRuntime(object):
 
             hook_registry = runtime_services.create_hook_registry()
 
-            mind = Mind(
+            mind = application_host_factory(
                 const.SHOW_LEVEL,
                 os.cpu_count() or 1,
                 {},
@@ -438,6 +518,9 @@ def create_mind_mcp_server(
     config_overrides: tuple[ConfigOverride, ...] = (),
     config_profile: str | None = None,
     runtime_services: RuntimeServices,
+    application_host_factory: McpApplicationHostFactory = (
+        _require_application_host_factory
+    ),
     turn_runner: RootTurnRunner = _require_turn_runner,
     environment_snapshot_provider: EnvironmentSnapshotProvider = (
         _require_environment_snapshot
@@ -455,6 +538,7 @@ def create_mind_mcp_server(
             config_overrides,
             config_profile,
             runtime_services=runtime_services,
+            application_host_factory=application_host_factory,
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
         )
@@ -514,6 +598,9 @@ async def run_mind_mcp_server(
     config_overrides: tuple[ConfigOverride, ...] = (),
     config_profile: str | None = None,
     runtime_services: RuntimeServices,
+    application_host_factory: McpApplicationHostFactory = (
+        _require_application_host_factory
+    ),
     turn_runner: RootTurnRunner = _require_turn_runner,
     environment_snapshot_provider: EnvironmentSnapshotProvider = (
         _require_environment_snapshot
@@ -525,6 +612,7 @@ async def run_mind_mcp_server(
         config_overrides=config_overrides,
         config_profile=config_profile,
         runtime_services=runtime_services,
+        application_host_factory=application_host_factory,
         turn_runner=turn_runner,
         environment_snapshot_provider=environment_snapshot_provider,
     )

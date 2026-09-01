@@ -4,52 +4,46 @@
 import os
 import typing
 import asyncio
-from agent.application import RuntimeServices
 from pathlib import Path
-from infrastructure.platform.animation import AsyncAnimManager
-from infrastructure.services.server_manager import ServerManage
-from infrastructure.errors import AppError
-from infrastructure.config.schema import ConfigOverride
-from infrastructure.config.layers import ConfigResolution
+from agent.application import RuntimeServices
 from agent.application.config.settings import (
     AgentSettings,
     FeatureSettings,
 )
-from infrastructure.config.session import ConfigSession
-from infrastructure.config.store import ConfigStore
 from agent.domain.policies import (
     PermissionSettings,
-    resolve_permissions
+    resolve_permissions,
 )
-from observability import (
-    observe,
-    observe_exception
-)
-from infrastructure.config.paths import (
-    ApplicationLayout,
-    resolve_application_layout
-)
-from infrastructure.config.preferences import Preferences
-from infrastructure.services.service_config import ServiceConfig
-from protocol.transport.endpoints import service_endpoints
-from metadata import const
-from mind_app.controller import Mind
 from agent.ports.presentation import (
     ApplicationView,
     StyledBlock,
     TextSpan,
     TextStyle,
 )
-from frontends.runtime import (
-    Frontend,
+from agent.domain.tool_policy import ToolFilterMode
+from agent.ports import (
+    HookRegistryPort,
+    ProtocolCommandClient,
 )
+from infrastructure.platform.animation import AsyncAnimManager
+from infrastructure.services.server_manager import ServerManage
+from infrastructure.errors import AppError
+from infrastructure.config.schema import ConfigOverride
+from infrastructure.config.layers import ConfigResolution
+from infrastructure.config.session import ConfigSession
+from infrastructure.config.store import ConfigStore
+from infrastructure.config.paths import (
+    ApplicationLayout,
+    resolve_application_layout,
+)
+from infrastructure.config.preferences import Preferences
+from infrastructure.services.service_config import ServiceConfig
 from infrastructure.config.runtime_paths import (
     ensure_mind_home,
     mind_config_path,
     mind_reports_dir,
-    process_env
+    process_env,
 )
-from observability.reporting import RunReport
 from infrastructure.platform.shell_tools import route_shell_tools
 from infrastructure.platform.workspace_context import fetch_runtime_workspace_root
 from infrastructure.services.runtime_context import (
@@ -57,21 +51,25 @@ from infrastructure.services.runtime_context import (
     ServiceRuntimeSpec,
 )
 from infrastructure.services.runtime_setup import resolve_service_runtime
+from infrastructure.services.helix_capability import ServerManageHelixCapability
+from observability import (
+    observe,
+    observe_exception,
+)
+from observability.reporting import RunReport
+from protocol.transport.endpoints import service_endpoints
+from frontends.runtime import Frontend
 from frontends.helix.runtime import (
     ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
 )
-from infrastructure.services.helix_capability import ServerManageHelixCapability
+
 from frontends.terminal.contracts import TerminalDesign
-from agent.ports import (
-    HookRegistryPort,
-    ProtocolCommandClient,
-)
 from frontends.tui.features.conversation import (
     ConversationCompactor,
     ConversationCompactorFactory,
 )
-from agent.domain.tool_policy import ToolFilterMode
+from metadata import const
 from .commands import (
     ApplicationCommand,
     ExecCommand,
@@ -83,6 +81,7 @@ from .commands import (
     command_uses_helix
 )
 from .dispatch import (
+    CliCommandHost,
     EnvironmentSnapshotProvider,
     RootTurnRunner,
     run_selected_command,
@@ -98,6 +97,90 @@ from .selection import (
 )
 
 CleanupResult = typing.TypeVar("CleanupResult")
+
+
+class _ExternalMcpState(typing.Protocol):
+    """描述启动观测所需的外部 MCP 状态。"""
+
+    group: object | None
+
+
+class _ExternalMcpRuntime(typing.Protocol):
+    """描述 CLI 管理外部 MCP 所需的生命周期。"""
+
+    current: _ExternalMcpState | None
+
+    async def start(self, *, defer_activity_stop: bool = False) -> None:
+        """启动外部 MCP 会话。"""
+        ...
+
+
+class _ServiceRuntimeBinding(typing.Protocol):
+    """描述 CLI 绑定本地服务运行时所需的能力。"""
+
+    def bind(
+        self,
+        server: object,
+        context: ServiceRuntimeContext,
+        *,
+        capability: object,
+    ) -> None:
+        """绑定服务进程、上下文和 Helix capability。"""
+        ...
+
+
+class CliApplicationHost(CliCommandHost, typing.Protocol):
+    """描述 CLI 启动、运行和关闭应用所需的宿主生命周期。"""
+
+    external_mcp: _ExternalMcpRuntime
+    service_runtime: _ServiceRuntimeBinding
+
+    def is_service_mcp_linked(self) -> bool:
+        """返回本地服务 MCP 是否已经接入。"""
+        ...
+
+    def set_history_workspace(self, workspace: str | Path) -> None:
+        """切换历史记录使用的工作区。"""
+        ...
+
+    async def await_cleanup(
+        self,
+        awaitable: typing.Awaitable[CleanupResult],
+    ) -> CleanupResult:
+        """在取消边界内等待清理完成。"""
+        ...
+
+    async def end_conversation(self, *, reason: str) -> None:
+        """结束当前会话。"""
+        ...
+
+    async def close_runtime_resources(self) -> None:
+        """释放应用持有的运行时资源。"""
+        ...
+
+
+class CliApplicationHostFactory(typing.Protocol):
+    """描述组合根注入的 CLI 应用宿主构造器。"""
+
+    def __call__(
+        self,
+        show_level: str,
+        power: int,
+        state: dict[str, object],
+        **kwargs: object,
+    ) -> CliApplicationHost:
+        """使用已解析依赖创建一个 CLI 应用宿主。"""
+        ...
+
+
+def _require_application_host_factory(
+    _show_level: str,
+    _power: int,
+    _state: dict[str, object],
+    **_kwargs: object,
+) -> CliApplicationHost:
+    """在 CLI 未由组合根装配时返回明确配置错误。"""
+    raise RuntimeError("CLI application host factory is required")
 
 
 class _DirectoryTrustRuntime(typing.Protocol):
@@ -126,7 +209,7 @@ def _emit_startup_warnings(
         return None
 
     plain_parts: list[str] = []
-    spans: list[TextSpan]  = []
+    spans: list[TextSpan] = []
 
     for index, warning in enumerate(items):
         if index:
@@ -154,7 +237,7 @@ def _emit_startup_warnings(
     ))
 
 
-def _emit_helix_skipped(controller: Mind) -> None:
+def _emit_helix_skipped(controller: CliApplicationHost) -> None:
     """输出 Helix 启动被跳过的状态。"""
     controller.frontend.application.emit(ApplicationView(
         type="helix.skipped",
@@ -229,6 +312,9 @@ async def _run_application(
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     conversation_compactor_factory: ConversationCompactorFactory | None = None,
+    application_host_factory: CliApplicationHostFactory = (
+        _require_application_host_factory
+    ),
 ) -> int:
     """执行普通应用运行时的完整生命周期。"""
     output_mode = resolve_cli_output_mode(command)
@@ -449,6 +535,7 @@ async def _run_application(
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
             conversation_compactor_factory=conversation_compactor_factory,
+            application_host_factory=application_host_factory,
             startup_warnings=(
                 *config_resolution.startup_warnings,
                 *(
@@ -497,6 +584,9 @@ async def _run_controller(
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     conversation_compactor_factory: ConversationCompactorFactory | None = None,
+    application_host_factory: CliApplicationHostFactory = (
+        _require_application_host_factory
+    ),
 ) -> int:
     """创建 Controller 并运行用户命令。"""
     hook_status = None
@@ -516,7 +606,7 @@ async def _run_controller(
             cwd=runtime_spec.working_directory,
         )
 
-        controller = Mind(
+        controller = application_host_factory(
             const.SHOW_LEVEL,
             power,
             {},
@@ -750,7 +840,7 @@ async def _run_controller(
                 report.close()
 
 
-async def start_tui_external_mcp(controller: Mind) -> None:
+async def start_tui_external_mcp(controller: CliApplicationHost) -> None:
     """启动 TUI 外部 MCP 并提交最终状态。"""
     from frontends.tui.features.mcp import (
         finish_mcp_activity,
@@ -772,7 +862,7 @@ async def start_tui_external_mcp(controller: Mind) -> None:
 
 
 async def start_tui_service_runtime(
-    controller: Mind,
+    controller: CliApplicationHost,
     *,
     tool_profile: ToolFilterMode = "app"
 ) -> None:
@@ -812,6 +902,9 @@ async def run_application(
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     conversation_compactor_factory: ConversationCompactorFactory | None = None,
+    application_host_factory: CliApplicationHostFactory = (
+        _require_application_host_factory
+    ),
 ) -> int:
     """装配并运行需要本地应用资源的命令。"""
     animation = AsyncAnimManager()
@@ -826,13 +919,14 @@ async def run_application(
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
             conversation_compactor_factory=conversation_compactor_factory,
+            application_host_factory=application_host_factory,
         )
     finally:
         await _await_cleanup(animation.stop())
 
 
 async def finalize_application(
-    controller: Mind,
+    controller: CliApplicationHost,
     *,
     output_mode: OutputMode,
     completed: bool

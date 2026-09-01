@@ -545,7 +545,6 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
         controller_arguments.update(kwargs)
         return controller
 
-    monkeypatch.setattr(bootstrap, "Mind", build_controller)
     monkeypatch.setattr(
         "server.ConfigServiceRuntime",
         lambda *_args, **_kwargs: config_service,
@@ -609,6 +608,7 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
         permissions=SimpleNamespace(),
         startup_warnings=("ignored project setting",),
         runtime_services=runtime_services,
+        application_host_factory=build_controller,
     )
 
     assert events[:3] == ["preload", "warning", "open"]
@@ -643,7 +643,6 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
         exit_code=0,
     )
 
-    monkeypatch.setattr(bootstrap, "Mind", lambda *_args, **_kwargs: controller)
     config_service = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
     monkeypatch.setattr(
         "server.ConfigServiceRuntime",
@@ -721,6 +720,7 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
         output_mode="tui",
         permissions=SimpleNamespace(),
         startup_warnings=(),
+        application_host_factory=lambda *_args, **_kwargs: controller,
     )
 
     assert events == [
