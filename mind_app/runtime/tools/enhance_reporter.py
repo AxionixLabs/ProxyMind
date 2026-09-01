@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.presentation.output import OutputStatusPort
+from agent.ports import OutputStatusPort
 from agent.application.views.contracts import PresentationSink
 from .progress import show_tool_progress
 

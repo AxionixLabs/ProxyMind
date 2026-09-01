@@ -3832,6 +3832,33 @@ def test_cli_adapter_is_owned_by_frontends() -> None:
 def test_presentation_output_has_no_legacy_package_or_imports() -> None:
     """确保单轮输出会话和 sink 已归入 presentation/output 边界。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "output"
+    contracts_path = PROJECT_ROOT / "mind_app" / "presentation" / "output" / "contracts.py"
+    port_path = PROJECT_ROOT / "agent" / "ports" / "output.py"
+    assert not contracts_path.exists(), "legacy output contract module remains"
+    assert port_path.is_file(), "output port module is missing"
+    port_tree = ast.parse(port_path.read_text(encoding="utf-8-sig"), filename=str(port_path))
+    port_definitions = {
+        node.name
+        for node in port_tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert port_definitions == {
+        "OutputControlPort",
+        "OutputStatusPort",
+        "OutputPort",
+    }
+    port_violations: list[str] = []
+    for node in ast.walk(port_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "")
+        for module in modules:
+            if module.partition(".")[0] in {"mind_app", "mind_core", "engine", "server", "infrastructure"}:
+                port_violations.append(f"agent/ports/output.py:{node.lineno} -> {module}")
+    assert not port_violations, "output ports cross their boundary:\n" + "\n".join(port_violations)
+
     legacy_sources = tuple(legacy_root.rglob("*.py"))
     assert not legacy_sources, (
         "legacy output sources still exist: "

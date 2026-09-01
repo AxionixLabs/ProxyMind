@@ -600,6 +600,7 @@ running -> cancelled
 | `mind_app/runtime/design.py` | `mind_app/presentation/terminal/contracts.py` | 下载进度渲染端口与终端实现放在同一展示边界；删除 runtime 级一次转发协议文件 |
 | `mind_app/frontend/` | `mind_app/presentation/application.py`、`application_sinks.py` | 应用级展示值、前端运行期端口和 CLI/JSON sink 属于 presentation 边界；顶层 `frontends/` 仅在完整入口用例迁移时启用 |
 | `mind_app/output/` | `mind_app/presentation/output/` | 单轮输出端口、结构化正文、文本/JSONL/静默 sink 属于 presentation 适配器；不把输出生命周期放入 Harness |
+| `mind_app/presentation/output/contracts.py` | `agent/ports/output.py` | `OutputControlPort`、`OutputStatusPort`、`OutputPort` 和 stream/block 模式是跨前端能力契约；具体输出 sink 仍由 `mind_app/presentation/output` 实现，`OutputSession` 与 `SessionFactory` 待值对象端口化后再迁移 |
 | `mind_app/stream_events/` | `mind_app/presentation/stream/` | 流事件到展示视图的投影、工具 trace 和生命周期渲染归入 presentation；运行时只消费公开投影函数 |
 | `mind_app/stream_io/`、`stream_state/` | `mind_app/presentation/output/recording.py`、`boundary.py` | 输出记录和段间边界状态归入输出适配器；单调用者 spacing 逻辑内聚到 boundary，不保留平铺状态包 |
 | `mind_app/approval/permission_grants.py`、`ledger.py` | `agent/stores/approvals/permissions.py`、`ledger.py` | 会话权限授权和审批消费状态由 stores 持有；协调器、策略和展示模型不随状态存储迁移 |

@@ -42,7 +42,7 @@ from .content import (
     ContentSink,
     SourcesOutput
 )
-from .contracts import (
+from agent.ports import (
     OutputControlPort,
     OutputStatusPort
 )

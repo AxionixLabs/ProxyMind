@@ -3,7 +3,7 @@
 
 import typing
 from protocol.schema.stream_events import StreamEvent
-from mind_app.presentation.output import OutputStatusPort
+from agent.ports import OutputStatusPort
 from agent.application.views.contracts import PresentationSink
 from mind_app.presentation.lifecycle_views import build_lifecycle_view
 

@@ -27,7 +27,7 @@ from protocol.client.tools import (
     build_tool_result_envelope,
     build_tool_result_payload,
 )
-from mind_app.presentation.output import (
+from agent.ports import (
     OutputControlPort,
     OutputStatusPort
 )

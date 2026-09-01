@@ -4,7 +4,7 @@
 import typing
 from observability import observe_exception
 from agent.ports.transcript import TranscriptSink
-from mind_app.presentation.output import OutputControlPort
+from agent.ports import OutputControlPort
 from agent.application.turns.stream_outcome import StreamTurnOutcome
 from agent.application.hooks.models import StopHookDecision
 from mind_app.runtime.hooks.turn import TurnHookEvents

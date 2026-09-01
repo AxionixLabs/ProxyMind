@@ -13,7 +13,7 @@ from agent.application.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
 )
-from mind_app.presentation.output import (
+from agent.ports import (
     OutputControlPort,
     OutputStatusPort
 )

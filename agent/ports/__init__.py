@@ -109,6 +109,14 @@ from .transcript import (
     TranscriptSink,
 )
 from .presentation import TurnForegroundLifecyclePort
+from .output import (
+    BLOCK_OUTPUT,
+    OutputControlPort,
+    OutputDisplay,
+    OutputPort,
+    OutputStatusPort,
+    STREAM_OUTPUT,
+)
 from .workspace import (
     CodingFactory,
     CodingRuntime,
@@ -213,6 +221,12 @@ __all__ = (
     "TurnOperation",
     "TurnResultPort",
     "TurnResultValue",
+    "BLOCK_OUTPUT",
+    "OutputControlPort",
+    "OutputDisplay",
+    "OutputPort",
+    "OutputStatusPort",
+    "STREAM_OUTPUT",
     "TranscriptActor",
     "TranscriptFactory",
     "TranscriptSink",

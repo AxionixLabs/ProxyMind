@@ -60,10 +60,8 @@ from protocol.client.tools import (
     post_tool_result
 )
 from protocol.client.effects import post_effect_reconciliation
-from mind_app.presentation.output import (
-    OutputControlPort,
-    SessionFactory,
-)
+from agent.ports import OutputControlPort
+from mind_app.presentation.output import SessionFactory
 from ..hooks.tool import ToolCallCoordinator
 from agent.application.hooks.models import StopHookDecision
 from ..hooks.turn import (

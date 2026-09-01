@@ -5,7 +5,7 @@ import typing
 from dataclasses import dataclass
 from agent.application.views.contracts import PresentationSink
 from .content import ContentSink
-from .contracts import (
+from agent.ports import (
     OutputControlPort,
     OutputStatusPort
 )

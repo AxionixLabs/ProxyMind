@@ -15,7 +15,7 @@ from agent.ports import (
 )
 from mind_app.runtime.mcp.tool_store import meta_for_tool
 from infrastructure.config.execution_policy_manager import ExecApprovalRequirement
-from mind_app.presentation.output import OutputStatusPort
+from agent.ports import OutputStatusPort
 from mind_app.presentation.approval_views import build_approval_view
 from agent.application.views.contracts import PresentationSink
 from agent.domain.tool_policy import is_approval_only_tool

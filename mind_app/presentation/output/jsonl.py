@@ -39,7 +39,7 @@ from .content import (
     ResponseIdentity,
     SourcesOutput
 )
-from .contracts import (
+from agent.ports import (
     OutputControlPort,
     OutputStatusPort
 )

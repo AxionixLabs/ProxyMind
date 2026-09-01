@@ -1,20 +1,20 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind™ ====
 
 import typing
-from agent.ports.presentation import (
-    TextSpan,
-    TextStyle
-)
 from abc import (
     ABC,
-    abstractmethod
+    abstractmethod,
+)
+
+from .presentation import (
+    TextSpan,
+    TextStyle,
 )
 
 OutputDisplay = typing.Literal["stream", "block"]
 
 STREAM_OUTPUT: typing.Final[OutputDisplay] = "stream"
-BLOCK_OUTPUT: typing.Final[OutputDisplay]  = "block"
+BLOCK_OUTPUT: typing.Final[OutputDisplay] = "block"
 
 
 class OutputControlPort(ABC):
@@ -41,7 +41,7 @@ class OutputControlPort(ABC):
         name: str,
         arguments: dict[str, typing.Any],
         *,
-        call_id: typing.Optional[str] = None,
+        call_id: str | None = None,
     ) -> None:
         """记录工具参数审计信息。"""
         ...
@@ -56,14 +56,14 @@ class OutputStatusPort(ABC):
         ...
 
     @abstractmethod
-    async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
+    async def begin_custom_tool_status(self, text: str | None) -> None:
         """启动自定义工具状态。"""
         ...
 
     @abstractmethod
     async def begin_reply_wait_status(
         self,
-        text: typing.Optional[str] = "Thinking",
+        text: str | None = "Thinking",
         *,
         delay_sec: float = 0.28,
         animate_after_sec: float | None = None,
@@ -84,13 +84,13 @@ class OutputPort(OutputControlPort, OutputStatusPort):
     @abstractmethod
     def terminal_width(self) -> int | None:
         """返回当前终端宽度。"""
-        raise NotImplementedError
+        ...
 
     @property
     @abstractmethod
     def terminal_height(self) -> int | None:
         """返回当前终端高度。"""
-        raise NotImplementedError
+        ...
 
     @abstractmethod
     async def prepare_external_output(self) -> None:
@@ -110,11 +110,11 @@ class OutputPort(OutputControlPort, OutputStatusPort):
     @abstractmethod
     async def feed(
         self,
-        chunk: typing.Optional[str],
+        chunk: str | None,
         *,
         echo: bool = True,
         display: OutputDisplay = STREAM_OUTPUT,
-        display_chunk: typing.Optional[str] = None,
+        display_chunk: str | None = None,
         display_style: TextStyle | None = None,
         display_parts: list[TextSpan] | None = None,
         preserve_display_parts: bool = False,
@@ -125,7 +125,7 @@ class OutputPort(OutputControlPort, OutputStatusPort):
     @abstractmethod
     async def print_block(
         self,
-        chunk: typing.Optional[str],
+        chunk: str | None,
         *,
         display_parts: list[TextSpan] | None = None,
     ) -> None:
@@ -138,5 +138,11 @@ class OutputPort(OutputControlPort, OutputStatusPort):
         ...
 
 
-if __name__ == '__main__':
-    pass
+__all__ = (
+    "BLOCK_OUTPUT",
+    "OutputControlPort",
+    "OutputDisplay",
+    "OutputPort",
+    "OutputStatusPort",
+    "STREAM_OUTPUT",
+)

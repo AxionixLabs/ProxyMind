@@ -6,7 +6,7 @@ import time
 import typing
 import asyncio
 from functools import partial
-from mind_app.presentation.output.contracts import OutputControlPort
+from agent.ports import OutputControlPort
 from agent.ports.presentation import StyledBlock
 from mind_app.presentation.terminal_text import (
     TerminalTextFilter,

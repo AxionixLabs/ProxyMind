@@ -5,12 +5,12 @@ from unittest.mock import Mock
 import pytest
 
 from agent.protocol import CanonicalItem
+from agent.ports import OutputStatusPort
 from mind_app.presentation.output import (
     AssistantOutputBoundary,
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
-    OutputStatusPort,
     ResponseIdentity,
 )
 from agent.ports.transcript import TranscriptSink

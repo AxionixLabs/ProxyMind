@@ -13,6 +13,7 @@ from protocol.schema.stream_events import (
     TurnRetryingEvent,
 )
 from agent.ports.transcript import TranscriptSink
+from agent.ports import OutputStatusPort
 from mind_app.presentation.output import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
@@ -20,7 +21,6 @@ from mind_app.presentation.output import (
     AssistantSegmentCompleted,
     AssistantTextDelta,
     ContentSink,
-    OutputStatusPort,
     ResponseIdentity,
 )
 from mind_app.presentation.stream.assistant_boundary import (

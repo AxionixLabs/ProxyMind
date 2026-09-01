@@ -598,6 +598,14 @@ Subagent、工具、MCP、清理和根入口回归 `167 passed`；架构专项 `
 `OutputControlPort`、`OutputStatusPort` 和 `SessionFactory` 提升到 Agent ports 而不把
 具体 UI 实现带入 Harness。
 
+本次输出控制端口归位已满足上述条件：`OutputControlPort`、`OutputStatusPort`、
+`OutputPort` 及 stream/block 模式常量已迁入 `agent/ports/output.py`，所有 Turn、工具、
+TUI 和具体输出 sink 消费者已切换，旧 `mind_app/presentation/output/contracts.py` 已删除。
+`OutputSession` 与 `SessionFactory` 暂留输出适配器，因为其值对象组合了具体 Content/Presentation
+sink；输出/流式/TUI 定向回归 `114 passed`，架构专项 `2 passed, 1 warning`，导入图、
+`compileall` 和 `git diff --check` 通过。下一切片拆分 `OutputSession` 的跨层值对象，定义
+不携带具体 UI 实现的 session/content 端口后再迁移 `SessionFactory`。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |

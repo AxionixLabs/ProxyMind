@@ -11,7 +11,7 @@ from .content import (
     ContentSink,
     SourcesOutput
 )
-from .contracts import (
+from agent.ports import (
     BLOCK_OUTPUT,
     STREAM_OUTPUT,
     OutputPort
