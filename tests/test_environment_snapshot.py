@@ -151,8 +151,10 @@ def test_turn_environment_adapter_includes_linked_service_provider(tmp_path) -> 
         runtime_services=SimpleNamespace(
             environment_capability=_RecordingCapability(),
         ),
-        is_service_mcp_linked=lambda: True,
-        service_exec_env_snapshot=lambda: provider,
+        execution=SimpleNamespace(
+            is_service_linked=lambda: True,
+            service_exec_env_snapshot=lambda: provider,
+        ),
     )
 
     snapshot = capture_active_turn_environment(host)
@@ -168,8 +170,10 @@ def test_turn_environment_adapter_rejects_invalid_service_provider(tmp_path) -> 
     host = SimpleNamespace(
         history_workspace=str(tmp_path),
         runtime_services=SimpleNamespace(environment_capability=object()),
-        is_service_mcp_linked=lambda: True,
-        service_exec_env_snapshot=lambda: [],
+        execution=SimpleNamespace(
+            is_service_linked=lambda: True,
+            service_exec_env_snapshot=lambda: [],
+        ),
     )
 
     with pytest.raises(TypeError, match="service environment snapshot"):

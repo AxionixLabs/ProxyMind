@@ -31,6 +31,10 @@ from infrastructure.platform.sandbox import SandboxClient
 from infrastructure.platform.hook_command import HookCommandExecutor
 from infrastructure.platform.images import FileImageReader
 from infrastructure.mcp.external_runtime import ExternalMcpRuntime
+from infrastructure.mcp.local_tool_factory import (
+    build_builtin_tool_registry,
+    build_client_tool_registry,
+)
 from infrastructure.mcp.tool_runtime import CompositeToolRuntime
 from infrastructure.mcp.tool_execution import McpToolExecutionAdapter
 from frontends.cli.entry import run
@@ -92,12 +96,12 @@ def bind_root_turn_runner(
             tool_execution=runtime_services.tool_execution,
             approval_coordinator=controller.approval_coordinator,
             execution_policy=controller.workspace_runtime.execution_policy,
-            execution_runtime=controller,
+            execution_runtime=controller.execution,
             lifecycle=controller.turn_foreground_lifecycle,
             approval_ledger=controller.approval_call_ledger,
             session_factory=controller.frontend.session_factory,
             transcript_factory=controller.conversation.transcript_factory,
-            cleanup=controller,
+            cleanup=controller.conversation,
             patch_preview=controller.workspace_runtime.coding.preview_patch,
             retry_state=controller.frontend.runtime,
             animation=controller.turn_animation,
@@ -241,6 +245,8 @@ if __name__ == "__main__":
     runtime_services = create_runtime_services(
         effect_journal_path=effect_journal_db_path(),
         create_hook_registry=create_hook_registry,
+        create_client_tool_registry=build_client_tool_registry,
+        create_builtin_tool_registry=build_builtin_tool_registry,
         create_tool_runtime=create_tool_runtime,
         tool_execution=McpToolExecutionAdapter(),
         create_mcp_runtime=create_mcp_runtime,

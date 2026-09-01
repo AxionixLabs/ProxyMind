@@ -533,8 +533,10 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
         history_workspace=str(tmp_path),
         hooks=SimpleNamespace(inspect=inspect_hooks),
         service_runtime=SimpleNamespace(bind=Mock()),
-        external_mcp=SimpleNamespace(current=None),
-        is_service_mcp_linked=lambda: False,
+        execution=SimpleNamespace(
+            external_mcp=SimpleNamespace(current=None),
+            is_service_linked=lambda: False,
+        ),
         set_history_workspace=Mock(),
         exit_code=0,
     )
@@ -638,8 +640,10 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
         frontend=frontend,
         history_workspace=str(tmp_path),
         service_runtime=SimpleNamespace(bind=Mock()),
-        external_mcp=SimpleNamespace(current=None),
-        is_service_mcp_linked=lambda: False,
+        execution=SimpleNamespace(
+            external_mcp=SimpleNamespace(current=None),
+            is_service_linked=lambda: False,
+        ),
         set_history_workspace=Mock(),
         exit_code=0,
     )

@@ -185,13 +185,13 @@ async def test_tui_starts_external_mcp_before_helix_background(
                     {"name": "docs", "state": "ready", "tools": 2},
                 ],
             })
-            self.external_mcp = SimpleNamespace(
-                current=runtime,
-                start=self._start_external_mcp,
+            self.execution = SimpleNamespace(
+                external_mcp=SimpleNamespace(
+                    current=runtime,
+                    start=self._start_external_mcp,
+                ),
+                is_service_linked=lambda: False,
             )
-
-        def is_service_mcp_linked(self):
-            return False
 
         async def _start_external_mcp(
             self,

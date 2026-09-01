@@ -219,7 +219,7 @@ class TuiForegroundTasks(object):
             cancel_turn()
             return True
         if matches_command(command, "helix_link"):
-            if self.mind.is_service_mcp_linked():
+            if self.mind.execution.is_service_linked():
                 self._defer_notice("Helix MCP is already linked.")
                 return True
             try:
@@ -238,7 +238,7 @@ class TuiForegroundTasks(object):
         if mcp_action not in {"start", "force"}:
             return False
 
-        external_mcp = self.mind.external_mcp.current
+        external_mcp = self.mind.execution.external_mcp.current
 
         if bool(getattr(external_mcp, "started", False)):
             if mcp_action == "start":

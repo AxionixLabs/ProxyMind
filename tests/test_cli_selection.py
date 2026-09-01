@@ -1118,8 +1118,10 @@ async def test_agent_listen_owns_config_service_lifecycle(
     controller = SimpleNamespace(
         frontend=frontend,
         service_runtime=SimpleNamespace(bind=Mock()),
-        external_mcp=SimpleNamespace(current=None),
-        is_service_mcp_linked=lambda: False,
+        execution=SimpleNamespace(
+            external_mcp=SimpleNamespace(current=None),
+            is_service_linked=lambda: False,
+        ),
         set_history_workspace=Mock(),
         exit_code=0,
     )

@@ -144,12 +144,8 @@ class _ServiceRuntimeBinding(typing.Protocol):
 class CliApplicationHost(CliCommandHost, typing.Protocol):
     """描述 CLI 启动、运行和关闭应用所需的宿主生命周期。"""
 
-    external_mcp: _ExternalMcpRuntime
+    execution: "_CliExecutionResources"
     service_runtime: _ServiceRuntimeBinding
-
-    def is_service_mcp_linked(self) -> bool:
-        """返回本地服务 MCP 是否已经接入。"""
-        ...
 
     def set_history_workspace(self, workspace: str | Path) -> None:
         """切换历史记录使用的工作区。"""
@@ -164,6 +160,16 @@ class CliApplicationHost(CliCommandHost, typing.Protocol):
 
     async def close_runtime_resources(self) -> None:
         """释放应用持有的运行时资源。"""
+        ...
+
+
+class _CliExecutionResources(typing.Protocol):
+    """描述 CLI 启动和观测工具执行资源所需的能力。"""
+
+    external_mcp: _ExternalMcpRuntime
+
+    def is_service_linked(self) -> bool:
+        """返回本地服务是否已经链接到工具会话。"""
         ...
 
 
@@ -719,11 +725,11 @@ async def _run_controller(
             if output_mode == "tui" and not interactive_tui:
                 await start_tui_external_mcp(controller)
             elif output_mode != "tui":
-                await controller.external_mcp.start()
+                await controller.execution.external_mcp.start()
 
             await preference_task
             service_endpoints.configure(await domain_task)
-            external_runtime = controller.external_mcp.current
+            external_runtime = controller.execution.external_mcp.current
 
             observe(
                 "startup.ready",
@@ -731,7 +737,7 @@ async def _run_controller(
                     external_runtime is not None
                     and external_runtime.group is not None
                 ),
-                helix_linked=controller.is_service_mcp_linked(),
+                helix_linked=controller.execution.is_service_linked(),
             )
 
         finally:
@@ -856,7 +862,9 @@ async def start_tui_external_mcp(controller: CliApplicationHost) -> None:
     )
 
     try:
-        await controller.external_mcp.start(defer_activity_stop=True)
+        await controller.execution.external_mcp.start(
+            defer_activity_stop=True,
+        )
     except asyncio.CancelledError:
         await controller.await_cleanup(finish_mcp_activity(controller, "start"))
         raise

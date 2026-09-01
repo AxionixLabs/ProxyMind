@@ -250,7 +250,10 @@ async def print_available_tools(
         )
 
     try:
-        await mind.with_mcp_session(pref_config, render_tools_with_session)
+        await mind.execution.with_mcp_session(
+            pref_config,
+            render_tools_with_session,
+        )
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException as tool_error:

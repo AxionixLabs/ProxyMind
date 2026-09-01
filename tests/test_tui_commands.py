@@ -668,7 +668,7 @@ async def test_linked_missing_helix_runtime_download_ends_current_command(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
         service_runtime=SimpleNamespace(require_context=lambda: context),
-        is_service_mcp_linked=linked,
+        execution=SimpleNamespace(is_service_linked=linked),
     )
     foreground = SimpleNamespace(
         start=Mock(),
@@ -740,7 +740,7 @@ async def test_unlinked_helix_command_skips_runtime_lookup(
             application=SimpleNamespace(emit=views.append),
         ),
         service_runtime=SimpleNamespace(require_context=runtime_context),
-        is_service_mcp_linked=lambda: False,
+        execution=SimpleNamespace(is_service_linked=lambda: False),
     )
     choose = AsyncMock()
     monkeypatch.setattr(dispatch_module, "choose_helix_tool_profile", choose)
@@ -778,7 +778,7 @@ async def test_unlinked_helix_stop_reports_not_connected() -> None:
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
-        is_service_mcp_linked=lambda: False,
+        execution=SimpleNamespace(is_service_linked=lambda: False),
     )
     dispatcher = TuiCommandDispatcher(
         mind,
@@ -805,13 +805,15 @@ def test_unlinked_helix_unlink_reports_already_unlinked() -> None:
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
-        is_service_mcp_linked=lambda: False,
-        unlink_service_mcp=Mock(),
+        execution=SimpleNamespace(
+            is_service_linked=lambda: False,
+            unlink_service=Mock(),
+        ),
     )
 
     helix.unlink_helix_runtime(mind)
 
-    mind.unlink_service_mcp.assert_called_once_with()
+    mind.execution.unlink_service.assert_called_once_with()
     status = next(view for view in views if view.type == "tui.helix.status")
     assert "".join(text for _style, text in status.renderable.fragments) == (
         "• Helix MCP already unlinked"
@@ -824,13 +826,15 @@ def test_linked_helix_unlink_reports_unlinked() -> None:
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
-        is_service_mcp_linked=lambda: True,
-        unlink_service_mcp=Mock(),
+        execution=SimpleNamespace(
+            is_service_linked=lambda: True,
+            unlink_service=Mock(),
+        ),
     )
 
     helix.unlink_helix_runtime(mind)
 
-    mind.unlink_service_mcp.assert_called_once_with()
+    mind.execution.unlink_service.assert_called_once_with()
     status = next(view for view in views if view.type == "tui.helix.status")
     assert "".join(text for _style, text in status.renderable.fragments) == (
         "• Helix MCP unlinked"
@@ -851,9 +855,11 @@ async def test_helix_mode_changes_filter_only_for_linked_runtime(
             application=SimpleNamespace(emit=views.append),
         ),
         service_runtime=SimpleNamespace(require_context=lambda: context),
-        is_service_mcp_linked=lambda: True,
-        tool_profile_for_turn=lambda: "app",
-        set_service_tool_profile=Mock(),
+        execution=SimpleNamespace(
+            is_service_linked=lambda: True,
+            tool_profile_for_turn=lambda: "app",
+            set_service_tool_profile=Mock(),
+        ),
     )
     choose = AsyncMock(return_value="api")
     monkeypatch.setattr(
@@ -874,7 +880,7 @@ async def test_helix_mode_changes_filter_only_for_linked_runtime(
 
     assert action is DispatchAction.HANDLED
     choose.assert_awaited_once_with(runtime, "app")
-    mind.set_service_tool_profile.assert_called_once_with("api")
+    mind.execution.set_service_tool_profile.assert_called_once_with("api")
     state.invalidate_workspace.assert_called_once_with()
     result = next(view for view in views if view.type == "tui.helix.status")
     assert "".join(
@@ -1686,7 +1692,7 @@ async def test_helix_link_result_is_committed_to_tui(
 ) -> None:
     views = []
     mind = SimpleNamespace(
-        is_service_mcp_linked=lambda: False,
+        execution=SimpleNamespace(is_service_linked=lambda: False),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -1719,8 +1725,10 @@ async def test_helix_link_switches_profile_without_restarting(
     monkeypatch,
 ) -> None:
     mind = SimpleNamespace(
-        is_service_mcp_linked=lambda: True,
-        set_service_tool_profile=Mock(),
+        execution=SimpleNamespace(
+            is_service_linked=lambda: True,
+            set_service_tool_profile=Mock(),
+        ),
     )
     prepare = AsyncMock()
     monkeypatch.setattr(helix, "prepare_tui_service_runtime", prepare)
@@ -1728,14 +1736,14 @@ async def test_helix_link_switches_profile_without_restarting(
     linked = await helix.link_helix_runtime(mind, "api")
 
     assert linked is True
-    mind.set_service_tool_profile.assert_called_once_with("api")
+    mind.execution.set_service_tool_profile.assert_called_once_with("api")
     prepare.assert_not_awaited()
 
 
 @pytest.mark.anyio
 async def test_helix_home_opens_only_when_already_linked(monkeypatch) -> None:
     mind = SimpleNamespace(
-        is_service_mcp_linked=lambda: True,
+        execution=SimpleNamespace(is_service_linked=lambda: True),
         service_runtime=SimpleNamespace(
             manager=SimpleNamespace(url="http://127.0.0.1:9000"),
         ),
@@ -1751,7 +1759,9 @@ async def test_helix_home_opens_only_when_already_linked(monkeypatch) -> None:
 
 @pytest.mark.anyio
 async def test_helix_home_does_not_start_an_unlinked_runtime() -> None:
-    mind = SimpleNamespace(is_service_mcp_linked=lambda: False)
+    mind = SimpleNamespace(
+        execution=SimpleNamespace(is_service_linked=lambda: False),
+    )
 
     with pytest.raises(AppError, match="Helix MCP is not connected"):
         await helix.open_helix_home(mind)
@@ -1821,7 +1831,7 @@ async def test_helix_runtime_download_does_not_start_or_link(monkeypatch) -> Non
     ensure = AsyncMock(return_value=True)
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
-        link_service_mcp=Mock(),
+        execution=SimpleNamespace(link_service=Mock()),
     )
     monkeypatch.setattr(helix, "ensure_service_runtime_asset", ensure)
 
@@ -1835,7 +1845,7 @@ async def test_helix_runtime_download_does_not_start_or_link(monkeypatch) -> Non
         ensure.await_args.kwargs["progress"],
         helix.TuiUpgradeProgress,
     )
-    mind.link_service_mcp.assert_not_called()
+    mind.execution.link_service.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -1893,7 +1903,7 @@ async def test_helix_stop_commits_one_final_status(error, expected) -> None:
     stop_runtime = AsyncMock(side_effect=error)
     mind = SimpleNamespace(
         service_runtime=SimpleNamespace(stop=stop_runtime),
-        unlink_service_mcp=Mock(),
+        execution=SimpleNamespace(unlink_service=Mock()),
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
             application=SimpleNamespace(emit=views.append),
@@ -1918,7 +1928,7 @@ async def test_helix_stop_commits_one_final_status(error, expected) -> None:
     statuses = [view for view in views if view.type == "tui.helix.status"]
     assert len(statuses) == 1
     assert statuses[0].renderable.plain_text == expected
-    mind.unlink_service_mcp.assert_called_once_with()
+    mind.execution.unlink_service.assert_called_once_with()
     stop_runtime.assert_awaited_once_with()
 
 

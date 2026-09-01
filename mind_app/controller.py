@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import copy
 import time
 import typing
 import asyncio
 from pathlib import Path
 from infrastructure.platform.animation import AsyncAnimManager
-from infrastructure.errors import AppError
 from infrastructure.config.preferences import Preferences
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.session import ConfigSession
@@ -23,7 +21,6 @@ from agent.domain.policies import (
     PermissionSettings,
     resolve_permissions
 )
-from agent.harness.mcp.owner import McpRuntimeOwner
 from observability.reporting import RunReport
 from observability import (
     observe,
@@ -32,12 +29,8 @@ from observability import (
 from infrastructure.services.runtime_owner import ServiceRuntimeOwner
 from infrastructure.services.turn_environment import capture_turn_environment
 from protocol.client.reports import EventReportRuntimeOwner
+from agent.harness.execution.resources import ExecutionResources
 from agent.harness.sessions.root import RootConversationSession
-from agent.domain.tool_policy import ToolFilterMode
-from infrastructure.mcp.local_tool_factory import (
-    build_builtin_tool_registry,
-    build_client_tool_registry,
-)
 from agent.stores.approvals.permissions import PermissionGrantStore
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.stores.approvals.ledger import ApprovalCallLedger
@@ -79,36 +72,16 @@ from infrastructure.persistence.conversation_history import (
 )
 from infrastructure.config.hooks import HookManager
 from agent.ports import (
-    McpRuntime,
-    McpSessionPort,
     SubscriptionHost,
     SubscriptionRuntime,
-    BeforeToolSession,
-    ExternalToolGroupPort,
-    ToolRegistryPort,
-    ToolRuntimePort,
-    ToolRuntimeSources,
 )
 
-SessionResult = typing.TypeVar("SessionResult")
 CleanupResult = typing.TypeVar("CleanupResult")
-
-
-def _unconfigured_mcp_runtime() -> McpRuntime:
-    """返回明确配置错误，禁止控制器隐式构造具体 MCP 实现。"""
-    raise RuntimeError("MCP runtime factory is required")
 
 
 def _unconfigured_subscription_runtime(_host: SubscriptionHost) -> SubscriptionRuntime:
     """返回明确配置错误，禁止入口隐式构造订阅实现。"""
     raise RuntimeError("subscription runtime factory is required")
-
-
-def _normalize_tool_profile(value: str) -> ToolFilterMode:
-    """校验并返回服务工具配置。"""
-    if value not in {"app", "api"}:
-        raise ValueError(f"Invalid Helix tool profile: {value}")
-    return value
 
 
 def _observe_approval_snapshot_failure(
@@ -207,13 +180,9 @@ class Mind(object):
         transcripts: ConversationTranscriptStore = (
             kwargs.get("transcript_store") or ConversationTranscriptStore()
         )
-        self.event_reporting = EventReportRuntimeOwner(
+        event_reporting = EventReportRuntimeOwner(
             pool=kwargs.get("event_report_pool"),
         )
-        self.subagent_turn_runner = TurnRunner(
-            self,
-        )
-        self.subagent_cleanup = self
         subagent_session_factory: OutputSessionFactory = kwargs[
             "subagent_session_factory"
         ]
@@ -267,6 +236,36 @@ class Mind(object):
             ),
         )
         self.permission_grants = PermissionGrantStore()
+
+        mcp_runtime_builder = self.runtime_services.create_mcp_runtime
+        external_runtime_factory = (
+            (lambda: mcp_runtime_builder(self))
+            if callable(mcp_runtime_builder)
+            else None
+        )
+        self.execution = ExecutionResources(
+            event_reporting=event_reporting,
+            tool_runtime_builder=self.runtime_services.create_tool_runtime,
+            client_registry_factory=(
+                lambda: self.runtime_services.create_client_tool_registry(
+                    self.workspace_runtime.coding,
+                    image_reader=self.workspace_runtime.image_reader,
+                    execution_policy=self.workspace_runtime.execution_policy,
+                    subagent_runtime=self.subagents,
+                    approval_coordinator=self.approval_coordinator,
+                    features=self.features,
+                )
+            ),
+            builtin_registry_factory=(
+                lambda: self.runtime_services.create_builtin_tool_registry(
+                    approval_coordinator=self.approval_coordinator,
+                    permission_grants=self.permission_grants,
+                    features=self.features,
+                )
+            ),
+            external_runtime_factory=external_runtime_factory,
+            await_cleanup=self.await_cleanup,
+        )
         history = LocalConversationHistory(
             history_store,
             existing_transcript_path_for=transcripts.existing_path_for_session,
@@ -295,13 +294,15 @@ class Mind(object):
             session_lifecycle=self.session_lifecycle,
             subagent_shutdown=lambda sid: self.subagents.shutdown_root(sid),
             hook_session_cleanup=self.hooks.cleanup_session,
-            execution_session_cleanup=(
-                self.workspace_runtime.coding.close_js_repl_session
-            ),
+            execution_session_cleanup=(lambda sid: (
+                self.workspace_runtime.coding.close_js_repl_session(sid)
+            )),
             command_hook_cleanup=self.command_hook_sessions.clear_root,
-            event_session_close=self.event_reporting.close_session,
+            event_session_close=self.execution.event_reporting.close_session,
             await_cleanup=self.await_cleanup,
         )
+        self.subagent_turn_runner = TurnRunner(self.execution)
+        self.subagent_cleanup = self.conversation
 
         subagent_runtime = kwargs.get("subagent_runtime")
         if subagent_runtime is None:
@@ -318,16 +319,16 @@ class Mind(object):
                     else None
                 ),
                 transcript_factory=self.conversation.transcript_factory,
-                cleanup=self,
+                cleanup=self.conversation,
                 patch_preview=self.workspace_runtime.coding.preview_patch,
                 skills_provider=self._skills_provider,
                 transcript_path_for=self.conversation.transcript_path_for_session,
                 transcript_entries_for=(
                     lambda path: transcripts.reader(path).read()
                 ),
-                session_cleanup=(
-                    self.workspace_runtime.coding.close_js_repl_session
-                ),
+                session_cleanup=(lambda sid: (
+                    self.workspace_runtime.coding.close_js_repl_session(sid)
+                )),
                 graph_store=(
                     kwargs.get("agent_graph_store")
                     or AgentGraphStore(
@@ -338,22 +339,6 @@ class Mind(object):
                 ),
             )
         self.subagents: SubagentRuntime = subagent_runtime
-
-        self.service_exec_env: typing.Optional[dict[str, typing.Any]] = None
-
-        mcp_runtime_builder = getattr(
-            self.runtime_services,
-            "create_mcp_runtime",
-            None,
-        )
-        if callable(mcp_runtime_builder):
-            self.external_mcp = McpRuntimeOwner(
-                runtime_factory=lambda: mcp_runtime_builder(self),
-            )
-        else:
-            self.external_mcp = McpRuntimeOwner(
-                runtime_factory=_unconfigured_mcp_runtime,
-            )
         self.service_runtime = ServiceRuntimeOwner()
 
         subscription_factory = getattr(
@@ -368,23 +353,6 @@ class Mind(object):
             runtime_factory=subscription_factory,
         )
 
-        self.client_tools: ToolRegistryPort = self._build_client_tools()
-        self.builtin_tools: ToolRegistryPort = self._build_builtin_tools()
-        self.service_mcp_linked: bool = False
-        self.service_tool_profile: ToolFilterMode | None = None
-
-        tool_runtime_builder = self.runtime_services.create_tool_runtime
-        if not callable(tool_runtime_builder):
-            raise TypeError("tool runtime factory is required")
-        self.tool_runtime: ToolRuntimePort = tool_runtime_builder(
-            ToolRuntimeSources(
-                client_registry=lambda: self.client_tools,
-                builtin_registry=lambda: self.builtin_tools,
-                external_group=self._current_external_tool_group,
-                service_linked=self.is_service_mcp_linked,
-            )
-        )
-
         self.exit_code: int = 0
 
         observe(
@@ -392,7 +360,7 @@ class Mind(object):
             run_id=getattr(self.report, "run_id", None),
             workspace=self.history_workspace,
             animate=self.animate,
-            client_tools=len(self.client_tools.list_tools().tools),
+            client_tools=self.execution.client_tool_count(),
         )
 
     @property
@@ -420,57 +388,6 @@ class Mind(object):
                 await task
             raise
 
-    def _build_client_tools(self) -> ToolRegistryPort:
-        """按当前工作区构建客户端工具注册表。"""
-        return build_client_tool_registry(
-            self.workspace_runtime.coding,
-            image_reader=self.workspace_runtime.image_reader,
-            execution_policy=self.workspace_runtime.execution_policy,
-            subagent_runtime=self.subagents,
-            approval_coordinator=self.approval_coordinator,
-            features=self.features,
-        )
-
-    def _build_builtin_tools(self) -> ToolRegistryPort:
-        """按当前能力开关构建核心内置工具注册表。"""
-        return build_builtin_tool_registry(
-            approval_coordinator=self.approval_coordinator,
-            permission_grants=self.permission_grants,
-            features=self.features,
-        )
-
-    def link_service_mcp(
-        self,
-        exec_env: typing.Optional[dict[str, typing.Any]] = None,
-        *,
-        tool_profile: ToolFilterMode = "app"
-    ) -> None:
-        """把本地服务 MCP 挂入当前工具会话。"""
-        normalized = _normalize_tool_profile(tool_profile)
-
-        self.service_mcp_linked = True
-        self.service_tool_profile = normalized
-
-        self.service_exec_env = (
-            copy.deepcopy(exec_env)
-            if isinstance(exec_env, dict)
-            else None
-        )
-        observe(
-            "helix.linked",
-            tool_profile=normalized,
-            exec_env=bool(self.service_exec_env),
-        )
-
-    def set_service_tool_profile(self, tool_profile: ToolFilterMode) -> None:
-        """切换已经挂载的服务工具配置。"""
-        if not self.service_mcp_linked:
-            raise AppError("Helix MCP is not linked")
-
-        normalized = _normalize_tool_profile(tool_profile)
-        self.service_tool_profile = normalized
-        observe("helix.tool_profile.changed", tool_profile=normalized)
-
     def set_history_workspace(self, workspace: typing.Any) -> str:
         """更新 history 使用的真实工作区根目录。"""
         normalized = normalize_workspace(workspace)
@@ -480,45 +397,11 @@ class Mind(object):
             self.history_workspace = normalized
 
             self.command_hook_sessions.clear()
-            self.client_tools  = self._build_client_tools()
+            self.execution.rebuild_client_registry()
 
             observe("workspace.changed", workspace=self.history_workspace)
 
         return self.history_workspace
-
-    def unlink_service_mcp(self) -> None:
-        """从当前工具会话移除本地服务 MCP，不停止后台进程。"""
-        was_linked = self.service_mcp_linked
-
-        self.service_mcp_linked = False
-        self.service_tool_profile = None
-        self.service_exec_env = None
-
-        if was_linked:
-            observe("helix.unlinked")
-
-    def is_service_mcp_linked(self) -> bool:
-        """判断当前工具会话是否挂载本地服务 MCP。"""
-        return bool(self.service_mcp_linked)
-
-    def _current_external_tool_group(self) -> ExternalToolGroupPort | None:
-        """返回当前外部 MCP runtime 已发布的工具组。"""
-        runtime = self.external_mcp.current
-        return runtime.group if runtime is not None else None
-
-    def tool_profile_for_turn(self) -> ToolFilterMode | None:
-        """返回当前模型请求使用的服务工具配置。"""
-        if not self.service_mcp_linked:
-            return None
-        if self.service_tool_profile is None:
-            raise AppError("Helix tool profile is not selected")
-        return self.service_tool_profile
-
-    def service_exec_env_snapshot(self) -> dict[str, typing.Any] | None:
-        """返回本地服务运行时环境快照。"""
-        if not isinstance(self.service_exec_env, dict):
-            return None
-        return copy.deepcopy(self.service_exec_env)
 
     @property
     def workspace_root(self) -> str:
@@ -616,11 +499,8 @@ class Mind(object):
                 await approval_coordinator.close()
             self.command_hook_sessions.clear()
             await self.hooks.close()
-            await self.event_reporting.close()
-
             await self.workspace_runtime.close()
-
-            await self.external_mcp.close()
+            await self.execution.close()
             await self.service_runtime.close()
         except BaseException as error:
             observe_exception("runtime.close.failed", error)
@@ -703,26 +583,6 @@ class Mind(object):
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_compact_status(snapshot)
         return None
-
-    async def with_mcp_session(
-        self,
-        pref_config: dict[str, typing.Any],
-        function: typing.Callable[
-            [
-                McpSessionPort,
-                list[dict[str, typing.Any]],
-            ],
-            typing.Awaitable[SessionResult],
-        ],
-        before_user_flow: BeforeToolSession | None = None,
-    ) -> SessionResult:
-        """通过工具运行时建立会话并执行回调。"""
-        return await self.tool_runtime.with_session(
-            pref_config,
-            function,
-            before_user_flow=before_user_flow
-        )
-
 
 if __name__ == '__main__':
     pass

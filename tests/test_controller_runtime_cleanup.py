@@ -81,25 +81,6 @@ def _root_session(
     )
 
 
-def test_controller_tracks_helix_tool_profile_with_link_state() -> None:
-    controller = Mind.__new__(Mind)
-    controller.service_mcp_linked = False
-    controller.service_tool_profile = None
-    controller.service_exec_env = None
-
-    Mind.link_service_mcp(controller, {"paths": ["helix"]})
-
-    assert Mind.tool_profile_for_turn(controller) == "app"
-    assert controller.service_exec_env == {"paths": ["helix"]}
-
-    Mind.set_service_tool_profile(controller, "api")
-    assert Mind.tool_profile_for_turn(controller) == "api"
-
-    Mind.unlink_service_mcp(controller)
-    assert Mind.tool_profile_for_turn(controller) is None
-    assert controller.service_tool_profile is None
-
-
 def test_controller_rebuilds_workspace_tools_after_runtime_replacement(
     tmp_path,
 ) -> None:
@@ -107,17 +88,15 @@ def test_controller_rebuilds_workspace_tools_after_runtime_replacement(
     controller.history_workspace = str(tmp_path / "previous")
     controller.workspace_runtime = SimpleNamespace(replace=Mock())
     controller.command_hook_sessions = SimpleNamespace(clear=Mock())
-    client_tools = object()
-    controller._build_client_tools = Mock(return_value=client_tools)
+    controller.execution = SimpleNamespace(rebuild_client_registry=Mock())
 
     workspace = Mind.set_history_workspace(controller, tmp_path / "current")
 
     normalized = controller.workspace_runtime.replace.call_args.args[0]
     assert workspace == normalized
     assert controller.history_workspace == normalized
-    assert controller.client_tools is client_tools
     controller.command_hook_sessions.clear.assert_called_once_with()
-    controller._build_client_tools.assert_called_once_with()
+    controller.execution.rebuild_client_registry.assert_called_once_with()
 
 
 def test_controller_keeps_workspace_when_runtime_replacement_fails(
@@ -130,14 +109,14 @@ def test_controller_keeps_workspace_when_runtime_replacement_fails(
         replace=Mock(side_effect=RuntimeError("replace failed")),
     )
     controller.command_hook_sessions = SimpleNamespace(clear=Mock())
-    controller._build_client_tools = Mock()
+    controller.execution = SimpleNamespace(rebuild_client_registry=Mock())
 
     with pytest.raises(RuntimeError, match="replace failed"):
         Mind.set_history_workspace(controller, tmp_path / "current")
 
     assert controller.history_workspace == previous
     controller.command_hook_sessions.clear.assert_not_called()
-    controller._build_client_tools.assert_not_called()
+    controller.execution.rebuild_client_registry.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -196,14 +175,11 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
     controller.hooks = SimpleNamespace(
         close=lambda: step("hooks"),
     )
-    controller.event_reporting = SimpleNamespace(
-        close=lambda: step("event_reporting"),
-    )
     controller.workspace_runtime = SimpleNamespace(
         close=lambda: step("workspace_runtime"),
     )
-    controller.external_mcp = SimpleNamespace(
-        close=lambda: step("external_mcp"),
+    controller.execution = SimpleNamespace(
+        close=lambda: step("execution"),
     )
 
     await Mind.close_runtime_resources(controller)
@@ -214,9 +190,8 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
         "subagents",
         "command_hooks",
         "hooks",
-        "event_reporting",
         "workspace_runtime",
-        "external_mcp",
+        "execution",
         "service_runtime",
     ]
 

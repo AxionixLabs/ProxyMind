@@ -12,6 +12,18 @@ from agent.protocol.json_value import JsonValue
 from observability import observe_exception
 
 
+class ServiceToolEnvironmentPort(typing.Protocol):
+    """描述环境快照读取本地服务工具状态所需的最小端口。"""
+
+    def is_service_linked(self) -> bool:
+        """返回当前工具会话是否包含本地服务。"""
+        ...
+
+    def service_exec_env_snapshot(self) -> dict[str, typing.Any] | None:
+        """返回当前本地服务环境的独立快照。"""
+        ...
+
+
 class TurnEnvironmentHost(typing.Protocol):
     """描述环境快照适配器所需的最小运行宿主。
 
@@ -21,14 +33,7 @@ class TurnEnvironmentHost(typing.Protocol):
 
     history_workspace: str
     runtime_services: RuntimeServices
-
-    def is_service_mcp_linked(self) -> bool:
-        """返回当前工具会话是否包含 Helix 服务。"""
-        ...
-
-    def service_exec_env_snapshot(self) -> dict[str, typing.Any] | None:
-        """返回当前 Helix 服务环境的独立快照。"""
-        ...
+    execution: ServiceToolEnvironmentPort
 
 
 def capture_active_turn_environment(
@@ -51,8 +56,8 @@ def capture_turn_environment(
 ) -> dict[str, JsonValue] | None:
     """聚合宿主环境提供者并调用应用环境快照用例。"""
     providers: dict[str, Mapping[str, JsonValue]] = {}
-    if host.is_service_mcp_linked():
-        service_environment = host.service_exec_env_snapshot()
+    if host.execution.is_service_linked():
+        service_environment = host.execution.service_exec_env_snapshot()
         if service_environment is not None:
             if not isinstance(service_environment, Mapping):
                 raise TypeError("service environment snapshot must be an object")

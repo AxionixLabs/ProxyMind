@@ -64,6 +64,19 @@ class HelixServiceRuntimePort(typing.Protocol):
         ...
 
 
+class HelixToolLinkPort(typing.Protocol):
+    """描述服务启动完成后链接工具会话所需的端口。"""
+
+    def link_service(
+        self,
+        exec_env: dict[str, typing.Any] | None = None,
+        *,
+        tool_profile: ToolFilterMode = "app",
+    ) -> None:
+        """把已就绪服务链接到后续工具会话。"""
+        ...
+
+
 class HelixRuntimeHost(typing.Protocol):
     """描述 Helix 前台启动编排所需的最小宿主。
 
@@ -72,6 +85,7 @@ class HelixRuntimeHost(typing.Protocol):
     """
 
     service_runtime: HelixServiceRuntimePort
+    execution: HelixToolLinkPort
 
     async def start_inbuild_startup_anim(
         self,
@@ -94,15 +108,6 @@ class HelixRuntimeHost(typing.Protocol):
         awaitable: Awaitable[typing.Any],
     ) -> typing.Any:
         """在调用方取消时仍等待清理完成。"""
-        ...
-
-    def link_service_mcp(
-        self,
-        exec_env: dict[str, typing.Any] | None = None,
-        *,
-        tool_profile: ToolFilterMode = "app",
-    ) -> None:
-        """把已就绪服务链接到当前工具会话。"""
         ...
 
 
@@ -248,7 +253,7 @@ async def prepare_and_start_service_runtime(
             label=label,
             defer_activity_stop=defer_activity_stop,
         )
-        mind.link_service_mcp(
+        mind.execution.link_service(
             await fetch_service_exec_env(),
             tool_profile=tool_profile,
         )

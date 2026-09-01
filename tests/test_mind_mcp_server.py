@@ -69,8 +69,10 @@ def _environment_snapshot(
 def _runtime(mind: typing.Any, turn_runner: AsyncMock) -> MindMcpRuntime:
     """使用指定根轮次用例构造 MCP 测试运行时。"""
     mind.runtime_services = _runtime_services()
-    mind.is_service_mcp_linked = Mock(return_value=False)
-    mind.service_exec_env_snapshot = Mock(return_value=None)
+    mind.execution = SimpleNamespace(
+        is_service_linked=Mock(return_value=False),
+        service_exec_env_snapshot=Mock(return_value=None),
+    )
     return MindMcpRuntime(
         mind,
         report=SimpleNamespace(close=Mock()),
@@ -276,7 +278,9 @@ async def test_mind_mcp_runtime_injects_model_capability(
     captured: dict[str, typing.Any] = {}
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
-        external_mcp=SimpleNamespace(start=AsyncMock()),
+        execution=SimpleNamespace(
+            external_mcp=SimpleNamespace(start=AsyncMock()),
+        ),
         conversation=_conversation(),
         close_runtime_resources=AsyncMock(),
     )
@@ -330,8 +334,10 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         runtime_services=_runtime_services(),
-        is_service_mcp_linked=Mock(return_value=False),
-        service_exec_env_snapshot=Mock(return_value=None),
+        execution=SimpleNamespace(
+            is_service_linked=Mock(return_value=False),
+            service_exec_env_snapshot=Mock(return_value=None),
+        ),
         set_history_workspace=Mock(),
         conversation=_conversation(
             reset=AsyncMock(return_value=metadata),
@@ -400,8 +406,10 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         runtime_services=_runtime_services(),
-        is_service_mcp_linked=Mock(return_value=False),
-        service_exec_env_snapshot=Mock(return_value=None),
+        execution=SimpleNamespace(
+            is_service_linked=Mock(return_value=False),
+            service_exec_env_snapshot=Mock(return_value=None),
+        ),
         set_history_workspace=Mock(),
         conversation=_conversation(
             reset=AsyncMock(return_value=metadata),

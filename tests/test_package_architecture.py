@@ -1330,7 +1330,7 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
 
 
 def test_tool_runtime_is_composed_at_process_root() -> None:
-    """确保组合工具运行时由唯一组合根创建，旧应用只消费端口。"""
+    """确保组合根注入工具实现且执行资源拥有动态会话状态。"""
     reverse_imports = _forbidden_module_imports(
         "mind_app",
         {"infrastructure.mcp.tool_runtime"},
@@ -1343,14 +1343,30 @@ def test_tool_runtime_is_composed_at_process_root() -> None:
     controller = (
         PROJECT_ROOT / "mind_app" / "controller.py"
     ).read_text(encoding="utf-8-sig")
+    resources = (
+        PROJECT_ROOT / "agent" / "harness" / "execution" / "resources.py"
+    ).read_text(encoding="utf-8-sig")
     runtime = (
         PROJECT_ROOT / "infrastructure" / "mcp" / "tool_runtime.py"
     ).read_text(encoding="utf-8-sig")
 
     assert "def create_tool_runtime(" in composition
     assert "create_tool_runtime=create_tool_runtime" in composition
-    assert "ToolRuntimeSources(" in controller
+    assert "create_client_tool_registry=build_client_tool_registry" in composition
+    assert "create_builtin_tool_registry=build_builtin_tool_registry" in composition
+    assert "ToolRuntimeSources(" in resources
+    assert "ToolRuntimeSources(" not in controller
     assert "CompositeToolRuntime" not in controller
+    assert "build_client_tool_registry" not in controller
+    assert "build_builtin_tool_registry" not in controller
+    assert "def with_mcp_session(" not in controller
+    assert "def link_service_mcp(" not in controller
+    assert "def unlink_service_mcp(" not in controller
+    assert "def is_service_mcp_linked(" not in controller
+    assert "self.external_mcp" not in controller
+    assert "self.client_tools" not in controller
+    assert "self.builtin_tools" not in controller
+    assert "self.event_reporting" not in controller
     assert "ClientToolProvider" not in runtime
     assert "BuiltinToolProvider" not in runtime
     assert "ExternalMcpProvider" not in runtime
@@ -5195,9 +5211,10 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.harness.sessions.conversation",
         "agent.harness.sessions.root",
         "agent.harness.subscription.owner",
-        "agent.harness.execution.subagent_runner",
-        "agent.harness.execution.subagent_submission",
-        "agent.harness.execution.turn_runner",
+            "agent.harness.execution.subagent_runner",
+            "agent.harness.execution.subagent_submission",
+            "agent.harness.execution.resources",
+            "agent.harness.execution.turn_runner",
         "agent.harness.execution.turn_finalizer",
         "agent.harness.tools.client_calls",
         "agent.harness.tools.plan_calls",

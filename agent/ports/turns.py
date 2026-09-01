@@ -116,7 +116,7 @@ class TurnEventReportHandle(typing.Protocol):
 
 
 class TurnEventReportingPort(typing.Protocol):
-    """定义轮次获取事件报告租约所需的端口。"""
+    """定义应用生命周期内事件报告租约的获取与释放端口。"""
 
     async def acquire(
         self,
@@ -126,6 +126,20 @@ class TurnEventReportingPort(typing.Protocol):
         lifetime: EventReportLifetime,
     ) -> TurnEventReportHandle:
         """获取当前轮次使用的事件报告租约。"""
+        ...
+
+    async def close_session(
+        self,
+        cid: str,
+        sid: str,
+        *,
+        drain: bool = True,
+    ) -> None:
+        """关闭指定根会话持有的报告资源。"""
+        ...
+
+    async def close(self) -> None:
+        """关闭所有报告资源并阻止后续租约创建。"""
         ...
 
 

@@ -51,7 +51,7 @@ flowchart LR
 | 源边界 | 目标边界 | 导入文件数 | 导入语句数 | 证据文件 |
 | --- | --- | ---: | ---: | --- |
 | `agent` | `metadata` | 4 | 4 | `agent/application/approvals/policy.py`<br>`agent/application/turns/exception_text.py`<br>`agent/capabilities/process.py`<br>`agent/domain/hooks.py` |
-| `agent` | `observability` | 18 | 18 | `agent/adapters/agents/messages.py`<br>`agent/adapters/protocol/approval_events.py`<br>`agent/adapters/protocol/tool_events.py`<br>`agent/adapters/protocol/turn_stream.py`<br>`agent/composition.py`<br>`agent/harness/agents/control.py`<br>`agent/harness/execution/compaction.py`<br>`agent/harness/execution/subagent_runner.py`<br>`agent/harness/execution/turn_finalizer.py`<br>`agent/harness/execution/turn_runner.py`<br>`agent/harness/hooks/registry.py`<br>`agent/harness/hooks/runtime.py`<br>`agent/harness/hooks/scope.py`<br>`agent/harness/hooks/session_lifecycle.py`<br>`agent/harness/sessions/root.py`<br>`agent/harness/tools/client_calls.py`<br>`agent/harness/tools/plan_execution.py`<br>`agent/stores/agents/graph.py` |
+| `agent` | `observability` | 19 | 19 | `agent/adapters/agents/messages.py`<br>`agent/adapters/protocol/approval_events.py`<br>`agent/adapters/protocol/tool_events.py`<br>`agent/adapters/protocol/turn_stream.py`<br>`agent/composition.py`<br>`agent/harness/agents/control.py`<br>`agent/harness/execution/compaction.py`<br>`agent/harness/execution/resources.py`<br>`agent/harness/execution/subagent_runner.py`<br>`agent/harness/execution/turn_finalizer.py`<br>`agent/harness/execution/turn_runner.py`<br>`agent/harness/hooks/registry.py`<br>`agent/harness/hooks/runtime.py`<br>`agent/harness/hooks/scope.py`<br>`agent/harness/hooks/session_lifecycle.py`<br>`agent/harness/sessions/root.py`<br>`agent/harness/tools/client_calls.py`<br>`agent/harness/tools/plan_execution.py`<br>`agent/stores/agents/graph.py` |
 | `agent` | `protocol` | 32 | 55 | `agent/adapters/agents/messages.py`<br>`agent/adapters/protocol/approval_events.py`<br>`agent/adapters/protocol/client.py`<br>`agent/adapters/protocol/compaction.py`<br>`agent/adapters/protocol/model_events.py`<br>`agent/adapters/protocol/tool_events.py`<br>`agent/adapters/protocol/tool_results.py`<br>`agent/adapters/protocol/turn_interrupts.py`<br>`agent/adapters/protocol/turn_setup.py`<br>`agent/adapters/protocol/turn_stream.py`<br>`agent/application/agents/thread.py`<br>`agent/application/approvals/models.py`<br>`agent/application/approvals/policy.py`<br>`agent/application/tools/javascript.py`<br>`agent/application/turns/context.py`<br>`agent/application/turns/execution.py`<br>`agent/application/turns/lifecycle.py`<br>`agent/application/turns/stream_boundaries.py`<br>`agent/application/views/approval.py`<br>`agent/application/views/builders/approval.py`<br>`agent/capabilities/environment.py`<br>`agent/domain/agents.py`<br>`agent/domain/policies.py`<br>`agent/harness/agents/delivery.py`<br>`agent/harness/sessions/conversation.py`<br>`agent/harness/sessions/root.py`<br>`agent/ports/agent_messages.py`<br>`agent/ports/subagents.py`<br>`agent/ports/turns.py`<br>`agent/stores/agents/graph.py`<br>`agent/stores/agents/mailbox.py`<br>`agent/stores/sessions/history.py` |
 | `build` | `infrastructure` | 1 | 2 | `build.py` |
 | `build` | `metadata` | 1 | 1 | `build.py` |
@@ -67,10 +67,10 @@ flowchart LR
 | `infrastructure` | `protocol` | 8 | 10 | `infrastructure/mcp/local_session.py`<br>`infrastructure/persistence/conversation_history.py`<br>`infrastructure/persistence/transcripts.py`<br>`infrastructure/services/licensing.py`<br>`infrastructure/services/remote_services.py`<br>`infrastructure/services/server_manager.py`<br>`infrastructure/services/tool_result_enhancement.py`<br>`infrastructure/update/runtime.py` |
 | `mind` | `agent` | 1 | 11 | `mind.py` |
 | `mind` | `frontends` | 1 | 7 | `mind.py` |
-| `mind` | `infrastructure` | 1 | 13 | `mind.py` |
+| `mind` | `infrastructure` | 1 | 14 | `mind.py` |
 | `mind` | `mind_app` | 1 | 1 | `mind.py` |
-| `mind_app` | `agent` | 1 | 21 | `mind_app/controller.py` |
-| `mind_app` | `infrastructure` | 1 | 12 | `mind_app/controller.py` |
+| `mind_app` | `agent` | 1 | 20 | `mind_app/controller.py` |
+| `mind_app` | `infrastructure` | 1 | 10 | `mind_app/controller.py` |
 | `mind_app` | `observability` | 1 | 2 | `mind_app/controller.py` |
 | `mind_app` | `protocol` | 1 | 1 | `mind_app/controller.py` |
 | `observability` | `metadata` | 1 | 1 | `observability/reporting.py` |

@@ -303,8 +303,8 @@ def helix_runtime_home_url(mind: "Mind") -> str:
 
 def unlink_helix_runtime(mind: "Mind") -> None:
     """从当前工具会话移除 Helix MCP，不停止本地服务。"""
-    was_linked = mind.is_service_mcp_linked()
-    mind.unlink_service_mcp()
+    was_linked = mind.execution.is_service_linked()
+    mind.execution.unlink_service()
 
     if not was_linked:
         render_helix_notice(mind, "Helix MCP already unlinked")
@@ -382,7 +382,7 @@ async def choose_helix_tool_profile(
 
 async def open_helix_home(mind: "Mind") -> str | None:
     """打开已经连接的服务管理首页。"""
-    if not mind.is_service_mcp_linked():
+    if not mind.execution.is_service_linked():
         raise AppError("Helix MCP is not connected")
 
     url = helix_runtime_home_url(mind)
@@ -397,7 +397,7 @@ async def stop_helix_runtime(mind: "Mind") -> None:
         await runtime.begin_operation_status(
             lambda: {"summary": "Helix MCP stopping"},
         )
-    mind.unlink_service_mcp()
+    mind.execution.unlink_service()
     await mind.service_runtime.stop()
 
 
@@ -438,8 +438,8 @@ async def link_helix_runtime(
     download_confirmed: bool = False
 ) -> bool:
     """确认本地服务已经启动，并挂载到当前工具会话。"""
-    if mind.is_service_mcp_linked():
-        mind.set_service_tool_profile(tool_profile)
+    if mind.execution.is_service_linked():
+        mind.execution.set_service_tool_profile(tool_profile)
         return True
 
     return await prepare_tui_service_runtime(

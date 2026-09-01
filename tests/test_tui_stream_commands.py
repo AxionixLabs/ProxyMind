@@ -340,8 +340,10 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
-        is_service_mcp_linked=lambda: False,
-        external_mcp=SimpleNamespace(current=None),
+        execution=SimpleNamespace(
+            is_service_linked=lambda: False,
+            external_mcp=SimpleNamespace(current=None),
+        ),
         stop_anim=AsyncMock(),
         await_cleanup=lambda awaitable: awaitable,
     )
@@ -443,7 +445,9 @@ async def test_stream_settings_settle_before_queued_model_turn(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
         apply_permissions=Mock(return_value=updated_permissions),
-        external_mcp=SimpleNamespace(current=None),
+        execution=SimpleNamespace(
+            external_mcp=SimpleNamespace(current=None),
+        ),
         stop_anim=AsyncMock(),
     )
 
@@ -540,7 +544,9 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
-        external_mcp=SimpleNamespace(current=None),
+        execution=SimpleNamespace(
+            external_mcp=SimpleNamespace(current=None),
+        ),
         stop_anim=AsyncMock(),
     )
 
@@ -629,8 +635,10 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
-        is_service_mcp_linked=lambda: False,
-        external_mcp=SimpleNamespace(current=None),
+        execution=SimpleNamespace(
+            is_service_linked=lambda: False,
+            external_mcp=SimpleNamespace(current=None),
+        ),
         stop_anim=AsyncMock(),
         await_cleanup=lambda awaitable: awaitable,
     )
@@ -721,7 +729,9 @@ async def test_idle_mcp_start_commits_result_before_next_query(
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
-        external_mcp=SimpleNamespace(current=None),
+        execution=SimpleNamespace(
+            external_mcp=SimpleNamespace(current=None),
+        ),
         stop_anim=AsyncMock(),
     )
 

@@ -6,7 +6,11 @@ import typing
 from pathlib import Path
 from observability import observe_exception
 from agent.application.turns.commands import TurnApplication
-from agent.application.services import RuntimeServices
+from agent.application.services import (
+    BuiltinToolRegistryBuilder,
+    ClientToolRegistryBuilder,
+    RuntimeServices,
+)
 from agent.application.services import SkillsConfigReader
 from agent.application.tools.execution import ToolExecutionAdapter
 from agent.ports import (
@@ -100,6 +104,8 @@ def create_runtime_services(
     *,
     effect_journal_path: str | Path,
     create_hook_registry: HookRegistryFactory,
+    create_client_tool_registry: ClientToolRegistryBuilder,
+    create_builtin_tool_registry: BuiltinToolRegistryBuilder,
     create_tool_runtime: ToolRuntimeBuilder,
     tool_execution: ToolExecutionAdapter,
     create_mcp_runtime: McpRuntimeBuilder | None = None,
@@ -120,6 +126,8 @@ def create_runtime_services(
         ),
         tool_execution=tool_execution,
         create_hook_registry=create_hook_registry,
+        create_client_tool_registry=create_client_tool_registry,
+        create_builtin_tool_registry=create_builtin_tool_registry,
         create_tool_runtime=create_tool_runtime,
         create_mcp_runtime=create_mcp_runtime,
         create_subscription_runtime=create_subscription_runtime,

@@ -149,7 +149,7 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 ### 最新证据
 
-截至 2026-09-01，本切片已完成：
+截至 2026-09-02，本切片已完成：
 
 - Interaction 职责拆分与 TUI 显式端口注入扩展回归：`1651 passed`；先行定向回归
   `262 passed`，端口注入专项回归 `147 passed`。
@@ -187,7 +187,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `95 passed`，工具上下文与结果链路 `63 passed`，架构专项 `3 passed, 2 warnings`。
 - 外部 MCP runtime/adapters 第二批已完成：新增工具注册表、外部工具组、动态来源和
   runtime 组合端口，Composite session、tool catalog、tool runtime 迁入
-  `infrastructure/mcp`；Controller 只创建 `ToolRuntimeSources`，具体实现由 `mind.py` 注入。
+  `infrastructure/mcp`；当前由 `ExecutionResources` 创建并持有 `ToolRuntimeSources`，具体
+  registry/runtime builders 由 `mind.py` 注入。
   工具会话回归 `26 + 81 + 35 passed`，Turn/Subagent `51 passed`，工具结果/权限
   `70 passed`，CLI/TUI/清理 `39 + 123 passed`，架构专项 `5 passed, 2 warnings`。
 - MCP 结果与展示职责已收口：SDK `CallToolResult` 归一化迁入
@@ -197,7 +198,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `70 passed`，架构专项 `4 passed, 2 warnings`。
 - 本地工具契约与注册状态已完成第一步收口：`ToolHandlerContext`、`ClientTool` 和
   `BuiltinTool` 归 `agent/application/tools`，唯一 `ToolRegistry` 归
-  `infrastructure/mcp/local_tool_registry.py`；Controller 只依赖 `ToolRegistryPort`，四个旧
+  `infrastructure/mcp/local_tool_registry.py`；当前只有 `ExecutionResources` 依赖
+  `ToolRegistryPort`，四个旧
   types/registry 模块和包级兼容导出已删除。工具/权限/Turn 回归 `270 passed`，前端并行
   改动回归 `1813 passed`；完整架构守卫 `106 passed / 2 stale assertions`，修正后职责专项
   `5 passed, 3 warnings`，导入图、`compileall` 和差异检查通过。
@@ -326,6 +328,13 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - 本次根会话/历史/Transcript 最终回归分组 `378 passed`；本地历史真实组合及故障路径
   `12 passed`；CLI/MCP `112 passed`、TUI 启动/监听 `40 passed`、Subscription/Agent
   `42 passed`。
+- Turn 执行资源所有权已从 Controller 拆出：`agent/harness/execution/resources.py` 单一持有
+  动态 client/builtin registry、外部 MCP owner、Helix 工具链接档位、不可变执行环境快照、
+  Composite tool runtime 和事件报告关闭生命周期。Controller 删除八个同义方法及对应状态，
+  CLI、TUI、stdio MCP、环境采集与根/子 Turn 全部显式消费 `execution`；具体 registry 和
+  runtime builders 仍只由 `mind.py` 注入。定向联合回归 `376 passed`，资源专项补充后
+  `33 passed`；完整架构守卫 `122 passed / 1 stale allowlist`，修正后失败节点、资源归属和
+  baseline `3 passed`。导入图、`compileall` 和差异检查通过。
 - 组合根切片定向回归：`76 passed`；新增组合/架构守卫：`4 passed`。
 - Helix 生命周期适配器定向回归：`6 passed`；完整架构守卫：`77 passed, 52 warnings`。
 - Helix 适配器迁移后的导入图已重新生成并通过 `--check`；跨边界循环仍为零。
@@ -434,9 +443,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。`mind_app/runtime` 已源码清零，
-   Hook 管理以及 Session/history/Transcript/SessionEnd 所有权已迁出；下一步拆分
-   `mind_app/controller.py` 剩余的工具注册与服务连接资源、偏好/权限刷新和前端资源生命周期，
-   再将纯组合职责提升到 `mind.py`。每次迁移都要完成入口切换和旧实现删除，禁止整体改名搬运。
+   Hook 管理、Session/history/Transcript/SessionEnd 以及 Turn 工具执行资源所有权已迁出；
+   下一步拆分 `mind_app/controller.py` 剩余的偏好/权限刷新和前端资源生命周期，再将纯组合
+   职责提升到 `mind.py`。每次迁移都要完成入口切换和旧实现删除，禁止整体改名搬运。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
 删除、架构守卫和 `compileall` 证据。任一条件不足时只更新本计划，不创建空目录。

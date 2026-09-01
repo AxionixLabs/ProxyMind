@@ -176,7 +176,7 @@ async def test_print_available_tools_uses_external_original_names() -> None:
 
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
-        with_mcp_session=with_mcp_session,
+        execution=SimpleNamespace(with_mcp_session=with_mcp_session),
     )
 
     await print_available_tools(mind, pref_config={})

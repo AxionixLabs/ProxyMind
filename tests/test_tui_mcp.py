@@ -35,6 +35,11 @@ def _external_mcp_owner(runtime=None, **operations):
     return SimpleNamespace(current=runtime, **methods)
 
 
+def _execution(owner):
+    """构造持有外部 MCP 的执行资源测试替身。"""
+    return SimpleNamespace(external_mcp=owner)
+
+
 @pytest.mark.anyio
 async def test_mcp_menu_keeps_complete_actions_without_configuration(monkeypatch) -> None:
     runtime = _Runtime()
@@ -124,9 +129,9 @@ def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
                 "zentao": {"command": "zentao-server"},
             },
         }),
-        external_mcp=_external_mcp_owner(
+        execution=_execution(_external_mcp_owner(
             SimpleNamespace(started=True, group=group),
-        ),
+        )),
     )
 
     summary = mcp.summarize_external_runtime(mind)
@@ -163,7 +168,7 @@ def test_parse_mcp_command(command, expected) -> None:
 async def test_force_uses_start_when_runtime_is_not_running(monkeypatch) -> None:
     owner = _external_mcp_owner()
     mind = SimpleNamespace(
-        external_mcp=owner,
+        execution=_execution(owner),
     )
     await mcp.run_mcp_action(mind, "force")
 
@@ -185,7 +190,7 @@ async def test_mcp_cancellation_is_rendered_as_interrupted() -> None:
 
     owner = _external_mcp_owner(start=start_runtime)
     mind = SimpleNamespace(
-        external_mcp=owner,
+        execution=_execution(owner),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -222,7 +227,7 @@ async def test_mcp_stop_commits_compact_final_status(started, expected) -> None:
         SimpleNamespace(started=True) if started else None,
     )
     mind = SimpleNamespace(
-        external_mcp=owner,
+        execution=_execution(owner),
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
             application=SimpleNamespace(emit=views.append),
@@ -252,7 +257,7 @@ async def test_mcp_stop_failure_has_stop_specific_status() -> None:
         close=AsyncMock(side_effect=AppError("cleanup failed")),
     )
     mind = SimpleNamespace(
-        external_mcp=owner,
+        execution=_execution(owner),
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
             application=SimpleNamespace(emit=views.append),
@@ -299,7 +304,7 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
         close=stop_runtime,
     )
     mind = SimpleNamespace(
-        external_mcp=owner,
+        execution=_execution(owner),
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
             application=SimpleNamespace(emit=views.append),
@@ -369,9 +374,9 @@ def test_external_mcp_start_result_is_committed_to_tui(
 ) -> None:
     views = []
     mind = SimpleNamespace(
-        external_mcp=_external_mcp_owner(
+        execution=_execution(_external_mcp_owner(
             SimpleNamespace(last_start_snapshot=snapshot),
-        ),
+        )),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -401,9 +406,9 @@ def test_partial_external_mcp_failure_is_not_bold() -> None:
     }
     views = []
     mind = SimpleNamespace(
-        external_mcp=_external_mcp_owner(
+        execution=_execution(_external_mcp_owner(
             SimpleNamespace(last_start_snapshot=snapshot),
-        ),
+        )),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -425,7 +430,7 @@ def test_partial_external_mcp_failure_is_not_bold() -> None:
 def test_mcp_force_result_keeps_activity_prefix() -> None:
     views = []
     mind = SimpleNamespace(
-        external_mcp=_external_mcp_owner(SimpleNamespace(
+        execution=_execution(_external_mcp_owner(SimpleNamespace(
             last_start_snapshot={
                 "done": True,
                 "items": [{
@@ -436,7 +441,7 @@ def test_mcp_force_result_keeps_activity_prefix() -> None:
                     "filtered": 0,
                 }],
             },
-        )),
+        ))),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),

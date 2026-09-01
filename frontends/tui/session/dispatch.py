@@ -903,7 +903,7 @@ class TuiCommandDispatcher(object):
         wait_for_download: bool = True,
     ) -> None:
         """选择并应用后续模型轮次使用的 Helix 工具过滤模式。"""
-        if not self.mind.is_service_mcp_linked():
+        if not self.mind.execution.is_service_linked():
             render_helix_notice(
                 self.mind,
                 "Helix MCP is not connected",
@@ -916,7 +916,7 @@ class TuiCommandDispatcher(object):
         ):
             return None
 
-        current = self.mind.tool_profile_for_turn()
+        current = self.mind.execution.tool_profile_for_turn()
         if current is None:
             render_helix_notice(
                 self.mind,
@@ -930,7 +930,7 @@ class TuiCommandDispatcher(object):
                 self._present()
             return None
 
-        self.mind.set_service_tool_profile(selected)
+        self.mind.execution.set_service_tool_profile(selected)
         render_helix_mode_result(self.mind, selected)
         self.state.invalidate_workspace()
 
@@ -945,7 +945,7 @@ class TuiCommandDispatcher(object):
         wait_for_completion: bool = True,
     ) -> None:
         """准备运行时并打开当前已连接的 Helix 首页。"""
-        if not self.mind.is_service_mcp_linked():
+        if not self.mind.execution.is_service_linked():
             render_helix_notice(
                 self.mind,
                 "Helix MCP is not connected",
@@ -1208,7 +1208,7 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "helix_stop"):
-            if not self.mind.is_service_mcp_linked():
+            if not self.mind.execution.is_service_linked():
                 render_helix_notice(
                     self.mind,
                     "Helix MCP is not connected",

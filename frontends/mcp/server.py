@@ -69,10 +69,16 @@ class _ExternalMcpStarter(typing.Protocol):
         ...
 
 
+class _McpExecutionResources(typing.Protocol):
+    """描述 stdio MCP 启动外部工具所需的执行资源。"""
+
+    external_mcp: _ExternalMcpStarter
+
+
 class McpApplicationHost(typing.Protocol):
     """描述 stdio MCP 前端执行会话所需的最小应用宿主。"""
 
-    external_mcp: _ExternalMcpStarter
+    execution: _McpExecutionResources
     history_workspace: str
     permissions: PermissionSettings
     conversation: RootConversationPort
@@ -288,7 +294,7 @@ class MindMcpRuntime(object):
             service_endpoints.configure(
                 await ServiceConfig(config_session).load_domain()
             )
-            await mind.external_mcp.start()
+            await mind.execution.external_mcp.start()
             turn_application = runtime_services.create_turn_application(
                 agent_runtime_db_path()
             )

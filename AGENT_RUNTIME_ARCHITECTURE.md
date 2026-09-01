@@ -1,6 +1,6 @@
 # Agent Harness 架构基线
 
-状态：已采纳（Architecture Decision Record）；阶段 4 已完成，阶段 5 进行中（2026-08-31）
+状态：已采纳（Architecture Decision Record）；阶段 4 已完成，阶段 5 进行中（2026-09-02）
 
 这份文档是 ProxyMind 下一代 Agent Harness 的目标架构。它解决的是
 `mind_app`、`mind_core`、`mind_nova` 和 `engine` 四个历史包职责交叉、状态所有权不清和
@@ -214,6 +214,7 @@ agent/
 │   │   └── registry.py      # 根会话 control 注册、恢复和关闭生命周期
 │   ├── execution/           # Run/Subagent 执行与接管协调
 │   │   ├── actor.py         # 一个 Run 的串行状态执行器
+│   │   ├── resources.py     # 动态工具、MCP 和事件报告的进程级执行资源所有者
 │   │   ├── subagent_runner.py # 子 Agent Hook 生命周期和续跑协调
 │   │   └── subagent_submission.py # 已分配提交的上下文、执行和 mailbox 确认协调
 │   └── sessions/            # Session 单写者和生命周期所有者
@@ -556,7 +557,8 @@ running -> cancelled
 | 当前位置 | 目标归属 | 迁移要求 |
 | --- | --- | --- |
 | `mind.py`、`agent/composition.py` | `composition.py` | `mind.py` 已创建单个 `RuntimeServices` 并注入全部进程入口；根轮次 runner 在组合根绑定 Model/Protocol/Effect 能力，具体 store 和 capability 只能在 `agent/composition.py` 装配 |
-| `mind_app/controller.py` | 迁移期应用宿主 | 只借用入口注入的 `RuntimeServices` 与 `FrontendPort`；Hook 配置/执行作用域已由独立管理器拥有，附件、静默输出、审批和完成投影均由 `mind.py` 注入；剩余 Session、历史、工具资源和前端生命周期必须按完整用例迁出，不能整体改名 |
+| `mind_app/controller.py` | 迁移期应用宿主 | 只借用入口注入的 `RuntimeServices` 与 `FrontendPort`；Hook、根会话/history/Transcript 和 Turn 执行资源均已有独立所有者，附件、静默输出、审批和完成投影由 `mind.py` 注入；剩余偏好/权限状态与前端资源生命周期必须按完整用例迁出，不能整体改名 |
+| `mind_app/controller.py` 中的 registry、外部 MCP、Helix 工具链接、执行环境与事件报告资源 | `agent/harness/execution/resources.py::ExecutionResources` + `RuntimeServices` builders | Harness 单一持有动态工具来源和关闭生命周期，只依赖 ports；`mind.py` 注入 client/builtin registry、Composite runtime 和外部 MCP builders。前端、环境采集和根/子 Turn 显式消费 `execution`，Controller 不保留同义方法、状态字段或具体 infrastructure factory 导入 |
 | 已删除的 `mind_app/runtime/turns/root.py` | `agent/harness/execution/root_runner.py` + `agent/application/turns/commands.py` + `agent/adapters/turns/root.py` | CLI、TUI、MCP 和 Subscription 由类型化 Command 驱动；入站映射归 adapter，根轮次准备、前台执行与模型会话编排归 Harness。runner 只消费 `RootTurnSessionPort` 与 `TurnExecutionRuntimePort`，不导入 Controller、基础设施或前端 |
 | `mind_app/runtime/turns/root.py` 的前台轮次编排 | `agent/application/turns/foreground.py` + `agent/ports/frontend.py` + `agent/ports/presentation.py::TurnForegroundLifecyclePort` | application 只编排执行、完成和清理顺序并适配稳定 Activity/Frontend 端口；worked footer renderer 由 `mind.py` 注入，runtime root 与 Controller 都不导入具体前端 |
 | 已删除的 `mind_app/runtime/turns/stream.py` | `agent/adapters/protocol/turn_stream.py`、`model_request.py`、`turn_interrupts.py` + `agent/application/turns/retry_status.py` | `mind.chat` 事件路由、模型请求和稳定控制命令归 Protocol adapter，重试展示合并归 application；主适配器低于 800 行，不接收无意义宿主参数，不读取基础设施路径。模型、控制、无参效果账本工厂和输出工厂由组合根显式绑定并贯穿 continuation |
@@ -631,7 +633,7 @@ running -> cancelled
 | `mind_app/mcp/`、`mind_app/runtime/mcp/` | `infrastructure/mcp/`、`agent/application/tools/catalog.py`、`agent/domain/tool_policy.py` | MCP 配置、SDK 参数、网络预检、连接生命周期、多来源工具会话和 SDK 结果归一化属于基础设施 adapter；纯目录查询归 application，进度支持规则归 domain，进度投递归工具执行编排。动态来源通过 `ToolRuntimeSources` 在 Turn 开始时冻结，具体 runtime 只由 `mind.py` 组合；旧 MCP runtime 源目录完全退役且不保留 facade |
 | `mind_app/runtime/tools/display.py`、`progress.py`、`enhancement/`、`router.py` 与 `run.py` | `agent/application/views/tool_execution.py`、`infrastructure/mcp/tool_invocation.py`、`tool_execution.py` 与 `infrastructure/services/tool_result_enhancement.py` | 工具开始/结果/进度只生成 application view；MCP SDK 调用、结果归一化和 Hook 响应适配归 MCP infrastructure；heal license、协议流和结果增强归 services adapter。旧展示、增强和 router/run 模块同次删除；Harness 后续只接收稳定端口结果，不导入 MCP SDK 或具体远端客户端 |
 | `mind_app/runtime/tools/client_call.py`、`plan_call.py`、`plan_steps.py` | `agent/application/tools/execution.py`、`agent/harness/tools/`、`infrastructure/mcp/tool_execution.py` | application 声明 SDK-free 执行结果、客户端结果信封和执行 adapter；Harness 持有单次工具、效果日志、计划和展示生命周期；MCP infrastructure 独占 SDK 调用、结果归一化及嵌套 JSON 投影。具体 adapter 由 `mind.py` 注入 `RuntimeServices` 并供根 Turn 与 Subagent 共用；旧工具源包整体删除，不保留 facade |
-| `mind_app/client_tools/types.py`、`registry.py`、`result.py` 与 `mind_app/builtin_tools/types.py`、`registry.py` | `agent/application/tools/context.py`、`definitions.py`、`results.py` 与 `infrastructure/mcp/local_tool_registry.py` | 工具定义、调用级依赖和不可变 JSON 结果属于 application 契约，不构造 MCP SDK 对象；唯一注册表在基础设施边界完成 MCP schema/result 适配，强制单个实例只接收 client 或 builtin 一种来源，并校验结果身份。Controller 只保存 `ToolRegistryPort`，能力包不再持有第二套状态或兼容导出 |
+| `mind_app/client_tools/types.py`、`registry.py`、`result.py` 与 `mind_app/builtin_tools/types.py`、`registry.py` | `agent/application/tools/context.py`、`definitions.py`、`results.py` 与 `infrastructure/mcp/local_tool_registry.py` | 工具定义、调用级依赖和不可变 JSON 结果属于 application 契约，不构造 MCP SDK 对象；唯一注册表在基础设施边界完成 MCP schema/result 适配，强制单个实例只接收 client 或 builtin 一种来源，并校验结果身份。`ExecutionResources` 通过 `ToolRegistryPort` 持有动态实例，Controller 不再保存 registry |
 | `mind_app/client_tools/planning.py`、`update_plan.py` | `agent/application/tools/planning.py`、`plan_update.py` | 计划 schema、输入校验、稳定结果和工具描述是无 IO 的 application 能力；运行计划的工具调用、Hook、展示和耗时仍由执行编排持有，不把副作用迁入 application |
 | `mind_app/client_tools/view_image.py` | `agent/application/tools/media.py`、`agent/ports/media.py`、`infrastructure/platform/images.py` | 图片工具定义和结果投影归 application；工作区绑定、阻塞文件读取、大小限制、格式识别和编码归平台 adapter。`WorkspaceRuntimeOwner` 与编码/策略资源一起原子替换读取器，工具工厂不得自行解析工作区或执行同步文件 IO |
 | `mind_app/builtin_tools/permissions.py` | `agent/application/tools/permissions.py`、`agent/domain/permission_profiles.py`、`agent/ports/permissions.py` | `request_permissions` schema、审批与授权用例归 application；权限对象规范化、交并、覆盖和稳定键归 domain；状态写入只通过显式 grant port。应用工具不得导入具体 store、旧 coding schema 或 wire client 异常 |
@@ -639,7 +641,7 @@ running -> cancelled
 | `mind_app/client_tools/subagents.py` | `agent/application/tools/subagents.py`、`agent/ports/subagents.py`、`agent/domain/agents.py` | 八个 Agent 控制工具的 schema、输入校验和结果投影归 application，只通过 `SubagentControlPort` 调用 Harness；Agent 树、mailbox、并发和执行状态仍由 Harness/store 持有，消息长度约束由 domain 单一声明 |
 | `mind_app/client_tools/coding/schemas.py` 与 `native.py` 中的 `apply_patch` 用例 | `agent/application/tools/coding_schemas.py`、`patching.py`、`execution_results.py` 与 `agent/ports/patching.py` | Coding schema 和工具结果投影归 application；工作区补丁用例只消费 `WorkspacePatchPort`，由工作区绑定的编码实现持有文件修改与 Turn 差异状态。旧 schema 和补丁 handler 同步删除；尚未迁移的进程/REPL 编排不得把 MCP SDK、审批协调器或执行策略具体实现带入 application |
 | `mind_app/client_tools/coding/native.py` 中的 `shell_command`、`exec_command`、`write_stdin` 用例与 infrastructure 中的 sandbox 参数规则 | `agent/application/tools/processes.py`、`agent/ports/process_tools.py`、`agent/domain/execution_policy/sandbox.py` | 三个进程工具的 schema 选择、参数门禁、结果投影归 application，只通过工作区进程端口执行；沙箱覆盖的规范化、组合校验和有效模式是纯 domain 规则。工作区进程、Sandbox sidecar 和会话表仍由具体实现持有，JS REPL 的嵌套 MCP/审批编排仍留待独立迁移 |
-| `mind_app/client_tools/coding/native.py` 中的 JS REPL 用例与 `client_tools/factory.py` | `agent/application/tools/javascript.py`、`coding.py`，`agent/ports/javascript.py`、`workspace.py`，`infrastructure/mcp/nested_tool_results.py`、`local_tool_factory.py` | REPL 参数门禁、嵌套执行策略和审批编排归 application；工作区内核只通过 `WorkspaceJavaScriptPort` 执行，嵌套结果在 MCP adapter 边界校验并转换为 SDK-free JSON。客户端与内置工具注册表由 infrastructure 统一适配，Controller 只保存 `ToolRegistryPort`；旧 `mind_app/client_tools` 源包整体删除，不保留聚合兼容入口 |
+| `mind_app/client_tools/coding/native.py` 中的 JS REPL 用例与 `client_tools/factory.py` | `agent/application/tools/javascript.py`、`coding.py`，`agent/ports/javascript.py`、`workspace.py`，`infrastructure/mcp/nested_tool_results.py`、`local_tool_factory.py` | REPL 参数门禁、嵌套执行策略和审批编排归 application；工作区内核只通过 `WorkspaceJavaScriptPort` 执行，嵌套结果在 MCP adapter 边界校验并转换为 SDK-free JSON。客户端与内置工具注册表由 infrastructure 统一适配并由 `ExecutionResources` 持有；旧 `mind_app/client_tools` 源包整体删除，不保留聚合兼容入口 |
 | `mind_app/native_coding/base.py`、`edit/`、`exec/` 与 `native_coding.py` | `agent/domain/patches/`、`infrastructure/workspace/context.py`、`patches/`、`commands/` 与 `runtime.py` | 补丁模型、格式解析和精确 delta 是纯 domain；文件读写、诊断、命令审计、持续进程、用户 Shell、REPL 池和工作区聚合是 infrastructure。`WorkspaceCoding` 实现工作区 ports，`mind.py` 显式注入应用资源根与进程会话；两个无调用者的命令 helper 直接删除，旧 `mind_app/native_coding` 源包整体退役且不保留 facade |
 | `mind_app/native_coding/encoding.py` | `infrastructure/platform/encoding.py` | 进程输出编码探测、规范化和解码是跨能力的平台事实；native coding 只消费平台端口，不拥有第二套解码器 |
 | `mind_app/runtime/processes.py` | `infrastructure/platform/processes.py` | 进程组创建、stdin 收束、树级中断/终止和 Windows/POSIX 差异属于平台生命周期能力 |
