@@ -4,6 +4,7 @@
 import typing
 import asyncio
 from agent.ports import (
+    ApprovalCoordinatorPort,
     ApprovalLedger,
     EffectJournalFactory,
     ExecutionPolicy,
@@ -138,6 +139,7 @@ async def run_tui_loop(
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
     execution_policy: ExecutionPolicy | None = None,
+    approval_coordinator: ApprovalCoordinatorPort | None = None,
     approval_ledger: ApprovalLedger | None = None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -164,6 +166,7 @@ async def run_tui_loop(
             protocol_client=protocol_client,
             effect_journal_factory=effect_journal_factory,
             execution_policy=execution_policy,
+            approval_coordinator=approval_coordinator,
             approval_ledger=approval_ledger,
             session_factory=session_factory,
             transcript_factory=transcript_factory,
@@ -194,6 +197,7 @@ async def _run_tui_loop(
     protocol_client: ProtocolCommandClient | None,
     effect_journal_factory: EffectJournalFactory | None,
     execution_policy: ExecutionPolicy | None,
+    approval_coordinator: ApprovalCoordinatorPort | None,
     approval_ledger: ApprovalLedger | None,
     session_factory: SessionFactory | None,
     transcript_factory: TranscriptFactory | None,
@@ -423,6 +427,7 @@ async def _run_tui_loop(
                 protocol_client=protocol_client,
                 effect_journal_factory=effect_journal_factory,
                 execution_policy=execution_policy,
+                approval_coordinator=approval_coordinator,
                 approval_ledger=approval_ledger,
                 session_factory=session_factory,
                 transcript_factory=transcript_factory,

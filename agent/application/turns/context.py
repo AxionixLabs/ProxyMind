@@ -8,6 +8,7 @@ from dataclasses import (
 )
 from agent.domain.policies import PermissionSettings
 from agent.ports import (
+    ApprovalCoordinatorPort,
     ApprovalLedger,
     ExecutionPolicy,
     PermissionGrantReader,
@@ -170,6 +171,7 @@ class TurnContext:
     cwd: str
     permissions: PermissionSettings
     permission_grants: PermissionGrantReader | None = None
+    approval_coordinator: ApprovalCoordinatorPort | None = None
     execution_policy: ExecutionPolicy | None = None
     approval_ledger: ApprovalLedger | None = None
     transcript_factory: TranscriptFactory | None = None
@@ -197,6 +199,7 @@ class TurnContext:
         cwd: str,
         permissions: PermissionSettings,
         permission_grants: PermissionGrantReader | None = None,
+        approval_coordinator: ApprovalCoordinatorPort | None = None,
         execution_policy: ExecutionPolicy | None = None,
         approval_ledger: ApprovalLedger | None = None,
         transcript_factory: TranscriptFactory | None = None,
@@ -240,6 +243,7 @@ class TurnContext:
             cwd=str(cwd or "").strip(),
             permissions=permissions,
             permission_grants=permission_grants,
+            approval_coordinator=approval_coordinator,
             execution_policy=execution_policy,
             approval_ledger=approval_ledger,
             transcript_factory=transcript_factory,

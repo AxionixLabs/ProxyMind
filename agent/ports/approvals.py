@@ -2,8 +2,29 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from collections.abc import Awaitable, Mapping
 
 __all__ = ("ApprovalLedger", "ApprovalLedgerState")
+
+
+class ApprovalOutcomePort(typing.Protocol):
+    """定义审批协调返回的稳定决定字段。"""
+
+    decision: str
+    source: str
+    reason: str
+
+
+@typing.runtime_checkable
+class ApprovalCoordinatorPort(typing.Protocol):
+    """定义单轮等待用户或策略审批决定的异步端口。"""
+
+    async def request_outcome(
+        self,
+        approval: Mapping[str, typing.Any],
+    ) -> ApprovalOutcomePort:
+        """提交审批请求并返回决定来源和原因。"""
+        ...
 
 ApprovalLedgerState: typing.TypeAlias = typing.Literal[
     "approved",

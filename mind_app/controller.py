@@ -256,6 +256,7 @@ class Mind(object):
                     else None
                 ),
                 execution_policy=self.workspace_runtime.execution_policy,
+                approval_coordinator=self.approval_coordinator,
                 effect_journal_factory=self.runtime_services.create_effect_journal,
                 approval_ledger=(
                     self.approval_call_ledger

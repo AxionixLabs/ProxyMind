@@ -484,6 +484,14 @@ CLI、Subagent 回归 `272 passed`；端口边界专项 `4 passed, 1 warning`，
 `280 passed`；架构专项 `5 passed, 2 warnings`，导入图、`compileall` 和
 `git diff --check` 通过。下一切片收口审批协调器和权限授予依赖。
 
+本次审批协调与权限授予切片已满足上述条件：新增
+`agent.ports.ApprovalCoordinatorPort`、`ApprovalOutcomePort` 和
+`PermissionGrantPort`，通过 `TurnContext` 沿根轮次、TUI、CLI、Subagent 显式传递；
+流式工具和审批处理器不再读取 Controller 的审批协调器或权限存储属性，审批等待、
+本地策略回写和权限授予语义保持不变。核心流式、TUI、Subagent 回归 `123 passed`；
+架构专项 `5 passed, 2 warnings`，导入图、`compileall` 和 `git diff --check` 通过。
+下一切片复核 `stream.py` 的生命周期入口并开始迁移剩余运行时服务依赖。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -604,3 +612,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 新增 `agent.ports.TurnSessionStatePort` 和 `ControllerTurnSessionState`，通过 `TurnContext` 显式注入失败上下文/最近回复写回，删除 `stream.py` 对 `ConversationState` 与 Controller 结果属性的直接访问 | 流式/TUI/CLI/输出/重试/终端动画回归 `280 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `agent.ports.ExecutionPolicy` 及判定结果契约，通过 `TurnContext` 显式注入本地执行策略，删除流式工具/审批处理器对 `WorkspaceRuntime` 策略的直接访问 | 核心流式/TUI/Subagent/权限/执行策略回归 `181 passed`；架构专项 `5 passed, 2 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 扩展 `TurnSessionContextPort` 提供工作区、Hook 告警和持续命令会话，新增 `CommandHookSessionPort`，删除 `stream.py` 对 Controller 会话属性的直接反射 | 流式启动展示/持续命令 Hook/TUI/Subagent 回归 `280 passed`；架构专项 `5 passed, 2 warnings`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 新增 `ApprovalCoordinatorPort`、`ApprovalOutcomePort` 和 `PermissionGrantPort`，通过 `TurnContext` 显式注入审批等待与权限授予，删除流式工具/审批处理器对 Controller 审批和权限属性的直接访问 | 核心流式/TUI/Subagent 回归 `123 passed`；架构专项 `5 passed, 2 warnings`；导入图、`compileall`、`git diff --check` 通过 |

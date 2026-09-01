@@ -24,8 +24,10 @@ from .capabilities import (
     TurnExecutorResult,
 )
 from .approvals import (
+    ApprovalCoordinatorPort,
     ApprovalLedger,
     ApprovalLedgerState,
+    ApprovalOutcomePort,
 )
 from .hooks import (
     CommandHookSessionPort,
@@ -54,7 +56,10 @@ from .persistence import (
     RunRecoveryRequired,
     RunSnapshot,
 )
-from .permissions import PermissionGrantReader
+from .permissions import (
+    PermissionGrantPort,
+    PermissionGrantReader,
+)
 from .agent_messages import (
     AgentIdentity,
     AgentMessageContext,
@@ -126,6 +131,8 @@ from .sessions import (
 __all__ = (
     "ApprovalLedger",
     "ApprovalLedgerState",
+    "ApprovalCoordinatorPort",
+    "ApprovalOutcomePort",
     "CommandHookSessionPort",
     "DeferredCommandHook",
     "EffectIntent",
@@ -157,6 +164,7 @@ __all__ = (
     "RunRecoveryRequired",
     "RunSnapshot",
     "PermissionGrantReader",
+    "PermissionGrantPort",
     "AgentMessageDeliveryPort",
     "AgentMessageContext",
     "AgentIdentity",

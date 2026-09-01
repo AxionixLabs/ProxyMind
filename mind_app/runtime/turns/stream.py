@@ -6,6 +6,7 @@ import typing
 import asyncio
 from collections.abc import Mapping
 from agent.ports import (
+    ApprovalCoordinatorPort,
     ApprovalLedger,
     EffectJournalFactory,
     ExecutionPolicy,
@@ -318,6 +319,9 @@ async def stream_turn(
     execution_policy = turn_context.execution_policy
     if not isinstance(execution_policy, ExecutionPolicy):
         raise RuntimeError("execution policy is required")
+    approval_coordinator = turn_context.approval_coordinator
+    if not isinstance(approval_coordinator, ApprovalCoordinatorPort):
+        raise RuntimeError("approval coordinator is required")
     session_context = turn_context.session_context
     animation = turn_context.animation
     if turn_context.agent.depth == 0 and not isinstance(
@@ -430,9 +434,9 @@ async def stream_turn(
             failure_context_sink=failed_tool_context.extend,
         )
         approval_handler = ApprovalEventHandler(
-            controller=mind,
             turn_context=turn_context,
             execution_policy=execution_policy,
+            approval_coordinator=approval_coordinator,
             tools=tools,
             ledger=approval_ledger,
             coordinator=tool_call_coordinator,
@@ -501,9 +505,9 @@ async def stream_turn(
             tool_call_coordinator=tool_call_coordinator,
         )
         tool_event_handler = ToolEventHandler(
-            controller=mind,
             turn_context=turn_context,
             execution_policy=execution_policy,
+            approval_coordinator=approval_coordinator,
             patch_preview=turn_context.patch_preview,
             tools=tools,
             ledger=approval_ledger,

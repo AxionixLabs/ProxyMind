@@ -14,6 +14,7 @@ from agent.application.turns.commands import (
 )
 from agent.application.services import TurnApplicationFactory
 from agent.ports import (
+    ApprovalCoordinatorPort,
     ApprovalLedger,
     EffectJournalFactory,
     ExecutionPolicy,
@@ -108,6 +109,7 @@ async def run_selected_command(
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
     execution_policy: ExecutionPolicy | None = None,
+    approval_coordinator: ApprovalCoordinatorPort | None = None,
     approval_ledger: ApprovalLedger | None = None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -149,6 +151,7 @@ async def run_selected_command(
                 protocol_client=protocol_client,
                 effect_journal_factory=effect_journal_factory,
                 execution_policy=execution_policy,
+                approval_coordinator=approval_coordinator,
                 approval_ledger=approval_ledger,
                 session_factory=session_factory,
                 transcript_factory=transcript_factory,
@@ -232,6 +235,7 @@ async def run_selected_command(
                 protocol_client=protocol_client,
                 effect_journal_factory=effect_journal_factory,
                 execution_policy=execution_policy,
+                approval_coordinator=approval_coordinator,
                 approval_ledger=approval_ledger,
                 session_factory=session_factory,
                 transcript_factory=transcript_factory,
@@ -281,6 +285,7 @@ async def run_selected_command(
                     protocol_client=protocol_client,
                     effect_journal_factory=effect_journal_factory,
                     execution_policy=execution_policy,
+                    approval_coordinator=approval_coordinator,
                     approval_ledger=approval_ledger,
                     session_factory=session_factory,
                     transcript_factory=transcript_factory,
@@ -329,6 +334,7 @@ async def _run_agent_listener_session(
     protocol_client: ProtocolCommandClient | None,
     effect_journal_factory: EffectJournalFactory | None,
     execution_policy: ExecutionPolicy | None,
+    approval_coordinator: ApprovalCoordinatorPort | None,
     approval_ledger: ApprovalLedger | None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -351,6 +357,7 @@ async def _run_agent_listener_session(
         protocol_client=protocol_client,
         effect_journal_factory=effect_journal_factory,
         execution_policy=execution_policy,
+        approval_coordinator=approval_coordinator,
         approval_ledger=approval_ledger,
         session_factory=session_factory,
         transcript_factory=transcript_factory,
@@ -374,6 +381,7 @@ async def _run_tui_session(
     protocol_client: ProtocolCommandClient | None,
     effect_journal_factory: EffectJournalFactory | None,
     execution_policy: ExecutionPolicy | None,
+    approval_coordinator: ApprovalCoordinatorPort | None,
     approval_ledger: ApprovalLedger | None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -406,6 +414,8 @@ async def _run_tui_session(
             loop_kwargs["effect_journal_factory"] = effect_journal_factory
         if execution_policy is not None:
             loop_kwargs["execution_policy"] = execution_policy
+        if approval_coordinator is not None:
+            loop_kwargs["approval_coordinator"] = approval_coordinator
         if approval_ledger is not None:
             loop_kwargs["approval_ledger"] = approval_ledger
         if session_factory is not None:

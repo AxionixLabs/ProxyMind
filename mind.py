@@ -68,6 +68,7 @@ def bind_root_turn_runner(
             model_capability=model_capability,
             protocol_client=model_capability,
             effect_journal_factory=effect_journal_factory,
+            approval_coordinator=controller.approval_coordinator,
             execution_policy=controller.workspace_runtime.execution_policy,
             approval_ledger=controller.approval_call_ledger,
             session_factory=controller.frontend.session_factory,

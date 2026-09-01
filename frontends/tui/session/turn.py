@@ -9,6 +9,7 @@ from agent.ports.presentation import (
     ApplicationView
 )
 from agent.ports import (
+    ApprovalCoordinatorPort,
     ApprovalLedger,
     EffectJournalFactory,
     ExecutionPolicy,
@@ -217,6 +218,7 @@ async def run_tui_model_turn(
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
     execution_policy: ExecutionPolicy | None = None,
+    approval_coordinator: ApprovalCoordinatorPort | None = None,
     approval_ledger: ApprovalLedger | None = None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -273,6 +275,7 @@ async def run_tui_model_turn(
         attachments=attachment_values,
         extras=extras,
         approval_ledger=approval_ledger,
+        approval_coordinator=approval_coordinator,
         execution_policy=execution_policy,
         transcript_factory=transcript_factory,
         cleanup=cleanup,

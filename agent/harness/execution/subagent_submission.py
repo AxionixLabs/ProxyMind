@@ -15,6 +15,7 @@ from agent.application.turns.context import TurnContext
 from agent.domain.agents import AgentSubmission
 from agent.ports import (
     AgentMessageDeliveryPort,
+    ApprovalCoordinatorPort,
     ApprovalLedger,
     ExecutionPolicy,
     HookExecutionScopePort,
@@ -68,6 +69,7 @@ class SubagentSubmissionExecutor:
         hook_scope_for: HookScopeResolver,
         permission_grants: PermissionGrantReader | None = None,
         execution_policy: ExecutionPolicy | None = None,
+        approval_coordinator: ApprovalCoordinatorPort | None = None,
         approval_ledger: ApprovalLedger | None = None,
         transcript_factory: TranscriptFactory | None = None,
         cleanup: TurnCleanupPort | None = None,
@@ -82,6 +84,7 @@ class SubagentSubmissionExecutor:
         self._hook_scope_for = hook_scope_for
         self._permission_grants = permission_grants
         self._execution_policy = execution_policy
+        self._approval_coordinator = approval_coordinator
         self._approval_ledger = approval_ledger
         self._transcript_factory = transcript_factory
         self._cleanup = cleanup
@@ -114,6 +117,7 @@ class SubagentSubmissionExecutor:
                 permissions=thread.permissions,
                 permission_grants=self._permission_grants,
                 execution_policy=self._execution_policy,
+                approval_coordinator=self._approval_coordinator,
                 approval_ledger=self._approval_ledger,
                 transcript_factory=self._transcript_factory,
                 cleanup=self._cleanup,

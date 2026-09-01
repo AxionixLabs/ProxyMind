@@ -20,7 +20,11 @@ from mind_app.presentation.output import OutputStatusPort
 from mind_app.presentation.approval_views import build_approval_view
 from agent.application.views.contracts import PresentationSink
 from agent.application.views import ApprovalSource
-from agent.ports import ExecutionPolicy
+from agent.ports import (
+    ApprovalCoordinatorPort,
+    ExecutionPolicy,
+    PermissionGrantPort,
+)
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext
@@ -37,10 +41,6 @@ from .stream_policy import (
     apply_local_exec_policy_approval
 )
 from .stream_tools import tool_invocation_from_event
-
-if typing.TYPE_CHECKING:
-    from mind_app.controller import Mind
-
 
 def approval_with_updated_input(
     approval: dict[str, typing.Any],
@@ -122,9 +122,9 @@ class ApprovalEventHandler:
     def __init__(
         self,
         *,
-        controller: "Mind",
         turn_context: TurnContext,
         execution_policy: ExecutionPolicy,
+        approval_coordinator: ApprovalCoordinatorPort,
         tools: list[dict[str, typing.Any]],
         ledger: ApprovalCallLedger,
         coordinator: ToolCallCoordinator,
@@ -133,9 +133,9 @@ class ApprovalEventHandler:
         post_approval: typing.Callable[..., typing.Awaitable[typing.Any]],
     ) -> None:
         """绑定当前轮次拥有的审批依赖。"""
-        self.controller     = controller
         self.turn_context   = turn_context
         self.execution_policy = execution_policy
+        self.approval_coordinator = approval_coordinator
         self.tools          = tools
         self.ledger         = ledger
         self.coordinator    = coordinator
@@ -184,7 +184,7 @@ class ApprovalEventHandler:
             self._add_agent_identity(restored_approval)
 
             restored_outcome = (
-                await self.controller.approval_coordinator.request_outcome(
+                await self.approval_coordinator.request_outcome(
                     restored_approval
                 )
             )
@@ -363,7 +363,7 @@ class ApprovalEventHandler:
         ):
             decision, decision_source = "decline", "policy"
         else:
-            outcome = await self.controller.approval_coordinator.request_outcome(
+            outcome = await self.approval_coordinator.request_outcome(
                 approval
             )
             decision, decision_source = outcome.decision, outcome.source
@@ -550,8 +550,8 @@ class ApprovalEventHandler:
             "grantForSession",
         }:
             return None
-        store = getattr(self.controller, "permission_grants", None)
-        if store is None:
+        store = self.turn_context.permission_grants
+        if not isinstance(store, PermissionGrantPort):
             observe(
                 "approval.permission_grant_unavailable",
                 level="WARNING",

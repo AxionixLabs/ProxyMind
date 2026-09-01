@@ -18,6 +18,7 @@ from protocol.transport.events import EventReport
 from agent.ports import (
     EffectJournalFactory,
     ExecutionPolicy,
+    ApprovalCoordinatorPort,
     McpSessionPort,
     ApprovalLedger,
     ModelCapability,
@@ -92,6 +93,7 @@ class SubagentRuntime:
         model_capability: ModelCapability | None = None,
         protocol_client: ProtocolCommandClient | None = None,
         execution_policy: ExecutionPolicy | None = None,
+        approval_coordinator: ApprovalCoordinatorPort | None = None,
         effect_journal_factory: EffectJournalFactory | None = None,
         approval_ledger: ApprovalLedger | None = None,
         transcript_factory: TranscriptFactory | None = None,
@@ -120,6 +122,7 @@ class SubagentRuntime:
         self._model_capability    = model_capability
         self._protocol_client     = protocol_client
         self._execution_policy    = execution_policy
+        self._approval_coordinator = approval_coordinator
         self._effect_journal_factory = effect_journal_factory
         self._approval_ledger = approval_ledger
         self._transcript_factory = transcript_factory
@@ -146,6 +149,7 @@ class SubagentRuntime:
             ),
             permission_grants=getattr(controller, "permission_grants", None),
             execution_policy=execution_policy,
+            approval_coordinator=approval_coordinator,
             approval_ledger=approval_ledger,
             transcript_factory=transcript_factory,
             cleanup=cleanup,

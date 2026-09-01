@@ -9,6 +9,7 @@ from mind_app.approval.models import ApprovalOutcome
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from agent.ports.transcript import TranscriptSink
 from agent.ports import (
+    ApprovalCoordinatorPort,
     ExecutionPolicy,
     PatchPreviewPort,
 )
@@ -49,11 +50,6 @@ from .stream_policy import (
     local_patch_approval,
     normalize_local_permission_arguments
 )
-
-if typing.TYPE_CHECKING:
-    from mind_app.approval.coordinator import ApprovalCoordinator
-    from mind_app.controller import Mind
-
 
 def tool_invocation_from_event(
     turn_context: TurnContext,
@@ -198,9 +194,9 @@ class ToolEventHandler:
     def __init__(
         self,
         *,
-        controller: "Mind",
         turn_context: TurnContext,
         execution_policy: ExecutionPolicy,
+        approval_coordinator: ApprovalCoordinatorPort,
         patch_preview: PatchPreviewPort | None = None,
         tools: list[dict[str, typing.Any]],
         ledger: ApprovalCallLedger,
@@ -214,9 +210,9 @@ class ToolEventHandler:
         interrupt_turn: typing.Callable[[str], typing.Awaitable[bool]],
     ) -> None:
         """绑定当前轮次拥有的工具执行依赖。"""
-        self.controller     = controller
         self.turn_context   = turn_context
         self.execution_policy = execution_policy
+        self.approval_coordinator = approval_coordinator
         self.patch_preview  = patch_preview
         self.tools          = tools
         self.ledger         = ledger
@@ -425,7 +421,7 @@ class ToolEventHandler:
         invocation: ToolInvocation
     ) -> ToolCallHandlingResult | None:
         """处理本地补丁专用审批，批准时允许继续执行。"""
-        approval_coordinator = self.controller.approval_coordinator
+        approval_coordinator = self.approval_coordinator
 
         patch_approval = local_patch_approval(
             self.patch_preview,
@@ -536,7 +532,7 @@ class ToolEventHandler:
             requirement=requirement,
         )
         local_outcome = (
-            await self.controller.approval_coordinator.request_outcome(
+            await self.approval_coordinator.request_outcome(
                 local_approval
             )
         )

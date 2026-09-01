@@ -7,6 +7,7 @@ from protocol.transport.events import EventReport
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.execution import TurnExecution
 from agent.ports import (
+    ApprovalCoordinatorPort,
     ApprovalLedger,
     EffectJournalFactory,
     ExecutionPolicy,
@@ -67,6 +68,7 @@ async def prepare_root_turn(
     extras: Mapping[str, typing.Any] | None,
     turn_id: str | None,
     approval_ledger: ApprovalLedger | None = None,
+    approval_coordinator: ApprovalCoordinatorPort | None = None,
     execution_policy: ExecutionPolicy | None = None,
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
@@ -98,6 +100,7 @@ async def prepare_root_turn(
         cwd=controller.history_workspace,
         permissions=permissions,
         permission_grants=getattr(controller, "permission_grants", None),
+        approval_coordinator=approval_coordinator,
         execution_policy=execution_policy,
         approval_ledger=approval_ledger,
         transcript_factory=transcript_factory,
@@ -136,6 +139,7 @@ async def run_root_turn(
     model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
+    approval_coordinator: ApprovalCoordinatorPort | None = None,
     execution_policy: ExecutionPolicy | None = None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -176,6 +180,7 @@ async def run_root_turn(
         extras=raw_extras if isinstance(raw_extras, dict) else None,
         turn_id=kwargs.pop("turn_id", None),
         approval_ledger=controller.approval_call_ledger,
+        approval_coordinator=approval_coordinator,
         execution_policy=execution_policy,
         transcript_factory=transcript_factory,
         cleanup=cleanup,
