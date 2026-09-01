@@ -408,6 +408,16 @@ def _mind(
         effect_journal = open_effect_journal(
             Path(effect_directory.name) / "effects.db"
         )
+    stop_anim = AsyncMock()
+
+    async def stop_wait(*, settle: bool = True) -> None:
+        """把轮次动画端口适配到测试 Controller 动作。"""
+        await stop_anim("wait", settle=settle)
+
+    turn_animation = SimpleNamespace(
+        active=frontend_active,
+        stop_wait=stop_wait,
+    )
     return SimpleNamespace(
         report=SimpleNamespace(output_record_path=""),
         transcripts=transcripts,
@@ -423,7 +433,8 @@ def _mind(
             coding=SimpleNamespace(),
             execution_policy=execution_policy,
         ),
-        stop_anim=AsyncMock(),
+        stop_anim=stop_anim,
+        turn_animation=turn_animation,
         freeze_anim=AsyncMock(),
         await_cleanup=await_cleanup,
         remember_last_assistant_reply=remembered.append,
@@ -682,6 +693,7 @@ async def _run_stream(
             None,
         ),
         retry_state=mind.frontend.runtime,
+        animation=mind.turn_animation,
         turn_id="turn_test",
         session_started=session_started,
         session_start_reason="initial" if session_started else "",

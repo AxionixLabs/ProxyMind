@@ -16,6 +16,7 @@ from agent.ports import (
     ProtocolCommandClient,
     PatchPreviewPort,
     RetryStatePort,
+    TurnAnimationPort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -218,6 +219,7 @@ async def run_tui_model_turn(
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,
     retry_state: RetryStatePort | None = None,
+    animation: TurnAnimationPort | None = None,
     on_prompt_prepared: typing.Callable[
         [list[dict[str, typing.Any]]],
         None,
@@ -269,6 +271,7 @@ async def run_tui_model_turn(
         cleanup=cleanup,
         patch_preview=patch_preview,
         retry_state=retry_state,
+        animation=animation,
         turn_id=turn_id,
     )
 

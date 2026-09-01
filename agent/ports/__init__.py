@@ -81,6 +81,7 @@ from .subagents import (
 from .turns import (
     RetryState,
     RetryStatePort,
+    TurnAnimationPort,
     TurnCleanupPort,
     TurnInputEventHandler,
     TurnOperation,
@@ -176,6 +177,7 @@ __all__ = (
     "TurnInputEventHandler",
     "RetryState",
     "RetryStatePort",
+    "TurnAnimationPort",
     "TurnCleanupPort",
     "TurnOperation",
     "TurnResultPort",

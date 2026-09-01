@@ -75,12 +75,27 @@ class RetryStatePort(typing.Protocol):
         ...
 
 
+@typing.runtime_checkable
+class TurnAnimationPort(typing.Protocol):
+    """定义模型轮次等待动画的最小生命周期端口。"""
+
+    @property
+    def active(self) -> bool:
+        """返回前台是否正在接管等待动画。"""
+        ...
+
+    async def stop_wait(self, *, settle: bool = True) -> None:
+        """停止模型轮次等待动画。"""
+        ...
+
+
 __all__ = (
     "TurnInputEventHandler",
     "TurnCleanupPort",
     "TurnOperation",
     "RetryState",
     "RetryStatePort",
+    "TurnAnimationPort",
     "TurnResultPort",
     "TurnResultValue",
 )

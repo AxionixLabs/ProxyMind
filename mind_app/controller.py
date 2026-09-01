@@ -68,6 +68,7 @@ from .presentation.application import (
     Frontend
 )
 from .presentation.terminal.contracts import TerminalDesign
+from .presentation.terminal.animation import TurnAnimationAdapter
 from agent.ports import (
     ApprovalLedger,
     HookRegistryPort,
@@ -166,6 +167,10 @@ class Mind(object):
         self.anim_manager: AsyncAnimManager = kwargs.get("anim_manager") or AsyncAnimManager()
 
         self.animate: bool = bool(kwargs.get("animate", True))
+        self.turn_animation = TurnAnimationAdapter(
+            self.frontend.runtime,
+            self.stop_anim,
+        )
 
         self.design: TerminalDesign | None = kwargs.get("design")
 

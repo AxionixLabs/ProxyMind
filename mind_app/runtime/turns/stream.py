@@ -17,6 +17,7 @@ from agent.ports import (
     TurnCleanupPort,
     ProtocolCommandError,
     RetryState,
+    TurnAnimationPort,
 )
 from agent.protocol import (
     ModelStreamRequest,
@@ -312,6 +313,12 @@ async def stream_turn(
     cleanup = turn_context.cleanup
     if not isinstance(cleanup, TurnCleanupPort):
         raise RuntimeError("turn cleanup port is required")
+    animation = turn_context.animation
+    if turn_context.agent.depth == 0 and not isinstance(
+        animation,
+        TurnAnimationPort,
+    ):
+        raise RuntimeError("turn animation port is required")
 
     prompt_blocked: bool = False
 
@@ -557,9 +564,9 @@ async def stream_turn(
                 )
                 if (
                     turn_context.agent.depth == 0
-                    and not mind.frontend.runtime.active
+                    and not animation.active
                 ):
-                    await mind.stop_anim("wait")
+                    await animation.stop_wait()
                 first_frame = False
 
             event_type = event.type
@@ -594,7 +601,7 @@ async def stream_turn(
                 )
                 if turn_context.agent.depth == 0:
                     await cleanup.await_cleanup(
-                        mind.stop_anim("wait", settle=False)
+                        animation.stop_wait(settle=False)
                     )
                 await run_presentation.emit_failure(
                     "turn.failed",
@@ -656,7 +663,7 @@ async def stream_turn(
                 )
                 if turn_context.agent.depth == 0:
                     await cleanup.await_cleanup(
-                        mind.stop_anim("wait", settle=False)
+                        animation.stop_wait(settle=False)
                     )
                 await run_presentation.emit_failure(
                     "turn.reconciliation_required",
@@ -677,7 +684,7 @@ async def stream_turn(
 
                 if turn_context.agent.depth == 0:
                     await cleanup.await_cleanup(
-                        mind.stop_anim("wait", settle=False)
+                        animation.stop_wait(settle=False)
                     )
                 await status_control.end_status(immediate=True)
 
@@ -770,7 +777,7 @@ async def stream_turn(
             trace_id=error.trace_id,
         )
         if turn_context.agent.depth == 0:
-            await cleanup.await_cleanup(mind.stop_anim("wait"))
+            await cleanup.await_cleanup(animation.stop_wait())
         await run_presentation.emit_failure(
             failure_phase,
         )
@@ -784,7 +791,7 @@ async def stream_turn(
             effect_id=error.effect_id,
         )
         if turn_context.agent.depth == 0:
-            await cleanup.await_cleanup(mind.stop_anim("wait"))
+            await cleanup.await_cleanup(animation.stop_wait())
         await run_presentation.emit_failure("turn.reconciliation_required")
 
     except PromptHookBlockedError as error:
@@ -824,7 +831,7 @@ async def stream_turn(
         )
 
         if turn_context.agent.depth == 0:
-            await cleanup.await_cleanup(mind.stop_anim("wait"))
+            await cleanup.await_cleanup(animation.stop_wait())
 
         await run_presentation.emit_failure("turn.failed")
 
@@ -855,7 +862,7 @@ async def stream_turn(
         )
 
         if turn_context.agent.depth == 0:
-            await cleanup.await_cleanup(mind.stop_anim("wait"))
+            await cleanup.await_cleanup(animation.stop_wait())
 
         await run_presentation.emit_failure("turn.failed")
 

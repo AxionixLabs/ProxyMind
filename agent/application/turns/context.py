@@ -12,6 +12,7 @@ from agent.ports import (
     PermissionGrantReader,
     PatchPreviewPort,
     RetryStatePort,
+    TurnAnimationPort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -171,6 +172,7 @@ class TurnContext:
     cleanup: TurnCleanupPort | None = None
     patch_preview: PatchPreviewPort | None = None
     retry_state: RetryStatePort | None = None
+    animation: TurnAnimationPort | None = None
     output_record_path: str = ""
     transcript_path: str = ""
     parent_transcript_path: str = ""
@@ -194,6 +196,7 @@ class TurnContext:
         cleanup: TurnCleanupPort | None = None,
         patch_preview: PatchPreviewPort | None = None,
         retry_state: RetryStatePort | None = None,
+        animation: TurnAnimationPort | None = None,
         output_record_path: str = "",
         transcript_path: str = "",
         parent_transcript_path: str = "",
@@ -233,6 +236,7 @@ class TurnContext:
             cleanup=cleanup,
             patch_preview=patch_preview,
             retry_state=retry_state,
+            animation=animation,
             output_record_path=str(output_record_path or "").strip(),
             transcript_path=str(transcript_path or "").strip(),
             parent_transcript_path=str(parent_transcript_path or "").strip(),

@@ -20,6 +20,7 @@ from agent.ports import (
     ProtocolCommandClient,
     PatchPreviewPort,
     RetryStatePort,
+    TurnAnimationPort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -109,6 +110,7 @@ async def run_selected_command(
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,
     retry_state: RetryStatePort | None = None,
+    animation: TurnAnimationPort | None = None,
 ) -> RunResult | None:
     """按命令行参数分派到直接执行或交互入口。"""
     if isinstance(command, AgentListenCommand):
@@ -146,6 +148,7 @@ async def run_selected_command(
                 cleanup=cleanup,
                 patch_preview=patch_preview,
                 retry_state=retry_state,
+                animation=animation,
             )
         elif isinstance(command, ExecCommand):
             attachments: list[dict[str, typing.Any]] = []
@@ -225,6 +228,7 @@ async def run_selected_command(
                 cleanup=cleanup,
                 patch_preview=patch_preview,
                 retry_state=retry_state,
+                animation=animation,
             )
         elif isinstance(command, ResumeCommand):
             record = await _select_resume_session(mind, command)
@@ -266,6 +270,11 @@ async def run_selected_command(
                     effect_journal_factory=effect_journal_factory,
                     approval_ledger=approval_ledger,
                     session_factory=session_factory,
+                    transcript_factory=transcript_factory,
+                    cleanup=cleanup,
+                    patch_preview=patch_preview,
+                    retry_state=retry_state,
+                    animation=animation,
                 )
 
     except asyncio.CancelledError:
@@ -310,6 +319,7 @@ async def _run_agent_listener_session(
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,
     retry_state: RetryStatePort | None = None,
+    animation: TurnAnimationPort | None = None,
 ) -> None:
     """在普通 TUI 生命周期内运行临时远端请求监听器。"""
     mind.subscription.start()
@@ -328,6 +338,7 @@ async def _run_agent_listener_session(
         cleanup=cleanup,
         patch_preview=patch_preview,
         retry_state=retry_state,
+        animation=animation,
     )
 
 
@@ -347,6 +358,7 @@ async def _run_tui_session(
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,
     retry_state: RetryStatePort | None = None,
+    animation: TurnAnimationPort | None = None,
 ) -> None:
     """使用现有 TUI 生命周期运行一个交互会话。"""
     from frontends.tui.session.loop import run_tui_loop
@@ -380,6 +392,8 @@ async def _run_tui_session(
             loop_kwargs["patch_preview"] = patch_preview
         if retry_state is not None:
             loop_kwargs["retry_state"] = retry_state
+        if animation is not None:
+            loop_kwargs["animation"] = animation
         await run_tui_loop(mind, **loop_kwargs)
     finally:
         await mind.subscription.close()
