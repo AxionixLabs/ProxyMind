@@ -590,6 +590,14 @@ Subagent、工具、MCP、清理和根入口回归 `167 passed`；架构专项 `
 `167 passed`；架构专项 `4 passed`，导入图、`compileall` 和 `git diff --check` 通过。
 下一切片复核 Turn 流适配器的 Model/Output 端口边界，优先删除其对旧输出实现的直接依赖。
 
+本次 Subagent 输出工厂注入已满足上述条件：`ControllerSubagentExecution` 通过显式
+`SessionFactory` 接收输出会话，删除对 `create_silent_output_session` 的直接选择；Mind
+只在组合根绑定静默输出，未来前端可以注入不同输出实现。Subagent、工具、MCP、清理和
+根入口回归 `167 passed`；Subagent 架构专项 `52 passed, 4 warnings`，导入图、
+`compileall` 和 `git diff --check` 通过。下一切片复核 Turn 流的输出端口定义，评估将
+`OutputControlPort`、`OutputStatusPort` 和 `SessionFactory` 提升到 Agent ports 而不把
+具体 UI 实现带入 Harness。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |

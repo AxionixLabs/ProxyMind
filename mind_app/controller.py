@@ -79,6 +79,7 @@ from .presentation.application import (
     ActivityStatusKind,
     Frontend
 )
+from .presentation.output.silent import create_silent_output_session
 from .presentation.terminal.contracts import TerminalDesign
 from .presentation.terminal.animation import TurnAnimationAdapter
 from .presentation.terminal.turn_lifecycle import (
@@ -221,6 +222,7 @@ class Mind(object):
                 else None
             ),
             effect_journal_factory=self.runtime_services.create_effect_journal,
+            session_factory=create_silent_output_session,
         )
         self.root_turn_session = ControllerRootTurnSession(self)
         self._conversation_lifecycle_id: int = 0

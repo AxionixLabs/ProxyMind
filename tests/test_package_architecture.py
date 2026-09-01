@@ -3099,6 +3099,37 @@ def test_subagent_stream_execution_is_owned_by_adapter() -> None:
     assert not import_violations, "legacy subagent executor imports remain:\n" + "\n".join(import_violations)
 
 
+def test_subagent_turn_adapter_receives_output_factory() -> None:
+    """确保子 Agent Turn 适配器不自行选择具体输出实现。"""
+    target_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "subagent_adapter.py"
+    tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    imported_modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            imported_modules.add(node.module or "")
+
+    assert "mind_app.presentation.output.silent" not in imported_modules
+    execution_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "ControllerSubagentExecution"
+    )
+    init_method = next(
+        node
+        for node in execution_class.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "__init__"
+    )
+    init_arguments = {
+        argument.arg
+        for argument in (*init_method.args.args, *init_method.args.kwonlyargs)
+    }
+    assert "session_factory" in init_arguments
+
+
 def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
     legacy_paths = (

@@ -14,7 +14,7 @@ from agent.ports import (
     TurnExecutionRuntimePort,
     TurnInputEventHandler,
 )
-from mind_app.presentation.output.silent import create_silent_output_session
+from mind_app.presentation.output import SessionFactory
 from mind_app.runtime.turns.executor import execute_turn
 from mind_app.runtime.turns.stream import stream_turn
 from protocol.transport.events import EventReport
@@ -55,12 +55,14 @@ class ControllerSubagentExecution(SubagentExecutionPort):
         model_capability: ModelCapability | None,
         protocol_client: ProtocolCommandClient | None,
         effect_journal_factory: EffectJournalFactory | None,
+        session_factory: SessionFactory,
     ) -> None:
         """绑定模型、协议和效果账本能力。"""
         self._runtime = runtime
         self._model_capability = model_capability
         self._protocol_client = protocol_client
         self._effect_journal_factory = effect_journal_factory
+        self._session_factory = session_factory
 
     async def execute(
         self,
@@ -84,7 +86,7 @@ class ControllerSubagentExecution(SubagentExecutionPort):
             effect_journal_factory=self._effect_journal_factory,
             ev_report=event_report,
             skills=skills,
-            session_factory=create_silent_output_session,
+            session_factory=self._session_factory,
             on_turn_input_event=on_turn_input_event,
         )
 
