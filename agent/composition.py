@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import functools
 import typing
 from pathlib import Path
 from observability import observe_exception
@@ -97,6 +98,7 @@ def open_skills_provider(
 
 def create_runtime_services(
     *,
+    effect_journal_path: str | Path,
     create_hook_registry: HookRegistryFactory,
     create_tool_runtime: ToolRuntimeBuilder,
     tool_execution: ToolExecutionAdapter,
@@ -112,7 +114,10 @@ def create_runtime_services(
         model_capability=open_model_capability(),
         environment_capability=open_environment_capability(),
         create_turn_application=open_turn_application,
-        create_effect_journal=open_effect_journal,
+        create_effect_journal=functools.partial(
+            open_effect_journal,
+            effect_journal_path,
+        ),
         tool_execution=tool_execution,
         create_hook_registry=create_hook_registry,
         create_tool_runtime=create_tool_runtime,

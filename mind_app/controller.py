@@ -56,10 +56,9 @@ from agent.stores.approvals.permissions import PermissionGrantStore
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.harness.agents.runtime import SubagentRuntime
-from .runtime.turns.subagent_adapter import (
-    ControllerSubagentExecution,
-    ControllerSubagentTurnRunner,
-)
+from agent.adapters.agents.execution import StreamSubagentExecution
+from agent.adapters.protocol.subagent_stream import ProtocolSubagentStream
+from agent.harness.execution.turn_runner import TurnRunner
 from .runtime.turns.session_context import (
     ControllerTurnSessionContext,
     ControllerTurnSessionState,
@@ -228,27 +227,26 @@ class Mind(object):
             pool=kwargs.get("event_report_pool"),
         )
         self.turn_execution_runtime = ControllerTurnExecutionRuntime(self)
-        self.subagent_turn_runner = ControllerSubagentTurnRunner(
+        self.subagent_turn_runner = TurnRunner(
             self.turn_execution_runtime,
         )
         self.subagent_cleanup = self
         subagent_session_factory: OutputSessionFactory = kwargs[
             "subagent_session_factory"
         ]
-        self.subagent_execution = ControllerSubagentExecution(
-            self.turn_execution_runtime,
-            model_capability=self.runtime_services.model_capability,
-            protocol_client=(
-                self.runtime_services.model_capability
-                if isinstance(
-                    self.runtime_services.model_capability,
-                    ProtocolCommandClient,
-                )
-                else None
-            ),
-            effect_journal_factory=self.runtime_services.create_effect_journal,
-            tool_execution=self.runtime_services.tool_execution,
-            session_factory=subagent_session_factory,
+        model_capability = self.runtime_services.model_capability
+        if not isinstance(model_capability, ProtocolCommandClient):
+            raise TypeError("subagent protocol client is required")
+        self.subagent_execution = StreamSubagentExecution(
+            ProtocolSubagentStream(
+                model_capability=model_capability,
+                protocol_client=model_capability,
+                effect_journal_factory=(
+                    self.runtime_services.create_effect_journal
+                ),
+                tool_execution=self.runtime_services.tool_execution,
+                session_factory=subagent_session_factory,
+            )
         )
         self.root_turn_session = ControllerRootTurnSession(self)
         self._conversation_lifecycle_id: int = 0

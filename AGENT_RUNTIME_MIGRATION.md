@@ -290,6 +290,12 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `EventReportLifetime` 声明，Hook scope 通过 `HookScopeProviderPort` 解析；Harness 不再导入
   Protocol Client 具体实现或通过 `object` 猜测 Controller。旧 `turns/executor.py` 已删除，
   Turn/stream/Protocol/Subagent 扩展回归 `204 passed`，职责守卫 `4 passed, 2 warnings`。
+- Turn 协议流已完成整体归位：旧 `stream.py` 拆为 Protocol 主适配器、模型请求和稳定中断
+  命令，provider/transport 重试状态归 application，idle 调度归 Harness。效果账本路径在组合根
+  绑定，流适配器只接收无参 factory；未使用的 lifecycle owner 参数和旧
+  `subagent_adapter.py` 同批删除，子轮次复用 `TurnRunner`、`ProtocolSubagentStream` 与通用
+  `StreamSubagentExecution`。主流回归 `215 passed`，Controller/根 Turn/Subagent 联合
+  `144 passed`，职责守卫 `7 passed, 2 warnings`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：本轮全量扫描 `109 passed, 4 stale assertions, 66 warnings`；陈旧断言
@@ -404,8 +410,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。当前先收敛仅剩的
-   `mind_app/runtime/turns` 与 Controller 组合职责；Turn executor 已归 Harness，下一步拆分
-   `stream.py` 的模型循环、工具循环和协议路由，保持每次迁移都有完整入口和旧路径删除。
+   `mind_app/runtime/turns` 与 Controller 组合职责；Turn executor、协议 stream 和 Subagent
+   适配器已归位，下一步迁移根 Turn runner 及三个 Controller 会话适配器，保持每次迁移都有
+   完整入口和旧路径删除。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
 删除、架构守卫和 `compileall` 证据。任一条件不足时只更新本计划，不创建空目录。
@@ -441,6 +448,11 @@ Transcript 回读均有回归覆盖。
 和 observability，报告生命周期不再从 Protocol Client 反向导入，Hook scope provider 经过
 运行时结构校验并统一降级。根 Turn、Subagent、provider retry、协议事件、终态清理和报告池
 复用回归均通过；旧 executor 文件、生产导入和相对导入清零，并由职责守卫锁定。
+
+本次 Turn 协议流切片的删除条件已满足：Protocol adapter 目录不依赖 infrastructure、旧应用
+或前端，模型请求在边界校验坐标、metadata 和环境快照；效果账本 factory 不暴露数据库路径，
+idle timer 不再伪装为平台能力。根与子 Turn 共用同一 stream，Stop continuation 复用全部绑定
+能力；旧 stream、旧 Subagent 适配器、旧 idle 路径和生产导入清零，主适配器行数由守卫限制。
 
 本次 media 切片的删除条件已满足：应用工具只消费 `ImageReaderPort`，具体文件读取器由
 `mind.py` 注入并由 `WorkspaceRuntimeOwner` 随工作区统一替换；旧 `view_image.py`、旧导入和
@@ -975,6 +987,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 将 Turn 协议流拆入 Protocol/Application/Harness，组合根绑定效果账本路径，删除无意义 lifecycle owner、旧 stream 和旧 Subagent 适配器 | 主流 `215 passed`；Controller/根 Turn/Subagent `144 passed`；职责守卫 `7 passed, 2 warnings`；`compileall`、旧导入扫描通过 |
 | 2026-09-02 | 将 Turn 执行器迁入 Harness，以事件报告生命周期和 Hook scope provider 端口消除 Protocol Client/Controller 反向依赖，并删除旧 executor | Turn/stream/Protocol/Subagent `204 passed`；职责守卫 `4 passed, 2 warnings`；`compileall`、旧导入扫描通过 |
 | 2026-09-02 | 拆分 Turn 协议边界第三组：setup 归 protocol adapter、finalizer 归 Harness、Turn transcript 事实归 application，并新增空闲计时器端口 | setup/finalize/Transcript/主链 `109 passed`；职责守卫 `4 passed, 1 warning`；`compileall`、旧路径扫描通过 |
 | 2026-09-02 | 拆分 Turn 协议边界第二组：执行策略结果归 domain、本地审批规则归 application、审批/工具事件归 protocol adapters，hosted 输出改由工具执行端口投影；finalizer 改用 Transcript 生命周期端口 | 策略/权限/协议 `144 passed`；扩展主链 `186 passed`；Transcript `20 passed`；职责守卫 `5 passed, 1 warning`；`compileall`、旧路径与迁移范围强制类型声明扫描通过 |

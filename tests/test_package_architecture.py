@@ -2271,15 +2271,21 @@ def test_turn_result_and_session_identity_boundaries_are_explicit() -> None:
             + "\n".join(application_violations)
         )
 
-    platform_path = PROJECT_ROOT / "infrastructure" / "platform" / "idle_status.py"
-    assert platform_path.is_file(), "platform idle status source is missing"
-    platform_violations = _forbidden_imports(
-        "infrastructure/platform",
-        {"engine", "mind_app", "mind_core", "server"},
+    old_platform_path = (
+        PROJECT_ROOT / "infrastructure" / "platform" / "idle_status.py"
     )
-    assert not platform_violations, (
-        "platform idle status crosses its boundary:\n"
-        + "\n".join(platform_violations)
+    idle_status_path = (
+        PROJECT_ROOT / "agent" / "harness" / "execution" / "idle_status.py"
+    )
+    assert not old_platform_path.is_file(), "platform idle status source remains"
+    assert idle_status_path.is_file(), "Harness idle status source is missing"
+    idle_status_violations = _forbidden_imports(
+        "agent/harness/execution",
+        {"backend", "engine", "frontends", "infrastructure", "mind_app", "mind_core", "server"},
+    )
+    assert not idle_status_violations, (
+        "Harness idle status crosses its boundary:\n"
+        + "\n".join(idle_status_violations)
     )
 
 
@@ -3485,7 +3491,13 @@ def test_subagent_stream_execution_is_owned_by_adapter() -> None:
 
 def test_subagent_turn_adapter_receives_output_factory() -> None:
     """确保子 Agent Turn 适配器不自行选择具体输出实现。"""
-    target_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "subagent_adapter.py"
+    legacy_path = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "subagent_adapter.py"
+    )
+    target_path = (
+        PROJECT_ROOT / "agent" / "adapters" / "protocol" / "subagent_stream.py"
+    )
+    assert not legacy_path.is_file(), "legacy subagent turn adapter remains"
     tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
     imported_modules: set[str] = set()
     for node in ast.walk(tree):
@@ -3499,7 +3511,7 @@ def test_subagent_turn_adapter_receives_output_factory() -> None:
         node
         for node in tree.body
         if isinstance(node, ast.ClassDef)
-        and node.name == "ControllerSubagentExecution"
+        and node.name == "ProtocolSubagentStream"
     )
     init_method = next(
         node
@@ -4333,6 +4345,7 @@ def test_turn_stream_protocol_boundaries_have_single_owners() -> None:
     """确保模型事件、工具结果和终态展示不再混居旧 Turn 运行时。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "runtime" / "turns"
     legacy_names = {
+        "stream.py",
         "stream_approval.py",
         "stream_effects.py",
         "stream_model.py",
@@ -4350,8 +4363,13 @@ def test_turn_stream_protocol_boundaries_have_single_owners() -> None:
         PROJECT_ROOT / "agent" / "adapters" / "protocol" / "tool_events.py",
         PROJECT_ROOT / "agent" / "adapters" / "protocol" / "tool_results.py",
         PROJECT_ROOT / "agent" / "adapters" / "protocol" / "turn_setup.py",
+        PROJECT_ROOT / "agent" / "adapters" / "protocol" / "model_request.py",
+        PROJECT_ROOT / "agent" / "adapters" / "protocol" / "turn_interrupts.py",
+        PROJECT_ROOT / "agent" / "adapters" / "protocol" / "turn_stream.py",
     )
     assert all(path.is_file() for path in adapter_paths)
+    turn_stream_path = adapter_paths[-1]
+    assert len(turn_stream_path.read_text(encoding="utf-8-sig").splitlines()) <= 800
     adapter_violations = _forbidden_imports(
         "agent/adapters/protocol",
         {

@@ -25,6 +25,7 @@ from agent.ports import (
 )
 from infrastructure.skills import skills_payload
 from infrastructure.config.paths import ApplicationLayout
+from infrastructure.config.runtime_paths import effect_journal_db_path
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.sandbox import SandboxClient
 from infrastructure.platform.hook_command import HookCommandExecutor
@@ -233,6 +234,7 @@ def create_workspace_runtime(
 
 if __name__ == "__main__":
     runtime_services = create_runtime_services(
+        effect_journal_path=effect_journal_db_path(),
         create_hook_registry=create_hook_registry,
         create_tool_runtime=create_tool_runtime,
         tool_execution=McpToolExecutionAdapter(),

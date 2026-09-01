@@ -17,7 +17,7 @@ from agent.application.tools.planning import PLAN_STEPS_TOOL
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.application.approvals.models import ApprovalOutcome
 from frontends.interaction.noninteractive import NonInteractiveInteraction
-from mind_app.runtime.turns import stream
+from agent.adapters.protocol import turn_stream as stream
 from agent.application.turns.run_result import RunResult
 from agent.ports import (
     AssistantOutputBoundary,
@@ -791,7 +791,6 @@ async def _run_stream(
         stream_options["on_turn_interrupted"] = on_turn_interrupted
 
     result = await stream.stream_turn(
-        mind,
         SimpleNamespace(),
         {},
         [],

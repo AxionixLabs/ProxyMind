@@ -178,6 +178,31 @@ async def execute_turn(
             )
 
 
+class TurnRunner:
+    """绑定模型会话运行时并执行根或子 Agent Turn。"""
+
+    def __init__(self, runtime: TurnExecutionRuntimePort) -> None:
+        """绑定报告、MCP 会话和异步清理运行时。"""
+        self._runtime = runtime
+
+    async def __call__(
+        self,
+        pref_config: dict[str, typing.Any],
+        execution: TurnExecution,
+        operation: TurnOperation[TurnResultValue],
+        *,
+        event_report: EventReportPort | None = None,
+    ) -> TurnResultValue:
+        """在绑定运行时中执行一次显式模型轮次。"""
+        return await execute_turn(
+            self._runtime,
+            pref_config,
+            execution,
+            operation,
+            event_report=event_report,
+        )
+
+
 def _record_session_setup_failure(
     execution: TurnExecution,
     *,

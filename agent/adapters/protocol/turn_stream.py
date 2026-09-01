@@ -4,7 +4,6 @@
 import time
 import typing
 import asyncio
-from collections.abc import Mapping
 from agent.ports import (
     ApprovalCoordinatorPort,
     ApprovalLedger,
@@ -18,25 +17,18 @@ from agent.ports import (
     ProtocolCommandClient,
     TurnCleanupPort,
     ProtocolCommandError,
-    RetryState,
     TurnAnimationPort,
     TurnSessionContextPort,
     TurnSessionStatePort,
 )
-from agent.protocol import (
-    ModelStreamRequest,
-    TurnControlReceipt,
-)
 from agent.application.turns.run_result import RunResult
+from agent.application.turns.retry_status import RetryStatus
 from agent.application.turns.stream_outcome import StreamTurnOutcome
 from agent.application.turns.execution import (
     TurnExecution,
     create_continuation_execution,
 )
-from infrastructure.config.runtime_paths import effect_journal_db_path
-from protocol.schema.identifiers import stable_request_id
 from protocol.client.turn_control import (
-    TurnControlRequestError,
     interrupt_turn
 )
 from protocol.schema.turn_inputs import TurnInput
@@ -77,8 +69,12 @@ from agent.application.turns.transcript import (
     build_turn_input_payload,
     record_turn_started,
 )
-from infrastructure.platform.idle_status import IdleStatusTimer
+from agent.harness.execution.idle_status import IdleStatusTimer
 from agent.adapters.protocol.approval_events import ApprovalEventHandler
+from agent.adapters.protocol.model_request import (
+    build_model_stream_request,
+    extend_request_context,
+)
 from agent.adapters.protocol.tool_events import (
     ToolCallBatchBuffer,
     ToolEventHandler,
@@ -86,6 +82,10 @@ from agent.adapters.protocol.tool_events import (
 from agent.adapters.protocol.turn_setup import prepare_stream_turn
 from agent.adapters.protocol.model_events import ModelStreamEventHandler
 from agent.adapters.protocol.tool_results import ToolResultDelivery
+from agent.adapters.protocol.turn_interrupts import (
+    cancel_reconciliation_turn,
+    interrupt_approval_cancelled_turn,
+)
 from agent.harness.execution.turn_finalizer import StreamTurnFinalizer
 from agent.application.turns.presentation import (
     FailureProjectionMode,
@@ -100,155 +100,7 @@ from observability import (
 MAX_STOP_CONTINUATIONS = 3
 
 
-class _RetryingStatus(object):
-    """合并传输重连与 provider 重试状态后通知展示层。"""
-
-    def __init__(
-        self,
-        sink: typing.Callable[[RetryState], None] | None,
-    ) -> None:
-        """绑定状态回调并初始化两个独立重试原因。"""
-        self.sink      = sink
-        self.transport = False
-        self.provider  = False
-
-        self.state: RetryState = "idle"
-
-    def set_transport(self, retrying: bool) -> None:
-        """更新事件传输重连状态。"""
-        self.transport = bool(retrying)
-        self._refresh()
-
-    def set_provider(self, retrying: bool) -> None:
-        """更新供应商流重试状态。"""
-        self.provider = bool(retrying)
-        self._refresh()
-
-    def close(self) -> None:
-        """清除所有重试原因并结束可见状态。"""
-        self.transport = False
-        self.provider = False
-        self._refresh()
-
-    def _refresh(self) -> None:
-        """按传输优先级合并重试来源并通知展示层。"""
-        state: RetryState = (
-            "transport"
-            if self.transport
-            else "provider"
-            if self.provider
-            else "idle"
-        )
-        if state == self.state:
-            return
-        self.state = state
-        if self.sink is not None:
-            self.sink(state)
-
-
-def _extend_request_context(
-    kwargs: dict[str, typing.Any],
-    *,
-    additional_context: typing.Iterable[str] = (),
-    system_message: str = ""
-) -> None:
-    """把 Hook 注入文本合并到请求参数。"""
-    contexts = [
-        text
-        for value in additional_context
-        for text in [str(value or "").strip()]
-        if text
-    ]
-    if contexts:
-        existing = kwargs.get("additional_context")
-        merged = list(existing) if isinstance(existing, list) else []
-        merged.extend(contexts)
-        kwargs["additional_context"] = merged
-
-    system_text = str(system_message or "").strip()
-    if system_text:
-        kwargs["system_message"] = _join_text(
-            str(kwargs.get("system_message") or ""),
-            system_text,
-        )
-
-
-def _join_text(*values: str) -> str:
-    """合并非空文本段。"""
-    return "\n\n".join(
-        text
-        for value in values
-        for text in [str(value or "").strip()]
-        if text
-    )
-
-
-async def _cancel_reconciliation_turn(
-    *,
-    cid: str,
-    sid: str,
-    turn_id: str,
-    effect_id: str,
-    interrupt_command: typing.Callable[..., typing.Awaitable[TurnControlReceipt]],
-) -> bool:
-    """使用稳定中断命令释放无法自动核对的持久轮次。"""
-    request_id = stable_request_id(
-        "reconciliation_cancel",
-        cid,
-        sid,
-        turn_id,
-        effect_id,
-    )
-    for attempt in range(2):
-        try:
-            response = await interrupt_command(
-                cid=cid,
-                sid=sid,
-                turn_id=turn_id,
-                request_id=request_id,
-            )
-            return response.status in {"accepted", "turn_not_active"}
-        except (TurnControlRequestError, ProtocolCommandError):
-            if attempt == 0:
-                continue
-            return False
-    return False
-
-
-async def _interrupt_approval_cancelled_turn(
-    *,
-    cid: str,
-    sid: str,
-    turn_id: str,
-    call_id: str,
-    interrupt_command: typing.Callable[..., typing.Awaitable[TurnControlReceipt]],
-) -> bool:
-    """中断本地审批取消对应的逻辑轮次。"""
-    request_id = stable_request_id(
-        "approval_cancel",
-        cid,
-        sid,
-        turn_id,
-        call_id,
-    )
-    for attempt in range(2):
-        try:
-            response = await interrupt_command(
-                cid=cid,
-                sid=sid,
-                turn_id=turn_id,
-                request_id=request_id,
-            )
-            return response.status in {"accepted", "turn_not_active"}
-        except (TurnControlRequestError, ProtocolCommandError):
-            if attempt == 0:
-                continue
-            return False
-    return False
-
-
 async def stream_turn(
-    _lifecycle_owner: object,
     session: McpSessionPort,
     pref_config: dict[str, typing.Any],
     tools: list[dict[str, typing.Any]],
@@ -356,7 +208,7 @@ async def stream_turn(
         lambda: status_control.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
     )
 
-    retrying_status = _RetryingStatus(callbacks.retry_state)
+    retrying_status = RetryStatus(callbacks.retry_state)
     model_events = ModelStreamEventHandler(
         transcript=transcript,
         content=content,
@@ -457,19 +309,19 @@ async def stream_turn(
 
         message = begin_result.message
 
-        _extend_request_context(
+        extend_request_context(
             kwargs,
             additional_context=begin_result.additional_context,
         )
 
         async def interrupt_nested_turn(call_id: str) -> bool:
             """中断由嵌套本地工具审批取消的当前轮次。"""
-            return await _interrupt_approval_cancelled_turn(
+            return await interrupt_approval_cancelled_turn(
+                protocol_client,
                 cid=turn_context.cid,
                 sid=turn_context.sid,
                 turn_id=turn_context.turn_id,
                 call_id=call_id,
-                interrupt_command=protocol_client.interrupt_turn,
             )
 
         client_tool_runner = ClientToolCallRunner(
@@ -481,9 +333,7 @@ async def stream_turn(
             pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
             tool_execution=tool_execution,
-            effect_journal=effect_journal_factory(
-                effect_journal_db_path()
-            ),
+            effect_journal=effect_journal_factory(),
             effect_reconciler=protocol_client.post_effect_reconciliation,
             patch_preview=turn_context.patch_preview,
             interrupt_turn=interrupt_nested_turn,
@@ -523,54 +373,12 @@ async def stream_turn(
             interrupt_turn=interrupt_nested_turn,
         )
 
-        request_options = dict(kwargs)
-        raw_attachments = request_options.pop("attachments", ())
-        attachments = (
-            tuple(raw_attachments)
-            if isinstance(raw_attachments, (tuple, list))
-            else ()
-        )
-        timeout = request_options.pop("timeout", 60.0)
-        environment_snapshot = request_options.pop("exec_env", None)
-        if (
-            environment_snapshot is not None
-            and not isinstance(environment_snapshot, Mapping)
-        ):
-            raise TypeError("exec_env must be an object")
-        request_options["permissions"] = {
-            "sandbox_mode": turn_context.permissions.sandbox_mode,
-            "approval_policy": turn_context.permissions.approval_policy,
-            "approvals_reviewer": turn_context.permissions.approvals_reviewer,
-            "network_access": turn_context.permissions.network_access,
-        }
-        raw_turn_id = request_options.pop("turn_id", turn_context.turn_id)
-        if raw_turn_id != turn_context.turn_id:
-            raise ValueError("model request turn_id does not match Turn context")
-        raw_metadata = request_options.pop("metadata", {})
-        if not isinstance(raw_metadata, Mapping):
-            raise TypeError("model request metadata must be an object")
-        request_metadata = dict(raw_metadata)
-        for field_name, expected in (
-            ("cid", turn_context.cid),
-            ("sid", turn_context.sid),
-        ):
-            existing = request_metadata.pop(field_name, expected)
-            if existing != expected:
-                raise ValueError(
-                    f"model request {field_name} does not match Turn context"
-                )
-        model_request = ModelStreamRequest(
-            cid=turn_context.cid,
-            sid=turn_context.sid,
-            turn_id=turn_context.turn_id,
+        model_request = build_model_stream_request(
+            turn_context,
             pref_config=pref_config,
             message=message,
-            tools=tuple(tools),
-            attachments=attachments,
-            environment_snapshot=environment_snapshot,
-            metadata=request_metadata,
-            options=request_options,
-            timeout=timeout,
+            tools=tools,
+            options=kwargs,
         )
         event_stream = model_capability.stream(
             model_request,
@@ -665,12 +473,12 @@ async def stream_turn(
                     await status_control.begin_reply_wait_status()
                     continue
 
-                cancelled = await _cancel_reconciliation_turn(
+                cancelled = await cancel_reconciliation_turn(
+                    protocol_client,
                     cid=str(metadata.get("cid") or ""),
                     sid=str(metadata.get("sid") or ""),
                     turn_id=turn_context.turn_id,
                     effect_id=event.effect_id,
-                    interrupt_command=protocol_client.interrupt_turn,
                 )
 
                 reconciliation_error = (
@@ -955,7 +763,6 @@ async def stream_turn(
             )
             return result
         return await stream_turn(
-            _lifecycle_owner,
             session,
             pref_config,
             tools,

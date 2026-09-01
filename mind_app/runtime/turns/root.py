@@ -32,7 +32,7 @@ from agent.application.turns.context import (
 )
 from agent.harness.execution.turn_runner import execute_turn
 from agent.application.turns.transcript import build_turn_input_payload
-from mind_app.runtime.turns.stream import stream_turn
+from agent.adapters.protocol.turn_stream import stream_turn
 from agent.ports import OutputSessionFactory
 from agent.domain.policies import PermissionSettings
 
@@ -217,7 +217,6 @@ async def run_root_turn(
         return await run_foreground_turn(
             lifecycle,
             stream_turn,
-            execution_runtime,
             session=session,
             pref_config=pref_config,
             tools=tools,

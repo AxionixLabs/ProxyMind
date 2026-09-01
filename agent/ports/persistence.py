@@ -7,7 +7,6 @@ from collections.abc import (
     Mapping,
 )
 from dataclasses import dataclass
-from pathlib import Path
 from agent.domain import (
     RecoveryAction,
     RunStatus,
@@ -178,10 +177,9 @@ class EffectJournal(typing.Protocol):
 
 
 EffectJournalFactory: typing.TypeAlias = Callable[
-    [str | Path],
+    [],
     EffectJournal,
 ]
-
 
 if __name__ == '__main__':
     pass
