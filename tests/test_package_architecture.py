@@ -3014,21 +3014,15 @@ def test_hook_execution_context_is_owned_by_application() -> None:
 
 
 def test_turn_execution_contract_is_owned_by_application() -> None:
-    """确保 TurnExecution 只由 application 持有，runtime executor 不定义值对象。"""
+    """确保 TurnExecution 只由 application 持有，Harness runner 不定义值对象。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "executor.py"
+    runner_path = PROJECT_ROOT / "agent" / "harness" / "execution" / "turn_runner.py"
     target_path = PROJECT_ROOT / "agent" / "application" / "turns" / "execution.py"
     ports_path = PROJECT_ROOT / "agent" / "ports" / "hooks.py"
-    assert legacy_path.is_file(), "runtime turn executor is missing"
+    assert not legacy_path.is_file(), "legacy runtime turn executor still exists"
+    assert runner_path.is_file(), "Harness turn runner is missing"
     assert target_path.is_file(), "application turn execution contract is missing"
     assert ports_path.is_file(), "hook execution scope port is missing"
-
-    legacy_tree = ast.parse(legacy_path.read_text(encoding="utf-8-sig"), filename=str(legacy_path))
-    legacy_classes = {
-        node.name
-        for node in legacy_tree.body
-        if isinstance(node, ast.ClassDef)
-    }
-    assert "TurnExecution" not in legacy_classes
 
     violations: list[str] = []
     for path in PROJECT_ROOT.rglob("*.py"):
@@ -3038,9 +3032,8 @@ def test_turn_execution_contract_is_owned_by_application() -> None:
                 continue
             if node.module != "mind_app.runtime.turns.executor":
                 continue
-            if any(alias.name == "TurnExecution" for alias in node.names):
-                violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
-    assert not violations, "legacy TurnExecution imports remain:\n" + "\n".join(violations)
+            violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+    assert not violations, "legacy turn executor imports remain:\n" + "\n".join(violations)
 
     target_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
     target_classes = {
@@ -3073,8 +3066,8 @@ def test_turn_execution_contract_is_owned_by_application() -> None:
 
 
 def test_turn_executor_uses_runtime_port_without_controller_reflection() -> None:
-    """确保执行器只消费 Turn 运行时端口，不反射具体 Controller。"""
-    target_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "executor.py"
+    """确保 Harness runner 只消费 Turn 运行时端口，不反射具体 Controller。"""
+    target_path = PROJECT_ROOT / "agent" / "harness" / "execution" / "turn_runner.py"
     tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
 
     imported_modules: list[str] = []
@@ -3088,6 +3081,20 @@ def test_turn_executor_uses_runtime_port_without_controller_reflection() -> None
 
     assert "mind_app.controller" not in imported_modules
     assert "TurnExecutionRuntimePort" in imported_names
+    imported_roots = {
+        module.partition(".")[0]
+        for module in imported_modules
+    }
+    assert not imported_roots & {
+        "backend",
+        "engine",
+        "frontends",
+        "infrastructure",
+        "mind_app",
+        "mind_core",
+        "protocol",
+        "server",
+    }
 
     reflected = [
         node
@@ -3219,10 +3226,12 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
             "SubagentRuntimeHostPort",
         },
     }
-    legacy_paths = (
-        PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "executor.py",
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "executor.py"
+    implementation_paths = (
+        PROJECT_ROOT / "agent" / "harness" / "execution" / "turn_runner.py",
         PROJECT_ROOT / "agent" / "harness" / "agents" / "runtime.py",
     )
+    assert not legacy_path.is_file(), "legacy runtime executor still exists"
 
     for target_path, expected_classes in targets.items():
         assert target_path.is_file(), f"execution port is missing: {target_path}"
@@ -3248,7 +3257,7 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
         assert not violations, "execution port crosses its boundary:\n" + "\n".join(violations)
 
     legacy_violations: list[str] = []
-    for path in legacy_paths:
+    for path in implementation_paths:
         tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
         for node in tree.body:
             if isinstance(node, ast.ClassDef) and node.name in {

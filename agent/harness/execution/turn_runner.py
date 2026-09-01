@@ -1,17 +1,15 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import time
 import typing
-import asyncio
+
 from observability import (
     observe,
     observe_exception
 )
-from agent.ports.transcript import TranscriptSink
-from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
-from agent.application.turns.context import TurnContext
 from agent.application.turns.transcript import (
     record_turn_finished,
     record_turn_started,
@@ -20,17 +18,13 @@ from agent.ports import (
     EventReportPort,
     TurnOperation,
     TurnResultValue,
-    TurnExecutionRuntimePort,
-)
-from protocol.client.reports import (
-    EventReportLifetime,
     TurnEventReportHandle,
+    TurnExecutionRuntimePort,
 )
 from agent.domain.tool_policy import (
     ToolFilterMode,
     filter_mode_tools
 )
-from agent.harness.hooks.scope import HookExecutionScope
 
 if typing.TYPE_CHECKING:
     from agent.ports import McpSessionPort
@@ -45,24 +39,6 @@ class _UnspecifiedToolFilterMode(object):
 _UNSPECIFIED_TOOL_FILTER_MODE: typing.Final[_UnspecifiedToolFilterMode] = (
     _UnspecifiedToolFilterMode()
 )
-
-
-def resolve_turn_hook_scope(
-    controller: object,
-    context: TurnContext
-) -> HookExecutionScope:
-    """解析并固定模型轮次使用的 Hook 作用域。"""
-    hook_context = HookExecutionContext.from_turn(context)
-
-    try:
-        return controller.hook_scope(hook_context)
-    except (OSError, TypeError, ValueError) as error:
-        observe_exception(
-            "hooks.resolve.failed",
-            error,
-            level="WARNING",
-        )
-        return HookExecutionScope.empty(hook_context)
 
 
 def turn_continuation_count(execution: TurnExecution) -> int:
@@ -125,9 +101,9 @@ async def execute_turn(
 
     if report is None:
         lifetime = (
-            EventReportLifetime.SESSION
+            "session"
             if context.agent.depth == 0
-            else EventReportLifetime.TURN
+            else "turn"
         )
         report_handle = await runtime.event_reporting.acquire(
             context.cid,

@@ -72,7 +72,7 @@ from agent.harness.hooks.turn_lifecycle import (
 from agent.application.turns.exception_text import friendly_exception_text
 from agent.harness.tools.client_calls import ClientToolCallRunner
 from agent.harness.tools.plan_calls import PlanToolCallRunner
-from .executor import turn_continuation_count
+from agent.harness.execution.turn_runner import turn_continuation_count
 from agent.application.turns.transcript import (
     build_turn_input_payload,
     record_turn_started,

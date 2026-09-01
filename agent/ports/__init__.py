@@ -37,6 +37,7 @@ from .hooks import (
     HookContextSpiller,
     HookDispatcherPort,
     HookExecutionScopePort,
+    HookScopeProviderPort,
     HookRegistryFactory,
     HookRegistryPort,
     HookResourceClose,
@@ -111,6 +112,7 @@ from .subagents import (
     SkillsProvider,
 )
 from .turns import (
+    EventReportLifetime,
     EventReportPort,
     RetryState,
     RetryStatePort,
@@ -276,6 +278,7 @@ __all__ = (
     "SubagentTurnRunner",
     "TurnInputEventHandler",
     "EventReportPort",
+    "EventReportLifetime",
     "RetryState",
     "RetryStatePort",
     "TurnEventReportHandle",
@@ -341,6 +344,7 @@ __all__ = (
     "HookContextSpiller",
     "HookDispatcherPort",
     "HookExecutionScopePort",
+    "HookScopeProviderPort",
     "HookRegistryFactory",
     "HookRegistryPort",
     "HookResourceClose",

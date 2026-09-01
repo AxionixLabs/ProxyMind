@@ -31,7 +31,7 @@ from agent.harness.agents.control import (
 )
 from agent.ports.agent_messages import AgentMessageReceipt
 from agent.harness.agents.runtime import SubagentRuntime
-from mind_app.runtime.turns.executor import execute_turn
+from agent.harness.execution.turn_runner import execute_turn
 from protocol.client.reports import EventReportRuntimeOwner
 from agent.stores.agents.graph import AgentGraphStore
 from agent.stores.agents.mailbox import (

@@ -27,6 +27,10 @@ RetryState: typing.TypeAlias = typing.Literal[
     "transport",
     "provider",
 ]
+EventReportLifetime: typing.TypeAlias = typing.Literal[
+    "turn",
+    "session",
+]
 
 
 class EventReportPort(typing.Protocol):
@@ -119,7 +123,7 @@ class TurnEventReportingPort(typing.Protocol):
         cid: str,
         sid: str,
         *,
-        lifetime: typing.Any,
+        lifetime: EventReportLifetime,
     ) -> TurnEventReportHandle:
         """获取当前轮次使用的事件报告租约。"""
         ...
@@ -308,6 +312,7 @@ __all__ = (
     "TurnOperation",
     "RetryState",
     "EventReportPort",
+    "EventReportLifetime",
     "RetryStatePort",
     "TurnAnimationPort",
     "TurnSessionContextPort",

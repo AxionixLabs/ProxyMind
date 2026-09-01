@@ -17,7 +17,7 @@ from agent.ports import (
     TurnInputEventHandler,
     OutputSessionFactory,
 )
-from mind_app.runtime.turns.executor import execute_turn
+from agent.harness.execution.turn_runner import execute_turn
 from mind_app.runtime.turns.stream import stream_turn
 
 

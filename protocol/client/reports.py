@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import enum
 import typing
 
 from protocol.transport.events import (
@@ -13,11 +12,10 @@ from protocol.transport.events import (
 EventReportFactory = typing.Callable[[str, str], EventReport]
 
 
-class EventReportLifetime(enum.Enum):
-    """区分单轮独占报告与根会话复用报告的生命周期。"""
-
-    TURN = "turn"
-    SESSION = "session"
+_EventReportLifetime: typing.TypeAlias = typing.Literal[
+    "turn",
+    "session",
+]
 
 
 class TurnEventReportHandle(object):
@@ -30,7 +28,7 @@ class TurnEventReportHandle(object):
         *,
         cid: str,
         sid: str,
-        lifetime: EventReportLifetime,
+        lifetime: _EventReportLifetime,
     ) -> None:
         """绑定报告、会话标识和释放策略。"""
         self.report = report
@@ -41,7 +39,7 @@ class TurnEventReportHandle(object):
 
     async def release(self, *, interrupted: bool) -> None:
         """按生命周期释放报告，中断时丢弃未交付事件。"""
-        if self._lifetime is EventReportLifetime.TURN:
+        if self._lifetime == "turn":
             await self.report.close(drain=not interrupted)
         elif interrupted:
             await self._owner.close_session(
@@ -69,12 +67,12 @@ class EventReportRuntimeOwner(object):
         cid: str,
         sid: str,
         *,
-        lifetime: EventReportLifetime,
+        lifetime: _EventReportLifetime,
     ) -> TurnEventReportHandle:
         """获取已启动的事件报告及对应释放句柄。"""
-        if lifetime is EventReportLifetime.SESSION:
+        if lifetime == "session":
             report = await self._pool.acquire(cid, sid)
-        elif lifetime is EventReportLifetime.TURN:
+        elif lifetime == "turn":
             report = self._report_factory(cid, sid)
             await report.open()
         else:

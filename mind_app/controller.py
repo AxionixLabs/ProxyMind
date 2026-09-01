@@ -66,7 +66,6 @@ from .runtime.turns.session_context import (
 )
 from .runtime.turns.execution_runtime import ControllerTurnExecutionRuntime
 from .runtime.turns.root_session import ControllerRootTurnSession
-from .runtime.turns.executor import resolve_turn_hook_scope
 from agent.stores import AgentGraphStore
 from infrastructure.config.runtime_paths import (
     agent_graph_db_path,
@@ -81,11 +80,15 @@ from agent.ports.frontend import (
 )
 from agent.ports import (
     ApprovalLedger,
+    HookExecutionScopePort,
     HookRegistryPort,
     OutputSessionFactory,
     ProtocolCommandClient,
 )
-from agent.harness.hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import (
+    HookExecutionScope,
+    resolve_hook_scope,
+)
 from agent.harness.hooks.session_lifecycle import SessionLifecycleGateway
 from agent.harness.hooks.tool_lifecycle import CommandHookSessionStore
 from agent.application.hooks.catalog import (
@@ -746,9 +749,9 @@ class Mind(object):
             ),
         )
 
-    def turn_hook_scope(self, context: TurnContext) -> HookExecutionScope:
+    def turn_hook_scope(self, context: TurnContext) -> HookExecutionScopePort:
         """为 SubagentRuntime 提供绑定当前轮次的 Hook 作用域。"""
-        return resolve_turn_hook_scope(self, context)
+        return resolve_hook_scope(self, context)
 
     def inspect_hooks(
         self,

@@ -153,6 +153,17 @@ class HookExecutionScopePort(typing.Protocol):
         ...
 
 
+class HookScopeProviderPort(typing.Protocol):
+    """定义宿主按执行上下文创建固定 Hook 作用域的边界。"""
+
+    def hook_scope(
+        self,
+        context: "HookExecutionContext",
+    ) -> HookExecutionScopePort:
+        """创建绑定当前执行上下文的 Hook 作用域。"""
+        ...
+
+
 @typing.runtime_checkable
 class HookRegistryPort(typing.Protocol):
     """定义 Hook 发现、构建和资源关闭的组合端口。"""

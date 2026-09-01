@@ -3,6 +3,8 @@
 
 import typing
 from dataclasses import dataclass
+
+from observability import observe_exception
 from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.context import TurnContext
 from agent.domain.hooks import HookEventName
@@ -13,6 +15,8 @@ from agent.application.hooks.models import (
 from agent.application.hooks.protocol import validate_hook_input
 from agent.ports import (
     HookDispatcherPort,
+    HookExecutionScopePort,
+    HookScopeProviderPort,
     HookStatusPort,
 )
 from agent.harness.hooks.runtime import HookRuntime
@@ -77,6 +81,27 @@ class HookExecutionScope:
             context=HookExecutionContext.from_turn(turn),
             dispatcher=self.dispatcher,
         )
+
+
+def resolve_hook_scope(
+    provider: HookScopeProviderPort,
+    context: TurnContext,
+) -> HookExecutionScopePort:
+    """解析宿主提供的 Hook 作用域，并在配置失败时返回空作用域。"""
+    hook_context = HookExecutionContext.from_turn(context)
+
+    try:
+        scope = provider.hook_scope(hook_context)
+        if not isinstance(scope, HookExecutionScopePort):
+            raise TypeError("hook scope provider returned an invalid scope")
+        return scope
+    except (OSError, TypeError, ValueError) as error:
+        observe_exception(
+            "hooks.resolve.failed",
+            error,
+            level="WARNING",
+        )
+        return HookExecutionScope.empty(hook_context)
 
 
 if __name__ == '__main__':

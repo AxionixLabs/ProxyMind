@@ -30,7 +30,7 @@ from agent.application.turns.context import (
     AgentContext,
     TurnContext,
 )
-from mind_app.runtime.turns.executor import execute_turn
+from agent.harness.execution.turn_runner import execute_turn
 from agent.application.turns.transcript import build_turn_input_payload
 from mind_app.runtime.turns.stream import stream_turn
 from agent.ports import OutputSessionFactory

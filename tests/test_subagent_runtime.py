@@ -68,7 +68,7 @@ class _Controller:
 
 def _runner(controller: _Controller) -> SubagentRunner:
     """为测试 Harness runner 注入现有 runtime Turn 执行器。"""
-    from mind_app.runtime.turns.executor import execute_turn
+    from agent.harness.execution.turn_runner import execute_turn
 
     async def turn_runner(
         pref_config,

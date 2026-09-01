@@ -285,6 +285,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `agent/application/turns/transcript.py`。新增 `IdleStatusPort` 后 Harness 不再依赖具体 timer，
   旧 setup/finalize 文件已删除；setup/finalize/Transcript/主链回归 `109 passed`，职责守卫
   `4 passed, 1 warning`。
+- Turn 执行编排已完成 Harness 归位：报告租约、MCP 会话、工具过滤、setup 失败事实和清理
+  统一迁入 `agent/harness/execution/turn_runner.py`。事件报告生命周期改由 ports 的
+  `EventReportLifetime` 声明，Hook scope 通过 `HookScopeProviderPort` 解析；Harness 不再导入
+  Protocol Client 具体实现或通过 `object` 猜测 Controller。旧 `turns/executor.py` 已删除，
+  Turn/stream/Protocol/Subagent 扩展回归 `204 passed`，职责守卫 `4 passed, 2 warnings`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：本轮全量扫描 `109 passed, 4 stale assertions, 66 warnings`；陈旧断言
@@ -399,7 +404,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 
 7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。当前先收敛仅剩的
-   `mind_app/runtime/turns` 与 Controller 组合职责，保持每次迁移都有完整入口和旧路径删除。
+   `mind_app/runtime/turns` 与 Controller 组合职责；Turn executor 已归 Harness，下一步拆分
+   `stream.py` 的模型循环、工具循环和协议路由，保持每次迁移都有完整入口和旧路径删除。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
 删除、架构守卫和 `compileall` 证据。任一条件不足时只更新本计划，不创建空目录。
@@ -430,6 +436,11 @@ wire schema，application 终态展示只消费中立输出与报告端口；Har
 只持有具名生命周期端口，transcript helper 不解释协议或依赖基础设施；旧 setup/finalize 路径
 与生产导入清零。环境注入、回调继承、缺失输出工厂、终态清理顺序、中断 Stop Hook 和
 Transcript 回读均有回归覆盖。
+
+本次 Turn 执行编排切片的删除条件已满足：Harness runner 只依赖 application、domain、ports
+和 observability，报告生命周期不再从 Protocol Client 反向导入，Hook scope provider 经过
+运行时结构校验并统一降级。根 Turn、Subagent、provider retry、协议事件、终态清理和报告池
+复用回归均通过；旧 executor 文件、生产导入和相对导入清零，并由职责守卫锁定。
 
 本次 media 切片的删除条件已满足：应用工具只消费 `ImageReaderPort`，具体文件读取器由
 `mind.py` 注入并由 `WorkspaceRuntimeOwner` 随工作区统一替换；旧 `view_image.py`、旧导入和
@@ -964,6 +975,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 将 Turn 执行器迁入 Harness，以事件报告生命周期和 Hook scope provider 端口消除 Protocol Client/Controller 反向依赖，并删除旧 executor | Turn/stream/Protocol/Subagent `204 passed`；职责守卫 `4 passed, 2 warnings`；`compileall`、旧导入扫描通过 |
 | 2026-09-02 | 拆分 Turn 协议边界第三组：setup 归 protocol adapter、finalizer 归 Harness、Turn transcript 事实归 application，并新增空闲计时器端口 | setup/finalize/Transcript/主链 `109 passed`；职责守卫 `4 passed, 1 warning`；`compileall`、旧路径扫描通过 |
 | 2026-09-02 | 拆分 Turn 协议边界第二组：执行策略结果归 domain、本地审批规则归 application、审批/工具事件归 protocol adapters，hosted 输出改由工具执行端口投影；finalizer 改用 Transcript 生命周期端口 | 策略/权限/协议 `144 passed`；扩展主链 `186 passed`；Transcript `20 passed`；职责守卫 `5 passed, 1 warning`；`compileall`、旧路径与迁移范围强制类型声明扫描通过 |
 | 2026-09-02 | 拆分 Turn 协议边界第一组：模型事件与工具结果归 protocol adapters，终态展示归 application，并以 `EventReportPort` 替代 Harness 对具体 transport 报告器的依赖 | 定向 `88 passed`；扩展主链 `326 passed`；全量架构 `109 passed / 4 stale assertions`，修正后相关 `5 passed, 2 warnings`；导入图、`compileall` 与旧导入扫描通过 |

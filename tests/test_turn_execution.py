@@ -22,14 +22,12 @@ from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
 from agent.harness.hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import resolve_hook_scope
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.harness.sessions.conversation import ConversationTurn
 from mind_app.runtime.turns import root as root_turns
 from agent.application.turns.transcript import build_turn_input_payload
-from mind_app.runtime.turns.executor import (
-    execute_turn,
-    resolve_turn_hook_scope,
-)
+from agent.harness.execution.turn_runner import execute_turn
 from protocol.client.reports import EventReportRuntimeOwner
 from infrastructure.persistence.transcripts import (
     ConversationTranscriptStore,
@@ -765,7 +763,7 @@ def test_turn_hook_scope_resolution_failure_uses_empty_snapshot() -> None:
         hook_scope=Mock(side_effect=ValueError("invalid hooks")),
     )
 
-    scope = resolve_turn_hook_scope(controller, context)
+    scope = resolve_hook_scope(controller, context)
     execution = TurnExecution(
         context=context,
         message="inspect workspace",

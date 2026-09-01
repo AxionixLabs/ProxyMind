@@ -3,7 +3,7 @@
 import typing
 
 from agent.application.turns.context import TurnContext
-from agent.harness.hooks.scope import HookExecutionScope
+from agent.harness.hooks.scope import resolve_hook_scope
 from agent.ports import (
     ApprovalLedger,
     HookExecutionScopePort,
@@ -12,7 +12,6 @@ from agent.ports import (
     TurnStartResultPort,
 )
 from agent.domain.policies import PermissionSettings
-from mind_app.runtime.turns.executor import resolve_turn_hook_scope
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
@@ -81,10 +80,7 @@ class ControllerRootTurnSession(RootTurnSessionPort):
 
     def hook_scope(self, context: TurnContext) -> HookExecutionScopePort:
         """为当前轮次创建固定 Hook 作用域。"""
-        scope = resolve_turn_hook_scope(self._controller, context)
-        if not isinstance(scope, HookExecutionScope):
-            raise RuntimeError("root turn hook scope is invalid")
-        return scope
+        return resolve_hook_scope(self._controller, context)
 
 
 __all__ = ("ControllerRootTurnSession",)
