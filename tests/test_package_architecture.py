@@ -172,6 +172,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "harness/agents/control.py",
         "harness/agents/delivery.py",
         "harness/agents/registry.py",
+        "harness/agents/runtime.py",
         "harness/execution/actor.py",
         "harness/execution/subagent_runner.py",
         "harness/execution/subagent_submission.py",
@@ -2749,7 +2750,9 @@ def test_root_turn_preparation_uses_session_port() -> None:
 
 def test_subagent_runtime_does_not_store_controller_owner() -> None:
     """确保 Subagent runtime 的流式 owner 使用显式执行端口。"""
-    target_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py"
+    target_path = PROJECT_ROOT / "agent" / "harness" / "agents" / "runtime.py"
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py"
+    assert not legacy_path.exists()
     tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
 
     stored_controller = [
@@ -2762,23 +2765,14 @@ def test_subagent_runtime_does_not_store_controller_owner() -> None:
     ]
     assert not stored_controller
 
-    stream_calls = [
+    concrete_execution_calls = [
         node
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id == "stream_turn"
+        and node.func.id in {"execute_turn", "stream_turn"}
     ]
-    assert stream_calls
-    for call in stream_calls:
-        assert call.args
-        owner = call.args[0]
-        assert (
-            isinstance(owner, ast.Attribute)
-            and isinstance(owner.value, ast.Name)
-            and owner.value.id == "self"
-            and owner.attr == "_execution_runtime"
-        )
+    assert not concrete_execution_calls
 
 
 def test_mcp_session_contract_is_owned_by_agent_ports() -> None:
@@ -2852,7 +2846,7 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
     }
     legacy_paths = (
         PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "executor.py",
-        PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py",
+        PROJECT_ROOT / "agent" / "harness" / "agents" / "runtime.py",
     )
 
     for target_path, expected_classes in targets.items():
@@ -2976,9 +2970,11 @@ def test_subagent_runner_is_owned_by_harness_without_package_cycle() -> None:
 def test_subagent_submission_execution_is_owned_by_harness() -> None:
     """确保已分配提交的执行协调不回流到 mind_app runtime。"""
     target_path = PROJECT_ROOT / "agent" / "harness" / "execution" / "subagent_submission.py"
-    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py"
+    runtime_path = PROJECT_ROOT / "agent" / "harness" / "agents" / "runtime.py"
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py"
     assert target_path.is_file(), "harness subagent submission executor is missing"
     assert runtime_path.is_file(), "subagent runtime is missing"
+    assert not legacy_path.exists(), "legacy subagent runtime remains"
 
     target_tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
     target_classes = {
@@ -3014,7 +3010,9 @@ def test_subagent_submission_execution_is_owned_by_harness() -> None:
 
 def test_subagent_runtime_only_orchestrates_injected_ports() -> None:
     """确保 SubagentRuntime 不重新拥有流式和 Turn 执行实现。"""
-    runtime_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py"
+    runtime_path = PROJECT_ROOT / "agent" / "harness" / "agents" / "runtime.py"
+    legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "subagents" / "runtime.py"
+    assert not legacy_path.exists(), "legacy SubagentRuntime path remains"
     tree = ast.parse(runtime_path.read_text(encoding="utf-8-sig"), filename=str(runtime_path))
 
     imported_modules: set[str] = set()

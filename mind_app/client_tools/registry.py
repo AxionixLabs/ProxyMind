@@ -22,7 +22,7 @@ from .view_image import view_image_tools
 if typing.TYPE_CHECKING:
     from mind_app.approval.coordinator import ApprovalCoordinator
     from infrastructure.config.execution_policy_manager import ExecPolicyManager
-    from mind_app.runtime.subagents.runtime import SubagentRuntime
+    from agent.harness.agents.runtime import SubagentRuntime
 
 JS_REPL_TOOL_NAMES = frozenset({"js_repl", "js_repl_reset"})
 

@@ -30,7 +30,7 @@ from agent.harness.agents.control import (
     AgentStateError,
 )
 from agent.ports.agent_messages import AgentMessageReceipt
-from mind_app.runtime.subagents.runtime import SubagentRuntime
+from agent.harness.agents.runtime import SubagentRuntime
 from mind_app.runtime.turns.executor import execute_turn
 from protocol.client.reports import EventReportRuntimeOwner
 from agent.stores.agents.graph import AgentGraphStore

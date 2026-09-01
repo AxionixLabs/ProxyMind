@@ -560,6 +560,16 @@ CLI、MCP 与清理回归 `167 passed`；Subagent 编排架构专项 `4 passed, 
 `agent/harness/agents/runtime.py`，同步切换客户端工具与组合根入口并删除旧 runtime 路径，
 不保留转发 facade。
 
+本次 Subagent 编排物理迁移已满足上述条件：`SubagentRuntime` 已迁入
+`agent/harness/agents/runtime.py`，Controller、客户端工具和测试全部切换到 Harness
+公开路径，`mind_app/runtime/subagents/runtime.py` 已删除且没有保留转发 facade。Harness
+仍只依赖 Agent application、ports、stores 和 adapters；旧执行流依赖继续隔离在
+`mind_app/runtime/subagents/execution.py` 组合适配器。Subagent、工具、MCP、清理和根入口
+回归 `167 passed`；Subagent 编排架构专项 `4 passed, 1 warning`，导入图、`compileall`
+和 `git diff --check` 通过。下一切片复核 `mind_app/runtime/subagents/execution.py` 的
+适配职责，评估将其拆分为 Harness 可消费的 Model/Output 能力端口并继续清理
+`mind_app/runtime/turns` 依赖。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |

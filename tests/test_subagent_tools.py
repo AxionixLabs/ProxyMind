@@ -17,7 +17,7 @@ from agent.application.turns.run_result import RunResult
 from agent.application.turns.context import AgentContext, TurnContext
 from agent.application.hooks.context import HookExecutionContext
 from agent.harness.hooks.scope import HookExecutionScope
-from mind_app.runtime.subagents.runtime import SubagentRuntime
+from agent.harness.agents.runtime import SubagentRuntime
 from mind_app.runtime.turns.executor import execute_turn
 from protocol.client.reports import EventReportRuntimeOwner
 from agent.application.config.settings import AgentSettings

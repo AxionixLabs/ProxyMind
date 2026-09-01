@@ -12,7 +12,7 @@ from mind_app.client_tools.types import (
 from agent.application.agents.views import AgentSnapshot
 from agent.application.agents.fork_context import normalize_fork_turns
 from agent.stores.agents.mailbox import MAX_AGENT_MESSAGE_CHARS
-from mind_app.runtime.subagents.runtime import SubagentRuntime
+from agent.harness.agents.runtime import SubagentRuntime
 
 SPAWN_AGENT_TOOL     = "spawn_agent"
 LIST_AGENTS_TOOL     = "list_agents"

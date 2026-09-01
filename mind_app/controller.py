@@ -57,7 +57,7 @@ from .builtin_tools import BuiltinToolRegistry, permission_tools
 from agent.stores.approvals.permissions import PermissionGrantStore
 from .approval.coordinator import ApprovalCoordinator
 from agent.stores.approvals.ledger import ApprovalCallLedger
-from .runtime.subagents.runtime import SubagentRuntime
+from agent.harness.agents.runtime import SubagentRuntime
 from .runtime.subagents.execution import (
     ControllerSubagentExecution,
     ControllerSubagentTurnRunner,
