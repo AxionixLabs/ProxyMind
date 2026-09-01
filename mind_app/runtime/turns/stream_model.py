@@ -23,7 +23,7 @@ from agent.ports import (
     ContentSink,
     ResponseIdentity,
 )
-from mind_app.presentation.stream.assistant_boundary import (
+from agent.application.turns.stream_boundaries import (
     is_assistant_output_boundary,
 )
 

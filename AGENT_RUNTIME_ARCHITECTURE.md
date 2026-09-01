@@ -574,6 +574,7 @@ running -> cancelled
 | `mind_app/presentation/application.py`（展示端口定义） | `agent/ports/presentation.py` | `ApplicationView`、`ApplicationSink`、`Viewport` 是跨入口的纯展示端口；`FrontendRuntime` 和 `Frontend` 仍属于现有装配边界，避免把交互生命周期下沉到 ports |
 | `mind_app/presentation/models.py`（已删除的混合视图定义） | `agent/application/views/` | Run、工具、计划、补丁、审批、Hook 和进度 view 按语义拆分；`PresentationView/PresentationSink` 归 `views/contracts.py`，纯文本原语仍归 `agent/ports/presentation.py`；旧总模型不得保留兼容入口 |
 | `mind_app/presentation/*_views.py`（Run、Lifecycle、Progress、Plan、Batch、Approval、Patch） | `agent/application/views/builders/` | 纯 builder 只把已校验的执行输入转换为 application view；不做终端渲染、不持有状态、不依赖旧包或基础设施 |
+| `mind_app/presentation/stream/assistant_boundary.py`、`lifecycle.py` | `agent/application/turns/stream_boundaries.py`、`lifecycle.py` | 协议事件的 assistant 边界判定和 lifecycle view 投影属于 Turn application；终端 stream 包只保留文本、轨迹、样式与渲染 |
 | `mind_app/runtime/subagents/delivery.py` | `agent/ports/agent_messages.py`、`agent/adapters/agents/messages.py`、`agent/harness/agents/delivery.py` | 消息回执和投递端口归 ports，`/turn/steer` 归 Protocol Client adapter，Harness 维护活动轮次就绪和 pending 输入状态 |
 | `mind_app/history/ids.py` | `protocol/schema/identifiers.py` | `cid/sid` 正则和关联校验属于 wire identity schema；历史、交互、Controller 和 Harness 复用协议边界，不在 history 保留身份实现 |
 | `mind_app/history/contracts.py`（已删除） | `agent/ports/transcript.py` | TranscriptSink 是 runtime、Hook、执行器和历史 writer 共享的最小写入端口；端口不依赖旧包或基础设施 |

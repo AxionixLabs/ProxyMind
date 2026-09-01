@@ -630,6 +630,13 @@ Approval、Patch 七类纯 builder 已迁入 `agent/application/views/builders`�
 `mind_app/presentation/renderers` 与 `presentation/stream` 的纯投影和终端渲染边界，继续将
 可复用投影下沉到 application、将终端实现留在 frontends。
 
+本次 Turn stream 纯投影迁移已满足上述条件：assistant 输出边界判定和 lifecycle display
+事件投影已迁入 `agent/application/turns`，模型流和 Turn 编排调用点全部切换，旧
+`mind_app/presentation/stream/assistant_boundary.py` 与 `lifecycle.py` 已删除；新的 application
+模块不依赖旧包或基础设施。流式与 Run 结果回归 `87 passed`，架构专项 `3 passed`，
+`compileall` 和 `git diff --check` 通过。下一切片继续盘点 renderer/stream 终端模块，优先
+迁移可完整归入 `frontends/output` 的渲染链，不拆断工具轨迹的内部一致性。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |

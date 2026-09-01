@@ -167,6 +167,8 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/turns/execution.py",
         "application/turns/projections.py",
         "application/turns/run_result.py",
+        "application/turns/lifecycle.py",
+        "application/turns/stream_boundaries.py",
         "application/turns/stream_outcome.py",
         "application/views/builders/__init__.py",
         "application/views/builders/approval.py",
@@ -3591,6 +3593,46 @@ def test_application_view_builders_are_pure_and_owned_by_application() -> None:
                         f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
                     )
     assert not violations, "application view builders cross legacy boundary:\n" + (
+        "\n".join(violations)
+    )
+
+
+def test_turn_stream_projection_is_owned_by_application() -> None:
+    """确保协议事件判定和生命周期投影不再属于终端展示实现。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "presentation" / "stream" / "assistant_boundary.py",
+        PROJECT_ROOT / "mind_app" / "presentation" / "stream" / "lifecycle.py",
+    )
+    assert not any(path.is_file() for path in legacy_paths), (
+        "legacy turn stream projection remains"
+    )
+
+    target_paths = (
+        PROJECT_ROOT / "agent" / "application" / "turns" / "stream_boundaries.py",
+        PROJECT_ROOT / "agent" / "application" / "turns" / "lifecycle.py",
+    )
+    violations: list[str] = []
+    for path in target_paths:
+        assert path.is_file(), f"turn stream projection is missing: {path.name}"
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "")
+            for module in modules:
+                if module.partition(".")[0] in {
+                    "mind_app",
+                    "mind_core",
+                    "engine",
+                    "server",
+                    "infrastructure",
+                }:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+    assert not violations, "turn stream projection crosses legacy boundary:\n" + (
         "\n".join(violations)
     )
 

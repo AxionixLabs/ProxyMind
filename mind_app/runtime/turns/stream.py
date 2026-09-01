@@ -90,7 +90,7 @@ from .stream_presentation import (
     FailureProjectionMode,
     StreamTurnPresentation,
 )
-from mind_app.presentation.stream.lifecycle import handle_lifecycle_event
+from agent.application.turns.lifecycle import handle_lifecycle_event
 from observability import (
     observe,
     observe_exception

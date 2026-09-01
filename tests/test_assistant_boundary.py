@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from mind_app.presentation.stream.assistant_boundary import is_assistant_output_boundary
+from agent.application.turns.stream_boundaries import is_assistant_output_boundary
 from protocol.schema.stream_events import StreamEvent
 
 
