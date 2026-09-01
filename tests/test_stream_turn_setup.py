@@ -28,7 +28,7 @@ def _output_session() -> OutputSession:
     )
 
 
-def _execution() -> TurnExecution:
+def _execution(*, retry_state=None) -> TurnExecution:
     """构造具有固定请求上下文的根轮次。"""
     context = TurnContext.create(
         agent=AgentContext.root("sid_test"),
@@ -38,6 +38,7 @@ def _execution() -> TurnExecution:
         pref_config={"primary": {"model": "test-model"}},
         cwd=".",
         permissions=preset_permissions("auto"),
+        retry_state=retry_state,
         output_record_path="output.jsonl",
         turn_id="turn_test",
     )
@@ -192,6 +193,9 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities(
     output_session = _output_session()
     session_factory = Mock(return_value=output_session)
     retry_state = Mock()
+    retry_state_port = SimpleNamespace(
+        set_wait_retry_state=retry_state,
+    )
     snapshot = _exec_env_snapshot()
     controller = _controller(
         session_factory,
@@ -203,7 +207,7 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities(
 
     prepared = stream_setup.prepare_stream_turn(
         controller,
-        _execution(),
+        _execution(retry_state=retry_state_port),
         {"session_factory": session_factory},
     )
 

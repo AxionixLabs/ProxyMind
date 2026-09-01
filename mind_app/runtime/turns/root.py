@@ -12,6 +12,7 @@ from agent.ports import (
     ModelCapability,
     ProtocolCommandClient,
     PatchPreviewPort,
+    RetryStatePort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -65,6 +66,7 @@ async def prepare_root_turn(
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,
+    retry_state: RetryStatePort | None = None,
 ) -> TurnExecution:
     """固定根轮次的会话身份、输入快照和执行上下文。"""
     supplied_metadata = dict(metadata)
@@ -92,6 +94,7 @@ async def prepare_root_turn(
         transcript_factory=transcript_factory,
         cleanup=cleanup,
         patch_preview=patch_preview,
+        retry_state=retry_state,
         output_record_path=str(controller.report.output_record_path or ""),
         transcript_path=controller.transcripts.path_for_session(sid),
         turn_id=turn_id,
@@ -125,6 +128,7 @@ async def run_root_turn(
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,
+    retry_state: RetryStatePort | None = None,
     **kwargs: typing.Any,
 ) -> RunResult:
     """准备根轮次并通过主前端生命周期执行。"""
@@ -159,6 +163,7 @@ async def run_root_turn(
         transcript_factory=transcript_factory,
         cleanup=cleanup,
         patch_preview=patch_preview,
+        retry_state=retry_state,
     )
     event_report = kwargs.pop("ev_report", None)
 

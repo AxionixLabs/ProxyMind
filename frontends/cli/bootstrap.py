@@ -66,6 +66,7 @@ from mind_app.presentation.terminal.contracts import TerminalDesign
 from agent.ports import (
     HookRegistryPort,
     ProtocolCommandClient,
+    RetryStatePort,
 )
 from agent.domain.tool_policy import ToolFilterMode
 from .commands import (
@@ -701,6 +702,7 @@ async def _run_controller(
         transcript_factory = None
         cleanup = None
         patch_preview = None
+        retry_state: RetryStatePort | None = None
         if runtime_services is not None:
             turn_application_factory = runtime_services.create_turn_application
             model_capability = runtime_services.model_capability
@@ -710,6 +712,7 @@ async def _run_controller(
             transcript_factory = controller.transcripts.writer
             cleanup = controller
             patch_preview = controller.workspace_runtime.coding.preview_patch
+            retry_state = controller.frontend.runtime
             if isinstance(
                 runtime_services.model_capability,
                 ProtocolCommandClient,
@@ -730,6 +733,7 @@ async def _run_controller(
             transcript_factory=transcript_factory,
             cleanup=cleanup,
             patch_preview=patch_preview,
+            retry_state=retry_state,
         )
         completed = True
         observe("app.complete", exit_code=controller.exit_code)

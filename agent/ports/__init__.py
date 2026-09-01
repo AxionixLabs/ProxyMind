@@ -79,6 +79,8 @@ from .subagents import (
     SkillsProvider,
 )
 from .turns import (
+    RetryState,
+    RetryStatePort,
     TurnCleanupPort,
     TurnInputEventHandler,
     TurnOperation,
@@ -172,6 +174,8 @@ __all__ = (
     "SubagentResultValue",
     "SubagentTurnRunner",
     "TurnInputEventHandler",
+    "RetryState",
+    "RetryStatePort",
     "TurnCleanupPort",
     "TurnOperation",
     "TurnResultPort",

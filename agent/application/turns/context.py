@@ -11,6 +11,7 @@ from agent.ports import (
     ApprovalLedger,
     PermissionGrantReader,
     PatchPreviewPort,
+    RetryStatePort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -169,6 +170,7 @@ class TurnContext:
     transcript_factory: TranscriptFactory | None = None
     cleanup: TurnCleanupPort | None = None
     patch_preview: PatchPreviewPort | None = None
+    retry_state: RetryStatePort | None = None
     output_record_path: str = ""
     transcript_path: str = ""
     parent_transcript_path: str = ""
@@ -191,6 +193,7 @@ class TurnContext:
         transcript_factory: TranscriptFactory | None = None,
         cleanup: TurnCleanupPort | None = None,
         patch_preview: PatchPreviewPort | None = None,
+        retry_state: RetryStatePort | None = None,
         output_record_path: str = "",
         transcript_path: str = "",
         parent_transcript_path: str = "",
@@ -229,6 +232,7 @@ class TurnContext:
             transcript_factory=transcript_factory,
             cleanup=cleanup,
             patch_preview=patch_preview,
+            retry_state=retry_state,
             output_record_path=str(output_record_path or "").strip(),
             transcript_path=str(transcript_path or "").strip(),
             parent_transcript_path=str(parent_transcript_path or "").strip(),

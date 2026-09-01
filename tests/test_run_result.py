@@ -681,6 +681,7 @@ async def _run_stream(
             "preview_patch",
             None,
         ),
+        retry_state=mind.frontend.runtime,
         turn_id="turn_test",
         session_started=session_started,
         session_start_reason="initial" if session_started else "",

@@ -9,6 +9,7 @@ from agent.ports import (
     ModelCapability,
     ProtocolCommandClient,
     PatchPreviewPort,
+    RetryStatePort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -137,6 +138,7 @@ async def run_tui_loop(
     transcript_factory: TranscriptFactory | None = None,
     cleanup: TurnCleanupPort | None = None,
     patch_preview: PatchPreviewPort | None = None,
+    retry_state: RetryStatePort | None = None,
 ) -> None:
     """运行 TUI 会话，并统一关闭其主动 Turn application。"""
     durable_runtime = getattr(mind, "application_layout", None) is not None
@@ -158,6 +160,7 @@ async def run_tui_loop(
             transcript_factory=transcript_factory,
             cleanup=cleanup,
             patch_preview=patch_preview,
+            retry_state=retry_state,
             local_session_id=(
                 None
                 if durable_runtime
@@ -183,6 +186,7 @@ async def _run_tui_loop(
     transcript_factory: TranscriptFactory | None,
     cleanup: TurnCleanupPort | None,
     patch_preview: PatchPreviewPort | None,
+    retry_state: RetryStatePort | None,
     local_session_id: str | None,
     initial_prompt: str | None,
     initial_images: tuple[str, ...],
@@ -407,6 +411,7 @@ async def _run_tui_loop(
                 transcript_factory=transcript_factory,
                 cleanup=cleanup,
                 patch_preview=patch_preview,
+                retry_state=retry_state,
                 on_prompt_prepared=bind_prompt_attachments,
                 turn_input_control=turn_input_control,
                 on_interrupt_acknowledged=interrupt_notice.acknowledge,

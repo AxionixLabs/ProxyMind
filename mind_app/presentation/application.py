@@ -11,6 +11,7 @@ from agent.ports.presentation import (
     ApplicationView,
     Viewport,
 )
+from agent.ports import RetryState
 from mind_app.interaction.contracts import InteractionPort
 from mind_app.presentation.output.session import SessionFactory
 
@@ -24,11 +25,7 @@ ActivityStatusKind = typing.Literal[
     "operation",
 ]
 
-WaitRetryState = typing.Literal[
-    "idle",
-    "transport",
-    "provider",
-]
+WaitRetryState: typing.TypeAlias = RetryState
 
 
 class FrontendRuntime(typing.Protocol):

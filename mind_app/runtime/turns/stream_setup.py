@@ -15,6 +15,7 @@ from mind_app.presentation.output import (
 )
 from mind_app.interaction.environment import capture_turn_environment
 from agent.application.turns.context import TurnContext
+from agent.ports import RetryStatePort
 from mind_app.runtime.hooks.presentation import HookPresentationAdapter
 from agent.harness.hooks.scope import HookExecutionScope
 from agent.application.turns.execution import TurnExecution
@@ -134,9 +135,11 @@ def prepare_stream_turn(
     hook_scope = execution.hook_scope
 
     if callbacks.retry_state is None and context.agent.depth == 0:
-        callbacks = callbacks.with_retry_state(
-            controller.frontend.runtime.set_wait_retry_state
-        )
+        retry_state = context.retry_state
+        if isinstance(retry_state, RetryStatePort):
+            callbacks = callbacks.with_retry_state(
+                retry_state.set_wait_retry_state
+            )
 
     if callbacks.input_context is not None:
         callbacks.input_context(context)

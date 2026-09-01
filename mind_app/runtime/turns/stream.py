@@ -16,6 +16,7 @@ from agent.ports import (
     ProtocolCommandClient,
     TurnCleanupPort,
     ProtocolCommandError,
+    RetryState,
 )
 from agent.protocol import (
     ModelStreamRequest,
@@ -34,7 +35,6 @@ from protocol.client.turn_control import (
     interrupt_turn
 )
 from protocol.schema.turn_inputs import TurnInput
-from mind_app.presentation.application import WaitRetryState
 from protocol.schema.stream_events import (
     ToolApprovalRequiredEvent,
     ToolBuiltinDoneEvent,
@@ -104,14 +104,14 @@ class _RetryingStatus(object):
 
     def __init__(
         self,
-        sink: typing.Callable[[WaitRetryState], None] | None,
+        sink: typing.Callable[[RetryState], None] | None,
     ) -> None:
         """绑定状态回调并初始化两个独立重试原因。"""
         self.sink      = sink
         self.transport = False
         self.provider  = False
 
-        self.state: WaitRetryState = "idle"
+        self.state: RetryState = "idle"
 
     def set_transport(self, retrying: bool) -> None:
         """更新事件传输重连状态。"""
@@ -131,7 +131,7 @@ class _RetryingStatus(object):
 
     def _refresh(self) -> None:
         """按传输优先级合并重试来源并通知展示层。"""
-        state: WaitRetryState = (
+        state: RetryState = (
             "transport"
             if self.transport
             else "provider"

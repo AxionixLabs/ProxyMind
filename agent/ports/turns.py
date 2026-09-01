@@ -12,6 +12,13 @@ if typing.TYPE_CHECKING:
     from agent.application.turns.execution import TurnExecution
 
 
+RetryState: typing.TypeAlias = typing.Literal[
+    "idle",
+    "transport",
+    "provider",
+]
+
+
 class TurnResultPort(typing.Protocol):
     """定义模型轮次结果必须提供的稳定状态。"""
 
@@ -59,10 +66,21 @@ class TurnCleanupPort(typing.Protocol):
         ...
 
 
+@typing.runtime_checkable
+class RetryStatePort(typing.Protocol):
+    """定义流式重试展示状态的最小端口。"""
+
+    def set_wait_retry_state(self, state: RetryState) -> None:
+        """切换等待状态的重试来源。"""
+        ...
+
+
 __all__ = (
     "TurnInputEventHandler",
     "TurnCleanupPort",
     "TurnOperation",
+    "RetryState",
+    "RetryStatePort",
     "TurnResultPort",
     "TurnResultValue",
 )
