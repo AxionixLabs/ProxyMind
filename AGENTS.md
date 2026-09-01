@@ -54,56 +54,46 @@ from collections.abc import (
 
 - `Mind`/`mind` 是既有品牌和包名，不要扩展为新的领域语义。
 - 新增的类、函数、方法、属性和常量按实际职责命名，不包含 `Mind` 或 `mind`。
-- 迁移期展示字符串中的应用名称可引用现有 `mind_nova.const.APP_NAME` 或 `APP_DESC`，
-  不要硬编码；阶段 5 将版本、编码和展示常量迁入职责化的顶层 `metadata`，完成后
-  新代码不得新增 `mind_nova.const` 依赖。
-- 迁移期在依赖边界允许导入 `mind_nova.const` 且调用方兼容大写 `UTF-8` 的位置，编码
-  参数一律使用 `const.CHARSET`；阶段 5 迁入 `metadata` 后沿用同一常量契约，只有协议
-  要求特定大小写或包边界禁止该依赖时才保留字面量。
+- 展示字符串中的应用名称、版本和编码统一引用 `metadata.const`，不要硬编码；不得恢复
+  已退役的 `mind_nova.const` 依赖。只有协议要求特定大小写或包边界禁止该依赖时才保留
+  字面量。
 - 既有包路径、稳定入口和外部契约中的 `Mind`/`mind` 保持不变。
 - 非测试函数的 docstring 使用中文中性描述；新增 `Protocol`、ABC 或跨层契约时，
   说明其职责、生命周期和实现方约束。
 
 ## 当前架构边界
 
-以下是 Agent Harness 迁移完成前的当前生产依赖边界，不是目标目录声明。
+以下是 Agent Harness 迁移完成后的生产依赖边界。
 
 ```text
-mind.py -> agent.composition
-mind.py -> frontends.cli -> mind_app.controller
-                         -> mind_app.runtime / subscription / tui / output
-mind_app -> agent.application
-mind_app -> mind_core -> mind_nova
+mind.py -> composition.py -> agent / infrastructure / observability / protocol
+mind.py -> frontends.cli
+frontends -> agent.application / agent.ports / protocol / infrastructure adapters
+infrastructure -> agent.domain / agent.ports / protocol
 ```
 
-- `mind_app` 是主程序控制和运行侧，可以依赖 `mind_core`、`mind_nova`。
-- `mind_core` 持有配置、偏好和共享设计，可以依赖 `mind_nova`，不得导入 `mind_app`。
-- `mind_nova` 只持有协议、传输、认证、事件和标识，不读取本地配置或 skills，
-  不得导入 `mind_core` 或 `mind_app`。
+- `mind_app`、`mind_core`、`mind_nova` 和 `engine` 已退役，不得重新创建源码包、兼容
+  facade 或导入别名。
 - `backend` 只能依赖自身、标准库和第三方库；其他包不得导入 `backend`。
-- `engine.ports` 负责本地端口探测和进程清理，不放入 `mind_nova`。
-- `mind.py` 是当前唯一具体组合根；CLI、控制器、runtime 和 subscription 不组装
-  具体能力，也不判断具体输出前端。
+- `mind.py` 与 `composition.py` 共同构成唯一进程组合边界；前者选择具体工厂和入口，
+  后者组装 `ApplicationHost`。CLI、TUI、MCP 和 Subscription 不组装具体能力。
 - 保持公共 API 精简，不为测试扩大生产模块的公开接口；测试辅助函数放在测试代码中。
 
 ### Agent Harness 迁移规则
 
 - `AGENT_RUNTIME_ARCHITECTURE.md` 只定义 Agent Harness 目标架构；阶段状态、准入条件和
   完成证据只以 `AGENT_RUNTIME_MIGRATION.md` 为准。
-- 阶段 1 开始前，新生产代码继续遵守上述现有包边界；不得提前创建
-  未接入主链路的空 `agent` 目录或一次性搬迁历史模块。
-- 只有当迁移计划将相应阶段标为“进行中”时，才能新增该阶段所需的
-  `agent` 模块；每次新增必须接入一个完整用例并具有删除旧路径的条件。
-- `agent.protocol` 和 `agent.domain` 不得导入 `mind_app`、`mind_core`、
-  `mind_nova`、`engine` 或具体网络客户端。`agent.harness` 和
+- 阶段 5 已完成；新生产代码直接遵守目标职责边界，不再创建迁移期兼容路径或用旧包名
+  承接新实现。新增 `agent` 模块必须接入完整用例，不能预建空目录。
+- `agent.protocol` 和 `agent.domain` 不得导入已退役包、具体网络客户端、基础设施或前端。
+  `agent.harness` 和
   `agent.application` 只依赖 `agent` 内部协议、领域与端口。
 - `agent.harness` 是本地编排内核的正式包名；`agent.runtime` 已迁移并删除，不能
   重新创建无意义的兼容 facade。
 - 根目录 `server/` 是客户端内置的可选配置服务，只提供配置 UI 和健康检查；它不
   拥有 Harness 状态，不实现 `mind.chat` 线上服务端语义，也不是独立部署边界。
-- 迁移期的 `agent.adapters`、`agent.capabilities` 或 `agent.stores` 如需复用
-  旧实现，必须在迁移计划登记临时导入、删除条件和最晚阶段；
-  旧包不得导入 `agent` 内部模块，只能调用明确的 application 公开入口。
+- `agent.adapters`、`agent.capabilities` 和 `agent.stores` 只能通过职责化端口连接外部实现；
+  不得恢复历史包或增加无归属的共享层。
 
 ## 测试
 

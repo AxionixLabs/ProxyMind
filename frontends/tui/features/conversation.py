@@ -80,7 +80,7 @@ class ConversationCompactorFactory(typing.Protocol):
         ...
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
     from ..runtime.ports import MenuSelectionPort
 
 
@@ -90,7 +90,7 @@ request_conversation_fork: typing.Any = None
 
 
 def _present(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     renderable: FragmentBlock | StyledBlock | None = None,
     *,
     view_type: str = "tui.command"
@@ -102,7 +102,7 @@ def _present(
     ))
 
 
-def render_compact_result(mind: "Mind", status: "CompactLiveStatus") -> None:
+def render_compact_result(mind: "TuiApplicationHost", status: "CompactLiveStatus") -> None:
     """展示上下文压缩的最终状态。"""
     view = external_mcp_status_view(status.snapshot(), detail_limit=0)
 
@@ -275,7 +275,7 @@ class ForkLiveStatus(object):
 
 
 async def _replace_empty_fork_source(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     status: ForkLiveStatus,
     source: dict[str, str],
     *,
@@ -303,13 +303,13 @@ async def _replace_empty_fork_source(
     return status
 
 
-def compact_animation_enabled(mind: "Mind") -> bool:
+def compact_animation_enabled(mind: "TuiApplicationHost") -> bool:
     """返回当前运行是否启用压缩动画。"""
     return mind.activity.enabled
 
 
 async def compact_current_conversation(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     compactor: ConversationCompactor,
     *,
     pref_config: dict[str, typing.Any],
@@ -336,7 +336,7 @@ async def compact_current_conversation(
 
 
 async def fork_current_conversation(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     *,
     before_turn_id: str = "",
     bind_target: bool = True,
@@ -624,7 +624,7 @@ def _fork_receipt_values(receipt: ConversationForkReceipt) -> dict[str, typing.A
     return values
 
 
-def render_fork_result(mind: "Mind", status: ForkLiveStatus) -> None:
+def render_fork_result(mind: "TuiApplicationHost", status: ForkLiveStatus) -> None:
     """展示会话分支操作的最终状态。"""
     view = external_mcp_status_view(status.snapshot(), detail_limit=0)
 
@@ -643,7 +643,7 @@ def render_fork_result(mind: "Mind", status: ForkLiveStatus) -> None:
     _present(mind, view_type="tui.gap")
 
 
-def render_fork_failure(mind: "Mind", error: BaseException) -> None:
+def render_fork_failure(mind: "TuiApplicationHost", error: BaseException) -> None:
     """展示会话分支操作的未处理失败。"""
     message = str(getattr(error, "message", "") or str(error)).strip()
 
@@ -653,7 +653,7 @@ def render_fork_failure(mind: "Mind", error: BaseException) -> None:
     render_fork_result(mind, status)
 
 
-def render_fork_interrupted(mind: "Mind") -> None:
+def render_fork_interrupted(mind: "TuiApplicationHost") -> None:
     """展示会话分支操作被中断的状态。"""
     _present(
         mind,
@@ -663,7 +663,7 @@ def render_fork_interrupted(mind: "Mind") -> None:
     _present(mind, view_type="tui.gap")
 
 
-def render_compact_failure(mind: "Mind", error: BaseException) -> None:
+def render_compact_failure(mind: "TuiApplicationHost", error: BaseException) -> None:
     """展示上下文压缩未处理异常的最终状态。"""
     message = str(error).strip()
 
@@ -679,7 +679,7 @@ def render_compact_failure(mind: "Mind", error: BaseException) -> None:
     render_compact_result(mind, status)
 
 
-def render_compact_interrupted(mind: "Mind") -> None:
+def render_compact_interrupted(mind: "TuiApplicationHost") -> None:
     """展示上下文压缩被用户中断的状态。"""
     _present(
         mind,
@@ -709,7 +709,7 @@ def _positive_int(value: typing.Any) -> int:
         return 0
 
 
-async def copy_last_assistant_reply(mind: "Mind") -> None:
+async def copy_last_assistant_reply(mind: "TuiApplicationHost") -> None:
     """复制最近一次模型回复到剪贴板。"""
     text = mind.conversation.last_assistant_reply()
     if not text:

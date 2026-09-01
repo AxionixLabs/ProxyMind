@@ -11,17 +11,21 @@ RUNTIME_PACKAGE_ROOTS = (
     "applications",
     "frontends",
     "infrastructure",
-    "mind_app",
-    "mind_core",
     "protocol",
     "mind_npm",
     "metadata",
     "observability",
     "server",
 )
-LEGACY_PACKAGE_ROOTS = ("engine", "mind_nova")
+RETIRED_PACKAGE_ROOTS = (
+    "engine",
+    "mind_app",
+    "mind_core",
+    "mind_nova",
+)
 ENTRY_FILES = (
     "build.py",
+    "composition.py",
     "mind.py",
     "setup.py",
 )
@@ -82,7 +86,7 @@ def _imported_roots(tree: ast.AST) -> tuple[tuple[str, int], ...]:
 def collect_import_edges(repository_root: Path) -> tuple[ImportEdge, ...]:
     """汇总第一方运行时边界之间的绝对导入。"""
     known_roots = frozenset(
-        (*RUNTIME_PACKAGE_ROOTS, *LEGACY_PACKAGE_ROOTS,
+        (*RUNTIME_PACKAGE_ROOTS, *RETIRED_PACKAGE_ROOTS,
          *(Path(name).stem for name in ENTRY_FILES))
     )
     evidence: dict[tuple[str, str], list[tuple[str, int]]] = {}

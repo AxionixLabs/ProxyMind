@@ -1,6 +1,6 @@
 # Agent Harness 架构基线
 
-状态：已采纳（Architecture Decision Record）；阶段 4 已完成，阶段 5 进行中（2026-09-02）
+状态：已采纳（Architecture Decision Record）；阶段 0-5 已完成（2026-09-02）
 
 这份文档是 ProxyMind 下一代 Agent Harness 的目标架构。它解决的是
 `mind_app`、`mind_core`、`mind_nova` 和 `engine` 四个历史包职责交叉、状态所有权不清和
@@ -9,13 +9,13 @@
 
 ## 文档权威与当前边界
 
-- 本文档是 ProxyMind Agent Harness 的目标 ADR，不表示目标目录已经存在。
+- 本文档是 ProxyMind Agent Harness 的现行架构 ADR；目标目录和生产边界已经落地。
 - `PROTOCOL.md` 是 Mind Runtime 线上字段、状态、事件、恢复和错误语义的唯一
   规范源；本地 Harness 只实现客户端所有权，不复制服务端状态机。
 - `AGENT_RUNTIME_MIGRATION.md` 是阶段状态的唯一权威来源；准备性拆分
   不能自动计入后续阶段。
-- `AGENTS.md` 定义当前可执行的生产依赖规则；阶段 5 允许按职责重组历史包，
-  但每批重组都必须同步导入图、测试和删除条件。
+- `AGENTS.md` 定义当前可执行的生产依赖规则；历史包已经退役，后续调整必须同步导入图、
+  测试和职责说明。
 - 线上协议客户端与本地 Agent Harness 是两个不同的边界：`PROTOCOL.md` 定义
   TUI、桌面端和 Web 可以共用的 `mind.chat` wire contract；`agent.protocol`
   只定义进程内 Harness 的 Command/Event，不作为跨进程或浏览器 SDK。
@@ -156,7 +156,8 @@ ProxyMind 需要在此基础上额外保证：
 `mind_app` 包。`server/` 仍是客户端内置的可选配置服务，不属于 Harness 状态边界。
 
 ```text
-mind.py                         # 稳定启动入口，只负责调用组合根
+mind.py                         # 稳定启动入口和具体工厂选择
+composition.py                  # 应用宿主对象图组合模块
 agent/                          # 本地 Agent Harness bounded context
 protocol/                       # 独立 mind.chat wire SDK，供所有前端复用
 frontends/                      # CLI、TUI、MCP、Subscription 及未来桌面/Web adapter
@@ -173,15 +174,14 @@ server/                         # 可选 ConfigServiceRuntime，不拥有 Harnes
 
 | 历史包 | 最终职责去向 | 退役约束 |
 | --- | --- | --- |
-| `mind_app` | `agent.application`/`agent.harness` 的运行用例；`frontends/` 的入口和 UI；`agent.capabilities` 的本地能力 | 每个入口先完成一个可启动、可恢复的完整用例，再删除对应旧模块；最后移除包目录和启动依赖 |
-| `mind_core` | `agent.domain.policies` 的领域规则、`agent.application` 的用例配置、`infrastructure/config` 的文件与环境适配 | 配置读取、策略判断、skills/hooks 分开迁移；禁止以新的 `core` 或 `shared` 包承接杂项 |
-| `mind_nova` | `protocol/schema` 的请求/响应 schema、`protocol/transport` 的传输/认证/事件投递、`protocol/client` 的恢复和命令 API；`metadata/` 的版本与展示常量 | 先按职责拆分 wire SDK 与产品元数据，再迁移跨前端 fixture，最后清除历史包记录和兼容别名 |
-| `engine` | `agent.capabilities` 的进程/Helix 端口实现；可复用的纯平台代码进入 `infrastructure/platform` | 先切断反向业务依赖和循环，再逐项删除 `engine` 模块；不得保留只转发一次调用的 facade |
+| `mind_app`（已退役） | `agent.application`/`agent.harness` 的运行用例；`frontends/` 的入口和 UI；`agent.capabilities` 的本地能力 | 不得恢复包目录、启动依赖或兼容 facade |
+| `mind_core`（已退役） | `agent.domain.policies` 的领域规则、`agent.application` 的用例配置、`infrastructure/config` 的文件与环境适配 | 禁止以新的 `core` 或 `shared` 包承接杂项 |
+| `mind_nova`（已退役） | `protocol/schema`、`protocol/transport`、`protocol/client` 和 `metadata/` | 不得恢复历史 wire 路径或兼容别名 |
+| `engine`（已退役） | `agent.capabilities` 与 `infrastructure/platform` | 不得恢复低层杂项包或单次转发 facade |
 
-目标目录中的新模块只在迁移计划启用对应切片且能承载完整用例时创建；不为“未来可能
-使用”预建空目录。阶段 5 的职责化重组已完成首轮：application、harness、stores 和
-adapters 的子职责目录均已有真实调用者，旧平铺路径已删除；后续只在独立生命周期、
-一致性或扩展边界成立时继续拆分。
+目标目录已经落地；新模块仍必须承载完整用例，不为“未来可能使用”预建空目录。
+application、harness、stores 和 adapters 的子职责目录均已有真实调用者，旧平铺路径与
+历史包已删除；后续只在独立生命周期、一致性或扩展边界成立时继续拆分。
 
 ## 目标目录
 
@@ -397,12 +397,13 @@ infrastructure ────────> ports
   传输和本地客户端能力端口；它不依赖 `Mind`、TUI 渲染或 `agent.application`。
 - `adapters.tui`、桌面端和 Web 适配器只消费 Protocol Client 的事件投影，并把用户
   操作翻译为协议命令；它们不得各自复制 Turn、Tool、Approval 或 Effect 状态机。
-- `composition.py` 是唯一允许组装配置、端口、存储和运行时的模块。
+- `mind.py` 与 `composition.py` 共同构成唯一进程组合边界：前者选择具体工厂和入口，
+  后者组装应用宿主对象图。其他模块不得组装完整运行时。
 - `observability` 是全局结构化观测入口；第三方 SDK 的日志兼容只能放在其显式
   adapter 中，业务模块不得自行创建日志器或绕过字段规范化。报告文件 sink 和
   进程级 sink 生命周期也必须通过该入口管理。
-- 迁移期间 `engine` 只能作为低层平台能力被 capability adapter 使用，不能成为新的
-  业务层；阶段 5 完成后该包必须删除。
+- `engine` 已退役；低层平台能力只允许进入 `agent.capabilities` 或
+  `infrastructure.platform`，不得恢复杂项业务包。
 - 根目录 `server/` 只是客户端内置配置服务，只能通过显式配置服务入口被组合，
   不得拥有 Harness 状态或实现 `mind.chat` 线上服务端语义。
 - `backend/` 只能依赖自身、标准库和第三方库；Agent Harness 不得导入它。
@@ -558,9 +559,10 @@ running -> cancelled
 
 | 当前位置 | 目标归属 | 迁移要求 |
 | --- | --- | --- |
-| `mind.py`、`agent/composition.py` | `composition.py` | `mind.py` 已创建单个 `RuntimeServices` 并注入全部进程入口；根轮次 runner 在组合根绑定 Model/Protocol/Effect 能力，具体 store 和 capability 只能在 `agent/composition.py` 装配 |
-| `mind_app/controller.py` | 迁移期应用宿主 | 只借用入口注入的 `RuntimeServices`、设置、进程生命周期与前端端口；Hook、根会话/history/Transcript、Turn 执行资源、偏好/权限、停止信号、退出码和活动展示均已有独立所有者。剩余资源关闭与组合职责必须按完整用例提升到 `mind.py`，不能整体改名 |
-| `mind_app/controller.py` 中的 registry、外部 MCP、Helix 工具链接、执行环境与事件报告资源 | `agent/harness/execution/resources.py::ExecutionResources` + `RuntimeServices` builders | Harness 单一持有动态工具来源和关闭生命周期，只依赖 ports；`mind.py` 注入 client/builtin registry、Composite runtime 和外部 MCP builders。前端、环境采集和根/子 Turn 显式消费 `execution`，Controller 不保留同义方法、状态字段或具体 infrastructure factory 导入 |
+| `mind.py`、`composition.py`、`agent/composition.py` | 唯一进程组合边界 | `mind.py` 创建单个 `RuntimeServices` 并选择入口工厂；`composition.py::ApplicationHost` 组装职责化 owner；具体 store 和 capability builders 只在该边界选择，前端不导入具体宿主 |
+| 已删除的 `mind_app/controller.py` | `composition.py::ApplicationHost` + `frontends/tui/application.py::TuiApplicationHost` | 具体宿主只组合 owner；TUI、CLI 和 MCP 消费各自的结构协议。旧位置参数、动态 `kwargs`、`Mind` 类型和历史字段已经删除，不保留兼容 facade |
+| 已删除的 Controller 进程资源关闭逻辑 | `agent/ports/process_resources.py` + `agent/harness/process_resources.py::ProcessResourceOwner` | Harness owner 单一冻结关闭顺序和可重试进度；CLI/MCP 只调用 `resources.close()`，宿主不暴露同义关闭方法 |
+| 已删除的 Controller registry、外部 MCP、Helix 工具链接、执行环境与事件报告资源 | `agent/harness/execution/resources.py::ExecutionResources` + `RuntimeServices` builders | Harness 单一持有动态工具来源和关闭生命周期，只依赖 ports；组合根注入 client/builtin registry、Composite runtime 和外部 MCP builders。前端、环境采集和根/子 Turn 显式消费 `execution` |
 | 已删除的 `mind_app/runtime/turns/root.py` | `agent/harness/execution/root_runner.py` + `agent/application/turns/commands.py` + `agent/adapters/turns/root.py` | CLI、TUI、MCP 和 Subscription 由类型化 Command 驱动；入站映射归 adapter，根轮次准备、前台执行与模型会话编排归 Harness。runner 只消费 `RootTurnSessionPort` 与 `TurnExecutionRuntimePort`，不导入 Controller、基础设施或前端 |
 | `mind_app/runtime/turns/root.py` 的前台轮次编排 | `agent/application/turns/foreground.py` + `agent/ports/frontend.py` + `agent/ports/presentation.py::TurnForegroundLifecyclePort` | application 只编排执行、完成和清理顺序并适配稳定 Activity/Frontend 端口；worked footer renderer 由 `mind.py` 注入，runtime root 与 Controller 都不导入具体前端 |
 | 已删除的 `mind_app/runtime/turns/stream.py` | `agent/adapters/protocol/turn_stream.py`、`model_request.py`、`turn_interrupts.py` + `agent/application/turns/retry_status.py` | `mind.chat` 事件路由、模型请求和稳定控制命令归 Protocol adapter，重试展示合并归 application；主适配器低于 800 行，不接收无意义宿主参数，不读取基础设施路径。模型、控制、无参效果账本工厂和输出工厂由组合根显式绑定并贯穿 continuation |
@@ -570,7 +572,7 @@ running -> cancelled
 | `agent/application/turns/context.py::TurnContext.patch_preview` | `agent/ports/workspace.py::PatchPreviewPort` + workspace adapter | 补丁审批和客户端工具只接收只读预览端口，不读取完整 `WorkspaceRuntime`；补丁规划失败只能省略预览，不得修改工作区 |
 | `agent/application/turns/context.py::TurnContext.retry_state` | `agent/ports/turns.py::RetryStatePort` + 前端状态 adapter | provider/transport 重试展示状态由单轮上下文携带；流式路由不得从 `controller.frontend.runtime` 反射读取，Subagent 不创建根前端状态 |
 | `agent/application/turns/context.py::TurnContext.animation` | `agent/ports/turns.py::TurnAnimationPort` + `agent/application/turns/foreground.py::FrontendTurnAnimation` | 流式执行只消费前台活动状态和等待动画停止端口；application adapter 只依赖 `ActivityRuntimePort`，具体活动展示仍由组合根注入的前端实现持有 |
-| `agent/application/turns/context.py::TurnContext.session_context` | `agent/ports/turns.py::TurnSessionContextPort`；迁移期由 Controller 直接实现 | 流式准备和启动展示只消费已解析的环境、skills、工作区、Hook 告警与持续命令会话；删除只转发属性的 Controller facade，具体状态随 Controller 后续拆分迁出 |
+| `agent/application/turns/context.py::TurnContext.session_context` | `agent/ports/turns.py::TurnSessionContextPort`；由组合边界宿主实现 | 流式准备和启动展示只消费已解析的环境、skills、工作区、Hook 告警与持续命令会话；不通过前端或动态属性发现能力 |
 | `agent/application/turns/context.py::TurnContext.session_state` | `agent/harness/sessions/root.py::RootConversationSession` + `agent/ports/turns.py::TurnSessionStatePort` | 流式失败、取消上下文和最近 assistant 回复通过根会话所有者写回；执行层不访问 `ConversationState`，Controller 不再实现或转发会话状态端口 |
 | 已删除的 `mind_app/runtime/turns/executor.py::execute_turn` | `agent/harness/execution/turn_runner.py` + `agent/ports/turns.py::TurnExecutionRuntimePort` | 报告租约、MCP 会话、工具过滤、setup 失败事实和异步清理由 Harness runner 编排；事件报告生命周期是 `EventReportLifetime` 端口字面量，具体 Protocol Client owner 只实现契约，不被 Harness 反向导入 |
 | 已删除的 `mind_app/runtime/turns/root.py::prepare_root_turn` 与三个 Controller facade | `agent/harness/execution/root_runner.py` + `agent/harness/sessions/root.py` + `agent/ports/turns.py` | 根轮次会话登记、工作区、权限、Transcript、Hook scope、模型会话和清理均由显式端口提供；根会话状态由 `RootConversationSession` 单一拥有，Controller 只在组合阶段注入协作者 |

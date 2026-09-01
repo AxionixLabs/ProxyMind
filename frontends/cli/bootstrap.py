@@ -22,9 +22,11 @@ from agent.ports.presentation import (
 )
 from agent.domain.tool_policy import ToolFilterMode
 from agent.ports import (
-    ProcessLifecyclePort,
     FrontendActivityPort,
     HookRegistryPort,
+    HookStatusPort,
+    ProcessLifecyclePort,
+    ProcessResourcePort,
     ProtocolCommandClient,
 )
 from infrastructure.platform.animation import AsyncAnimManager
@@ -149,16 +151,12 @@ class CliApplicationHost(CliCommandHost, typing.Protocol):
     activity: FrontendActivityPort
     execution: "_CliExecutionResources"
     lifecycle: ProcessLifecyclePort
+    resources: ProcessResourcePort
     service_runtime: _ServiceRuntimeBinding
 
     def set_history_workspace(self, workspace: str | Path) -> None:
         """切换历史记录使用的工作区。"""
         ...
-
-    async def close_runtime_resources(self) -> None:
-        """释放应用持有的运行时资源。"""
-        ...
-
 
 class _CliExecutionResources(typing.Protocol):
     """描述 CLI 启动和观测工具执行资源所需的能力。"""
@@ -175,19 +173,28 @@ class CliApplicationHostFactory(typing.Protocol):
 
     def __call__(
         self,
-        show_level: str,
-        power: int,
-        state: dict[str, object],
-        **kwargs: object,
+        *,
+        config_session: ConfigSession,
+        preferences: Preferences,
+        permissions: PermissionSettings,
+        frontend: Frontend,
+        report: RunReport,
+        hook_registry: HookRegistryPort,
+        runtime_services: RuntimeServices,
+        application_layout: ApplicationLayout | None,
+        workspace_root: str | Path | None = None,
+        animation: AsyncAnimManager | None = None,
+        animation_enabled: bool = True,
+        hook_startup_warnings: tuple[str, ...] = (),
+        hook_status: HookStatusPort | None = None,
+        agent_settings: AgentSettings | None = None,
+        feature_settings: FeatureSettings | None = None,
     ) -> CliApplicationHost:
         """使用已解析依赖创建一个 CLI 应用宿主。"""
         ...
 
 
 def _require_application_host_factory(
-    _show_level: str,
-    _power: int,
-    _state: dict[str, object],
     **_kwargs: object,
 ) -> CliApplicationHost:
     """在 CLI 未由组合根装配时返回明确配置错误。"""
@@ -526,14 +533,11 @@ async def _run_application(
             frontend=frontend,
             design=design,
             animation=animation,
-            home=home,
-            reports=reports,
             preference=preference,
             config_session=config_session,
             report=report,
             runtime_spec=runtime_spec,
             service_context=service_context,
-            power=power,
             output_mode=output_mode,
             permissions=permissions,
             application_layout=app_layout,
@@ -574,14 +578,11 @@ async def _run_controller(
     frontend: Frontend,
     design: TerminalDesign | None,
     animation: AsyncAnimManager,
-    home: Path,
-    reports: Path,
     preference: Preferences,
     config_session: ConfigSession,
     report: RunReport,
     runtime_spec: ServiceRuntimeSpec,
     service_context: ServiceRuntimeContext,
-    power: int,
     output_mode: OutputMode,
     permissions: PermissionSettings,
     application_layout: ApplicationLayout | None = None,
@@ -617,15 +618,10 @@ async def _run_controller(
         )
 
         controller = application_host_factory(
-            const.SHOW_LEVEL,
-            power,
-            {},
-            src_opera_place=str(home),
-            src_total_place=str(reports),
-            pref=preference,
             config_session=config_session,
-            anim_manager=animation,
-            animate=output_mode_uses_animation(output_mode),
+            preferences=preference,
+            animation=animation,
+            animation_enabled=output_mode_uses_animation(output_mode),
             frontend=frontend,
             report=report,
             permissions=permissions,
@@ -981,7 +977,7 @@ async def finalize_application(
                 observe_exception("frontend.close.failed", error)
                 raise
     finally:
-        await controller.close_runtime_resources()
+        await controller.resources.close()
 
     if completed and output_mode == "tui":
         from frontends.tui.core.runtime import require_tui_runtime

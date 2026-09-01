@@ -1,0 +1,397 @@
+# -*- coding: utf-8 -*-
+
+import typing
+from pathlib import Path
+
+from agent.adapters.agents.execution import StreamSubagentExecution
+from agent.adapters.protocol.subagent_stream import ProtocolSubagentStream
+from agent.application import RuntimeServices
+from agent.application.approvals.coordinator import ApprovalCoordinator
+from agent.application.approvals.presenter import ApprovalPresenterPort
+from agent.application.config.settings import (
+    AgentSettings,
+    FeatureSettings,
+)
+from agent.application.turns.foreground import (
+    ApplicationTurnForegroundLifecycle,
+    FrontendTurnAnimation,
+)
+from agent.domain.policies import PermissionSettings
+from agent.harness.agents.runtime import SubagentRuntime
+from agent.harness.execution.resources import ExecutionResources
+from agent.harness.execution.turn_runner import TurnRunner
+from agent.harness.hooks.session_lifecycle import SessionLifecycleGateway
+from agent.harness.hooks.tool_lifecycle import CommandHookSessionStore
+from agent.harness.process_resources import ProcessResourceOwner
+from agent.harness.sessions.root import RootConversationSession
+from agent.harness.subscription.owner import SubscriptionRuntimeOwner
+from agent.ports import (
+    ApprovalLedger,
+    AttachmentStatePort,
+    FrontendActivityPort,
+    FrontendPort,
+    HookRegistryPort,
+    HookScopeProviderPort,
+    HookStatusPort,
+    McpRuntimeContext,
+    OutputSessionFactory,
+    ProcessLifecyclePort,
+    ProcessResourcePort,
+    ProtocolCommandClient,
+    SkillsProvider,
+    SubscriptionHost,
+    SubscriptionRuntime,
+    TurnCompletionPresenterPort,
+)
+from agent.stores import AgentGraphStore
+from agent.stores.approvals.ledger import ApprovalCallLedger
+from agent.stores.approvals.permissions import PermissionGrantStore
+from agent.stores.sessions import (
+    ConversationHistoryStore,
+    normalize_workspace,
+)
+from infrastructure.config.hooks import HookManager
+from infrastructure.config.paths import ApplicationLayout
+from infrastructure.config.preferences import Preferences
+from infrastructure.config.runtime_paths import (
+    agent_graph_db_path,
+    mind_history_db_path,
+)
+from infrastructure.config.session import ConfigSession
+from infrastructure.config.settings_session import SettingsSession
+from infrastructure.persistence.conversation_history import LocalConversationHistory
+from infrastructure.persistence.transcripts import ConversationTranscriptStore
+from infrastructure.services.runtime_owner import ServiceRuntimeOwner
+from infrastructure.services.turn_environment import capture_turn_environment
+from observability import (
+    observe,
+    observe_exception,
+)
+from observability.reporting import RunReport
+from protocol.client.reports import EventReportRuntimeOwner
+
+
+def _unconfigured_subscription_runtime(
+    _host: SubscriptionHost,
+) -> SubscriptionRuntime:
+    """返回明确配置错误，禁止入口隐式构造订阅实现。"""
+    raise RuntimeError("subscription runtime factory is required")
+
+
+def _observe_approval_snapshot_failure(
+    error: BaseException,
+    coordinator_id: str,
+    revision: int,
+) -> None:
+    """把审批快照通知失败交给统一可观测边界。"""
+    observe_exception(
+        "approval.snapshot_notify_failed",
+        error,
+        level="WARNING",
+        coordinator_id=coordinator_id,
+        revision=revision,
+    )
+
+
+def _observe_resource_close_failure(
+    resource: str,
+    error: BaseException,
+) -> None:
+    """把进程资源关闭失败交给统一可观测边界。"""
+    observe_exception(
+        "runtime.close.failed",
+        error,
+        resource=resource,
+    )
+
+
+class ApplicationHost:
+    """组合进程级协作者，并向各入口暴露职责化端口。
+
+    本类只存在于组合边界，不拥有领域状态机。Session、工具、订阅、前端活动和资源
+    关闭分别由对应 owner 持有；调用方不得通过本类添加同义生命周期 facade。
+    """
+
+    def __init__(
+        self,
+        *,
+        workspace_root: str | Path | None,
+        application_layout: ApplicationLayout | None,
+        runtime_services: RuntimeServices,
+        config_session: ConfigSession,
+        preferences: Preferences,
+        permissions: PermissionSettings,
+        frontend: FrontendPort,
+        lifecycle: ProcessLifecyclePort,
+        activity: FrontendActivityPort,
+        hook_registry: HookRegistryPort,
+        report: RunReport,
+        attachment_state: AttachmentStatePort,
+        approval_presenter: ApprovalPresenterPort,
+        subagent_session_factory: OutputSessionFactory,
+        turn_completion_presenter: TurnCompletionPresenterPort,
+        hook_startup_warnings: tuple[str, ...] = (),
+        hook_status: HookStatusPort | None = None,
+        agent_settings: AgentSettings | None = None,
+        feature_settings: FeatureSettings | None = None,
+    ) -> None:
+        """使用组合根已经选择的具体能力建立唯一应用宿主。"""
+        if not isinstance(runtime_services, RuntimeServices):
+            raise TypeError("runtime services are required")
+        if not isinstance(frontend, FrontendPort):
+            raise TypeError("frontend is required")
+        if not isinstance(lifecycle, ProcessLifecyclePort):
+            raise TypeError("process lifecycle is required")
+        if not isinstance(activity, FrontendActivityPort):
+            raise TypeError("frontend activity is required")
+        if not isinstance(hook_registry, HookRegistryPort):
+            raise TypeError("hook registry is required")
+        if not isinstance(permissions, PermissionSettings):
+            raise TypeError("permission settings are required")
+
+        self.history_workspace = normalize_workspace(workspace_root or Path.cwd())
+        self.application_layout = application_layout
+        self.runtime_services = runtime_services
+        self.frontend = frontend
+        self.lifecycle = lifecycle
+        self.activity = activity
+        self.report = report
+        self.attach = attachment_state
+        self.hook_startup_warnings = tuple(hook_startup_warnings)
+        self.features = feature_settings or FeatureSettings()
+
+        self.settings = SettingsSession(
+            config_session,
+            preferences,
+            permissions,
+        )
+        skills_provider_factory = runtime_services.create_skills_provider
+        self._skills_provider: SkillsProvider | None = (
+            skills_provider_factory(self.settings.config.load)
+            if skills_provider_factory is not None
+            else None
+        )
+
+        self.hooks = HookManager(
+            self.settings.config,
+            hook_registry,
+            workspace=lambda: self.history_workspace,
+            status_port=hook_status,
+        )
+        self.command_hook_sessions = CommandHookSessionStore()
+        self.turn_animation = FrontendTurnAnimation(self.activity)
+        self.turn_foreground_lifecycle = ApplicationTurnForegroundLifecycle(
+            self.frontend,
+            self.activity,
+            self.lifecycle,
+            turn_completion_presenter,
+        )
+
+        history_store = ConversationHistoryStore(mind_history_db_path())
+        transcripts = ConversationTranscriptStore()
+        event_reporting = EventReportRuntimeOwner()
+
+        model_capability = runtime_services.model_capability
+        if not isinstance(model_capability, ProtocolCommandClient):
+            raise TypeError("subagent protocol client is required")
+        self.subagent_execution = StreamSubagentExecution(
+            ProtocolSubagentStream(
+                model_capability=model_capability,
+                protocol_client=model_capability,
+                effect_journal_factory=runtime_services.create_effect_journal,
+                tool_execution=runtime_services.tool_execution,
+                session_factory=subagent_session_factory,
+            )
+        )
+        self.session_lifecycle = SessionLifecycleGateway(
+            scope_factory=self.hooks.hook_scope,
+            cleanup_session=self.hooks.cleanup_session,
+        )
+        self.approval_coordinator = ApprovalCoordinator(
+            approval_presenter,
+            snapshot_error_handler=_observe_approval_snapshot_failure,
+        )
+        self.approval_call_ledger = ApprovalCallLedger()
+        self.permission_grants = PermissionGrantStore()
+
+        workspace_runtime_factory = runtime_services.create_workspace_runtime
+        if workspace_runtime_factory is None:
+            raise TypeError("workspace runtime factory is required")
+        self.workspace_runtime = workspace_runtime_factory(
+            self.history_workspace,
+            application_layout=self.application_layout,
+            process_capability=runtime_services.process_capability,
+        )
+
+        mcp_runtime_builder = runtime_services.create_mcp_runtime
+        mcp_runtime_context = McpRuntimeContext(
+            config=self.settings.config,
+            start_activity=self.activity.start_external_mcp,
+            stop_activity=self.activity.stop,
+            await_cleanup=self.lifecycle.await_cleanup,
+        )
+        external_runtime_factory = (
+            (lambda: mcp_runtime_builder(mcp_runtime_context))
+            if mcp_runtime_builder is not None
+            else None
+        )
+        self.execution = ExecutionResources(
+            event_reporting=event_reporting,
+            tool_runtime_builder=runtime_services.create_tool_runtime,
+            client_registry_factory=(
+                lambda: runtime_services.create_client_tool_registry(
+                    self.workspace_runtime.coding,
+                    image_reader=self.workspace_runtime.image_reader,
+                    execution_policy=self.workspace_runtime.execution_policy,
+                    subagent_runtime=self.subagents,
+                    approval_coordinator=self.approval_coordinator,
+                    features=self.features,
+                )
+            ),
+            builtin_registry_factory=(
+                lambda: runtime_services.create_builtin_tool_registry(
+                    approval_coordinator=self.approval_coordinator,
+                    permission_grants=self.permission_grants,
+                    features=self.features,
+                )
+            ),
+            external_runtime_factory=external_runtime_factory,
+            await_cleanup=self.lifecycle.await_cleanup,
+        )
+
+        history = LocalConversationHistory(
+            history_store,
+            existing_transcript_path_for=transcripts.existing_path_for_session,
+            transcript_entries_for=lambda path: transcripts.reader(path).read(),
+        )
+        self.conversation = RootConversationSession(
+            history,
+            workspace=lambda: self.history_workspace,
+            permissions=lambda: self.settings.permissions,
+            preference_config=self.settings.preference_config,
+            fresh_preferences=(
+                lambda ttl_sec: self.settings.fresh_preferences(ttl_sec=ttl_sec)
+            ),
+            permission_grants=self.permission_grants,
+            approval_ledger=(
+                self.approval_call_ledger
+                if isinstance(self.approval_call_ledger, ApprovalLedger)
+                else None
+            ),
+            output_record_path=str(self.report.output_record_path or ""),
+            transcript_factory=transcripts.writer,
+            transcript_path_for=transcripts.path_for_session,
+            hook_scope_provider=self.hooks,
+            session_lifecycle=self.session_lifecycle,
+            subagent_shutdown=lambda sid: self.subagents.shutdown_root(sid),
+            hook_session_cleanup=self.hooks.cleanup_session,
+            execution_session_cleanup=(
+                lambda sid: self.workspace_runtime.coding.close_js_repl_session(sid)
+            ),
+            command_hook_cleanup=self.command_hook_sessions.clear_root,
+            event_session_close=self.execution.event_reporting.close_session,
+            await_cleanup=self.lifecycle.await_cleanup,
+        )
+        self.subagent_turn_runner = TurnRunner(self.execution)
+        self.subagent_cleanup = self.conversation
+        self.subagents = SubagentRuntime(
+            self,
+            enabled=self.features.subagents,
+            settings=agent_settings or AgentSettings(),
+            execution_policy=self.workspace_runtime.execution_policy,
+            approval_coordinator=self.approval_coordinator,
+            permission_grants=self.permission_grants,
+            approval_ledger=(
+                self.approval_call_ledger
+                if isinstance(self.approval_call_ledger, ApprovalLedger)
+                else None
+            ),
+            transcript_factory=self.conversation.transcript_factory,
+            cleanup=self.conversation,
+            patch_preview=self.workspace_runtime.coding.preview_patch,
+            skills_provider=self._skills_provider,
+            transcript_path_for=self.conversation.transcript_path_for_session,
+            transcript_entries_for=lambda path: transcripts.reader(path).read(),
+            session_cleanup=(
+                lambda sid: self.workspace_runtime.coding.close_js_repl_session(sid)
+            ),
+            graph_store=AgentGraphStore(
+                agent_graph_db_path(),
+                ttl_ms=self.conversation.history_ttl_ms,
+                max_items=self.conversation.history_max_items,
+            ),
+        )
+        self.service_runtime = ServiceRuntimeOwner()
+
+        subscription_factory = runtime_services.create_subscription_runtime
+        self.subscription = SubscriptionRuntimeOwner(
+            self,
+            runtime_factory=(
+                subscription_factory
+                if subscription_factory is not None
+                else _unconfigured_subscription_runtime
+            ),
+        )
+        self.resources: ProcessResourcePort = ProcessResourceOwner(
+            close_subscription=self.subscription.close,
+            cancel_service_startup=self.service_runtime.cancel_startup,
+            shutdown_subagents=self.subagents.shutdown,
+            close_approvals=self.approval_coordinator.close,
+            clear_command_hooks=self.command_hook_sessions.clear,
+            close_hooks=self.hooks.close,
+            close_workspace=self.workspace_runtime.close,
+            close_execution=self.execution.close,
+            close_service=self.service_runtime.close,
+            observe_failure=_observe_resource_close_failure,
+        )
+
+        observe(
+            "application_host.ready",
+            run_id=self.report.run_id,
+            workspace=self.history_workspace,
+            animate=self.activity.enabled,
+            client_tools=self.execution.client_tool_count(),
+        )
+
+    def set_history_workspace(self, workspace: str | Path) -> str:
+        """原子替换后续 Turn 使用的工作区能力和工具注册表。"""
+        normalized = normalize_workspace(workspace)
+        if normalized and normalized != self.history_workspace:
+            self.workspace_runtime.replace(normalized)
+            self.history_workspace = normalized
+            self.command_hook_sessions.clear()
+            self.execution.rebuild_client_registry()
+            observe("workspace.changed", workspace=self.history_workspace)
+        return self.history_workspace
+
+    @property
+    def workspace_root(self) -> str:
+        """返回当前根轮次绑定的工作区。"""
+        return self.history_workspace
+
+    def capture_environment(
+        self,
+        *,
+        cwd: str,
+        workspace_root: str,
+    ) -> dict[str, typing.Any] | None:
+        """捕获当前轮次使用的客户端环境快照。"""
+        return capture_turn_environment(
+            self,
+            cwd=Path(cwd),
+            workspace_root=Path(workspace_root),
+        )
+
+    def skills_payload(self) -> list[dict[str, typing.Any]]:
+        """返回当前配置对应的模型可见 skills 快照。"""
+        if self._skills_provider is None:
+            return []
+        return list(self._skills_provider())
+
+    @property
+    def hook_scope_provider(self) -> HookScopeProviderPort:
+        """返回根轮次和子 Agent 共享的 Hook 作用域提供器。"""
+        return self.hooks
+
+
+__all__ = ("ApplicationHost",)

@@ -82,6 +82,7 @@ from .media import (
     ImageReaderPort,
 )
 from .process_lifecycle import ProcessLifecyclePort
+from .process_resources import ProcessResourcePort
 from .javascript import (
     NestedToolDispatch,
     NestedToolOutput,
@@ -259,6 +260,7 @@ __all__ = (
     "ImageReaderFactory",
     "ImageReaderPort",
     "ProcessLifecyclePort",
+    "ProcessResourcePort",
     "NestedToolDispatch",
     "NestedToolOutput",
     "WorkspaceJavaScriptPort",

@@ -10,7 +10,7 @@ from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
 
-from mind_app.controller import Mind
+from composition import ApplicationHost
 from frontends.subscription.forwarding import AgentInbox
 from frontends.subscription.models import (
     AgentConfig,
@@ -556,7 +556,7 @@ async def test_subscription_owner_pauses_reuses_and_releases_listener() -> None:
         shutdown=AsyncMock(),
     )
     factory = Mock(return_value=listener)
-    controller = object.__new__(Mind)
+    controller = object.__new__(ApplicationHost)
     subscription = SubscriptionRuntimeOwner(
         controller,
         runtime_factory=factory,

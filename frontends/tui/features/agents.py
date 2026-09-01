@@ -32,7 +32,7 @@ from ..core.styles import (
 from ..rendering.fragments import clip_text
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
     from ..core.runtime import TuiRuntime
 
 _MAIN_ACTION = object()
@@ -50,7 +50,7 @@ _ACTIVE_STATUSES = frozenset({
 
 async def manage_agents(
     runtime: "TuiRuntime",
-    mind: "Mind"
+    mind: "TuiApplicationHost"
 ) -> None:
     """在主 TUI 中查看并管理当前根会话的子执行线程。"""
     root_session_id = current_agent_root_session_id(mind)
@@ -105,7 +105,7 @@ async def manage_agents(
 
 async def _run_agent_action(
     runtime: "TuiRuntime",
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     root_session_id: str,
     snapshot: AgentSnapshot,
     action: typing.Any,
@@ -154,7 +154,7 @@ async def _run_agent_action(
             runtime.push_menu(agent_failure_panel(snapshot, error))
 
 
-async def _agent_snapshots(mind: "Mind", root_session_id: str) -> tuple[AgentSnapshot, ...]:
+async def _agent_snapshots(mind: "TuiApplicationHost", root_session_id: str) -> tuple[AgentSnapshot, ...]:
     """读取当前根会话快照，不存在运行树时返回空集合。"""
     if not root_session_id:
         return ()
@@ -165,7 +165,7 @@ async def _agent_snapshots(mind: "Mind", root_session_id: str) -> tuple[AgentSna
         return ()
 
 
-def current_agent_root_session_id(mind: typing.Any) -> str:
+def current_agent_root_session_id(mind: "TuiApplicationHost") -> str:
     """返回当前对话已经建立的根会话标识。"""
     conversation = getattr(mind, "conversation", None)
     return str(getattr(conversation, "sid", "") or "").strip()

@@ -88,21 +88,23 @@ def test_protocol_layers_remain_one_directional() -> None:
     )
 
 
-def test_shared_core_does_not_depend_on_application_or_services() -> None:
-    violations = _forbidden_imports(
+def test_historical_source_packages_are_retired() -> None:
+    """确保阶段 5 已退役包不能重新承载生产源码。"""
+    retired_packages = (
+        "engine",
+        "mind_app",
         "mind_core",
-        {"backend", "mind_app", "server"},
+        "mind_nova",
+    )
+    remaining = tuple(
+        path.relative_to(PROJECT_ROOT).as_posix()
+        for package in retired_packages
+        for path in (PROJECT_ROOT / package).rglob("*.py")
     )
 
-    assert not violations, "mind_core crosses its package boundary:\n" + "\n".join(
-        violations
+    assert not remaining, "retired package sources returned:\n" + "\n".join(
+        remaining
     )
-
-
-def test_application_does_not_import_packaged_backend() -> None:
-    violations = _forbidden_imports("mind_app", {"backend"})
-
-    assert not violations, "mind_app imports backend:\n" + "\n".join(violations)
 
 
 def test_packaged_backend_is_self_contained() -> None:
@@ -223,6 +225,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "ports/presentation.py",
         "ports/process_tools.py",
         "ports/process_lifecycle.py",
+        "ports/process_resources.py",
         "harness/agents/control.py",
         "harness/agents/delivery.py",
         "harness/agents/registry.py",
@@ -237,6 +240,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "harness/hooks/session_lifecycle.py",
         "harness/hooks/turn_lifecycle.py",
         "harness/process_lifecycle.py",
+        "harness/process_resources.py",
         "harness/tools/__init__.py",
         "harness/tools/client_calls.py",
         "harness/tools/plan_calls.py",
@@ -283,7 +287,12 @@ def test_agent_responsibility_packages_are_physical() -> None:
     assert {
         path.name
         for path in (PROJECT_ROOT / "agent" / "harness").glob("*.py")
-    } == {"__init__.py", "process_lifecycle.py", "workspace_runtime.py"}
+        } == {
+            "__init__.py",
+            "process_lifecycle.py",
+            "process_resources.py",
+            "workspace_runtime.py",
+        }
     assert {
         path.name
         for path in (PROJECT_ROOT / "agent" / "stores").glob("*.py")
@@ -1352,9 +1361,7 @@ def test_tool_runtime_is_composed_at_process_root() -> None:
     )
 
     composition = (PROJECT_ROOT / "mind.py").read_text(encoding="utf-8-sig")
-    controller = (
-        PROJECT_ROOT / "mind_app" / "controller.py"
-    ).read_text(encoding="utf-8-sig")
+    host = (PROJECT_ROOT / "composition.py").read_text(encoding="utf-8-sig")
     resources = (
         PROJECT_ROOT / "agent" / "harness" / "execution" / "resources.py"
     ).read_text(encoding="utf-8-sig")
@@ -1367,18 +1374,18 @@ def test_tool_runtime_is_composed_at_process_root() -> None:
     assert "create_client_tool_registry=build_client_tool_registry" in composition
     assert "create_builtin_tool_registry=build_builtin_tool_registry" in composition
     assert "ToolRuntimeSources(" in resources
-    assert "ToolRuntimeSources(" not in controller
-    assert "CompositeToolRuntime" not in controller
-    assert "build_client_tool_registry" not in controller
-    assert "build_builtin_tool_registry" not in controller
-    assert "def with_mcp_session(" not in controller
-    assert "def link_service_mcp(" not in controller
-    assert "def unlink_service_mcp(" not in controller
-    assert "def is_service_mcp_linked(" not in controller
-    assert "self.external_mcp" not in controller
-    assert "self.client_tools" not in controller
-    assert "self.builtin_tools" not in controller
-    assert "self.event_reporting" not in controller
+    assert "ToolRuntimeSources(" not in host
+    assert "CompositeToolRuntime" not in host
+    assert "build_client_tool_registry" not in host
+    assert "build_builtin_tool_registry" not in host
+    assert "def with_mcp_session(" not in host
+    assert "def link_service_mcp(" not in host
+    assert "def unlink_service_mcp(" not in host
+    assert "def is_service_mcp_linked(" not in host
+    assert "self.external_mcp" not in host
+    assert "self.client_tools" not in host
+    assert "self.builtin_tools" not in host
+    assert "self.event_reporting" not in host
     assert "ClientToolProvider" not in runtime
     assert "BuiltinToolProvider" not in runtime
     assert "ExternalMcpProvider" not in runtime
@@ -4608,6 +4615,7 @@ def test_tui_adapter_is_owned_by_frontends() -> None:
     expected_children = {
         "__init__.py",
         "adapters",
+        "application.py",
         "contracts",
         "core",
         "features",
@@ -5372,7 +5380,7 @@ def test_event_report_lifecycle_has_protocol_client_ownership() -> None:
 def test_hook_registry_is_composed_at_the_process_root() -> None:
     """确保入口只消费 Hook registry port，不直接装配具体实现。"""
     entry_paths = (
-        PROJECT_ROOT / "mind_app" / "controller.py",
+        PROJECT_ROOT / "composition.py",
         PROJECT_ROOT / "frontends" / "cli" / "bootstrap.py",
         PROJECT_ROOT / "frontends" / "mcp" / "server.py",
     )
@@ -5403,146 +5411,70 @@ def test_hook_registry_is_composed_at_the_process_root() -> None:
     )
 
 
-def test_controller_does_not_expose_runtime_facades() -> None:
-    controller_path = PROJECT_ROOT / "mind_app" / "controller.py"
-    tree = ast.parse(
-        controller_path.read_text(encoding="utf-8-sig"),
-        filename=str(controller_path),
+def test_application_host_uses_owned_resources_without_legacy_facades() -> None:
+    """确保具体宿主只组合 owner，且历史应用包已经物理退役。"""
+    host_path = PROJECT_ROOT / "composition.py"
+    resource_path = (
+        PROJECT_ROOT / "agent" / "harness" / "process_resources.py"
     )
-    controller = next(
+    port_path = PROJECT_ROOT / "agent" / "ports" / "process_resources.py"
+    assert host_path.is_file()
+    assert resource_path.is_file()
+    assert port_path.is_file()
+    assert not tuple((PROJECT_ROOT / "mind_app").rglob("*.py"))
+
+    host_tree = ast.parse(
+        host_path.read_text(encoding="utf-8-sig"),
+        filename=str(host_path),
+    )
+    host = next(
         node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "Mind"
+        for node in host_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "ApplicationHost"
     )
     methods = {
         node.name
-        for node in controller.body
+        for node in host.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
     assigned_attributes = {
         node.attr
-        for node in ast.walk(controller)
+        for node in ast.walk(host)
         if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)
     }
-    called_names = {
-        node.func.id
-        for node in ast.walk(controller)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    }
-    closes_borrowed_report = any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "close"
-        and isinstance(node.func.value, ast.Attribute)
-        and node.func.value.attr == "report"
-        for node in ast.walk(controller)
-    )
-
+    assert "close_runtime_resources" not in methods
+    assert "resources" in assigned_attributes
     assert not {
-        "await_cleanup",
-        "bind_server_manager",
-        "bind_service_runtime_context",
-        "apply_permissions",
-        "calling",
-        "cancel_service_runtime_startup",
-        "keepalive_task_done",
-        "pause_subscription_listener",
-        "reboot_runtime",
-        "require_service_runtime_context",
-        "restart_external_mcp_runtime",
-        "run_service_runtime_startup",
-        "run_turn_lifecycle",
-        "freeze_anim",
-        "fresh_pref_config",
-        "refresh_pref_if_stale",
-        "start_keepalive_supervisor",
-        "start_config_service",
-        "start_anim",
-        "start_compact_anim",
-        "start_external_mcp_anim",
-        "start_inbuild_startup_anim",
-        "start_upload_anim",
-        "start_external_mcp_runtime",
-        "start_subscription_listener",
-        "stop_keepalive_supervisor",
-        "stop_config_service",
-        "stop_service_runtime",
-        "stop_external_mcp_runtime",
-        "stop_anim",
-        "stop_subscription_listener",
-        "stream_turn",
-    } & methods
-    assert not {
-        "archive_conversation",
-        "archive_conversation_session",
-        "begin_conversation_turn",
-        "bind_conversation",
-        "clear_conversation_fork",
-        "end_conversation",
-        "find_conversation_session",
-        "hook_scope",
-        "inspect_hooks",
-        "last_assistant_reply_snapshot",
-        "prepare_conversation_fork",
-        "read_conversation_transcript",
-        "recent_conversation_sessions",
-        "reset_conversation",
-        "resume_conversation",
-        "set_hook_enabled",
-        "trust_hook",
-        "trust_hooks",
-        "turn_hook_scope",
-        "unarchive_conversation",
-    } & methods
-    assert (
-        PROJECT_ROOT / "infrastructure" / "config" / "hooks.py"
-    ).is_file(), "configured Hook manager is missing"
-    assert not (
-        PROJECT_ROOT / "mind_app" / "runtime" / "support" / "calling.py"
-    ).exists()
-    assert "event_reports" not in assigned_attributes
-    assert not {
-        "_native_coding_close_tasks",
-        "_service_start_lock",
-        "_service_start_task",
-        "config_service",
-        "config_session",
-        "exit_code",
-        "exec_policy_manager",
-        "history_store",
-        "keepalive_stop",
-        "keepalive_task",
-        "native_coding",
-        "anim_manager",
-        "animate",
-        "permissions",
-        "pref",
-        "server_manager",
-        "service_runtime_context",
-        "stop_runtime_on_exit",
-        "task_event",
-        "transcripts",
-        "user_shell",
+        "level",
+        "power",
+        "remote",
+        "src_opera_place",
+        "src_total_place",
     } & assigned_attributes
-    assert "RunReport" not in called_names
-    assert "ProcessLifecycle" not in called_names
-    assert not closes_borrowed_report
+
+    resource_source = resource_path.read_text(encoding="utf-8-sig")
+    assert "class ProcessResourceOwner" in resource_source
+    assert "self._next_step" in resource_source
+    assert "asyncio.Lock()" in resource_source
+    assert "class ProcessResourcePort(typing.Protocol)" in (
+        port_path.read_text(encoding="utf-8-sig")
+    )
 
 
 def test_process_lifecycle_and_frontend_activity_are_composed_once() -> None:
     """确保进程生命周期和前端活动由组合根持有且旧 facade 不会回流。"""
     composition_path = PROJECT_ROOT / "mind.py"
-    controller_path = PROJECT_ROOT / "mind_app" / "controller.py"
+    host_path = PROJECT_ROOT / "composition.py"
     composition_source = composition_path.read_text(encoding="utf-8-sig")
-    controller_source = controller_path.read_text(encoding="utf-8-sig")
+    host_source = host_path.read_text(encoding="utf-8-sig")
 
     assert "from agent.harness.process_lifecycle import ProcessLifecycle" in (
         composition_source
     )
-    assert 'kwargs["lifecycle"] = ProcessLifecycle()' in composition_source
-    assert 'kwargs["activity"] = activity' in composition_source
-    assert "ProcessLifecycle(" not in controller_source
-    assert "AsyncAnimManager" not in controller_source
+    assert "lifecycle=ProcessLifecycle()" in composition_source
+    assert "activity=activity" in composition_source
+    assert "ProcessLifecycle(" not in host_source
+    assert "AsyncAnimManager" not in host_source
 
     forbidden_facades = {
         "freeze_anim",
@@ -5559,7 +5491,6 @@ def test_process_lifecycle_and_frontend_activity_are_composed_once() -> None:
         PROJECT_ROOT / "agent",
         PROJECT_ROOT / "frontends",
         PROJECT_ROOT / "infrastructure",
-        PROJECT_ROOT / "mind_app",
         PROJECT_ROOT / "protocol",
     )
     for root in production_roots:

@@ -29,7 +29,7 @@ TOOLS_EMPTY_STYLE      = TextStyle(italic=True)
 BUILTIN_TOOL_LABEL     = f"{const.APP_DESC} Native"
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
 
 
 def _terminal_width(
@@ -234,7 +234,7 @@ def render_tools_summary(
 
 
 async def print_available_tools(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     *,
     pref_config: dict[str, typing.Any]
 ) -> None:

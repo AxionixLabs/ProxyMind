@@ -1198,8 +1198,6 @@ async def test_agent_listen_owns_config_service_lifecycle(
         frontend=frontend,
         design=None,
         animation=SimpleNamespace(),
-        home=tmp_path,
-        reports=tmp_path,
         preference=preference,
         config_session=config_session,
         report=report,
@@ -1208,7 +1206,6 @@ async def test_agent_listen_owns_config_service_lifecycle(
             working_directory=str(tmp_path),
         ),
         service_context=SimpleNamespace(),
-        power=1,
         output_mode="tui",
         permissions=preset_permissions("auto"),
         application_host_factory=lambda *_args, **_kwargs: controller,
@@ -1259,8 +1256,6 @@ async def test_run_controller_closes_report_when_initialization_fails(
             frontend=SimpleNamespace(),
             design=None,
             animation=SimpleNamespace(),
-            home=tmp_path,
-            reports=tmp_path,
             preference=SimpleNamespace(),
             config_session=SimpleNamespace(),
             report=report,
@@ -1269,7 +1264,6 @@ async def test_run_controller_closes_report_when_initialization_fails(
                 working_directory=str(tmp_path),
             ),
             service_context=SimpleNamespace(),
-            power=1,
             output_mode="text",
             permissions=preset_permissions("auto"),
             application_host_factory=fail_controller,
@@ -1400,8 +1394,8 @@ async def test_tui_finalization_prints_summary_after_cleanup(
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         lifecycle=_lifecycle(exit_code),
-        close_runtime_resources=AsyncMock(
-            side_effect=lambda: events.append("resources"),
+        resources=SimpleNamespace(
+            close=AsyncMock(side_effect=lambda: events.append("resources")),
         ),
         conversation=SimpleNamespace(
             end=AsyncMock(
@@ -1432,8 +1426,8 @@ async def test_tui_finalization_closes_silently_without_a_conversation() -> None
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         lifecycle=_lifecycle(),
-        close_runtime_resources=AsyncMock(
-            side_effect=lambda: events.append("resources"),
+        resources=SimpleNamespace(
+            close=AsyncMock(side_effect=lambda: events.append("resources")),
         ),
         conversation=SimpleNamespace(
             end=AsyncMock(
@@ -1463,7 +1457,7 @@ async def test_tui_finalization_skips_summary_for_incomplete_session() -> None:
         frontend=SimpleNamespace(runtime=runtime),
         lifecycle=_lifecycle(),
         conversation=SimpleNamespace(end=AsyncMock()),
-        close_runtime_resources=AsyncMock(),
+        resources=SimpleNamespace(close=AsyncMock()),
     )
 
     await bootstrap.finalize_application(
@@ -1474,7 +1468,7 @@ async def test_tui_finalization_skips_summary_for_incomplete_session() -> None:
 
     runtime.close.assert_awaited_once_with()
     mind.conversation.end.assert_awaited_once_with(reason="error")
-    mind.close_runtime_resources.assert_awaited_once_with()
+    mind.resources.close.assert_awaited_once_with()
     runtime.print_exit_summary.assert_not_called()
 
 
@@ -1487,7 +1481,7 @@ async def test_tui_finalization_skips_summary_when_cleanup_fails() -> None:
         frontend=SimpleNamespace(runtime=runtime),
         lifecycle=_lifecycle(),
         conversation=SimpleNamespace(end=AsyncMock()),
-        close_runtime_resources=AsyncMock(),
+        resources=SimpleNamespace(close=AsyncMock()),
     )
 
     with pytest.raises(RuntimeError, match="close failed"):
@@ -1497,7 +1491,7 @@ async def test_tui_finalization_skips_summary_when_cleanup_fails() -> None:
             completed=True,
         )
 
-    mind.close_runtime_resources.assert_awaited_once_with()
+    mind.resources.close.assert_awaited_once_with()
     runtime.print_exit_summary.assert_not_called()
 
 
@@ -1513,7 +1507,7 @@ async def test_finalization_closes_resources_when_session_end_fails() -> None:
                 side_effect=RuntimeError("session end failed"),
             ),
         ),
-        close_runtime_resources=AsyncMock(),
+        resources=SimpleNamespace(close=AsyncMock()),
     )
 
     with pytest.raises(RuntimeError, match="session end failed"):
@@ -1524,4 +1518,4 @@ async def test_finalization_closes_resources_when_session_end_fails() -> None:
         )
 
     runtime.close.assert_awaited_once_with()
-    mind.close_runtime_resources.assert_awaited_once_with()
+    mind.resources.close.assert_awaited_once_with()

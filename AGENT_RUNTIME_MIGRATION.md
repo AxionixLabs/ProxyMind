@@ -1,24 +1,24 @@
 # Agent Harness 迁移计划
 
-状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4 已完成；阶段 5 进行中（2026-09-02）
+状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4、阶段 5 已完成（2026-09-02）
 
-本文件是 ProxyMind Agent Harness 迁移的唯一状态权威。它只保留当前决策、阶段准入与
-出口、进行中的切片、风险和最新验证证据。已完成切片的逐项历史、旧测试数字和完整变更
+本文件是 ProxyMind Agent Harness 迁移的唯一状态权威。它只保留最终决策、阶段出口、
+稳定入口、风险和最新验证证据。已完成切片的逐项历史、旧测试数字和完整变更
 记录见[迁移历史归档](AGENT_RUNTIME_MIGRATION_HISTORY.md)，归档不覆盖本文件的当前状态。
 
 ## 交接入口
 
 接手一次改造时按以下顺序阅读：
 
-1. 本文件的“当前状态”和“下一切片”。
+1. 本文件的“当前状态”和“稳定入口”。
 2. [Agent Harness 架构基线](AGENT_RUNTIME_ARCHITECTURE.md)，确认职责边界与目标目录。
 3. [导入图](AGENT_RUNTIME_IMPORT_GRAPH.md)，确认实际依赖方向。
 4. [协议文档](services/llm/PROTOCOL.md)，确认线上 `mind.chat` 契约未被本地迁移改变。
 5. [历史归档](AGENT_RUNTIME_MIGRATION_HISTORY.md)，只在需要审计某个已完成切片时查阅。
 
-阶段状态只能在本文件更新。任何新切片都必须先写入“下一切片”和准入条件，完成后再
-补充证据并移动到“最近完成”。不得用目录移动、单个测试通过或局部导入切换推断阶段
-完成。
+阶段状态只能在本文件更新。迁移已经完成；后续架构调整按 `AGENTS.md` 和 ADR 的稳定
+边界执行，并补充对应验证证据。不得用目录移动、单个测试通过或局部导入切换推断新的
+架构目标完成。
 
 ## 范围与不变量
 
@@ -36,7 +36,8 @@
 ## 目标架构
 
 ```text
-mind.py                         # 稳定启动入口，只调用组合根
+mind.py                         # 稳定启动入口和具体工厂选择
+composition.py                  # 应用宿主对象图组合模块
 agent/                          # 本地 Agent Harness：domain/application/harness/ports
 protocol/                       # 独立 mind.chat wire SDK，供多种前端复用
 frontends/                      # CLI、TUI、MCP、Subscription 适配器（迁移期逐步落位）
@@ -57,9 +58,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 | `protocol` | `schema`、`transport`、`client` 三层的 `mind.chat` SDK | 恢复 `protocol.requests` 等扁平兼容层 |
 | `infrastructure` | 具体配置、平台、观测和外部资源实现 | 被领域层反向依赖 |
 
-阶段 5 的最终删除目标仍是 `engine`、`mind_nova`、`mind_core`、`mind_app` 四个历史
-包。删除前必须完成对应职责迁移、数据回读、启动/恢复验证、打包元数据切换和生产导入
-图清零；不要求文件级一对一搬迁，但不允许保留无意义的旧包入口。
+`engine`、`mind_nova`、`mind_core`、`mind_app` 四个历史包均已退役；职责迁移、入口切换、
+打包/官网路径和生产导入图已经收口。架构守卫禁止重新引入这些源码包或兼容入口。
 
 ## 阶段总览
 
@@ -70,13 +70,20 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 | 2. 持久化收束 | 已完成 | 收束事件、快照、效果、审批和 outbox | 强退后可恢复或进入对账 |
 | 3. 能力解耦 | 已完成 | 模型、MCP、Helix、进程通过端口接入 | runtime 不直接拥有具体传输实现 |
 | 4. 多入口与协议前端迁移 | 已完成 | 统一 Harness 语义并建立可复用 Protocol Client | CLI、TUI、MCP、Subscription 共用用例语义 |
-| 5. 历史包退役 | 进行中 | 按职责迁移并删除四个历史包 | 生产导入图不再指向历史包，所有入口可启动/恢复 |
+| 5. 历史包退役 | 已完成 | 按职责迁移并删除四个历史包 | 生产导入图不再指向历史包，所有入口可启动/恢复 |
 
-## 当前状态：阶段 5
+## 当前状态：阶段 5 已完成
 
 ### 最近完成
 
-已完成 `agent/` 首轮职责化重组，并同步收敛两个跨层生命周期端口：
+已完成 `agent/` 职责化重组、应用宿主收口和四个历史包退役：
+
+- `mind_app/controller.py` 已删除；`composition.py::ApplicationHost` 只组合职责化 owner，
+  CLI/MCP 使用显式关键字工厂，TUI 通过 `TuiApplicationHost` 结构协议消费宿主。
+- `ProcessResourceOwner` 单一持有进程资源关闭顺序和失败重试进度，入口只调用
+  `resources.close()`，不再保留 Controller 关闭 facade。
+- `engine`、`mind_nova`、`mind_core`、`mind_app` 均无生产源码；官网命令检查、导入图和
+  打包脚本不再引用旧路径，退役包守卫已锁定该出口。
 
 - `agent/application` 按 `agents/`、`turns/`、`hooks/`、`config/` 分组，
   `agent/harness` 按 `agents/`、`execution/`、`sessions/` 分组。
@@ -423,9 +430,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 警告来自测试依赖的 Nuitka `glob2` 弃用转义，不属于本次生产代码失败；下次扩大验证时
 仍需记录是否发生变化。
 
-### 下一切片：入口与数据迁移
+### 迁移收口
 
-当前只允许进入以下顺序，不以补丁式需求插队：
+以下迁移顺序均已完成，保留为最终收口摘要：
 
 0. **旧应用反向前端依赖清零（已完成）**：`frontends -> mind_app` 和
    `mind_app -> frontends` 均已清零并由双向架构守卫锁定。附件输入、Frontend runtime、
@@ -460,13 +467,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    拆分。具体执行器只由组合根注入，嵌套工具回调只传递稳定 JSON；旧
    `mind_app/runtime/tools` 源包和工具 Hook 旧路径已经清零且由架构守卫锁定。
 
-7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
-   `engine`，并完成存量配置、历史、报告和打包元数据回读。`mind_app/runtime` 已源码清零，
-   Hook 管理、Session/history/Transcript/SessionEnd 以及 Turn 工具执行资源所有权已迁出；
-   偏好、权限刷新、外部 MCP 宿主依赖、前端活动和进程生命周期已经拆出。下一步把
-   `mind_app/controller.py` 剩余的资源关闭顺序与协作者组合提升到 `mind.py`/Harness owner，
-   入口改为消费职责化应用宿主后物理删除历史 Controller。每次迁移都要完成入口切换和旧实现
-   删除，禁止整体改名搬运。
+7. **历史包删除收口（已完成）**：`mind_app`、`mind_core`、`mind_nova` 和 `engine`
+   已无生产源码。最后的 Controller 协作者组合迁入 `composition.py::ApplicationHost`，资源
+   关闭顺序归 `ProcessResourceOwner`，CLI/MCP/TUI 通过职责化宿主端口消费；官网命令检查、
+   导入图和退役守卫同步切换到新路径。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
 删除、架构守卫和 `compileall` 证据。任一条件不足时只更新本计划，不创建空目录。
@@ -980,20 +984,17 @@ observability 回调，旧 `mind_app/approval` 源包删除。旧 `mind_app/pres
 facade 或源码。第一轮阶段出口行为回归 `926 passed`，职责守卫 `8 passed, 3 warnings`；
 审批协调器收口证据见下一条迁移记录。
 
-## 过渡入口与删除条件
+## 稳定入口
 
-| 过渡入口 | 当前用途 | 删除条件 |
+| 入口 | 当前用途 | 约束 |
 | --- | --- | --- |
-| `mind.py -> agent.composition` | 稳定启动和唯一具体组合根 | 新入口完成启动/恢复回归并切断历史包导入 |
-| `mind_app/*` | 迁移期 CLI/TUI/MCP/Subscription 入口和适配器 | 对应前端在 `frontends/` 有完整用例且数据/观测兼容 |
-| `mind_nova` | 迁移期 wire/认证/事件实现 | `protocol/` SDK 跨前端 fixture、版本和打包验证完成 |
-| `mind_core` | 迁移期配置、策略和资源读取 | 配置/策略/skills/hooks 所有权拆分并完成存量回读 |
-| `engine` | 迁移期平台和进程实现 | capability/infrastructure 接管，反向依赖清零 |
+| `mind.py -> composition.py` | 稳定启动和唯一应用宿主组合边界 | 不向前端泄漏具体实现，不恢复历史宿主 |
+| `agent.composition` | 创建可注入的 `RuntimeServices` builders | 不导入前端或隐式读取入口状态 |
+| `frontends/*` | CLI、TUI、MCP、Subscription 适配 | 只消费 application/ports/protocol，不复制 Harness 状态机 |
 
-过渡入口只允许在本表登记的用途内存在；任何新增跨层导入必须同时登记删除条件和最晚
-阶段。`backend/` 不参与这些迁移。
+`backend/` 不参与该架构边界。四个已退役包不再是过渡入口，任何恢复都属于架构回归。
 
-## 阶段 5 出口条件
+## 阶段 5 完成证据
 
 - `agent`、`protocol`、`frontends`、`infrastructure` 的依赖方向由导入图守卫；
   `agent.domain`、`agent.protocol` 脱离 IO、UI 和历史包可独立测试。
@@ -1019,7 +1020,7 @@ facade 或源码。第一轮阶段出口行为回归 `926 passed`，职责守卫
 架构边界专项 pytest（按改动选择 -k）
 scripts/agent_runtime_import_graph.py --write
 scripts/agent_runtime_import_graph.py --check
-python -m compileall -q agent mind_app infrastructure protocol tests
+python -m compileall -q agent frontends infrastructure protocol tests composition.py mind.py
 git diff --check
 ```
 
@@ -1036,22 +1037,23 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 - **状态竞争**：Session/Run 的权威状态只能由 Harness/store 写入；入口断开不等于取消。
 - **外部副作用重复**：效果账本和 lease/fence 先于重新派发；未知效果必须进入 reconciliation。
-- **过渡层永久化**：每个临时导入必须在本计划登记删除条件，阶段 5 出口前不得新增。
+- **过渡层永久化**：迁移期临时入口已经清零，后续不得恢复历史导入或兼容 facade。
 - **前端分叉**：事件展示只消费 Protocol Client 的 Canonical Item，不在 TUI/CLI 复制 reducer。
 - **文档漂移**：协议变更先同步 `services/llm/PROTOCOL.md` 与 fixture，再更新实现和本计划证据。
 
 ## 交接检查清单
 
 - [ ] 先阅读本文件、架构基线、导入图和正式协议。
-- [ ] 确认目标改动属于当前“下一切片”，并写清状态所有权和删除条件。
-- [ ] 先补失败路径和边界守卫，再切换生产调用者并删除旧路径。
-- [ ] 完成最小验证集，更新“最近完成”和最新证据；失败时不标记出口。
-- [ ] 提交后在本文件记录提交号、验证结果和下一切片，详细过程放入历史归档。
+- [ ] 写清目标改动的职责归属、依赖方向、状态所有权和生命周期。
+- [ ] 先补失败路径和边界守卫，再切换生产调用者并删除被替代实现。
+- [ ] 完成与影响范围匹配的验证；公共边界变化同步更新导入图和 ADR。
+- [ ] 不恢复四个历史包、`agent.runtime` 或单次转发 facade。
 
 ## 最近变更
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 删除最后的 `mind_app` 应用宿主，建立显式 `ApplicationHost`、TUI 宿主协议和可重试 `ProcessResourceOwner`，同步官网路径与退役包守卫，完成阶段 5 | 全行为 `3000 passed, 11 skipped`；完整架构 `114 passed, 66 warnings`；文档契约、导入图、`compileall`、旧路径扫描和差异检查通过 |
 | 2026-09-02 | 将进程停止/退出/取消态清理与前端活动展示迁出 Controller，由组合根注入 `ProcessLifecycle` 和 `FrontendActivity`，删除旧状态字段与动画/清理 facade，并修正 stdio MCP 权限来源 | 四入口、生命周期、活动与流式联合回归 `605 passed`；完整架构 `113 passed / 2 stale assertions`，修正后职责专项 `6 passed, 1 warning`；`compileall`、导入图和差异检查通过 |
 | 2026-09-02 | 将根 Session、历史游标、Transcript 和 SessionEnd/归档事务迁出 Controller；历史组合归 infrastructure，Transcript 值与归约归 domain，删除旧 transcripts store 源包 | 根会话/历史/Transcript 最终分组 `378 passed`；历史成功/故障 `12 passed`；四入口 `194 passed`；完整架构 `114 passed, 66 warnings`；导入图和差异检查通过 |
 | 2026-09-02 | 将 Hook 配置管理、执行作用域和 registry 资源生命周期迁出 Controller，三类执行入口改用显式 scope provider，TUI 改用独立管理端口 | Hook/TUI/根 Turn/Subagent/Controller `149 passed`；完整架构 `109 passed / 4 stale assertions`，修正后相关 `4 passed`；导入图和差异检查通过 |

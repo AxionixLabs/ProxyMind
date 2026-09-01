@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
 import math
 import typing
 import asyncio
@@ -27,7 +26,11 @@ from agent.domain.policies import (
     PermissionSettings,
     resolve_permissions,
 )
-from agent.ports import RootConversationPort
+from agent.ports import (
+    HookRegistryPort,
+    ProcessResourcePort,
+    RootConversationPort,
+)
 from infrastructure.config.paths import (
     ApplicationLayout,
     resolve_application_layout,
@@ -81,34 +84,36 @@ class McpApplicationHost(typing.Protocol):
     execution: _McpExecutionResources
     history_workspace: str
     conversation: RootConversationPort
+    resources: ProcessResourcePort
 
     def set_history_workspace(self, workspace: str | Path) -> None:
         """切换当前调用使用的工作区。"""
         ...
-
-    async def close_runtime_resources(self) -> None:
-        """释放应用宿主持有的运行时资源。"""
-        ...
-
 
 class McpApplicationHostFactory(typing.Protocol):
     """描述组合根注入的 MCP 应用宿主构造器。"""
 
     def __call__(
         self,
-        show_level: str,
-        power: int,
-        state: dict[str, object],
-        **kwargs: object,
+        *,
+        config_session: ConfigSession,
+        preferences: Preferences,
+        permissions: PermissionSettings,
+        frontend: Frontend,
+        report: RunReport,
+        hook_registry: HookRegistryPort,
+        runtime_services: RuntimeServices,
+        application_layout: ApplicationLayout | None,
+        workspace_root: str | Path | None = None,
+        animation_enabled: bool = False,
+        agent_settings: AgentSettings | None = None,
+        feature_settings: FeatureSettings | None = None,
     ) -> McpApplicationHost:
         """使用已解析依赖创建一个 MCP 应用宿主。"""
         ...
 
 
 def _require_application_host_factory(
-    _show_level: str,
-    _power: int,
-    _state: dict[str, object],
     **_kwargs: object,
 ) -> McpApplicationHost:
     """在 MCP 未由组合根装配时返回明确配置错误。"""
@@ -231,7 +236,7 @@ class MindMcpRuntime(object):
         ),
     ) -> "MindMcpRuntime":
         """创建并启动 MCP 服务使用的应用运行时。"""
-        home = ensure_mind_home()
+        ensure_mind_home()
         report = RunReport(str(mind_reports_dir()), label="mcp_server")
 
         try:
@@ -262,14 +267,9 @@ class MindMcpRuntime(object):
             hook_registry = runtime_services.create_hook_registry()
 
             mind = application_host_factory(
-                const.SHOW_LEVEL,
-                os.cpu_count() or 1,
-                {},
-                src_opera_place=str(home),
-                src_total_place=str(mind_reports_dir()),
-                pref=pref,
                 config_session=config_session,
-                animate=False,
+                preferences=pref,
+                animation_enabled=False,
                 frontend=frontend,
                 report=report,
                 workspace_root=Path.cwd(),
@@ -306,7 +306,7 @@ class MindMcpRuntime(object):
             )
         except BaseException:
             try:
-                await mind.close_runtime_resources()
+                await mind.resources.close()
             finally:
                 report.close()
             raise
@@ -320,7 +320,7 @@ class MindMcpRuntime(object):
                 await self._turn_application.close(cancel_running=True)
             finally:
                 try:
-                    await self.mind.close_runtime_resources()
+                    await self.mind.resources.close()
                 finally:
                     self._report.close()
 

@@ -42,7 +42,7 @@ from ..features.mcp import (
 from ..prompting.commands import matches_command
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
 
 CancelCleanup = typing.Callable[[], typing.Awaitable[None]]
 
@@ -58,7 +58,7 @@ CancelledHandler = typing.Callable[[], None]
 class TuiForegroundTasks(object):
     """管理可取消前台任务及下一轮模型调用屏障。"""
 
-    def __init__(self, runtime: ForegroundRuntimePort, mind: "Mind") -> None:
+    def __init__(self, runtime: ForegroundRuntimePort, mind: "TuiApplicationHost") -> None:
         self.runtime = runtime
         self.mind    = mind
 

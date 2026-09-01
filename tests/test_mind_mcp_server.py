@@ -158,8 +158,8 @@ async def test_mind_mcp_runtime_closes_report_after_runtime_resources(
                 side_effect=lambda **_kwargs: timeline.append("session"),
             ),
         ),
-        close_runtime_resources=AsyncMock(
-            side_effect=lambda: timeline.append("resources"),
+        resources=SimpleNamespace(
+            close=AsyncMock(side_effect=lambda: timeline.append("resources")),
         ),
     )
     report = SimpleNamespace(
@@ -187,8 +187,8 @@ async def test_mind_mcp_runtime_releases_resources_when_session_close_fails(
         conversation=_conversation(
             end=AsyncMock(side_effect=RuntimeError("session failed")),
         ),
-        close_runtime_resources=AsyncMock(
-            side_effect=lambda: timeline.append("resources"),
+        resources=SimpleNamespace(
+            close=AsyncMock(side_effect=lambda: timeline.append("resources")),
         ),
     )
     report = SimpleNamespace(
@@ -215,8 +215,8 @@ async def test_mind_mcp_runtime_closes_report_when_resource_cleanup_fails(
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         conversation=_conversation(),
-        close_runtime_resources=AsyncMock(
-            side_effect=RuntimeError("cleanup failed"),
+        resources=SimpleNamespace(
+            close=AsyncMock(side_effect=RuntimeError("cleanup failed")),
         ),
     )
     report = SimpleNamespace(
@@ -288,7 +288,7 @@ async def test_mind_mcp_runtime_injects_model_capability(
             external_mcp=SimpleNamespace(start=AsyncMock()),
         ),
         conversation=_conversation(),
-        close_runtime_resources=AsyncMock(),
+        resources=SimpleNamespace(close=AsyncMock()),
     )
 
     def build_controller(*_args, **kwargs):
@@ -420,7 +420,7 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
         conversation=_conversation(
             reset=AsyncMock(return_value=metadata),
         ),
-        close_runtime_resources=AsyncMock(),
+        resources=SimpleNamespace(close=AsyncMock()),
     )
     runtime = MindMcpRuntime(
         mind,

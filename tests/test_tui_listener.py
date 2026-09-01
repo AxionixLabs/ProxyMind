@@ -92,12 +92,13 @@ class _OperationController(object):
             start=self._start_subscription,
             pause=self._pause_subscription,
         )
+        self.lifecycle = SimpleNamespace(await_cleanup=self._await_cleanup)
         self.animate = True
         self.pause_started = asyncio.Event()
         self.pause_release = asyncio.Event()
 
     @staticmethod
-    def await_cleanup(awaitable):
+    def _await_cleanup(awaitable):
         return awaitable
 
     def _start_subscription(self) -> _OperationListener:

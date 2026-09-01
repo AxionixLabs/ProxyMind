@@ -537,8 +537,8 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
             external_mcp=SimpleNamespace(current=None),
             is_service_linked=lambda: False,
         ),
+        lifecycle=SimpleNamespace(exit_code=0),
         set_history_workspace=Mock(),
-        exit_code=0,
     )
     preference = SimpleNamespace(load_pref=AsyncMock())
     config_service = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
@@ -596,8 +596,6 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
         frontend=frontend,
         design=None,
         animation=SimpleNamespace(),
-        home=tmp_path,
-        reports=tmp_path,
         preference=preference,
         config_session=SimpleNamespace(),
         report=SimpleNamespace(close=Mock()),
@@ -606,7 +604,6 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
             working_directory=str(tmp_path),
         ),
         service_context=SimpleNamespace(),
-        power=1,
         output_mode="tui",
         permissions=SimpleNamespace(),
         startup_warnings=("ignored project setting",),
@@ -644,8 +641,8 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
             external_mcp=SimpleNamespace(current=None),
             is_service_linked=lambda: False,
         ),
+        lifecycle=SimpleNamespace(exit_code=0),
         set_history_workspace=Mock(),
-        exit_code=0,
     )
 
     config_service = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
@@ -711,8 +708,6 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
         frontend=frontend,
         design=None,
         animation=SimpleNamespace(),
-        home=tmp_path,
-        reports=tmp_path,
         preference=SimpleNamespace(load_pref=AsyncMock()),
         config_session=SimpleNamespace(),
         report=SimpleNamespace(close=Mock()),
@@ -721,7 +716,6 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
             working_directory=str(tmp_path),
         ),
         service_context=SimpleNamespace(),
-        power=1,
         output_mode="tui",
         permissions=SimpleNamespace(),
         startup_warnings=(),

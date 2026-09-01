@@ -42,14 +42,6 @@ McpAction = typing.Literal[
     "status"
 ]
 
-_MCP_ACTIONS: typing.Final[frozenset[str]] = frozenset({
-    "start",
-    "force",
-    "stop",
-    "restart",
-    "status",
-})
-
 MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
     ("start", "start", "Start configured external MCP services with enabled=true; keep already running services connected."),
     ("force", "force", "Temporarily start all configured external MCP services for this turn, including enabled=false. Does not modify the config file."),
@@ -101,8 +93,20 @@ def parse_mcp_command(value: str) -> tuple[bool, McpAction | None]:
         return False, None
     if len(parts) == 1:
         return True, None
-    if len(parts) == 2 and parts[1] in _MCP_ACTIONS:
-        return True, typing.cast(McpAction, parts[1])
+    if len(parts) != 2:
+        return False, None
+
+    action = parts[1]
+    if action == "start":
+        return True, "start"
+    if action == "force":
+        return True, "force"
+    if action == "stop":
+        return True, "stop"
+    if action == "restart":
+        return True, "restart"
+    if action == "status":
+        return True, "status"
 
     return False, None
 

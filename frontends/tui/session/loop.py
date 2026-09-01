@@ -60,7 +60,7 @@ from infrastructure.services.turn_environment import (
 )
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
 
 
 @typing.runtime_checkable
@@ -119,7 +119,7 @@ def _pending_attachment_snapshot(
 
 
 async def run_tui_loop(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     *,
     turn_runner: TuiRootTurnRunner | None = None,
     conversation_compactor: ConversationCompactor | None = None,
@@ -160,7 +160,7 @@ async def run_tui_loop(
 
 
 async def _run_tui_loop(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     *,
     turn_application: TurnApplication["RunResult"],
     turn_runner: TuiRootTurnRunner,
@@ -414,7 +414,7 @@ async def _run_tui_loop(
 
 
 async def _handle_mailbox_run(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     runtime: TuiRuntime,
     dispatcher: TuiCommandDispatcher,
     request: MailboxRunRequest
@@ -452,7 +452,7 @@ async def _handle_mailbox_run(
 
 
 async def _handle_transcript_backtrack(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     runtime: TuiRuntime,
     state: TuiSessionState,
     foreground_tasks: TuiForegroundTasks,
@@ -493,7 +493,7 @@ async def _handle_transcript_backtrack(
 
 
 async def _finish_transcript_backtrack(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     runtime: TuiRuntime,
     state: TuiSessionState,
     request: TranscriptBacktrackRequest,

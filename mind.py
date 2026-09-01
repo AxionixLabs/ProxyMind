@@ -4,6 +4,12 @@
 import os
 import typing
 import functools
+from composition import ApplicationHost
+from agent.application.config.settings import (
+    AgentSettings,
+    FeatureSettings,
+)
+from agent.domain.policies import PermissionSettings
 from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.composition import create_runtime_services
 from agent.application import RuntimeServices
@@ -52,12 +58,18 @@ from infrastructure.services.turn_environment import (
 from agent.harness.execution.root_runner import run_root_turn
 from agent.adapters.protocol.compaction import ProtocolCompactionClient
 from agent.harness.execution.compaction import compact_conversation
-from mind_app.controller import Mind
+from agent.ports import (
+    HookRegistryPort,
+    HookStatusPort,
+)
 from frontends.interaction.attachments import Attach
 from frontends.output.silent import create_silent_output_session
 from frontends.terminal.worked import emit_worked_footer
 from frontends.tui.features.conversation import ConversationCompactor
 from frontends.subscription.runtime import AgentRuntime
+from infrastructure.config.preferences import Preferences
+from infrastructure.config.session import ConfigSession
+from observability.reporting import RunReport
 
 
 @typing.runtime_checkable
@@ -82,7 +94,7 @@ def bind_root_turn_runner(
     effect_journal_factory = runtime_services.create_effect_journal
 
     async def run_bound_root_turn(
-        controller: "Mind",
+        controller: ApplicationHost,
         pref_config: dict[str, typing.Any] | None = None,
         *,
         message: str,
@@ -117,9 +129,9 @@ def bind_root_turn_runner(
 
 
 def bind_conversation_compactor(host: object) -> ConversationCompactor:
-    """在进程组合根绑定当前 Controller 的会话压缩用例。"""
-    if not isinstance(host, Mind):
-        raise TypeError("conversation compactor host must be Mind")
+    """在进程组合根绑定当前应用宿主的会话压缩用例。"""
+    if not isinstance(host, ApplicationHost):
+        raise TypeError("conversation compactor host must be ApplicationHost")
     return functools.partial(
         compact_conversation,
         host.conversation,
@@ -128,36 +140,56 @@ def bind_conversation_compactor(host: object) -> ConversationCompactor:
 
 
 def create_application_host(
-    level: str,
-    power: int,
-    state: dict[str, object],
-    **kwargs: object,
-) -> Mind:
+    *,
+    config_session: ConfigSession,
+    preferences: Preferences,
+    permissions: PermissionSettings,
+    frontend: _ComposedFrontend,
+    report: RunReport,
+    hook_registry: HookRegistryPort,
+    runtime_services: RuntimeServices,
+    application_layout: ApplicationLayout | None,
+    workspace_root: str | os.PathLike[str] | None = None,
+    animation: AsyncAnimManager | None = None,
+    animation_enabled: bool = True,
+    hook_startup_warnings: tuple[str, ...] = (),
+    hook_status: HookStatusPort | None = None,
+    agent_settings: AgentSettings | None = None,
+    feature_settings: FeatureSettings | None = None,
+) -> ApplicationHost:
     """在唯一进程组合根装配应用宿主的前端侧依赖。"""
-    frontend = kwargs.get("frontend")
     if not isinstance(frontend, _ComposedFrontend):
         raise TypeError("application frontend is incomplete")
-    fallback_animation = kwargs.get("anim_manager")
-    if not isinstance(fallback_animation, AsyncAnimManager):
-        fallback_animation = AsyncAnimManager()
+    fallback_animation = animation or AsyncAnimManager()
     activity = FrontendActivity(
         frontend.runtime,
         fallback_animation,
-        enabled=bool(kwargs.pop("animate", True)),
+        enabled=animation_enabled,
     )
-    kwargs.pop("anim_manager", None)
-    kwargs["activity"] = activity
-    kwargs["lifecycle"] = ProcessLifecycle()
-
-    return Mind(
-        level,
-        power,
-        state,
-        **kwargs,
+    return ApplicationHost(
+        workspace_root=(
+            os.fspath(workspace_root)
+            if workspace_root is not None
+            else None
+        ),
+        application_layout=application_layout,
+        runtime_services=runtime_services,
+        config_session=config_session,
+        preferences=preferences,
+        permissions=permissions,
+        frontend=frontend,
+        lifecycle=ProcessLifecycle(),
+        activity=activity,
+        hook_registry=hook_registry,
+        report=report,
         approval_presenter=frontend.interaction,
         attachment_state=Attach(),
         subagent_session_factory=create_silent_output_session,
         turn_completion_presenter=emit_worked_footer,
+        hook_startup_warnings=hook_startup_warnings,
+        hook_status=hook_status,
+        agent_settings=agent_settings,
+        feature_settings=feature_settings,
     )
 
 

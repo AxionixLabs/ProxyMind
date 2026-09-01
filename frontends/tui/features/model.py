@@ -35,7 +35,7 @@ from ..core.styles import (
 )
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
     from ..runtime.ports import MenuSelectionPort
 
 MODEL_EFFORT_OPTIONS: tuple[tuple[str, str, str], ...] = (
@@ -81,7 +81,7 @@ async def exchange_pref_value(
 
 
 async def persist_primary_pref(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     *,
     command_name: typing.Literal[
         "model", "apikey", "base-url", "model-effort"

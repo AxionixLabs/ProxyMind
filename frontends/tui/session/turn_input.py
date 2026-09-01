@@ -30,7 +30,7 @@ from ..runtime.ports import TurnInputRuntimePort
 from .steer_ledger import PendingSteerLedger
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
     from .state import TuiSessionState
 
 
@@ -50,7 +50,7 @@ class TuiTurnInputControl(object):
 
     def __init__(
         self,
-        controller: "Mind",
+        controller: "TuiApplicationHost",
         runtime: TurnInputRuntimePort,
         state: "TuiSessionState",
         *,

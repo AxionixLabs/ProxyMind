@@ -8,7 +8,8 @@ from unittest.mock import (
 
 import pytest
 
-from mind_app.controller import Mind
+from composition import ApplicationHost
+from agent.harness.process_resources import ProcessResourceOwner
 from agent.harness.sessions.conversation import ConversationState
 from agent.harness.sessions.root import RootConversationSession
 from agent.domain.policies import preset_permissions
@@ -83,13 +84,16 @@ def _root_session(
 def test_controller_rebuilds_workspace_tools_after_runtime_replacement(
     tmp_path,
 ) -> None:
-    controller = Mind.__new__(Mind)
+    controller = ApplicationHost.__new__(ApplicationHost)
     controller.history_workspace = str(tmp_path / "previous")
     controller.workspace_runtime = SimpleNamespace(replace=Mock())
     controller.command_hook_sessions = SimpleNamespace(clear=Mock())
     controller.execution = SimpleNamespace(rebuild_client_registry=Mock())
 
-    workspace = Mind.set_history_workspace(controller, tmp_path / "current")
+    workspace = ApplicationHost.set_history_workspace(
+        controller,
+        tmp_path / "current",
+    )
 
     normalized = controller.workspace_runtime.replace.call_args.args[0]
     assert workspace == normalized
@@ -101,7 +105,7 @@ def test_controller_rebuilds_workspace_tools_after_runtime_replacement(
 def test_controller_keeps_workspace_when_runtime_replacement_fails(
     tmp_path,
 ) -> None:
-    controller = Mind.__new__(Mind)
+    controller = ApplicationHost.__new__(ApplicationHost)
     previous = str(tmp_path / "previous")
     controller.history_workspace = previous
     controller.workspace_runtime = SimpleNamespace(
@@ -111,7 +115,7 @@ def test_controller_keeps_workspace_when_runtime_replacement_fails(
     controller.execution = SimpleNamespace(rebuild_client_registry=Mock())
 
     with pytest.raises(RuntimeError, match="replace failed"):
-        Mind.set_history_workspace(controller, tmp_path / "current")
+        ApplicationHost.set_history_workspace(controller, tmp_path / "current")
 
     assert controller.history_workspace == previous
     controller.command_hook_sessions.clear.assert_not_called()
@@ -121,40 +125,79 @@ def test_controller_keeps_workspace_when_runtime_replacement_fails(
 @pytest.mark.anyio
 async def test_controller_stops_subagents_before_shared_resources() -> None:
     timeline = []
-    controller = Mind.__new__(Mind)
-
     async def step(name):
         timeline.append(name)
 
-    controller.subscription = SimpleNamespace(
-        close=lambda: step("subscription"),
-    )
-    controller.service_runtime = SimpleNamespace(
-        cancel_startup=lambda: step("service_startup"),
-        close=lambda: step("service_runtime"),
-    )
-    controller.subagents = SimpleNamespace(
-        shutdown=lambda: step("subagents"),
-    )
-    controller.command_hook_sessions = SimpleNamespace(
-        clear=lambda: timeline.append("command_hooks"),
-    )
-    controller.hooks = SimpleNamespace(
-        close=lambda: step("hooks"),
-    )
-    controller.workspace_runtime = SimpleNamespace(
-        close=lambda: step("workspace_runtime"),
-    )
-    controller.execution = SimpleNamespace(
-        close=lambda: step("execution"),
+    resources = ProcessResourceOwner(
+        close_subscription=lambda: step("subscription"),
+        cancel_service_startup=lambda: step("service_startup"),
+        shutdown_subagents=lambda: step("subagents"),
+        close_approvals=lambda: step("approvals"),
+        clear_command_hooks=lambda: timeline.append("command_hooks"),
+        close_hooks=lambda: step("hooks"),
+        close_workspace=lambda: step("workspace_runtime"),
+        close_execution=lambda: step("execution"),
+        close_service=lambda: step("service_runtime"),
+        observe_failure=Mock(),
     )
 
-    await Mind.close_runtime_resources(controller)
+    await resources.close()
 
     assert timeline == [
         "subscription",
         "service_startup",
         "subagents",
+        "approvals",
+        "command_hooks",
+        "hooks",
+        "workspace_runtime",
+        "execution",
+        "service_runtime",
+    ]
+
+
+@pytest.mark.anyio
+async def test_process_resources_resume_at_failed_step() -> None:
+    timeline = []
+    startup_attempts = []
+    observe_failure = Mock()
+
+    async def step(name):
+        timeline.append(name)
+
+    async def cancel_startup():
+        startup_attempts.append(None)
+        timeline.append("service_startup")
+        if len(startup_attempts) == 1:
+            raise RuntimeError("startup cleanup failed")
+
+    resources = ProcessResourceOwner(
+        close_subscription=lambda: step("subscription"),
+        cancel_service_startup=cancel_startup,
+        shutdown_subagents=lambda: step("subagents"),
+        close_approvals=lambda: step("approvals"),
+        clear_command_hooks=lambda: timeline.append("command_hooks"),
+        close_hooks=lambda: step("hooks"),
+        close_workspace=lambda: step("workspace_runtime"),
+        close_execution=lambda: step("execution"),
+        close_service=lambda: step("service_runtime"),
+        observe_failure=observe_failure,
+    )
+
+    with pytest.raises(RuntimeError, match="startup cleanup failed"):
+        await resources.close()
+    failure = observe_failure.call_args.args[1]
+    assert observe_failure.call_args.args[0] == "service_startup"
+    assert isinstance(failure, RuntimeError)
+    await resources.close()
+    await resources.close()
+
+    assert timeline == [
+        "subscription",
+        "service_startup",
+        "service_startup",
+        "subagents",
+        "approvals",
         "command_hooks",
         "hooks",
         "workspace_runtime",

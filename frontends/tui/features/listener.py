@@ -31,7 +31,7 @@ from ..core.styles import (
 )
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
     from agent.ports.subscription import SubscriptionRuntime
 
 ListenerAction    = typing.Literal["start", "stop", "status"]
@@ -79,7 +79,7 @@ def parse_listener_command(
 
 
 def render_listener_result(
-    controller: "Mind",
+    controller: "TuiApplicationHost",
     outcome: ListenerOutcome
 ) -> None:
     """把监听器操作结果写入稳定正文。"""
@@ -96,7 +96,7 @@ def render_listener_result(
     )
 
 
-def render_listener_status(controller: "Mind") -> None:
+def render_listener_status(controller: "TuiApplicationHost") -> None:
     """把当前监听器状态作为命令查询结果写入稳定正文。"""
     listener = controller.subscription.current
     running  = listener is not None and listener.is_running()
@@ -123,7 +123,7 @@ def render_listener_status(controller: "Mind") -> None:
 
 
 def render_listener_failure(
-    controller: "Mind",
+    controller: "TuiApplicationHost",
     action: ListenerOperation,
     error: BaseException
 ) -> None:
@@ -143,7 +143,7 @@ def render_listener_failure(
 
 
 def render_listener_interrupted(
-    controller: "Mind",
+    controller: "TuiApplicationHost",
     action: ListenerOperation
 ) -> None:
     """把监听器操作中断结果写入稳定正文。"""
@@ -155,7 +155,7 @@ def render_listener_interrupted(
 
 
 def _present_listener_view(
-    controller: "Mind",
+    controller: "TuiApplicationHost",
     view: McpStatusView
 ) -> None:
     """提交一项监听器最终状态。"""
@@ -191,7 +191,7 @@ def _listener_error_detail(error: BaseException) -> str:
 
 
 async def _begin_listener_activity(
-    controller: "Mind",
+    controller: "TuiApplicationHost",
     summary: str
 ) -> None:
     """按当前动画设置启动单行监听器操作状态。"""
@@ -203,7 +203,7 @@ async def _begin_listener_activity(
 
 async def choose_listener_action(
     runtime: TuiRuntime,
-    controller: "Mind"
+    controller: "TuiApplicationHost"
 ) -> ListenerOperation | None:
     """在主 TUI 中选择监听器启动或停止操作。"""
     listener = controller.subscription.current
@@ -225,7 +225,7 @@ async def choose_listener_action(
 
 
 async def run_listener_action(
-    controller: "Mind",
+    controller: "TuiApplicationHost",
     action: ListenerOperation
 ) -> ListenerOutcome:
     """执行监听器启动或停止操作，并返回稳定结果状态。"""

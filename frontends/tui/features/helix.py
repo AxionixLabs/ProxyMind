@@ -48,7 +48,7 @@ from ..core.styles import (
 )
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
 
 DOWNLOAD_OPTIONS: tuple[tuple[bool, str, str], ...] = (
     (True, "Download MCP", "fetch and install Helix now"),
@@ -62,7 +62,7 @@ TOOL_PROFILE_OPTIONS: tuple[tuple[ToolFilterMode, str, str], ...] = (
 
 
 def _present(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     renderable: FragmentBlock | StyledBlock | None = None,
     *,
     view_type: str = "tui.command",
@@ -83,7 +83,7 @@ def _label_detail(label: str, detail: str) -> FragmentBlock:
 
 
 def _present_helix_result(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     *,
     state: str,
     error: str = ""
@@ -154,7 +154,7 @@ class TuiUpgradeProgress(object):
         await self.runtime.hold_activity_status("download")
 
 
-def render_helix_mode_result(mind: "Mind", mode: ToolFilterMode) -> None:
+def render_helix_mode_result(mind: "TuiApplicationHost", mode: ToolFilterMode) -> None:
     """展示工具过滤模式切换结果。"""
     _present(
         mind,
@@ -168,7 +168,7 @@ def render_helix_mode_result(mind: "Mind", mode: ToolFilterMode) -> None:
     _present(mind, view_type="tui.gap")
 
 
-def render_helix_download_result(mind: "Mind", command: str) -> None:
+def render_helix_download_result(mind: "TuiApplicationHost", command: str) -> None:
     """展示运行时下载完成后的重新打开提示。"""
     _present(mind, command_result_block(
         command,
@@ -179,7 +179,7 @@ def render_helix_download_result(mind: "Mind", command: str) -> None:
 
 
 def render_helix_command_failure(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     command: str,
     error: BaseException | str
 ) -> None:
@@ -202,7 +202,7 @@ def render_helix_command_failure(
 
 
 def render_helix_notice(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     message: str
 ) -> None:
     """展示不带命令前缀的 Helix 普通状态提示。"""
@@ -217,7 +217,7 @@ def render_helix_notice(
     _present(mind, view_type="tui.gap")
 
 
-def render_helix_link_result(mind: "Mind", linked: bool) -> None:
+def render_helix_link_result(mind: "TuiApplicationHost", linked: bool) -> None:
     """展示 Helix 接入操作的最终结果。"""
     if not linked:
         return None
@@ -225,7 +225,7 @@ def render_helix_link_result(mind: "Mind", linked: bool) -> None:
     _present_helix_result(mind, state="ready")
 
 
-def render_helix_link_failure(mind: "Mind", error: BaseException) -> None:
+def render_helix_link_failure(mind: "TuiApplicationHost", error: BaseException) -> None:
     """展示 Helix 接入操作的失败结果。"""
     _present_helix_result(
         mind,
@@ -235,7 +235,7 @@ def render_helix_link_failure(mind: "Mind", error: BaseException) -> None:
 
 
 def render_helix_interrupted(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     *,
     label: str = "Helix MCP"
 ) -> None:
@@ -248,12 +248,12 @@ def render_helix_interrupted(
     _present(mind, view_type="tui.gap")
 
 
-def render_helix_stop_result(mind: "Mind", _result: typing.Any = None) -> None:
+def render_helix_stop_result(mind: "TuiApplicationHost", _result: typing.Any = None) -> None:
     """展示 Helix 停止操作的成功结果。"""
     _present_helix_result(mind, state="stopped")
 
 
-def render_helix_stop_failure(mind: "Mind", error: BaseException) -> None:
+def render_helix_stop_failure(mind: "TuiApplicationHost", error: BaseException) -> None:
     """展示 Helix 停止操作的失败结果。"""
     _present_helix_result(
         mind,
@@ -262,7 +262,7 @@ def render_helix_stop_failure(mind: "Mind", error: BaseException) -> None:
     )
 
 
-def render_helix_home_result(mind: "Mind", url: str | None) -> None:
+def render_helix_home_result(mind: "TuiApplicationHost", url: str | None) -> None:
     """展示 Helix 首页操作的最终结果。"""
     if url is None:
         _present(mind, _label_detail("Helix", "skipped"))
@@ -278,7 +278,7 @@ def render_helix_home_result(mind: "Mind", url: str | None) -> None:
     _present(mind, view_type="tui.gap")
 
 
-def render_helix_home_failure(mind: "Mind", error: BaseException) -> None:
+def render_helix_home_failure(mind: "TuiApplicationHost", error: BaseException) -> None:
     """展示 Helix 首页操作的失败结果。"""
     detail = _helix_error_detail(error)
     _present(
@@ -292,7 +292,7 @@ def render_helix_home_failure(mind: "Mind", error: BaseException) -> None:
     _present(mind, view_type="tui.gap")
 
 
-def helix_runtime_home_url(mind: "Mind") -> str:
+def helix_runtime_home_url(mind: "TuiApplicationHost") -> str:
     """返回当前 Helix 服务管理器确认的首页地址。"""
     server_manager = mind.service_runtime.manager
 
@@ -301,7 +301,7 @@ def helix_runtime_home_url(mind: "Mind") -> str:
     return (url or const.BASE_URL).rstrip("/")
 
 
-def unlink_helix_runtime(mind: "Mind") -> None:
+def unlink_helix_runtime(mind: "TuiApplicationHost") -> None:
     """从当前工具会话移除 Helix MCP，不停止本地服务。"""
     was_linked = mind.execution.is_service_linked()
     mind.execution.unlink_service()
@@ -334,7 +334,7 @@ async def confirm_runtime_download(
 
 
 async def download_service_runtime(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     context: ServiceRuntimeContext
 ) -> bool:
     """下载缺失的服务运行时，不启动服务或挂载工具。"""
@@ -380,7 +380,7 @@ async def choose_helix_tool_profile(
     return selected
 
 
-async def open_helix_home(mind: "Mind") -> str | None:
+async def open_helix_home(mind: "TuiApplicationHost") -> str | None:
     """打开已经连接的服务管理首页。"""
     if not mind.execution.is_service_linked():
         raise AppError("Helix MCP is not connected")
@@ -390,7 +390,7 @@ async def open_helix_home(mind: "Mind") -> str | None:
     return url
 
 
-async def stop_helix_runtime(mind: "Mind") -> None:
+async def stop_helix_runtime(mind: "TuiApplicationHost") -> None:
     """显示停止活动并关闭 Helix 服务。"""
     runtime = require_tui_runtime(mind.frontend.runtime)
     if bool(getattr(mind, "animate", True)):
@@ -402,7 +402,7 @@ async def stop_helix_runtime(mind: "Mind") -> None:
 
 
 async def prepare_tui_service_runtime(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     tool_profile: ToolFilterMode = "app",
     *,
     label: str = "Helix MCP",
@@ -422,7 +422,7 @@ async def prepare_tui_service_runtime(
     )
 
 
-async def confirm_tui_service_runtime_startup(mind: "Mind") -> bool:
+async def confirm_tui_service_runtime_startup(mind: "TuiApplicationHost") -> bool:
     """在后台准备开始前完成缺失运行时的下载确认。"""
     context = mind.service_runtime.require_context()
     if not service_runtime_asset_missing(context):
@@ -432,7 +432,7 @@ async def confirm_tui_service_runtime_startup(mind: "Mind") -> bool:
 
 
 async def link_helix_runtime(
-    mind: "Mind",
+    mind: "TuiApplicationHost",
     tool_profile: ToolFilterMode = "app",
     *,
     download_confirmed: bool = False
@@ -449,7 +449,7 @@ async def link_helix_runtime(
     )
 
 
-async def finish_helix_activity(mind: "Mind") -> None:
+async def finish_helix_activity(mind: "TuiApplicationHost") -> None:
     """结束 Helix 前台操作占用的运行时活动区域。"""
     await mind.activity.stop("inbuild", settle=False)
 

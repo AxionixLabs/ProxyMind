@@ -29,7 +29,7 @@ from ..core.styles import (
 )
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
     from agent.ports.subscription import SubscriptionRuntime
 
 
@@ -49,7 +49,7 @@ _DELETE_ACTION = "delete"
 class TuiMailboxFeature(object):
     """协调进程内收件箱菜单、自动消费和主循环执行请求。"""
 
-    def __init__(self, runtime: TuiRuntime, controller: "Mind") -> None:
+    def __init__(self, runtime: TuiRuntime, controller: "TuiApplicationHost") -> None:
         """保存会话级收件箱依赖和非持久化自动运行状态。"""
         self.runtime    = runtime
         self.controller = controller
@@ -457,7 +457,7 @@ class TuiMailboxFeature(object):
         self.runtime.finish_menu(None)
 
 
-def render_mailbox_auto_status(controller: "Mind", enabled: bool) -> None:
+def render_mailbox_auto_status(controller: "TuiApplicationHost", enabled: bool) -> None:
     """展示自动运行策略切换结果。"""
     state = "enabled" if enabled else "disabled"
     controller.frontend.application.emit(ApplicationView(
@@ -470,13 +470,13 @@ def render_mailbox_auto_status(controller: "Mind", enabled: bool) -> None:
     controller.frontend.application.emit(ApplicationView(type="tui.gap"))
 
 
-def render_mailbox_deleted(controller: "Mind") -> None:
+def render_mailbox_deleted(controller: "TuiApplicationHost") -> None:
     """展示本地消息删除结果。"""
     _present_status(controller, "Mailbox message deleted")
 
 
 def render_mailbox_failure(
-    controller: "Mind",
+    controller: "TuiApplicationHost",
     summary: str,
     error: BaseException
 ) -> None:
@@ -492,7 +492,7 @@ def render_mailbox_failure(
 
 
 def _present_status(
-    controller: "Mind",
+    controller: "TuiApplicationHost",
     summary: str,
     *,
     level: typing.Literal["ready", "warning", "failed"] = "ready",

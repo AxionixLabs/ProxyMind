@@ -16,12 +16,12 @@ from frontends.tui.contracts.text import FormattedLine
 from ..runtime.ports import StaticPagerRuntimePort
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
 
 
 async def show_workspace_diff(
     runtime: StaticPagerRuntimePort,
-    controller: "Mind",
+    controller: "TuiApplicationHost",
     *,
     cwd: Path,
 ) -> None:

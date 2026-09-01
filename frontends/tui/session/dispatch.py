@@ -126,7 +126,7 @@ from .barriers import TuiForegroundTasks
 from .state import TuiSessionState
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
     from ..runtime.ports import ProcessRuntimePort, SkillRuntimePort
 
 MODEL_COMMAND_PATTERN = re.compile(
@@ -189,7 +189,7 @@ class TuiCommandDispatcher(object):
 
     def __init__(
         self,
-        mind: "Mind",
+        mind: "TuiApplicationHost",
         runtime: TuiRuntime,
         state: TuiSessionState,
         foreground_tasks: TuiForegroundTasks,

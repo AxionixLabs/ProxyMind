@@ -27,7 +27,7 @@ from ..features.context import (
 )
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
 
 
 class TuiSessionState(object):
@@ -55,7 +55,7 @@ class TuiSessionState(object):
     @classmethod
     def create(
         cls,
-        mind: "Mind",
+        mind: "TuiApplicationHost",
         runtime: TuiRuntime,
         *,
         model_override: str | None = None
@@ -86,7 +86,7 @@ class TuiSessionState(object):
         """把当前会话上下文同步到 TUI 运行时。"""
         runtime.set_prompt_context(self.prompt_context())
 
-    async def refresh_for_prompt(self, mind: "Mind") -> None:
+    async def refresh_for_prompt(self, mind: "TuiApplicationHost") -> None:
         """在等待用户输入期间刷新偏好和工作区标签。"""
         await self.refresh_preferences(mind)
 
@@ -105,7 +105,7 @@ class TuiSessionState(object):
 
     async def refresh_preferences(
         self,
-        mind: "Mind",
+        mind: "TuiApplicationHost",
         *,
         ttl_sec: float | None = None,
     ) -> dict[str, typing.Any]:
@@ -173,7 +173,7 @@ class TuiSessionState(object):
         self._pending_prompt_extras = None
 
 
-async def preload_tui_prompt_context(mind: "Mind") -> None:
+async def preload_tui_prompt_context(mind: "TuiApplicationHost") -> None:
     """在主画布显示前加载输入上下文和后台进程状态。"""
     runtime = require_tui_runtime(mind.frontend.runtime)
 

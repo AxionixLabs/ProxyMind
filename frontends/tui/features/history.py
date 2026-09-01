@@ -57,7 +57,7 @@ from ..core.styles import (
 )
 
 if typing.TYPE_CHECKING:
-    from ...controller import Mind
+    from ..application import TuiApplicationHost
     from ..runtime.ports import ResumePickerPort
 
 
@@ -68,7 +68,7 @@ class HistoryResumePreviewLoader(ResumePreviewLoader):
 
     def __init__(
         self,
-        controller: "Mind",
+        controller: "TuiApplicationHost",
         *,
         terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
     ) -> None:
@@ -115,7 +115,7 @@ class HistoryResumeTranscriptLoader(ResumeTranscriptLoader):
 
     def __init__(
         self,
-        controller: "Mind",
+        controller: "TuiApplicationHost",
         *,
         terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
     ) -> None:
@@ -243,7 +243,7 @@ def _resume_session_status(value: typing.Any) -> ResumeSessionStatus:
 
 
 def load_history_transcript(
-    controller: "Mind",
+    controller: "TuiApplicationHost",
     session_id: str,
     *,
     terminal_width: int,

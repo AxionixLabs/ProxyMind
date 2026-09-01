@@ -124,11 +124,13 @@ def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
     )
     mind = SimpleNamespace(
         src_opera_place=tmp_path,
-        config_session=SimpleNamespace(load=lambda: {
-            "mcp_servers": {
-                "zentao": {"command": "zentao-server"},
-            },
-        }),
+        settings=SimpleNamespace(
+            config=SimpleNamespace(load=lambda: {
+                "mcp_servers": {
+                    "zentao": {"command": "zentao-server"},
+                },
+            }),
+        ),
         execution=_execution(_external_mcp_owner(
             SimpleNamespace(started=True, group=group),
         )),
