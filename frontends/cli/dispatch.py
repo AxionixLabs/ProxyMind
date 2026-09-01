@@ -13,7 +13,11 @@ from agent.application.turns.commands import (
     TurnApplication,
 )
 from agent.application.services import TurnApplicationFactory
-from agent.ports import ProtocolCommandClient
+from agent.ports import (
+    EffectJournalFactory,
+    ModelCapability,
+    ProtocolCommandClient,
+)
 from agent.application.turns.run_result import RunResult
 from infrastructure.config.preferences import apply_primary_model_override
 from infrastructure.config.runtime_paths import agent_runtime_db_path
@@ -90,7 +94,9 @@ async def run_selected_command(
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     turn_application_factory: TurnApplicationFactory | None = None,
+    model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
+    effect_journal_factory: EffectJournalFactory | None = None,
 ) -> RunResult | None:
     """按命令行参数分派到直接执行或交互入口。"""
     if isinstance(command, AgentListenCommand):
@@ -119,7 +125,9 @@ async def run_selected_command(
             await _run_agent_listener_session(
                 mind,
                 turn_application_factory=turn_application_factory,
+                model_capability=model_capability,
                 protocol_client=protocol_client,
+                effect_journal_factory=effect_journal_factory,
             )
         elif isinstance(command, ExecCommand):
             attachments: list[dict[str, typing.Any]] = []
@@ -190,7 +198,9 @@ async def run_selected_command(
                 images=command.images,
                 model=command.model,
                 turn_application_factory=turn_application_factory,
+                model_capability=model_capability,
                 protocol_client=protocol_client,
+                effect_journal_factory=effect_journal_factory,
             )
         elif isinstance(command, ResumeCommand):
             record = await _select_resume_session(mind, command)
@@ -227,7 +237,9 @@ async def run_selected_command(
                     images=command.images,
                     model=command.model,
                     turn_application_factory=turn_application_factory,
+                    model_capability=model_capability,
                     protocol_client=protocol_client,
+                    effect_journal_factory=effect_journal_factory,
                 )
 
     except asyncio.CancelledError:
@@ -263,7 +275,9 @@ async def _run_agent_listener_session(
     mind: "Mind",
     *,
     turn_application_factory: TurnApplicationFactory | None,
+    model_capability: ModelCapability | None,
     protocol_client: ProtocolCommandClient | None,
+    effect_journal_factory: EffectJournalFactory | None,
 ) -> None:
     """在普通 TUI 生命周期内运行临时远端请求监听器。"""
     mind.subscription.start()
@@ -273,7 +287,9 @@ async def _run_agent_listener_session(
         images=(),
         model=None,
         turn_application_factory=turn_application_factory,
+        model_capability=model_capability,
         protocol_client=protocol_client,
+        effect_journal_factory=effect_journal_factory,
     )
 
 
@@ -284,7 +300,9 @@ async def _run_tui_session(
     images: tuple[str, ...],
     model: str | None,
     turn_application_factory: TurnApplicationFactory | None,
+    model_capability: ModelCapability | None,
     protocol_client: ProtocolCommandClient | None,
+    effect_journal_factory: EffectJournalFactory | None,
 ) -> None:
     """使用现有 TUI 生命周期运行一个交互会话。"""
     from frontends.tui.session.loop import run_tui_loop
@@ -293,25 +311,20 @@ async def _run_tui_session(
         mind.attach.add_pending_attachments(image)
 
     try:
-        if (
-            turn_application_factory is None
-            and protocol_client is None
-        ):
-            await run_tui_loop(
-                mind,
-                initial_prompt=prompt,
-                initial_images=images,
-                initial_model=model,
-            )
-        else:
-            await run_tui_loop(
-                mind,
-                initial_prompt=prompt,
-                initial_images=images,
-                initial_model=model,
-                turn_application_factory=turn_application_factory,
-                protocol_client=protocol_client,
-            )
+        loop_kwargs: dict[str, typing.Any] = {
+            "initial_prompt": prompt,
+            "initial_images": images,
+            "initial_model": model,
+        }
+        if turn_application_factory is not None:
+            loop_kwargs["turn_application_factory"] = turn_application_factory
+        if model_capability is not None:
+            loop_kwargs["model_capability"] = model_capability
+        if protocol_client is not None:
+            loop_kwargs["protocol_client"] = protocol_client
+        if effect_journal_factory is not None:
+            loop_kwargs["effect_journal_factory"] = effect_journal_factory
+        await run_tui_loop(mind, **loop_kwargs)
     finally:
         await mind.subscription.close()
 

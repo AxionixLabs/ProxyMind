@@ -692,10 +692,14 @@ async def _run_controller(
                     name="tui service runtime startup",
                 )
 
+        model_capability = None
         protocol_client = None
         turn_application_factory = None
+        effect_journal_factory = None
         if runtime_services is not None:
             turn_application_factory = runtime_services.create_turn_application
+            model_capability = runtime_services.model_capability
+            effect_journal_factory = runtime_services.create_effect_journal
             if isinstance(
                 runtime_services.model_capability,
                 ProtocolCommandClient,
@@ -708,7 +712,9 @@ async def _run_controller(
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
             turn_application_factory=turn_application_factory,
+            model_capability=model_capability,
             protocol_client=protocol_client,
+            effect_journal_factory=effect_journal_factory,
         )
         completed = True
         observe("app.complete", exit_code=controller.exit_code)

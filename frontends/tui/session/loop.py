@@ -3,7 +3,11 @@
 
 import typing
 import asyncio
-from agent.ports import ProtocolCommandClient
+from agent.ports import (
+    EffectJournalFactory,
+    ModelCapability,
+    ProtocolCommandClient,
+)
 from agent.application.services import TurnApplicationFactory
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.commands import (
@@ -120,7 +124,9 @@ async def run_tui_loop(
     initial_images: tuple[str, ...] = (),
     initial_model: str | None = None,
     turn_application_factory: TurnApplicationFactory | None = None,
+    model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
+    effect_journal_factory: EffectJournalFactory | None = None,
 ) -> None:
     """运行 TUI 会话，并统一关闭其主动 Turn application。"""
     durable_runtime = getattr(mind, "application_layout", None) is not None
@@ -134,7 +140,9 @@ async def run_tui_loop(
         await _run_tui_loop(
             mind,
             turn_application=turn_application,
+            model_capability=model_capability,
             protocol_client=protocol_client,
+            effect_journal_factory=effect_journal_factory,
             local_session_id=(
                 None
                 if durable_runtime
@@ -152,7 +160,9 @@ async def _run_tui_loop(
     mind: "Mind",
     *,
     turn_application: TurnApplication["RunResult"],
+    model_capability: ModelCapability | None,
     protocol_client: ProtocolCommandClient | None,
+    effect_journal_factory: EffectJournalFactory | None,
     local_session_id: str | None,
     initial_prompt: str | None,
     initial_images: tuple[str, ...],
@@ -369,6 +379,9 @@ async def _run_tui_loop(
                 environment_snapshot=command.environment_snapshot_value(),
                 turn_id=turn_id,
                 prompt_extras=command.extras_value(),
+                model_capability=model_capability,
+                protocol_client=protocol_client,
+                effect_journal_factory=effect_journal_factory,
                 on_prompt_prepared=bind_prompt_attachments,
                 turn_input_control=turn_input_control,
                 on_interrupt_acknowledged=interrupt_notice.acknowledge,

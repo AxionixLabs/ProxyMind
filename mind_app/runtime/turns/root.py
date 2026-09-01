@@ -6,6 +6,11 @@ from collections.abc import Mapping
 from protocol.transport.events import EventReport
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.execution import TurnExecution
+from agent.ports import (
+    EffectJournalFactory,
+    ModelCapability,
+    ProtocolCommandClient,
+)
 from agent.application.turns.context import (
     AgentContext,
     TurnContext,
@@ -100,6 +105,9 @@ async def run_root_turn(
     pref_config: dict[str, typing.Any] | None = None,
     *,
     message: str,
+    model_capability: ModelCapability | None = None,
+    protocol_client: ProtocolCommandClient | None = None,
+    effect_journal_factory: EffectJournalFactory | None = None,
     **kwargs: typing.Any,
 ) -> RunResult:
     """准备根轮次并通过主前端生命周期执行。"""
@@ -140,6 +148,13 @@ async def run_root_turn(
         report: EventReport,
     ) -> RunResult:
         """使用主前端生命周期执行已经准备好的根轮次。"""
+        stream_kwargs: dict[str, typing.Any] = dict(kwargs)
+        if model_capability is not None:
+            stream_kwargs["model_capability"] = model_capability
+        if protocol_client is not None:
+            stream_kwargs["protocol_client"] = protocol_client
+        if effect_journal_factory is not None:
+            stream_kwargs["effect_journal_factory"] = effect_journal_factory
         return await run_foreground_turn(
             controller,
             stream_turn,
@@ -149,7 +164,7 @@ async def run_root_turn(
             tools=tools,
             turn_execution=prepared,
             ev_report=report,
-            **kwargs,
+            **stream_kwargs,
         )
 
     return await execute_turn(

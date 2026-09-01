@@ -39,6 +39,7 @@ from .persistence import (
     EffectIntent,
     EffectJournal,
     EffectJournalDecision,
+    EffectJournalFactory,
     EffectJournalPersistenceError,
     LocalEffectReconciliationRequired,
     RunFact,

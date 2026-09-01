@@ -706,6 +706,11 @@ async def _run_stream(
         "turn_execution": turn_execution,
         "session_factory": lambda *_args, **_kwargs: output_session,
     }
+    stream_options["model_capability"] = mind.runtime_services.model_capability
+    stream_options["protocol_client"] = mind.runtime_services.model_capability
+    stream_options["effect_journal_factory"] = (
+        mind.runtime_services.create_effect_journal
+    )
     if attachments:
         stream_options["attachments"] = list(attachments)
     if extras:

@@ -539,11 +539,11 @@ running -> cancelled
 
 | 当前位置 | 目标归属 | 迁移要求 |
 | --- | --- | --- |
-| `mind.py`、`agent/composition.py` | `composition.py` | `mind.py` 已创建单个 `RuntimeServices` 并注入全部进程入口；具体 store 和 capability 只能在 `agent/composition.py` 装配 |
+| `mind.py`、`agent/composition.py` | `composition.py` | `mind.py` 已创建单个 `RuntimeServices` 并注入全部进程入口；根轮次 runner 在组合根绑定 Model/Protocol/Effect 能力，具体 store 和 capability 只能在 `agent/composition.py` 装配 |
 | `mind_app/controller.py` | application 公开门面 | 只借用入口注入的 `RuntimeServices`，不复制能力引用、不选择具体实现；已有可变状态按完整生命周期迁出 |
 | `mind_app/runtime/turns/root.py` | `agent/application/turns/commands.py`、`agent/adapters/turns/root.py` | CLI、TUI、MCP 和 Subscription 已由类型化 Command 驱动；命令映射已迁入 controller 无关的入站 adapter，旧 runtime 只保留尚待 Harness 接管的根轮次准备与执行编排 |
 | `mind_app/runtime/turns/root.py::run_foreground_turn` | `mind_app/presentation/terminal/turn_lifecycle.py` | 动画、终端进度和清理属于展示生命周期；runtime root 只保留根轮次准备与执行编排，生命周期模块不拥有 Turn/Session 状态 |
-| `mind_app/runtime/turns/stream.py`、`stream_model.py` | `agent/harness/sessions/loop.py`、`agent/application/turns/`、TUI adapter | 输入准备、终态、工具交付、资源收尾和回合展示已拆到具名所有者；模型 presenter 只消费 Protocol Client current/active/audit Item 投影并持有 Transcript 交付水位，RunResult、Stop Hook、最后回复和 sources 均读取 canonical 投影；`stream.py` 暂留迁移期事件路由，所有模型/工具/审批/效果命令均走 Protocol Client |
+| `mind_app/runtime/turns/stream.py`、`stream_model.py` | `agent/harness/sessions/loop.py`、`agent/application/turns/`、TUI adapter | 输入准备、终态、工具交付、资源收尾和回合展示已拆到具名所有者；模型 presenter 只消费 Protocol Client current/active/audit Item 投影并持有 Transcript 交付水位，RunResult、Stop Hook、最后回复和 sources 均读取 canonical 投影；模型 `ModelCapability`、控制 `ProtocolCommandClient` 和 `EffectJournalFactory` 由组合根显式绑定并贯穿 continuation，`stream.py` 暂留迁移期事件路由，下一步收口其剩余 Controller 运行上下文依赖 |
 | `mind_app/runtime/mcp/*`、`subscription/lifecycle.py` | capabilities、adapters、harness supervisor；MCP 生命周期所有者归 `agent/harness/mcp/owner.py`，Subscription 生命周期所有者归 `agent/harness/subscription/owner.py` | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运；具体 MCP/Subscription runtime 均由组合根工厂注入 |
 | `frontends/subscription/runtime.py::_build_default_executor` | `frontends/subscription/runtime.py` + 组合根 `mind.py` | `AgentRuntime` 只接受显式 `TurnApplicationFactory`；持久 application 由 `mind.py` 绑定，前端不通过宿主动态属性发现 `RuntimeServices`，关闭时由执行器回收 application |
 | `mind_app/runtime/mcp/service_lifecycle.py`、`keepalive.py`、`service_runtime.py` 中的服务上下文值对象与 setup helpers | `infrastructure/services/runtime_owner.py`、`keepalive.py`、`runtime_context.py`、`runtime_setup.py` | 本地 Helix 服务的启动任务、保活、端口终止、路径解析和上下文规格属于基础设施；TUI/CLI 只消费服务生命周期入口，不让 runtime 持有平台资源所有权 |

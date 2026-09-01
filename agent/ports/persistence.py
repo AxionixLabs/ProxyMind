@@ -2,8 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from collections.abc import Mapping
+from collections.abc import (
+    Callable,
+    Mapping,
+)
 from dataclasses import dataclass
+from pathlib import Path
 from agent.domain import (
     RecoveryAction,
     RunStatus,
@@ -171,6 +175,12 @@ class EffectJournal(typing.Protocol):
     async def mark_reconciled(self, effect_id: str) -> None:
         """提交已经由外部权威确认的效果结果。"""
         ...
+
+
+EffectJournalFactory: typing.TypeAlias = Callable[
+    [str | Path],
+    EffectJournal,
+]
 
 
 if __name__ == '__main__':

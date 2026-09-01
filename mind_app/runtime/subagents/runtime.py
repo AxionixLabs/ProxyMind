@@ -16,7 +16,10 @@ from agent.application.turns.run_result import RunResult
 from agent.application.turns.execution import TurnExecution
 from protocol.transport.events import EventReport
 from agent.ports import (
+    EffectJournalFactory,
     McpSessionPort,
+    ModelCapability,
+    ProtocolCommandClient,
     SkillsProvider,
     SubagentExecutionPort,
     SubagentOperation,
@@ -80,7 +83,10 @@ class SubagentRuntime:
         skills_provider: SkillsProvider | None = None,
         transcript_path_for: TranscriptPathResolver | None = None,
         transcript_entries_for: TranscriptEntriesReader | None = None,
-        session_cleanup: SessionCleanup | None = None
+        session_cleanup: SessionCleanup | None = None,
+        model_capability: ModelCapability | None = None,
+        protocol_client: ProtocolCommandClient | None = None,
+        effect_journal_factory: EffectJournalFactory | None = None,
     ) -> None:
         if not isinstance(enabled, bool):
             raise TypeError("subagent runtime enabled state must be a boolean")
@@ -101,6 +107,9 @@ class SubagentRuntime:
         self._transcript_path_for = transcript_path_for or (lambda _sid: "")
         self._transcript_entries_for = transcript_entries_for
         self._session_cleanup     = session_cleanup
+        self._model_capability    = model_capability
+        self._protocol_client     = protocol_client
+        self._effect_journal_factory = effect_journal_factory
         runner = SubagentRunner(
             turn_runner=self._run_turn,
             cleanup=controller,
@@ -161,6 +170,9 @@ class SubagentRuntime:
             pref_config=pref_config,
             tools=tools,
             turn_execution=turn_execution,
+            model_capability=self._model_capability,
+            protocol_client=self._protocol_client,
+            effect_journal_factory=self._effect_journal_factory,
             ev_report=event_report,
             skills=skills,
             session_factory=create_silent_output_session,

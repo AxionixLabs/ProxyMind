@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from agent.ports import (
-    EffectJournal,
+    EffectJournalFactory,
     EnvironmentSnapshotCapability,
     HelixCapability,
     HookRegistryFactory,
@@ -23,7 +23,6 @@ TurnApplicationFactory: typing.TypeAlias = Callable[
     [str | Path],
     TurnApplication[typing.Any],
 ]
-EffectJournalFactory: typing.TypeAlias = Callable[[str | Path], EffectJournal]
 SkillsConfigReader: typing.TypeAlias = Callable[[], dict[str, typing.Any]]
 SkillsProviderFactory: typing.TypeAlias = Callable[[SkillsConfigReader], SkillsProvider]
 

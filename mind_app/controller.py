@@ -68,7 +68,10 @@ from .presentation.application import (
     Frontend
 )
 from .presentation.terminal.contracts import TerminalDesign
-from agent.ports import HookRegistryPort
+from agent.ports import (
+    HookRegistryPort,
+    ProtocolCommandClient,
+)
 from agent.harness.hooks.scope import HookExecutionScope
 from .runtime.hooks.session import SessionLifecycleGateway
 from .runtime.hooks.tool import CommandHookSessionStore
@@ -231,6 +234,16 @@ class Mind(object):
                 self,
                 enabled=self.features.subagents,
                 settings=kwargs.get("agent_settings") or AgentSettings(),
+                model_capability=self.runtime_services.model_capability,
+                protocol_client=(
+                    self.runtime_services.model_capability
+                    if isinstance(
+                        self.runtime_services.model_capability,
+                        ProtocolCommandClient,
+                    )
+                    else None
+                ),
+                effect_journal_factory=self.runtime_services.create_effect_journal,
                 skills_provider=skills_provider,
                 transcript_path_for=self.transcripts.path_for_session,
                 transcript_entries_for=(

@@ -8,7 +8,12 @@ from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )
-from agent.ports import McpSessionPort
+from agent.ports import (
+    EffectJournalFactory,
+    McpSessionPort,
+    ModelCapability,
+    ProtocolCommandClient,
+)
 from agent.ports.presentation import TextSpan
 from protocol.transport.events import EventReport
 from metadata import const
@@ -198,6 +203,9 @@ async def run_tui_model_turn(
     environment_snapshot: typing.Mapping[str, typing.Any] | None = None,
     turn_id: str | None = None,
     prompt_extras: typing.Mapping[str, typing.Any] | None = None,
+    model_capability: ModelCapability | None = None,
+    protocol_client: ProtocolCommandClient | None = None,
+    effect_journal_factory: EffectJournalFactory | None = None,
     on_prompt_prepared: typing.Callable[
         [list[dict[str, typing.Any]]],
         None,
@@ -263,6 +271,12 @@ async def run_tui_model_turn(
         }
         if extras:
             prompt_kwargs["extras"] = extras
+        if model_capability is not None:
+            prompt_kwargs["model_capability"] = model_capability
+        if protocol_client is not None:
+            prompt_kwargs["protocol_client"] = protocol_client
+        if effect_journal_factory is not None:
+            prompt_kwargs["effect_journal_factory"] = effect_journal_factory
         if turn_input_control is not None:
             prompt_kwargs["on_turn_input_context"] = turn_input_control.activate
             prompt_kwargs["on_turn_input_event"] = turn_input_control.handle_event

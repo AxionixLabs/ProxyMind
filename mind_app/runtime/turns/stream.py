@@ -17,6 +17,7 @@ from agent.protocol import (
     ModelStreamRequest,
     TurnControlReceipt,
 )
+from agent.ports import EffectJournalFactory
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.stream_outcome import StreamTurnOutcome
 from agent.application.turns.execution import (
@@ -248,17 +249,19 @@ async def stream_turn(
     tools: list[dict[str, typing.Any]],
     *_,
     turn_execution: TurnExecution,
+    model_capability: ModelCapability | None = None,
+    protocol_client: ProtocolCommandClient | None = None,
+    effect_journal_factory: EffectJournalFactory | None = None,
     **kwargs
 ) -> RunResult:
     """处理流式事件、工具调用和输出上报。"""
     prepared = prepare_stream_turn(mind, turn_execution, kwargs)
-    runtime_services = getattr(mind, "runtime_services", None)
-    model_capability = getattr(runtime_services, "model_capability", None)
     if not isinstance(model_capability, ModelCapability):
         raise RuntimeError("model capability is required")
-    if not isinstance(model_capability, ProtocolCommandClient):
+    if not isinstance(protocol_client, ProtocolCommandClient):
         raise RuntimeError("protocol command client is required")
-    protocol_client = model_capability
+    if not callable(effect_journal_factory):
+        raise RuntimeError("effect journal factory is required")
     callbacks = prepared.callbacks
     reentry_kwargs = prepared.continuation_kwargs
     ev_report = prepared.event_report
@@ -430,7 +433,7 @@ async def stream_turn(
             tools=tools,
             pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
-            effect_journal=runtime_services.create_effect_journal(
+            effect_journal=effect_journal_factory(
                 effect_journal_db_path()
             ),
             effect_reconciler=protocol_client.post_effect_reconciliation,
@@ -913,6 +916,9 @@ async def stream_turn(
                 stop_decision.continuation_prompt,
                 additional_context=stop_decision.additional_context,
             ),
+            model_capability=model_capability,
+            protocol_client=protocol_client,
+            effect_journal_factory=effect_journal_factory,
             **reentry_kwargs,
         )
 

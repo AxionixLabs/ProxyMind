@@ -399,8 +399,15 @@ session 显式传递 `ProtocolCommandClient`；源缺失恢复、可重试失败
 不变。Fork/backtrack/command/stream/input 回归 `211 passed`，其中显式客户端调用有独立
 断言；完整架构守卫 `93 passed, 60 warnings`，导入图、`compileall` 和
 `git diff --check` 均通过。
-下一切片进入 `mind_app/runtime/turns/stream.py`，把模型 Protocol Client、Effect Journal
-和运行上下文从 controller 反射读取改为根轮次显式端口。
+
+本次流式执行依赖切片已满足上述条件：`stream_turn` 不再从 `Mind.runtime_services` 反射
+模型能力或效果账本，模型 `ModelCapability`、控制 `ProtocolCommandClient` 和
+`EffectJournalFactory` 由组合根沿根轮次、TUI、CLI、订阅/MCP 和 Subagent 显式注入；
+Stop Hook continuation 复用同一组能力，Subagent 恢复不会重新发现宿主服务。流式结果、
+CLI、TUI、Subagent、MCP 定向回归合计 `205 passed`；完整架构守卫 `93 passed, 60 warnings`，
+导入图、`compileall` 和 `git diff --check` 均通过。下一切片收口 `stream.py` 对
+Controller 的剩余运行上下文依赖，将 Transcript、输出会话、清理和工作区端口归入
+Harness session application，继续缩小 legacy runtime 的职责面。
 
 ## 过渡入口与删除条件
 
@@ -498,4 +505,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 将 TUI `TuiTurnInputControl` 改为显式注入 `ProtocolCommandClient`，删除输入控制器对 `runtime_services` 的隐式发现 | TUI 输入/流式命令/中断及前端边界回归 `57 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 TUI session loop 与 CLI durable exec 的 `TurnApplication`/`ProtocolCommandClient` 改为 bootstrap 显式注入，删除前端对 `Mind.runtime_services` 的动态发现 | TUI/CLI 回归 `145 passed, 1 deselected`，时序测试单独通过；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将 TUI conversation fork/backtrack 的 Protocol Client 改为 session 显式注入，删除 feature 对 `Mind.runtime_services` 的动态发现 | Fork/backtrack/command/stream/input 回归 `211 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |
-| 2026-09-01 | 将 TUI conversation fork/backtrack 的 Protocol Client 改为 session 显式注入，删除 feature 对 `Mind.runtime_services` 的动态发现 | Fork/backtrack/command/stream/input 回归 `211 passed`；完整架构守卫、导入图、`compileall`、`git diff --check` 在提交前复核 |
+| 2026-09-01 | 将流式执行的 Model/Protocol/Effect Journal 依赖沿组合根、根轮次、TUI、CLI、订阅/MCP 与 Subagent 显式注入，删除 `stream.py` 对 `Mind.runtime_services` 的反射 | 流式结果、CLI、TUI、Subagent、MCP 定向回归 `205 passed`；完整架构守卫 `93 passed, 60 warnings`；导入图、`compileall`、`git diff --check` 通过 |

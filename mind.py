@@ -3,8 +3,15 @@
 
 import os
 import functools
+import typing
 
 from agent.composition import create_runtime_services
+from agent.application import RuntimeServices
+from agent.application.turns.run_result import RunResult
+from agent.ports import (
+    ModelCapability,
+    ProtocolCommandClient,
+)
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
 from agent.ports import (
     McpRuntime,
@@ -30,6 +37,41 @@ from mind_app.interaction.environment import (
 )
 from mind_app.runtime.turns.root import run_root_turn
 from frontends.subscription.runtime import AgentRuntime
+
+if typing.TYPE_CHECKING:
+    from mind_app.controller import Mind
+
+
+def bind_root_turn_runner(
+    runtime_services: RuntimeServices,
+) -> typing.Callable[..., typing.Awaitable[RunResult]]:
+    """在进程组合根绑定根轮次的模型、协议和效果能力。"""
+    model_capability = runtime_services.model_capability
+    if not isinstance(model_capability, ModelCapability):
+        raise TypeError("root turn model capability is invalid")
+    if not isinstance(model_capability, ProtocolCommandClient):
+        raise TypeError("root turn protocol client is invalid")
+    effect_journal_factory = runtime_services.create_effect_journal
+
+    async def run_bound_root_turn(
+        controller: "Mind",
+        pref_config: dict[str, typing.Any] | None = None,
+        *,
+        message: str,
+        **kwargs: typing.Any,
+    ) -> RunResult:
+        """执行绑定进程级能力的根轮次。"""
+        return await run_root_turn(
+            controller,
+            pref_config,
+            message=message,
+            model_capability=model_capability,
+            protocol_client=model_capability,
+            effect_journal_factory=effect_journal_factory,
+            **kwargs,
+        )
+
+    return run_bound_root_turn
 
 
 def create_hook_registry(*, bypass_hook_trust: bool = False) -> HookRegistry:
@@ -61,7 +103,7 @@ def create_subscription_runtime(host: SubscriptionHost) -> SubscriptionRuntime:
         raise RuntimeError("subscription turn application factory is required")
     return AgentRuntime(
         host,
-        turn_runner=run_root_turn,
+        turn_runner=bind_root_turn_runner(runtime_services),
         environment_snapshot_provider=capture_active_turn_environment,
         turn_application_factory=turn_application_factory,
     )
@@ -119,20 +161,22 @@ def create_workspace_runtime(
 
 
 if __name__ == "__main__":
+    runtime_services = create_runtime_services(
+        create_hook_registry=create_hook_registry,
+        create_mcp_runtime=create_mcp_runtime,
+        create_subscription_runtime=create_subscription_runtime,
+        skills_payload_builder=skills_payload,
+        create_workspace_runtime=create_workspace_runtime,
+    )
+    root_turn_runner = bind_root_turn_runner(runtime_services)
     raise SystemExit(run(
         entry_file=__file__,
-        runtime_services=create_runtime_services(
-            create_hook_registry=create_hook_registry,
-            create_mcp_runtime=create_mcp_runtime,
-            create_subscription_runtime=create_subscription_runtime,
-            skills_payload_builder=skills_payload,
-            create_workspace_runtime=create_workspace_runtime,
-        ),
+        runtime_services=runtime_services,
         mcp_server_runner=functools.partial(
             run_mind_mcp_server,
-            turn_runner=run_root_turn,
+            turn_runner=root_turn_runner,
             environment_snapshot_provider=capture_turn_environment,
         ),
-        turn_runner=run_root_turn,
+        turn_runner=root_turn_runner,
         environment_snapshot_provider=capture_active_turn_environment,
     ))
