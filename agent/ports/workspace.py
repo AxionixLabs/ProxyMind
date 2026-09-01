@@ -4,6 +4,7 @@
 import os
 import typing
 from .capabilities import ProcessCapability
+from .media import ImageReaderPort
 
 __all__ = (
     "CodingFactory",
@@ -160,6 +161,7 @@ class WorkspaceRuntime(typing.Protocol):
 
     coding: CodingRuntime
     execution_policy: ExecutionPolicy
+    image_reader: ImageReaderPort
     user_shell: object
 
     def replace(self, workspace_root: WorkspaceRoot) -> None:

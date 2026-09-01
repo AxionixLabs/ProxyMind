@@ -36,6 +36,7 @@ from infrastructure.platform.javascript_repl import (
     _append_stderr_tail,
     _stderr_tail_bytes,
 )
+from infrastructure.platform.images import FileImageReader
 from agent.application.views import NativeToolResultView, ToolStartView
 from frontends.terminal.traces.native import render_tool_result_entries
 from agent.application.turns.context import AgentContext, ToolInvocation, TurnContext
@@ -965,7 +966,7 @@ async def test_js_repl_client_tool_executes_without_shell_metadata(
     coding = create_native_coding(root=tmp_path, application_layout=None)
     registry = default_registry(
         coding,
-        execution_root=tmp_path,
+        image_reader=FileImageReader(tmp_path),
         features=FeatureSettings(js_repl=True),
     )
     session = CompositeToolSession(client_registry=registry)

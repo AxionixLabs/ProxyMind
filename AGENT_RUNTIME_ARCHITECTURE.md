@@ -161,6 +161,8 @@ agent/                          # 本地 Agent Harness bounded context
 protocol/                       # 独立 mind.chat wire SDK，供所有前端复用
 frontends/                      # CLI、TUI、MCP、Subscription 及未来桌面/Web adapter
 infrastructure/                 # 配置、平台进程、Helix 和持久化的具体外部实现
+├── platform/                   # 本机文件、进程、Sandbox 和媒体读取 adapter
+│   └── images.py               # 有界图片读取、格式识别和 data URL 编码
 ├── persistence/                # 本地文件与外部持久化 adapter
 │   └── transcripts.py          # Transcript JSONL 读写和 Session 路径
 metadata/                       # 版本、编码和产品展示元数据，不承载运行时状态
@@ -245,6 +247,7 @@ agent/
 │   │   ├── context.py       # 单次处理调用的会话、Turn 与回调依赖
 │   │   ├── definitions.py   # SDK 无关的 client/builtin 工具定义
 │   │   ├── results.py       # 不可变、JSON 校验的本地工具结果
+│   │   ├── media.py         # 图片工具 schema、错误映射和结果投影
 │   │   ├── planning.py      # 宏步骤计划的 schema、校验和工具定义
 │   │   └── plan_update.py   # 工作计划快照的 schema、校验和工具定义
 │   ├── views/               # 跨前端共享的应用结果 projection/view 契约
@@ -267,6 +270,7 @@ agent/
 │   ├── hooks.py              # Hook 执行器和超限上下文 spill 端口
 │   ├── agent_messages.py    # 子 Agent 消息回执和投递端口
 │   ├── mcp_session.py       # 工具执行所需的 MCP 会话端口
+│   ├── media.py             # 工作区绑定的异步图片读取端口与不可变快照
 │   ├── tool_runtime.py      # 工具来源、注册表和会话 runtime 组合端口
 │   ├── turns.py              # 模型轮次操作和输入事件端口
 │   ├── subagents.py          # 子 Agent 执行和操作端口
@@ -622,6 +626,7 @@ running -> cancelled
 | `mind_app/mcp/`、`mind_app/runtime/mcp/` | `infrastructure/mcp/`、`agent/application/tools/catalog.py`、`agent/domain/tool_policy.py` | MCP 配置、SDK 参数、网络预检、连接生命周期、多来源工具会话和 SDK 结果归一化属于基础设施 adapter；纯目录查询归 application，进度支持规则归 domain，进度投递归工具执行编排。动态来源通过 `ToolRuntimeSources` 在 Turn 开始时冻结，具体 runtime 只由 `mind.py` 组合；旧 MCP runtime 源目录完全退役且不保留 facade |
 | `mind_app/client_tools/types.py`、`registry.py`、`result.py` 与 `mind_app/builtin_tools/types.py`、`registry.py` | `agent/application/tools/context.py`、`definitions.py`、`results.py` 与 `infrastructure/mcp/local_tool_registry.py` | 工具定义、调用级依赖和不可变 JSON 结果属于 application 契约，不构造 MCP SDK 对象；唯一注册表在基础设施边界完成 MCP schema/result 适配，强制单个实例只接收 client 或 builtin 一种来源，并校验结果身份。Controller 只保存 `ToolRegistryPort`，能力包不再持有第二套状态或兼容导出 |
 | `mind_app/client_tools/planning.py`、`update_plan.py` | `agent/application/tools/planning.py`、`plan_update.py` | 计划 schema、输入校验、稳定结果和工具描述是无 IO 的 application 能力；运行计划的工具调用、Hook、展示和耗时仍由执行编排持有，不把副作用迁入 application |
+| `mind_app/client_tools/view_image.py` | `agent/application/tools/media.py`、`agent/ports/media.py`、`infrastructure/platform/images.py` | 图片工具定义和结果投影归 application；工作区绑定、阻塞文件读取、大小限制、格式识别和编码归平台 adapter。`WorkspaceRuntimeOwner` 与编码/策略资源一起原子替换读取器，工具工厂不得自行解析工作区或执行同步文件 IO |
 | `mind_app/native_coding/encoding.py` | `infrastructure/platform/encoding.py` | 进程输出编码探测、规范化和解码是跨能力的平台事实；native coding 只消费平台端口，不拥有第二套解码器 |
 | `mind_app/runtime/processes.py` | `infrastructure/platform/processes.py` | 进程组创建、stdin 收束、树级中断/终止和 Windows/POSIX 差异属于平台生命周期能力 |
 | `mind_app/native_coding/workspace_command.py` | `infrastructure/platform/workspace.py` | 无 shell 工作区命令、超时和输出上限属于平台命令执行能力；native coding 不拥有进程树实现 |
@@ -635,7 +640,7 @@ running -> cancelled
 | `mind_app/runtime/hooks/output_spill.py` | `infrastructure/platform/hook_output_spill.py` | Hook 流输出读取、临时文件 spill、预览和会话清理属于本机平台文件能力；Hook command 只依赖平台适配器 |
 | `mind_app/runtime/hooks/command.py` | `infrastructure/platform/hook_command.py` | Hook 子进程启动、跨平台 shell、输出解析和终止属于平台执行能力；Hook runtime 只消费 `HookCommandRunner`，不拥有操作系统进程句柄 |
 | `mind_app/runtime/hooks/runtime.py`、`registry.py` | `agent/harness/hooks/runtime.py`、`registry.py` | Hook 并发执行、信任解析、scope 构建和资源生命周期属于 Harness；Harness 只依赖 agent ports，具体平台执行器由组合根注入 |
-| `mind_app/runtime/environment/coding_lifecycle.py` | `agent/harness/workspace_runtime.py` | 工作区编码、Shell、执行策略和进程能力的替换/关闭属于 Harness 生命周期；具体 NativeCoding/策略工厂只由根组合注入，Harness 不导入 legacy 或平台实现 |
+| `mind_app/runtime/environment/coding_lifecycle.py` | `agent/harness/workspace_runtime.py` | 工作区编码、Shell、媒体读取器、执行策略和进程能力的替换/关闭属于 Harness 生命周期；具体 NativeCoding、图片读取与策略工厂只由根组合注入，Harness 不导入 legacy 或平台实现 |
 | `mind_app/runtime/environment/snapshot.py`、`mind_app/interaction/environment.py` | `agent/application/turns/environment.py`、`infrastructure/services/turn_environment.py` | 环境能力调用与失败收敛属于 application 用例；工作区和 Helix provider 聚合属于基础设施 adapter，并只消费最小宿主协议，不导入 Controller 或历史包 |
 | `mind_app/runtime/support/session_identity.py` | `agent/application/config/session_identity.py` | 远端 `cid/sid` 到本地持久化 Session 身份的确定性派生属于 application 身份用例；不让 CLI/TUI 各自复制哈希规则，也不把本地语义塞入线上 `protocol` |
 | `mind_app/runtime/support/conversation.py`、`mind_app/interaction/conversation.py` | `agent/harness/sessions/conversation.py` | 本地会话标识、轮次边界和一次性上下文属于 Harness Session 生命周期；Controller 迁移期只持有实例，不让 runtime support 或具体前端拥有状态机 |

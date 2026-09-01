@@ -11,6 +11,7 @@ from infrastructure.config.schema import (
 )
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
+from infrastructure.platform.images import FileImageReader
 from agent.application.config.settings import FeatureSettings
 
 
@@ -72,7 +73,7 @@ def test_invalid_feature_settings_are_rejected(features, message) -> None:
 def test_js_repl_feature_removes_both_repl_tools(tmp_path) -> None:
     tools = default_registry(
         create_native_coding(root=tmp_path, application_layout=None),
-        execution_root=tmp_path,
+        image_reader=FileImageReader(tmp_path),
         features=FeatureSettings(js_repl=False),
     ).list_tools().tools
     names = {tool.name for tool in tools}
@@ -85,7 +86,7 @@ def test_js_repl_feature_removes_both_repl_tools(tmp_path) -> None:
 def test_permission_features_control_tool_surface(tmp_path) -> None:
     tools = default_registry(
         create_native_coding(root=tmp_path, application_layout=None),
-        execution_root=tmp_path,
+        image_reader=FileImageReader(tmp_path),
         features=FeatureSettings(
             request_permissions_tool=False,
             exec_permission_approvals=False,
@@ -107,7 +108,7 @@ def test_permission_features_are_disabled_by_default(tmp_path) -> None:
         tool.name
         for tool in default_registry(
             create_native_coding(root=tmp_path, application_layout=None),
-            execution_root=tmp_path,
+            image_reader=FileImageReader(tmp_path),
         ).list_tools().tools
     }
     assert "request_permissions" not in names
@@ -116,7 +117,7 @@ def test_permission_features_are_disabled_by_default(tmp_path) -> None:
 def test_permission_features_can_be_enabled_explicitly(tmp_path) -> None:
     tools = default_registry(
         create_native_coding(root=tmp_path, application_layout=None),
-        execution_root=tmp_path,
+        image_reader=FileImageReader(tmp_path),
         features=FeatureSettings(
             request_permissions_tool=True,
             exec_permission_approvals=True,

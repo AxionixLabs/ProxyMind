@@ -28,6 +28,7 @@ from infrastructure.config.paths import ApplicationLayout
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.sandbox import SandboxClient
 from infrastructure.platform.hook_command import HookCommandExecutor
+from infrastructure.platform.images import FileImageReader
 from infrastructure.mcp.external_runtime import ExternalMcpRuntime
 from infrastructure.mcp.tool_runtime import CompositeToolRuntime
 from frontends.cli.entry import run
@@ -221,6 +222,7 @@ def create_workspace_runtime(
         application_layout=application_layout,
         coding_factory=create_native_coding,
         execution_policy_factory=ExecPolicyManager,
+        image_reader_factory=FileImageReader,
         process_capability=process_capability,
     )
 

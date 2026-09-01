@@ -206,6 +206,12 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `client_tools/result.py` 已删除。`plan_steps` 与 `update_plan` 的 schema、校验、描述和结果
   已迁入 `agent/application/tools`，旧能力模块和导入清零。规划/工具/Turn 回归 `230 passed`，
   终端展示回归 `145 passed`，职责专项 `5 passed, 2 warnings`，导入图和编译通过。
+- `view_image` 能力族已完成 IO 边界拆分：schema、稳定错误映射与结果投影归
+  `agent/application/tools/media.py`，异步读取契约和不可变图片快照归 `agent/ports/media.py`，
+  文件解析、大小限制、格式识别与 data URL 编码归 `infrastructure/platform/images.py`。
+  Workspace Runtime 在工作区切换时同步替换读取器，旧 `mind_app/client_tools/view_image.py`
+  已物理删除。媒体/工作区回归 `51 passed`，扩展工具回归 `242 passed`，职责专项
+  `8 passed, 3 warnings`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -302,16 +308,20 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    运行期投递已按 adapter/application/domain/runtime 分开；三个旧模块、旧导入和单调用者
    facade 已删除，`mind_app/runtime/mcp` 源码清零。
 
-4. **本地工具能力族重组（进行中）**：registry、调用上下文、类型契约、稳定结果和
-   planning 能力已迁入 `infrastructure/mcp` 与 `agent/application/tools`，七个旧模块已删除。
-   下一步迁移 media 与 permissions，再拆分 workspace coding 和 subagent；执行状态归 Harness，
-   操作系统与 SDK 实现归 infrastructure，禁止创建新的总工具 facade。
+4. **本地工具能力族重组（进行中）**：registry、调用上下文、类型契约、稳定结果、
+   planning 与 media 能力已迁入 `infrastructure`、`agent/application/tools` 和具名 ports，
+   八个旧模块已删除。下一步迁移 permissions，再拆分 workspace coding 和 subagent；执行
+   状态归 Harness，操作系统与 SDK 实现归 infrastructure，禁止创建新的总工具 facade。
 
 5. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
 删除、架构守卫和 `compileall` 证据。任一条件不足时只更新本计划，不创建空目录。
+
+本次 media 切片的删除条件已满足：应用工具只消费 `ImageReaderPort`，具体文件读取器由
+`mind.py` 注入并由 `WorkspaceRuntimeOwner` 随工作区统一替换；旧 `view_image.py`、旧导入和
+工厂内部路径解析已清零，成功读取、稳定失败和工作区切换均有回归与职责守卫覆盖。
 
 本次 MCP 生命周期切片的删除条件已满足：Harness 所有者不得导入 `mind_app` 或具体 MCP 实现；
 组合根必须显式注入 `ExternalMcpRuntime` 工厂；旧 `mind_app.runtime.mcp.lifecycle`

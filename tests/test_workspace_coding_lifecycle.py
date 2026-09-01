@@ -33,6 +33,7 @@ def _runtime_owner(closed):
         application_layout=SimpleNamespace(root="application"),
         coding_factory=create_coding,
         execution_policy_factory=create_policy,
+        image_reader_factory=lambda root: SimpleNamespace(root=root),
     )
     return owner, policies
 
@@ -50,6 +51,7 @@ async def test_workspace_replacement_updates_resources_and_retires_previous() ->
     assert owner.coding is not previous
     assert owner.user_shell is owner.coding.user_shell
     assert owner.execution_policy is policies[-1]
+    assert owner.image_reader.root == "workspace-b"
     assert policies[-1].workspace_root == "workspace-b"
     assert closed == ["workspace-a"]
 

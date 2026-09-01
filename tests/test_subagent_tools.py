@@ -10,6 +10,7 @@ from infrastructure.mcp.local_tool_registry import ToolRegistry
 from mind_app.client_tools.factory import default_registry
 from mind_app.client_tools.subagents import subagent_tools
 from infrastructure.mcp.composite_session import CompositeToolSession
+from infrastructure.platform.images import FileImageReader
 from frontends.output.silent import create_silent_output_session
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.context import AgentContext, TurnContext
@@ -163,7 +164,7 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
 
     enabled_tools = default_registry(
         coding,
-        execution_root=tmp_path,
+        image_reader=FileImageReader(tmp_path),
         subagent_runtime=enabled,
     ).list_tools().tools
     enabled_names = {tool.name for tool in enabled_tools}
@@ -171,7 +172,7 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
         tool.name
         for tool in default_registry(
             coding,
-            execution_root=tmp_path,
+            image_reader=FileImageReader(tmp_path),
             subagent_runtime=disabled,
         ).list_tools().tools
     }

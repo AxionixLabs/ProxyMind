@@ -2,15 +2,15 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from pathlib import Path
 from agent.application.config.settings import FeatureSettings
+from agent.application.tools.media import media_tools
+from agent.ports.media import ImageReaderPort
 from infrastructure.mcp.local_tool_registry import ToolRegistry
 from mind_app.native_coding import NativeCoding
 from agent.application.tools.planning import planning_tools
 from agent.application.tools.plan_update import update_plan_tools
 from .coding import coding_tools
 from .subagents import subagent_tools
-from .view_image import view_image_tools
 
 if typing.TYPE_CHECKING:
     from agent.application.approvals.coordinator import ApprovalCoordinator
@@ -23,7 +23,7 @@ JS_REPL_TOOL_NAMES = frozenset({"js_repl", "js_repl_reset"})
 def default_registry(
     native_coding: NativeCoding,
     *,
-    execution_root: str | Path | None = None,
+    image_reader: ImageReaderPort,
     exec_policy_manager: "ExecPolicyManager | None" = None,
     subagent_runtime: "SubagentRuntime | None" = None,
     approval_coordinator: "ApprovalCoordinator | None" = None,
@@ -31,12 +31,6 @@ def default_registry(
 ) -> ToolRegistry:
     """构建默认客户端工具注册表。"""
     feature_settings = features or FeatureSettings()
-    root_source = execution_root
-    if root_source is None:
-        root_source = native_coding.root
-
-    root = Path(root_source or Path.cwd()).resolve()
-
     coding = coding_tools(
         native_coding,
         approval_coordinator=approval_coordinator,
@@ -54,7 +48,7 @@ def default_registry(
         *planning_tools(),
         *update_plan_tools(),
         *coding,
-        *view_image_tools(root),
+        *media_tools(image_reader),
     ]
 
     if subagent_runtime is not None and subagent_runtime.enabled:

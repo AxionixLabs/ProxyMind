@@ -69,6 +69,12 @@ from .agent_messages import (
     AgentMessageReceiptStatus,
 )
 from .mcp_session import McpSessionPort
+from .media import (
+    ImageAsset,
+    ImageReadError,
+    ImageReaderFactory,
+    ImageReaderPort,
+)
 from .tool_runtime import (
     BeforeToolSession,
     ExternalToolGroupPort,
@@ -219,6 +225,10 @@ __all__ = (
     "AgentMessageReceipt",
     "AgentMessageReceiptStatus",
     "McpSessionPort",
+    "ImageAsset",
+    "ImageReadError",
+    "ImageReaderFactory",
+    "ImageReaderPort",
     "BeforeToolSession",
     "ExternalToolGroupPort",
     "ToolRegistryPort",

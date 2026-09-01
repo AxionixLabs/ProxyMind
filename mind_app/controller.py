@@ -514,7 +514,7 @@ class Mind(object):
         """按当前工作区构建客户端工具注册表。"""
         return default_client_tool_registry(
             self.workspace_runtime.coding,
-            execution_root=self.history_workspace,
+            image_reader=self.workspace_runtime.image_reader,
             exec_policy_manager=self.workspace_runtime.execution_policy,
             subagent_runtime=self.subagents,
             approval_coordinator=self.approval_coordinator,
