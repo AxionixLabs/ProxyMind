@@ -5,8 +5,10 @@ import typing
 import asyncio
 from collections.abc import (
     Callable,
-    Mapping
+    Mapping,
 )
+
+from .conversation import RootConversationPort
 
 
 class SubscriptionRequest(typing.Protocol):
@@ -94,11 +96,8 @@ class SubscriptionRuntime(typing.Protocol):
 class SubscriptionHost(typing.Protocol):
     """定义组合订阅运行时所需的宿主最小生命周期能力。"""
 
+    conversation: RootConversationPort
     task_event: asyncio.Event
-
-    async def fresh_pref_config(self, *, ttl_sec: float) -> dict[str, typing.Any]:
-        """返回当前有效偏好配置快照。"""
-        ...
 
 
 SubscriptionRuntimeBuilder: typing.TypeAlias = Callable[

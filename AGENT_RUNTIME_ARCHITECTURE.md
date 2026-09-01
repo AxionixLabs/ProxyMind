@@ -714,6 +714,7 @@ running -> cancelled
 | `mind_core/config.py` | `infrastructure/config/schema.py` | 配置 schema、规范化、点路径覆盖和 Provider/MCP/TUI 校验属于配置基础设施；不让前端直接解释原始 TOML |
 | `mind_core/config_layers.py` | `infrastructure/config/layers.py` | 用户、Profile、项目和 CLI 的优先级合并及信任边界解析属于配置基础设施；只消费存储、信任和 schema 契约 |
 | `mind_core/config_session.py` | `infrastructure/config/session.py` | 配置读取、原子更新、覆盖校验和项目信任提交属于配置会话基础设施；应用入口只依赖会话公开接口 |
+| `mind_app/controller.py` 中的偏好刷新、权限写入与 MCP 配置宿主 | `infrastructure/config/settings_session.py` + `agent.ports.McpRuntimeContext` | 进程设置会话单一持有配置、偏好快照、有效权限、刷新 TTL 和并发 generation；CLI/Subscription 的轮次读取复用 `RootConversationPort`。具体 MCP runtime 只接收冻结的配置 reader 与活动/清理回调，不持有完整 Controller 或恢复旧字段 facade |
 | `mind_nova/const.py` | `metadata/const.py` | 产品版本、展示、编码和构建元数据已抽出；`setup.py` 与内置配置服务已切换，服务端点、认证和运行时路径仍按职责在后续切片迁移 |
 | `agent/ports/capabilities.py`、`agent/adapters/protocol/client.py` | `ports`、`adapters/protocol/client.py` | `ModelCapabilityError` 统一传输/协议失败，`ProtocolModelEventStream` 负责坐标门禁、current/active/audit Items、canonical 正文/sources、异步迭代、幂等关闭及结算后游标提交；错误码、重试性和 JSON 细节由 Run 终态及 `run_failed` 事件保留 |
 | 已删除的 `mind_app/runtime/environment/exec_env.py`、旧 environment 请求模块 | `capabilities/environment.py`、`protocol/schema/environment.py` | 本机事实采集和 Helix provider 聚合已迁入进程级注入的 `EnvironmentSnapshotCapability`；线上 schema 与规范化归属 `protocol.schema`。四类入口在命令持久化前冻结快照，model adapter 只在 wire 边界映射 `exec_env` |

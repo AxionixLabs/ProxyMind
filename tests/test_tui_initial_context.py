@@ -20,15 +20,18 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
     mind = SimpleNamespace(
         history_workspace=Path("D:/workspace"),
         frontend=SimpleNamespace(runtime=runtime),
-        config_session=SimpleNamespace(load=lambda: {
-            "skills": {"enabled": [], "disabled": []},
-        }),
-        fresh_pref_config=AsyncMock(return_value={
-            "primary": {
-                "model": "gpt-test",
-                "reasoning_effort": "high",
-            },
-        }),
+        settings=SimpleNamespace(
+            config=SimpleNamespace(load=lambda: {
+                "skills": {"enabled": [], "disabled": []},
+            }),
+            fresh_preferences=AsyncMock(return_value={
+                "primary": {
+                    "model": "gpt-test",
+                    "reasoning_effort": "high",
+                },
+            }),
+            permissions=preset_permissions("auto"),
+        ),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(
                 running_exec_sessions=AsyncMock(return_value={
@@ -38,7 +41,6 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
             ),
         ),
         set_history_workspace=workspace_updates.append,
-        permissions=preset_permissions("auto"),
     )
 
     with patch(
@@ -57,7 +59,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
         "1 background terminal running · /ps to view · /stop to close"
     )
     assert workspace_updates == [Path("D:/workspace")]
-    mind.fresh_pref_config.assert_awaited_once_with(ttl_sec=0.0)
+    mind.settings.fresh_preferences.assert_awaited_once_with(ttl_sec=0.0)
 
     preloaded_placeholder = runtime.submissions.placeholder_text
     runtime.submissions.message_queue.put_nowait("hello")
@@ -96,22 +98,24 @@ async def test_first_trust_keeps_input_hidden_until_startup_finishes() -> None:
             mind = SimpleNamespace(
                 history_workspace=workspace,
                 frontend=SimpleNamespace(runtime=runtime),
-                config_session=SimpleNamespace(load=lambda: {
-                    "skills": {"enabled": [], "disabled": []},
-                }),
-                fresh_pref_config=AsyncMock(return_value={
-                    "primary": {
-                        "model": "gpt-test",
-                        "reasoning_effort": "high",
-                    },
-                }),
+                settings=SimpleNamespace(
+                    config=SimpleNamespace(load=lambda: {
+                        "skills": {"enabled": [], "disabled": []},
+                    }),
+                    fresh_preferences=AsyncMock(return_value={
+                        "primary": {
+                            "model": "gpt-test",
+                            "reasoning_effort": "high",
+                        },
+                    }),
+                    permissions=preset_permissions("auto"),
+                ),
                 workspace_runtime=SimpleNamespace(
                     coding=SimpleNamespace(
                         running_exec_sessions=AsyncMock(return_value={}),
                     ),
                 ),
                 set_history_workspace=lambda _workspace: None,
-                permissions=preset_permissions("auto"),
             )
 
             with patch(

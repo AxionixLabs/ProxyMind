@@ -19,6 +19,24 @@ from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
 
 
+def _settings(
+    pref_config: dict[str, object],
+    *,
+    permissions=None,
+    apply_permissions=None,
+) -> SimpleNamespace:
+    """构造 TUI 流测试使用的设置会话端口。"""
+    active_permissions = permissions or preset_permissions("auto")
+    apply = apply_permissions or Mock(return_value=active_permissions)
+    return SimpleNamespace(
+        config=SimpleNamespace(load=lambda: {}),
+        permissions=active_permissions,
+        preference_config=lambda: pref_config,
+        fresh_preferences=AsyncMock(return_value=pref_config),
+        apply_permissions=apply,
+    )
+
+
 @pytest.fixture(autouse=True)
 def frozen_environment_snapshot(monkeypatch) -> None:
     """固定 TUI 命令提交时捕获的环境事实。"""
@@ -319,14 +337,13 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
 
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
-        permissions=preset_permissions("auto"),
+        settings=_settings(pref_config),
         task_event=task_event,
         service_runtime=SimpleNamespace(
             request_termination_on_close=Mock(),
             require_context=lambda: object(),
             cancel_startup=AsyncMock(),
         ),
-        pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
             runtime=runtime,
             interaction=runtime,
@@ -336,7 +353,6 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
             has_pending_attachments=lambda: False,
             replace_pending_attachments=lambda _items: None,
         ),
-        fresh_pref_config=AsyncMock(return_value=pref_config),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
@@ -425,12 +441,15 @@ async def test_stream_settings_settle_before_queued_model_turn(
 
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
-        permissions=initial_permissions,
+        settings=_settings(
+            pref_config,
+            permissions=initial_permissions,
+            apply_permissions=Mock(return_value=updated_permissions),
+        ),
         task_event=task_event,
         service_runtime=SimpleNamespace(
             request_termination_on_close=Mock(),
         ),
-        pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
             runtime=runtime,
             interaction=runtime,
@@ -440,11 +459,9 @@ async def test_stream_settings_settle_before_queued_model_turn(
             has_pending_attachments=lambda: False,
             replace_pending_attachments=lambda _items: None,
         ),
-        fresh_pref_config=AsyncMock(return_value=pref_config),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
-        apply_permissions=Mock(return_value=updated_permissions),
         execution=SimpleNamespace(
             external_mcp=SimpleNamespace(current=None),
         ),
@@ -506,7 +523,7 @@ async def test_stream_settings_settle_before_queued_model_turn(
 
     assert second_turn_started.is_set()
     assert turn_permissions == [initial_permissions, updated_permissions]
-    mind.apply_permissions.assert_called_once_with(updated_permissions)
+    mind.settings.apply_permissions.assert_called_once_with(updated_permissions)
 
 
 @pytest.mark.anyio
@@ -525,12 +542,11 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
 
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
-        permissions=preset_permissions("auto"),
+        settings=_settings(pref_config),
         task_event=task_event,
         service_runtime=SimpleNamespace(
             request_termination_on_close=Mock(),
         ),
-        pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
             runtime=runtime,
             interaction=runtime,
@@ -540,7 +556,6 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
             has_pending_attachments=lambda: False,
             replace_pending_attachments=lambda _items: None,
         ),
-        fresh_pref_config=AsyncMock(return_value=pref_config),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
@@ -618,20 +633,18 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
-        permissions=preset_permissions("auto"),
+        settings=_settings(pref_config),
         task_event=task_event,
         service_runtime=SimpleNamespace(
             request_termination_on_close=Mock(),
             require_context=lambda: object(),
             cancel_startup=AsyncMock(),
         ),
-        pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
             runtime=runtime,
             interaction=runtime,
             application=SimpleNamespace(emit=Mock()),
         ),
-        fresh_pref_config=AsyncMock(return_value=pref_config),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
@@ -714,18 +727,16 @@ async def test_idle_mcp_start_commits_result_before_next_query(
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
-        permissions=preset_permissions("auto"),
+        settings=_settings(pref_config),
         task_event=task_event,
         service_runtime=SimpleNamespace(
             request_termination_on_close=Mock(),
         ),
-        pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
             runtime=runtime,
             interaction=runtime,
             application=SimpleNamespace(emit=Mock()),
         ),
-        fresh_pref_config=AsyncMock(return_value=pref_config),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
@@ -809,19 +820,17 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
     cancel_startup = AsyncMock(side_effect=cancel_startup_cleanup)
     mind = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
-        permissions=preset_permissions("auto"),
+        settings=_settings(pref_config),
         task_event=task_event,
         service_runtime=SimpleNamespace(
             request_termination_on_close=Mock(),
             cancel_startup=cancel_startup,
         ),
-        pref=SimpleNamespace(to_config=lambda: pref_config),
         frontend=SimpleNamespace(
             runtime=runtime,
             interaction=runtime,
             application=SimpleNamespace(emit=views.append),
         ),
-        fresh_pref_config=AsyncMock(return_value=pref_config),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),

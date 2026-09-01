@@ -591,7 +591,7 @@ async def test_provider_menu_reports_config_load_failure(monkeypatch) -> None:
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
-        config_session=SimpleNamespace(),
+        settings=SimpleNamespace(config=SimpleNamespace()),
     )
     monkeypatch.setattr(
         dispatch_module,
@@ -1654,7 +1654,7 @@ async def test_dispatcher_routes_skills_to_the_picker(monkeypatch) -> None:
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
-        config_session=config_session,
+        settings=SimpleNamespace(config=config_session),
     )
     choose = AsyncMock()
     monkeypatch.setattr(dispatch_module, "choose_skill", choose)

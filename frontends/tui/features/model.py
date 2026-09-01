@@ -96,11 +96,11 @@ async def persist_primary_pref(
 
     try:
         saved = await save_primary_pref_field(
-            mind.config_session,
+            mind.settings.config,
             field_name,
             field_value,
         )
-        await mind.refresh_pref_if_stale(ttl_sec=0.0)
+        await mind.settings.refresh_preferences_if_stale(ttl_sec=0.0)
     except (OSError, TypeError, ValueError) as pref_save_error:
         command = "/effort" if command_name == "model-effort" else f"/{command_name}"
         application.emit(ApplicationView(

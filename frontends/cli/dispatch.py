@@ -17,7 +17,6 @@ from agent.stores.sessions import (
     HISTORY_LIMIT,
     INTERACTIVE_HISTORY_SOURCES,
 )
-from agent.domain.policies import PermissionSettings
 from agent.ports import (
     ProtocolCommandClient,
     RootConversationPort,
@@ -72,17 +71,8 @@ class CliCommandHost(typing.Protocol):
     exit_code: int
     frontend: Frontend
     history_workspace: str
-    permissions: PermissionSettings
     subscription: _SubscriptionSession
     task_event: asyncio.Event
-
-    async def fresh_pref_config(
-        self,
-        *,
-        ttl_sec: float,
-    ) -> dict[str, typing.Any]:
-        """读取当前有效偏好配置。"""
-        ...
 
 
 class RootTurnRunner(typing.Protocol):
@@ -159,8 +149,8 @@ async def run_selected_command(
     observe(
         "command.start",
         command=command_name,
-        sandbox_mode=mind.permissions.sandbox_mode,
-        approval_policy=mind.permissions.approval_policy,
+        sandbox_mode=mind.conversation.permissions.sandbox_mode,
+        approval_policy=mind.conversation.permissions.approval_policy,
     )
 
     run_result: RunResult | None = None
@@ -185,7 +175,7 @@ async def run_selected_command(
             calling_kwargs: dict[str, typing.Any] = {}
             if command.model is not None:
                 calling_kwargs["pref_config"] = apply_primary_model_override(
-                    await mind.fresh_pref_config(ttl_sec=0.0),
+                    await mind.conversation.fresh_pref_config(ttl_sec=0.0),
                     command.model,
                 )
 

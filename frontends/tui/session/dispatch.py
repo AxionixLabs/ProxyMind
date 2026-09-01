@@ -608,17 +608,19 @@ class TuiCommandDispatcher(object):
         try:
             selected = await choose_provider(
                 self.runtime,
-                self.mind.config_session,
+                self.mind.settings.config,
             )
             if selected is None:
                 if present_on_cancel:
                     self._present()
                 return None
             saved = await save_active_provider(
-                self.mind.config_session,
+                self.mind.settings.config,
                 selected,
             )
-            await self.mind.refresh_pref_if_stale(ttl_sec=0.0)
+            await self.mind.settings.refresh_preferences_if_stale(
+                ttl_sec=0.0,
+            )
         except (OSError, TypeError, ValueError) as error:
             self._present(command_result_block(
                 "/provider",
@@ -656,7 +658,7 @@ class TuiCommandDispatcher(object):
             return None
 
         try:
-            effective = self.mind.apply_permissions(selected)
+            effective = self.mind.settings.apply_permissions(selected)
         except (ConfigStoreError, TypeError, ValueError) as failure:
             self._present(failure_text_block(
                 f"Failed to update permissions: {failure}",
@@ -701,7 +703,7 @@ class TuiCommandDispatcher(object):
             "SkillRuntimePort",
             typing.cast(object, self.runtime),
         )
-        await choose_skill(skill_runtime, self.mind.config_session)
+        await choose_skill(skill_runtime, self.mind.settings.config)
 
     def _resolve_stream_listener_action(
         self,

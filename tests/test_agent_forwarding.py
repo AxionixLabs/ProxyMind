@@ -73,15 +73,17 @@ def _recording_mock(events: list[str], name: str, result=None) -> AsyncMock:
 
 @pytest.mark.anyio
 async def test_runtime_bind_maps_provider_kind_to_remote_provider() -> None:
-    mind = SimpleNamespace(fresh_pref_config=AsyncMock(return_value={
-        "primary": {
-            "provider": "claude-main",
-            "kind": "anthropic",
-            "route": "messages",
-            "model": "claude-test",
-            "enabled": True,
-        },
-    }))
+    mind = SimpleNamespace(conversation=SimpleNamespace(
+        fresh_pref_config=AsyncMock(return_value={
+            "primary": {
+                "provider": "claude-main",
+                "kind": "anthropic",
+                "route": "messages",
+                "model": "claude-test",
+                "enabled": True,
+            },
+        }),
+    ))
 
     config = await build_runtime_llm_conf(mind)
 
@@ -718,7 +720,9 @@ def _waiting_ws_client(context: _WsContext, receive_started: asyncio.Event):
 def _ws_mind() -> SimpleNamespace:
     return SimpleNamespace(
         task_event=asyncio.Event(),
-        fresh_pref_config=AsyncMock(return_value={"primary": {}}),
+        conversation=SimpleNamespace(
+            fresh_pref_config=AsyncMock(return_value={"primary": {}}),
+        ),
     )
 
 

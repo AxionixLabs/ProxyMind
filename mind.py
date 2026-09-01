@@ -16,7 +16,7 @@ from agent.ports import (
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
 from agent.ports import (
     McpRuntime,
-    McpRuntimeHost,
+    McpRuntimeContext,
     ProcessCapability,
     SubscriptionHost,
     SubscriptionRuntime,
@@ -159,9 +159,9 @@ def create_hook_registry(*, bypass_hook_trust: bool = False) -> HookRegistry:
     )
 
 
-def create_mcp_runtime(host: McpRuntimeHost) -> McpRuntime:
-    """在进程组合根创建绑定应用生命周期端口的 MCP 运行时。"""
-    return ExternalMcpRuntime(host)
+def create_mcp_runtime(context: McpRuntimeContext) -> McpRuntime:
+    """在进程组合根创建绑定显式依赖的 MCP 运行时。"""
+    return ExternalMcpRuntime(context)
 
 
 def create_tool_runtime(sources: ToolRuntimeSources) -> ToolRuntimePort:

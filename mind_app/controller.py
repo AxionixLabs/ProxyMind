@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
 import typing
 import asyncio
 from pathlib import Path
 from infrastructure.platform.animation import AsyncAnimManager
-from infrastructure.config.preferences import Preferences
 from infrastructure.config.paths import ApplicationLayout
-from infrastructure.config.session import ConfigSession
+from infrastructure.config.settings_session import SettingsSession
 from agent.application.config.settings import (
     AgentSettings,
     FeatureSettings,
@@ -16,10 +14,6 @@ from agent.application.config.settings import (
 from agent.application.turns.foreground import (
     ApplicationTurnForegroundLifecycle,
     FrontendTurnAnimation,
-)
-from agent.domain.policies import (
-    PermissionSettings,
-    resolve_permissions
 )
 from observability.reporting import RunReport
 from observability import (
@@ -72,6 +66,7 @@ from infrastructure.persistence.conversation_history import (
 )
 from infrastructure.config.hooks import HookManager
 from agent.ports import (
+    McpRuntimeContext,
     SubscriptionHost,
     SubscriptionRuntime,
 )
@@ -123,9 +118,11 @@ class Mind(object):
         if self.runtime_services is None:
             raise ValueError("Agent runtime services are required")
 
-        self.pref: Preferences = kwargs["pref"]
-        self.config_session: ConfigSession = kwargs["config_session"]
-        self.permissions: PermissionSettings = kwargs["permissions"]
+        self.settings = SettingsSession(
+            kwargs["config_session"],
+            kwargs["pref"],
+            kwargs["permissions"],
+        )
         self.frontend: FrontendPort = kwargs["frontend"]
         skills_provider_factory = getattr(
             self.runtime_services,
@@ -133,7 +130,7 @@ class Mind(object):
             None,
         )
         self._skills_provider: SkillsProvider | None = (
-            skills_provider_factory(self.config_session.load)
+            skills_provider_factory(self.settings.config.load)
             if callable(skills_provider_factory)
             else None
         )
@@ -145,16 +142,13 @@ class Mind(object):
             kwargs.get("hook_startup_warnings") or ()
         )
         self.hooks = HookManager(
-            self.config_session,
+            self.settings.config,
             hook_registry,
             workspace=lambda: self.history_workspace,
             status_port=kwargs.get("hook_status"),
         )
 
         self.command_hook_sessions = CommandHookSessionStore()
-
-        self.pref_refreshed_at: float = time.monotonic()
-        self.pref_refresh_ttl_sec: float = 1.0
 
         self.task_event: asyncio.Event = asyncio.Event()
 
@@ -238,8 +232,14 @@ class Mind(object):
         self.permission_grants = PermissionGrantStore()
 
         mcp_runtime_builder = self.runtime_services.create_mcp_runtime
+        mcp_runtime_context = McpRuntimeContext(
+            config=self.settings.config,
+            start_activity=self.start_external_mcp_anim,
+            stop_activity=self.stop_anim,
+            await_cleanup=self.await_cleanup,
+        )
         external_runtime_factory = (
-            (lambda: mcp_runtime_builder(self))
+            (lambda: mcp_runtime_builder(mcp_runtime_context))
             if callable(mcp_runtime_builder)
             else None
         )
@@ -276,10 +276,12 @@ class Mind(object):
         self.conversation = RootConversationSession(
             history,
             workspace=lambda: self.history_workspace,
-            permissions=lambda: self.permissions,
-            preference_config=self.pref.to_config,
+            permissions=lambda: self.settings.permissions,
+            preference_config=self.settings.preference_config,
             fresh_preferences=(
-                lambda ttl_sec: self.fresh_pref_config(ttl_sec=ttl_sec)
+                lambda ttl_sec: self.settings.fresh_preferences(
+                    ttl_sec=ttl_sec,
+                )
             ),
             permission_grants=self.permission_grants,
             approval_ledger=(
@@ -431,56 +433,6 @@ class Mind(object):
     def hook_scope_provider(self) -> HookScopeProviderPort:
         """返回根轮次和子 Agent 共享的 Hook 作用域提供器。"""
         return self.hooks
-
-    def apply_permissions(self, settings: PermissionSettings) -> PermissionSettings:
-        """原子保存权限设置并同步当前控制器状态。"""
-        if not isinstance(settings, PermissionSettings):
-            raise TypeError("permission settings are required")
-
-        effective_config = self.config_session.update_user({
-            ("sandbox_mode",): settings.sandbox_mode,
-            ("approval_policy",): settings.approval_policy,
-            ("approvals_reviewer",): settings.approvals_reviewer,
-            ("network_access",): settings.network_access,
-        }, ensure_effective={
-            ("sandbox_mode",): settings.sandbox_mode,
-            ("approval_policy",): settings.approval_policy,
-            ("approvals_reviewer",): settings.approvals_reviewer,
-            ("network_access",): settings.network_access,
-        })
-        effective = resolve_permissions(effective_config, interactive=True)
-        self.permissions = effective
-        return effective
-
-    async def refresh_pref_if_stale(
-        self,
-        *,
-        ttl_sec: typing.Optional[float] = None
-    ) -> None:
-        """按 TTL 从后端刷新偏好配置，用于模型与密钥热更新。"""
-        refresh_ttl = self.pref_refresh_ttl_sec if ttl_sec is None else max(0.0, float(ttl_sec))
-
-        now = time.monotonic()
-
-        if self.pref_refreshed_at and (now - self.pref_refreshed_at) < refresh_ttl:
-            return None
-
-        try:
-            await self.pref.load_pref()
-        except Exception as exc:
-            observe_exception("preferences.refresh.failed", exc, level="WARNING")
-            return None
-
-        self.pref_refreshed_at = time.monotonic()
-
-    async def fresh_pref_config(
-        self,
-        *,
-        ttl_sec: typing.Optional[float] = None
-    ) -> dict[str, typing.Any]:
-        """返回刷新后的偏好配置快照。"""
-        await self.refresh_pref_if_stale(ttl_sec=ttl_sec)
-        return self.pref.to_config()
 
     async def close_runtime_resources(self) -> None:
         """关闭主控制器持有的运行时资源，并按退出策略处理本地后台进程。"""

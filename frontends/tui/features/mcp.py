@@ -112,7 +112,7 @@ def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
     config_error: str = ""
 
     try:
-        config     = mind.config_session.load()
+        config     = mind.settings.config.load()
         configured = normalize_mcp_servers(config.get("mcp_servers"))
     except (OSError, TypeError, ValueError) as error:
         configured   = []

@@ -335,6 +335,16 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   runtime builders 仍只由 `mind.py` 注入。定向联合回归 `376 passed`，资源专项补充后
   `33 passed`；完整架构守卫 `122 passed / 1 stale allowlist`，修正后失败节点、资源归属和
   baseline `3 passed`。导入图、`compileall` 和差异检查通过。
+- 进程设置所有权已从 Controller 拆出：`infrastructure/config/settings_session.py` 单一持有
+  `ConfigSession`、偏好快照、有效权限、刷新 TTL 和并发刷新 generation；权限写入后重新解析
+  有效值，偏好失败保留最后有效快照，并发强制刷新只执行一次实际加载。TUI 通过 `settings`
+  访问该所有者，CLI 与 Subscription 复用 `RootConversationPort`，Controller 已删除旧
+  `pref/config_session/permissions` 属性及三项设置 facade。外部 MCP 同时改为只消费冻结的
+  `McpRuntimeContext`，不再持有完整 Controller 宿主。
+- 本切片入口、设置、MCP 和执行资源联合回归 `308 passed`；设置并发与失败路径专项
+  `4 passed`；完整包架构守卫 `114 passed, 66 warnings`，新增 MCP/Controller 所有权、TUI
+  架构和 baseline 门禁 `12 passed, 1 warning`。导入图无跨边界循环，`compileall`、导入图
+  `--check` 和 `git diff --check` 通过；警告仍只来自 Nuitka `glob2` 的既有弃用转义。
 - 组合根切片定向回归：`76 passed`；新增组合/架构守卫：`4 passed`。
 - Helix 生命周期适配器定向回归：`6 passed`；完整架构守卫：`77 passed, 52 warnings`。
 - Helix 适配器迁移后的导入图已重新生成并通过 `--check`；跨边界循环仍为零。
@@ -444,8 +454,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。`mind_app/runtime` 已源码清零，
    Hook 管理、Session/history/Transcript/SessionEnd 以及 Turn 工具执行资源所有权已迁出；
-   下一步拆分 `mind_app/controller.py` 剩余的偏好/权限刷新和前端资源生命周期，再将纯组合
-   职责提升到 `mind.py`。每次迁移都要完成入口切换和旧实现删除，禁止整体改名搬运。
+   偏好、权限刷新和外部 MCP 宿主依赖已经拆出。下一步拆分
+   `mind_app/controller.py` 剩余的前端/进程生命周期，再将纯组合职责提升到 `mind.py` 并删除
+   历史包。每次迁移都要完成入口切换和旧实现删除，禁止整体改名搬运。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
 删除、架构守卫和 `compileall` 证据。任一条件不足时只更新本计划，不创建空目录。

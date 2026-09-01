@@ -133,7 +133,7 @@ async def sleep_or_stop(delay_sec: float, stop_event: asyncio.Event) -> None:
 
 async def build_runtime_llm_conf(mind: SubscriptionHost) -> dict[str, typing.Any]:
     """基于当前偏好配置生成 `runtime.bind` 所需的 llm_conf。"""
-    payload = await mind.fresh_pref_config(ttl_sec=0.0)
+    payload = await mind.conversation.fresh_pref_config(ttl_sec=0.0)
     primary = request_llm_conf(payload)["primary"]
     return {
         "primary": {

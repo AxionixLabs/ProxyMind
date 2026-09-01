@@ -1085,6 +1085,17 @@ def test_mcp_lifecycle_owner_is_harness_owned() -> None:
         violations
     )
 
+    port_source = (
+        PROJECT_ROOT / "agent" / "ports" / "mcp_runtime.py"
+    ).read_text(encoding="utf-8-sig")
+    runtime_source = (
+        PROJECT_ROOT / "infrastructure" / "mcp" / "external_runtime.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "class McpRuntimeContext" in port_source
+    assert "class McpRuntimeHost" not in port_source
+    assert "self._host" not in runtime_source
+    assert "config_session" not in runtime_source
+
 
 def test_helix_lifecycle_adapter_is_owned_by_infrastructure() -> None:
     """确保服务生命周期和具体 Helix capability 均由 infrastructure 持有。"""
@@ -5427,6 +5438,7 @@ def test_controller_does_not_expose_runtime_facades() -> None:
     assert not {
         "bind_server_manager",
         "bind_service_runtime_context",
+        "apply_permissions",
         "calling",
         "cancel_service_runtime_startup",
         "keepalive_task_done",
@@ -5436,6 +5448,8 @@ def test_controller_does_not_expose_runtime_facades() -> None:
         "restart_external_mcp_runtime",
         "run_service_runtime_startup",
         "run_turn_lifecycle",
+        "fresh_pref_config",
+        "refresh_pref_if_stale",
         "start_keepalive_supervisor",
         "start_config_service",
         "start_external_mcp_runtime",
@@ -5481,11 +5495,14 @@ def test_controller_does_not_expose_runtime_facades() -> None:
         "_service_start_lock",
         "_service_start_task",
         "config_service",
+        "config_session",
         "exec_policy_manager",
         "history_store",
         "keepalive_stop",
         "keepalive_task",
         "native_coding",
+        "permissions",
+        "pref",
         "server_manager",
         "service_runtime_context",
         "stop_runtime_on_exit",

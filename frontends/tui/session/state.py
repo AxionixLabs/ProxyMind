@@ -62,7 +62,7 @@ class TuiSessionState(object):
     ) -> "TuiSessionState":
         """根据控制器缓存和已预载的运行时上下文创建会话状态。"""
         pref_config = apply_primary_model_override(
-            mind.pref.to_config(),
+            mind.settings.preference_config(),
             model_override,
         )
 
@@ -71,7 +71,7 @@ class TuiSessionState(object):
             model=primary_model_from_config(pref_config),
             model_override=model_override,
             workspace_label=runtime.context.workspace_label,
-            permissions=mind.permissions,
+            permissions=mind.settings.permissions,
         )
 
     def prompt_context(self) -> PromptContext:
@@ -111,9 +111,11 @@ class TuiSessionState(object):
     ) -> dict[str, typing.Any]:
         """刷新偏好配置并保持模型字段同步。"""
         if ttl_sec is None:
-            pref_config = await mind.fresh_pref_config()
+            pref_config = await mind.settings.fresh_preferences()
         else:
-            pref_config = await mind.fresh_pref_config(ttl_sec=ttl_sec)
+            pref_config = await mind.settings.fresh_preferences(
+                ttl_sec=ttl_sec,
+            )
 
         self.pref_config = apply_primary_model_override(
             pref_config,
@@ -176,12 +178,12 @@ async def preload_tui_prompt_context(mind: "Mind") -> None:
     runtime = require_tui_runtime(mind.frontend.runtime)
 
     runtime.input_model.set_skills(configured_skills(
-        mind.config_session.load()
+        mind.settings.config.load()
     ))
     runtime.input_model.set_workspace_root(mind.history_workspace)
 
     pref_result, workspace_result, exec_result = await asyncio.gather(
-        mind.fresh_pref_config(ttl_sec=0.0),
+        mind.settings.fresh_preferences(ttl_sec=0.0),
         fetch_runtime_workspace_root(),
         mind.workspace_runtime.coding.running_exec_sessions(),
         return_exceptions=True,
@@ -203,7 +205,7 @@ async def preload_tui_prompt_context(mind: "Mind") -> None:
     runtime.set_prompt_context(PromptContext(
         model=primary_model_prompt_label(pref_config),
         workspace_label=workspace_display_label(runtime_workspace_root),
-        permissions_label=permission_label(mind.permissions),
+        permissions_label=permission_label(mind.settings.permissions),
     ))
     model_snapshot, user_shell_snapshot = split_exec_snapshot_by_origin(
         exec_snapshot,

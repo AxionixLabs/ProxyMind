@@ -4,14 +4,16 @@
 import typing
 from collections.abc import (
     Awaitable,
-    Callable
+    Callable,
 )
+from dataclasses import dataclass
+
 from .tool_runtime import ExternalToolGroupPort
 
 __all__ = (
     "McpRuntime",
     "McpConfigReader",
-    "McpRuntimeHost",
+    "McpRuntimeContext",
     "McpRuntimeFactory",
     "McpRuntimeBuilder",
 )
@@ -56,19 +58,10 @@ class McpConfigReader(typing.Protocol):
         ...
 
 
-class McpRuntimeHost(typing.Protocol):
-    """定义具体 MCP 运行时使用的应用生命周期端口。"""
+class McpActivityStopper(typing.Protocol):
+    """定义外部 MCP 结束活动展示所需的回调。"""
 
-    config_session: McpConfigReader
-
-    async def start_external_mcp_anim(
-        self,
-        snapshot: Callable[[], dict[str, typing.Any]],
-    ) -> None:
-        """开始展示外部 MCP 启动状态。"""
-        ...
-
-    async def stop_anim(
+    async def __call__(
         self,
         kind: str | None = None,
         *,
@@ -77,13 +70,32 @@ class McpRuntimeHost(typing.Protocol):
         """结束指定类型的活动展示。"""
         ...
 
-    async def await_cleanup(self, awaitable: Awaitable[None]) -> None:
-        """等待异步资源清理完成。"""
-        ...
+
+@dataclass(frozen=True, slots=True)
+class McpRuntimeContext:
+    """冻结具体 MCP runtime 使用的配置与生命周期回调。"""
+
+    config: McpConfigReader
+    start_activity: Callable[
+        [Callable[[], dict[str, typing.Any]]],
+        Awaitable[None],
+    ]
+    stop_activity: McpActivityStopper
+    await_cleanup: Callable[[Awaitable[None]], Awaitable[None]]
+
+    def __post_init__(self) -> None:
+        """拒绝缺失的生命周期依赖。"""
+        callbacks = (
+            self.start_activity,
+            self.stop_activity,
+            self.await_cleanup,
+        )
+        if not all(callable(callback) for callback in callbacks):
+            raise TypeError("MCP runtime callbacks must be callable")
 
 
 McpRuntimeFactory: typing.TypeAlias = Callable[[], McpRuntime]
-McpRuntimeBuilder: typing.TypeAlias = Callable[[McpRuntimeHost], McpRuntime]
+McpRuntimeBuilder: typing.TypeAlias = Callable[[McpRuntimeContext], McpRuntime]
 
 
 if __name__ == '__main__':

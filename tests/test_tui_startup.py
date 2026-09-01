@@ -15,7 +15,10 @@ from infrastructure.mcp import tool_runtime
 from infrastructure.mcp.external_runtime import ExternalMcpRuntime
 from agent.harness.mcp.owner import McpRuntimeOwner
 from infrastructure.mcp.tool_runtime import CompositeToolRuntime
-from agent.ports import ToolRuntimeSources
+from agent.ports import (
+    McpRuntimeContext,
+    ToolRuntimeSources,
+)
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.features import helix
@@ -23,6 +26,34 @@ from frontends.tui.session import loop
 from agent.domain.policies import preset_permissions
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
+
+
+def _mcp_runtime_context(host: object) -> McpRuntimeContext:
+    """从测试宿主冻结外部 MCP 所需的最小依赖。"""
+    async def no_activity(_snapshot) -> None:
+        return None
+
+    async def no_stop(_kind=None, *, settle=True) -> None:
+        _ = settle
+        return None
+
+    async def await_cleanup(awaitable) -> None:
+        await awaitable
+
+    return McpRuntimeContext(
+        config=getattr(
+            host,
+            "config_session",
+            SimpleNamespace(load=lambda: {}),
+        ),
+        start_activity=getattr(
+            host,
+            "start_external_mcp_anim",
+            no_activity,
+        ),
+        stop_activity=getattr(host, "stop_anim", no_stop),
+        await_cleanup=getattr(host, "await_cleanup", await_cleanup),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -107,20 +138,25 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
     class MindStub(object):
         task_event = asyncio.Event()
         subscription = SimpleNamespace(current=None)
-        permissions = preset_permissions("auto")
-        pref = SimpleNamespace(to_config=lambda: {
-            "primary": {"model": "test-model"},
-        })
         frontend = SimpleNamespace(
             runtime=runtime,
             interaction=runtime,
             application=ApplicationStub(),
         )
 
-        async def fresh_pref_config(self):
+        def __init__(self) -> None:
+            self.settings = SimpleNamespace(
+                permissions=preset_permissions("auto"),
+                preference_config=lambda: {
+                    "primary": {"model": "test-model"},
+                },
+                fresh_preferences=self.fresh_preferences,
+            )
+
+        async def fresh_preferences(self):
             refresh_started.set()
             await release_refresh.wait()
-            return self.pref.to_config()
+            return self.settings.preference_config()
 
     monkeypatch.setattr(loop, "monitor_exec_status", monitor)
 
@@ -292,7 +328,7 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
     monkeypatch.setattr(external, "ExternalMcpGroup", ExternalGroup)
 
     mind = MindStub()
-    runtime = ExternalMcpRuntime(mind)
+    runtime = ExternalMcpRuntime(_mcp_runtime_context(mind))
     first = asyncio.create_task(runtime.start())
     second = asyncio.create_task(runtime.start())
     await entered.wait()
@@ -357,7 +393,7 @@ async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> No
         ExternalGroup,
     )
 
-    runtime = ExternalMcpRuntime(MindStub())
+    runtime = ExternalMcpRuntime(_mcp_runtime_context(MindStub()))
     await runtime.start()
     await runtime.start()
 
@@ -415,7 +451,7 @@ async def test_external_mcp_stop_finishes_cleanup_when_cancelled() -> None:
                 await task
                 raise
 
-    runtime = ExternalMcpRuntime(MindStub())
+    runtime = ExternalMcpRuntime(_mcp_runtime_context(MindStub()))
     runtime._group = ExternalGroup()
     runtime._started = True
 

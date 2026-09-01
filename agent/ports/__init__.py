@@ -103,7 +103,7 @@ from .mcp_runtime import (
     McpRuntime,
     McpRuntimeBuilder,
     McpRuntimeFactory,
-    McpRuntimeHost,
+    McpRuntimeContext,
 )
 from .subagents import (
     SubagentControlPort,
@@ -273,7 +273,7 @@ __all__ = (
     "McpRuntime",
     "McpRuntimeBuilder",
     "McpRuntimeFactory",
-    "McpRuntimeHost",
+    "McpRuntimeContext",
     "SubscriptionHost",
     "SubscriptionInbox",
     "SubscriptionInboxItem",

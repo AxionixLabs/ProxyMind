@@ -572,9 +572,11 @@ async def test_direct_cli_command_forwards_images_to_initial_request(
     root_turn_adapter.return_value = run_result
     mind = SimpleNamespace(
         attach=attach,
+        conversation=SimpleNamespace(
+            permissions=preset_permissions("auto"),
+        ),
         exit_code=99,
         history_workspace=".",
-        permissions=preset_permissions("auto"),
     )
     command = ExecCommand(
         prompt="hello",
@@ -608,10 +610,12 @@ async def test_direct_cli_command_applies_temporary_model_override(
     })
     root_turn_adapter.return_value = run_result
     mind = SimpleNamespace(
-        fresh_pref_config=fresh_pref_config,
+        conversation=SimpleNamespace(
+            fresh_pref_config=fresh_pref_config,
+            permissions=preset_permissions("auto"),
+        ),
         exit_code=99,
         history_workspace=".",
-        permissions=preset_permissions("auto"),
     )
 
     result = await run_selected_command(
@@ -675,12 +679,12 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         history_workspace=r"D:\workspace",
         conversation=SimpleNamespace(
             history=SimpleNamespace(recent=recent),
+            permissions=preset_permissions("auto"),
             resume=resume_conversation,
         ),
         attach=SimpleNamespace(add_pending_attachments=attachments),
         subscription=SimpleNamespace(close=AsyncMock()),
         task_event=asyncio.Event(),
-        permissions=preset_permissions("auto"),
     )
     monkeypatch.setattr(
         runtime_module,
@@ -763,10 +767,10 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> Non
         history_workspace=r"D:\workspace",
         conversation=SimpleNamespace(
             history=SimpleNamespace(recent=Mock(return_value=[record])),
+            permissions=preset_permissions("auto"),
             resume=resume,
         ),
         task_event=asyncio.Event(),
-        permissions=preset_permissions("auto"),
     )
     monkeypatch.setattr(
         runtime_module,
@@ -870,7 +874,9 @@ async def test_agent_listen_owns_listener_for_tui_session(monkeypatch) -> None:
     )
     mind = SimpleNamespace(
         attach=SimpleNamespace(add_pending_attachments=Mock()),
-        permissions=preset_permissions("auto"),
+        conversation=SimpleNamespace(
+            permissions=preset_permissions("auto"),
+        ),
         subscription=subscription,
     )
     monkeypatch.setattr(
@@ -901,7 +907,9 @@ async def test_agent_listen_stops_listener_when_tui_fails(monkeypatch) -> None:
         close=AsyncMock(),
     )
     mind = SimpleNamespace(
-        permissions=preset_permissions("auto"),
+        conversation=SimpleNamespace(
+            permissions=preset_permissions("auto"),
+        ),
         subscription=subscription,
     )
     monkeypatch.setattr(
@@ -920,9 +928,11 @@ async def test_failed_exec_sets_nonzero_exit_code(root_turn_adapter) -> None:
     run_result = RunResult(status="failed", error="request failed")
     root_turn_adapter.return_value = run_result
     mind = SimpleNamespace(
+        conversation=SimpleNamespace(
+            permissions=preset_permissions("auto"),
+        ),
         exit_code=0,
         history_workspace=".",
-        permissions=preset_permissions("auto"),
     )
 
     result = await run_selected_command(mind, ExecCommand(prompt="hello"))
@@ -949,9 +959,11 @@ async def test_exec_exit_code_comes_from_agent_event_projection(
         Mock(return_value=SimpleNamespace(submit=submit, close=close)),
     )
     mind = SimpleNamespace(
+        conversation=SimpleNamespace(
+            permissions=preset_permissions("auto"),
+        ),
         exit_code=0,
         history_workspace=".",
-        permissions=preset_permissions("auto"),
     )
 
     result = await run_selected_command(mind, ExecCommand(prompt="hello"))
@@ -983,10 +995,12 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
     monkeypatch.setattr(cli_dispatch, "derive_local_session_id", derive_session)
     mind = SimpleNamespace(
         application_layout=object(),
-        conversation=SimpleNamespace(snapshot=Mock(return_value=coordinates)),
+        conversation=SimpleNamespace(
+            permissions=preset_permissions("auto"),
+            snapshot=Mock(return_value=coordinates),
+        ),
         exit_code=0,
         history_workspace=".",
-        permissions=preset_permissions("auto"),
     )
 
     result = await run_selected_command(
@@ -1010,9 +1024,11 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
 async def test_exec_requires_explicit_turn_application_factory_for_real_layout() -> None:
     mind = SimpleNamespace(
         application_layout=object(),
+        conversation=SimpleNamespace(
+            permissions=preset_permissions("auto"),
+        ),
         exit_code=0,
         history_workspace=".",
-        permissions=preset_permissions("auto"),
     )
 
     with pytest.raises(
@@ -1034,9 +1050,11 @@ async def test_cancelled_exec_closes_agent_session_worker(
 
     root_turn_adapter.side_effect = wait_for_cancellation
     mind = SimpleNamespace(
+        conversation=SimpleNamespace(
+            permissions=preset_permissions("auto"),
+        ),
         exit_code=0,
         history_workspace=".",
-        permissions=preset_permissions("auto"),
     )
 
     task = asyncio.create_task(
