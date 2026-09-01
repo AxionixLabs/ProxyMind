@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mind import create_native_coding
+from mind import create_workspace_coding
 from infrastructure.mcp.local_tool_registry import ToolRegistry
 from infrastructure.mcp.local_tool_factory import build_client_tool_registry
 from agent.application.tools.subagents import subagent_tools
@@ -160,7 +160,7 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
         _Controller(),
         enabled=False,
     )
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
 
     enabled_tools = build_client_tool_registry(
         coding,

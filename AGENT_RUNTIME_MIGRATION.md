@@ -101,7 +101,7 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - `ProcessSessionManager`、`ProcessSession` 和 `ProcessSessionSpec` 已迁移至
   `infrastructure/platform/process_sessions.py`；完整权限 capability、受限 Sandbox
   sidecar、输出缓冲和回收状态不再由 `mind_app.native_coding.exec` 持有。
-- `mind.py::create_native_coding` 成为 SandboxClient 和 ProcessSessionManager 的唯一生产
+- `mind.py::create_workspace_coding` 成为 SandboxClient 和 ProcessSessionManager 的唯一生产
   装配点；`NativeCoding` 强制接收会话运行时，`coding_tools/default_registry` 强制接收
   工作区编码实例，不再通过空参数创建具体平台能力。
 - `RootTurnCommandExecutor` 已迁移至 `agent/adapters/turns/root.py`，只依赖冻结命令、
@@ -248,6 +248,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - JS/权限/补丁/工具工厂与 Controller 组合回归 `172 passed`；完整架构守卫除一项新增端口
   白名单过期外其余 `107 passed, 65 warnings`，修正后失败节点及两项职责守卫
   `3 passed, 2 warnings`。导入图、`compileall`、旧导入扫描和差异检查通过。
+- 旧 `mind_app/native_coding` 源包已整体退役：纯补丁模型、解析和 delta 归
+  `agent/domain/patches`，工作区 context、补丁执行、命令/Shell 与聚合运行时归
+  `infrastructure/workspace`；`NativeCoding` 改为 `WorkspaceCoding`，组合根直接注入应用
+  资源根和进程会话。两个无调用者 helper 未迁移；工作区行为回归 `169 passed`，职责与
+  legacy 清零守卫 `5 passed, 3 warnings`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -350,12 +355,15 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    参数规则归 domain，嵌套 MCP 结果归 infrastructure adapter。旧 `mind_app/client_tools`
    源包整体删除，application 不导入 MCP SDK、具体 `ExecPolicyManager` 或 `NativeCoding`。
 
-5. **Workspace 编码实现归位（下一步）**：按补丁、命令、文件审计和聚合生命周期重组
-   `mind_app/native_coding`，把纯执行实现迁入 `agent/capabilities` 或既有
-   `infrastructure/platform` 职责模块；`mind.py` 保持唯一具体组合根，同一切片切换生产与
-   测试导入并删除旧路径，不创建 `native_coding` 同名 facade。
+5. **Workspace 编码实现归位（已完成）**：补丁 domain 与工作区 infrastructure 已按
+   状态/副作用拆分，`mind.py` 保持唯一具体组合根；旧 `mind_app/native_coding` 源包和
+   生产导入清零，没有 `native_coding` 同名 facade。
 
-6. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
+6. **工具执行编排归位（下一步）**：审计并重组 `mind_app/runtime/tools`，把工具调用
+   lifecycle、Hook/effect 协调和展示 projection 分别归入 Harness/application adapter，MCP
+   SDK 继续只留在 infrastructure；按完整调用闭环迁移并删除旧模块，不复制第二套 router。
+
+7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
@@ -389,6 +397,12 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 infrastructure 注册表边界转换为经过 JSON 校验的嵌套输出；客户端与内置注册表装配不再由
 Controller 或 legacy 能力包持有。旧 `mind_app/client_tools` 源文件和生产导入已清零，JS
 持久上下文、嵌套审批取消、本地工具展示及 MCP 图片桥接均保留回归覆盖。
+
+本次 workspace 编码实现切片的删除条件已满足：纯补丁 domain 不依赖 metadata、IO、协议或
+legacy 包；`infrastructure/workspace` 不依赖前端、Controller 或历史包，并通过
+`WorkspaceCoding` 结构化实现既有工作区 ports。`mind.py` 是 Sandbox、进程会话和应用资源根
+的唯一组合点，旧 `mind_app/native_coding` 源文件及导入清零；补丁、冲突保护、命令会话、
+Sandbox、JS REPL、用户 Shell 完成/中断与差异跟踪均通过联合回归。
 
 本次 MCP 生命周期切片的删除条件已满足：Harness 所有者不得导入 `mind_app` 或具体 MCP 实现；
 组合根必须显式注入 `ExternalMcpRuntime` 工厂；旧 `mind_app.runtime.mcp.lifecycle`

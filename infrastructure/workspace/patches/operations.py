@@ -2,18 +2,26 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.native_coding.base import (
-    NativeCodingBase,
-    NativeCodingComponent
+from infrastructure.workspace.context import (
+    WorkspaceComponent,
+    WorkspaceContext,
 )
+from agent.domain.patches.delta import AppliedPatchDelta
+from infrastructure.workspace.patches.diagnostics import PatchDiagnostics
+from infrastructure.workspace.patches.planner import PatchPlanner
 from metadata import const
-from .delta import AppliedPatchDelta
 
 
-class TextPatchOperations(NativeCodingComponent):
+class TextPatchOperations(WorkspaceComponent):
     """提供文本补丁操作入口。"""
 
-    def __init__(self, core: NativeCodingBase, *, planner: typing.Any, diagnostics: typing.Any) -> None:
+    def __init__(
+        self,
+        core: WorkspaceContext,
+        *,
+        planner: PatchPlanner,
+        diagnostics: PatchDiagnostics,
+    ) -> None:
         """保存共享运行时上下文和补丁执行依赖。"""
         super().__init__(core)
 

@@ -2,10 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.native_coding.base import NativeCodingComponent
+from infrastructure.workspace.context import WorkspaceComponent
 
 
-class CommandPolicy(NativeCodingComponent):
+class CommandExecutionProfile(WorkspaceComponent):
     """根据可信执行授权生成命令运行参数。"""
 
     LONG_TASK_TIMEOUT_SEC  = 300
@@ -32,14 +32,14 @@ class CommandPolicy(NativeCodingComponent):
         canonical = raw_arguments
         timeout   = max(1, int(canonical.get("timeout_sec") or 60))
 
-        return CommandPolicy._allow(
+        return CommandExecutionProfile._allow(
             risk="local",
             category="command",
             reasons=[],
             execution_target="local",
             timeout_sec=timeout,
-            output_limit=CommandPolicy.LONG_TASK_OUTPUT_LIMIT if timeout >= CommandPolicy.LONG_TASK_TIMEOUT_SEC else CommandPolicy.DEFAULT_OUTPUT_LIMIT,
-            long_task=timeout >= CommandPolicy.LONG_TASK_TIMEOUT_SEC,
+            output_limit=CommandExecutionProfile.LONG_TASK_OUTPUT_LIMIT if timeout >= CommandExecutionProfile.LONG_TASK_TIMEOUT_SEC else CommandExecutionProfile.DEFAULT_OUTPUT_LIMIT,
+            long_task=timeout >= CommandExecutionProfile.LONG_TASK_TIMEOUT_SEC,
             canonical_arguments=canonical,
         )
 
@@ -70,4 +70,3 @@ class CommandPolicy(NativeCodingComponent):
 
 if __name__ == '__main__':
     pass
-

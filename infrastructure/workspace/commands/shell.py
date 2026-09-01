@@ -5,37 +5,39 @@ import os
 import shlex
 import time
 import typing
-from observability import observe
-from mind_app.native_coding.base import (
-    NativeCodingBase,
-    NativeCodingComponent
+from agent.domain.execution_policy import (
+    effective_sandbox_mode,
+    normalize_sandbox_permission,
 )
+from agent.domain.permission_profiles import normalize_permission_profile
 from infrastructure.platform.encoding import normalize_process_output_encoding
 from infrastructure.platform.output_decoder import CapturedOutputDecoder
-from infrastructure.platform.process_capture import ProcessCapture
 from infrastructure.platform.process_capture import (
     CapturedOutputLine,
-    CapturedProcessResult
+    CapturedProcessResult,
+    ProcessCapture,
 )
 from infrastructure.platform.process_sessions import (
     ProcessSessionManager,
-    ProcessSessionSpec
+    ProcessSessionSpec,
 )
+from infrastructure.platform.processes import wait_for_process
 from infrastructure.platform.sandbox import (
     SandboxProtocolError,
     SandboxUnavailable,
     sandbox_backend_name,
 )
 from infrastructure.platform.shell_runtime import ShellRuntimeResolver
-from agent.domain.execution_policy import (
-    effective_sandbox_mode,
-    normalize_sandbox_permission,
+from infrastructure.workspace.commands.audit import WorkspaceFileAudit
+from infrastructure.workspace.commands.profile import CommandExecutionProfile
+from infrastructure.workspace.context import (
+    WorkspaceComponent,
+    WorkspaceContext,
 )
-from agent.domain.permission_profiles import normalize_permission_profile
-from infrastructure.platform.processes import wait_for_process
+from observability import observe
 
 
-class ShellCommandTools(NativeCodingComponent):
+class ShellCommandExecutor(WorkspaceComponent):
     """提供受控 shell 执行能力。"""
 
     OUTPUT_LINE_MAX_CHARS = 1000
@@ -92,10 +94,10 @@ class ShellCommandTools(NativeCodingComponent):
 
     def __init__(
         self,
-        core: NativeCodingBase,
+        core: WorkspaceContext,
         *,
-        command_policy: typing.Any,
-        file_audit: typing.Any,
+        command_policy: CommandExecutionProfile,
+        file_audit: WorkspaceFileAudit,
         sessions: ProcessSessionManager
     ) -> None:
         """保存共享运行时上下文、命令策略和文件审计依赖。"""

@@ -7,7 +7,7 @@ from pathlib import Path
 from infrastructure.platform.process_sessions import (
     ProcessSession,
     ProcessSessionManager,
-    ProcessSessionSpec
+    ProcessSessionSpec,
 )
 
 

@@ -33,7 +33,7 @@ from infrastructure.mcp.external_runtime import ExternalMcpRuntime
 from infrastructure.mcp.tool_runtime import CompositeToolRuntime
 from frontends.cli.entry import run
 from frontends.mcp.server import run_mind_mcp_server
-from mind_app.native_coding import NativeCoding
+from infrastructure.workspace.runtime import WorkspaceCoding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.harness.hooks.registry import HookRegistry
 from infrastructure.services.turn_environment import (
@@ -175,12 +175,12 @@ def create_subscription_runtime(host: SubscriptionHost) -> SubscriptionRuntime:
     )
 
 
-def create_native_coding(
+def create_workspace_coding(
     *,
     root: str | os.PathLike[str],
     application_layout: object | None,
     process_capability: ProcessCapability | None = None,
-) -> NativeCoding:
+) -> WorkspaceCoding:
     """在进程组合根创建绑定工作区的平台执行资源。"""
     if (
         application_layout is not None
@@ -203,9 +203,11 @@ def create_native_coding(
         sandbox_client,
         process_capability=process_capability,
     )
-    return NativeCoding(
+    return WorkspaceCoding(
         root=root,
-        application_layout=application_layout,
+        application_root=(
+            application_layout.root if application_layout is not None else None
+        ),
         process_sessions=process_sessions,
     )
 
@@ -220,7 +222,7 @@ def create_workspace_runtime(
     return WorkspaceRuntimeOwner(
         workspace_root,
         application_layout=application_layout,
-        coding_factory=create_native_coding,
+        coding_factory=create_workspace_coding,
         execution_policy_factory=ExecPolicyManager,
         image_reader_factory=FileImageReader,
         process_capability=process_capability,

@@ -4,43 +4,45 @@
 import os
 import time
 import typing
-from mind_app.native_coding.base import (
-    NativeCodingBase,
-    NativeCodingComponent
+from agent.domain.execution_policy import (
+    effective_sandbox_mode,
+    normalize_sandbox_permission,
 )
+from agent.domain.permission_profiles import normalize_permission_profile
 from infrastructure.platform.processes import (
     terminate_process_tree,
-    wait_for_process
+    wait_for_process,
 )
 from infrastructure.platform.process_sessions import (
     ProcessSession as ExecSession,
     ProcessSessionManager,
-    ProcessSessionSpec
+    ProcessSessionSpec,
 )
-from mind_app.native_coding.exec.shell_exec import ShellCommandTools
-from infrastructure.platform.shell_runtime import ShellRuntimeResolver
-from agent.domain.execution_policy import (
-    effective_sandbox_mode,
-    normalize_sandbox_permission
-)
-from agent.domain.permission_profiles import normalize_permission_profile
 from infrastructure.platform.sandbox import (
     SandboxProtocolError,
     SandboxUnavailable,
     SidecarProcess,
-    sandbox_backend_name
+    sandbox_backend_name,
+)
+from infrastructure.platform.shell_runtime import ShellRuntimeResolver
+from infrastructure.workspace.commands.audit import WorkspaceFileAudit
+from infrastructure.workspace.commands.profile import CommandExecutionProfile
+from infrastructure.workspace.commands.shell import ShellCommandExecutor
+from infrastructure.workspace.context import (
+    WorkspaceComponent,
+    WorkspaceContext,
 )
 
 
-class ExecCommandTools(NativeCodingComponent):
+class ProcessCommandExecutor(WorkspaceComponent):
     """提供可持续读写的 shell 会话工具。"""
 
     def __init__(
         self,
-        core: NativeCodingBase,
+        core: WorkspaceContext,
         *,
-        command_policy: typing.Any,
-        file_audit: typing.Any,
+        command_policy: CommandExecutionProfile,
+        file_audit: WorkspaceFileAudit,
         sessions: ProcessSessionManager
     ) -> None:
         """保存共享运行时、执行策略和会话表。"""
@@ -168,7 +170,10 @@ class ExecCommandTools(NativeCodingComponent):
         exec_cmd = list(runtime.prefix or [])
         exec_cmd.append(cmd)
 
-        audit_mode   = ShellCommandTools.audit_mode_for_command(cmd, audit_files=audit_files)
+        audit_mode = ShellCommandExecutor.audit_mode_for_command(
+            cmd,
+            audit_files=audit_files,
+        )
         audit_before = self._capture_shell_audit(audit_mode)
         started      = time.perf_counter()
 
@@ -574,7 +579,7 @@ class ExecCommandTools(NativeCodingComponent):
             ok = True
 
         if not ok:
-            NativeCodingBase.enrich_failure_facts(data)
+            WorkspaceContext.enrich_failure_facts(data)
 
         return {
             "ok": ok,

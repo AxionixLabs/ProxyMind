@@ -7,11 +7,11 @@ import time
 import typing
 import difflib
 from pathlib import Path
-from mind_app.native_coding.base import NativeCodingComponent
+from infrastructure.workspace.context import WorkspaceComponent
 from metadata import const
 
 
-class PatchDiagnostics(NativeCodingComponent):
+class PatchDiagnostics(WorkspaceComponent):
     """提供文本补丁失败诊断和提示信息。"""
 
     @classmethod

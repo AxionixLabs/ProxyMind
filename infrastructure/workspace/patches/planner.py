@@ -2,24 +2,27 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.native_coding.base import (
-    NativeCodingBase,
-    NativeCodingComponent
+from infrastructure.workspace.context import (
+    WorkspaceComponent,
+    WorkspaceContext,
 )
+from agent.domain.patches.models import PatchHunk
+from agent.domain.patches.parsing import PatchParser
+from infrastructure.workspace.patches.applier import PatchApplier
+from infrastructure.workspace.patches.diagnostics import PatchDiagnostics
 from metadata import const
-from mind_app.native_coding.edit.types import PatchHunk
 
 
-class PatchPlanner(NativeCodingComponent):
+class PatchPlanner(WorkspaceComponent):
     """预检查文本补丁并生成文件写入计划。"""
 
     def __init__(
         self,
-        core: NativeCodingBase,
+        core: WorkspaceContext,
         *,
-        parser: typing.Any,
-        applier: typing.Any,
-        diagnostics: typing.Any
+        parser: PatchParser,
+        applier: PatchApplier,
+        diagnostics: PatchDiagnostics,
     ) -> None:
         """保存共享运行时上下文和 patch 处理依赖。"""
         super().__init__(core)

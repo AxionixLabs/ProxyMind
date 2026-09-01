@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from .types import (
+from agent.domain.patches.models import (
     PatchAction,
     PatchFile,
     PatchHunk,
@@ -10,9 +10,9 @@ from .types import (
     PatchMarker,
     PatchParseFailure,
     PatchParseResult,
-    PatchParseSuccess
+    PatchParseSuccess,
 )
-from .unified_parser import parse_unified_patch
+from agent.domain.patches.unified import parse_unified_patch
 
 
 class PatchParser(object):
@@ -236,4 +236,3 @@ class PatchParser(object):
 
 if __name__ == '__main__':
     pass
-

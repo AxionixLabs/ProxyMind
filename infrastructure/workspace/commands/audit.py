@@ -2,10 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.native_coding.base import NativeCodingComponent
+from infrastructure.workspace.context import WorkspaceComponent
 
 
-class FileAudit(NativeCodingComponent):
+class WorkspaceFileAudit(WorkspaceComponent):
     """用于 shell 命令的轻量级工作区文件变更审计。"""
 
     MAX_AUDIT_FILES = 3000
@@ -75,7 +75,7 @@ class FileAudit(NativeCodingComponent):
 
         modified: list[str] = []
         for path in sorted(before_paths & after_paths):
-            if FileAudit._fingerprint_changed(before_files.get(path) or {}, after_files.get(path) or {}):
+            if WorkspaceFileAudit._fingerprint_changed(before_files.get(path) or {}, after_files.get(path) or {}):
                 modified.append(path)
 
         changed = created + modified + deleted

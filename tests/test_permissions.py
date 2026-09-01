@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from mind import create_native_coding
+from mind import create_workspace_coding
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.approvals.policy import (
     approval_decisions,
@@ -303,7 +303,7 @@ async def test_read_only_sandbox_rejects_local_mutating_capabilities(
     tool_name,
     tmp_path,
 ) -> None:
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     tool = next(tool for tool in coding_tools(coding) if tool.name == tool_name)
     runtime = _client_runtime(preset_permissions("read-only"))
 

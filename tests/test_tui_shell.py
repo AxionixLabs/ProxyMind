@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, PropertyMock, patch
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
-from mind_app.native_coding import NativeCoding
-from mind import create_native_coding
+from infrastructure.workspace.runtime import WorkspaceCoding
+from mind import create_workspace_coding
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from frontends.tui.core.models import FragmentBlock
 from frontends.tui.core.interrupt import InterruptDisposition
@@ -514,7 +514,7 @@ async def test_second_shell_shows_first_shell_in_process_status() -> None:
 
 @pytest.mark.anyio
 async def test_user_shell_session_is_listed_and_closed(tmp_path) -> None:
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     snapshot = await coding.user_shell.start_user_shell_session(
         command="background test",
         args=[
@@ -687,7 +687,7 @@ async def test_detached_shell_completion_waits_for_command_scope_result(
 
 @pytest.mark.anyio
 async def test_exec_command_keeps_tool_policy_and_result_flow(tmp_path) -> None:
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     try:
         result = await coding.exec_command(
             command="echo shared-session",
@@ -1713,7 +1713,7 @@ async def test_native_exec_update_carries_completion_event_snapshot() -> None:
         }),
         output_snapshot=AsyncMock(return_value=snapshot),
     )
-    coding = NativeCoding.__new__(NativeCoding)
+    coding = WorkspaceCoding.__new__(WorkspaceCoding)
     coding._process_sessions = sessions
 
     update_event = await coding.wait_exec_session_update(

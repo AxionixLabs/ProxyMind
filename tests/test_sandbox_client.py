@@ -11,7 +11,7 @@ from infrastructure.platform.process_sessions import (
     ProcessSessionManager,
     ProcessSessionSpec,
 )
-from mind import create_native_coding
+from mind import create_workspace_coding
 from infrastructure.config.paths import ApplicationLayout
 
 
@@ -126,7 +126,7 @@ def test_native_coding_reuses_application_layout_for_sandbox_paths(tmp_path) -> 
             / "macos"
         ),
     )
-    coding = create_native_coding(
+    coding = create_workspace_coding(
         root=tmp_path / "workspace",
         application_layout=layout,
     )

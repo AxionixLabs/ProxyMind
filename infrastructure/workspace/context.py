@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import hashlib
 import os
 import typing
-import hashlib
 from pathlib import Path
-from metadata import const
 from infrastructure.platform.encoding import (
     decode_process_output,
-    process_output_encodings
+    process_output_encodings,
 )
+from metadata import const
 
 
-class NativeCodingBase(object):
-    """原生编码工具的共享状态与基础辅助方法。"""
+class WorkspaceContext(object):
+    """保存工作区编码能力共享的路径、限制和结果辅助状态。"""
 
     agent_id: str = "native_coding"
 
@@ -233,7 +233,7 @@ class NativeCodingBase(object):
         """构造统一的成功工具返回结构。"""
         payload = {"ok": True, **data}
         if payload.get("ok") is False:
-            NativeCodingBase.enrich_failure_facts(payload)
+            WorkspaceContext.enrich_failure_facts(payload)
         ok = bool(payload.pop("ok"))
         return {
             "ok"          : ok,
@@ -288,7 +288,7 @@ class NativeCodingBase(object):
 
         payload["reason"] = reason
         if not isinstance(payload.get("failure_context"), dict):
-            payload["failure_context"] = NativeCodingBase.failure_context(payload)
+            payload["failure_context"] = WorkspaceContext.failure_context(payload)
 
         return payload
 
@@ -298,7 +298,7 @@ class NativeCodingBase(object):
         payload = {"ok": False, "reason": reason, **data}
         payload.pop("ok", None)
 
-        NativeCodingBase.enrich_failure_facts(payload)
+        WorkspaceContext.enrich_failure_facts(payload)
 
         return {
             "ok"          : False,
@@ -309,11 +309,11 @@ class NativeCodingBase(object):
         }
 
 
-class NativeCodingComponent(object):
-    """共享 NativeCoding 运行时上下文的组件包装器。"""
+class WorkspaceComponent(object):
+    """共享工作区编码运行时上下文的组件包装器。"""
 
-    def __init__(self, core: NativeCodingBase) -> None:
-        """保存共享的原生编码核心对象。"""
+    def __init__(self, core: WorkspaceContext) -> None:
+        """保存共享的工作区上下文。"""
         self.core = core
 
     @property
@@ -349,22 +349,22 @@ class NativeCodingComponent(object):
     @staticmethod
     def decode_bytes(data: bytes) -> str:
         """按项目默认字符集解码字节数据。"""
-        return NativeCodingBase.decode_bytes(data)
+        return WorkspaceContext.decode_bytes(data)
 
     @staticmethod
     def sha256_bytes(data: bytes) -> str:
         """计算字节数据的 SHA256 摘要。"""
-        return NativeCodingBase.sha256_bytes(data)
+        return WorkspaceContext.sha256_bytes(data)
 
     @staticmethod
     def ok_result(text: str, **data: typing.Any) -> dict[str, typing.Any]:
         """构造统一成功返回结构。"""
-        return NativeCodingBase.ok_result(text, **data)
+        return WorkspaceContext.ok_result(text, **data)
 
     @staticmethod
     def fail_result(reason: str, **data: typing.Any) -> dict[str, typing.Any]:
         """构造统一失败返回结构。"""
-        return NativeCodingBase.fail_result(reason, **data)
+        return WorkspaceContext.fail_result(reason, **data)
 
     def relative_path(self, path: Path) -> str:
         """委托生成相对工作区路径。"""

@@ -4,7 +4,7 @@
 import typing
 from dataclasses import (
     dataclass,
-    field
+    field,
 )
 
 PatchAction = typing.Literal["create", "modify", "delete", "rename"]

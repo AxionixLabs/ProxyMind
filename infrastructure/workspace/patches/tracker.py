@@ -2,10 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from .diff_render import DiffRenderer
+from infrastructure.workspace.patches.diff import DiffRenderer
 
 
-class TurnDiffTracker:
+class WorkspaceDiffTracker:
     """在内存中合并多次文本变更并生成净差异。"""
 
     def __init__(self) -> None:

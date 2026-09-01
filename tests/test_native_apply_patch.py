@@ -3,12 +3,12 @@
 import pytest
 
 from agent.application.tools.coding import coding_tools
-from mind import create_native_coding
-from mind_app.native_coding.edit.parser import PatchParser
+from mind import create_workspace_coding
+from agent.domain.patches.parsing import PatchParser
 
 
 def test_strict_patch_create_remains_supported(tmp_path) -> None:
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     patch = (
         "*** Begin Patch\n"
         "*** Add File: strict.txt\n"
@@ -26,7 +26,7 @@ def test_strict_patch_create_remains_supported(tmp_path) -> None:
 def test_preview_patch_returns_exact_delta_without_writing(tmp_path) -> None:
     target = tmp_path / "sample.txt"
     target.write_bytes(b"old\n")
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
 
     result = coding.preview_patch(
         patch=(
@@ -71,7 +71,7 @@ def test_preview_patch_returns_exact_delta_without_writing(tmp_path) -> None:
 def test_strict_patch_modify_and_delete_remain_supported(tmp_path) -> None:
     (tmp_path / "keep.txt").write_text("old\n", encoding="utf-8")
     (tmp_path / "gone.txt").write_text("gone\n", encoding="utf-8")
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     patch = (
         "*** Begin Patch\n"
         "*** Update File: keep.txt\n"
@@ -91,7 +91,7 @@ def test_strict_patch_modify_and_delete_remain_supported(tmp_path) -> None:
 
 def test_strict_patch_rename_preserves_missing_final_newline(tmp_path) -> None:
     (tmp_path / "source.txt").write_bytes(b"old")
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     patch = (
         "*** Begin Patch\n"
         "*** Update File: source.txt\n"
@@ -112,7 +112,7 @@ def test_strict_patch_rename_preserves_missing_final_newline(tmp_path) -> None:
 
 
 def test_git_diff_creates_file_and_preserves_missing_final_newline(tmp_path) -> None:
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     patch = (
         "diff --git a/nested/hello.txt b/nested/hello.txt\n"
         "new file mode 100644\n"
@@ -135,7 +135,7 @@ def test_git_diff_creates_file_and_preserves_missing_final_newline(tmp_path) -> 
 def test_plain_unified_diff_modifies_and_deletes_multiple_files(tmp_path) -> None:
     (tmp_path / "sample.txt").write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
     (tmp_path / "gone.txt").write_text("remove\n", encoding="utf-8")
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     patch = (
         "--- sample.txt\n"
         "+++ sample.txt\n"
@@ -163,7 +163,7 @@ def test_plain_unified_diff_modifies_and_deletes_multiple_files(tmp_path) -> Non
 def test_git_diff_uses_declared_hunk_position(tmp_path) -> None:
     target = tmp_path / "repeated.txt"
     target.write_text("one\ntarget\none\ntarget\n", encoding="utf-8")
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     patch = (
         "diff --git a/repeated.txt b/repeated.txt\n"
         "index 1234567..7654321 100644\n"
@@ -223,7 +223,7 @@ def test_git_diff_rejects_unsupported_forms(patch, reason) -> None:
 
 
 def test_unified_diff_keeps_workspace_path_guard(tmp_path) -> None:
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     patch = (
         "--- /dev/null\n"
         "+++ ../outside.txt\n"
@@ -239,7 +239,7 @@ def test_unified_diff_keeps_workspace_path_guard(tmp_path) -> None:
 
 
 def test_apply_patch_tool_exposes_patch_shape_and_formats(tmp_path) -> None:
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     tool = next(item for item in coding_tools(coding) if item.name == "apply_patch")
     patch_schema = tool.input_schema["properties"]["patch"]
 

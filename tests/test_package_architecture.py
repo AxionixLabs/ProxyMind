@@ -1409,6 +1409,57 @@ def test_workspace_process_boundaries_have_no_legacy_sources() -> None:
     )
 
 
+def test_workspace_coding_has_infrastructure_ownership() -> None:
+    """确保工作区编码实现按领域与基础设施边界归位。"""
+    legacy_root = PROJECT_ROOT / "mind_app" / "native_coding"
+    assert not any(legacy_root.rglob("*.py"))
+
+    legacy_imports = _forbidden_module_imports(
+        ".",
+        {"mind_app.native_coding"},
+    )
+    assert not legacy_imports, "legacy workspace imports remain:\n" + (
+        "\n".join(legacy_imports)
+    )
+
+    domain_violations = _forbidden_imports(
+        "agent/domain/patches",
+        {
+            "backend",
+            "engine",
+            "frontends",
+            "infrastructure",
+            "metadata",
+            "mind_app",
+            "mind_core",
+            "observability",
+            "protocol",
+            "server",
+        },
+    )
+    assert not domain_violations, "patch domain crosses boundaries:\n" + (
+        "\n".join(domain_violations)
+    )
+
+    infrastructure_violations = _forbidden_imports(
+        "infrastructure/workspace",
+        {"backend", "engine", "frontends", "mind_app", "mind_core", "server"},
+    )
+    assert not infrastructure_violations, (
+        "workspace infrastructure crosses boundaries:\n"
+        + "\n".join(infrastructure_violations)
+    )
+
+    runtime = (PROJECT_ROOT / "infrastructure" / "workspace" / "runtime.py")
+    source = runtime.read_text(encoding="utf-8-sig")
+    assert "class WorkspaceCoding(" in source
+    assert "class NativeCoding(" not in source
+
+    composition = (PROJECT_ROOT / "mind.py").read_text(encoding="utf-8-sig")
+    assert "from infrastructure.workspace.runtime import WorkspaceCoding" in composition
+    assert "from mind_app.native_coding" not in composition
+
+
 def test_command_safety_has_platform_ownership() -> None:
     """确保跨平台危险命令识别不再由 native coding 包持有。"""
     legacy_root = PROJECT_ROOT / "mind_app" / "native_coding" / "exec" / "command_safety"
@@ -1494,24 +1545,24 @@ def test_process_execution_substrate_has_platform_ownership() -> None:
         "legacy process execution imports remain:\n" + "\n".join(violations)
     )
 
-    native_coding_path = (
-        PROJECT_ROOT / "mind_app" / "native_coding" / "native_coding.py"
+    workspace_runtime_path = (
+        PROJECT_ROOT / "infrastructure" / "workspace" / "runtime.py"
     )
-    native_tree = ast.parse(
-        native_coding_path.read_text(encoding="utf-8-sig"),
-        filename=str(native_coding_path),
+    workspace_runtime_tree = ast.parse(
+        workspace_runtime_path.read_text(encoding="utf-8-sig"),
+        filename=str(workspace_runtime_path),
     )
-    native_imports = {
+    workspace_runtime_imports = {
         node.module or ""
-        for node in ast.walk(native_tree)
+        for node in ast.walk(workspace_runtime_tree)
         if isinstance(node, ast.ImportFrom) and node.level == 0
     }
-    assert "infrastructure.platform.sandbox" not in native_imports
+    assert "infrastructure.platform.sandbox" not in workspace_runtime_imports
     assert not any(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "SandboxClient"
-        for node in ast.walk(native_tree)
+        for node in ast.walk(workspace_runtime_tree)
     )
 
     composition_path = PROJECT_ROOT / "mind.py"
@@ -4718,8 +4769,6 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.tools.results",
         "agent.application.tools.subagents",
         "agent.ports.media",
-        "agent.ports.capabilities",
-        "agent.ports.javascript",
         "agent.domain.hooks",
         "agent.domain.identifiers",
         "agent.domain.permission_profiles",

@@ -3,32 +3,35 @@
 
 import os
 import typing
+from agent.domain.patches.parsing import PatchParser
 from agent.ports.capabilities import SandboxMode
 from agent.ports.javascript import NestedToolDispatch
-from infrastructure.config.paths import ApplicationLayout
-from mind_app.native_coding.base import NativeCodingBase
-from mind_app.native_coding.edit.patch_engine import PatchEngine
-from mind_app.native_coding.exec.shell_exec import ShellCommandTools
-from mind_app.native_coding.exec.exec_command import ExecCommandTools
-from infrastructure.platform.process_sessions import ProcessSessionManager
-from mind_app.native_coding.exec.user_shell import UserShellExecution
-from mind_app.native_coding.exec.command_policy import CommandPolicy
-from mind_app.native_coding.exec.file_audit import FileAudit
-from mind_app.native_coding.edit.turn_diff import TurnDiffTracker
 from infrastructure.platform.javascript_repl import (
     JavaScriptReplPool,
-    ReplRuntimeError
+    ReplRuntimeError,
 )
+from infrastructure.platform.process_sessions import ProcessSessionManager
+from infrastructure.workspace.commands.audit import WorkspaceFileAudit
+from infrastructure.workspace.commands.process import ProcessCommandExecutor
+from infrastructure.workspace.commands.profile import CommandExecutionProfile
+from infrastructure.workspace.commands.shell import ShellCommandExecutor
+from infrastructure.workspace.commands.user_shell import UserShellExecution
+from infrastructure.workspace.context import WorkspaceContext
+from infrastructure.workspace.patches.applier import PatchApplier
+from infrastructure.workspace.patches.diagnostics import PatchDiagnostics
+from infrastructure.workspace.patches.operations import TextPatchOperations
+from infrastructure.workspace.patches.planner import PatchPlanner
+from infrastructure.workspace.patches.tracker import WorkspaceDiffTracker
 
 
-class NativeCoding(NativeCodingBase):
-    """由可组合工具组件支撑的原生编码服务入口。"""
+class WorkspaceCoding(WorkspaceContext):
+    """聚合绑定同一工作区生命周期的编码执行能力。"""
 
     def __init__(
         self,
         root: str | os.PathLike[str] | None = None,
         *,
-        application_layout: ApplicationLayout | None = None,
+        application_root: str | os.PathLike[str] | None = None,
         process_sessions: ProcessSessionManager,
     ) -> None:
         """初始化共享运行时状态并装配各能力组件。"""
@@ -46,24 +49,37 @@ class NativeCoding(NativeCodingBase):
 
         self._javascript_repls = JavaScriptReplPool(
             self.root,
-            application_root=(
-                application_layout.root if application_layout is not None else None
-            ),
+            application_root=application_root,
         )
 
-        self._patch_engine   = PatchEngine(self)
-        self._command_policy = CommandPolicy(self)
-        self._file_audit     = FileAudit(self)
-        self._turn_diff      = TurnDiffTracker()
+        patch_diagnostics = PatchDiagnostics(self)
+        patch_applier = PatchApplier(
+            self,
+            diagnostics=patch_diagnostics,
+        )
+        patch_planner = PatchPlanner(
+            self,
+            parser=PatchParser(),
+            applier=patch_applier,
+            diagnostics=patch_diagnostics,
+        )
+        self._patches = TextPatchOperations(
+            self,
+            planner=patch_planner,
+            diagnostics=patch_diagnostics,
+        )
+        self._command_policy = CommandExecutionProfile(self)
+        self._file_audit     = WorkspaceFileAudit(self)
+        self._turn_diff      = WorkspaceDiffTracker()
 
-        self._shell_command = ShellCommandTools(
+        self._shell_command = ShellCommandExecutor(
             self,
             command_policy=self._command_policy,
             file_audit=self._file_audit,
             sessions=self._process_sessions,
         )
 
-        self._exec_command = ExecCommandTools(
+        self._exec_command = ProcessCommandExecutor(
             self,
             command_policy=self._command_policy,
             file_audit=self._file_audit,
@@ -77,7 +93,7 @@ class NativeCoding(NativeCodingBase):
         cwd: str = ".",
         timeout_sec: int = 60,
         output_encoding: str = "auto",
-        sandbox_mode: str = "danger-full-access",
+        sandbox_mode: SandboxMode = "danger-full-access",
         sandbox_permissions: object = "use_default",
         additional_permissions: dict[str, typing.Any] | None = None,
     ) -> dict[str, typing.Any]:
@@ -104,7 +120,7 @@ class NativeCoding(NativeCodingBase):
         idle_timeout_sec: int = 300,
         cid: str = "",
         sid: str = "",
-        sandbox_mode: str = "danger-full-access",
+        sandbox_mode: SandboxMode = "danger-full-access",
         sandbox_permissions: object = "use_default",
         additional_permissions: dict[str, typing.Any] | None = None,
     ) -> dict[str, typing.Any]:
@@ -340,25 +356,37 @@ class NativeCoding(NativeCodingBase):
 
     def apply_patch(
         self,
-        *args: typing.Any,
-        **kwargs: typing.Any
+        *,
+        patch: str,
+        expected_sha256: dict[str, str] | None = None,
+        force: bool = False,
     ) -> dict[str, typing.Any]:
         """应用受支持的文本补丁。"""
-        return self._patch_engine.apply_patch(*args, **kwargs)
+        return self._patches.apply_patch(
+            patch=patch,
+            expected_sha256=expected_sha256,
+            force=force,
+        )
 
     def preview_patch(
         self,
-        *args: typing.Any,
-        **kwargs: typing.Any
+        *,
+        patch: str,
+        expected_sha256: dict[str, str] | None = None,
+        force: bool = False,
     ) -> dict[str, typing.Any]:
         """生成不写入工作区的补丁预览。"""
-        return self._patch_engine.preview_patch(*args, **kwargs)
+        return self._patches.preview_patch(
+            patch=patch,
+            expected_sha256=expected_sha256,
+            force=force,
+        )
 
     def reset_patch_diff(self) -> None:
         """清空本轮 apply_patch 差异记录。"""
-        self._turn_diff = TurnDiffTracker()
+        self._turn_diff = WorkspaceDiffTracker()
 
-    def track_patch_delta(self, delta: typing.Any) -> str:
+    def track_patch_delta(self, delta: dict[str, typing.Any]) -> str:
         """记录一次 apply_patch delta 并返回当前净差异。"""
         return self._turn_diff.track_delta(delta)
 

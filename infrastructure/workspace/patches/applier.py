@@ -2,16 +2,23 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.native_coding.base import (
-    NativeCodingBase, NativeCodingComponent
+from infrastructure.workspace.context import (
+    WorkspaceComponent,
+    WorkspaceContext,
 )
-from mind_app.native_coding.edit.types import PatchHunk
+from agent.domain.patches.models import PatchHunk
+from infrastructure.workspace.patches.diagnostics import PatchDiagnostics
 
 
-class PatchApplier(NativeCodingComponent):
+class PatchApplier(WorkspaceComponent):
     """应用已解析的 patch hunk。"""
 
-    def __init__(self, core: NativeCodingBase, *, diagnostics: typing.Any) -> None:
+    def __init__(
+        self,
+        core: WorkspaceContext,
+        *,
+        diagnostics: PatchDiagnostics,
+    ) -> None:
         """保存共享运行时上下文和补丁诊断依赖。"""
         super().__init__(core)
 

@@ -3,7 +3,7 @@
 
 import re
 import typing
-from .types import (
+from agent.domain.patches.models import (
     PatchAction,
     PatchFile,
     PatchHunk,
@@ -11,7 +11,7 @@ from .types import (
     PatchMarker,
     PatchParseFailure,
     PatchParseResult,
-    PatchParseSuccess
+    PatchParseSuccess,
 )
 
 _HUNK_HEADER = re.compile(

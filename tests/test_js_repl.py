@@ -28,7 +28,7 @@ from infrastructure.mcp.local_tool_registry import ToolRegistry
 from infrastructure.mcp.local_tool_factory import build_client_tool_registry
 from infrastructure.mcp.composite_session import CompositeToolSession
 from infrastructure.mcp.nested_tool_results import _nested_tool_response
-from mind import create_native_coding
+from mind import create_workspace_coding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from infrastructure.platform.javascript_repl import (
     JavaScriptReplPool,
@@ -964,7 +964,7 @@ async def test_js_repl_client_tool_executes_without_shell_metadata(
     tmp_path: Path,
 ) -> None:
     _require_node()
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     registry = build_client_tool_registry(
         coding,
         image_reader=FileImageReader(tmp_path),
@@ -1043,7 +1043,7 @@ async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
             )
 
     coordinator = Coordinator()
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     coding.shell_command = AsyncMock(return_value=coding.ok_result(
         "nested shell completed",
         output="nested-ok",
@@ -1187,7 +1187,7 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
             ),
         )
 
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     coding.shell_command = AsyncMock(return_value=coding.ok_result(
         "nested shell completed",
         command='Start-Process "https://example.com"',
@@ -1347,7 +1347,7 @@ async def test_js_repl_mcp_bridge_preserves_type_and_image_rules(
                 ))
             return mcp_types.CallToolResult(content=content, isError=False)
 
-    coding = create_native_coding(root=tmp_path, application_layout=None)
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
     registry = ToolRegistry(coding_tools(coding))
     session = CompositeToolSession(
         service_session=ServiceSession(),
