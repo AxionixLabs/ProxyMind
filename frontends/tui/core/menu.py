@@ -8,7 +8,7 @@ from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
-from mind_app.presentation.terminal_text import sanitize_terminal_line
+from frontends.terminal.text import sanitize_terminal_line
 from frontends.tui.contracts.menu import (
     MenuEmptyAcceptAction,
     MenuOption,

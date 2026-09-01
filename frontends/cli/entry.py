@@ -94,7 +94,7 @@ class _InterruptController(object):
 
 def _entry_application(command: ParsedCommand) -> "ApplicationSink":
     """创建入口异常和退场展示使用的输出端。"""
-    from mind_app.presentation.application_sinks import (
+    from frontends.output.application import (
         ConsoleApplicationSink,
         JsonApplicationSink
     )

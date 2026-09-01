@@ -10,7 +10,7 @@ from mind_app.presentation.renderers.plan import (
     render_plan_steps_start_view,
     render_plan_update_view,
 )
-from mind_app.presentation.text_layout import layout_styled_line
+from frontends.terminal.text_layout import layout_styled_line
 from prompt_toolkit.utils import get_cwidth
 
 

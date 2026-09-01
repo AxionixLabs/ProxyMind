@@ -10,7 +10,7 @@ from infrastructure.platform.git_diff import (
     WorkspaceDiffService,
     WorkspaceDiffState
 )
-from mind_app.presentation.terminal_text import sanitize_terminal_text
+from frontends.terminal.text import sanitize_terminal_text
 from frontends.tui.contracts.pager import StaticPagerRequest
 from frontends.tui.contracts.text import FormattedLine
 from ..runtime.ports import StaticPagerRuntimePort

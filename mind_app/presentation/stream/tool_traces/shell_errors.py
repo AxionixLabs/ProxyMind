@@ -3,7 +3,7 @@
 
 import re
 import typing
-from mind_app.presentation.terminal_text import sanitize_terminal_text
+from frontends.terminal.text import sanitize_terminal_text
 
 
 def normalize_shell_output_text(value: typing.Any) -> str:

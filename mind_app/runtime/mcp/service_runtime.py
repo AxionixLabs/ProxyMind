@@ -7,8 +7,8 @@ import asyncio
 from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.update.assets import ensure_asset
 from infrastructure.update.runtime import UpgradeProgress
-from mind_app.presentation.terminal.contracts import TerminalDesign
-from mind_app.presentation.terminal.download_renderer import TerminalDownloadProgress
+from frontends.terminal.contracts import TerminalDesign
+from frontends.terminal.download_renderer import TerminalDownloadProgress
 from observability import (
     observe,
     observe_exception

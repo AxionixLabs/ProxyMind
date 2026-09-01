@@ -12,7 +12,7 @@ from agent.stores.transcripts import (
     TranscriptReplay,
 )
 from agent.ports.presentation import TextSpan
-from mind_app.presentation.terminal_text import sanitize_terminal_text
+from frontends.terminal.text import sanitize_terminal_text
 from agent.application.agents.views import AgentSnapshot
 from agent.harness.agents.control import AgentNotFoundError
 from ..core.models import (

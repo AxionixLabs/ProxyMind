@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mind_app.presentation.application import PassiveFrontendRuntime
+from frontends.runtime import PassiveFrontendRuntime
 from frontends.output.text import (
     ANSI_BOLD,
     ANSI_CYAN,
@@ -34,7 +34,7 @@ from agent.application.views import (
     TracePreview,
 )
 from agent.application.views.builders.run import build_run_started_view
-from mind_app.presentation.terminal.turn_lifecycle import (
+from frontends.terminal.turn_lifecycle import (
     ControllerTurnForegroundLifecycle,
     run_foreground_turn,
 )

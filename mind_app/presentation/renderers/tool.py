@@ -14,11 +14,11 @@ from agent.application.views.tool_display import (
     tool_display_spec
 )
 from ..formatting import format_duration_ms
-from ..text_layout import (
+from frontends.terminal.text_layout import (
     clip_display_text,
     text_display_width,
 )
-from ..terminal_text import sanitize_terminal_line
+from frontends.terminal.text import sanitize_terminal_line
 from agent.application.views import (
     GenericToolResultView,
     NativeToolResultView,

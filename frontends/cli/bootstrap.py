@@ -40,7 +40,7 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
-from mind_app.presentation.application import (
+from frontends.runtime import (
     Frontend,
 )
 from infrastructure.config.runtime_paths import (
@@ -62,7 +62,7 @@ from mind_app.runtime.mcp.service_runtime import (
     prepare_and_start_service_runtime,
 )
 from infrastructure.services.helix_capability import ServerManageHelixCapability
-from mind_app.presentation.terminal.contracts import TerminalDesign
+from frontends.terminal.contracts import TerminalDesign
 from agent.ports import (
     ApprovalCoordinatorPort,
     ExecutionPolicy,

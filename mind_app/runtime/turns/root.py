@@ -33,7 +33,7 @@ from mind_app.runtime.turns.executor import (
     execute_turn,
 )
 from mind_app.runtime.turns.stream import stream_turn
-from mind_app.presentation.terminal.turn_lifecycle import run_foreground_turn
+from frontends.terminal.turn_lifecycle import run_foreground_turn
 from agent.ports import OutputSessionFactory
 from agent.domain.policies import PermissionSettings
 

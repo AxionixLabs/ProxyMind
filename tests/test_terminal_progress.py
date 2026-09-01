@@ -8,14 +8,14 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from metadata import const
 
-from mind_app.presentation.terminal.turn_lifecycle import (
+from frontends.terminal.turn_lifecycle import (
     ControllerTurnForegroundLifecycle,
     run_foreground_turn,
 )
 from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.interaction.contracts import PromptContext
 from frontends.tui.core.runtime import TuiRuntime
-from mind_app.presentation.terminal.progress import (
+from frontends.terminal.progress import (
     OscTerminalProgress,
     PassiveTerminalProgress,
     TERMINAL_TITLE_ACTION_PREFIXES,
@@ -156,7 +156,7 @@ async def test_osc_terminal_progress_animates_title() -> None:
 @pytest.mark.anyio
 async def test_osc_terminal_progress_blinks_action_title(monkeypatch) -> None:
     monkeypatch.setattr(
-        "mind_app.presentation.terminal.progress.TERMINAL_TITLE_ACTION_INTERVAL",
+        "frontends.terminal.progress.TERMINAL_TITLE_ACTION_INTERVAL",
         0.01,
     )
     stream = TerminalStream()

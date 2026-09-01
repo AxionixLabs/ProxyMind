@@ -7,7 +7,7 @@ import asyncio
 import contextlib
 from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
-from mind_app.presentation.application import (
+from frontends.runtime import (
     ActivityStatusKind,
     WaitRetryState
 )
@@ -26,7 +26,7 @@ from mind_app.presentation.mcp_status import (
     external_mcp_status_view,
     inbuild_status_view,
 )
-from mind_app.presentation.terminal.capabilities import TerminalColorLevel
+from frontends.terminal.capabilities import TerminalColorLevel
 from .models import FragmentBlock
 from ..rendering.fragments import clip_fragments
 from .styles import (

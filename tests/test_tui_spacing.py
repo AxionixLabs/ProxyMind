@@ -28,7 +28,7 @@ from prompt_toolkit.utils import get_cwidth
 from mind_app.approval.coordinator import ApprovalCoordinator
 from mind_app.approval.models import ApprovalDecisionValue
 from agent.ports.presentation import ApplicationView
-from mind_app.presentation.terminal.capabilities import (
+from frontends.terminal.capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,
     TerminalIdentity,
@@ -61,7 +61,7 @@ from agent.application.views import (
     RunCompletedView,
     ToolStartView,
 )
-from mind_app.presentation.terminal_text import sanitize_terminal_text
+from frontends.terminal.text import sanitize_terminal_text
 from mind_app.presentation.tool_views import (
     build_generic_tool_result_view,
     build_native_tool_result_view,

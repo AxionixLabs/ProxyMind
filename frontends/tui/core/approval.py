@@ -15,7 +15,7 @@ from mind_app.approval.presentation import (
     ApprovalPresentation,
     ensure_approval_presentation
 )
-from mind_app.presentation.terminal.capabilities import (
+from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
 )

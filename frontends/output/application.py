@@ -6,7 +6,7 @@ import sys
 import json
 import shutil
 import typing
-from mind_app.presentation.terminal_text import sanitize_styled_block
+from frontends.terminal.text import sanitize_styled_block
 from metadata import const
 from agent.ports.presentation import (
     ApplicationSink,

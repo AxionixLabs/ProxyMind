@@ -107,7 +107,7 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - `RootTurnCommandExecutor` 已迁移至 `agent/adapters/turns/root.py`，只依赖冻结命令、
   权限领域值和注入的 operation；CLI、MCP、Subscription 在各自入口绑定 controller，
   `mind_app.runtime.turns.root` 不再拥有 application 命令适配器。
-- `run_foreground_turn` 已迁移至 `mind_app/presentation/terminal/turn_lifecycle.py`，
+- `run_foreground_turn` 已迁移至 `frontends/terminal/turn_lifecycle.py`，
   动画、终端进度和清理由展示边界持有；runtime root 不再定义前端生命周期函数，TUI、
   CLI 和根轮次执行仍共享同一实现。
 - 跨前端应用结果视图已迁移至 `agent/application/views/`，按 Run、工具、计划、补丁、
@@ -204,7 +204,7 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 当前只允许进入以下顺序，不以补丁式需求插队：
 
 1. **入口与数据迁移**：`mind_core` 的配置、权限、hooks、skills 已完成生产导入清零，
-   终端轮次生命周期已迁入 `mind_app/presentation/terminal`；Hook 命令执行器已归属
+   终端轮次生命周期已迁入 `frontends/terminal`；Hook 命令执行器已归属
    `infrastructure/platform`，Hook runtime/registry/Scope 已接入 `agent/harness/hooks`；
    通用 MCP 生命周期所有者已迁入 `agent/harness/mcp`；本地服务生命周期 owner、keepalive、
    上下文类型和 setup helpers 已迁入 `infrastructure/services`；Subscription 适配器已
@@ -636,6 +636,16 @@ Approval、Patch 七类纯 builder 已迁入 `agent/application/views/builders`�
 模块不依赖旧包或基础设施。流式与 Run 结果回归 `87 passed`，架构专项 `3 passed`，
 `compileall` 和 `git diff --check` 通过。下一切片继续盘点 renderer/stream 终端模块，优先
 迁移可完整归入 `frontends/output` 的渲染链，不拆断工具轨迹的内部一致性。
+
+本次前端 runtime 与终端实现迁移已满足上述条件：`Frontend`/`FrontendRuntime` 迁入
+`frontends/runtime.py`，Console/JSON/Null application sink 迁入
+`frontends/output/application.py`，终端能力、进度、动画、下载、文本净化和布局整体迁入
+`frontends/terminal`；CLI、TUI、MCP、Controller、升级和测试调用点全部切换，旧
+`mind_app/presentation/application.py`、`application_sinks.py`、`terminal/`、
+`terminal_text.py` 和 `text_layout.py` 已删除。广覆盖行为回归 `807 passed`，架构专项
+`4 passed, 3 warnings`，`compileall` 和 `git diff --check` 通过。下一切片迁移剩余
+`mind_app/presentation/renderers` 与终端 stream/trace 链到 `frontends`，并拆出仍混在
+`tool_views.py` 中的 application builder。
 
 ## 过渡入口与删除条件
 

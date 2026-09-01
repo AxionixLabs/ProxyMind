@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.presentation.terminal.capabilities import (
+from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
 )
@@ -56,7 +56,7 @@ from .tool import (
     render_tool_start_transcript_view,
     render_tool_start_view
 )
-from ..terminal_text import (
+from frontends.terminal.text import (
     sanitize_styled_block,
     sanitize_terminal_text
 )

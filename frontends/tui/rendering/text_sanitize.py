@@ -4,7 +4,7 @@
 import re
 import typing
 from prompt_toolkit.utils import get_cwidth
-from mind_app.presentation.terminal_text import (
+from frontends.terminal.text import (
     TerminalTextFilter,
     sanitize_terminal_hyperlink
 )

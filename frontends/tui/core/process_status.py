@@ -4,7 +4,7 @@
 import time
 import typing
 import asyncio
-from mind_app.presentation.terminal_text import sanitize_terminal_text
+from frontends.terminal.text import sanitize_terminal_text
 from .models import FormattedText
 from ..rendering.fragments import clip_fragments
 from .status_frames import (

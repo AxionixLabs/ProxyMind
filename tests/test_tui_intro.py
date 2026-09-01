@@ -13,7 +13,7 @@ from frontends.tui.adapters import application as tui_application
 from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
-from mind_app.presentation.terminal.intro import intro_frames
+from frontends.terminal.intro import intro_frames
 from metadata import const
 
 

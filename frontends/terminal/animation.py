@@ -3,7 +3,7 @@
 import typing
 
 from agent.ports import TurnAnimationPort
-from ..application import (
+from ..runtime import (
     ActivityStatusKind,
     FrontendRuntime,
 )

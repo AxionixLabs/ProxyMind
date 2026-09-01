@@ -14,7 +14,7 @@ from prompt_toolkit.output import (
     Output
 )
 from prompt_toolkit.styles import Attrs
-from mind_app.presentation.terminal_text import sanitize_terminal_hyperlink
+from frontends.terminal.text import sanitize_terminal_hyperlink
 from .models import FormattedText
 
 OSC8_PREFIX = "\x1b]8;;"

@@ -8,8 +8,8 @@ import pytest
 
 from infrastructure.update import runtime as upgrade_module
 from infrastructure.update.runtime import Upgrade
-from mind_app.presentation.terminal import TerminalDownloadRenderer
-from mind_app.presentation.terminal import download_renderer
+from frontends.terminal import TerminalDownloadRenderer
+from frontends.terminal import download_renderer
 
 
 @pytest.mark.anyio

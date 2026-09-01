@@ -75,14 +75,14 @@ from infrastructure.config.runtime_paths import (
     mind_history_db_path,
 )
 from agent.harness.subscription.owner import SubscriptionRuntimeOwner
-from .presentation.application import (
+from frontends.runtime import (
     ActivityStatusKind,
     Frontend
 )
 from frontends.output.silent import create_silent_output_session
-from .presentation.terminal.contracts import TerminalDesign
-from .presentation.terminal.animation import TurnAnimationAdapter
-from .presentation.terminal.turn_lifecycle import (
+from frontends.terminal.contracts import TerminalDesign
+from frontends.terminal.animation import TurnAnimationAdapter
+from frontends.terminal.turn_lifecycle import (
     ControllerTurnForegroundLifecycle,
 )
 from agent.ports import (

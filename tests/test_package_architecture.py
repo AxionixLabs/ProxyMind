@@ -3477,7 +3477,7 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
     target_path = PROJECT_ROOT / "agent" / "ports" / "presentation.py"
     legacy_path = PROJECT_ROOT / "mind_app" / "presentation" / "application.py"
     assert target_path.is_file(), "application presentation port is missing"
-    assert legacy_path.is_file(), "legacy application module is missing"
+    assert not legacy_path.is_file(), "legacy application module remains"
 
     target_tree = ast.parse(
         target_path.read_text(encoding="utf-8-sig"),
@@ -3497,19 +3497,6 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
         "TextSpan",
         "StyledBlock",
     }
-
-    legacy_tree = ast.parse(
-        legacy_path.read_text(encoding="utf-8-sig"),
-        filename=str(legacy_path),
-    )
-    legacy_definitions = {
-        node.name
-        for node in legacy_tree.body
-        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    assert not legacy_definitions.intersection(
-        {"ApplicationView", "Viewport", "ApplicationSink"}
-    ), "legacy presentation module still defines shared ports"
 
     model_path = PROJECT_ROOT / "mind_app" / "presentation" / "models.py"
     assert not model_path.exists(), "legacy presentation models module still exists"
@@ -3553,6 +3540,51 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
         "tool_display.py",
         "tools.py",
     }
+
+
+def test_frontend_runtime_and_terminal_are_owned_by_frontends() -> None:
+    """确保前端组合、应用 sink 和终端实现不再由 mind_app 持有。"""
+    target_paths = (
+        PROJECT_ROOT / "frontends" / "runtime.py",
+        PROJECT_ROOT / "frontends" / "output" / "application.py",
+        PROJECT_ROOT / "frontends" / "terminal" / "capabilities.py",
+        PROJECT_ROOT / "frontends" / "terminal" / "turn_lifecycle.py",
+    )
+    assert all(path.is_file() for path in target_paths)
+
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "presentation" / "application.py",
+        PROJECT_ROOT / "mind_app" / "presentation" / "application_sinks.py",
+    )
+    legacy_terminal = PROJECT_ROOT / "mind_app" / "presentation" / "terminal"
+    assert not any(path.is_file() for path in legacy_paths)
+    assert not tuple(legacy_terminal.glob("*.py")), "legacy terminal sources remain"
+
+    violations: list[str] = []
+    legacy_modules = (
+        "mind_app.presentation.application",
+        "mind_app.presentation.application_sinks",
+        "mind_app.presentation.terminal",
+    )
+    for path in PROJECT_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "")
+            for module in modules:
+                if any(
+                    module == legacy or module.startswith(f"{legacy}.")
+                    for legacy in legacy_modules
+                ):
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+    assert not violations, "legacy frontend presentation imports remain:\n" + (
+        "\n".join(violations)
+    )
 
 
 def test_application_view_builders_are_pure_and_owned_by_application() -> None:

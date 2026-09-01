@@ -18,8 +18,8 @@ from ..styles import (
     SUCCESS_DOT_STYLE,
     TITLE_STYLE
 )
-from ..terminal_text import sanitize_terminal_text
-from ..text_layout import (
+from frontends.terminal.text import sanitize_terminal_text
+from frontends.terminal.text_layout import (
     layout_styled_line,
     text_display_width,
 )

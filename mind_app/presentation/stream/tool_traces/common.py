@@ -3,7 +3,7 @@
 
 import typing
 from agent.application.views import TracePreview
-from mind_app.presentation.terminal_text import (
+from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text,
 )

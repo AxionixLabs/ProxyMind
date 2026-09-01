@@ -17,11 +17,11 @@ from mind_app.presentation.styles import (
     SUCCESS_DOT_STYLE,
     TITLE_STYLE
 )
-from mind_app.presentation.terminal_text import (
+from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text
 )
-from mind_app.presentation.text_layout import layout_styled_line
+from frontends.terminal.text_layout import layout_styled_line
 
 _MUTED_STYLE   = TextStyle(foreground="#7F8C9A", dim=True)
 _WARNING_STYLE = TextStyle(foreground="#FFD75F", bold=True)

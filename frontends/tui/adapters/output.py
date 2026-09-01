@@ -8,7 +8,7 @@ import asyncio
 from functools import partial
 from agent.ports import OutputControlPort
 from agent.ports.presentation import StyledBlock
-from mind_app.presentation.terminal_text import (
+from frontends.terminal.text import (
     TerminalTextFilter,
     sanitize_terminal_line,
     sanitize_styled_block,

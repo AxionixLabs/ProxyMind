@@ -60,13 +60,13 @@ from frontends.cli.dispatch import run_selected_command
 from agent.application.turns.run_result import RunResult
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
-from mind_app.presentation.application import PassiveFrontendRuntime
-from mind_app.presentation.application_sinks import ConsoleApplicationSink
-from mind_app.presentation.application_sinks import JsonApplicationSink
+from frontends.runtime import PassiveFrontendRuntime
+from frontends.output.application import ConsoleApplicationSink
+from frontends.output.application import JsonApplicationSink
 from frontends.tui.core.runtime import TuiRuntime
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.schema import ConfigOverride
-from mind_app.presentation.terminal.capabilities import DEGRADED_TERMINAL_CAPABILITIES
+from frontends.terminal.capabilities import DEGRADED_TERMINAL_CAPABILITIES
 from agent.domain.policies import preset_permissions
 from infrastructure.errors import AppError
 

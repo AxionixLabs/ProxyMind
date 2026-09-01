@@ -7,7 +7,7 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
-from mind_app.presentation.terminal.capabilities import (
+from frontends.terminal.capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,
     TerminalIdentity,

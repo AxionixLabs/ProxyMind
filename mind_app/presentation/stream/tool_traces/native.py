@@ -4,11 +4,11 @@
 import typing
 import textwrap
 from mind_app.presentation.stream.command_preview import command_text
-from mind_app.presentation.text_layout import (
+from frontends.terminal.text_layout import (
     clip_display_text,
     text_display_width
 )
-from mind_app.presentation.terminal_text import sanitize_terminal_line
+from frontends.terminal.text import sanitize_terminal_line
 from .common import (
     MAX_PREVIEW_WIDTH,
     SCREEN_PREVIEW_LINES,

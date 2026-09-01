@@ -41,7 +41,7 @@ from frontends.tui.rendering.menu.resume_picker import (
 )
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.styles import build_tui_application_style
-from mind_app.presentation.terminal.capabilities import (
+from frontends.terminal.capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,
     TerminalIdentity,

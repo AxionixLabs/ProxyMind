@@ -5,7 +5,7 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
-from mind_app.presentation.terminal_text import (
+from frontends.terminal.text import (
     TerminalTextFilter,
     sanitize_terminal_line,
     sanitize_styled_block,

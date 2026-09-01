@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from enum import Enum
-from mind_app.presentation.terminal_text import sanitize_terminal_text
+from frontends.terminal.text import sanitize_terminal_text
 from metadata import const
 from prompt_toolkit.utils import get_cwidth
 from frontends.tui.contracts.text import FormattedText

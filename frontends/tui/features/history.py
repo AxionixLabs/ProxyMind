@@ -7,7 +7,7 @@ import asyncio
 from functools import partial
 from pathlib import Path
 from prompt_toolkit.utils import get_cwidth
-from mind_app.presentation.terminal.capabilities import (
+from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
 )
@@ -17,7 +17,7 @@ from agent.stores.transcripts import (
     TranscriptEntry,
     TranscriptReplay,
 )
-from mind_app.presentation.terminal_text import (
+from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text
 )

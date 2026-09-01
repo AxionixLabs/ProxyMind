@@ -4,8 +4,8 @@ import types
 
 import pytest
 
-from mind_app.presentation.terminal import capabilities as terminal_capabilities
-from mind_app.presentation.terminal.capabilities import (
+from frontends.terminal import capabilities as terminal_capabilities
+from frontends.terminal.capabilities import (
     TerminalCapabilities,
     TerminalColorLevel,
     TerminalIdentity,

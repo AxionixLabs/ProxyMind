@@ -6,7 +6,7 @@ from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.base import Output
 from prompt_toolkit.output.plain_text import PlainTextOutput
 from prompt_toolkit.output.vt100 import Vt100_Output
-from mind_app.presentation.terminal.capabilities import (
+from frontends.terminal.capabilities import (
     TerminalCapabilities,
     TerminalKind
 )

@@ -7,8 +7,8 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle
 )
-from mind_app.presentation.text_layout import wrap_styled_line
-from mind_app.presentation.terminal_text import sanitize_terminal_text
+from frontends.terminal.text_layout import wrap_styled_line
+from frontends.terminal.text import sanitize_terminal_text
 
 FAILURE_DOT_STYLE     = TextStyle(foreground="#FF5F5F")
 FAILURE_TITLE_STYLE   = TextStyle(foreground="#FF8A8A")

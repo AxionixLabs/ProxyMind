@@ -8,7 +8,7 @@ from agent.ports.presentation import (
     TextStyle,
 )
 from agent.application.views import TracePreview
-from mind_app.presentation.text_layout import (
+from frontends.terminal.text_layout import (
     clip_display_text,
     text_display_width
 )

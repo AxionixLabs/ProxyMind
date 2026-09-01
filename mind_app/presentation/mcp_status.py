@@ -14,8 +14,8 @@ from .styles import (
     PREVIEW_MORE_STYLE,
     SUCCESS_DOT_STYLE
 )
-from .terminal_text import sanitize_terminal_text
-from .text_layout import layout_styled_line
+from frontends.terminal.text import sanitize_terminal_text
+from frontends.terminal.text_layout import layout_styled_line
 
 McpStatusLevel = typing.Literal["running", "ready", "warning", "failed"]
 

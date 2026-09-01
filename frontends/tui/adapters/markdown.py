@@ -22,7 +22,7 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle
 )
-from mind_app.presentation.terminal_text import sanitize_styled_block
+from frontends.terminal.text import sanitize_styled_block
 from ..core.models import FragmentBlock
 from ..rendering.fragments import iter_text_units
 from ..core.styles import (

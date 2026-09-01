@@ -22,7 +22,7 @@ from agent.harness.hooks.scope import HookExecutionScope
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from mind_app.interaction import ConversationTurn
 from mind_app.runtime.turns import root as root_turns
-from mind_app.presentation.terminal.turn_lifecycle import (
+from frontends.terminal.turn_lifecycle import (
     ControllerTurnForegroundLifecycle,
 )
 from mind_app.runtime.turns.executor import (

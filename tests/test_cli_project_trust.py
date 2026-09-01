@@ -17,7 +17,7 @@ from frontends.cli.commands import (
     InteractiveCommand,
 )
 from frontends.cli.bootstrap import _confirm_tui_project_trust
-from mind_app.presentation.application_sinks import (
+from frontends.output.application import (
     ConsoleApplicationSink,
     JsonApplicationSink,
 )
@@ -539,8 +539,7 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
     )
     preference = SimpleNamespace(load_pref=AsyncMock())
     config_service = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
-    model_capability = object()
-    runtime_services = SimpleNamespace(model_capability=model_capability)
+    runtime_services = None
 
     def build_controller(*_args, **kwargs):
         controller_arguments.update(kwargs)

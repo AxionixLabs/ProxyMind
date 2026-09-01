@@ -5,7 +5,7 @@ import math
 import typing
 from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
-from mind_app.presentation.terminal.capabilities import TerminalColorLevel
+from frontends.terminal.capabilities import TerminalColorLevel
 from .models import FormattedText
 
 StatusFamily = typing.Literal["tool", "wait", "retry", "provider_retry"]
