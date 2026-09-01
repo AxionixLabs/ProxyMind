@@ -418,11 +418,31 @@ def _mind(
         active=frontend_active,
         stop_wait=stop_wait,
     )
-    turn_session_context = SimpleNamespace(
-        animate=True,
-        capture_environment=Mock(return_value=None),
-        skills_payload=Mock(return_value=[]),
-    )
+    class _SessionContext:
+        """实现 TurnSessionContextPort 的测试替身。"""
+
+        @property
+        def animate(self) -> bool:
+            return True
+
+        def capture_environment(self, **_kwargs):
+            return None
+
+        def skills_payload(self):
+            return []
+
+    turn_session_context = _SessionContext()
+
+    class _SessionState:
+        """实现 TurnSessionStatePort 的测试替身。"""
+
+        def queue_turn_context(self, contexts) -> None:
+            queued_context.append(tuple(contexts))
+
+        def remember_assistant_reply(self, text: str) -> None:
+            remembered.append(text)
+
+    turn_session_state = _SessionState()
     return SimpleNamespace(
         report=SimpleNamespace(output_record_path=""),
         transcripts=transcripts,
@@ -441,6 +461,7 @@ def _mind(
         stop_anim=stop_anim,
         turn_animation=turn_animation,
         turn_session_context=turn_session_context,
+        turn_session_state=turn_session_state,
         freeze_anim=AsyncMock(),
         await_cleanup=await_cleanup,
         remember_last_assistant_reply=remembered.append,
@@ -701,6 +722,7 @@ async def _run_stream(
         retry_state=mind.frontend.runtime,
         animation=mind.turn_animation,
         session_context=mind.turn_session_context,
+        session_state=mind.turn_session_state,
         turn_id="turn_test",
         session_started=session_started,
         session_start_reason="initial" if session_started else "",

@@ -111,6 +111,19 @@ class TurnSessionContextPort(typing.Protocol):
         """返回当前配置的 skills 请求 payload。"""
         ...
 
+
+@typing.runtime_checkable
+class TurnSessionStatePort(typing.Protocol):
+    """定义单轮失败上下文和最近回复的会话写回端口。"""
+
+    def queue_turn_context(self, contexts: typing.Iterable[str]) -> None:
+        """把未完成轮次的上下文排入下一轮。"""
+        ...
+
+    def remember_assistant_reply(self, text: str) -> None:
+        """保存最近一次已完成的 assistant 回复。"""
+        ...
+
 __all__ = (
     "TurnInputEventHandler",
     "TurnCleanupPort",
@@ -119,6 +132,7 @@ __all__ = (
     "RetryStatePort",
     "TurnAnimationPort",
     "TurnSessionContextPort",
+    "TurnSessionStatePort",
     "TurnResultPort",
     "TurnResultValue",
 )

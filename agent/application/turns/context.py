@@ -14,6 +14,7 @@ from agent.ports import (
     RetryStatePort,
     TurnAnimationPort,
     TurnSessionContextPort,
+    TurnSessionStatePort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -175,6 +176,7 @@ class TurnContext:
     retry_state: RetryStatePort | None = None
     animation: TurnAnimationPort | None = None
     session_context: TurnSessionContextPort | None = None
+    session_state: TurnSessionStatePort | None = None
     output_record_path: str = ""
     transcript_path: str = ""
     parent_transcript_path: str = ""
@@ -200,6 +202,7 @@ class TurnContext:
         retry_state: RetryStatePort | None = None,
         animation: TurnAnimationPort | None = None,
         session_context: TurnSessionContextPort | None = None,
+        session_state: TurnSessionStatePort | None = None,
         output_record_path: str = "",
         transcript_path: str = "",
         parent_transcript_path: str = "",
@@ -241,6 +244,7 @@ class TurnContext:
             retry_state=retry_state,
             animation=animation,
             session_context=session_context,
+            session_state=session_state,
             output_record_path=str(output_record_path or "").strip(),
             transcript_path=str(transcript_path or "").strip(),
             parent_transcript_path=str(parent_transcript_path or "").strip(),

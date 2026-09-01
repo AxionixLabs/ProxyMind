@@ -18,6 +18,7 @@ from agent.ports import (
     ProtocolCommandError,
     RetryState,
     TurnAnimationPort,
+    TurnSessionStatePort,
 )
 from agent.protocol import (
     ModelStreamRequest,
@@ -318,6 +319,12 @@ async def stream_turn(
         TurnAnimationPort,
     ):
         raise RuntimeError("turn animation port is required")
+    session_state = turn_context.session_state
+    if turn_context.agent.depth == 0 and not isinstance(
+        session_state,
+        TurnSessionStatePort,
+    ):
+        raise RuntimeError("turn session state is required")
 
     prompt_blocked: bool = False
 
@@ -801,7 +808,7 @@ async def stream_turn(
         prompt_blocked = True
 
         if outcome.additional_context and turn_context.agent.depth == 0:
-            mind.conversation.queue_turn_context(outcome.additional_context)
+            session_state.queue_turn_context(outcome.additional_context)
 
         observe(
             "stream.prompt_blocked",
@@ -819,7 +826,7 @@ async def stream_turn(
             additional_context=failed_tool_context,
         )
         if outcome.additional_context and turn_context.agent.depth == 0:
-            mind.conversation.queue_turn_context(outcome.additional_context)
+            session_state.queue_turn_context(outcome.additional_context)
         observe(
             "stream.model_capability_failed",
             level="ERROR",
@@ -837,7 +844,7 @@ async def stream_turn(
     except asyncio.CancelledError:
         outcome.interrupt()
         if failed_tool_context and turn_context.agent.depth == 0:
-            mind.conversation.queue_turn_context(failed_tool_context)
+            session_state.queue_turn_context(failed_tool_context)
         observe(
             "stream.interrupted",
             level="WARNING",
@@ -852,7 +859,7 @@ async def stream_turn(
             additional_context=failed_tool_context,
         )
         if outcome.additional_context and turn_context.agent.depth == 0:
-            mind.conversation.queue_turn_context(outcome.additional_context)
+            session_state.queue_turn_context(outcome.additional_context)
         observe_exception(
             "stream.failed",
             e,
@@ -873,7 +880,7 @@ async def stream_turn(
         if outcome.is_completed and turn_context.agent.depth == 0:
             model_events.flush_pending()
             assistant_text = event_stream.assistant_text
-            mind.remember_last_assistant_reply(assistant_text)
+            session_state.remember_assistant_reply(assistant_text)
 
         await run_presentation.emit_result(event_stream.sources)
 

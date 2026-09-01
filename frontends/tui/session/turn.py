@@ -18,6 +18,7 @@ from agent.ports import (
     RetryStatePort,
     TurnAnimationPort,
     TurnSessionContextPort,
+    TurnSessionStatePort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -222,6 +223,7 @@ async def run_tui_model_turn(
     retry_state: RetryStatePort | None = None,
     animation: TurnAnimationPort | None = None,
     session_context: TurnSessionContextPort | None = None,
+    session_state: TurnSessionStatePort | None = None,
     on_prompt_prepared: typing.Callable[
         [list[dict[str, typing.Any]]],
         None,
@@ -275,6 +277,7 @@ async def run_tui_model_turn(
         retry_state=retry_state,
         animation=animation,
         session_context=session_context,
+        session_state=session_state,
         turn_id=turn_id,
     )
 

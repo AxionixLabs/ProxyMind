@@ -69,6 +69,7 @@ from agent.ports import (
     RetryStatePort,
     TurnAnimationPort,
     TurnSessionContextPort,
+    TurnSessionStatePort,
 )
 from agent.domain.tool_policy import ToolFilterMode
 from .commands import (
@@ -707,6 +708,7 @@ async def _run_controller(
         retry_state: RetryStatePort | None = None
         animation_port: TurnAnimationPort | None = None
         session_context: TurnSessionContextPort | None = None
+        session_state: TurnSessionStatePort | None = None
         if runtime_services is not None:
             turn_application_factory = runtime_services.create_turn_application
             model_capability = runtime_services.model_capability
@@ -719,6 +721,7 @@ async def _run_controller(
             retry_state = controller.frontend.runtime
             animation_port = controller.turn_animation
             session_context = controller.turn_session_context
+            session_state = controller.turn_session_state
             if isinstance(
                 runtime_services.model_capability,
                 ProtocolCommandClient,
@@ -742,6 +745,7 @@ async def _run_controller(
             retry_state=retry_state,
             animation=animation_port,
             session_context=session_context,
+            session_state=session_state,
         )
         completed = True
         observe("app.complete", exit_code=controller.exit_code)

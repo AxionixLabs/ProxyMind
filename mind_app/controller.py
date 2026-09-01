@@ -57,6 +57,10 @@ from agent.stores.approvals.permissions import PermissionGrantStore
 from .approval.coordinator import ApprovalCoordinator
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from .runtime.subagents.runtime import SubagentRuntime
+from .runtime.turns.session_context import (
+    ControllerTurnSessionContext,
+    ControllerTurnSessionState,
+)
 from agent.stores import AgentGraphStore
 from infrastructure.config.runtime_paths import (
     agent_graph_db_path,
@@ -171,10 +175,12 @@ class Mind(object):
             self.frontend.runtime,
             self.stop_anim,
         )
+        self.turn_session_context = ControllerTurnSessionContext(self)
 
         self.design: TerminalDesign | None = kwargs.get("design")
 
         self.conversation: ConversationState         = ConversationState()
+        self.turn_session_state = ControllerTurnSessionState(self)
         self.history_store: ConversationHistoryStore = (
             kwargs.get("history_store")
             or ConversationHistoryStore(mind_history_db_path())

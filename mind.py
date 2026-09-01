@@ -76,6 +76,7 @@ def bind_root_turn_runner(
             retry_state=controller.frontend.runtime,
             animation=controller.turn_animation,
             session_context=controller.turn_session_context,
+            session_state=controller.turn_session_state,
             **kwargs,
         )
 

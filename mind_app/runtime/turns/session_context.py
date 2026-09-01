@@ -3,7 +3,10 @@
 import typing
 from pathlib import Path
 
-from agent.ports import TurnSessionContextPort
+from agent.ports import (
+    TurnSessionContextPort,
+    TurnSessionStatePort,
+)
 from infrastructure.skills import skills_payload
 from mind_app.interaction.environment import capture_turn_environment
 from observability import observe_exception
@@ -51,4 +54,23 @@ class ControllerTurnSessionContext(TurnSessionContextPort):
         return skills_payload(config)
 
 
-__all__ = ("ControllerTurnSessionContext",)
+class ControllerTurnSessionState(TurnSessionStatePort):
+    """把 Controller 的会话结果写回能力适配为单轮状态端口。"""
+
+    def __init__(self, controller: "Mind") -> None:
+        """绑定组合根提供的会话状态边界。"""
+        self._controller = controller
+
+    def queue_turn_context(self, contexts: typing.Iterable[str]) -> None:
+        """把未完成轮次的上下文排入下一轮。"""
+        self._controller.conversation.queue_turn_context(contexts)
+
+    def remember_assistant_reply(self, text: str) -> None:
+        """保存最近一次已完成的 assistant 回复。"""
+        self._controller.remember_last_assistant_reply(text)
+
+
+__all__ = (
+    "ControllerTurnSessionContext",
+    "ControllerTurnSessionState",
+)

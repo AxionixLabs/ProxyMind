@@ -15,6 +15,7 @@ from agent.ports import (
     RetryStatePort,
     TurnAnimationPort,
     TurnSessionContextPort,
+    TurnSessionStatePort,
     TurnCleanupPort,
     TranscriptFactory,
 )
@@ -71,6 +72,7 @@ async def prepare_root_turn(
     retry_state: RetryStatePort | None = None,
     animation: TurnAnimationPort | None = None,
     session_context: TurnSessionContextPort | None = None,
+    session_state: TurnSessionStatePort | None = None,
 ) -> TurnExecution:
     """固定根轮次的会话身份、输入快照和执行上下文。"""
     supplied_metadata = dict(metadata)
@@ -101,6 +103,7 @@ async def prepare_root_turn(
         retry_state=retry_state,
         animation=animation,
         session_context=session_context,
+        session_state=session_state,
         output_record_path=str(controller.report.output_record_path or ""),
         transcript_path=controller.transcripts.path_for_session(sid),
         turn_id=turn_id,
@@ -137,6 +140,7 @@ async def run_root_turn(
     retry_state: RetryStatePort | None = None,
     animation: TurnAnimationPort | None = None,
     session_context: TurnSessionContextPort | None = None,
+    session_state: TurnSessionStatePort | None = None,
     **kwargs: typing.Any,
 ) -> RunResult:
     """准备根轮次并通过主前端生命周期执行。"""
@@ -174,6 +178,7 @@ async def run_root_turn(
         retry_state=retry_state,
         animation=animation,
         session_context=session_context,
+        session_state=session_state,
     )
     event_report = kwargs.pop("ev_report", None)
 
