@@ -170,6 +170,8 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/hooks/protocol.py",
         "application/hooks/result.py",
         "application/hooks/subagent.py",
+        "application/tools/__init__.py",
+        "application/tools/catalog.py",
         "application/turns/commands.py",
         "application/turns/compact_result.py",
         "application/turns/context.py",
@@ -1149,6 +1151,7 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "registry.py",
         "settings.py",
         "tool_catalog.py",
+        "tool_results.py",
         "tool_runtime.py",
         "transport.py",
         "values.py",
@@ -1163,7 +1166,10 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "registry.py",
         PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "session_adapter.py",
         PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "status.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "tool_progress.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "tool_result.py",
         PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "tool_runtime.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "tool_store.py",
         PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "tools.py",
     )
     assert not any(path.is_file() for path in legacy_paths)
@@ -1187,7 +1193,10 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
             "mind_app.runtime.mcp.registry",
             "mind_app.runtime.mcp.session_adapter",
             "mind_app.runtime.mcp.status",
+            "mind_app.runtime.mcp.tool_progress",
+            "mind_app.runtime.mcp.tool_result",
             "mind_app.runtime.mcp.tool_runtime",
+            "mind_app.runtime.mcp.tool_store",
             "mind_app.runtime.mcp.tools",
         },
     )
@@ -3316,11 +3325,12 @@ def test_subagent_turn_adapter_receives_output_factory() -> None:
     assert "session_factory" in init_arguments
 
 
-def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
-    """确保 MCP 进度通知归入 MCP runtime 且无调用者的策略模块已删除。"""
+def test_tool_progress_policy_and_dispatch_have_single_owners() -> None:
+    """确保进度策略归 domain，投递归工具执行编排，旧支持模块全部删除。"""
     legacy_paths = (
         PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "notify.py",
         PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "policy.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "tool_progress.py",
     )
     assert not any(path.is_file() for path in legacy_paths), (
         "legacy tool support sources still exist: "
@@ -3334,6 +3344,7 @@ def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
     legacy_modules = {
         "mind_app.runtime.tools.notify",
         "mind_app.runtime.tools.policy",
+        "mind_app.runtime.mcp.tool_progress",
     }
     violations: list[str] = []
     for path in PROJECT_ROOT.rglob("*.py"):
@@ -3351,9 +3362,14 @@ def test_tool_progress_has_mcp_ownership_and_dead_policy_is_removed() -> None:
                     )
 
     assert not violations, "legacy tool support imports remain:\n" + "\n".join(violations)
-    assert (
-        PROJECT_ROOT / "mind_app" / "runtime" / "mcp" / "tool_progress.py"
-    ).is_file(), "MCP tool progress source is missing"
+    policy = (
+        PROJECT_ROOT / "agent" / "domain" / "tool_policy.py"
+    ).read_text(encoding="utf-8-sig")
+    router = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "router.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "def supports_progress_notifications(" in policy
+    assert "async def _emit_tool_progress(" in router
 
 
 def test_hook_execution_ports_are_owned_by_agent_ports() -> None:

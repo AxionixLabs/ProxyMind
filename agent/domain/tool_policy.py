@@ -58,6 +58,12 @@ def is_approval_only_tool(name: str) -> bool:
     return str(name or "").strip() == "request_permissions"
 
 
+def supports_progress_notifications(name: str) -> bool:
+    """判断工具是否声明进度通知语义。"""
+    tool_name = str(name or "").strip()
+    return tool_name == "coding" or tool_name.startswith("coding_")
+
+
 def filter_mode_tools(
     mode: ToolFilterMode | None,
     tools: list[dict[str, typing.Any]]

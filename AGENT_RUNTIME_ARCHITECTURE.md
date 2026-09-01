@@ -240,6 +240,8 @@ agent/
 │   │   ├── protocol.py      # Hook stdin/stdout schema、构建和边界校验
 │   │   ├── result.py        # 后置 Hook 对模型可见工具结果的投影
 │   │   └── subagent.py      # 子 Agent Hook 生命周期聚合
+│   ├── tools/               # 工具目录查询等无副作用的 application 语义
+│   │   └── catalog.py       # 模型可见工具目录的名称与元数据查询
 │   ├── views/               # 跨前端共享的应用结果 projection/view 契约
 │   │   ├── contracts.py      # PresentationView 与 PresentationSink
 │   │   ├── run.py            # Run 终态、失败和生命周期视图
@@ -612,7 +614,7 @@ running -> cancelled
 | `mind_app/paths.py` | `infrastructure/config/runtime_paths.py` | 用户数据目录、报告/会话/历史/效果/运行时数据库路径和子进程环境属于配置基础设施；入口布局解析保持在 `config/paths.py` |
 | `mind_app/assets.py` | `infrastructure/update/assets.py` 与 `frontends/terminal/download_renderer.py` | 资产存在性和升级触发属于更新基础设施；动画管理器到终端进度端口的适配属于 frontend，不让更新层依赖 UI |
 | `mind_app/attach.py`、`mind_app/interaction/attachments.py` | `frontends/interaction/attachments.py` | 待发送附件的路径解析、分类、快照和消费属于前端输入状态；不把一次输入状态伪装成持久化 Store 或协议模型，Controller 仅在迁移期持有该前端状态 |
-| `mind_app/mcp/`、`mind_app/runtime/mcp/config.py`、`registry.py`、`errors.py`、`external.py`、`group.py`、`local.py`、`status.py`、`session_adapter.py`、`tools.py`、`tool_runtime.py` | `infrastructure/mcp/settings.py`、`transport.py`、`values.py`、`registry.py`、`errors.py`、`external_runtime.py`、`external_group.py`、`local_session.py`、`external_status.py`、`composite_session.py`、`tool_catalog.py`、`tool_runtime.py` | MCP 配置、SDK 参数、网络预检、注册表、连接生命周期及多来源工具会话都属于基础设施 adapter；动态工具来源通过 `ToolRuntimeSources` provider 在一次 Turn 开始时冻结，具体 runtime 只由 `mind.py` 组合，通用生命周期 owner 仍归 Harness，旧路径不保留 facade |
+| `mind_app/mcp/`、`mind_app/runtime/mcp/` | `infrastructure/mcp/`、`agent/application/tools/catalog.py`、`agent/domain/tool_policy.py` | MCP 配置、SDK 参数、网络预检、注册表、连接生命周期、多来源工具会话和 SDK 结果归一化属于基础设施 adapter；纯目录查询归 application，进度支持规则归 domain，进度投递归工具执行编排。动态来源通过 `ToolRuntimeSources` 在 Turn 开始时冻结，具体 runtime 只由 `mind.py` 组合；旧 MCP runtime 源目录完全退役且不保留 facade |
 | `mind_app/native_coding/encoding.py` | `infrastructure/platform/encoding.py` | 进程输出编码探测、规范化和解码是跨能力的平台事实；native coding 只消费平台端口，不拥有第二套解码器 |
 | `mind_app/runtime/processes.py` | `infrastructure/platform/processes.py` | 进程组创建、stdin 收束、树级中断/终止和 Windows/POSIX 差异属于平台生命周期能力 |
 | `mind_app/native_coding/workspace_command.py` | `infrastructure/platform/workspace.py` | 无 shell 工作区命令、超时和输出上限属于平台命令执行能力；native coding 不拥有进程树实现 |
@@ -642,7 +644,7 @@ running -> cancelled
 | `agent/harness/workspace_runtime.py` | `agent/ports/workspace.py` | 工作区资源生命周期和组合工厂契约归入 ports；Harness 只持有具体资源替换/关闭实现，路径由组合边界解析 |
 | `mind_app/runtime/support/idle_status.py` | `infrastructure/platform/idle_status.py` | asyncio 延迟状态计时器只管理平台任务生命周期；stream runtime 通过显式平台实现使用，不让 support 目录继续承接无归属基础设施 |
 | `mind_app/runtime/support/rwlock.py` | 已删除 | 全仓库无生产或测试调用者；删除死代码，避免保留未接入 Harness 的并发抽象和伪迁移入口 |
-| `mind_app/runtime/tools/notify.py` | `mind_app/runtime/mcp/tool_progress.py` | MCP 工具进度通知依赖 MCP 调用生命周期，归入 MCP runtime 适配边界；工具路由只调用该边界，不在平铺 tools 包维护通知实现 |
+| `mind_app/runtime/tools/notify.py`、`mind_app/runtime/mcp/tool_progress.py` | `agent/domain/tool_policy.py`、`mind_app/runtime/tools/router.py` | 是否支持进度通知是纯工具策略；进度回调的展示投递与无展示时观测属于实际工具执行编排。删除单调用者通知 facade，不让 domain/application 反向依赖 observability |
 | `mind_app/runtime/tools/policy.py` | 已删除 | 全仓库无生产或测试调用者；不迁移无归属的并行策略死代码，避免形成新的兼容入口 |
 | `mind_app/runtime/hooks/runtime.py` 中的 `HookCommandRunner`、`HookContextSpiller` | `agent/ports/hooks.py` | Hook 命令执行和上下文 spill 是 runtime 调用具体实现的端口；协议值对象只声明已校验结果字段，状态展示端口仍由 runtime 持有 |
 | `HookRegistry`/`HookRuntime` 的执行器资源推断 | 显式 `context_spiller`、`cleanup_session`、`close` 注入 | Hook 执行、超限 spill 和资源清理按端口绑定；runtime 不通过 `isinstance` 猜测具体执行器能力，默认执行器仅在构造分支集中绑定 |

@@ -12,7 +12,7 @@ from infrastructure.config.execution_policy_manager import (
     ExecPolicyManager,
     validate_sandbox_permission_arguments
 )
-from mind_app.runtime.mcp.tool_result import normalize_call_tool_result
+from infrastructure.mcp.tool_results import normalize_call_tool_result
 from mind_app.native_coding.execution_authorization import (
     ExecutionAuthorizationError,
     reject_model_execution

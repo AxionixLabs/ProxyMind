@@ -13,7 +13,7 @@ from agent.ports import (
     ExecutionPolicy,
     PatchPreviewPort,
 )
-from mind_app.runtime.mcp.tool_store import meta_for_tool
+from agent.application.tools.catalog import meta_for_tool
 from infrastructure.config.execution_policy_manager import ExecApprovalRequirement
 from agent.ports import OutputStatusPort
 from agent.application.views.builders.approval import build_approval_view

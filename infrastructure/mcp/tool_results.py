@@ -226,16 +226,6 @@ def _normalize_attachments(value: typing.Any) -> list[dict[str, typing.Any]]:
     for item in value:
         if isinstance(item, dict):
             normalized.append(dict(item))
-            continue
-        if hasattr(item, "model_dump"):
-            dumped = item.model_dump(by_alias=True, exclude_none=True)
-            if isinstance(dumped, dict):
-                normalized.append(dumped)
-            continue
-        if hasattr(item, "to_dict"):
-            dumped = item.to_dict()
-            if isinstance(dumped, dict):
-                normalized.append(dumped)
     return normalized
 
 

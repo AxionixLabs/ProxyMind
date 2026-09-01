@@ -9,16 +9,13 @@ from dataclasses import dataclass
 from mcp import types as mcp_types
 from agent.ports import McpSessionPort
 from agent.application.turns.context import ToolInvocation
-from protocol.schema.tool_approval import (
-    TOOL_LIFECYCLE_STATUSES,
-    ToolLifecycleStatus,
-)
-from mind_app.runtime.mcp.tool_result import (
+from protocol.schema.tool_approval import ToolLifecycleStatus
+from infrastructure.mcp.tool_results import (
     normalize_call_tool_result,
     normalize_tool_fields,
     serialize_call_tool_result
 )
-from mind_app.runtime.mcp.tool_store import meta_for_tool
+from agent.application.tools.catalog import meta_for_tool
 from agent.application.views.contracts import PresentationSink
 from agent.domain.tool_policy import is_approval_only_tool
 from .enhancement import enhance_result
@@ -159,8 +156,14 @@ def _server_output_status(
 ) -> ToolLifecycleStatus:
     """读取服务端工具输出的稳定生命周期状态。"""
     status = str(event.get("status") or "").strip().lower()
-    if status in TOOL_LIFECYCLE_STATUSES:
-        return typing.cast(ToolLifecycleStatus, status)
+    if status == "completed":
+        return "completed"
+    if status == "failed":
+        return "failed"
+    if status == "declined":
+        return "declined"
+    if status == "cancelled":
+        return "cancelled"
     raise ValueError("tool.output requires a supported status")
 
 

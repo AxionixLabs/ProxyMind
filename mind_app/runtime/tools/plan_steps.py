@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from observability import observe
 from mind_app.client_tools.planning import normalize_plan_arguments
 from agent.ports import McpSessionPort
-from mind_app.runtime.mcp.tool_result import normalize_call_tool_result
-from mind_app.runtime.mcp.tool_store import has_tool
+from infrastructure.mcp.tool_results import normalize_call_tool_result
+from agent.application.tools.catalog import has_tool
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext

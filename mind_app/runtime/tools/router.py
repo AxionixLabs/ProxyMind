@@ -7,13 +7,50 @@ from mind_app.client_tools.types import (
     TURN_INTERRUPT_META_KEY,
 )
 from agent.ports import McpSessionPort
-from mind_app.runtime.mcp.tool_store import has_tool
+from agent.application.tools.catalog import has_tool
 from agent.application.turns.context import ToolInvocation
+from agent.domain.tool_policy import supports_progress_notifications
 from mcp.types import CallToolResult
-from ..mcp.tool_progress import (
-    emit_tool_progress,
-    supports_tool_progress
-)
+from observability import observe
+
+
+def _tool_progress_text(
+    tool_name: str,
+    progress: float,
+    total: float | None,
+    message: str | None,
+) -> str:
+    """返回一次工具进度通知的稳定文本。"""
+    text = str(message or "").strip()
+    if text:
+        return text
+    if total is not None:
+        return f"{tool_name} progress={progress}/{total}"
+    return f"{tool_name} progress={progress}"
+
+
+async def _emit_tool_progress(
+    *,
+    tool_name: str,
+    progress: float,
+    total: float | None,
+    message: str | None,
+    stream_callback: typing.Callable[[str], typing.Awaitable[None]] | None,
+) -> None:
+    """把工具进度投递给当前展示流，无展示流时只记录观测事实。"""
+    text = _tool_progress_text(tool_name, progress, total, message)
+    if stream_callback is not None:
+        await stream_callback(text)
+        return None
+
+    observe(
+        "tool.progress",
+        tool=tool_name,
+        progress=progress,
+        total=total,
+        message_chars=len(text),
+    )
+
 
 def is_hosted_tool(
     tools: list[dict[str, typing.Any]],
@@ -48,9 +85,9 @@ async def execute_tool(
 
     progress_callback = None
 
-    if enable_progress_notify and supports_tool_progress(invocation.name):
+    if enable_progress_notify and supports_progress_notifications(invocation.name):
         async def progress_callback(progress: float, total: float | None, message: str | None) -> None:
-            await emit_tool_progress(
+            await _emit_tool_progress(
                 tool_name=invocation.name,
                 progress=progress,
                 total=total,

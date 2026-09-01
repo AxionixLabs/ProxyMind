@@ -190,6 +190,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `infrastructure/mcp`；Controller 只创建 `ToolRuntimeSources`，具体实现由 `mind.py` 注入。
   工具会话回归 `26 + 81 + 35 passed`，Turn/Subagent `51 passed`，工具结果/权限
   `70 passed`，CLI/TUI/清理 `39 + 123 passed`，架构专项 `5 passed, 2 warnings`。
+- MCP 结果与展示职责已收口：SDK `CallToolResult` 归一化迁入
+  `infrastructure/mcp/tool_results.py`，纯目录查询迁入 `agent/application/tools/catalog.py`，
+  进度支持规则迁入 domain，通知/观测内聚到唯一执行路由；旧 `mind_app/runtime/mcp`
+  不再包含源码。工具结果/进度/计划 `24 passed`，客户端工具链 `48 passed`，流式结果
+  `70 passed`，架构专项 `4 passed, 2 warnings`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -282,11 +287,16 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    通用 owner 保持在 `agent/harness/mcp`，具体 runtime 由 `mind.py` 注入。旧文件、旧导入和
    四个 Controller provider facade 全部删除，基础设施不反向依赖 `mind_app`。
 
-3. **MCP 结果与展示职责收口**：审计剩余 `tool_result.py`、`tool_store.py` 和
-   `tool_progress.py`；结果校验/归约进入 application 或 protocol adapter，纯目录查询进入
-   Harness/基础设施，展示 projection 进入 application views，任何迁移都先建立最小端口。
+3. **MCP 结果与展示职责收口（已完成）**：SDK 结果归一化、纯目录查询、进度策略与
+   运行期投递已按 adapter/application/domain/runtime 分开；三个旧模块、旧导入和单调用者
+   facade 已删除，`mind_app/runtime/mcp` 源码清零。
 
-4. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
+4. **本地工具能力族重组**：按 planning、workspace coding、subagent、permissions、media
+   拆分 `mind_app/client_tools` 与 `builtin_tools`；稳定描述/结果进入 application，执行状态归
+   Harness，操作系统与 SDK 实现归 infrastructure。先迁移 registry 和类型契约，再迁移
+   具体能力，禁止创建新的总工具 facade。
+
+5. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
@@ -846,3 +856,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 四入口独立启动/恢复证据收口，并将下一迁移切片推进到外部 MCP runtime/adapters | CLI `14 passed`、TUI `29 passed`、stdio MCP `14 passed`、Subscription `18 passed`；覆盖续接、事务回退、ready 超时、重启和清理失败 |
 | 2026-09-01 | 外部 MCP SDK 与连接生命周期基础设施化，删除旧 runtime 下的 errors/external/group/local/status 模块 | MCP group `11 passed`、TUI/运行入口 `95 passed`、工具链路 `63 passed`、架构专项 `3 passed, 2 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 工具会话组合基础设施化：新增工具 runtime/source/registry ports，将 Composite session、tool catalog 和 runtime 迁出旧应用并由组合根构造 | 工具会话 `26 + 81 + 35 passed`、Turn/Subagent `51 passed`、工具结果/权限 `70 passed`、CLI/TUI/清理 `39 + 123 passed`、架构专项 `5 passed, 2 warnings`；导入图和语法检查通过 |
+| 2026-09-01 | 退役旧 MCP runtime 源目录：SDK 结果归一化、目录查询和进度语义分别归入 infrastructure、application、domain/执行路由 | 工具结果/进度/计划 `24 passed`、客户端工具链 `48 passed`、流式结果 `70 passed`、架构专项 `4 passed, 2 warnings`；旧路径扫描、`compileall`、差异检查通过 |
