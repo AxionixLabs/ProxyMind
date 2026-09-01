@@ -148,7 +148,7 @@ class ToolRegistry:
             call_id=call_id,
             nested_tool_dispatch=create_nested_tool_dispatch(
                 session=session,
-                raw_dispatch=(
+                nested_dispatch=(
                     nested_dispatch if callable(nested_dispatch) else None
                 ),
                 read_timeout_seconds=read_timeout_seconds,

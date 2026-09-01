@@ -4,6 +4,7 @@ import typing
 
 from agent.application.turns.execution import TurnExecution
 from agent.application.turns.run_result import RunResult
+from agent.application.tools.execution import ToolExecutionAdapter
 from agent.ports import (
     EffectJournalFactory,
     McpSessionPort,
@@ -55,6 +56,7 @@ class ControllerSubagentExecution(SubagentExecutionPort):
         model_capability: ModelCapability | None,
         protocol_client: ProtocolCommandClient | None,
         effect_journal_factory: EffectJournalFactory | None,
+        tool_execution: ToolExecutionAdapter,
         session_factory: OutputSessionFactory,
     ) -> None:
         """绑定模型、协议和效果账本能力。"""
@@ -62,6 +64,7 @@ class ControllerSubagentExecution(SubagentExecutionPort):
         self._model_capability = model_capability
         self._protocol_client = protocol_client
         self._effect_journal_factory = effect_journal_factory
+        self._tool_execution = tool_execution
         self._session_factory = session_factory
 
     async def execute(
@@ -84,6 +87,7 @@ class ControllerSubagentExecution(SubagentExecutionPort):
             model_capability=self._model_capability,
             protocol_client=self._protocol_client,
             effect_journal_factory=self._effect_journal_factory,
+            tool_execution=self._tool_execution,
             ev_report=event_report,
             skills=skills,
             session_factory=self._session_factory,

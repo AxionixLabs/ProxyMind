@@ -18,6 +18,7 @@ from agent.ports import (
     ToolRuntimeBuilder,
 )
 from agent.ports.workspace import WorkspaceRuntimeFactory
+from .tools.execution import ToolExecutionAdapter
 from .turns.commands import TurnApplication
 
 TurnApplicationFactory: typing.TypeAlias = Callable[
@@ -42,6 +43,7 @@ class RuntimeServices:
     environment_capability: EnvironmentSnapshotCapability
     create_turn_application: TurnApplicationFactory
     create_effect_journal: EffectJournalFactory
+    tool_execution: ToolExecutionAdapter
     create_hook_registry: HookRegistryFactory
     create_tool_runtime: ToolRuntimeBuilder
     create_mcp_runtime: McpRuntimeBuilder | None = None
@@ -67,6 +69,8 @@ class RuntimeServices:
             raise TypeError("turn application factory must be callable")
         if not callable(self.create_effect_journal):
             raise TypeError("effect journal factory must be callable")
+        if not isinstance(self.tool_execution, ToolExecutionAdapter):
+            raise TypeError("tool execution adapter is invalid")
         if not callable(self.create_hook_registry):
             raise TypeError("hook registry factory must be callable")
         if not callable(self.create_tool_runtime):

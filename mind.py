@@ -31,6 +31,7 @@ from infrastructure.platform.hook_command import HookCommandExecutor
 from infrastructure.platform.images import FileImageReader
 from infrastructure.mcp.external_runtime import ExternalMcpRuntime
 from infrastructure.mcp.tool_runtime import CompositeToolRuntime
+from infrastructure.mcp.tool_execution import McpToolExecutionAdapter
 from frontends.cli.entry import run
 from frontends.mcp.server import run_mind_mcp_server
 from infrastructure.workspace.runtime import WorkspaceCoding
@@ -86,6 +87,7 @@ def bind_root_turn_runner(
             model_capability=model_capability,
             protocol_client=model_capability,
             effect_journal_factory=effect_journal_factory,
+            tool_execution=runtime_services.tool_execution,
             approval_coordinator=controller.approval_coordinator,
             execution_policy=controller.workspace_runtime.execution_policy,
             execution_runtime=controller.turn_execution_runtime,
@@ -233,6 +235,7 @@ if __name__ == "__main__":
     runtime_services = create_runtime_services(
         create_hook_registry=create_hook_registry,
         create_tool_runtime=create_tool_runtime,
+        tool_execution=McpToolExecutionAdapter(),
         create_mcp_runtime=create_mcp_runtime,
         create_subscription_runtime=create_subscription_runtime,
         skills_payload_builder=skills_payload,

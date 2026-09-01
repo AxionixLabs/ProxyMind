@@ -46,7 +46,9 @@ from agent.application.hooks.models import (
     HookVisibleToolResult,
     ToolCallRunResult,
 )
-from mind_app.runtime.tools.client_call import ClientToolCallRunner
+from agent.harness.tools.client_calls import ClientToolCallRunner
+from infrastructure.mcp.tool_execution import McpToolExecutionAdapter
+from infrastructure.mcp.nested_tool_results import nested_tool_output
 from agent.composition import open_effect_journal
 from agent.application.config.settings import FeatureSettings
 from agent.domain.policies import preset_permissions
@@ -1076,12 +1078,18 @@ async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
 
     async def dispatch_nested(tool, args, call_id):
         events.append("dispatch")
-        return await session.call_tool(
+        result = await session.call_tool(
             tool,
             args,
             call_id=call_id,
             turn_context=turn,
             pref_config={},
+        )
+        return nested_tool_output(
+            session,
+            tool_name=tool,
+            result=result,
+            call_id=call_id,
         )
 
     try:
@@ -1234,6 +1242,7 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
         tool_call_coordinator=SimpleNamespace(
             run_invocation=AsyncMock(side_effect=run_allowed),
         ),
+        tool_execution=McpToolExecutionAdapter(),
         effect_journal=open_effect_journal(tmp_path / "effects.db"),
     )
 

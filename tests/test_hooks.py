@@ -34,7 +34,7 @@ from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
 from agent.harness.hooks.scope import HookExecutionScope
 from mind_app.runtime.hooks.session import SessionLifecycleGateway
-from mind_app.runtime.hooks.tool import (
+from agent.harness.hooks.tool_lifecycle import (
     CommandHookSessionStore,
     ToolCallCoordinator,
     ToolHookEvents

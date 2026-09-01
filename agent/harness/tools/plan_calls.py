@@ -3,12 +3,13 @@
 
 import typing
 from agent.application.tools.planning import PLAN_STEPS_TOOL
+from agent.application.tools.execution import ToolExecutionAdapter
 from agent.ports import McpSessionPort
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext
 )
-from mind_app.runtime.hooks.tool import ToolCallCoordinator
+from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from agent.application.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
@@ -20,11 +21,11 @@ from agent.ports import (
 from agent.application.views.contracts import PresentationSink
 from agent.application.views.builders.plan import build_plan_steps_start_view
 from agent.application.views.tool_execution import show_tool_result
-from .plan_steps import (
+from .plan_execution import (
     PlanExecutionReport,
     StepPlanExecutor
 )
-from .client_call import ClientToolCallResult
+from .client_calls import ClientToolCallResult
 
 
 class PlanToolCallRunner:
@@ -40,7 +41,8 @@ class PlanToolCallRunner:
         tools: list[dict[str, typing.Any]],
         turn_context: TurnContext,
         pref_config: typing.Mapping[str, typing.Any],
-        tool_call_coordinator: ToolCallCoordinator
+        tool_call_coordinator: ToolCallCoordinator,
+        tool_execution: ToolExecutionAdapter,
     ) -> None:
         """绑定计划执行所需端口和步骤执行器。"""
         self.output_control = output_control
@@ -53,6 +55,7 @@ class PlanToolCallRunner:
             turn_context=turn_context,
             pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
+            tool_execution=tool_execution,
         )
 
     async def handle(

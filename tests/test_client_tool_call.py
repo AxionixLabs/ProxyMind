@@ -29,18 +29,19 @@ from agent.application.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot,
 )
-from mind_app.runtime.tools import client_call
+from agent.harness.tools import client_calls as client_call
 from agent.application.views.tool_execution import (
     show_tool_result,
     show_tool_start,
 )
-from mind_app.runtime.tools.client_call import (
+from agent.harness.tools.client_calls import (
     ClientToolCallOutcome,
     ClientToolCallResult,
     ClientToolCallRunner,
 )
+from agent.application.tools.execution import ToolExecutionResult
 from infrastructure.mcp.tool_execution import (
-    ToolRunResult,
+    McpToolExecutionAdapter,
     hook_tool_response,
 )
 from agent.domain.policies import preset_permissions
@@ -111,6 +112,7 @@ def _runner(
         tools=tools if tools is not None else [{"name": "test_tool"}],
         pref_config={},
         tool_call_coordinator=coordinator,
+        tool_execution=McpToolExecutionAdapter(),
         effect_journal=effect_journal,
         effect_reconciler=effect_reconciler,
     )
@@ -170,7 +172,7 @@ async def test_client_tool_call_executes_invocation_arguments(monkeypatch) -> No
     run_tool_step = AsyncMock(return_value=tool_run)
     show_start = AsyncMock()
     show_result = AsyncMock()
-    monkeypatch.setattr(client_call, "run_tool_step", run_tool_step)
+    runner.tool_execution.execute = run_tool_step
     monkeypatch.setattr(client_call, "show_tool_start", show_start)
     monkeypatch.setattr(client_call, "show_tool_result", show_result)
 
@@ -231,7 +233,7 @@ async def test_apply_patch_start_uses_read_only_preview_before_execution(monkeyp
         cost_ms=1,
         result=None,
     )
-    monkeypatch.setattr(client_call, "run_tool_step", AsyncMock(return_value=tool_run))
+    runner.tool_execution.execute = AsyncMock(return_value=tool_run)
     show_start = AsyncMock()
     show_result = AsyncMock()
     monkeypatch.setattr(client_call, "show_tool_start", show_start)
@@ -282,8 +284,7 @@ async def test_malformed_patch_preview_is_skipped_without_blocking_display() -> 
 @pytest.mark.anyio
 async def test_permission_tool_has_no_generic_tool_result_display() -> None:
     presentation = SimpleNamespace(emit=AsyncMock())
-    result = ToolRunResult(
-        result={},
+    result = ToolExecutionResult(
         ok=True,
         fields={"ok": True},
         text="permissions granted",
@@ -363,7 +364,7 @@ async def test_durable_tool_uses_journal_before_hooks(
             cost_ms=1,
         )
 
-    monkeypatch.setattr(client_call, "run_tool_step", execute_tool)
+    runner.tool_execution.execute = execute_tool
     monkeypatch.setattr(client_call, "show_tool_start", AsyncMock())
     monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
 
@@ -414,7 +415,7 @@ async def test_committed_local_effect_reuses_outcome_without_hooks_or_display(
     run_tool = AsyncMock(return_value=tool_run)
     show_start = AsyncMock()
     show_result = AsyncMock()
-    monkeypatch.setattr(client_call, "run_tool_step", run_tool)
+    runner.tool_execution.execute = run_tool
     monkeypatch.setattr(client_call, "show_tool_start", show_start)
     monkeypatch.setattr(client_call, "show_tool_result", show_result)
     invocation = _durable_invocation(tmp_path)
@@ -536,12 +537,12 @@ async def test_local_effect_commit_failure_uses_control_plane_reconciliation(
         effect_journal=journal,
         effect_reconciler=reconciler,
     )
-    monkeypatch.setattr(client_call, "run_tool_step", AsyncMock(return_value=SimpleNamespace(
+    runner.tool_execution.execute = AsyncMock(return_value=SimpleNamespace(
         ok=True,
         fields=_compact_fields(),
         text="done",
         cost_ms=1,
-    )))
+    ))
     monkeypatch.setattr(client_call, "show_tool_start", AsyncMock())
     monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
 
@@ -727,7 +728,7 @@ async def test_js_repl_emits_start_trace_and_uses_javascript_status(monkeypatch)
         cost_ms=200,
     )
     run_tool_step = AsyncMock(return_value=tool_run)
-    monkeypatch.setattr(client_call, "run_tool_step", run_tool_step)
+    runner.tool_execution.execute = run_tool_step
     monkeypatch.setattr(client_call, "show_tool_start", AsyncMock())
     monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
 
@@ -800,7 +801,7 @@ async def test_tool_start_trace_uses_two_stage_policy(
         cost_ms=7,
     )
     show_start = AsyncMock()
-    monkeypatch.setattr(client_call, "run_tool_step", AsyncMock(return_value=tool_run))
+    runner.tool_execution.execute = AsyncMock(return_value=tool_run)
     monkeypatch.setattr(client_call, "show_tool_start", show_start)
     monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
 
@@ -829,10 +830,8 @@ async def test_client_tool_call_converts_execution_error(monkeypatch) -> None:
 
     coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
     runner, _ports = _runner(coordinator)
-    monkeypatch.setattr(
-        client_call,
-        "run_tool_step",
-        AsyncMock(side_effect=RuntimeError("failed")),
+    runner.tool_execution.execute = AsyncMock(
+        side_effect=RuntimeError("failed")
     )
     monkeypatch.setattr(client_call, "show_tool_start", AsyncMock())
     monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
@@ -859,7 +858,7 @@ async def test_client_tool_call_returns_hook_denial_without_execution(
     )))
     runner, _ports = _runner(coordinator)
     run_tool_step = AsyncMock()
-    monkeypatch.setattr(client_call, "run_tool_step", run_tool_step)
+    runner.tool_execution.execute = run_tool_step
 
     outcome = await runner.execute(
         _invocation(),
@@ -906,7 +905,7 @@ async def test_client_tool_call_applies_post_hook_replacement(
         text="original",
         cost_ms=3,
     )
-    monkeypatch.setattr(client_call, "run_tool_step", AsyncMock(return_value=tool_run))
+    runner.tool_execution.execute = AsyncMock(return_value=tool_run)
     monkeypatch.setattr(client_call, "show_tool_start", AsyncMock())
     monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
 

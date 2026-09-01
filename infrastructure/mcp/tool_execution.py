@@ -5,7 +5,11 @@ import asyncio
 import functools
 import time
 import typing
-from dataclasses import dataclass
+from collections.abc import Mapping
+from agent.application.tools.execution import (
+    ToolExecutionAdapter,
+    ToolExecutionResult,
+)
 from agent.application.tools.catalog import meta_for_tool
 from agent.application.turns.context import ToolInvocation
 from agent.application.views.contracts import PresentationSink
@@ -19,6 +23,7 @@ from agent.ports import (
     OutputStatusPort,
 )
 from infrastructure.mcp.tool_invocation import execute_tool
+from infrastructure.mcp.nested_tool_results import nested_tool_output
 from infrastructure.mcp.tool_results import (
     normalize_call_tool_result,
     normalize_tool_fields,
@@ -30,22 +35,6 @@ from observability import (
     observe,
     observe_exception,
 )
-from protocol.schema.tool_approval import ToolLifecycleStatus
-
-
-@dataclass(slots=True)
-class ToolRunResult:
-    """统一描述单次工具执行的收束结果。"""
-    result: typing.Any
-    ok: bool
-    fields: dict[str, typing.Any]
-    text: str
-    data: typing.Any
-    hook_response: typing.Any
-    cost_ms: int
-    status: ToolLifecycleStatus
-
-
 def _tool_result_data(fields: typing.Union[str, dict[str, typing.Any], typing.Any]) -> typing.Any:
     """从工具结果字段中提取结构化数据。"""
     if isinstance(fields, dict):
@@ -59,9 +48,28 @@ def _tool_result_data_map(fields: dict[str, typing.Any]) -> dict[str, typing.Any
     return data if isinstance(data, dict) else {}
 
 
+def _optional_nested_output(
+    session: McpSessionPort,
+    *,
+    tool_name: str,
+    result: mcp_types.CallToolResult,
+    call_id: str,
+) -> dict[str, typing.Any] | None:
+    """为可成功回灌的结果生成嵌套输出，本地失败保留空值。"""
+    try:
+        return nested_tool_output(
+            session,
+            tool_name=tool_name,
+            result=result,
+            call_id=call_id,
+        )
+    except RuntimeError:
+        return None
+
+
 def server_tool_output_result(
     event: dict[str, typing.Any]
-) -> ToolRunResult:
+) -> ToolExecutionResult:
     """把服务端回灌的 tool.output 事件转换成展示层结果对象。"""
     raw_fields  = _server_output_fields(event)
     reported_ok = _server_output_ok(event, raw_fields)
@@ -71,8 +79,7 @@ def server_tool_output_result(
     fields      = normalized.fields
     cost_ms     = _server_output_cost_ms(event)
 
-    return ToolRunResult(
-        result=fields,
+    return ToolExecutionResult(
         ok=ok,
         fields=fields,
         text=normalized.display_text,
@@ -157,7 +164,7 @@ def _server_output_ok(
 
 def _server_output_status(
     event: dict[str, typing.Any],
-) -> ToolLifecycleStatus:
+) -> typing.Literal["completed", "failed", "declined", "cancelled"]:
     """读取服务端工具输出的稳定生命周期状态。"""
     status = str(event.get("status") or "").strip().lower()
     if status == "completed":
@@ -197,7 +204,7 @@ async def run_tool_step(
     pref_config: dict[str, typing.Any],
     enable_progress_notify: bool = False,
     status_text: typing.Optional[str] = None
-) -> ToolRunResult:
+) -> ToolExecutionResult:
     """统一执行工具、处理状态动画和结果增强。"""
     started_at = time.time()
     name       = invocation.name
@@ -292,8 +299,7 @@ async def run_tool_step(
         elapsed_ms=cost_ms,
     )
 
-    return ToolRunResult(
-        result=result,
+    return ToolExecutionResult(
         ok=ok,
         fields=fields,
         text=normalized.display_text,
@@ -307,7 +313,96 @@ async def run_tool_step(
         ),
         cost_ms=cost_ms,
         status="completed" if ok else "failed",
+        nested_output=_optional_nested_output(
+            session,
+            tool_name=name,
+            result=result,
+            call_id=invocation.call_id,
+        ),
     )
+
+
+async def run_direct_tool_step(
+    session: McpSessionPort,
+    *,
+    tools: list[dict[str, typing.Any]],
+    invocation: ToolInvocation,
+    pref_config: Mapping[str, typing.Any],
+) -> ToolExecutionResult:
+    """执行由 Harness 统一管理展示和 Hook 的内部工具步骤。"""
+    started_at = time.perf_counter()
+    result = await execute_tool(
+        session,
+        tools=tools,
+        invocation=invocation,
+        pref_config=pref_config,
+    )
+    normalized = normalize_call_tool_result(result)
+    return ToolExecutionResult(
+        ok=normalized.ok,
+        fields=normalized.fields,
+        text=normalized.display_text,
+        data=normalized.data,
+        hook_response=hook_tool_response(
+            invocation.name,
+            result,
+            fields=normalized.fields,
+            text=normalized.display_text,
+            tools=tools,
+        ),
+        cost_ms=int((time.perf_counter() - started_at) * 1000),
+        status="completed" if normalized.ok else "failed",
+        nested_output=_optional_nested_output(
+            session,
+            tool_name=invocation.name,
+            result=result,
+            call_id=invocation.call_id,
+        ),
+    )
+
+
+class McpToolExecutionAdapter(ToolExecutionAdapter):
+    """通过 MCP 会话执行工具并向 Harness 返回稳定结果。"""
+
+    async def execute(
+        self,
+        session: McpSessionPort,
+        *,
+        status_control: OutputStatusPort,
+        presentation: PresentationSink,
+        tools: list[dict[str, typing.Any]],
+        invocation: ToolInvocation,
+        pref_config: Mapping[str, typing.Any],
+        enable_progress_notify: bool = False,
+        status_text: str | None = None,
+    ) -> ToolExecutionResult:
+        """执行带展示状态和增强流程的工具调用。"""
+        return await run_tool_step(
+            session,
+            status_control=status_control,
+            presentation=presentation,
+            tools=tools,
+            invocation=invocation,
+            pref_config=dict(pref_config),
+            enable_progress_notify=enable_progress_notify,
+            status_text=status_text,
+        )
+
+    async def execute_direct(
+        self,
+        session: McpSessionPort,
+        *,
+        tools: list[dict[str, typing.Any]],
+        invocation: ToolInvocation,
+        pref_config: Mapping[str, typing.Any],
+    ) -> ToolExecutionResult:
+        """执行不重复管理展示状态的内部计划步骤。"""
+        return await run_direct_tool_step(
+            session,
+            tools=tools,
+            invocation=invocation,
+            pref_config=pref_config,
+        )
 
 
 def hook_tool_response(

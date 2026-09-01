@@ -28,7 +28,7 @@ from agent.application.turns.context import (
     TurnContext,
 )
 from agent.application.hooks.models import HookDecision
-from mind_app.runtime.hooks.tool import ToolCallCoordinator
+from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from agent.domain.policies import (
     PermissionSettings,
     permission_label,

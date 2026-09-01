@@ -7,6 +7,7 @@ from observability import observe_exception
 from agent.application.turns.commands import TurnApplication
 from agent.application.services import RuntimeServices
 from agent.application.services import SkillsConfigReader
+from agent.application.tools.execution import ToolExecutionAdapter
 from agent.ports import (
     EffectJournal,
     SkillsProvider,
@@ -98,6 +99,7 @@ def create_runtime_services(
     *,
     create_hook_registry: HookRegistryFactory,
     create_tool_runtime: ToolRuntimeBuilder,
+    tool_execution: ToolExecutionAdapter,
     create_mcp_runtime: McpRuntimeBuilder | None = None,
     create_subscription_runtime: SubscriptionRuntimeBuilder | None = None,
     skills_payload_builder: SkillsPayloadBuilder,
@@ -111,6 +113,7 @@ def create_runtime_services(
         environment_capability=open_environment_capability(),
         create_turn_application=open_turn_application,
         create_effect_journal=open_effect_journal,
+        tool_execution=tool_execution,
         create_hook_registry=create_hook_registry,
         create_tool_runtime=create_tool_runtime,
         create_mcp_runtime=create_mcp_runtime,

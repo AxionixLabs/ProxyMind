@@ -87,7 +87,7 @@ from agent.ports import (
 )
 from agent.harness.hooks.scope import HookExecutionScope
 from .runtime.hooks.session import SessionLifecycleGateway
-from .runtime.hooks.tool import CommandHookSessionStore
+from agent.harness.hooks.tool_lifecycle import CommandHookSessionStore
 from agent.application.hooks.catalog import (
     HookCatalogSnapshot,
     HookCatalogStaleError
@@ -244,6 +244,7 @@ class Mind(object):
                 else None
             ),
             effect_journal_factory=self.runtime_services.create_effect_journal,
+            tool_execution=self.runtime_services.tool_execution,
             session_factory=subagent_session_factory,
         )
         self.root_turn_session = ControllerRootTurnSession(self)

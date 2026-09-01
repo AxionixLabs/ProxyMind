@@ -29,7 +29,7 @@ from agent.application.turns.context import (
     ToolInvocation,
     TurnContext
 )
-from mind_app.runtime.hooks.tool import ToolCallCoordinator
+from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from protocol.schema.stream_events import ToolApprovalRequiredEvent
 from protocol.schema.tool_approval import (
     TOOL_APPROVAL_ACCEPT_DECISIONS,

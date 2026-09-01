@@ -62,15 +62,16 @@ from protocol.client.tools import (
 from protocol.client.effects import post_effect_reconciliation
 from agent.ports import OutputControlPort
 from agent.ports import OutputSessionFactory
-from ..hooks.tool import ToolCallCoordinator
+from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
+from agent.application.tools.execution import ToolExecutionAdapter
 from agent.application.hooks.models import StopHookDecision
 from ..hooks.turn import (
     PromptHookBlockedError,
     TurnHookEvents
 )
 from agent.application.turns.exception_text import friendly_exception_text
-from ..tools.client_call import ClientToolCallRunner
-from ..tools.plan_call import PlanToolCallRunner
+from agent.harness.tools.client_calls import ClientToolCallRunner
+from agent.harness.tools.plan_calls import PlanToolCallRunner
 from .executor import (
     build_turn_input_payload,
     record_turn_started,
@@ -256,6 +257,7 @@ async def stream_turn(
     model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
+    tool_execution: ToolExecutionAdapter | None = None,
     session_factory: OutputSessionFactory | None = None,
     **kwargs
 ) -> RunResult:
@@ -271,6 +273,8 @@ async def stream_turn(
         raise RuntimeError("protocol command client is required")
     if not callable(effect_journal_factory):
         raise RuntimeError("effect journal factory is required")
+    if not isinstance(tool_execution, ToolExecutionAdapter):
+        raise RuntimeError("tool execution adapter is required")
     callbacks = prepared.callbacks
     reentry_kwargs = prepared.continuation_kwargs
     ev_report = prepared.event_report
@@ -476,6 +480,7 @@ async def stream_turn(
             tools=tools,
             pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
+            tool_execution=tool_execution,
             effect_journal=effect_journal_factory(
                 effect_journal_db_path()
             ),
@@ -498,6 +503,7 @@ async def stream_turn(
             turn_context=turn_context,
             pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
+            tool_execution=tool_execution,
         )
         tool_event_handler = ToolEventHandler(
             turn_context=turn_context,
@@ -960,6 +966,7 @@ async def stream_turn(
             model_capability=model_capability,
             protocol_client=protocol_client,
             effect_journal_factory=effect_journal_factory,
+            tool_execution=tool_execution,
             **reentry_kwargs,
         )
 

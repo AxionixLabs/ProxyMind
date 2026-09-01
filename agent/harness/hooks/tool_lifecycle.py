@@ -24,7 +24,6 @@ from agent.application.hooks.models import (
     ToolOutcome,
 )
 from agent.harness.hooks.scope import HookExecutionScope
-from metadata import const
 
 ToolValue = typing.TypeVar("ToolValue")
 
@@ -695,7 +694,7 @@ def _invocation_fingerprint(invocation: ToolInvocation) -> str:
         sort_keys=True,
         separators=(",", ":"),
         default=str,
-    ).encode(const.CHARSET)
+    ).encode()
 
     return hashlib.sha256(encoded).hexdigest()
 

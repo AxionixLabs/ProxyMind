@@ -718,6 +718,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         message="hello",
         metadata={"origin": "test"},
         ev_report=report,
+        tool_execution=SimpleNamespace(),
         execution_runtime=mind,
         lifecycle=ApplicationTurnForegroundLifecycle(mind, Mock()),
     )

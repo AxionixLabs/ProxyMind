@@ -7,6 +7,7 @@ from protocol.transport.events import EventReport
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.execution import TurnExecution
 from agent.application.turns.foreground import run_foreground_turn
+from agent.application.tools.execution import ToolExecutionAdapter
 from agent.ports import (
     ApprovalCoordinatorPort,
     ApprovalLedger,
@@ -140,6 +141,7 @@ async def run_root_turn(
     model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
+    tool_execution: ToolExecutionAdapter,
     approval_coordinator: ApprovalCoordinatorPort | None = None,
     execution_policy: ExecutionPolicy | None = None,
     execution_runtime: TurnExecutionRuntimePort,
@@ -211,6 +213,7 @@ async def run_root_turn(
             stream_kwargs["protocol_client"] = protocol_client
         if effect_journal_factory is not None:
             stream_kwargs["effect_journal_factory"] = effect_journal_factory
+        stream_kwargs["tool_execution"] = tool_execution
         if session_factory is not None:
             stream_kwargs["session_factory"] = session_factory
         return await run_foreground_turn(

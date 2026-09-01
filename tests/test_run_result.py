@@ -36,6 +36,7 @@ from agent.application.views import (
     RunIncompleteView,
 )
 from infrastructure.mcp import tool_runtime
+from infrastructure.mcp.tool_execution import McpToolExecutionAdapter
 from agent.ports import ToolRuntimeSources
 from agent.application.turns.context import (
     AgentContext,
@@ -55,7 +56,7 @@ from agent.domain.execution_policy import (
     PrefixPattern,
     PrefixRule,
 )
-from mind_app.runtime.tools.client_call import (
+from agent.harness.tools.client_calls import (
     ClientToolCallOutcome,
     ClientToolCallResult,
 )
@@ -63,7 +64,7 @@ from agent.ports import ModelCapabilityError
 from agent.protocol import ModelStreamRequest
 from agent.adapters.protocol.items import CanonicalItemReducer
 from agent.composition import open_effect_journal
-from mind_app.runtime.tools.plan_steps import PlanExecutionReport
+from agent.harness.tools.plan_execution import PlanExecutionReport
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.domain.policies import (
     PermissionSettings,
@@ -777,6 +778,7 @@ async def _run_stream(
     stream_options["effect_journal_factory"] = (
         mind.runtime_services.create_effect_journal
     )
+    stream_options["tool_execution"] = McpToolExecutionAdapter()
     if attachments:
         stream_options["attachments"] = list(attachments)
     if extras:

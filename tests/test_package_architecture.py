@@ -177,6 +177,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/tools/context.py",
         "application/tools/definitions.py",
         "application/tools/execution_results.py",
+        "application/tools/execution.py",
         "application/tools/media.py",
         "application/tools/patching.py",
         "application/tools/processes.py",
@@ -222,6 +223,11 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "harness/execution/actor.py",
         "harness/execution/subagent_runner.py",
         "harness/execution/subagent_submission.py",
+        "harness/hooks/tool_lifecycle.py",
+        "harness/tools/__init__.py",
+        "harness/tools/client_calls.py",
+        "harness/tools/plan_calls.py",
+        "harness/tools/plan_execution.py",
         "harness/subscription/owner.py",
         "harness/sessions/conversation.py",
         "harness/sessions/loop.py",
@@ -4139,6 +4145,52 @@ def test_tool_execution_projection_has_application_ownership() -> None:
         "tool infrastructure imports retired runtime modules:\n"
         + "\n".join(infrastructure_violations)
     )
+
+
+def test_tool_execution_orchestration_is_harness_owned() -> None:
+    """确保工具、计划和 Hook 生命周期通过稳定适配器归入 Harness。"""
+    legacy_root = PROJECT_ROOT / "mind_app" / "runtime" / "tools"
+    legacy_hook = PROJECT_ROOT / "mind_app" / "runtime" / "hooks" / "tool.py"
+    assert not any(legacy_root.rglob("*.py"))
+    assert not legacy_hook.exists()
+
+    target_paths = (
+        PROJECT_ROOT / "agent" / "application" / "tools" / "execution.py",
+        PROJECT_ROOT / "agent" / "harness" / "hooks" / "tool_lifecycle.py",
+        PROJECT_ROOT / "agent" / "harness" / "tools" / "client_calls.py",
+        PROJECT_ROOT / "agent" / "harness" / "tools" / "plan_calls.py",
+        PROJECT_ROOT / "agent" / "harness" / "tools" / "plan_execution.py",
+    )
+    assert all(path.is_file() for path in target_paths)
+
+    violations = _forbidden_imports(
+        "agent/harness/tools",
+        {
+            "backend",
+            "engine",
+            "frontends",
+            "infrastructure",
+            "mcp",
+            "mind_app",
+            "mind_core",
+            "protocol",
+            "server",
+        },
+    )
+    assert not violations, "Harness tool orchestration crosses adapters:\n" + (
+        "\n".join(violations)
+    )
+
+    client_source = target_paths[2].read_text(encoding="utf-8-sig")
+    assert "CallToolResult" not in client_source
+    assert "ToolExecutionAdapter" in client_source
+
+    service_source = (
+        PROJECT_ROOT / "agent" / "application" / "services.py"
+    ).read_text(encoding="utf-8-sig")
+    root_source = (PROJECT_ROOT / "mind.py").read_text(encoding="utf-8-sig")
+    assert "tool_execution: ToolExecutionAdapter" in service_source
+    assert "tool_execution=McpToolExecutionAdapter()" in root_source
 
 
 def test_turn_stream_projection_is_owned_by_application() -> None:

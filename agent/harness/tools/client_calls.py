@@ -14,19 +14,22 @@ from dataclasses import (
     field,
     replace
 )
-from mcp import types as mcp_types
 from observability import observe_exception
+from agent.application.tools.execution import (
+    ClientToolResultEnvelope,
+    ToolExecutionAdapter,
+    ToolExecutionResult,
+    build_client_tool_result,
+)
 from agent.application.tools.context import (
     NESTED_TOOL_DISPATCH_META_KEY,
     TURN_INTERRUPT_META_KEY,
 )
 from agent.application.tools.authorization import ToolTurnInterrupted
-from agent.ports import McpSessionPort
-from protocol.client.effects import post_effect_reconciliation
-from protocol.client.tools import (
-    ToolResultEnvelope,
-    build_tool_result_envelope,
-    build_tool_result_payload,
+from agent.ports import (
+    McpSessionPort,
+    NestedToolOutput,
+    ProtocolCommandError,
 )
 from agent.ports import (
     OutputControlPort,
@@ -37,12 +40,11 @@ from agent.application.turns.context import (
     ToolInvocation,
     TurnContext
 )
-from protocol.client.turn_control import TurnControlRequestError
 from agent.application.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
 )
-from mind_app.runtime.hooks.tool import ToolCallCoordinator
+from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from agent.application.views.tool_display import (
     is_two_stage_tool,
     tool_status_text,
@@ -52,11 +54,8 @@ from agent.application.views.tool_execution import (
     show_tool_result,
     show_tool_start,
 )
-from metadata import const
-from infrastructure.mcp.tool_execution import (
-    ToolRunResult,
-    run_tool_step,
-)
+
+
 @dataclass(slots=True)
 class ClientToolCallResult:
     """描述一次客户端工具执行结果。"""
@@ -68,7 +67,7 @@ class ClientToolCallResult:
     call_id: str = ""
     fields: dict[str, typing.Any] = field(default_factory=dict)
     hook_response: typing.Any = None
-    response: mcp_types.CallToolResult | None = None
+    nested_output: NestedToolOutput | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +107,7 @@ def _client_result_envelope(
     fallback_args: typing.Mapping[str, typing.Any],
     fallback_text: str,
     fields: typing.Mapping[str, typing.Any],
-) -> ToolResultEnvelope:
+) -> ClientToolResultEnvelope:
     """从客户端规范字段显式构建 wire 工具结果信封。"""
     compact_fields = frozenset({"ok", "text", "attachments", "data"})
     envelope_fields = frozenset({
@@ -152,7 +151,7 @@ def _client_result_envelope(
         raise TypeError("client tool result attachments must be a list")
     if not isinstance(data, dict):
         raise TypeError("client tool result data must be an object")
-    return build_tool_result_envelope(
+    return build_client_tool_result(
         tool=name,
         ok=ok,
         args=args,
@@ -181,6 +180,7 @@ class ClientToolCallRunner:
         tools: list[dict[str, typing.Any]],
         pref_config: dict[str, typing.Any],
         tool_call_coordinator: ToolCallCoordinator,
+        tool_execution: ToolExecutionAdapter,
         effect_journal: EffectJournal,
         patch_preview: typing.Callable[..., dict[str, typing.Any]] | None = None,
         effect_reconciler: typing.Callable[..., typing.Awaitable[
@@ -196,9 +196,10 @@ class ClientToolCallRunner:
         self.tools                 = tools
         self.pref_config           = pref_config
         self.tool_call_coordinator = tool_call_coordinator
+        self.tool_execution        = tool_execution
         self.patch_preview         = patch_preview
         self.effect_journal        = effect_journal
-        self.effect_reconciler     = effect_reconciler or post_effect_reconciliation
+        self.effect_reconciler     = effect_reconciler
         self.interrupt_turn        = interrupt_turn
 
     @staticmethod
@@ -247,7 +248,7 @@ class ClientToolCallRunner:
     def _effect_request_suffix(effect_id: str) -> str:
         """为效果核对命令生成固定长度的稳定请求后缀。"""
         return hashlib.sha256(
-            str(effect_id or "").encode(const.CHARSET)
+            str(effect_id or "").encode()
         ).hexdigest()[:32]
 
     @staticmethod
@@ -258,7 +259,7 @@ class ClientToolCallRunner:
         """构建被前置 Hook 阻止的工具结果。"""
         text = str(reason or "tool use denied by hook")
 
-        fields = build_tool_result_envelope(
+        fields = build_client_tool_result(
             tool=invocation.name,
             ok=False,
             args=invocation.arguments,
@@ -289,7 +290,7 @@ class ClientToolCallRunner:
         """构建本地副作用尚未开始时的确定失败结果。"""
         detail = f"{type(error).__name__}: {error}"
         text = f"{status}: {detail}"
-        fields = build_tool_result_envelope(
+        fields = build_client_tool_result(
             tool=invocation.name,
             ok=False,
             args=invocation.arguments,
@@ -371,16 +372,16 @@ class ClientToolCallRunner:
         result = outcome.result
         request_suffix = self._effect_request_suffix(effect.effect_id)
 
-        return build_tool_result_payload(
-            cid=invocation.turn.cid,
-            sid=invocation.turn.sid,
-            call_id=invocation.call_id,
-            name=result.name,
-            ok=result.ok,
-            result=result.fields,
-            additional_context=outcome.additional_context,
-            request_id=f"effect-tool-result-{request_suffix}",
-        )
+        return {
+            "request_id": f"effect-tool-result-{request_suffix}",
+            "cid": invocation.turn.cid,
+            "sid": invocation.turn.sid,
+            "call_id": invocation.call_id,
+            "name": result.name,
+            "ok": result.ok,
+            "result": dict(result.fields),
+            "additional_context": list(outcome.additional_context),
+        }
 
     async def _submit_effect_reconciliation(
         self,
@@ -416,6 +417,8 @@ class ClientToolCallRunner:
             if not reconciliation_error:
                 reconciliation_error = "client tool result reported failure"
 
+        if self.effect_reconciler is None:
+            raise RuntimeError("effect reconciliation port is required")
         await self.effect_reconciler(
             effect_id=effect_id,
             request_id=f"effect-reconcile-{request_suffix}",
@@ -478,14 +481,14 @@ class ClientToolCallRunner:
         call_id   = invocation.call_id
         cost_ms   = 0
 
-        response: mcp_types.CallToolResult | None = None
+        nested_output: NestedToolOutput | None = None
 
         if name == "js_repl":
             async def dispatch_nested_tool(
                 tool_name: str,
                 tool_arguments: dict[str, typing.Any],
                 nested_call_id: str,
-            ) -> mcp_types.CallToolResult:
+            ) -> NestedToolOutput:
                 """把嵌套调用接入同一客户端工具生命周期。"""
                 return await self._execute_nested_tool(
                     invocation.turn,
@@ -543,7 +546,7 @@ class ClientToolCallRunner:
                         **start_kwargs,
                     )
 
-            tool_run = await run_tool_step(
+            tool_run = await self.tool_execution.execute(
                 self.session,
                 status_control=self.status_control,
                 presentation=self.presentation,
@@ -559,19 +562,16 @@ class ClientToolCallRunner:
             text    = tool_run.text
             cost_ms = tool_run.cost_ms
 
-            raw_response = getattr(tool_run, "result", None)
-            if isinstance(raw_response, mcp_types.CallToolResult):
-                response = raw_response
-
+            nested_output = getattr(tool_run, "nested_output", None)
             hook_response = getattr(tool_run, "hook_response", fields)
 
-        except (ToolTurnInterrupted, TurnControlRequestError):
+        except (ToolTurnInterrupted, ProtocolCommandError):
             raise
         except Exception as exc:
             text = f"{type(exc).__name__}: {exc}"
             ok   = False
 
-            fields = build_tool_result_envelope(
+            fields = build_client_tool_result(
                 tool=name,
                 ok=False,
                 args=arguments,
@@ -582,8 +582,7 @@ class ClientToolCallRunner:
 
             hook_response = None
 
-            tool_run = ToolRunResult(
-                result=None,
+            tool_run = ToolExecutionResult(
                 ok=False,
                 fields=fields,
                 text=text,
@@ -624,7 +623,7 @@ class ClientToolCallRunner:
             call_id=call_id,
             fields=envelope,
             hook_response=hook_response,
-            response=response,
+            nested_output=nested_output,
         )
 
     async def _execute_nested_tool(
@@ -634,7 +633,7 @@ class ClientToolCallRunner:
         tool_name: str,
         arguments: dict[str, typing.Any],
         call_id: str,
-    ) -> mcp_types.CallToolResult:
+    ) -> NestedToolOutput:
         """通过普通工具生命周期执行内核发起的嵌套调用。"""
         outcome = await self.execute(
             ToolInvocation(
@@ -647,9 +646,9 @@ class ClientToolCallRunner:
             display=False,
         )
         result = outcome.result
-        if result.response is None:
+        if result.nested_output is None:
             raise RuntimeError(result.text or f"nested {tool_name} call failed")
-        return result.response
+        return result.nested_output
 
     async def execute(
         self,
@@ -754,7 +753,7 @@ class ClientToolCallRunner:
                     call_id=hook_run.value.call_id,
                     fields=envelope,
                     hook_response=hook_run.value.hook_response,
-                    response=hook_run.value.response,
+                    nested_output=hook_run.value.nested_output,
                 ),
                 additional_context=visible.additional_context,
             )

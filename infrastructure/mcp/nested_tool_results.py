@@ -3,8 +3,6 @@
 
 import typing
 from collections.abc import (
-    Awaitable,
-    Callable,
     Mapping,
 )
 from datetime import timedelta
@@ -25,16 +23,10 @@ from agent.ports.mcp_session import McpSessionPort
 from infrastructure.mcp.composite_session import CompositeToolSession
 from infrastructure.mcp.tool_results import normalize_call_tool_result
 
-RawNestedToolDispatch: typing.TypeAlias = Callable[
-    [str, dict[str, typing.Any], str],
-    Awaitable[mcp_types.CallToolResult],
-]
-
-
 def create_nested_tool_dispatch(
     *,
     session: McpSessionPort,
-    raw_dispatch: RawNestedToolDispatch | None,
+    nested_dispatch: NestedToolDispatch | None,
     read_timeout_seconds: timedelta | None,
     progress_callback: ProgressFnT | None,
     turn_context: TurnContext,
@@ -48,18 +40,19 @@ def create_nested_tool_dispatch(
         call_id: str,
     ) -> NestedToolOutput:
         """执行一次嵌套工具调用并剥离 MCP SDK 对象。"""
-        if raw_dispatch is not None:
-            result = await raw_dispatch(tool_name, arguments, call_id)
-        else:
-            result = await session.call_tool(
-                tool_name,
-                arguments,
-                read_timeout_seconds=read_timeout_seconds,
-                progress_callback=progress_callback,
-                call_id=call_id,
-                turn_context=turn_context,
-                pref_config=pref_config,
+        if nested_dispatch is not None:
+            return _validated_output(
+                await nested_dispatch(tool_name, arguments, call_id)
             )
+        result = await session.call_tool(
+            tool_name,
+            arguments,
+            read_timeout_seconds=read_timeout_seconds,
+            progress_callback=progress_callback,
+            call_id=call_id,
+            turn_context=turn_context,
+            pref_config=pref_config,
+        )
         if not isinstance(result, mcp_types.CallToolResult):
             raise TypeError("nested tool dispatch must return CallToolResult")
         return _nested_tool_response(
@@ -69,6 +62,23 @@ def create_nested_tool_dispatch(
         )
 
     return dispatch
+
+
+def nested_tool_output(
+    session: McpSessionPort,
+    *,
+    tool_name: str,
+    result: mcp_types.CallToolResult,
+    call_id: str,
+) -> NestedToolOutput:
+    """把一次具体 MCP 调用结果投影为 Harness 可传递的嵌套输出。"""
+    if not isinstance(result, mcp_types.CallToolResult):
+        raise TypeError("nested tool result must be CallToolResult")
+    return _nested_tool_response(
+        result,
+        call_id=call_id,
+        mcp_result=_nested_tool_returns_mcp(session, tool_name),
+    )
 
 
 def _nested_tool_returns_mcp(
@@ -202,7 +212,10 @@ def _validated_output(value: dict[str, typing.Any]) -> NestedToolOutput:
     return thaw_object(frozen, field_name="nested tool output")
 
 
-__all__ = ("create_nested_tool_dispatch",)
+__all__ = (
+    "create_nested_tool_dispatch",
+    "nested_tool_output",
+)
 
 
 if __name__ == "__main__":

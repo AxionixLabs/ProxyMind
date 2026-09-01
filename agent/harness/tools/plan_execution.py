@@ -5,9 +5,12 @@ import time
 import typing
 from dataclasses import dataclass
 from observability import observe
+from agent.application.tools.execution import (
+    ToolExecutionAdapter,
+    ToolExecutionResult,
+)
 from agent.application.tools.planning import normalize_plan_arguments
 from agent.ports import McpSessionPort
-from infrastructure.mcp.tool_results import normalize_call_tool_result
 from agent.application.tools.catalog import has_tool
 from agent.application.turns.context import (
     ToolInvocation,
@@ -17,9 +20,7 @@ from agent.application.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
 )
-from mind_app.runtime.hooks.tool import ToolCallCoordinator
-from infrastructure.mcp.tool_execution import hook_tool_response
-from infrastructure.mcp.tool_invocation import execute_tool
+from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 
 ERROR_PREVIEW_LIMIT = 8
 FAILURE_GROUP_LIMIT = 8
@@ -70,13 +71,15 @@ class StepPlanExecutor:
         tools: list[dict[str, typing.Any]],
         turn_context: TurnContext,
         pref_config: typing.Mapping[str, typing.Any],
-        tool_call_coordinator: ToolCallCoordinator
+        tool_call_coordinator: ToolCallCoordinator,
+        tool_execution: ToolExecutionAdapter,
     ) -> None:
         self.session = session
         self.tools = tools
         self.turn_context = turn_context
         self.pref_config = dict(pref_config)
         self.tool_call_coordinator = tool_call_coordinator
+        self.tool_execution = tool_execution
 
     async def execute_tool_call(
         self,
@@ -177,31 +180,22 @@ class StepPlanExecutor:
 
             async def execute_step(
                 prepared: ToolInvocation,
-            ) -> ToolOperationResult[typing.Any]:
+            ) -> ToolOperationResult[ToolExecutionResult]:
                 """执行当前计划步骤。"""
-                result = await execute_tool(
+                result = await self.tool_execution.execute_direct(
                     self.session,
                     tools=self.tools,
                     invocation=prepared,
                     pref_config=self.pref_config,
                 )
-
-                normalized = normalize_call_tool_result(result)
-
                 return ToolOperationResult(
                     value=result,
                     snapshot=ToolResultSnapshot(
-                        ok=normalized.ok,
-                        text=normalized.display_text,
-                        fields=normalized.fields,
+                        ok=result.ok,
+                        text=result.text,
+                        fields=result.fields,
                     ),
-                    hook_response=hook_tool_response(
-                        name,
-                        result,
-                        fields=normalized.fields,
-                        text=normalized.display_text,
-                        tools=self.tools,
-                    ),
+                    hook_response=result.hook_response,
                 )
 
             hook_run = await self.tool_call_coordinator.run_invocation(

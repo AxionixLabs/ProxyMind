@@ -253,11 +253,16 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `infrastructure/workspace`；`NativeCoding` 改为 `WorkspaceCoding`，组合根直接注入应用
   资源根和进程会话。两个无调用者 helper 未迁移；工作区行为回归 `169 passed`，职责与
   legacy 清零守卫 `5 passed, 3 warnings`。
-- 工具执行编排已完成第一组职责拆分：工具开始/结果/进度展示归
+- 工具执行编排已完成整体归位：工具开始/结果/进度展示归
   `agent/application/views/tool_execution.py`，MCP 调用和结果执行适配归
-  `infrastructure/mcp`，远端 heal 增强归 `infrastructure/services`；旧 display、progress、
-  enhancement、router 和 run 共九个源码模块删除。联合行为回归 `128 passed`，职责守卫
-  `3 passed, 1 warning`，导入图、`compileall`、旧导入扫描和差异检查通过。
+  `infrastructure/mcp`，远端 heal 增强归 `infrastructure/services`；稳定执行结果和 adapter
+  契约归 `agent/application/tools/execution.py`，客户端工具、效果账本、Hook 与计划执行归
+  `agent/harness/tools`，工具 Hook 生命周期归 `agent/harness/hooks/tool_lifecycle.py`。具体
+  `McpToolExecutionAdapter` 由 `mind.py` 注入 `RuntimeServices` 并同时贯穿根 Turn 与子 Turn；
+  Harness 不再导入 MCP SDK、线上协议请求函数或基础设施实现。旧
+  `mind_app/runtime/tools` 源包和 `mind_app/runtime/hooks/tool.py` 已删除。工具/计划/嵌套回归
+  `82 passed`，Turn/Subagent 回归 `117 passed`，入口回归 `151 passed`，职责守卫
+  `5 passed, 1 warning`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -364,16 +369,21 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    状态/副作用拆分，`mind.py` 保持唯一具体组合根；旧 `mind_app/native_coding` 源包和
    生产导入清零，没有 `native_coding` 同名 facade。
 
-6. **工具执行编排归位（进行中）**：展示 projection、MCP SDK 调用/结果适配和远端增强
-   已按 application/infrastructure 边界迁出，旧 router/run 与展示增强模块已删除。下一切片
-   将 `client_call.py` 的 effect/Hook 生命周期和 `plan_call.py`、`plan_steps.py` 的计划执行
-   编排迁入 Harness/application；完成后删除整个 `mind_app/runtime/tools` 源包。
+6. **工具执行编排归位（已完成）**：展示 projection、稳定执行契约、MCP SDK adapter、
+   远端增强、effect/Hook 生命周期和计划执行已按 application/Harness/infrastructure 边界
+   拆分。具体执行器只由组合根注入，嵌套工具回调只传递稳定 JSON；旧
+   `mind_app/runtime/tools` 源包和工具 Hook 旧路径已经清零且由架构守卫锁定。
 
 7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
 删除、架构守卫和 `compileall` 证据。任一条件不足时只更新本计划，不创建空目录。
+
+本次工具执行编排的删除条件已满足：`ToolExecutionAdapter` 返回 SDK-free 稳定结果，
+`McpToolExecutionAdapter` 独占 SDK 调用、归一化与嵌套输出投影，Harness 独占 Hook、效果
+日志和计划生命周期；根 Turn、续跑与 Subagent 使用同一组合根实例。旧工具包无源码、旧
+导入扫描为空，效果核对失败、Hook 拒绝、计划失败和嵌套审批均有回归覆盖。
 
 本次 media 切片的删除条件已满足：应用工具只消费 `ImageReaderPort`，具体文件读取器由
 `mind.py` 注入并由 `WorkspaceRuntimeOwner` 随工作区统一替换；旧 `view_image.py`、旧导入和
@@ -908,6 +918,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 完成工具执行编排归位：新增 SDK-free 执行契约与组合根 adapter，迁移客户端工具、计划和 Hook 生命周期，删除 `mind_app/runtime/tools` 与旧工具 Hook 路径 | 工具/计划/嵌套 `82 passed`；Turn/Subagent `117 passed`；入口 `151 passed`；职责守卫 `5 passed, 1 warning`；导入图、`compileall`、旧导入扫描和差异检查通过 |
 | 2026-08-31 | `agent/` 按职责重组；新增 Session/Workspace 生命周期端口；Skills provider 移至组合根；删除旧平铺路径 | 行为 `495 passed`；架构 `74 passed, 51 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 收窄 `agent.application` 公开 API，端口类型消除对 application 的反向导入，所有消费者改用职责模块 | 行为 `2958 passed, 11 skipped`；架构 `75 passed, 51 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 组合根 Skills payload 注入，清除 `agent -> infrastructure -> agent` 跨边界循环 | 组合切片定向回归 `76 passed`；新增守卫 `4 passed`；导入图、`compileall`、`git diff --check` 通过 |
