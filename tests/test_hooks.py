@@ -33,13 +33,13 @@ from agent.harness.hooks.registry import HookRegistry
 from agent.harness.hooks.runtime import HookRuntime
 from agent.application.hooks.context import HookExecutionContext
 from agent.harness.hooks.scope import HookExecutionScope
-from mind_app.runtime.hooks.session import SessionLifecycleGateway
+from agent.harness.hooks.session_lifecycle import SessionLifecycleGateway
 from agent.harness.hooks.tool_lifecycle import (
     CommandHookSessionStore,
     ToolCallCoordinator,
     ToolHookEvents
 )
-from mind_app.runtime.hooks.turn import (
+from agent.harness.hooks.turn_lifecycle import (
     PromptHookBlockedError,
     TurnHookEvents
 )

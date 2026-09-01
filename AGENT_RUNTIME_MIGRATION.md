@@ -263,6 +263,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `mind_app/runtime/tools` 源包和 `mind_app/runtime/hooks/tool.py` 已删除。工具/计划/嵌套回归
   `82 passed`，Turn/Subagent 回归 `117 passed`，入口回归 `151 passed`，职责守卫
   `5 passed, 1 warning`。
+- Hook 领域生命周期已完成整体归位：压缩前后、SessionEnd、SessionStart、用户输入、Stop
+  continuation 与展示通道适配归 `agent/harness/hooks`，运行快照到中立 Hook view 的纯映射归
+  `agent/application/views/builders/hooks.py`。旧 `mind_app/runtime/hooks` 源包已删除；Hook、
+  压缩和流式回归 `167 passed`，职责守卫 `4 passed`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -375,7 +379,8 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    `mind_app/runtime/tools` 源包和工具 Hook 旧路径已经清零且由架构守卫锁定。
 
 7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
-   `engine`，并完成存量配置、历史、报告和打包元数据回读。
+   `engine`，并完成存量配置、历史、报告和打包元数据回读。当前先收敛仅剩的
+   `mind_app/runtime/turns` 与 Controller 组合职责，保持每次迁移都有完整入口和旧路径删除。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
 删除、架构守卫和 `compileall` 证据。任一条件不足时只更新本计划，不创建空目录。
@@ -384,6 +389,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 `McpToolExecutionAdapter` 独占 SDK 调用、归一化与嵌套输出投影，Harness 独占 Hook、效果
 日志和计划生命周期；根 Turn、续跑与 Subagent 使用同一组合根实例。旧工具包无源码、旧
 导入扫描为空，效果核对失败、Hook 拒绝、计划失败和嵌套审批均有回归覆盖。
+
+本次 Hook 生命周期的删除条件已满足：全部事件编排只依赖固定 `HookExecutionScope`、
+application 契约和统一 observability，展示 adapter 不拥有 view 构建规则；旧 Hook 源目录无
+源码且生产导入清零。SessionEnd 重复关闭、清理失败、Prompt 阻断、Stop continuation 与压缩
+后恢复均由现有回归覆盖。
 
 本次 media 切片的删除条件已满足：应用工具只消费 `ImageReaderPort`，具体文件读取器由
 `mind.py` 注入并由 `WorkspaceRuntimeOwner` 随工作区统一替换；旧 `view_image.py`、旧导入和
@@ -918,6 +928,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 将 Compact/Session/Turn Hook 生命周期迁入 Harness，拆出纯 Hook view builder 并删除旧 `mind_app/runtime/hooks` 源包 | Hook/压缩/流式 `167 passed`；职责守卫 `4 passed`；导入图、`compileall`、旧导入扫描和差异检查通过 |
 | 2026-09-02 | 完成工具执行编排归位：新增 SDK-free 执行契约与组合根 adapter，迁移客户端工具、计划和 Hook 生命周期，删除 `mind_app/runtime/tools` 与旧工具 Hook 路径 | 工具/计划/嵌套 `82 passed`；Turn/Subagent `117 passed`；入口 `151 passed`；职责守卫 `5 passed, 1 warning`；导入图、`compileall`、旧导入扫描和差异检查通过 |
 | 2026-08-31 | `agent/` 按职责重组；新增 Session/Workspace 生命周期端口；Skills provider 移至组合根；删除旧平铺路径 | 行为 `495 passed`；架构 `74 passed, 51 warnings`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-08-31 | 收窄 `agent.application` 公开 API，端口类型消除对 application 的反向导入，所有消费者改用职责模块 | 行为 `2958 passed, 11 skipped`；架构 `75 passed, 51 warnings`；导入图、`compileall`、`git diff --check` 通过 |

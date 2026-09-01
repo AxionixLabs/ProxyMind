@@ -65,7 +65,7 @@ from agent.ports import OutputSessionFactory
 from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from agent.application.tools.execution import ToolExecutionAdapter
 from agent.application.hooks.models import StopHookDecision
-from ..hooks.turn import (
+from agent.harness.hooks.turn_lifecycle import (
     PromptHookBlockedError,
     TurnHookEvents
 )

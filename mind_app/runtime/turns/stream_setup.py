@@ -16,7 +16,7 @@ from agent.ports import (
     RetryStatePort,
     TurnSessionContextPort,
 )
-from mind_app.runtime.hooks.presentation import HookPresentationAdapter
+from agent.harness.hooks.presentation import HookPresentationAdapter
 from agent.harness.hooks.scope import HookExecutionScope
 from agent.application.turns.execution import TurnExecution
 

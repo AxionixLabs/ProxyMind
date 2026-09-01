@@ -200,6 +200,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/views/builders/__init__.py",
         "application/views/builders/approval.py",
         "application/views/builders/batch.py",
+        "application/views/builders/hooks.py",
         "application/views/builders/lifecycle.py",
         "application/views/builders/patch.py",
         "application/views/builders/plan.py",
@@ -224,6 +225,10 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "harness/execution/subagent_runner.py",
         "harness/execution/subagent_submission.py",
         "harness/hooks/tool_lifecycle.py",
+        "harness/hooks/compaction.py",
+        "harness/hooks/presentation.py",
+        "harness/hooks/session_lifecycle.py",
+        "harness/hooks/turn_lifecycle.py",
         "harness/tools/__init__.py",
         "harness/tools/client_calls.py",
         "harness/tools/plan_calls.py",
@@ -4191,6 +4196,52 @@ def test_tool_execution_orchestration_is_harness_owned() -> None:
     root_source = (PROJECT_ROOT / "mind.py").read_text(encoding="utf-8-sig")
     assert "tool_execution: ToolExecutionAdapter" in service_source
     assert "tool_execution=McpToolExecutionAdapter()" in root_source
+
+
+def test_hook_lifecycle_orchestration_is_harness_owned() -> None:
+    """确保 Hook 领域生命周期归 Harness，纯展示映射归 application。"""
+    legacy_root = PROJECT_ROOT / "mind_app" / "runtime" / "hooks"
+    assert not any(legacy_root.rglob("*.py"))
+
+    harness_paths = (
+        PROJECT_ROOT / "agent" / "harness" / "hooks" / "compaction.py",
+        PROJECT_ROOT / "agent" / "harness" / "hooks" / "presentation.py",
+        PROJECT_ROOT / "agent" / "harness" / "hooks" / "session_lifecycle.py",
+        PROJECT_ROOT / "agent" / "harness" / "hooks" / "turn_lifecycle.py",
+        PROJECT_ROOT / "agent" / "harness" / "hooks" / "tool_lifecycle.py",
+    )
+    assert all(path.is_file() for path in harness_paths)
+
+    violations = _forbidden_imports(
+        "agent/harness/hooks",
+        {
+            "backend",
+            "engine",
+            "frontends",
+            "infrastructure",
+            "mcp",
+            "mind_app",
+            "mind_core",
+            "protocol",
+            "server",
+        },
+    )
+    assert not violations, "Harness Hook lifecycle crosses adapters:\n" + (
+        "\n".join(violations)
+    )
+
+    builder_path = (
+        PROJECT_ROOT
+        / "agent"
+        / "application"
+        / "views"
+        / "builders"
+        / "hooks.py"
+    )
+    assert builder_path.is_file()
+    builder_source = builder_path.read_text(encoding="utf-8-sig")
+    assert "build_hook_run_view" in builder_source
+    assert "class HookPresentationAdapter" not in builder_source
 
 
 def test_turn_stream_projection_is_owned_by_application() -> None:

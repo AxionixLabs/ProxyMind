@@ -7,7 +7,7 @@ from agent.ports.transcript import TranscriptSink
 from agent.ports import OutputControlPort
 from agent.application.turns.stream_outcome import StreamTurnOutcome
 from agent.application.hooks.models import StopHookDecision
-from mind_app.runtime.hooks.turn import TurnHookEvents
+from agent.harness.hooks.turn_lifecycle import TurnHookEvents
 from infrastructure.platform.idle_status import IdleStatusTimer
 from .executor import record_turn_finished
 

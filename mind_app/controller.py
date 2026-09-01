@@ -86,7 +86,7 @@ from agent.ports import (
     ProtocolCommandClient,
 )
 from agent.harness.hooks.scope import HookExecutionScope
-from .runtime.hooks.session import SessionLifecycleGateway
+from agent.harness.hooks.session_lifecycle import SessionLifecycleGateway
 from agent.harness.hooks.tool_lifecycle import CommandHookSessionStore
 from agent.application.hooks.catalog import (
     HookCatalogSnapshot,

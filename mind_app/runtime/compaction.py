@@ -15,12 +15,12 @@ from protocol.client.compact import (
     stream_compact_events
 )
 from agent.application.turns.context import AgentContext
-from .hooks.compact import (
+from agent.harness.hooks.compaction import (
     CompactHookBlockedError,
     CompactHookEvents
 )
 from agent.harness.hooks.scope import HookExecutionScope
-from .hooks.turn import TurnHookEvents
+from agent.harness.hooks.turn_lifecycle import TurnHookEvents
 from observability import (
     observe,
     observe_exception
