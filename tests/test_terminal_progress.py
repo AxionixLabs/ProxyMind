@@ -8,10 +8,8 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from metadata import const
 
-from frontends.terminal.turn_lifecycle import (
-    ControllerTurnForegroundLifecycle,
-    run_foreground_turn,
-)
+from agent.application.turns.foreground import run_foreground_turn
+from frontends.terminal.turn_lifecycle import ControllerTurnForegroundLifecycle
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from frontends.interaction.contracts import PromptContext
 from frontends.tui.core.runtime import TuiRuntime

@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
 import typing
 
-from agent.application.turns.run_result import RunResult
 from agent.ports.presentation import (
     ApplicationSink,
     TurnForegroundLifecyclePort,
@@ -80,6 +78,10 @@ class ControllerTurnForegroundLifecycle(TurnForegroundLifecyclePort):
         """结束当前轮次等待展示。"""
         self._controller.frontend.runtime.finish_turn_wait()
 
+    def emit_worked_footer(self, elapsed_seconds: float) -> None:
+        """向当前终端应用提交轮次耗时展示。"""
+        emit_worked_footer(self.application, elapsed_seconds)
+
     async def stop_animation(self) -> None:
         """停止当前轮次动画。"""
         await self._controller.stop_anim("wait")
@@ -88,40 +90,6 @@ class ControllerTurnForegroundLifecycle(TurnForegroundLifecyclePort):
         """等待当前轮次资源清理完成。"""
         await self._controller.await_cleanup(awaitable)
 
-
-async def run_foreground_turn(
-    lifecycle: TurnForegroundLifecyclePort,
-    operation: typing.Callable[..., typing.Awaitable[RunResult]],
-    *args: typing.Any,
-    **kwargs: typing.Any,
-) -> RunResult:
-    """在终端进度和动画生命周期内执行一次轮次操作。"""
-    started_at = time.perf_counter()
-    lifecycle.begin_terminal_progress()
-    completed = False
-
-    try:
-        await lifecycle.start_animation()
-        result = await operation(*args, **kwargs)
-        completed = True
-        return result
-    finally:
-        try:
-            if completed:
-                lifecycle.finish_turn_wait()
-            if completed and lifecycle.animate:
-                emit_worked_footer(
-                    lifecycle.application,
-                    time.perf_counter() - started_at,
-                )
-        finally:
-            try:
-                await lifecycle.await_cleanup(lifecycle.stop_animation())
-            finally:
-                lifecycle.end_terminal_progress()
-
-
 __all__ = (
     "ControllerTurnForegroundLifecycle",
-    "run_foreground_turn",
 )

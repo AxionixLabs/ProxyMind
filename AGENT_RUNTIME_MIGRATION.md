@@ -172,6 +172,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `McpApplicationHost` 契约，具体宿主构造器由 `mind.py` 注入；前端树对 `mind_app` 的生产
   导入已从 `3 files / 3 edges` 清零，CLI/MCP/TUI/组合根/baseline 回归
   `167 passed, 1 warning`。
+- 前台轮次执行顺序已从 terminal adapter 提升到 `agent/application/turns/foreground.py`，
+  worked footer 通过 `TurnForegroundLifecyclePort` 交给 terminal 实现；展示、失败清理、TUI
+  活动和根轮次回归 `122 passed`，`mind_app/runtime/turns/root.py` 不再导入前端。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -251,10 +254,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 当前只允许进入以下顺序，不以补丁式需求插队：
 
 0. **旧应用反向前端依赖清零**：`frontends -> mind_app` 已清零且由全前端守卫锁定；
-   下一步以导入图剩余 `mind_app -> frontends` 的 `2 files / 7 edges` 为范围，拆分
-   `mind_app/controller.py` 与 `mind_app/runtime/turns/root.py` 中仍由旧应用拥有的前端适配
-   职责。必须先确认展示、输出 Session 和宿主生命周期的真实所有者，不允许用新的聚合
-   facade 隐藏反向依赖。
+   root 前台轮次编排已归 application，导入图剩余 `mind_app -> frontends` 的
+   `1 file / 6 edges` 全部集中在 `mind_app/controller.py`。下一步按附件输入、Frontend
+   容器、静默输出 Session 和终端生命周期 adapter 的真实所有权拆分 Controller，禁止把
+   六类对象迁入新的聚合 facade。
 
 1. **入口与数据迁移**：`mind_core` 的配置、权限、hooks、skills 已完成生产导入清零，
    终端轮次生命周期已迁入 `frontends/terminal`；Hook 命令执行器已归属

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from protocol.transport.events import EventReport
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.execution import TurnExecution
+from agent.application.turns.foreground import run_foreground_turn
 from agent.ports import (
     ApprovalCoordinatorPort,
     ApprovalLedger,
@@ -33,7 +34,6 @@ from mind_app.runtime.turns.executor import (
     execute_turn,
 )
 from mind_app.runtime.turns.stream import stream_turn
-from frontends.terminal.turn_lifecycle import run_foreground_turn
 from agent.ports import OutputSessionFactory
 from agent.domain.policies import PermissionSettings
 

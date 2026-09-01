@@ -34,10 +34,8 @@ from frontends.tui.core.styles import text_block
 from frontends.tui.core.task_state import TuiTaskState
 from frontends.tui.features.helix import TuiUpgradeProgress
 from frontends.tui.session.barriers import TuiForegroundTasks
-from frontends.terminal.turn_lifecycle import (
-    ControllerTurnForegroundLifecycle,
-    run_foreground_turn,
-)
+from agent.application.turns.foreground import run_foreground_turn
+from frontends.terminal.turn_lifecycle import ControllerTurnForegroundLifecycle
 from frontends.terminal.worked import emit_worked_footer
 from frontends.terminal.mcp_status import (
     external_mcp_status_view,

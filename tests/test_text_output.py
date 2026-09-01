@@ -33,10 +33,8 @@ from agent.application.views import (
     ProgressView,
 )
 from agent.application.views.builders.run import build_run_started_view
-from frontends.terminal.turn_lifecycle import (
-    ControllerTurnForegroundLifecycle,
-    run_foreground_turn,
-)
+from agent.application.turns.foreground import run_foreground_turn
+from frontends.terminal.turn_lifecycle import ControllerTurnForegroundLifecycle
 from frontends.terminal.worked import (
     emit_worked_footer,
     worked_footer_text,
@@ -551,6 +549,7 @@ async def test_worked_footer_precedes_final_animation_cleanup() -> None:
     runtime = SimpleNamespace(
         begin_terminal_progress=lambda: events.append("progress.begin"),
         end_terminal_progress=lambda: events.append("progress.clear"),
+        finish_turn_wait=lambda: None,
     )
     mind = SimpleNamespace(
         animate=True,

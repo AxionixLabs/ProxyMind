@@ -472,17 +472,25 @@ def test_root_turn_command_adapter_is_controller_independent() -> None:
     )
 
 
-def test_foreground_turn_lifecycle_is_owned_by_terminal_presentation() -> None:
-    """确保动画和终端进度生命周期不由 runtime root 定义。"""
+def test_foreground_turn_orchestration_uses_terminal_presentation_port() -> None:
+    """确保前台轮次编排与终端展示实现归属不同边界。"""
     legacy_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "root.py"
-    target_path = (
+    application_path = (
+        PROJECT_ROOT
+        / "agent"
+        / "application"
+        / "turns"
+        / "foreground.py"
+    )
+    terminal_path = (
         PROJECT_ROOT
         / "frontends"
         / "terminal"
         / "turn_lifecycle.py"
     )
 
-    assert target_path.is_file(), "terminal turn lifecycle is missing"
+    assert application_path.is_file(), "foreground Turn use case is missing"
+    assert terminal_path.is_file(), "terminal turn lifecycle adapter is missing"
     legacy_tree = ast.parse(
         legacy_path.read_text(encoding="utf-8-sig"),
         filename=str(legacy_path),
@@ -494,26 +502,45 @@ def test_foreground_turn_lifecycle_is_owned_by_terminal_presentation() -> None:
     }
     assert "run_foreground_turn" not in legacy_functions
 
-    target_tree = ast.parse(
-        target_path.read_text(encoding="utf-8-sig"),
-        filename=str(target_path),
+    application_tree = ast.parse(
+        application_path.read_text(encoding="utf-8-sig"),
+        filename=str(application_path),
     )
-    target_functions = {
+    application_functions = {
         node.name
-        for node in target_tree.body
+        for node in application_tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
-    assert target_functions == {"run_foreground_turn"}
-    target_classes = {
+    assert application_functions == {"run_foreground_turn"}
+    application_violations = _forbidden_imports(
+        "agent/application/turns",
+        {"frontends", "infrastructure", "mind_app", "mind_core", "server"},
+    )
+    assert not application_violations, (
+        "foreground Turn use case crosses application boundary:\n"
+        + "\n".join(application_violations)
+    )
+
+    terminal_tree = ast.parse(
+        terminal_path.read_text(encoding="utf-8-sig"),
+        filename=str(terminal_path),
+    )
+    terminal_functions = {
         node.name
-        for node in target_tree.body
+        for node in terminal_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert not terminal_functions
+    terminal_classes = {
+        node.name
+        for node in terminal_tree.body
         if isinstance(node, ast.ClassDef)
     }
-    assert "TerminalTurnHost" in target_classes
+    assert "TerminalTurnHost" in terminal_classes
 
     imported_modules = {
         node.module or ""
-        for node in ast.walk(target_tree)
+        for node in ast.walk(terminal_tree)
         if isinstance(node, ast.ImportFrom) and node.level == 0
     }
     assert not any(
@@ -524,7 +551,7 @@ def test_foreground_turn_lifecycle_is_owned_by_terminal_presentation() -> None:
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "getattr"
-        for node in ast.walk(target_tree)
+        for node in ast.walk(terminal_tree)
     )
 
 
@@ -4489,8 +4516,9 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.turns.lifecycle",
         "agent.application.turns.stream_boundaries",
         "agent.application.hooks.context",
-        "agent.application.turns.execution",
-        "agent.application.agents.fork_context",
+            "agent.application.turns.execution",
+            "agent.application.turns.foreground",
+            "agent.application.agents.fork_context",
         "agent.application.views",
         "agent.application.views.contracts",
         "agent.application.views.commands",
