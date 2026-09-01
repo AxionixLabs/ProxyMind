@@ -3,10 +3,12 @@
 
 import asyncio
 import typing
-from mcp import types as mcp_types
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.definitions import ClientTool
-from mind_app.client_tools.result import client_tool_result
+from agent.application.tools.results import (
+    LocalToolResult,
+    client_tool_result,
+)
 from agent.application.agents.views import AgentSnapshot
 from agent.application.agents.fork_context import normalize_fork_turns
 from agent.stores.agents.mailbox import MAX_AGENT_MESSAGE_CHARS
@@ -113,7 +115,7 @@ def _spawn_handler(agents: SubagentRuntime):
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         try:
             message    = _required_text(arguments, "message")
             agent_type = _spawn_agent_type(arguments, tool_runtime)
@@ -171,7 +173,7 @@ def _list_handler(agents: SubagentRuntime):
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         try:
             caller      = tool_runtime.turn_context.agent
             path_prefix = _optional_text(arguments, "path_prefix")
@@ -203,7 +205,7 @@ def _send_message_handler(agents: SubagentRuntime):
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         try:
             target  = _required_text(arguments, "target")
             message = _required_text(arguments, "message")
@@ -256,7 +258,7 @@ def _followup_handler(agents: SubagentRuntime):
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         try:
             target  = _required_text(arguments, "target")
             message = _required_text(arguments, "message")
@@ -290,7 +292,7 @@ def _interrupt_handler(agents: SubagentRuntime):
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         try:
             target = _required_text(arguments, "target")
             caller = tool_runtime.turn_context.agent
@@ -327,7 +329,7 @@ def _resume_handler(agents: SubagentRuntime):
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         try:
             target = _required_text(arguments, "target")
             caller = tool_runtime.turn_context.agent
@@ -358,7 +360,7 @@ def _wait_handler(agents: SubagentRuntime):
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         try:
             targets    = _targets(arguments.get("targets"))
             caller     = tool_runtime.turn_context.agent
@@ -404,7 +406,7 @@ def _close_handler(agents: SubagentRuntime):
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         try:
             target = _required_text(arguments, "target")
             caller = tool_runtime.turn_context.agent
@@ -524,7 +526,7 @@ def _error_result(
     tool: str,
     arguments: dict[str, typing.Any],
     error: Exception
-) -> mcp_types.CallToolResult:
+) -> LocalToolResult:
     """把可预期的控制错误转换为工具失败结果。"""
     text = f"{type(error).__name__}: {error}"
 

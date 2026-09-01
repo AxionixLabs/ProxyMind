@@ -11,17 +11,17 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
+from frontends.terminal.text import sanitize_terminal_text
+from frontends.terminal.text_layout import (
+    layout_styled_line,
+    text_display_width,
+)
 from ..styles import (
     COMMAND_HEAD_STYLE,
     PREVIEW_MORE_STYLE,
     PREVIEW_TEXT_STYLE,
     SUCCESS_DOT_STYLE,
     TITLE_STYLE
-)
-from frontends.terminal.text import sanitize_terminal_text
-from frontends.terminal.text_layout import (
-    layout_styled_line,
-    text_display_width,
 )
 
 PLAN_SUMMARY_STYLE = TextStyle(
@@ -31,8 +31,7 @@ PLAN_SUMMARY_STYLE = TextStyle(
     italic=True,
 )
 
-PLAN_ACTIVE_BODY_STYLE   = TextStyle(foreground="#5EEAD4", bold=True)
-PLAN_INACTIVE_BODY_STYLE = PREVIEW_TEXT_STYLE
+PLAN_ACTIVE_BODY_STYLE = TextStyle(foreground="#5EEAD4", bold=True)
 
 
 def render_plan_update_view(
@@ -62,8 +61,8 @@ def render_plan_update_view(
         )
 
     for index, item in enumerate(view.items):
-        icon   = "✔" if item.status == "completed" else "□"
-        style  = PLAN_ACTIVE_BODY_STYLE if item.status == "in_progress" else PLAN_INACTIVE_BODY_STYLE
+        icon = "✔" if item.status == "completed" else "□"
+        style = PLAN_ACTIVE_BODY_STYLE if item.status == "in_progress" else PREVIEW_TEXT_STYLE
         indent = "    " if explanation_lines or index else "  └ "
         prefix = f"{indent}{icon} "
         continuation = " " * _width_of(prefix, measure_width)

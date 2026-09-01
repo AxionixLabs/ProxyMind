@@ -5,15 +5,15 @@ import typing
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle
+    TextStyle,
 )
 
-MUTED     = TextStyle(foreground="#7F8C9A")
-ACCENT    = TextStyle(foreground="#AFC7D8")
-BRIGHT    = TextStyle(foreground="#F4F7FA")
+MUTED = TextStyle(foreground="#7F8C9A")
+ACCENT = TextStyle(foreground="#AFC7D8")
+BRIGHT = TextStyle(foreground="#F4F7FA")
 INDICATOR = TextStyle(foreground="#5FD7AF")
-SUCCESS   = TextStyle(foreground="#5FD7AF", bold=True)
-FAILURE   = TextStyle(foreground="#FF6B6B")
+SUCCESS = TextStyle(foreground="#5FD7AF", bold=True)
+FAILURE = TextStyle(foreground="#FF6B6B")
 
 
 def format_bytes(value: float) -> str:
@@ -61,14 +61,14 @@ def upload_progress_block(
     indicator: str,
 ) -> StyledBlock:
     """生成单个上传事件对应的单行状态。"""
-    phase      = str(event.get("phase") or "")
+    phase = str(event.get("phase") or "")
     item_index = int(event.get("item_index") or 1)
     item_total = int(event.get("item_total") or 1)
-    filename   = str(event.get("filename") or "-")
-    action     = "processing" if phase == "processing" else "attaching"
+    filename = str(event.get("filename") or "-")
+    action = "processing" if phase == "processing" else "attaching"
 
     if bool(event.get("done")):
-        action    = "attached"
+        action = "attached"
         indicator = "✓"
 
     spans = [
@@ -79,8 +79,8 @@ def upload_progress_block(
     ]
 
     uploaded = float(event.get("aggregate_uploaded_bytes") or 0.0)
-    total    = float(event.get("aggregate_total_bytes") or 0.0)
-    speed    = float(event.get("aggregate_speed_bytes_per_sec") or 0.0)
+    total = float(event.get("aggregate_total_bytes") or 0.0)
+    speed = float(event.get("aggregate_speed_bytes_per_sec") or 0.0)
 
     if phase != "processing" and (uploaded > 0 or total > 0):
         transfer = format_bytes(uploaded)
@@ -101,9 +101,9 @@ def upload_progress_block(
 def upload_summary_block(event: dict[str, typing.Any]) -> StyledBlock:
     """生成上传完成后的单行摘要。"""
     item_total = int(event.get("item_total") or 0)
-    total      = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
-    elapsed    = float(event.get("aggregate_elapsed_sec") or 0.0)
-    speed      = format_bytes(float(event.get("aggregate_speed_bytes_per_sec") or 0.0))
+    total = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
+    elapsed = float(event.get("aggregate_elapsed_sec") or 0.0)
+    speed = format_bytes(float(event.get("aggregate_speed_bytes_per_sec") or 0.0))
 
     return _styled_block([
         TextSpan("Attach ", MUTED),
@@ -145,7 +145,7 @@ def upload_failure_block(
         return _styled_block(spans)
 
     uploaded = format_bytes(float(event.get("aggregate_uploaded_bytes", 0.0) or 0.0))
-    total    = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
+    total = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
 
     spans.append(TextSpan(f"{uploaded} / {total}", ACCENT))
 

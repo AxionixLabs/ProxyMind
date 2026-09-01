@@ -174,6 +174,9 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/tools/catalog.py",
         "application/tools/context.py",
         "application/tools/definitions.py",
+        "application/tools/planning.py",
+        "application/tools/plan_update.py",
+        "application/tools/results.py",
         "application/turns/commands.py",
         "application/turns/compact_result.py",
         "application/turns/context.py",
@@ -1214,7 +1217,10 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
         PROJECT_ROOT / "mind_app" / "builtin_tools" / "registry.py",
         PROJECT_ROOT / "mind_app" / "builtin_tools" / "types.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "registry.py",
+        PROJECT_ROOT / "mind_app" / "client_tools" / "result.py",
+        PROJECT_ROOT / "mind_app" / "client_tools" / "planning.py",
         PROJECT_ROOT / "mind_app" / "client_tools" / "types.py",
+        PROJECT_ROOT / "mind_app" / "client_tools" / "update_plan.py",
     )
     assert not any(path.is_file() for path in legacy_paths)
 
@@ -1222,7 +1228,10 @@ def test_local_tool_contracts_have_single_ownership_boundary() -> None:
         "mind_app.builtin_tools.registry",
         "mind_app.builtin_tools.types",
         "mind_app.client_tools.registry",
+        "mind_app.client_tools.result",
+        "mind_app.client_tools.planning",
         "mind_app.client_tools.types",
+        "mind_app.client_tools.update_plan",
     }
     violations = _forbidden_module_imports(".", legacy_modules)
     assert not violations, "legacy local tool imports remain:\n" + "\n".join(
@@ -4648,6 +4657,9 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
         "agent.application.tools.catalog",
         "agent.application.tools.context",
         "agent.application.tools.definitions",
+        "agent.application.tools.planning",
+        "agent.application.tools.plan_update",
+        "agent.application.tools.results",
         "agent.domain.hooks",
         "agent.domain.identifiers",
         "agent.domain.policies",

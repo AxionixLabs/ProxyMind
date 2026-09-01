@@ -13,7 +13,7 @@ from unittest.mock import (
 
 import pytest
 
-from mind_app.client_tools.planning import PLAN_STEPS_TOOL
+from agent.application.tools.planning import PLAN_STEPS_TOOL
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.application.approvals.models import ApprovalOutcome
 from frontends.interaction.noninteractive import NonInteractiveInteraction

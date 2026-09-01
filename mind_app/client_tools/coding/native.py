@@ -5,6 +5,10 @@ import typing
 from mcp import types as mcp_types
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.definitions import ClientTool
+from agent.application.tools.results import (
+    LocalToolResult,
+    LocalToolSource,
+)
 from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 from protocol.client.turn_control import TurnControlRequestError
 from agent.application.approvals.amendments import approval_execpolicy_amendment
@@ -68,7 +72,7 @@ def build_coding_result(
     args: dict[str, typing.Any],
     raw: dict[str, typing.Any],
     target: str
-) -> mcp_types.CallToolResult:
+) -> LocalToolResult:
     """构造编码工具调用结果。"""
     output = dict(raw or {})
     ok     = bool(output.get("ok"))
@@ -83,21 +87,15 @@ def build_coding_result(
     text        = str(output.get("text") or data or "")
     result_text = f"tool={tool} target={target} ok={ok} {text}"
 
-    structured: dict[str, typing.Any] | None = {
-        "ok"          : ok,
-        "tool"        : tool,
-        "source"      : "client",
-        "args"        : dict(args or {}),
-        "text"        : result_text,
-        "attachments" : list(output.get("attachments") or []),
-        "data"        : data,
-    }
-
-    return mcp_types.CallToolResult(
-        content=[mcp_types.TextContent(type="text", text=result_text)],
-        structuredContent=structured,
-        isError=not ok,
-        _meta={"logs": list(output.get("logs") or [])}
+    return LocalToolResult(
+        tool=tool,
+        source=LocalToolSource.CLIENT,
+        ok=ok,
+        text=result_text,
+        args=dict(args or {}),
+        attachments=tuple(output.get("attachments") or ()),
+        data=data,
+        logs=tuple(output.get("logs") or ()),
     )
 
 
@@ -107,7 +105,7 @@ def authorization_failure_result(
     tool: str,
     arguments: dict[str, typing.Any],
     error: ExecutionAuthorizationError
-) -> mcp_types.CallToolResult:
+) -> LocalToolResult:
     """构造执行授权失败结果。"""
     raw = coding.fail_result(
         error.reason,
@@ -132,7 +130,7 @@ def sandbox_failure_result(
     *,
     tool: str,
     arguments: dict[str, typing.Any]
-) -> mcp_types.CallToolResult:
+) -> LocalToolResult:
     """构造只读沙箱拒绝写入或进程执行的结果。"""
     raw = coding.fail_result(
         "sandbox_read_only",
@@ -194,7 +192,7 @@ def coding_tools(
     async def js_repl_handler(
         arguments: dict[str, typing.Any],
         runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         """执行一个持久 JavaScript 单元。"""
         try:
             reject_model_execution(arguments)
@@ -265,7 +263,7 @@ def coding_tools(
     async def js_repl_reset_handler(
         arguments: dict[str, typing.Any],
         runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         """重置当前会话的 JavaScript 内核。"""
         try:
             reject_model_execution(arguments)
@@ -290,7 +288,7 @@ def coding_tools(
     async def shell_command_handler(
         arguments: dict[str, typing.Any],
         runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         """执行单条命令。"""
         try:
             reject_model_execution(arguments)
@@ -336,7 +334,7 @@ def coding_tools(
     async def apply_patch_handler(
         arguments: dict[str, typing.Any],
         runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         """应用补丁。"""
         if read_only_sandbox(runtime):
             return sandbox_failure_result(
@@ -375,7 +373,7 @@ def coding_tools(
     async def exec_command_handler(
         arguments: dict[str, typing.Any],
         runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         """启动可持续命令会话。"""
         try:
             reject_model_execution(arguments)
@@ -423,7 +421,7 @@ def coding_tools(
     async def write_stdin_handler(
         arguments: dict[str, typing.Any],
         runtime: ToolHandlerContext
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         """写入或轮询命令会话。"""
         try:
             reject_model_execution(arguments)

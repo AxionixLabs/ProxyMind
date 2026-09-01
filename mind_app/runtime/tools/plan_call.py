@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.client_tools.planning import PLAN_STEPS_TOOL
+from agent.application.tools.planning import PLAN_STEPS_TOOL
 from agent.ports import McpSessionPort
 from agent.application.turns.context import (
     ToolInvocation,

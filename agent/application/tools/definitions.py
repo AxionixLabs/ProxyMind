@@ -3,7 +3,6 @@
 
 import typing
 from collections.abc import (
-    Awaitable,
     Callable,
     Mapping,
 )
@@ -12,13 +11,11 @@ from dataclasses import (
     field,
 )
 from agent.application.tools.context import ToolHandlerContext
-
-if typing.TYPE_CHECKING:
-    from mcp import types as mcp_types
+from agent.application.tools.results import LocalToolResult
 
 ToolHandler: typing.TypeAlias = Callable[
     [dict[str, typing.Any], ToolHandlerContext],
-    Awaitable["mcp_types.CallToolResult"],
+    typing.Awaitable[LocalToolResult],
 ]
 
 

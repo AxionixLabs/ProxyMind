@@ -212,8 +212,8 @@ async def test_request_permissions_tool_records_turn_grant(tmp_path) -> None:
         },
     }, runtime)
 
-    assert result.isError is False
-    assert result.structuredContent["data"]["scope"] == "turn"
+    assert result.ok is True
+    assert result.data["scope"] == "turn"
     assert store.has_grant(
         cid="cid-1",
         sid="sid-1",
@@ -258,7 +258,7 @@ async def test_request_permissions_tool_skips_card_for_never_policy(tmp_path) ->
         call_id="call-never",
     ))
 
-    assert result.structuredContent["data"]["permissions"] == {}
+    assert result.data["permissions"] == {}
     coordinator.request_outcome.assert_not_awaited()
 
 
@@ -308,7 +308,7 @@ async def test_request_permissions_tool_returns_native_decision_result(
         ),
     )
 
-    data = result.structuredContent["data"]
+    data = result.data
     assert data["scope"] == scope
     assert data["strict_auto_review"] is strict
     assert bool(data["permissions"]) is (decision != "decline")

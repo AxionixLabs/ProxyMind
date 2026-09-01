@@ -10,6 +10,10 @@ from agent.application.tools.definitions import (
     BuiltinTool,
     ClientTool,
 )
+from agent.application.tools.results import (
+    LocalToolResult,
+    LocalToolSource,
+)
 from infrastructure.mcp.local_tool_registry import ToolRegistry
 from infrastructure.mcp.composite_session import CompositeToolSession
 from agent.application.turns.context import (
@@ -19,7 +23,19 @@ from agent.application.turns.context import (
 from agent.domain.policies import preset_permissions
 
 
-def _result() -> mcp_types.CallToolResult:
+def _local_result(
+    tool: str,
+    source: LocalToolSource = LocalToolSource.CLIENT,
+) -> LocalToolResult:
+    return LocalToolResult(
+        tool=tool,
+        source=source,
+        ok=True,
+        text="done",
+    )
+
+
+def _mcp_result() -> mcp_types.CallToolResult:
     return mcp_types.CallToolResult(
         content=[mcp_types.TextContent(type="text", text="done")],
     )
@@ -45,7 +61,7 @@ def _child_turn() -> TurnContext:
 
 def _client_tool(name: str = "inspect_context") -> ClientTool:
     async def handler(arguments, runtime):
-        return _result()
+        return _local_result(name)
 
     return ClientTool(
         name=name,
@@ -57,7 +73,7 @@ def _client_tool(name: str = "inspect_context") -> ClientTool:
 
 def _builtin_tool(name: str = "request_permissions") -> BuiltinTool:
     async def handler(arguments, runtime):
-        return _result()
+        return _local_result(name, LocalToolSource.BUILTIN)
 
     return BuiltinTool(
         name=name,
@@ -94,13 +110,60 @@ def test_local_tool_registry_owns_source_metadata() -> None:
     }
 
 
+def test_local_tool_result_freezes_structured_fields() -> None:
+    data = {"items": [{"value": 1}]}
+    result = LocalToolResult(
+        tool="inspect_context",
+        source=LocalToolSource.CLIENT,
+        ok=True,
+        text="done",
+        data=data,
+    )
+
+    data["items"][0]["value"] = 2
+
+    assert result.data["items"][0]["value"] == 1
+
+
+def test_local_tool_result_rejects_non_json_data() -> None:
+    with pytest.raises(TypeError, match="non-serializable"):
+        LocalToolResult(
+            tool="inspect_context",
+            source=LocalToolSource.CLIENT,
+            ok=True,
+            text="done",
+            data={"value": object()},
+        )
+
+
+@pytest.mark.anyio
+async def test_local_tool_registry_rejects_result_identity_mismatch() -> None:
+    async def handler(arguments, runtime):
+        return _local_result("other_tool")
+
+    registry = ToolRegistry([ClientTool(
+        name="inspect_context",
+        description="test",
+        input_schema={"type": "object"},
+        handler=handler,
+    )])
+
+    with pytest.raises(ValueError, match="identity does not match"):
+        await registry.call_tool(
+            SimpleNamespace(),
+            "inspect_context",
+            turn_context=_child_turn(),
+            pref_config={},
+        )
+
+
 @pytest.mark.anyio
 async def test_client_tool_receives_complete_turn_context() -> None:
     received = []
 
     async def handler(arguments, runtime):
         received.append((arguments, runtime))
-        return _result()
+        return _local_result("inspect_context")
 
     registry = ToolRegistry([ClientTool(
         name="inspect_context",
@@ -134,7 +197,7 @@ async def test_client_tool_receives_complete_turn_context() -> None:
 
 @pytest.mark.anyio
 async def test_client_tool_rejects_missing_turn_context() -> None:
-    handler = AsyncMock(return_value=_result())
+    handler = AsyncMock(return_value=_local_result("inspect_context"))
     registry = ToolRegistry([ClientTool(
         name="inspect_context",
         description="test",
@@ -159,7 +222,10 @@ async def test_builtin_tool_uses_separate_registry_and_wire_metadata() -> None:
 
     async def handler(arguments, runtime):
         received.append((arguments, runtime))
-        return _result()
+        return _local_result(
+            "request_permissions",
+            LocalToolSource.BUILTIN,
+        )
 
     registry = ToolRegistry([BuiltinTool(
         name="request_permissions",
@@ -190,7 +256,7 @@ async def test_builtin_tool_uses_separate_registry_and_wire_metadata() -> None:
 async def test_external_tool_does_not_receive_turn_context() -> None:
     external = SimpleNamespace(
         tools={"mcp__docs__lookup": object()},
-        call_tool=AsyncMock(return_value=_result()),
+        call_tool=AsyncMock(return_value=_mcp_result()),
     )
     session = CompositeToolSession(external_group=external)
 
@@ -215,7 +281,7 @@ async def test_external_tool_does_not_receive_turn_context() -> None:
 @pytest.mark.anyio
 async def test_service_tool_does_not_receive_turn_context() -> None:
     service = SimpleNamespace(
-        call_tool=AsyncMock(return_value=_result()),
+        call_tool=AsyncMock(return_value=_mcp_result()),
     )
     session = CompositeToolSession(service_session=service)
 

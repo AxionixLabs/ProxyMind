@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from observability import observe
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.application.approvals.models import ApprovalOutcome
-from mind_app.client_tools.planning import PLAN_STEPS_TOOL
+from agent.application.tools.planning import PLAN_STEPS_TOOL
 from agent.ports.transcript import TranscriptSink
 from agent.ports import (
     ApprovalCoordinatorPort,

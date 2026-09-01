@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from mcp import types as mcp_types
 
-from mind_app.client_tools.planning import (
+from agent.application.tools.planning import (
     PLAN_STEPS_INPUT_SCHEMA,
     planning_tools,
 )

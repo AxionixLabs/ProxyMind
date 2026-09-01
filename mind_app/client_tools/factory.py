@@ -6,10 +6,10 @@ from pathlib import Path
 from agent.application.config.settings import FeatureSettings
 from infrastructure.mcp.local_tool_registry import ToolRegistry
 from mind_app.native_coding import NativeCoding
+from agent.application.tools.planning import planning_tools
+from agent.application.tools.plan_update import update_plan_tools
 from .coding import coding_tools
-from .planning import planning_tools
 from .subagents import subagent_tools
-from .update_plan import update_plan_tools
 from .view_image import view_image_tools
 
 if typing.TYPE_CHECKING:

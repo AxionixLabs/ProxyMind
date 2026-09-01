@@ -4,18 +4,6 @@
 import json
 import typing
 from agent.application.views.commands import command_text
-from frontends.terminal.traces.native import (
-    render_tool_result_entries,
-    render_tool_start_preview,
-    render_tool_start_trace,
-    render_tool_trace
-)
-from frontends.terminal.traces.generic import render_generic_tool_result_preview
-from frontends.terminal.traces.models import (
-    TraceEntry,
-    TracePreview,
-)
-from frontends.terminal.traces.render import render_tool_trace_parts
 from agent.application.views.tool_display import (
     ToolDisplayKind,
     tool_display_spec
@@ -36,9 +24,21 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
+from frontends.terminal.traces.native import (
+    render_tool_result_entries,
+    render_tool_start_preview,
+    render_tool_start_trace,
+    render_tool_trace
+)
+from frontends.terminal.traces.generic import render_generic_tool_result_preview
+from frontends.terminal.traces.models import (
+    TraceEntry,
+    TracePreview,
+)
+from frontends.terminal.traces.render import render_tool_trace_parts
 
-TRANSCRIPT_SUCCESS_STYLE  = TextStyle(foreground="#6EE7A8", bold=True)
-TRANSCRIPT_FAILURE_STYLE  = TextStyle(foreground="#FF6B6B", bold=True)
+TRANSCRIPT_SUCCESS_STYLE = TextStyle(foreground="#6EE7A8", bold=True)
+TRANSCRIPT_FAILURE_STYLE = TextStyle(foreground="#FF6B6B", bold=True)
 TRANSCRIPT_DURATION_STYLE = TextStyle(dim=True)
 
 
@@ -165,9 +165,9 @@ def render_javascript_result_view(
     measure_width: typing.Callable[[str], int] | None = None
 ) -> StyledBlock:
     """把 JavaScript 执行结果转换为完成态展示块。"""
-    entries        = _native_entries(view)
-    entry          = entries[0] if entries else None
-    title          = entry.title if entry is not None else "• JavaScript"
+    entries = _native_entries(view)
+    entry = entries[0] if entries else None
+    title = entry.title if entry is not None else "• JavaScript"
     result_preview = entry.preview if entry is not None else TracePreview()
 
     return StyledBlock(
@@ -186,9 +186,8 @@ def render_javascript_result_view(
 def render_javascript_result_transcript_view(view: NativeToolResultView) -> StyledBlock:
     """把 JavaScript 执行结果转换为完整记录块。"""
     entries = _native_entries(view)
-    title  = entries[0].title if entries else "• JavaScript"
+    title = entries[0].title if entries else "• JavaScript"
     output = _javascript_result_text(view)
-
     return _transcript_block(title, output)
 
 
@@ -211,7 +210,7 @@ def render_tool_start_transcript_view(view: ToolStartView) -> StyledBlock:
         return _transcript_block("", "")
     if spec.kind is ToolDisplayKind.JAVASCRIPT:
         source_field = spec.source_field
-        source       = view.arguments.get(source_field) if source_field else ""
+        source = view.arguments.get(source_field) if source_field else ""
 
         return _transcript_block(
             render_tool_start_trace(view.name, view.arguments),
@@ -237,7 +236,8 @@ def render_native_tool_result_transcript_view(view: NativeToolResultView) -> tup
 
     payload = _native_payload(view.data)
     entries = _native_entries(view)
-    title   = entries[0].title if entries else f"• Ran {view.name}"
+
+    title = entries[0].title if entries else f"• Ran {view.name}"
 
     if spec.kind is ToolDisplayKind.SHELL:
         command = _command_text(
@@ -301,7 +301,7 @@ def render_native_tool_result_raw_text(view: NativeToolResultView) -> tuple[str,
         return ("\n".join(item for item in (command, output) if item),)
 
     if spec.kind is ToolDisplayKind.STDIN:
-        stdin   = str(view.arguments.get("stdin") or "")
+        stdin = str(view.arguments.get("stdin") or "")
         command = _command_text(
             payload.get("command") or view.arguments.get("command")
         )
@@ -339,8 +339,7 @@ def _transcript_block(title: str, body: str) -> StyledBlock:
     """生成不截断正文内容的记录块。"""
     heading = str(title or "").rstrip()
     content = str(body or "").strip("\n")
-    text    = f"{heading}\n{content}" if heading and content else heading or content
-
+    text = f"{heading}\n{content}" if heading and content else heading or content
     return StyledBlock(plain_text=text)
 
 
@@ -409,7 +408,7 @@ def _command_result_transcript_block(
         TRANSCRIPT_DURATION_STYLE,
     ))
 
-    separator   = "\n" if block.plain_text else ""
+    separator = "\n" if block.plain_text else ""
     status_text = "".join(span.text for span in status_spans)
 
     return StyledBlock(
@@ -506,7 +505,7 @@ def _native_result_title(
 def _javascript_result_text(view: NativeToolResultView) -> str:
     """返回 JavaScript 执行保留的完整输出。"""
     payload = _native_payload(view.data)
-    value   = payload.get("output") if view.ok else payload.get("error")
+    value = payload.get("output") if view.ok else payload.get("error")
 
     if value not in (None, ""):
         if isinstance(value, str):

@@ -3,9 +3,12 @@
 
 import json
 import typing
-from mcp import types as mcp_types
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.definitions import BuiltinTool
+from agent.application.tools.results import (
+    LocalToolResult,
+    LocalToolSource,
+)
 from protocol.client.turn_control import TurnControlRequestError
 from agent.stores.approvals.permissions import normalize_permission_profile
 from mind_app.client_tools.coding.schemas import REQUEST_PERMISSIONS_INPUT_SCHEMA
@@ -24,7 +27,7 @@ def permission_response_result(
     scope: str,
     strict_auto_review: bool,
     error: str = "",
-) -> mcp_types.CallToolResult:
+) -> LocalToolResult:
     """构造权限内置工具的结构化回执。"""
     response: dict[str, typing.Any] = {
         "permissions": dict(permissions),
@@ -34,19 +37,12 @@ def permission_response_result(
     if error:
         response["error"] = error
     text = json.dumps(response, ensure_ascii=False, separators=(",", ":"))
-    return mcp_types.CallToolResult(
-        content=[mcp_types.TextContent(type="text", text=text)],
-        structuredContent={
-            "ok": not bool(error),
-            "tool": "request_permissions",
-            "source": "builtin",
-            "args": {},
-            "text": text,
-            "attachments": [],
-            "data": response,
-        },
-        isError=bool(error),
-        _meta={"logs": []},
+    return LocalToolResult(
+        tool="request_permissions",
+        source=LocalToolSource.BUILTIN,
+        ok=not bool(error),
+        text=text,
+        data=response,
     )
 
 
@@ -58,7 +54,7 @@ def permission_tools(
     async def request_permissions_handler(
         arguments: dict[str, typing.Any],
         runtime: ToolHandlerContext,
-    ) -> mcp_types.CallToolResult:
+    ) -> LocalToolResult:
         """申请当前环境的额外文件或网络权限。"""
         try:
             reject_model_execution(arguments)

@@ -201,6 +201,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   types/registry 模块和包级兼容导出已删除。工具/权限/Turn 回归 `270 passed`，前端并行
   改动回归 `1813 passed`；完整架构守卫 `106 passed / 2 stale assertions`，修正后职责专项
   `5 passed, 3 warnings`，导入图、`compileall` 和差异检查通过。
+- 本地工具结果与 planning 能力族已收口：所有本地 handler 返回不可变、JSON 校验的
+  `LocalToolResult`，MCP registry 统一适配 `CallToolResult` 并校验工具名和来源；旧
+  `client_tools/result.py` 已删除。`plan_steps` 与 `update_plan` 的 schema、校验、描述和结果
+  已迁入 `agent/application/tools`，旧能力模块和导入清零。规划/工具/Turn 回归 `230 passed`，
+  终端展示回归 `145 passed`，职责专项 `5 passed, 2 warnings`，导入图和编译通过。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -297,11 +302,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    运行期投递已按 adapter/application/domain/runtime 分开；三个旧模块、旧导入和单调用者
    facade 已删除，`mind_app/runtime/mcp` 源码清零。
 
-4. **本地工具能力族重组（进行中）**：registry、调用上下文和类型契约已迁入
-   `infrastructure/mcp` 与 `agent/application/tools`，四个重复旧模块已删除。下一步按
-   planning、workspace coding、subagent、permissions、media 拆分具体能力；稳定描述/结果
-   进入 application，执行状态归 Harness，操作系统与 SDK 实现归 infrastructure，禁止创建
-   新的总工具 facade。
+4. **本地工具能力族重组（进行中）**：registry、调用上下文、类型契约、稳定结果和
+   planning 能力已迁入 `infrastructure/mcp` 与 `agent/application/tools`，七个旧模块已删除。
+   下一步迁移 media 与 permissions，再拆分 workspace coding 和 subagent；执行状态归 Harness，
+   操作系统与 SDK 实现归 infrastructure，禁止创建新的总工具 facade。
 
 5. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。

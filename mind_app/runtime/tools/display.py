@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.client_tools.update_plan import UPDATE_PLAN_TOOL
+from agent.application.tools.plan_update import UPDATE_PLAN_TOOL
 from agent.application.views.contracts import PresentationSink
 from agent.application.views.builders.plan import build_plan_update_view
 from agent.application.views.builders.tools import (

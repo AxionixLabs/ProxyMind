@@ -243,7 +243,10 @@ agent/
 │   ├── tools/               # 本地工具定义、调用上下文与无副作用目录语义
 │   │   ├── catalog.py       # 模型可见工具目录的名称与元数据查询
 │   │   ├── context.py       # 单次处理调用的会话、Turn 与回调依赖
-│   │   └── definitions.py   # SDK 无关的 client/builtin 工具定义
+│   │   ├── definitions.py   # SDK 无关的 client/builtin 工具定义
+│   │   ├── results.py       # 不可变、JSON 校验的本地工具结果
+│   │   ├── planning.py      # 宏步骤计划的 schema、校验和工具定义
+│   │   └── plan_update.py   # 工作计划快照的 schema、校验和工具定义
 │   ├── views/               # 跨前端共享的应用结果 projection/view 契约
 │   │   ├── contracts.py      # PresentationView 与 PresentationSink
 │   │   ├── run.py            # Run 终态、失败和生命周期视图
@@ -617,7 +620,8 @@ running -> cancelled
 | `mind_app/assets.py` | `infrastructure/update/assets.py` 与 `frontends/terminal/download_renderer.py` | 资产存在性和升级触发属于更新基础设施；动画管理器到终端进度端口的适配属于 frontend，不让更新层依赖 UI |
 | `mind_app/attach.py`、`mind_app/interaction/attachments.py` | `frontends/interaction/attachments.py` | 待发送附件的路径解析、分类、快照和消费属于前端输入状态；不把一次输入状态伪装成持久化 Store 或协议模型，Controller 仅在迁移期持有该前端状态 |
 | `mind_app/mcp/`、`mind_app/runtime/mcp/` | `infrastructure/mcp/`、`agent/application/tools/catalog.py`、`agent/domain/tool_policy.py` | MCP 配置、SDK 参数、网络预检、连接生命周期、多来源工具会话和 SDK 结果归一化属于基础设施 adapter；纯目录查询归 application，进度支持规则归 domain，进度投递归工具执行编排。动态来源通过 `ToolRuntimeSources` 在 Turn 开始时冻结，具体 runtime 只由 `mind.py` 组合；旧 MCP runtime 源目录完全退役且不保留 facade |
-| `mind_app/client_tools/types.py`、`registry.py` 与 `mind_app/builtin_tools/types.py`、`registry.py` | `agent/application/tools/context.py`、`definitions.py` 与 `infrastructure/mcp/local_tool_registry.py` | 工具定义和调用级依赖属于 application 契约，不构造 MCP SDK 对象；唯一注册表在基础设施边界完成 MCP schema 适配，并强制单个实例只接收 client 或 builtin 一种来源。Controller 只保存 `ToolRegistryPort`，能力包不再持有第二套状态或兼容导出 |
+| `mind_app/client_tools/types.py`、`registry.py`、`result.py` 与 `mind_app/builtin_tools/types.py`、`registry.py` | `agent/application/tools/context.py`、`definitions.py`、`results.py` 与 `infrastructure/mcp/local_tool_registry.py` | 工具定义、调用级依赖和不可变 JSON 结果属于 application 契约，不构造 MCP SDK 对象；唯一注册表在基础设施边界完成 MCP schema/result 适配，强制单个实例只接收 client 或 builtin 一种来源，并校验结果身份。Controller 只保存 `ToolRegistryPort`，能力包不再持有第二套状态或兼容导出 |
+| `mind_app/client_tools/planning.py`、`update_plan.py` | `agent/application/tools/planning.py`、`plan_update.py` | 计划 schema、输入校验、稳定结果和工具描述是无 IO 的 application 能力；运行计划的工具调用、Hook、展示和耗时仍由执行编排持有，不把副作用迁入 application |
 | `mind_app/native_coding/encoding.py` | `infrastructure/platform/encoding.py` | 进程输出编码探测、规范化和解码是跨能力的平台事实；native coding 只消费平台端口，不拥有第二套解码器 |
 | `mind_app/runtime/processes.py` | `infrastructure/platform/processes.py` | 进程组创建、stdin 收束、树级中断/终止和 Windows/POSIX 差异属于平台生命周期能力 |
 | `mind_app/native_coding/workspace_command.py` | `infrastructure/platform/workspace.py` | 无 shell 工作区命令、超时和输出上限属于平台命令执行能力；native coding 不拥有进程树实现 |

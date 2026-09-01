@@ -312,8 +312,8 @@ async def test_read_only_sandbox_rejects_local_mutating_capabilities(
     arguments = {"patch": "*** Begin Patch\n*** End Patch"}
     result = await tool.handler(arguments, runtime)
 
-    assert result.isError is True
-    assert result.structuredContent["data"]["reason"] == "sandbox_read_only"
+    assert result.ok is False
+    assert result.data["reason"] == "sandbox_read_only"
 
 
 @pytest.mark.anyio
@@ -404,8 +404,8 @@ async def test_hook_updated_input_reaches_native_shell_handler(
     )
     result = await tool.handler(effective.arguments, runtime)
 
-    assert result.isError is False
-    assert result.structuredContent["args"] == expected
+    assert result.ok is True
+    assert result.args == expected
     call = getattr(coding, tool_name).await_args
     for key, value in expected.items():
         assert call.kwargs[key] == value
@@ -461,8 +461,8 @@ async def test_native_shell_handler_accepts_client_arguments_without_remote_gran
 
     result = await tool.handler(arguments, runtime)
 
-    assert result.isError is False
-    assert result.structuredContent["args"] == arguments
+    assert result.ok is True
+    assert result.args == arguments
     getattr(coding, tool_name).assert_awaited_once()
 
 
@@ -494,8 +494,8 @@ async def test_command_justification_is_not_passed_to_native_executor(
 
     result = await tool.handler(arguments, runtime)
 
-    assert result.isError is False
-    assert result.structuredContent["args"] == {
+    assert result.ok is True
+    assert result.args == {
         "command": "echo ready",
         "sandbox_permissions": "require_escalated",
     }
