@@ -26,9 +26,9 @@ from agent.application.turns.context import (
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
 from mind_app.runtime.tools.client_call import ClientToolCallRunner
-from mind_app.runtime.tools.display import show_tool_result
 from mind_app.runtime.tools.plan_call import PlanToolCallRunner
-from mind_app.runtime.tools.run import server_tool_output_result
+from agent.application.views.tool_execution import show_tool_result
+from infrastructure.mcp.tool_execution import server_tool_output_result
 from agent.application.views import uses_native_tool_view
 from protocol.client.tools import build_tool_result_envelope
 from protocol.client.turn_control import TurnControlRequestError

@@ -8,7 +8,7 @@ from agent.application.turns.context import (
     TurnContext,
 )
 from agent.domain.policies import preset_permissions
-from mind_app.runtime.tools.router import execute_tool
+from infrastructure.mcp.tool_invocation import execute_tool
 
 
 class _ProgressSession(object):

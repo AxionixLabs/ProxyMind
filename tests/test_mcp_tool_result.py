@@ -8,7 +8,7 @@ from infrastructure.mcp.tool_results import (
     normalize_tool_fields,
 )
 from agent.application.turns.context import AgentContext, ToolInvocation, TurnContext
-from mind_app.runtime.tools.run import (
+from infrastructure.mcp.tool_execution import (
     run_tool_step,
     server_tool_output_result,
 )

@@ -253,6 +253,11 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   `infrastructure/workspace`；`NativeCoding` 改为 `WorkspaceCoding`，组合根直接注入应用
   资源根和进程会话。两个无调用者 helper 未迁移；工作区行为回归 `169 passed`，职责与
   legacy 清零守卫 `5 passed, 3 warnings`。
+- 工具执行编排已完成第一组职责拆分：工具开始/结果/进度展示归
+  `agent/application/views/tool_execution.py`，MCP 调用和结果执行适配归
+  `infrastructure/mcp`，远端 heal 增强归 `infrastructure/services`；旧 display、progress、
+  enhancement、router 和 run 共九个源码模块删除。联合行为回归 `128 passed`，职责守卫
+  `3 passed, 1 warning`，导入图、`compileall`、旧导入扫描和差异检查通过。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -359,9 +364,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    状态/副作用拆分，`mind.py` 保持唯一具体组合根；旧 `mind_app/native_coding` 源包和
    生产导入清零，没有 `native_coding` 同名 facade。
 
-6. **工具执行编排归位（下一步）**：审计并重组 `mind_app/runtime/tools`，把工具调用
-   lifecycle、Hook/effect 协调和展示 projection 分别归入 Harness/application adapter，MCP
-   SDK 继续只留在 infrastructure；按完整调用闭环迁移并删除旧模块，不复制第二套 router。
+6. **工具执行编排归位（进行中）**：展示 projection、MCP SDK 调用/结果适配和远端增强
+   已按 application/infrastructure 边界迁出，旧 router/run 与展示增强模块已删除。下一切片
+   将 `client_call.py` 的 effect/Hook 生命周期和 `plan_call.py`、`plan_steps.py` 的计划执行
+   编排迁入 Harness/application；完成后删除整个 `mind_app/runtime/tools` 源包。
 
 7. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
@@ -403,6 +409,12 @@ legacy 包；`infrastructure/workspace` 不依赖前端、Controller 或历史�
 `WorkspaceCoding` 结构化实现既有工作区 ports。`mind.py` 是 Sandbox、进程会话和应用资源根
 的唯一组合点，旧 `mind_app/native_coding` 源文件及导入清零；补丁、冲突保护、命令会话、
 Sandbox、JS REPL、用户 Shell 完成/中断与差异跟踪均通过联合回归。
+
+本次工具展示与 MCP 执行适配切片的删除条件已满足：展示模块只依赖 application view、domain
+策略和输出端口；MCP SDK 调用、结果归一化及 Hook 响应转换已归 infrastructure；远端 heal
+license 和协议流由 services adapter 持有。旧 display/progress/enhancement/router/run 源码与
+生产导入清零，工具开始、结果、进度、增强旁路、失败和服务端输出均保留回归覆盖。剩余
+`client_call.py` 的 SDK 响应载体将在下一切片随稳定执行结果端口一并消除。
 
 本次 MCP 生命周期切片的删除条件已满足：Harness 所有者不得导入 `mind_app` 或具体 MCP 实现；
 组合根必须显式注入 `ExternalMcpRuntime` 工厂；旧 `mind_app.runtime.mcp.lifecycle`

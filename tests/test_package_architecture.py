@@ -206,6 +206,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/views/builders/run.py",
         "application/views/builders/tools.py",
         "application/views/commands.py",
+        "application/views/tool_execution.py",
         "domain/identifiers.py",
         "domain/execution_policy/sandbox.py",
         "domain/permission_profiles.py",
@@ -1171,6 +1172,8 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "registry.py",
         "settings.py",
         "tool_catalog.py",
+        "tool_execution.py",
+        "tool_invocation.py",
         "tool_results.py",
         "tool_runtime.py",
         "transport.py",
@@ -4061,6 +4064,80 @@ def test_application_view_builders_are_pure_and_owned_by_application() -> None:
                     )
     assert not violations, "application view builders cross legacy boundary:\n" + (
         "\n".join(violations)
+    )
+
+
+def test_tool_execution_projection_has_application_ownership() -> None:
+    """确保工具展示投影归 application，SDK 执行与增强归基础设施。"""
+    legacy_paths = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "display.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "progress.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "enhance_reporter.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "run.py",
+        PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "router.py",
+    )
+    assert not any(path.exists() for path in legacy_paths)
+    legacy_enhancement = (
+        PROJECT_ROOT / "mind_app" / "runtime" / "tools" / "enhancement"
+    )
+    assert not any(legacy_enhancement.rglob("*.py"))
+
+    application_path = (
+        PROJECT_ROOT / "agent" / "application" / "views" / "tool_execution.py"
+    )
+    application_tree = ast.parse(
+        application_path.read_text(encoding="utf-8-sig"),
+        filename=str(application_path),
+    )
+    application_violations: list[str] = []
+    forbidden_roots = {
+        "backend",
+        "engine",
+        "frontends",
+        "infrastructure",
+        "mcp",
+        "mind_app",
+        "mind_core",
+        "protocol",
+        "server",
+    }
+    for node in ast.walk(application_tree):
+        modules: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            modules = tuple(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = (node.module or "",)
+        for module in modules:
+            if module.partition(".")[0] in forbidden_roots:
+                application_violations.append(f"{node.lineno} -> {module}")
+    assert not application_violations, (
+        "tool execution projection crosses application boundary:\n"
+        + "\n".join(application_violations)
+    )
+
+    infrastructure_paths = (
+        PROJECT_ROOT / "infrastructure" / "mcp" / "tool_execution.py",
+        PROJECT_ROOT / "infrastructure" / "mcp" / "tool_invocation.py",
+        PROJECT_ROOT
+        / "infrastructure"
+        / "services"
+        / "tool_result_enhancement.py",
+    )
+    assert all(path.is_file() for path in infrastructure_paths)
+    infrastructure_violations = _forbidden_module_imports(
+        "infrastructure",
+        {
+            "mind_app.runtime.tools.display",
+            "mind_app.runtime.tools.enhance_reporter",
+            "mind_app.runtime.tools.enhancement",
+            "mind_app.runtime.tools.progress",
+            "mind_app.runtime.tools.router",
+            "mind_app.runtime.tools.run",
+        },
+    )
+    assert not infrastructure_violations, (
+        "tool infrastructure imports retired runtime modules:\n"
+        + "\n".join(infrastructure_violations)
     )
 
 

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mind_app.runtime.tools.enhancement import enhance_result
+from infrastructure.services.tool_result_enhancement import enhance_tool_result
 
 
 @pytest.mark.anyio
@@ -22,7 +22,7 @@ async def test_nexus_result_bypasses_enhancement_and_hidden_recording() -> None:
         end_status=AsyncMock(),
     )
 
-    result = await enhance_result(
+    result = await enhance_tool_result(
         pref_config={},
         name="nexus_http_request",
         result_fields=fields,

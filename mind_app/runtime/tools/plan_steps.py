@@ -18,8 +18,8 @@ from agent.application.hooks.models import (
     ToolResultSnapshot
 )
 from mind_app.runtime.hooks.tool import ToolCallCoordinator
-from .router import execute_tool
-from .run import hook_tool_response
+from infrastructure.mcp.tool_execution import hook_tool_response
+from infrastructure.mcp.tool_invocation import execute_tool
 
 ERROR_PREVIEW_LIMIT = 8
 FAILURE_GROUP_LIMIT = 8

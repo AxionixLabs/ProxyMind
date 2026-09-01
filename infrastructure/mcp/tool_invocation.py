@@ -6,10 +6,10 @@ from agent.application.tools.context import (
     NESTED_TOOL_DISPATCH_META_KEY,
     TURN_INTERRUPT_META_KEY,
 )
-from agent.ports import McpSessionPort
 from agent.application.tools.catalog import has_tool
 from agent.application.turns.context import ToolInvocation
 from agent.domain.tool_policy import supports_progress_notifications
+from agent.ports import McpSessionPort
 from mcp.types import CallToolResult
 from observability import observe
 
@@ -55,7 +55,7 @@ async def _emit_tool_progress(
 def is_hosted_tool(
     tools: list[dict[str, typing.Any]],
     name: str,
-    meta: typing.Optional[dict[str, typing.Any]] = None
+    meta: dict[str, typing.Any] | None = None,
 ) -> bool:
     """判断工具是否由服务端注入，而非本地 MCP 注册。"""
     if has_tool(tools, name):
@@ -69,8 +69,8 @@ async def execute_tool(
     tools: list[dict[str, typing.Any]],
     invocation: ToolInvocation,
     pref_config: typing.Mapping[str, typing.Any],
-    stream_callback: typing.Optional[typing.Callable[[str], typing.Awaitable[None]]] = None,
-    enable_progress_notify: bool = False
+    stream_callback: typing.Callable[[str], typing.Awaitable[None]] | None = None,
+    enable_progress_notify: bool = False,
 ) -> CallToolResult:
     """统一工具执行入口。"""
     if not has_tool(tools, invocation.name):
@@ -92,7 +92,7 @@ async def execute_tool(
                 progress=progress,
                 total=total,
                 message=message,
-                stream_callback=stream_callback
+                stream_callback=stream_callback,
             )
 
     runtime_meta = (

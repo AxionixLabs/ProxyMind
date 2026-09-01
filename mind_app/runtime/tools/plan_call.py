@@ -19,7 +19,7 @@ from agent.ports import (
 )
 from agent.application.views.contracts import PresentationSink
 from agent.application.views.builders.plan import build_plan_steps_start_view
-from .display import show_tool_result
+from agent.application.views.tool_execution import show_tool_result
 from .plan_steps import (
     PlanExecutionReport,
     StepPlanExecutor

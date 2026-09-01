@@ -30,13 +30,19 @@ from agent.application.hooks.models import (
     ToolResultSnapshot,
 )
 from mind_app.runtime.tools import client_call
-from mind_app.runtime.tools.display import show_tool_result, show_tool_start
+from agent.application.views.tool_execution import (
+    show_tool_result,
+    show_tool_start,
+)
 from mind_app.runtime.tools.client_call import (
     ClientToolCallOutcome,
     ClientToolCallResult,
     ClientToolCallRunner,
 )
-from mind_app.runtime.tools.run import ToolRunResult, hook_tool_response
+from infrastructure.mcp.tool_execution import (
+    ToolRunResult,
+    hook_tool_response,
+)
 from agent.domain.policies import preset_permissions
 from protocol.schema.stream_events import ExecutionEffect
 

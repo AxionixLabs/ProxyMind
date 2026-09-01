@@ -1,32 +1,36 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
-import typing
 import asyncio
 import functools
+import time
+import typing
 from dataclasses import dataclass
-from mcp import types as mcp_types
-from agent.ports import McpSessionPort
+from agent.application.tools.catalog import meta_for_tool
 from agent.application.turns.context import ToolInvocation
-from protocol.schema.tool_approval import ToolLifecycleStatus
+from agent.application.views.contracts import PresentationSink
+from agent.application.views.tool_execution import (
+    ToolEnhancementPresenter,
+    show_tool_progress,
+)
+from agent.domain.tool_policy import is_approval_only_tool
+from agent.ports import (
+    McpSessionPort,
+    OutputStatusPort,
+)
+from infrastructure.mcp.tool_invocation import execute_tool
 from infrastructure.mcp.tool_results import (
     normalize_call_tool_result,
     normalize_tool_fields,
-    serialize_call_tool_result
+    serialize_call_tool_result,
 )
-from agent.application.tools.catalog import meta_for_tool
-from agent.application.views.contracts import PresentationSink
-from agent.domain.tool_policy import is_approval_only_tool
-from .enhancement import enhance_result
-from agent.ports import OutputStatusPort
-from .enhance_reporter import ToolEnhanceReporter
-from .progress import show_tool_progress
-from .router import execute_tool
+from infrastructure.services.tool_result_enhancement import enhance_tool_result
+from mcp import types as mcp_types
 from observability import (
     observe,
-    observe_exception
+    observe_exception,
 )
+from protocol.schema.tool_approval import ToolLifecycleStatus
 
 
 @dataclass(slots=True)
@@ -234,12 +238,12 @@ async def run_tool_step(
             if is_approval_only_tool(name):
                 fields = normalized.fields
             else:
-                fields = await enhance_result(
+                fields = await enhance_tool_result(
                     pref_config=pref_config,
                     name=name,
                     result_fields=normalized.fields,
                     ok=ok,
-                    reporter=ToolEnhanceReporter(
+                    reporter=ToolEnhancementPresenter(
                         status_control,
                         presentation,
                         tool_name=name,
