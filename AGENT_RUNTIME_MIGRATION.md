@@ -179,6 +179,9 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   投影均改为显式端口/组合根注入，旧 terminal lifecycle/animation adapter 已删除；Helix
   下载改为显式 `UpgradeProgress`。导入图中 `mind_app -> frontends` 的 `1 file / 6 edges`
   已清零，前后端历史包双向边均为零。
+- 四类入口已在同一基线下分别完成启动/恢复证据：CLI Resume、失败恢复和最终清理
+  `14 passed`，TUI 启动门禁与 backtrack 事务恢复 `29 passed`，stdio MCP 会话续接和
+  清理失败 `14 passed`，Subscription 暂停续接、ready 超时与重启 `18 passed`。
 
 - 受影响行为回归：`2958 passed, 11 skipped`。
 - 完整架构守卫：`75 passed, 51 warnings`。
@@ -262,39 +265,16 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
    静默输出 Session、审批 presenter 和终端完成投影分别使用具名端口或组合根注入；旧
    terminal lifecycle/animation 文件已物理删除，没有新增聚合兼容 facade。
 
-1. **入口与数据迁移**：`mind_core` 的配置、权限、hooks、skills 已完成生产导入清零，
-   前台轮次生命周期已归 application/ports 并由组合根绑定具体展示；Hook 命令执行器已归属
-   `infrastructure/platform`，Hook runtime/registry/Scope 已接入 `agent/harness/hooks`；
-   通用 MCP 生命周期所有者已迁入 `agent/harness/mcp`；本地服务生命周期 owner、keepalive、
-   上下文类型和 setup helpers 已迁入 `infrastructure/services`；Subscription 适配器已
-   整体迁入 `frontends/subscription`，仅供它使用的 HTTP/WS 客户端与 wire envelope 已
-   同步迁出，旧路径已删除；下一条补齐 CLI、TUI、MCP、Subscription 的独立启动/恢复证据，
-   具体外部 MCP runtime 仍由后续 capability/adapters 切片接管。
-   Subscription 对旧根轮次与环境采集模块的反向依赖已收口：执行器和环境快照提供器由
-   组合根注入，前端适配器不再导入 `mind_app.runtime.turns` 或
-   `mind_app.interaction.environment`；下一条补齐 CLI、TUI、MCP、Subscription 的独立
-   启动/恢复证据。
-   stdio MCP 入站适配器及其根轮次/环境能力注入已完成，CLI 适配器及其根轮次/环境
-   能力注入也已收口；下一条只补齐四类入口的独立启动/恢复证据，再进入具体外部 MCP
-   capability/adapters 的职责迁移。
-   TUI 输入、会话、渲染和 runtime 已作为同一可替换前端边界整体迁入
-   `frontends/tui`，旧路径已删除；下一条补齐 CLI、TUI、MCP、Subscription 的独立
-   启动/恢复证据，再进入具体外部 MCP capability/adapters 的职责迁移。
-     TranscriptSink 端口、Transcript 共享记录值/归约器和 Session 游标存储均已完成职责迁移：
-     共享值位于 `agent/stores/transcripts`，Session 状态位于 `agent/stores/sessions`，文件
-     JSONL adapter 位于 `infrastructure/persistence`；旧 `mind_app/history` 包及 contract/store
-     路径已删除。已通过 Transcript/TUI/Turn/Subagent/History 回归、完整架构守卫、导入图和
-     `compileall`，下一条只补齐四类入口独立启动/恢复证据，再进入其他历史包删除收口。
-      跨入口应用展示端口和纯文本值对象已归入 `agent/ports/presentation.py`；应用结果
-      view 已按语义拆入 `agent/application/views`，前端和运行侧只依赖显式契约，交互和
-      输出生命周期未混入 ports。下一切片补齐四类入口独立启动/恢复证据，并开始迁移
-      `mind_app.presentation` 的 renderer/stream 实现已按 application 投影和终端渲染完成
-      拆分，旧包已删除。下一条只补齐 CLI、TUI、MCP、Subscription 四类入口独立启动/
-      恢复证据，并继续按导入图删除其他历史包。
-      TUI 输入控制器、session loop 和 CLI durable exec 的 Protocol Client/application
-      factory 已改为组合根显式注入；下一条收口 TUI 对话 fork feature 的 Protocol Client
-      发现，再补四类入口独立启动/恢复证据。
-2. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
+1. **四入口独立启动/恢复证据（已完成）**：CLI、TUI、stdio MCP 和 Subscription 已分别
+   覆盖启动、恢复/续接及关键清理失败；入口均消费组合根绑定的 application/Protocol
+   能力，前端不通过 Controller 动态发现运行时服务。
+
+2. **外部 MCP runtime/adapters 拆分**：先审计 `mind_app/runtime/mcp` 中进程生命周期、
+   SDK session、工具值转换和展示状态的真实所有权；通用 owner 继续归
+   `agent/harness/mcp`，网络/SDK 实现归 `infrastructure/mcp`，仅交互展示归 `frontends`。
+   每次迁移必须切换完整启动/重启/取消用例并删除旧路径，不创建新的 `mcp` 聚合 facade。
+
+3. **历史包删除收口**：按导入图逐批删除 `mind_app`、`mind_core`、`mind_nova`、
    `engine`，并完成存量配置、历史、报告和打包元数据回读。
 
 每一项的准入条件是：一个完整生产用例、一个关键失败路径、明确状态所有者、旧路径可
@@ -851,3 +831,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 删除 `mind_app/presentation` 源包，将纯工具 view/错误摘要/审批 application 迁入 `agent`，将终端 renderer/trace/样式迁入 `frontends/terminal`，并移除 application view 的终端预渲染字段 | 展示、TUI、审批、协议效果回归 `926 passed`；职责守卫 `8 passed, 3 warnings`；依赖图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 将审批 Coordinator 与 presenter 契约迁入 `agent/application/approvals`，由组合根注入快照失败观测回调并删除 `mind_app/approval` 源包 | 审批/TUI/终端交互回归 `283 passed`，Controller/启动回归 `42 passed`；职责守卫 `4 passed`；依赖图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | Controller 前端边界收口：新增 Frontend/Activity/Attachment ports，组合根注入具体附件、静默输出、审批与完成投影；删除 terminal lifecycle/animation，并显式注入 Helix UpgradeProgress | 生命周期 `121 passed`；CLI/TUI `236 passed`；MCP `14 passed`；Controller `49 passed`；完整架构扫描 `104 passed`，修正两项过期路径断言后专项 `5 passed`；导入图双向边清零，`compileall`、差异检查通过 |
+| 2026-09-01 | 四入口独立启动/恢复证据收口，并将下一迁移切片推进到外部 MCP runtime/adapters | CLI `14 passed`、TUI `29 passed`、stdio MCP `14 passed`、Subscription `18 passed`；覆盖续接、事务回退、ready 超时、重启和清理失败 |
