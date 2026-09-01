@@ -577,6 +577,13 @@ Subagent、工具、MCP、清理和根入口回归 `167 passed`；架构专项 `
 `compileall` 和 `git diff --check` 通过。下一切片复核 `SubagentRuntime` 的可选
 `executor`/`turn_runner` 参数，评估是否应由宿主契约统一提供并进一步缩小组合根入口。
 
+本次 Subagent 执行入口收口已满足上述条件：删除 `SubagentRuntime` 的可选
+`executor`/`turn_runner` 构造参数及对应生产类型依赖，执行端口统一由
+`SubagentRuntimeHostPort` 提供，消除调用方绕过宿主契约的装配分叉。Subagent、工具、MCP、
+清理和根入口回归 `167 passed`；架构专项 `4 passed`，导入图、`compileall` 和
+`git diff --check` 通过。下一切片复核 Subagent 执行适配器的旧 `mind_app.runtime.turns`
+依赖，设计可由 Harness 消费的模型流与输出会话端口，继续缩小历史包边界。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |

@@ -3039,6 +3039,22 @@ def test_subagent_runtime_only_orchestrates_injected_ports() -> None:
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
     }
     assert runtime_definitions == {"SubagentRuntime", "_normalize_task"}
+    runtime_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "SubagentRuntime"
+    )
+    init_method = next(
+        node
+        for node in runtime_class.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "__init__"
+    )
+    init_arguments = {
+        argument.arg
+        for argument in (*init_method.args.args, *init_method.args.kwonlyargs)
+    }
+    assert not init_arguments.intersection({"executor", "turn_runner"})
 
 
 def test_subagent_stream_execution_is_owned_by_adapter() -> None:

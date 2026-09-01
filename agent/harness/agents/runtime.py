@@ -18,8 +18,6 @@ from agent.ports import (
     ApprovalLedger,
     PatchPreviewPort,
     SkillsProvider,
-    SubagentExecutionPort,
-    SubagentTurnRunner,
     TurnCleanupPort,
     TranscriptFactory,
     PermissionGrantReader,
@@ -69,7 +67,6 @@ class SubagentRuntime:
         *,
         enabled: bool = True,
         settings: AgentSettings | None = None,
-        executor: SubagentExecutionPort | None = None,
         message_delivery: AgentMessageDeliveryPort | None = None,
         graph_store: AgentGraphStore | None = None,
         skills_provider: SkillsProvider | None = None,
@@ -83,13 +80,12 @@ class SubagentRuntime:
         transcript_factory: TranscriptFactory | None = None,
         cleanup: TurnCleanupPort | None = None,
         patch_preview: PatchPreviewPort | None = None,
-        turn_runner: SubagentTurnRunner | None = None,
     ) -> None:
         if not isinstance(enabled, bool):
             raise TypeError("subagent runtime enabled state must be a boolean")
 
         self._settings         = settings or AgentSettings()
-        self._executor         = executor or host.subagent_execution
+        self._executor         = host.subagent_execution
         self._message_delivery = message_delivery or SteeringMessageDelivery()
         self._graph_store      = graph_store
 
@@ -112,7 +108,7 @@ class SubagentRuntime:
         self._hook_scope_for = host.turn_hook_scope
         runner_cleanup = cleanup or host.subagent_cleanup
         runner = SubagentRunner(
-            turn_runner=turn_runner or host.subagent_turn_runner,
+            turn_runner=host.subagent_turn_runner,
             cleanup=runner_cleanup,
         )
         self._control_registry = AgentControlRegistry(
