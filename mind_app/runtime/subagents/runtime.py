@@ -130,7 +130,9 @@ class SubagentRuntime:
         self._transcript_factory = transcript_factory
         self._cleanup = cleanup
         self._patch_preview = patch_preview
-        self._execution_runtime = execution_runtime or controller
+        if execution_runtime is None:
+            execution_runtime = controller.turn_execution_runtime
+        self._execution_runtime = execution_runtime
         runner = SubagentRunner(
             turn_runner=self._run_turn,
             cleanup=controller,

@@ -48,6 +48,7 @@ class _CommandRunner:
 class _Controller:
     def __init__(self) -> None:
         self.sessions = []
+        self.turn_execution_runtime = self
 
     async def with_mcp_session(self, pref_config, function):
         self.sessions.append(pref_config)

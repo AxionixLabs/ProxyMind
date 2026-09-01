@@ -58,6 +58,7 @@ def stream_operation_adapter(monkeypatch) -> None:
 class _Controller:
     def __init__(self) -> None:
         self.configs = []
+        self.turn_execution_runtime = self
         self.stream_calls = []
         self.stream_handler = None
         self.config_session = SimpleNamespace(load=lambda: {

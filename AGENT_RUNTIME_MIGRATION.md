@@ -528,6 +528,12 @@ Subagent 均通过显式端口执行。核心 Turn/TUI/Subagent 回归 `56 passe
 `4 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过。下一切片复核
 SubagentRuntime 的可选执行器端口，移除其 Controller fallback。
 
+本次 Subagent 执行端口切片已满足上述条件：SubagentRuntime 在未显式传入时只读取
+Controller 已装配的 `turn_execution_runtime` 端口，不再将 Controller 本身作为执行器
+能力回退；生产组合根始终显式注入端口，测试替身同步声明相同边界。Subagent/工具回归
+`39 passed`；端口类型、导入图、`compileall` 和 `git diff --check` 通过。下一切片复核
+Subagent 的清理与 Hook scope 依赖，继续把宿主生命周期从 runtime 移出。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -654,3 +660,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 新增 `TurnEventReportHandle`、`TurnEventReportingPort` 和 `TurnExecutionRuntimePort`，由 `ControllerTurnExecutionRuntime` 适配报告、MCP 会话、工具过滤和清理；执行器删除 `Mind` 类型与宿主反射 | Turn/TUI/Subagent `56 passed`，工具补充回归 `31 passed`；端口专项、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `TurnStartResultPort`、`RootTurnSessionPort` 和 `ControllerRootTurnSession`，根轮次准备改为显式会话端口，删除 `prepare_root_turn` 对 Controller 会话资源和 Hook 属性的直接读取 | 根轮次/TUI/Subagent `63 passed`；根准备/执行端口专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | `run_root_turn` 改为直接消费 `RootTurnSessionPort` 与 `TurnExecutionRuntimePort`，偏好配置、默认权限、审批账本和生命周期 owner 脱离 Controller 入口 | CLI/TUI/根轮次/Subagent `161 passed`；根准备/执行端口专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | SubagentRuntime 删除 `execution_runtime or controller` 回退，改为读取 Controller 已装配的显式 `turn_execution_runtime` 端口 | Subagent/工具 `39 passed`；端口与导入边界、`compileall`、`git diff --check` 通过 |

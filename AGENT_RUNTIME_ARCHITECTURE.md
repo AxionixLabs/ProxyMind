@@ -560,7 +560,7 @@ running -> cancelled
 | `frontends/subscription/runtime.py::_build_default_executor` | `frontends/subscription/runtime.py` + 组合根 `mind.py` | `AgentRuntime` 只接受显式 `TurnApplicationFactory`；持久 application 由 `mind.py` 绑定，前端不通过宿主动态属性发现 `RuntimeServices`，关闭时由执行器回收 application |
 | `mind_app/runtime/mcp/service_lifecycle.py`、`keepalive.py`、`service_runtime.py` 中的服务上下文值对象与 setup helpers | `infrastructure/services/runtime_owner.py`、`keepalive.py`、`runtime_context.py`、`runtime_setup.py` | 本地 Helix 服务的启动任务、保活、端口终止、路径解析和上下文规格属于基础设施；TUI/CLI 只消费服务生命周期入口，不让 runtime 持有平台资源所有权 |
 | `mind_app/runtime/subagents/control.py` | `agent/harness/agents/control.py`；状态值对象归 `agent/domain/agents.py`、图归 `agent/stores/agents/graph.py` | AgentControl 只保留可变树调度、mailbox 协调和观察快照；Harness 持有状态机，domain/stores 不反向依赖它 |
-| `SubagentRuntime._execute_submission` | `agent/harness/execution/subagent_submission.py` | 已分配提交的 mailbox claim、Turn 上下文构造、活动轮次投递、结果确认和失败收束归 Harness；runtime 只注入 Controller、Hook scope 与执行适配器 |
+| `SubagentRuntime._execute_submission` | `agent/harness/execution/subagent_submission.py` | 已分配提交的 mailbox claim、Turn 上下文构造、活动轮次投递、结果确认和失败收束归 Harness；runtime 只注入会话端口、Hook scope 与执行适配器，执行器不把 Controller 当作能力对象 |
 | `SubagentRuntime._controls`、根会话生命周期锁 | `agent/harness/agents/registry.py` | AgentControlRegistry 串行管理根会话 control 的创建、恢复、移除和关闭；runtime 不再持有执行树注册表或 shutdown 状态 |
 | `AgentSnapshot`、`AgentWaitResult`、`AgentMailboxWaitResult` | `agent/application/agents/views.py` | 跨 TUI、工具和 runtime 的只读 Agent 视图归 application；Harness control 只创建视图，不拥有公共值对象 |
 | `AgentMessageDispatch` | `agent/application/agents/messages.py` | 消息派发结果是跨入口复用的 application 值对象；活动轮次和注册表只保留 Harness 内部状态 |
