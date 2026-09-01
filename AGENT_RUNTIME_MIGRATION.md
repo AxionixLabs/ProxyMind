@@ -622,6 +622,14 @@ Subagent 调用点改用 `OutputSessionFactory`，旧 `mind_app/presentation/out
 `mind_app/presentation` 剩余 renderer/stream 模块，按纯 view 投影、前端渲染和协议 adapter
 重新归类并继续删除 legacy presentation 平铺入口。
 
+本次 application view builder 迁移已满足上述条件：Run、Lifecycle、Progress、Plan、Batch、
+Approval、Patch 七类纯 builder 已迁入 `agent/application/views/builders`，runtime、审批、
+工具和各前端调用点全部切换，旧 `mind_app/presentation/*_views.py` 已删除；同时以显式
+分支替代迁移模块中的 `typing.cast`。展示、流式、工具、Hook、TUI 回归 `706 passed`，架构
+专项 `3 passed, 1 warning`，导入图、`compileall` 和 `git diff --check` 通过。下一切片复核
+`mind_app/presentation/renderers` 与 `presentation/stream` 的纯投影和终端渲染边界，继续将
+可复用投影下沉到 application、将终端实现留在 frontends。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |

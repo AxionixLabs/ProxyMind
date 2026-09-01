@@ -9,7 +9,7 @@ from mind_app.approval.presentation import (
     ensure_approval_presentation,
 )
 from mind_app.approval.factory import build_approval_request
-from mind_app.presentation.approval_views import build_approval_view
+from agent.application.views.builders.approval import build_approval_view
 from mind_app.presentation.renderers.approval import render_approval_view
 
 

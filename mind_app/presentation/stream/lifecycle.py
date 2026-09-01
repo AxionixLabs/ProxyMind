@@ -5,7 +5,7 @@ import typing
 from protocol.schema.stream_events import StreamEvent
 from agent.ports import OutputStatusPort
 from agent.application.views.contracts import PresentationSink
-from mind_app.presentation.lifecycle_views import build_lifecycle_view
+from agent.application.views.builders.lifecycle import build_lifecycle_view
 
 
 def _display_text(display: dict[str, typing.Any]) -> str:

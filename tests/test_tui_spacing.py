@@ -46,13 +46,13 @@ from agent.ports import (
     SourcesOutput,
 )
 
-from mind_app.presentation.approval_views import build_approval_view
-from mind_app.presentation.batch_views import (
+from agent.application.views.builders.approval import build_approval_view
+from agent.application.views.builders.batch import (
     build_batch_completed_view,
     build_batch_start_view,
 )
 from mind_app.presentation import code_highlight
-from mind_app.presentation.lifecycle_views import build_failure_view
+from agent.application.views.builders.lifecycle import build_failure_view
 from agent.application.views import (
     NativeToolResultView,
     PatchView,

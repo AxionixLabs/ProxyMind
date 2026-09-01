@@ -168,6 +168,14 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/turns/projections.py",
         "application/turns/run_result.py",
         "application/turns/stream_outcome.py",
+        "application/views/builders/__init__.py",
+        "application/views/builders/approval.py",
+        "application/views/builders/batch.py",
+        "application/views/builders/lifecycle.py",
+        "application/views/builders/patch.py",
+        "application/views/builders/plan.py",
+        "application/views/builders/progress.py",
+        "application/views/builders/run.py",
         "ports/content.py",
         "ports/output.py",
         "ports/presentation.py",
@@ -3543,6 +3551,48 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
         "tool_display.py",
         "tools.py",
     }
+
+
+def test_application_view_builders_are_pure_and_owned_by_application() -> None:
+    """确保 view builder 只负责构造 application view，不携带渲染实现。"""
+    builders_root = PROJECT_ROOT / "agent" / "application" / "views" / "builders"
+    legacy_names = (
+        "approval_views.py",
+        "batch_views.py",
+        "lifecycle_views.py",
+        "patch_views.py",
+        "plan_views.py",
+        "progress_views.py",
+        "run_views.py",
+    )
+    assert not any(
+        (PROJECT_ROOT / "mind_app" / "presentation" / name).is_file()
+        for name in legacy_names
+    ), "legacy application view builders remain"
+
+    violations: list[str] = []
+    for path in builders_root.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "")
+            for module in modules:
+                if module.partition(".")[0] in {
+                    "mind_app",
+                    "mind_core",
+                    "engine",
+                    "server",
+                    "infrastructure",
+                }:
+                    violations.append(
+                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
+                    )
+    assert not violations, "application view builders cross legacy boundary:\n" + (
+        "\n".join(violations)
+    )
 
 
 def test_tui_contracts_are_owned_by_frontends() -> None:

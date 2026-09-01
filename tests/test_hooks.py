@@ -43,7 +43,7 @@ from mind_app.runtime.hooks.turn import (
     PromptHookBlockedError,
     TurnHookEvents
 )
-from mind_app.presentation.approval_views import build_approval_view
+from agent.application.views.builders.approval import build_approval_view
 from mind_app.presentation.renderers.approval import render_approval_view
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from agent.domain.hooks import HOOK_EVENT_NAMES

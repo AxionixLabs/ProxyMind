@@ -33,7 +33,7 @@ from agent.application.views import (
     ProgressView,
     TracePreview,
 )
-from mind_app.presentation.run_views import build_run_started_view
+from agent.application.views.builders.run import build_run_started_view
 from mind_app.presentation.terminal.turn_lifecycle import (
     ControllerTurnForegroundLifecycle,
     run_foreground_turn,

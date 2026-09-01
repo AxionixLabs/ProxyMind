@@ -4,7 +4,6 @@
 import typing
 from protocol.schema.tool_approval import (
     TOOL_APPROVAL_ACCEPT_DECISIONS,
-    TOOL_APPROVAL_DECISIONS,
 )
 from agent.application.views import (
     ApprovalDecision,
@@ -34,8 +33,24 @@ def build_approval_view(
 
 def _approval_decision(decision: str) -> ApprovalDecision:
     """归一化工具审批结果。"""
-    if decision in TOOL_APPROVAL_DECISIONS:
-        return typing.cast(ApprovalDecision, decision)
+    if decision == "accept":
+        return decision
+    if decision == "acceptForSession":
+        return decision
+    if decision == "acceptWithExecpolicyAmendment":
+        return decision
+    if decision == "applyNetworkPolicyAmendment":
+        return decision
+    if decision == "grantForTurn":
+        return decision
+    if decision == "grantForTurnWithStrictAutoReview":
+        return decision
+    if decision == "grantForSession":
+        return decision
+    if decision == "decline":
+        return decision
+    if decision == "cancel":
+        return decision
 
     return "decline"
 

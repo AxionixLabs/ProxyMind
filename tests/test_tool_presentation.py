@@ -32,7 +32,7 @@ from mind_app.presentation.renderers.patch import (
     PATCH_ERROR_STYLE,
     PATCH_REMOVE_STYLE,
 )
-from mind_app.presentation.batch_views import (
+from agent.application.views.builders.batch import (
     build_batch_completed_view,
     build_batch_start_view,
 )

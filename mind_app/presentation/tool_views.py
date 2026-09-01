@@ -14,7 +14,7 @@ from agent.application.views import (
     PatchView,
     ToolStartView
 )
-from .patch_views import (
+from agent.application.views.builders.patch import (
     build_patch_result_view,
     build_patch_start_view
 )

@@ -36,12 +36,18 @@ def build_plan_update_view(data: typing.Any) -> PlanUpdateView | None:
 
         if not isinstance(step, str) or not step.strip():
             return None
-        if status not in {"pending", "in_progress", "completed"}:
+        if status == "pending":
+            normalized_status: PlanStatus = "pending"
+        elif status == "in_progress":
+            normalized_status = "in_progress"
+        elif status == "completed":
+            normalized_status = "completed"
+        else:
             return None
 
         items.append(PlanItemView(
             step=step.strip(),
-            status=typing.cast(PlanStatus, status),
+            status=normalized_status,
         ))
 
     return PlanUpdateView(

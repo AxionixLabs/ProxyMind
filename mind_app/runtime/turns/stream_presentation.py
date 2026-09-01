@@ -13,8 +13,8 @@ from agent.ports import (
     SourcesOutput,
 )
 from agent.application.views.contracts import PresentationSink
-from mind_app.presentation.lifecycle_views import build_failure_view
-from mind_app.presentation.run_views import (
+from agent.application.views.builders.lifecycle import build_failure_view
+from agent.application.views.builders.run import (
     build_run_completed_view,
     build_run_incomplete_view,
     build_run_started_view,

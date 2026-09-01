@@ -4,7 +4,7 @@
 import typing
 from agent.application.views.contracts import PresentationSink
 from agent.application.views import ProgressSource
-from mind_app.presentation.progress_views import build_progress_view
+from agent.application.views.builders.progress import build_progress_view
 
 
 async def show_tool_progress(

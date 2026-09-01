@@ -5,7 +5,7 @@ import typing
 import copy
 from dataclasses import dataclass
 from agent.application.views import PatchView
-from mind_app.presentation.patch_views import build_patch_start_view
+from agent.application.views.builders.patch import build_patch_start_view
 from mind_app.presentation.stream.approval_trace import (
     approval_shell_commands,
     approval_summary

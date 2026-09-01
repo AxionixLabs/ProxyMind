@@ -17,7 +17,7 @@ from mind_app.approval.policy import (
     approval_id_from_event
 )
 from agent.ports import OutputStatusPort
-from mind_app.presentation.approval_views import build_approval_view
+from agent.application.views.builders.approval import build_approval_view
 from agent.application.views.contracts import PresentationSink
 from agent.application.views import ApprovalSource
 from agent.ports import (
