@@ -98,9 +98,6 @@ from observability import (
     observe_exception
 )
 
-if typing.TYPE_CHECKING:
-    from ...controller import Mind
-
 MAX_STOP_CONTINUATIONS = 3
 
 
@@ -252,7 +249,7 @@ async def _interrupt_approval_cancelled_turn(
 
 
 async def stream_turn(
-    mind: "Mind",
+    _lifecycle_owner: object,
     session: McpSessionPort,
     pref_config: dict[str, typing.Any],
     tools: list[dict[str, typing.Any]],
@@ -953,7 +950,7 @@ async def stream_turn(
             )
             return result
         return await stream_turn(
-            mind,
+            _lifecycle_owner,
             session,
             pref_config,
             tools,
