@@ -54,7 +54,10 @@ from protocol.client.tools import (
     post_tool_result
 )
 from protocol.client.effects import post_effect_reconciliation
-from mind_app.presentation.output import OutputControlPort
+from mind_app.presentation.output import (
+    OutputControlPort,
+    SessionFactory,
+)
 from ..hooks.tool import ToolCallCoordinator
 from agent.application.hooks.models import StopHookDecision
 from ..hooks.turn import (
@@ -252,10 +255,16 @@ async def stream_turn(
     model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
+    session_factory: SessionFactory | None = None,
     **kwargs
 ) -> RunResult:
     """处理流式事件、工具调用和输出上报。"""
-    prepared = prepare_stream_turn(mind, turn_execution, kwargs)
+    prepared = prepare_stream_turn(
+        mind,
+        turn_execution,
+        kwargs,
+        session_factory=session_factory,
+    )
     if not isinstance(model_capability, ModelCapability):
         raise RuntimeError("model capability is required")
     if not isinstance(protocol_client, ProtocolCommandClient):

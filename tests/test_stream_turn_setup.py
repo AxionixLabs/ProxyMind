@@ -204,7 +204,7 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities(
     prepared = stream_setup.prepare_stream_turn(
         controller,
         _execution(),
-        {},
+        {"session_factory": session_factory},
     )
 
     assert prepared.request_kwargs["exec_env"] == snapshot
@@ -225,6 +225,23 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities(
     )
     controller.config_session.load.assert_called_once_with()
     build_skills.assert_called_once_with({})
+
+
+def test_prepare_stream_turn_rejects_missing_session_factory() -> None:
+    controller = _controller(Mock(return_value=_output_session()))
+
+    with pytest.raises(
+        RuntimeError,
+        match="stream output session factory is required",
+    ):
+        stream_setup.prepare_stream_turn(
+            controller,
+            _execution(),
+            {
+                "exec_env": _exec_env_snapshot(),
+                "skills": [],
+            },
+        )
 
 
 def test_prepare_stream_turn_rejects_non_callable_callback() -> None:

@@ -23,6 +23,7 @@ from agent.application.turns.execution import TurnExecution
 from mind_app.runtime.turns.executor import execute_turn
 from mind_app.runtime.turns.root import prepare_root_turn
 from mind_app.presentation.terminal.turn_lifecycle import run_foreground_turn
+from mind_app.presentation.output import SessionFactory
 from mind_app.runtime.turns.stream import stream_turn
 from ..runtime.ports import TurnRuntimePort
 from ..core.interrupt import InterruptDisposition
@@ -208,6 +209,7 @@ async def run_tui_model_turn(
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
     approval_ledger: ApprovalLedger | None = None,
+    session_factory: SessionFactory | None = None,
     on_prompt_prepared: typing.Callable[
         [list[dict[str, typing.Any]]],
         None,
@@ -280,6 +282,8 @@ async def run_tui_model_turn(
             prompt_kwargs["protocol_client"] = protocol_client
         if effect_journal_factory is not None:
             prompt_kwargs["effect_journal_factory"] = effect_journal_factory
+        if session_factory is not None:
+            prompt_kwargs["session_factory"] = session_factory
         if turn_input_control is not None:
             prompt_kwargs["on_turn_input_context"] = turn_input_control.activate
             prompt_kwargs["on_turn_input_event"] = turn_input_control.handle_event

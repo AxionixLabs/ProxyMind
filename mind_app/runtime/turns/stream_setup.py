@@ -117,6 +117,8 @@ def prepare_stream_turn(
     controller: "Mind",
     execution: TurnExecution,
     options: typing.Mapping[str, typing.Any],
+    *,
+    session_factory: SessionFactory | None = None,
 ) -> PreparedStreamTurn:
     """解析并固定一次流式模型执行所需的输入与输出边界。"""
     request_kwargs = dict(options)
@@ -189,8 +191,7 @@ def prepare_stream_turn(
 
     session_factory_value = request_kwargs.pop("session_factory", None)
     if session_factory_value is None:
-        frontend = getattr(controller, "frontend", None)
-        session_factory_value = getattr(frontend, "session_factory", None)
+        session_factory_value = session_factory
     session_factory = _resolve_output_session_factory(session_factory_value)
     continuation_kwargs["session_factory"] = session_factory
 

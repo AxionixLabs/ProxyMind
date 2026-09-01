@@ -697,11 +697,13 @@ async def _run_controller(
         turn_application_factory = None
         effect_journal_factory = None
         approval_ledger = None
+        session_factory = None
         if runtime_services is not None:
             turn_application_factory = runtime_services.create_turn_application
             model_capability = runtime_services.model_capability
             effect_journal_factory = runtime_services.create_effect_journal
             approval_ledger = controller.approval_call_ledger
+            session_factory = controller.frontend.session_factory
             if isinstance(
                 runtime_services.model_capability,
                 ProtocolCommandClient,
@@ -718,6 +720,7 @@ async def _run_controller(
             protocol_client=protocol_client,
             effect_journal_factory=effect_journal_factory,
             approval_ledger=approval_ledger,
+            session_factory=session_factory,
         )
         completed = True
         observe("app.complete", exit_code=controller.exit_code)

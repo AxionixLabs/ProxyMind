@@ -23,6 +23,7 @@ from mind_app.runtime.turns.executor import (
 )
 from mind_app.runtime.turns.stream import stream_turn
 from mind_app.presentation.terminal.turn_lifecycle import run_foreground_turn
+from mind_app.presentation.output import SessionFactory
 from agent.domain.policies import PermissionSettings
 
 if typing.TYPE_CHECKING:
@@ -111,6 +112,7 @@ async def run_root_turn(
     model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
+    session_factory: SessionFactory | None = None,
     **kwargs: typing.Any,
 ) -> RunResult:
     """准备根轮次并通过主前端生命周期执行。"""
@@ -159,6 +161,8 @@ async def run_root_turn(
             stream_kwargs["protocol_client"] = protocol_client
         if effect_journal_factory is not None:
             stream_kwargs["effect_journal_factory"] = effect_journal_factory
+        if session_factory is not None:
+            stream_kwargs["session_factory"] = session_factory
         return await run_foreground_turn(
             controller,
             stream_turn,
