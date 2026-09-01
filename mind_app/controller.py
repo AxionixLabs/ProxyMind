@@ -42,6 +42,7 @@ from observability import (
     observe_exception
 )
 from infrastructure.services.runtime_owner import ServiceRuntimeOwner
+from infrastructure.services.turn_environment import capture_turn_environment
 from protocol.client.reports import EventReportRuntimeOwner
 from agent.harness.sessions.conversation import (
     ConversationState,
@@ -59,12 +60,6 @@ from agent.harness.agents.runtime import SubagentRuntime
 from agent.adapters.agents.execution import StreamSubagentExecution
 from agent.adapters.protocol.subagent_stream import ProtocolSubagentStream
 from agent.harness.execution.turn_runner import TurnRunner
-from .runtime.turns.session_context import (
-    ControllerTurnSessionContext,
-    ControllerTurnSessionState,
-)
-from .runtime.turns.execution_runtime import ControllerTurnExecutionRuntime
-from .runtime.turns.root_session import ControllerRootTurnSession
 from agent.stores import AgentGraphStore
 from infrastructure.config.runtime_paths import (
     agent_graph_db_path,
@@ -83,6 +78,7 @@ from agent.ports import (
     HookRegistryPort,
     OutputSessionFactory,
     ProtocolCommandClient,
+    SkillsProvider,
 )
 from agent.harness.hooks.scope import (
     HookExecutionScope,
@@ -179,6 +175,16 @@ class Mind(object):
         self.config_session: ConfigSession = kwargs["config_session"]
         self.permissions: PermissionSettings = kwargs["permissions"]
         self.frontend: FrontendPort = kwargs["frontend"]
+        skills_provider_factory = getattr(
+            self.runtime_services,
+            "create_skills_provider",
+            None,
+        )
+        self._skills_provider: SkillsProvider | None = (
+            skills_provider_factory(self.config_session.load)
+            if callable(skills_provider_factory)
+            else None
+        )
 
         hook_registry = kwargs.get("hook_registry")
         if not isinstance(hook_registry, HookRegistryPort):
@@ -211,10 +217,7 @@ class Mind(object):
             self,
             turn_completion_presenter,
         )
-        self.turn_session_context = ControllerTurnSessionContext(self)
-
         self.conversation: ConversationState = ConversationState()
-        self.turn_session_state = ControllerTurnSessionState(self)
         self.history_store: ConversationHistoryStore = (
             kwargs.get("history_store")
             or ConversationHistoryStore(mind_history_db_path())
@@ -226,9 +229,8 @@ class Mind(object):
         self.event_reporting = EventReportRuntimeOwner(
             pool=kwargs.get("event_report_pool"),
         )
-        self.turn_execution_runtime = ControllerTurnExecutionRuntime(self)
         self.subagent_turn_runner = TurnRunner(
-            self.turn_execution_runtime,
+            self,
         )
         self.subagent_cleanup = self
         subagent_session_factory: OutputSessionFactory = kwargs[
@@ -248,7 +250,6 @@ class Mind(object):
                 session_factory=subagent_session_factory,
             )
         )
-        self.root_turn_session = ControllerRootTurnSession(self)
         self._conversation_lifecycle_id: int = 0
 
         self.session_lifecycle = SessionLifecycleGateway(
@@ -290,16 +291,6 @@ class Mind(object):
 
         subagent_runtime = kwargs.get("subagent_runtime")
         if subagent_runtime is None:
-            skills_provider_factory = getattr(
-                self.runtime_services,
-                "create_skills_provider",
-                None,
-            )
-            skills_provider = (
-                skills_provider_factory(self.config_session.load)
-                if callable(skills_provider_factory)
-                else None
-            )
             subagent_runtime = SubagentRuntime(
                 self,
                 enabled=self.features.subagents,
@@ -315,7 +306,7 @@ class Mind(object):
                 transcript_factory=self.transcripts.writer,
                 cleanup=self,
                 patch_preview=self.workspace_runtime.coding.preview_patch,
-                skills_provider=skills_provider,
+                skills_provider=self._skills_provider,
                 transcript_path_for=self.transcripts.path_for_session,
                 transcript_entries_for=(
                     lambda path: self.transcripts.reader(path).read()
@@ -722,15 +713,63 @@ class Mind(object):
         if value:
             self.last_assistant_reply = value
 
+    @property
+    def workspace_root(self) -> str:
+        """返回当前根轮次绑定的工作区。"""
+        return str(self.history_workspace or "")
+
+    @property
+    def output_record_path(self) -> str:
+        """返回根轮次输出记录路径。"""
+        return str(self.report.output_record_path or "")
+
+    @property
+    def approval_ledger(self) -> ApprovalLedger | None:
+        """返回当前会话共享的审批调用账本。"""
+        return self.approval_call_ledger
+
+    def transcript_path_for_session(self, sid: str) -> str:
+        """返回指定会话的 Transcript 路径。"""
+        return self.transcripts.path_for_session(sid)
+
+    def capture_environment(
+        self,
+        *,
+        cwd: str,
+        workspace_root: str,
+    ) -> dict[str, typing.Any] | None:
+        """捕获当前轮次使用的客户端环境快照。"""
+        return capture_turn_environment(
+            self,
+            cwd=Path(cwd),
+            workspace_root=Path(workspace_root),
+        )
+
+    def skills_payload(self) -> list[dict[str, typing.Any]]:
+        """返回当前配置对应的模型可见 skills 快照。"""
+        if self._skills_provider is None:
+            return []
+        return list(self._skills_provider())
+
+    def queue_turn_context(self, contexts: typing.Iterable[str]) -> None:
+        """把未完成轮次的上下文排入下一轮。"""
+        self.conversation.queue_turn_context(contexts)
+
+    def remember_assistant_reply(self, text: str) -> None:
+        """保存最近一次已完成的 assistant 回复。"""
+        self.remember_last_assistant_reply(text)
+
     def last_assistant_reply_snapshot(self) -> str:
         """返回最近一次完整模型回复原文。"""
         return self.last_assistant_reply
 
     def hook_scope(
         self,
-        context: HookExecutionContext
+        context: HookExecutionContext | TurnContext,
     ) -> HookExecutionScope:
         """为指定执行上下文构建固定的 Hook 作用域。"""
+        if isinstance(context, TurnContext):
+            context = HookExecutionContext.from_turn(context)
         workspace  = self._hook_workspace(Path(context.cwd))
 
         resolution = self.config_session.resolve(

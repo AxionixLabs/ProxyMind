@@ -42,7 +42,7 @@ from infrastructure.services.turn_environment import (
     capture_active_turn_environment,
     capture_turn_environment,
 )
-from mind_app.runtime.turns.root import run_root_turn
+from agent.harness.execution.root_runner import run_root_turn
 from mind_app.runtime.compaction import compact_conversation
 from mind_app.controller import Mind
 from frontends.interaction.attachments import Attach
@@ -82,7 +82,7 @@ def bind_root_turn_runner(
     ) -> RunResult:
         """执行绑定进程级能力的根轮次。"""
         return await run_root_turn(
-            controller.root_turn_session,
+            controller,
             pref_config,
             message=message,
             model_capability=model_capability,
@@ -91,7 +91,7 @@ def bind_root_turn_runner(
             tool_execution=runtime_services.tool_execution,
             approval_coordinator=controller.approval_coordinator,
             execution_policy=controller.workspace_runtime.execution_policy,
-            execution_runtime=controller.turn_execution_runtime,
+            execution_runtime=controller,
             lifecycle=controller.turn_foreground_lifecycle,
             approval_ledger=controller.approval_call_ledger,
             session_factory=controller.frontend.session_factory,
@@ -100,8 +100,8 @@ def bind_root_turn_runner(
             patch_preview=controller.workspace_runtime.coding.preview_patch,
             retry_state=controller.frontend.runtime,
             animation=controller.turn_animation,
-            session_context=controller.turn_session_context,
-            session_state=controller.turn_session_state,
+            session_context=controller,
+            session_state=controller,
             **kwargs,
         )
 

@@ -3114,8 +3114,30 @@ def test_turn_executor_uses_runtime_port_without_controller_reflection() -> None
 
 def test_root_turn_preparation_uses_session_port() -> None:
     """确保根轮次准备只读取显式会话端口。"""
-    target_path = PROJECT_ROOT / "mind_app" / "runtime" / "turns" / "root.py"
+    legacy_root = PROJECT_ROOT / "mind_app" / "runtime" / "turns"
+    target_path = (
+        PROJECT_ROOT / "agent" / "harness" / "execution" / "root_runner.py"
+    )
+    assert not any(legacy_root.glob("*.py")), "legacy runtime turns sources remain"
     tree = ast.parse(target_path.read_text(encoding="utf-8-sig"), filename=str(target_path))
+    imported_roots: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_roots.update(
+                alias.name.partition(".")[0]
+                for alias in node.names
+            )
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            imported_roots.add((node.module or "").partition(".")[0])
+    assert not imported_roots & {
+        "backend",
+        "engine",
+        "frontends",
+        "infrastructure",
+        "mind_app",
+        "mind_core",
+        "server",
+    }
     prepare = next(
         node
         for node in tree.body

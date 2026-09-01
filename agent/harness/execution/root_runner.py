@@ -40,21 +40,6 @@ if typing.TYPE_CHECKING:
     from agent.ports import McpSessionPort
 
 
-class RootTurnRunner(typing.Protocol):
-    """定义提交根轮次请求所需的应用用例。"""
-
-    async def __call__(
-        self,
-        session: RootTurnSessionPort,
-        pref_config: dict[str, typing.Any] | None = None,
-        *,
-        message: str,
-        **kwargs: typing.Any,
-    ) -> RunResult:
-        """准备并执行一次根轮次。"""
-        ...
-
-
 async def prepare_root_turn(
     session: RootTurnSessionPort,
     *,
