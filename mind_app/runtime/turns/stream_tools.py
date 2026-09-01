@@ -8,7 +8,10 @@ from agent.stores.approvals.ledger import ApprovalCallLedger
 from mind_app.approval.models import ApprovalOutcome
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from agent.ports.transcript import TranscriptSink
-from agent.ports import PatchPreviewPort
+from agent.ports import (
+    ExecutionPolicy,
+    PatchPreviewPort,
+)
 from mind_app.runtime.mcp.tool_store import meta_for_tool
 from infrastructure.config.execution_policy_manager import ExecApprovalRequirement
 from mind_app.presentation.output import OutputStatusPort
@@ -197,6 +200,7 @@ class ToolEventHandler:
         *,
         controller: "Mind",
         turn_context: TurnContext,
+        execution_policy: ExecutionPolicy,
         patch_preview: PatchPreviewPort | None = None,
         tools: list[dict[str, typing.Any]],
         ledger: ApprovalCallLedger,
@@ -212,6 +216,7 @@ class ToolEventHandler:
         """绑定当前轮次拥有的工具执行依赖。"""
         self.controller     = controller
         self.turn_context   = turn_context
+        self.execution_policy = execution_policy
         self.patch_preview  = patch_preview
         self.tools          = tools
         self.ledger         = ledger
@@ -322,7 +327,7 @@ class ToolEventHandler:
             return ToolCallHandlingResult.handled()
 
         local_requirement = local_exec_policy_requirement(
-            self.controller.workspace_runtime.execution_policy,
+            self.execution_policy,
             turn_context,
             tool=name,
             arguments=arguments,
@@ -426,7 +431,7 @@ class ToolEventHandler:
             self.patch_preview,
             invocation,
         )
-        execution_policy = self.controller.workspace_runtime.execution_policy
+        execution_policy = self.execution_policy
 
         patch_session_approved = execution_policy.patch_scope_approved_for_session(
             patch_approval.get("patch_scope"),
@@ -494,7 +499,7 @@ class ToolEventHandler:
             return ToolCallHandlingResult.handled()
 
         update_error = apply_local_patch_approval(
-            self.controller.workspace_runtime.execution_policy,
+            self.execution_policy,
             approval=patch_approval,
             decision=patch_outcome.decision,
         )
@@ -576,7 +581,7 @@ class ToolEventHandler:
             return ToolCallHandlingResult.handled()
 
         update_error = apply_local_exec_policy_approval(
-            self.controller.workspace_runtime.execution_policy,
+            self.execution_policy,
             invocation=invocation,
             approval=local_approval,
             decision=local_outcome.decision,

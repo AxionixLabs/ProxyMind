@@ -16,6 +16,7 @@ from agent.application.services import TurnApplicationFactory
 from agent.ports import (
     ApprovalLedger,
     EffectJournalFactory,
+    ExecutionPolicy,
     ModelCapability,
     ProtocolCommandClient,
     PatchPreviewPort,
@@ -106,6 +107,7 @@ async def run_selected_command(
     model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
+    execution_policy: ExecutionPolicy | None = None,
     approval_ledger: ApprovalLedger | None = None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -146,6 +148,7 @@ async def run_selected_command(
                 model_capability=model_capability,
                 protocol_client=protocol_client,
                 effect_journal_factory=effect_journal_factory,
+                execution_policy=execution_policy,
                 approval_ledger=approval_ledger,
                 session_factory=session_factory,
                 transcript_factory=transcript_factory,
@@ -228,6 +231,7 @@ async def run_selected_command(
                 model_capability=model_capability,
                 protocol_client=protocol_client,
                 effect_journal_factory=effect_journal_factory,
+                execution_policy=execution_policy,
                 approval_ledger=approval_ledger,
                 session_factory=session_factory,
                 transcript_factory=transcript_factory,
@@ -276,6 +280,7 @@ async def run_selected_command(
                     model_capability=model_capability,
                     protocol_client=protocol_client,
                     effect_journal_factory=effect_journal_factory,
+                    execution_policy=execution_policy,
                     approval_ledger=approval_ledger,
                     session_factory=session_factory,
                     transcript_factory=transcript_factory,
@@ -283,6 +288,8 @@ async def run_selected_command(
                     patch_preview=patch_preview,
                     retry_state=retry_state,
                     animation=animation,
+                    session_context=session_context,
+                    session_state=session_state,
                 )
 
     except asyncio.CancelledError:
@@ -321,6 +328,7 @@ async def _run_agent_listener_session(
     model_capability: ModelCapability | None,
     protocol_client: ProtocolCommandClient | None,
     effect_journal_factory: EffectJournalFactory | None,
+    execution_policy: ExecutionPolicy | None,
     approval_ledger: ApprovalLedger | None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -342,6 +350,7 @@ async def _run_agent_listener_session(
         model_capability=model_capability,
         protocol_client=protocol_client,
         effect_journal_factory=effect_journal_factory,
+        execution_policy=execution_policy,
         approval_ledger=approval_ledger,
         session_factory=session_factory,
         transcript_factory=transcript_factory,
@@ -364,6 +373,7 @@ async def _run_tui_session(
     model_capability: ModelCapability | None,
     protocol_client: ProtocolCommandClient | None,
     effect_journal_factory: EffectJournalFactory | None,
+    execution_policy: ExecutionPolicy | None,
     approval_ledger: ApprovalLedger | None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -394,6 +404,8 @@ async def _run_tui_session(
             loop_kwargs["protocol_client"] = protocol_client
         if effect_journal_factory is not None:
             loop_kwargs["effect_journal_factory"] = effect_journal_factory
+        if execution_policy is not None:
+            loop_kwargs["execution_policy"] = execution_policy
         if approval_ledger is not None:
             loop_kwargs["approval_ledger"] = approval_ledger
         if session_factory is not None:

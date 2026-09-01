@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from agent.ports import (
     ApprovalLedger,
     EffectJournalFactory,
+    ExecutionPolicy,
     LocalEffectReconciliationRequired,
     McpSessionPort,
     ModelCapability,
@@ -313,6 +314,9 @@ async def stream_turn(
     cleanup = turn_context.cleanup
     if not isinstance(cleanup, TurnCleanupPort):
         raise RuntimeError("turn cleanup port is required")
+    execution_policy = turn_context.execution_policy
+    if not isinstance(execution_policy, ExecutionPolicy):
+        raise RuntimeError("execution policy is required")
     animation = turn_context.animation
     if turn_context.agent.depth == 0 and not isinstance(
         animation,
@@ -415,6 +419,7 @@ async def stream_turn(
         approval_handler = ApprovalEventHandler(
             controller=mind,
             turn_context=turn_context,
+            execution_policy=execution_policy,
             tools=tools,
             ledger=approval_ledger,
             coordinator=tool_call_coordinator,
@@ -485,6 +490,7 @@ async def stream_turn(
         tool_event_handler = ToolEventHandler(
             controller=mind,
             turn_context=turn_context,
+            execution_policy=execution_policy,
             patch_preview=turn_context.patch_preview,
             tools=tools,
             ledger=approval_ledger,

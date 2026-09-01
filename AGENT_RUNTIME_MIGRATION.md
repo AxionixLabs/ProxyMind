@@ -469,6 +469,13 @@ CLI、Subagent 回归 `272 passed`；端口边界专项 `4 passed, 1 warning`，
 `280 passed`；端口边界专项 `4 passed, 1 warning`，导入图、`compileall` 和
 `git diff --check` 通过。下一切片复核工具策略和剩余 Controller 结果依赖。
 
+本次执行策略端口切片已满足上述条件：新增 `agent.ports.ExecutionPolicy`、判定结果和
+规则提案契约，通过 `TurnContext` 沿根轮次、TUI、CLI、Subagent 显式传递；流式工具和
+审批处理器不再读取 `controller.workspace_runtime.execution_policy`，本地命令审批、补丁
+会话批准和规则提案写回语义保持不变。核心流式、TUI、Subagent、权限和执行策略回归
+`181 passed`；架构专项 `5 passed, 2 warnings`，导入图、`compileall` 和
+`git diff --check` 通过。下一切片复核剩余 `stream.py` Controller 结果依赖。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |
@@ -587,3 +594,4 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 | 2026-09-01 | 新增 `agent.ports.TurnAnimationPort` 和终端展示适配器，通过 `TurnContext` 显式注入等待动画生命周期，删除 `stream.py` 对 `frontend.runtime.active` 与 `mind.stop_anim` 的直接访问 | 流式/TUI/CLI/输出/重试/终端动画回归 `280 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `agent.ports.TurnSessionContextPort` 和 `ControllerTurnSessionContext`，删除 `stream_setup.py` 的 Controller、配置、环境和 skills 直接依赖 | 流式/TUI/CLI/输出/重试/终端动画回归 `280 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
 | 2026-09-01 | 新增 `agent.ports.TurnSessionStatePort` 和 `ControllerTurnSessionState`，通过 `TurnContext` 显式注入失败上下文/最近回复写回，删除 `stream.py` 对 `ConversationState` 与 Controller 结果属性的直接访问 | 流式/TUI/CLI/输出/重试/终端动画回归 `280 passed`；端口边界专项 `4 passed, 1 warning`；导入图、`compileall`、`git diff --check` 通过 |
+| 2026-09-01 | 新增 `agent.ports.ExecutionPolicy` 及判定结果契约，通过 `TurnContext` 显式注入本地执行策略，删除流式工具/审批处理器对 `WorkspaceRuntime` 策略的直接访问 | 核心流式/TUI/Subagent/权限/执行策略回归 `181 passed`；架构专项 `5 passed, 2 warnings`；导入图、`compileall`、`git diff --check` 通过 |

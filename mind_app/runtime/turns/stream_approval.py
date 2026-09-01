@@ -20,6 +20,7 @@ from mind_app.presentation.output import OutputStatusPort
 from mind_app.presentation.approval_views import build_approval_view
 from agent.application.views.contracts import PresentationSink
 from agent.application.views import ApprovalSource
+from agent.ports import ExecutionPolicy
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext
@@ -123,6 +124,7 @@ class ApprovalEventHandler:
         *,
         controller: "Mind",
         turn_context: TurnContext,
+        execution_policy: ExecutionPolicy,
         tools: list[dict[str, typing.Any]],
         ledger: ApprovalCallLedger,
         coordinator: ToolCallCoordinator,
@@ -133,6 +135,7 @@ class ApprovalEventHandler:
         """绑定当前轮次拥有的审批依赖。"""
         self.controller     = controller
         self.turn_context   = turn_context
+        self.execution_policy = execution_policy
         self.tools          = tools
         self.ledger         = ledger
         self.coordinator    = coordinator
@@ -520,7 +523,7 @@ class ApprovalEventHandler:
         ):
             return
         update_error = apply_local_exec_policy_approval(
-            self.controller.workspace_runtime.execution_policy,
+            self.execution_policy,
             invocation=invocation,
             approval=approval,
             decision=decision,

@@ -9,7 +9,9 @@ __all__ = (
     "CodingFactory",
     "CodingRuntime",
     "ExecutionPolicy",
+    "ExecutionPolicyAmendment",
     "ExecutionPolicyFactory",
+    "ExecutionPolicyRequirement",
     "PatchPreviewPort",
     "WorkspaceRoot",
     "WorkspaceRuntime",
@@ -43,10 +45,94 @@ class PatchPreviewPort(typing.Protocol):
         ...
 
 
-class ExecutionPolicy(typing.Protocol):
-    """定义绑定工作区的执行策略标记契约。"""
+ExecutionPolicyState = typing.Literal[
+    "forbidden",
+    "needs_approval",
+    "skip",
+]
 
-    ...
+
+class ExecutionPolicyAmendment(typing.Protocol):
+    """定义本地执行策略规则提案的只读字段。"""
+
+    id: str
+    command_prefix: tuple[str, ...]
+    display: str
+
+
+class ExecutionPolicyRequirement(typing.Protocol):
+    """定义本地命令执行策略的判定结果。"""
+
+    state: ExecutionPolicyState
+    reason: str
+    proposed_execpolicy_amendment: ExecutionPolicyAmendment | None
+
+
+@typing.runtime_checkable
+class ExecutionPolicy(typing.Protocol):
+    """定义绑定工作区的本地执行策略端口。"""
+
+    def create_exec_approval_requirement_for_command(
+        self,
+        command: typing.Sequence[str] | str,
+        *,
+        approval_policy: str,
+        sandbox_mode: str,
+        cwd: WorkspaceRoot | None,
+        tool: str,
+        amendment_id: str,
+        sandbox_permissions: object,
+        environment_id: object,
+        tty: object,
+        additional_permissions: object,
+        policy_fingerprint: object,
+        patch_scope: object,
+    ) -> ExecutionPolicyRequirement:
+        """按当前策略判定命令是否允许、需要审批或禁止。"""
+        ...
+
+    def patch_scope_approved_for_session(
+        self,
+        patch_scope: object,
+        *,
+        cwd: WorkspaceRoot | None,
+        environment_id: object,
+    ) -> bool:
+        """判断补丁范围是否已获当前会话批准。"""
+        ...
+
+    def add_patch_approval_for_session(
+        self,
+        patch_scope: object,
+        *,
+        cwd: WorkspaceRoot | None,
+        environment_id: object,
+    ) -> None:
+        """记录当前会话已批准的补丁范围。"""
+        ...
+
+    def add_approval_for_session(
+        self,
+        command: typing.Sequence[str] | str,
+        *,
+        tool: str,
+        cwd: WorkspaceRoot | None,
+        sandbox_permissions: object,
+        environment_id: object,
+        tty: object,
+        additional_permissions: object,
+        policy_fingerprint: object,
+        patch_scope: object,
+    ) -> None:
+        """记录当前会话已批准的命令形态。"""
+        ...
+
+    def persist_execpolicy_amendment(
+        self,
+        amendment: dict[str, object],
+    ) -> os.PathLike[str]:
+        """持久化用户确认的执行策略规则提案。"""
+        ...
 
 
 class CodingFactory(typing.Protocol):

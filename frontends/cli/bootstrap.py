@@ -64,6 +64,7 @@ from mind_app.runtime.mcp.service_runtime import (
 from infrastructure.services.helix_capability import ServerManageHelixCapability
 from mind_app.presentation.terminal.contracts import TerminalDesign
 from agent.ports import (
+    ExecutionPolicy,
     HookRegistryPort,
     ProtocolCommandClient,
     RetryStatePort,
@@ -709,6 +710,7 @@ async def _run_controller(
         animation_port: TurnAnimationPort | None = None
         session_context: TurnSessionContextPort | None = None
         session_state: TurnSessionStatePort | None = None
+        execution_policy: ExecutionPolicy | None = None
         if runtime_services is not None:
             turn_application_factory = runtime_services.create_turn_application
             model_capability = runtime_services.model_capability
@@ -722,6 +724,7 @@ async def _run_controller(
             animation_port = controller.turn_animation
             session_context = controller.turn_session_context
             session_state = controller.turn_session_state
+            execution_policy = controller.workspace_runtime.execution_policy
             if isinstance(
                 runtime_services.model_capability,
                 ProtocolCommandClient,
@@ -746,6 +749,7 @@ async def _run_controller(
             animation=animation_port,
             session_context=session_context,
             session_state=session_state,
+            execution_policy=execution_policy,
         )
         completed = True
         observe("app.complete", exit_code=controller.exit_code)

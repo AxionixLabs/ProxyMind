@@ -11,6 +11,7 @@ from agent.ports.presentation import (
 from agent.ports import (
     ApprovalLedger,
     EffectJournalFactory,
+    ExecutionPolicy,
     McpSessionPort,
     ModelCapability,
     ProtocolCommandClient,
@@ -215,6 +216,7 @@ async def run_tui_model_turn(
     model_capability: ModelCapability | None = None,
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
+    execution_policy: ExecutionPolicy | None = None,
     approval_ledger: ApprovalLedger | None = None,
     session_factory: SessionFactory | None = None,
     transcript_factory: TranscriptFactory | None = None,
@@ -271,6 +273,7 @@ async def run_tui_model_turn(
         attachments=attachment_values,
         extras=extras,
         approval_ledger=approval_ledger,
+        execution_policy=execution_policy,
         transcript_factory=transcript_factory,
         cleanup=cleanup,
         patch_preview=patch_preview,

@@ -8,14 +8,16 @@ from mind_app.approval.policy import approval_execpolicy_amendment
 from agent.stores.approvals.permissions import normalize_permission_profile
 from infrastructure.config.execution_policy_manager import (
     ExecApprovalRequirement,
-    ExecPolicyManager,
     validate_sandbox_permission_arguments,
 )
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext,
 )
-from agent.ports import PatchPreviewPort
+from agent.ports import (
+    ExecutionPolicy,
+    PatchPreviewPort,
+)
 
 LOCAL_EXEC_POLICY_TOOLS = frozenset({
     "shell_command",
@@ -25,7 +27,7 @@ LOCAL_EXEC_POLICY_TOOLS = frozenset({
 
 
 def local_exec_policy_requirement(
-    manager: ExecPolicyManager,
+    manager: ExecutionPolicy,
     turn_context: TurnContext,
     *,
     tool: str,
@@ -287,7 +289,7 @@ def local_patch_approval(
 
 
 def apply_local_patch_approval(
-    manager: ExecPolicyManager,
+    manager: ExecutionPolicy,
     *,
     approval: dict[str, typing.Any],
     decision: ApprovalDecisionValue
@@ -308,7 +310,7 @@ def apply_local_patch_approval(
 
 
 def apply_local_exec_policy_approval(
-    manager: ExecPolicyManager,
+    manager: ExecutionPolicy,
     *,
     invocation: ToolInvocation,
     approval: dict[str, typing.Any],

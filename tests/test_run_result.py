@@ -711,6 +711,7 @@ async def _run_stream(
         pref_config={},
         cwd=".",
         permissions=permissions,
+        execution_policy=mind.workspace_runtime.execution_policy,
         approval_ledger=ApprovalCallLedger(),
         transcript_factory=mind.transcripts.writer,
         cleanup=mind,

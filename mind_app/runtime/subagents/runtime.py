@@ -17,6 +17,7 @@ from agent.application.turns.execution import TurnExecution
 from protocol.transport.events import EventReport
 from agent.ports import (
     EffectJournalFactory,
+    ExecutionPolicy,
     McpSessionPort,
     ApprovalLedger,
     ModelCapability,
@@ -90,6 +91,7 @@ class SubagentRuntime:
         session_cleanup: SessionCleanup | None = None,
         model_capability: ModelCapability | None = None,
         protocol_client: ProtocolCommandClient | None = None,
+        execution_policy: ExecutionPolicy | None = None,
         effect_journal_factory: EffectJournalFactory | None = None,
         approval_ledger: ApprovalLedger | None = None,
         transcript_factory: TranscriptFactory | None = None,
@@ -117,6 +119,7 @@ class SubagentRuntime:
         self._session_cleanup     = session_cleanup
         self._model_capability    = model_capability
         self._protocol_client     = protocol_client
+        self._execution_policy    = execution_policy
         self._effect_journal_factory = effect_journal_factory
         self._approval_ledger = approval_ledger
         self._transcript_factory = transcript_factory
@@ -142,6 +145,7 @@ class SubagentRuntime:
                 context,
             ),
             permission_grants=getattr(controller, "permission_grants", None),
+            execution_policy=execution_policy,
             approval_ledger=approval_ledger,
             transcript_factory=transcript_factory,
             cleanup=cleanup,
