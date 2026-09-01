@@ -570,6 +570,13 @@ CLI、MCP 与清理回归 `167 passed`；Subagent 编排架构专项 `4 passed, 
 适配职责，评估将其拆分为 Harness 可消费的 Model/Output 能力端口并继续清理
 `mind_app/runtime/turns` 依赖。
 
+本次 Subagent 宿主清理端口收窄已满足上述条件：`SubagentRuntimeHostPort` 删除通用
+`turn_execution_runtime` 暴露，改为专用 `subagent_cleanup` 端口；Harness 编排只消费
+子执行、子轮次 runner、Hook scope 和清理能力，通用 Turn 执行运行时留在组合适配器内部。
+Subagent、工具、MCP、清理和根入口回归 `167 passed`；架构专项 `4 passed`，导入图、
+`compileall` 和 `git diff --check` 通过。下一切片复核 `SubagentRuntime` 的可选
+`executor`/`turn_runner` 参数，评估是否应由宿主契约统一提供并进一步缩小组合根入口。
+
 ## 过渡入口与删除条件
 
 | 过渡入口 | 当前用途 | 删除条件 |

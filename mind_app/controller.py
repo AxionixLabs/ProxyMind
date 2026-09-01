@@ -208,6 +208,7 @@ class Mind(object):
         self.subagent_turn_runner = ControllerSubagentTurnRunner(
             self.turn_execution_runtime,
         )
+        self.subagent_cleanup = self
         self.subagent_execution = ControllerSubagentExecution(
             self.turn_execution_runtime,
             model_capability=self.runtime_services.model_capability,

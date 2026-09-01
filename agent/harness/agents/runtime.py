@@ -109,9 +109,8 @@ class SubagentRuntime:
         self._transcript_factory = transcript_factory
         self._cleanup = cleanup
         self._patch_preview = patch_preview
-        self._execution_runtime = host.turn_execution_runtime
         self._hook_scope_for = host.turn_hook_scope
-        runner_cleanup = cleanup or self._execution_runtime
+        runner_cleanup = cleanup or host.subagent_cleanup
         runner = SubagentRunner(
             turn_runner=turn_runner or host.subagent_turn_runner,
             cleanup=runner_cleanup,

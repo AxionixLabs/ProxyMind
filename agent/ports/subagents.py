@@ -8,7 +8,6 @@ from protocol.schema.turn_inputs import TurnInput
 from protocol.transport.events import EventReport
 from .mcp_session import McpSessionPort
 from .turns import (
-    TurnExecutionRuntimePort,
     TurnInputEventHandler,
 )
 
@@ -116,8 +115,8 @@ class SubagentRuntimeHostPort(typing.Protocol):
         ...
 
     @property
-    def turn_execution_runtime(self) -> TurnExecutionRuntimePort:
-        """返回子 Agent 轮次使用的执行运行时。"""
+    def subagent_cleanup(self) -> SubagentCleanupPort:
+        """返回子 Agent 轮次的异步清理端口。"""
         ...
 
     def turn_hook_scope(self, context: "TurnContext") -> "HookExecutionScopePort":

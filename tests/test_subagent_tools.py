@@ -28,10 +28,10 @@ from protocol.schema.identifiers import new_cid, new_sid
 class _Controller:
     def __init__(self) -> None:
         self.messages = []
-        self.turn_execution_runtime = self
         self.stream_handler = None
         self.subagent_execution = _SubagentExecution(self)
         self.subagent_turn_runner = self._run_subagent_turn
+        self.subagent_cleanup = self
         self.config_session = SimpleNamespace(load=lambda: {})
         self.event_reporting = EventReportRuntimeOwner(
             report_factory=lambda _cid, _sid: _EventReport(),

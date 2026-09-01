@@ -49,11 +49,11 @@ from protocol.schema.turn_inputs import TurnInput
 class _Controller:
     def __init__(self) -> None:
         self.configs = []
-        self.turn_execution_runtime = self
         self.stream_calls = []
         self.stream_handler = None
         self.subagent_execution = _SubagentExecution(self)
         self.subagent_turn_runner = self._run_subagent_turn
+        self.subagent_cleanup = self
         self.config_session = SimpleNamespace(load=lambda: {
             "skills": {"enabled": ["__test_none__"], "disabled": []},
         })
