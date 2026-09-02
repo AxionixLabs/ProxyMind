@@ -4,6 +4,7 @@
 import typing
 from dataclasses import dataclass
 
+from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.application.approvals.local_policy import (
     apply_local_exec_policy_approval,
     apply_local_patch_approval,
@@ -207,6 +208,7 @@ class ToolEventHandler:
         client_runner: ClientToolCallRunner,
         plan_runner: PlanToolCallRunner,
         tool_execution: ToolExecutionAdapter,
+        activity: TurnActivityProjector,
         status_control: OutputStatusPort,
         presentation: PresentationSink,
         transcript: TranscriptSink,
@@ -224,6 +226,7 @@ class ToolEventHandler:
         self.client_runner = client_runner
         self.plan_runner = plan_runner
         self.tool_execution = tool_execution
+        self.activity = activity
         self.status_control = status_control
         self.presentation = presentation
         self.transcript = transcript
@@ -235,6 +238,22 @@ class ToolEventHandler:
         event: ToolCallEvent
     ) -> ToolCallHandlingResult:
         """处理客户端工具调用并返回外层循环应采取的动作。"""
+        result = await self._handle_call(event)
+        tool_kind = tool_activity_kind(event.name)
+        await self.activity.tool_completed(
+            event.call_id,
+            tool_kind,
+            name=event.name,
+        )
+        if result.status == "handled":
+            await self.activity.request_model_wait("tool_result")
+        return result
+
+    async def _handle_call(
+        self,
+        event: ToolCallEvent,
+    ) -> ToolCallHandlingResult:
+        """执行已取得活动 lease 的客户端工具调用。"""
         name = event.name
         arguments = dict(event.arguments)
         turn_context = self.turn_context
@@ -456,9 +475,7 @@ class ToolEventHandler:
             )
             return ToolCallHandlingResult.handled()
         else:
-            patch_outcome = await approval_coordinator.request_outcome(
-                patch_approval
-            )
+            patch_outcome = await self._request_local_approval(patch_approval)
             await self.presentation.emit(build_approval_view(
                 patch_approval,
                 decision=patch_outcome.decision,
@@ -536,11 +553,7 @@ class ToolEventHandler:
             invocation=invocation,
             requirement=requirement,
         )
-        local_outcome = (
-            await self.approval_coordinator.request_outcome(
-                local_approval
-            )
-        )
+        local_outcome = await self._request_local_approval(local_approval)
         await self.presentation.emit(build_approval_view(
             local_approval,
             decision=local_outcome.decision,
@@ -599,6 +612,26 @@ class ToolEventHandler:
             )
             return ToolCallHandlingResult.handled()
         return None
+
+    async def _request_local_approval(
+        self,
+        approval: dict[str, typing.Any],
+    ) -> ApprovalOutcome:
+        """在 typed 审批表面生命周期内请求本地决定。"""
+        approval_id = str(
+            approval.get("approval_id")
+            or approval.get("id")
+            or approval.get("request_id")
+            or ""
+        ).strip()
+        call_id = str(approval.get("call_id") or "").strip()
+        if not approval_id or not call_id:
+            raise ValueError("local approval identity is required")
+        await self.activity.approval_started(approval_id, call_id)
+        try:
+            return await self.approval_coordinator.request_outcome(approval)
+        finally:
+            await self.activity.approval_completed(approval_id, call_id)
 
     async def _post_tool_outcome(
         self,
@@ -678,6 +711,11 @@ class ToolEventHandler:
         if not await self.interrupt_turn(call_id):
             raise TurnControlRequestError(failure_message)
         return ToolCallHandlingResult.interrupted()
+
+
+def tool_activity_kind(name: str) -> typing.Literal["client", "plan"]:
+    """返回客户端工具使用的展示活动分类。"""
+    return "plan" if name == PLAN_STEPS_TOOL else "client"
 
 
 if __name__ == '__main__':

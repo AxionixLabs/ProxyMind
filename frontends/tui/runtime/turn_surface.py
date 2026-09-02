@@ -147,6 +147,7 @@ class TurnSurfaceTiming:
     assistant_settled_sec: float = 0.15
     tool_result_sec: float = 0.15
     lifecycle_sec: float = 0.15
+    tool_started_sec: float = 0.12
 
     def delay_for(self, reason: ModelWaitReason | None) -> float:
         """返回指定等待来源的非负本地延时。"""
@@ -156,6 +157,19 @@ class TurnSurfaceTiming:
             return max(0.0, self.tool_result_sec)
         if reason == "lifecycle":
             return max(0.0, self.lifecycle_sec)
+        return 0.0
+
+    def delay_for_projection(
+        self,
+        projection: SurfaceProjection,
+        *,
+        model_wait_reason: ModelWaitReason | None,
+    ) -> float:
+        """返回一项派生表面投影的本地抑制时间。"""
+        if projection.indicator == "working":
+            return max(0.0, self.tool_started_sec)
+        if projection.indicator == "thinking":
+            return self.delay_for(model_wait_reason)
         return 0.0
 
 
@@ -303,11 +317,18 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             self._cancel_timer()
             self.state = reduce_turn_surface(self.state, event)
             projection = project_turn_surface(self.state)
-            delay = (
-                self.timing.delay_for(self.state.model_wait_reason)
-                if projection.indicator == "thinking"
-                else 0.0
+            delay = self.timing.delay_for_projection(
+                projection,
+                model_wait_reason=self.state.model_wait_reason,
             )
+            if (
+                projection.indicator == "working"
+                and isinstance(
+                    event,
+                    (ApprovalCompleted, TerminalWaitCompleted, ToolCompleted),
+                )
+            ):
+                delay = 0.0
             if delay > 0:
                 self._timer = asyncio.create_task(
                     self._apply_after(

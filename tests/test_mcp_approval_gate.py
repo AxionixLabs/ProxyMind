@@ -145,6 +145,12 @@ def _runtime(
             run_invocation=AsyncMock(side_effect=_allow_hook),
         ),
         tool_execution=McpToolExecutionAdapter(),
+        activity=SimpleNamespace(
+            tool_started=AsyncMock(),
+            tool_completed=AsyncMock(),
+            approval_started=AsyncMock(),
+            approval_completed=AsyncMock(),
+        ),
         effect_journal=SimpleNamespace(),
     )
     return runner, invocation, approval, external, presentation

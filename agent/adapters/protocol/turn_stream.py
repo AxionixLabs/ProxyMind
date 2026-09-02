@@ -5,16 +5,15 @@ import asyncio
 import time
 import typing
 
+from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.adapters.protocol.approval_events import ApprovalEventHandler
 from agent.adapters.protocol.model_events import ModelStreamEventHandler
 from agent.adapters.protocol.model_request import (
     build_model_stream_request,
     extend_request_context,
 )
-from agent.adapters.protocol.tool_events import (
-    ToolCallBatchBuffer,
-    ToolEventHandler,
-)
+from agent.adapters.protocol.tool_dispatch import StreamToolDispatcher
+from agent.adapters.protocol.tool_events import ToolEventHandler
 from agent.adapters.protocol.tool_results import ToolResultDelivery
 from agent.adapters.protocol.turn_interrupts import (
     cancel_reconciliation_turn,
@@ -78,11 +77,6 @@ from protocol.client.tools import (
 )
 from protocol.schema.stream_events import (
     ToolApprovalRequiredEvent,
-    ToolBuiltinDoneEvent,
-    ToolCallEvent,
-    ToolCallsDoneEvent,
-    ToolCallsStartEvent,
-    ToolOutputEvent,
     TurnDoneEvent,
     TurnFailedEvent,
     TurnInputAcceptedEvent,
@@ -153,8 +147,6 @@ async def stream_turn(
 
     failed_tool_context: list[str] = []
 
-    tool_batch_buffer = ToolCallBatchBuffer()
-
     approval_ledger = turn_context.approval_ledger
     if not isinstance(approval_ledger, ApprovalLedger):
         raise RuntimeError("approval ledger is required")
@@ -203,11 +195,14 @@ async def stream_turn(
     )
 
     retrying_status = RetryStatus(callbacks.retry_state)
+    activity_projector = TurnActivityProjector(
+        output_session.context,
+        output_session.activity,
+    )
     model_events = ModelStreamEventHandler(
         transcript=transcript,
         content=content,
-        activity=output_session.activity,
-        surface_context=output_session.context,
+        activity=activity_projector,
         status_control=status_control,
         provider_retry_sink=retrying_status.set_provider,
         idle_reschedule=idle_wait.reschedule,
@@ -237,7 +232,7 @@ async def stream_turn(
         record_turn_started(transcript, turn_execution)
 
         await output_session.open()
-        await model_events.request_model_wait("initial")
+        await activity_projector.request_model_wait("initial")
 
         observe(
             "stream.start",
@@ -288,6 +283,7 @@ async def stream_turn(
             tools=tools,
             ledger=approval_ledger,
             coordinator=tool_call_coordinator,
+            activity=activity_projector,
             status_control=status_control,
             presentation=presentation,
             post_approval=protocol_client.post_tool_approval,
@@ -330,6 +326,7 @@ async def stream_turn(
             pref_config=pref_config,
             tool_call_coordinator=tool_call_coordinator,
             tool_execution=tool_execution,
+            activity=activity_projector,
             effect_journal=effect_journal_factory(),
             effect_reconciler=protocol_client.post_effect_reconciliation,
             patch_preview=turn_context.patch_preview,
@@ -363,11 +360,17 @@ async def stream_turn(
             client_runner=client_tool_runner,
             plan_runner=plan_tool_runner,
             tool_execution=tool_execution,
+            activity=activity_projector,
             status_control=status_control,
             presentation=presentation,
             transcript=transcript,
             post_result=tool_result_delivery.deliver,
             interrupt_turn=interrupt_nested_turn,
+        )
+        tool_dispatcher = StreamToolDispatcher(
+            handler=tool_event_handler,
+            activity=activity_projector,
+            status_control=status_control,
         )
 
         model_request = build_model_stream_request(
@@ -416,13 +419,13 @@ async def stream_turn(
                 continue
 
             if event_type == "turn.thinking":
-                await model_events.request_model_wait("server_thinking")
+                await activity_projector.request_model_wait("server_thinking")
                 await status_control.begin_reply_wait_status()
                 continue
 
             if isinstance(event, TurnFailedEvent):
 
-                if tool_batch_buffer.active:
+                if tool_dispatcher.batch_active:
                     raise ValueError("turn.failed arrived before tool.calls.done")
 
                 outcome.record_failed_event(event)
@@ -546,49 +549,16 @@ async def stream_turn(
                         )
                 continue
 
-            if event_type == "tool.builtin.call":
-                await status_control.begin_tool_status()
-                continue
-
-            if isinstance(event, ToolBuiltinDoneEvent):
-                await status_control.end_status()
-                continue
-
-            if isinstance(event, ToolCallsStartEvent):
-                tool_batch_buffer.begin(event)
-                await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
-                continue
-
-            if isinstance(event, ToolCallsDoneEvent):
-                ready_calls = tool_batch_buffer.complete(event)
-                await status_control.begin_reply_wait_status(delay_sec=0.75)
-                for ready_call in ready_calls:
-                    tool_handling = await tool_event_handler.handle_call(ready_call)
-                    if tool_handling.status == "interrupted":
-                        outcome.interrupt(tool_handling.error)
-                        outcome.confirm_interrupt()
-                        break
-                if outcome.is_interrupted:
-                    break
-                continue
-
             if isinstance(event, ToolApprovalRequiredEvent):
                 await approval_handler.handle(event)
                 continue
 
-            if isinstance(event, ToolCallEvent):
-                for ready_call in tool_batch_buffer.accept(event):
-                    tool_handling = await tool_event_handler.handle_call(ready_call)
-                    if tool_handling.status == "interrupted":
-                        outcome.interrupt(tool_handling.error)
-                        outcome.confirm_interrupt()
-                        break
-                if outcome.is_interrupted:
-                    break
-                continue
-
-            if isinstance(event, ToolOutputEvent):
-                await tool_event_handler.handle_output(event)
+            tool_dispatch = await tool_dispatcher.dispatch(event)
+            if tool_dispatch.status == "interrupted":
+                outcome.interrupt(tool_dispatch.error)
+                outcome.confirm_interrupt()
+                break
+            if tool_dispatch.status == "handled":
                 continue
 
             if await handle_lifecycle_event(

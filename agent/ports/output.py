@@ -55,6 +55,7 @@ __all__ = (
     "TerminalWaitCompleted",
     "TerminalWaitStarted",
     "ToolActivityKind",
+    "ToolInteractionActivityPort",
     "ToolBatchCompleted",
     "ToolBatchStarted",
     "ToolCompleted",
@@ -422,6 +423,38 @@ class OutputActivityPort(typing.Protocol):
 
     async def close(self) -> None:
         """幂等取消当前表面的 timer、lease 和回调。"""
+        ...
+
+
+class ToolInteractionActivityPort(typing.Protocol):
+    """投影 Harness 内嵌套工具和审批的具名活动生命周期。"""
+
+    async def tool_started(
+        self,
+        tool_id: str,
+        tool_kind: ToolActivityKind,
+        *,
+        name: str = "",
+    ) -> None:
+        """为工具取得具名活动 lease。"""
+        ...
+
+    async def tool_completed(
+        self,
+        tool_id: str,
+        tool_kind: ToolActivityKind,
+        *,
+        name: str = "",
+    ) -> None:
+        """释放匹配的工具活动 lease。"""
+        ...
+
+    async def approval_started(self, approval_id: str, call_id: str) -> None:
+        """为审批取得独占交互权。"""
+        ...
+
+    async def approval_completed(self, approval_id: str, call_id: str) -> None:
+        """释放匹配的审批交互权。"""
         ...
 
 

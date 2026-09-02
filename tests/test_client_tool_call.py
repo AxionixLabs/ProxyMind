@@ -113,6 +113,12 @@ def _runner(
         pref_config={},
         tool_call_coordinator=coordinator,
         tool_execution=McpToolExecutionAdapter(),
+        activity=SimpleNamespace(
+            tool_started=AsyncMock(),
+            tool_completed=AsyncMock(),
+            approval_started=AsyncMock(),
+            approval_completed=AsyncMock(),
+        ),
         effect_journal=effect_journal,
         effect_reconciler=effect_reconciler,
     )

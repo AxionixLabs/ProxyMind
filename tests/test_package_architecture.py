@@ -5424,6 +5424,7 @@ def test_presentation_output_has_no_legacy_package_or_imports() -> None:
         "ToolBatchCompleted",
         "ToolBatchStarted",
         "ToolCompleted",
+        "ToolInteractionActivityPort",
         "ToolStarted",
         "TurnTerminal",
         "_ApprovalActivityEvent",

@@ -4,6 +4,7 @@
 import time
 import typing
 
+from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.adapters.protocol.tool_events import tool_invocation_from_event
 from agent.application.approvals.amendments import approval_execpolicy_amendment
 from agent.application.approvals.local_policy import (
@@ -12,6 +13,7 @@ from agent.application.approvals.local_policy import (
 )
 from agent.application.approvals.models import (
     ApprovalDecisionValue,
+    ApprovalOutcome,
     normalize_approval_decision,
 )
 from agent.application.approvals.policy import (
@@ -145,6 +147,7 @@ class ApprovalEventHandler:
         tools: list[dict[str, typing.Any]],
         ledger: ApprovalCallLedger,
         coordinator: ToolCallCoordinator,
+        activity: TurnActivityProjector,
         status_control: OutputStatusPort,
         presentation: PresentationSink,
         post_approval: typing.Callable[..., typing.Awaitable[typing.Any]],
@@ -156,6 +159,7 @@ class ApprovalEventHandler:
         self.tools = tools
         self.ledger = ledger
         self.coordinator = coordinator
+        self.activity = activity
         self.status_control = status_control
         self.presentation = presentation
         self.post_approval = post_approval
@@ -200,10 +204,10 @@ class ApprovalEventHandler:
             restored_approval = approval_from_snapshot(item.approval)
             self._add_agent_identity(restored_approval)
 
-            restored_outcome = (
-                await self.approval_coordinator.request_outcome(
-                    restored_approval
-                )
+            restored_outcome = await self._request_approval(
+                restored_approval,
+                approval_id=item.approval_id,
+                call_id=item.call_id,
             )
             restored_decision = restored_outcome.decision
             if (
@@ -374,8 +378,10 @@ class ApprovalEventHandler:
         ):
             decision, decision_source = "decline", "policy"
         else:
-            outcome = await self.approval_coordinator.request_outcome(
-                approval
+            outcome = await self._request_approval(
+                approval,
+                approval_id=approval_id,
+                call_id=approval_call_id,
             )
             decision, decision_source = outcome.decision, outcome.source
 
@@ -477,6 +483,20 @@ class ApprovalEventHandler:
                 delay_sec=0.15,
                 animate_after_sec=0.85,
             )
+
+    async def _request_approval(
+        self,
+        approval: dict[str, typing.Any],
+        *,
+        approval_id: str,
+        call_id: str,
+    ) -> ApprovalOutcome:
+        """在 typed 审批表面生命周期内请求决定。"""
+        await self.activity.approval_started(approval_id, call_id)
+        try:
+            return await self.approval_coordinator.request_outcome(approval)
+        finally:
+            await self.activity.approval_completed(approval_id, call_id)
 
     def _add_agent_identity(self, approval: dict[str, typing.Any]) -> None:
         """为子执行主体的审批附加当前身份。"""

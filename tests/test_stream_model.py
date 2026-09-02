@@ -5,6 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from agent.protocol import CanonicalItem
+from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.ports import OutputStatusPort
 from agent.ports import (
     AssistantOutputBoundary,
@@ -122,19 +123,19 @@ def _handler() -> tuple[
     content = _Content()
     status = _Status()
     activity = _Activity()
+    context = OutputSurfaceContext(
+        surface_id="surface_test",
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        agent_id="root",
+    )
     retry = Mock()
     idle = Mock()
     handler = ModelStreamEventHandler(
         transcript=transcript,
         content=content,
-        activity=activity,
-        surface_context=OutputSurfaceContext(
-            surface_id="surface_test",
-            cid="cid_test",
-            sid="sid_test",
-            turn_id="turn_test",
-            agent_id="root",
-        ),
+        activity=TurnActivityProjector(context, activity),
         status_control=status,
         provider_retry_sink=retry,
         idle_reschedule=idle,

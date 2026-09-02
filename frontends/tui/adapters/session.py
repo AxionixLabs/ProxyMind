@@ -37,6 +37,8 @@ def create_tui_output_session(
     control = TuiOutputControl(
         log_file,
         runtime=runtime,
+        activity=activity,
+        surface_context=context,
         assistant_visible=activity.emit_assistant_visible,
         animate=animate,
     )
@@ -66,17 +68,10 @@ async def _apply_surface_projection(
         runtime.activity.finish_wait()
         return None
 
-    if projection.indicator == "retrying":
-        runtime.set_wait_retry_state(
-            "transport" if projection.detail == "transport" else "provider"
-        )
-    else:
-        runtime.set_wait_retry_state("idle")
-    await runtime.activity.ensure_wait()
-    if projection.indicator == "terminal":
-        await runtime.begin_terminal_wait(projection.detail)
-    else:
-        await runtime.end_terminal_wait()
+    await runtime.activity.show_turn_surface(
+        projection.indicator,
+        detail=projection.detail,
+    )
 
 
 def _apply_immediate_surface_projection(

@@ -79,6 +79,7 @@ from frontends.tui.adapters.markdown import (
 )
 from frontends.tui.adapters.output import TuiOutputControl
 from frontends.tui.adapters.presentation import TuiPresentationSink
+from frontends.tui.adapters.session import create_tui_output_session
 from frontends.tui.core.document import (
     TranscriptBlock,
     TuiBlockKind,
@@ -9312,9 +9313,14 @@ async def test_tui_shell_titles_share_one_visual_row_budget() -> None:
 async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
-    await runtime.begin_wait_status()
-    output = TuiOutputControl("", runtime=runtime, animate=False)
-    presentation = TuiPresentationSink(output)
+    session = create_tui_output_session(
+        "",
+        context=OUTPUT_SURFACE_CONTEXT,
+        runtime=runtime,
+        animate=False,
+    )
+    await session.open()
+    presentation = session.presentation
     command = "python -m pytest tests/test_tui_shell.py -q"
 
     await presentation.emit(build_native_tool_result_view(
@@ -9326,6 +9332,7 @@ async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
             "command": command,
             "status": "running",
         },
+        call_id="poll-1",
     ))
     await presentation.emit(build_native_tool_result_view(
         "write_stdin",
@@ -9337,6 +9344,7 @@ async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
             "status": "running",
             "output_lines": ["first poll output"],
         },
+        call_id="poll-1",
     ))
     activity_text = "".join(
         text for _style, text in runtime.screen.activity_block.fragments
@@ -9354,6 +9362,7 @@ async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
             "status": "running",
             "output_lines": ["second poll output"],
         },
+        call_id="poll-2",
     ))
     await presentation.emit(build_native_tool_result_view(
         "write_stdin",
@@ -9364,6 +9373,7 @@ async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
             "command": command,
             "status": "running",
         },
+        call_id="stdin-1",
     ))
 
     text = _document_text(runtime.document)
@@ -9374,6 +9384,7 @@ async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
     assert "  └ q" in text
     assert "first poll output" not in text
     assert "second poll output" not in text
+    await session.close()
     runtime.set_execution_active(False)
 
 
@@ -9381,16 +9392,16 @@ async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
 async def test_tui_exec_wait_flushes_before_assistant_output() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
-    await runtime.begin_wait_status()
-    output = TuiOutputControl("", runtime=runtime, animate=False)
-    presentation = TuiPresentationSink(output)
-    content = TuiContentSink(
-        output,
-        before_assistant_output=(
-            presentation.flush_terminal_waits_before_assistant_output
-        ),
-        surface_context=OUTPUT_SURFACE_CONTEXT,
+    session = create_tui_output_session(
+        "",
+        context=OUTPUT_SURFACE_CONTEXT,
+        runtime=runtime,
+        animate=False,
     )
+    await session.open()
+    output = session.control
+    presentation = session.presentation
+    content = session.content
     command = "ping -t 8.8.8.8"
 
     await presentation.emit(build_native_tool_result_view(
@@ -9402,6 +9413,7 @@ async def test_tui_exec_wait_flushes_before_assistant_output() -> None:
             "command": command,
             "status": "running",
         },
+        call_id="poll-1",
     ))
     await presentation.emit(build_native_tool_result_view(
         "write_stdin",
@@ -9412,6 +9424,7 @@ async def test_tui_exec_wait_flushes_before_assistant_output() -> None:
             "command": command,
             "status": "running",
         },
+        call_id="wait-poll-1",
     ))
 
     assert "Waited for background terminal" not in _document_text(runtime.document)
@@ -9423,6 +9436,7 @@ async def test_tui_exec_wait_flushes_before_assistant_output() -> None:
     assert text.index("Waited for background terminal") < text.index(
         "Streaming response."
     )
+    await session.close()
     runtime.set_execution_active(False)
 
 
@@ -9430,20 +9444,20 @@ async def test_tui_exec_wait_flushes_before_assistant_output() -> None:
 async def test_tui_exec_wait_flushes_when_terminal_session_changes() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
-    await runtime.begin_wait_status()
-    output = TuiOutputControl("", runtime=runtime, animate=False)
-    presentation = TuiPresentationSink(output)
-    content = TuiContentSink(
-        output,
-        before_assistant_output=(
-            presentation.flush_terminal_waits_before_assistant_output
-        ),
-        surface_context=OUTPUT_SURFACE_CONTEXT,
+    session = create_tui_output_session(
+        "",
+        context=OUTPUT_SURFACE_CONTEXT,
+        runtime=runtime,
+        animate=False,
     )
+    await session.open()
+    output = session.control
+    presentation = session.presentation
+    content = session.content
 
-    for session_id, command in (
-        ("session-1", "ping -t 8.8.8.8"),
-        ("session-2", "python -m pytest -q"),
+    for call_id, session_id, command in (
+        ("poll-1", "session-1", "ping -t 8.8.8.8"),
+        ("poll-2", "session-2", "python -m pytest -q"),
     ):
         await presentation.emit(build_native_tool_result_view(
             "write_stdin",
@@ -9454,6 +9468,7 @@ async def test_tui_exec_wait_flushes_when_terminal_session_changes() -> None:
                 "command": command,
                 "status": "running",
             },
+            call_id=call_id,
         ))
 
     text = _document_text(runtime.document)
@@ -9468,6 +9483,7 @@ async def test_tui_exec_wait_flushes_when_terminal_session_changes() -> None:
     assert text.count("Waited for background terminal") == 2
     assert text.index("ping -t 8.8.8.8") < text.index("python -m pytest -q")
     assert text.index("python -m pytest -q") < text.index("Answer.")
+    await session.close()
     runtime.set_execution_active(False)
 
 

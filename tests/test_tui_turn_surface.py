@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.ports import (
     AssistantBuffered,
     AssistantSegmentCompleted,
@@ -59,6 +60,14 @@ def _scope(context: OutputSurfaceContext) -> dict[str, str]:
 def _identity() -> ResponseIdentity:
     """构造固定 provider response 身份。"""
     return ResponseIdentity("turn_test", 1, 1, 1)
+
+
+def _activity_text(runtime: TuiRuntime) -> str:
+    """返回当前 TUI 活动表面的纯文本。"""
+    block = runtime.screen.activity_block
+    if block is None:
+        return ""
+    return "".join(fragment[1] for fragment in block.fragments)
 
 
 def _active_state(context: OutputSurfaceContext):
@@ -270,6 +279,49 @@ async def test_coordinator_cancels_stale_generation_and_closes_scope() -> None:
 
 
 @pytest.mark.anyio
+async def test_coordinator_suppresses_fast_tool_projection() -> None:
+    """验证快速工具在统一 generation timer 到期前不制造闪烁。"""
+    context = _context(surface_id="surface_fast_tool")
+    projections: list[SurfaceProjection] = []
+
+    async def apply(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(
+        context,
+        apply,
+        timing=TurnSurfaceTiming(
+            tool_started_sec=0.02,
+            tool_result_sec=0.02,
+        ),
+    )
+    await coordinator.open()
+    await coordinator.emit(ToolStarted(
+        **_scope(context),
+        tool_id="call_fast",
+        tool_kind="client",
+        name="read_file",
+    ))
+    assert coordinator.pending_timer
+    await coordinator.emit(ToolCompleted(
+        **_scope(context),
+        tool_id="call_fast",
+        tool_kind="client",
+        name="read_file",
+    ))
+    await coordinator.emit(ModelWaitRequested(
+        **_scope(context),
+        revision=1,
+        reason="tool_result",
+    ))
+    await asyncio.sleep(0.03)
+
+    assert all(item.indicator != "working" for item in projections)
+    assert projections[-1].indicator == "thinking"
+    await coordinator.close()
+
+
+@pytest.mark.anyio
 async def test_coordinator_joins_timer_when_close_projection_fails() -> None:
     context = _context()
 
@@ -444,6 +496,62 @@ async def test_tui_visible_content_atomically_replaces_activity_surface() -> Non
     assert runtime.document.active_kind == "assistant"
 
     await session.close()
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_tui_tool_approval_and_terminal_leases_restore_parent_surface() -> None:
+    """验证正交工具、审批和终端等待不丢失父活动。"""
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context(surface_id="surface_tools")
+    session = create_tui_output_session(
+        "",
+        context=context,
+        runtime=runtime,
+        animate=False,
+    )
+    await session.open()
+    activity = TurnActivityProjector(context, session.activity)
+
+    await activity.request_model_wait("initial")
+    assert "Thinking" in _activity_text(runtime)
+
+    await activity.tool_batch_started("batch_1")
+    await activity.tool_started("call_1", "client", name="read_file")
+    await activity.tool_started("call_2", "nested", name="shell_command")
+    await activity.tool_batch_completed("batch_1")
+    await asyncio.sleep(0.13)
+    assert "Working" in _activity_text(runtime)
+    assert "shell_command" in _activity_text(runtime)
+
+    await activity.tool_completed("call_1", "client", name="read_file")
+    assert "Working" in _activity_text(runtime)
+
+    await activity.approval_started("approval_2", "call_2")
+    assert runtime.screen.activity_block is None
+    await activity.approval_completed("approval_2", "call_2")
+    assert "Working" in _activity_text(runtime)
+
+    await activity.terminal_wait_started(
+        "poll_1",
+        "terminal_1",
+        command="python -m pytest -q",
+    )
+    assert "Terminal" in _activity_text(runtime)
+    await activity.terminal_wait_completed(
+        "poll_1",
+        "terminal_1",
+        command="python -m pytest -q",
+    )
+    assert "Working" in _activity_text(runtime)
+
+    await activity.tool_completed("call_2", "nested", name="shell_command")
+    await activity.request_model_wait("tool_result")
+    assert "Thinking" in _activity_text(runtime)
+
+    await session.close()
+    assert runtime.screen.activity_block is None
     runtime.set_execution_active(False)
 
 

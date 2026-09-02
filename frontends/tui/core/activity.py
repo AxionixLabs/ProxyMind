@@ -59,6 +59,12 @@ ActivitySlotKey = typing.Literal[
     "compact",
     "operation",
 ]
+TurnSurfaceIndicator = typing.Literal[
+    "thinking",
+    "retrying",
+    "working",
+    "terminal",
+]
 
 _SLOT_KEYS: dict[ActivityStatusKind, ActivitySlotKey] = {
     "wait": "foreground",
@@ -151,6 +157,8 @@ class TuiActivity(object):
         self._terminal_wait_command: str = ""
         self._terminal_wait_active: bool = False
         self._wait_retry_state: RetryState = "idle"
+        self._turn_surface_indicator: TurnSurfaceIndicator = "thinking"
+        self._turn_surface_detail: str = ""
         self._slots: dict[ActivitySlotKey, _ActivitySlot] = {}
         self._settle_deadlines: dict[ActivitySlotKey, float] = {}
 
@@ -167,6 +175,8 @@ class TuiActivity(object):
         self._wait_phase = 0.0
         self._wait_paused = False
         self._wait_retry_state = "idle"
+        self._turn_surface_indicator = "thinking"
+        self._turn_surface_detail = ""
         self._wait_started_at = time.perf_counter()
 
         await self._set_slot(_ActivitySlot(
@@ -184,6 +194,8 @@ class TuiActivity(object):
         normalized = " ".join(str(command or "").split())
         self._terminal_wait_active = True
         self._terminal_wait_command = normalized
+        self._turn_surface_indicator = "terminal"
+        self._turn_surface_detail = normalized
         self._render_slots()
 
     async def end_terminal_wait(self) -> None:
@@ -192,6 +204,8 @@ class TuiActivity(object):
             return None
 
         self._reset_terminal_wait()
+        self._turn_surface_indicator = "thinking"
+        self._turn_surface_detail = ""
         if self.lease("wait") is not None:
             self._render_slots()
 
@@ -200,6 +214,33 @@ class TuiActivity(object):
         if self._wait_paused or self.lease("wait") is not None:
             return None
         await self.begin_wait()
+
+    async def show_turn_surface(
+        self,
+        indicator: TurnSurfaceIndicator,
+        *,
+        detail: str = "",
+    ) -> None:
+        """在同一前景槽中投影 Turn 的唯一活动提示。"""
+        if indicator not in {
+            "thinking",
+            "retrying",
+            "working",
+            "terminal",
+        }:
+            raise ValueError(f"unsupported turn surface indicator: {indicator}")
+        await self.ensure_wait()
+        self._turn_surface_indicator = indicator
+        self._turn_surface_detail = " ".join(str(detail or "").split())
+        self._terminal_wait_active = indicator == "terminal"
+        self._terminal_wait_command = (
+            self._turn_surface_detail if indicator == "terminal" else ""
+        )
+        if indicator != "retrying":
+            self._wait_retry_state = "idle"
+        slot = self._slots.get("foreground")
+        if slot is not None and slot.kind == "wait" and not slot.frozen:
+            self._render_slots()
 
     async def begin_upload(
         self,
@@ -474,6 +515,10 @@ class TuiActivity(object):
         if state not in {"idle", "transport", "provider"}:
             raise ValueError(f"unsupported wait retry state: {state}")
         self._wait_retry_state = state
+        self._turn_surface_indicator = (
+            "thinking" if state == "idle" else "retrying"
+        )
+        self._turn_surface_detail = ""
 
         slot = self._slots.get("foreground")
         if slot is not None and slot.kind == "wait" and not slot.frozen:
@@ -481,9 +526,14 @@ class TuiActivity(object):
 
     def _wait_block(self, phase: float) -> FragmentBlock:
         """按当前连接状态生成等待帧。"""
-        if self._terminal_wait_active:
+        if self._turn_surface_indicator in {"working", "terminal"}:
+            title = (
+                "Terminal"
+                if self._turn_surface_indicator == "terminal"
+                else "Working"
+            )
             block = _status_block(
-                "Terminal",
+                title,
                 family="wait",
                 phase=phase,
                 elapsed_sec=self._wait_elapsed(),
@@ -492,9 +542,9 @@ class TuiActivity(object):
                 color_level=self.color_level,
             )
             fragments = list(block.fragments)
-            if self._terminal_wait_command:
+            if self._turn_surface_detail:
                 command_display = _truncate_display_text(
-                    self._terminal_wait_command,
+                    self._turn_surface_detail,
                     limit=max(8, int(self.get_width()) - 4),
                 )
                 fragments.extend([
@@ -735,6 +785,8 @@ class TuiActivity(object):
         self._wait_phase = 0.0
         self._wait_paused = False
         self._wait_retry_state = "idle"
+        self._turn_surface_indicator = "thinking"
+        self._turn_surface_detail = ""
 
     def _reset_terminal_wait(self) -> None:
         """清空后台终端等待上下文。"""

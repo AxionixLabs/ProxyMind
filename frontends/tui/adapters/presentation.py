@@ -190,6 +190,7 @@ class TuiPresentationSink(PresentationSink):
         self.output = output
         self._stable_patch_call_ids: set[str] = set()
         self._pending_terminal_waits: dict[str, list[NativeToolResultView]] = {}
+        self._active_terminal_waits: set[tuple[str, str]] = set()
 
     @staticmethod
     def _native_payload(view: NativeToolResultView) -> dict[str, typing.Any]:
@@ -270,8 +271,21 @@ class TuiPresentationSink(PresentationSink):
         """提交指定会话合并后的等待记录。"""
         views = self._pending_terminal_waits.pop(session_id, None)
         if views:
-            if not self._pending_terminal_waits:
-                await self.output.runtime.end_terminal_wait()
+            completed: set[tuple[str, str]] = set()
+            for view in views:
+                identity = (view.call_id, session_id)
+                if (
+                    identity not in self._active_terminal_waits
+                    or identity in completed
+                ):
+                    continue
+                await self.output.complete_terminal_wait(
+                    call_id=view.call_id,
+                    session_id=session_id,
+                    command=self._terminal_command(view),
+                )
+                self._active_terminal_waits.discard(identity)
+                completed.add(identity)
             await self._emit_view(views[-1])
 
     async def _flush_all_terminal_waits(self) -> None:
@@ -448,9 +462,17 @@ class TuiPresentationSink(PresentationSink):
                     if pending_session_id != session_id:
                         await self._flush_terminal_wait(pending_session_id)
                 self._pending_terminal_waits.setdefault(session_id, []).append(view)
-                await self.output.runtime.begin_terminal_wait(
-                    self._terminal_command(view),
-                )
+                identity = (view.call_id, session_id)
+                if (
+                    self._terminal_status(view) == "running"
+                    and identity not in self._active_terminal_waits
+                ):
+                    await self.output.start_terminal_wait(
+                        call_id=view.call_id,
+                        session_id=session_id,
+                        command=self._terminal_command(view),
+                    )
+                    self._active_terminal_waits.add(identity)
                 if self._terminal_status(view) == "exited":
                     await self._flush_terminal_wait(session_id)
                 return None

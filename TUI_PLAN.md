@@ -1,8 +1,8 @@
 # TUI Turn 展示实施清单
 
 状态：执行中
-当前阶段：S3 工具、审批与结果回灌闭环（未开始）
-完成阶段：3 / 6
+当前阶段：S4 重试、恢复、续跑与终态收束（未开始）
+完成阶段：4 / 6
 基线日期：2026-09-02
 Codex 参考版本：`codex-main` revision `0bd2a23916a19e998ed28c0166fbcb405738ed79`
 
@@ -107,7 +107,7 @@ Reducer 使用正交状态，避免把所有组合塞入单一枚举：
 - [x] S0 契约冻结与基线
 - [x] S1 Typed 事件、Reducer 与输出会话生命周期
 - [x] S2 正文流与等待状态原子交接
-- [ ] S3 工具、审批与结果回灌闭环
+- [x] S3 工具、审批与结果回灌闭环
 - [ ] S4 重试、恢复、续跑与终态收束
 - [ ] S5 清理旧路径与最终验收
 
@@ -255,40 +255,45 @@ Reducer 使用正交状态，避免把所有组合塞入单一枚举：
   activity close 的逆序释放资源，保证异常 partial 正文仍能在 scope 关闭前稳定提交。工具、审批和
   retry 尚未接入 typed activity，分别由 S3、S4 完成。
 
-## [ ] S3 工具、审批与结果回灌闭环
+## [x] S3 工具、审批与结果回灌闭环
 
 ### 任务
 
-- [ ] `tool.calls.start/done` 使用 `batch_id` 建立和关闭批次活动，不在收到单个 `tool.call` 时
+- [x] `tool.calls.start/done` 使用 `batch_id` 建立和关闭批次活动，不在收到单个 `tool.call` 时
   提前改变批次完成语义。
-- [ ] 客户端工具按 `call_id`、内置工具按 `builtin_call_id` 获取具名 lease；并发、嵌套和顺序
+- [x] 客户端工具按 `call_id`、内置工具按 `builtin_call_id` 获取具名 lease；并发、嵌套和顺序
   工具互不清除对方状态。
-- [ ] 工具开始时在稳定提交前序正文后显示 `Working` 或工具专属文案，不错误显示为模型思考。
-- [ ] 后台终端等待从工具 lease 派生 `Terminal + command`，不能依赖一个可能已经被正文释放的
+- [x] 工具开始时在稳定提交前序正文后显示 `Working` 或工具专属文案，不错误显示为模型思考。
+- [x] 后台终端等待从工具 lease 派生 `Terminal + command`，不能依赖一个可能已经被正文释放的
   旧 wait slot。
-- [ ] 工具进度和结果 PresentationView 只提供结构化内容；coordinator 决定活动提示是否可见。
-- [ ] 工具结果必须先完成本地展示和可靠投递，再登记 model wait；未知投递进入 reconciliation，
+- [x] 工具进度和结果 PresentationView 只提供结构化内容；coordinator 决定活动提示是否可见。
+- [x] 工具结果必须先完成本地展示和可靠投递，再登记 model wait；未知投递进入 reconciliation，
   不得显示普通 `Thinking`。
-- [ ] 审批开始时保存恢复来源并让审批表面独占；批准后恢复工具状态，拒绝后进入结果投递，
+- [x] 审批开始时保存恢复来源并让审批表面独占；批准后恢复工具状态，拒绝后进入结果投递，
   cancel 后进入中断收束。
-- [ ] 连续审批和审批快照按 `approval_id + call_id` 合并，旧 pending 事件不得重新打开已收束审批。
-- [ ] 工具快速完成时由统一 timer 抑制闪烁；长工具必须提供持续可见且可中断的状态。
+- [x] 连续审批和审批快照按 `approval_id + call_id` 合并，旧 pending 事件不得重新打开已收束审批。
+- [x] 工具快速完成时由统一 timer 抑制闪烁；长工具必须提供持续可见且可中断的状态。
 
 ### 出口
 
-- [ ] `中间正文 -> 工具 -> 结果 -> 下一轮正文 -> 完成` 的真实帧序列稳定。
-- [ ] 单工具、两工具批次、嵌套工具、并发结束次序和 duplicate replay 均通过测试。
-- [ ] 批准、拒绝、cancel、审批恢复和审批展示失败都有确定状态收束。
-- [ ] 本地工具、托管工具、provider built-in tool 和后台终端使用同一 reducer，但保留各自身份。
-- [ ] 任一工具结束都不能清除仍活动的其他工具、审批或 retry 状态。
+- [x] `中间正文 -> 工具 -> 结果 -> 下一轮正文 -> 完成` 的真实帧序列稳定。
+- [x] 单工具、两工具批次、嵌套工具、并发结束次序和 duplicate replay 均通过测试。
+- [x] 批准、拒绝、cancel、审批恢复和审批展示失败都有确定状态收束。
+- [x] 本地工具、托管工具、provider built-in tool 和后台终端使用同一 reducer，但保留各自身份。
+- [x] 任一工具结束都不能清除仍活动的其他工具、审批或 retry 状态。
 
 ### 记录
 
-- 状态：未开始
-- 完成日期：
-- 提交：
-- 验证：
-- 遗留风险/决策：
+- 状态：已完成
+- 完成日期：2026-09-03
+- 提交：`feat(tui): unify tool activity handoffs`
+- 验证：TUI、stream、tool、approval、JS REPL、MCP 审批与 Turn execution 扩大回归
+  `1941 passed in 45.21s`；新增批次顺序和真实表面定向用例 `2 passed`；受影响的两项
+  架构边界守卫 `2 passed in 23.01s`；`compileall` 与 `git diff --check`。
+- 遗留风险/决策：工具批次组装由 `StreamToolDispatcher` 唯一拥有，活动事实由
+  `TurnActivityProjector` 统一编号和投影。全量架构守卫仍有两项与本阶段无关的现有 MCP
+  文件头/文件清单基线失败，本阶段未改动该用户边界。retry、replay、终态和 continuation
+  的 typed activity 接入由 S4 完成。
 
 ## [ ] S4 重试、恢复、续跑与终态收束
 

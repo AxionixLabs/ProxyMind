@@ -51,6 +51,7 @@ from agent.ports import (
     EffectJournal,
     EffectJournalPersistenceError,
     LocalEffectReconciliationRequired,
+    ToolInteractionActivityPort,
 )
 from agent.ports import (
     McpSessionPort,
@@ -189,6 +190,7 @@ class ClientToolCallRunner:
         pref_config: dict[str, typing.Any],
         tool_call_coordinator: ToolCallCoordinator,
         tool_execution: ToolExecutionAdapter,
+        activity: ToolInteractionActivityPort,
         effect_journal: EffectJournal,
         patch_preview: typing.Callable[..., dict[str, typing.Any]] | None = None,
         effect_reconciler: typing.Callable[..., typing.Awaitable[
@@ -205,6 +207,7 @@ class ClientToolCallRunner:
         self.pref_config = pref_config
         self.tool_call_coordinator = tool_call_coordinator
         self.tool_execution = tool_execution
+        self.activity = activity
         self.patch_preview = patch_preview
         self.effect_journal = effect_journal
         self.effect_reconciler = effect_reconciler
@@ -354,6 +357,7 @@ class ClientToolCallRunner:
         authorization = await authorize_mcp_tool_call(
             invocation.turn,
             coordinator=typed_coordinator,
+            activity=self.activity,
             call_id=invocation.call_id,
             descriptor=descriptor,
             arguments=invocation.arguments,
@@ -721,17 +725,29 @@ class ClientToolCallRunner:
         call_id: str,
     ) -> NestedToolOutput:
         """通过普通工具生命周期执行内核发起的嵌套调用。"""
-        outcome = await self.execute(
-            ToolInvocation(
-                turn=turn,
-                call_id=call_id,
-                name=tool_name,
-                arguments=arguments,
-                meta=meta_for_tool(self.tools, tool_name),
-            ),
-            use_coding_trace=uses_native_tool_view(tool_name),
-            display=False,
+        await self.activity.tool_started(
+            call_id,
+            "nested",
+            name=tool_name,
         )
+        try:
+            outcome = await self.execute(
+                ToolInvocation(
+                    turn=turn,
+                    call_id=call_id,
+                    name=tool_name,
+                    arguments=arguments,
+                    meta=meta_for_tool(self.tools, tool_name),
+                ),
+                use_coding_trace=uses_native_tool_view(tool_name),
+                display=False,
+            )
+        finally:
+            await self.activity.tool_completed(
+                call_id,
+                "nested",
+                name=tool_name,
+            )
         result = outcome.result
         if result.nested_output is None:
             raise RuntimeError(result.text or f"nested {tool_name} call failed")
