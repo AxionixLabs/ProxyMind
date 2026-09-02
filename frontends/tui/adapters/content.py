@@ -9,8 +9,11 @@ from agent.ports import (
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
+    AssistantVisible,
     ContentOutput,
     ContentSink,
+    OutputSurfaceContext,
+    ResponseIdentity,
     SourcesOutput,
 )
 from frontends.output.source_text import render_sources_text
@@ -27,10 +30,12 @@ class TuiContentSink(ContentSink):
         before_assistant_output: (
             typing.Callable[[], typing.Awaitable[None]] | None
         ) = None,
+        surface_context: OutputSurfaceContext,
     ) -> None:
         """绑定持久终端界面的输出控制器。"""
         self.output = output
         self._before_assistant_output = before_assistant_output
+        self._surface_context = surface_context
         self._completed_item_ids: set[tuple[str, str]] = set()
 
     async def _flush_before_assistant_output(self) -> None:
@@ -44,6 +49,7 @@ class TuiContentSink(ContentSink):
             item_key = (output.identity.turn_id, output.item_id)
             if output.item_id and item_key in self._completed_item_ids:
                 return None
+            self._bind_visibility(output.identity, output.item_id)
             await self._flush_before_assistant_output()
             await self.output.append_assistant_delta(output.text)
             return None
@@ -53,6 +59,7 @@ class TuiContentSink(ContentSink):
                 return None
             if output.item_id:
                 self._completed_item_ids.add(item_key)
+            self._bind_visibility(output.identity, output.item_id)
             if output.final_text is not None:
                 replace = getattr(self.output, "replace_assistant_stream", None)
                 if callable(replace):
@@ -78,6 +85,22 @@ class TuiContentSink(ContentSink):
             )
             return None
         raise TypeError(f"Unsupported TUI content output: {type(output).__name__}")
+
+    def _bind_visibility(
+        self,
+        identity: ResponseIdentity,
+        item_id: str,
+    ) -> None:
+        """把正式 Item 身份绑定到下一次真实正文上屏。"""
+        context = self._surface_context
+        if not item_id:
+            return None
+        self.output.bind_assistant_visibility(AssistantVisible(
+            surface_id=context.surface_id,
+            turn_id=context.turn_id,
+            identity=identity,
+            item_id=item_id,
+        ))
 
 
 if __name__ == '__main__':

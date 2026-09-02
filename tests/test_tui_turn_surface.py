@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from unittest.mock import patch
 
 import pytest
 
 from agent.ports import (
     AssistantBuffered,
+    AssistantSegmentCompleted,
     AssistantSettled,
+    AssistantTextDelta,
     AssistantVisible,
     LogicalSettled,
     ModelWaitRequested,
@@ -30,6 +33,8 @@ from frontends.tui.runtime.turn_surface import (
     project_turn_surface,
     reduce_turn_surface,
 )
+from frontends.tui.adapters.session import create_tui_output_session
+from frontends.tui.core.runtime import TuiRuntime
 
 
 def _context(*, surface_id: str = "surface_test") -> OutputSurfaceContext:
@@ -300,10 +305,12 @@ class _LifecyclePort:
         name: str,
         *,
         close_error: Exception | None = None,
+        stop_error: Exception | None = None,
     ) -> None:
         self.operations = operations
         self.name = name
         self.close_error = close_error
+        self.stop_error = stop_error
 
     async def open(self) -> None:
         self.operations.append(f"{self.name}.open")
@@ -315,6 +322,8 @@ class _LifecyclePort:
 
     async def stop(self, *, blink: bool = True) -> None:
         self.operations.append(f"{self.name}.stop:{blink}")
+        if self.stop_error is not None:
+            raise self.stop_error
 
 
 @pytest.mark.anyio
@@ -339,8 +348,8 @@ async def test_output_session_owns_idempotent_resource_lifecycle() -> None:
     assert operations == [
         "activity.open",
         "control.open",
-        "activity.close",
         "control.stop:False",
+        "activity.close",
     ]
 
 
@@ -366,4 +375,174 @@ async def test_output_session_continues_cleanup_after_activity_failure() -> None
     with pytest.raises(RuntimeError, match="activity close failed"):
         await session.close()
 
-    assert operations[-2:] == ["activity.close", "control.stop:True"]
+    assert operations[-2:] == ["control.stop:True", "activity.close"]
+
+
+@pytest.mark.anyio
+async def test_output_session_closes_activity_after_output_failure() -> None:
+    operations: list[str] = []
+    activity = _LifecyclePort(operations, "activity")
+    control = _LifecyclePort(
+        operations,
+        "control",
+        stop_error=RuntimeError("output close failed"),
+    )
+    session = OutputSession(
+        context=_context(),
+        activity=activity,
+        control=control,
+        status=control,
+        content=PassiveOutputActivity(),
+        presentation=PassiveOutputActivity(),
+    )
+
+    await session.open()
+    with pytest.raises(RuntimeError, match="output close failed"):
+        await session.close()
+
+    assert operations[-2:] == ["control.stop:True", "activity.close"]
+
+
+@pytest.mark.anyio
+async def test_tui_visible_content_atomically_replaces_activity_surface() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context()
+    session = create_tui_output_session(
+        "",
+        context=context,
+        runtime=runtime,
+        animate=False,
+    )
+    coordinator = session.activity
+    assert isinstance(coordinator, TuiTurnSurfaceCoordinator)
+    identity = _identity()
+
+    await runtime.begin_wait_status()
+    await session.open()
+    await coordinator.emit(ModelWaitRequested(
+        **_scope(context),
+        revision=1,
+        reason="initial",
+    ))
+    await coordinator.emit(AssistantBuffered(
+        **_scope(context),
+        identity=identity,
+        item_id="item_answer",
+    ))
+
+    with patch.object(runtime.screen, "_invalidate_now") as invalidate:
+        await session.content.emit(AssistantTextDelta(
+            "answer\n",
+            identity,
+            item_id="item_answer",
+        ))
+
+    invalidate.assert_called_once_with()
+    assert coordinator.state.content == "visible"
+    assert runtime.activity.lease("wait") is None
+    assert runtime.document.active_kind == "assistant"
+
+    await session.close()
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_tui_unterminated_tail_keeps_wait_until_text_done() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context(surface_id="surface_tail")
+    session = create_tui_output_session(
+        "",
+        context=context,
+        runtime=runtime,
+        animate=True,
+    )
+    coordinator = session.activity
+    assert isinstance(coordinator, TuiTurnSurfaceCoordinator)
+    identity = _identity()
+
+    await runtime.begin_wait_status()
+    await session.open()
+    await coordinator.emit(ModelWaitRequested(
+        **_scope(context),
+        revision=1,
+        reason="initial",
+    ))
+    await coordinator.emit(AssistantBuffered(
+        **_scope(context),
+        identity=identity,
+        item_id="item_tail",
+    ))
+    await session.content.emit(AssistantTextDelta(
+        "tail without newline",
+        identity,
+        item_id="item_tail",
+    ))
+
+    assert runtime.activity.lease("wait") is not None
+    assert runtime.document.active_block is None
+
+    await session.content.emit(AssistantSegmentCompleted(
+        identity,
+        item_id="item_tail",
+    ))
+    await coordinator.emit(AssistantSettled(
+        **_scope(context),
+        identity=identity,
+        item_id="item_tail",
+    ))
+    await coordinator.emit(ModelWaitRequested(
+        **_scope(context),
+        revision=2,
+        reason="assistant_settled",
+    ))
+
+    assert runtime.activity.lease("wait") is None
+    assert runtime.document.active_kind == "assistant"
+    assert coordinator.pending_timer
+
+    await session.close()
+    assert not coordinator.pending_timer
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_output_close_flushes_partial_text_before_surface_closes() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context(surface_id="surface_partial_close")
+    session = create_tui_output_session(
+        "",
+        context=context,
+        runtime=runtime,
+        animate=True,
+    )
+    coordinator = session.activity
+    assert isinstance(coordinator, TuiTurnSurfaceCoordinator)
+    identity = _identity()
+
+    await runtime.begin_wait_status()
+    await session.open()
+    await coordinator.emit(ModelWaitRequested(
+        **_scope(context),
+        revision=1,
+        reason="initial",
+    ))
+    await coordinator.emit(AssistantBuffered(
+        **_scope(context),
+        identity=identity,
+        item_id="item_partial",
+    ))
+    await session.content.emit(AssistantTextDelta(
+        "partial response",
+        identity,
+        item_id="item_partial",
+    ))
+
+    await session.close()
+
+    assert coordinator.state.lifecycle == "closed"
+    assert runtime.document.blocks[-1].raw_text == "partial response"
+    assert runtime.activity.lease("wait") is None
+    runtime.set_execution_active(False)

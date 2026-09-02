@@ -7,12 +7,18 @@ from agent.application.turns.stream_boundaries import (
     is_assistant_output_boundary,
 )
 from agent.ports import (
+    AssistantBuffered,
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,
+    AssistantSettled,
     AssistantTextDelta,
     ContentSink,
+    ModelWaitReason,
+    ModelWaitRequested,
+    OutputActivityPort,
+    OutputSurfaceContext,
     ResponseIdentity,
 )
 from agent.ports import ModelEventStream
@@ -39,6 +45,8 @@ class ModelStreamEventHandler:
         *,
         transcript: TranscriptSink,
         content: ContentSink,
+        activity: OutputActivityPort,
+        surface_context: OutputSurfaceContext,
         status_control: OutputStatusPort,
         provider_retry_sink: typing.Callable[[bool], None],
         idle_reschedule: typing.Callable[[], None],
@@ -46,6 +54,8 @@ class ModelStreamEventHandler:
         """绑定输出端口并初始化 Transcript 交付水位。"""
         self.transcript = transcript
         self.content = content
+        self.activity = activity
+        self.surface_context = surface_context
         self.status_control = status_control
         self.provider_retry_sink = provider_retry_sink
         self.idle_reschedule = idle_reschedule
@@ -53,6 +63,18 @@ class ModelStreamEventHandler:
         self._delivered_text: dict[_ItemRevision, str] = {}
         self._completed_presentations: set[_ItemRevision] = set()
         self._presented_text_revision: _ItemRevision | None = None
+        self._buffered_activity_items: set[_ItemRevision] = set()
+        self._model_wait_revision: int = 0
+
+    async def request_model_wait(self, reason: ModelWaitReason) -> None:
+        """按单调本地 revision 投影一次模型等待语义。"""
+        self._model_wait_revision += 1
+        await self.activity.emit(ModelWaitRequested(
+            surface_id=self.surface_context.surface_id,
+            turn_id=self.surface_context.turn_id,
+            revision=self._model_wait_revision,
+            reason=reason,
+        ))
 
     async def handle(
         self,
@@ -152,6 +174,7 @@ class ModelStreamEventHandler:
             self.flush_pending(complete_only=True)
             await self.content.emit(AssistantOutputBoundary())
         self._presented_text_revision = revision
+        await self._buffer_assistant_activity(item)
         await self.content.emit(AssistantTextDelta(
             event.text,
             _response_identity(item),
@@ -199,12 +222,35 @@ class ModelStreamEventHandler:
             self._synchronize_transcript_item(item)
         self._completed_presentations.add(revision)
         self._presented_text_revision = None
+        if str(item.payload_value().get("text") or event.final_text or ""):
+            await self._buffer_assistant_activity(item)
         await self.content.emit(AssistantSegmentCompleted(
             _response_identity(item),
             final_text=event.final_text,
             item_id=item.item_id,
         ))
+        if revision in self._buffered_activity_items:
+            await self.activity.emit(AssistantSettled(
+                surface_id=self.surface_context.surface_id,
+                turn_id=self.surface_context.turn_id,
+                identity=_response_identity(item),
+                item_id=item.item_id,
+            ))
+        await self.request_model_wait("assistant_settled")
         await self.status_control.begin_reply_wait_status()
+
+    async def _buffer_assistant_activity(self, item: CanonicalItem) -> None:
+        """幂等登记一项已经接收但未必可见的 assistant 正文。"""
+        revision = _item_revision(item)
+        if revision in self._buffered_activity_items:
+            return None
+        await self.activity.emit(AssistantBuffered(
+            surface_id=self.surface_context.surface_id,
+            turn_id=self.surface_context.turn_id,
+            identity=_response_identity(item),
+            item_id=item.item_id,
+        ))
+        self._buffered_activity_items.add(revision)
 
     def _synchronize_transcript_item(self, item: CanonicalItem) -> None:
         """按 Item revision 创建或更新一条 Transcript assistant 消息。"""

@@ -13,8 +13,15 @@ from prompt_toolkit.output import DummyOutput
 
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.harness.process_lifecycle import ProcessLifecycle
+from agent.ports import (
+    AssistantBuffered,
+    AssistantSegmentCompleted,
+    AssistantTextDelta,
+    ModelWaitRequested,
+    OutputSurfaceContext,
+    ResponseIdentity,
+)
 from agent.ports.presentation import ApplicationView
-from agent.ports import OutputSurfaceContext
 from frontends.runtime import FrontendActivity
 from frontends.interaction import PromptContext
 from frontends.tui.adapters.output import TuiOutputControl
@@ -36,6 +43,7 @@ from frontends.tui.core.styles import text_block
 from frontends.tui.core.task_state import TuiTaskState
 from frontends.tui.features.helix import TuiUpgradeProgress
 from frontends.tui.session.barriers import TuiForegroundTasks
+from frontends.tui.runtime.turn_surface import TuiTurnSurfaceCoordinator
 from agent.application.turns.foreground import (
     ApplicationTurnForegroundLifecycle,
     run_foreground_turn,
@@ -583,7 +591,24 @@ async def test_final_separator_preserves_input_after_assistant_wait_handoff() ->
 async def test_visible_assistant_atomically_replaces_animated_wait() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
-        output = TuiOutputControl("", runtime=runtime, animate=True)
+        context = OutputSurfaceContext(
+            surface_id="surface_frame_test",
+            cid="cid_frame_test",
+            sid="sid_frame_test",
+            turn_id="turn_frame_test",
+            agent_id="root",
+        )
+        session = create_tui_output_session(
+            "",
+            context=context,
+            runtime=runtime,
+            animate=True,
+        )
+        output = session.control
+        coordinator = session.activity
+        assert isinstance(output, TuiOutputControl)
+        assert isinstance(coordinator, TuiTurnSurfaceCoordinator)
+        identity = ResponseIdentity("turn_frame_test", 1, 1, 1)
         frames: list[tuple[str, int]] = []
         handler_registered = False
 
@@ -618,6 +643,19 @@ async def test_visible_assistant_atomically_replaces_animated_wait() -> None:
             try:
                 runtime.set_execution_active(True)
                 await runtime.begin_wait_status()
+                await session.open()
+                await coordinator.emit(ModelWaitRequested(
+                    surface_id=context.surface_id,
+                    turn_id=context.turn_id,
+                    revision=1,
+                    reason="initial",
+                ))
+                await coordinator.emit(AssistantBuffered(
+                    surface_id=context.surface_id,
+                    turn_id=context.turn_id,
+                    identity=identity,
+                    item_id="item_frame_test",
+                ))
                 waiting_screen = await _render_next_frame(runtime)
                 waiting_input_row = _absolute_window_row(
                     runtime,
@@ -629,11 +667,18 @@ async def test_visible_assistant_atomically_replaces_animated_wait() -> None:
                 runtime.screen.application.after_render += capture_frame
                 handler_registered = True
 
-                await output.append_assistant_delta("final answer")
+                await session.content.emit(AssistantTextDelta(
+                    "final answer",
+                    identity,
+                    item_id="item_frame_test",
+                ))
                 assert runtime.activity.lease("wait") is not None
                 assert runtime.document.active_block is None
 
-                await output.settle_stream()
+                await session.content.emit(AssistantSegmentCompleted(
+                    identity,
+                    item_id="item_frame_test",
+                ))
                 await _render_next_frame(runtime)
 
                 assert frames
@@ -650,7 +695,7 @@ async def test_visible_assistant_atomically_replaces_animated_wait() -> None:
                 assert runtime.activity.lease("wait") is None
                 assert runtime.task_state.turn_running
 
-                await output.stop()
+                await session.close()
                 runtime.set_execution_active(False)
                 final_screen = await _render_next_frame(runtime)
                 final_text = "\n".join(
@@ -666,7 +711,7 @@ async def test_visible_assistant_atomically_replaces_animated_wait() -> None:
                 if handler_registered:
                     runtime.screen.application.after_render -= capture_frame
                 runtime.set_execution_active(False)
-                await output.stop()
+                await session.close()
                 await runtime.close()
 
 

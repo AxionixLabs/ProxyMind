@@ -206,6 +206,8 @@ async def stream_turn(
     model_events = ModelStreamEventHandler(
         transcript=transcript,
         content=content,
+        activity=output_session.activity,
+        surface_context=output_session.context,
         status_control=status_control,
         provider_retry_sink=retrying_status.set_provider,
         idle_reschedule=idle_wait.reschedule,
@@ -235,6 +237,7 @@ async def stream_turn(
         record_turn_started(transcript, turn_execution)
 
         await output_session.open()
+        await model_events.request_model_wait("initial")
 
         observe(
             "stream.start",
@@ -413,6 +416,7 @@ async def stream_turn(
                 continue
 
             if event_type == "turn.thinking":
+                await model_events.request_model_wait("server_thinking")
                 await status_control.begin_reply_wait_status()
                 continue
 

@@ -644,17 +644,17 @@ class OutputSession(typing.Generic[PresentationViewT]):
             self._closed = True
             primary_error: BaseException | None = None
             try:
-                await self.activity.close()
+                await self.control.stop(blink=blink)
             except BaseException as error:
                 primary_error = error
             try:
-                await self.control.stop(blink=blink)
+                await self.activity.close()
             except BaseException as error:
                 if primary_error is None:
                     primary_error = error
                 else:
                     primary_error.add_note(
-                        "output control close also failed: "
+                        "output activity close also failed: "
                         f"{type(error).__name__}: {error}"
                     )
             if primary_error is not None:

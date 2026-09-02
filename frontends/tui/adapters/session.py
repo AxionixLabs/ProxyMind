@@ -24,25 +24,34 @@ def create_tui_output_session(
     runtime: TuiRuntime,
 ) -> OutputSession:
     """创建持久终端 TUI 对应的单轮输出会话。"""
+    activity = TuiTurnSurfaceCoordinator(
+        context,
+        lambda projection: _apply_surface_projection(runtime, projection),
+        apply_immediate_projection=(
+            lambda projection: _apply_immediate_surface_projection(
+                runtime,
+                projection,
+            )
+        ),
+    )
     control = TuiOutputControl(
         log_file,
         runtime=runtime,
+        assistant_visible=activity.emit_assistant_visible,
         animate=animate,
     )
     presentation = TuiPresentationSink(control)
     return OutputSession(
         context=context,
         control=control,
-        activity=TuiTurnSurfaceCoordinator(
-            context,
-            lambda projection: _apply_surface_projection(runtime, projection),
-        ),
+        activity=activity,
         status=TuiStreamStatusControl(),
         content=TuiContentSink(
             control,
             before_assistant_output=(
                 presentation.flush_terminal_waits_before_assistant_output
             ),
+            surface_context=context,
         ),
         presentation=presentation,
     )
@@ -68,6 +77,16 @@ async def _apply_surface_projection(
         await runtime.begin_terminal_wait(projection.detail)
     else:
         await runtime.end_terminal_wait()
+
+
+def _apply_immediate_surface_projection(
+    runtime: TuiRuntime,
+    projection: SurfaceProjection,
+) -> None:
+    """在正文画布事务内同步释放活动区域。"""
+    if projection.indicator != "hidden":
+        raise ValueError("immediate surface projection must be hidden")
+    runtime.activity.finish_wait()
 
 
 if __name__ == '__main__':

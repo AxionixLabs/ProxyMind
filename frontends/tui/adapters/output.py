@@ -7,7 +7,10 @@ import time
 import typing
 from functools import partial
 
-from agent.ports import OutputControlPort
+from agent.ports import (
+    AssistantVisible,
+    OutputControlPort,
+)
 from agent.ports.presentation import StyledBlock
 from frontends.output.recording import StreamRecordWriter
 from frontends.output.sanitize import sanitize_value
@@ -57,6 +60,8 @@ STREAM_RENDER_HUGE_TEXT_SIZE = 50_000
 STREAM_RESIZE_DEBOUNCE_SEC = 0.08
 FINAL_RENDER_ASYNC_MIN_SIZE = 8_000
 
+AssistantVisibleSink = typing.Callable[[AssistantVisible], None]
+
 
 class TuiOutputControl(OutputControlPort):
     """把单轮流式内容写入持久 TUI。"""
@@ -66,12 +71,15 @@ class TuiOutputControl(OutputControlPort):
         log_file: str,
         *,
         runtime: TuiRuntime,
+        assistant_visible: AssistantVisibleSink | None = None,
         animate: bool = True,
     ) -> None:
         """绑定持久 TUI 运行时与单轮输出记录。"""
         self.log_file = log_file
         self.runtime = runtime
         self.animate = bool(animate)
+        self._assistant_visible_sink = assistant_visible
+        self._assistant_visible_event: AssistantVisible | None = None
         self.assistant = TuiAssistantStream()
         self.record_writer = StreamRecordWriter(log_file)
         self._assistant_filter = TerminalTextFilter()
@@ -512,13 +520,28 @@ class TuiOutputControl(OutputControlPort):
         ):
             return False
 
-        return self.runtime.set_active_renderable(
-            block,
-            kind="assistant",
-            raw_text=raw_text,
-            stream_continuation=continuation,
-            gap_before=1 if continuation else None,
-        )
+        with self.runtime.screen.visual_update():
+            self._notify_assistant_visible()
+            return self.runtime.set_active_renderable(
+                block,
+                kind="assistant",
+                raw_text=raw_text,
+                stream_continuation=continuation,
+                gap_before=1 if continuation else None,
+            )
+
+    def bind_assistant_visibility(self, event: AssistantVisible) -> None:
+        """绑定下一次真实正文上屏必须提交的 Item 可见性事实。"""
+        if not isinstance(event, AssistantVisible):
+            raise TypeError("assistant visible event is required")
+        self._assistant_visible_event = event
+
+    def _notify_assistant_visible(self) -> None:
+        """在当前 visual transaction 内提交已绑定的可见性事实。"""
+        event = self._assistant_visible_event
+        sink = self._assistant_visible_sink
+        if event is not None and sink is not None:
+            sink(event)
 
     def _commit_visible_stream_prefix(self) -> bool:
         """提交已经完整显示且不再变化的 Markdown 前缀。"""
@@ -851,6 +874,7 @@ class TuiOutputControl(OutputControlPort):
             self._reset_stream_state()
             if self.runtime.document.active_kind == "assistant":
                 self.runtime.clear_active_renderable()
+            self._assistant_visible_event = None
             return False
 
         text = self._pending_stream_text()
@@ -860,6 +884,7 @@ class TuiOutputControl(OutputControlPort):
             self.assistant.clear()
             self._assistant_filter.reset()
             self._reset_stream_state()
+            self._assistant_visible_event = None
             return True
 
         continuation = self._stream_committed_source_end > 0
@@ -870,6 +895,7 @@ class TuiOutputControl(OutputControlPort):
 
         with self.runtime.screen.visual_update():
             if self.runtime.document.active_block is None:
+                self._notify_assistant_visible()
                 self.runtime.set_active_renderable(
                     block,
                     kind="assistant",
@@ -889,6 +915,7 @@ class TuiOutputControl(OutputControlPort):
         self.assistant.clear()
         self._assistant_filter.reset()
         self._reset_stream_state()
+        self._assistant_visible_event = None
 
         return True
 

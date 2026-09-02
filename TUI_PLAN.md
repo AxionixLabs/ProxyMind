@@ -1,8 +1,8 @@
 # TUI Turn 展示实施清单
 
 状态：执行中
-当前阶段：S2 正文流与等待状态原子交接（未开始）
-完成阶段：2 / 6
+当前阶段：S3 工具、审批与结果回灌闭环（未开始）
+完成阶段：3 / 6
 基线日期：2026-09-02
 Codex 参考版本：`codex-main` revision `0bd2a23916a19e998ed28c0166fbcb405738ed79`
 
@@ -106,7 +106,7 @@ Reducer 使用正交状态，避免把所有组合塞入单一枚举：
 
 - [x] S0 契约冻结与基线
 - [x] S1 Typed 事件、Reducer 与输出会话生命周期
-- [ ] S2 正文流与等待状态原子交接
+- [x] S2 正文流与等待状态原子交接
 - [ ] S3 工具、审批与结果回灌闭环
 - [ ] S4 重试、恢复、续跑与终态收束
 - [ ] S5 清理旧路径与最终验收
@@ -221,34 +221,39 @@ Reducer 使用正交状态，避免把所有组合塞入单一枚举：
   coordinator 在首个 typed event 前不触碰既有画面，正文、工具、审批和 retry 事件源分别在
   S2-S4 迁入，以免过渡期形成第二个生产状态 owner。
 
-## [ ] S2 正文流与等待状态原子交接
+## [x] S2 正文流与等待状态原子交接
 
 ### 任务
 
-- [ ] Turn 提交后立即建立 execution scope；每个正式 `turn_id` 到达时绑定新的 Turn scope。
-- [ ] 区分“收到文本 delta”和“正文实际可见”；只有渲染器确认可见内容时才能让正文接管动画。
-- [ ] 把等待移除、assistant 活动块写入和 invalidate 合并到同一次 `visual_update()`。
-- [ ] 正文尚无完整可见行时保留等待；`text.done` 必须揭示尾部并完成同一原子交接。
-- [ ] 正文可见期间禁止 idle timer、retry 清理回调或陈旧工具 lease 重新点亮状态。
-- [ ] `text.done` 只登记“可能继续”，通过 generation timer 延迟恢复；紧随其后的终态或新正文
+- [x] Turn 提交后立即建立 execution scope；每个正式 `turn_id` 到达时绑定新的 Turn scope。
+- [x] 区分“收到文本 delta”和“正文实际可见”；只有渲染器确认可见内容时才能让正文接管动画。
+- [x] 把等待移除、assistant 活动块写入和 invalidate 合并到同一次 `visual_update()`。
+- [x] 正文尚无完整可见行时保留等待；`text.done` 必须揭示尾部并完成同一原子交接。
+- [x] 正文可见期间禁止 idle timer、retry 清理回调或陈旧工具 lease 重新点亮状态。
+- [x] `text.done` 只登记“可能继续”，通过 generation timer 延迟恢复；紧随其后的终态或新正文
   必须取消该恢复，最终答案不得闪回 `Thinking`。
-- [ ] commentary/中间正文稳定且 Turn 仍活动时恢复 `Working/Thinking`，并保持输入区行位稳定。
-- [ ] Stop Hook 创建新 `turn_id` 时关闭旧 Turn scope，但保留同一 execution scope 和连续展示。
+- [x] commentary/中间正文稳定且 Turn 仍活动时恢复 `Working/Thinking`，并保持输入区行位稳定。
+- [x] Stop Hook 创建新 `turn_id` 时关闭旧 Turn scope，但保留同一 execution scope 和连续展示。
 
 ### 出口
 
-- [ ] 简单最终答案全过程不存在动画与正文重叠、空白过渡帧或终态前状态闪回。
-- [ ] 中间正文完成后能恢复状态，下一段正文出现时再次原子接管。
-- [ ] 50ms 帧级捕获覆盖换行正文、无换行尾部、Markdown 重排和大文本异步终结。
-- [ ] 终端宽度变化和 resize debounce 不改变状态所有权或重新创建已经释放的 lease。
+- [x] 简单最终答案全过程不存在动画与正文重叠、空白过渡帧或终态前状态闪回。
+- [x] 中间正文完成后能恢复状态，下一段正文出现时再次原子接管。
+- [x] 50ms 帧级捕获覆盖换行正文、无换行尾部、Markdown 重排和大文本异步终结。
+- [x] 终端宽度变化和 resize debounce 不改变状态所有权或重新创建已经释放的 lease。
 
 ### 记录
 
-- 状态：未开始
-- 完成日期：
-- 提交：
-- 验证：
-- 遗留风险/决策：
+- 状态：已完成
+- 完成日期：2026-09-02
+- 提交：`feat(tui): make assistant handoff atomic`
+- 验证：冻结 TUI/stream/approval/turn 基线与新增 S2 用例 `711 passed in 23.30s`；严格
+  content scope、真实帧与输出 adapter 定向回归 `21 passed in 1.93s`；`py_compile` 与
+  `git diff --check`
+- 遗留风险/决策：`ModelStreamEventHandler` 持有单调 wait revision 和 buffered/settled 投影；
+  renderer 只在完整显示行进入 active canvas 时同步提交 visible。OutputSession 按 control flush、
+  activity close 的逆序释放资源，保证异常 partial 正文仍能在 scope 关闭前稳定提交。工具、审批和
+  retry 尚未接入 typed activity，分别由 S3、S4 完成。
 
 ## [ ] S3 工具、审批与结果回灌闭环
 

@@ -42,6 +42,7 @@ from agent.ports import (
     AssistantOutputBoundary,
     AssistantSegmentCompleted,
     AssistantTextDelta,
+    OutputSurfaceContext,
     ResponseIdentity,
     SourcesOutput,
 )
@@ -128,6 +129,13 @@ from frontends.tui.core.styles import (
 from frontends.tui.rendering.separators import final_message_separator
 
 RESPONSE_IDENTITY = ResponseIdentity("turn_test", 1, 1, 1)
+OUTPUT_SURFACE_CONTEXT = OutputSurfaceContext(
+    surface_id="surface_test",
+    cid="cid_test",
+    sid="sid_test",
+    turn_id="turn_test",
+    agent_id="root",
+)
 
 
 def _block(text: str) -> FragmentBlock:
@@ -9381,6 +9389,7 @@ async def test_tui_exec_wait_flushes_before_assistant_output() -> None:
         before_assistant_output=(
             presentation.flush_terminal_waits_before_assistant_output
         ),
+        surface_context=OUTPUT_SURFACE_CONTEXT,
     )
     command = "ping -t 8.8.8.8"
 
@@ -9429,6 +9438,7 @@ async def test_tui_exec_wait_flushes_when_terminal_session_changes() -> None:
         before_assistant_output=(
             presentation.flush_terminal_waits_before_assistant_output
         ),
+        surface_context=OUTPUT_SURFACE_CONTEXT,
     )
 
     for session_id, command in (
@@ -12074,7 +12084,10 @@ async def test_assistant_commit_renders_markdown_without_final_units_bridge() ->
 async def test_segment_completion_keeps_rendered_markdown_stable() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
-    content = TuiContentSink(output)
+    content = TuiContentSink(
+        output,
+        surface_context=OUTPUT_SURFACE_CONTEXT,
+    )
 
     with patch(
         "frontends.tui.adapters.markdown.render_tui_markdown",
@@ -12155,7 +12168,10 @@ async def test_assistant_commit_falls_back_to_plain_text_after_markdown_failure(
 async def test_sources_are_assistant_metadata_instead_of_operation_output() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
-    content = TuiContentSink(output)
+    content = TuiContentSink(
+        output,
+        surface_context=OUTPUT_SURFACE_CONTEXT,
+    )
 
     await content.emit(AssistantTextDelta("answer", RESPONSE_IDENTITY))
     await content.emit(SourcesOutput(({

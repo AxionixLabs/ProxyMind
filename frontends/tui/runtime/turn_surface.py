@@ -240,6 +240,7 @@ ApplySurfaceProjection = typing.Callable[
     [SurfaceProjection],
     typing.Awaitable[None],
 ]
+ApplyImmediateSurfaceProjection = typing.Callable[[SurfaceProjection], None]
 
 
 class TuiTurnSurfaceCoordinator(OutputActivityPort):
@@ -250,6 +251,9 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         context: OutputSurfaceContext,
         apply_projection: ApplySurfaceProjection,
         *,
+        apply_immediate_projection: (
+            ApplyImmediateSurfaceProjection | None
+        ) = None,
         timing: TurnSurfaceTiming = TurnSurfaceTiming(),
     ) -> None:
         """绑定不可变 scope、投影出口和本地时间策略。"""
@@ -258,6 +262,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         self.context = context
         self.state = initial_turn_surface_state(context)
         self.apply_projection = apply_projection
+        self.apply_immediate_projection = apply_immediate_projection
         self.timing = timing
         self._applied: SurfaceProjection | None = None
         self._timer: asyncio.Task[None] | None = None
@@ -314,6 +319,30 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
                 )
                 return None
             await self._apply(projection)
+
+    def emit_assistant_visible(self, event: AssistantVisible) -> None:
+        """在正文画布事务内同步取消 timer 并提交可见性投影。"""
+        self._raise_timer_error()
+        if not self._opened:
+            raise RuntimeError("turn surface coordinator is not open")
+        if self._closed:
+            raise RuntimeError("turn surface coordinator is closed")
+        if self._lock.locked():
+            raise RuntimeError("turn surface coordinator is applying a projection")
+
+        self._cancel_timer()
+        previous = self.state
+        self.state = reduce_turn_surface(self.state, event)
+        if self.state is previous:
+            return None
+
+        projection = project_turn_surface(self.state)
+        if projection.indicator != "hidden":
+            raise RuntimeError("visible assistant must own the activity surface")
+        if self.apply_immediate_projection is None:
+            raise RuntimeError("immediate turn surface projection sink is required")
+        self.apply_immediate_projection(projection)
+        self._applied = projection
 
     async def close(self) -> None:
         """幂等取消 timer 并使当前表面的全部后续事件失效。"""
