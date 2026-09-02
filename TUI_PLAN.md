@@ -1,8 +1,8 @@
 # TUI Turn 展示实施清单
 
-状态：执行前
-当前阶段：S0 契约冻结（未开始）
-完成阶段：0 / 6
+状态：执行中
+当前阶段：S1 Typed 事件、Reducer 与输出会话生命周期（未开始）
+完成阶段：1 / 6
 基线日期：2026-09-02
 Codex 参考版本：`codex-main` revision `0bd2a23916a19e998ed28c0166fbcb405738ed79`
 
@@ -104,42 +104,86 @@ Reducer 使用正交状态，避免把所有组合塞入单一枚举：
 
 ## 阶段总览
 
-- [ ] S0 契约冻结与基线
+- [x] S0 契约冻结与基线
 - [ ] S1 Typed 事件、Reducer 与输出会话生命周期
 - [ ] S2 正文流与等待状态原子交接
 - [ ] S3 工具、审批与结果回灌闭环
 - [ ] S4 重试、恢复、续跑与终态收束
 - [ ] S5 清理旧路径与最终验收
 
-## [ ] S0 契约冻结与基线
+## [x] S0 契约冻结与基线
+
+### 冻结契约
+
+`OutputActivityEvent` 使用以下判别事件；名称描述展示事实，不复制服务端状态机：
+
+| Event | 必需身份 | 语义 |
+| --- | --- | --- |
+| `SurfaceTurnStarted` | `surface_id + turn_id` | 当前输出会话开始观察一个正式 Turn |
+| `ModelWaitRequested` | `surface_id + turn_id + revision` | 当前 Turn 已进入等待模型继续的可展示阶段 |
+| `AssistantBuffered` | `ResponseIdentity + item_id` | 已收到正文，但尚未证明存在可见内容 |
+| `AssistantVisible` | `ResponseIdentity + item_id` | 正文实际进入活动画布并接管活动提示 |
+| `AssistantSettled` | `ResponseIdentity + item_id` | 当前正文段稳定，可在后续工作存在时延迟恢复状态 |
+| `ToolBatchStarted/Completed` | `turn_id + batch_id` | 批次边界已登记或完整收束 |
+| `ToolStarted/Completed` | `turn_id + tool identity` | 单个客户端或内置工具取得或释放具名活动 lease |
+| `TerminalWaitStarted/Completed` | `turn_id + call_id + session_id` | 后台终端等待取得或释放工具派生状态 |
+| `ApprovalStarted/Completed` | `turn_id + approval_id + call_id` | 审批表面取得或释放独占交互权 |
+| `RetryChanged` | `turn_id + presentation_epoch + round + attempt` | transport/provider retry 来源发生变化 |
+| `RecoveryChanged` | `surface_id + event_seq` | 输出会话进入 replay、caught-up 或 gap 状态 |
+| `TurnTerminal` | `turn_id` | 当前 Turn 收到完成、失败、中断、取消或对账终态 |
+| `LogicalSettled` | `turn_id` | 逻辑交互完成；不重新解释已经提交的视觉终态 |
+| `SurfaceClosed` | `surface_id` | 输出会话关闭并使全部 timer、lease 和回调失效 |
+
+身份约束：
+
+- `surface_id` 是本地 OutputSession 身份，由输出会话创建方生成，不等于 `run_id`、`turn_id`
+  或 `event_seq`。
+- `turn_id`、`presentation_epoch`、`round`、`attempt` 和 Item identity 只来自已校验的正式事件。
+- 客户端工具使用 `call_id`，内置工具使用 `builtin_call_id`，审批使用
+  `approval_id + call_id`，批次使用 `batch_id`；不同身份类型不能用字符串相等合并。
+- timer 使用 reducer revision，不使用协议序号充当 generation；陈旧 generation 只允许无操作。
+- 同一身份和同一语义的重复事件幂等；同一身份的冲突事件作为 adapter/reducer 错误拒绝。
+
+顺序与恢复约束：
+
+- `AssistantVisible` 之前必须已有同 revision 的 buffered 内容；`AssistantSettled` 不得创建正文。
+- 工具批次只有在完整 `ToolBatchCompleted` 后才能释放其中调用进入实际执行展示。
+- `ApprovalCompleted` 只能关闭匹配审批；它不能直接关闭 Tool lease 或创建 model wait。
+- `ToolCompleted` 先关闭自身 lease；可靠结果投递完成后由独立 `ModelWaitRequested` 恢复等待。
+- `TurnTerminal` 使当前 Turn 的 model wait、tool、approval、retry 和 timer 全部失效；
+  `LogicalSettled` 只关闭输入和逻辑交互边界。
+- replay 逐条归约持久事实但不启动瞬时 timer；进入 `caught_up` 后只根据最终快照派生一次展示。
+- `stream.gap=internal` 不跳过损坏序列，也不显示普通 Thinking；进入可重试对账展示。
+- Stop Hook continuation 创建新的 `surface_id + turn_id` 观察 scope；旧 scope 的事件和 timer 失效。
 
 ### 任务
 
-- [ ] 盘点 `turn.*`、`text.*`、`tool.*`、`presentation.*`、`lifecycle.*` 和 `stream.*`
+- [x] 盘点 `turn.*`、`text.*`、`tool.*`、`presentation.*`、`lifecycle.*` 和 `stream.*`
   对活动展示的影响，确认没有由异常文本或 provider 原始载荷推断阶段。
-- [ ] 盘点本地工具、计划工具、嵌套工具、后台终端、审批、Hook、Stop Hook continuation 和
+- [x] 盘点本地工具、计划工具、嵌套工具、后台终端、审批、Hook、Stop Hook continuation 和
   输出 finalizer 的调用顺序。
-- [ ] 冻结 typed `OutputActivityEvent` 判别联合、必需 identity、幂等键和非法顺序处理规则。
-- [ ] 冻结本地 execution identity 与线上 `turn_id/presentation_epoch/round/attempt` 的映射；
+- [x] 冻结 typed `OutputActivityEvent` 判别联合、必需 identity、幂等键和非法顺序处理规则。
+- [x] 冻结本地 execution identity 与线上 `turn_id/presentation_epoch/round/attempt` 的映射；
   两类 identity 不得互相替代。
-- [ ] 定义 replay 模式：历史事件只更新 reducer，不播放短暂动画；追平后只派生一次当前状态。
-- [ ] 记录 Codex 对照用例：正文接管、commentary 恢复、工具开始恢复、最终答案不闪回状态。
-- [ ] 为现有实现建立可重复的失败基线，至少证明工具后无状态、retry 后无状态和 idle 恢复风险。
+- [x] 定义 replay 模式：历史事件只更新 reducer，不播放短暂动画；追平后只派生一次当前状态。
+- [x] 记录 Codex 对照用例：正文接管、commentary 恢复、工具开始恢复、最终答案不闪回状态。
+- [x] 为现有实现建立可重复的失败基线，至少定位工具后无状态、retry 后无状态和 idle 恢复风险。
 
 ### 出口
 
-- [ ] 状态表能回答每个事件由谁投影、由谁持有、何时释放以及重放时如何处理。
-- [ ] identity、timer、lease、输出会话和交互表面的所有者唯一。
-- [ ] 服务端协议、Canonical Item reducer 和 TUI 展示 reducer 的边界无重叠。
-- [ ] 后续阶段所需测试场景、删除项和目标文件已经确定。
+- [x] 状态表能回答每个事件由谁投影、由谁持有、何时释放以及重放时如何处理。
+- [x] identity、timer、lease、输出会话和交互表面的所有者唯一。
+- [x] 服务端协议、Canonical Item reducer 和 TUI 展示 reducer 的边界无重叠。
+- [x] 后续阶段所需测试场景、删除项和目标文件已经确定。
 
 ### 记录
 
-- 状态：未开始
-- 完成日期：
-- 提交：
-- 验证：
-- 遗留风险/决策：
+- 状态：已完成
+- 完成日期：2026-09-02
+- 提交：`docs(tui): freeze turn surface contract`
+- 验证：TUI、stream、approval 和 turn execution 基线 `691 passed in 23.35s`；`git diff --check`
+- 遗留风险/决策：现有空状态 adapter 和 idle timer 缺口已冻结，必须由 S1-S4 的单一 reducer
+  取代，不允许通过恢复旧整轮动画行为规避。
 
 ## [ ] S1 Typed 事件、Reducer 与输出会话生命周期
 
