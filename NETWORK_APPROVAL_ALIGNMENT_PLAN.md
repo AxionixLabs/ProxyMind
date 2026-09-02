@@ -483,8 +483,8 @@ grant、reviewer 和 Effect 边界，并用契约测试证明非法组合无法�
   `tests/test_run_result.py::test_stream_passes_environment_as_explicit_model_request_field`
   处失败（测试仍 monkeypatch 已移除的 `turn_stream.interrupt_turn` 模块入口），随后旧异步
   用例出现无输出挂起；该失败不涉及网络审批改动，未将其标记为本迭代通过。
-- Rust 定向测试、Rust 编译和三平台真实产品目录烟测尚未在当前 Windows 工作机执行，
-  保持“实现完成待验收”。
+- `cargo test -p codex-network-proxy` 已通过（231 个 Rust 单元测试及 Windows 稳定入口
+  集成测试）；三平台真实产品目录烟测尚未在当前 Windows 工作机之外执行，保持“实现完成待验收”。
 - `tests/test_managed_network.py`、`tests/test_network_approval_service.py`、
   `tests/test_sandbox_client.py` 和 `tests/test_codex_execpolicy.py` 的网络/策略回归通过；
   `tests/test_permission_grants.py` 覆盖 Skill `scripts/*` 复用普通 command policy。
