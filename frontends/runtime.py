@@ -85,8 +85,6 @@ class FrontendActivity(FrontendActivityPort):
     ) -> None:
         """结束指定活动展示。"""
         if self.active:
-            if kind == "wait":
-                self._runtime.finish_turn_wait()
             await self._runtime.end_activity_status(kind, settle=settle)
             return None
         await self._fallback.stop()

@@ -490,7 +490,7 @@ def test_visual_update_merges_nested_invalidation_requests() -> None:
 
 
 @pytest.mark.anyio
-async def test_final_separator_atomically_replaces_frozen_wait() -> None:
+async def test_final_separator_preserves_input_after_assistant_wait_handoff() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         output = TuiOutputControl("", runtime=runtime, animate=False)
@@ -506,6 +506,7 @@ async def test_final_separator_atomically_replaces_frozen_wait() -> None:
                 await runtime.begin_wait_status()
                 await output.append_assistant_delta("answer\n")
                 screen = await _render_next_frame(runtime)
+                assert runtime.activity.lease("wait") is None
 
                 baseline_transcript = _absolute_window_row(
                     runtime,
@@ -546,7 +547,6 @@ async def test_final_separator_atomically_replaces_frozen_wait() -> None:
 
                 runtime.screen.application.after_render += capture_frame
 
-                await runtime.freeze_activity_status("wait")
                 await output._commit_current()
                 await _render_next_frame(runtime)
 
@@ -560,7 +560,14 @@ async def test_final_separator_atomically_replaces_frozen_wait() -> None:
                 await _render_next_frame(runtime)
 
                 assert observed
-                assert set(observed) == {(baseline_transcript, baseline_input)}
+                assert all(
+                    input_row == baseline_input
+                    for _transcript_row, input_row in observed
+                )
+                assert all(
+                    transcript_row <= baseline_transcript
+                    for transcript_row, _input_row in observed
+                )
                 assert runtime.screen.activity_block is None
                 assert [item.kind for item in runtime.document.blocks] == [
                     "assistant",
@@ -568,6 +575,97 @@ async def test_final_separator_atomically_replaces_frozen_wait() -> None:
                 ]
             finally:
                 runtime.set_execution_active(False)
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_visible_assistant_atomically_replaces_animated_wait() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        output = TuiOutputControl("", runtime=runtime, animate=True)
+        frames: list[tuple[str, int]] = []
+        handler_registered = False
+
+        def capture_frame(_application) -> None:
+            screen = runtime.screen.application.renderer.last_rendered_screen
+            positions = screen.visible_windows_to_write_positions
+            if runtime.screen.input.window not in positions:
+                return None
+            text = "\n".join(
+                "".join(
+                    cells[column].char
+                    for column in sorted(cells)
+                ).rstrip()
+                for _row, cells in sorted(screen.data_buffer.items())
+            )
+            frames.append((
+                text,
+                _absolute_window_row(
+                    runtime,
+                    screen,
+                    runtime.screen.input.window,
+                    rows=16,
+                ),
+            ))
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=16, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                await runtime.begin_wait_status()
+                waiting_screen = await _render_next_frame(runtime)
+                waiting_input_row = _absolute_window_row(
+                    runtime,
+                    waiting_screen,
+                    runtime.screen.input.window,
+                    rows=16,
+                )
+
+                runtime.screen.application.after_render += capture_frame
+                handler_registered = True
+
+                await output.append_assistant_delta("final answer")
+                assert runtime.activity.lease("wait") is not None
+                assert runtime.document.active_block is None
+
+                await output.settle_stream()
+                await _render_next_frame(runtime)
+
+                assert frames
+                assert all(
+                    ("Thinking" in text) != ("final answer" in text)
+                    for text, _input_row in frames
+                )
+                assert all(
+                    input_row == waiting_input_row
+                    for _text, input_row in frames
+                )
+                assert "final answer" in frames[-1][0]
+                assert "Thinking" not in frames[-1][0]
+                assert runtime.activity.lease("wait") is None
+                assert runtime.task_state.turn_running
+
+                await output.stop()
+                runtime.set_execution_active(False)
+                final_screen = await _render_next_frame(runtime)
+                final_text = "\n".join(
+                    "".join(
+                        cells[column].char
+                        for column in sorted(cells)
+                    ).rstrip()
+                    for _row, cells in sorted(final_screen.data_buffer.items())
+                )
+                assert "final answer" in final_text
+                assert "Thinking" not in final_text
+            finally:
+                if handler_registered:
+                    runtime.screen.application.after_render -= capture_frame
+                runtime.set_execution_active(False)
+                await output.stop()
                 await runtime.close()
 
 

@@ -1651,18 +1651,21 @@ class TuiRuntime(object):
         display_renderer: WidthBlockRenderer | None = None,
         display_render_width: int | None = None,
     ) -> bool:
-        """替换当前流式展示块。"""
-        return self._transcript.set_active(
-            block,
-            kind=kind,
-            transcript_block=transcript_block,
-            source=source,
-            raw_text=raw_text,
-            stream_continuation=stream_continuation,
-            gap_before=gap_before,
-            display_renderer=display_renderer,
-            display_render_width=display_render_width,
-        )
+        """替换当前流式展示块，并让可见助手正文原子接管等待区域。"""
+        with self.screen.visual_update():
+            if kind == "assistant":
+                self.activity.finish_wait()
+            return self._transcript.set_active(
+                block,
+                kind=kind,
+                transcript_block=transcript_block,
+                source=source,
+                raw_text=raw_text,
+                stream_continuation=stream_continuation,
+                gap_before=gap_before,
+                display_renderer=display_renderer,
+                display_render_width=display_render_width,
+            )
 
     def invalidate(self) -> None:
         """请求重新绘制当前稳定画布。"""
