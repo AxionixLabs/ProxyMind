@@ -30,6 +30,7 @@ from infrastructure.platform.sandbox import (
     SandboxUnavailable,
     SidecarProcess,
 )
+from infrastructure.platform.network import ManagedNetworkProxy
 from observability import (
     observe,
     observe_exception
@@ -153,6 +154,7 @@ class ProcessSessionManager(object):
         sandbox_client: SandboxClient | None = None,
         *,
         process_capability: ProcessCapability | None = None,
+        network_proxy: ManagedNetworkProxy | None = None,
     ) -> None:
         """初始化进程会话表。"""
         self.sessions: dict[str, ProcessSession] = {}
@@ -160,6 +162,7 @@ class ProcessSessionManager(object):
         self._change_event = asyncio.Event()
         self._sandbox_client = sandbox_client
         self._process_capability = process_capability
+        self._network_proxy = network_proxy
 
     @property
     def change_revision(self) -> int:
@@ -220,6 +223,14 @@ class ProcessSessionManager(object):
             raise ValueError(f"sandbox_mode_invalid: {spec.sandbox_mode}")
         await self.cleanup()
 
+        process_env = dict(spec.env) if spec.env is not None else None
+        if (
+            self._network_proxy is not None
+            and spec.sandbox_mode in {"read-only", "workspace-read", "workspace-write"}
+        ):
+            await self._network_proxy.start()
+            process_env = self._network_proxy.environment(process_env or {})
+
         if (
             self._process_capability is not None
             and spec.sandbox_mode == "danger-full-access"
@@ -227,7 +238,7 @@ class ProcessSessionManager(object):
             process_spec = ProcessSpec(
                 argv=spec.args,
                 cwd=spec.cwd,
-                env=spec.env or {},
+                env=process_env or {},
                 sandbox_mode=spec.sandbox_mode,
                 sandbox_permissions=(
                     "with_additional_permissions"
@@ -245,7 +256,7 @@ class ProcessSessionManager(object):
             spawn_kwargs: dict[str, typing.Any] = {
                 "argv": spec.args,
                 "cwd": spec.cwd,
-                "env": spec.env or {},
+                "env": process_env or {},
                 "sandbox_mode": spec.sandbox_mode,
                 "stdin_open": spec.stdin_enabled,
                 "timeout_ms": max(1, int(spec.timeout_sec)) * 1000,
@@ -261,7 +272,7 @@ class ProcessSessionManager(object):
             process = await asyncio.create_subprocess_exec(
                 *spec.args,
                 cwd=spec.cwd,
-                env=spec.env,
+                env=process_env,
                 stdin=stdin,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -798,6 +809,8 @@ class ProcessSessionManager(object):
         self.sessions.clear()
         if self._sandbox_client is not None:
             await self._sandbox_client.close()
+        if self._network_proxy is not None:
+            await self._network_proxy.close()
 
     async def finalize_if_exited(self, session: ProcessSession) -> None:
         """在进程退出后收束输出读取任务。"""

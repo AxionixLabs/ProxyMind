@@ -61,6 +61,7 @@ from infrastructure.platform.hook_command import HookCommandExecutor
 from infrastructure.platform.images import FileImageReader
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.sandbox import SandboxClient
+from infrastructure.platform.network import ManagedNetworkProxy
 from infrastructure.services.turn_environment import (
     capture_active_turn_environment,
     capture_turn_environment,
@@ -247,6 +248,7 @@ def create_workspace_coding(
     root: str | os.PathLike[str],
     application_layout: object | None,
     process_capability: ProcessCapability | None = None,
+    network_proxy: ManagedNetworkProxy | None = None,
 ) -> WorkspaceCoding:
     """在进程组合根创建绑定工作区的平台执行资源。"""
     if (
@@ -269,6 +271,7 @@ def create_workspace_coding(
     process_sessions = ProcessSessionManager(
         sandbox_client,
         process_capability=process_capability,
+        network_proxy=network_proxy,
     )
     return WorkspaceCoding(
         root=root,
