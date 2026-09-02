@@ -47,6 +47,7 @@ def test_mcp_settings_normalize_stdio_and_remote_servers() -> None:
     assert servers == [
         {
             "name": "local-shell",
+            "config_key": "Local Shell",
             "enabled": True,
             "required": True,
             "transport": "stdio",
@@ -67,6 +68,7 @@ def test_mcp_settings_normalize_stdio_and_remote_servers() -> None:
         },
         {
             "name": "docs-api",
+            "config_key": "Docs API",
             "enabled": True,
             "required": False,
             "transport": "sse",

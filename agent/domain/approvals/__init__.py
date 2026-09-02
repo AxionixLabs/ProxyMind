@@ -13,6 +13,7 @@ from .models import (
     ApprovalFact,
     ApprovalFactState,
     ApprovalGrantKey,
+    ApprovalGrantKeyValue,
     ApprovalIdentity,
     ApprovalOutcome,
     ApprovalResolutionReason,
@@ -31,6 +32,7 @@ from .models import (
     PatchApprovalAction,
     PermissionApprovalAction,
     SessionGrant,
+    approval_grant_key,
 )
 from .mcp import (
     mcp_approval_risk,
@@ -55,6 +57,7 @@ __all__ = (
     "ApprovalFact",
     "ApprovalFactState",
     "ApprovalGrantKey",
+    "ApprovalGrantKeyValue",
     "ApprovalIdentity",
     "ApprovalOutcome",
     "ApprovalResolutionReason",
@@ -73,6 +76,7 @@ __all__ = (
     "PatchApprovalAction",
     "PermissionApprovalAction",
     "SessionGrant",
+    "approval_grant_key",
     "allowed_decisions",
     "is_terminal_decision",
     "mcp_approval_risk",

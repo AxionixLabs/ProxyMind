@@ -302,6 +302,10 @@ model intent
 - 工具参数在执行前完成 schema 校验，结果在 adapter 边界归一化。
 - 审批只决定当前动作，不成为底层平台或服务端的全局安全策略。
 - Approval、Tool Call 与 Effect 各有稳定 identity，`request_id` 只承担传输幂等。
+- MCP Session grant 只在相同 Session、Environment、server、connector 和 tool 范围复用，
+  不绑定单次调用参数，也不得跨 Session 或执行环境传播。
+- MCP 持久允许只能由配置端口原子写入工具级策略；本地展示决定不得扩展正式 wire 审批契约。
+- MCP 调用只消费正式调用携带的 Effect identity；缺失时不得合成本地 Effect 冒充线上权威事实。
 - 外部效果成功与本地提交之间存在未知窗口时进入 reconciliation，不伪装为普通失败。
 - 不可重放效果不得由接管 actor 自动重试；只读或有供应商幂等保证的效果按明确策略恢复。
 - `/tool-result` 只发送正式协议字段，本地工作区、sidecar 或 UI 状态不能混入 wire payload。

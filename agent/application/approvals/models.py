@@ -14,7 +14,9 @@ from protocol.schema.tool_approval import (
 if typing.TYPE_CHECKING:
     from .presentation import ApprovalPresentation
 
-ApprovalDecisionValue: typing.TypeAlias = ToolApprovalDecision
+ApprovalDecisionValue: typing.TypeAlias = (
+    ToolApprovalDecision | typing.Literal["acceptAndRemember"]
+)
 
 ApprovalDecisionSource = typing.Literal[
     "user",
@@ -44,6 +46,8 @@ def normalize_approval_decision(value: object) -> ApprovalDecisionValue:
         return "accept"
     if normalized == "acceptForSession":
         return "acceptForSession"
+    if normalized == "acceptAndRemember":
+        return "acceptAndRemember"
     if normalized == "acceptWithExecpolicyAmendment":
         return "acceptWithExecpolicyAmendment"
     if normalized == "applyNetworkPolicyAmendment":

@@ -50,6 +50,7 @@ from agent.domain.approvals import (
 from agent.ports.approval_core import (
     ApprovalFactStore,
     ApprovalPresentationPort,
+    McpPersistentApprovalStore,
     SessionGrantStore,
 )
 
@@ -59,9 +60,14 @@ __all__ = ("DomainApprovalCoordinator", "domain_action_from_request")
 class _LegacyPresentation(ApprovalPresentationPort):
     """把类型化动作委托给现有前端 coordinator 展示。"""
 
-    def __init__(self, coordinator: ApprovalCoordinator) -> None:
+    def __init__(
+        self,
+        coordinator: ApprovalCoordinator,
+        persistent_mcp_approvals: McpPersistentApprovalStore | None,
+    ) -> None:
         """绑定旧展示队列并创建按身份索引的请求快照。"""
         self._coordinator = coordinator
+        self._persistent_mcp_approvals = persistent_mcp_approvals
         self._payloads: dict[ApprovalIdentity, dict[str, typing.Any]] = {}
         self._outcomes: dict[ApprovalIdentity, LegacyOutcome] = {}
 
@@ -93,8 +99,17 @@ class _LegacyPresentation(ApprovalPresentationPort):
         if payload is None:
             raise ValueError("legacy approval payload is unavailable")
         outcome = await self._coordinator.request_outcome(payload)
+        decision = _domain_decision(action, outcome.decision)
+        if (
+            isinstance(action, McpApprovalAction)
+            and decision.kind is ApprovalDecisionKind.APPLY_AMENDMENT
+        ):
+            store = self._persistent_mcp_approvals
+            if store is None:
+                raise RuntimeError("persistent MCP approval store is unavailable")
+            await store.approve_tool(action.descriptor)
         self._outcomes[action.identity] = outcome
-        return _domain_decision(action, outcome.decision)
+        return decision
 
 
 class DomainApprovalCoordinator:
@@ -106,10 +121,14 @@ class DomainApprovalCoordinator:
         *,
         fact_store: "ApprovalFactStore",
         grant_store: "SessionGrantStore",
+        persistent_mcp_approvals: "McpPersistentApprovalStore | None" = None,
     ) -> None:
         """绑定旧展示队列和新核心状态存储。"""
         self._legacy = legacy
-        self._presentation = _LegacyPresentation(legacy)
+        self._presentation = _LegacyPresentation(
+            legacy,
+            persistent_mcp_approvals,
+        )
         self._core = ApprovalCore(
             fact_store,
             grant_store,
@@ -409,6 +428,7 @@ def _domain_decision(
     mapping = {
         "accept": ApprovalDecisionKind.ALLOW_ONCE,
         "acceptForSession": ApprovalDecisionKind.ALLOW_FOR_SESSION,
+        "acceptAndRemember": ApprovalDecisionKind.APPLY_AMENDMENT,
         "acceptWithExecpolicyAmendment": ApprovalDecisionKind.APPLY_AMENDMENT,
         "applyNetworkPolicyAmendment": ApprovalDecisionKind.APPLY_AMENDMENT,
         "grantForTurn": ApprovalDecisionKind.GRANT_FOR_RUN,
@@ -454,11 +474,12 @@ def _legacy_outcome(fact: ApprovalFact) -> LegacyOutcome:
             else "acceptForSession"
         )
     elif kind is ApprovalDecisionKind.APPLY_AMENDMENT:
-        decision = (
-            "applyNetworkPolicyAmendment"
-            if fact.action_kind is ApprovalActionKind.NETWORK
-            else "acceptWithExecpolicyAmendment"
-        )
+        if fact.action_kind is ApprovalActionKind.NETWORK:
+            decision = "applyNetworkPolicyAmendment"
+        elif fact.action_kind is ApprovalActionKind.MCP:
+            decision = "acceptAndRemember"
+        else:
+            decision = "acceptWithExecpolicyAmendment"
     elif kind is ApprovalDecisionKind.GRANT_FOR_RUN:
         decision = "grantForTurn"
     elif kind is ApprovalDecisionKind.GRANT_FOR_RUN_WITH_STRICT_AUTO_REVIEW:

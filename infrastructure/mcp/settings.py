@@ -172,6 +172,7 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
 
         base = {
             "name": unique_slug,
+            "config_key": name,
             "enabled": item.get("enabled", True) is not False,
             "required": item.get("required", False) is True,
             "transport": transport,

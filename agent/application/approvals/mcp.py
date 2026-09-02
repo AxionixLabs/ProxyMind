@@ -106,6 +106,12 @@ def mcp_approval_payload(
     """把类型化 MCP 动作投影为当前审批展示队列的结构化载荷。"""
     descriptor = action.descriptor
     annotations = descriptor.annotations
+    decisions = ["accept"]
+    if descriptor.policy.allow_session_remember:
+        decisions.append("acceptForSession")
+    if descriptor.policy.allow_persistent_approval:
+        decisions.append("acceptAndRemember")
+    decisions.append("decline")
     return {
         "request_id": action.identity.approval_id,
         "approval_id": action.identity.approval_id,
@@ -116,6 +122,7 @@ def mcp_approval_payload(
         "environment_id": action.execution.environment_id,
         "call_id": action.execution.tool_call_id,
         "kind": "mcp_tool_call",
+        "_local_mcp_approval": True,
         "tool": descriptor.exposed_name,
         "server": descriptor.server,
         "tool_name": descriptor.tool_name,
@@ -134,7 +141,7 @@ def mcp_approval_payload(
         "risk": mcp_approval_risk(annotations).value,
         "arguments": dict(arguments),
         "schema_fingerprint": descriptor.schema_fingerprint.value,
-        "available_decisions": ["accept", "decline"],
+        "available_decisions": decisions,
     }
 
 
@@ -168,11 +175,16 @@ async def authorize_mcp_tool_call(
     )
     presentation = mcp_approval_payload(action, arguments)
     outcome = await coordinator.request_action_outcome(action, presentation)
+    allowed = outcome.decision in {
+        "accept",
+        "acceptForSession",
+        "acceptAndRemember",
+    }
     return McpApprovalAuthorization(
-        outcome.decision == "accept",
+        allowed,
         (
             "MCP tool approval accepted"
-            if outcome.decision == "accept"
+            if allowed
             else "MCP tool approval declined"
         ),
         action=action,

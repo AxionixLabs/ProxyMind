@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import (
     AsyncMock,
@@ -22,8 +23,10 @@ from agent.application.turns.context import (
 from agent.domain.approvals import McpApprovalAction
 from agent.domain.policies import preset_permissions
 from agent.harness.tools.client_calls import ClientToolCallRunner
+from agent.ports.persistence import EffectJournalDecision
 from infrastructure.mcp.composite_session import CompositeToolSession
 from infrastructure.mcp.tool_execution import McpToolExecutionAdapter
+from protocol.schema.stream_events import ExecutionEffect
 
 
 class _Approval:
@@ -242,3 +245,32 @@ async def test_mcp_server_identity_conflict_fails_closed() -> None:
     assert "identity conflicts" in outcome.result.text
     assert approval.actions == []
     external.call_tool.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_mcp_approval_precedes_formal_effect_and_commits_result() -> None:
+    runner, invocation, approval, external, _presentation = _runtime("prompt")
+    journal = SimpleNamespace(
+        inspect=AsyncMock(return_value=EffectJournalDecision("execute")),
+        begin=AsyncMock(return_value=EffectJournalDecision("execute")),
+        commit=AsyncMock(),
+        mark_unknown=AsyncMock(),
+    )
+    runner.effect_journal = journal
+    durable = replace(
+        invocation,
+        effect=ExecutionEffect(
+            effect_id="effect-mcp-call",
+            fingerprint="a" * 64,
+            replay="manual",
+        ),
+    )
+
+    outcome = await runner.execute(durable, use_coding_trace=False, display=False)
+
+    assert outcome.result.ok is True
+    assert len(approval.actions) == 1
+    journal.inspect.assert_awaited_once()
+    journal.begin.assert_awaited_once()
+    journal.commit.assert_awaited_once()
+    external.call_tool.assert_awaited_once()

@@ -5,7 +5,7 @@
 - 目标平台：Windows、macOS、Linux
 - 架构权威：`ARCHITECTURE.md`
 - Codex 参考基线：`codex-main/codex-rs` revision `608f4a8a98feff0889cbfc9ed691efbf42d34cc6`
-- 当前状态：网络审批作为既有基线；MCP 实际调用审批门已完成，事实与授权闭环实施中
+- 当前状态：网络审批作为既有基线；MCP 调用审批门与事实授权闭环已完成，审批卡实施中
 
 ## Codex 参考文件
 
@@ -219,7 +219,7 @@ MCP 的一次性 action fingerprint 必须包含规范化参数；Session/Persis
 
 ### 阶段 2：统一事实、grant、Effect 和恢复
 
-**规模：大；优先级：P0/P1；状态：待开始**
+**规模：大；优先级：P0/P1；状态：已完成**
 
 交付内容：
 
@@ -232,6 +232,20 @@ MCP 的一次性 action fingerprint 必须包含规范化参数；Session/Persis
 
 出口条件：重启不重复执行已提交效果；Session grant 不跨 Session；不同 Run/Execution 不共享一次性决定；
 事实、grant、效果和配置策略没有双重 authority。
+
+实施结果：
+
+- 本地 MCP 请求以类型化 `McpApprovalAction` 进入 `ApprovalCore`，`ApprovalFactStore` 是请求与
+  首终态的唯一 authority；旧字典只保留为阶段 3 替换前的展示投影，不参与策略或事实裁决。
+- Session grant 按 Session、Environment、server、connector 和原始 tool 精确隔离，同一范围内
+  可跨不同参数复用；一次性决定仍绑定完整动作指纹。
+- “永久允许”先经配置端口原子写入原始 MCP 服务键下的工具级 `approval_mode = approve`，写入
+  失败时审批事实保持 requested，重启后由正常配置加载恢复策略。
+- 本地 `acceptForSession` 和 `acceptAndRemember` 不进入正式 wire schema；线上 MCP 审批继续只
+  接受服务端契约声明的决定集合。
+- 正式 `ToolInvocation.effect` 存在时，MCP 审批先于 Effect inspect/begin 和 SDK 调用，随后复用
+  既有 committed/unknown 与对账语义；服务端未提供正式 Effect identity 时不合成本地替代身份。
+- pending 事实重放、持久写入失败、不同 grant 范围、正式 Effect 提交与协议决定隔离均有定向回归。
 
 ### 阶段 3：MCP 审批卡与协议表现
 

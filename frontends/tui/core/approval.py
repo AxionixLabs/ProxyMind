@@ -330,7 +330,11 @@ class TuiApproval(object):
 
         @bindings.add("p")
         def _(event) -> None:
-            self.finish("acceptWithExecpolicyAmendment")
+            self._finish_shortcut(
+                "acceptAndRemember",
+                "acceptWithExecpolicyAmendment",
+                "applyNetworkPolicyAmendment",
+            )
 
         @bindings.add("c-c")
         def _(event) -> None:

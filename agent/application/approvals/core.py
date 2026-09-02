@@ -20,10 +20,10 @@ from agent.domain.approvals import (
     ApprovalDecisionSource,
     ApprovalFact,
     ApprovalFactState,
-    ApprovalGrantKey,
     ApprovalIdentity,
     ApprovalResolutionReason,
     SessionGrant,
+    approval_grant_key,
     validate_decision,
 )
 from agent.ports.approval_core import (
@@ -324,12 +324,15 @@ class ApprovalCore:
         if current.state is not ApprovalFactState.REQUESTED:
             return current
 
-        grant = await self._grants.find(ApprovalGrantKey.from_action(action))
+        grant = await self._grants.find(approval_grant_key(action))
         if grant is not None:
             return await self._resolve(
                 action,
                 current,
-                grant.decision,
+                ApprovalDecision(
+                    kind=ApprovalDecisionKind.ALLOW_FOR_SESSION,
+                    action_fingerprint=action.fingerprint,
+                ),
                 source=ApprovalDecisionSource.POLICY,
                 reason=ApprovalResolutionReason.POLICY,
             )
@@ -402,16 +405,22 @@ class ApprovalCore:
             reason=reason,
             resolved_at=self._clock(),
         )
-        if decision.kind is ApprovalDecisionKind.ALLOW_FOR_SESSION:
+        remember_for_session = (
+            decision.kind is ApprovalDecisionKind.ALLOW_FOR_SESSION
+            or (
+                action.kind is ApprovalActionKind.MCP
+                and decision.kind is ApprovalDecisionKind.APPLY_AMENDMENT
+            )
+        )
+        if remember_for_session:
+            grant_decision = ApprovalDecision(
+                kind=ApprovalDecisionKind.ALLOW_FOR_SESSION,
+                action_fingerprint=action.fingerprint,
+            )
             await self._grants.remember(
                 SessionGrant(
-                    key=ApprovalGrantKey(
-                        session_id=current.identity.session_id,
-                        environment_id=action.execution.environment_id,
-                        action_kind=action.kind,
-                        action_fingerprint=action.fingerprint,
-                    ),
-                    decision=decision,
+                    key=approval_grant_key(action),
+                    decision=grant_decision,
                     granted_at=self._clock(),
                 )
             )

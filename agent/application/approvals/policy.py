@@ -28,6 +28,7 @@ DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
 DECISION_LABELS: dict[str, str] = {
     "accept": "Yes, proceed",
     "acceptForSession": "Yes, for this session",
+    "acceptAndRemember": "Yes, and don't ask again for this MCP tool",
     "acceptWithExecpolicyAmendment": "Yes, and don't ask again for this command prefix",
     "applyNetworkPolicyAmendment": "Yes, and allow this host in the future",
     "grantForTurn": "Yes, grant these permissions for this turn",
@@ -39,6 +40,7 @@ DECISION_LABELS: dict[str, str] = {
 DECISION_SHORTCUT_LABELS: dict[str, str] = {
     "accept": "y",
     "acceptForSession": "s",
+    "acceptAndRemember": "p",
     "acceptWithExecpolicyAmendment": "p",
     "applyNetworkPolicyAmendment": "p",
     "grantForTurn": "y",
@@ -281,6 +283,10 @@ def approval_decisions(
         allowed_for_kind = TOOL_APPROVAL_DECISIONS_BY_KIND.get(kind)
         if allowed_for_kind is None:
             raise ValueError(f"unsupported approval kind: {kind}")
+        local_mcp = (
+            kind == "mcp_tool_call"
+            and approval.get("_local_mcp_approval") is True
+        )
 
         for raw_decision in raw_decisions:
             decision = str(raw_decision or "").strip()
@@ -288,9 +294,18 @@ def approval_decisions(
                 raise ValueError("available_decisions contains an empty item")
             if decision in seen:
                 continue
-            if decision not in TOOL_APPROVAL_DECISIONS:
+            if (
+                decision not in TOOL_APPROVAL_DECISIONS
+                and not (local_mcp and decision == "acceptAndRemember")
+            ):
                 raise ValueError(f"unsupported approval decision: {decision}")
-            if decision not in allowed_for_kind:
+            if (
+                decision not in allowed_for_kind
+                and not (
+                    local_mcp
+                    and decision in {"acceptForSession", "acceptAndRemember"}
+                )
+            ):
                 raise ValueError(
                     f"approval decision is invalid for kind: {kind}"
                 )

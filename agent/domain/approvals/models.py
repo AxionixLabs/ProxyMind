@@ -261,6 +261,7 @@ class McpToolDescriptor:
     connector_description: str | None = None
     connected_account: str | None = None
     transport: str = "external"
+    config_server_key: str | None = None
 
     def __post_init__(self) -> None:
         """校验工具身份、schema 指纹和可选展示字段。"""
@@ -284,6 +285,7 @@ class McpToolDescriptor:
             ("connector_name", self.connector_name),
             ("connector_description", self.connector_description),
             ("connected_account", self.connected_account),
+            ("config_server_key", self.config_server_key),
         ):
             if value is not None:
                 _require_text(name, value)
@@ -310,6 +312,18 @@ class McpApprovalGrantKey:
             _require_text(name, value)
         if self.connector_id is not None:
             _require_text("connector_id", self.connector_id)
+
+    @classmethod
+    def from_action(cls, action: "McpApprovalAction") -> "McpApprovalGrantKey":
+        """从 MCP 动作构造不包含参数的一致授权范围。"""
+        descriptor = action.descriptor
+        return cls(
+            session_id=action.identity.session_id,
+            environment_id=action.execution.environment_id,
+            server=descriptor.server,
+            tool_name=descriptor.tool_name,
+            connector_id=descriptor.connector_id,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -638,11 +652,21 @@ class ApprovalGrantKey:
         )
 
 
+ApprovalGrantKeyValue: typing.TypeAlias = ApprovalGrantKey | McpApprovalGrantKey
+
+
+def approval_grant_key(action: ApprovalAction) -> ApprovalGrantKeyValue:
+    """按动作类别返回不会越过领域授权范围的 grant key。"""
+    if isinstance(action, McpApprovalAction):
+        return McpApprovalGrantKey.from_action(action)
+    return ApprovalGrantKey.from_action(action)
+
+
 @dataclass(frozen=True, slots=True)
 class SessionGrant:
     """保存一个只允许当前 Session 使用的授权。"""
 
-    key: ApprovalGrantKey
+    key: ApprovalGrantKeyValue
     decision: ApprovalDecision
     granted_at: float
 
@@ -650,7 +674,10 @@ class SessionGrant:
         """确保会话授权只能由 allow-for-session 决定创建。"""
         if self.decision.kind is not ApprovalDecisionKind.ALLOW_FOR_SESSION:
             raise ValueError("session grant requires allow_for_session")
-        if self.decision.action_fingerprint != self.key.action_fingerprint:
+        if (
+            isinstance(self.key, ApprovalGrantKey)
+            and self.decision.action_fingerprint != self.key.action_fingerprint
+        ):
             raise ValueError("session grant does not match action fingerprint")
         _require_timestamp("granted_at", self.granted_at)
 

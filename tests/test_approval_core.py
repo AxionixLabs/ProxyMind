@@ -251,6 +251,86 @@ async def test_session_grant_is_reused_for_later_run() -> None:
     assert presentation.calls == 1
 
 
+class _McpPresentation:
+    """记录 MCP 核心展示次数并返回会话决定。"""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def present(self, action: McpApprovalAction) -> ApprovalDecision:
+        self.calls += 1
+        return ApprovalDecision(
+            kind=ApprovalDecisionKind.ALLOW_FOR_SESSION,
+            action_fingerprint=action.fingerprint,
+        )
+
+
+def _mcp_action(
+    suffix: str,
+    *,
+    session_id: str = "session-mcp",
+    environment_id: str = "workspace-write",
+    connector_id: str | None = "docs-connector",
+) -> McpApprovalAction:
+    descriptor = McpToolDescriptor(
+        server="docs",
+        exposed_name="mcp__docs__lookup",
+        tool_name="lookup",
+        schema_fingerprint=ActionFingerprint("schema"),
+        annotations=McpToolAnnotations(read_only_hint=False),
+        policy=McpApprovalPolicy(McpApprovalMode.PROMPT),
+        connector_id=connector_id,
+    )
+    return McpApprovalAction(
+        identity=ApprovalIdentity(
+            session_id=session_id,
+            run_id=f"run-{suffix}",
+            approval_id=f"approval-{suffix}",
+            action_id=f"call-{suffix}",
+        ),
+        execution=ExecutionIdentity(
+            environment_id=environment_id,
+            execution_id=f"run-{suffix}",
+            tool_call_id=f"call-{suffix}",
+        ),
+        fingerprint=ActionFingerprint(f"action-{suffix}"),
+        descriptor=descriptor,
+        arguments_fingerprint=ActionFingerprint(f"arguments-{suffix}"),
+    )
+
+
+@pytest.mark.anyio
+async def test_mcp_session_grant_ignores_arguments_but_keeps_scope_isolated() -> None:
+    presentation = _McpPresentation()
+    core = ApprovalCore(
+        InMemoryApprovalFactStore(),
+        InMemorySessionGrantStore(),
+        presentation=PresentationArbiter(presentation),
+    )
+
+    first = await core.request(_mcp_action("first"))
+    same_scope = await core.request(_mcp_action("other-arguments"))
+    other_environment = await core.request(_mcp_action(
+        "other-environment",
+        environment_id="full-access",
+    ))
+    other_connector = await core.request(_mcp_action(
+        "other-connector",
+        connector_id="other",
+    ))
+    other_session = await core.request(_mcp_action(
+        "other-session",
+        session_id="session-other",
+    ))
+
+    assert first.outcome is not None and same_scope.outcome is not None
+    assert same_scope.outcome.source is ApprovalDecisionSource.POLICY
+    assert other_environment.outcome is not None
+    assert other_connector.outcome is not None
+    assert other_session.outcome is not None
+    assert presentation.calls == 4
+
+
 @dataclass
 class _Journal:
     decision: EffectJournalDecision

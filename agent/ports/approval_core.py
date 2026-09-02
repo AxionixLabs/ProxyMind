@@ -9,9 +9,10 @@ from agent.domain.approvals import (
     ApprovalDecision,
     ApprovalDecisionSource,
     ApprovalFact,
-    ApprovalGrantKey,
+    ApprovalGrantKeyValue,
     ApprovalIdentity,
     ApprovalResolutionReason,
+    McpToolDescriptor,
     SessionGrant,
 )
 from agent.ports.approvals import ApprovalOutcomePort
@@ -21,6 +22,7 @@ __all__ = (
     "ApprovalFactStore",
     "ApprovalPresentationPort",
     "ApprovalReviewerPort",
+    "McpPersistentApprovalStore",
     "SessionGrantStore",
 )
 
@@ -35,6 +37,14 @@ class ApprovalActionCoordinatorPort(typing.Protocol):
         presentation: Mapping[str, typing.Any],
     ) -> ApprovalOutcomePort:
         """提交已经构造的动作并返回兼容前端使用的终态。"""
+        ...
+
+
+class McpPersistentApprovalStore(typing.Protocol):
+    """定义 MCP 工具持久允许策略的原子写入端口。"""
+
+    async def approve_tool(self, descriptor: McpToolDescriptor) -> None:
+        """持久允许一个配置服务中的指定原始工具。"""
         ...
 
 
@@ -76,7 +86,7 @@ class ApprovalFactStore(typing.Protocol):
 class SessionGrantStore(typing.Protocol):
     """定义 Session 内临时授权端口，关闭 Session 后授权必须丢弃。"""
 
-    async def find(self, key: ApprovalGrantKey) -> SessionGrant | None:
+    async def find(self, key: ApprovalGrantKeyValue) -> SessionGrant | None:
         """读取精确 Session、环境、动作和指纹范围内的授权。"""
         ...
 

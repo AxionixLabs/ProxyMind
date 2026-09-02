@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+import pytest
+
 from agent.application.approvals.presentation import (
     ApplyPatchApprovalPresentation,
     ExecApprovalPresentation,
@@ -145,6 +147,36 @@ def test_permissions_and_mcp_presentation_summaries_are_action_specific() -> Non
     )
     assert isinstance(mcp, ToolApprovalPresentation)
     assert mcp.summary == "github: create_issue"
+
+
+def test_local_mcp_remember_decisions_do_not_expand_wire_contract() -> None:
+    payload = {
+        "kind": "mcp_tool_call",
+        "id": "approval-mcp-local",
+        "tool": "mcp__docs__publish",
+        "server": "docs",
+        "tool_name": "publish",
+        "available_decisions": [
+            "accept",
+            "acceptForSession",
+            "acceptAndRemember",
+            "decline",
+        ],
+    }
+
+    with pytest.raises(ValueError, match="invalid for kind"):
+        build_approval_request(payload)
+
+    request = build_approval_request({
+        **payload,
+        "_local_mcp_approval": True,
+    })
+    assert request.decisions == (
+        "accept",
+        "acceptForSession",
+        "acceptAndRemember",
+        "decline",
+    )
 
 
 def test_permission_summary_formats_structured_paths() -> None:

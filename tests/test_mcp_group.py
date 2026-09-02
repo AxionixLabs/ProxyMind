@@ -68,6 +68,7 @@ async def test_external_mcp_close_hides_only_sdk_termination_warning(
         rules=None,
         default_approval_mode="auto",
         tool_approval_modes=None,
+        config_server_key=None,
     ):
         return {}, 0
 
@@ -265,6 +266,7 @@ async def test_external_mcp_failed_preparation_closes_private_resources(
         rules=None,
         default_approval_mode="auto",
         tool_approval_modes=None,
+        config_server_key=None,
     ):
         raise RuntimeError("tool discovery failed")
 
@@ -325,6 +327,7 @@ async def test_external_mcp_owner_closes_resources_in_entering_task(
         rules=None,
         default_approval_mode="auto",
         tool_approval_modes=None,
+        config_server_key=None,
     ):
         return {}, 0
 
@@ -391,6 +394,7 @@ async def test_external_mcp_timeout_closes_resources_in_owner_task(
         rules=None,
         default_approval_mode="auto",
         tool_approval_modes=None,
+        config_server_key=None,
     ):
         collection_started.set()
         await asyncio.Future()
@@ -441,6 +445,7 @@ async def test_external_mcp_filters_discovered_tools_before_registration() -> No
         },
         default_approval_mode="writes",
         tool_approval_modes={"get_bug": "prompt"},
+        config_server_key="ZenTao",
     )
 
     assert discovered_count == 3
@@ -450,6 +455,7 @@ async def test_external_mcp_filters_discovered_tools_before_registration() -> No
     ]
     assert tools["mcp__zentao__get_bug"].meta["approval_mode"] == "prompt"
     assert tools["mcp__zentao__list_projects"].meta["approval_mode"] == "writes"
+    assert tools["mcp__zentao__get_bug"].meta["config_server_key"] == "ZenTao"
 
 
 @pytest.mark.anyio

@@ -67,6 +67,7 @@ from infrastructure.config.runtime_paths import (
 )
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.settings_session import SettingsSession
+from infrastructure.mcp.approval_policy import ConfigMcpPersistentApprovalStore
 from infrastructure.mcp.hook_runner import HookMcpRunner as HookMcpRunnerAdapter
 from infrastructure.persistence.conversation_history import LocalConversationHistory
 from infrastructure.persistence.transcripts import ConversationTranscriptStore
@@ -249,6 +250,9 @@ class ApplicationHost:
             legacy_approval_coordinator,
             fact_store=SQLiteApprovalFactStore(approval_fact_db_path()),
             grant_store=InMemorySessionGrantStore(),
+            persistent_mcp_approvals=ConfigMcpPersistentApprovalStore(
+                config_session
+            ),
         )
         self.approval_call_ledger = ApprovalCallLedger()
         self.permission_grants = PermissionGrantStore()

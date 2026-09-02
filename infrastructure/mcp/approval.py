@@ -74,6 +74,7 @@ def prepare_mcp_approval_descriptor(
         connector_description=_optional_meta_text(meta, "connector_description"),
         connected_account=_optional_meta_text(meta, "connected_account_email"),
         transport=_optional_meta_text(meta, "transport") or "external",
+        config_server_key=_optional_meta_text(meta, "config_server_key"),
     )
 
 

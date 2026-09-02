@@ -162,6 +162,7 @@ class ExternalMcpGroup(object):
         rules: dict[str, list[str]] | None = None,
         default_approval_mode: str = "auto",
         tool_approval_modes: dict[str, str] | None = None,
+        config_server_key: str | None = None,
     ) -> tuple[dict[str, mcp_types.Tool], int]:
         """读取单个外部服务的工具列表，并生成待提交的工具映射。"""
         tools_temp: dict[str, mcp_types.Tool] = {}
@@ -195,6 +196,8 @@ class ExternalMcpGroup(object):
 
                 if transport:
                     meta.setdefault("transport", str(transport).strip().lower())
+                if config_server_key:
+                    meta["config_server_key"] = config_server_key
                 overrides = tool_approval_modes or {}
                 meta["approval_mode"] = normalize_mcp_approval_mode(
                     overrides.get(tool.name),
@@ -482,6 +485,7 @@ class ExternalMcpGroup(object):
                     if isinstance(server.get("tool_approval_modes"), dict)
                     else {}
                 ),
+                config_server_key=str(server.get("config_key") or "").strip() or None,
             )
 
             if not ready.done():
