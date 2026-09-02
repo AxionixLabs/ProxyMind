@@ -476,7 +476,7 @@ grant、reviewer 和 Effect 边界，并用契约测试证明非法组合无法�
 
 出口证据：
 
-- 网络一致性定向回归 59 项通过，`compileall agent protocol frontends infrastructure
+- 网络一致性定向回归 63 项通过，`compileall agent protocol frontends infrastructure
   observability metadata` 和 `git diff --check` 通过；架构守卫按本轮开发指示不运行，
   包边界仍以既有审计文件和代码复核为准。
 - 全量 Python 回归在既有 `608f4a8a` 流式接口迁移后的
