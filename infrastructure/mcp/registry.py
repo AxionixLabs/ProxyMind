@@ -24,7 +24,7 @@ class McpServerRegistry(object):
 
     def get(self, name: str) -> dict[str, typing.Any]:
         """返回有效配置中的指定服务。"""
-        key   = self._name(name)
+        key = self._name(name)
         value = self._effective_servers().get(key)
 
         if not isinstance(value, dict):
@@ -40,7 +40,7 @@ class McpServerRegistry(object):
 
     def remove(self, name: str) -> dict[str, typing.Any]:
         """从用户配置删除并返回指定服务。"""
-        key   = self._name(name)
+        key = self._name(name)
         value = self._user_servers().get(key)
 
         if not isinstance(value, dict):
@@ -79,7 +79,7 @@ class McpServerRegistry(object):
         """返回用户配置中直接定义的服务映射。"""
         self.session.resolve()
 
-        raw   = self.session.store.read_raw()
+        raw = self.session.store.read_raw()
         value = raw.get("mcp_servers")
 
         if not isinstance(value, dict):

@@ -1,28 +1,29 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
-import json
-import typing
 import asyncio
+import json
+import os
+import typing
 from dataclasses import dataclass
+
 from agent.domain.hooks import (
     HookDefinitionConfig,
     HookEventName
-)
-from metadata import const
-from infrastructure.platform.processes import (
-    subprocess_process_group_kwargs,
-    terminate_process_tree
 )
 from infrastructure.platform.hook_output_spill import (
     CapturedHookOutput,
     HookOutputSpillStore
 )
+from infrastructure.platform.processes import (
+    subprocess_process_group_kwargs,
+    terminate_process_tree
+)
+from metadata import const
 
 HOOK_BUSINESS_BLOCK_EXIT_CODE = 2
-MAX_HOOK_DIAGNOSTIC_CHARS     = 8 * 1024
-MAX_STRUCTURED_OUTPUT_BYTES   = 4 * 1024 * 1024
+MAX_HOOK_DIAGNOSTIC_CHARS = 8 * 1024
+MAX_STRUCTURED_OUTPUT_BYTES = 4 * 1024 * 1024
 
 _PLAIN_STDOUT_CONTEXT_EVENTS = frozenset({
     "SessionStart",
@@ -81,9 +82,9 @@ class HookCommandExecutor:
             default=str,
         ).encode(const.CHARSET)
 
-        handler    = definition.handler
+        handler = definition.handler
         session_id = str(payload.get("session_id") or "")
-        command    = handler.command_for_platform(os.name)
+        command = handler.command_for_platform(os.name)
 
         try:
             process = await self._start_process(
@@ -161,7 +162,7 @@ class HookCommandExecutor:
             raise
 
         stderr_text = stderr.text()
-        spill_data  = self._spill_data(stdout, stderr)
+        spill_data = self._spill_data(stdout, stderr)
 
         if (
             return_code == HOOK_BUSINESS_BLOCK_EXIT_CODE

@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import time
 import typing
-import asyncio
 from copy import deepcopy
-from frontends.interaction import PromptContext
-from infrastructure.platform.workspace_context import fetch_runtime_workspace_root
-from infrastructure.skills import configured_skills
-from infrastructure.config.preferences import apply_primary_model_override
+
 from agent.domain.policies import (
     PermissionSettings,
     permission_label
 )
+from frontends.interaction import PromptContext
+from infrastructure.config.preferences import apply_primary_model_override
+from infrastructure.platform.workspace_context import fetch_runtime_workspace_root
+from infrastructure.skills import configured_skills
 from ..core.runtime import (
     TuiRuntime,
     require_tui_runtime
@@ -42,11 +43,11 @@ class TuiSessionState(object):
         model_override: str | None = None,
         permissions: PermissionSettings
     ) -> None:
-        self.pref_config     = pref_config
-        self.model           = model
-        self.model_override  = model_override
+        self.pref_config = pref_config
+        self.model = model
+        self.model_override = model_override
         self.workspace_label = workspace_label
-        self.permissions     = permissions
+        self.permissions = permissions
 
         self._pending_prompt_extras: dict[str, typing.Any] | None = None
 

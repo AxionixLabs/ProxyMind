@@ -33,6 +33,7 @@ from agent.domain.execution_policy import (
 )
 from infrastructure.config.execution_policy import PolicyParser
 
+
 @dataclass(frozen=True, slots=True)
 class ExecApprovalCacheKey:
     """保存会话级命令批准的完整身份。"""
@@ -138,7 +139,7 @@ class ExecPolicyManager:
             or default_application_home() / "rules" / "default.rules"
         ).expanduser().resolve()
 
-        self._session_approvals: set[ExecApprovalCacheKey]             = set()
+        self._session_approvals: set[ExecApprovalCacheKey] = set()
         self._session_patch_approvals: set[ApplyPatchApprovalCacheKey] = set()
 
         self._write_lock = threading.RLock()
@@ -411,7 +412,7 @@ class ExecPolicyManager:
             return None
 
         words = tuple(str(word) for word in commands[0] if str(word))
-        head  = _basename(words[0]) if words else ""
+        head = _basename(words[0]) if words else ""
 
         if head in {"python", "python3", "py"} and len(words) >= 4:
             if words[1].casefold() == "-m":
@@ -425,7 +426,7 @@ class ExecPolicyManager:
         amendment_id: str,
     ) -> dict[str, object] | None:
         """构造由客户端生成并保存的命令前缀规则提案。"""
-        prefix   = self.execpolicy_command_prefix(command)
+        prefix = self.execpolicy_command_prefix(command)
         identity = str(amendment_id or "").strip()
 
         if prefix is None or not identity:
@@ -715,7 +716,7 @@ def render_decision_for_unmatched_command(
     if match is None:
         match = _dangerous_command_match(words)
 
-    normalized_policy  = str(approval_policy or "on-request").strip().casefold()
+    normalized_policy = str(approval_policy or "on-request").strip().casefold()
     normalized_sandbox = str(sandbox_mode or "workspace-write").strip().casefold()
 
     permission = normalize_sandbox_permission(sandbox_permissions)
@@ -729,10 +730,10 @@ def render_decision_for_unmatched_command(
     if (
         normalized_policy == "on-request"
         and normalized_sandbox in {
-            "read-only",
-            "workspace-read",
-            "workspace-write",
-        }
+        "read-only",
+        "workspace-read",
+        "workspace-write",
+    }
         and permission == "require_escalated"
     ):
         return Decision.Prompt

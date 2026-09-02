@@ -13,7 +13,7 @@ from infrastructure.platform.encoding import (
 from infrastructure.platform.process_capture import CapturedProcessResult
 
 OUTPUT_STREAMS = ("stdout", "stderr")
-UTF8_BOM       = b"\xef\xbb\xbf"
+UTF8_BOM = b"\xef\xbb\xbf"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +40,7 @@ class CapturedOutputDecoder(object):
     """根据显式编码、BOM 和片段证据解码进程捕获结果。"""
 
     def __init__(self, *, encoding: str = "auto", line_limit: int = 1000) -> None:
-        self.encoding   = normalize_process_output_encoding(encoding)
+        self.encoding = normalize_process_output_encoding(encoding)
         self.line_limit = max(20, int(line_limit or 20))
 
     def decode(self, capture: CapturedProcessResult) -> DecodedCapturedOutput:
@@ -170,9 +170,9 @@ class CapturedOutputDecoder(object):
         if self.encoding != "auto":
             return decode_process_output_details(data, encoding=self.encoding)
 
-        parts: list[str]     = []
+        parts: list[str] = []
         encodings: list[str] = []
-        ambiguous: bool      = False
+        ambiguous: bool = False
 
         for body, ending in self._byte_segments(data):
             decoded = self._decode_segment(body, hint=hint)
@@ -224,9 +224,9 @@ class CapturedOutputDecoder(object):
                 ambiguous=True,
             )
 
-        preferred      = self._preferred_encoding()
+        preferred = self._preferred_encoding()
         preferred_text = self._strict_decode(data, preferred)
-        utf8_text      = self._strict_decode(data, UTF8_ENCODING)
+        utf8_text = self._strict_decode(data, UTF8_ENCODING)
 
         if (
             preferred

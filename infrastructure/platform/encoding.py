@@ -58,7 +58,7 @@ def decode_process_output_details(
         )
 
     text_parts: list[str] = []
-    encodings: list[str]  = []
+    encodings: list[str] = []
 
     ambiguous: bool = False
 

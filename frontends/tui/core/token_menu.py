@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.layout.controls import (

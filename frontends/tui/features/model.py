@@ -3,10 +3,18 @@
 
 import re
 import typing
-from agent.ports.presentation import TextSpan
+
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
+)
+from agent.ports.presentation import TextSpan
+from infrastructure.config.preferences import config_to_preferences
+from infrastructure.config.providers import DEFAULT_REASONING_EFFORT
+from infrastructure.config.session import ConfigSession
+from .context import (
+    normalize_reasoning_effort,
+    save_primary_pref_field
 )
 from ..core.models import (
     FragmentBlock,
@@ -14,13 +22,6 @@ from ..core.models import (
     MenuOption,
     MenuRequest,
     STANDARD_MENU_FOOTER_HINT
-)
-from infrastructure.config.providers import DEFAULT_REASONING_EFFORT
-from infrastructure.config.preferences import config_to_preferences
-from infrastructure.config.session import ConfigSession
-from .context import (
-    normalize_reasoning_effort,
-    save_primary_pref_field
 )
 from ..core.styles import (
     ACCENT_STYLE,
@@ -152,16 +153,16 @@ async def choose_provider(
     session: ConfigSession
 ) -> str | None:
     """从当前配置中选择一个 Provider Profile。"""
-    raw       = session.store.read_raw()
+    raw = session.store.read_raw()
     providers = raw.get("model_providers") if isinstance(raw, dict) else {}
-    profiles  = providers if isinstance(providers, dict) else {}
+    profiles = providers if isinstance(providers, dict) else {}
 
     if not profiles:
         return None
 
-    primary  = config_to_preferences(session.load()).get("primary") or {}
-    active   = str(primary.get("provider") or "")
-    ids      = [key for key, value in profiles.items() if isinstance(value, dict)]
+    primary = config_to_preferences(session.load()).get("primary") or {}
+    active = str(primary.get("provider") or "")
+    ids = [key for key, value in profiles.items() if isinstance(value, dict)]
     selected = ids.index(active) if active in ids else 0
 
     return await runtime.select_menu(MenuRequest(
@@ -191,9 +192,9 @@ async def save_active_provider(
 ) -> dict[str, typing.Any]:
     """持久化当前 Provider Profile 并返回运行时偏好。"""
     normalized = str(provider_id or "").strip()
-    raw        = session.store.read_raw()
-    providers  = raw.get("model_providers") if isinstance(raw, dict) else {}
-    profile    = providers.get(normalized) if isinstance(providers, dict) else None
+    raw = session.store.read_raw()
+    providers = raw.get("model_providers") if isinstance(raw, dict) else {}
+    profile = providers.get(normalized) if isinstance(providers, dict) else None
 
     if not isinstance(profile, dict):
         raise ValueError(f"provider does not exist: {normalized}")
@@ -206,7 +207,7 @@ async def save_active_provider(
 
 def _provider_detail(profile: dict[str, typing.Any]) -> str:
     """生成 Provider 菜单项的单行摘要。"""
-    kind  = str(profile.get("kind") or "unknown")
+    kind = str(profile.get("kind") or "unknown")
     model = str(profile.get("model") or "(incomplete)")
     route = str(profile.get("route") or "")
     return " · ".join(value for value in (kind, model, route) if value)
@@ -230,8 +231,8 @@ def provider_changed_status_block(
     model: typing.Any
 ) -> FragmentBlock:
     """生成 Provider 切换成功后的状态行。"""
-    provider_name  = str(name or "").strip() or "(unknown)"
-    provider_kind  = str(kind or "unknown").strip()
+    provider_name = str(name or "").strip() or "(unknown)"
+    provider_kind = str(kind or "unknown").strip()
     provider_model = str(model or "(incomplete)").strip()
 
     return fragment_block(

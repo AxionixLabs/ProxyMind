@@ -91,7 +91,7 @@ class _SidecarStdin(object):
     """把同步 write/drain 调用转换为 sidecar 的异步写请求。"""
 
     def __init__(self, client: "SandboxClient", process_id: str) -> None:
-        self._client     = client
+        self._client = client
         self._process_id = process_id
 
         self._pending = bytearray()
@@ -136,13 +136,13 @@ class SidecarProcess(object):
     """表示由 sidecar 管理的逻辑进程。"""
 
     def __init__(self, client: "SandboxClient", process_id: str) -> None:
-        self.client     = client
+        self.client = client
         self.process_id = process_id
-        self.pid        = process_id
+        self.pid = process_id
 
         self.returncode: int | None = None
 
-        self.stdin  = _SidecarStdin(client, process_id)
+        self.stdin = _SidecarStdin(client, process_id)
         self.stdout = _SidecarStream()
         self.stderr = _SidecarStream()
 
@@ -168,9 +168,9 @@ class SidecarProcess(object):
 class SandboxClient(object):
     """管理当前平台的 sandbox sidecar 及其逻辑进程。"""
 
-    PROTOCOL_VERSION    = 1
+    PROTOCOL_VERSION = 1
     REQUEST_TIMEOUT_SEC = 30.0
-    READY_TIMEOUT_SEC   = 10.0
+    READY_TIMEOUT_SEC = 10.0
 
     def __init__(
         self,
@@ -182,9 +182,9 @@ class SandboxClient(object):
         platform: str | None = None,
     ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
-        self.platform       = (sys.platform if platform is None else platform).strip().lower()
-        self.platform_name  = sandbox_platform_name(self.platform)
-        self.packaged       = self._is_packaged_runtime() if packaged is None else bool(packaged)
+        self.platform = (sys.platform if platform is None else platform).strip().lower()
+        self.platform_name = sandbox_platform_name(self.platform)
+        self.packaged = self._is_packaged_runtime() if packaged is None else bool(packaged)
 
         self.application_root = (
             Path(application_root).expanduser().resolve()
@@ -195,7 +195,7 @@ class SandboxClient(object):
         self.executable = self._resolve_executable(executable)
 
         self._sidecar: asyncio.subprocess.Process | None = None
-        self._reader_task: asyncio.Task[None] | None     = None
+        self._reader_task: asyncio.Task[None] | None = None
 
         self._start_lock: asyncio.Lock = asyncio.Lock()
         self._write_lock: asyncio.Lock = asyncio.Lock()
@@ -203,9 +203,9 @@ class SandboxClient(object):
         self._request_number: int = 0
 
         self._pending: dict[str, asyncio.Future[dict[str, typing.Any]]] = {}
-        self._ready: asyncio.Future[bool] | None                        = None
-        self._processes: dict[str, SidecarProcess]                      = {}
-        self._early_events: dict[str, list[dict[str, typing.Any]]]      = {}
+        self._ready: asyncio.Future[bool] | None = None
+        self._processes: dict[str, SidecarProcess] = {}
+        self._early_events: dict[str, list[dict[str, typing.Any]]] = {}
 
     @staticmethod
     def _is_packaged_runtime() -> bool:

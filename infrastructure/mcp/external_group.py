@@ -48,10 +48,11 @@ from infrastructure.mcp.external_status import (
     should_reraise_external,
 )
 
-EXTERNAL_MCP_CONNECT_CONCURRENCY   = 2
-EXTERNAL_MCP_STDIO_CONCURRENCY     = 1
+EXTERNAL_MCP_CONNECT_CONCURRENCY = 2
+EXTERNAL_MCP_STDIO_CONCURRENCY = 1
 EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC = 2.0
-EXTERNAL_MCP_TOOL_YIELD_INTERVAL   = 32
+EXTERNAL_MCP_TOOL_YIELD_INTERVAL = 32
+
 
 @dataclass(frozen=True, slots=True)
 class _ExternalMcpConnectionReady(object):
@@ -76,14 +77,14 @@ class ExternalMcpGroup(object):
 
     def __init__(self) -> None:
         """初始化外部 MCP 工具索引和连接所有者集合。"""
-        self.tools: dict[str, mcp_types.Tool]               = {}
+        self.tools: dict[str, mcp_types.Tool] = {}
         self.server_stats: dict[str, dict[str, typing.Any]] = {}
 
         self._tool_to_session: dict[str, ClientSession] = {}
         self._connections: list[_ExternalMcpConnection] = []
 
         self._closing: bool = False
-        self._closed: bool  = False
+        self._closed: bool = False
 
     @staticmethod
     async def _establish_session(
@@ -211,7 +212,7 @@ class ExternalMcpGroup(object):
         if self._closing or self._closed:
             raise AppError("External MCP group is closing")
 
-        session           = self._tool_to_session[name]
+        session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
 
         return await session.call_tool(
@@ -246,7 +247,7 @@ class ExternalMcpGroup(object):
                 status.finish()
             return 0
 
-        limiter       = asyncio.Semaphore(EXTERNAL_MCP_CONNECT_CONCURRENCY)
+        limiter = asyncio.Semaphore(EXTERNAL_MCP_CONNECT_CONCURRENCY)
         stdio_limiter = asyncio.Semaphore(EXTERNAL_MCP_STDIO_CONCURRENCY)
 
         connect_tasks = [
@@ -265,7 +266,7 @@ class ExternalMcpGroup(object):
 
         try:
             connection_results = await asyncio.gather(*connect_tasks)
-            connected_servers  = sum(connection_results)
+            connected_servers = sum(connection_results)
 
             failed_required = [
                 str(server.get("name") or "server")
@@ -345,7 +346,7 @@ class ExternalMcpGroup(object):
             raise RuntimeError("External MCP group is closed")
 
         server_name = str(server.get("name") or "server")
-        stop_event  = asyncio.Event()
+        stop_event = asyncio.Event()
 
         ready = asyncio.get_running_loop().create_future()
 
@@ -385,13 +386,13 @@ class ExternalMcpGroup(object):
             exposed_count = len(prepared.tools)
 
             self.server_stats[prepared.alias] = {
-                "server"     : prepared.alias,
-                "transport"  : str(
+                "server": prepared.alias,
+                "transport": str(
                     server.get("transport") or "streamable_http"
                 ),
-                "discovered" : prepared.discovered_count,
-                "exposed"    : exposed_count,
-                "filtered"    : max(
+                "discovered": prepared.discovered_count,
+                "exposed": exposed_count,
+                "filtered": max(
                     0,
                     prepared.discovered_count - exposed_count,
                 ),
@@ -412,7 +413,7 @@ class ExternalMcpGroup(object):
         session_stack: contextlib.AsyncExitStack | None = None
 
         try:
-            alias  = slugify_mcp_name(server.get("name"), fallback="server")
+            alias = slugify_mcp_name(server.get("name"), fallback="server")
             params = build_server_params(server)
 
             server_info, session, session_stack = await self._establish_session(
@@ -487,7 +488,7 @@ async def _connect_external_server(
         server.get("transport") or "streamable_http"
     ).strip().lower()
 
-    start_limit     = startup_timeout_sec(server)
+    start_limit = startup_timeout_sec(server)
     preflight_limit = min(start_limit, EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC)
 
     phase = "preflight"
@@ -548,6 +549,7 @@ async def _connect_external_server(
         if status is not None:
             status.mark_failed(server, detail)
         return False
+
 
 if __name__ == '__main__':
     pass

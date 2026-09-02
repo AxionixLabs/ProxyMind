@@ -88,7 +88,8 @@ class WorkspaceFileAudit(WorkspaceComponent):
             "created_count": len(created),
             "modified_count": len(modified),
             "deleted_count": len(deleted),
-            "truncated": bool((before or {}).get("truncated")) or bool((after or {}).get("truncated")) or len(changed) > max_items,
+            "truncated": bool((before or {}).get("truncated")) or bool((after or {}).get("truncated")) or len(
+                changed) > max_items,
             "before_file_count": (before or {}).get("file_count", 0),
             "after_file_count": (after or {}).get("file_count", 0)
         }
@@ -109,4 +110,3 @@ class WorkspaceFileAudit(WorkspaceComponent):
 
 if __name__ == '__main__':
     pass
-

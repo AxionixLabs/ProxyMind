@@ -225,9 +225,9 @@ class PatchApplier(WorkspaceComponent):
                     if (
                         relocated_index < cursor
                         and not self._hunk_overlap_is_context_only(
-                            hunk,
-                            overlap_count=overlap_count
-                        )
+                        hunk,
+                        overlap_count=overlap_count
+                    )
                     ):
                         return {
                             "ok": False,

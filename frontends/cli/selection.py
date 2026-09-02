@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from .commands import (
     AgentListenCommand,
     CliCommand,

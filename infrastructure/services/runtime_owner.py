@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
 import contextlib
+import typing
+
 from agent.ports import HelixCapability
 from infrastructure.errors import AppError
+from infrastructure.platform.ports import terminate_port_process
+from infrastructure.services.runtime_context import ServiceRuntimeContext
 from infrastructure.services.server_manager import ServerManage
 from observability import (
     observe,
     observe_exception,
 )
-from infrastructure.platform.ports import terminate_port_process
-from infrastructure.services.runtime_context import ServiceRuntimeContext
 from .keepalive import run_keepalive
 
 ServiceStartupOperation = typing.Callable[[], typing.Awaitable[bool]]

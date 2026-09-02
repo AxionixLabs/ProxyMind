@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
 import collections
+import typing
+
 from prompt_toolkit.buffer import Buffer
+
 from .input import TuiInputModel
 from .interrupt import (
     InterruptDisposition,
@@ -114,7 +116,7 @@ class TuiSubmissionFlow(object):
         self._append_notice = append_notice
         self._invalidate = invalidate
         self._exit_event = asyncio.Event()
-        self._exit_expiry_task: asyncio.Task[None] | None  = None
+        self._exit_expiry_task: asyncio.Task[None] | None = None
         self._interrupt_handler: typing.Callable[
             [], InterruptDisposition
         ] = _ignore_interrupt
@@ -469,8 +471,8 @@ class TuiSubmissionFlow(object):
         self.input_model.cancel_history_backtrack()
 
         editable_text = buffer.text
-        paste_store   = self.input_model.submission_state(editable_text)
-        shell_mode    = self.input_model.shell_mode
+        paste_store = self.input_model.submission_state(editable_text)
+        shell_mode = self.input_model.shell_mode
 
         value = self.input_model.restore_submission(buffer.text)
         if not value:
@@ -563,8 +565,8 @@ class TuiSubmissionFlow(object):
     async def _read_input_event(self) -> typing.Any:
         """等待输入或退出事件，并取消未完成的另一项等待。"""
         submission_task = asyncio.create_task(self.message_queue.get())
-        exit_task       = asyncio.create_task(self._exit_event.wait())
-        tasks           = (submission_task, exit_task)
+        exit_task = asyncio.create_task(self._exit_event.wait())
+        tasks = (submission_task, exit_task)
 
         try:
             finished, _ = await asyncio.wait(
@@ -599,7 +601,7 @@ class TuiSubmissionFlow(object):
             if self._rejected_steers
             else None
         )
-        queued  = self.queued_messages.pop_next() if retried is None else None
+        queued = self.queued_messages.pop_next() if retried is None else None
 
         submission = (
             retried
@@ -646,10 +648,10 @@ class TuiSubmissionFlow(object):
 
         self._input_handoff_pending = False
 
-        self._interrupt_handler       = _ignore_interrupt
-        self._stream_command_handler  = _ignore_stream_command
-        self._turn_input_handler      = _ignore_turn_input
-        self._queued_restore_handler  = _ignore_queued_restore
+        self._interrupt_handler = _ignore_interrupt
+        self._stream_command_handler = _ignore_stream_command
+        self._turn_input_handler = _ignore_turn_input
+        self._queued_restore_handler = _ignore_queued_restore
         self._has_pending_attachments = _no_pending_attachments
 
 

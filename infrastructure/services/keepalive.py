@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import httpx
-import typing
 import asyncio
 import contextlib
-from observability import observe_exception
+import typing
+
+import httpx
+
 from metadata import const
+from observability import observe_exception
 
 if typing.TYPE_CHECKING:
     from infrastructure.services.server_manager import ServerManage
@@ -38,7 +40,7 @@ async def run_keepalive(
 ) -> None:
     """后台定时执行 keepalive，并接受服务端返回的动态周期。"""
     keepalive_sec = float(const.KEEPALIVE_SEC)
-    owns_client   = req_client is None
+    owns_client = req_client is None
 
     client = req_client or httpx.AsyncClient(
         timeout=httpx.Timeout(float(const.KEEPALIVE_TIMEOUT_SEC), connect=1.5)

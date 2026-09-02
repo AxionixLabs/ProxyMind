@@ -175,7 +175,7 @@ class ProcessCommandExecutor(WorkspaceComponent):
             audit_files=audit_files,
         )
         audit_before = self._capture_shell_audit(audit_mode)
-        started      = time.perf_counter()
+        started = time.perf_counter()
 
         try:
             session = await self._session_manager.start(ProcessSessionSpec(
@@ -196,11 +196,11 @@ class ProcessCommandExecutor(WorkspaceComponent):
                 additional_permissions=normalized_additional_permissions,
             ))
         except (
-            SandboxUnavailable,
-            SandboxProtocolError,
-            OSError,
-            RuntimeError,
-            ValueError,
+                SandboxUnavailable,
+                SandboxProtocolError,
+                OSError,
+                RuntimeError,
+                ValueError,
         ) as exc:
             return self.fail_result(
                 "sandbox_unavailable",
@@ -288,7 +288,7 @@ class ProcessCommandExecutor(WorkspaceComponent):
             maximum=120000
         )
 
-        wait_time    = self._bounded_int(wait_ms, default=1000, minimum=0, maximum=30000)
+        wait_time = self._bounded_int(wait_ms, default=1000, minimum=0, maximum=30000)
         control_name = str(control or "none").strip().lower() or "none"
 
         if control_name not in {"none", "interrupt", "eof", "terminate", "kill"}:

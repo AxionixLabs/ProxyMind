@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from dataclasses import replace
+
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
+
 from frontends.tui.contracts.resume import (
     ResumePickerRequest,
     ResumePickerResult,
@@ -167,12 +169,12 @@ class TuiResumePicker(object):
                 self._set_state(exit_resume_transcript(state))
 
         for key, action in (
-            ("up", "up"),
-            ("down", "down"),
-            ("home", "home"),
-            ("end", "end"),
-            ("pageup", "page_up"),
-            ("pagedown", "page_down"),
+                ("up", "up"),
+                ("down", "down"),
+                ("home", "home"),
+                ("end", "end"),
+                ("pageup", "page_up"),
+                ("pagedown", "page_down"),
         ):
             bindings.add(key)(self._navigation_handler(typing.cast(
                 typing.Literal[
@@ -309,6 +311,7 @@ class TuiResumePicker(object):
         ],
     ) -> typing.Callable[[typing.Any], None]:
         """为指定列表动作创建同步 prompt_toolkit handler。"""
+
         def handler(_event) -> None:
             state = self.state
             if state is None:

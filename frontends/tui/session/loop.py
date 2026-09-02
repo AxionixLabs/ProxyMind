@@ -75,7 +75,7 @@ class _TurnInterruptNotice:
         runtime: TuiRuntime,
     ) -> None:
         self._application = application
-        self._runtime     = runtime
+        self._runtime = runtime
 
         self.shown: bool = False
 
@@ -154,7 +154,7 @@ async def _run_tui_loop(
 ) -> None:
     """处理 TUI 输入、命令分派和模型轮次。"""
     application = mind.frontend.application
-    runtime     = require_tui_runtime(mind.frontend.runtime)
+    runtime = require_tui_runtime(mind.frontend.runtime)
 
     attachment_state = mind.attach
     runtime.bind_pending_attachment_check(

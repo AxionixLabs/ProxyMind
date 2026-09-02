@@ -23,15 +23,15 @@ ToolCallback = typing.Callable[
     typing.Awaitable[dict[str, typing.Any]]
 ]
 
-MIN_NODE_VERSION   = (22, 22, 0)
+MIN_NODE_VERSION = (22, 22, 0)
 DEFAULT_TIMEOUT_MS = 30_000
 
-STDERR_TAIL_LINE_LIMIT  = 20
-STDERR_TAIL_LINE_BYTES  = 512
-STDERR_TAIL_MAX_BYTES   = 4_096
-STDERR_TAIL_SEPARATOR   = " | "
+STDERR_TAIL_LINE_LIMIT = 20
+STDERR_TAIL_LINE_BYTES = 512
+STDERR_TAIL_MAX_BYTES = 4_096
+STDERR_TAIL_SEPARATOR = " | "
 STDOUT_READ_CHUNK_BYTES = 64 * 1024
-STDOUT_FRAME_MAX_BYTES  = 32 * 1024 * 1024
+STDOUT_FRAME_MAX_BYTES = 32 * 1024 * 1024
 
 SUPPORTED_IMAGE_TYPES = {
     "image/gif",
@@ -157,18 +157,18 @@ class JavaScriptReplManager:
         if access_mode not in REPL_ACCESS_MODES:
             raise ReplRuntimeError(f"unsupported js_repl access mode: {access_mode}")
 
-        self.cwd         = cwd.resolve()
-        self.session_id  = session_id
+        self.cwd = cwd.resolve()
+        self.session_id = session_id
         self.access_mode = access_mode
-        self.asset_root  = asset_root.resolve()
-        self._temp_dir   = tempfile.TemporaryDirectory(prefix="js-repl-")
+        self.asset_root = asset_root.resolve()
+        self._temp_dir = tempfile.TemporaryDirectory(prefix="js-repl-")
 
         self._process: asyncio.subprocess.Process | None = None
-        self._stdout_task: asyncio.Task[None] | None     = None
-        self._stderr_task: asyncio.Task[None] | None     = None
+        self._stdout_task: asyncio.Task[None] | None = None
+        self._stderr_task: asyncio.Task[None] | None = None
 
         self._stdin_lock: asyncio.Lock = asyncio.Lock()
-        self._exec_lock: asyncio.Lock  = asyncio.Lock()
+        self._exec_lock: asyncio.Lock = asyncio.Lock()
 
         self._active_request: _ExecutionRequest | None = None
 
@@ -272,8 +272,8 @@ class JavaScriptReplManager:
         if process is not None and process.returncode is None:
             return
 
-        node_path   = await self._resolve_node_path()
-        asset_root  = self.asset_root
+        node_path = await self._resolve_node_path()
+        asset_root = self.asset_root
         kernel_path = asset_root / "kernel.js"
 
         meriyah_path = asset_root / "vendor" / "meriyah.umd.min.js"
@@ -284,7 +284,7 @@ class JavaScriptReplManager:
 
         env = dict(os.environ)
         env["JS_REPL_SESSION_ID"] = self.session_id
-        env["JS_REPL_TMP_DIR"]    = self._temp_dir.name
+        env["JS_REPL_TMP_DIR"] = self._temp_dir.name
 
         if not str(env.get("HOME") or "").strip():
             env["HOME"] = str(Path.home())
@@ -331,7 +331,7 @@ class JavaScriptReplManager:
     @staticmethod
     async def _resolve_node_path() -> str:
         """解析满足最低版本要求的 Node 可执行文件。"""
-        configured      = str(os.environ.get("JS_REPL_NODE_PATH") or "").strip()
+        configured = str(os.environ.get("JS_REPL_NODE_PATH") or "").strip()
         configured_path = Path(configured).expanduser() if configured else None
 
         node_path = (
@@ -502,7 +502,7 @@ class JavaScriptReplManager:
     ) -> None:
         """执行内核发起的嵌套工具调用。"""
         request_id = str(message.get("id") or "")
-        tool_name  = str(message.get("tool_name") or "").strip()
+        tool_name = str(message.get("tool_name") or "").strip()
 
         try:
             if tool_name in {"js_repl", "js_repl_reset"}:

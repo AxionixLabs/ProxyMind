@@ -1,35 +1,35 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
-from agent.protocol import ConversationForkReceipt
+import typing
+
+from agent.application.turns.compact_result import CompactResult
 from agent.ports import (
     ProtocolCommandClient,
     ProtocolCommandError,
 )
 from agent.ports.presentation import ApplicationView
-from agent.application.turns.compact_result import CompactResult
-
-from frontends.terminal.mcp_status import (
-    external_mcp_status_view,
-    render_mcp_status_block,
-)
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
+)
+from agent.protocol import ConversationForkReceipt
+from frontends.terminal.mcp_status import (
+    external_mcp_status_view,
+    render_mcp_status_block,
 )
 from frontends.tui.adapters.clipboard import (
     ClipboardError,
     copy_text_to_clipboard
 )
-from protocol.schema.identifiers import valid_session_ids
-from protocol.client.fork import ResubmittablePrompt
+from metadata import const
 from observability import (
     observe,
     observe_exception,
 )
-from metadata import const
+from protocol.client.fork import ResubmittablePrompt
+from protocol.schema.identifiers import valid_session_ids
 from ..core.models import FragmentBlock
 from ..core.models import (
     MenuDescriptionLayout,
@@ -78,6 +78,7 @@ class ConversationCompactorFactory(typing.Protocol):
     def __call__(self, host: object) -> ConversationCompactor:
         """返回只绑定当前应用生命周期的压缩用例。"""
         ...
+
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost

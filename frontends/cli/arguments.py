@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import argparse
+
 from metadata import const
 from .commands import (
     COMPLETION_SHELLS,
@@ -200,8 +201,8 @@ def create_cli_parser() -> CliArgumentParser:
 
     archive_parsers: dict[str, CliArgumentParser] = {}
     for archive_action, archive_help in (
-        ("archive", ARCHIVE_HELP),
-        ("unarchive", UNARCHIVE_HELP),
+            ("archive", ARCHIVE_HELP),
+            ("unarchive", UNARCHIVE_HELP),
     ):
         archive_parser = subparsers.add_parser(
             archive_action,

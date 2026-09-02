@@ -3,20 +3,18 @@
 
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.utils import get_cwidth
+
 from frontends.tui.contracts.menu import (
     MenuColumnWidthMode,
     MenuOption,
     MenuRequest
-)
-from ..fragments import (
-    clip_text,
-    wrap_formatted_lines
 )
 from .layout import (
     prefix_width,
     search_prefix_width,
     should_stack_description
 )
+from .renderer import strip_leading_spaces
 from .selection import (
     filtered_indices,
     option_detail,
@@ -25,7 +23,10 @@ from .selection import (
     option_status_suffix
 )
 from .state import MenuState
-from .renderer import strip_leading_spaces
+from ..fragments import (
+    clip_text,
+    wrap_formatted_lines
+)
 
 
 def option_fragments(
@@ -42,7 +43,7 @@ def option_fragments(
 ) -> list[StyleAndTextTuples]:
     """按可用宽度分配选项主标签和辅助信息。"""
     if option_is_disabled(option):
-        label_style  = "class:tui-menu.label.disabled"
+        label_style = "class:tui-menu.label.disabled"
         detail_style = "class:tui-menu.detail.disabled"
     else:
         default_label_style = (
@@ -65,9 +66,9 @@ def option_fragments(
         if len(values) < len(widths):
             values.extend([""] * (len(widths) - len(values)))
 
-        values      = values[:len(widths)]
-        separator   = request.description_separator
-        gap_width   = get_cwidth(separator) * max(0, len(widths) - 1)
+        values = values[:len(widths)]
+        separator = request.description_separator
+        gap_width = get_cwidth(separator) * max(0, len(widths) - 1)
         fixed_width = sum(widths[:-1])
 
         if widths[-1] <= 0:
@@ -125,10 +126,10 @@ def option_fragments(
             (label_style, clip_text(option_label(option), width=available)),
         ]]
 
-    separator       = request.description_separator
+    separator = request.description_separator
     separator_width = get_cwidth(separator)
-    label           = clip_text(option_label(option), width=label_width)
-    padding         = " " * max(0, label_width - get_cwidth(label))
+    label = clip_text(option_label(option), width=label_width)
+    padding = " " * max(0, label_width - get_cwidth(label))
 
     if option.category:
         category_style = (

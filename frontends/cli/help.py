@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import argparse
+import functools
 import os
 import sys
 import typing
-import argparse
-import functools
 
 ANSI_RESET = "\x1b[0m"
 ANSI_ACCENT = "\x1b[38;2;232;235;239m"
@@ -18,6 +18,7 @@ HELP_SECTIONS = (
     "Arguments",
     "Options",
 )
+
 
 def _styled(text: str, style: str, *, enabled: bool) -> str:
     """为非空文本添加单段 ANSI 样式。"""
@@ -141,7 +142,7 @@ class CliHelpFormatter(argparse.HelpFormatter):
         styled_lines: list[str] = []
 
         for index, line in enumerate(lines):
-            body   = line.rstrip("\r\n")
+            body = line.rstrip("\r\n")
             suffix = line[len(body):]
 
             if index == 0 and body.startswith("Usage: "):

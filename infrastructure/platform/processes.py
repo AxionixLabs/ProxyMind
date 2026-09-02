@@ -7,8 +7,8 @@ import typing
 import asyncio
 import subprocess
 
-TERMINATE_GRACE_SEC  = 0.5
-FINAL_WAIT_SEC       = 1.0
+TERMINATE_GRACE_SEC = 0.5
+FINAL_WAIT_SEC = 1.0
 TASKKILL_TIMEOUT_SEC = 2.0
 
 
@@ -91,7 +91,7 @@ async def terminate_process_tree(
     if process.returncode is not None:
         return None
 
-    grace_sec      = max(0.0, float(grace_sec))
+    grace_sec = max(0.0, float(grace_sec))
     final_wait_sec = max(0.0, float(final_wait_sec))
 
     await close_process_stdin(process, timeout_sec=grace_sec)
@@ -213,21 +213,21 @@ def _windows_descendant_process_ids(root_pid: int) -> list[int]:
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
         create_snapshot = kernel32.CreateToolhelp32Snapshot
-        process_first   = kernel32.Process32FirstW
-        process_next    = kernel32.Process32NextW
-        close_handle    = kernel32.CloseHandle
+        process_first = kernel32.Process32FirstW
+        process_next = kernel32.Process32NextW
+        close_handle = kernel32.CloseHandle
 
     except (AttributeError, OSError):
         return []
 
     create_snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
-    create_snapshot.restype  = wintypes.HANDLE
-    process_first.argtypes   = [wintypes.HANDLE, ctypes.POINTER(_ProcessEntry)]
-    process_first.restype    = wintypes.BOOL
-    process_next.argtypes    = [wintypes.HANDLE, ctypes.POINTER(_ProcessEntry)]
-    process_next.restype     = wintypes.BOOL
-    close_handle.argtypes    = [wintypes.HANDLE]
-    close_handle.restype     = wintypes.BOOL
+    create_snapshot.restype = wintypes.HANDLE
+    process_first.argtypes = [wintypes.HANDLE, ctypes.POINTER(_ProcessEntry)]
+    process_first.restype = wintypes.BOOL
+    process_next.argtypes = [wintypes.HANDLE, ctypes.POINTER(_ProcessEntry)]
+    process_next.restype = wintypes.BOOL
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
 
     snapshot = create_snapshot(0x00000002, 0)
     if snapshot == wintypes.HANDLE(-1).value:

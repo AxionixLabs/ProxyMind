@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import os
 import stat
 import sys
-import typing
-import asyncio
 from pathlib import Path
 
 from infrastructure.errors import AppError

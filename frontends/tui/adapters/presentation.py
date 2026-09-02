@@ -4,14 +4,9 @@
 import re
 import typing
 from functools import partial
-from agent.application.views.contracts import (
-    PresentationSink,
-    PresentationView,
-)
-from agent.ports.presentation import (
-    StyledBlock,
-    TextSpan,
-)
+
+from prompt_toolkit.utils import get_cwidth
+
 from agent.application.views import (
     ApprovalView,
     BatchCompletedView,
@@ -29,20 +24,27 @@ from agent.application.views import (
     RunIncompleteView,
     ToolStartView,
 )
-from frontends.terminal.renderers.dispatch import (
-    render_presentation_raw_view,
-    render_presentation_transcript_view,
-    render_presentation_view,
+from agent.application.views.contracts import (
+    PresentationSink,
+    PresentationView,
+)
+from agent.ports.presentation import (
+    StyledBlock,
+    TextSpan,
 )
 from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
 )
-from prompt_toolkit.utils import get_cwidth
+from frontends.terminal.renderers.dispatch import (
+    render_presentation_raw_view,
+    render_presentation_transcript_view,
+    render_presentation_view,
+)
 from ..core.document import TuiBlockKind
 from ..core.models import FragmentBlock
-from ..rendering.fragments import transcript_hint
 from ..core.styles import styled_fragment_block
+from ..rendering.fragments import transcript_hint
 
 if typing.TYPE_CHECKING:
     from .output import TuiOutputControl
@@ -109,11 +111,11 @@ def _with_transcript_hint(
             lambda match: (
                 match.group(1)
                 + transcript_hint(
-                    match.group(1),
-                    key_label,
-                    terminal_width,
-                    prefix="    ",
-                )
+                match.group(1),
+                key_label,
+                terminal_width,
+                prefix="    ",
+            )
             ),
             span.text,
         )
@@ -186,7 +188,7 @@ class TuiPresentationSink(PresentationSink):
 
     def __init__(self, output: "TuiOutputControl") -> None:
         self.output = output
-        self._stable_patch_call_ids: set[str]  = set()
+        self._stable_patch_call_ids: set[str] = set()
         self._pending_terminal_waits: dict[str, list[NativeToolResultView]] = {}
 
     @staticmethod

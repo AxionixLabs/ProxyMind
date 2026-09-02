@@ -3,18 +3,19 @@
 
 import sys
 import typing
+
 from agent.domain.policies import (
     PermissionSettings,
     permission_label,
     preset_permissions
 )
 from agent.ports.presentation import (
-    TextSpan,
-    TextStyle
-)
-from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
+)
+from agent.ports.presentation import (
+    TextSpan,
+    TextStyle
 )
 from metadata import const
 from ..core.models import (
@@ -99,6 +100,7 @@ def _permission_confirmation_menu(
     settings: PermissionSettings
 ) -> MenuRequest:
     """生成权限预设的二级确认菜单。"""
+
     def cancel_confirmation() -> None:
         """关闭当前确认面板并返回权限列表。"""
         runtime.cancel_menu()
@@ -195,7 +197,7 @@ async def choose_permissions_mode(
         )
 
     options: list[MenuOption] = []
-    selected_index: int       = 0
+    selected_index: int = 0
 
     for raw_value, label, detail in menu_options:
         value = _permission_menu_value(raw_value)

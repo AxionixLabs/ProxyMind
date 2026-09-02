@@ -5,11 +5,12 @@ import random
 import typing
 from dataclasses import dataclass
 from pathlib import Path
-from prompt_toolkit.auto_suggest import AutoSuggest
+
 from prompt_toolkit.application.current import (
     get_app,
     get_app_or_none,
 )
+from prompt_toolkit.auto_suggest import AutoSuggest
 from prompt_toolkit.buffer import CompletionState
 from prompt_toolkit.completion import (
     CompleteEvent,
@@ -25,8 +26,9 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.bindings.named_commands import get_by_name
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
-from infrastructure.skills import SkillSpec
+
 from frontends.terminal.text import sanitize_terminal_text
+from infrastructure.skills import SkillSpec
 from .interrupt import InterruptDisposition
 from .token_menu import (
     CommittedTokenQuery,
@@ -122,7 +124,7 @@ class TuiInputHistory(InMemoryHistory):
         super().__init__()
 
         self._entries: list[TuiInputHistoryEntry] = []
-        self._pending_auto_text: str | None       = None
+        self._pending_auto_text: str | None = None
 
     @staticmethod
     def _plain_entry(text: str) -> TuiInputHistoryEntry:
@@ -254,7 +256,7 @@ class TuiInputModel(object):
     PASTE_LINE_THRESHOLD: typing.Final[int] = 20
 
     def __init__(self, *, workspace_root: Path | str | None = None) -> None:
-        self.paste_store: dict[str, str]   = {}
+        self.paste_store: dict[str, str] = {}
         self.skills: tuple[SkillSpec, ...] = ()
         self.workspace_root: Path | None = (
             Path(workspace_root).expanduser().resolve()
@@ -490,7 +492,7 @@ class TuiInputModel(object):
     def _delete_current_line(buffer) -> bool:
         """删除光标所在逻辑行及其分隔换行。"""
         document = buffer.document
-        text     = document.text
+        text = document.text
 
         line_start = (
             document.cursor_position
@@ -536,7 +538,7 @@ class TuiInputModel(object):
         cursor = document.cursor_position
         start = cursor + completion.start_position
 
-        command  = (
+        command = (
             slash_command_query(document) is not None
             or document.text_before_cursor.lstrip().startswith("/")
         )
@@ -606,8 +608,8 @@ class TuiInputModel(object):
             return False
 
         remainder = document.text[1:]
-        command   = remainder.lstrip(" ")
-        removed   = 1 + len(remainder) - len(command)
+        command = remainder.lstrip(" ")
+        removed = 1 + len(remainder) - len(command)
 
         cursor = max(
             0,
@@ -713,14 +715,14 @@ class TuiInputModel(object):
         if committed is None or committed.document_text == text:
             return None
 
-        previous: str     = committed.document_text
-        prefix: int       = 0
+        previous: str = committed.document_text
+        prefix: int = 0
         prefix_limit: int = min(len(previous), len(text))
 
         while prefix < prefix_limit and previous[prefix] == text[prefix]:
             prefix += 1
 
-        suffix: int       = 0
+        suffix: int = 0
         suffix_limit: int = min(len(previous) - prefix, len(text) - prefix)
 
         while (
@@ -731,7 +733,7 @@ class TuiInputModel(object):
             suffix += 1
 
         previous_change_end = len(previous) - suffix
-        current_change_end  = len(text) - suffix
+        current_change_end = len(text) - suffix
 
         if previous_change_end <= committed.start:
             start = committed.start + current_change_end - previous_change_end
@@ -814,8 +816,8 @@ class TuiInputModel(object):
 
     def _reset_history_navigation(self) -> None:
         """重置输入历史导航状态。"""
-        self._history_entries              = ()
-        self._history_index                = None
+        self._history_entries = ()
+        self._history_index = None
         self._history_completion_dismissed = False
 
     def _start_history_navigation(self) -> None:
@@ -999,7 +1001,7 @@ class TuiInputModel(object):
         @bindings.add("backspace", eager=True, filter=edit_backspace)
         def _(event) -> None:
             buffer = event.app.current_buffer
-            state  = buffer.complete_state
+            state = buffer.complete_state
             previous_text = buffer.text
 
             selected_text = (
@@ -1252,9 +1254,9 @@ class TuiInputModel(object):
                     completion.text in SKILL_SIGILS
                     or completion.text[:1] in SKILL_SIGILS
                     or file_category(completion.display_meta_text) in {
-                        "File",
-                        "Dir",
-                    }
+                    "File",
+                    "Dir",
+                }
                     or completion.text in self.PARAMETERIZED_COMMANDS
                 ):
                     return
@@ -1399,7 +1401,7 @@ class TuiInputModel(object):
 
     def new_placeholder(self) -> str:
         """为新的输入轮次生成一次占位文案。"""
-        prompt  = random.choice(self.PLACEHOLDER_PROMPTS)
+        prompt = random.choice(self.PLACEHOLDER_PROMPTS)
         command = random.choice(self.PLACEHOLDER_COMMANDS)
 
         return f"{prompt}, {command}"
@@ -1463,8 +1465,8 @@ class TuiInputModel(object):
     def cycle_skill_search_mode(self, step: int) -> None:
         """循环切换 `@` popup 搜索模式并刷新布局。"""
         self._skill_search_mode_index = (
-            self._skill_search_mode_index + (1 if step >= 0 else -1)
-        ) % len(SKILL_SEARCH_MODES)
+                                            self._skill_search_mode_index + (1 if step >= 0 else -1)
+                                        ) % len(SKILL_SEARCH_MODES)
         app = get_app_or_none()
         if app is not None:
             buffer = app.current_buffer
@@ -1632,9 +1634,9 @@ class TuiInputModel(object):
         if (
             len(state.completions) == 1
             and not completion_changes_input(
-                state.original_document,
-                state.completions[0],
-            )
+            state.original_document,
+            state.completions[0],
+        )
         ):
             return None
 
@@ -1716,7 +1718,7 @@ class TuiInputModel(object):
         handler: typing.Callable[[], None]
     ) -> None:
         """绑定空输入状态下的直接退出判断和处理函数。"""
-        self.can_exit     = can_exit
+        self.can_exit = can_exit
         self.exit_handler = handler
 
     def bind_queue_rollback(
@@ -1725,7 +1727,7 @@ class TuiInputModel(object):
         handler: typing.Callable[[], bool]
     ) -> None:
         """绑定执行期待提交消息的可用状态和撤回处理。"""
-        self.can_rollback_queue     = can_rollback
+        self.can_rollback_queue = can_rollback
         self.rollback_queue_handler = handler
 
     def bind_queue_submission(
@@ -1734,7 +1736,7 @@ class TuiInputModel(object):
         handler: typing.Callable[[typing.Any], None]
     ) -> None:
         """绑定执行期使用 Tab 提交待处理消息的可用状态。"""
-        self.can_submit_queue         = can_submit
+        self.can_submit_queue = can_submit
         self.queue_submission_handler = handler
 
     def bind_history_backtrack(
@@ -1745,10 +1747,10 @@ class TuiInputModel(object):
         missing_handler: typing.Callable[[], None]
     ) -> None:
         """绑定空输入状态下的历史编辑入口。"""
-        self.can_backtrack_history        = can_backtrack
-        self.backtrack_history_handler    = handler
+        self.can_backtrack_history = can_backtrack
+        self.backtrack_history_handler = handler
         self.can_report_missing_backtrack = can_report_missing
-        self.missing_backtrack_handler    = missing_handler
+        self.missing_backtrack_handler = missing_handler
 
     def cancel_history_backtrack(self) -> None:
         """清除等待第二次 Esc 的历史编辑状态。"""

@@ -94,7 +94,7 @@ class UserShellExecution(object):
             item
             for item in snapshot.get("items", [])
             if isinstance(item, dict)
-            and item.get("origin") == "tui_shell"
+               and item.get("origin") == "tui_shell"
         ]
         background_items = [
             item for item in items if item.get("background")

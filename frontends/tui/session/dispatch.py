@@ -1,28 +1,35 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import re
-import enum
-import typing
 import asyncio
-from pathlib import Path
+import enum
+import re
+import typing
 from dataclasses import (
     dataclass,
     replace
 )
-from infrastructure.platform.file_assist import FileAssist
-from infrastructure.services.runtime_setup import service_runtime_asset_missing
+from pathlib import Path
+
 from agent.ports import ProtocolCommandClient
 from agent.ports.presentation import ApplicationView
-from agent.stores.sessions import INTERACTIVE_HISTORY_SOURCES
-from infrastructure.config.store import ConfigStoreError
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan
 )
+from agent.stores.sessions import INTERACTIVE_HISTORY_SOURCES
+from frontends.tui.contracts.resume import (
+    ResumeRow,
+    ResumeSessionStatus
+)
+from infrastructure.config.store import ConfigStoreError
+from infrastructure.platform.file_assist import FileAssist
+from infrastructure.services.runtime_setup import service_runtime_asset_missing
 from server import config_service_base_url
-from ..core.models import FragmentBlock
+from .barriers import TuiForegroundTasks
+from .state import TuiSessionState
 from ..core.interrupt import InterruptDisposition
+from ..core.models import FragmentBlock
 from ..core.runtime import TuiRuntime
 from ..core.styles import (
     BODY_STYLE,
@@ -33,12 +40,8 @@ from ..core.styles import (
     fragment_block,
     text_block
 )
-from frontends.tui.contracts.resume import (
-    ResumeRow,
-    ResumeSessionStatus
-)
-from ..features.context import ignored_tui_input
 from ..features.agents import manage_agents
+from ..features.context import ignored_tui_input
 from ..features.conversation import (
     ConversationCompactor,
     ForkLiveStatus,
@@ -122,8 +125,6 @@ from ..prompting.commands import (
     slash_command_notice_message,
     stream_command_policy
 )
-from .barriers import TuiForegroundTasks
-from .state import TuiSessionState
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
@@ -197,15 +198,15 @@ class TuiCommandDispatcher(object):
         protocol_client: ProtocolCommandClient,
         conversation_compactor: ConversationCompactor | None = None,
     ) -> None:
-        self.mind    = mind
+        self.mind = mind
         self.runtime = runtime
-        self.state   = state
+        self.state = state
 
         self.foreground_tasks = foreground_tasks
         self.protocol_client = protocol_client
         self.conversation_compactor = conversation_compactor
-        self.application      = mind.frontend.application
-        self.mailbox          = TuiMailboxFeature(runtime, mind)
+        self.application = mind.frontend.application
+        self.mailbox = TuiMailboxFeature(runtime, mind)
 
         self._local_tasks: dict[str, asyncio.Task[None]] = {}
         self._stream_action_resolvers = self._build_stream_action_resolvers()
@@ -339,7 +340,7 @@ class TuiCommandDispatcher(object):
             self._validate_stream_action_policies()
             return None
 
-        missing    = ", ".join(sorted(declared - registered)) or "none"
+        missing = ", ".join(sorted(declared - registered)) or "none"
         unexpected = ", ".join(sorted(registered - declared)) or "none"
         raise RuntimeError(
             "Invalid stream action registry: "
@@ -480,8 +481,8 @@ class TuiCommandDispatcher(object):
     ) -> bool:
         """分派模型流式期间可执行的本地命令。"""
         normalized = str(value or "").strip().casefold()
-        policy     = stream_command_policy(normalized)
-        command    = resolve_tui_command(normalized)
+        policy = stream_command_policy(normalized)
+        command = resolve_tui_command(normalized)
 
         if policy in {None, "reject"} or command is None:
             return False

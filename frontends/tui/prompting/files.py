@@ -3,26 +3,28 @@
 
 import os
 import shutil
-import typing
-import threading
 import subprocess
+import threading
+import typing
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from observability import observe_exception
+
 from prompt_toolkit.completion import Completion
+
+from observability import observe_exception
 from .skills import skill_query_token
 
 FILE_SEARCH_RESULT_LIMIT = 20
-FILE_SEARCH_BATCH_SIZE   = 256
+FILE_SEARCH_BATCH_SIZE = 256
 
 _CHAR_WHITESPACE = 0
-_CHAR_NON_WORD   = 1
-_CHAR_DELIMITER  = 2
-_CHAR_LOWER      = 3
-_CHAR_UPPER      = 4
-_CHAR_LETTER     = 5
-_CHAR_NUMBER     = 6
+_CHAR_NON_WORD = 1
+_CHAR_DELIMITER = 2
+_CHAR_LOWER = 3
+_CHAR_UPPER = 4
+_CHAR_LETTER = 5
+_CHAR_NUMBER = 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,16 +57,16 @@ class _FileSearchSession(object):
     ) -> None:
         self.root = root
 
-        self._report         = report
+        self._report = report
         self._report_failure = report_failure
-        self._condition      = threading.Condition()
+        self._condition = threading.Condition()
 
         self._entries: dict[str, bool] = {}
 
-        self._query: str     = ""
+        self._query: str = ""
         self._query_revision = 0
         self._entry_revision = 0
-        self._stopped: bool  = False
+        self._stopped: bool = False
 
         self._process: subprocess.Popen[bytes] | None = None
 
@@ -288,7 +290,7 @@ class _FileSearchSession(object):
             relative: True
             for value in paths
             if (relative := _normalize_relative_path(value))
-            and not _contains_git_metadata(relative)
+               and not _contains_git_metadata(relative)
         }
         if not additions:
             return

@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import sys
-import shutil
-import typing
 import asyncio
 import contextlib
+import shutil
+import sys
+import typing
+
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.data_structures import (
@@ -49,42 +50,43 @@ from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.base import Output
 from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.widgets import TextArea
+
 from frontends.interaction.contracts import PromptContext
-from frontends.terminal.text import sanitize_terminal_text
 from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
 )
+from frontends.terminal.text import sanitize_terminal_text
+from frontends.tui.contracts.pager import StaticPagerRequest
 from frontends.tui.contracts.resume import (
     ResumePickerRequest,
     ResumePickerResult,
     ResumePreview,
     ResumeRow,
 )
-from frontends.tui.contracts.transcript import MailboxEntry
-from frontends.tui.contracts.pager import StaticPagerRequest
 from frontends.tui.contracts.screen import (
     MailboxScreenPort,
     ResumePickerScreenPort,
 )
+from frontends.tui.contracts.transcript import MailboxEntry
 from .approval import TuiApproval
 from .approval_render import TUI_APPROVAL_STYLE
 from .bottom_pane import (
     BottomSurface,
     TuiBottomPane,
 )
+from .directory_trust import TuiDirectoryTrust
 from .document import (
     TranscriptBlock,
     TuiDocument
 )
-from .directory_trust import TuiDirectoryTrust
-from .input import (
-    INPUT_BUFFER_NAME,
-    TuiInputModel
-)
 from .hyperlinks import (
     TerminalHyperlinkOutput,
     TerminalHyperlinkWindow
+)
+from .input import (
+    INPUT_BUFFER_NAME,
+    TuiInputModel
 )
 from .interrupt import TuiInterruptState
 from .keymap import (
@@ -109,21 +111,12 @@ from .models import (
     TranscriptExportResult,
 )
 from .process_status import TuiProcessStatus
-from .resume_picker import TuiResumePicker
 from .queued import (
     TuiPendingSteers,
     TuiQueuedMessages,
 )
-from ..rendering.fragments import (
-    clip_fragments,
-    cursor_point,
-    cursor_point_for_display_row,
-    display_line_count,
-    fragment_continuation_widths,
-    fragments_text,
-    join_formatted_lines,
-    split_formatted_lines,
-)
+from .resume_picker import TuiResumePicker
+from .static_pager import TuiStaticPager
 from .styles import (
     ASSISTANT_PREFIX_CLASS,
     QUERY_PREFIX_WIDTH,
@@ -137,12 +130,21 @@ from .token_menu import (
     token_menu_display_height,
 )
 from .transcript_overlay import TuiTranscriptOverlay
-from .static_pager import TuiStaticPager
 from ..prompting.commands import (
     completion_changes_input,
     slash_command_query,
 )
 from ..prompting.skills import skill_query_token
+from ..rendering.fragments import (
+    clip_fragments,
+    cursor_point,
+    cursor_point_for_display_row,
+    display_line_count,
+    fragment_continuation_widths,
+    fragments_text,
+    join_formatted_lines,
+    split_formatted_lines,
+)
 from ..rendering.screen.geometry import (
     ActiveViewLayout,
     BottomPaneLayout,
@@ -192,14 +194,14 @@ from ..rendering.screen.terminal import (
 class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     """持有单一 Application、视觉组件和布局尺寸策略。"""
 
-    INPUT_TEXT_LEFT_MARGIN: typing.Final[int]        = QUERY_PREFIX_WIDTH
-    INPUT_TEXT_RIGHT_MARGIN: typing.Final[int]       = QUERY_RIGHT_MARGIN_WIDTH
-    QUEUED_MAX_HEIGHT: typing.Final[int]             = 6
-    COMPLETION_MAX_HEIGHT: typing.Final[int]         = 8
-    COMPLETION_HINT_HEIGHT: typing.Final[int]        = 2
-    COMPLETION_COLUMN_MIN_WIDTH: typing.Final[int]   = 7
-    CONTENT_SURFACE_GAP_HEIGHT: typing.Final[int]    = 1
-    INPUT_SURFACE_PADDING_HEIGHT: typing.Final[int]  = 1
+    INPUT_TEXT_LEFT_MARGIN: typing.Final[int] = QUERY_PREFIX_WIDTH
+    INPUT_TEXT_RIGHT_MARGIN: typing.Final[int] = QUERY_RIGHT_MARGIN_WIDTH
+    QUEUED_MAX_HEIGHT: typing.Final[int] = 6
+    COMPLETION_MAX_HEIGHT: typing.Final[int] = 8
+    COMPLETION_HINT_HEIGHT: typing.Final[int] = 2
+    COMPLETION_COLUMN_MIN_WIDTH: typing.Final[int] = 7
+    CONTENT_SURFACE_GAP_HEIGHT: typing.Final[int] = 1
+    INPUT_SURFACE_PADDING_HEIGHT: typing.Final[int] = 1
     ESCAPE_SEQUENCE_TIMEOUT_SEC: typing.Final[float] = 0.1
 
     def __init__(
@@ -234,9 +236,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         ],
         report_missing_transcript_backtrack: typing.Callable[[], None],
         export_transcript: typing.Callable[
-            [typing.Iterable[TranscriptBlock], TranscriptExportFormat],
-            TranscriptExportResult,
-        ] | None,
+                               [typing.Iterable[TranscriptBlock], TranscriptExportFormat],
+                               TranscriptExportResult,
+                           ] | None,
         observe_terminal_geometry: typing.Callable[[int, int], None],
         observe_render_revision: typing.Callable[[int], None],
         keymap: TuiRuntimeKeymap,
@@ -247,9 +249,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         ),
         open_static_pager: typing.Callable[[StaticPagerRequest], bool] | None = None,
     ) -> None:
-        self.input_model     = input_model
-        self.document        = document
-        self.pending_steers  = pending_steers
+        self.input_model = input_model
+        self.document = document
+        self.pending_steers = pending_steers
         self.queued_messages = queued_messages
         self.interrupt_state = interrupt_state
 
@@ -257,24 +259,24 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             terminal_capabilities
         )
 
-        self._get_context                    = get_context
-        self._get_placeholder_text           = get_placeholder_text
-        self._get_submission_deferred        = get_submission_deferred
-        self._get_queued_submission_text     = get_queued_submission_text
+        self._get_context = get_context
+        self._get_placeholder_text = get_placeholder_text
+        self._get_submission_deferred = get_submission_deferred
+        self._get_queued_submission_text = get_queued_submission_text
         self._get_surface_submission_pending = get_surface_submission_pending
-        self._get_transcript_view_row        = get_transcript_view_row
+        self._get_transcript_view_row = get_transcript_view_row
 
-        self._can_transcript_backtrack     = can_transcript_backtrack
-        self._clear_exit_confirmation      = clear_exit_confirmation
-        self._clear_visible_transcript     = clear_visible_transcript
-        self._scroll_transcript_page       = scroll_transcript_page
-        self._toggle_transcript_overlay    = toggle_transcript_overlay
-        self._close_mailbox_overlay        = close_mailbox_overlay
-        self._close_static_pager           = close_static_pager
-        self._open_static_pager            = open_static_pager
-        self._request_resume_preview       = request_resume_preview
-        self._request_resume_transcript    = request_resume_transcript
-        self._cancel_resume_preview        = cancel_resume_preview
+        self._can_transcript_backtrack = can_transcript_backtrack
+        self._clear_exit_confirmation = clear_exit_confirmation
+        self._clear_visible_transcript = clear_visible_transcript
+        self._scroll_transcript_page = scroll_transcript_page
+        self._toggle_transcript_overlay = toggle_transcript_overlay
+        self._close_mailbox_overlay = close_mailbox_overlay
+        self._close_static_pager = close_static_pager
+        self._open_static_pager = open_static_pager
+        self._request_resume_preview = request_resume_preview
+        self._request_resume_transcript = request_resume_transcript
+        self._cancel_resume_preview = cancel_resume_preview
         self._request_transcript_backtrack = request_transcript_backtrack
 
         self._report_missing_transcript_backtrack = (
@@ -284,40 +286,40 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._export_transcript = export_transcript
 
         self._observe_terminal_geometry = observe_terminal_geometry
-        self._observe_render_revision   = observe_render_revision
+        self._observe_render_revision = observe_render_revision
 
         self.keymap: TuiRuntimeKeymap = keymap
 
         self._validate_keymap(keymap)
 
-        self._startup_gate_active: bool     = False
+        self._startup_gate_active: bool = False
         self._startup_surface_cleared: bool = False
 
         self._clear_for_viewport_change_pending: bool = False
 
-        self._visual_update_depth: int  = 0
+        self._visual_update_depth: int = 0
         self._visual_update_dirty: bool = False
 
-        self._synchronized_output_depth: int   = 0
+        self._synchronized_output_depth: int = 0
         self._synchronized_frame_pending: bool = False
-        self._synchronized_frame_active: bool  = False
+        self._synchronized_frame_active: bool = False
 
         self._frame_geometry: FrameGeometry | None = None
-        self._frame_output_size: Size | None       = None
+        self._frame_output_size: Size | None = None
 
         self._rendered_output_size: Size | None = None
 
         self._bottom_pane_frame_layout: BottomPaneLayout | None = None
 
-        self._transcript_only: bool                                 = False
-        self._transcript_cache_key: tuple[int, int, int] | None     = None
-        self._transcript_cache_fragments: FormattedText             = []
-        self._transcript_assistant_lines: frozenset[int]            = frozenset()
-        self._transcript_text_key: tuple[int, int, int] | None      = None
-        self._transcript_metrics_key: tuple[int, int, int] | None   = None
+        self._transcript_only: bool = False
+        self._transcript_cache_key: tuple[int, int, int] | None = None
+        self._transcript_cache_fragments: FormattedText = []
+        self._transcript_assistant_lines: frozenset[int] = frozenset()
+        self._transcript_text_key: tuple[int, int, int] | None = None
+        self._transcript_metrics_key: tuple[int, int, int] | None = None
         self._transcript_cache_continuation_widths: tuple[int, ...] = ()
-        self._transcript_cache_text: str                            = ""
-        self._transcript_cache_display_rows: int                    = 0
+        self._transcript_cache_text: str = ""
+        self._transcript_cache_display_rows: int = 0
 
         self.activity_block: FragmentBlock | None = None
 
@@ -354,7 +356,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                     AfterInput(self._placeholder_fragments),
                     filter=Condition(
                         lambda: not self.input.buffer.text
-                        and not self.input_model.shell_mode
+                                and not self.input_model.shell_mode
                     ),
                 )
             ],
@@ -1135,7 +1137,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             and not (sys.stdin.isatty() and sys.stdout.isatty())
         )
 
-        application_input  = input_obj or (DummyInput() if dummy_io else None)
+        application_input = input_obj or (DummyInput() if dummy_io else None)
         application_output = output_obj or (DummyOutput() if dummy_io else None)
 
         self.application: Application[None] = Application(
@@ -1214,11 +1216,11 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         """返回属于助手正文块的全部逻辑行索引。"""
         assistant_lines: set[int] = set()
 
-        line_number: int    = 0
+        line_number: int = 0
         at_line_start: bool = True
 
         for style, text in fragments:
-            parts      = text.split("\n")
+            parts = text.split("\n")
             last_index = len(parts) - 1
 
             for index, part in enumerate(parts):
@@ -1483,8 +1485,8 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             or self.mailbox_overlay.active
             or self.resume_picker.active
             or self._full_screen_overlay_blocked(
-                allow_approval=allow_approval,
-            )
+            allow_approval=allow_approval,
+        )
         ):
             return False
         if active and request is None:
@@ -1638,7 +1640,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     def reset_synchronized_output(self) -> None:
         """释放尚未结束的终端同步输出状态。"""
         self._synchronized_frame_pending = False
-        self._synchronized_frame_active  = False
+        self._synchronized_frame_active = False
 
         if self._synchronized_output_depth <= 0:
             return None
@@ -1707,7 +1709,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     def _transcript_text(self) -> str:
         """返回当前正文版本可复用的纯文本。"""
         fragments = self.transcript_fragments()
-        key       = self._transcript_cache_key
+        key = self._transcript_cache_key
 
         if key != self._transcript_text_key:
             self._transcript_text_key = key
@@ -1720,7 +1722,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     ) -> tuple[tuple[int, ...], int]:
         """返回当前正文版本可复用的续行宽度与显示行数。"""
         fragments = self.transcript_fragments()
-        key       = self._transcript_cache_key
+        key = self._transcript_cache_key
 
         if key != self._transcript_metrics_key:
             text = self._transcript_text()
@@ -1800,7 +1802,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._rendered_output_size = self._frame_output_size
 
         self._frame_output_size = None
-        self._frame_geometry    = None
+        self._frame_geometry = None
 
         self._bottom_pane_frame_layout = None
 
@@ -1835,9 +1837,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         ):
             return height
 
-        renderer        = application.renderer
+        renderer = application.renderer
         previous_screen = renderer.last_rendered_screen
-        output_size     = Size(rows=height, columns=width)
+        output_size = Size(rows=height, columns=width)
 
         if (
             previous_screen is None
@@ -1876,8 +1878,8 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             min_available_height=renderer._min_available_height,
         )
 
-        self.application.full_screen  = True
-        renderer.full_screen          = True
+        self.application.full_screen = True
+        renderer.full_screen = True
         renderer._in_alternate_screen = True
 
         renderer.output.enter_alternate_screen()
@@ -1888,9 +1890,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
         renderer._cursor_pos = Point(x=0, y=0)
 
-        renderer._last_screen       = None
-        renderer._last_size         = None
-        renderer._last_style        = None
+        renderer._last_screen = None
+        renderer._last_size = None
+        renderer._last_style = None
         renderer._last_cursor_shape = None
 
         renderer._min_available_height = terminal_height
@@ -1898,7 +1900,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     def _leave_full_screen_overlay(self) -> None:
         """退出全屏覆盖画面并恢复 inline 渲染状态。"""
         renderer = self.application.renderer
-        state    = self._inline_renderer_state
+        state = self._inline_renderer_state
 
         try:
             if renderer._in_alternate_screen:
@@ -1910,15 +1912,15 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
         finally:
             renderer._in_alternate_screen = False
-            self.application.full_screen  = False
-            renderer.full_screen          = False
+            self.application.full_screen = False
+            renderer.full_screen = False
 
             if state is not None:
-                renderer._cursor_pos           = state.cursor_pos
-                renderer._last_screen          = state.last_screen
-                renderer._last_size            = state.last_size
-                renderer._last_style           = state.last_style
-                renderer._last_cursor_shape    = state.last_cursor_shape
+                renderer._cursor_pos = state.cursor_pos
+                renderer._last_screen = state.last_screen
+                renderer._last_size = state.last_size
+                renderer._last_style = state.last_style
+                renderer._last_cursor_shape = state.last_cursor_shape
                 renderer._min_available_height = state.min_available_height
 
             self._inline_renderer_state = None
@@ -2087,7 +2089,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         )
 
         activity_fragments = list(block.fragments)
-        inline_fragments   = self.process_status.inline_fragments()
+        inline_fragments = self.process_status.inline_fragments()
 
         if not block.preserve_newlines:
             return clip_fragments(
@@ -2135,8 +2137,8 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     def _queued_fragments(self, *, width: int | None = None) -> FormattedText:
         """生成动画区域下方的待提交消息。"""
         pending_active = self.pending_steers.active
-        queued_active  = self.queued_messages.active
-        render_width   = self.terminal_width if width is None else max(1, width)
+        queued_active = self.queued_messages.active
+        render_width = self.terminal_width if width is None else max(1, width)
 
         pending_rows, queued_rows = queued_row_budget(
             pending_active=pending_active,
@@ -2200,7 +2202,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _transcript_cursor(self) -> Point:
         """让会话内容视口跟随最新输出。"""
-        text     = self._transcript_text()
+        text = self._transcript_text()
         view_row = self._get_transcript_view_row()
 
         if view_row is None:
@@ -2218,7 +2220,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _transcript_key_bindings(self) -> KeyBindings:
         """创建正文视口翻页按键。"""
-        bindings     = KeyBindings()
+        bindings = KeyBindings()
         input_active = has_focus(INPUT_BUFFER_NAME)
 
         overlay_available = Condition(
@@ -2262,7 +2264,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     def _transcript_overlay_key_bindings(self) -> KeyBindings:
         """创建完整会话记录的模态按键。"""
         bindings = KeyBindings()
-        pager    = self.keymap.pager
+        pager = self.keymap.pager
 
         search_editing = Condition(
             lambda: self.transcript_overlay.search_editing
@@ -2314,6 +2316,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def begin_search(event) -> None:
             _ = event
             self.transcript_overlay.begin_search()
+
         self._add_configured_bindings(
             bindings,
             pager.search,
@@ -2324,6 +2327,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def search_next(event) -> None:
             _ = event
             self.transcript_overlay.step_search(1)
+
         self._add_configured_bindings(
             bindings,
             pager.search_next,
@@ -2334,6 +2338,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def search_previous(event) -> None:
             _ = event
             self.transcript_overlay.step_search(-1)
+
         self._add_configured_bindings(
             bindings,
             pager.search_previous,
@@ -2397,6 +2402,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def close(event) -> None:
             _ = event
             self._toggle_transcript_overlay()
+
         self._add_configured_bindings(
             bindings,
             (*pager.close, *pager.close_transcript),
@@ -2407,6 +2413,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def scroll_up(event) -> None:
             _ = event
             self.transcript_overlay.scroll_line(-1)
+
         self._add_configured_bindings(
             bindings,
             pager.scroll_up,
@@ -2417,6 +2424,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def scroll_down(event) -> None:
             _ = event
             self.transcript_overlay.scroll_line(1)
+
         self._add_configured_bindings(
             bindings,
             pager.scroll_down,
@@ -2427,6 +2435,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def page_up(event) -> None:
             _ = event
             self.transcript_overlay.scroll_page(-1)
+
         self._add_configured_bindings(
             bindings,
             pager.page_up,
@@ -2437,6 +2446,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def page_down(event) -> None:
             _ = event
             self.transcript_overlay.scroll_page(1)
+
         self._add_configured_bindings(
             bindings,
             pager.page_down,
@@ -2447,6 +2457,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def half_page_up(event) -> None:
             _ = event
             self.transcript_overlay.scroll_half_page(-1)
+
         self._add_configured_bindings(
             bindings,
             pager.half_page_up,
@@ -2457,6 +2468,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def half_page_down(event) -> None:
             _ = event
             self.transcript_overlay.scroll_half_page(1)
+
         self._add_configured_bindings(
             bindings,
             pager.half_page_down,
@@ -2467,6 +2479,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def jump_top(event) -> None:
             _ = event
             self.transcript_overlay.jump_top()
+
         self._add_configured_bindings(
             bindings,
             pager.jump_top,
@@ -2477,6 +2490,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def jump_bottom(event) -> None:
             _ = event
             self.transcript_overlay.jump_bottom()
+
         self._add_configured_bindings(
             bindings,
             pager.jump_bottom,
@@ -2519,6 +2533,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def close(event) -> None:
             _ = event
             self._close_mailbox_overlay()
+
         self._add_configured_bindings(
             bindings,
             pager.close,
@@ -2528,6 +2543,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def scroll_up(event) -> None:
             _ = event
             self.mailbox_overlay.scroll_lines(-1)
+
         self._add_configured_bindings(
             bindings,
             pager.scroll_up,
@@ -2537,6 +2553,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def scroll_down(event) -> None:
             _ = event
             self.mailbox_overlay.scroll_lines(1)
+
         self._add_configured_bindings(
             bindings,
             pager.scroll_down,
@@ -2546,6 +2563,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def page_up(event) -> None:
             _ = event
             self.mailbox_overlay.scroll_page(-1)
+
         self._add_configured_bindings(
             bindings,
             pager.page_up,
@@ -2555,6 +2573,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def page_down(event) -> None:
             _ = event
             self.mailbox_overlay.scroll_page(1)
+
         self._add_configured_bindings(
             bindings,
             pager.page_down,
@@ -2564,6 +2583,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def jump_top(event) -> None:
             _ = event
             self.mailbox_overlay.jump_message(to_end=False)
+
         self._add_configured_bindings(
             bindings,
             pager.jump_top,
@@ -2573,6 +2593,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def jump_bottom(event) -> None:
             _ = event
             self.mailbox_overlay.jump_message(to_end=True)
+
         self._add_configured_bindings(
             bindings,
             pager.jump_bottom,
@@ -2589,31 +2610,37 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def close(event) -> None:
             _ = event
             self._close_static_pager()
+
         self._add_configured_bindings(bindings, pager.close, close)
 
         def scroll_up(event) -> None:
             _ = event
             self.static_pager.scroll_lines(-1)
+
         self._add_configured_bindings(bindings, pager.scroll_up, scroll_up)
 
         def scroll_down(event) -> None:
             _ = event
             self.static_pager.scroll_lines(1)
+
         self._add_configured_bindings(bindings, pager.scroll_down, scroll_down)
 
         def page_up(event) -> None:
             _ = event
             self.static_pager.scroll_page(-1)
+
         self._add_configured_bindings(bindings, pager.page_up, page_up)
 
         def page_down(event) -> None:
             _ = event
             self.static_pager.scroll_page(1)
+
         self._add_configured_bindings(bindings, pager.page_down, page_down)
 
         def half_page_up(event) -> None:
             _ = event
             self.static_pager.scroll_half_page(-1)
+
         self._add_configured_bindings(
             bindings,
             pager.half_page_up,
@@ -2623,6 +2650,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def half_page_down(event) -> None:
             _ = event
             self.static_pager.scroll_half_page(1)
+
         self._add_configured_bindings(
             bindings,
             pager.half_page_down,
@@ -2632,11 +2660,13 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         def jump_top(event) -> None:
             _ = event
             self.static_pager.jump(to_end=False)
+
         self._add_configured_bindings(bindings, pager.jump_top, jump_top)
 
         def jump_bottom(event) -> None:
             _ = event
             self.static_pager.jump(to_end=True)
+
         self._add_configured_bindings(bindings, pager.jump_bottom, jump_bottom)
 
         return bindings
@@ -2758,10 +2788,10 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             marker = "■ " if self.transcript_overlay.export_failed else ""
             return [(style, f" {marker}{self.transcript_overlay.export_status}")]
 
-        pager         = self.keymap.pager
-        raw_label     = primary_binding_label(pager.toggle_raw)
-        search_label  = primary_binding_label(pager.search)
-        export_label  = primary_binding_label(pager.export)
+        pager = self.keymap.pager
+        raw_label = primary_binding_label(pager.toggle_raw)
+        search_label = primary_binding_label(pager.search)
+        export_label = primary_binding_label(pager.export)
         search_status = ""
 
         if self.transcript_overlay.search_query:
@@ -3199,7 +3229,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     def _completion_hint_visible(self) -> bool:
         """判断 skill 补全是否应显示底部提示行。"""
         document = self.input.buffer.document
-        query    = skill_query_token(document.text_before_cursor)
+        query = skill_query_token(document.text_before_cursor)
 
         mention_popup = bool(
             query
@@ -3253,7 +3283,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _completion_fallback_fragments(self) -> PromptFormattedText:
         """返回精确命令或空结果状态使用的展示片段。"""
-        document    = self.input.buffer.document
+        document = self.input.buffer.document
         completions = self.input_model.completion_menu_completions(document)
 
         if completions is None:
@@ -3335,7 +3365,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 max(1, min(self.terminal_width, menu_width)),
             )
 
-        state        = self.input.buffer.complete_state
+        state = self.input.buffer.complete_state
         loaded_count = len(state.completions) if state is not None else 0
 
         return max(loaded_count, self._expected_completion_count())
@@ -3384,9 +3414,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _input_auxiliary_height(self, *, width: int | None = None) -> int:
         """返回输入区之外仍需固定展示的辅助区域高度。"""
-        status_height         = self._status_natural_height(width=width)
+        status_height = self._status_natural_height(width=width)
         process_status_height = self._process_status_natural_height()
-        queued_height         = self._queued_natural_height(width=width)
+        queued_height = self._queued_natural_height(width=width)
 
         interaction_gap_height = int(
             not queued_height
@@ -3457,9 +3487,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         """按当前 view 同步菜单窗口和上下留白的背景样式。"""
         style = self._menu_surface_style()
         for window in (
-            self.menu_window,
-            self.menu_top_padding,
-            self.menu_bottom_padding,
+                self.menu_window,
+                self.menu_top_padding,
+                self.menu_bottom_padding,
         ):
             if window.style != style:
                 window.style = style
@@ -3613,7 +3643,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     ) -> ActiveViewLayout:
         """在给定底部面板预算内计算临时交互表面高度。"""
         if surface == "approval":
-            card_text   = fragments_text(self.approval.fragments())
+            card_text = fragments_text(self.approval.fragments())
             footer_text = fragments_text(self.approval.footer_fragments())
             natural_card_height = (
                 display_line_count(card_text, width=self.terminal_width)

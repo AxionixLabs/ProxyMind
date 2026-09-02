@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from prompt_toolkit.cursor_shapes import CursorShape
 from prompt_toolkit.data_structures import Size
 from prompt_toolkit.layout.containers import Window
@@ -14,6 +15,7 @@ from prompt_toolkit.output import (
     Output
 )
 from prompt_toolkit.styles import Attrs
+
 from frontends.terminal.text import sanitize_terminal_hyperlink
 from .models import FormattedText
 

@@ -102,4 +102,5 @@ class ServerManageHelixCapability:
             ) from error
         self._state = "closed"
 
+
 __all__ = ("ServerManageHelixCapability",)

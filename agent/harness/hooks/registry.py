@@ -2,9 +2,18 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from pathlib import Path
 from dataclasses import dataclass
-from observability import observe
+from pathlib import Path
+
+from agent.application.hooks.catalog import (
+    HookCatalogEntry,
+    HookCatalogSnapshot,
+    HookEventSummary
+)
+from agent.application.hooks.models import (
+    HookRuntimeEntry,
+    HookRuntimeStatus
+)
 from agent.domain.hook_trust import (
     HookTrustState,
     hook_needs_review,
@@ -16,15 +25,6 @@ from agent.domain.hooks import (
     HookDefinitionConfig,
     HookStateTable
 )
-from agent.application.hooks.catalog import (
-    HookCatalogEntry,
-    HookCatalogSnapshot,
-    HookEventSummary
-)
-from agent.application.hooks.models import (
-    HookRuntimeEntry,
-    HookRuntimeStatus
-)
 from agent.ports import (
     HookCommandResult,
     HookCommandRunner,
@@ -34,6 +34,7 @@ from agent.ports import (
     HookStatusPort,
     HookSessionCleanup,
 )
+from observability import observe
 from .runtime import (
     HookRuntime,
 )
@@ -232,7 +233,7 @@ class HookRegistry:
         status_port: HookStatusPort | None = None
     ) -> HookDispatcherPort:
         """按当前信任状态构建一个独立运行时。"""
-        resolved      = self._resolve(definitions, hook_states or {})
+        resolved = self._resolve(definitions, hook_states or {})
         warning_items = list(warnings)
 
         warning_items.extend(
@@ -278,7 +279,7 @@ class HookRegistry:
         workspace: Path
     ) -> HookCatalogSnapshot:
         """返回指定工作区的 Hook 管理快照。"""
-        resolved      = self._resolve(definitions, hook_states or {})
+        resolved = self._resolve(definitions, hook_states or {})
         warning_items = tuple(warnings)
 
         self._observe_warnings(warning_items)

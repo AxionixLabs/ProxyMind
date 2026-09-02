@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from .view import (
     BottomPaneView,
     BottomPaneViewStack,

@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from collections.abc import (
     Iterator,
     Sequence
 )
 from dataclasses import dataclass
+
 from frontends.tui.contracts.text import FragmentBlock
 from ..core.activity import ActivityLease
 

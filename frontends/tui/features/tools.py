@@ -3,30 +3,32 @@
 
 import typing
 from collections import defaultdict
+
 from prompt_toolkit.utils import get_cwidth
-from metadata import const
+
+from agent.ports import McpSessionPort
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )
-from agent.ports import McpSessionPort
 from agent.ports.presentation import (
     TextSpan,
     TextStyle
 )
+from metadata import const
 from ..core.styles import (
     FAILURE_STYLE,
     fragment_block
 )
 
-GROUP_DISPLAY_LIMIT    = 64
+GROUP_DISPLAY_LIMIT = 64
 DEFAULT_TERMINAL_WIDTH = 120
-TOOLS_COMMAND_STYLE    = TextStyle(foreground="ansimagenta")
-TOOLS_HEADING_STYLE    = TextStyle(bold=True)
-TOOLS_SECONDARY_STYLE  = TextStyle(dim=True)
-TOOLS_TEXT_STYLE       = TextStyle()
-TOOLS_EMPTY_STYLE      = TextStyle(italic=True)
-BUILTIN_TOOL_LABEL     = f"{const.APP_DESC} Native"
+TOOLS_COMMAND_STYLE = TextStyle(foreground="ansimagenta")
+TOOLS_HEADING_STYLE = TextStyle(bold=True)
+TOOLS_SECONDARY_STYLE = TextStyle(dim=True)
+TOOLS_TEXT_STYLE = TextStyle()
+TOOLS_EMPTY_STYLE = TextStyle(italic=True)
+BUILTIN_TOOL_LABEL = f"{const.APP_DESC} Native"
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
@@ -52,16 +54,16 @@ def _tool_name_lines(
     if not visible_names:
         return ["    • Tools: (none)"]
 
-    first_prefix: str        = "    • Tools: "
+    first_prefix: str = "    • Tools: "
     continuation_prefix: str = "      "
-    lines: list[str]         = []
-    current_prefix: str      = first_prefix
+    lines: list[str] = []
+    current_prefix: str = first_prefix
     current_names: list[str] = []
 
     for index, name in enumerate(visible_names):
 
-        suffix    = "," if index < len(visible_names) - 1 else ""
-        token     = f"{name}{suffix}"
+        suffix = "," if index < len(visible_names) - 1 else ""
+        token = f"{name}{suffix}"
         candidate = f"{current_prefix}{' '.join(current_names + [token])}"
 
         if current_names and get_cwidth(candidate) > terminal_width:
@@ -117,10 +119,10 @@ def summarize_tool_groups(
 
         meta = tool.get("meta") if isinstance(tool.get("meta"), dict) else {}
         if bool(meta.get("external")):
-            label     = str(meta.get("server") or "external").strip() or "external"
+            label = str(meta.get("server") or "external").strip() or "external"
             transport = str(meta.get("transport") or "external").strip() or "external"
-            auth      = str(meta.get("auth") or "Unsupported").strip() or "Unsupported"
-            key       = ("external", label, transport)
+            auth = str(meta.get("auth") or "Unsupported").strip() or "Unsupported"
+            key = ("external", label, transport)
 
             auth_by_group.setdefault(key, auth)
 
@@ -165,7 +167,7 @@ def render_tools_summary(
 ) -> None:
     """打印当前会话可见工具摘要。"""
     groups = summarize_tool_groups(tools)
-    width  = _terminal_width(terminal_width)
+    width = _terminal_width(terminal_width)
 
     parts = [
         TextSpan("/tools", TOOLS_COMMAND_STYLE),
@@ -184,10 +186,10 @@ def render_tools_summary(
             if index:
                 parts.append(TextSpan("\n\n", TOOLS_TEXT_STYLE))
 
-            names  = group["tools"]
-            label  = group["label"]
+            names = group["tools"]
+            label = group["label"]
             detail = group["detail"]
-            auth   = group["auth"]
+            auth = group["auth"]
 
             parts.extend([
                 TextSpan("  • ", TOOLS_TEXT_STYLE),
@@ -222,6 +224,7 @@ async def print_available_tools(
     pref_config: dict[str, typing.Any]
 ) -> None:
     """建立一次 MCP 会话并打印当前模式可见工具。"""
+
     async def render_tools_with_session(
         session: McpSessionPort,
         tools: list[dict[str, typing.Any]]

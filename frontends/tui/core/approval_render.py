@@ -3,29 +3,28 @@
 
 import re
 import typing
+
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
+
 from agent.application.approvals.models import ApprovalDecisionValue
+from agent.application.approvals.policy import (
+    DECISION_SHORTCUT_LABELS,
+    approval_decision_label,
+)
 from agent.application.approvals.presentation import (
     ApplyPatchApprovalPresentation,
-    ApprovalCommand,
     ApprovalPresentation,
     ExecApprovalPresentation,
     RequestPermissionsApprovalPresentation,
     ToolApprovalPresentation,
     ensure_approval_presentation,
 )
-from agent.application.approvals.policy import (
-    DECISION_SHORTCUT_LABELS,
-    approval_decision_label,
-)
 from agent.ports.presentation import StyledBlock
 from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities
 )
-from frontends.terminal.traces.command_parts import render_command_parts
-from frontends.tui.contracts.text import FormattedLine
 from frontends.terminal.renderers.patch import render_patch_view
 from frontends.terminal.styles import (
     COMMAND_STYLE,
@@ -36,6 +35,8 @@ from frontends.terminal.styles import (
     COMMAND_PATH_STYLE,
     COMMAND_STRING_STYLE
 )
+from frontends.terminal.traces.command_parts import render_command_parts
+from frontends.tui.contracts.text import FormattedLine
 from .styles import prompt_style, styled_block_fragments
 from ..rendering.text_sanitize import sanitize_formatted_text
 
@@ -594,7 +595,7 @@ def _fit_approval_sections(
     if max_height is None:
         return full
 
-    height  = max(1, int(max_height))
+    height = max(1, int(max_height))
     if len(full) <= height:
         return full
 
@@ -645,9 +646,9 @@ def _fit_approval_sections(
                 + len(footer)
                 + gap_count
                 + _approval_padding_count(
-                    padding=padding,
-                    has_footer=bool(footer),
-                )
+                padding=padding,
+                has_footer=bool(footer),
+            )
             )
             if minimum <= height:
                 layout = (
@@ -677,9 +678,9 @@ def _fit_approval_sections(
         + len(footer)
         + gap_count
         + _approval_padding_count(
-            padding=padding,
-            has_footer=bool(footer),
-        )
+        padding=padding,
+        has_footer=bool(footer),
+    )
     )
     text_budget = max(2, height - fixed_height)
 

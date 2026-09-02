@@ -7,7 +7,6 @@ import stat
 import typing
 from pathlib import Path
 
-
 SHELL_TOOL_LAYOUT: dict[str, tuple[str, str]] = {
     "7z": ("7z", "7z"),
     "ast-grep": ("ast-grep", "ast-grep"),
@@ -26,7 +25,7 @@ def route_shell_tools(supports: typing.Any) -> dict[str, str]:
     routed: dict[str, str] = {}
 
     for tool, (folder_name, command_name) in SHELL_TOOL_LAYOUT.items():
-        folder     = root / folder_name
+        folder = root / folder_name
         executable = folder / executable_name(command_name)
 
         if not folder.is_dir() or not executable.exists():
@@ -60,9 +59,9 @@ def ensure_executable(path: Path) -> None:
 
 def prepend_path(folder: Path) -> None:
     """把目录加入 PATH 开头，已存在时不重复加入。"""
-    text    = str(folder)
+    text = str(folder)
     current = os.environ.get("PATH", "")
-    parts   = [item for item in current.split(os.pathsep) if item]
+    parts = [item for item in current.split(os.pathsep) if item]
 
     if text in parts:
         return None

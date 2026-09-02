@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
-import sys
-import shutil
-import typing
 import asyncio
+import os
+import shutil
+import sys
+import typing
+
 from metadata import const
 
 
@@ -61,9 +62,9 @@ def _clipboard_command() -> typing.Optional[list[str]]:
         return [executable] if executable else None
 
     for command in (
-        ["wl-copy"],
-        ["xclip", "-selection", "clipboard"],
-        ["xsel", "--clipboard", "--input"]
+            ["wl-copy"],
+            ["xclip", "-selection", "clipboard"],
+            ["xsel", "--clipboard", "--input"]
     ):
         executable = shutil.which(command[0])
         if executable:

@@ -52,9 +52,9 @@ class ShellRuntimeResolver(object):
     ) -> ShellRuntime:
         """根据 shell 可执行文件构造运行时信息。"""
         executable = shell[0]
-        basename   = cls._basename(executable)
-        resolved   = cls._which(executable, env=env) or executable
-        tail       = shell[1:]
+        basename = cls._basename(executable)
+        resolved = cls._which(executable, env=env) or executable
+        tail = shell[1:]
 
         if basename in {"pwsh", "pwsh.exe", "powershell", "powershell.exe"}:
             return ShellRuntime(
@@ -161,4 +161,3 @@ class ShellRuntimeResolver(object):
 
 if __name__ == '__main__':
     pass
-

@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from dataclasses import dataclass
+
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
+
 from agent.application.approvals.models import (
     ApprovalDecisionValue,
     ApprovalQueueSnapshot,
@@ -264,8 +266,8 @@ class TuiApproval(object):
         if state is None or not state.decisions:
             return None
         self.selected_index = (
-            self.selected_index + step
-        ) % len(state.decisions)
+                                  self.selected_index + step
+                              ) % len(state.decisions)
         self.invalidate()
 
     def _finish_index(self, index: int) -> None:

@@ -2,12 +2,13 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.stores.sessions import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
 )
-from infrastructure.errors import AppError
 from infrastructure.config.runtime_paths import mind_history_db_path
+from infrastructure.errors import AppError
 from .commands import SessionArchiveCommand
 
 

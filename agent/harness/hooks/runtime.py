@@ -1,36 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
-import uuid
-import typing
 import asyncio
 import itertools
+import time
+import typing
+import uuid
 from dataclasses import (
     dataclass,
     replace
 )
-from observability import (
-    observe,
-    observe_exception
-)
-from agent.ports import (
-    HookCommandResult,
-    HookCommandRunner,
-    HookContextSpiller,
-    HookStatusPort,
-)
-from agent.domain.hooks import (
-    HookDefinitionConfig,
-    HookEventName
-)
+
 from agent.application.hooks.events import hook_event_spec
-from agent.application.hooks.output import normalize_business_block
-from agent.domain.hook_matching import (
-    HookMatcher,
-    compile_hook_matcher,
-    hook_match_candidates
-)
 from agent.application.hooks.models import (
     HookDispatchResult,
     HookEventRequest,
@@ -40,6 +21,26 @@ from agent.application.hooks.models import (
     HookRunStatus,
     HookRunSummary,
     HookRuntimeStatus
+)
+from agent.application.hooks.output import normalize_business_block
+from agent.domain.hook_matching import (
+    HookMatcher,
+    compile_hook_matcher,
+    hook_match_candidates
+)
+from agent.domain.hooks import (
+    HookDefinitionConfig,
+    HookEventName
+)
+from agent.ports import (
+    HookCommandResult,
+    HookCommandRunner,
+    HookContextSpiller,
+    HookStatusPort,
+)
+from observability import (
+    observe,
+    observe_exception
 )
 
 

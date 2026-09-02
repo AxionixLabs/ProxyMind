@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+
 from prompt_toolkit.cursor_shapes import CursorShape
 from prompt_toolkit.data_structures import (
     Point,

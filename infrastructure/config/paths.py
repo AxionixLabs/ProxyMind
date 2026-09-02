@@ -8,10 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from metadata import const
 
-ApplicationMode      = typing.Literal["source", "packaged"]
+ApplicationMode = typing.Literal["source", "packaged"]
 PACKAGED_ENTRY_NAMES = {const.APP_NAME, f"{const.APP_NAME}.exe"}
-SOURCE_ENTRY_NAME    = f"{const.APP_NAME}.py"
-APP_HOME_ENV         = f"{const.APP_NAME.upper()}_HOME"
+SOURCE_ENTRY_NAME = f"{const.APP_NAME}.py"
+APP_HOME_ENV = f"{const.APP_NAME.upper()}_HOME"
 
 
 def default_application_home() -> Path:

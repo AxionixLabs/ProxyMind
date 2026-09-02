@@ -169,7 +169,7 @@ class ExternalMcpRuntime(object):
 
             connected_servers = await group.start(servers, status=status)
             if connected_servers > 0:
-                self._group   = group
+                self._group = group
                 self._started = True
             else:
                 await self._context.await_cleanup(group.close())
@@ -180,7 +180,7 @@ class ExternalMcpRuntime(object):
             if group is not None:
                 await self._context.await_cleanup(group.close())
 
-            self._group   = None
+            self._group = None
             self._started = False
 
             if isinstance(

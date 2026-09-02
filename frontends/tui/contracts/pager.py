@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from dataclasses import dataclass
+
 from .text import FormattedLine
 
 

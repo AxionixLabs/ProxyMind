@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import argparse
+import typing
+
+from infrastructure.config.layers import normalize_profile_name
 from infrastructure.config.schema import (
     ConfigOverride,
     parse_config_override,
 )
-from infrastructure.config.layers import normalize_profile_name
 from metadata import const
 
 CONFIG_FLAGS = ("-c", "--config")
@@ -143,10 +144,10 @@ def _option_value(
         return token, arguments[index + 1], 2
 
     for option in (
-        "--config",
-        "--profile",
-        "--sandbox",
-        "--ask-for-approval",
+            "--config",
+            "--profile",
+            "--sandbox",
+            "--ask-for-approval",
     ):
         prefix = f"{option}="
         if token.startswith(prefix):

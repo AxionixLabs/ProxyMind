@@ -3,13 +3,15 @@
 
 import json
 import typing
+
 from prompt_toolkit.utils import get_cwidth
+
 from agent.application.agents.views import AgentSnapshot
-from agent.harness.agents.control import AgentNotFoundError
 from agent.domain.transcripts import (
     TranscriptEntry,
     TranscriptReplay,
 )
+from agent.harness.agents.control import AgentNotFoundError
 from agent.ports.presentation import TextSpan
 from frontends.terminal.text import sanitize_terminal_text
 from infrastructure.persistence.transcripts import TranscriptReader
@@ -64,7 +66,6 @@ async def manage_agents(
         )
 
     def open_agent_menu(snapshot: AgentSnapshot) -> None:
-
         def run_agent_action(action: typing.Any) -> None:
             """启动子执行线程菜单后台操作。"""
             runtime.start_background_task(

@@ -126,6 +126,5 @@ class McpRuntimeContext:
 McpRuntimeFactory: typing.TypeAlias = Callable[[], McpRuntime]
 McpRuntimeBuilder: typing.TypeAlias = Callable[[McpRuntimeContext], McpRuntime]
 
-
 if __name__ == '__main__':
     pass

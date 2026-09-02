@@ -1,20 +1,22 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
 import contextlib
-from functools import partial
+import typing
 from dataclasses import dataclass
+from functools import partial
+
 from prompt_toolkit.application import (
     Application,
     in_terminal,
 )
 from prompt_toolkit.layout.containers import WindowRenderInfo
+
 from infrastructure.config.schema import DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT
 from .document import TuiDocument
-from .models import FormattedText
 from .hyperlinks import decorate_scrollback_hyperlinks
+from .models import FormattedText
 from .styles import ASSISTANT_PREFIX_CLASS
 from ..rendering.fragments import (
     display_line_count,
@@ -276,7 +278,7 @@ class TuiTranscriptViewport(object):
     ) -> None:
         """提交一次尺寸重排状态。"""
         self._reflowed_geometry = target_geometry
-        self._reflow_required   = False
+        self._reflow_required = False
 
         self._failed_scrollback_generation = None
 
@@ -472,11 +474,11 @@ class TuiTranscriptViewport(object):
             or candidate.geometry != self._observed_geometry
             or candidate.include_restored_history_notice
             != bool(
-                not self._restored_history_notice_printed
-                and self._restored_history_notice_fragments(
-                    width=candidate.display_width
-                )
+            not self._restored_history_notice_printed
+            and self._restored_history_notice_fragments(
+                width=candidate.display_width
             )
+        )
         ):
             return False
 
@@ -895,9 +897,9 @@ class TuiTranscriptViewport(object):
                 if (
                     not failed
                     and (
-                        reschedule
-                        or self._scrollback_render_revision is not None
-                    )
+                    reschedule
+                    or self._scrollback_render_revision is not None
+                )
                 ):
                     self.schedule_scrollback_flush()
             self._invalidate()

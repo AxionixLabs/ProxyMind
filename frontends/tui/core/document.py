@@ -12,6 +12,7 @@ from dataclasses import (
     field,
     replace
 )
+
 from .models import (
     FormattedText,
     FragmentBlock
@@ -501,8 +502,8 @@ class TuiDocument(object):
     ) -> bool:
         """在稳定正文或动态尾部替换最近一条匹配的用户记录。"""
         for items, active in (
-            (self._active_tail, True),
-            (self.blocks, False),
+                (self._active_tail, True),
+                (self.blocks, False),
         ):
             for index in range(len(items) - 1, -1, -1):
                 item = items[index]
@@ -566,10 +567,10 @@ class TuiDocument(object):
         if source_reflow or (
             width_changed
             and any(
-                item.display_block.line_fill is not None
-                or bool(item.display_block.line_fills)
-                for item in self.blocks
-            )
+            item.display_block.line_fill is not None
+            or bool(item.display_block.line_fills)
+            for item in self.blocks
+        )
         ):
             self._rebuild_stable_lines()
             line_count = self._stable_line_count()
@@ -916,7 +917,7 @@ class TuiDocument(object):
         self.stable_transcript_revision += 1
 
         self.scrollback_line_count = 0
-        self.cleared_line_count    = 0
+        self.cleared_line_count = 0
 
         return True
 

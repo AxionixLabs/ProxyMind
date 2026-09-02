@@ -1,25 +1,28 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import httpx
 import asyncio
+
+import httpx
 from websockets.exceptions import (
     ConnectionClosed,
     InvalidStatus,
     WebSocketException,
 )
+
 from agent.ports import SubscriptionHost
 from observability import (
     observe,
     observe_exception,
 )
 from .client import AgentClient
+from .external_access import publish_external_access
+from .forwarding import AgentForwardHandler
 from .models import (
     AgentConfig,
     AgentSessionRuntime,
     AgentLiveStatus,
 )
-from .external_access import publish_external_access
 from .opening import (
     normalize_open_payload,
     open_runtime,
@@ -35,7 +38,6 @@ from .ws import (
     sleep_or_stop,
     connect_once,
 )
-from .forwarding import AgentForwardHandler
 
 
 def summarize_ws_disconnect(exc: BaseException) -> tuple[str, str]:
@@ -76,7 +78,7 @@ def get_disconnect_status_code(exc: BaseException) -> int | None:
     if not isinstance(exc, InvalidStatus):
         return None
 
-    response    = getattr(exc, "response", None)
+    response = getattr(exc, "response", None)
     status_code = getattr(response, "status_code", None)
 
     return status_code if isinstance(status_code, int) else None

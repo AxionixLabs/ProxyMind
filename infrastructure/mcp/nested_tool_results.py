@@ -23,6 +23,7 @@ from agent.ports.mcp_session import McpSessionPort
 from infrastructure.mcp.composite_session import CompositeToolSession
 from infrastructure.mcp.tool_results import normalize_call_tool_result
 
+
 def create_nested_tool_dispatch(
     *,
     session: McpSessionPort,
@@ -166,8 +167,8 @@ def _nested_tool_response(
         item
         for item in normalized.fields.get("attachments", [])
         if isinstance(item, dict)
-        and item.get("kind") == "image"
-        and str(item.get("data_url") or "").lower().startswith("data:")
+           and item.get("kind") == "image"
+           and str(item.get("data_url") or "").lower().startswith("data:")
     ]
     if images:
         output: typing.Any = [
@@ -216,7 +217,6 @@ __all__ = (
     "create_nested_tool_dispatch",
     "nested_tool_output",
 )
-
 
 if __name__ == "__main__":
     pass

@@ -4,6 +4,7 @@
 import typing
 from dataclasses import dataclass
 from enum import Enum
+
 from .text import FormattedLine
 
 
@@ -137,7 +138,6 @@ class ResumePickerRequest(object):
 
 
 ResumePickerResult: typing.TypeAlias = ResumeRow | None
-
 
 if __name__ == '__main__':
     pass

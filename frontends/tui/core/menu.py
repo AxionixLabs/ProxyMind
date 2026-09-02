@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from dataclasses import replace
+
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
+
 from frontends.terminal.text import sanitize_terminal_line
 from frontends.tui.contracts.menu import (
     MenuEmptyAcceptAction,
@@ -18,6 +20,9 @@ from frontends.tui.contracts.views import (
     ViewCompletion,
     ViewIdentity
 )
+from .view import BottomPaneViewStack
+from ..rendering.menu.layout import MENU_SURFACE_HORIZONTAL_INSET
+from ..rendering.menu.measure import line_count
 from ..rendering.menu.sanitize import (
     sanitize_menu_request as _sanitize_menu_request
 )
@@ -51,9 +56,6 @@ from ..rendering.menu.tabs import (
     request_for_tab,
     switched_tab_request
 )
-from ..rendering.menu.measure import line_count
-from ..rendering.menu.layout import MENU_SURFACE_HORIZONTAL_INSET
-from .view import BottomPaneViewStack
 
 TUI_MENU_STYLE = Style.from_dict({
     "tui-menu.title": "bold",
@@ -468,12 +470,12 @@ class TuiMenu(object):
                 index
                 for index, view in enumerate(views)
                 if (
-                    view.state.request.view_id in targets
-                    and (
-                        session_id is None
-                        or view.state.session_id == session_id
-                    )
+                view.state.request.view_id in targets
+                and (
+                    session_id is None
+                    or view.state.session_id == session_id
                 )
+            )
             ),
             None,
         )
@@ -701,7 +703,7 @@ class TuiMenu(object):
             return None
 
         state.completion = completion
-        state.result     = value
+        state.result = value
 
         view = self._active_menu_view()
         if view is None or not self._view_stack.pop(view):

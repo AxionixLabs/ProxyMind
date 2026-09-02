@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from dataclasses import dataclass
+
 from observability import (
     observe,
     observe_exception,
 )
 from .client import AgentClient
-from .wire import build_envelope
 from .models import (
     AgentForwardRequest,
     AgentSessionRuntime
 )
+from .wire import build_envelope
 
 CancelReason = typing.Literal[
     "user_interrupted",

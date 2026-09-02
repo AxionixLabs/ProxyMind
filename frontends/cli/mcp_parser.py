@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import math
 import argparse
+import math
+
 from .commands import (
     McpAddCommand,
     McpGetCommand,

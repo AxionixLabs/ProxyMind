@@ -39,7 +39,7 @@ class ServerManage(object):
         self.cwd = os.fspath(cwd) if cwd is not None else None
         self.url = config.BASE_URL.rstrip("/")
 
-        parsed    = urlparse(self.url)
+        parsed = urlparse(self.url)
         self.port = int(parsed.port or 80)
 
         self._client = httpx.AsyncClient(
@@ -94,28 +94,28 @@ class ServerManage(object):
         session_id: typing.Optional[str] = None
 
         headers = {
-            "accept"        : "application/json",
-            "content-type"  : "application/json",
-            "authorization" : f"Bearer {manufacture_token()}"
+            "accept": "application/json",
+            "content-type": "application/json",
+            "authorization": f"Bearer {manufacture_token()}"
         }
         initialize_payload = {
-            "jsonrpc" : "2.0",
-            "id"      : "bootstrap-init",
-            "method"  : "initialize",
-            "params"  : {
-                "protocolVersion" : protocol_version,
-                "capabilities"    : {},
-                "clientInfo"      : {
-                    "name"    : const.APP_DESC.lower(),
-                    "version" : const.APP_VERSION
+            "jsonrpc": "2.0",
+            "id": "bootstrap-init",
+            "method": "initialize",
+            "params": {
+                "protocolVersion": protocol_version,
+                "capabilities": {},
+                "clientInfo": {
+                    "name": const.APP_DESC.lower(),
+                    "version": const.APP_VERSION
                 }
             }
         }
         list_tools_payload = {
-            "jsonrpc" : "2.0",
-            "id"      : "bootstrap-tools",
-            "method"  : "tools/list",
-            "params"  : {}
+            "jsonrpc": "2.0",
+            "id": "bootstrap-tools",
+            "method": "tools/list",
+            "params": {}
         }
 
         try:
@@ -151,8 +151,8 @@ class ServerManage(object):
                 config.MCP_ED,
                 headers={
                     **headers,
-                    "mcp-session-id"       : session_id,
-                    "mcp-protocol-version" : protocol_version
+                    "mcp-session-id": session_id,
+                    "mcp-protocol-version": protocol_version
                 },
                 json=list_tools_payload,
                 timeout=3.0
@@ -180,8 +180,8 @@ class ServerManage(object):
                 return False
 
             result = payload.get("result") if isinstance(payload, dict) else None
-            tools  = result.get("tools") if isinstance(result, dict) else None
-            ok     = isinstance(tools, list)
+            tools = result.get("tools") if isinstance(result, dict) else None
+            ok = isinstance(tools, list)
 
             observe(
                 "mcp.probe.complete",
@@ -212,10 +212,10 @@ class ServerManage(object):
                         "DELETE",
                         config.MCP_ED,
                         headers={
-                            "accept"               : "application/json",
-                            "authorization"        : f"Bearer {manufacture_token()}",
-                            "mcp-session-id"       : session_id,
-                            "mcp-protocol-version" : str(mcp_types.LATEST_PROTOCOL_VERSION)
+                            "accept": "application/json",
+                            "authorization": f"Bearer {manufacture_token()}",
+                            "mcp-session-id": session_id,
+                            "mcp-protocol-version": str(mcp_types.LATEST_PROTOCOL_VERSION)
                         },
                         timeout=1.5
                     )
@@ -277,9 +277,9 @@ class ServerManage(object):
         observe("server.spawn.start", port=self.port)
 
         kwargs: dict[str, typing.Any] = {
-            "stdin"  : asyncio.subprocess.DEVNULL,
-            "stdout" : asyncio.subprocess.DEVNULL,
-            "stderr" : asyncio.subprocess.DEVNULL
+            "stdin": asyncio.subprocess.DEVNULL,
+            "stdout": asyncio.subprocess.DEVNULL,
+            "stderr": asyncio.subprocess.DEVNULL
         }
 
         if self.env:

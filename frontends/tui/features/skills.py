@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from infrastructure.config.session import ConfigSession
 from infrastructure.skills import (
     SkillSpec,
@@ -79,7 +80,7 @@ async def _manage_skills(
     """打开可搜索的启用状态菜单并自动保存每次切换。"""
     config = config_session.load()
 
-    enabled_names  = _configured_names(config, "enabled")
+    enabled_names = _configured_names(config, "enabled")
     disabled_names = _configured_names(config, "disabled")
 
     enabled_state = {
@@ -176,7 +177,7 @@ def _skill_search_rank(
     option: MenuOption
 ) -> tuple[int, str] | None:
     """对 skill 名称执行模糊匹配并生成排序键。"""
-    name  = option.search_value or option.label
+    name = option.search_value or option.label
     score = skill_match_score(name, query)
 
     return (score, name) if score is not None else None
@@ -193,7 +194,7 @@ def _save_skill_enabled(
     skills = config.get("skills") if isinstance(config, dict) else {}
     skills = skills if isinstance(skills, dict) else {}
 
-    enabled_values  = [str(value) for value in skills.get("enabled") or []]
+    enabled_values = [str(value) for value in skills.get("enabled") or []]
     disabled_values = [str(value) for value in skills.get("disabled") or []]
 
     key = skill.name.casefold()

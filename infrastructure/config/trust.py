@@ -164,7 +164,7 @@ class ProjectTrustContext(object):
             return ()
 
         directories = [self.project_root]
-        current     = self.project_root
+        current = self.project_root
 
         for component in relative.parts:
             current /= component

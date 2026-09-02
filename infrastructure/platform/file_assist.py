@@ -44,11 +44,11 @@ class FileAssist(object):
                 return None
         else:
             for command in (
-                "google-chrome",
-                "google-chrome-stable",
-                "chrome",
-                "chromium",
-                "chromium-browser",
+                    "google-chrome",
+                    "google-chrome-stable",
+                    "chrome",
+                    "chromium",
+                    "chromium-browser",
             ):
                 if shutil.which(command):
                     await Terminal.cmd_link([command, url])

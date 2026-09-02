@@ -1,23 +1,24 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
+import ctypes
+import functools
 import os
 import shlex
 import shutil
-import ctypes
 import typing
-import asyncio
-import functools
+
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )
-from ..core.styles import failure_text_block
 from .processes import watch_user_shell_session
 from .summary import (
     CommandSummary,
     render_command_summary
 )
+from ..core.styles import failure_text_block
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
@@ -97,7 +98,7 @@ async def run_shell_escape(
         )
         return True
 
-    session_id   = str(snapshot.get("session_id") or "").strip()
+    session_id = str(snapshot.get("session_id") or "").strip()
     shell_ready = asyncio.Event()
 
     runtime.start_background_task(
@@ -234,22 +235,22 @@ def _windows_command_line_to_argv(command: str) -> list[str]:
     if windll is None:
         return []
 
-    shell32  = getattr(windll, "shell32", None)
+    shell32 = getattr(windll, "shell32", None)
     kernel32 = getattr(windll, "kernel32", None)
 
     if shell32 is None or kernel32 is None:
         return []
 
     parse: typing.Any = getattr(shell32, "CommandLineToArgvW", None)
-    free: typing.Any  = getattr(kernel32, "LocalFree", None)
+    free: typing.Any = getattr(kernel32, "LocalFree", None)
 
     if not callable(parse) or not callable(free):
         return []
 
     parse.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
-    parse.restype  = ctypes.POINTER(ctypes.c_wchar_p)
-    free.argtypes  = [ctypes.c_void_p]
-    free.restype   = ctypes.c_void_p
+    parse.restype = ctypes.POINTER(ctypes.c_wchar_p)
+    free.argtypes = [ctypes.c_void_p]
+    free.restype = ctypes.c_void_p
 
     count = ctypes.c_int(0)
 

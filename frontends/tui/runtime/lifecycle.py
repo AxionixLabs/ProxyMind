@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
 import contextlib
+import typing
+
 from prompt_toolkit.application.current import create_app_session
 from prompt_toolkit.patch_stdout import patch_stdout
 

@@ -27,7 +27,7 @@ def paste_line_count(text: str) -> int:
 def format_paste_placeholder(text: str, index: int) -> str:
     """生成折叠粘贴内容的统一占位文本。"""
     sequence = max(1, int(index))
-    suffix   = "" if sequence == 1 else f" #{sequence}"
+    suffix = "" if sequence == 1 else f" #{sequence}"
 
     return f"[Pasted Content {len(text)} chars]{suffix}"
 

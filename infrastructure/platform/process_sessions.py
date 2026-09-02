@@ -92,25 +92,25 @@ class ProcessSession(object):
         process: asyncio.subprocess.Process | SidecarProcess | _CapabilityProcess,
     ) -> None:
         """初始化进程会话及有限输出缓冲区。"""
-        self.session_id       = session_id
-        self.command          = spec.command
-        self.args             = spec.args
-        self.cwd              = spec.display_cwd
-        self.process          = process
-        self.runtime          = dict(spec.runtime)
-        self.origin           = spec.origin
-        self.background       = (
+        self.session_id = session_id
+        self.command = spec.command
+        self.args = spec.args
+        self.cwd = spec.display_cwd
+        self.process = process
+        self.runtime = dict(spec.runtime)
+        self.origin = spec.origin
+        self.background = (
             bool(spec.background)
             if spec.background is not None
             else spec.origin != "tui_shell"
         )
-        self.owner_cid        = spec.owner_cid
-        self.owner_sid        = spec.owner_sid
-        self.started_at       = time.time()
-        self.expires_at       = self.started_at + spec.timeout_sec
+        self.owner_cid = spec.owner_cid
+        self.owner_sid = spec.owner_sid
+        self.started_at = time.time()
+        self.expires_at = self.started_at + spec.timeout_sec
         self.idle_timeout_sec = spec.idle_timeout_sec
-        self.audit_mode       = spec.audit_mode
-        self.audit_before     = spec.audit_before
+        self.audit_mode = spec.audit_mode
+        self.audit_before = spec.audit_before
 
         self.stdout = bytearray()
         self.stderr = bytearray()
@@ -144,7 +144,7 @@ class ProcessSession(object):
 class ProcessSessionManager(object):
     """统一管理本地进程会话的生命周期和输出。"""
 
-    BUFFER_LIMIT_BYTES   = 1_000_000
+    BUFFER_LIMIT_BYTES = 1_000_000
     IO_DRAIN_TIMEOUT_SEC = 2.0
 
     def __init__(
@@ -427,34 +427,34 @@ class ProcessSessionManager(object):
         limit = max(1024, min(120000, int(max_output_chars or 12000)))
 
         return {
-            "ok"               : True,
-            "tool"             : "exec_session_snapshot",
-            "session_id"       : session.session_id,
-            "command"          : session.command,
-            "cwd"              : session.cwd,
-            "status"           : "running" if session.process.returncode is None else "exited",
-            "pid"              : session.process.pid,
-            "exit_code"        : session.process.returncode,
-            "started_at"       : session.started_at,
-            "last_activity"    : session.last_activity,
-            "runtime"          : dict(session.runtime),
-            "runtime_name"     : session.runtime.get("name"),
-            "origin"           : session.origin,
-            "background"       : session.background,
-            "revision"         : session.output_revision,
-            "owner_cid"        : session.owner_cid,
-            "owner_sid"        : session.owner_sid,
-            "output"           : self._clip(output_text, limit),
-            "stdout"           : self._clip(stdout_text, limit),
-            "stderr"           : self._clip(stderr_text, limit),
-            "output_lines"     : list(output_lines),
+            "ok": True,
+            "tool": "exec_session_snapshot",
+            "session_id": session.session_id,
+            "command": session.command,
+            "cwd": session.cwd,
+            "status": "running" if session.process.returncode is None else "exited",
+            "pid": session.process.pid,
+            "exit_code": session.process.returncode,
+            "started_at": session.started_at,
+            "last_activity": session.last_activity,
+            "runtime": dict(session.runtime),
+            "runtime_name": session.runtime.get("name"),
+            "origin": session.origin,
+            "background": session.background,
+            "revision": session.output_revision,
+            "owner_cid": session.owner_cid,
+            "owner_sid": session.owner_sid,
+            "output": self._clip(output_text, limit),
+            "stdout": self._clip(stdout_text, limit),
+            "stderr": self._clip(stderr_text, limit),
+            "output_lines": list(output_lines),
             "output_lines_dropped": session.display_output_buffer.dropped_lines,
-            "output_truncated" : len(output_text) > limit,
-            "stdout_truncated" : len(stdout_text) > limit,
-            "stderr_truncated" : len(stderr_text) > limit,
-            "truncated"        : max(len(output_text), len(stdout_text), len(stderr_text)) > limit,
-            "stdout_dropped"   : stdout_dropped,
-            "stderr_dropped"   : stderr_dropped
+            "output_truncated": len(output_text) > limit,
+            "stdout_truncated": len(stdout_text) > limit,
+            "stderr_truncated": len(stderr_text) > limit,
+            "truncated": max(len(output_text), len(stdout_text), len(stderr_text)) > limit,
+            "stdout_dropped": stdout_dropped,
+            "stderr_dropped": stderr_dropped
         }
 
     async def output_delta(
@@ -708,20 +708,20 @@ class ProcessSessionManager(object):
             session
             for session in self.sessions.values()
             if session.process.returncode is None
-            and (
-                selected_ids is None
-                or session.session_id in selected_ids
-            )
+               and (
+                   selected_ids is None
+                   or session.session_id in selected_ids
+               )
         ]
         stopped: list[dict[str, typing.Any]] = []
         failures: list[dict[str, typing.Any]] = []
 
         for session in sessions:
             item = {
-                "session_id" : session.session_id,
-                "command"    : session.command,
-                "pid"        : session.process.pid,
-                "origin"     : session.origin,
+                "session_id": session.session_id,
+                "command": session.command,
+                "pid": session.process.pid,
+                "origin": session.origin,
             }
             try:
                 if isinstance(session.process, SidecarProcess):
@@ -761,12 +761,12 @@ class ProcessSessionManager(object):
             })
 
         result = {
-            "ok"        : not failures,
-            "requested" : len(sessions),
-            "stopped"   : len(stopped),
-            "failed"    : len(failures),
-            "items"     : stopped,
-            "failures"  : failures,
+            "ok": not failures,
+            "requested": len(sessions),
+            "stopped": len(stopped),
+            "failed": len(failures),
+            "items": stopped,
+            "failures": failures,
         }
         observe(
             "process.stop_all.complete",

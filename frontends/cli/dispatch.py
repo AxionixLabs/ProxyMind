@@ -1,29 +1,30 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
-import typing
 import asyncio
 import functools
+import time
+import typing
+
 from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application.config.session_identity import derive_local_session_id
+from agent.application.services import TurnApplicationFactory
 from agent.application.turns.commands import (
     SubmitTurnCommand,
     TurnApplication,
 )
-from agent.application.services import TurnApplicationFactory
 from agent.application.turns.run_result import RunResult
-from agent.stores.sessions import (
-    HISTORY_LIMIT,
-    INTERACTIVE_HISTORY_SOURCES,
-)
 from agent.ports import (
     ProcessLifecyclePort,
     ProtocolCommandClient,
     RootConversationPort,
 )
-from frontends.tui.features.conversation import ConversationCompactor
+from agent.stores.sessions import (
+    HISTORY_LIMIT,
+    INTERACTIVE_HISTORY_SOURCES,
+)
 from frontends.runtime import Frontend
+from frontends.tui.features.conversation import ConversationCompactor
 from infrastructure.config.preferences import apply_primary_model_override
 from infrastructure.config.runtime_paths import agent_runtime_db_path
 from infrastructure.errors import AppError

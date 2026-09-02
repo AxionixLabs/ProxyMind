@@ -30,7 +30,7 @@ class CompositeToolSession(McpSessionPort):
     ) -> None:
         """保存可选服务会话、外部工具分组及两类本地工具。"""
         self.service_session = service_session
-        self.external_group  = external_group
+        self.external_group = external_group
         self.client_registry = client_registry
         self.builtin_registry = builtin_registry
 
@@ -63,7 +63,7 @@ class CompositeToolSession(McpSessionPort):
 
     async def list_tools(self) -> mcp_types.ListToolsResult:
         """返回全部可用工具合并后的工具列表。"""
-        client_names: set[str]      = set()
+        client_names: set[str] = set()
         tools: list[mcp_types.Tool] = []
 
         if self.builtin_registry is not None:
@@ -98,8 +98,8 @@ class CompositeToolSession(McpSessionPort):
                     meta["server"] = alias
                     meta["transport"] = str(meta.get("transport") or "external").strip().lower()
 
-                    description      = str(tool.description or "").strip()
-                    prefix           = f"[External {alias}]"
+                    description = str(tool.description or "").strip()
+                    prefix = f"[External {alias}]"
                     full_description = f"{prefix} {description}".strip() if description else prefix
 
                     tools.append(

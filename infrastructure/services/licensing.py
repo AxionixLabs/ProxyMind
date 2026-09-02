@@ -228,9 +228,9 @@ async def receive_license(
     """
     headers = build_service_headers()
     payload = {
-        "code": code.strip(),
-        "castle": fingerprint(),
-    } | (params := build_service_query())
+                  "code": code.strip(),
+                  "castle": fingerprint(),
+              } | (params := build_service_query())
 
     if lic_file.exists():
         auth_info = verify_signature(lic_file)
@@ -240,7 +240,7 @@ async def receive_license(
 
     async with httpx.AsyncClient(headers=headers, timeout=30) as client:
         bs_lic_data = await send(client, "GET", const.BOOTSTRAP_URL, params=params)
-        auth_info   = verify_signature(bs_lic_data)
+        auth_info = verify_signature(bs_lic_data)
 
         if emit_data is not None:
             emit_data(mask_fields(
@@ -249,7 +249,7 @@ async def receive_license(
         activation_url = auth_info["url"]
 
         ac_lic_data = await send(client, "POST", activation_url, json=payload)
-        auth_info   = verify_signature(ac_lic_data)
+        auth_info = verify_signature(ac_lic_data)
 
         if emit_data is not None:
             emit_data(mask_fields(

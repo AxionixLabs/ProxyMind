@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import argparse
 import re
 import sys
 import typing
-import argparse
 from dataclasses import dataclass
+
 from metadata import const
 from .commands import (
     CompletionCommand,

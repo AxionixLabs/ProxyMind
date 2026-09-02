@@ -1,20 +1,22 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import ssl
-import json
-import uuid
-import httpx
-import socket
-import typing
 import asyncio
 import hashlib
+import json
 import platform
+import socket
+import ssl
+import typing
+import uuid
+
+import httpx
+
+from metadata import const
 from observability import (
     observe,
     observe_exception,
 )
-from metadata import const
 from .client import AgentClient
 from .models import AgentConfig
 

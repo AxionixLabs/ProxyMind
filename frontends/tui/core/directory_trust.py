@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from dataclasses import dataclass
 from pathlib import Path
+
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.utils import get_cwidth
+
 from frontends.terminal.text import sanitize_terminal_text
 from ..rendering.fragments import (
     fragments_text,
@@ -141,8 +143,8 @@ class TuiDirectoryTrust(object):
         out.append(("", "\n\n"))
 
         for index, (label, choice) in enumerate((
-            ("Yes, continue", "trust"),
-            ("No, quit", "quit"),
+                ("Yes, continue", "trust"),
+                ("No, quit", "quit"),
         ), start=1):
             selected = state.highlighted == choice
             style = (

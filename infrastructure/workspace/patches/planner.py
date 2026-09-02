@@ -33,7 +33,7 @@ class PatchPlanner(WorkspaceComponent):
     @staticmethod
     def _patch_line_stats(hunks: list[PatchHunk]) -> dict[str, int]:
         """统计 patch hunk 中的新增、删除和上下文行数。"""
-        added: int   = 0
+        added: int = 0
         removed: int = 0
         context: int = 0
 

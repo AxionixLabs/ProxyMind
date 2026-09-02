@@ -122,7 +122,7 @@ class ConfigSession(object):
     ) -> None:
         """验证持久化决定未被当前 Profile 或 CLI 覆盖遮蔽。"""
         resolution = self.resolver.resolve_user_config(dict(candidate))
-        effective  = resolution.project_trust
+        effective = resolution.project_trust
 
         if (
             effective is None

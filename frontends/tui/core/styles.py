@@ -2,6 +2,13 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
+from prompt_toolkit.styles import (
+    BaseStyle,
+    Style,
+    merge_styles,
+)
+
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
@@ -18,18 +25,12 @@ from frontends.terminal.palette import (
     selection_color,
     semantic_color,
 )
-
 from metadata import const
-from prompt_toolkit.styles import (
-    BaseStyle,
-    Style,
-    merge_styles,
-)
+from .hyperlinks import terminal_hyperlink_style
 from .models import (
     FragmentBlock,
     LineFill,
 )
-from .hyperlinks import terminal_hyperlink_style
 from ..prompting.commands import (
     canonical_command_label,
     resolve_slash_command
@@ -441,10 +442,10 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
         separator_style = f"fg:{separator}" if separator else "dim"
 
         for style_class in (
-            "ps.separator",
-            "transcript.overlay.rule",
-            "mailbox.rule",
-            "resume-picker.rule",
+                "ps.separator",
+                "transcript.overlay.rule",
+                "mailbox.rule",
+                "resume-picker.rule",
         ):
             styles[style_class] = separator_style
 
@@ -479,36 +480,36 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
     selection_foreground = "#20262C" if light else "#F4F7FA"
 
     for style_class in (
-        "approval-option-selected",
-        "tui-menu.index.active",
-        "tui-menu.label.active",
-        "tui-menu.detail-selected",
-        "tui-menu.title.current",
-        "tui-menu.status.current",
-        "tui-menu.tab-selected",
-        "tui-menu.footer.right.current",
-        "completion-menu.completion.current",
-        "completion-menu.meta.completion.current",
-        "token-menu.command.current",
-        "token-menu.skill.current",
-        "token-menu.skill-mention.current",
-        "token-menu.plugin-mention.current",
-        "token-menu.file-mention.current",
-        "token-menu.directory-mention.current",
-        "token-menu.completion.current",
-        "token-menu.meta.command.current",
-        "token-menu.meta.skill.current",
-        "token-menu.meta.skill-mention.current",
-        "token-menu.meta.plugin-mention.current",
-        "token-menu.meta.file-mention.current",
-        "token-menu.meta.directory-mention.current",
-        "token-menu.meta.completion.current",
-        "directory-trust.option.selected",
+            "approval-option-selected",
+            "tui-menu.index.active",
+            "tui-menu.label.active",
+            "tui-menu.detail-selected",
+            "tui-menu.title.current",
+            "tui-menu.status.current",
+            "tui-menu.tab-selected",
+            "tui-menu.footer.right.current",
+            "completion-menu.completion.current",
+            "completion-menu.meta.completion.current",
+            "token-menu.command.current",
+            "token-menu.skill.current",
+            "token-menu.skill-mention.current",
+            "token-menu.plugin-mention.current",
+            "token-menu.file-mention.current",
+            "token-menu.directory-mention.current",
+            "token-menu.completion.current",
+            "token-menu.meta.command.current",
+            "token-menu.meta.skill.current",
+            "token-menu.meta.skill-mention.current",
+            "token-menu.meta.plugin-mention.current",
+            "token-menu.meta.file-mention.current",
+            "token-menu.meta.directory-mention.current",
+            "token-menu.meta.completion.current",
+            "directory-trust.option.selected",
     ):
         styles[style_class] = f"fg:{selection} bold"
     for style_class in (
-        "transcript.overlay.selection",
-        "transcript.overlay.search-match",
+            "transcript.overlay.selection",
+            "transcript.overlay.search-match",
     ):
         styles[style_class] = (
             f"bg:{selection_background} fg:{selection_foreground}"

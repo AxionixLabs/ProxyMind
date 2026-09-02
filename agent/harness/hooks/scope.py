@@ -4,22 +4,22 @@
 import typing
 from dataclasses import dataclass
 
-from observability import observe_exception
 from agent.application.hooks.context import HookExecutionContext
-from agent.application.turns.context import TurnContext
-from agent.domain.hooks import HookEventName
 from agent.application.hooks.models import (
     HookDispatchResult,
     HookEventRequest
 )
 from agent.application.hooks.protocol import validate_hook_input
+from agent.application.turns.context import TurnContext
+from agent.domain.hooks import HookEventName
+from agent.harness.hooks.runtime import HookRuntime
 from agent.ports import (
     HookDispatcherPort,
     HookExecutionScopePort,
     HookScopeProviderPort,
     HookStatusPort,
 )
-from agent.harness.hooks.runtime import HookRuntime
+from observability import observe_exception
 
 
 @dataclass(frozen=True, slots=True)

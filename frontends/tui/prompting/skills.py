@@ -3,11 +3,13 @@
 
 import re
 import typing
+
 from prompt_toolkit.completion import Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.utils import get_cwidth
+
 from infrastructure.skills import SkillSpec
 from .paste import iter_paste_placeholders
 
@@ -16,9 +18,9 @@ SKILL_NAME_TRUNCATE_WIDTH = 28
 _EMPTY_MATCH_SCORE: typing.Final[int] = 2 ** 31 - 1
 
 SKILL_CATEGORY_TAG = "Skill"
-SKILL_SIGILS       = frozenset(("$", "@"))
-SKILL_PREFIX_RE    = re.compile(r"^[$@][A-Za-z0-9_.-]*$")
-MENTION_PREFIX_RE  = re.compile(r"^@\S*$")
+SKILL_SIGILS = frozenset(("$", "@"))
+SKILL_PREFIX_RE = re.compile(r"^[$@][A-Za-z0-9_.-]*$")
+MENTION_PREFIX_RE = re.compile(r"^@\S*$")
 
 # 这些 token 属于 shell 参数展开，不应被 skill 菜单接管。
 _COMMON_SHELL_VARIABLES = frozenset({
@@ -51,11 +53,11 @@ class SkillTokenLexer(Lexer):
 
     def lex_document(self, document: Document) -> typing.Callable[[int], StyleAndTextTuples]:
         """返回指定行的格式化文本。"""
-        line_offsets       = self._line_offsets(document.text)
+        line_offsets = self._line_offsets(document.text)
         paste_placeholders = tuple(self._paste_placeholders())
 
         def get_line(line_number: int) -> StyleAndTextTuples:
-            line        = document.lines[line_number]
+            line = document.lines[line_number]
             line_offset = line_offsets[line_number] if line_number < len(line_offsets) else 0
 
             parts: StyleAndTextTuples = []
@@ -68,7 +70,7 @@ class SkillTokenLexer(Lexer):
                 offset=line_offset,
             ):
                 line_start = start - line_offset
-                line_end   = end - line_offset
+                line_end = end - line_offset
 
                 if line_start > pos:
                     parts.append(("", line[pos:line_start]))
@@ -120,7 +122,7 @@ def match_known_skill_at(
 
     for name in sorted_known_skill_names(skills):
         token = f"{text[start]}{name}"
-        end   = start + len(token)
+        end = start + len(token)
 
         if (
             lower_text.startswith(token, start)
@@ -280,11 +282,11 @@ def skill_completions(
             (rank, skill)
             for skill in skills
             if (
-                rank := skill_match_rank(
-                    str(skill.name or ""),
-                    query,
-                )
-            ) is not None
+                   rank := skill_match_rank(
+                       str(skill.name or ""),
+                       query,
+                   )
+               ) is not None
         ),
         key=lambda item: item[0],
     )
@@ -309,7 +311,7 @@ def skill_match_rank(
     query: str
 ) -> tuple[int, int, int, str] | None:
     """返回 skill 名称匹配排序权重。"""
-    folded_name  = str(name or "").casefold()
+    folded_name = str(name or "").casefold()
     folded_query = str(query or "").casefold()
 
     if not folded_query:
@@ -327,14 +329,14 @@ def skill_match_rank(
 
 def skill_match_score(name: str, query: str) -> int | None:
     """返回名称子序列匹配的排序分数。"""
-    lowered_name  = _character_lowercase(name)
+    lowered_name = _character_lowercase(name)
     lowered_query = _character_lowercase(query)
 
     if not lowered_query:
         return _EMPTY_MATCH_SCORE
 
     first: int | None = None
-    last: int | None  = None
+    last: int | None = None
 
     cursor = 0
     for char in lowered_query:
@@ -364,7 +366,7 @@ def subsequence_match_score(text: str, query: str) -> int | None:
         return 0
 
     start: int | None = None
-    cursor: int       = 0
+    cursor: int = 0
 
     for char in query:
         index = text.find(char, cursor)
@@ -398,7 +400,7 @@ def skill_meta_text(skill: SkillSpec) -> str:
 
 def combined_skill_meta_text(category_tag: str, description: str) -> str:
     """组合菜单类别标签和描述文本。"""
-    tag    = str(category_tag or "").strip()
+    tag = str(category_tag or "").strip()
     detail = skill_description_text(description)
 
     if tag and detail:
@@ -418,7 +420,7 @@ def truncate_display_width(text: str, limit: int) -> str:
 
     out: list[str] = []
 
-    used: int   = 0
+    used: int = 0
     target: int = max(0, limit - 3)
 
     for char in text:

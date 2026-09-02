@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
-import typing
 import asyncio
 import functools
+import time
+import typing
 from collections.abc import (
     Callable,
     Mapping,

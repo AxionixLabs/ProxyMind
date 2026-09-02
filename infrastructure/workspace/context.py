@@ -96,8 +96,8 @@ class WorkspaceContext(object):
         """初始化工作区根目录和默认读写输出限制。"""
         self.root = Path(root or os.getcwd()).resolve()
 
-        self.max_read_bytes: int   = 512_000
-        self.max_write_bytes: int  = 1_000_000
+        self.max_read_bytes: int = 512_000
+        self.max_write_bytes: int = 1_000_000
         self.max_output_chars: int = 24_000
 
         self.last_shell_result: dict[str, typing.Any] | None = None
@@ -137,7 +137,7 @@ class WorkspaceContext(object):
 
     def resolve_path(self, path: str | None = None) -> Path:
         """解析工作区内路径，并拒绝越过工作区边界的路径。"""
-        raw       = str(path or ".").strip() or "."
+        raw = str(path or ".").strip() or "."
         candidate = Path(raw)
 
         if not candidate.is_absolute():
@@ -236,11 +236,11 @@ class WorkspaceContext(object):
             WorkspaceContext.enrich_failure_facts(payload)
         ok = bool(payload.pop("ok"))
         return {
-            "ok"          : ok,
-            "text"        : text,
-            "attachments" : [],
-            "data"        : payload,
-            "logs"        : []
+            "ok": ok,
+            "text": text,
+            "attachments": [],
+            "data": payload,
+            "logs": []
         }
 
     @staticmethod
@@ -301,11 +301,11 @@ class WorkspaceContext(object):
         WorkspaceContext.enrich_failure_facts(payload)
 
         return {
-            "ok"          : False,
-            "text"        : f"native coding failed: {reason}",
-            "attachments" : [],
-            "data"        : payload,
-            "logs"        : []
+            "ok": False,
+            "text": f"native coding failed: {reason}",
+            "attachments": [],
+            "data": payload,
+            "logs": []
         }
 
 

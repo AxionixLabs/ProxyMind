@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
 import contextlib
+import typing
 from collections import deque
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+
 from prompt_toolkit.application import in_terminal
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.eventloop.utils import call_soon_threadsafe
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.output.base import Output
+
 from agent.application.approvals.models import (
     ApprovalDecisionValue,
     ApprovalQueueSnapshot,
@@ -23,6 +25,7 @@ from agent.ports import (
     ActivityStatusKind,
     RetryState,
 )
+from frontends.interaction.contracts import PromptContext
 from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
@@ -31,27 +34,12 @@ from frontends.terminal.progress import (
     PassiveTerminalProgress,
     TerminalProgress,
 )
-from frontends.interaction.contracts import PromptContext
 from frontends.terminal.text import sanitize_terminal_line
 from frontends.tui.contracts.resume import (
     ResumePickerRequest,
     ResumePickerResult,
     ResumeRow,
 )
-from .models import (
-    CLOSE_MENU_FOOTER_HINT,
-    FragmentBlock,
-    MailboxEntry,
-    MailboxRunRequest,
-    MenuAction,
-    MenuActionKind,
-    MenuRequest,
-    StaticPagerRequest,
-    TranscriptBacktrackRequest,
-    TranscriptExportFormat,
-    TranscriptExportResult
-)
-from .terminal_input import clear_pending_input
 from .activity import (
     ActivityLease,
     TuiActivity
@@ -71,21 +59,27 @@ from .interrupt import (
     TuiExitReason
 )
 from .keymap import TuiRuntimeKeymap
-from ..rendering.text_sanitize import sanitize_fragment_block
+from .models import (
+    CLOSE_MENU_FOOTER_HINT,
+    FragmentBlock,
+    MailboxEntry,
+    MailboxRunRequest,
+    MenuAction,
+    MenuActionKind,
+    MenuRequest,
+    StaticPagerRequest,
+    TranscriptBacktrackRequest,
+    TranscriptExportFormat,
+    TranscriptExportResult
+)
 from .queued import TuiSubmission
 from .screen import TuiScreen
-from .view import ViewIdentity
 from .styles import (
     failure_text_block,
     query_block,
     query_display_block,
     query_preview_block,
     text_block
-)
-from ..prompting.commands import (
-    resolve_tui_command,
-    slash_command_notice_message,
-    submission_replaces_query
 )
 from .submission import (
     TuiInputClosed,
@@ -95,7 +89,15 @@ from .submission import (
     TuiSubmissionFlow
 )
 from .task_state import TuiTaskState
+from .terminal_input import clear_pending_input
+from .view import ViewIdentity
 from .viewport import TuiTranscriptViewport
+from ..prompting.commands import (
+    resolve_tui_command,
+    slash_command_notice_message,
+    submission_replaces_query
+)
+from ..rendering.text_sanitize import sanitize_fragment_block
 from ..runtime.background import (
     BackgroundTaskManager,
     DeferredBlock,
@@ -104,7 +106,6 @@ from ..runtime.background import (
 from ..runtime.lifecycle import ApplicationLifecycle
 from ..runtime.mailbox import MailboxOverlayCoordinator
 from ..runtime.resume_picker import ResumePickerCoordinator
-from ..runtime.static_pager import StaticPagerCoordinator
 from ..runtime.startup import (
     StartupAnimation,
     StartupFinalFrame,
@@ -115,6 +116,7 @@ from ..runtime.state import (
     CommandLayoutState,
     ProcessCompletionStore
 )
+from ..runtime.static_pager import StaticPagerCoordinator
 from ..runtime.transcript import (
     TranscriptCoordinator,
     TranscriptOverlayCoordinator
@@ -149,9 +151,9 @@ class TuiRuntime(object):
         ),
         keymap: TuiRuntimeKeymap | None = None,
         export_transcript: typing.Callable[
-            [typing.Iterable[TranscriptBlock], TranscriptExportFormat],
-            TranscriptExportResult,
-        ] | None = None
+                               [typing.Iterable[TranscriptBlock], TranscriptExportFormat],
+                               TranscriptExportResult,
+                           ] | None = None
     ) -> None:
         self.input_model = input_model or TuiInputModel()
         self.context = PromptContext(model="")
@@ -562,7 +564,7 @@ class TuiRuntime(object):
             return None
 
         error_type = type(error).__name__
-        detail     = sanitize_terminal_line(str(error))
+        detail = sanitize_terminal_line(str(error))
 
         description = error_type if not detail else f"{error_type}: {detail}"
         self.queue_background_block(failure_text_block(
@@ -689,8 +691,8 @@ class TuiRuntime(object):
             self._report_runtime_error(action.name, error)
             return None
 
-        error_type  = type(error).__name__
-        detail      = sanitize_terminal_line(str(error))
+        error_type = type(error).__name__
+        detail = sanitize_terminal_line(str(error))
         description = error_type if not detail else f"{error_type}: {detail}"
 
         title = (
@@ -1242,8 +1244,8 @@ class TuiRuntime(object):
     def _clear_active_inline_process(self) -> None:
         """清除当前活动 Shell 别名而不结束其独立 watcher 状态。"""
         self._inline_process_session_id = ""
-        self._inline_process_future     = None
-        self._inline_process_settled    = None
+        self._inline_process_future = None
+        self._inline_process_settled = None
 
     def _settle_inline_process(self, session_id: str) -> None:
         """释放正文 Shell 执行单元的生命周期状态。"""
@@ -1491,7 +1493,7 @@ class TuiRuntime(object):
         if not value.strip():
             return False
 
-        width      = self.terminal_width
+        width = self.terminal_width
         transcript = query_block(value, command_aware=False)
 
         renderer = partial(
@@ -1547,9 +1549,9 @@ class TuiRuntime(object):
         if not display_text:
             return False
 
-        width      = self.terminal_width
+        width = self.terminal_width
         transcript = query_block(display_text, command_aware=False)
-        renderer   = partial(query_display_block, display_text)
+        renderer = partial(query_display_block, display_text)
 
         self.append_block(
             renderer(width),
@@ -1579,10 +1581,10 @@ class TuiRuntime(object):
         """截断已分叉的本地正文并恢复选中的用户输入。"""
         document_state: TuiDocumentState = self.document.capture_state()
 
-        buffer       = self.screen.input.buffer
-        input_text   = buffer.text
+        buffer = self.screen.input.buffer
+        input_text = buffer.text
         input_cursor = buffer.cursor_position
-        view_row     = self.viewport.view_row
+        view_row = self.viewport.view_row
 
         try:
             if not self.document.truncate_before_turn(request.turn_id):
@@ -1998,7 +2000,7 @@ class TuiRuntime(object):
         self._menu_actions.clear()
 
         self._menu_action_scheduled = False
-        self._turn_progress_active  = False
+        self._turn_progress_active = False
 
         preserve_transcript = self.document.has_conversation
 
@@ -2198,15 +2200,15 @@ class TuiRuntime(object):
         if (
             visible
             and not (
-                submission_replaces_query(value)
-                and not literal_bang_paste
-            )
+            submission_replaces_query(value)
+            and not literal_bang_paste
+        )
             and not slash_command_notice_message(value)
         ):
             display_text = (
                 value.strip()
                 if isinstance(submission, TuiSubmission)
-                and not submission.shell_mode
+                   and not submission.shell_mode
                 else visible
             )
             transcript = query_block(display_text, command_aware=False)

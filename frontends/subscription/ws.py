@@ -1,20 +1,22 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
 import contextlib
+import typing
+
 from websockets.asyncio.client import ClientConnection
+
 from agent.ports import SubscriptionHost
 from observability import observe
 from protocol.client.payload import request_llm_conf
 from .client import AgentClient
+from .forwarding import AgentForwardHandler
 from .models import (
     AgentForwardRequest,
     AgentSessionRuntime,
     AgentLiveStatus,
 )
-from .forwarding import AgentForwardHandler
 
 ReadyCallback = typing.Callable[[], None]
 
@@ -210,7 +212,7 @@ def parse_forward_request(
 
 
 async def handle_server_message(
-        mind: SubscriptionHost,
+    mind: SubscriptionHost,
     client: AgentClient,
     connection: ClientConnection,
     runtime: AgentSessionRuntime,

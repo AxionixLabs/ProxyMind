@@ -3,19 +3,21 @@
 
 import typing
 from dataclasses import dataclass
+
 from prompt_toolkit.utils import get_cwidth
+
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )
 from agent.ports.presentation import TextStyle
 from ..core.models import FragmentBlock
-from ..rendering.fragments import clip_text
 from ..core.styles import prompt_style
+from ..rendering.fragments import clip_text
 
 COMMAND_SUMMARY_DEFAULT_WIDTH: int = 100
-COMMAND_SUMMARY_COMMAND_MAX: int   = 72
-COMMAND_SUMMARY_LINE_MAX: int      = 120
+COMMAND_SUMMARY_COMMAND_MAX: int = 72
+COMMAND_SUMMARY_LINE_MAX: int = 120
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,8 +96,8 @@ def command_summary_title_parts(
     terminal_width: int | None = None
 ) -> list[tuple[str, str]]:
     """返回命令面板摘要标题分段。"""
-    kind   = str(summary.kind or "Command").strip() or "Command"
-    width  = int(terminal_width or COMMAND_SUMMARY_DEFAULT_WIDTH)
+    kind = str(summary.kind or "Command").strip() or "Command"
+    width = int(terminal_width or COMMAND_SUMMARY_DEFAULT_WIDTH)
 
     suffix = clip_text(
         str(summary.suffix or ""),
@@ -136,7 +138,7 @@ def _summary_command_text(
     if not text:
         text = fallback
 
-    width        = int(terminal_width or COMMAND_SUMMARY_DEFAULT_WIDTH)
+    width = int(terminal_width or COMMAND_SUMMARY_DEFAULT_WIDTH)
     prefix_width = get_cwidth(f"• {kind} ")
 
     available = min(

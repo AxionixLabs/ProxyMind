@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import sys
-import signal
-import typing
 import asyncio
+import signal
+import sys
 import threading
+import typing
 from types import FrameType
+
 from agent.application import RuntimeServices
-from infrastructure.errors import AppError
-from infrastructure.config.schema import ConfigOverride
 from frontends.tui.features.conversation import ConversationCompactorFactory
+from infrastructure.config.schema import ConfigOverride
+from infrastructure.errors import AppError
 from observability import reset_sinks
 from .commands import (
     CompletionCommand,
@@ -25,11 +26,11 @@ from .commands import (
     ParsedCommand,
     SessionArchiveCommand
 )
-from .parser import parse_cli_invocation
 from .dispatch import (
     EnvironmentSnapshotProvider,
     RootTurnRunner,
 )
+from .parser import parse_cli_invocation
 
 if typing.TYPE_CHECKING:
     from agent.ports.presentation import ApplicationSink
@@ -199,11 +200,11 @@ async def main(
         )
 
     if isinstance(command, (
-        McpListCommand,
-        McpGetCommand,
-        McpAddCommand,
-        McpRemoveCommand,
-        McpSetEnabledCommand,
+            McpListCommand,
+            McpGetCommand,
+            McpAddCommand,
+            McpRemoveCommand,
+            McpSetEnabledCommand,
     )):
         from .mcp_registry import run_mcp_registry_command
 

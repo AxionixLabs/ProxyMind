@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from dataclasses import dataclass
+
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
+
 from frontends.tui.contracts.menu import MenuRequest
 from frontends.tui.contracts.views import (
     ViewCompletion,

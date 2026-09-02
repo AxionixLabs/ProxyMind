@@ -49,7 +49,7 @@ async def open_local_mcp_session() -> typing.AsyncIterator[ClientSession]:
             token_cache["ts"] = now
         req.headers["Authorization"] = f"Bearer {token_cache['val']}"
 
-    timeout     = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
+    timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
     event_hooks = {"request": [inject_auth], "response": [cap_response]}
 
     async with httpx.AsyncClient(timeout=timeout, event_hooks=event_hooks, trust_env=False) as client:

@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
-import typing
 import asyncio
 import inspect
+import time
+import typing
+
+from agent.ports.frontend import ActivityStatusKind
+from infrastructure.errors import AppError
+from infrastructure.services.runtime_setup import service_runtime_asset_missing
 from observability import (
     observe,
     observe_exception
 )
-from infrastructure.errors import AppError
-from agent.ports.frontend import ActivityStatusKind
-from infrastructure.services.runtime_setup import service_runtime_asset_missing
-from ..runtime.ports import ForegroundRuntimePort
 from ..core.interrupt import InterruptDisposition
 from ..core.styles import (
     MUTED_STYLE,
@@ -40,6 +40,7 @@ from ..features.mcp import (
     run_mcp_action
 )
 from ..prompting.commands import matches_command
+from ..runtime.ports import ForegroundRuntimePort
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
@@ -51,7 +52,7 @@ SucceededHandler = typing.Callable[
     typing.Awaitable[None] | None
 ]
 
-FailedHandler    = typing.Callable[[BaseException], None]
+FailedHandler = typing.Callable[[BaseException], None]
 CancelledHandler = typing.Callable[[], None]
 
 
@@ -60,7 +61,7 @@ class TuiForegroundTasks(object):
 
     def __init__(self, runtime: ForegroundRuntimePort, mind: "TuiApplicationHost") -> None:
         self.runtime = runtime
-        self.mind    = mind
+        self.mind = mind
 
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
@@ -172,6 +173,7 @@ class TuiForegroundTasks(object):
         on_succeeded: typing.Callable[[], None] | None = None,
     ) -> bool:
         """按统一生命周期启动监听器状态切换任务。"""
+
         def finish(outcome: typing.Any) -> None:
             """展示监听器结果并通知会话级依赖刷新绑定。"""
             render_listener_result(self.mind, outcome)

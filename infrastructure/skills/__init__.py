@@ -15,6 +15,5 @@ __all__ = [
     "skills_payload"
 ]
 
-
 if __name__ == '__main__':
     pass

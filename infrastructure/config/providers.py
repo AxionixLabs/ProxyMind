@@ -4,10 +4,10 @@
 import re
 
 OPENAI_COMPATIBLE_PROVIDER_KIND = "openai_compatible"
-OPENAI_PROVIDER_KIND            = "openai"
-ANTHROPIC_PROVIDER_KIND         = "anthropic"
+OPENAI_PROVIDER_KIND = "openai"
+ANTHROPIC_PROVIDER_KIND = "anthropic"
 
-DEFAULT_PROVIDER_ID   = "openai-main"
+DEFAULT_PROVIDER_ID = "openai-main"
 DEFAULT_PROVIDER_KIND = OPENAI_PROVIDER_KIND
 
 SUPPORTED_PROVIDER_OPTIONS = (
@@ -22,7 +22,7 @@ SUPPORTED_PROVIDER_KINDS = frozenset(
 
 PROVIDER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
-DEFAULT_ROUTE_NAME   = "responses"
+DEFAULT_ROUTE_NAME = "responses"
 ANTHROPIC_ROUTE_NAME = "messages"
 
 SUPPORTED_ROUTE_NAMES = {
@@ -31,7 +31,7 @@ SUPPORTED_ROUTE_NAMES = {
     ANTHROPIC_ROUTE_NAME,
 }
 
-DEFAULT_REASONING_EFFORT    = "medium"
+DEFAULT_REASONING_EFFORT = "medium"
 SUPPORTED_REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
 
 

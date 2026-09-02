@@ -71,8 +71,8 @@ class Terminal(object):
         )
         os.close(slave_fd)
 
-        looper   = asyncio.get_running_loop()
-        reader   = asyncio.StreamReader()
+        looper = asyncio.get_running_loop()
+        reader = asyncio.StreamReader()
         protocol = asyncio.StreamReaderProtocol(reader)
 
         await looper.connect_read_pipe(

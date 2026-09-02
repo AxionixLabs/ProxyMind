@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from frontends.tui.contracts.pager import StaticPagerRequest
 
 

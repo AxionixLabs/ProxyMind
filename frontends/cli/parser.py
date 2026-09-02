@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import argparse
 import sys
 import typing
-import argparse
+
 from metadata import const
 from .arguments import (
     HELIX_FLAGS,

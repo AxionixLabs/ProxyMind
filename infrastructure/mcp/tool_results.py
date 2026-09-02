@@ -115,8 +115,8 @@ def _normalize_fields(
     normalized_attachments = _normalize_attachments(structured_attachments)
     normalized_attachments.extend(_normalize_attachments(attachments))
 
-    fields["ok"]          = bool(ok)
-    fields["text"]        = str(text or "")
+    fields["ok"] = bool(ok)
+    fields["text"] = str(text or "")
     fields["attachments"] = normalized_attachments
 
     fields.setdefault("data", {})
@@ -142,9 +142,9 @@ def _content_parts(
     content: list[mcp_types.ContentBlock]
 ) -> tuple[list[str], list[dict[str, typing.Any]], list[str]]:
     """提取 MCP 内容块中的文本、附件和无文本摘要。"""
-    texts: list[str]                         = []
+    texts: list[str] = []
     attachments: list[dict[str, typing.Any]] = []
-    summaries: list[str]                     = []
+    summaries: list[str] = []
 
     for item in content:
         if isinstance(item, mcp_types.TextContent):
@@ -154,28 +154,28 @@ def _content_parts(
 
         if isinstance(item, mcp_types.ImageContent):
             attachments.append({
-                "kind"      : "image",
-                "mime_type" : item.mimeType,
-                "data_url"  : _data_url(item.mimeType, item.data),
+                "kind": "image",
+                "mime_type": item.mimeType,
+                "data_url": _data_url(item.mimeType, item.data),
             })
             summaries.append(f"Image output ({item.mimeType}).")
             continue
 
         if isinstance(item, mcp_types.AudioContent):
             attachments.append({
-                "kind"      : "audio",
-                "mime_type" : item.mimeType,
-                "data_url"  : _data_url(item.mimeType, item.data),
+                "kind": "audio",
+                "mime_type": item.mimeType,
+                "data_url": _data_url(item.mimeType, item.data),
             })
             summaries.append(f"Audio output ({item.mimeType}).")
             continue
 
         if isinstance(item, mcp_types.ResourceLink):
             attachment: dict[str, typing.Any] = {
-                "kind"      : "resource_link",
-                "name"      : item.name,
-                "uri"       : str(item.uri),
-                "mime_type" : item.mimeType,
+                "kind": "resource_link",
+                "name": item.name,
+                "uri": str(item.uri),
+                "mime_type": item.mimeType,
             }
             if item.title:
                 attachment["title"] = item.title
@@ -190,24 +190,24 @@ def _content_parts(
         if isinstance(item, mcp_types.EmbeddedResource):
 
             resource = item.resource
-            uri      = str(resource.uri)
+            uri = str(resource.uri)
 
             if isinstance(resource, mcp_types.TextResourceContents):
                 if resource.text:
                     texts.append(resource.text)
                 attachments.append({
-                    "kind"      : "embedded_resource",
-                    "uri"       : uri,
-                    "mime_type" : resource.mimeType,
+                    "kind": "embedded_resource",
+                    "uri": uri,
+                    "mime_type": resource.mimeType,
                 })
                 summaries.append(f"Embedded resource: {uri}.")
                 continue
 
             attachments.append({
-                "kind"      : "embedded_resource",
-                "uri"       : uri,
-                "mime_type" : resource.mimeType,
-                "data_url"  : _data_url(
+                "kind": "embedded_resource",
+                "uri": uri,
+                "mime_type": resource.mimeType,
+                "data_url": _data_url(
                     resource.mimeType or "application/octet-stream",
                     resource.blob,
                 ),

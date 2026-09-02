@@ -2,15 +2,17 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
+from agent.application.views import (
+    HookOutputView,
+    HookRunView,
+)
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle,
 )
-from agent.application.views import (
-    HookOutputView,
-    HookRunView,
-)
+from frontends.terminal.formatting import format_duration_ms
 from frontends.terminal.styles import (
     ERROR_DOT_STYLE,
     SUCCESS_DOT_STYLE,
@@ -20,7 +22,6 @@ from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text
 )
-from frontends.terminal.formatting import format_duration_ms
 from frontends.terminal.text_layout import layout_styled_line
 
 _MUTED_STYLE = TextStyle(foreground="#7F8C9A", dim=True)

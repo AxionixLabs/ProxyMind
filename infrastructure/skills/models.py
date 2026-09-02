@@ -19,18 +19,18 @@ class SkillSpec:
     def scope_for_source(source: str) -> str:
         """把本地来源映射为服务端技能作用域。"""
         return {
-            "project" : "repo",
-            "user"    : "user",
-            "bundled" : "global"
+            "project": "repo",
+            "user": "user",
+            "bundled": "global"
         }.get(source, source)
 
     def payload(self) -> dict[str, str]:
         """返回可放入模型请求的轻量载荷。"""
         return {
-            "name"        : self.name,
-            "description" : self.description,
-            "path"        : str(self.entry),
-            "scope"       : self.scope_for_source(self.source)
+            "name": self.name,
+            "description": self.description,
+            "path": str(self.entry),
+            "scope": self.scope_for_source(self.source)
         }
 
 

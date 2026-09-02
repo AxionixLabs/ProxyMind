@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
 import platform
+import typing
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
 from agent.application import TurnApplication
 from agent.ports import SubscriptionHost
 from infrastructure.config.runtime_paths import agent_runtime_db_path
+from metadata import const
 from observability import observe_exception
 from protocol.transport.endpoints import service_endpoints
-from metadata import const
 from .client import AgentClient
 from .forwarding import (
     AgentExecutor,

@@ -77,6 +77,5 @@ __all__ = (
     "build_client_tool_registry",
 )
 
-
 if __name__ == "__main__":
     pass

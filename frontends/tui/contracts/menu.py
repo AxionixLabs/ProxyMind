@@ -4,8 +4,8 @@
 import typing
 from dataclasses import dataclass
 from enum import Enum
-from .text import FormattedLine
 
+from .text import FormattedLine
 
 STANDARD_MENU_FOOTER_HINT: typing.Final[str] = (
     "Press enter to confirm or esc to go back"
@@ -100,9 +100,9 @@ class MenuRequest(object):
     search_placeholder: str = "Search"
     search_matcher: typing.Callable[[str, MenuOption], bool] | None = None
     search_ranker: typing.Callable[
-        [str, MenuOption],
-        tuple[int, str] | None,
-    ] | None = None
+                       [str, MenuOption],
+                       tuple[int, str] | None,
+                   ] | None = None
     search_prompt_prefix: str = "  Search: "
     search_prompt_style: str = ""
     search_help_text: str = ""

@@ -18,8 +18,8 @@ def _load_skill(directory: Path, *, source: str) -> SkillSpec | None:
     if not entry.is_file():
         return None
 
-    metadata    = parse_skill_frontmatter(entry)
-    name        = str(metadata.get("name") or directory.name).strip()
+    metadata = parse_skill_frontmatter(entry)
+    name = str(metadata.get("name") or directory.name).strip()
     description = str(metadata.get("description") or "").strip()
 
     if not name or not description:
@@ -111,8 +111,8 @@ def _configured_skill_filters(config: dict) -> dict[str, list[str]]:
         return {"enabled": [], "disabled": []}
 
     return {
-        "enabled"  : list(skills.get("enabled") or []),
-        "disabled" : list(skills.get("disabled") or [])
+        "enabled": list(skills.get("enabled") or []),
+        "disabled": list(skills.get("disabled") or [])
     }
 
 
@@ -133,7 +133,7 @@ def filter_skills(
     disabled: object = None
 ) -> tuple[SkillSpec, ...]:
     """按 enabled 白名单和 disabled 黑名单过滤 skills。"""
-    enabled_names  = _skill_names(enabled)
+    enabled_names = _skill_names(enabled)
     disabled_names = _skill_names(disabled)
 
     filtered = []

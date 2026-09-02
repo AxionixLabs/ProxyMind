@@ -82,13 +82,13 @@ def _as_str_list(value: typing.Any) -> list[str]:
 
 def _normalize_hosted_tools(raw: typing.Any) -> dict[str, typing.Any]:
     """规范化云端托管工具配置。"""
-    data   = _as_dict(raw)
+    data = _as_dict(raw)
     groups = _as_dict(data.get("groups"))
 
     return {
         "groups": {
-            "perf_engine"   : _as_bool(groups.get("perf_engine"), False),
-            "sandbox_cloud" : _as_bool(groups.get("sandbox_cloud"), False)
+            "perf_engine": _as_bool(groups.get("perf_engine"), False),
+            "sandbox_cloud": _as_bool(groups.get("sandbox_cloud"), False)
         }
     }
 
@@ -97,7 +97,7 @@ def _normalize_model_slot(data: dict[str, typing.Any]) -> dict[str, typing.Any]:
     """把外部模型配置转换为稳定的 primary 槽位。"""
     provider_id = _as_str(data.get("model_provider")).strip()
 
-    providers       = _as_dict(data.get("model_providers"))
+    providers = _as_dict(data.get("model_providers"))
     provider_config = _as_dict(providers.get(provider_id))
 
     kind = (
@@ -108,7 +108,7 @@ def _normalize_model_slot(data: dict[str, typing.Any]) -> dict[str, typing.Any]:
         or DEFAULT_PROVIDER_KIND
     )
 
-    model         = _as_str(provider_config.get("model")).strip()
+    model = _as_str(provider_config.get("model")).strip()
     default_route = default_route_for_kind(kind)
 
     route = (
@@ -159,15 +159,15 @@ def _default_effective_config() -> dict[str, typing.Any]:
         "approval_policy": "",
         "approvals_reviewer": "user",
         "network_access": "restricted",
-        "service" : {
-            "domain" : ""
+        "service": {
+            "domain": ""
         },
-        "model"   : {
-            "primary" : _default_model_slot(enabled=False)
+        "model": {
+            "primary": _default_model_slot(enabled=False)
         },
-        "skills"  : {
-            "enabled"  : [],
-            "disabled" : []
+        "skills": {
+            "enabled": [],
+            "disabled": []
         },
         "features": normalize_feature_table(None),
         "hooks": {},
@@ -198,12 +198,12 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
 
     _validate_effective_model_profiles(data)
 
-    defaults    = _default_effective_config()
-    service     = _as_dict(data.get("service"))
-    skills      = _as_dict(data.get("skills"))
-    hosted      = _as_dict(data.get("hosted_tools"))
+    defaults = _default_effective_config()
+    service = _as_dict(data.get("service"))
+    skills = _as_dict(data.get("skills"))
+    hosted = _as_dict(data.get("hosted_tools"))
     mcp_servers = _as_dict(data.get("mcp_servers"))
-    tui         = _as_dict(data.get("tui"))
+    tui = _as_dict(data.get("tui"))
 
     _validate_effective_mcp_servers(mcp_servers)
 
@@ -344,18 +344,18 @@ ROOT_CONFIG_FIELDS = frozenset({
     "tui",
 })
 
-SERVICE_FIELDS           = frozenset({"domain"})
-SKILL_FIELDS             = frozenset({"enabled", "disabled"})
-HOSTED_TOOL_FIELDS       = frozenset({"groups"})
+SERVICE_FIELDS = frozenset({"domain"})
+SKILL_FIELDS = frozenset({"enabled", "disabled"})
+HOSTED_TOOL_FIELDS = frozenset({"groups"})
 HOSTED_TOOL_GROUP_FIELDS = frozenset({"perf_engine", "sandbox_cloud"})
-PROJECT_FIELDS           = frozenset({"trust_level"})
+PROJECT_FIELDS = frozenset({"trust_level"})
 
 TUI_FIELDS = frozenset({
     "keymap",
     "scrollback_reflow_line_limit",
 })
 
-TUI_KEYMAP_FIELDS        = frozenset({"global", "pager"})
+TUI_KEYMAP_FIELDS = frozenset({"global", "pager"})
 TUI_GLOBAL_KEYMAP_FIELDS = frozenset({"open_transcript"})
 
 TUI_PAGER_KEYMAP_FIELDS = frozenset({
@@ -639,10 +639,10 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
             )
 
     for path in (
-        *STRING_CONFIG_PATHS,
-        *BOOL_CONFIG_PATHS,
-        *INTEGER_CONFIG_PATHS,
-        *STRING_LIST_CONFIG_PATHS,
+            *STRING_CONFIG_PATHS,
+            *BOOL_CONFIG_PATHS,
+            *INTEGER_CONFIG_PATHS,
+            *STRING_LIST_CONFIG_PATHS,
     ):
         present, value = _raw_path_value(config, path)
         if present:
@@ -672,7 +672,7 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
                         provider[field],
                     )
 
-            kind  = str(provider.get("kind") or "").strip().lower()
+            kind = str(provider.get("kind") or "").strip().lower()
             route = str(provider.get("route") or "").strip().lower()
 
             if kind and route and route not in supported_routes_for_kind(kind):
@@ -731,7 +731,7 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
 
 def _normalize_tui_config(value: typing.Any) -> dict[str, typing.Any]:
     """规范化终端交互配置并保留显式按键解绑。"""
-    tui    = _as_dict(value)
+    tui = _as_dict(value)
     keymap = _as_dict(tui.get("keymap"))
 
     return {
@@ -895,7 +895,7 @@ def _validate_effective_mcp_servers(
             continue
 
         command = str(value.get("command") or "").strip()
-        url     = str(value.get("url") or "").strip()
+        url = str(value.get("url") or "").strip()
 
         if bool(command) == bool(url):
             raise ConfigValidationError(

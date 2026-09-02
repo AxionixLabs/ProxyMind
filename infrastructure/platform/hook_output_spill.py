@@ -13,7 +13,7 @@ from pathlib import Path
 from metadata import const
 
 DEFAULT_OUTPUT_THRESHOLD_BYTES = 256 * 1024
-OUTPUT_PREVIEW_BYTES           = 8 * 1024
+OUTPUT_PREVIEW_BYTES = 8 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +102,7 @@ class HookOutputSpillStore:
             raise ValueError("hook output threshold must be greater than 0")
         self.threshold_bytes = threshold
 
-        self._root      = root
+        self._root = root
         self._owns_root = root is None
 
         self._session_files: dict[str, set[Path]] = {}
@@ -119,12 +119,12 @@ class HookOutputSpillStore:
             return CapturedHookOutput()
 
         buffered = bytearray()
-        head     = bytearray()
-        tail     = bytearray()
+        head = bytearray()
+        tail = bytearray()
 
         size_bytes = 0
 
-        spill_path: Path | None            = None
+        spill_path: Path | None = None
         spill_file: typing.BinaryIO | None = None
 
         try:
@@ -190,7 +190,7 @@ class HookOutputSpillStore:
 
     async def cleanup_session(self, session_id: str) -> None:
         """删除指定会话产生的全部 spill 文件。"""
-        paths   = self._session_files.pop(str(session_id or ""), set())
+        paths = self._session_files.pop(str(session_id or ""), set())
         parents = {path.parent for path in paths}
 
         for path in paths:
@@ -218,9 +218,9 @@ class HookOutputSpillStore:
         channel: str
     ) -> tuple[Path, typing.BinaryIO]:
         """创建并登记一个输出临时文件。"""
-        root        = self._ensure_root()
+        root = self._ensure_root()
         session_key = str(session_id or "session")
-        digest      = hashlib.sha256(session_key.encode(const.CHARSET)).hexdigest()[:16]
+        digest = hashlib.sha256(session_key.encode(const.CHARSET)).hexdigest()[:16]
 
         session_dir = root / digest
         session_dir.mkdir(parents=True, exist_ok=True)

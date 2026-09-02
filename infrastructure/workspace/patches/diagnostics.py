@@ -71,7 +71,7 @@ class PatchDiagnostics(WorkspaceComponent):
         scored.sort(key=lambda x: (-float(x["score"]), int(x["line_start"])))
 
         deduped: list[dict[str, typing.Any]] = []
-        seen: set[tuple[int, int, str]]      = set()
+        seen: set[tuple[int, int, str]] = set()
 
         for item in scored:
             key = (
@@ -186,4 +186,3 @@ class PatchDiagnostics(WorkspaceComponent):
 
 if __name__ == '__main__':
     pass
-

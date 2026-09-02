@@ -5,15 +5,13 @@ from dataclasses import (
     dataclass,
     replace
 )
+
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.utils import get_cwidth
+
 from frontends.tui.contracts.menu import (
     MenuOption,
     MenuRequest
-)
-from ..fragments import (
-    clip_fragments,
-    clip_text
 )
 from .layout import (
     rows_width,
@@ -37,6 +35,10 @@ from .selection import (
     visible_window
 )
 from .state import MenuState
+from ..fragments import (
+    clip_fragments,
+    clip_text
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +128,7 @@ def surface_fragments(
         )
 
         prompt_prefix = request.search_prompt_prefix
-        prompt_style  = request.search_prompt_style or query_style
+        prompt_style = request.search_prompt_style or query_style
 
         header.extend([
             (prompt_style, prompt_prefix),
@@ -143,7 +145,7 @@ def surface_fragments(
     rows_out: StyleAndTextTuples = []
 
     for offset, option in enumerate(options):
-        index  = visible_indices[offset]
+        index = visible_indices[offset]
         active = index == state.selected and not option_is_disabled(option)
 
         index_style = (
@@ -255,7 +257,7 @@ def menu_fragments(
 ) -> StyleAndTextTuples:
     """生成包含独立 footer 的完整菜单片段。"""
     surface = surface_fragments(state, width=width, config=config)
-    footer  = surface_footer_fragments(state, width=width, config=config)
+    footer = surface_footer_fragments(state, width=width, config=config)
 
     if not footer:
         return surface
@@ -303,11 +305,11 @@ def _request_footer_fragments(
         right_text, right_active = _footer_right_content(request)
         if right_text:
 
-            right       = clip_text(right_text, width=inner_width)
+            right = clip_text(right_text, width=inner_width)
             right_width = get_cwidth(right)
-            left_width  = max(1, inner_width - right_width - 1)
-            left        = clip_text(request.footer_hint, width=left_width)
-            gap         = max(1, inner_width - get_cwidth(left) - right_width)
+            left_width = max(1, inner_width - right_width - 1)
+            left = clip_text(request.footer_hint, width=left_width)
+            gap = max(1, inner_width - get_cwidth(left) - right_width)
 
             out.extend([
                 ("class:tui-menu.footer.hint", left),
@@ -336,7 +338,7 @@ def _right_footer_fragments(
         return [("class:tui-menu.footer.right", text)]
 
     start = text.index(active)
-    end   = start + len(active)
+    end = start + len(active)
 
     return [
         ("class:tui-menu.footer.right", text[:start]),
@@ -350,7 +352,7 @@ def _footer_right_content(request: MenuRequest) -> tuple[str, str]:
     if not request.tabs:
         return request.footer_right, request.footer_right_active
 
-    active_id    = request.active_tab_id
+    active_id = request.active_tab_id
     active_label = ""
 
     labels: list[str] = []

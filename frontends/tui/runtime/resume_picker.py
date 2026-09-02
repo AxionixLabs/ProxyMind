@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
-from frontends.tui.contracts.screen import ResumePickerScreenPort
+import typing
+
 from frontends.tui.contracts.resume import (
     ResumePickerRequest,
     ResumePickerResult,
@@ -11,6 +11,7 @@ from frontends.tui.contracts.resume import (
     ResumePreviewStatus,
     ResumeRow
 )
+from frontends.tui.contracts.screen import ResumePickerScreenPort
 
 
 class ResumePickerViewportPort(typing.Protocol):
@@ -36,14 +37,14 @@ class ResumePickerCoordinator(object):
         cancel_history_backtrack: typing.Callable[[], None],
     ) -> None:
         self._viewport = viewport
-        self._screen   = screen
+        self._screen = screen
 
         self._cancel_history_backtrack = cancel_history_backtrack
 
         self._next_generation: int = 1
 
-        self._active_generation: int | None           = None
-        self._request: ResumePickerRequest | None     = None
+        self._active_generation: int | None = None
+        self._request: ResumePickerRequest | None = None
         self._preview_task: asyncio.Task[None] | None = None
 
     @property

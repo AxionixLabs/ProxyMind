@@ -1,27 +1,29 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
+import contextlib
+import functools
 import math
 import typing
-import asyncio
-import functools
-import contextlib
 from dataclasses import dataclass
 from pathlib import Path
+
 from mcp.server.fastmcp import (
     Context,
     FastMCP,
 )
+
 from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application import RuntimeServices
+from agent.application.config.settings import AgentSettings
+from agent.application.config.settings import FeatureSettings
 from agent.application.turns.commands import (
     SubmitTurnCommand,
     TurnApplication,
 )
 from agent.application.turns.projections import RunResultProjection
 from agent.application.turns.run_result import RunResult
-from agent.application.config.settings import AgentSettings
-from agent.application.config.settings import FeatureSettings
 from agent.domain.policies import (
     PermissionSettings,
     resolve_permissions,
@@ -31,10 +33,15 @@ from agent.ports import (
     ProcessResourcePort,
     RootConversationPort,
 )
+from frontends.interaction import NonInteractiveInteraction
+from frontends.output.application import NullApplicationSink
+from frontends.output.silent import create_silent_output_session
+from frontends.runtime import Frontend
 from infrastructure.config.paths import (
     ApplicationLayout,
     resolve_application_layout,
 )
+from infrastructure.config.preferences import Preferences
 from infrastructure.config.runtime_paths import (
     agent_runtime_db_path,
     ensure_mind_home,
@@ -44,13 +51,9 @@ from infrastructure.config.runtime_paths import (
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
-from infrastructure.config.preferences import Preferences
-from infrastructure.services.service_config import ServiceConfig
 from infrastructure.platform.shell_tools import route_shell_tools
-from frontends.runtime import Frontend
-from frontends.output.application import NullApplicationSink
-from frontends.interaction import NonInteractiveInteraction
-from frontends.output.silent import create_silent_output_session
+from infrastructure.services.service_config import ServiceConfig
+from metadata import const
 from observability.reporting import RunReport
 from protocol.schema.permissions import (
     ApprovalPolicy,
@@ -59,7 +62,6 @@ from protocol.schema.permissions import (
     normalize_network_access,
 )
 from protocol.transport.endpoints import service_endpoints
-from metadata import const
 
 DEFAULT_MCP_EXEC_TIMEOUT_SEC = 900.0
 
@@ -89,6 +91,7 @@ class McpApplicationHost(typing.Protocol):
     def set_history_workspace(self, workspace: str | Path) -> None:
         """切换当前调用使用的工作区。"""
         ...
+
 
 class McpApplicationHostFactory(typing.Protocol):
     """描述组合根注入的 MCP 应用宿主构造器。"""

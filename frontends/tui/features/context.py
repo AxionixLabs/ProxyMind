@@ -6,16 +6,17 @@ from pathlib import (
     Path,
     PurePath,
 )
+
 from infrastructure.config.preferences import config_to_preferences
+from infrastructure.config.providers import (
+    DEFAULT_REASONING_EFFORT,
+    SUPPORTED_REASONING_EFFORTS,
+)
 from infrastructure.config.schema import (
     ModelConfigField,
     model_config_field_values,
 )
 from infrastructure.config.session import ConfigSession
-from infrastructure.config.providers import (
-    DEFAULT_REASONING_EFFORT,
-    SUPPORTED_REASONING_EFFORTS,
-)
 
 WORKSPACE_LABEL_REFRESH: float = 5.0
 WORKSPACE_LABEL_UNKNOWN: str = "?"

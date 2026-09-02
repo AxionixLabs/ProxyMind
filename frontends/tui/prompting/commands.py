@@ -4,18 +4,20 @@
 import typing
 from dataclasses import dataclass
 from pathlib import Path
-from infrastructure.skills import SkillSpec
+
 from prompt_toolkit.completion import (
     Completer,
     Completion
 )
-from .skills import (
-    skill_completions,
-    skill_query_token
-)
+
+from infrastructure.skills import SkillSpec
 from .files import (
     FileSearchManager,
     file_completions
+)
+from .skills import (
+    skill_completions,
+    skill_query_token
 )
 
 StreamCommandPolicy = typing.Literal[
@@ -314,9 +316,9 @@ def _slash_command_token(document) -> tuple[str, int, int] | None:
         (
             index
             for index, char in enumerate(
-                first_line[slash_start:],
-                start=slash_start,
-            )
+            first_line[slash_start:],
+            start=slash_start,
+        )
             if char.isspace()
         ),
         len(first_line),
@@ -383,7 +385,7 @@ def resolve_tui_command(value: str) -> TuiCommandSpec | None:
 
     head, separator, tail = normalized.partition(" ")
 
-    command  = _COMMAND_BY_NAME.get(head)
+    command = _COMMAND_BY_NAME.get(head)
     argument = tail.strip()
 
     if command is None or not separator or not argument:
@@ -511,7 +513,7 @@ def stream_command_label(value: str) -> str:
 def submission_uses_transient_surface(value: str) -> bool:
     """判断完整命令是否会用临时交互表面接管输入区。"""
     normalized = str(value or "").strip().casefold()
-    command    = _COMMAND_BY_NAME.get(normalized)
+    command = _COMMAND_BY_NAME.get(normalized)
 
     return bool(command is not None and command.surface_on_bare)
 
@@ -527,18 +529,18 @@ def completion_changes_input(document, completion: Completion) -> bool:
     if slash_bounds is not None:
 
         token_end = slash_bounds[2]
-        cursor    = slash_bounds[3]
+        cursor = slash_bounds[3]
 
         if cursor < token_end:
             return True
 
         cursor = document.cursor_position
-        start  = cursor + completion.start_position
+        start = cursor + completion.start_position
 
         return document.text[:start] + completion.text != document.text
 
     before = document.text_before_cursor
-    start  = len(before) + completion.start_position
+    start = len(before) + completion.start_position
 
     return before[start:] != completion.text
 
@@ -629,7 +631,7 @@ class SlashCommandCompleter(Completer):
             candidates = [
                 item for item in self.COMMANDS
                 if item["display"].casefold().startswith(folded)
-                or item["text"].casefold().startswith(folded)
+                   or item["text"].casefold().startswith(folded)
             ]
 
             candidates.sort(

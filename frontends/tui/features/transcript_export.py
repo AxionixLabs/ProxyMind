@@ -3,11 +3,12 @@
 
 import os
 import re
-import typing
 import tempfile
+import typing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
 from infrastructure.config.runtime_paths import mind_reports_dir
 from metadata import const
 from ..core.document import TranscriptBlock

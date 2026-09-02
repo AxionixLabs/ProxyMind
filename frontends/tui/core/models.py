@@ -13,6 +13,7 @@ from frontends.tui.contracts.menu import (
     MenuRequest,
     MenuTab,
 )
+from frontends.tui.contracts.pager import StaticPagerRequest
 from frontends.tui.contracts.text import (
     FormattedLine,
     FormattedText,
@@ -30,7 +31,6 @@ from frontends.tui.contracts.views import (
     ViewCompletion,
     ViewIdentity,
 )
-from frontends.tui.contracts.pager import StaticPagerRequest
 
 __all__ = (
     "CLOSE_MENU_FOOTER_HINT",
@@ -56,7 +56,6 @@ __all__ = (
     "ViewIdentity",
     "StaticPagerRequest",
 )
-
 
 if __name__ == '__main__':
     pass

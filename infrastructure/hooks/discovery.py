@@ -39,9 +39,9 @@ _HANDLER_FIELDS = frozenset({
     "tool",
 })
 
-_DEFAULT_HOOK_TIMEOUT_SEC        = 600
+_DEFAULT_HOOK_TIMEOUT_SEC = 600
 _DEFAULT_SESSION_END_TIMEOUT_SEC = 1
-_MAX_SESSION_END_TIMEOUT_SEC     = 3
+_MAX_SESSION_END_TIMEOUT_SEC = 3
 
 HOOKS_FILE_NAME = "hooks.json"
 
@@ -137,9 +137,9 @@ def resolve_hook_source(
     warnings: list[str] | None = None
 ) -> HookSourceResolution:
     """解析单个 Hook 来源并保留事件存在信息。"""
-    path_text  = str(source_path.resolve()) if source_path is not None else None
+    path_text = str(source_path.resolve()) if source_path is not None else None
     source_key = path_text or source_scope
-    source     = path_text or source_scope
+    source = path_text or source_scope
 
     groups_by_event = _discover_hook_groups(
         raw,
@@ -167,7 +167,7 @@ def resolve_hook_source(
                             if handler["type"] == "mcp_tool" else ""
                         )
                         + f":{event}:{group.source_index}:"
-                        f"{normalized_handler.source_index}"
+                          f"{normalized_handler.source_index}"
                     ),
                     event=event,
                     handler=HookHandlerConfig(
@@ -401,7 +401,7 @@ def _discover_hook_state_table(raw: typing.Any) -> HookStateTable:
         ):
             continue
 
-        enabled      = raw_state.get("enabled")
+        enabled = raw_state.get("enabled")
         trusted_hash = raw_state.get("trusted_hash")
 
         if "enabled" in raw_state and not isinstance(enabled, bool):
@@ -612,7 +612,7 @@ def _normalize_hook_handler(
 
     if handler_type == "mcp_tool":
         mcp_server = raw.get("server")
-        mcp_tool   = raw.get("tool")
+        mcp_tool = raw.get("tool")
 
         if (
             not isinstance(mcp_server, str) or not mcp_server.strip()

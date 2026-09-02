@@ -1,54 +1,56 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
-import shutil
-import typing
 import asyncio
+import shutil
+import time
+import typing
+
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.utils import get_cwidth
+
 from agent.ports import UserShellPort
-from agent.ports.presentation import TextSpan
-from frontends.terminal.text import sanitize_terminal_text
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )
-from ..core.models import FragmentBlock
-from ..rendering.fragments import clip_text
+from agent.ports.presentation import TextSpan
+from frontends.terminal.text import sanitize_terminal_text
 from .context import (
     exec_status_display_label,
     split_exec_snapshot_by_origin
-)
-from ..core.status_frames import status_indicator_fragment
-from ..core.styles import (
-    BODY_STYLE,
-    BRIGHT_STYLE,
-    fragment_block,
 )
 from .summary import (
     CommandSummary,
     command_summary_text,
     command_summary_title_parts,
 )
+from ..core.models import FragmentBlock
+from ..core.status_frames import status_indicator_fragment
+from ..core.styles import (
+    BODY_STYLE,
+    BRIGHT_STYLE,
+    fragment_block,
+)
+from ..rendering.fragments import clip_text
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
     from ..runtime.ports import ProcessRuntimePort
 
-PS_EVENT_WAIT_TIMEOUT_SEC: float  = 1.0
-PS_INTERRUPT_GRACE_SEC: float     = 0.05
-PS_OUTPUT_LIMIT: int              = 120000
-PS_VISIBLE_OUTPUT_LINES: int      = 8
-PS_STREAM_VISIBLE_PROCESSES: int  = 3
+PS_EVENT_WAIT_TIMEOUT_SEC: float = 1.0
+PS_INTERRUPT_GRACE_SEC: float = 0.05
+PS_OUTPUT_LIMIT: int = 120000
+PS_VISIBLE_OUTPUT_LINES: int = 8
+PS_STREAM_VISIBLE_PROCESSES: int = 3
 PS_HISTORY_VISIBLE_PROCESSES: int = 16
-PS_STREAM_OUTPUT_LINES: int       = 3
+PS_STREAM_OUTPUT_LINES: int = 3
 
 PROCESS_STATUS_EVENT_WAIT_SEC: float = 3600.0
 
 SHELL_VISIBLE_OUTPUT_LINES: int = 50
 SHELL_ACTIVITY_FRAME_SEC: float = 0.08
-SHELL_TRANSCRIPT_HINT: str      = "ctrl + t to view transcript"
+SHELL_TRANSCRIPT_HINT: str = "ctrl + t to view transcript"
 
 ExecSnapshotMode: typing.TypeAlias = typing.Literal[
     "stream",
@@ -188,16 +190,16 @@ def _without_running_session(
     runtime: "ProcessRuntimePort"
 ) -> dict[str, typing.Any]:
     """返回按来源和当前会话过滤后的后台进程快照。"""
-    current        = dict(snapshot) if isinstance(snapshot, dict) else {}
-    excluded       = str(session_id or "").strip()
+    current = dict(snapshot) if isinstance(snapshot, dict) else {}
+    excluded = str(session_id or "").strip()
     background_ids = frozenset(runtime.background_process_session_ids)
-    inline_ids     = frozenset(runtime.inline_process_session_ids)
+    inline_ids = frozenset(runtime.inline_process_session_ids)
 
     items = [
         item
         for item in _running_items(current)
         if not excluded
-        or str(item.get("session_id") or "").strip() != excluded
+           or str(item.get("session_id") or "").strip() != excluded
         if _is_background_session_item(
             item,
             inline_ids=inline_ids,
@@ -328,7 +330,7 @@ async def _append_exec_snapshot(
 ) -> None:
     """读取后台会话并按指定表面提交一次摘要。"""
     try:
-        listing  = await mind.workspace_runtime.coding.running_exec_sessions()
+        listing = await mind.workspace_runtime.coding.running_exec_sessions()
         excluded_session_id = runtime.inline_process_session_id
         sessions = _without_running_session(
             listing,
@@ -682,8 +684,8 @@ async def _watch_user_shell_session(
                 )
                 return None
 
-            state["snapshot"]      = current_snapshot
-            state["updated_at"]    = time.time()
+            state["snapshot"] = current_snapshot
+            state["updated_at"] = time.time()
             state["last_snapshot"] = current_snapshot
 
             updated_block = exec_session_user_shell_block(
@@ -810,7 +812,7 @@ def exec_session_user_shell_block(
 ) -> FragmentBlock:
     """生成手动 Shell 的瀑布式执行单元。"""
     current = snapshot if isinstance(snapshot, dict) else {}
-    width   = _terminal_width(terminal_width)
+    width = _terminal_width(terminal_width)
 
     snapshot_failed = current.get("ok") is False
 
@@ -845,7 +847,7 @@ def exec_session_user_shell_block(
         )
         dot_glyph = "•"
 
-    title_style   = "class:shell.title.action"
+    title_style = "class:shell.title.action"
     command_style = "class:shell.title.command"
 
     title = "Running" if is_running else "You ran"
@@ -1288,11 +1290,11 @@ def _shell_output_lines(
         lines = [str(line) for line in raw_lines]
     else:
         output = str(snapshot.get("output") or "")
-        lines  = output.splitlines()
+        lines = output.splitlines()
 
     max_lines = max(1, int(limit or 1))
-    dropped   = max(0, int(snapshot.get("output_lines_dropped") or 0))
-    total     = dropped + len(lines)
+    dropped = max(0, int(snapshot.get("output_lines_dropped") or 0))
+    total = dropped + len(lines)
 
     retained_head_count = min(total, max_lines, len(lines))
 
@@ -1311,10 +1313,10 @@ def _shell_output_lines(
 
     wrap_width = max(1, int(width or 1))
     selected = [
-        (line, "head") for line in head
-    ] + [
-        (line, "tail") for line in tail
-    ]
+                   (line, "head") for line in head
+               ] + [
+                   (line, "tail") for line in tail
+               ]
     wrapped_entries = [
         (_wrap_shell_line(line, wrap_width), side)
         for line, side in selected
@@ -1405,8 +1407,8 @@ def _wrap_shell_line(value: typing.Any, width: int) -> list[str]:
     if not text:
         return [""]
 
-    max_width: int     = max(1, int(width or 1))
-    lines: list[str]   = []
+    max_width: int = max(1, int(width or 1))
+    lines: list[str] = []
     current: list[str] = []
     current_width: int = 0
 

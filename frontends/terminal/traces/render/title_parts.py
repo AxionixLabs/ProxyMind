@@ -3,6 +3,7 @@
 
 import re
 import typing
+
 from agent.ports.presentation import (
     TextSpan,
     TextStyle,
@@ -179,10 +180,10 @@ def _plain_body_parts(
 def _split_action(body: str) -> tuple[str, str]:
     """拆分标题动作前缀和剩余文本。"""
     for action in (
-        "Function Calling",
-        "Function Invoked",
-        "Interacted with background terminal",
-        "Waited for background terminal",
+            "Function Calling",
+            "Function Invoked",
+            "Interacted with background terminal",
+            "Waited for background terminal",
     ):
         if body == action:
             return action, ""

@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import sys
-import operator
 import functools
-from infrastructure.errors import AppError
-from frontends.runtime import Frontend
+import operator
+import sys
+
 from frontends.interaction import NonInteractiveInteraction
+from frontends.runtime import Frontend
 from frontends.terminal.contracts import TerminalDesign
+from infrastructure.errors import AppError
 from metadata import const
 from .selection import OutputMode
 

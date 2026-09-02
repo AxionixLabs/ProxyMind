@@ -3,26 +3,31 @@
 
 import json
 import typing
-from agent.application.views.commands import command_text
-from agent.application.views.tool_display import (
-    ToolDisplayKind,
-    tool_display_spec
-)
-from ..formatting import format_duration_ms
-from frontends.terminal.text_layout import (
-    clip_display_text,
-    text_display_width,
-)
-from frontends.terminal.text import sanitize_terminal_line
+
 from agent.application.views import (
     GenericToolResultView,
     NativeToolResultView,
     ToolStartView,
 )
+from agent.application.views.commands import command_text
+from agent.application.views.tool_display import (
+    ToolDisplayKind,
+    tool_display_spec
+)
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle,
+)
+from frontends.terminal.text import sanitize_terminal_line
+from frontends.terminal.text_layout import (
+    clip_display_text,
+    text_display_width,
+)
+from frontends.terminal.traces.generic import render_generic_tool_result_preview
+from frontends.terminal.traces.models import (
+    TraceEntry,
+    TracePreview,
 )
 from frontends.terminal.traces.native import (
     render_tool_result_entries,
@@ -30,12 +35,8 @@ from frontends.terminal.traces.native import (
     render_tool_start_trace,
     render_tool_trace
 )
-from frontends.terminal.traces.generic import render_generic_tool_result_preview
-from frontends.terminal.traces.models import (
-    TraceEntry,
-    TracePreview,
-)
 from frontends.terminal.traces.render import render_tool_trace_parts
+from ..formatting import format_duration_ms
 
 TRANSCRIPT_SUCCESS_STYLE = TextStyle(foreground="#6EE7A8", bold=True)
 TRANSCRIPT_FAILURE_STYLE = TextStyle(foreground="#FF6B6B", bold=True)

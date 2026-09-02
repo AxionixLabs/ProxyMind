@@ -59,7 +59,7 @@ async def build_tool_context(
     )
 
     list_tools = await active_session.list_tools()
-    tools      = build_wire_tools(list_tools)
+    tools = build_wire_tools(list_tools)
 
     return McpToolContext(
         session=active_session,

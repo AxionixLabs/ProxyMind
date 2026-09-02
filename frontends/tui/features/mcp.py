@@ -2,25 +2,28 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from prompt_toolkit.utils import get_cwidth
+
 from agent.ports.presentation import ApplicationView
+from agent.ports.presentation import (
+    TextSpan,
+    TextStyle,
+)
 from frontends.terminal.mcp_status import (
     McpStatusDetail,
     McpStatusView,
     external_mcp_status_view,
     render_mcp_status_block,
 )
-from agent.ports.presentation import (
-    TextSpan,
-    TextStyle,
-)
+from infrastructure.mcp.settings import normalize_mcp_servers
 from ..core.models import (
     MenuDescriptionLayout,
     MenuOption,
     MenuRequest,
     STANDARD_MENU_FOOTER_HINT
 )
-from infrastructure.mcp.settings import normalize_mcp_servers
+from ..core.runtime import TuiRuntime, require_tui_runtime
 from ..core.styles import (
     ACCENT_STYLE,
     BODY_STYLE,
@@ -31,7 +34,6 @@ from ..core.styles import (
     fragment_block,
     interrupted_status_block
 )
-from ..core.runtime import TuiRuntime, require_tui_runtime
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
@@ -45,10 +47,14 @@ McpAction = typing.Literal[
 ]
 
 MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
-    ("start", "start", "Start configured external MCP services with enabled=true; keep already running services connected."),
-    ("force", "force", "Temporarily start all configured external MCP services for this turn, including enabled=false. Does not modify the config file."),
-    ("stop", "stop", "Disconnect all external MCP services. HTTP/SSE services are disconnected; stdio services close their child processes when released."),
-    ("restart", "restart", "Disconnect external MCP services, reload the config, and start services with enabled=true."),
+    ("start", "start",
+     "Start configured external MCP services with enabled=true; keep already running services connected."),
+    ("force", "force",
+     "Temporarily start all configured external MCP services for this turn, including enabled=false. Does not modify the config file."),
+    ("stop", "stop",
+     "Disconnect all external MCP services. HTTP/SSE services are disconnected; stdio services close their child processes when released."),
+    ("restart", "restart",
+     "Disconnect external MCP services, reload the config, and start services with enabled=true."),
     ("status", "status", "View status without starting or stopping services."),
 )
 
@@ -120,10 +126,10 @@ def summarize_external_runtime(
     config_error: str = ""
 
     try:
-        config     = mind.settings.config.load()
+        config = mind.settings.config.load()
         configured = normalize_mcp_servers(config.get("mcp_servers"))
     except (OSError, TypeError, ValueError) as error:
-        configured   = []
+        configured = []
         config_error = str(error)
 
     runtime = mind.execution.external_mcp.current
@@ -141,18 +147,18 @@ def summarize_external_runtime(
     ] if runtime is not None else []
 
     return {
-        "started"        : runtime.started if runtime is not None else False,
-        "configured"     : configured,
-        "config_error"   : config_error,
-        "tool_groups"    : tool_groups,
-        "tool_count"     : sum(int(item["exposed"]) for item in tool_groups),
-        "filtered_count" : sum(int(item["filtered"]) for item in tool_groups),
+        "started": runtime.started if runtime is not None else False,
+        "configured": configured,
+        "config_error": config_error,
+        "tool_groups": tool_groups,
+        "tool_count": sum(int(item["exposed"]) for item in tool_groups),
+        "filtered_count": sum(int(item["filtered"]) for item in tool_groups),
     }
 
 
 def _display_tool_name(name: typing.Any, server: str) -> str:
     """移除外部工具名称中的服务前缀。"""
-    value  = str(name or "").strip()
+    value = str(name or "").strip()
     prefix = f"mcp__{server}__"
     return value[len(prefix):] if value.startswith(prefix) else value
 
@@ -240,10 +246,10 @@ def _mcp_status_rows(
     for server in configured_servers:
         server_name = str(server.get("name") or "server")
         transport = str(server.get("transport") or "streamable_http")
-        key       = (server_name, transport)
-        group     = active_by_key.pop(key, None)
-        names     = group.get("tools") if isinstance(group, dict) else ()
-        tools     = sorted(
+        key = (server_name, transport)
+        group = active_by_key.pop(key, None)
+        names = group.get("tools") if isinstance(group, dict) else ()
+        tools = sorted(
             _display_tool_name(raw_name, server_name)
             for raw_name in names or ()
             if str(raw_name)
@@ -283,8 +289,8 @@ def default_mcp_action_index(
     actions: list[tuple[McpAction, str, str]]
 ) -> int:
     """根据当前状态选择菜单默认高亮项。"""
-    configured   = summary.get("configured")
-    servers      = configured if isinstance(configured, list) else []
+    configured = summary.get("configured")
+    servers = configured if isinstance(configured, list) else []
     has_disabled = any(not bool(server.get("enabled", True)) for server in servers)
 
     preferred: McpAction = "status"
@@ -375,7 +381,7 @@ def render_external_mcp_start_status(
             details=(McpStatusDetail(f"  └ {detail}", "failed"),),
         )
     else:
-        runtime  = mind.execution.external_mcp.current
+        runtime = mind.execution.external_mcp.current
         snapshot = runtime.last_start_snapshot if runtime is not None else {}
         if not isinstance(snapshot, dict) or not snapshot:
             return False
@@ -419,8 +425,8 @@ def render_mcp_status(
     command: str | None = "/mcp status"
 ) -> None:
     """展示外部 MCP 服务状态。"""
-    summary     = summarize_external_runtime(mind)
-    configured  = summary["configured"]
+    summary = summarize_external_runtime(mind)
+    configured = summary["configured"]
     tool_groups = summary["tool_groups"]
     terminal_width = _mcp_terminal_width(mind)
     display_command = command or "/mcp"

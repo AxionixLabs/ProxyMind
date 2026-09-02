@@ -4,7 +4,9 @@
 import math
 import typing
 from dataclasses import dataclass
+
 from prompt_toolkit.utils import get_cwidth
+
 from frontends.terminal.capabilities import TerminalColorLevel
 from .models import FormattedText
 
@@ -333,7 +335,7 @@ def spinner_indicator_fragment(
     frame = SPINNER_FRAMES[
         int(max(0.0, float(phase)) * SPINNER_REFRESH_PER_SECOND)
         % len(SPINNER_FRAMES)
-    ]
+        ]
     return style, frame
 
 
@@ -477,11 +479,11 @@ def _gradient_color(stops: tuple[tuple[float, str], ...], intensity: float) -> s
         return stops[0][1]
 
     for index in range(1, len(stops)):
-        end_level, end_color     = stops[index]
+        end_level, end_color = stops[index]
         start_level, start_color = stops[index - 1]
 
         if level <= end_level:
-            span  = max(0.0001, end_level - start_level)
+            span = max(0.0001, end_level - start_level)
             local = _smoothstep((level - start_level) / span)
 
             return _mix_hex_color(start_color, end_color, local)

@@ -15,6 +15,5 @@ __all__ = [
     "is_dangerous_command_windows",
 ]
 
-
 if __name__ == '__main__':
     pass

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from frontends.tui.contracts.pager import StaticPagerRequest
 from .models import FormattedText
 from ..rendering.fragments import (
@@ -130,14 +131,14 @@ class TuiStaticPager(object):
             rows.extend(tuple(row) for row in wrapped)
 
         self._cached_width = width
-        self._cached_rows  = tuple(rows)
+        self._cached_rows = tuple(rows)
 
         return self._cached_rows
 
     def _clear_cache(self) -> None:
         """清除依赖页面内容和宽度的折行缓存。"""
         self._cached_width = -1
-        self._cached_rows  = ()
+        self._cached_rows = ()
 
 
 if __name__ == '__main__':

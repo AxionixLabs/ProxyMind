@@ -27,13 +27,13 @@ from frontends.terminal.styles import (
     SUCCESS_DOT_STYLE,
     TITLE_STYLE,
 )
-from .models import (
-    TraceEntry,
-    TracePreview,
-)
 from .generic import (
     render_generic_tool_result_parts,
     render_generic_tool_result_preview
+)
+from .models import (
+    TraceEntry,
+    TracePreview,
 )
 from .native import (
     NATIVE_CODING_TRACE_TOOLS,
@@ -84,7 +84,6 @@ __all__ = [
     "render_tool_trace",
     "render_tool_trace_parts"
 ]
-
 
 if __name__ == '__main__':
     pass

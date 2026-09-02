@@ -2,37 +2,37 @@
 # Notes: ==== Mind™ ====
 
 import os
-import sys
 import shutil
+import sys
 import typing
 from dataclasses import dataclass
 from pathlib import Path
+
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle,
     ApplicationView,
 )
+from infrastructure.config.paths import (
+    ApplicationMode,
+    resolve_application_layout,
+)
+from infrastructure.config.runtime_paths import (
+    mind_config_path,
+    mind_home
+)
+from infrastructure.config.schema import ConfigOverride
+from infrastructure.config.session import ConfigSession
+from infrastructure.config.store import ConfigStore
 from infrastructure.errors import AppError
 from infrastructure.mcp.settings import normalize_mcp_servers
 from infrastructure.platform.shell_tools import (
     SHELL_TOOL_LAYOUT,
     executable_name
 )
-
-from infrastructure.config.runtime_paths import (
-    mind_config_path,
-    mind_home
-)
 from infrastructure.services.runtime_context import ServiceRuntimeSpec
 from infrastructure.services.runtime_setup import resolve_service_runtime
-from infrastructure.config.schema import ConfigOverride
-from infrastructure.config.session import ConfigSession
-from infrastructure.config.store import ConfigStore
-from infrastructure.config.paths import (
-    ApplicationMode,
-    resolve_application_layout,
-)
 from metadata import const
 from .commands import DoctorCommand
 from .frontend import resolve_cli_frontend
@@ -184,7 +184,7 @@ def _entry_layout_check(context: DoctorContext) -> DoctorCheck:
 
 def _home_check(context: DoctorContext) -> DoctorCheck:
     """检查应用用户目录是否存在且可读写。"""
-    home  = context.home
+    home = context.home
     label = f"{const.APP_DESC} home"
 
     if not home.exists():

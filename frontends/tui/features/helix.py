@@ -1,28 +1,29 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import functools
-from infrastructure.errors import AppError
-from infrastructure.platform.file_assist import FileAssist
+import typing
+
+from agent.domain.tool_policy import ToolFilterMode
 from agent.ports.presentation import ApplicationView
+from agent.ports.presentation import (
+    StyledBlock,
+    TextSpan
+)
+from frontends.helix.runtime import (
+    ensure_service_runtime_asset,
+    prepare_and_start_service_runtime,
+)
 from frontends.terminal.mcp_status import (
     McpStatusDetail,
     McpStatusView,
     inbuild_status_view,
     render_mcp_status_block,
 )
-from agent.ports.presentation import (
-    StyledBlock,
-    TextSpan
-)
+from infrastructure.errors import AppError
+from infrastructure.platform.file_assist import FileAssist
 from infrastructure.services.runtime_context import ServiceRuntimeContext
 from infrastructure.services.runtime_setup import service_runtime_asset_missing
-from frontends.helix.runtime import (
-    ensure_service_runtime_asset,
-    prepare_and_start_service_runtime,
-)
-from agent.domain.tool_policy import ToolFilterMode
 from metadata import const
 from ..core.models import (
     FragmentBlock,

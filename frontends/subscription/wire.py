@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import time
-import uuid
 import typing
+import uuid
 
 
 def now_ts() -> int:
@@ -48,9 +48,9 @@ def build_envelope(
 def ensure_ws_base(base_url: str) -> str:
     """把 HTTP(S) 基础地址转换成 WS(S) 基础地址。"""
     if base_url.startswith("https://"):
-        return "wss://" + base_url[len("https://") :].rstrip("/")
+        return "wss://" + base_url[len("https://"):].rstrip("/")
     if base_url.startswith("http://"):
-        return "ws://" + base_url[len("http://") :].rstrip("/")
+        return "ws://" + base_url[len("http://"):].rstrip("/")
     return base_url.rstrip("/")
 
 

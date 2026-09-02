@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import httpx
+
 from observability import (
     observe,
     observe_exception,

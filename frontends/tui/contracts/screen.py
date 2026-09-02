@@ -6,6 +6,7 @@ from abc import (
     ABC,
     abstractmethod,
 )
+
 from .resume import (
     ResumePickerRequest,
     ResumePickerResult,

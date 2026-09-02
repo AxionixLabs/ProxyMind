@@ -6,7 +6,7 @@ class TuiAssistantStream(object):
     """保存当前 assistant 正文及待处理段落边界。"""
 
     def __init__(self) -> None:
-        self.text: str              = ""
+        self.text: str = ""
         self.boundary_pending: bool = False
 
     @property
@@ -41,7 +41,7 @@ class TuiAssistantStream(object):
 
     def clear(self) -> None:
         """清空当前正文和段落边界。"""
-        self.text             = ""
+        self.text = ""
         self.boundary_pending = False
 
 

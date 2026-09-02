@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import contextlib
 import os
 import sys
-import contextlib
+
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.input.typeahead import clear_typeahead
 

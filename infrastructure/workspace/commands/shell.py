@@ -367,11 +367,11 @@ class ShellCommandExecutor(WorkspaceComponent):
                     buffer_limit_bytes=max(output_limit * 2, output_limit + 4096)
                 )
         except (
-            SandboxUnavailable,
-            SandboxProtocolError,
-            OSError,
-            RuntimeError,
-            ValueError,
+                SandboxUnavailable,
+                SandboxProtocolError,
+                OSError,
+                RuntimeError,
+                ValueError,
         ) as exc:
             data = {
                 "command": cmd,

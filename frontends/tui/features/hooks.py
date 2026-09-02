@@ -3,18 +3,19 @@
 
 import typing
 from pathlib import Path
-from infrastructure.config.schema import ConfigValidationError
-from infrastructure.config.store import ConfigStoreError
+
+from agent.application.hooks.catalog import (
+    HookCatalogEntry,
+    HookCatalogSnapshot
+)
+from agent.ports import HookManagementPort
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )
 from agent.ports.presentation import TextSpan
-from agent.ports import HookManagementPort
-from agent.application.hooks.catalog import (
-    HookCatalogEntry,
-    HookCatalogSnapshot
-)
+from infrastructure.config.schema import ConfigValidationError
+from infrastructure.config.store import ConfigStoreError
 from ..core.models import (
     CLOSE_MENU_FOOTER_HINT,
     MenuActionKind,
@@ -47,10 +48,11 @@ class HookUiHostPort(typing.Protocol):
     frontend: _HookFrontendPort
     hooks: HookManagementPort
 
-_TRUST_ACTION     = "trust"
-_ENABLE_ACTION    = "enable"
-_DISABLE_ACTION   = "disable"
-_STARTUP_REVIEW   = "review"
+
+_TRUST_ACTION = "trust"
+_ENABLE_ACTION = "enable"
+_DISABLE_ACTION = "disable"
+_STARTUP_REVIEW = "review"
 _STARTUP_CONTINUE = "continue"
 
 
@@ -443,7 +445,7 @@ def hook_event_menu(
 ) -> MenuRequest:
     """生成 Hook 事件汇总菜单。"""
     review_count = sum(item.needs_review for item in catalog.hooks)
-    show_review  = review_count > 0
+    show_review = review_count > 0
 
     selected = next(
         (
@@ -460,7 +462,7 @@ def hook_event_menu(
         else "Press enter to view hooks; esc to close"
     )
 
-    body: list[str]        = [""]
+    body: list[str] = [""]
     body_styles: list[str] = [""]
 
     review_message = _review_needed_message(review_count)
@@ -476,7 +478,7 @@ def hook_event_menu(
         body_styles.append("")
 
     columns = ("Event", "Installed", "Active")
-    widths  = (22, 12, 12)
+    widths = (22, 12, 12)
 
     if show_review:
         columns += ("Review",)
@@ -654,7 +656,7 @@ def startup_hooks_review_menu(
         else f"{review_count} hooks are new or changed."
     )
 
-    body        = ["Hooks can run outside the sandbox after you trust them."]
+    body = ["Hooks can run outside the sandbox after you trust them."]
     body_styles = ["class:tui-menu.detail"]
 
     if trusting_all:

@@ -7,29 +7,31 @@ from dataclasses import (
     dataclass,
     replace,
 )
+
 from markdown_it import MarkdownIt
 from markdown_it.tree import SyntaxTreeNode
 from prompt_toolkit.utils import get_cwidth
 from pygments import lex
 from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
-from frontends.terminal.highlighting import (
-    StreamingCodeHighlighter,
-    code_token_style,
-)
+
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle,
 )
+from frontends.terminal.highlighting import (
+    StreamingCodeHighlighter,
+    code_token_style,
+)
 from frontends.terminal.text import sanitize_styled_block
 from ..core.models import FragmentBlock
-from ..rendering.fragments import iter_text_units
 from ..core.styles import (
     assistant_block,
     assistant_continuation_block,
     styled_block_fragments
 )
+from ..rendering.fragments import iter_text_units
 
 MARKDOWN_H1_STYLE = TextStyle(bold=True, underline=True)
 MARKDOWN_H2_STYLE = TextStyle(bold=True)
@@ -631,7 +633,7 @@ def _markdown_fence_close_index(
     """返回符合 CommonMark 长度规则的围栏关闭行位置。"""
     for index in range(start, len(lines)):
         candidate = lines[index].rstrip("\r\n")
-        stripped  = candidate.lstrip(" ")
+        stripped = candidate.lstrip(" ")
 
         if len(candidate) - len(stripped) > 3:
             continue
@@ -1035,7 +1037,7 @@ def _heading_lines(node: SyntaxTreeNode) -> list[list[TextSpan]]:
     )
 
     prefix = f"{'#' * level} "
-    lines  = _inline_lines(node.children, base_style=style)
+    lines = _inline_lines(node.children, base_style=style)
 
     return [
         [
@@ -1390,12 +1392,12 @@ def _wrap_spans(
     if (
         _spans_width(spans) <= limit
         and (
-            not plain_text
-            or (
-                not plain_text[0].isspace()
-                and not plain_text[-1].isspace()
-            )
+        not plain_text
+        or (
+            not plain_text[0].isspace()
+            and not plain_text[-1].isspace()
         )
+    )
     ):
         return [list(spans)]
 
@@ -1564,7 +1566,7 @@ def _table_grid_row(
         if alignment == "right":
             left_padding, right_padding = padding, 0
         elif alignment == "center":
-            left_padding  = padding // 2
+            left_padding = padding // 2
             right_padding = padding - left_padding
         else:
             left_padding, right_padding = 0, padding

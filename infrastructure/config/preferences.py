@@ -40,23 +40,23 @@ def _as_str(value: typing.Any, default: str = "") -> str:
 def _default_slot() -> dict[str, typing.Any]:
     """返回单个模型槽位的默认配置。"""
     return {
-        "provider"         : "",
-        "name"             : "",
-        "kind"             : DEFAULT_PROVIDER_KIND,
-        "route"            : DEFAULT_ROUTE_NAME,
-        "model"            : "",
-        "apikey"           : "",
-        "base_url"         : "",
-        "reasoning_effort" : DEFAULT_REASONING_EFFORT,
-        "enabled"          : False
+        "provider": "",
+        "name": "",
+        "kind": DEFAULT_PROVIDER_KIND,
+        "route": DEFAULT_ROUTE_NAME,
+        "model": "",
+        "apikey": "",
+        "base_url": "",
+        "reasoning_effort": DEFAULT_REASONING_EFFORT,
+        "enabled": False
     }
 
 
 def _default_prefs() -> dict[str, typing.Any]:
     """返回偏好配置的默认结构。"""
     return {
-        "primary"      : _default_slot(),
-        "hosted_tools" : _default_hosted_tools()
+        "primary": _default_slot(),
+        "hosted_tools": _default_hosted_tools()
     }
 
 
@@ -107,21 +107,21 @@ def _default_hosted_tools() -> dict[str, typing.Any]:
     """返回默认托管工具配置。"""
     return {
         "groups": {
-            "perf_engine"   : False,
-            "sandbox_cloud" : False
+            "perf_engine": False,
+            "sandbox_cloud": False
         }
     }
 
 
 def _normalize_hosted_tools(value: typing.Any) -> dict[str, typing.Any]:
     """规范化托管工具偏好。"""
-    data   = value if isinstance(value, dict) else {}
+    data = value if isinstance(value, dict) else {}
     groups = data.get("groups") if isinstance(data.get("groups"), dict) else {}
 
     return {
         "groups": {
-            "perf_engine"   : _as_bool(groups.get("perf_engine"), False),
-            "sandbox_cloud" : _as_bool(groups.get("sandbox_cloud"), False)
+            "perf_engine": _as_bool(groups.get("perf_engine"), False),
+            "sandbox_cloud": _as_bool(groups.get("sandbox_cloud"), False)
         }
     }
 
@@ -159,7 +159,7 @@ class Preferences(object):
     ):
         """初始化配置来源和默认配置。"""
         self._config_reader = config_reader
-        self.prefs          = _default_prefs()
+        self.prefs = _default_prefs()
 
     def __getstate__(self):
         """提供序列化时的状态导出。"""
@@ -186,20 +186,20 @@ class Preferences(object):
         if provider:
             primary["provider"] = provider
         if route:
-            primary["route"]   = route
+            primary["route"] = route
             primary["enabled"] = True
         if model:
-            primary["model"]   = model
+            primary["model"] = model
             primary["enabled"] = True
         if apikey:
-            primary["apikey"]  = apikey
+            primary["apikey"] = apikey
             primary["enabled"] = True
         if base_url:
             primary["base_url"] = base_url
-            primary["enabled"]  = True
+            primary["enabled"] = True
         if reasoning_effort:
             primary["reasoning_effort"] = _normalize_reasoning_effort(reasoning_effort)
-            primary["enabled"]          = True
+            primary["enabled"] = True
 
         return payload
 
@@ -217,10 +217,10 @@ class Preferences(object):
         merged = dict(base or {})
 
         for key in (
-            "provider", "name", "kind", "route", "model", "apikey",
-            "base_url", "reasoning_effort",
+                "provider", "name", "kind", "route", "model", "apikey",
+                "base_url", "reasoning_effort",
         ):
-            current  = str(merged.get(key) or "").strip()
+            current = str(merged.get(key) or "").strip()
             incoming = str(supplement.get(key) or "").strip()
 
             if not current and incoming:
@@ -268,8 +268,8 @@ class Preferences(object):
         primary = payload.get("primary") or {}
 
         prefs = {
-            "primary"      : cls._normalize_slot(primary),
-            "hosted_tools" : _normalize_hosted_tools(payload.get("hosted_tools"))
+            "primary": cls._normalize_slot(primary),
+            "hosted_tools": _normalize_hosted_tools(payload.get("hosted_tools"))
         }
 
         return prefs
@@ -329,8 +329,8 @@ class Preferences(object):
         """读取本地配置并刷新运行时偏好。"""
         prefs = await self._load_config_pref()
 
-        self.prefs    = self._normalize_pref_payload(prefs)
-        primary       = self.prefs.get("primary") or {}
+        self.prefs = self._normalize_pref_payload(prefs)
+        primary = self.prefs.get("primary") or {}
         hosted_groups = (self.prefs.get("hosted_tools") or {}).get("groups") or {}
 
         observe(

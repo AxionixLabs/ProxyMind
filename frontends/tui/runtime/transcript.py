@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import contextlib
+import typing
+
+from frontends.tui.contracts.text import FragmentBlock
 from ..core.document import (
     SourceBlockRenderer,
     TranscriptCellSource,
@@ -13,7 +15,6 @@ from ..core.document import (
 )
 from ..core.transcript_overlay import TuiTranscriptOverlay
 from ..core.viewport import TuiTranscriptViewport
-from frontends.tui.contracts.text import FragmentBlock
 
 
 class TranscriptScreenPort(typing.Protocol):
@@ -174,9 +175,9 @@ class TranscriptOverlayCoordinator(object):
         screen: TranscriptScreenPort,
         cancel_history_backtrack: typing.Callable[[], None]
     ) -> None:
-        self._overlay  = overlay
+        self._overlay = overlay
         self._viewport = viewport
-        self._screen   = screen
+        self._screen = screen
 
         self._cancel_history_backtrack = cancel_history_backtrack
 

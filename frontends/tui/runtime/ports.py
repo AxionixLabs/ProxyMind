@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
 import contextlib
+import typing
+
+from agent.ports.frontend import ActivityStatusKind
 from frontends.tui.contracts.menu import MenuRequest
 from frontends.tui.contracts.pager import StaticPagerRequest
 from frontends.tui.contracts.resume import (
@@ -11,11 +13,10 @@ from frontends.tui.contracts.resume import (
     ResumePickerResult
 )
 from frontends.tui.contracts.text import FragmentBlock
-from agent.ports.frontend import ActivityStatusKind
+from infrastructure.skills import SkillSpec
 from ..core.document import TuiBlockKind
 from ..core.interrupt import InterruptDisposition
 from ..core.queued import TuiSubmission
-from infrastructure.skills import SkillSpec
 
 
 class MenuSelectionPort(typing.Protocol):

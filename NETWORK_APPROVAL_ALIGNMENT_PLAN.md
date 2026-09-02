@@ -3,7 +3,8 @@
 - 状态：待开始
 - 基线日期：2026-09-02
 - 参考实现：`codex-main/codex-rs/network-proxy`、
-  `codex-main/codex-rs/core/src/tools/network_approval.rs` 及其进程执行链路
+  `codex-main/codex-rs/core/src/tools/network_approval.rs`、
+  `codex-main/codex-rs/tui/src/bottom_pane/approval_overlay.rs` 及其进程执行链路
 
 ## 结论
 
@@ -15,14 +16,15 @@
 
 最终目标是：在声明支持的受管执行路径上达到 Codex 的可观察行为和安全边界等价，
 包括静态规则、逐次审批、会话批准、持久规则、并发归并、后台进程、取消、代理强制
-路由和本地网络保护。这里的“等价”不表示代理能够单独解决 DNS rebinding 等需要
+路由、本地网络保护，以及网络审批卡的布局、颜色和交互状态。这里的“等价”不表示
+代理能够单独解决 DNS rebinding 等需要
 防火墙、VPC 或企业出口策略解决的问题；Codex 自身也不提供这种绝对保证。
 
 | 迭代 | 主要交付 | 相对规模 | 状态 | 完成后的声明范围 |
 | --- | --- | --- | --- | --- |
 | 1 | Windows 静态代理与强制出口 | 大 | 待开始 | 仅静态规则可用 |
 | 2 | 前台 allow-once 审批闭环 | 大 | 待开始 | 前台逐次审批可用 |
-| 3 | 会话决定、持久规则和 UX | 大 | 待开始 | 决定语义基本对齐 |
+| 3 | 会话决定、持久规则、交互与视觉 | 大 | 待开始 | 决定语义和审批卡基本对齐 |
 | 4 | 后台、持续进程、Subagent、JS REPL | 特大 | 待开始 | Windows 可声明完成 |
 | 5 | macOS/Linux sidecar 与平台约束 | 特大 | 待开始 | 通过矩阵的平台可声明完成 |
 | 6 | 恢复、安全一致性和发布验收 | 大 | 待开始 | 可声明选定 Codex 基线行为等价 |
@@ -58,6 +60,8 @@
 - JS REPL 内核由普通 Node 子进程启动；在受限模式下仍是潜在的直接网络绕行面。
 - 发布资产目前只有 Windows sidecar；macOS 只有目录和构建约定，Linux 尚未进入产品
   sidecar 支持清单。
+- 当前通用审批卡的选中态使用产品蓝，并会在部分终端填充卡片背景；Codex 网络审批基线
+  使用默认表面和青色加粗的整行选中态。当前也没有网络审批卡的专用视觉快照。
 
 ## 对齐范围
 
@@ -79,6 +83,26 @@
 
 这些排除项必须有回归测试证明不会错误继承受管代理环境。它们不是允许模型绕过受管
 执行面的后门。
+
+### 网络审批卡视觉契约
+
+网络审批卡的颜色、排版和状态样式属于本次对齐范围，不只对齐标题、选项文案和快捷键。
+以固定的 `codex-main` revision 及其
+`codex_tui__bottom_pane__approval_overlay__tests__network_exec_prompt.snap` 为视觉基线：
+
+- 使用 Codex 菜单表面的留白和无边框布局，不增加装饰框、阴影或网络专用实色背景。
+- 标题使用默认前景色并加粗；`Reason:` 的值使用斜体，不以命令行语法重复展示网络目标。
+- 选中项的 `›`、序号、文案和快捷键整行使用终端语义青色并加粗；选择任何允许、拒绝或
+  取消决定时都使用同一选中态。
+- 未选项使用默认前景色，未选快捷键和底部确认提示使用弱化样式；不自行增加“允许为绿色、
+  拒绝为红色”等 Codex 基线不存在的决定色。
+- 颜色通过前端的终端语义层解析，不在 application 展示模型中携带 RGB；truecolor、
+  ANSI 256、ANSI 16、深色、浅色和颜色能力未知时都必须保持可读、可辨认。
+- 窄宽度换行、长 host/reason、选项切换和焦点变化不得造成文字重叠、卡片跳宽或状态残留。
+
+若通用审批样式无法同时满足该契约和既有命令、补丁审批的外观，前端应按
+`network_access` kind 使用职责明确的网络语义样式；不得为了网络卡对齐而无意改变全部
+审批卡。
 
 ## 最终行为契约
 
@@ -112,7 +136,7 @@ HTTP/HTTPS/SOCKS5 TCP/SOCKS5 UDP，会话键包含 `environment_id + host + prot
 | `infrastructure/config` | 网络规则文件读取、追加、并发写入和当前策略替换 |
 | `infrastructure/platform/sandbox.py` | sidecar V1 JSONL 适配、请求关联和进程事件，不判断用户策略 |
 | Rust `mind_sandbox_server` | 代理监听、CA、环境注入、OS 强制路由、阻断连接等待和运行时规则更新 |
-| `frontends` | 只展示 application 提供的决定，不持有会话网络状态 |
+| `frontends` | 展示 application 提供的决定，完成网络卡布局、终端语义颜色和视觉快照；不持有会话网络状态 |
 | `mind.py` / `composition.py` | 唯一具体组合根和资源关闭顺序 |
 
 线上 `mind.chat` schema 与本地 sidecar schema 必须分开。本地需要 Codex 的复数 allow/deny
@@ -201,6 +225,10 @@ HTTP/HTTPS/SOCKS5 TCP/SOCKS5 UDP，会话键包含 `environment_id + host + prot
   写入；磁盘失败必须告警且不能撤销已经生效的运行时决定。
 - deny 删除同键 session allow，deny 优先于正在等待或稍后到达的 allow。
 - 对齐网络专用标题、目标、原因、决定文案和快捷键；cancel 保持控制决定，不伪装 decline。
+- 对齐网络卡的无边框默认表面、留白、标题加粗、原因斜体、未选快捷键弱化，以及选中整行
+  语义青色加粗；不同决定不使用额外绿红色编码。
+- 仅在共享审批样式会造成既有卡片回归时新增 `network_access` 专用语义样式；application
+  只提供 kind 和中立展示数据，不携带前端颜色或布局指令。
 - 展示规则保存成功或失败的结构化结果，不在 TUI 中实现策略逻辑。
 
 出口证据：
@@ -210,6 +238,10 @@ HTTP/HTTPS/SOCKS5 TCP/SOCKS5 UDP，会话键包含 `environment_id + host + prot
 - 运行时刷新成功但磁盘失败、运行时刷新失败、并发保存三条失败路径均有测试。
 - allow/deny 提案与批准目标不一致时拒绝提交。
 - 审批模型、终端 renderer、TUI 交互、规则 Manager 和真实 sidecar 端到端测试通过。
+- 网络卡在 Codex 基准宽度及窄终端下的快照通过；解析后的样式属性证明选中整行是青色
+  加粗、原因斜体、未选快捷键和页脚弱化，背景与边框符合基线。
+- truecolor、ANSI 256、ANSI 16、深浅背景和未知颜色能力的定向测试通过；既有命令、补丁
+  和权限审批卡快照无非预期变化。
 
 ### 迭代 4：持续执行、后台生命周期和绕行面收口
 
@@ -297,6 +329,8 @@ HTTP/HTTPS/SOCKS5 TCP/SOCKS5 UDP，会话键包含 `environment_id + host + prot
 | 生命周期 | 前台、后台、超时、进程先退出、请求先断开、Turn 取消、应用关闭 |
 | 并发 | 同键归并、不同环境、不同 Turn、不同端口、Root/Subagent 并行 |
 | 平台 | Windows、macOS、Linux；仅对正式支持平台做完成声明 |
+| 审批卡状态 | 初始选中、逐项切换、允许、拒绝、取消、焦点恢复、长文本换行 |
+| 终端视觉 | truecolor、ANSI 256、ANSI 16、深色、浅色、颜色能力未知、窄宽度 |
 
 所有网络测试默认使用本机临时服务和受控 DNS/证书夹具，不依赖公网稳定性。需要验证公网
 出口时单独标记为可选集成测试，不能作为唯一完成证据。
@@ -312,6 +346,9 @@ HTTP/HTTPS/SOCKS5 TCP/SOCKS5 UDP，会话键包含 `environment_id + host + prot
 - 为本次改造引入 sidecar V2、双版本兼容分支，或静默接受未知安全字段。
 - 将用户 Shell、应用自身 HTTP 或外部 MCP 全局注入代理，造成职责外行为变化。
 - 在 JS REPL、后台进程或 Subagent 仍可绕行时宣称网络审批完成。
+- 只对齐文案和快捷键，仍保留与 Codex 不一致的卡片背景、选中颜色或文本强调。
+- 在 application/domain 写入 RGB 或终端样式，或只断言样式类名而不验证解析后的颜色和属性。
+- 为网络卡对齐无意改动所有审批卡，或用固定 RGB 忽略 ANSI 降级和深浅背景可读性。
 
 ## 计划维护
 

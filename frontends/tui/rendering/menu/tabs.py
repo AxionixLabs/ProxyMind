@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from dataclasses import replace
+
 from frontends.tui.contracts.menu import MenuRequest
 
 

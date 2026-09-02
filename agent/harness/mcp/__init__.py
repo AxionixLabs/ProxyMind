@@ -13,6 +13,5 @@ __all__ = (
     "McpRuntimeOwner",
 )
 
-
 if __name__ == '__main__':
     pass

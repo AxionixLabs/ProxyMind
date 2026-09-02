@@ -6,6 +6,7 @@ from dataclasses import (
     dataclass,
     fields,
 )
+
 from prompt_toolkit.key_binding import KeyBindings
 
 
@@ -224,9 +225,9 @@ def _parse_binding(value: str, *, path: str) -> TuiKeyBinding:
             base = text[len(prefix):]
             break
     if not base or any(base.startswith(f"{item}-") for item in (
-        "ctrl",
-        "alt",
-        "shift",
+            "ctrl",
+            "alt",
+            "shift",
     )):
         raise ValueError(f"{path} has unsupported key binding: {value}")
 
@@ -248,7 +249,7 @@ def _parse_binding(value: str, *, path: str) -> TuiKeyBinding:
             keys = ("s-tab",)
             label = "Shift+Tab"
         elif len(prompt_key) == 1 and prompt_key.isalpha():
-            keys  = (prompt_key.upper(),)
+            keys = (prompt_key.upper(),)
             label = f"Shift+{label}"
         else:
             raise ValueError(f"{path} has unsupported key binding: {value}")

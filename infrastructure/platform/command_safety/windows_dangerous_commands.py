@@ -38,7 +38,7 @@ def is_dangerous_powershell(args: typing.Sequence[str]) -> bool:
 
 def is_dangerous_powershell_words(words: typing.Sequence[str] | str) -> bool:
     """判断 PowerShell 词元中是否存在危险调用。"""
-    text    = words if isinstance(words, str) else " ".join(str(item) for item in words)
+    text = words if isinstance(words, str) else " ".join(str(item) for item in words)
     lowered = text.casefold()
 
     if has_force_delete_cmdlet(text):
@@ -158,7 +158,7 @@ def parse_powershell_invocation(command: typing.Sequence[str]) -> tuple[str, ...
     """提取 PowerShell -Command 后的脚本参数。"""
     for index, item in enumerate(command):
         if str(item).casefold() in {"-c", "-command", "/c"}:
-            return tuple(str(value) for value in command[index + 1 :])
+            return tuple(str(value) for value in command[index + 1:])
     return tuple(str(value) for value in command)
 
 

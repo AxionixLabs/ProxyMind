@@ -441,7 +441,7 @@ class Upgrade(object):
 
         started = time.perf_counter()
 
-        timeout: float  = 120.0
+        timeout: float = 120.0
         chunk_size: int = 1024 * 256
 
         state = self.download_state()
@@ -457,7 +457,7 @@ class Upgrade(object):
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
 
-            tmp_path     = Path(tempfile.mkdtemp(prefix="mind_runtime_")).resolve()
+            tmp_path = Path(tempfile.mkdtemp(prefix="mind_runtime_")).resolve()
             archive_path = (tmp_path / filename).resolve()
 
             done, sha256_actual = await self.download_archive(

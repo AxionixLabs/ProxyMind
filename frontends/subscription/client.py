@@ -1,21 +1,23 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import ssl
 import json
-import httpx
 import socket
+import ssl
 import typing
-import certifi
-import websockets
 from urllib.parse import urlencode
+
+import certifi
+import httpx
+import websockets
 from websockets.asyncio.client import ClientConnection
+
+from metadata import const
+from protocol.transport import config
 from .wire import (
     build_envelope,
     ensure_ws_base
 )
-from protocol.transport import config
-from metadata import const
 
 
 class AgentClient(object):
@@ -179,19 +181,19 @@ class AgentClient(object):
         """把 `selector` 编码成 GET 查询参数。"""
         merged = cls.build_selector(selector, **kwargs)
         return {
-            f"selector.{key}" : value
+            f"selector.{key}": value
             for key, value in merged.items()
             if value not in (None, "")
         }
 
     def build_ws_url(self, *, session_id: str, ws_token: str, ws_base_url: str | None = None) -> str:
         """拼出 `/agents/ws` 连接地址，并处理 HTTP/WS 协议前缀转换。"""
-        query  = urlencode({"session_id": session_id, "ws_token": ws_token})
+        query = urlencode({"session_id": session_id, "ws_token": ws_token})
         source = (ws_base_url or self.base_url).rstrip("/")
 
         if source.startswith("ws://") or source.startswith("wss://"):
             if self.base_url.startswith("https://") and source.startswith("ws://"):
-                source = "wss://" + source[len("ws://") :]
+                source = "wss://" + source[len("ws://"):]
         else:
             source = ensure_ws_base(source)
 
@@ -488,7 +490,7 @@ class AgentClient(object):
     ) -> dict[str, typing.Any]:
         """调用 `/agents/close` 关闭指定会话。"""
         payload: dict[str, typing.Any] = {
-            "selector" : self.build_selector(
+            "selector": self.build_selector(
                 selector,
                 session_id=session_id,
                 agent_session_id=agent_session_id,

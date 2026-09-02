@@ -6,7 +6,9 @@ import unicodedata
 from bisect import bisect_right
 from copy import deepcopy
 from dataclasses import dataclass
+
 from prompt_toolkit.utils import get_cwidth
+
 from .document import (
     TranscriptBlock,
     TranscriptLiveTail,
@@ -18,6 +20,7 @@ from .models import (
     FormattedText,
     TranscriptBacktrackRequest
 )
+from .styles import ASSISTANT_PREFIX_CLASS
 from ..rendering.fragments import (
     fragments_text,
     iter_formatted_text_units,
@@ -25,7 +28,6 @@ from ..rendering.fragments import (
     join_formatted_lines,
     split_formatted_lines
 )
-from .styles import ASSISTANT_PREFIX_CLASS
 
 
 @dataclass(slots=True)
@@ -82,7 +84,7 @@ class TuiTranscriptOverlay(object):
         self.export_status: str = ""
         self.export_failed: bool = False
         self.export_in_progress: bool = False
-        self._export_request_id: int  = 0
+        self._export_request_id: int = 0
         self._selected_cell: TranscriptBlock | None = None
         self._search_matches: tuple[TranscriptBlock, ...] = ()
         self._search_match_index: int = -1
@@ -350,8 +352,8 @@ class TuiTranscriptOverlay(object):
 
         step = 1 if direction >= 0 else -1
         self._search_match_index = (
-            self._search_match_index + step
-        ) % len(self._search_matches)
+                                       self._search_match_index + step
+                                   ) % len(self._search_matches)
         self._jump_to_search_match()
         return True
 
@@ -639,9 +641,9 @@ class TuiTranscriptOverlay(object):
             != self._cached_stable_revision
             or width != self._cached_width
             or any(
-                not cell.transcript_stable
-                for cell in snapshot.committed_cells
-            )
+            not cell.transcript_stable
+            for cell in snapshot.committed_cells
+        )
         )
 
         live_tail_changed = (

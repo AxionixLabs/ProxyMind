@@ -2,14 +2,15 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from infrastructure.errors import AppError
+
 from agent.ports.presentation import ApplicationView
+from agent.ports.presentation import TextSpan
 from frontends.terminal.mcp_status import (
     McpStatusDetail,
     McpStatusView,
     render_mcp_status_block,
 )
-from agent.ports.presentation import TextSpan
+from infrastructure.errors import AppError
 from ..core.models import (
     MenuDescriptionLayout,
     MenuOption,
@@ -32,9 +33,8 @@ from ..core.styles import (
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
-    from agent.ports.subscription import SubscriptionRuntime
 
-ListenerAction    = typing.Literal["start", "stop", "status"]
+ListenerAction = typing.Literal["start", "stop", "status"]
 ListenerOperation = typing.Literal["start", "stop"]
 
 ListenerOutcome = typing.Literal[
@@ -99,10 +99,10 @@ def render_listener_result(
 def render_listener_status(controller: "TuiApplicationHost") -> None:
     """把当前监听器状态作为命令查询结果写入稳定正文。"""
     listener = controller.subscription.current
-    running  = listener is not None and listener.is_running()
-    ready    = listener is not None and listener.is_ready()
-    pending  = listener.inbox.pending_count() if listener is not None else 0
-    state    = "listening" if ready else "connecting" if running else "stopped"
+    running = listener is not None and listener.is_running()
+    ready = listener is not None and listener.is_ready()
+    pending = listener.inbox.pending_count() if listener is not None else 0
+    state = "listening" if ready else "connecting" if running else "stopped"
 
     block = fragment_block(
         TextSpan("/listen status", COMMAND_STYLE),
@@ -129,7 +129,7 @@ def render_listener_failure(
 ) -> None:
     """把监听器操作失败结果写入稳定正文。"""
     summary = "Listener failed" if action == "start" else "Listener stop failed"
-    detail  = _listener_error_detail(error)
+    detail = _listener_error_detail(error)
 
     _present_listener_view(
         controller,

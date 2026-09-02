@@ -276,7 +276,7 @@ def create_workspace_runtime(
 
 
 if __name__ == "__main__":
-    runtime_services = create_runtime_services(
+    process_runtime_services = create_runtime_services(
         effect_journal_path=effect_journal_db_path(),
         create_hook_registry=create_hook_registry,
         create_client_tool_registry=build_client_tool_registry,
@@ -288,10 +288,10 @@ if __name__ == "__main__":
         skills_payload_builder=skills_payload,
         create_workspace_runtime=create_workspace_runtime,
     )
-    root_turn_runner = bind_root_turn_runner(runtime_services)
+    root_turn_runner = bind_root_turn_runner(process_runtime_services)
     raise SystemExit(run(
         entry_file=__file__,
-        runtime_services=runtime_services,
+        runtime_services=process_runtime_services,
         mcp_server_runner=functools.partial(
             run_mind_mcp_server,
             application_host_factory=create_application_host,

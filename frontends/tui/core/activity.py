@@ -1,40 +1,35 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
-import typing
 import asyncio
 import contextlib
+import time
+import typing
 from dataclasses import dataclass
+
 from prompt_toolkit.utils import get_cwidth
+
 from agent.ports import (
     ActivityStatusKind,
     RetryState,
 )
 from agent.ports.presentation import TextStyle
-from frontends.terminal.renderers.upload import (
-    upload_idle_block,
-    upload_progress_block,
-    upload_summary_block,
-)
-from frontends.terminal.renderers.download import (
-    download_progress_block,
-    download_summary_block,
-)
+from frontends.terminal.capabilities import TerminalColorLevel
 from frontends.terminal.mcp_status import (
     McpStatusView,
     external_mcp_status_view,
     inbuild_status_view,
 )
-from frontends.terminal.capabilities import TerminalColorLevel
-from .models import FragmentBlock
-from ..rendering.fragments import clip_fragments
-from .styles import (
-    BODY_STYLE,
-    SUCCESS_STYLE,
-    prompt_style,
-    styled_block_fragments,
+from frontends.terminal.renderers.download import (
+    download_progress_block,
+    download_summary_block,
 )
+from frontends.terminal.renderers.upload import (
+    upload_idle_block,
+    upload_progress_block,
+    upload_summary_block,
+)
+from .models import FragmentBlock
 from .status_frames import (
     StatusFamily,
     render_status_fragments,
@@ -42,6 +37,13 @@ from .status_frames import (
     status_interval,
     status_phase_rate,
 )
+from .styles import (
+    BODY_STYLE,
+    SUCCESS_STYLE,
+    prompt_style,
+    styled_block_fragments,
+)
+from ..rendering.fragments import clip_fragments
 
 STATUS_MUTED = TextStyle(foreground="#7F8C9A", dim=True)
 STATUS_WARNING = TextStyle(foreground="#FFB86B")
@@ -149,7 +151,7 @@ class TuiActivity(object):
         self._terminal_wait_command: str = ""
         self._terminal_wait_active: bool = False
         self._wait_retry_state: RetryState = "idle"
-        self._slots: dict[ActivitySlotKey, _ActivitySlot]    = {}
+        self._slots: dict[ActivitySlotKey, _ActivitySlot] = {}
         self._settle_deadlines: dict[ActivitySlotKey, float] = {}
 
     @property
@@ -734,7 +736,7 @@ class TuiActivity(object):
     def _reset_terminal_wait(self) -> None:
         """清空后台终端等待上下文。"""
         self._terminal_wait_command = ""
-        self._terminal_wait_active  = False
+        self._terminal_wait_active = False
 
 
 def _upload_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlock:

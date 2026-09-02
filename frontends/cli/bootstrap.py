@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import os
 import typing
-import asyncio
 from pathlib import Path
+
 from agent.application import RuntimeServices
 from agent.application.config.settings import (
     AgentSettings,
@@ -14,12 +15,6 @@ from agent.domain.policies import (
     PermissionSettings,
     resolve_permissions,
 )
-from agent.ports.presentation import (
-    ApplicationView,
-    StyledBlock,
-    TextSpan,
-    TextStyle,
-)
 from agent.domain.tool_policy import ToolFilterMode
 from agent.ports import (
     FrontendActivityPort,
@@ -28,53 +23,58 @@ from agent.ports import (
     ProcessLifecyclePort,
     ProcessResourcePort,
 )
-from infrastructure.platform.animation import AsyncAnimManager
-from infrastructure.update.runtime import UpgradeProgress
-from infrastructure.services.server_manager import ServerManage
-from infrastructure.errors import AppError
-from infrastructure.config.schema import ConfigOverride
-from infrastructure.config.layers import ConfigResolution
-from infrastructure.config.session import ConfigSession
-from infrastructure.config.store import ConfigStore
-from infrastructure.config.paths import (
-    ApplicationLayout,
-    resolve_application_layout,
+from agent.ports.presentation import (
+    ApplicationView,
+    StyledBlock,
+    TextSpan,
+    TextStyle,
 )
-from infrastructure.config.preferences import Preferences
-from infrastructure.services.service_config import ServiceConfig
-from infrastructure.config.runtime_paths import (
-    ensure_mind_home,
-    mind_config_path,
-    mind_reports_dir,
-    process_env,
-)
-from infrastructure.platform.shell_tools import route_shell_tools
-from infrastructure.platform.workspace_context import fetch_runtime_workspace_root
-from infrastructure.services.runtime_context import (
-    ServiceRuntimeContext,
-    ServiceRuntimeSpec,
-)
-from infrastructure.services.runtime_setup import resolve_service_runtime
-from infrastructure.services.helix_capability import ServerManageHelixCapability
-from observability import (
-    observe,
-    observe_exception,
-)
-from observability.reporting import RunReport
-from protocol.transport.endpoints import service_endpoints
-from frontends.runtime import Frontend
 from frontends.helix.runtime import (
     ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
 )
-
+from frontends.runtime import Frontend
 from frontends.terminal.contracts import TerminalDesign
 from frontends.terminal.download_renderer import TerminalDownloadProgress
 from frontends.tui.features.conversation import (
     ConversationCompactor,
     ConversationCompactorFactory,
 )
+from infrastructure.config.layers import ConfigResolution
+from infrastructure.config.paths import (
+    ApplicationLayout,
+    resolve_application_layout,
+)
+from infrastructure.config.preferences import Preferences
+from infrastructure.config.runtime_paths import (
+    ensure_mind_home,
+    mind_config_path,
+    mind_reports_dir,
+    process_env,
+)
+from infrastructure.config.schema import ConfigOverride
+from infrastructure.config.session import ConfigSession
+from infrastructure.config.store import ConfigStore
+from infrastructure.errors import AppError
+from infrastructure.platform.animation import AsyncAnimManager
+from infrastructure.platform.shell_tools import route_shell_tools
+from infrastructure.platform.workspace_context import fetch_runtime_workspace_root
+from infrastructure.services.helix_capability import ServerManageHelixCapability
+from infrastructure.services.runtime_context import (
+    ServiceRuntimeContext,
+    ServiceRuntimeSpec,
+)
+from infrastructure.services.runtime_setup import resolve_service_runtime
+from infrastructure.services.server_manager import ServerManage
+from infrastructure.services.service_config import ServiceConfig
+from infrastructure.update.runtime import UpgradeProgress
 from metadata import const
+from observability import (
+    observe,
+    observe_exception,
+)
+from observability.reporting import RunReport
+from protocol.transport.endpoints import service_endpoints
 from .commands import (
     ApplicationCommand,
     ExecCommand,
@@ -156,6 +156,7 @@ class CliApplicationHost(CliCommandHost, typing.Protocol):
     def set_history_workspace(self, workspace: str | Path) -> None:
         """切换历史记录使用的工作区。"""
         ...
+
 
 class _CliExecutionResources(typing.Protocol):
     """描述 CLI 启动和观测工具执行资源所需的能力。"""

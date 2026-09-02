@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
 import enum
+import time
 import typing
 
 TuiExitReason = typing.Literal[

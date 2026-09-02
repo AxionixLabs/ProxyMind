@@ -35,6 +35,8 @@ from observability import (
     observe,
     observe_exception,
 )
+
+
 def _tool_result_data(fields: typing.Union[str, dict[str, typing.Any], typing.Any]) -> typing.Any:
     """从工具结果字段中提取结构化数据。"""
     if isinstance(fields, dict):
@@ -71,13 +73,13 @@ def server_tool_output_result(
     event: dict[str, typing.Any]
 ) -> ToolExecutionResult:
     """把服务端回灌的 tool.output 事件转换成展示层结果对象。"""
-    raw_fields  = _server_output_fields(event)
+    raw_fields = _server_output_fields(event)
     reported_ok = _server_output_ok(event, raw_fields)
-    status      = _server_output_status(event)
-    ok          = reported_ok if status == "completed" else False
-    normalized  = normalize_tool_fields(raw_fields, ok=ok)
-    fields      = normalized.fields
-    cost_ms     = _server_output_cost_ms(event)
+    status = _server_output_status(event)
+    ok = reported_ok if status == "completed" else False
+    normalized = normalize_tool_fields(raw_fields, ok=ok)
+    fields = normalized.fields
+    cost_ms = _server_output_cost_ms(event)
 
     return ToolExecutionResult(
         ok=ok,
@@ -207,7 +209,7 @@ async def run_tool_step(
 ) -> ToolExecutionResult:
     """统一执行工具、处理状态动画和结果增强。"""
     started_at = time.time()
-    name       = invocation.name
+    name = invocation.name
 
     observe(
         "tool.start",

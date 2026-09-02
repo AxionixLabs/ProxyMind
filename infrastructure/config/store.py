@@ -354,7 +354,7 @@ class ConfigStore(object):
 
     def _write_text(self, text: str) -> None:
         """在同目录中原子替换配置文档。"""
-        descriptor: int | None      = None
+        descriptor: int | None = None
         temporary_path: Path | None = None
 
         try:

@@ -1,40 +1,38 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import json
 import typing
-import asyncio
 from functools import partial
 from pathlib import Path
+
 from prompt_toolkit.utils import get_cwidth
-from frontends.terminal.capabilities import (
-    DEGRADED_TERMINAL_CAPABILITIES,
-    TerminalCapabilities
+
+from agent.application.views import uses_native_tool_view
+from agent.application.views.builders.tools import (
+    build_generic_tool_result_view,
+    build_native_tool_result_view,
+    build_tool_start_view
 )
-from agent.stores.sessions import normalize_workspace
-from protocol.schema.identifiers import valid_session_ids
 from agent.domain.transcripts import (
     TranscriptEntry,
     TranscriptReplay,
 )
-from frontends.terminal.text import (
-    sanitize_terminal_line,
-    sanitize_terminal_text
+from agent.stores.sessions import normalize_workspace
+from frontends.terminal.capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilities
 )
 from frontends.terminal.renderers.dispatch import (
     render_presentation_raw_view,
     render_presentation_transcript_view,
     render_presentation_view
 )
-from agent.application.views.builders.tools import (
-    build_generic_tool_result_view,
-    build_native_tool_result_view,
-    build_tool_start_view
+from frontends.terminal.text import (
+    sanitize_terminal_line,
+    sanitize_terminal_text
 )
-from agent.application.views import uses_native_tool_view
-from ..adapters.markdown import render_tui_assistant_markdown
-from ..adapters.presentation import render_presentation_fragment_block
-from ..core.document import TranscriptBlock
 from frontends.tui.contracts.resume import (
     ResumeDensity,
     ResumeFilterMode,
@@ -48,6 +46,10 @@ from frontends.tui.contracts.resume import (
     ResumeSortKey,
     ResumeTranscriptLoader
 )
+from protocol.schema.identifiers import valid_session_ids
+from ..adapters.markdown import render_tui_assistant_markdown
+from ..adapters.presentation import render_presentation_fragment_block
+from ..core.document import TranscriptBlock
 from ..core.styles import (
     MUTED_STYLE,
     failure_text_block,
@@ -301,9 +303,9 @@ def _legacy_record_blocks(
 def _missing_transcript_block(session_id: str) -> TranscriptBlock:
     """生成会话内容不可用时的显式占位块。"""
     identifier = str(session_id or "").strip()
-    suffix     = f" ({identifier})" if identifier else ""
-    text       = f"Earlier transcript content is unavailable{suffix}."
-    block      = text_block(text, MUTED_STYLE)
+    suffix = f" ({identifier})" if identifier else ""
+    text = f"Earlier transcript content is unavailable{suffix}."
+    block = text_block(text, MUTED_STYLE)
 
     return TranscriptBlock(
         display_block=block,
@@ -400,9 +402,9 @@ def _message_block(
         return None
 
     if entry.actor == "user":
-        block       = query_block(content)
+        block = query_block(content)
         attachments = entry.payload.get("attachments")
-        extras      = entry.payload.get("extras")
+        extras = entry.payload.get("extras")
 
         return TranscriptBlock(
             display_block=block,
@@ -452,7 +454,7 @@ def _tool_blocks(
 ) -> tuple[TranscriptBlock, ...]:
     """把工具事件转换为共享展示和完整记录块。"""
     payload = entry.payload
-    name    = str(payload.get("name") or "tool").strip() or "tool"
+    name = str(payload.get("name") or "tool").strip() or "tool"
     call_id = str(payload.get("call_id") or "").strip()
 
     if entry.event == "tool.started" and name == "write_stdin":

@@ -69,7 +69,7 @@ class PolicyParser:
         if not isinstance(call.func, ast.Name):
             return
 
-        name   = call.func.id
+        name = call.func.id
         kwargs = self._arguments(call)
 
         if name == "prefix_rule":
@@ -88,7 +88,7 @@ class PolicyParser:
             return
 
         if name == "network_rule":
-            host     = self._required_text(kwargs.get("host"), "network_rule host")
+            host = self._required_text(kwargs.get("host"), "network_rule host")
             protocol = NetworkRuleProtocol.parse(kwargs.get("protocol", "https"))
 
             decision = Decision.parse(kwargs.get("decision", "allow"))
@@ -128,7 +128,7 @@ class PolicyParser:
 
     def parse(self, source: str | None = None) -> Policy:
         """解析规则源文本并返回策略对象。"""
-        text   = self.source if source is None else source
+        text = self.source if source is None else source
         policy = Policy.empty()
 
         try:

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from frontends.tui.contracts.screen import MailboxScreenPort
 from frontends.tui.contracts.transcript import MailboxEntry
 from ..core.mailbox import TuiMailboxOverlay
@@ -19,9 +20,9 @@ class MailboxOverlayCoordinator(object):
         screen: MailboxScreenPort,
         cancel_history_backtrack: typing.Callable[[], None]
     ) -> None:
-        self._overlay  = overlay
+        self._overlay = overlay
         self._viewport = viewport
-        self._screen   = screen
+        self._screen = screen
 
         self._cancel_history_backtrack = cancel_history_backtrack
 

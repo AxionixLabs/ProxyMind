@@ -3,14 +3,15 @@
 
 import typing
 from dataclasses import dataclass
-from infrastructure.errors import AppError
+
 from agent.ports.presentation import ApplicationView
+from agent.ports.presentation import TextSpan
 from frontends.terminal.mcp_status import (
     McpStatusDetail,
     McpStatusView,
     render_mcp_status_block,
 )
-from agent.ports.presentation import TextSpan
+from infrastructure.errors import AppError
 from ..core.models import (
     CLOSE_MENU_FOOTER_HINT,
     MailboxEntry,
@@ -42,7 +43,7 @@ class PreparedMailboxRun(object):
 
 
 _DETAIL_ACTION = "detail"
-_RUN_ACTION    = "run"
+_RUN_ACTION = "run"
 _DELETE_ACTION = "delete"
 
 
@@ -51,13 +52,13 @@ class TuiMailboxFeature(object):
 
     def __init__(self, runtime: TuiRuntime, controller: "TuiApplicationHost") -> None:
         """保存会话级收件箱依赖和非持久化自动运行状态。"""
-        self.runtime    = runtime
+        self.runtime = runtime
         self.controller = controller
-        self.auto_run   = False
+        self.auto_run = False
 
         self._listener: SubscriptionRuntime | None = None
 
-        self._automatic_message_id: str    = ""
+        self._automatic_message_id: str = ""
         self._manual_message_ids: set[str] = set()
 
     @staticmethod
@@ -539,12 +540,12 @@ def _mailbox_entries(
         payload = request.payload
 
         message_raw = payload.get("message")
-        message     = message_raw if isinstance(message_raw, str) else ""
+        message = message_raw if isinstance(message_raw, str) else ""
 
-        intent_raw  = payload.get("intent")
-        intent      = intent_raw if isinstance(intent_raw, dict) else {}
+        intent_raw = payload.get("intent")
+        intent = intent_raw if isinstance(intent_raw, dict) else {}
         summary_raw = intent.get("summary")
-        summary     = summary_raw.strip() if isinstance(summary_raw, str) else ""
+        summary = summary_raw.strip() if isinstance(summary_raw, str) else ""
 
         first_line = next(
             (line.strip() for line in message.splitlines() if line.strip()),

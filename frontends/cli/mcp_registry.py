@@ -1,22 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import re
-import sys
 import json
-import typing
+import re
 import subprocess
+import sys
+import typing
 from pathlib import Path
 from urllib.parse import (
     urlsplit,
     urlunsplit,
 )
-from infrastructure.errors import AppError
-from infrastructure.mcp.registry import McpServerRegistry
-from infrastructure.config.runtime_paths import mind_config_path
-from infrastructure.config.schema import ConfigOverride
-from infrastructure.config.session import ConfigSession
-from infrastructure.config.store import ConfigStore
+
 from frontends.cli.commands import (
     McpAddCommand,
     McpGetCommand,
@@ -25,6 +20,12 @@ from frontends.cli.commands import (
     McpRemoveCommand,
     McpSetEnabledCommand
 )
+from infrastructure.config.runtime_paths import mind_config_path
+from infrastructure.config.schema import ConfigOverride
+from infrastructure.config.session import ConfigSession
+from infrastructure.config.store import ConfigStore
+from infrastructure.errors import AppError
+from infrastructure.mcp.registry import McpServerRegistry
 
 SENSITIVE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9_-]{24,}$")
 

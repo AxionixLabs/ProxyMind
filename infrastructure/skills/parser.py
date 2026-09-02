@@ -4,7 +4,6 @@
 import re
 from pathlib import Path
 
-
 FRONTMATTER_RE = re.compile(
     r"^---\s*\r?\n(?P<meta>.*?)\r?\n---\s*(?:\r?\n|$)", re.DOTALL
 )
@@ -26,7 +25,7 @@ def parse_skill_frontmatter(path: Path) -> dict[str, str]:
 
         key, value = line.split(":", 1)
 
-        normalized_key   = key.strip()
+        normalized_key = key.strip()
         normalized_value = value.strip().strip('"').strip("'")
 
         if normalized_key:

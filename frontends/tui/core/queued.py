@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import collections
 import copy
 import typing
-import collections
 from dataclasses import (
     dataclass,
     field,
 )
+
 from prompt_toolkit.utils import get_cwidth
-from protocol.schema.identifiers import short_uid
+
 from frontends.terminal.text import sanitize_terminal_text
+from protocol.schema.identifiers import short_uid
 from .models import FormattedText
 from ..rendering.fragments import (
     clip_fragments,

@@ -14,10 +14,10 @@ from .workspace import (
     WorkspaceCommandRunner
 )
 
-SAFE_BARE_REPOSITORY_CONFIG      = "safe.bareRepository=explicit"
-DIFF_COMMAND_TIMEOUT_SEC         = 30.0
-PROBE_COMMAND_TIMEOUT_SEC        = 5.0
-PROBE_OUTPUT_BYTES_CAP           = 64 * 1024
+SAFE_BARE_REPOSITORY_CONFIG = "safe.bareRepository=explicit"
+DIFF_COMMAND_TIMEOUT_SEC = 30.0
+PROBE_COMMAND_TIMEOUT_SEC = 5.0
+PROBE_OUTPUT_BYTES_CAP = 64 * 1024
 EXECUTABLE_FILTER_CONFIG_PATTERN = r"^filter\..*\.(clean|process)$"
 
 

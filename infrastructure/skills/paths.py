@@ -32,7 +32,7 @@ def _repo_root(start: Path) -> Path:
 def project_skills_roots(start: Path | None = None) -> tuple[Path, ...]:
     """返回从仓库根到当前目录的项目级 skills 根目录。"""
     current = (start or Path.cwd()).resolve()
-    root    = _repo_root(current)
+    root = _repo_root(current)
 
     directories: list[Path] = []
     cursor = current

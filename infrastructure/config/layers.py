@@ -103,9 +103,9 @@ class ConfigResolver(object):
         profile: str | None = None,
         workspace: Path | None = None
     ) -> None:
-        self.store     = store
+        self.store = store
         self.overrides = tuple(overrides)
-        self.profile   = normalize_profile_name(profile)
+        self.profile = normalize_profile_name(profile)
 
         self.workspace = (
             Path(workspace).expanduser().resolve()
@@ -132,12 +132,12 @@ class ConfigResolver(object):
         """基于候选用户配置解析全部配置层。"""
         validate_config(user)
 
-        merged      = copy.deepcopy(user)
+        merged = copy.deepcopy(user)
         hook_states = _effective_hook_states(user, self.overrides)
 
-        hook_warnings: list[str]           = []
-        startup_warnings: list[str]        = []
-        project_trust_warnings: list[str]  = []
+        hook_warnings: list[str] = []
+        startup_warnings: list[str] = []
+        project_trust_warnings: list[str] = []
         visited_hook_directories: set[str] = set()
 
         effective_workspace = (
@@ -208,7 +208,7 @@ class ConfigResolver(object):
 
             for directory in trust_context.config_directories():
                 config_dir = directory / PROJECT_CONFIG_DIR
-                path       = config_dir / "config.toml"
+                path = config_dir / "config.toml"
 
                 if _path_key(path) == _path_key(self.store.path):
                     continue
@@ -220,7 +220,7 @@ class ConfigResolver(object):
                     or path
                 )
 
-                decision        = trust_context.decision_for_directory(directory)
+                decision = trust_context.decision_for_directory(directory)
                 disabled_reason = trust_context.disabled_reason(decision)
 
                 layers.append(ConfigLayer(
@@ -362,7 +362,7 @@ def _resolve_layer_hooks(
 ) -> tuple[HookDefinitionConfig, ...]:
     """按稳定顺序解析配置层的独立文件和内联 Hook。"""
     directory_key = _path_key(hook_directory)
-    file_path     = hook_directory / HOOKS_FILE_NAME
+    file_path = hook_directory / HOOKS_FILE_NAME
 
     file_source = HookSourceResolution()
     if directory_key not in visited_directories:
@@ -413,7 +413,7 @@ def _merge_config(
 
     for key, value in overlay.items():
         child_path = (*path, key)
-        current    = result.get(key)
+        current = result.get(key)
 
         if path == ("hooks",) and isinstance(current, list) and isinstance(value, list):
             result[key] = [*copy.deepcopy(current), *copy.deepcopy(value)]
@@ -433,7 +433,7 @@ def _mcp_transport_base(
 ) -> dict[str, typing.Any]:
     """切换 MCP 传输目标时清除另一类传输字段。"""
     command = str(overlay.get("command") or "").strip()
-    url     = str(overlay.get("url") or "").strip()
+    url = str(overlay.get("url") or "").strip()
 
     if command and not url:
         removed = MCP_REMOTE_FIELDS

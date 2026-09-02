@@ -49,10 +49,10 @@ class TranscriptReader(object):
                             json.loads(raw)
                         ))
                     except (
-                        json.JSONDecodeError,
-                        TypeError,
-                        ValueError,
-                        RecursionError,
+                            json.JSONDecodeError,
+                            TypeError,
+                            ValueError,
+                            RecursionError,
                     ) as error:
                         observe_exception(
                             "transcript.read.line.failed",
@@ -105,10 +105,10 @@ class TranscriptReader(object):
                 try:
                     entries.append(TranscriptEntry.from_dict(json.loads(raw)))
                 except (
-                    json.JSONDecodeError,
-                    TypeError,
-                    ValueError,
-                    RecursionError,
+                        json.JSONDecodeError,
+                        TypeError,
+                        ValueError,
+                        RecursionError,
                 ) as error:
                     observe_exception(
                         "transcript.read.line.failed",
@@ -139,9 +139,9 @@ class TranscriptWriter(TranscriptSink):
         turn_id: str | None = None
     ) -> None:
         """绑定记录路径及默认会话和轮次标识。"""
-        self.path       = Path(path) if str(path or "").strip() else None
+        self.path = Path(path) if str(path or "").strip() else None
         self.session_id = str(session_id or "").strip()
-        self.turn_id    = str(turn_id or "").strip() or None
+        self.turn_id = str(turn_id or "").strip() or None
 
         self._file: typing.TextIO | None = None
 
@@ -262,7 +262,7 @@ class ConversationTranscriptStore:
     def _session_path(self, session_id: str) -> Path:
         """返回会话标识对应的日期分层文件路径。"""
         created_at = _session_datetime(session_id)
-        directory  = self.root / created_at.strftime("%Y/%m/%d")
+        directory = self.root / created_at.strftime("%Y/%m/%d")
 
         return directory / f"session-{session_id}.jsonl"
 
@@ -312,7 +312,7 @@ def _session_datetime(session_id: str) -> datetime:
     if matched is None:
         raise ValueError("session id is invalid")
 
-    parts        = session_id.split("_")
+    parts = session_id.split("_")
     timestamp_ms = int(parts[2], 36)
 
     return datetime.fromtimestamp(timestamp_ms / 1000).astimezone()

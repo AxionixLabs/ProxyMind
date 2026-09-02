@@ -38,9 +38,9 @@ class _CaptureBuffer(object):
     """保存有限长度的进程输出尾部。"""
 
     def __init__(self, *, limit_bytes: int) -> None:
-        self.limit_bytes: int     = max(1, int(limit_bytes or 1))
-        self.data: bytearray      = bytearray()
-        self.dropped: int         = 0
+        self.limit_bytes: int = max(1, int(limit_bytes or 1))
+        self.data: bytearray = bytearray()
+        self.dropped: int = 0
         self.prefix_partial: bool = False
 
     def append(self, chunk: bytes) -> None:
@@ -54,7 +54,7 @@ class _CaptureBuffer(object):
             return None
 
         overflow = len(self.data) - self.limit_bytes
-        removed  = bytes(self.data[:overflow])
+        removed = bytes(self.data[:overflow])
 
         del self.data[:overflow]
 
@@ -82,9 +82,9 @@ class OrderedOutputBuffer(object):
         max_line_chars: int = 1000,
         max_line_bytes: int | None = None
     ) -> None:
-        self.max_lines      = max(1, int(max_lines or 1))
+        self.max_lines = max(1, int(max_lines or 1))
         self.max_line_chars = max(20, int(max_line_chars or 20))
-        default_line_bytes  = self.max_line_chars * 4 + 4
+        default_line_bytes = self.max_line_chars * 4 + 4
 
         self.max_line_bytes = max(
             self.max_line_chars,
@@ -111,7 +111,7 @@ class OrderedOutputBuffer(object):
 
         async with self.lock:
             pending_truncated = self.pending_truncated.get(stream, False)
-            combined          = self.pending.get(stream, b"") + chunk
+            combined = self.pending.get(stream, b"") + chunk
 
             complete, pending = self._split_complete_lines(combined)
 
@@ -127,7 +127,7 @@ class OrderedOutputBuffer(object):
                         truncated=truncated,
                     ))
 
-            carries_truncation   = pending_truncated and not complete
+            carries_truncation = pending_truncated and not complete
             self.pending[stream] = pending[:self.max_line_bytes]
 
             self.pending_truncated[stream] = (
@@ -142,9 +142,9 @@ class OrderedOutputBuffer(object):
     async def finish_stream(self, stream: str) -> None:
         """收束指定输出流的未完成行。"""
         async with self.lock:
-            pending              = self.pending.get(stream, b"")
+            pending = self.pending.get(stream, b"")
             self.pending[stream] = b""
-            truncated            = self.pending_truncated.get(stream, False)
+            truncated = self.pending_truncated.get(stream, False)
 
             self.pending_truncated[stream] = False
 
@@ -249,7 +249,7 @@ class OrderedOutputBuffer(object):
 class ProcessCapture(object):
     """提供一次性进程输出捕获能力。"""
 
-    CHUNK_BYTES          = 4096
+    CHUNK_BYTES = 4096
     IO_DRAIN_TIMEOUT_SEC = 2.0
 
     @classmethod

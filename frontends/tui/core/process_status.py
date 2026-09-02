@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import time
 import typing
-import asyncio
+
 from frontends.terminal.text import sanitize_terminal_text
 from .models import FormattedText
 from .status_frames import (

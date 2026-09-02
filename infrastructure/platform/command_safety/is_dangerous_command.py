@@ -163,7 +163,7 @@ def _scan_shell_script(script: str, *, depth: int) -> DangerousCommandMatch | No
         words = re.findall(r"[^\s;&|()]+", text)
     for index, word in enumerate(words):
         if _executable_basename(word) == "rm":
-            candidate = [word, *words[index + 1 :]]
+            candidate = [word, *words[index + 1:]]
             if rm_args_include_force_option(candidate[1:]):
                 return DangerousCommandMatch.ForcedRm
         nested = dangerous_command_match_with_depth(words[index:], depth=depth)

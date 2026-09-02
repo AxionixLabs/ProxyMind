@@ -99,12 +99,12 @@ def ensure_mind_home() -> Path:
 def process_env() -> dict[str, str]:
     """返回传递给子进程的统一目录环境变量。"""
     root = mind_home()
-    hx   = helix_home()
+    hx = helix_home()
 
     return {
-        APP_HOME_ENV         : str(root),
-        HX_HOME_ENV          : str(hx),
-        "HELIX_STORAGE_ROOT" : str(hx)
+        APP_HOME_ENV: str(root),
+        HX_HOME_ENV: str(hx),
+        "HELIX_STORAGE_ROOT": str(hx)
     }
 
 

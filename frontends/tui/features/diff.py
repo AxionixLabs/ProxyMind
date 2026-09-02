@@ -4,15 +4,17 @@
 import os
 import typing
 from pathlib import Path
+
 from prompt_toolkit.formatted_text import ANSI
+
+from frontends.terminal.text import sanitize_terminal_text
+from frontends.tui.contracts.pager import StaticPagerRequest
+from frontends.tui.contracts.text import FormattedLine
 from infrastructure.platform.git_diff import (
     WorkspaceDiffError,
     WorkspaceDiffService,
     WorkspaceDiffState
 )
-from frontends.terminal.text import sanitize_terminal_text
-from frontends.tui.contracts.pager import StaticPagerRequest
-from frontends.tui.contracts.text import FormattedLine
 from ..runtime.ports import StaticPagerRuntimePort
 
 if typing.TYPE_CHECKING:
@@ -53,8 +55,8 @@ def diff_pager_lines(diff_text: str) -> tuple[FormattedLine, ...]:
     text = str(diff_text or "")
     if not text.strip():
         return ((
-            ("class:static-pager.empty", "No changes detected."),
-        ),)
+                    ("class:static-pager.empty", "No changes detected."),
+                ),)
 
     lines: list[FormattedLine] = []
     for raw_line in text.splitlines():

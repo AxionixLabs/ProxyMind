@@ -12,6 +12,5 @@ __all__ = (
     "TranscriptWriter",
 )
 
-
 if __name__ == '__main__':
     pass
