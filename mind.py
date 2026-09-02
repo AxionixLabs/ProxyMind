@@ -23,6 +23,7 @@ from agent.domain.policies import (
 from agent.harness.execution.compaction import compact_conversation
 from agent.harness.execution.root_runner import run_root_turn
 from agent.harness.hooks.registry import HookRegistry
+from agent.harness.hooks.async_tasks import HookAsyncTaskOwner
 from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
 from agent.ports import FrontendPort
@@ -224,6 +225,7 @@ def create_hook_registry(*, bypass_hook_trust: bool = False) -> HookRegistry:
     command_runner = HookCommandExecutor()
     return HookRegistry(
         command_runner=command_runner,
+        async_task_owner=HookAsyncTaskOwner(),
         context_spiller=command_runner,
         cleanup_session=command_runner.cleanup_session,
         close=command_runner.close,

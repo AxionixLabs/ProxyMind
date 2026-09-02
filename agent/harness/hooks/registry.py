@@ -29,6 +29,7 @@ from agent.domain.hooks import (
 )
 from agent.ports import (
     HookCommandRunner,
+    HookAsyncTaskOwnerPort,
     HookContextSpiller,
     HookDispatcherPort,
     HookMcpRunner,
@@ -58,6 +59,7 @@ class HookRegistry(HookMcpRunnerBinder):
         *,
         command_runner: HookCommandRunner | None = None,
         mcp_runner: HookMcpRunner | None = None,
+        async_task_owner: HookAsyncTaskOwnerPort | None = None,
         context_spiller: HookContextSpiller | None = None,
         cleanup_session: HookSessionCleanup | None = None,
         close: HookResourceClose | None = None,
@@ -65,6 +67,7 @@ class HookRegistry(HookMcpRunnerBinder):
     ) -> None:
         self._command_runner = command_runner
         self._mcp_runner = mcp_runner
+        self._async_task_owner = async_task_owner
         self._context_spiller = context_spiller
         self._cleanup_session = cleanup_session
         self._close = close
@@ -252,11 +255,21 @@ class HookRegistry(HookMcpRunnerBinder):
             raise TypeError("Hook command runner is required for active hooks")
         if "mcp_tool" in active_types and self._mcp_runner is None:
             raise TypeError("Hook MCP runner is required for active hooks")
+        if (
+            any(
+                definition.handler.run_async
+                and definition.event != "SessionEnd"
+                for definition in active
+            )
+            and self._async_task_owner is None
+        ):
+            raise TypeError("Hook async task owner is required for active hooks")
 
         return HookRuntime(
             active,
             command_runner=self._command_runner,
             mcp_runner=self._mcp_runner,
+            async_task_owner=self._async_task_owner,
             context_spiller=self._context_spiller,
             status_port=status_port,
             status=status,
@@ -322,6 +335,8 @@ class HookRegistry(HookMcpRunnerBinder):
 
     async def close(self) -> None:
         """关闭 Hook 命令执行器持有的临时资源。"""
+        if self._async_task_owner is not None:
+            await self._async_task_owner.close()
         close = self._close
         if close is not None:
             await close()

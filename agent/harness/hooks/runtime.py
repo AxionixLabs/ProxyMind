@@ -35,6 +35,7 @@ from agent.domain.hooks import (
 from agent.ports import (
     HookCommandRunner,
     HookContextSpiller,
+    HookAsyncTaskOwnerPort,
     HookMcpRunner,
     HookStatusPort,
 )
@@ -56,6 +57,7 @@ class HookRuntime:
     """匹配并执行一个轮次内固定的生命周期 Hook。"""
     command_runner: HookCommandRunner | None
     mcp_runner: HookMcpRunner | None
+    async_task_owner: HookAsyncTaskOwnerPort | None
     context_spiller: HookContextSpiller | None
     status_port: HookStatusPort | None
     _definitions: tuple[HookDefinitionConfig, ...]
@@ -69,6 +71,7 @@ class HookRuntime:
         *,
         command_runner: HookCommandRunner | None = None,
         mcp_runner: HookMcpRunner | None = None,
+        async_task_owner: HookAsyncTaskOwnerPort | None = None,
         context_spiller: HookContextSpiller | None = None,
         status_port: HookStatusPort | None = None,
         status: HookRuntimeStatus | None = None
@@ -89,6 +92,7 @@ class HookRuntime:
 
         object.__setattr__(self, "command_runner", command_runner)
         object.__setattr__(self, "mcp_runner", mcp_runner)
+        object.__setattr__(self, "async_task_owner", async_task_owner)
         object.__setattr__(
             self,
             "context_spiller",
@@ -142,6 +146,7 @@ class HookRuntime:
             self._definitions,
             command_runner=self.command_runner,
             mcp_runner=self.mcp_runner,
+            async_task_owner=self.async_task_owner,
             context_spiller=self.context_spiller,
             status_port=status_port,
             status=self._status,
@@ -178,8 +183,40 @@ class HookRuntime:
             "hook_event_name": request.event,
         }
 
-        tasks = tuple(
-            asyncio.create_task(
+        tasks: list[asyncio.Task[HookExecutionRecord]] = []
+        records: list[HookExecutionRecord] = []
+        for registered in matching:
+            definition = registered.definition
+            if definition.handler.run_async and request.event != "SessionEnd":
+                owner = self.async_task_owner
+                if owner is None:
+                    records.append(HookExecutionRecord(
+                        hook_key=definition.key,
+                        error="Hook async task owner is required",
+                    ))
+                    continue
+                submitted = owner.submit(
+                    self._execute_hook(
+                        registered,
+                        request,
+                        payload,
+                        spec.normalize_output,
+                    ),
+                    name=f"hook {request.event}",
+                )
+                if not submitted:
+                    records.append(HookExecutionRecord(
+                        hook_key=definition.key,
+                        error="Hook async task owner is closing",
+                    ))
+                else:
+                    records.append(HookExecutionRecord(
+                        hook_key=definition.key,
+                        completion_order=next(self._completion_order),
+                    ))
+                continue
+
+            tasks.append(asyncio.create_task(
                 self._execute_hook(
                     registered,
                     request,
@@ -187,12 +224,10 @@ class HookRuntime:
                     spec.normalize_output,
                 ),
                 name=f"hook {request.event}",
-            )
-            for registered in matching
-        )
+            ))
 
         try:
-            records = await asyncio.gather(*tasks)
+            records.extend(await asyncio.gather(*tasks))
         except BaseException:
             for task in tasks:
                 if not task.done():
@@ -369,10 +404,16 @@ class HookRuntime:
             if stderr_text:
                 self._observe_stderr(definition, request, stderr_text)
 
-            if result.business_block:
+            business_block = False
+            block_reason = ""
+            if definition.handler.type == "command":
+                business_block = result.business_block
+                block_reason = result.block_reason
+
+            if business_block:
                 normalized = normalize_business_block(
                     request.event,
-                    reason=result.block_reason,
+                    reason=block_reason,
                     transport_output=raw_output,
                 )
             else:

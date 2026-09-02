@@ -29,6 +29,23 @@ HookSessionCleanup: typing.TypeAlias = Callable[[str], Awaitable[None]]
 HookResourceClose: typing.TypeAlias = Callable[[], Awaitable[None]]
 
 
+class HookAsyncTaskOwnerPort(typing.Protocol):
+    """定义异步 Hook 任务的提交与关闭所有权。"""
+
+    def submit(
+        self,
+        awaitable: typing.Coroutine[typing.Any, typing.Any, typing.Any],
+        *,
+        name: str,
+    ) -> bool:
+        """提交一个受并发限制的后台 Hook。"""
+        ...
+
+    async def close(self) -> None:
+        """停止新任务并等待已提交任务收束。"""
+        ...
+
+
 class DeferredCommandHook(typing.Protocol):
     """定义持续命令 Hook 暂存记录的只读调用字段。"""
 

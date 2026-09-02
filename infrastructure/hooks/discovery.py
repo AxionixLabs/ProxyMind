@@ -929,13 +929,7 @@ def _normalize_async(
             f"skipping hook in {dotted} from {source}: async must be a boolean",
         )
         return None
-    if value and event != "SessionEnd":
-        _append_warning(
-            warnings,
-            f"skipping async hook in {source}: async hooks are not supported yet",
-        )
-        return None
-    if value:
+    if value and event == "SessionEnd":
         _append_warning(
             warnings,
             f"running async SessionEnd hook synchronously in {source}",

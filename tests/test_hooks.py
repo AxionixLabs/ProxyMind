@@ -32,6 +32,7 @@ from agent.application.hooks.models import (
 from infrastructure.platform.hook_output_spill import HookOutputSpillStore
 from agent.harness.hooks.registry import HookRegistry
 from agent.harness.hooks.runtime import HookRuntime
+from agent.harness.hooks.async_tasks import HookAsyncTaskOwner
 from agent.application.hooks.context import HookExecutionContext
 from agent.harness.hooks.scope import HookExecutionScope
 from agent.harness.hooks.session_lifecycle import SessionLifecycleGateway
@@ -546,7 +547,8 @@ def test_registry_does_not_warn_for_supported_mcp_hook_sources(tmp_path) -> None
     assert warnings == ()
 
 
-def test_non_session_async_hook_is_skipped_with_warning() -> None:
+@pytest.mark.anyio
+async def test_non_session_async_hook_runs_in_owned_background_task() -> None:
     warnings = []
     definitions = resolve_hook_definitions(
         {
@@ -561,9 +563,39 @@ def test_non_session_async_hook_is_skipped_with_warning() -> None:
         warnings=warnings,
     )
 
-    assert definitions == ()
-    assert len(warnings) == 1
-    assert "skipping async hook" in warnings[0]
+    assert len(definitions) == 1
+    assert warnings == []
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class Runner(object):
+        async def execute(self, _definition, _payload):
+            started.set()
+            await release.wait()
+            return HookCommandOutput(data={})
+
+    owner = HookAsyncTaskOwner(max_concurrency=1)
+    status = _RecordingHookStatus()
+    runtime = HookRuntime(
+        definitions,
+        command_runner=Runner(),
+        async_task_owner=owner,
+        status_port=status,
+    )
+    result = await runtime.dispatch(HookEventRequest(
+        event="PreToolUse",
+        match_value="shell_command",
+        payload={"session_id": "sid_test"},
+    ))
+
+    assert len(result.records) == 1
+    assert result.records[0].error == ""
+    await asyncio.wait_for(started.wait(), timeout=1)
+    release.set()
+    await owner.close()
+    assert [run.status for run in status.started_runs] == ["running"]
+    assert [run.status for run in status.completed_runs] == ["completed"]
 
 
 @pytest.mark.anyio
