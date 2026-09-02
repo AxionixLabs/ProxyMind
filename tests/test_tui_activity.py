@@ -12,7 +12,6 @@ from prompt_toolkit.layout.screen import Screen, WritePosition
 from prompt_toolkit.output import DummyOutput
 
 from agent.application.approvals.coordinator import ApprovalCoordinator
-from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.ports import (
     AssistantBuffered,
     AssistantSegmentCompleted,
@@ -27,7 +26,6 @@ from frontends.interaction import PromptContext
 from frontends.tui.adapters.output import TuiOutputControl
 from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.adapters.session import create_tui_output_session
-from frontends.tui.adapters.status import TuiStreamStatusControl
 from frontends.tui.core.activity import (
     TuiActivity,
     _download_block,
@@ -44,10 +42,6 @@ from frontends.tui.core.task_state import TuiTaskState
 from frontends.tui.features.helix import TuiUpgradeProgress
 from frontends.tui.session.barriers import TuiForegroundTasks
 from frontends.tui.runtime.turn_surface import TuiTurnSurfaceCoordinator
-from agent.application.turns.foreground import (
-    ApplicationTurnForegroundLifecycle,
-    run_foreground_turn,
-)
 from frontends.terminal.worked import emit_worked_footer
 from frontends.terminal.mcp_status import (
     external_mcp_status_view,
@@ -108,7 +102,6 @@ async def test_frontend_activity_does_not_restore_wait_for_auxiliary_activity(
         active=True,
         execution_active=True,
         turn_start_pending=False,
-        ensure_wait_status_for_turn=AsyncMock(),
         end_activity_status=AsyncMock(),
     )
     activity = FrontendActivity(
@@ -119,7 +112,6 @@ async def test_frontend_activity_does_not_restore_wait_for_auxiliary_activity(
 
     await activity.stop("inbuild", settle=False)
 
-    runtime.ensure_wait_status_for_turn.assert_not_awaited()
     runtime.end_activity_status.assert_awaited_once_with(
         "inbuild",
         settle=False,
@@ -154,7 +146,7 @@ async def test_query_during_startup_activity_hands_off_to_wait_status(
     assert await read_task == "continue during startup"
     assert runtime.turn_start_pending
 
-    await runtime.ensure_wait_status_for_turn()
+    await runtime.begin_wait_status()
     await runtime.end_activity_status(kind, settle=False)
 
     assert runtime.task_running
@@ -168,185 +160,6 @@ async def test_query_during_startup_activity_hands_off_to_wait_status(
     )
 
     await runtime.activity.clear()
-
-
-@pytest.mark.anyio
-async def test_finished_turn_does_not_recreate_wait_during_activity_cleanup() -> None:
-    runtime = TuiRuntime()
-    runtime.set_execution_active(True)
-
-    await runtime.begin_external_mcp_status(
-        lambda: {
-            "done": False,
-            "items": [{"name": "docs", "state": "linking", "tools": 0}],
-        }
-    )
-    await runtime.begin_wait_status()
-
-    runtime.finish_turn_wait()
-    await runtime.end_activity_status("wait", settle=False)
-    await runtime.end_activity_status("external_mcp", settle=False)
-    await runtime.ensure_wait_status_for_turn()
-
-    assert runtime.task_running
-    assert runtime.activity.lease("wait") is None
-
-    runtime.set_execution_active(False)
-    assert not runtime.task_running
-
-
-@pytest.mark.anyio
-async def test_terminal_wait_reuses_wait_slot_and_restores_thinking() -> None:
-    runtime = TuiRuntime()
-    runtime.set_execution_active(True)
-    await runtime.begin_wait_status()
-
-    await runtime.begin_terminal_wait("python -m pytest tests -q")
-
-    rendered = "".join(
-        text for _style, text in runtime.screen.activity_block.fragments
-    )
-    assert rendered.startswith("• Terminal · ")
-    assert "esc to interrupt" not in rendered
-    assert "(" not in rendered.splitlines()[0]
-    assert "\n  └ python -m pytest tests -q" in rendered
-    assert any(
-        "dim" in style and "s" in text
-        for style, text in runtime.screen.activity_block.fragments
-    )
-    assert runtime.activity.lease("wait") is not None
-
-    await runtime.end_terminal_wait()
-
-    restored = "".join(
-        text for _style, text in runtime.screen.activity_block.fragments
-    )
-    assert restored.startswith("• Thinking")
-    assert "python -m pytest tests -q" not in restored
-
-    runtime.set_execution_active(False)
-
-
-@pytest.mark.anyio
-async def test_terminal_wait_keeps_background_footer_on_header_line() -> None:
-    runtime = TuiRuntime()
-    runtime.set_execution_active(True)
-    runtime.set_process_status_label(
-        "1 background terminal running · /ps to view · /stop to close"
-    )
-    await runtime.begin_wait_status()
-    await runtime.begin_terminal_wait("python -m pytest tests -q")
-
-    rendered = "".join(
-        text for _style, text in runtime.screen._status_fragments()
-    )
-    lines = rendered.splitlines()
-    assert len(lines) == 2
-    assert "Terminal · " in lines[0]
-    assert "esc to interrupt" not in lines[0]
-    assert "1 background terminal running" in lines[0]
-    assert lines[1] == "  └ python -m pytest tests -q"
-
-    runtime.set_execution_active(False)
-
-
-@pytest.mark.anyio
-async def test_terminal_wait_uses_wait_elapsed_and_pauses_with_approval() -> None:
-    clock = [0.0]
-    rendered = []
-    activity = TuiActivity(
-        set_renderable=rendered.append,
-        clear_renderable=lambda: rendered.clear(),
-    )
-
-    with patch(
-        "frontends.tui.core.activity.time.perf_counter",
-        side_effect=lambda: clock[0],
-    ):
-        await activity.begin_wait()
-        clock[0] = 2.0
-        await activity.begin_terminal_wait("python -m pytest tests -q")
-        assert "2.0s" in _block_text(rendered[-1])
-
-        assert await activity.pause_wait()
-        clock[0] = 10.0
-        await activity.resume_wait()
-        assert "2.0s" in _block_text(rendered[-1])
-        await activity.stop()
-
-
-@pytest.mark.anyio
-async def test_terminal_wait_switch_reuses_thinking_animation_state() -> None:
-    clock = [0.0]
-    rendered = []
-    activity = TuiActivity(
-        set_renderable=rendered.append,
-        clear_renderable=lambda: rendered.clear(),
-    )
-
-    with patch(
-        "frontends.tui.core.activity.time.perf_counter",
-        side_effect=lambda: clock[0],
-    ):
-        await activity.begin_wait()
-        slot = activity._slots["foreground"]
-        slot.phase = 0.73
-        clock[0] = 2.4
-        activity.refresh("wait")
-
-        generation = slot.generation
-        task = activity.task
-        await activity.begin_terminal_wait("python -m pytest tests -q")
-
-        assert activity._slots["foreground"] is slot
-        assert slot.phase == 0.73
-        assert slot.generation == generation
-        assert activity.task is task
-
-        first_time = next(
-            fragment
-            for fragment in rendered[-1].fragments
-            if fragment[1].startswith(" · ") and fragment[1].endswith("s")
-        )
-        first_header = tuple(
-            fragment
-            for fragment in rendered[-1].fragments
-            if fragment != first_time and "\n" not in fragment[1]
-        )
-        assert "dim" in first_time[0]
-
-        slot.phase = 1.91
-        activity.refresh("wait")
-        second_time = next(
-            fragment
-            for fragment in rendered[-1].fragments
-            if fragment[1].startswith(" · ") and fragment[1].endswith("s")
-        )
-        second_header = tuple(
-            fragment
-            for fragment in rendered[-1].fragments
-            if fragment != second_time and "\n" not in fragment[1]
-        )
-        assert second_time == first_time
-        assert second_header[0] != first_header[0]
-        assert second_header[1] == first_header[1]
-        assert second_header[2:] != first_header[2:]
-        await activity.stop()
-
-
-@pytest.mark.anyio
-async def test_terminal_wait_does_not_recreate_missing_thinking_slot() -> None:
-    rendered = []
-    activity = TuiActivity(
-        set_renderable=rendered.append,
-        clear_renderable=lambda: rendered.clear(),
-    )
-
-    await activity.begin_terminal_wait("python -m pytest tests -q")
-
-    assert activity.lease("wait") is None
-    assert not activity._terminal_wait_active
-    assert not rendered
 
 
 def test_elapsed_label_keeps_seconds_bucket_width_stable() -> None:
@@ -381,14 +194,6 @@ async def test_execution_deactivation_clears_wait_without_touching_auxiliary(
     await runtime.freeze_activity_status("wait")
     runtime.set_execution_active(False)
     assert runtime.activity.lease("wait") is None
-
-    runtime.set_execution_active(True)
-    await runtime.begin_wait_status()
-    assert await runtime.activity.pause_wait()
-    runtime.set_execution_active(False)
-    assert runtime.activity.lease("wait") is None
-    assert not runtime.activity._wait_paused
-
 
 @pytest.mark.anyio
 async def test_worked_view_does_not_release_wait_lease() -> None:
@@ -433,26 +238,6 @@ async def test_stale_external_mcp_lease_cannot_clear_new_startup_activity() -> N
         text for _style, text in rendered[-1].fragments
     )
     await activity.clear()
-
-
-@pytest.mark.anyio
-async def test_wait_handoff_preserves_paused_approval_wait() -> None:
-    runtime = TuiRuntime()
-    runtime.set_turn_start_pending(True)
-    await runtime.begin_wait_status()
-
-    runtime.activity._wait_elapsed_sec = 7.0
-    assert await runtime.activity.pause_wait()
-    elapsed = runtime.activity._wait_elapsed_sec
-
-    await runtime.ensure_wait_status_for_turn()
-
-    assert runtime.activity._wait_paused
-    assert runtime.activity._wait_elapsed_sec == elapsed
-    assert runtime.activity.lease("wait") is None
-
-    runtime.set_turn_start_pending(False)
-    await runtime.activity.clear()
 
 
 @pytest.mark.anyio
@@ -561,7 +346,6 @@ async def test_final_separator_preserves_input_after_assistant_wait_handoff() ->
 
                 output.note_work_activity()
                 await output.complete_turn()
-                runtime.finish_turn_wait()
                 emit_worked_footer(TuiApplicationSink(runtime), 1.2)
                 await _render_next_frame(runtime)
 
@@ -733,7 +517,7 @@ async def test_stale_activity_lease_does_not_clear_replacement() -> None:
     assert "second" in _block_text(rendered[-1])
     await activity.clear()
 
-def test_tui_output_session_separates_content_and_event_status() -> None:
+def test_tui_output_session_exposes_one_typed_activity_channel() -> None:
     runtime = TuiRuntime()
     session = create_tui_output_session(
         "",
@@ -749,61 +533,8 @@ def test_tui_output_session_separates_content_and_event_status() -> None:
     )
 
     assert isinstance(session.control, TuiOutputControl)
-    assert isinstance(session.status, TuiStreamStatusControl)
-    assert session.status is not session.control
+    assert not hasattr(session, "status")
     assert not hasattr(session.control, "begin_reply_wait_status")
-
-
-@pytest.mark.anyio
-async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
-    runtime = TuiRuntime()
-    output = TuiOutputControl("", runtime=runtime, animate=False)
-    status = TuiStreamStatusControl()
-
-    async def runner() -> None:
-        assert runtime.activity.active
-
-        await status.begin_reply_wait_status(delay_sec=0.0)
-        await status.begin_tool_status()
-        await output.append_assistant_delta("answer")
-        await status.end_status()
-
-        status_text = _block_text(
-            FragmentBlock(tuple(runtime.screen._status_fragments()))
-        )
-        assert status_text.count("Thinking") == 1
-        assert "\n" not in status_text
-
-    activity_runtime = SimpleNamespace(
-        active=True,
-        begin_wait_status=runtime.begin_wait_status,
-        finish_turn_wait=runtime.finish_turn_wait,
-        end_activity_status=runtime.end_activity_status,
-        begin_terminal_progress=runtime.begin_terminal_progress,
-        end_terminal_progress=runtime.end_terminal_progress,
-    )
-    frontend = SimpleNamespace(
-        runtime=activity_runtime,
-        application=TuiApplicationSink(runtime),
-    )
-    activity = FrontendActivity(
-        activity_runtime,
-        SimpleNamespace(stop=AsyncMock()),
-        enabled=True,
-    )
-
-    await run_foreground_turn(
-        ApplicationTurnForegroundLifecycle(
-            frontend,
-            activity,
-            ProcessLifecycle(),
-            emit_worked_footer,
-        ),
-        runner,
-    )
-
-    assert not runtime.activity.active
-    assert runtime.screen._status_fragments() == []
 
 
 def test_infrastructure_activities_keep_rotating_spinner() -> None:
@@ -922,99 +653,6 @@ def test_external_mcp_failure_uses_color_without_bold() -> None:
 
 
 @pytest.mark.anyio
-async def test_pause_wait_excludes_approval_time_from_elapsed() -> None:
-    clock = [0.0]
-    rendered = []
-    activity = TuiActivity(
-        set_renderable=rendered.append,
-        clear_renderable=lambda: rendered.clear(),
-    )
-
-    with (
-        patch("frontends.tui.core.activity.time.perf_counter", side_effect=lambda: clock[0]),
-        patch("frontends.tui.core.activity.status_interval", return_value=0.001),
-    ):
-        await activity.begin_wait()
-        await asyncio.sleep(0.005)
-        clock[0] = 0.8
-        await asyncio.sleep(0.005)
-        assert "0.8s" in _block_text(rendered[-1])
-
-        assert await activity.pause_wait()
-        assert not rendered
-        clock[0] = 10.0
-        await activity.resume_wait()
-        await asyncio.sleep(0.005)
-        assert "0.8s" in _block_text(rendered[-1])
-
-        clock[0] = 10.2
-        await asyncio.sleep(0.005)
-        assert "1.0s" in _block_text(rendered[-1])
-        await activity.stop()
-
-
-@pytest.mark.anyio
-async def test_retrying_reuses_wait_slot_and_animation_phase() -> None:
-    rendered = []
-    activity = TuiActivity(
-        set_renderable=rendered.append,
-        clear_renderable=lambda: rendered.clear(),
-    )
-
-    await activity.begin_wait()
-    slot = activity._slots["foreground"]
-    slot.phase = 0.73
-    activity.refresh("wait")
-
-    generation = slot.generation
-    task = activity.task
-    thinking = rendered[-1]
-
-    activity.set_wait_retry_state("transport")
-
-    assert activity._slots["foreground"] is slot
-    assert slot.phase == 0.73
-    assert slot.generation == generation
-    assert activity.task is task
-    assert "Thinking" in _block_text(thinking)
-    assert "Retrying" in _block_text(rendered[-1])
-    assert thinking.fragments != rendered[-1].fragments
-
-    transport_retry = rendered[-1]
-    activity.set_wait_retry_state("provider")
-
-    assert activity._slots["foreground"] is slot
-    assert slot.phase == 0.73
-    assert "Retrying" in _block_text(rendered[-1])
-    assert transport_retry.fragments != rendered[-1].fragments
-
-    activity.set_wait_retry_state("idle")
-
-    assert activity._slots["foreground"] is slot
-    assert slot.phase == 0.73
-    assert "Thinking" in _block_text(rendered[-1])
-    await activity.clear()
-
-
-@pytest.mark.anyio
-async def test_stopping_paused_wait_prevents_later_resume() -> None:
-    rendered = []
-    activity = TuiActivity(
-        set_renderable=rendered.append,
-        clear_renderable=lambda: rendered.clear(),
-    )
-
-    await activity.begin_wait()
-    assert await activity.pause_wait()
-
-    await activity.stop("wait", settle=False)
-    await activity.resume_wait()
-
-    assert not activity.active
-    assert not rendered
-
-
-@pytest.mark.anyio
 async def test_consecutive_approvals_do_not_restore_finished_turn_wait() -> None:
     runtime = TuiRuntime()
     coordinator = ApprovalCoordinator(runtime)
@@ -1049,11 +687,10 @@ async def test_consecutive_approvals_do_not_restore_finished_turn_wait() -> None
 
 
 @pytest.mark.anyio
-async def test_consecutive_approvals_share_surface_and_wait_pause() -> None:
+async def test_consecutive_approvals_share_one_interaction_surface() -> None:
     runtime = TuiRuntime()
     coordinator = ApprovalCoordinator(runtime)
 
-    await runtime.begin_wait_status()
     first = asyncio.create_task(coordinator.request({
         "id": "first",
         "tool": "shell_command",
@@ -1069,35 +706,23 @@ async def test_consecutive_approvals_share_surface_and_wait_pause() -> None:
 
     await _wait_for_approval(runtime, "first")
     assert runtime.screen.approval.pending_count == 1
-    assert runtime.activity._wait_paused
 
     runtime.screen.approval.finish("accept")
 
     assert await first == "accept"
     await _wait_for_approval(runtime, "second")
     assert runtime.screen.bottom_pane.active_surface == "approval"
-    assert runtime.activity._wait_paused
 
     runtime.screen.approval.finish("accept")
 
     assert await second == "accept"
     assert runtime.screen.bottom_pane.active_surface is None
-    assert not runtime.activity._wait_paused
-    assert runtime.activity.lease("wait") is not None
-    await runtime.end_activity_status("wait", settle=False)
+    assert runtime.activity.lease("wait") is None
 
 
 @pytest.mark.anyio
-async def test_request_approval_resumes_wait_after_failure() -> None:
+async def test_request_approval_restores_terminal_progress_after_failure() -> None:
     calls = []
-
-    class ActivityStub(object):
-        async def pause_wait(self) -> bool:
-            calls.append("pause")
-            return True
-
-        async def resume_wait(self) -> None:
-            calls.append("resume")
 
     class ApprovalStub(object):
         def snapshot_changed(self, snapshot):
@@ -1114,11 +739,9 @@ async def test_request_approval_resumes_wait_after_failure() -> None:
             calls.append("approval.end")
 
     runtime = TuiRuntime.__new__(TuiRuntime)
-    runtime.activity = ActivityStub()
     runtime.screen = SimpleNamespace(approval=ApprovalStub())
     runtime._approval_session_lock = asyncio.Lock()
     runtime._approval_session_active = False
-    runtime._approval_wait_paused = False
     runtime._closing = False
     runtime._turn_progress_active = True
     runtime.terminal_progress = SimpleNamespace(
@@ -1133,151 +756,10 @@ async def test_request_approval_resumes_wait_after_failure() -> None:
     assert calls == [
         "approval.begin",
         "warning",
-        "pause",
         "approval.request",
         "approval.end",
         "progress",
-        "resume",
     ]
-
-
-@pytest.mark.anyio
-async def test_request_approval_dismisses_card_when_pause_fails() -> None:
-    calls = []
-
-    class ActivityStub(object):
-        async def pause_wait(self) -> bool:
-            calls.append("pause")
-            raise RuntimeError("pause failed")
-
-        async def resume_wait(self) -> None:
-            calls.append("resume")
-
-    class ApprovalStub(object):
-        def snapshot_changed(self, snapshot):
-            _ = snapshot
-
-        def begin_session(self):
-            calls.append("approval.begin")
-
-        async def request(self, approval):
-            calls.append("approval.request")
-            return "accept"
-
-        async def end_session(self):
-            calls.append("approval.end")
-
-    runtime = TuiRuntime.__new__(TuiRuntime)
-    runtime.activity = ActivityStub()
-    runtime.screen = SimpleNamespace(approval=ApprovalStub())
-    runtime._approval_session_lock = asyncio.Lock()
-    runtime._approval_session_active = False
-    runtime._approval_wait_paused = False
-    runtime._closing = False
-    runtime._turn_progress_active = True
-    runtime.terminal_progress = SimpleNamespace(
-        warning=lambda: calls.append("warning"),
-        begin=lambda: calls.append("progress"),
-        clear=lambda: calls.append("clear"),
-    )
-
-    with pytest.raises(RuntimeError, match="pause failed"):
-        await ApprovalCoordinator(runtime).request({})
-
-    assert calls == [
-        "approval.begin",
-        "warning",
-        "pause",
-        "approval.end",
-        "progress",
-    ]
-
-
-@pytest.mark.anyio
-async def test_pause_failure_settles_concurrent_approval_requests() -> None:
-    runtime = TuiRuntime()
-    coordinator = ApprovalCoordinator(runtime)
-    pause_started = asyncio.Event()
-    fail_pause = asyncio.Event()
-
-    async def pause_wait() -> bool:
-        pause_started.set()
-        await fail_pause.wait()
-        raise RuntimeError("pause failed")
-
-    runtime.activity.pause_wait = pause_wait
-    first = asyncio.create_task(coordinator.request({
-        "id": "first",
-        "tool": "shell_command",
-        "command": "echo first",
-        "show_timer": False,
-    }))
-    await pause_started.wait()
-    second = asyncio.create_task(coordinator.request({
-        "id": "second",
-        "tool": "shell_command",
-        "command": "echo second",
-        "show_timer": False,
-    }))
-    await asyncio.sleep(0)
-    fail_pause.set()
-
-    with pytest.raises(RuntimeError, match="pause failed"):
-        await first
-    assert await second == "decline"
-    assert not runtime.screen.approval.active
-    assert not runtime._approval_session_active
-    assert coordinator.snapshot.unresolved_count == 0
-
-
-@pytest.mark.anyio
-async def test_cancelling_during_pause_waits_for_session_setup() -> None:
-    runtime = TuiRuntime()
-    coordinator = ApprovalCoordinator(runtime)
-    pause_started = asyncio.Event()
-    release_pause = asyncio.Event()
-    class ActivityStub(object):
-        def __init__(self) -> None:
-            self.resume_count = 0
-
-        async def pause_wait(self) -> bool:
-            pause_started.set()
-            await release_pause.wait()
-            return True
-
-        async def resume_wait(self) -> None:
-            self.resume_count += 1
-
-    activity = ActivityStub()
-    runtime.activity = activity
-    first = asyncio.create_task(coordinator.request({
-        "id": "first",
-        "tool": "shell_command",
-        "command": "echo first",
-        "show_timer": False,
-    }))
-    await pause_started.wait()
-    second = asyncio.create_task(coordinator.request({
-        "id": "second",
-        "tool": "shell_command",
-        "command": "echo second",
-        "show_timer": False,
-    }))
-    await asyncio.sleep(0)
-
-    second.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await second
-    assert runtime._approval_session_active
-
-    release_pause.set()
-
-    await _wait_for_approval(runtime, "first")
-    runtime.screen.approval.finish("accept")
-    assert await first == "accept"
-    assert activity.resume_count == 1
-    assert not runtime._approval_session_active
-    assert not runtime._approval_wait_paused
 
 
 @pytest.mark.anyio
@@ -1305,38 +787,6 @@ async def test_runtime_close_settles_active_approval_batch() -> None:
     assert not runtime.screen.approval.active
     assert runtime.screen.approval.pending_count == 0
     assert not runtime._approval_session_active
-
-
-@pytest.mark.anyio
-async def test_request_approval_keeps_card_active_during_activity_handoff() -> None:
-    runtime = TuiRuntime()
-    active_during_handoff = []
-
-    class ActivityStub(object):
-        async def pause_wait(self) -> bool:
-            active_during_handoff.append(runtime.screen.approval.active)
-            await asyncio.sleep(0)
-            return True
-
-        async def resume_wait(self) -> None:
-            active_during_handoff.append(runtime.screen.approval.active)
-            await asyncio.sleep(0)
-
-    runtime.activity = ActivityStub()
-    task = asyncio.create_task(ApprovalCoordinator(runtime).request({
-        "id": "handoff",
-        "tool": "shell_command",
-        "command": "pytest -q",
-        "show_timer": False,
-    }))
-    await _wait_for_approval(runtime, "handoff")
-
-    assert runtime.screen.approval.active
-    runtime.screen.approval.finish("accept")
-
-    assert await task == "accept"
-    assert active_during_handoff == [True, False]
-    assert not runtime.screen.approval.active
 
 
 @pytest.mark.anyio

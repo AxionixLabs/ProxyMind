@@ -19,7 +19,6 @@ from agent.ports import (
     EventReportPort,
     SourcesOutput,
 )
-from agent.ports import OutputStatusPort
 
 
 class FailureProjectionMode(enum.Enum):
@@ -37,14 +36,12 @@ class StreamTurnPresentation:
         self,
         *,
         outcome: StreamTurnOutcome,
-        status_control: OutputStatusPort,
         content: ContentSink,
         presentation: PresentationSink,
         event_report: EventReportPort | None,
     ) -> None:
         """绑定单轮终态快照和与具体前端无关的输出端口。"""
         self._outcome = outcome
-        self._status_control = status_control
         self._content = content
         self._presentation = presentation
         self._event_report = event_report
@@ -83,7 +80,6 @@ class StreamTurnPresentation:
         if mode is FailureProjectionMode.REPORTED:
             await self._report_failure(phase, message, effect_id=effect_id)
 
-        await self._status_control.end_status(immediate=True)
         await self._presentation.emit(build_failure_view(
             phase,
             message,
@@ -101,7 +97,6 @@ class StreamTurnPresentation:
 
     async def emit_result(self, sources: typing.Iterable[typing.Any]) -> None:
         """结束状态、投影来源，并按唯一终态输出完成或未完整视图。"""
-        await self._status_control.end_status()
         await self._content.emit(SourcesOutput(tuple(sources)))
 
         if self._outcome.is_completed and not self._outcome.is_failed:

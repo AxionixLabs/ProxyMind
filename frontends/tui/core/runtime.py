@@ -23,7 +23,6 @@ from agent.application.approvals.models import (
 from agent.ports import (
     ActivityRuntimePort,
     ActivityStatusKind,
-    RetryState,
 )
 from frontends.interaction.contracts import PromptContext
 from frontends.terminal.capabilities import (
@@ -196,7 +195,6 @@ class TuiRuntime(object):
         self._turn_progress_active: bool = False
         self._approval_session_lock: asyncio.Lock = asyncio.Lock()
         self._approval_session_active: bool = False
-        self._approval_wait_paused: bool = False
         self.terminal_progress = (
             terminal_progress or PassiveTerminalProgress()
         )
@@ -1797,16 +1795,13 @@ class TuiRuntime(object):
 
     def set_execution_active(self, active: bool) -> None:
         """更新模型轮次执行状态并切换输入区布局。"""
-        was_active = (
-            self.execution_active
-            or self.task_state.turn_finishing
-        )
+        was_active = self.execution_active
 
         active = bool(active)
 
         with self.screen.visual_update():
             if not active:
-                self.finish_turn_wait()
+                self.activity.finish_wait()
             self.execution_active = active
             if not self.execution_active:
                 if was_active:
@@ -1824,11 +1819,6 @@ class TuiRuntime(object):
         """更新已提交但尚未开始的模型轮次状态。"""
         self.task_state.set_turn_start_pending(pending)
 
-    def finish_turn_wait(self) -> None:
-        """结束模型轮次等待状态的生命周期所有权。"""
-        self.task_state.finish_turn_wait()
-        self.activity.finish_wait()
-
     def set_foreground_active(self, active: bool) -> None:
         """更新下一轮开始前的前台屏障状态。"""
         self.task_state.set_foreground_running(active)
@@ -1839,10 +1829,6 @@ class TuiRuntime(object):
             self.viewport.schedule_scrollback_flush()
 
         self.invalidate()
-
-    def set_wait_retry_state(self, state: RetryState) -> None:
-        """切换等待动画的重试来源并保持当前动画相位。"""
-        self.activity.set_wait_retry_state(state)
 
     def bind_interrupt_handler(
         self,
@@ -1932,17 +1918,12 @@ class TuiRuntime(object):
             return None
 
         self._approval_session_active = False
-        wait_paused = self._approval_wait_paused
-        self._approval_wait_paused = False
-
         if self._closing:
             return None
         if self._turn_progress_active:
             self.terminal_progress.begin()
         else:
             self.terminal_progress.clear()
-        if wait_paused:
-            await self.activity.resume_wait()
 
     async def open(self) -> None:
         """启动持久 inline 输入应用并等待首帧完成。"""
@@ -2309,9 +2290,6 @@ class TuiRuntime(object):
             self.screen.approval.begin_session()
             try:
                 self.terminal_progress.warning()
-                self._approval_wait_paused = (
-                    await self.activity.pause_wait()
-                )
             except BaseException:
                 await self.screen.approval.end_session()
                 await self._finish_approval_session()
@@ -2336,22 +2314,6 @@ class TuiRuntime(object):
             await self.activity.ensure_wait()
             return None
         await self.activity.begin_wait()
-
-    async def begin_terminal_wait(self, command: str) -> None:
-        """在当前模型等待槽中显示后台终端等待状态。"""
-        if not self.execution_active:
-            return None
-        await self.activity.begin_terminal_wait(command)
-
-    async def end_terminal_wait(self) -> None:
-        """结束后台终端等待状态并恢复普通等待文案。"""
-        await self.activity.end_terminal_wait()
-
-    async def ensure_wait_status_for_turn(self) -> None:
-        """在活动交接到模型轮次前确保等待动画已经接管。"""
-        if not self.task_state.turn_wait_active:
-            return None
-        await self.activity.ensure_wait()
 
     async def begin_upload_status(
         self,

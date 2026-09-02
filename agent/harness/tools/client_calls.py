@@ -38,7 +38,6 @@ from agent.application.views.contracts import PresentationSink
 from agent.application.views.builders.approval import build_approval_view
 from agent.application.views.tool_display import (
     is_two_stage_tool,
-    tool_status_text,
     uses_native_tool_view,
 )
 from agent.application.views.tool_execution import (
@@ -60,7 +59,6 @@ from agent.ports import (
 )
 from agent.ports import (
     OutputControlPort,
-    OutputStatusPort
 )
 from observability import observe_exception
 
@@ -184,7 +182,6 @@ class ClientToolCallRunner:
         *,
         session: McpSessionPort,
         output_control: OutputControlPort,
-        status_control: OutputStatusPort,
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         pref_config: dict[str, typing.Any],
@@ -201,7 +198,6 @@ class ClientToolCallRunner:
         """绑定工具生命周期端口和持久效果依赖。"""
         self.session = session
         self.output_control = output_control
-        self.status_control = status_control
         self.presentation = presentation
         self.tools = tools
         self.pref_config = pref_config
@@ -638,13 +634,11 @@ class ClientToolCallRunner:
 
             tool_run = await self.tool_execution.execute(
                 self.session,
-                status_control=self.status_control,
                 presentation=self.presentation,
                 tools=self.tools,
                 invocation=invocation,
                 pref_config=self.pref_config,
                 enable_progress_notify=True,
-                status_text=tool_status_text(name),
             )
 
             ok = tool_run.ok
@@ -683,8 +677,6 @@ class ClientToolCallRunner:
             )
 
         if display:
-            if use_coding_trace:
-                await self.status_control.end_status()
             await show_tool_result(
                 self.presentation,
                 name,

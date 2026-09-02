@@ -137,8 +137,6 @@ def bind_root_turn_runner(
             transcript_factory=controller.conversation.transcript_factory,
             cleanup=controller.conversation,
             patch_preview=controller.workspace_runtime.coding.preview_patch,
-            retry_state=controller.frontend.runtime,
-            animation=controller.turn_animation,
             session_context=controller,
             session_state=controller.conversation,
             **kwargs,

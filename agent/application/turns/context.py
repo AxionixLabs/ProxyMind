@@ -14,8 +14,6 @@ from agent.ports import (
     ExecutionPolicy,
     PermissionGrantReader,
     PatchPreviewPort,
-    RetryStatePort,
-    TurnAnimationPort,
     TurnSessionContextPort,
     TurnSessionStatePort,
     TurnCleanupPort,
@@ -178,8 +176,6 @@ class TurnContext:
     transcript_factory: TranscriptFactory | None = None
     cleanup: TurnCleanupPort | None = None
     patch_preview: PatchPreviewPort | None = None
-    retry_state: RetryStatePort | None = None
-    animation: TurnAnimationPort | None = None
     session_context: TurnSessionContextPort | None = None
     session_state: TurnSessionStatePort | None = None
     output_record_path: str = ""
@@ -206,8 +202,6 @@ class TurnContext:
         transcript_factory: TranscriptFactory | None = None,
         cleanup: TurnCleanupPort | None = None,
         patch_preview: PatchPreviewPort | None = None,
-        retry_state: RetryStatePort | None = None,
-        animation: TurnAnimationPort | None = None,
         session_context: TurnSessionContextPort | None = None,
         session_state: TurnSessionStatePort | None = None,
         output_record_path: str = "",
@@ -250,8 +244,6 @@ class TurnContext:
             transcript_factory=transcript_factory,
             cleanup=cleanup,
             patch_preview=patch_preview,
-            retry_state=retry_state,
-            animation=animation,
             session_context=session_context,
             session_state=session_state,
             output_record_path=str(output_record_path or "").strip(),

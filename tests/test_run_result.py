@@ -248,29 +248,6 @@ class _OutputControl(object):
         return None
 
 
-class _OutputStatus(object):
-    def __init__(self) -> None:
-        self.end_calls: list[bool] = []
-
-    async def begin_tool_status(self) -> None:
-        return None
-
-    async def begin_custom_tool_status(self, text: str | None) -> None:
-        _ = text
-
-    async def begin_reply_wait_status(
-        self,
-        text: str | None = "Thinking",
-        *,
-        delay_sec: float = 0.28,
-        animate_after_sec: float | None = None,
-    ) -> None:
-        _ = (text, delay_sec, animate_after_sec)
-
-    async def end_status(self, *, immediate: bool = False) -> None:
-        self.end_calls.append(immediate)
-
-
 class _Sink(object):
     def __init__(self) -> None:
         self.items: list[object] = []
@@ -324,7 +301,6 @@ def _output_session(
         context=context,
         control=_OutputControl(),
         activity=_ActivitySink(),
-        status=_OutputStatus(),
         content=_Sink(),
         presentation=_Sink(),
         show_hook_lifecycle=show_hook_lifecycle,
@@ -471,16 +447,6 @@ def _mind(
         effect_journal = open_effect_journal(
             Path(effect_directory.name) / "effects.db"
         )
-    stop_activity = AsyncMock()
-
-    async def stop_wait(*, settle: bool = True) -> None:
-        """把轮次动画端口适配到测试活动状态。"""
-        await stop_activity("wait", settle=settle)
-
-    turn_animation = SimpleNamespace(
-        active=frontend_active,
-        stop_wait=stop_wait,
-    )
     class _SessionContext:
         """实现 TurnSessionContextPort 的测试替身。"""
 
@@ -524,7 +490,6 @@ def _mind(
         frontend=SimpleNamespace(
             runtime=SimpleNamespace(
                 active=frontend_active,
-                set_wait_retry_state=Mock(),
             ),
             interaction=interaction,
         ),
@@ -533,8 +498,6 @@ def _mind(
             coding=SimpleNamespace(),
             execution_policy=execution_policy,
         ),
-        stop_activity=stop_activity,
-        turn_animation=turn_animation,
         turn_session_context=turn_session_context,
         turn_session_state=turn_session_state,
         await_cleanup=await_cleanup,
@@ -792,8 +755,6 @@ async def _run_stream(
             "preview_patch",
             None,
         ),
-        retry_state=mind.frontend.runtime,
-        animation=mind.turn_animation,
         session_context=mind.turn_session_context,
         session_state=mind.turn_session_state,
         turn_id="turn_test",
@@ -1243,7 +1204,6 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
             attempt=2,
         ),
     ]
-    mind.frontend.runtime.set_wait_retry_state.assert_not_called()
     assert [
         entry["event"]
         for entry in mind.transcripts.entries
@@ -1481,7 +1441,6 @@ async def test_provider_and_transport_retry_statuses_do_not_clear_each_other(
             attempt=2,
         ),
     ]
-    mind.frontend.runtime.set_wait_retry_state.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -1600,7 +1559,7 @@ async def test_stream_auto_reconciles_known_effect_and_completes_new_attempt(
 
 
 @pytest.mark.anyio
-async def test_done_finishes_animation_before_logical_settlement(monkeypatch) -> None:
+async def test_done_projects_terminal_before_logical_settlement(monkeypatch) -> None:
     stream_advanced = asyncio.Event()
     mind = _mind()
 
@@ -1617,8 +1576,11 @@ async def test_done_finishes_animation_before_logical_settlement(monkeypatch) ->
     ))
     await stream_advanced.wait()
 
-    mind.stop_activity.assert_awaited_once_with("wait", settle=False)
-    assert mind.output_session.status.end_calls == [True]
+    assert TurnTerminal(
+        surface_id=mind.output_session.context.surface_id,
+        turn_id="turn_test",
+        status="completed",
+    ) in mind.output_session.activity.items
 
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -1966,7 +1928,6 @@ async def test_child_stream_does_not_mutate_root_frontend_state(monkeypatch) -> 
     assert result.status == "completed"
     assert result.assistant_text == "child answer"
     assert mind.remembered == []
-    mind.stop_activity.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -1985,7 +1946,6 @@ async def test_child_stream_failure_does_not_stop_root_animation(monkeypatch) ->
     )
 
     assert result.status == "failed"
-    mind.stop_activity.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -2677,15 +2637,24 @@ async def test_stream_returns_failed_result(monkeypatch) -> None:
     assert result.status == "failed"
     assert result.error == "request failed"
     assert result.exit_code == 1
-    mind.stop_activity.assert_awaited_once_with("wait", settle=False)
+    assert TurnTerminal(
+        surface_id=mind.output_session.context.surface_id,
+        turn_id="turn_test",
+        status="failed",
+    ) in mind.output_session.activity.items
 
 
 @pytest.mark.anyio
 async def test_stream_without_terminal_event_is_incomplete(monkeypatch) -> None:
-    result, _mind_state = await _run_stream(monkeypatch, [])
+    result, mind = await _run_stream(monkeypatch, [])
 
     assert result.status == "incomplete"
     assert result.error == "stream ended before turn completion"
+    assert TurnTerminal(
+        surface_id=mind.output_session.context.surface_id,
+        turn_id="turn_test",
+        status="failed",
+    ) in mind.output_session.activity.items
 
 
 @pytest.mark.anyio

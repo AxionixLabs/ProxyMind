@@ -15,14 +15,6 @@ class ResultEnhancementReporter(typing.Protocol):
         """展示增强过程产生的文本。"""
         ...
 
-    async def begin_status(self) -> None:
-        """启动增强过程状态。"""
-        ...
-
-    async def end_status(self) -> None:
-        """结束增强过程状态。"""
-        ...
-
 
 def _tool_payload(result_fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
     """提取单次工具结果中的业务载荷。"""
@@ -156,13 +148,7 @@ async def _enhance_heal_element(
 
         return None, result_data
 
-    if reporter is not None:
-        await reporter.begin_status()
-    try:
-        locator, heal_result_data = await collect_heal_locator()
-    finally:
-        if reporter is not None:
-            await reporter.end_status()
+    locator, heal_result_data = await collect_heal_locator()
 
     if not locator:
         return {

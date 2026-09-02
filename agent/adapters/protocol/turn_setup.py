@@ -16,10 +16,7 @@ from agent.ports import (
     OutputSessionFactory,
     OutputSurfaceContext,
 )
-from agent.ports import (
-    RetryStatePort,
-    TurnSessionContextPort,
-)
+from agent.ports import TurnSessionContextPort
 from protocol.schema.environment import normalize_client_environment_snapshot
 from protocol.schema.identifiers import short_uid
 
@@ -34,7 +31,6 @@ class StreamTurnCallbacks:
     input_event: Callback | None = None
     stream_end: Callback | None = None
     interrupted: Callback | None = None
-    retry_state: Callback | None = None
 
     @classmethod
     def take_from(
@@ -59,10 +55,6 @@ class StreamTurnCallbacks:
                 options.pop("on_turn_interrupted", None),
                 name="on_turn_interrupted",
             ),
-            retry_state=_optional_callback(
-                options.pop("on_retry_state", None),
-                name="on_retry_state",
-            ),
         )
 
     def continuation_kwargs(
@@ -76,7 +68,6 @@ class StreamTurnCallbacks:
             "on_turn_input_event": self.input_event,
             "on_turn_stream_end": self.stream_end,
             "on_turn_interrupted": self.interrupted,
-            "on_retry_state": self.retry_state,
         }
         continuation.update({
             name: callback
@@ -84,19 +75,6 @@ class StreamTurnCallbacks:
             if callback is not None
         })
         return continuation
-
-    def with_retry_state(self, callback: Callback) -> "StreamTurnCallbacks":
-        """在调用方未指定时绑定根执行的重试状态出口。"""
-        if self.retry_state is not None:
-            return self
-        return type(self)(
-            input_context=self.input_context,
-            input_event=self.input_event,
-            stream_end=self.stream_end,
-            interrupted=self.interrupted,
-            retry_state=callback,
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class PreparedStreamTurn:
@@ -137,13 +115,6 @@ def prepare_stream_turn(
         TurnSessionContextPort,
     ):
         raise RuntimeError("turn session context is required")
-
-    if callbacks.retry_state is None and context.agent.depth == 0:
-        retry_state = context.retry_state
-        if isinstance(retry_state, RetryStatePort):
-            callbacks = callbacks.with_retry_state(
-                retry_state.set_wait_retry_state
-            )
 
     if callbacks.input_context is not None:
         callbacks.input_context(context)

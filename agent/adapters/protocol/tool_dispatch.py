@@ -10,7 +10,6 @@ from agent.adapters.protocol.tool_events import (
     ToolEventHandler,
     tool_activity_kind,
 )
-from agent.ports import OutputStatusPort
 from protocol.schema.stream_events import (
     StreamEvent,
     ToolBuiltinCallEvent,
@@ -50,12 +49,10 @@ class StreamToolDispatcher:
         *,
         handler: ToolEventHandler,
         activity: TurnActivityProjector,
-        status_control: OutputStatusPort,
     ) -> None:
         """绑定工具处理器、活动投影器和输出状态端口。"""
         self.handler = handler
         self.activity = activity
-        self.status_control = status_control
         self.batch = ToolCallBatchBuffer()
 
     @property
@@ -71,7 +68,6 @@ class StreamToolDispatcher:
                 "builtin",
                 name=event.builtin_type,
             )
-            await self.status_control.begin_tool_status()
             return ToolDispatchResult("handled")
 
         if isinstance(event, ToolBuiltinDoneEvent):
@@ -81,16 +77,11 @@ class StreamToolDispatcher:
                 name=event.builtin_type,
             )
             await self.activity.request_model_wait("tool_result")
-            await self.status_control.end_status()
             return ToolDispatchResult("handled")
 
         if isinstance(event, ToolCallsStartEvent):
             self.batch.begin(event)
             await self.activity.tool_batch_started(event.batch_id)
-            await self.status_control.begin_reply_wait_status(
-                delay_sec=0.15,
-                animate_after_sec=0.85,
-            )
             return ToolDispatchResult("handled")
 
         if isinstance(event, ToolCallsDoneEvent):
@@ -102,7 +93,6 @@ class StreamToolDispatcher:
                     name=ready_call.name,
                 )
             await self.activity.tool_batch_completed(event.batch_id)
-            await self.status_control.begin_reply_wait_status(delay_sec=0.75)
             return await self._execute_calls(ready_calls)
 
         if isinstance(event, ToolCallEvent):

@@ -28,7 +28,6 @@ def _output_session(context: OutputSurfaceContext) -> OutputSession:
         context=context,
         control=Mock(),
         activity=PassiveOutputActivity(),
-        status=Mock(),
         content=Mock(),
         presentation=Mock(),
     )
@@ -64,7 +63,7 @@ class _SessionContext:
         return self.skills_mock()
 
 
-def _execution(*, retry_state=None, session_context=None) -> TurnExecution:
+def _execution(*, session_context=None) -> TurnExecution:
     """构造具有固定请求上下文的根轮次。"""
     if session_context is None:
         session_context = _SessionContext()
@@ -76,7 +75,6 @@ def _execution(*, retry_state=None, session_context=None) -> TurnExecution:
         pref_config={"primary": {"model": "test-model"}},
         cwd=".",
         permissions=preset_permissions("auto"),
-        retry_state=retry_state,
         session_context=session_context,
         output_record_path="output.jsonl",
         turn_id="turn_test",
@@ -138,7 +136,6 @@ def test_prepare_stream_turn_separates_request_and_continuation_options() -> Non
     ))
     input_context = Mock()
     input_event = Mock()
-    retry_state = Mock()
     event_report = Mock()
     execution = _execution()
     options = {
@@ -148,7 +145,6 @@ def test_prepare_stream_turn_separates_request_and_continuation_options() -> Non
         "ev_report": event_report,
         "on_turn_input_context": input_context,
         "on_turn_input_event": input_event,
-        "on_retry_state": retry_state,
         "extras": {"trace": "preserved"},
     }
 
@@ -166,7 +162,6 @@ def test_prepare_stream_turn_separates_request_and_continuation_options() -> Non
     assert prepared.output_session.context.agent_id == "root"
     assert prepared.output_session.context.surface_id.startswith("surface_")
     assert prepared.event_report is event_report
-    assert prepared.callbacks.retry_state is retry_state
     assert prepared.request_kwargs == {
         "exec_env": _exec_env_snapshot(),
         "skills": [{"name": "test"}],
@@ -196,26 +191,18 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities() -> None:
     session_factory = Mock(side_effect=lambda _path, *, context, animate: (
         _output_session(context)
     ))
-    retry_state = Mock()
-    retry_state_port = SimpleNamespace(
-        set_wait_retry_state=retry_state,
-    )
     snapshot = _exec_env_snapshot()
     session_context = _session_context(
         environment_snapshot=snapshot,
     )
 
     prepared = turn_setup.prepare_stream_turn(
-        _execution(
-            retry_state=retry_state_port,
-            session_context=session_context,
-        ),
+        _execution(session_context=session_context),
         {"session_factory": session_factory},
     )
 
     assert prepared.request_kwargs["exec_env"] == snapshot
     assert prepared.request_kwargs["skills"] == [{"name": "resolved"}]
-    assert prepared.callbacks.retry_state is retry_state
     assert prepared.continuation_kwargs == {
         "exec_env": snapshot,
         "session_factory": session_factory,

@@ -39,22 +39,6 @@ class _Activity:
         self.events.append(("tool.started", tool_id, tool_kind, name))
 
 
-class _Status:
-    """记录旧输出状态端口的过渡期调用。"""
-
-    def __init__(self, events: list[tuple[typing.Any, ...]]) -> None:
-        self.events = events
-
-    async def begin_reply_wait_status(
-        self,
-        text: str | None = "Thinking",
-        *,
-        delay_sec: float = 0.28,
-        animate_after_sec: float | None = None,
-    ) -> None:
-        self.events.append(("status.wait", delay_sec, animate_after_sec))
-
-
 class _Handler:
     """记录批次完整后释放的工具调用。"""
 
@@ -84,7 +68,6 @@ async def test_tool_batch_starts_every_lease_before_execution() -> None:
     dispatcher = StreamToolDispatcher(
         handler=_Handler(events),
         activity=_Activity(events),
-        status_control=_Status(events),
     )
     start = ToolCallsStartEvent(
         type="tool.calls.start",
@@ -123,11 +106,9 @@ async def test_tool_batch_starts_every_lease_before_execution() -> None:
     assert result == ToolDispatchResult("handled")
     assert events == [
         ("batch.started", "batch_1"),
-        ("status.wait", 0.15, 0.85),
         ("tool.started", "call_1", "client", "read_file"),
         ("tool.started", "call_2", "plan", "plan_steps"),
         ("batch.completed", "batch_1"),
-        ("status.wait", 0.75, None),
         ("tool.handle", "call_1"),
         ("tool.handle", "call_2"),
     ]

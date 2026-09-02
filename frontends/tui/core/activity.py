@@ -9,10 +9,7 @@ from dataclasses import dataclass
 
 from prompt_toolkit.utils import get_cwidth
 
-from agent.ports import (
-    ActivityStatusKind,
-    RetryState,
-)
+from agent.ports import ActivityStatusKind
 from agent.ports.presentation import TextStyle
 from frontends.terminal.capabilities import TerminalColorLevel
 from frontends.terminal.mcp_status import (
@@ -153,10 +150,6 @@ class TuiActivity(object):
         self._wait_elapsed_sec: float = 0.0
         self._wait_started_at: float | None = None
         self._wait_phase: float = 0.0
-        self._wait_paused: bool = False
-        self._terminal_wait_command: str = ""
-        self._terminal_wait_active: bool = False
-        self._wait_retry_state: RetryState = "idle"
         self._turn_surface_indicator: TurnSurfaceIndicator = "thinking"
         self._turn_surface_detail: str = ""
         self._slots: dict[ActivitySlotKey, _ActivitySlot] = {}
@@ -170,11 +163,8 @@ class TuiActivity(object):
     async def begin_wait(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""
         await self._discard("wait")
-        self._reset_terminal_wait()
         self._wait_elapsed_sec = 0.0
         self._wait_phase = 0.0
-        self._wait_paused = False
-        self._wait_retry_state = "idle"
         self._turn_surface_indicator = "thinking"
         self._turn_surface_detail = ""
         self._wait_started_at = time.perf_counter()
@@ -185,33 +175,9 @@ class TuiActivity(object):
             render=self._wait_block,
         ))
 
-    async def begin_terminal_wait(self, command: str) -> None:
-        """把当前等待槽切换为后台终端等待文案。"""
-        slot = self._slots.get("foreground")
-        if slot is None or slot.kind != "wait" or slot.frozen:
-            return None
-
-        normalized = " ".join(str(command or "").split())
-        self._terminal_wait_active = True
-        self._terminal_wait_command = normalized
-        self._turn_surface_indicator = "terminal"
-        self._turn_surface_detail = normalized
-        self._render_slots()
-
-    async def end_terminal_wait(self) -> None:
-        """清除后台终端等待文案并恢复普通等待状态。"""
-        if not self._terminal_wait_active:
-            return None
-
-        self._reset_terminal_wait()
-        self._turn_surface_indicator = "thinking"
-        self._turn_surface_detail = ""
-        if self.lease("wait") is not None:
-            self._render_slots()
-
     async def ensure_wait(self) -> None:
         """在模型轮次已接管前台时确保等待动画槽存在。"""
-        if self._wait_paused or self.lease("wait") is not None:
+        if self.lease("wait") is not None:
             return None
         await self.begin_wait()
 
@@ -232,18 +198,6 @@ class TuiActivity(object):
         await self.ensure_wait()
         self._turn_surface_indicator = indicator
         self._turn_surface_detail = " ".join(str(detail or "").split())
-        self._terminal_wait_active = indicator == "terminal"
-        self._terminal_wait_command = (
-            self._turn_surface_detail if indicator == "terminal" else ""
-        )
-        if indicator == "retrying":
-            self._wait_retry_state = (
-                "transport"
-                if self._turn_surface_detail == "transport"
-                else "provider"
-            )
-        else:
-            self._wait_retry_state = "idle"
         slot = self._slots.get("foreground")
         if slot is not None and slot.kind == "wait" and not slot.frozen:
             self._render_slots()
@@ -351,7 +305,6 @@ class TuiActivity(object):
 
         if kind is None or kind == "wait":
             self._reset_wait()
-            self._reset_terminal_wait()
 
         targets = tuple(
             (key, slot)
@@ -380,7 +333,6 @@ class TuiActivity(object):
         self._settle_deadlines.clear()
         self._cancel_settle_expiry()
         self._reset_wait()
-        self._reset_terminal_wait()
         await self._cancel_task()
         retired = tuple(self._retired_tasks)
         for task in retired:
@@ -442,7 +394,6 @@ class TuiActivity(object):
         self._settle_deadlines.pop(slot.key, None)
         if slot.kind == "wait":
             self._reset_wait()
-            self._reset_terminal_wait()
 
         if not self._slots:
             self._retire_task()
@@ -466,9 +417,8 @@ class TuiActivity(object):
         if lease is not None:
             return self.release(lease)
 
-        was_paused = self._wait_paused
         self._reset_wait()
-        return was_paused
+        return False
 
     def refresh(self, kind: ActivityStatusKind) -> bool:
         """按最新快照同步刷新指定活动槽位。"""
@@ -481,54 +431,6 @@ class TuiActivity(object):
         self._render_slots()
 
         return True
-
-    async def pause_wait(self) -> bool:
-        """暂停当前等待动画和耗时统计。"""
-        slot = self._slots.get("foreground")
-        if slot is None or slot.kind != "wait":
-            return False
-        self._slots.pop("foreground", None)
-        self._settle_deadlines.pop("foreground", None)
-
-        started_at = self._wait_started_at
-        if started_at is not None:
-            self._wait_elapsed_sec += max(0.0, time.perf_counter() - started_at)
-
-        self._wait_phase = slot.phase
-        self._wait_started_at = None
-        self._wait_paused = True
-
-        await self._refresh_task()
-        return True
-
-    async def resume_wait(self) -> None:
-        """从暂停位置恢复等待动画和耗时统计。"""
-        if not self._wait_paused or "foreground" in self._slots:
-            return None
-
-        self._wait_paused = False
-        self._wait_started_at = time.perf_counter()
-
-        await self._set_slot(_ActivitySlot(
-            key="foreground",
-            kind="wait",
-            phase=self._wait_phase,
-            render=self._wait_block,
-        ))
-
-    def set_wait_retry_state(self, state: RetryState) -> None:
-        """切换等待动画的重试来源并保持当前动画相位。"""
-        if state not in {"idle", "transport", "provider"}:
-            raise ValueError(f"unsupported wait retry state: {state}")
-        self._wait_retry_state = state
-        self._turn_surface_indicator = (
-            "thinking" if state == "idle" else "retrying"
-        )
-        self._turn_surface_detail = ""
-
-        slot = self._slots.get("foreground")
-        if slot is not None and slot.kind == "wait" and not slot.frozen:
-            self._render_slots()
 
     def _wait_block(self, phase: float) -> FragmentBlock:
         """按当前连接状态生成等待帧。"""
@@ -562,17 +464,17 @@ class TuiActivity(object):
                 ])
             return FragmentBlock(tuple(fragments), preserve_newlines=True)
 
-        retry_state = self._wait_retry_state
+        retrying = self._turn_surface_indicator == "retrying"
         family: StatusFamily
-        if retry_state == "idle":
+        if not retrying:
             family = "wait"
-        elif retry_state == "provider":
-            family = "provider_retry"
-        else:
+        elif self._turn_surface_detail == "transport":
             family = "retry"
+        else:
+            family = "provider_retry"
 
         return _status_block(
-            "Thinking" if retry_state == "idle" else "Retrying",
+            "Retrying" if retrying else "Thinking",
             family=family,
             phase=phase,
             elapsed_sec=self._wait_elapsed(),
@@ -789,16 +691,8 @@ class TuiActivity(object):
         self._wait_elapsed_sec = 0.0
         self._wait_started_at = None
         self._wait_phase = 0.0
-        self._wait_paused = False
-        self._wait_retry_state = "idle"
         self._turn_surface_indicator = "thinking"
         self._turn_surface_detail = ""
-
-    def _reset_terminal_wait(self) -> None:
-        """清空后台终端等待上下文。"""
-        self._terminal_wait_command = ""
-        self._terminal_wait_active = False
-
 
 def _upload_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlock:
     """生成附件上传活动状态。"""

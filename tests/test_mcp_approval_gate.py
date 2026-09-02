@@ -123,16 +123,10 @@ def _runtime(
         arguments={"query": "approval"},
         meta={"external": True, "server": "docs", "transport": "stdio"},
     )
-    status = SimpleNamespace(
-        begin_custom_tool_status=AsyncMock(),
-        begin_tool_status=AsyncMock(),
-        end_status=AsyncMock(),
-    )
     presentation = SimpleNamespace(emit=AsyncMock())
     runner = ClientToolCallRunner(
         session=session,
         output_control=SimpleNamespace(record_tool_arguments=Mock()),
-        status_control=status,
         presentation=presentation,
         tools=[{
             "name": name,

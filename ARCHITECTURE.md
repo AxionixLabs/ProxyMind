@@ -281,6 +281,46 @@ SessionLoop、RunActor、工具执行器或前端生命周期。
 Application 产出与 UI 工具包无关的 PresentationView。Terminal/TUI/未来桌面端只负责布局、
 交互和渲染，不从异常文本或原始 provider payload 重建业务语义。
 
+### TUI Turn Presentation
+
+每次 Turn 创建一个具有不可变 `surface_id + cid + sid + turn_id + agent_id` scope 的
+`OutputSession`。该会话聚合四个正交出口：`OutputControlPort` 管理流式输出资源，
+`ContentSink` 接收正文事实，`PresentationSink` 接收稳定展示单元，`OutputActivityPort`
+接收活动展示事实。四者共享 scope，但不得互相读取内部状态或替代彼此的生命周期。
+
+Turn 活动提示的唯一链路固定为：
+
+```text
+protocol / harness fact
+  -> TurnActivityProjector
+  -> OutputActivityEvent
+  -> reduce_turn_surface()
+  -> TuiTurnSurfaceCoordinator
+  -> one TUI foreground projection
+```
+
+`OutputActivityEvent` 使用正式身份表达 model wait、assistant 可见性、工具批次和调用、后台
+终端、审批、provider/transport retry、恢复水位、Turn 终态与逻辑结算。Reducer 是无 IO 的
+纯状态转换；Coordinator 是 generation timer、tool/approval lease、replay 抑制和画面投影的
+唯一 owner。协议 adapter、工具执行器、审批协调器和终结器不得直接开始、结束或延迟 TUI
+状态，也不得通过匿名状态字符串恢复动画。
+
+正文只有在渲染器确认至少一行实际进入活动画布时才产生 `AssistantVisible`。该事件在同一个
+`visual_update()` 中撤下活动提示并提交正文，避免等待动画、空白帧和 assistant 正文同时出现。
+`AssistantSettled` 只允许 Coordinator 按本地策略安排后续等待；Turn 终态会同步清空 timer、
+retry、工具和审批 lease，`turn.logical_settled` 只结束逻辑输入边界，不重新解释视觉终态。
+
+审批卡、菜单和其他独占交互表面只拥有焦点、选择和布局遮挡。它们可以暂时隐藏活动区域，
+但不修改 reducer 状态；交互结束后由后续 typed fact 或现有 projection 决定可见内容。后台终端
+同样通过 `call_id + session_id` 的 `TerminalWaitStarted/Completed` 进入 reducer，不存在独立的
+TUI terminal wait 控制面。
+
+attach/replay 期间，历史事件只归约状态，不启动瞬时 timer。追平权威水位后 Coordinator 只
+投影一次最终快照；内部 gap 进入对账展示，不能降级为普通 Thinking。`OutputSession.close()`
+先停止输出资源，再关闭 activity scope；两步均幂等，任一步失败都必须继续清理另一项。text、
+JSONL、silent、stdio MCP 和 Subagent 使用相同会话契约，并以 `PassiveOutputActivity` 明确表示
+没有活动画面，而不是实现空状态 facade。
+
 ## 工具、审批与 Effect
 
 工具调用的职责链固定为：

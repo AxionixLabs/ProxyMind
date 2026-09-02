@@ -38,7 +38,6 @@ from agent.ports import (
     OutputControlPort,
     OutputSession,
     OutputSurfaceContext,
-    OutputStatusPort,
     PassiveOutputActivity,
     SourcesOutput,
 )
@@ -277,7 +276,7 @@ class TextOutputState:
             self.assistant_open = False
 
 
-class TextOutputControl(OutputControlPort, OutputStatusPort):
+class TextOutputControl(OutputControlPort):
     """提供无动画的文本输出控制。"""
 
     def __init__(self, state: TextOutputState) -> None:
@@ -338,31 +337,6 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
         _ = blink
         self.state.settle_assistant()
         await self.state.close()
-
-    async def begin_tool_status(self) -> None:
-        """文本模式不显示动态工具状态。"""
-        return None
-
-    async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
-        """文本模式输出一次自定义状态标题。"""
-        if text:
-            self.state.process(f"{text}\n")
-
-    async def begin_reply_wait_status(
-        self,
-        text: typing.Optional[str] = "Thinking",
-        *,
-        delay_sec: float = 0.28,
-        animate_after_sec: float | None = None
-    ) -> None:
-        """文本模式不显示等待动画。"""
-        _ = text, delay_sec, animate_after_sec
-        return None
-
-    async def end_status(self, *, immediate: bool = False) -> None:
-        """结束文本状态。"""
-        _ = immediate
-        return None
 
     async def record_hidden_output(self, text: str) -> None:
         """记录不直接展示的文本。"""
@@ -570,7 +544,6 @@ def create_text_output_session(
         context=context,
         control=control,
         activity=PassiveOutputActivity(),
-        status=control,
         content=TextContentSink(state),
         presentation=TextPresentationSink(state),
         show_hook_lifecycle=True,

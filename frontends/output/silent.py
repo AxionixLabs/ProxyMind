@@ -55,7 +55,6 @@ def create_silent_output_session(
         context=context,
         control=control,
         activity=PassiveOutputActivity(),
-        status=control,
         content=TextContentSink(state),
         presentation=TextPresentationSink(state),
     )

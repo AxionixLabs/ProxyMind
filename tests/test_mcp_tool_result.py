@@ -201,13 +201,6 @@ async def test_client_tool_result_keeps_business_fields_inside_data() -> None:
                 },
             )
 
-    class Status(object):
-        async def begin_tool_status(self) -> None:
-            return None
-
-        async def end_status(self) -> None:
-            return None
-
     turn_context = TurnContext.create(
         agent=AgentContext.root("sid_test"),
         cid="cid_test",
@@ -220,7 +213,6 @@ async def test_client_tool_result_keeps_business_fields_inside_data() -> None:
 
     tool_run = await run_tool_step(
         Session(),
-        status_control=Status(),
         presentation=object(),
         tools=[{
             "name": "shell_command",
@@ -262,13 +254,6 @@ async def test_external_structured_result_is_visible_after_tool_run() -> None:
                 structuredContent={"answer": 42},
             )
 
-    class Status(object):
-        async def begin_tool_status(self) -> None:
-            return None
-
-        async def end_status(self) -> None:
-            return None
-
     turn_context = TurnContext.create(
         agent=AgentContext.root("sid_test"),
         cid="cid_test",
@@ -281,7 +266,6 @@ async def test_external_structured_result_is_visible_after_tool_run() -> None:
 
     tool_run = await run_tool_step(
         Session(),
-        status_control=Status(),
         presentation=object(),
         tools=[{"name": "mcp__docs__lookup"}],
         invocation=ToolInvocation(

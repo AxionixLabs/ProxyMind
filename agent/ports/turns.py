@@ -30,11 +30,8 @@ __all__ = (
     "TurnStartResultPort",
     "RootTurnSessionPort",
     "TurnOperation",
-    "RetryState",
     "EventReportPort",
     "EventReportLifetime",
-    "RetryStatePort",
-    "TurnAnimationPort",
     "TurnSessionContextPort",
     "TurnSessionStatePort",
     "TurnResultPort",
@@ -42,11 +39,6 @@ __all__ = (
 )
 
 
-RetryState: typing.TypeAlias = typing.Literal[
-    "idle",
-    "transport",
-    "provider",
-]
 EventReportLifetime: typing.TypeAlias = typing.Literal[
     "turn",
     "session",
@@ -260,29 +252,6 @@ class RootTurnSessionPort(typing.Protocol):
     @property
     def hook_scope_provider(self) -> HookScopeProviderPort:
         """返回根轮次使用的 Hook 作用域提供器。"""
-        ...
-
-
-@typing.runtime_checkable
-class RetryStatePort(typing.Protocol):
-    """定义流式重试展示状态的最小端口。"""
-
-    def set_wait_retry_state(self, state: RetryState) -> None:
-        """切换等待状态的重试来源。"""
-        ...
-
-
-@typing.runtime_checkable
-class TurnAnimationPort(typing.Protocol):
-    """定义模型轮次等待动画的最小生命周期端口。"""
-
-    @property
-    def active(self) -> bool:
-        """返回前台是否正在接管等待动画。"""
-        ...
-
-    async def stop_wait(self, *, settle: bool = True) -> None:
-        """停止模型轮次等待动画。"""
         ...
 
 

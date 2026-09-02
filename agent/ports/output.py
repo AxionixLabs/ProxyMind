@@ -29,7 +29,6 @@ __all__ = (
     "AssistantVisible",
     "BLOCK_OUTPUT",
     "ContentSink",
-    "IdleStatusPort",
     "LogicalSettled",
     "ModelWaitReason",
     "ModelWaitRequested",
@@ -42,7 +41,6 @@ __all__ = (
     "OutputSession",
     "OutputSessionFactory",
     "OutputSurfaceContext",
-    "OutputStatusPort",
     "PassiveOutputActivity",
     "RecoveryActivityMode",
     "RecoveryChanged",
@@ -513,54 +511,7 @@ class OutputControlPort(ABC):
         ...
 
 
-class OutputStatusPort(ABC):
-    """描述单轮流式事件使用的局部状态展示能力。"""
-
-    @abstractmethod
-    async def begin_tool_status(self) -> None:
-        """启动通用工具状态。"""
-        ...
-
-    @abstractmethod
-    async def begin_custom_tool_status(self, text: str | None) -> None:
-        """启动自定义工具状态。"""
-        ...
-
-    @abstractmethod
-    async def begin_reply_wait_status(
-        self,
-        text: str | None = "Thinking",
-        *,
-        delay_sec: float = 0.28,
-        animate_after_sec: float | None = None,
-    ) -> None:
-        """启动回复等待状态。"""
-        ...
-
-    @abstractmethod
-    async def end_status(self, *, immediate: bool = False) -> None:
-        """结束当前状态。"""
-        ...
-
-
-@typing.runtime_checkable
-class IdleStatusPort(typing.Protocol):
-    """定义流式空闲状态计时器的调度和关闭生命周期。"""
-
-    def reschedule(self) -> None:
-        """从当前时刻重新安排一次空闲状态。"""
-        ...
-
-    def cancel_nowait(self) -> None:
-        """同步请求取消当前计时任务。"""
-        ...
-
-    async def cancel(self) -> None:
-        """取消并等待当前计时任务收束。"""
-        ...
-
-
-class OutputPort(OutputControlPort, OutputStatusPort):
+class OutputPort(OutputControlPort):
     """描述终端渲染适配器需要的完整输出能力。"""
 
     @property
@@ -636,7 +587,6 @@ class OutputSession(typing.Generic[PresentationViewT]):
     context: OutputSurfaceContext
     control: OutputControlPort
     activity: OutputActivityPort
-    status: OutputStatusPort
     content: ContentSink
     presentation: OutputPresentationPort[PresentationViewT]
     show_hook_lifecycle: bool = False

@@ -12,7 +12,6 @@ from agent.application.turns.context import ToolInvocation
 from agent.application.views.contracts import PresentationSink
 from agent.ports.javascript import NestedToolOutput
 from agent.ports.mcp_session import McpSessionPort
-from agent.ports.output import OutputStatusPort
 
 __all__ = (
     "ClientToolResultEnvelope",
@@ -75,15 +74,13 @@ class ToolExecutionAdapter(typing.Protocol):
         self,
         session: McpSessionPort,
         *,
-        status_control: OutputStatusPort,
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         invocation: ToolInvocation,
         pref_config: Mapping[str, typing.Any],
         enable_progress_notify: bool = False,
-        status_text: str | None = None,
     ) -> ToolExecutionResult:
-        """执行带状态、进度和结果增强的普通工具调用。"""
+        """执行带结构化进度和结果增强的普通工具调用。"""
         ...
 
     async def execute_direct(

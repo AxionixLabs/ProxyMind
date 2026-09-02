@@ -17,7 +17,6 @@ async def test_frontend_activity_routes_enabled_status_to_active_runtime() -> No
         begin_inbuild_status=AsyncMock(),
         begin_external_mcp_status=AsyncMock(),
         begin_compact_status=AsyncMock(),
-        finish_turn_wait=Mock(),
         end_activity_status=AsyncMock(),
         freeze_activity_status=AsyncMock(),
     )
@@ -39,7 +38,6 @@ async def test_frontend_activity_routes_enabled_status_to_active_runtime() -> No
     runtime.begin_external_mcp_status.assert_awaited_once_with(snapshot)
     runtime.begin_compact_status.assert_awaited_once_with(snapshot)
     runtime.freeze_activity_status.assert_awaited_once_with("compact")
-    runtime.finish_turn_wait.assert_not_called()
     runtime.end_activity_status.assert_awaited_once_with(
         "wait",
         settle=False,

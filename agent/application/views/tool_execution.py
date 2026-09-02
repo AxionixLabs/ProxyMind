@@ -14,9 +14,6 @@ from agent.application.views.builders.tools import (
 )
 from agent.application.views.contracts import PresentationSink
 from agent.domain.tool_policy import is_approval_only_tool
-from agent.ports import (
-    OutputStatusPort,
-)
 
 
 class ToolDisplayResult(typing.Protocol):
@@ -129,12 +126,10 @@ class ToolEnhancementPresenter:
 
     def __init__(
         self,
-        status: OutputStatusPort,
         presentation: PresentationSink,
         *,
         tool_name: str,
     ) -> None:
-        self.status = status
         self.presentation = presentation
         self.tool_name = tool_name
 
@@ -146,14 +141,6 @@ class ToolEnhancementPresenter:
             source="enhancement",
             tool_name=self.tool_name,
         )
-
-    async def begin_status(self) -> None:
-        """启动增强过程状态。"""
-        await self.status.begin_tool_status()
-
-    async def end_status(self) -> None:
-        """结束增强过程状态。"""
-        await self.status.end_status()
 
 
 if __name__ == '__main__':

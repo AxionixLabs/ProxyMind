@@ -35,7 +35,6 @@ from agent.ports import (
     ExecutionPolicy,
     PermissionGrantPort,
 )
-from agent.ports import OutputStatusPort
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from observability import (
     observe,
@@ -148,7 +147,6 @@ class ApprovalEventHandler:
         ledger: ApprovalCallLedger,
         coordinator: ToolCallCoordinator,
         activity: TurnActivityProjector,
-        status_control: OutputStatusPort,
         presentation: PresentationSink,
         post_approval: typing.Callable[..., typing.Awaitable[typing.Any]],
     ) -> None:
@@ -160,7 +158,6 @@ class ApprovalEventHandler:
         self.ledger = ledger
         self.coordinator = coordinator
         self.activity = activity
-        self.status_control = status_control
         self.presentation = presentation
         self.post_approval = post_approval
 
@@ -319,8 +316,6 @@ class ApprovalEventHandler:
             return
 
         self._add_agent_identity(approval)
-        await self.status_control.end_status(immediate=True)
-
         approval_started_at = time.perf_counter()
 
         approval_id = approval_id_from_event(event)
@@ -478,10 +473,6 @@ class ApprovalEventHandler:
                 sid=turn_context.sid,
                 turn_id=turn_context.turn_id,
                 call_id=approval_call_id,
-            )
-            await self.status_control.begin_reply_wait_status(
-                delay_sec=0.15,
-                animate_after_sec=0.85,
             )
 
     async def _request_approval(

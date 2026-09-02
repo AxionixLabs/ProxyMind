@@ -89,11 +89,6 @@ def _runner(
     effect_reconciler=None,
 ) -> tuple[ClientToolCallRunner, SimpleNamespace]:
     output = SimpleNamespace(record_tool_arguments=Mock())
-    status = SimpleNamespace(
-        begin_custom_tool_status=AsyncMock(),
-        begin_tool_status=AsyncMock(),
-        end_status=AsyncMock(),
-    )
     presentation = SimpleNamespace(emit=AsyncMock())
     if effect_journal is None:
         effect_journal = SimpleNamespace(
@@ -107,7 +102,6 @@ def _runner(
     runner = ClientToolCallRunner(
         session=SimpleNamespace(),
         output_control=output,
-        status_control=status,
         presentation=presentation,
         tools=tools if tools is not None else [{"name": "test_tool"}],
         pref_config={},
@@ -124,7 +118,6 @@ def _runner(
     )
     return runner, SimpleNamespace(
         output=output,
-        status=status,
         presentation=presentation,
     )
 
@@ -705,7 +698,7 @@ async def test_client_tool_call_rejects_tool_outside_turn_catalog(monkeypatch) -
 
 
 @pytest.mark.anyio
-async def test_js_repl_emits_start_trace_and_uses_javascript_status(monkeypatch) -> None:
+async def test_js_repl_emits_start_trace_without_status_side_channel(monkeypatch) -> None:
     async def run_allowed(invocation, operation):
         operation_result = await operation(invocation)
         return ToolCallRunResult(
@@ -741,7 +734,7 @@ async def test_js_repl_emits_start_trace_and_uses_javascript_status(monkeypatch)
     result = await runner.execute(invocation, use_coding_trace=True)
 
     assert result.result.ok is True
-    assert run_tool_step.await_args.kwargs["status_text"] == "JavaScript"
+    assert "status_text" not in run_tool_step.await_args.kwargs
     client_call.show_tool_start.assert_awaited_once_with(
         runner.presentation,
         "js_repl",

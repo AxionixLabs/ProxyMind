@@ -7112,10 +7112,7 @@ async def test_approval_replaces_composer_after_query_enters_scrollback(
 
             for _ in range(100):
                 await asyncio.sleep(0)
-                if (
-                    runtime.screen.approval.state is not None
-                    and runtime.screen.activity_block is None
-                ):
+                if runtime.screen.approval.state is not None:
                     break
             else:
                 raise AssertionError("approval did not settle")
@@ -7146,6 +7143,7 @@ async def test_approval_replaces_composer_after_query_enters_scrollback(
             assert question_row == approval.ypos + 1
             assert runtime.screen.input.window not in positions
             assert runtime.screen.footer_window not in positions
+            assert runtime.screen.status_window not in positions
             assert runtime.screen.canvas_spacer not in positions
             assert runtime.screen._bottom_pane_top_inset_height() == 1
         finally:

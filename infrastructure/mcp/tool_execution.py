@@ -21,10 +21,7 @@ from agent.application.views.tool_execution import (
     show_tool_progress,
 )
 from agent.domain.tool_policy import is_approval_only_tool
-from agent.ports import (
-    McpSessionPort,
-    OutputStatusPort,
-)
+from agent.ports import McpSessionPort
 from infrastructure.mcp.nested_tool_results import nested_tool_output
 from infrastructure.mcp.tool_invocation import execute_tool
 from infrastructure.mcp.tool_results import (
@@ -201,15 +198,13 @@ def _server_output_cost_ms(event: dict[str, typing.Any]) -> int:
 async def run_tool_step(
     session: McpSessionPort,
     *,
-    status_control: OutputStatusPort,
     presentation: PresentationSink,
     tools: list[dict[str, typing.Any]],
     invocation: ToolInvocation,
     pref_config: dict[str, typing.Any],
     enable_progress_notify: bool = False,
-    status_text: typing.Optional[str] = None
 ) -> ToolExecutionResult:
-    """统一执行工具、处理状态动画和结果增强。"""
+    """统一执行工具并处理结构化进度和结果增强。"""
     started_at = time.time()
     name = invocation.name
 
@@ -224,53 +219,44 @@ async def run_tool_step(
     )
 
     try:
-        if status_text:
-            await status_control.begin_custom_tool_status(status_text)
-        else:
-            await status_control.begin_tool_status()
-        try:
-            result = await execute_tool(
-                session,
-                tools=tools,
-                invocation=invocation,
-                pref_config=pref_config,
-                enable_progress_notify=enable_progress_notify,
-                stream_callback=functools.partial(
-                    show_tool_progress,
-                    presentation,
-                    source="tool",
-                    tool_name=name,
-                ),
-            )
-            ok = not result.isError
+        result = await execute_tool(
+            session,
+            tools=tools,
+            invocation=invocation,
+            pref_config=pref_config,
+            enable_progress_notify=enable_progress_notify,
+            stream_callback=functools.partial(
+                show_tool_progress,
+                presentation,
+                source="tool",
+                tool_name=name,
+            ),
+        )
+        ok = not result.isError
 
-            normalized = normalize_call_tool_result(result)
+        normalized = normalize_call_tool_result(result)
 
-            if is_approval_only_tool(name):
-                fields = normalized.fields
-            else:
-                fields = await enhance_tool_result(
-                    pref_config=pref_config,
-                    name=name,
-                    result_fields=normalized.fields,
-                    ok=ok,
-                    reporter=ToolEnhancementPresenter(
-                        status_control,
-                        presentation,
-                        tool_name=name,
-                    )
-                )
-            if isinstance(fields.get("ok"), bool):
-                ok = bool(fields["ok"])
-            normalized = normalize_tool_fields(
-                fields,
-                ok=ok,
-                display_fallback=normalized.display_text,
-            )
+        if is_approval_only_tool(name):
             fields = normalized.fields
-
-        finally:
-            await status_control.end_status()
+        else:
+            fields = await enhance_tool_result(
+                pref_config=pref_config,
+                name=name,
+                result_fields=normalized.fields,
+                ok=ok,
+                reporter=ToolEnhancementPresenter(
+                    presentation,
+                    tool_name=name,
+                )
+            )
+        if isinstance(fields.get("ok"), bool):
+            ok = bool(fields["ok"])
+        normalized = normalize_tool_fields(
+            fields,
+            ok=ok,
+            display_fallback=normalized.display_text,
+        )
+        fields = normalized.fields
     except asyncio.CancelledError:
         observe(
             "tool.interrupted",
@@ -372,24 +358,20 @@ class McpToolExecutionAdapter(ToolExecutionAdapter):
         self,
         session: McpSessionPort,
         *,
-        status_control: OutputStatusPort,
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         invocation: ToolInvocation,
         pref_config: Mapping[str, typing.Any],
         enable_progress_notify: bool = False,
-        status_text: str | None = None,
     ) -> ToolExecutionResult:
-        """执行带展示状态和增强流程的工具调用。"""
+        """执行带结构化进度和增强流程的工具调用。"""
         return await run_tool_step(
             session,
-            status_control=status_control,
             presentation=presentation,
             tools=tools,
             invocation=invocation,
             pref_config=dict(pref_config),
             enable_progress_notify=enable_progress_notify,
-            status_text=status_text,
         )
 
     async def execute_direct(

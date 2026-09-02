@@ -38,7 +38,6 @@ from agent.ports import (
     ExecutionPolicy,
     PatchPreviewPort,
 )
-from agent.ports import OutputStatusPort
 from agent.ports.transcript import TranscriptSink
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from observability import observe
@@ -209,7 +208,6 @@ class ToolEventHandler:
         plan_runner: PlanToolCallRunner,
         tool_execution: ToolExecutionAdapter,
         activity: TurnActivityProjector,
-        status_control: OutputStatusPort,
         presentation: PresentationSink,
         transcript: TranscriptSink,
         post_result: typing.Callable[..., typing.Awaitable[None]],
@@ -227,7 +225,6 @@ class ToolEventHandler:
         self.plan_runner = plan_runner
         self.tool_execution = tool_execution
         self.activity = activity
-        self.status_control = status_control
         self.presentation = presentation
         self.transcript = transcript
         self.post_result = post_result
@@ -311,7 +308,6 @@ class ToolEventHandler:
                 ),
                 additional_context=hook_decision.additional_context,
             )
-            await self.status_control.begin_reply_wait_status(delay_sec=0.15)
             return ToolCallHandlingResult.handled()
 
         invocation = self.coordinator.effective_invocation(
@@ -343,7 +339,6 @@ class ToolEventHandler:
                 operation_handler=self.plan_runner.execute_operation,
             )
             await self._post_tool_outcome(invocation, tool_outcome)
-            await self.status_control.begin_reply_wait_status(delay_sec=0.75)
             return ToolCallHandlingResult.handled()
 
         local_requirement = local_exec_policy_requirement(
@@ -392,7 +387,6 @@ class ToolEventHandler:
             return ToolCallHandlingResult.interrupted(str(error))
 
         await self._post_tool_outcome(invocation, tool_outcome)
-        await self.status_control.begin_reply_wait_status(delay_sec=0.75)
         return ToolCallHandlingResult.handled()
 
     async def handle_output(self, event: ToolOutputEvent) -> None:
@@ -419,9 +413,6 @@ class ToolEventHandler:
             },
         )
 
-        if use_coding_trace:
-            await self.status_control.end_status()
-
         if (
             tool_run.status not in {"declined", "cancelled"}
             and not is_approval_only_tool(name)
@@ -435,10 +426,6 @@ class ToolEventHandler:
                 call_id=event.call_id,
             )
 
-        await self.status_control.begin_reply_wait_status(
-            delay_sec=0.15,
-            animate_after_sec=0.85,
-        )
 
     async def _handle_patch_approval(
         self,
@@ -513,7 +500,6 @@ class ToolEventHandler:
                         "failed to interrupt turn after patch approval cancellation"
                     ),
                 )
-            await self.status_control.begin_reply_wait_status()
             return ToolCallHandlingResult.handled()
 
         update_error = apply_local_patch_approval(
@@ -591,7 +577,6 @@ class ToolEventHandler:
                         "failed to interrupt turn after approval cancellation"
                     ),
                 )
-            await self.status_control.begin_reply_wait_status()
             return ToolCallHandlingResult.handled()
 
         update_error = apply_local_exec_policy_approval(
@@ -699,7 +684,6 @@ class ToolEventHandler:
             ok=False,
             result=result,
         )
-        await self.status_control.begin_reply_wait_status()
 
     async def _interrupt_after_approval(
         self,

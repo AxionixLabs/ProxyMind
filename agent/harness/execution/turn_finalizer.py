@@ -7,9 +7,6 @@ from agent.application.hooks.models import StopHookDecision
 from agent.application.turns.stream_outcome import StreamTurnOutcome
 from agent.application.turns.transcript import record_turn_finished
 from agent.harness.hooks.turn_lifecycle import TurnHookEvents
-from agent.ports import (
-    IdleStatusPort,
-)
 from agent.ports.transcript import TranscriptLifecyclePort
 from observability import observe_exception
 
@@ -59,7 +56,6 @@ class StreamTurnFinalizer:
         model_output: _ModelOutputLifecycle,
         retry_activity_close: typing.Callable[[], typing.Awaitable[None]],
         stream_end: typing.Callable[[str], None] | None,
-        idle_wait: IdleStatusPort,
         output_session: _OutputSessionLifecycle,
         await_cleanup: _AwaitCleanup,
         continuation_count: int,
@@ -74,7 +70,6 @@ class StreamTurnFinalizer:
         self._model_output = model_output
         self._retry_activity_close = retry_activity_close
         self._stream_end = stream_end
-        self._idle_wait = idle_wait
         self._output_session = output_session
         self._await_cleanup = await_cleanup
         self._continuation_count = int(continuation_count)
@@ -113,7 +108,6 @@ class StreamTurnFinalizer:
         )
 
         self._transcript.close()
-        await self._idle_wait.cancel()
         await self._await_cleanup(self._output_session.close(
             blink=not self._outcome.is_interrupted,
         ))

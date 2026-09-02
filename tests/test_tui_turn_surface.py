@@ -479,7 +479,6 @@ async def test_output_session_owns_idempotent_resource_lifecycle() -> None:
         context=_context(),
         activity=activity,
         control=control,
-        status=control,
         content=PassiveOutputActivity(),
         presentation=PassiveOutputActivity(),
     )
@@ -510,7 +509,6 @@ async def test_output_session_continues_cleanup_after_activity_failure() -> None
         context=_context(),
         activity=activity,
         control=control,
-        status=control,
         content=PassiveOutputActivity(),
         presentation=PassiveOutputActivity(),
     )
@@ -535,7 +533,6 @@ async def test_output_session_closes_activity_after_output_failure() -> None:
         context=_context(),
         activity=activity,
         control=control,
-        status=control,
         content=PassiveOutputActivity(),
         presentation=PassiveOutputActivity(),
     )

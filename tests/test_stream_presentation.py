@@ -34,17 +34,6 @@ class _Sink:
         self.items.append(item)
 
 
-class _Status:
-    def __init__(self, operations: list[typing.Any] | None = None) -> None:
-        self.end_calls: list[bool] = []
-        self.operations = operations
-
-    async def end_status(self, *, immediate: bool = False) -> None:
-        if self.operations is not None:
-            self.operations.append(("status.end", immediate))
-        self.end_calls.append(immediate)
-
-
 class _EventReport:
     def __init__(self, operations: list[typing.Any] | None = None) -> None:
         self.events: list[dict[str, typing.Any]] = []
@@ -68,29 +57,26 @@ def _presentation(
     operations: list[typing.Any] | None = None,
 ) -> tuple[
     StreamTurnPresentation,
-    _Status,
     _Sink,
     _Sink,
     _EventReport,
 ]:
     """构造具有可观察输出端口的回合级展示对象。"""
-    status = _Status(operations)
     content = _Sink(operations)
     views = _Sink(operations)
     report = _EventReport(operations)
     projection = StreamTurnPresentation(
         outcome=outcome,
-        status_control=status,
         content=content,
         presentation=views,
         event_report=report,
     )
-    return projection, status, content, views, report
+    return projection, content, views, report
 
 
 @pytest.mark.anyio
 async def test_presentation_emits_frozen_run_start_view() -> None:
-    projection, _status, _content, views, _report = _presentation(
+    projection, _content, views, _report = _presentation(
         StreamTurnOutcome()
     )
     permissions = preset_permissions("auto")
@@ -132,7 +118,7 @@ async def test_presentation_reports_local_failure_before_emitting_view() -> None
     operations: list[typing.Any] = []
     outcome = StreamTurnOutcome()
     outcome.fail("local failure")
-    projection, status, _content, views, report = _presentation(
+    projection, _content, views, report = _presentation(
         outcome,
         operations=operations,
     )
@@ -143,10 +129,8 @@ async def test_presentation_reports_local_failure_before_emitting_view() -> None
             for operation in operations] == [
         "report.emit",
         "report.flush",
-        "status.end",
         "sink.emit",
     ]
-    assert status.end_calls == [True]
     assert report.flushes == 1
     assert report.events[0]["type"] == "turn.failed"
     assert report.events[0]["error"] == "local failure"
@@ -161,7 +145,7 @@ async def test_presentation_reports_local_failure_before_emitting_view() -> None
 async def test_presentation_reports_reconciliation_effect_identity() -> None:
     outcome = StreamTurnOutcome()
     outcome.require_reconciliation("effect requires reconciliation")
-    projection, _status, _content, _views, report = _presentation(outcome)
+    projection, _content, _views, report = _presentation(outcome)
 
     await projection.emit_failure(
         "turn.reconciliation_required",
@@ -196,13 +180,12 @@ async def test_presentation_projects_protocol_failure_without_reporting(
         usage={"output_tokens": 4},
         stop_reason="pause_turn",
     ))
-    projection, status, _content, views, report = _presentation(outcome)
+    projection, _content, views, report = _presentation(outcome)
 
     await projection.emit_failure("turn.failed", mode=mode)
 
     assert report.events == []
     assert report.flushes == 0
-    assert status.end_calls == [True]
     assert views.items == [FailureView(
         phase="turn.failed",
         error="protocol failure",
@@ -252,11 +235,10 @@ async def test_presentation_projects_sources_and_normal_terminal_view(
 ) -> None:
     outcome = StreamTurnOutcome()
     outcome.record_done_event(event)
-    projection, status, content, views, report = _presentation(outcome)
+    projection, content, views, report = _presentation(outcome)
 
     await projection.emit_result(({"url": "https://example.test"},))
 
-    assert status.end_calls == [False]
     assert content.items == [SourcesOutput(({
         "url": "https://example.test",
     },))]

@@ -5,7 +5,6 @@ import typing
 
 from .output import OutputSessionFactory
 from .presentation import ApplicationSink
-from .turns import RetryState
 
 __all__ = (
     "ActivityRuntimePort",
@@ -51,14 +50,6 @@ class ActivityRuntimePort(typing.Protocol):
         """清除终端窗口的运行进度。"""
         ...
 
-    def set_wait_retry_state(self, state: RetryState) -> None:
-        """切换等待状态的重试来源。"""
-        ...
-
-    def finish_turn_wait(self) -> None:
-        """结束当前轮次拥有的等待状态。"""
-        ...
-
     async def open(self) -> None:
         """启动前端运行期。"""
         ...
@@ -69,10 +60,6 @@ class ActivityRuntimePort(typing.Protocol):
 
     async def begin_wait_status(self) -> None:
         """显示轮次等待状态。"""
-        ...
-
-    async def ensure_wait_status_for_turn(self) -> None:
-        """确保等待状态已经接管当前轮次。"""
         ...
 
     async def begin_upload_status(self, snapshot: ActivitySnapshot) -> None:

@@ -18,8 +18,6 @@ async def test_nexus_result_bypasses_enhancement_and_hidden_recording() -> None:
     reporter = SimpleNamespace(
         record=AsyncMock(),
         display=AsyncMock(),
-        begin_status=AsyncMock(),
-        end_status=AsyncMock(),
     )
 
     result = await enhance_tool_result(
@@ -33,5 +31,3 @@ async def test_nexus_result_bypasses_enhancement_and_hidden_recording() -> None:
     assert result is fields
     reporter.record.assert_not_awaited()
     reporter.display.assert_not_awaited()
-    reporter.begin_status.assert_not_awaited()
-    reporter.end_status.assert_not_awaited()

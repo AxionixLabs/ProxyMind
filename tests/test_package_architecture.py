@@ -809,7 +809,6 @@ def test_foreground_turn_orchestration_uses_injected_presentation_port() -> None
     }
     assert application_classes == {
         "ApplicationTurnForegroundLifecycle",
-        "FrontendTurnAnimation",
     }
 
 
@@ -2469,6 +2468,7 @@ def test_turn_result_and_session_identity_boundaries_are_explicit() -> None:
         "mind_app.runtime.support.session_identity",
         "mind_app.runtime.support.idle_status",
         "mind_app.runtime.support.rwlock",
+        "agent.harness.execution.idle_status",
     }
     violations: list[str] = []
     for path in _all_python_sources():
@@ -2531,14 +2531,14 @@ def test_turn_result_and_session_identity_boundaries_are_explicit() -> None:
         PROJECT_ROOT / "agent" / "harness" / "execution" / "idle_status.py"
     )
     assert not old_platform_path.is_file(), "platform idle status source remains"
-    assert idle_status_path.is_file(), "Harness idle status source is missing"
-    idle_status_violations = _forbidden_imports(
+    assert not idle_status_path.is_file(), "obsolete Harness idle status remains"
+    execution_violations = _forbidden_imports(
         "agent/harness/execution",
         {"backend", "engine", "frontends", "infrastructure", "mind_app", "mind_core", "server"},
     )
-    assert not idle_status_violations, (
-        "Harness idle status crosses its boundary:\n"
-        + "\n".join(idle_status_violations)
+    assert not execution_violations, (
+        "Harness execution crosses its boundary:\n"
+        + "\n".join(execution_violations)
     )
 
 
@@ -3506,8 +3506,6 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
                 "RootTurnSessionPort",
                 "TurnInputEventHandler",
                 "TurnOperation",
-                "RetryStatePort",
-                "TurnAnimationPort",
                 "TurnSessionContextPort",
                 "TurnSessionStatePort",
                 "TurnResultPort",
@@ -4709,7 +4707,7 @@ def test_turn_stream_protocol_boundaries_have_single_owners() -> None:
         PROJECT_ROOT / "agent" / "harness" / "execution" / "turn_finalizer.py"
     )
     finalizer_source = finalizer_path.read_text(encoding="utf-8-sig")
-    assert "IdleStatusPort" in finalizer_source
+    assert "IdleStatusPort" not in finalizer_source
     assert "protocol." not in finalizer_source
     assert "infrastructure" not in finalizer_source
     assert "mind_app" not in finalizer_source
@@ -5403,12 +5401,10 @@ def test_presentation_output_has_no_legacy_package_or_imports() -> None:
         "AssistantBuffered",
         "AssistantSettled",
         "AssistantVisible",
-        "IdleStatusPort",
         "LogicalSettled",
         "ModelWaitRequested",
         "OutputActivityPort",
         "OutputControlPort",
-        "OutputStatusPort",
         "OutputPort",
         "OutputPresentationPort",
         "OutputSession",

@@ -47,7 +47,6 @@ from .tool_display import (
     ToolDisplaySpec,
     is_two_stage_tool,
     tool_display_spec,
-    tool_status_text,
     uses_native_tool_view,
 )
 from .tools import (
@@ -101,7 +100,6 @@ __all__ = (
     "ToolDisplaySpec",
     "is_two_stage_tool",
     "tool_display_spec",
-    "tool_status_text",
     "uses_native_tool_view",
 )
 

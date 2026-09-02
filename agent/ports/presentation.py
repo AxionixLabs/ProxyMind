@@ -114,10 +114,6 @@ class TurnForegroundLifecyclePort(typing.Protocol):
         """开始当前轮次动画。"""
         ...
 
-    def finish_turn_wait(self) -> None:
-        """结束当前轮次等待展示。"""
-        ...
-
     def emit_worked_footer(self, elapsed_seconds: float) -> None:
         """提交当前轮次完成后的耗时展示。"""
         ...

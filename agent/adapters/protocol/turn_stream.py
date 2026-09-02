@@ -42,7 +42,6 @@ from agent.application.turns.transcript import (
     build_turn_input_payload,
     record_turn_started,
 )
-from agent.harness.execution.idle_status import IdleStatusTimer
 from agent.harness.execution.turn_finalizer import StreamTurnFinalizer
 from agent.harness.execution.turn_runner import turn_continuation_count
 from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
@@ -65,7 +64,6 @@ from agent.ports import (
     ProtocolCommandClient,
     TurnCleanupPort,
     ProtocolCommandError,
-    TurnAnimationPort,
     TurnSessionContextPort,
     TurnSessionStatePort,
 )
@@ -135,15 +133,13 @@ async def stream_turn(
 
     output_control: OutputControlPort = output_session.control
 
-    status_control = output_session.status
     presentation = output_session.presentation
     content = output_session.content
 
-    first_frame: bool = True
+    first_event: bool = True
     outcome = StreamTurnOutcome()
     run_presentation = StreamTurnPresentation(
         outcome=outcome,
-        status_control=status_control,
         content=content,
         presentation=presentation,
         event_report=ev_report,
@@ -164,12 +160,6 @@ async def stream_turn(
     if not isinstance(approval_coordinator, ApprovalCoordinatorPort):
         raise RuntimeError("approval coordinator is required")
     session_context = turn_context.session_context
-    animation = turn_context.animation
-    if turn_context.agent.depth == 0 and not isinstance(
-        animation,
-        TurnAnimationPort,
-    ):
-        raise RuntimeError("turn animation port is required")
     session_state = turn_context.session_state
     if turn_context.agent.depth == 0 and not isinstance(
         session_state,
@@ -194,20 +184,23 @@ async def stream_turn(
         turn_id=turn_context.turn_id,
     )
 
-    idle_wait = IdleStatusTimer(
-        lambda: status_control.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
-    )
-
     activity_projector = TurnActivityProjector(
         output_session.context,
         output_session.activity,
     )
+
+    async def project_terminal_activity() -> None:
+        """在稳定终态内容上屏前幂等收敛当前 Turn 的活动展示。"""
+        if activity_projector.terminal_status is not None:
+            return None
+        await activity_projector.turn_terminal(
+            normalize_turn_terminal_status(outcome.status)
+        )
+
     model_events = ModelStreamEventHandler(
         transcript=transcript,
         content=content,
         activity=activity_projector,
-        status_control=status_control,
-        idle_reschedule=idle_wait.reschedule,
     )
     turn_state_stores = [approval_ledger]
     permission_grants = turn_context.permission_grants
@@ -223,7 +216,6 @@ async def stream_turn(
         model_output=model_events,
         retry_activity_close=activity_projector.close_retries,
         stream_end=callbacks.stream_end,
-        idle_wait=idle_wait,
         output_session=output_session,
         await_cleanup=cleanup.await_cleanup,
         continuation_count=turn_continuation_count(turn_execution),
@@ -286,7 +278,6 @@ async def stream_turn(
             ledger=approval_ledger,
             coordinator=tool_call_coordinator,
             activity=activity_projector,
-            status_control=status_control,
             presentation=presentation,
             post_approval=protocol_client.post_tool_approval,
         )
@@ -322,7 +313,6 @@ async def stream_turn(
         client_tool_runner = ClientToolCallRunner(
             session=session,
             output_control=output_control,
-            status_control=status_control,
             presentation=presentation,
             tools=tools,
             pref_config=pref_config,
@@ -343,7 +333,6 @@ async def stream_turn(
         plan_tool_runner = PlanToolCallRunner(
             session=session,
             output_control=output_control,
-            status_control=status_control,
             presentation=presentation,
             tools=tools,
             turn_context=turn_context,
@@ -363,7 +352,6 @@ async def stream_turn(
             plan_runner=plan_tool_runner,
             tool_execution=tool_execution,
             activity=activity_projector,
-            status_control=status_control,
             presentation=presentation,
             transcript=transcript,
             post_result=tool_result_delivery.deliver,
@@ -372,7 +360,6 @@ async def stream_turn(
         tool_dispatcher = StreamToolDispatcher(
             handler=tool_event_handler,
             activity=activity_projector,
-            status_control=status_control,
         )
 
         model_request = build_model_stream_request(
@@ -392,23 +379,17 @@ async def stream_turn(
 
         async for event in event_stream:
             event_count += 1
-            await idle_wait.cancel()
 
             if ev_report:
                 ev_report.bind_event(event)
 
-            if first_frame:
+            if first_event:
                 observe(
                     "stream.first_event",
                     event_type=event.type,
                     latency_ms=int((time.perf_counter() - started_at) * 1000),
                 )
-                if (
-                    turn_context.agent.depth == 0
-                    and not animation.active
-                ):
-                    await animation.stop_wait()
-                first_frame = False
+                first_event = False
 
             event_type = event.type
 
@@ -433,7 +414,6 @@ async def stream_turn(
 
             if event_type == "turn.thinking":
                 await activity_projector.request_model_wait("server_thinking")
-                await status_control.begin_reply_wait_status()
                 continue
 
             if isinstance(event, TurnFailedEvent):
@@ -453,10 +433,6 @@ async def stream_turn(
                     retryable=event.retryable,
                     stop_reason=event.stop_reason,
                 )
-                if turn_context.agent.depth == 0:
-                    await cleanup.await_cleanup(
-                        animation.stop_wait(settle=False)
-                    )
                 await run_presentation.emit_failure(
                     "turn.failed",
                     mode=FailureProjectionMode.TERMINAL,
@@ -485,7 +461,7 @@ async def stream_turn(
                         turn_id=turn_context.turn_id,
                         effect_id=event.effect_id,
                     )
-                    await status_control.begin_reply_wait_status()
+                    await activity_projector.request_model_wait("tool_result")
                     continue
 
                 cancelled = await cancel_reconciliation_turn(
@@ -518,10 +494,6 @@ async def stream_turn(
                     error=outcome.error,
                     turn_released=cancelled,
                 )
-                if turn_context.agent.depth == 0:
-                    await cleanup.await_cleanup(
-                        animation.stop_wait(settle=False)
-                    )
                 await run_presentation.emit_failure(
                     "turn.reconciliation_required",
                     mode=FailureProjectionMode.PROJECTION_ONLY,
@@ -542,12 +514,6 @@ async def stream_turn(
                     outcome.confirm_interrupt()
                     if callbacks.interrupted is not None:
                         callbacks.interrupted()
-
-                if turn_context.agent.depth == 0:
-                    await cleanup.await_cleanup(
-                        animation.stop_wait(settle=False)
-                    )
-                await status_control.end_status(immediate=True)
 
                 continue
 
@@ -586,7 +552,6 @@ async def stream_turn(
             if await handle_lifecycle_event(
                 event,
                 presentation=presentation,
-                status_control=status_control,
             ):
                 await activity_projector.request_model_wait("lifecycle")
                 continue
@@ -609,8 +574,7 @@ async def stream_turn(
             status_code=error.status_code,
             trace_id=error.trace_id,
         )
-        if turn_context.agent.depth == 0:
-            await cleanup.await_cleanup(animation.stop_wait())
+        await project_terminal_activity()
         await run_presentation.emit_failure(
             failure_phase,
             mode=FailureProjectionMode.PROJECTION_ONLY,
@@ -624,8 +588,7 @@ async def stream_turn(
             turn_id=turn_context.turn_id,
             effect_id=error.effect_id,
         )
-        if turn_context.agent.depth == 0:
-            await cleanup.await_cleanup(animation.stop_wait())
+        await project_terminal_activity()
         await run_presentation.emit_failure(
             "turn.reconciliation_required",
             effect_id=error.effect_id,
@@ -647,6 +610,7 @@ async def stream_turn(
             turn_id=turn_context.turn_id,
         )
 
+        await project_terminal_activity()
         await run_presentation.emit_failure(
             "turn.prompt_blocked",
             mode=FailureProjectionMode.PROJECTION_ONLY,
@@ -670,9 +634,7 @@ async def stream_turn(
             details=error.details,
         )
 
-        if turn_context.agent.depth == 0:
-            await cleanup.await_cleanup(animation.stop_wait())
-
+        await project_terminal_activity()
         await run_presentation.emit_failure("turn.failed")
 
     except asyncio.CancelledError:
@@ -685,6 +647,7 @@ async def stream_turn(
             events=event_count,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
+        await project_terminal_activity()
         raise
 
     except Exception as e:
@@ -701,14 +664,13 @@ async def stream_turn(
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
 
-        if turn_context.agent.depth == 0:
-            await cleanup.await_cleanup(animation.stop_wait())
-
+        await project_terminal_activity()
         await run_presentation.emit_failure("turn.failed")
 
     else:
         outcome.settle_stream()
         if not outcome.has_terminal_status:
+            await project_terminal_activity()
             await run_presentation.emit_failure(
                 "turn.incomplete",
                 mode=FailureProjectionMode.PROJECTION_ONLY,
@@ -744,10 +706,7 @@ async def stream_turn(
             if event_stream is not None
             else None
         )
-        if activity_projector.terminal_status is None:
-            await activity_projector.turn_terminal(
-                normalize_turn_terminal_status(outcome.status)
-            )
+        await project_terminal_activity()
         stop_decision = await turn_finalizer.finalize(
             stream_end_reason=stream_end_reason or (
                 "cancelled" if event_stream is not None else None
@@ -797,3 +756,7 @@ async def stream_turn(
         )
 
     return result
+
+
+if __name__ == '__main__':
+    pass

@@ -40,7 +40,6 @@ from agent.ports import (
     OutputControlPort,
     OutputSession,
     OutputSurfaceContext,
-    OutputStatusPort,
     PassiveOutputActivity,
     SourcesOutput,
 )
@@ -306,7 +305,7 @@ class JsonOutputState:
         await self.record_writer.close()
 
 
-class JsonOutputControl(OutputControlPort, OutputStatusPort):
+class JsonOutputControl(OutputControlPort):
     """提供逐行结构化事件的输出控制。"""
 
     def __init__(self, state: JsonOutputState) -> None:
@@ -322,31 +321,6 @@ class JsonOutputControl(OutputControlPort, OutputStatusPort):
         _ = blink
         self.state.flush_assistant()
         await self.state.close()
-
-    async def begin_tool_status(self) -> None:
-        """忽略动态工具状态。"""
-        return None
-
-    async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
-        """忽略自定义动态状态。"""
-        _ = text
-        return None
-
-    async def begin_reply_wait_status(
-        self,
-        text: typing.Optional[str] = "Thinking",
-        *,
-        delay_sec: float = 0.28,
-        animate_after_sec: float | None = None
-    ) -> None:
-        """忽略回复等待状态。"""
-        _ = text, delay_sec, animate_after_sec
-        return None
-
-    async def end_status(self, *, immediate: bool = False) -> None:
-        """结束当前输出状态。"""
-        _ = immediate
-        return None
 
     async def record_hidden_output(self, text: str) -> None:
         """忽略不直接展示的审计文本。"""
@@ -670,7 +644,6 @@ def create_json_output_session(
         context=context,
         control=control,
         activity=PassiveOutputActivity(),
-        status=control,
         content=JsonContentSink(state),
         presentation=JsonPresentationSink(state),
         show_hook_lifecycle=True,

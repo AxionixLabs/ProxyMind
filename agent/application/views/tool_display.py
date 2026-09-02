@@ -23,7 +23,6 @@ class ToolDisplaySpec:
     kind: ToolDisplayKind
     two_stage: bool = False
     source_field: str | None = None
-    status_text: str | None = None
 
 
 _GENERIC_SPEC = ToolDisplaySpec(
@@ -46,7 +45,6 @@ _TOOL_DISPLAY_SPECS = {
         ToolDisplayKind.JAVASCRIPT,
         two_stage=True,
         source_field="code",
-        status_text="JavaScript",
     ),
     "js_repl_reset": ToolDisplaySpec(ToolDisplayKind.JAVASCRIPT_RESET),
     "view_image": ToolDisplaySpec(ToolDisplayKind.GENERIC),
@@ -76,12 +74,6 @@ def uses_native_tool_view(name: str) -> bool:
     """判断工具是否使用结构化原生工具视图。"""
 
     return tool_display_spec(name).kind is not ToolDisplayKind.GENERIC
-
-
-def tool_status_text(name: str) -> str | None:
-    """返回工具执行期间使用的状态文本。"""
-
-    return tool_display_spec(name).status_text
 
 
 if __name__ == '__main__':

@@ -15,29 +15,8 @@ from agent.ports.presentation import (
     TurnForegroundLifecyclePort,
 )
 from agent.ports.process_lifecycle import ProcessLifecyclePort
-from agent.ports.turns import TurnAnimationPort
 
 ForegroundParameters = typing.ParamSpec("ForegroundParameters")
-
-
-class FrontendTurnAnimation(TurnAnimationPort):
-    """把应用活动状态适配为模型轮次等待动画端口。"""
-
-    def __init__(
-        self,
-        activity: FrontendActivityPort,
-    ) -> None:
-        """绑定活动状态和停止动作。"""
-        self._activity = activity
-
-    @property
-    def active(self) -> bool:
-        """返回前端是否正在接管等待动画。"""
-        return self._activity.active
-
-    async def stop_wait(self, *, settle: bool = True) -> None:
-        """停止模型轮次等待动画。"""
-        await self._activity.stop("wait", settle=settle)
 
 
 class ApplicationTurnForegroundLifecycle(TurnForegroundLifecyclePort):
@@ -78,10 +57,6 @@ class ApplicationTurnForegroundLifecycle(TurnForegroundLifecyclePort):
         """开始当前轮次动画。"""
         await self._activity.start_wait()
 
-    def finish_turn_wait(self) -> None:
-        """结束当前轮次等待展示。"""
-        self._frontend.runtime.finish_turn_wait()
-
     def emit_worked_footer(self, elapsed_seconds: float) -> None:
         """提交当前轮次完成展示。"""
         self._completion_presenter(self.application, elapsed_seconds)
@@ -116,8 +91,6 @@ async def run_foreground_turn(
         return result
     finally:
         try:
-            if completed:
-                lifecycle.finish_turn_wait()
             if completed and lifecycle.animate:
                 lifecycle.emit_worked_footer(
                     time.perf_counter() - started_at

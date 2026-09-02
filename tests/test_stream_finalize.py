@@ -44,14 +44,6 @@ class _Projection:
         self.operations.append(("model.flush", complete_only))
 
 
-class _IdleWait:
-    def __init__(self, operations: list[typing.Any]) -> None:
-        self.operations = operations
-
-    async def cancel(self) -> None:
-        self.operations.append("idle.cancel")
-
-
 class _OutputSession:
     def __init__(self, operations: list[typing.Any]) -> None:
         self.operations = operations
@@ -125,7 +117,6 @@ def _finalizer(
             if stream_end
             else None
         ),
-        idle_wait=_IdleWait(operations),
         output_session=_OutputSession(operations),
         await_cleanup=await_cleanup,
         continuation_count=2,
@@ -161,7 +152,6 @@ async def test_finalizer_closes_completed_turn_in_lifecycle_order() -> None:
         ("transcript.append", "turn.completed"),
         "hook.stop",
         "transcript.close",
-        "idle.cancel",
         "cleanup.await",
         ("output.close", True),
     ]
@@ -208,11 +198,10 @@ async def test_finalizer_discards_interrupted_stop_hook_decision() -> None:
     )
 
     assert decision == StopHookDecision.stop()
-    assert operations[-6:] == [
+    assert operations[-5:] == [
         "cleanup.await",
         "hook.stop",
         "transcript.close",
-        "idle.cancel",
         "cleanup.await",
         ("output.close", False),
     ]
@@ -240,10 +229,9 @@ async def test_finalizer_isolates_stop_hook_failure_from_resource_cleanup() -> N
     )
 
     assert decision == StopHookDecision.stop()
-    assert operations[-5:] == [
+    assert operations[-4:] == [
         "hook.stop",
         "transcript.close",
-        "idle.cancel",
         "cleanup.await",
         ("output.close", True),
     ]

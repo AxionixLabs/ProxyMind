@@ -5,7 +5,6 @@ import typing
 
 from agent.application.views.builders.lifecycle import build_lifecycle_view
 from agent.application.views.contracts import PresentationSink
-from agent.ports import OutputStatusPort
 from protocol.schema.stream_events import StreamEvent
 
 
@@ -23,7 +22,6 @@ async def _display_event(
     event: StreamEvent,
     *,
     presentation: PresentationSink,
-    status_control: OutputStatusPort
 ) -> bool:
     """展示服务端显式声明需要显示的事件内容。"""
     if not isinstance(display := event.display, dict):
@@ -37,11 +35,6 @@ async def _display_event(
         return False
 
     await presentation.emit(view)
-    await status_control.begin_reply_wait_status(
-        delay_sec=0.15,
-        animate_after_sec=0.85,
-    )
-
     return True
 
 
@@ -49,13 +42,11 @@ async def handle_lifecycle_event(
     event: StreamEvent,
     *,
     presentation: PresentationSink,
-    status_control: OutputStatusPort
 ) -> bool:
     """展示非核心生命周期事件中的显式内容。"""
     return await _display_event(
         event,
         presentation=presentation,
-        status_control=status_control,
     )
 
 

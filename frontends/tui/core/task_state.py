@@ -10,7 +10,6 @@ class TurnPhase(enum.Enum):
     IDLE = "idle"
     PENDING = "pending"
     RUNNING = "running"
-    FINISHING = "finishing"
 
 
 class TuiTaskState(object):
@@ -41,11 +40,6 @@ class TuiTaskState(object):
         return self.turn_phase is not TurnPhase.IDLE
 
     @property
-    def turn_finishing(self) -> bool:
-        """返回当前回合是否正在清理等待状态。"""
-        return self.turn_phase is TurnPhase.FINISHING
-
-    @property
     def turn_wait_active(self) -> bool:
         """返回当前回合是否仍允许活动状态接管等待区域。"""
         return self.turn_phase in {
@@ -69,7 +63,6 @@ class TuiTaskState(object):
         elif self.turn_phase in {
             TurnPhase.PENDING,
             TurnPhase.RUNNING,
-            TurnPhase.FINISHING,
         }:
             self.turn_phase = TurnPhase.IDLE
 
@@ -80,11 +73,6 @@ class TuiTaskState(object):
                 self.turn_phase = TurnPhase.PENDING
         elif self.turn_phase is TurnPhase.PENDING:
             self.turn_phase = TurnPhase.IDLE
-
-    def finish_turn_wait(self) -> None:
-        """结束模型轮次等待状态的生命周期所有权。"""
-        if self.turn_phase in {TurnPhase.PENDING, TurnPhase.RUNNING}:
-            self.turn_phase = TurnPhase.FINISHING
 
     def set_foreground_running(self, active: bool) -> None:
         """更新前台屏障等待状态。"""

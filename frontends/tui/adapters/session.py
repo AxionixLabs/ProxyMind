@@ -12,7 +12,6 @@ from frontends.tui.runtime.turn_surface import (
 from .content import TuiContentSink
 from .output import TuiOutputControl
 from .presentation import TuiPresentationSink
-from .status import TuiStreamStatusControl
 from ..core.runtime import TuiRuntime
 
 
@@ -47,7 +46,6 @@ def create_tui_output_session(
         context=context,
         control=control,
         activity=activity,
-        status=TuiStreamStatusControl(),
         content=TuiContentSink(
             control,
             before_assistant_output=(

@@ -17,7 +17,6 @@ from agent.ports import (
     ResponseIdentity,
 )
 from agent.ports import ModelEventStream
-from agent.ports import OutputStatusPort
 from agent.ports.transcript import TranscriptSink
 from agent.protocol import CanonicalItem
 from protocol.schema.stream_events import (
@@ -41,15 +40,11 @@ class ModelStreamEventHandler:
         transcript: TranscriptSink,
         content: ContentSink,
         activity: TurnActivityProjector,
-        status_control: OutputStatusPort,
-        idle_reschedule: typing.Callable[[], None],
     ) -> None:
         """绑定输出端口并初始化 Transcript 交付水位。"""
         self.transcript = transcript
         self.content = content
         self.activity = activity
-        self.status_control = status_control
-        self.idle_reschedule = idle_reschedule
         self._item_history: tuple[CanonicalItem, ...] = ()
         self._delivered_text: dict[_ItemRevision, str] = {}
         self._completed_presentations: set[_ItemRevision] = set()
@@ -150,7 +145,6 @@ class ModelStreamEventHandler:
             round_no=event.round,
             attempt=event.attempt,
         )
-        await self.status_control.begin_reply_wait_status()
 
     async def _handle_text_delta(
         self,
@@ -176,7 +170,6 @@ class ModelStreamEventHandler:
             _response_identity(item),
             item_id=item.item_id,
         ))
-        self.idle_reschedule()
 
     async def _handle_presentation_superseded(
         self,
@@ -232,7 +225,6 @@ class ModelStreamEventHandler:
                 item.item_id,
             )
         await self.activity.request_model_wait("assistant_settled")
-        await self.status_control.begin_reply_wait_status()
 
     async def _buffer_assistant_activity(self, item: CanonicalItem) -> None:
         """幂等登记一项已经接收但未必可见的 assistant 正文。"""

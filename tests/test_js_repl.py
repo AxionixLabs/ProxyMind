@@ -1285,15 +1285,9 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
         permissions=preset_permissions("auto"),
         turn_id="turn_nested_trace",
     )
-    status = SimpleNamespace(
-        begin_custom_tool_status=AsyncMock(),
-        begin_tool_status=AsyncMock(),
-        end_status=AsyncMock(),
-    )
     runner = ClientToolCallRunner(
         session=session,
         output_control=Output(),
-        status_control=status,
         presentation=Presentation(),
         tools=[
             {"name": "js_repl", "meta": {"client_builtin": True}},

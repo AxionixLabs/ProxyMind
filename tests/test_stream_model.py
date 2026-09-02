@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 
-from unittest.mock import Mock
-
 import pytest
 
 from agent.protocol import CanonicalItem
 from agent.adapters.protocol.activity_events import TurnActivityProjector
-from agent.ports import OutputStatusPort
 from agent.ports import (
     AssistantOutputBoundary,
     AssistantBuffered,
@@ -65,32 +62,6 @@ class _Activity:
         return None
 
 
-class _Status(OutputStatusPort):
-    def __init__(self) -> None:
-        self.reply_wait_calls = 0
-
-    async def begin_tool_status(self) -> None:
-        return None
-
-    async def begin_custom_tool_status(self, text: str | None) -> None:
-        _ = text
-        return None
-
-    async def begin_reply_wait_status(
-        self,
-        text: str | None = "Thinking",
-        *,
-        delay_sec: float = 0.28,
-        animate_after_sec: float | None = None,
-    ) -> None:
-        _ = (text, delay_sec, animate_after_sec)
-        self.reply_wait_calls += 1
-
-    async def end_status(self, *, immediate: bool = False) -> None:
-        _ = immediate
-        return None
-
-
 class _Projection:
     def __init__(self) -> None:
         self.current_item: CanonicalItem | None = None
@@ -114,15 +85,11 @@ def _handler() -> tuple[
     _Projection,
     _Transcript,
     _Content,
-    _Status,
     _Activity,
-    Mock,
-    Mock,
 ]:
     """构造具有可观察端口的模型输出处理器。"""
     transcript = _Transcript()
     content = _Content()
-    status = _Status()
     activity = _Activity()
     context = OutputSurfaceContext(
         surface_id="surface_test",
@@ -131,24 +98,17 @@ def _handler() -> tuple[
         turn_id="turn_test",
         agent_id="root",
     )
-    retry = Mock()
-    idle = Mock()
     handler = ModelStreamEventHandler(
         transcript=transcript,
         content=content,
         activity=TurnActivityProjector(context, activity),
-        status_control=status,
-        idle_reschedule=idle,
     )
     return (
         handler,
         _Projection(),
         transcript,
         content,
-        status,
         activity,
-        retry,
-        idle,
     )
 
 
@@ -201,10 +161,7 @@ async def test_model_handler_projects_text_and_commits_transcript() -> None:
         projection,
         transcript,
         content,
-        status,
         activity,
-        retry,
-        idle,
     ) = _handler()
     partial = _item("item-1", "answer")
     projection.update(partial, partial)
@@ -246,7 +203,6 @@ async def test_model_handler_projects_text_and_commits_transcript() -> None:
             "attempt": 1,
         },
     }]
-    assert status.reply_wait_calls == 1
     assert activity.items == [
         AssistantBuffered(
             surface_id="surface_test",
@@ -267,8 +223,6 @@ async def test_model_handler_projects_text_and_commits_transcript() -> None:
             reason="assistant_settled",
         ),
     ]
-    retry.assert_not_called()
-    idle.assert_called_once_with()
 
 
 @pytest.mark.anyio
@@ -278,10 +232,7 @@ async def test_model_handler_completes_each_item_revision_once() -> None:
         projection,
         _transcript,
         content,
-        _status,
         _activity,
-        _retry,
-        _idle,
     ) = _handler()
     completed = _item("item-1", "answer", status="completed")
     projection.update(completed, completed)
@@ -306,10 +257,7 @@ async def test_model_handler_supersedes_partial_provider_attempt() -> None:
         projection,
         transcript,
         content,
-        status,
-        _activity,
-        retry,
-        _idle,
+        activity,
     ) = _handler()
     old = _item("attempt-1", "old partial")
     projection.update(old, old)
@@ -383,10 +331,9 @@ async def test_model_handler_supersedes_partial_provider_attempt() -> None:
         "message.superseded",
         "message.created",
     ]
-    assert status.reply_wait_calls == 2
     assert [
         item
-        for item in _activity.items
+        for item in activity.items
         if isinstance(item, RetryChanged)
     ] == [
         RetryChanged(
@@ -408,7 +355,6 @@ async def test_model_handler_supersedes_partial_provider_attempt() -> None:
             attempt=2,
         ),
     ]
-    retry.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -418,10 +364,7 @@ async def test_model_handler_flushes_output_at_structured_boundary() -> None:
         projection,
         transcript,
         content,
-        _status,
         _activity,
-        _retry,
-        _idle,
     ) = _handler()
     partial = _item("item-1", "partial")
     projection.update(partial, partial)

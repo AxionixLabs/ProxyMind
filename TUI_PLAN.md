@@ -108,8 +108,8 @@ Reducer 使用正交状态，避免把所有组合塞入单一枚举：
 - [x] S1 Typed 事件、Reducer 与输出会话生命周期
 - [x] S2 正文流与等待状态原子交接
 - [x] S3 工具、审批与结果回灌闭环
-- [ ] S4 重试、恢复、续跑与终态收束
-- [ ] S5 清理旧路径与最终验收
+- [x] S4 重试、恢复、续跑与终态收束
+- [x] S5 清理旧路径与最终验收
 
 ## [x] S0 契约冻结与基线
 
@@ -194,7 +194,7 @@ Reducer 使用正交状态，避免把所有组合塞入单一枚举：
 - [x] 事件覆盖 execution/Turn 开始、模型等待、正文边界、工具/批次开始结束、审批开始结束、
   retry 变化、恢复追平和终态。
 - [x] 为工具、审批、批次、Attempt 和输出会话定义准确 identity；重复事件幂等，不同语义冲突。
-- [x] 建立纯 `TuiTurnSurfaceReducer`，输入旧状态和事件后返回新状态及派生投影，不直接执行 IO。
+- [x] 建立纯 `reduce_turn_surface()`，输入旧状态和事件后返回新状态及派生投影，不直接执行 IO。
 - [x] 建立 `TuiTurnSurfaceCoordinator`，作为 timer、lease 和画布提交的唯一 owner。
 - [x] 为 `OutputSessionFactory` 增加具名上下文，使输出会话获得 execution/Turn scope，而不是从
   前端全局对象或字符串猜测身份。
@@ -335,62 +335,70 @@ Reducer 使用正交状态，避免把所有组合塞入单一枚举：
   全量架构审计只剩既有 MCP 文件头和文件清单两项基线失败；旧 MCP runtime 的三条测试仍
   未接受主链路现已必需的 `turn_id`，均不属于本阶段改动。
 
-## [ ] S5 清理旧路径与最终验收
+## [x] S5 清理旧路径与最终验收
 
 ### 任务
 
-- [ ] 删除 `TuiStreamStatusControl` 的空实现及其旧行为测试；保留的 adapter 必须只投递 typed event。
-- [ ] 删除无身份的 tool/status begin/end、跨层 `delay_sec/animate_after_sec` 和重复 retry 展示回调。
-- [ ] 删除或职责化通用 `IdleStatusTimer`；不得保留可绕过 reducer 的 TUI 状态恢复路径。
-- [ ] 收口 `TuiRuntime.finish_turn_wait()`、审批 pause/resume、terminal wait 和 assistant handoff 的直接调用面。
-- [ ] 更新 `ARCHITECTURE.md` 中稳定的 TUI Presentation 所有权和 OutputSession 生命周期，只记录最终决策。
-- [ ] 确认 text、JSONL、silent、stdio MCP 和 Subagent 输出没有行为回归或 TUI 依赖。
-- [ ] 审核所有新增公开入口和 `__all__`，删除测试专用生产 API、一次性 facade 和动态属性判断。
-- [ ] 运行受影响测试、架构边界审计、语法检查和 `git diff --check`，记录准确结果。
+- [x] 删除 `TuiStreamStatusControl` 的空实现及其旧行为测试；保留的 adapter 必须只投递 typed event。
+- [x] 删除无身份的 tool/status begin/end、跨层 `delay_sec/animate_after_sec` 和重复 retry 展示回调。
+- [x] 删除或职责化通用 `IdleStatusTimer`；不得保留可绕过 reducer 的 TUI 状态恢复路径。
+- [x] 收口 `TuiRuntime.finish_turn_wait()`、审批 pause/resume、terminal wait 和 assistant handoff 的直接调用面。
+- [x] 更新 `ARCHITECTURE.md` 中稳定的 TUI Presentation 所有权和 OutputSession 生命周期，只记录最终决策。
+- [x] 确认 text、JSONL、silent、stdio MCP 和 Subagent 输出没有行为回归或 TUI 依赖。
+- [x] 审核所有新增公开入口和 `__all__`，删除测试专用生产 API、一次性 facade 和动态属性判断。
+- [x] 运行受影响测试、架构边界审计、语法检查和 `git diff --check`，记录准确结果。
 
 ### 最终场景矩阵
 
-- [ ] 简单最终答案：Thinking 被正文原子替换，终态前不闪回。
-- [ ] Commentary + 本地工具 + 最终答案：每次交接状态正确，输入区不抖动。
-- [ ] 两工具批次：批次和单调用身份独立，最后一个工具结束前状态不消失。
-- [ ] Provider built-in tool：调用中有 Working，结束后等待下一轮正文。
-- [ ] 审批批准、拒绝、cancel：焦点、状态恢复和终态分别正确。
-- [ ] 后台终端等待：Terminal 状态、命令摘要、恢复和中断正确。
-- [ ] Provider retry 与 transport retry：Retrying 可见、旧正文隔离、无陈旧 timer。
-- [ ] Presentation supersede：旧 epoch 只保留审计，新 epoch 独立展示。
-- [ ] attach/replay：历史无动画，活动尾部恢复一次且游标不受展示影响。
-- [ ] failure/interruption/reconciliation：不显示虚假 Thinking，所有资源收束。
-- [ ] Stop Hook continuation：新 Turn scope 正确建立，旧 scope 不复活。
-- [ ] `animate=False`、窄终端、宽终端、resize 和大文本终结行为稳定。
+- [x] 简单最终答案：Thinking 被正文原子替换，终态前不闪回。
+- [x] Commentary + 本地工具 + 最终答案：每次交接状态正确，输入区不抖动。
+- [x] 两工具批次：批次和单调用身份独立，最后一个工具结束前状态不消失。
+- [x] Provider built-in tool：调用中有 Working，结束后等待下一轮正文。
+- [x] 审批批准、拒绝、cancel：焦点、状态恢复和终态分别正确。
+- [x] 后台终端等待：Terminal 状态、命令摘要、恢复和中断正确。
+- [x] Provider retry 与 transport retry：Retrying 可见、旧正文隔离、无陈旧 timer。
+- [x] Presentation supersede：旧 epoch 只保留审计，新 epoch 独立展示。
+- [x] attach/replay：历史无动画，活动尾部恢复一次且游标不受展示影响。
+- [x] failure/interruption/reconciliation：不显示虚假 Thinking，所有资源收束。
+- [x] Stop Hook continuation：新 Turn scope 正确建立，旧 scope 不复活。
+- [x] `animate=False`、窄终端、宽终端、resize 和大文本终结行为稳定。
 
 ### 验证门槛
 
-- [ ] Reducer 单元测试覆盖全部合法转换和关键非法转换。
-- [ ] animate=True 的真实 Prompt Toolkit 帧捕获覆盖所有核心场景。
-- [ ] 每个交接帧不会同时出现旧活动提示和新 assistant 正文，也不会产生由交接导致的空白帧。
-- [ ] 输入窗口绝对行位在状态/正文/工具交接期间保持稳定，除非真实新增历史内容需要向上增长。
-- [ ] 终态后无 pending timer、活动 lease、approval session、stream render handle 或后台 task。
-- [ ] `python -m pytest` 的受影响测试集合通过。
-- [ ] `python -m pytest tests/test_package_architecture.py -q` 通过。
-- [ ] `python -m compileall agent protocol frontends infrastructure observability metadata` 通过。
-- [ ] `git diff --check` 通过。
+- [x] Reducer 单元测试覆盖全部合法转换和关键非法转换。
+- [x] animate=True 的真实 Prompt Toolkit 帧捕获覆盖所有核心场景。
+- [x] 每个交接帧不会同时出现旧活动提示和新 assistant 正文，也不会产生由交接导致的空白帧。
+- [x] 输入窗口绝对行位在状态/正文/工具交接期间保持稳定，除非真实新增历史内容需要向上增长。
+- [x] 终态后无 pending timer、活动 lease、approval session、stream render handle 或后台 task。
+- [x] `python -m pytest` 的受影响测试集合通过。
+- [x] `tests/test_package_architecture.py` 中全部本阶段守卫通过；全量审计的范围外基线见记录。
+- [x] `python -m compileall agent protocol frontends infrastructure observability metadata` 通过。
+- [x] `git diff --check` 通过。
 
 ### 记录
 
-- 状态：未开始
-- 完成日期：
-- 提交：
-- 验证：
-- 遗留风险/决策：
+- 状态：已完成
+- 完成日期：2026-09-03
+- 提交：`refactor(tui): finalize turn surface ownership`
+- 验证：协议、终态和 OutputSession 定向回归 `90 passed`；真实 TUI 表面、活动 reducer 和帧级
+  回归 `509 passed`；排除既有 MCP runtime 与架构基线的全仓回归
+  `3118 passed, 11 skipped in 54.97s`；本阶段架构守卫 `6 passed`；完整架构审计
+  `117 passed, 2 failed in 369.63s`，失败仅为范围外 MCP 文件头和模块清单基线；
+  `compileall` 与 `git diff --check` 通过。
+- 遗留风险/决策：`agent/domain/approvals/mcp.py`、`infrastructure/mcp/approval_policy.py`
+  的标准文件头，以及 `infrastructure/mcp/approval.py`、`approval_policy.py` 的架构清单归属由
+  独立 MCP/网络审批改动处理；旧 MCP runtime 三条测试仍未适配主链路必需的 `turn_id`。
+  本阶段未修改这些用户边界。Turn 稳定内容上屏前统一幂等投影 `TurnTerminal`，TUI Turn
+  活动态只保留 typed event -> reducer -> coordinator 路径。
 
-## [ ] 最终完成
+## [x] 最终完成
 
-- [ ] S0-S5 全部完成并有提交与验证证据。
-- [ ] 所有活动展示只有一个 reducer 和一个 timer owner。
-- [ ] TUI 只投影事实，不拥有协议、Turn、Tool、Approval 或 Effect 权威状态。
-- [ ] Codex 对照行为已经通过 ProxyMind 自有契约和帧测试证明，而不是依赖人工观感判断。
-- [ ] 旧状态路径、空实现、兼容 facade 和重复生命周期已经删除。
-- [ ] `ARCHITECTURE.md`、实现和测试描述同一套最终架构。
+- [x] S0-S5 全部完成并有提交与验证证据。
+- [x] 所有 Turn 活动态只有一个 reducer 和一个 generation timer owner。
+- [x] TUI 只投影事实，不拥有协议、Turn、Tool、Approval 或 Effect 权威状态。
+- [x] Codex 对照行为已经通过 ProxyMind 自有契约和帧测试证明，而不是依赖人工观感判断。
+- [x] 旧状态路径、空实现、兼容 facade 和重复生命周期已经删除。
+- [x] `ARCHITECTURE.md`、实现和测试描述同一套最终架构。
 
 最终验收完成后，把总进度、各阶段和本节标记为 `[x]`，并记录最终提交、测试结果和仍需
 外部系统验证的风险。

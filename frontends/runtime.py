@@ -13,7 +13,6 @@ from agent.ports import (
     ActivityStatusKind,
     FrontendActivityPort,
     OutputSessionFactory,
-    RetryState,
 )
 from agent.ports.presentation import ApplicationSink
 from frontends.interaction.contracts import InteractionPort
@@ -105,21 +104,12 @@ class PassiveFrontendRuntime(ActivityRuntimePort):
         """返回未接管终端状态。"""
         return False
 
-    def set_wait_retry_state(self, state: RetryState) -> None:
-        """忽略等待状态的重试来源。"""
-        _ = state
-        return None
-
     def begin_terminal_progress(self) -> None:
         """忽略终端窗口进度开始请求。"""
         return None
 
     def end_terminal_progress(self) -> None:
         """忽略终端窗口进度清理请求。"""
-        return None
-
-    def finish_turn_wait(self) -> None:
-        """忽略模型轮次等待状态生命周期结束请求。"""
         return None
 
     async def open(self) -> None:
@@ -132,10 +122,6 @@ class PassiveFrontendRuntime(ActivityRuntimePort):
 
     async def begin_wait_status(self) -> None:
         """忽略等待状态请求。"""
-        return None
-
-    async def ensure_wait_status_for_turn(self) -> None:
-        """忽略模型轮次等待状态交接请求。"""
         return None
 
     async def begin_upload_status(

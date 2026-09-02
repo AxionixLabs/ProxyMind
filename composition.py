@@ -17,7 +17,6 @@ from agent.application.config.settings import (
 )
 from agent.application.turns.foreground import (
     ApplicationTurnForegroundLifecycle,
-    FrontendTurnAnimation,
 )
 from agent.domain.policies import PermissionSettings
 from agent.harness.agents.runtime import SubagentRuntime
@@ -217,7 +216,6 @@ class ApplicationHost:
             status_port=hook_status,
         )
         self.command_hook_sessions = CommandHookSessionStore()
-        self.turn_animation = FrontendTurnAnimation(self.activity)
         self.turn_foreground_lifecycle = ApplicationTurnForegroundLifecycle(
             self.frontend,
             self.activity,

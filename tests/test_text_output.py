@@ -554,7 +554,6 @@ async def test_worked_footer_precedes_final_animation_cleanup() -> None:
     runtime = SimpleNamespace(
         begin_terminal_progress=lambda: events.append("progress.begin"),
         end_terminal_progress=lambda: events.append("progress.clear"),
-        finish_turn_wait=lambda: None,
     )
     frontend = SimpleNamespace(
         application=Application(),

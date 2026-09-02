@@ -18,10 +18,7 @@ from agent.application.views.contracts import PresentationSink
 from agent.application.views.tool_execution import show_tool_result
 from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from agent.ports import McpSessionPort
-from agent.ports import (
-    OutputControlPort,
-    OutputStatusPort
-)
+from agent.ports import OutputControlPort
 from .client_calls import ClientToolCallResult
 from .plan_execution import (
     PlanExecutionReport,
@@ -37,7 +34,6 @@ class PlanToolCallRunner:
         *,
         session: McpSessionPort,
         output_control: OutputControlPort,
-        status_control: OutputStatusPort,
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         turn_context: TurnContext,
@@ -47,7 +43,6 @@ class PlanToolCallRunner:
     ) -> None:
         """绑定计划执行所需端口和步骤执行器。"""
         self.output_control = output_control
-        self.status_control = status_control
         self.presentation = presentation
 
         self.executor = StepPlanExecutor(
@@ -78,15 +73,10 @@ class PlanToolCallRunner:
             build_plan_steps_start_view(arguments)
         )
 
-        await self.status_control.begin_tool_status()
-
-        try:
-            report = await self.executor.execute_tool_call(
-                arguments=arguments,
-                call_id=call_id,
-            )
-        finally:
-            await self.status_control.end_status(immediate=True)
+        report = await self.executor.execute_tool_call(
+            arguments=arguments,
+            call_id=call_id,
+        )
 
         await show_tool_result(
             self.presentation,
