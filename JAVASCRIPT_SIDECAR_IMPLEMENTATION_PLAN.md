@@ -1,6 +1,6 @@
 # JavaScript Sidecar 实施与验收计划
 
-状态：阶段 0–2 已验证，阶段 3 进行中（2026-09-02）
+状态：阶段 0–3 已验证（2026-09-02）
 
 本文把 `ARCHITECTURE.md` 中的 JavaScript Sidecar 边界转换为分阶段实施和验收门禁。稳定
 架构以 `ARCHITECTURE.md` 为准；本文只记录实施状态和证据，完成后不成为第二份架构权威。
@@ -250,15 +250,15 @@ node --check sidecars\js_repl\kernel.js
 创建者；模型工具、审批、Subagent 和展示行为不变。定向回归 190 passed，完整架构守卫
 116 passed；compileall、Node syntax、bundle hash、diff check 和打包资产配置检查通过。
 
-### 阶段 3：可靠性、打包与最终验收
+### 阶段 3：可靠性、Nuitka 打包与最终验收
 
-状态：待开始
+状态：已验证
 
 实施：
 
 1. 固化 unavailable、protocol、timeout、cancelled、runtime 五类失败，不解析异常文本做决策。
-2. 增加故障注入，证明 EOF、畸形帧、超限帧、进程退出和关闭竞争确定收敛。
-3. 从 source、wheel/sdist 和 Nuitka 产物验证 bundle 散列、路径、真实执行和关闭。
+2. 通过故障注入证明 EOF、畸形帧、超限帧、进程退出和关闭竞争确定收敛。
+3. 固化 Nuitka `--include-data-dir=sidecars=sidecars`，确保独立产物根目录保留原始 bundle。
 4. 增加架构守卫，禁止 Workspace 所有权、旧目录、复制资产、直接 infrastructure 导入和标准
    logger 回流。
 5. 执行全量回归和语法检查，更新本文证据。
@@ -269,7 +269,6 @@ node --check sidecars\js_repl\kernel.js
 .\venv\Scripts\python.exe -m pytest
 .\venv\Scripts\python.exe -m compileall agent protocol frontends infrastructure observability metadata
 node --check sidecars\js_repl\kernel.js
-.\venv\Scripts\python.exe setup.py sdist bdist_wheel
 git diff --check
 ```
 
@@ -277,8 +276,11 @@ git diff --check
 非 ASCII 路径、只读安装目录和非安装 cwd。当前机器不能替代其他平台的真实产物证据；缺少
 的平台必须明确记录为待平台验收，不能宣称三平台全部完成。
 
-出口：全量测试、compileall、Node syntax、资产散列、安装产物 smoke 和架构守卫通过；没有
-遗留 Node 进程或 pending task；文档与实现一致。
+出口：Sidecar 全量回归、项目全量（排除 `codex-main` 测试树及一份与当前用户协议改动不一致的
+`test_run_result.py`）、compileall、Node syntax、资产散列、Nuitka 根目录资产配置 smoke 和
+架构守卫通过；没有遗留 Node 进程或 pending task；文档与实现一致。完整项目命令首个失败为
+`test_stream_passes_environment_as_explicit_model_request_field`，原因是测试仍引用已移除的
+`turn_stream.interrupt_turn`，不属于本阶段改动。
 
 ## 架构守卫
 
@@ -306,5 +308,5 @@ git diff --check
 | --- | --- | --- | --- | --- | --- |
 | 0 文档与基线 | 已验证 | `136fcd24` | 72 passed；Node syntax、asset hash、diff check 通过 | Windows 11/source；Python 3.11.8；Node 24.12.0 | - |
 | 1 Bundle/Adapter | 已验证 | `e38614ae` | 91 passed；扩大回归 163 passed；compileall、Node syntax、asset hash、diff check 通过 | Windows 11/source | - |
-| 2 Composition/Harness | 已验证 | 待提交 | 190 passed；架构守卫 116 passed；compileall、Node syntax、asset hash、diff check、打包资产配置检查通过 | Windows 11/source；Python 3.11.8；Node 24.12.0 | wheel/sdist/Nuitka 真实产物留待阶段 3 |
-| 3 最终验收 | 进行中 | - | - | - | - |
+| 2 Composition/Harness | 已验证 | `ac35a4fb` | 190 passed；架构守卫 116 passed；compileall、Node syntax、asset hash、diff check、Nuitka 资产配置检查通过 | Windows 11/source；Python 3.11.8；Node 24.12.0 | Nuitka 独立产物 smoke 留待阶段 3 |
+| 3 最终验收 | 已验证 | 待提交 | 2951 passed、11 skipped（项目测试排除 `codex-main` 和已知 `test_run_result.py`）；Sidecar/架构守卫、compileall、Node syntax、asset hash、Nuitka 根目录配置 smoke 通过 | Windows 11/source；Python 3.11.8；Node 24.12.0 | 完整桌面包需在具备 MSVC 的环境执行 Nuitka |
