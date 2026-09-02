@@ -214,9 +214,19 @@ def test_persistent_network_rule_updates_memory_and_local_rules(tmp_path) -> Non
     ))
 
     assert rules_path.read_text(encoding="utf-8") == (
-        'network_rule(host="api.example.com", protocol="https", decision="allow")\n'
+        'network_rule(host="api.example.com", protocol="https", decision="allow", port=443)\n'
     )
     assert manager.policy.network_rules[0].host == "api.example.com"
+    assert manager.policy.network_rules[0].port == 443
+
+
+def test_network_rule_port_is_enforced_for_command_urls() -> None:
+    policy = PolicyParser.new(
+        'network_rule(host="api.example.com", protocol="https", decision="allow", port=443)\n'
+    ).build()
+
+    assert policy.check(["curl", "https://api.example.com/releases"]).decision is Decision.Allow
+    assert policy.check(["curl", "https://api.example.com:8443/releases"]).decision is None
 
 
 def test_complex_shell_command_has_no_persistent_prefix_proposal(tmp_path) -> None:

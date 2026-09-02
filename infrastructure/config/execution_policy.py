@@ -91,8 +91,14 @@ class PolicyParser:
         if name == "network_rule":
             host = self._required_text(kwargs.get("host"), "network_rule host")
             protocol = NetworkRuleProtocol.parse(kwargs.get("protocol", "https"))
-
             decision = Decision.parse(kwargs.get("decision", "allow"))
+            raw_port = kwargs.get("port")
+            if raw_port is not None and (
+                isinstance(raw_port, bool)
+                or not isinstance(raw_port, int)
+                or not 1 <= raw_port <= 65535
+            ):
+                raise ValueError("network_rule port is invalid")
 
             policy.add_network_rule(NetworkRule(
                 host=host,
@@ -100,6 +106,7 @@ class PolicyParser:
                 decision=decision,
                 justification=self._optional_text(kwargs.get("justification")),
                 source=self.filename,
+                port=raw_port,
             ))
             return
         if name == "host_executable":

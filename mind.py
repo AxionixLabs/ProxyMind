@@ -358,6 +358,7 @@ def create_workspace_runtime(
                     host=rule.host,
                     protocol=protocol,
                     decision=NetworkDecision.ALLOW,
+                    port=rule.port,
                 ))
         return manager
 

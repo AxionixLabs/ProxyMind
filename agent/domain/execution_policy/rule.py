@@ -193,14 +193,29 @@ class NetworkRuleProtocol(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class NetworkRule:
-    """表示针对主机和协议的网络策略规则。"""
+    """表示针对主机、协议和可选端口的网络策略规则。"""
     host: str
     protocol: NetworkRuleProtocol = NetworkRuleProtocol.Https
     decision: Decision = Decision.Allow
     justification: str | None = None
     source: str | None = None
+    port: int | None = None
 
-    def matches(self, host: str, protocol: NetworkRuleProtocol | str) -> bool:
+    def __post_init__(self) -> None:
+        """校验可选端口，避免规则意外扩大到非法目标。"""
+        if self.port is not None and (
+            isinstance(self.port, bool)
+            or not isinstance(self.port, int)
+            or not 1 <= self.port <= 65535
+        ):
+            raise ValueError("network rule port is invalid")
+
+    def matches(
+        self,
+        host: str,
+        protocol: NetworkRuleProtocol | str,
+        port: int | None = None,
+    ) -> bool:
         """判断主机和协议是否匹配当前规则。"""
         try:
             normalized_protocol = NetworkRuleProtocol.parse(protocol)
@@ -210,6 +225,7 @@ class NetworkRule:
         expected = _normalise_token(self.host).casefold().rstrip(".")
         return (
             normalized_protocol == self.protocol
+            and (self.port is None or self.port == port)
             and (candidate == expected or candidate.endswith("." + expected))
         )
 

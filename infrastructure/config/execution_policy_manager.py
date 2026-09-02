@@ -487,6 +487,13 @@ class ExecPolicyManager:
             "socks5_udp",
         }:
             raise ValueError("network rule protocol is invalid")
+        port = rule.port
+        if port is not None and (
+            isinstance(port, bool)
+            or not isinstance(port, int)
+            or not 1 <= port <= 65535
+        ):
+            raise ValueError("network rule port is invalid")
         with self._write_lock:
             already_allowed = any(
                 str(existing.host).strip().casefold().rstrip(".")
@@ -495,6 +502,7 @@ class ExecPolicyManager:
                 .strip()
                 .casefold()
                 == protocol
+                and existing.port == port
                 and existing.decision is Decision.Allow
                 for existing in self.policy.network_rules
             )
@@ -504,10 +512,13 @@ class ExecPolicyManager:
                 source = target.read_text(encoding=const.CHARSET) if target.is_file() else ""
                 if source and not source.endswith("\n"):
                     source += "\n"
+                port_suffix = f", port={port}" if port is not None else ""
                 source += (
                     "network_rule("
                     f"host={json.dumps(host, ensure_ascii=False)}, "
-                    f"protocol={json.dumps(protocol)}, decision=\"allow\")\n"
+                    f"protocol={json.dumps(protocol)}, "
+                    f"decision=\"allow\""
+                    f"{port_suffix})\n"
                 )
                 target.write_text(source, encoding=const.CHARSET)
                 self.policy.add_network_rule(NetworkRule(
@@ -515,6 +526,7 @@ class ExecPolicyManager:
                     protocol=NetworkRuleProtocol.parse(protocol),
                     decision=Decision.Allow,
                     source=str(target),
+                    port=port,
                 ))
         return self.writable_rules_path
 

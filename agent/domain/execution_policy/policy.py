@@ -7,7 +7,7 @@ from dataclasses import (
     field,
 )
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 from .decision import Decision
 from .rule import (
@@ -70,7 +70,7 @@ class Policy:
         command: typing.Sequence[str],
         options: MatchOptions
     ) -> list[NetworkRule]:
-        candidates: list[tuple[str, NetworkRuleProtocol]] = []
+        candidates: list[tuple[str, NetworkRuleProtocol, int | None]] = []
         if options.network_protocol is not None:
             try:
                 protocol = NetworkRuleProtocol.parse(options.network_protocol)
@@ -80,19 +80,27 @@ class Policy:
                 for word in command:
                     parsed = urlparse(word)
                     if parsed.hostname:
-                        candidates.append((parsed.hostname, protocol))
+                        candidates.append((
+                            parsed.hostname,
+                            protocol,
+                            _network_port(parsed, protocol),
+                        ))
         else:
             for word in command:
                 parsed = urlparse(word)
                 if not parsed.hostname or parsed.scheme not in {"http", "https"}:
                     continue
                 protocol = NetworkRuleProtocol.parse(parsed.scheme)
-                candidates.append((parsed.hostname, protocol))
+                candidates.append((
+                    parsed.hostname,
+                    protocol,
+                    _network_port(parsed, protocol),
+                ))
         return [
             rule
-            for host, protocol in candidates
+            for host, protocol, port in candidates
             for rule in self.network_rules
-            if rule.matches(host, protocol)
+            if rule.matches(host, protocol, port)
         ]
 
     def add_prefix_rule(self, rule: PrefixRule) -> None:
@@ -215,6 +223,19 @@ class Policy:
             commands,
             heuristics_fallback=heuristics_fallback,
         )
+
+
+def _network_port(
+    parsed: ParseResult,
+    protocol: NetworkRuleProtocol,
+) -> int | None:
+    """返回 URL 显式或协议默认端口。"""
+    if parsed.port is not None:
+        return parsed.port
+    return {
+        NetworkRuleProtocol.Http: 80,
+        NetworkRuleProtocol.Https: 443,
+    }.get(protocol)
 
 
 if __name__ == '__main__':
