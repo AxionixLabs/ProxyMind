@@ -6,9 +6,11 @@ import typing
 from dataclasses import dataclass
 
 from agent.ports import (
+    RecoveryResolution,
     RunFact,
     RunPersistence,
     RunSnapshot,
+    RunRecoveryResolutionRecord,
     SessionRuntimeFactory,
     TurnExecutor,
     TurnExecutorResult,
@@ -17,6 +19,7 @@ from agent.protocol import (
     RunEvent,
     SubmitTurnCommand
 )
+from agent.protocol.json_value import ThawedJsonValue
 from .projections import (
     RunResultProjection,
     project_run_result,
@@ -85,6 +88,26 @@ class TurnApplication(typing.Generic[ResultValue]):
     ) -> tuple[RunSnapshot, ...]:
         """读取未终结 Run 及其安全恢复动作，不自动调用执行端口。"""
         return await self._runtime.recover_session(session_id)
+
+    async def resolve_recovery(
+        self,
+        run_id: str,
+        *,
+        request_id: str,
+        resolution: RecoveryResolution,
+        result_payload: typing.Mapping[str, ThawedJsonValue] | None = None,
+        error: str = "",
+    ) -> RunRecoveryResolutionRecord:
+        """保存外部权威恢复决议，并解除对应 Run 的本地恢复门禁。"""
+        if self._persistence is None:
+            raise RuntimeError("run persistence is unavailable")
+        return await self._persistence.resolve_recovery(
+            run_id,
+            request_id=request_id,
+            resolution=resolution,
+            result_payload=result_payload,
+            error=error,
+        )
 
     async def events(
         self,

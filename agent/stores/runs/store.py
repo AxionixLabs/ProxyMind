@@ -5,6 +5,10 @@ import asyncio
 import json
 import sqlite3
 import typing
+from datetime import (
+    datetime,
+    timezone,
+)
 from pathlib import Path
 
 from agent.domain import (
@@ -13,15 +17,20 @@ from agent.domain import (
     validate_run_transition,
 )
 from agent.ports import (
+    RecoveryResolution,
     RunFact,
     RunPersistenceConflict,
+    RunRecoveryResolutionRecord,
     RunSnapshot,
 )
 from agent.protocol import (
     RunEvent,
     SubmitTurnCommand,
 )
-from agent.protocol.json_value import thaw_json
+from agent.protocol.json_value import (
+    ThawedJsonValue,
+    thaw_json,
+)
 from .records import (
     encode_json,
     outbox_update,
@@ -68,6 +77,48 @@ class SQLiteRunStore:
         if not normalized:
             raise ValueError("session_id is required")
         return await asyncio.to_thread(self._recover_session, normalized)
+
+    async def resolve_recovery(
+        self,
+        run_id: str,
+        *,
+        request_id: str,
+        resolution: RecoveryResolution,
+        result_payload: typing.Mapping[str, ThawedJsonValue] | None = None,
+        error: str = "",
+    ) -> RunRecoveryResolutionRecord:
+        """幂等保存权威恢复结论，并从 Session 恢复门禁中移除该 Run。"""
+        normalized_run_id = str(run_id or "").strip()
+        normalized_request_id = str(request_id or "").strip()
+        if not normalized_run_id:
+            raise ValueError("run_id is required")
+        if not normalized_request_id:
+            raise ValueError("request_id is required")
+        if resolution not in {"committed", "failed", "not_executed"}:
+            raise ValueError("unsupported recovery resolution")
+        if resolution == "committed" and result_payload is None:
+            raise ValueError("committed recovery requires result_payload")
+        if resolution == "failed" and not str(error or "").strip():
+            raise ValueError("failed recovery requires error")
+        if result_payload is not None and not isinstance(
+            result_payload,
+            typing.Mapping,
+        ):
+            raise TypeError("recovery result_payload must be an object")
+        normalized_error = str(error or "")[:2000]
+        normalized_result = (
+            dict(result_payload)
+            if result_payload is not None
+            else None
+        )
+        return await asyncio.to_thread(
+            self._resolve_recovery,
+            normalized_run_id,
+            normalized_request_id,
+            resolution,
+            normalized_result,
+            normalized_error,
+        )
 
     async def load_events(
         self,
@@ -425,6 +476,12 @@ class SQLiteRunStore:
                 f"""
                 SELECT * FROM run_snapshots
                  WHERE session_id = ? AND status IN ({placeholders})
+                   AND NOT EXISTS (
+                       SELECT 1 FROM run_facts AS recovery
+                        WHERE recovery.run_id = run_snapshots.run_id
+                          AND recovery.kind = 'recovery_resolution'
+                          AND recovery.position = 0
+                   )
                  ORDER BY updated_at, run_id
                 """,
                 (session_id, *values),
@@ -432,6 +489,171 @@ class SQLiteRunStore:
             return tuple(snapshot_from_row(row) for row in rows)
         finally:
             connection.close()
+
+    def _resolve_recovery(
+        self,
+        run_id: str,
+        request_id: str,
+        resolution: RecoveryResolution,
+        result_payload: dict[str, ThawedJsonValue] | None,
+        error: str,
+    ) -> RunRecoveryResolutionRecord:
+        """在单个事务中校验恢复状态并提交幂等决议事实。"""
+        resolved_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            snapshot = connection.execute(
+                "SELECT status FROM run_snapshots WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if snapshot is None:
+                raise RunPersistenceConflict("run does not exist")
+            status = RunStatus(str(snapshot["status"]))
+            if status not in RECOVERABLE_RUN_STATUSES:
+                raise RunPersistenceConflict(
+                    "only recoverable runs can be resolved"
+                )
+
+            existing = connection.execute(
+                """
+                SELECT payload_json FROM run_facts
+                 WHERE run_id = ? AND kind = 'recovery_resolution'
+                   AND position = 0
+                """,
+                (run_id,),
+            ).fetchone()
+            if existing is not None:
+                record = self._existing_recovery_resolution(
+                    run_id,
+                    request_id,
+                    resolution,
+                    result_payload,
+                    error,
+                    str(existing["payload_json"]),
+                )
+                connection.commit()
+                return record
+
+            payload = {
+                "request_id": request_id,
+                "resolution": resolution,
+                "result_payload": result_payload,
+                "error": error,
+                "resolved_at": resolved_at,
+            }
+            connection.execute(
+                """
+                INSERT INTO run_facts (
+                    run_id, kind, position, payload_json, created_at
+                ) VALUES (?, 'recovery_resolution', 0, ?, ?)
+                """,
+                (run_id, encode_json(payload), resolved_at),
+            )
+            outbox_status = (
+                "committed"
+                if resolution == "committed"
+                else "failed"
+            )
+            outbox_result = (
+                encode_json(result_payload)
+                if result_payload is not None
+                else None
+            )
+            connection.execute(
+                """
+                UPDATE run_snapshots
+                   SET effect_status = ?, updated_at = ?
+                 WHERE run_id = ?
+                """,
+                (outbox_status, resolved_at, run_id),
+            )
+            connection.execute(
+                """
+                UPDATE run_outbox
+                   SET status = ?,
+                       result_json = coalesce(?, result_json),
+                       error = ?,
+                       updated_at = ?
+                 WHERE run_id = ?
+                """,
+                (
+                    outbox_status,
+                    outbox_result,
+                    error,
+                    resolved_at,
+                    run_id,
+                ),
+            )
+            connection.commit()
+            return RunRecoveryResolutionRecord(
+                run_id=run_id,
+                request_id=request_id,
+                resolution=resolution,
+                result_payload=result_payload,
+                error=error,
+                resolved_at=resolved_at,
+            )
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    @staticmethod
+    def _existing_recovery_resolution(
+        run_id: str,
+        request_id: str,
+        resolution: RecoveryResolution,
+        result_payload: dict[str, ThawedJsonValue] | None,
+        error: str,
+        payload_json: str,
+    ) -> RunRecoveryResolutionRecord:
+        """校验重复核对请求并返回首次提交的不可变结论。"""
+        try:
+            payload = json.loads(payload_json)
+        except (TypeError, ValueError) as parse_error:
+            raise RunPersistenceConflict(
+                "persisted recovery resolution is invalid"
+            ) from parse_error
+        if not isinstance(payload, dict):
+            raise RunPersistenceConflict(
+                "persisted recovery resolution is invalid"
+            )
+        if (
+            payload.get("request_id") != request_id
+            or payload.get("resolution") != resolution
+            or payload.get("result_payload") != result_payload
+            or payload.get("error") != error
+        ):
+            raise RunPersistenceConflict(
+                "recovery resolution conflicts with persisted decision"
+            )
+        persisted_result = payload.get("result_payload")
+        if persisted_result is not None and not isinstance(
+            persisted_result,
+            dict,
+        ):
+            raise RunPersistenceConflict(
+                "persisted recovery result is invalid"
+            )
+        persisted_resolution = payload.get("resolution")
+        if persisted_resolution not in {
+            "committed",
+            "failed",
+            "not_executed",
+        }:
+            raise RunPersistenceConflict(
+                "persisted recovery resolution is invalid"
+            )
+        return RunRecoveryResolutionRecord(
+            run_id=run_id,
+            request_id=request_id,
+            resolution=persisted_resolution,
+            result_payload=persisted_result,
+            error=str(payload.get("error") or ""),
+            resolved_at=str(payload.get("resolved_at") or ""),
+        )
 
     def _load_events(
         self,

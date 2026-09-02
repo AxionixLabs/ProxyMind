@@ -350,6 +350,14 @@ class AgentExecutor(object):
         if turn_id:
             command_extras["turn_id"] = turn_id
 
+        trace_context: dict[str, typing.Any] = {}
+        if turn_id:
+            trace_context["remote_turn"] = {
+                "cid": request.cid,
+                "sid": request.sid,
+                "turn_id": turn_id,
+            }
+
         return SubmitTurnCommand.create(
             command_id=f"agent-forward:{request.message_id}",
             idempotency_key=f"agent-forward:{request.message_id}",
@@ -359,6 +367,7 @@ class AgentExecutor(object):
             attachments=attachments,
             environment_snapshot=environment_snapshot,
             extras=command_extras,
+            trace_context=trace_context,
         )
 
     @staticmethod

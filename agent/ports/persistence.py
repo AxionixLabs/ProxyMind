@@ -16,6 +16,7 @@ from agent.protocol import (
     RunEvent,
     SubmitTurnCommand,
 )
+from agent.protocol.json_value import ThawedJsonValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +45,58 @@ class RunRecoveryDetail:
     effect_status: str
     action: str
     updated_at: str
+
+
+RecoveryResolution: typing.TypeAlias = typing.Literal[
+    "committed",
+    "failed",
+    "not_executed",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class RunRecoveryResolutionRecord:
+    """描述一项已经由权威来源确认的 Run 恢复决议。"""
+
+    run_id: str
+    request_id: str
+    resolution: RecoveryResolution
+    result_payload: Mapping[str, ThawedJsonValue] | None
+    error: str
+    resolved_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteTurnBinding:
+    """描述本地 Run 对应的服务端 Session/Turn 坐标。"""
+
+    cid: str
+    sid: str
+    turn_id: str
+
+
+def remote_turn_binding(
+    command: SubmitTurnCommand,
+) -> RemoteTurnBinding | None:
+    """从已持久化命令中读取严格的远端轮次绑定。"""
+    raw_binding = command.trace_context.get("remote_turn")
+    if raw_binding is None:
+        return None
+    if not isinstance(raw_binding, Mapping):
+        raise RunPersistenceConflict("remote turn binding must be an object")
+    values: dict[str, str] = {}
+    for field_name in ("cid", "sid", "turn_id"):
+        value = raw_binding.get(field_name)
+        if not isinstance(value, str) or not value.strip():
+            raise RunPersistenceConflict(
+                f"remote turn binding requires {field_name}"
+            )
+        values[field_name] = value.strip()
+    return RemoteTurnBinding(
+        cid=values["cid"],
+        sid=values["sid"],
+        turn_id=values["turn_id"],
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +167,18 @@ class RunPersistence(typing.Protocol):
         session_id: str,
     ) -> tuple[RunSnapshot, ...]:
         """读取 Session 中全部未终结 Run 及其恢复动作。"""
+        ...
+
+    async def resolve_recovery(
+        self,
+        run_id: str,
+        *,
+        request_id: str,
+        resolution: RecoveryResolution,
+        result_payload: Mapping[str, ThawedJsonValue] | None = None,
+        error: str = "",
+    ) -> RunRecoveryResolutionRecord:
+        """幂等记录权威恢复决议并解除对应 Run 的恢复门禁。"""
         ...
 
     async def load_events(

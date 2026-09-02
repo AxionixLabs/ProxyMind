@@ -62,6 +62,7 @@ from protocol.schema.permissions import (
     SandboxMode,
     normalize_network_access,
 )
+from protocol.schema.identifiers import short_uid
 from protocol.transport.endpoints import service_endpoints
 
 DEFAULT_MCP_EXEC_TIMEOUT_SEC = 900.0
@@ -447,16 +448,25 @@ class MindMcpRuntime(object):
             cwd=workspace,
             workspace_root=workspace,
         )
+        turn_id = short_uid(12)
         command = SubmitTurnCommand.create(
             session_id=request.session_id,
             message=message,
             environment_snapshot=environment_snapshot,
             extras={
+                "turn_id": turn_id,
                 "working_directory": str(workspace),
                 "sandbox_mode": permissions.sandbox_mode,
                 "approval_policy": permissions.approval_policy,
                 "approvals_reviewer": permissions.approvals_reviewer,
                 "network_access": permissions.network_access,
+            },
+            trace_context={
+                "remote_turn": {
+                    "cid": metadata["cid"],
+                    "sid": metadata["sid"],
+                    "turn_id": turn_id,
+                },
             },
         )
 

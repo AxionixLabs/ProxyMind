@@ -147,12 +147,16 @@ from .persistence import (
     EffectJournalFactory,
     EffectJournalPersistenceError,
     LocalEffectReconciliationRequired,
+    RecoveryResolution,
+    RemoteTurnBinding,
     RunFact,
     RunPersistence,
     RunPersistenceConflict,
     RunRecoveryDetail,
     RunRecoveryRequired,
+    RunRecoveryResolutionRecord,
     RunSnapshot,
+    remote_turn_binding,
 )
 from .presentation import TurnForegroundLifecyclePort
 from .process_lifecycle import ProcessLifecyclePort
@@ -248,6 +252,8 @@ __all__ = (
     "EffectJournalDecision",
     "EffectJournalPersistenceError",
     "LocalEffectReconciliationRequired",
+    "RecoveryResolution",
+    "RemoteTurnBinding",
     "ApprovalSnapshotCallback",
     "ConversationHistoryPort",
     "CapabilityError",
@@ -272,7 +278,9 @@ __all__ = (
     "RunPersistenceConflict",
     "RunRecoveryDetail",
     "RunRecoveryRequired",
+    "RunRecoveryResolutionRecord",
     "RunSnapshot",
+    "remote_turn_binding",
     "RootConversationPort",
     "PermissionGrantReader",
     "PermissionGrantPort",
@@ -419,6 +427,7 @@ __all__ = (
     "HookStatusPort",
     "HookSessionCleanup",
 )
+
 
 if __name__ == '__main__':
     pass
