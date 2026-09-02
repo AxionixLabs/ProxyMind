@@ -86,6 +86,7 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
         "approval_id": event.approval_id,
         "call_id": event.call_id,
         "turn_id": event.turn_id,
+        "session_id": event.session_id,
         "tool": tool,
         "kind": event.kind,
         "cwd": normalized_cwd,

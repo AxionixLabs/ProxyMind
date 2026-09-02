@@ -61,6 +61,11 @@ def effect_journal_db_path() -> Path:
     return mind_history_dir() / "effects.db"
 
 
+def approval_fact_db_path() -> Path:
+    """返回审批事实 SQLite 文件路径。"""
+    return mind_history_dir() / "approvals.db"
+
+
 def agent_runtime_db_path() -> Path:
     """返回 Agent Harness 事件、快照和 outbox SQLite 文件路径。"""
     return mind_history_dir() / "runtime.db"

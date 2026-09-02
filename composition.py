@@ -8,6 +8,7 @@ from agent.adapters.protocol.subagent_stream import ProtocolSubagentStream
 from agent.application import RuntimeServices
 from agent.application.services import SubscriptionRuntimeBuilder
 from agent.application.approvals.coordinator import ApprovalCoordinator
+from agent.application.approvals.legacy import DomainApprovalCoordinator
 from agent.application.approvals.presenter import ApprovalPresenterPort
 from agent.application.config.settings import (
     AgentSettings,
@@ -47,6 +48,8 @@ from agent.ports import (
 )
 from agent.stores import AgentGraphStore
 from agent.stores.approvals.ledger import ApprovalCallLedger
+from agent.stores.approvals.facts import SQLiteApprovalFactStore
+from agent.stores.approvals.grants import InMemorySessionGrantStore
 from agent.stores.approvals.permissions import PermissionGrantStore
 from agent.stores.sessions import (
     ConversationHistoryStore,
@@ -57,6 +60,7 @@ from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.preferences import Preferences
 from infrastructure.config.runtime_paths import (
     agent_graph_db_path,
+    approval_fact_db_path,
     mind_history_db_path,
 )
 from infrastructure.config.session import ConfigSession
@@ -230,9 +234,14 @@ class ApplicationHost:
             scope_factory=self.hooks.hook_scope,
             cleanup_session=self.hooks.cleanup_session,
         )
-        self.approval_coordinator = ApprovalCoordinator(
+        legacy_approval_coordinator = ApprovalCoordinator(
             approval_presenter,
             snapshot_error_handler=_observe_approval_snapshot_failure,
+        )
+        self.approval_coordinator = DomainApprovalCoordinator(
+            legacy_approval_coordinator,
+            fact_store=SQLiteApprovalFactStore(approval_fact_db_path()),
+            grant_store=InMemorySessionGrantStore(),
         )
         self.approval_call_ledger = ApprovalCallLedger()
         self.permission_grants = PermissionGrantStore()

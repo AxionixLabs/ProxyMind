@@ -28,6 +28,8 @@ _ACTION_DECISIONS: dict[
     }),
     ApprovalActionKind.PERMISSION: frozenset({
         ApprovalDecisionKind.GRANT_FOR_RUN,
+        ApprovalDecisionKind.GRANT_FOR_RUN_WITH_STRICT_AUTO_REVIEW,
+        ApprovalDecisionKind.ALLOW_FOR_SESSION,
         ApprovalDecisionKind.DECLINE,
         ApprovalDecisionKind.CANCEL,
     }),

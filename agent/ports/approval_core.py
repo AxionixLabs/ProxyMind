@@ -76,8 +76,8 @@ class SessionGrantStore(typing.Protocol):
 class ApprovalReviewerPort(typing.Protocol):
     """定义可替换 reviewer，生命周期由组合根管理且不得写入授权事实。"""
 
-    async def review(self, action: ApprovalAction) -> ApprovalDecision:
-        """对一个类型化动作返回绑定其指纹的决定。"""
+    async def review(self, action: ApprovalAction) -> ApprovalDecision | None:
+        """对一个类型化动作返回决定；返回 None 表示该 reviewer 不适用。"""
         ...
 
 

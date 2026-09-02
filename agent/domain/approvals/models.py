@@ -24,6 +24,9 @@ class ApprovalDecisionKind(enum.StrEnum):
     ALLOW_FOR_SESSION = "allow_for_session"
     APPLY_AMENDMENT = "apply_amendment"
     GRANT_FOR_RUN = "grant_for_run"
+    GRANT_FOR_RUN_WITH_STRICT_AUTO_REVIEW = (
+        "grant_for_run_with_strict_auto_review"
+    )
     DECLINE = "decline"
     CANCEL = "cancel"
     TIMEOUT = "timeout"
