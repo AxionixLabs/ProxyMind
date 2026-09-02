@@ -302,12 +302,16 @@ model intent
 - 工具参数在执行前完成 schema 校验，结果在 adapter 边界归一化。
 - 审批只决定当前动作，不成为底层平台或服务端的全局安全策略。
 - Approval、Tool Call 与 Effect 各有稳定 identity，`request_id` 只承担传输幂等。
+- 外部 MCP 调用即使由策略免除交互审批，也必须先校验完整 Tool Call 与 Turn identity；
+  基础设施调用边界不得把缺失 identity 解释为受信任调用。
 - MCP Session grant 只在相同 Session、Environment、server、connector 和 tool 范围复用，
   不绑定单次调用参数，也不得跨 Session 或执行环境传播。
 - MCP 持久允许只能由配置端口原子写入工具级策略；本地展示决定不得扩展正式 wire 审批契约。
 - MCP 调用只消费正式调用携带的 Effect identity；缺失时不得合成本地 Effect 冒充线上权威事实。
 - MCP 审批由 application 投影可信身份、领域风险及经过脱敏和限长的参数摘要；前端只按语义
   Token 排版和降级颜色，不从第三方对象或原始载荷重新推断权限。
+- 交互审批卡只拥有待决请求和当前选项；决定一经提交即锁定并释放交互表面，允许、拒绝、
+  取消和失效等终态只通过结构化 trace 投影，不把终态卡片建立为第二事实来源。
 - 用户配置的外部 MCP STDIO、SSE 和 Streamable HTTP 连接属于显式配置的传输信任边界；建连
   本身不消费 MCP tool grant 或网络 grant，但模型可达的每次外部工具效果仍必须通过 MCP 策略链。
 - 外部 MCP HTTP client 不继承环境代理；传输凭据只在配置与 transport adapter 内解析，状态和

@@ -883,6 +883,34 @@ async def test_local_mcp_persistent_shortcut_returns_declared_decision() -> None
     await approval.dismiss()
 
 
+@pytest.mark.anyio
+async def test_mcp_pending_card_accepts_only_the_first_submission() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+    assert approval.begin({
+        "kind": "mcp_tool_call",
+        "id": "approval-mcp-single-submit",
+        "call_id": "call-mcp-single-submit",
+        "tool": "mcp__docs__publish",
+        "server": "docs",
+        "tool_name": "publish",
+        "arguments": {"value": 1},
+        "_local_mcp_approval": True,
+        "available_decisions": ["accept", "decline"],
+    })
+    state = approval.state
+    assert state is not None
+
+    approval.finish("accept")
+    approval.finish("decline")
+
+    assert state.future.done()
+    assert await approval.wait() == "accept"
+    assert approval.state is state
+    await approval.dismiss()
+    assert approval.state is None
+
+
 def test_shell_actions_use_blue_semantics_and_process_footer_is_dim() -> None:
     style = build_tui_application_style(
         Style.from_dict({}),

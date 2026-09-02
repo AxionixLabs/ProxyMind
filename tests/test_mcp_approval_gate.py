@@ -236,6 +236,55 @@ async def test_writes_mode_allows_explicit_read_only_tool_without_card() -> None
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("mode", "read_only"),
+    (("approve", None), ("writes", True)),
+)
+async def test_policy_approved_mcp_call_still_requires_stable_identity(
+    mode: str,
+    read_only: bool | None,
+) -> None:
+    runner, invocation, approval, external, presentation = _runtime(
+        mode,
+        read_only=read_only,
+    )
+    missing_identity = replace(invocation, call_id="")
+
+    outcome = await runner.execute(
+        missing_identity,
+        use_coding_trace=False,
+        display=False,
+    )
+
+    assert outcome.result.ok is False
+    assert "tool_call_id is required" in outcome.result.text
+    assert approval.actions == []
+    external.call_tool.assert_not_awaited()
+    presentation.emit.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_external_mcp_session_requires_call_and_turn_identity() -> None:
+    runner, invocation, _approval, external, _presentation = _runtime("approve")
+    session = runner.session
+
+    with pytest.raises(ValueError, match="call_id is required"):
+        await session.call_tool(
+            invocation.name,
+            invocation.arguments,
+            turn_context=invocation.turn,
+        )
+    with pytest.raises(TypeError, match="turn context is required"):
+        await session.call_tool(
+            invocation.name,
+            invocation.arguments,
+            call_id=invocation.call_id,
+        )
+
+    external.call_tool.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_invalid_mcp_arguments_fail_before_approval_and_execution() -> None:
     runner, invocation, approval, external, _presentation = _runtime("prompt")
     invalid = ToolInvocation(

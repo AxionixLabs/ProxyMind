@@ -164,25 +164,31 @@ async def authorize_mcp_tool_call(
     arguments: dict[str, typing.Any],
 ) -> McpApprovalAuthorization:
     """执行 MCP 纯策略和必要的人机审批，任何缺失依赖都失败关闭。"""
-    if not mcp_requires_approval(descriptor):
-        return McpApprovalAuthorization(True, "mcp policy approved")
-    if turn.permissions.approval_policy == "never":
-        return McpApprovalAuthorization(
-            False,
-            "MCP tool requires approval but approval policy is never",
-        )
-    if coordinator is None:
-        return McpApprovalAuthorization(
-            False,
-            "MCP approval coordinator is unavailable",
-        )
-
     action = build_mcp_approval_action(
         turn,
         call_id=call_id,
         descriptor=descriptor,
         arguments=arguments,
     )
+    if not mcp_requires_approval(descriptor):
+        return McpApprovalAuthorization(
+            True,
+            "mcp policy approved",
+            action=action,
+        )
+    if turn.permissions.approval_policy == "never":
+        return McpApprovalAuthorization(
+            False,
+            "MCP tool requires approval but approval policy is never",
+            action=action,
+        )
+    if coordinator is None:
+        return McpApprovalAuthorization(
+            False,
+            "MCP approval coordinator is unavailable",
+            action=action,
+        )
+
     presentation = mcp_approval_payload(action, arguments, agent=turn.agent)
     outcome = await coordinator.request_action_outcome(action, presentation)
     allowed = outcome.decision in {

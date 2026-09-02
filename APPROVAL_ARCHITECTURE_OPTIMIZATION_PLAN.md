@@ -363,15 +363,19 @@ Press enter to confirm or ctrl + c to cancel
 
 状态显示规则：
 
-| 状态 | 展示要求 | 是否可操作 |
-| --- | --- | --- |
-| `requested` | 完整字段、风险颜色、焦点选项 | 是 |
-| `selected` | 仅焦点和快捷键颜色变化，内容不抖动 | 是 |
-| `submitting` | 保留请求摘要，禁用重复提交 | 否 |
-| `accepted` | 显示允许作用域和 terminal 结果 | 否 |
-| `declined` | 显示拒绝原因或下一步提示 | 否 |
-| `cancelled` / `expired` | 显示终止原因，不重新打开卡片 | 否 |
-| `degraded` | 缺失字段以 `unknown` 标识，继续要求明确决定 | 是 |
+审批卡只拥有待决交互，终态由结构化 trace 表示。`selected` 和 `degraded` 是待决卡的展示属性，
+不是独立审批事实；用户提交后 Future 立即锁定，卡片释放交互表面，不等待持久化或远端 ack
+回写为第二套状态。
+
+| 阶段或属性 | 展示投影 | 展示要求 | 是否可操作 |
+| --- | --- | --- | --- |
+| `requested` | 交互卡 | 完整字段、风险颜色、焦点选项 | 是 |
+| `selected` | 交互卡属性 | 仅焦点和快捷键颜色变化，内容不抖动 | 是 |
+| `degraded` | 交互卡属性 | 缺失字段以 `unknown` 标识，继续要求明确决定 | 是 |
+| `submitting` | 交互移交 | 首次决定锁定后拒绝重复提交并释放卡片 | 否 |
+| `accepted` | terminal trace | 显示允许作用域和 terminal 结果 | 否 |
+| `declined` | terminal trace | 显示拒绝原因或下一步提示 | 否 |
+| `cancelled` / `expired` | terminal trace | 显示终止原因，不重新打开卡片 | 否 |
 
 ##### 排版与跨平台要求
 
@@ -395,8 +399,8 @@ Press enter to confirm or ctrl + c to cancel
 
 ##### 阶段 3 样式验收
 
-- 为每个字段和每个状态增加结构化快照测试；快照只比较语义片段和样式 Token，不比较终端控制
-  序列的偶然差异。
+- 为每个字段、待决卡展示属性和 terminal trace 决定增加结构化测试；测试只比较语义片段和
+  样式 Token，不比较终端控制序列的偶然差异。
 - 覆盖 truecolor、ANSI 256、ANSI 16、深色、浅色和无颜色终端；颜色降级后仍能仅凭文本和前缀
   区分 MCP、网络、写入、破坏性和未知风险。
 - 覆盖参数脱敏、长字符串、嵌套对象、Unicode、控制字符、窄宽度、多 pending、焦点恢复、取消、
@@ -422,6 +426,8 @@ Press enter to confirm or ctrl + c to cancel
   均不设置背景色；网络卡保持独立 `approval-network` 语义。
 - 正式 wire 决定集合保持不变，`acceptForSession` / `acceptAndRemember` 仍只属于本地审批面；
   线上 ack、snapshot 和 terminal 投影继续使用既有严格协议解析。
+- 待决 MCP 卡只持有当前交互和选中项，首次提交后立即锁定；允许、拒绝、取消和失效使用既有
+  结构化 terminal trace，不新增与审批事实竞争的卡片终态状态机。
 - 字段顺序、参数安全边界、风险映射、子 Agent 来源、窄终端、颜色降级、本地持久快捷键、
   completion trace 和协议隔离均有定向回归。
 

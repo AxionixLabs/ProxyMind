@@ -181,8 +181,10 @@ class CompositeToolSession(McpSessionPort):
             )
 
         if self.external_group is not None and name in self.external_group.tools:
-            if call_id is not None and not str(call_id).strip():
-                raise ValueError("external MCP call_id must be non-empty")
+            if not str(call_id or "").strip():
+                raise ValueError("external MCP call_id is required")
+            if turn_context is None:
+                raise TypeError("external MCP turn context is required")
             return await self.external_group.call_tool(
                 name,
                 payload,
