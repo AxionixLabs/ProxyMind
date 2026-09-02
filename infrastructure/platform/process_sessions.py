@@ -9,6 +9,7 @@ from collections import deque
 from dataclasses import dataclass
 
 from agent.ports import (
+    NetworkBlockedHandlerFactory,
     ProcessCapability,
     ProcessHandle,
     ProcessSpec,
@@ -51,6 +52,8 @@ class ProcessSessionSpec(object):
     idle_timeout_sec: int
     owner_cid: str = ""
     owner_sid: str = ""
+    owner_run_id: str = ""
+    environment_id: str = ""
     audit_mode: str = "off"
     audit_before: dict[str, typing.Any] | None = None
     stdin_enabled: bool = True
@@ -92,6 +95,7 @@ class ProcessSession(object):
         session_id: str,
         spec: ProcessSessionSpec,
         process: asyncio.subprocess.Process | SidecarProcess | _CapabilityProcess,
+        network_proxy: ManagedNetworkProxy | None = None,
     ) -> None:
         """初始化进程会话及有限输出缓冲区。"""
         self.session_id = session_id
@@ -108,6 +112,9 @@ class ProcessSession(object):
         )
         self.owner_cid = spec.owner_cid
         self.owner_sid = spec.owner_sid
+        self.owner_run_id = spec.owner_run_id
+        self.environment_id = spec.environment_id
+        self.network_proxy = network_proxy
         self.started_at = time.time()
         self.expires_at = self.started_at + spec.timeout_sec
         self.idle_timeout_sec = spec.idle_timeout_sec
@@ -155,6 +162,7 @@ class ProcessSessionManager(object):
         *,
         process_capability: ProcessCapability | None = None,
         network_proxy: ManagedNetworkProxy | None = None,
+        network_blocked_handler_factory: NetworkBlockedHandlerFactory | None = None,
     ) -> None:
         """初始化进程会话表。"""
         self.sessions: dict[str, ProcessSession] = {}
@@ -163,6 +171,7 @@ class ProcessSessionManager(object):
         self._sandbox_client = sandbox_client
         self._process_capability = process_capability
         self._network_proxy = network_proxy
+        self._network_blocked_handler_factory = network_blocked_handler_factory
 
     @property
     def change_revision(self) -> int:
@@ -224,65 +233,86 @@ class ProcessSessionManager(object):
         await self.cleanup()
 
         process_env = dict(spec.env) if spec.env is not None else None
+        session_network_proxy: ManagedNetworkProxy | None = None
         if (
             self._network_proxy is not None
             and spec.sandbox_mode in {"read-only", "workspace-read", "workspace-write"}
         ):
-            await self._network_proxy.start()
-            process_env = self._network_proxy.environment(process_env or {})
+            callback_factory = self._network_blocked_handler_factory
+            blocked_handler = (
+                callback_factory(
+                    str(spec.owner_sid or "").strip(),
+                    str(spec.owner_run_id or "").strip(),
+                    str(spec.environment_id or "").strip() or "default",
+                )
+                if callback_factory is not None
+                else None
+            )
+            session_network_proxy = self._network_proxy.for_session(
+                session_id=spec.owner_sid,
+                on_blocked=blocked_handler,
+            )
+            await session_network_proxy.start()
+            process_env = session_network_proxy.environment(process_env)
 
-        if (
-            self._process_capability is not None
-            and spec.sandbox_mode == "danger-full-access"
-        ):
-            process_spec = ProcessSpec(
-                argv=spec.args,
-                cwd=spec.cwd,
-                env=process_env or {},
-                sandbox_mode=spec.sandbox_mode,
-                sandbox_permissions=(
-                    "with_additional_permissions"
-                    if spec.additional_permissions is not None
-                    else "use_default"
-                ),
-                additional_permissions=spec.additional_permissions,
-                stdin_open=spec.stdin_enabled,
-            )
-            handle = await self._process_capability.spawn(process_spec)
-            process = _CapabilityProcess(handle)
-        elif spec.sandbox_mode in {"read-only", "workspace-read", "workspace-write"}:
-            if self._sandbox_client is None:
-                raise SandboxUnavailable("sandbox client is not configured")
-            spawn_kwargs: dict[str, typing.Any] = {
-                "argv": spec.args,
-                "cwd": spec.cwd,
-                "env": process_env or {},
-                "sandbox_mode": spec.sandbox_mode,
-                "stdin_open": spec.stdin_enabled,
-                "timeout_ms": max(1, int(spec.timeout_sec)) * 1000,
-            }
-            if spec.additional_permissions is not None:
-                spawn_kwargs["additional_permissions"] = spec.additional_permissions
-            process = await self._sandbox_client.spawn(
-                **spawn_kwargs,
-            )
-        else:
-            stdin = asyncio.subprocess.PIPE if spec.stdin_enabled else asyncio.subprocess.DEVNULL
+        try:
+            if (
+                self._process_capability is not None
+                and spec.sandbox_mode == "danger-full-access"
+            ):
+                process_spec = ProcessSpec(
+                    argv=spec.args,
+                    cwd=spec.cwd,
+                    env=process_env or {},
+                    sandbox_mode=spec.sandbox_mode,
+                    sandbox_permissions=(
+                        "with_additional_permissions"
+                        if spec.additional_permissions is not None
+                        else "use_default"
+                    ),
+                    additional_permissions=spec.additional_permissions,
+                    stdin_open=spec.stdin_enabled,
+                )
+                handle = await self._process_capability.spawn(process_spec)
+                process = _CapabilityProcess(handle)
+            elif spec.sandbox_mode in {"read-only", "workspace-read", "workspace-write"}:
+                if self._sandbox_client is None:
+                    raise SandboxUnavailable("sandbox client is not configured")
+                spawn_kwargs: dict[str, typing.Any] = {
+                    "argv": spec.args,
+                    "cwd": spec.cwd,
+                    "env": process_env or {},
+                    "sandbox_mode": spec.sandbox_mode,
+                    "stdin_open": spec.stdin_enabled,
+                    "timeout_ms": max(1, int(spec.timeout_sec)) * 1000,
+                }
+                if spec.additional_permissions is not None:
+                    spawn_kwargs["additional_permissions"] = spec.additional_permissions
+                process = await self._sandbox_client.spawn(
+                    **spawn_kwargs,
+                )
+            else:
+                stdin = asyncio.subprocess.PIPE if spec.stdin_enabled else asyncio.subprocess.DEVNULL
 
-            process = await asyncio.create_subprocess_exec(
-                *spec.args,
-                cwd=spec.cwd,
-                env=process_env,
-                stdin=stdin,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                **subprocess_process_group_kwargs(),
-            )
+                process = await asyncio.create_subprocess_exec(
+                    *spec.args,
+                    cwd=spec.cwd,
+                    env=process_env,
+                    stdin=stdin,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    **subprocess_process_group_kwargs(),
+                )
+        except BaseException:
+            if session_network_proxy is not None:
+                await session_network_proxy.close()
+            raise
 
         session = ProcessSession(
             session_id=f"exec_{secrets.token_hex(8)}",
             spec=spec,
             process=process,
+            network_proxy=session_network_proxy,
         )
 
         session.stdout_task = asyncio.create_task(
@@ -333,7 +363,7 @@ class ProcessSessionManager(object):
                 "origin": session.origin,
                 "background": session.background,
                 "owner_cid": session.owner_cid,
-                "owner_sid": session.owner_sid
+                "owner_sid": session.owner_sid,
             }
             for session in self.sessions.values()
             if session.process.returncode is None
@@ -846,6 +876,9 @@ class ProcessSessionManager(object):
             await session.process.close()
         elif not isinstance(session.process, SidecarProcess):
             ProcessCapture.close_process_transport(session.process)
+
+        if session.network_proxy is not None:
+            await session.network_proxy.close()
 
         session.finalized = True
         session.output_revision += 1

@@ -208,6 +208,10 @@ class ShellCommandExecutor(WorkspaceComponent):
         cwd: str = ".",
         timeout_sec: int = 60,
         output_encoding: str = "auto",
+        cid: str = "",
+        sid: str = "",
+        run_id: str = "",
+        environment_id: str = "",
         audit_files: bool = False,
         sandbox_mode: str = "danger-full-access",
         sandbox_permissions: object = "use_default",
@@ -357,6 +361,10 @@ class ShellCommandExecutor(WorkspaceComponent):
                     timeout_sec=effective_timeout,
                     sandbox_mode=sandbox_mode,
                     additional_permissions=normalized_additional_permissions,
+                    cid=cid,
+                    sid=sid,
+                    run_id=run_id,
+                    environment_id=environment_id,
                 )
             else:
                 capture = await ProcessCapture.run_shell(
@@ -502,6 +510,10 @@ class ShellCommandExecutor(WorkspaceComponent):
         timeout_sec: int,
         sandbox_mode: str,
         additional_permissions: dict[str, typing.Any] | None,
+        cid: str,
+        sid: str,
+        run_id: str,
+        environment_id: str,
     ) -> CapturedProcessResult:
         """通过当前平台 sidecar 执行一次命令并转换为统一捕获结果。"""
         started = time.perf_counter()
@@ -517,6 +529,10 @@ class ShellCommandExecutor(WorkspaceComponent):
             origin="tool",
             timeout_sec=max(1, int(timeout_sec)),
             idle_timeout_sec=max(1, int(timeout_sec)),
+            owner_cid=str(cid or ""),
+            owner_sid=str(sid or ""),
+            owner_run_id=str(run_id or ""),
+            environment_id=str(environment_id or "").strip() or "default",
             stdin_enabled=False,
             env=env,
             sandbox_mode=sandbox_mode,

@@ -1,7 +1,7 @@
 # 审批架构与网络审批实施计划
 
 - 计划版本：V1
-- 状态：迭代 4 已实现，待进入迭代 5
+- 状态：迭代 5 已实现，待进入迭代 6
 - 基线日期：2026-09-02
 - Codex 源码基线：revision `608f4a8a98feff0889cbfc9ed691efbf42d34cc6`
 - 目标平台：Windows、macOS、Linux
@@ -46,7 +46,7 @@ Agent Harness 平行的系统。`mind.py` 和 `composition.py` 只负责选择�
 | 2 | 通用审批核心落地并迁移现有审批 | 特大 | 已实现 | 非网络审批使用新核心 |
 | 3 | 三平台静态受管网络 | 特大 | 已实现 | 静态网络规则可执行 |
 | 4 | 网络决定、规则提交和审批卡 | 特大 | 已实现 | 前台网络审批闭环 |
-| 5 | 后台生命周期、执行面收口和平台加固 | 特大 | 待开始 | 三平台功能闭环 |
+| 5 | 后台生命周期、执行面收口和平台加固 | 特大 | 已实现 | 三平台功能闭环 |
 | 6 | 恢复、安全一致性和发布验收 | 大 | 待开始 | 可声明选定 Codex 基线行为等价 |
 
 计划版本 V1 只表示本文的产品实施版本，与任何 Python/Rust 私有协议版本无关。执行适配器
@@ -428,7 +428,12 @@ grant、reviewer 和 Effect 边界，并用契约测试证明非法组合无法�
 
 实施范围：
 
-- 执行句柄绑定原始 Session/Run/Action/Execution 和 cancellation。
+- `ProcessSessionSpec` 和工作区进程端口携带 `cid/sid/run_id/environment_id`；受管网络回调由
+  组合根绑定同一个 `NetworkApprovalService`，缺失身份时 fail closed。
+- 每个受限进程创建独立回环代理实例，共享静态策略但不共享代理 Session 标识；一次授权、
+  Session 授权和并发阻断不会串线。
+- 代理启动失败、进程异常启动、正常退出、超时、终止、工作区替换和应用关闭都回收代理及
+  连接任务；`network_access=enabled` 不注入代理。
 - 原 Run 结束后保留明确后台审批上下文；不可用时拒绝，不附着当前或最近 Run。
 - `write_stdin`、轮询、超时、terminate、工作区切换和应用关闭共享一个状态机。
 - JS REPL 内核及嵌套 shell 纳入平台网络约束，不能只注入 proxy env。
@@ -440,7 +445,8 @@ grant、reviewer 和 Effect 边界，并用契约测试证明非法组合无法�
 
 出口证据：
 
-- 后台批准、拒绝、Run cancel、请求断线、进程结束和执行 adapter 重启全部收敛。
+- 进程级代理隔离、阻断回调重新评估和终态回收已由定向测试覆盖；后台批准、拒绝、Run
+  cancel、请求断线和执行 adapter 重启的三平台真实证据仍待验收。
 - 同一持久进程跨多个 Run 不复用过期审批上下文。
 - JS `fetch`、Node `net.connect`、子进程和嵌套 shell 具有绕行测试。
 - 应用关闭后无残留代理、审批任务、Node 内核或 sandbox 进程。

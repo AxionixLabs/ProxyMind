@@ -9,6 +9,7 @@ from agent.application import RuntimeServices
 from agent.application.services import SubscriptionRuntimeBuilder
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.application.approvals.legacy import DomainApprovalCoordinator
+from agent.application.approvals.network import NetworkApprovalService
 from agent.application.approvals.presenter import ApprovalPresenterPort
 from agent.application.config.settings import (
     AgentSettings,
@@ -67,6 +68,7 @@ from infrastructure.config.session import ConfigSession
 from infrastructure.config.settings_session import SettingsSession
 from infrastructure.persistence.conversation_history import LocalConversationHistory
 from infrastructure.persistence.transcripts import ConversationTranscriptStore
+from infrastructure.platform.network import StaticNetworkPolicy
 from infrastructure.services.runtime_owner import ServiceRuntimeOwner
 from infrastructure.services.configuration_host import ConfigServiceRuntime
 from infrastructure.services.turn_environment import capture_turn_environment
@@ -246,6 +248,27 @@ class ApplicationHost:
         self.approval_call_ledger = ApprovalCallLedger()
         self.permission_grants = PermissionGrantStore()
 
+        network_policy = StaticNetworkPolicy()
+        network_service_holder: dict[str, NetworkApprovalService] = {}
+
+        def network_blocked_handler_factory(
+            session_id: str,
+            run_id: str,
+            environment_id: str,
+        ):
+            """为受管进程创建绑定审批服务的网络阻断回调。"""
+            service = network_service_holder.get("service")
+            if service is None:
+                return None
+            try:
+                return service.handler(
+                    session_id=session_id,
+                    run_id=run_id,
+                    environment_id=environment_id,
+                )
+            except ValueError:
+                return None
+
         workspace_runtime_factory = runtime_services.create_workspace_runtime
         if workspace_runtime_factory is None:
             raise TypeError("workspace runtime factory is required")
@@ -253,7 +276,15 @@ class ApplicationHost:
             self.history_workspace,
             application_layout=self.application_layout,
             process_capability=runtime_services.process_capability,
+            network_access=self.settings.permissions.network_access,
+            network_policy=network_policy,
+            network_blocked_handler_factory=network_blocked_handler_factory,
         )
+        network_service_holder["service"] = NetworkApprovalService(
+            self.approval_coordinator,
+            network_policy,
+        )
+        self.network_approval_service = network_service_holder["service"]
 
         mcp_runtime_builder = runtime_services.create_mcp_runtime
         mcp_runtime_context = McpRuntimeContext(

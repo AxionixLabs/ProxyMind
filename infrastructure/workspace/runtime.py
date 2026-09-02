@@ -86,6 +86,10 @@ class WorkspaceCoding(WorkspaceContext):
         sandbox_mode: SandboxMode = "danger-full-access",
         sandbox_permissions: object = "use_default",
         additional_permissions: dict[str, typing.Any] | None = None,
+        cid: str = "",
+        sid: str = "",
+        run_id: str = "",
+        environment_id: str = "",
     ) -> dict[str, typing.Any]:
         """执行单条 shell 命令。"""
         return await self._shell_command.shell_command(
@@ -96,6 +100,10 @@ class WorkspaceCoding(WorkspaceContext):
             sandbox_mode=sandbox_mode,
             sandbox_permissions=sandbox_permissions,
             additional_permissions=additional_permissions,
+            cid=cid,
+            sid=sid,
+            run_id=run_id,
+            environment_id=environment_id,
         )
 
     async def exec_command(
@@ -110,6 +118,8 @@ class WorkspaceCoding(WorkspaceContext):
         idle_timeout_sec: int = 300,
         cid: str = "",
         sid: str = "",
+        run_id: str = "",
+        environment_id: str = "",
         sandbox_mode: SandboxMode = "danger-full-access",
         sandbox_permissions: object = "use_default",
         additional_permissions: dict[str, typing.Any] | None = None,
@@ -125,6 +135,8 @@ class WorkspaceCoding(WorkspaceContext):
             idle_timeout_sec=idle_timeout_sec,
             cid=cid,
             sid=sid,
+            run_id=run_id,
+            environment_id=environment_id,
             sandbox_mode=sandbox_mode,
             sandbox_permissions=sandbox_permissions,
             additional_permissions=additional_permissions,

@@ -6,23 +6,28 @@ import enum
 import os
 import sys
 from collections.abc import (
-    Awaitable,
-    Callable,
     Mapping,
-    Sequence
+    Sequence,
 )
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from agent.domain.approvals import (
     NetworkProtocol,
-    NetworkTarget
+    NetworkTarget,
+)
+from agent.ports.network import (
+    NetworkBlockedHandler,
+    NetworkBlockedHandlerFactory,
+    NetworkPolicyPort,
 )
 
 __all__ = (
     "BlockedNetworkRequest",
     "ManagedNetworkProxy",
     "ManagedNetworkRule",
+    "NetworkBlockedHandler",
+    "NetworkBlockedHandlerFactory",
     "NetworkDecision",
     "StaticNetworkPolicy",
     "managed_network_backend_name",
@@ -177,11 +182,11 @@ class ManagedNetworkProxy:
 
     def __init__(
         self,
-        policy: StaticNetworkPolicy,
+        policy: NetworkPolicyPort,
         *,
         host: str = "127.0.0.1",
         session_id: str = "",
-        on_blocked: Callable[[BlockedNetworkRequest], Awaitable[None]] | None = None,
+        on_blocked: NetworkBlockedHandler | None = None,
     ) -> None:
         """绑定静态策略和可选的阻断观察回调。"""
         if not host.strip():
@@ -192,6 +197,20 @@ class ManagedNetworkProxy:
         self._on_blocked = on_blocked
         self._server: asyncio.AbstractServer | None = None
         self._connections: set[asyncio.Task[None]] = set()
+
+    def for_session(
+        self,
+        *,
+        session_id: str,
+        on_blocked: NetworkBlockedHandler | None = None,
+    ) -> "ManagedNetworkProxy":
+        """创建共享策略下绑定单个进程 Session 的代理实例。"""
+        return ManagedNetworkProxy(
+            self.policy,
+            host=self.host,
+            session_id=str(session_id or "").strip(),
+            on_blocked=self._on_blocked if on_blocked is None else on_blocked,
+        )
 
     @property
     def running(self) -> bool:
@@ -314,8 +333,12 @@ class ManagedNetworkProxy:
                     await callback(blocked)
                 except Exception:
                     pass
-            await _write_response(writer, 403, "network target is not allowed")
-            return None
+            if self.policy.decide(
+                network_target,
+                session_id=self.session_id,
+            ) is NetworkDecision.DENY:
+                await _write_response(writer, 403, "network target is not allowed")
+                return None
 
         try:
             upstream_reader, upstream_writer = await asyncio.open_connection(

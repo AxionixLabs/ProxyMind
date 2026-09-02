@@ -15,7 +15,10 @@ from agent.application.config.settings import (
 )
 from agent.application.turns.run_result import RunResult
 from agent.composition import create_runtime_services
-from agent.domain.policies import PermissionSettings
+from agent.domain.policies import (
+    NetworkAccess,
+    PermissionSettings,
+)
 from agent.harness.execution.compaction import compact_conversation
 from agent.harness.execution.root_runner import run_root_turn
 from agent.harness.hooks.registry import HookRegistry
@@ -34,6 +37,10 @@ from agent.ports import (
     SubscriptionRuntime,
     ToolRuntimePort,
     ToolRuntimeSources,
+)
+from agent.ports.network import (
+    NetworkBlockedHandlerFactory,
+    NetworkPolicyPort,
 )
 from composition import ApplicationHost
 from frontends.cli.entry import run
@@ -62,6 +69,7 @@ from infrastructure.platform.images import FileImageReader
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.sandbox import SandboxClient
 from infrastructure.platform.network import ManagedNetworkProxy
+from infrastructure.platform.network import StaticNetworkPolicy
 from infrastructure.services.turn_environment import (
     capture_active_turn_environment,
     capture_turn_environment,
@@ -249,6 +257,9 @@ def create_workspace_coding(
     application_layout: object | None,
     process_capability: ProcessCapability | None = None,
     network_proxy: ManagedNetworkProxy | None = None,
+    network_access: NetworkAccess = "restricted",
+    network_policy: NetworkPolicyPort | None = None,
+    network_blocked_handler_factory: NetworkBlockedHandlerFactory | None = None,
 ) -> WorkspaceCoding:
     """在进程组合根创建绑定工作区的平台执行资源。"""
     if (
@@ -268,10 +279,16 @@ def create_workspace_coding(
             application_layout.platform if application_layout is not None else None
         ),
     )
+    effective_network_proxy = network_proxy
+    if effective_network_proxy is None and network_access == "restricted":
+        effective_network_proxy = ManagedNetworkProxy(
+            network_policy or StaticNetworkPolicy(),
+        )
     process_sessions = ProcessSessionManager(
         sandbox_client,
         process_capability=process_capability,
-        network_proxy=network_proxy,
+        network_proxy=effective_network_proxy,
+        network_blocked_handler_factory=network_blocked_handler_factory,
     )
     return WorkspaceCoding(
         root=root,
@@ -307,6 +324,9 @@ def create_workspace_runtime(
     *,
     application_layout: ApplicationLayout | None = None,
     process_capability: ProcessCapability | None = None,
+    network_access: NetworkAccess = "restricted",
+    network_policy: NetworkPolicyPort | None = None,
+    network_blocked_handler_factory: NetworkBlockedHandlerFactory | None = None,
 ) -> WorkspaceRuntimeOwner:
     """在唯一进程组合根装配本机工作区运行时。"""
     return WorkspaceRuntimeOwner(
@@ -316,6 +336,9 @@ def create_workspace_runtime(
         execution_policy_factory=ExecPolicyManager,
         image_reader_factory=FileImageReader,
         process_capability=process_capability,
+        network_access=network_access,
+        network_policy=network_policy,
+        network_blocked_handler_factory=network_blocked_handler_factory,
     )
 
 

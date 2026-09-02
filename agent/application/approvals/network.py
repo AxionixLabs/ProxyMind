@@ -12,11 +12,11 @@ from collections.abc import (
 from agent.application.approvals.models import ApprovalOutcome
 from agent.domain.approvals import NetworkTarget
 from agent.ports.approvals import ApprovalCoordinatorPort
+from agent.ports.network import NetworkPolicyPort
 from infrastructure.platform.network import (
     BlockedNetworkRequest,
     ManagedNetworkRule,
     NetworkDecision,
-    StaticNetworkPolicy,
 )
 
 __all__ = ("NetworkApprovalService",)
@@ -34,7 +34,7 @@ class NetworkApprovalService:
     def __init__(
         self,
         coordinator: ApprovalCoordinatorPort,
-        policy: StaticNetworkPolicy,
+        policy: NetworkPolicyPort,
         *,
         rule_sink: NetworkRuleSink | None = None,
     ) -> None:

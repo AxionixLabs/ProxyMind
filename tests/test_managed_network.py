@@ -6,6 +6,7 @@ import pytest
 
 from agent.domain.approvals import NetworkProtocol, NetworkTarget
 from infrastructure.platform.network import (
+    BlockedNetworkRequest,
     ManagedNetworkProxy,
     ManagedNetworkRule,
     NetworkDecision,
@@ -118,5 +119,65 @@ async def test_managed_proxy_forwards_allowed_http_request() -> None:
         await target_server.wait_closed()
 
 
-async def _record_blocked(blocked: list[object], request: object) -> None:
+def test_session_proxy_keeps_session_grants_isolated() -> None:
+    target = NetworkTarget("api.example.test", NetworkProtocol.HTTPS, 443)
+    policy = StaticNetworkPolicy()
+    template = ManagedNetworkProxy(policy)
+    first = template.for_session(session_id="session-1")
+    second = template.for_session(session_id="session-2")
+
+    policy.grant_for_session(target, first.session_id)
+
+    assert policy.decide(target, session_id=first.session_id) is NetworkDecision.ALLOW
+    assert policy.decide(target, session_id=second.session_id) is NetworkDecision.DENY
+
+
+@pytest.mark.anyio
+async def test_managed_proxy_rechecks_policy_after_blocked_callback() -> None:
+    async def target_handler(
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        await reader.readuntil(b"\r\n\r\n")
+        writer.write(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Length: 2\r\n"
+            b"Connection: close\r\n\r\nOK"
+        )
+        await writer.drain()
+        writer.close()
+
+    target_server = await asyncio.start_server(target_handler, "127.0.0.1", 0)
+    target_port = int(target_server.sockets[0].getsockname()[1])
+    policy = StaticNetworkPolicy()
+    session_proxy = ManagedNetworkProxy(policy).for_session(session_id="session-1")
+
+    async def approve_once(request: BlockedNetworkRequest) -> None:
+        policy.grant_once(request.target)
+
+    session_proxy._on_blocked = approve_once
+    await session_proxy.start()
+    try:
+        reader, writer = await asyncio.open_connection(
+            session_proxy.host,
+            session_proxy.port,
+        )
+        writer.write(
+            f"GET http://127.0.0.1:{target_port}/approved HTTP/1.1\r\n"
+            f"Host: 127.0.0.1:{target_port}\r\n\r\n".encode("ascii")
+        )
+        response = await reader.read()
+        writer.close()
+        await writer.wait_closed()
+        assert response.startswith(b"HTTP/1.1 200 OK")
+    finally:
+        await session_proxy.close()
+        target_server.close()
+        await target_server.wait_closed()
+
+
+async def _record_blocked(
+    blocked: list[BlockedNetworkRequest],
+    request: BlockedNetworkRequest,
+) -> None:
     blocked.append(request)

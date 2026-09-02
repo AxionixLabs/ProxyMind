@@ -29,6 +29,10 @@ class WorkspaceProcessPort(typing.Protocol):
         sandbox_mode: SandboxMode = "danger-full-access",
         sandbox_permissions: SandboxPermission = "use_default",
         additional_permissions: PermissionProfile | None = None,
+        cid: str = "",
+        sid: str = "",
+        run_id: str = "",
+        environment_id: str = "",
     ) -> Mapping[str, typing.Any]:
         """执行单条命令并返回由调用方校验的结果信封。"""
         ...
@@ -45,6 +49,8 @@ class WorkspaceProcessPort(typing.Protocol):
         idle_timeout_sec: int = 300,
         cid: str = "",
         sid: str = "",
+        run_id: str = "",
+        environment_id: str = "",
         sandbox_mode: SandboxMode = "danger-full-access",
         sandbox_permissions: SandboxPermission = "use_default",
         additional_permissions: PermissionProfile | None = None,

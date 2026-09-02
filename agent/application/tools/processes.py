@@ -72,6 +72,10 @@ def process_tools(
 
         result = await executor.shell_command(
             **execution_arguments,
+            cid=runtime.turn_context.cid,
+            sid=runtime.turn_context.sid,
+            run_id=runtime.turn_context.turn_id,
+            environment_id="local",
             sandbox_mode=runtime.turn_context.permissions.sandbox_mode,
         )
         return client_execution_result(
@@ -105,6 +109,8 @@ def process_tools(
             **execution_arguments,
             cid=runtime.turn_context.cid,
             sid=runtime.turn_context.sid,
+            run_id=runtime.turn_context.turn_id,
+            environment_id="local",
             sandbox_mode=runtime.turn_context.permissions.sandbox_mode,
         )
         return client_execution_result(

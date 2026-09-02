@@ -102,6 +102,13 @@ from .mcp_runtime import (
     McpToolGroupSnapshot,
 )
 from .mcp_session import McpSessionPort
+from .network import (
+    NetworkBlockedHandler,
+    NetworkBlockedHandlerFactory,
+    NetworkBlockedRequest,
+    NetworkRulePort,
+    NetworkPolicyPort,
+)
 from .media import (
     ImageAsset,
     ImageReadError,
@@ -264,6 +271,11 @@ __all__ = (
     "AgentMessageReceipt",
     "AgentMessageReceiptStatus",
     "McpSessionPort",
+    "NetworkBlockedHandler",
+    "NetworkBlockedHandlerFactory",
+    "NetworkBlockedRequest",
+    "NetworkRulePort",
+    "NetworkPolicyPort",
     "ImageAsset",
     "ImageReadError",
     "ImageReaderFactory",
