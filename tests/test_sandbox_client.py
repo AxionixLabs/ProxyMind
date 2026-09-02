@@ -169,6 +169,18 @@ def test_workspace_runtime_hydrates_persistent_network_rules(tmp_path) -> None:
         asyncio.run(runtime.close())
 
 
+def test_network_enabled_does_not_create_managed_proxy(tmp_path) -> None:
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=None,
+        network_access="enabled",
+    )
+    try:
+        assert coding._process_sessions._network_proxy is None
+    finally:
+        asyncio.run(coding.close())
+
+
 def test_sidecar_stream_read_without_size_collects_until_eof() -> None:
     """验证无 size 的读取会合并全部事件块并等待 EOF。"""
 
