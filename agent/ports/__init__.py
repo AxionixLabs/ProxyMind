@@ -89,7 +89,10 @@ from .javascript import (
     WorkspaceJavaScriptPort,
 )
 from .patching import WorkspacePatchPort
-from .process_tools import WorkspaceProcessPort
+from .process_tools import (
+    UserShellPort,
+    WorkspaceProcessPort,
+)
 from .tool_runtime import (
     BeforeToolSession,
     ExternalToolGroupPort,
@@ -106,6 +109,7 @@ from .mcp_runtime import (
     McpRuntimeBuilder,
     McpRuntimeFactory,
     McpRuntimeContext,
+    McpToolGroupSnapshot,
 )
 from .subagents import (
     SubagentControlPort,
@@ -265,6 +269,7 @@ __all__ = (
     "WorkspaceJavaScriptPort",
     "WorkspacePatchPort",
     "WorkspaceProcessPort",
+    "UserShellPort",
     "BeforeToolSession",
     "ExternalToolGroupPort",
     "ToolRegistryPort",
@@ -278,6 +283,7 @@ __all__ = (
     "McpRuntimeBuilder",
     "McpRuntimeFactory",
     "McpRuntimeContext",
+    "McpToolGroupSnapshot",
     "SubscriptionHost",
     "SubscriptionInbox",
     "SubscriptionInboxItem",

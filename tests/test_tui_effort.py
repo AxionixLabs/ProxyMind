@@ -18,6 +18,7 @@ from agent.domain.policies import preset_permissions
 from agent.application.turns.commands import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
 from agent.harness.process_lifecycle import ProcessLifecycle
+from agent.ports import ProtocolCommandClient
 
 
 @pytest.fixture(autouse=True)
@@ -50,6 +51,7 @@ async def test_tui_uses_durable_runtime_composition_for_real_layout(
 
     await loop.run_tui_loop(
         SimpleNamespace(application_layout=object()),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         turn_application_factory=open_application,
         turn_runner=AsyncMock(),
     )
@@ -66,7 +68,10 @@ async def test_tui_requires_explicit_turn_application_factory_for_real_layout() 
         RuntimeError,
         match="TUI turn application factory is required",
     ):
-        await loop.run_tui_loop(SimpleNamespace(application_layout=object()))
+        await loop.run_tui_loop(
+            SimpleNamespace(application_layout=object()),
+            protocol_client=Mock(spec=ProtocolCommandClient),
+        )
 
 
 @pytest.mark.anyio
@@ -75,7 +80,10 @@ async def test_tui_requires_explicit_root_turn_runner() -> None:
         RuntimeError,
         match="TUI root turn runner is required",
     ):
-        await loop.run_tui_loop(SimpleNamespace())
+        await loop.run_tui_loop(
+            SimpleNamespace(),
+            protocol_client=Mock(spec=ProtocolCommandClient),
+        )
 
 
 @pytest.mark.anyio
@@ -160,6 +168,7 @@ async def test_effort_command_updates_footer_context_immediately(
     runtime.submissions.message_queue.put_nowait("/effort")
     await loop.run_tui_loop(
         mind,
+        protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     )
 

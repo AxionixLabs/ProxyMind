@@ -1,12 +1,22 @@
 # -*- coding: utf-8 -*-
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import (
+    AsyncMock,
+    Mock,
+)
 
 import httpx
 import pytest
 
-from agent.protocol import ConversationForkReceipt
+from agent.ports import (
+    ProtocolCommandClient,
+    ProtocolCommandError,
+)
+from agent.protocol import (
+    ConversationForkReceipt,
+    ForkPrompt,
+)
 from frontends.tui.features import conversation
 from protocol.client import fork as fork_request
 from protocol.client.fork import (
@@ -43,7 +53,10 @@ class ForkMindStub(object):
             reset=self._reset,
         )
         self.frontend = SimpleNamespace(
-            application=SimpleNamespace(emit=self.views.append),
+            application=SimpleNamespace(
+                emit=self.views.append,
+                viewport=SimpleNamespace(width=80),
+            ),
         )
 
     def _prepare_fork(
@@ -88,6 +101,44 @@ class ForkMindStub(object):
         self.started.append(snapshot)
 
 
+def _protocol_client(
+    *,
+    receipt: ConversationForkReceipt | None = None,
+    error: BaseException | None = None,
+) -> Mock:
+    """构造只在 fork 用例中使用的协议命令端口。"""
+    client = Mock(spec=ProtocolCommandClient)
+    client.fork_session = AsyncMock(
+        return_value=receipt,
+        side_effect=error,
+    )
+    return client
+
+
+def _fork_receipt(
+    *,
+    prompt_source: str = "none",
+    copied_items: int = 24,
+    before_turn_id: str | None = None,
+    prompt: ForkPrompt | None = None,
+) -> ConversationForkReceipt:
+    """返回 TUI fork 测试使用的稳定协议回执。"""
+    if prompt_source not in {"none", "server", "client"}:
+        raise ValueError("invalid prompt source")
+    return ConversationForkReceipt(
+        request_id="fork_request_0001",
+        source_cid="cid_source_12345678",
+        source_sid="sid_source_1_abcdef",
+        prompt_source=prompt_source,
+        cid="cid_target_87654321",
+        sid="sid_target_2_fedcba",
+        copied_items=copied_items,
+        copied_turns=0 if before_turn_id else None,
+        before_turn_id=before_turn_id,
+        prompt=prompt,
+    )
+
+
 def test_fork_payload_requires_prompt_source_matching_boundary() -> None:
     common = {
         "cid": "cid_source_12345678",
@@ -106,25 +157,22 @@ def test_fork_payload_requires_prompt_source_matching_boundary() -> None:
 
 
 @pytest.mark.anyio
-async def test_fork_switches_only_after_remote_copy_succeeds(monkeypatch) -> None:
+async def test_fork_switches_only_after_remote_copy_succeeds() -> None:
     mind = ForkMindStub()
 
     async def request_fork(**kwargs):
         assert kwargs["request_id"] == "fork_request_0001"
         assert kwargs["prompt_source"] == "none"
         assert mind.bound == []
-        return {
-            "request_id": "fork_request_0001",
-            "source_cid": "cid_source_12345678",
-            "source_sid": "sid_source_1_abcdef",
-            "cid": "cid_target_87654321",
-            "sid": "sid_target_2_fedcba",
-            "copied_items": 24,
-        }
+        return _fork_receipt()
 
-    monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
+    protocol_client = _protocol_client()
+    protocol_client.fork_session = AsyncMock(side_effect=request_fork)
 
-    status = await conversation.fork_current_conversation(mind)
+    status = await conversation.fork_current_conversation(
+        mind,
+        protocol_client,
+    )
     conversation.render_fork_result(mind, status)
 
     assert mind.bound == [
@@ -149,21 +197,11 @@ async def test_fork_switches_only_after_remote_copy_succeeds(monkeypatch) -> Non
 @pytest.mark.anyio
 async def test_fork_uses_explicit_protocol_client() -> None:
     mind = ForkMindStub()
-    protocol_client = SimpleNamespace(
-        fork_session=AsyncMock(return_value=ConversationForkReceipt(
-            request_id="fork_request_0001",
-            source_cid="cid_source_12345678",
-            source_sid="sid_source_1_abcdef",
-            prompt_source="none",
-            cid="cid_target_87654321",
-            sid="sid_target_2_fedcba",
-            copied_items=24,
-        )),
-    )
+    protocol_client = _protocol_client(receipt=_fork_receipt())
 
     status = await conversation.fork_current_conversation(
         mind,
-        protocol_client=protocol_client,
+        protocol_client,
     )
 
     assert status.succeeded
@@ -178,18 +216,18 @@ async def test_fork_uses_explicit_protocol_client() -> None:
 
 @pytest.mark.anyio
 async def test_empty_conversation_starts_new_session_without_remote_fork(
-    monkeypatch,
 ) -> None:
     mind = ForkMindStub()
     mind.activity.enabled = False
     mind.conversation.fork_source_available = False
-    request_fork = AsyncMock(
-        side_effect=AssertionError("empty conversation must not call /fork")
+    protocol_client = _protocol_client(
+        error=AssertionError("empty conversation must not call /fork")
     )
 
-    monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
-
-    status = await conversation.fork_current_conversation(mind)
+    status = await conversation.fork_current_conversation(
+        mind,
+        protocol_client,
+    )
 
     assert status.succeeded
     assert status.source_session == (
@@ -204,26 +242,27 @@ async def test_empty_conversation_starts_new_session_without_remote_fork(
     assert mind.resets == [("command:/fork-empty", "tui:fork-empty")]
     assert mind.cleared == []
     assert mind.started == []
-    request_fork.assert_not_awaited()
+    protocol_client.fork_session.assert_not_awaited()
 
 
 @pytest.mark.anyio
 async def test_source_missing_response_recovers_as_new_empty_session(
-    monkeypatch,
 ) -> None:
     mind = ForkMindStub()
     mind.activity.enabled = False
 
-    async def request_fork(**_kwargs):
-        raise ConversationForkRequestError(
+    protocol_client = _protocol_client(
+        error=ProtocolCommandError(
+            "source_missing",
             "conversation history is empty",
-            status_code=404,
-            code="source_missing",
-        )
+            details={"status_code": 404},
+        ),
+    )
 
-    monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
-
-    status = await conversation.fork_current_conversation(mind)
+    status = await conversation.fork_current_conversation(
+        mind,
+        protocol_client,
+    )
 
     assert status.succeeded
     assert status.snapshot()["summary"] == "New conversation started."
@@ -237,21 +276,23 @@ async def test_source_missing_response_recovers_as_new_empty_session(
 
 
 @pytest.mark.anyio
-async def test_retryable_fork_failure_keeps_pending_request(monkeypatch) -> None:
+async def test_retryable_fork_failure_keeps_pending_request() -> None:
     mind = ForkMindStub()
     mind.activity.enabled = False
 
-    async def request_fork(**_kwargs):
-        raise ConversationForkRequestError(
+    protocol_client = _protocol_client(
+        error=ProtocolCommandError(
+            "source_busy",
             "Conversation is busy. Try /fork again after the current turn finishes.",
-            status_code=409,
-            code="source_busy",
             retryable=True,
-        )
+            details={"status_code": 409},
+        ),
+    )
 
-    monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
-
-    status = await conversation.fork_current_conversation(mind)
+    status = await conversation.fork_current_conversation(
+        mind,
+        protocol_client,
+    )
     conversation.render_fork_result(mind, status)
 
     assert mind.bound == []
@@ -457,33 +498,30 @@ async def test_fork_request_defaults_empty_prompt_fields(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_bounded_fork_accepts_empty_source_prefix(monkeypatch) -> None:
+async def test_bounded_fork_accepts_empty_source_prefix() -> None:
     mind = ForkMindStub()
     mind.activity.enabled = False
 
     async def request_fork(**kwargs):
         assert kwargs["before_turn_id"] == "turn_selected"
         assert kwargs["prompt_source"] == "server"
-        return {
-            "request_id": "fork_request_0001",
-            "source_cid": "cid_source_12345678",
-            "source_sid": "sid_source_1_abcdef",
-            "before_turn_id": "turn_selected",
-            "cid": "cid_target_87654321",
-            "sid": "sid_target_2_fedcba",
-            "copied_turns": 0,
-            "copied_items": 0,
-            "prompt": ResubmittablePrompt(
+        return _fork_receipt(
+            prompt_source="server",
+            copied_items=0,
+            before_turn_id="turn_selected",
+            prompt=ForkPrompt(
                 message="inspect this",
                 attachments=(),
                 extras={},
             ),
-        }
+        )
 
-    monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
+    protocol_client = _protocol_client()
+    protocol_client.fork_session = AsyncMock(side_effect=request_fork)
 
     status = await conversation.fork_current_conversation(
         mind,
+        protocol_client,
         before_turn_id="turn_selected",
     )
 
@@ -505,26 +543,20 @@ async def test_bounded_fork_accepts_empty_source_prefix(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_bounded_fork_can_defer_target_binding(monkeypatch) -> None:
+async def test_bounded_fork_can_defer_target_binding() -> None:
     mind = ForkMindStub()
     mind.activity.enabled = False
 
-    async def request_fork(**_kwargs):
-        return {
-            "cid": "cid_target_87654321",
-            "sid": "sid_target_2_fedcba",
-            "copied_items": 1,
-            "prompt": ResubmittablePrompt(
-                message="inspect this",
-                attachments=(),
-                extras={},
-            ),
-        }
-
-    monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
+    protocol_client = _protocol_client(receipt=_fork_receipt(
+        prompt_source="server",
+        copied_items=1,
+        before_turn_id="turn_selected",
+        prompt=ForkPrompt(message="inspect this"),
+    ))
 
     status = await conversation.fork_current_conversation(
         mind,
+        protocol_client,
         before_turn_id="turn_selected",
         bind_target=False,
     )
@@ -543,7 +575,6 @@ async def test_bounded_fork_can_defer_target_binding(monkeypatch) -> None:
 
 @pytest.mark.anyio
 async def test_bounded_fork_uses_fallback_prompt_when_remote_prompt_missing(
-    monkeypatch,
 ) -> None:
     mind = ForkMindStub()
     mind.activity.enabled = False
@@ -553,20 +584,15 @@ async def test_bounded_fork_uses_fallback_prompt_when_remote_prompt_missing(
         extras={"selection": {"x": 10, "y": 20}},
     )
 
-    async def request_fork(**kwargs):
-        assert kwargs["before_turn_id"] == "turn_selected"
-        assert kwargs["prompt_source"] == "client"
-        return {
-            "cid": "cid_target_87654321",
-            "sid": "sid_target_2_fedcba",
-            "copied_items": 1,
-            "prompt": None,
-        }
-
-    monkeypatch.setattr(conversation, "request_conversation_fork", request_fork)
+    protocol_client = _protocol_client(receipt=_fork_receipt(
+        prompt_source="client",
+        copied_items=1,
+        before_turn_id="turn_selected",
+    ))
 
     status = await conversation.fork_current_conversation(
         mind,
+        protocol_client,
         before_turn_id="turn_selected",
         bind_target=False,
         fallback_prompt=fallback,

@@ -17,6 +17,7 @@ from frontends.tui.session import loop
 from agent.domain.policies import preset_permissions
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
+from agent.ports import ProtocolCommandClient
 
 
 def _settings(
@@ -416,6 +417,7 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
     runtime.submissions.message_queue.put_nowait("first")
     run_task = asyncio.create_task(loop.run_tui_loop(
         mind,
+        protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
     await first_turn_started.wait()
@@ -518,6 +520,7 @@ async def test_stream_settings_settle_before_queued_model_turn(
     runtime.submissions.message_queue.put_nowait("first")
     run_task = asyncio.create_task(loop.run_tui_loop(
         mind,
+        protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
     await first_turn_started.wait()
@@ -613,6 +616,7 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
     runtime.submissions.message_queue.put_nowait("first")
     run_task = asyncio.create_task(loop.run_tui_loop(
         mind,
+        protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
     await first_turn_started.wait()
@@ -706,6 +710,7 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
     runtime.submissions.message_queue.put_nowait("first")
     run_task = asyncio.create_task(loop.run_tui_loop(
         mind,
+        protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
     await turn_started.wait()
@@ -791,6 +796,7 @@ async def test_idle_mcp_start_commits_result_before_next_query(
     runtime.submissions.message_queue.put_nowait(command)
     run_task = asyncio.create_task(loop.run_tui_loop(
         mind,
+        protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
     await mcp_started.wait()
@@ -871,6 +877,7 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
     runtime.submissions.message_queue.put_nowait("/helix-link")
     run_task = asyncio.create_task(loop.run_tui_loop(
         mind,
+        protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
     await link_started.wait()

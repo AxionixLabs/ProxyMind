@@ -24,6 +24,7 @@ from agent.domain.policies import preset_permissions
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
 from agent.harness.process_lifecycle import ProcessLifecycle
+from agent.ports import ProtocolCommandClient
 from frontends.tui.session.turn import execute_tui_model_turn
 
 
@@ -163,6 +164,7 @@ async def test_double_ctrl_c_returns_normally_from_session_loop(
 
     session_task = asyncio.create_task(loop.run_tui_loop(
         mind,
+        protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
     await asyncio.sleep(0)

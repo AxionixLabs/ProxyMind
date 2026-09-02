@@ -160,11 +160,20 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   直接消费对应字段，不再从 `model_capability` 做运行时猜测。Subscription builder 已从
   最小 ports 提升到 application 组合契约并显式接收进程服务，`mind.py` 不再从宿主反射
   `runtime_services`，Harness owner 继续只持有已绑定的最小工厂。
+- TUI 会话分支已把 `ProtocolCommandClient` 设为从 CLI 分派、会话循环、命令分派器到
+  backtrack/fork 用例的完整必填依赖；模块级请求替身、可空协议回退和前端直接 HTTP 路径
+  均已删除。MCP、进程和 Shell feature 统一消费 `TuiApplicationHost`，工作区进程与用户
+  Shell 通过独立端口暴露生命周期，MCP SDK 工具组只在 infrastructure 内投影为不可变
+  `McpToolGroupSnapshot` 后交给前端。
 
 ### 最新证据
 
 截至 2026-09-02，本切片已完成：
 
+- 阶段 5 后 TUI 能力边界加固定向回归 `430 passed`；排除已由用户进程长期占用的
+  `tests/test_tui_stream_commands.py` 和单独执行的架构文件后，全行为回归
+  `2986 passed, 11 skipped`。完整架构守卫其余 `115 passed, 66 warnings`，修正唯一过宽
+  投影守卫后专项 `1 passed`；导入图、`compileall` 和差异检查通过。
 - Interaction 职责拆分与 TUI 显式端口注入扩展回归：`1651 passed`；先行定向回归
   `262 passed`，端口注入专项回归 `147 passed`。
 - Interaction/Protocol/TUI 边界架构专项通过；旧 `mind_app/interaction` 源文件和生产
@@ -1060,6 +1069,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 将协议命令设为 CLI 到 TUI fork/backtrack 的完整必填依赖，以 `TuiApplicationHost` 和进程/Shell 端口替代 feature 动态能力发现，并把 MCP SDK 连接组投影为稳定前端快照 | 定向 `430 passed`；不含已知占用文件和单独架构文件的全行为 `2986 passed, 11 skipped`；完整架构其余 `115 passed, 66 warnings`，修正过宽守卫后专项 `1 passed`；导入图、`compileall` 和差异检查通过 |
 | 2026-09-02 | 显式拆分进程级模型流与协议控制能力，将 Subscription 完整 builder 提升到 application 组合契约并在组合根绑定，删除 CLI 可空服务、模型能力猜测和宿主服务反射 | 不含 `test_tui_stream_commands.py` 的全行为 `2986 passed, 11 skipped`；CLI/Subscription/Run/Subagent 定向 `257 passed`；职责守卫 `6 passed`；导入图已刷新且无跨边界循环，`compileall`、文档契约和差异检查通过 |
 | 2026-09-02 | 收紧 TUI 控制与生命周期边界：`ProtocolCommandClient` 改为必填构造依赖，删除模块级命令测试替身、可空回退和 Runtime 生命周期内部状态代理 | 不含 `test_tui_stream_commands.py` 的全行为 `2984 passed, 11 skipped`；Turn 输入与错误边界 `28 passed`；TUI 启动/监听/Run `110 passed`；职责守卫与导入图基线 `3 passed`；导入图、`compileall`、文档契约和差异检查通过 |
 | 2026-09-02 | 删除最后的 `mind_app` 应用宿主，建立显式 `ApplicationHost`、TUI 宿主协议和可重试 `ProcessResourceOwner`，同步官网路径与退役包守卫，完成阶段 5 | 全行为 `3000 passed, 11 skipped`；完整架构 `114 passed, 66 warnings`；文档契约、导入图、`compileall`、旧路径扫描和差异检查通过 |

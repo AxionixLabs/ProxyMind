@@ -19,6 +19,10 @@ from .summary import (
     render_command_summary
 )
 
+if typing.TYPE_CHECKING:
+    from ..application import TuiApplicationHost
+    from ..runtime.ports import ProcessRuntimePort
+
 SHELL_COMMAND_TIMEOUT_SEC = 3600
 
 INTERACTIVE_SHELL_COMMANDS = frozenset({
@@ -38,8 +42,8 @@ INTERACTIVE_SHELL_COMMANDS = frozenset({
 
 
 async def run_shell_escape(
-    runtime: typing.Any,
-    mind: typing.Any,
+    runtime: "ProcessRuntimePort",
+    mind: "TuiApplicationHost",
     value: str
 ) -> bool:
     """执行 TUI Shell escape 并管理正文执行单元。"""
@@ -111,17 +115,9 @@ async def run_shell_escape(
     return True
 
 
-def _conversation_owner(controller: typing.Any) -> tuple[str, str]:
+def _conversation_owner(controller: "TuiApplicationHost") -> tuple[str, str]:
     """返回当前对话对应的本地进程展示归属。"""
-    conversation    = getattr(controller, "conversation", None)
-    snapshot_method = getattr(conversation, "snapshot", None)
-
-    if conversation is None or not callable(snapshot_method):
-        return "", ""
-
-    snapshot = functools.partial(snapshot_method)()
-    if not isinstance(snapshot, dict):
-        return "", ""
+    snapshot = controller.conversation.snapshot()
 
     return (
         str(snapshot.get("cid") or "").strip(),

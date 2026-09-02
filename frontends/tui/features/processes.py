@@ -7,6 +7,7 @@ import typing
 import asyncio
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.utils import get_cwidth
+from agent.ports import UserShellPort
 from agent.ports.presentation import TextSpan
 from frontends.terminal.text import sanitize_terminal_text
 from agent.ports.presentation import (
@@ -32,6 +33,7 @@ from .summary import (
 )
 
 if typing.TYPE_CHECKING:
+    from ..application import TuiApplicationHost
     from ..runtime.ports import ProcessRuntimePort
 
 PS_EVENT_WAIT_TIMEOUT_SEC: float  = 1.0
@@ -63,7 +65,7 @@ class _ShellOutputPreview(typing.NamedTuple):
 
 async def monitor_exec_status(
     runtime: "ProcessRuntimePort",
-    mind: typing.Any
+    mind: "TuiApplicationHost",
 ) -> None:
     """同步后台命令会话摘要到 TUI 专属状态行。"""
     revision = -1
@@ -235,7 +237,7 @@ def _is_background_session_item(
 
 async def manage_exec_sessions(
     runtime: "ProcessRuntimePort",
-    mind: typing.Any
+    mind: "TuiApplicationHost",
 ) -> bool:
     """在主历史中追加一次后台命令快照，不打开详情面板。"""
     await append_exec_history_snapshot(runtime, mind)
@@ -244,7 +246,7 @@ async def manage_exec_sessions(
 
 async def stop_all_exec_sessions(
     runtime: "ProcessRuntimePort",
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     *,
     sessions: list[dict[str, typing.Any]] | None = None
 ) -> None:
@@ -304,7 +306,7 @@ def render_no_background_terminals(
 
 async def append_exec_stream_snapshot(
     runtime: "ProcessRuntimePort",
-    mind: typing.Any
+    mind: "TuiApplicationHost",
 ) -> None:
     """在模型流式期间追加后台终端的近期输出摘要。"""
     await _append_exec_snapshot(runtime, mind, mode="stream")
@@ -312,7 +314,7 @@ async def append_exec_stream_snapshot(
 
 async def append_exec_history_snapshot(
     runtime: "ProcessRuntimePort",
-    mind: typing.Any
+    mind: "TuiApplicationHost",
 ) -> None:
     """在主历史中追加一次稳定的后台终端快照。"""
     await _append_exec_snapshot(runtime, mind, mode="history")
@@ -320,7 +322,7 @@ async def append_exec_history_snapshot(
 
 async def _append_exec_snapshot(
     runtime: "ProcessRuntimePort",
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     *,
     mode: ExecSnapshotMode,
 ) -> None:
@@ -365,7 +367,7 @@ async def _append_exec_snapshot(
 
 
 async def _load_exec_stream_snapshot(
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     session: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
     """读取单个后台终端快照并保留列表中的摘要字段。"""
@@ -504,7 +506,7 @@ def _exec_stream_snapshot_error_block(
 
 async def watch_user_shell_session(
     runtime: "ProcessRuntimePort",
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     session_id: str | None,
     *,
     announce_detach: bool = False,
@@ -572,24 +574,20 @@ async def watch_user_shell_session(
 
 
 async def _watch_user_shell_session(
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     session_id: str,
     state: dict[str, typing.Any],
     *,
     runtime: "ProcessRuntimePort",
     announce_detach: bool,
     ready_event: asyncio.Event | None,
-    execution: typing.Any
+    execution: UserShellPort,
 ) -> bool | str:
     """按结构化会话事件更新手动 Shell 的正文执行单元。"""
     application = mind.frontend.application
 
     try:
-        source = getattr(mind.workspace_runtime, "coding", None)
-        running_sessions = getattr(source, "running_exec_sessions", None)
-        if not callable(running_sessions):
-            running_sessions = execution.running_exec_sessions
-        running = await running_sessions()
+        running = await mind.workspace_runtime.coding.running_exec_sessions()
         filtered = _without_running_session(
             running,
             session_id,
@@ -1093,7 +1091,7 @@ def _result_items(
 async def _interrupt_exec_session(
     session_id: str,
     *,
-    execution: typing.Any,
+    execution: UserShellPort,
 ) -> dict[str, typing.Any]:
     """中断进程会话并返回收束后快照。"""
     snapshot = await execution.control_exec_session(
@@ -1123,10 +1121,10 @@ async def _interrupt_exec_session(
 
 async def _watch_detached_exec_session(
     runtime: "ProcessRuntimePort",
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     session_id: str,
     *,
-    execution: typing.Any,
+    execution: UserShellPort,
 ) -> None:
     """按会话事件等待后台终端退出并提交一次完成摘要。"""
     snapshot = await execution.exec_session_output_snapshot(
@@ -1178,7 +1176,7 @@ async def _wait_for_exec_session_update(
     session_id: str,
     snapshot: dict[str, typing.Any],
     *,
-    execution: typing.Any,
+    execution: UserShellPort,
 ) -> dict[str, typing.Any] | None:
     """等待结构化会话事件，返回事件载荷或空值。"""
     result = await execution.wait_exec_session_update(
@@ -1192,7 +1190,7 @@ async def _wait_for_exec_session_update(
 
 
 def _belongs_to_current_conversation(
-    controller: typing.Any,
+    controller: "TuiApplicationHost",
     snapshot: dict[str, typing.Any]
 ) -> bool:
     """判断进程完成摘要是否仍属于当前对话。"""
@@ -1203,15 +1201,7 @@ def _belongs_to_current_conversation(
     if not all(owner):
         return True
 
-    conversation    = getattr(controller, "conversation", None)
-    snapshot_method = getattr(conversation, "snapshot", None)
-
-    if conversation is None or not callable(snapshot_method):
-        return False
-
-    current = snapshot_method()
-    if not isinstance(current, dict):
-        return False
+    current = controller.conversation.snapshot()
 
     return owner == (
         str(current.get("cid") or "").strip(),

@@ -128,11 +128,11 @@ async def run_selected_command(
     mind: CliCommandHost,
     command: RuntimeCommand,
     *,
+    protocol_client: ProtocolCommandClient,
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     turn_application_factory: TurnApplicationFactory | None = None,
     conversation_compactor: ConversationCompactor | None = None,
-    protocol_client: ProtocolCommandClient | None = None,
 ) -> RunResult | None:
     """按命令行参数分派到直接执行或交互入口。"""
     if isinstance(command, AgentListenCommand):
@@ -313,7 +313,7 @@ async def _run_agent_listener_session(
     turn_runner: RootTurnRunner | None,
     turn_application_factory: TurnApplicationFactory | None,
     conversation_compactor: ConversationCompactor | None,
-    protocol_client: ProtocolCommandClient | None,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
     """在普通 TUI 生命周期内运行临时远端请求监听器。"""
     mind.subscription.start()
@@ -338,7 +338,7 @@ async def _run_tui_session(
     turn_runner: RootTurnRunner | None,
     turn_application_factory: TurnApplicationFactory | None,
     conversation_compactor: ConversationCompactor | None,
-    protocol_client: ProtocolCommandClient | None,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
     """使用现有 TUI 生命周期运行一个交互会话。"""
     from frontends.tui.session.loop import run_tui_loop
@@ -355,13 +355,12 @@ async def _run_tui_session(
                 run_root_turn if turn_runner is None else turn_runner,
                 mind,
             ),
+            "protocol_client": protocol_client,
         }
         if turn_application_factory is not None:
             loop_kwargs["turn_application_factory"] = turn_application_factory
         if conversation_compactor is not None:
             loop_kwargs["conversation_compactor"] = conversation_compactor
-        if protocol_client is not None:
-            loop_kwargs["protocol_client"] = protocol_client
         await run_tui_loop(mind, **loop_kwargs)
     finally:
         await mind.subscription.close()

@@ -4871,6 +4871,127 @@ def test_tui_runtime_exposes_only_explicit_control_and_lifecycle_ports() -> None
     assert not forbidden_command_seams.intersection(module_assignments)
     assert "protocol_client is not None" not in turn_input_source
 
+    conversation_path = (
+        PROJECT_ROOT / "frontends" / "tui" / "features" / "conversation.py"
+    )
+    conversation_source = conversation_path.read_text(encoding="utf-8-sig")
+    conversation_tree = ast.parse(
+        conversation_source,
+        filename=str(conversation_path),
+    )
+    fork_function = next(
+        node
+        for node in conversation_tree.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "fork_current_conversation"
+    )
+    assert [argument.arg for argument in fork_function.args.args[:2]] == [
+        "mind",
+        "protocol_client",
+    ]
+    assert not fork_function.args.defaults
+    fork_assignments = {
+        node.target.id
+        for node in conversation_tree.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+    }
+    fork_assignments.update(
+        target.id
+        for node in conversation_tree.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    )
+    assert "request_conversation_fork" not in fork_assignments
+    assert "protocol_client is None" not in conversation_source
+
+    mandatory_protocol_entries = (
+        (
+            PROJECT_ROOT / "frontends" / "cli" / "dispatch.py",
+            "run_selected_command",
+        ),
+        (
+            PROJECT_ROOT / "frontends" / "tui" / "session" / "loop.py",
+            "run_tui_loop",
+        ),
+    )
+    for module_path, function_name in mandatory_protocol_entries:
+        module_tree = ast.parse(
+            module_path.read_text(encoding="utf-8-sig"),
+            filename=str(module_path),
+        )
+        function = next(
+            node
+            for node in module_tree.body
+            if isinstance(node, ast.AsyncFunctionDef)
+            and node.name == function_name
+        )
+        protocol_index = next(
+            index
+            for index, argument in enumerate(function.args.kwonlyargs)
+            if argument.arg == "protocol_client"
+        )
+        protocol_argument = function.args.kwonlyargs[protocol_index]
+        assert function.args.kw_defaults[protocol_index] is None
+        assert protocol_argument.annotation is not None
+        assert ast.unparse(protocol_argument.annotation) == "ProtocolCommandClient"
+
+    dispatcher_path = (
+        PROJECT_ROOT / "frontends" / "tui" / "session" / "dispatch.py"
+    )
+    dispatcher_tree = ast.parse(
+        dispatcher_path.read_text(encoding="utf-8-sig"),
+        filename=str(dispatcher_path),
+    )
+    dispatcher_class = next(
+        node
+        for node in dispatcher_tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "TuiCommandDispatcher"
+    )
+    dispatcher_initializer = next(
+        node
+        for node in dispatcher_class.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "__init__"
+    )
+    dispatcher_protocol_index = next(
+        index
+        for index, argument in enumerate(dispatcher_initializer.args.kwonlyargs)
+        if argument.arg == "protocol_client"
+    )
+    dispatcher_protocol = dispatcher_initializer.args.kwonlyargs[
+        dispatcher_protocol_index
+    ]
+    assert dispatcher_initializer.args.kw_defaults[
+        dispatcher_protocol_index
+    ] is None
+    assert dispatcher_protocol.annotation is not None
+    assert ast.unparse(dispatcher_protocol.annotation) == "ProtocolCommandClient"
+
+    for feature_name in ("mcp.py", "processes.py", "shell.py"):
+        feature_source = (
+            PROJECT_ROOT / "frontends" / "tui" / "features" / feature_name
+        ).read_text(encoding="utf-8-sig")
+        assert "mind: typing.Any" not in feature_source
+        assert 'getattr(controller, "conversation"' not in feature_source
+        assert 'getattr(mind, "animate"' not in feature_source
+        assert 'getattr(mind.workspace_runtime, "coding"' not in feature_source
+
+    mcp_feature_source = (
+        PROJECT_ROOT / "frontends" / "tui" / "features" / "mcp.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "runtime.tool_groups" in mcp_feature_source
+    assert "runtime.group" not in mcp_feature_source
+    assert 'getattr(runtime, "group"' not in mcp_feature_source
+    assert "server_stats" not in mcp_feature_source
+
+    tool_runtime_source = (
+        PROJECT_ROOT / "agent" / "ports" / "tool_runtime.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "server_stats" not in tool_runtime_source
+
     runtime_source = (
         PROJECT_ROOT / "frontends" / "tui" / "core" / "runtime.py"
     ).read_text(encoding="utf-8-sig")

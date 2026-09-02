@@ -17,6 +17,8 @@ from agent.harness.process_lifecycle import ProcessLifecycle
 from infrastructure.mcp.tool_runtime import CompositeToolRuntime
 from agent.ports import (
     McpRuntimeContext,
+    McpToolGroupSnapshot,
+    ProtocolCommandClient,
     ToolRuntimeSources,
 )
 from frontends.tui.core.render import fragments_text
@@ -162,6 +164,7 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
 
     run_task = asyncio.create_task(loop.run_tui_loop(
         MindStub(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
     await refresh_started.wait()
@@ -211,7 +214,10 @@ async def test_tui_starts_external_mcp_before_helix_background(
 
     class MindStub(object):
         frontend = SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=SimpleNamespace(
+                emit=views.append,
+                viewport=SimpleNamespace(width=80),
+            ),
         )
 
         def __init__(self) -> None:
@@ -296,6 +302,27 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
     start_called = Mock()
 
     class ExternalGroup(object):
+        def __init__(self) -> None:
+            self.tools = {
+                "mcp__docs__search": SimpleNamespace(meta={
+                    "server": "docs",
+                    "transport": "stdio",
+                    "auth": "None",
+                }),
+                "mcp__docs__read": SimpleNamespace(meta={
+                    "server": "docs",
+                    "transport": "stdio",
+                    "auth": "None",
+                }),
+            }
+            self.server_stats = {
+                "docs": {
+                    "server": "docs",
+                    "transport": "stdio",
+                    "discovered": 3,
+                },
+            }
+
         async def start(self, servers, status=None):
             start_called()
             entered.set()
@@ -356,6 +383,15 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
         "filtered": 0,
         "detail": "",
     }]
+    assert runtime.tool_groups == (McpToolGroupSnapshot(
+        server="docs",
+        transport="stdio",
+        auth="None",
+        tools=("mcp__docs__read", "mcp__docs__search"),
+        discovered=3,
+        exposed=2,
+        filtered=1,
+    ),)
     assert mind.stop_calls == [("external_mcp", False)]
 
     await runtime.stop()

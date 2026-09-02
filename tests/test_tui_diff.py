@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from agent.ports import ProtocolCommandClient
 
 from infrastructure.platform.git_diff import (
     WorkspaceDiffError,
@@ -21,8 +22,14 @@ from frontends.tui.features import diff as diff_feature
 from frontends.tui.session import dispatch as dispatch_module
 from frontends.tui.session.dispatch import (
     DispatchAction,
-    TuiCommandDispatcher,
+    TuiCommandDispatcher as _TuiCommandDispatcher,
 )
+
+
+def TuiCommandDispatcher(*args, **kwargs) -> _TuiCommandDispatcher:
+    """构造显式绑定协议命令端口的 TUI 命令分派器。"""
+    kwargs["protocol_client"] = Mock(spec=ProtocolCommandClient)
+    return _TuiCommandDispatcher(*args, **kwargs)
 
 
 class _DiffService(object):

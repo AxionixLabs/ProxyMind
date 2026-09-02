@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from agent.ports import McpToolGroupSnapshot
 from infrastructure.errors import AppError
 from frontends.tui.core.models import (
     MenuDescriptionLayout,
@@ -38,6 +39,22 @@ def _external_mcp_owner(runtime=None, **operations):
 def _execution(owner):
     """构造持有外部 MCP 的执行资源测试替身。"""
     return SimpleNamespace(external_mcp=owner)
+
+
+def _application(views, *, width=None):
+    """构造具有稳定 viewport 契约的应用展示端。"""
+    return SimpleNamespace(
+        emit=views.append,
+        viewport=SimpleNamespace(width=width),
+    )
+
+
+def _activity(*, enabled: bool = False):
+    """构造 TUI 外部 MCP 操作使用的活动端口。"""
+    return SimpleNamespace(
+        enabled=enabled,
+        stop=AsyncMock(),
+    )
 
 
 @pytest.mark.anyio
@@ -106,22 +123,6 @@ async def test_mcp_menu_does_not_duplicate_invalid_config_marker(monkeypatch) ->
 
 
 def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
-    tool_meta = {"server": "zentao", "transport": "stdio"}
-    group = SimpleNamespace(
-        tools={
-            "mcp__zentao__get_bug": SimpleNamespace(meta=tool_meta),
-            "mcp__zentao__list_bug": SimpleNamespace(meta=tool_meta),
-        },
-        server_stats={
-            "zentao": {
-                "server": "zentao",
-                "transport": "stdio",
-                "discovered": 5,
-                "exposed": 2,
-                "filtered": 3,
-            },
-        },
-    )
     mind = SimpleNamespace(
         src_opera_place=tmp_path,
         settings=SimpleNamespace(
@@ -132,7 +133,21 @@ def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
             }),
         ),
         execution=_execution(_external_mcp_owner(
-            SimpleNamespace(started=True, group=group),
+            SimpleNamespace(
+                started=True,
+                tool_groups=(McpToolGroupSnapshot(
+                    server="zentao",
+                    transport="stdio",
+                    auth="Unknown",
+                    tools=(
+                        "mcp__zentao__get_bug",
+                        "mcp__zentao__list_bug",
+                    ),
+                    discovered=5,
+                    exposed=2,
+                    filtered=3,
+                ),),
+            ),
         )),
     )
 
@@ -194,7 +209,7 @@ async def test_mcp_cancellation_is_rendered_as_interrupted() -> None:
     mind = SimpleNamespace(
         execution=_execution(owner),
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=_application(views),
         ),
     )
     task = asyncio.create_task(mcp.run_mcp_action(mind, "start"))
@@ -229,10 +244,11 @@ async def test_mcp_stop_commits_compact_final_status(started, expected) -> None:
         SimpleNamespace(started=True) if started else None,
     )
     mind = SimpleNamespace(
+        activity=_activity(),
         execution=_execution(owner),
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
-            application=SimpleNamespace(emit=views.append),
+            application=_application(views),
         ),
     )
 
@@ -259,10 +275,11 @@ async def test_mcp_stop_failure_has_stop_specific_status() -> None:
         close=AsyncMock(side_effect=AppError("cleanup failed")),
     )
     mind = SimpleNamespace(
+        activity=_activity(),
         execution=_execution(owner),
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
-            application=SimpleNamespace(emit=views.append),
+            application=_application(views),
         ),
     )
 
@@ -306,10 +323,11 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
         close=stop_runtime,
     )
     mind = SimpleNamespace(
+        activity=_activity(),
         execution=_execution(owner),
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
-            application=SimpleNamespace(emit=views.append),
+            application=_application(views),
         ),
     )
     task = asyncio.create_task(mcp.run_mcp_action(mind, "stop"))
@@ -380,7 +398,7 @@ def test_external_mcp_start_result_is_committed_to_tui(
             SimpleNamespace(last_start_snapshot=snapshot),
         )),
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=_application(views),
         ),
     )
 
@@ -412,7 +430,7 @@ def test_partial_external_mcp_failure_is_not_bold() -> None:
             SimpleNamespace(last_start_snapshot=snapshot),
         )),
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=_application(views),
         ),
     )
 
@@ -445,7 +463,7 @@ def test_mcp_force_result_keeps_activity_prefix() -> None:
             },
         ))),
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=_application(views),
         ),
     )
 
@@ -464,7 +482,7 @@ def test_external_mcp_status_is_one_compact_block(monkeypatch) -> None:
     views = []
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=_application(views),
         ),
     )
     monkeypatch.setattr(

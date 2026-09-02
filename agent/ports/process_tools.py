@@ -62,8 +62,103 @@ class WorkspaceProcessPort(typing.Protocol):
         """写入、轮询或控制持续命令会话。"""
         ...
 
+    async def running_exec_sessions(self) -> dict[str, typing.Any]:
+        """返回工作区全部持续命令会话的权威快照。"""
+        ...
 
-__all__ = ("WorkspaceProcessPort",)
+    async def stop_exec_sessions(
+        self,
+        *,
+        session_ids: typing.Iterable[str] | None = None,
+    ) -> dict[str, typing.Any]:
+        """停止指定或全部持续命令会话并返回逐项结果。"""
+        ...
+
+    async def wait_exec_sessions_update(
+        self,
+        *,
+        revision: int,
+        timeout_sec: float,
+    ) -> dict[str, typing.Any]:
+        """等待工作区进程集合发生变化。"""
+        ...
+
+    async def exec_session_output_snapshot(
+        self,
+        *,
+        session_id: str,
+        max_output_chars: int = 12000,
+    ) -> dict[str, typing.Any]:
+        """返回持续命令会话的只读输出快照。"""
+        ...
+
+    async def control_exec_session(
+        self,
+        *,
+        session_id: str,
+        control: str,
+    ) -> dict[str, typing.Any]:
+        """对持续命令会话执行显式控制。"""
+        ...
+
+
+class UserShellPort(typing.Protocol):
+    """定义用户显式 Shell 会话的启动、观察和控制边界。"""
+
+    async def start_user_shell_session(
+        self,
+        *,
+        command: str,
+        args: typing.Sequence[str],
+        timeout_sec: int = 3600,
+        idle_timeout_sec: int = 1800,
+        owner_cid: str = "",
+        owner_sid: str = "",
+    ) -> dict[str, typing.Any]:
+        """启动一项绑定当前工作区的用户 Shell 会话。"""
+        ...
+
+    async def running_exec_sessions(self) -> dict[str, typing.Any]:
+        """返回用户 Shell 会话快照。"""
+        ...
+
+    async def wait_exec_session_update(
+        self,
+        session_id: str,
+        *,
+        revision: int,
+        timeout_sec: float,
+    ) -> dict[str, typing.Any]:
+        """等待指定用户 Shell 会话的输出或终态变化。"""
+        ...
+
+    async def exec_session_output_snapshot(
+        self,
+        *,
+        session_id: str,
+        max_output_chars: int = 12000,
+    ) -> dict[str, typing.Any]:
+        """返回用户 Shell 会话的只读输出快照。"""
+        ...
+
+    async def control_exec_session(
+        self,
+        *,
+        session_id: str,
+        control: str,
+    ) -> dict[str, typing.Any]:
+        """中断或终止指定用户 Shell 会话。"""
+        ...
+
+    async def mark_exec_session_background(self, session_id: str) -> bool:
+        """把指定用户 Shell 会话转入后台观察。"""
+        ...
+
+
+__all__ = (
+    "UserShellPort",
+    "WorkspaceProcessPort",
+)
 
 
 if __name__ == "__main__":

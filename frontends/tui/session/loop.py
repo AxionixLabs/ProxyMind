@@ -121,13 +121,13 @@ def _pending_attachment_snapshot(
 async def run_tui_loop(
     mind: "TuiApplicationHost",
     *,
+    protocol_client: ProtocolCommandClient,
     turn_runner: TuiRootTurnRunner | None = None,
     conversation_compactor: ConversationCompactor | None = None,
     initial_prompt: str | None = None,
     initial_images: tuple[str, ...] = (),
     initial_model: str | None = None,
     turn_application_factory: TurnApplicationFactory | None = None,
-    protocol_client: ProtocolCommandClient | None = None,
 ) -> None:
     """运行 TUI 会话，并统一关闭其主动 Turn application。"""
     durable_runtime = getattr(mind, "application_layout", None) is not None
@@ -165,7 +165,7 @@ async def _run_tui_loop(
     turn_application: TurnApplication["RunResult"],
     turn_runner: TuiRootTurnRunner,
     conversation_compactor: ConversationCompactor | None,
-    protocol_client: ProtocolCommandClient | None,
+    protocol_client: ProtocolCommandClient,
     local_session_id: str | None,
     initial_prompt: str | None,
     initial_images: tuple[str, ...],
@@ -458,7 +458,7 @@ async def _handle_transcript_backtrack(
     foreground_tasks: TuiForegroundTasks,
     request: TranscriptBacktrackRequest,
     *,
-    protocol_client: ProtocolCommandClient | None = None,
+    protocol_client: ProtocolCommandClient,
 ) -> None:
     """通过前台屏障执行历史分支并恢复选中的输入。"""
     runtime.replace_input_text(request.prompt)
@@ -469,6 +469,7 @@ async def _handle_transcript_backtrack(
         "Conversation backtrack",
         lambda: fork_current_conversation(
             mind,
+            protocol_client,
             before_turn_id=request.turn_id,
             bind_target=False,
             fallback_prompt=ResubmittablePrompt(
@@ -476,7 +477,6 @@ async def _handle_transcript_backtrack(
                 attachments=request.attachments,
                 extras=request.extras,
             ),
-            protocol_client=protocol_client,
         ),
         activity_kind="compact",
         on_succeeded=lambda status: _finish_transcript_backtrack(

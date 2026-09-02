@@ -3,7 +3,11 @@
 
 import typing
 import asyncio
-from agent.ports import McpRuntimeContext
+from collections import defaultdict
+from agent.ports import (
+    McpRuntimeContext,
+    McpToolGroupSnapshot,
+)
 from infrastructure.errors import AppError
 from infrastructure.mcp.external_group import ExternalMcpGroup
 from infrastructure.mcp.external_status import (
@@ -52,6 +56,62 @@ class ExternalMcpRuntime(object):
                 if isinstance(item, dict)
             ],
         }
+
+    @property
+    def tool_groups(self) -> tuple[McpToolGroupSnapshot, ...]:
+        """把 SDK 工具和连接统计投影为稳定的前端状态。"""
+        group = self._group
+        if group is None:
+            return ()
+
+        tools_by_group: dict[tuple[str, str], list[str]] = defaultdict(list)
+        auth_by_group: dict[tuple[str, str], str] = {}
+        for name, tool in group.tools.items():
+            meta = dict(tool.meta or {})
+            server = str(meta.get("server") or "external").strip() or "external"
+            transport = (
+                str(meta.get("transport") or "external").strip()
+                or "external"
+            )
+            auth = str(meta.get("auth") or "Unknown").strip() or "Unknown"
+            key = (server, transport)
+            tools_by_group[key].append(str(name))
+            auth_by_group.setdefault(key, auth)
+
+        snapshots: list[McpToolGroupSnapshot] = []
+        for stats in group.server_stats.values():
+            server = str(stats.get("server") or "external")
+            transport = str(stats.get("transport") or "external")
+            key = (server, transport)
+            names = tuple(sorted(tools_by_group.pop(key, ())))
+            exposed = len(names)
+            discovered = max(exposed, int(stats.get("discovered") or 0))
+            snapshots.append(McpToolGroupSnapshot(
+                server=server,
+                transport=transport,
+                auth=auth_by_group.pop(key, "Unknown"),
+                tools=names,
+                discovered=discovered,
+                exposed=exposed,
+                filtered=max(0, discovered - exposed),
+            ))
+
+        for (server, transport), raw_names in tools_by_group.items():
+            names = tuple(sorted(raw_names))
+            snapshots.append(McpToolGroupSnapshot(
+                server=server,
+                transport=transport,
+                auth=auth_by_group.get((server, transport), "Unknown"),
+                tools=names,
+                discovered=len(names),
+                exposed=len(names),
+                filtered=0,
+            ))
+
+        return tuple(sorted(
+            snapshots,
+            key=lambda item: (item.server, item.transport),
+        ))
 
     async def start(
         self,

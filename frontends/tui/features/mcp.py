@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from collections import defaultdict
 from prompt_toolkit.utils import get_cwidth
 from agent.ports.presentation import ApplicationView
 from frontends.terminal.mcp_status import (
@@ -34,6 +33,9 @@ from ..core.styles import (
 )
 from ..core.runtime import TuiRuntime, require_tui_runtime
 
+if typing.TYPE_CHECKING:
+    from ..application import TuiApplicationHost
+
 McpAction = typing.Literal[
     "start",
     "force",
@@ -56,7 +58,7 @@ MCP_DISABLED_STATUS_STYLE = TextStyle(foreground="#FF6B6B", dim=True)
 
 
 def _present(
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     renderable: typing.Any = None,
     *,
     view_type: str = "tui.mcp"
@@ -69,7 +71,7 @@ def _present(
 
 
 def _present_external_mcp_result(
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     view: McpStatusView
 ) -> bool:
     """提交一项外部 MCP 最终状态。"""
@@ -111,7 +113,9 @@ def parse_mcp_command(value: str) -> tuple[bool, McpAction | None]:
     return False, None
 
 
-def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
+def summarize_external_runtime(
+    mind: "TuiApplicationHost",
+) -> dict[str, typing.Any]:
     """汇总当前外部 MCP 配置与已连接工具状态。"""
     config_error: str = ""
 
@@ -122,59 +126,22 @@ def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
         configured   = []
         config_error = str(error)
 
-    runtime      = mind.execution.external_mcp.current
-    group        = getattr(runtime, "group", None) if runtime is not None else None
-    tools        = getattr(group, "tools", {}) if group is not None else {}
-    server_stats = getattr(group, "server_stats", {}) if group is not None else {}
-
-    grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
-    auth_by_group: dict[tuple[str, str], str] = {}
-
-    for name, tool in dict(tools or {}).items():
-
-        meta      = dict(getattr(tool, "meta", None) or {})
-        server    = str(meta.get("server") or "external").strip() or "external"
-        transport = str(meta.get("transport") or "external").strip() or "external"
-        auth      = str(meta.get("auth") or "Unknown").strip() or "Unknown"
-        key       = (server, transport)
-
-        grouped[key].append(str(name))
-        auth_by_group.setdefault(key, auth)
-
-    tool_groups: list[dict[str, typing.Any]] = []
-    for stats in dict(server_stats or {}).values():
-        server     = str(stats.get("server") or "external")
-        transport  = str(stats.get("transport") or "external")
-        key        = (server, transport)
-        names      = sorted(grouped.pop(key, []))
-        exposed    = len(names)
-        discovered = max(exposed, int(stats.get("discovered") or 0))
-
-        tool_groups.append({
-            "server"     : server,
-            "transport"  : transport,
-            "auth"       : auth_by_group.pop(key, "Unknown"),
-            "tools"      : sorted(names),
-            "discovered" : discovered,
-            "exposed"    : exposed,
-            "filtered"   : max(0, discovered - exposed),
-        })
-
-    for (server, transport), raw_names in grouped.items():
-        names = sorted(raw_names)
-        tool_groups.append({
-            "server"     : server,
-            "transport"  : transport,
-            "auth"       : auth_by_group.get((server, transport), "Unknown"),
-            "tools"      : names,
-            "discovered" : len(names),
-            "exposed"    : len(names),
-            "filtered"   : 0,
-        })
-    tool_groups.sort(key=lambda item: (str(item["server"]), str(item["transport"])))
+    runtime = mind.execution.external_mcp.current
+    tool_groups = [
+        {
+            "server": group.server,
+            "transport": group.transport,
+            "auth": group.auth,
+            "tools": list(group.tools),
+            "discovered": group.discovered,
+            "exposed": group.exposed,
+            "filtered": group.filtered,
+        }
+        for group in runtime.tool_groups
+    ] if runtime is not None else []
 
     return {
-        "started"        : bool(getattr(runtime, "started", False)) if runtime is not None else False,
+        "started"        : runtime.started if runtime is not None else False,
         "configured"     : configured,
         "config_error"   : config_error,
         "tool_groups"    : tool_groups,
@@ -198,11 +165,9 @@ def _filtered_count(value: typing.Any) -> int:
         return 0
 
 
-def _mcp_terminal_width(mind: typing.Any) -> int:
+def _mcp_terminal_width(mind: "TuiApplicationHost") -> int:
     """返回 MCP 状态块使用的有效终端宽度。"""
-    application = getattr(getattr(mind, "frontend", None), "application", None)
-    viewport = getattr(application, "viewport", None)
-    width = getattr(viewport, "width", None)
+    width = mind.frontend.application.viewport.width
 
     if isinstance(width, int) and width > 0:
         return width
@@ -340,7 +305,7 @@ def default_mcp_action_index(
 
 
 def render_mcp_action_result(
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     action: McpAction,
     was_started: bool
 ) -> None:
@@ -357,7 +322,7 @@ def render_mcp_action_result(
 
 
 def render_mcp_action_failure(
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     action: McpAction,
     error: BaseException
 ) -> None:
@@ -368,7 +333,10 @@ def render_mcp_action_failure(
         render_external_mcp_start_status(mind, error=error)
 
 
-def render_mcp_action_cancelled(mind: typing.Any, action: McpAction) -> None:
+def render_mcp_action_cancelled(
+    mind: "TuiApplicationHost",
+    action: McpAction,
+) -> None:
     """展示外部 MCP 操作取消后的最终结果。"""
     if action == "stop" and mind.execution.external_mcp.current is None:
         render_external_mcp_stop_status(mind)
@@ -376,7 +344,10 @@ def render_mcp_action_cancelled(mind: typing.Any, action: McpAction) -> None:
     render_mcp_action_interrupted(mind, action)
 
 
-def render_mcp_action_interrupted(mind: typing.Any, action: McpAction) -> None:
+def render_mcp_action_interrupted(
+    mind: "TuiApplicationHost",
+    action: McpAction,
+) -> None:
     """展示外部 MCP 操作被用户中断的状态。"""
     _present(
         mind,
@@ -387,7 +358,7 @@ def render_mcp_action_interrupted(mind: typing.Any, action: McpAction) -> None:
 
 
 def render_external_mcp_start_status(
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     *,
     error: BaseException | None = None,
 ) -> bool:
@@ -405,7 +376,7 @@ def render_external_mcp_start_status(
         )
     else:
         runtime  = mind.execution.external_mcp.current
-        snapshot = getattr(runtime, "last_start_snapshot", {})
+        snapshot = runtime.last_start_snapshot if runtime is not None else {}
         if not isinstance(snapshot, dict) or not snapshot:
             return False
         view = external_mcp_status_view(snapshot, detail_limit=5)
@@ -414,7 +385,7 @@ def render_external_mcp_start_status(
 
 
 def render_external_mcp_stop_status(
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     *,
     already_stopped: bool = False,
     error: BaseException | None = None,
@@ -443,7 +414,7 @@ def render_external_mcp_stop_status(
 
 
 def render_mcp_status(
-    mind: typing.Any,
+    mind: "TuiApplicationHost",
     *,
     command: str | None = "/mcp status"
 ) -> None:
@@ -533,9 +504,11 @@ def render_mcp_status(
     _present(mind, view_type="tui.gap")
 
 
-async def _begin_external_mcp_restart_activity(mind: typing.Any) -> None:
+async def _begin_external_mcp_restart_activity(
+    mind: "TuiApplicationHost",
+) -> None:
     """在断开旧连接前启动外部 MCP 重启活动状态。"""
-    if not bool(getattr(mind, "animate", True)):
+    if not mind.activity.enabled:
         return None
     runtime = require_tui_runtime(mind.frontend.runtime)
     await runtime.begin_external_mcp_status(
@@ -547,7 +520,10 @@ async def _begin_external_mcp_restart_activity(mind: typing.Any) -> None:
     )
 
 
-async def choose_mcp_action(runtime: "TuiRuntime", mind: typing.Any) -> McpAction | None:
+async def choose_mcp_action(
+    runtime: "TuiRuntime",
+    mind: "TuiApplicationHost",
+) -> McpAction | None:
     """在主 TUI 中选择外部 MCP 操作。"""
     summary = summarize_external_runtime(mind)
     actions = list(MCP_MENU_ACTIONS)
@@ -570,7 +546,10 @@ async def choose_mcp_action(runtime: "TuiRuntime", mind: typing.Any) -> McpActio
     ))
 
 
-async def finish_mcp_activity(mind: typing.Any, action: McpAction) -> None:
+async def finish_mcp_activity(
+    mind: "TuiApplicationHost",
+    action: McpAction,
+) -> None:
     """结束外部 MCP 操作对应的活动状态。"""
     if action == "stop":
         runtime = require_tui_runtime(mind.frontend.runtime)
@@ -583,7 +562,10 @@ async def finish_mcp_activity(mind: typing.Any, action: McpAction) -> None:
     await mind.activity.stop("external_mcp", settle=False)
 
 
-async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> bool:
+async def run_mcp_action(
+    mind: "TuiApplicationHost",
+    action: McpAction | None,
+) -> bool:
     """执行外部 MCP 动作并返回操作前是否已经启动。"""
     if action is None:
         return False
@@ -592,18 +574,18 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> bool:
         return False
 
     external_runtime = mind.execution.external_mcp.current
-    was_started      = bool(getattr(external_runtime, "started", False))
+    was_started = external_runtime.started if external_runtime is not None else False
 
     if action == "stop":
         runtime = require_tui_runtime(mind.frontend.runtime)
-        if bool(getattr(mind, "animate", True)):
+        if mind.activity.enabled:
             await runtime.begin_operation_status(
                 lambda: {"summary": "External MCP stopping"},
             )
         await mind.execution.external_mcp.close()
     elif action == "force":
         runtime = mind.execution.external_mcp.current
-        if bool(getattr(runtime, "started", False)):
+        if runtime is not None and runtime.started:
             await _begin_external_mcp_restart_activity(mind)
             await mind.execution.external_mcp.restart(
                 include_disabled=True,

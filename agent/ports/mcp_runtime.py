@@ -16,6 +16,7 @@ __all__ = (
     "McpRuntimeContext",
     "McpRuntimeFactory",
     "McpRuntimeBuilder",
+    "McpToolGroupSnapshot",
 )
 
 
@@ -23,8 +24,23 @@ class McpRuntime(typing.Protocol):
     """定义 Harness 管理 MCP 生命周期所需的最小运行时端口。"""
 
     @property
+    def started(self) -> bool:
+        """返回外部 MCP 是否已经建立可用连接。"""
+        ...
+
+    @property
     def group(self) -> ExternalToolGroupPort | None:
         """返回已建立的外部工具组，尚不可用时返回空。"""
+        ...
+
+    @property
+    def last_start_snapshot(self) -> dict[str, typing.Any]:
+        """返回最近一次启动的不可变展示快照。"""
+        ...
+
+    @property
+    def tool_groups(self) -> tuple["McpToolGroupSnapshot", ...]:
+        """返回与具体 MCP SDK 对象解耦的工具分组状态。"""
         ...
 
     async def start(
@@ -48,6 +64,19 @@ class McpRuntime(typing.Protocol):
     async def stop(self) -> None:
         """停止 MCP 连接并释放资源。"""
         ...
+
+
+@dataclass(frozen=True, slots=True)
+class McpToolGroupSnapshot:
+    """描述一个外部 MCP 服务向前端暴露的稳定状态投影。"""
+
+    server: str
+    transport: str
+    auth: str
+    tools: tuple[str, ...]
+    discovered: int
+    exposed: int
+    filtered: int
 
 
 class McpConfigReader(typing.Protocol):

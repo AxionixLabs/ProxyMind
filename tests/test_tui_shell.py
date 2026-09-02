@@ -50,6 +50,11 @@ def _workspace_runtime(
     **coding_attributes,
 ) -> SimpleNamespace:
     if coding is None:
+        if user_shell is not None:
+            coding_attributes.setdefault(
+                "running_exec_sessions",
+                user_shell.running_exec_sessions,
+            )
         coding = SimpleNamespace(**coding_attributes)
     if user_shell is None:
         user_shell = coding
@@ -218,6 +223,10 @@ async def test_shell_escape_starts_user_shell_watcher() -> None:
             "session_id": "exec_shell",
             "origin": "tui_shell",
         }),
+        running_exec_sessions=AsyncMock(return_value={
+            "count": 0,
+            "items": [],
+        }),
     )
     mind = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
@@ -291,6 +300,7 @@ async def test_shell_escape_background_task_keeps_input_visible() -> None:
         wait_exec_session_update=AsyncMock(return_value={"changed": False}),
     )
     mind = SimpleNamespace(
+        conversation=SimpleNamespace(snapshot=lambda: {"cid": "", "sid": ""}),
         frontend=SimpleNamespace(application=application),
         workspace_runtime=_workspace_runtime(user_shell=user_shell),
     )
@@ -359,6 +369,7 @@ async def test_shell_escape_ctrl_c_interrupts_process_session() -> None:
         wait_exec_session_update=AsyncMock(return_value={"changed": False}),
     )
     mind = SimpleNamespace(
+        conversation=SimpleNamespace(snapshot=lambda: {"cid": "", "sid": ""}),
         frontend=SimpleNamespace(application=_ApplicationStub()),
         workspace_runtime=_workspace_runtime(user_shell=user_shell),
     )
@@ -483,6 +494,7 @@ async def test_second_shell_shows_first_shell_in_process_status() -> None:
         wait_exec_session_update=wait_for_update,
     )
     mind = SimpleNamespace(
+        conversation=SimpleNamespace(snapshot=lambda: {"cid": "", "sid": ""}),
         frontend=SimpleNamespace(application=_ApplicationStub()),
         workspace_runtime=_workspace_runtime(user_shell=user_shell),
     )

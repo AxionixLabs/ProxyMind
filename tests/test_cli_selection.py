@@ -591,7 +591,12 @@ async def test_direct_cli_command_forwards_images_to_initial_request(
         images=("screen.png",),
     )
 
-    result = await run_selected_command(mind, command)
+    protocol_client = Mock(spec=ProtocolCommandClient)
+    result = await run_selected_command(
+        mind,
+        command,
+        protocol_client=protocol_client,
+    )
 
     assert result is run_result
     assert mind.lifecycle.exit_code == 0
@@ -629,6 +634,7 @@ async def test_direct_cli_command_applies_temporary_model_override(
     result = await run_selected_command(
         mind,
         ExecCommand(prompt="hello", model="exec-model"),
+        protocol_client=Mock(spec=ProtocolCommandClient),
     )
 
     assert result is run_result
@@ -709,6 +715,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         run_tui_loop,
     )
 
+    protocol_client = Mock(spec=ProtocolCommandClient)
     result = await run_selected_command(
         mind,
         ResumeCommand(
@@ -717,6 +724,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
             model="review-model",
             last=True,
         ),
+        protocol_client=protocol_client,
     )
 
     assert result is None
@@ -744,6 +752,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
     args, kwargs = run_tui_loop.await_args
     assert args == (mind,)
     assert callable(kwargs.pop("turn_runner"))
+    assert kwargs.pop("protocol_client") is protocol_client
     assert kwargs == {
         "initial_prompt": "continue",
         "initial_images": ("screen.png",),
@@ -799,6 +808,7 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> Non
         await run_selected_command(
             mind,
             ResumeCommand(last=True),
+            protocol_client=Mock(spec=ProtocolCommandClient),
         )
 
     runtime.replace_transcript.assert_not_called()
@@ -892,7 +902,12 @@ async def test_agent_listen_owns_listener_for_tui_session(monkeypatch) -> None:
         run_tui_loop,
     )
 
-    result = await run_selected_command(mind, AgentListenCommand())
+    protocol_client = Mock(spec=ProtocolCommandClient)
+    result = await run_selected_command(
+        mind,
+        AgentListenCommand(),
+        protocol_client=protocol_client,
+    )
 
     assert result is None
     subscription.start.assert_called_once_with()
@@ -904,6 +919,7 @@ async def test_agent_listen_owns_listener_for_tui_session(monkeypatch) -> None:
         "initial_prompt": None,
         "initial_images": (),
         "initial_model": None,
+        "protocol_client": protocol_client,
     }
     subscription.close.assert_awaited_once_with()
 
@@ -926,7 +942,11 @@ async def test_agent_listen_stops_listener_when_tui_fails(monkeypatch) -> None:
     )
 
     with pytest.raises(RuntimeError, match="TUI failed"):
-        await run_selected_command(mind, AgentListenCommand())
+        await run_selected_command(
+            mind,
+            AgentListenCommand(),
+            protocol_client=Mock(spec=ProtocolCommandClient),
+        )
 
     subscription.close.assert_awaited_once_with()
 
@@ -943,7 +963,11 @@ async def test_failed_exec_sets_nonzero_exit_code(root_turn_adapter) -> None:
         history_workspace=".",
     )
 
-    result = await run_selected_command(mind, ExecCommand(prompt="hello"))
+    result = await run_selected_command(
+        mind,
+        ExecCommand(prompt="hello"),
+        protocol_client=Mock(spec=ProtocolCommandClient),
+    )
 
     assert result is run_result
     assert mind.lifecycle.exit_code == 1
@@ -974,7 +998,11 @@ async def test_exec_exit_code_comes_from_agent_event_projection(
         history_workspace=".",
     )
 
-    result = await run_selected_command(mind, ExecCommand(prompt="hello"))
+    result = await run_selected_command(
+        mind,
+        ExecCommand(prompt="hello"),
+        protocol_client=Mock(spec=ProtocolCommandClient),
+    )
 
     assert result is run_result
     assert mind.lifecycle.exit_code == 7
@@ -1014,6 +1042,7 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
     result = await run_selected_command(
         mind,
         ExecCommand(prompt="hello"),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         turn_application_factory=open_application,
     )
 
@@ -1043,7 +1072,11 @@ async def test_exec_requires_explicit_turn_application_factory_for_real_layout()
         RuntimeError,
         match="CLI turn application factory is required",
     ):
-        await run_selected_command(mind, ExecCommand(prompt="hello"))
+        await run_selected_command(
+            mind,
+            ExecCommand(prompt="hello"),
+            protocol_client=Mock(spec=ProtocolCommandClient),
+        )
 
 
 @pytest.mark.anyio
@@ -1066,7 +1099,11 @@ async def test_cancelled_exec_closes_agent_session_worker(
     )
 
     task = asyncio.create_task(
-        run_selected_command(mind, ExecCommand(prompt="wait"))
+        run_selected_command(
+            mind,
+            ExecCommand(prompt="wait"),
+            protocol_client=Mock(spec=ProtocolCommandClient),
+        )
     )
     await started.wait()
     task.cancel()

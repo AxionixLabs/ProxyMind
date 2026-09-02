@@ -68,6 +68,28 @@ class ExternalMcpOwnerPort(typing.Protocol):
 
     current: McpRuntime | None
 
+    async def start(
+        self,
+        *,
+        include_disabled: bool = False,
+        defer_activity_stop: bool = False,
+    ) -> None:
+        """启动或复用当前 MCP 运行时。"""
+        ...
+
+    async def restart(
+        self,
+        *,
+        include_disabled: bool = False,
+        defer_activity_stop: bool = False,
+    ) -> None:
+        """重启当前 MCP 运行时。"""
+        ...
+
+    async def close(self) -> None:
+        """关闭并释放当前 MCP 运行时。"""
+        ...
+
 
 class TuiExecutionResourcesPort(typing.Protocol):
     """定义 TUI 工具与本地服务操作所需的执行资源边界。"""

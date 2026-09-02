@@ -84,11 +84,6 @@ if typing.TYPE_CHECKING:
     from ..runtime.ports import MenuSelectionPort
 
 
-# Production uses the ProtocolCommandClient injected by RuntimeServices. This
-# unbound seam keeps the existing request-level tests independent of transport.
-request_conversation_fork: typing.Any = None
-
-
 def _present(
     mind: "TuiApplicationHost",
     renderable: FragmentBlock | StyledBlock | None = None,
@@ -108,11 +103,7 @@ def render_compact_result(mind: "TuiApplicationHost", status: "CompactLiveStatus
 
     block = render_mcp_status_block(
         view,
-        terminal_width=getattr(
-            getattr(mind.frontend.application, "viewport", None),
-            "width",
-            None,
-        ),
+        terminal_width=mind.frontend.application.viewport.width,
     )
 
     if not block.plain_text:
@@ -337,11 +328,11 @@ async def compact_current_conversation(
 
 async def fork_current_conversation(
     mind: "TuiApplicationHost",
+    protocol_client: ProtocolCommandClient,
     *,
     before_turn_id: str = "",
     bind_target: bool = True,
     fallback_prompt: ResubmittablePrompt | None = None,
-    protocol_client: ProtocolCommandClient | None = None,
 ) -> ForkLiveStatus:
     """复制完整或指定轮次之前的上下文并按需切换会话标识。"""
     source = mind.conversation.snapshot()
@@ -382,27 +373,14 @@ async def fork_current_conversation(
             observe("conversation.fork.animation.start")
             await mind.activity.start_compact(status.snapshot)
 
-        if protocol_client is not None:
-            receipt = await protocol_client.fork_session(
-                cid=source["cid"],
-                sid=source["sid"],
-                request_id=request_id,
-                prompt_source=prompt_source,
-                before_turn_id=boundary or None,
-            )
-            result = _fork_receipt_values(receipt)
-        else:
-            if not callable(request_conversation_fork):
-                raise RuntimeError(
-                    "TUI conversation fork requires ProtocolCommandClient"
-                )
-            result = await request_conversation_fork(
-                cid=source["cid"],
-                sid=source["sid"],
-                request_id=request_id,
-                prompt_source=prompt_source,
-                before_turn_id=boundary or None,
-            )
+        receipt = await protocol_client.fork_session(
+            cid=source["cid"],
+            sid=source["sid"],
+            request_id=request_id,
+            prompt_source=prompt_source,
+            before_turn_id=boundary or None,
+        )
+        result = _fork_receipt_values(receipt)
 
         target_cid = str(result.get("cid") or "").strip()
         target_sid = str(result.get("sid") or "").strip()
@@ -543,47 +521,6 @@ async def fork_current_conversation(
         )
 
     except Exception as error:
-        if protocol_client is None:
-            error_code = str(getattr(error, "code", "") or "").strip()
-            if bind_target and not boundary and error_code == "source_missing":
-                mind.conversation.history.clear_fork(
-                    source["cid"],
-                    source["sid"],
-                    request_id,
-                    boundary,
-                )
-                return await _replace_empty_fork_source(
-                    mind,
-                    status,
-                    source,
-                    event="conversation.fork.recovered",
-                    request_id=request_id,
-                )
-            if hasattr(error, "retryable"):
-                retryable = bool(getattr(error, "retryable", False))
-                if not retryable:
-                    mind.conversation.history.clear_fork(
-                        source["cid"],
-                        source["sid"],
-                        request_id,
-                        boundary,
-                    )
-                message = str(
-                    getattr(error, "message", "") or str(error)
-                ).strip()
-                status.failed(message)
-                observe(
-                    "conversation.fork.failed",
-                    level="WARNING" if retryable else "ERROR",
-                    reason=(
-                        error_code
-                        or getattr(error, "status_code", 0)
-                        or "request_failed"
-                    ),
-                    request_id=request_id,
-                )
-                return status
-
         message = str(error).strip()
         detail = f": {message}" if message else ""
         status.failed(
@@ -630,11 +567,7 @@ def render_fork_result(mind: "TuiApplicationHost", status: ForkLiveStatus) -> No
 
     block = render_mcp_status_block(
         view,
-        terminal_width=getattr(
-            getattr(mind.frontend.application, "viewport", None),
-            "width",
-            None,
-        ),
+        terminal_width=mind.frontend.application.viewport.width,
     )
     if not block.plain_text:
         return None

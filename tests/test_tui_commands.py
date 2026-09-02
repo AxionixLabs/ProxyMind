@@ -20,6 +20,7 @@ from infrastructure.skills import SkillSpec
 from metadata import const
 from agent.domain.transcripts import TranscriptEntry
 from agent.harness.process_lifecycle import ProcessLifecycle
+from agent.ports import ProtocolCommandClient
 from frontends.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
@@ -51,8 +52,14 @@ from frontends.tui.prompting.commands import (
 )
 from frontends.tui.session.dispatch import (
     DispatchAction,
-    TuiCommandDispatcher,
+    TuiCommandDispatcher as _TuiCommandDispatcher,
 )
+
+
+def TuiCommandDispatcher(*args, **kwargs) -> _TuiCommandDispatcher:
+    """构造显式绑定协议命令端口的 TUI 命令分派器。"""
+    kwargs["protocol_client"] = Mock(spec=ProtocolCommandClient)
+    return _TuiCommandDispatcher(*args, **kwargs)
 
 
 def _conversation(
@@ -1361,7 +1368,10 @@ def test_successful_plain_fork_clears_structured_prompt_draft() -> None:
     attach = SimpleNamespace(clear_pending_attachments=Mock())
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=lambda _view: None),
+            application=SimpleNamespace(
+                emit=lambda _view: None,
+                viewport=SimpleNamespace(width=80),
+            ),
         ),
         attach=attach,
     )

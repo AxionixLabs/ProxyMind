@@ -152,7 +152,10 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
                 start_compact=self._start_compact,
             )
             self.frontend = SimpleNamespace(
-                application=SimpleNamespace(emit=self.views.append),
+                application=SimpleNamespace(
+                    emit=self.views.append,
+                    viewport=SimpleNamespace(width=80),
+                ),
             )
 
         async def _start_compact(self, snapshot):
@@ -206,7 +209,10 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
             self.views = []
             self.activity = SimpleNamespace(enabled=False)
             self.frontend = SimpleNamespace(
-                application=SimpleNamespace(emit=self.views.append),
+                application=SimpleNamespace(
+                    emit=self.views.append,
+                    viewport=SimpleNamespace(width=80),
+                ),
             )
 
         async def await_cleanup(self, awaitable):
@@ -259,7 +265,10 @@ async def test_compact_cancellation_clears_animation_without_failure(
                 start_compact=self._start_compact,
             )
             self.frontend = SimpleNamespace(
-                application=SimpleNamespace(emit=self.views.append),
+                application=SimpleNamespace(
+                    emit=self.views.append,
+                    viewport=SimpleNamespace(width=80),
+                ),
             )
 
         async def _start_compact(self, _snapshot):
@@ -303,7 +312,10 @@ def test_fork_interruption_uses_the_shared_neutral_prefix() -> None:
     views = []
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=SimpleNamespace(
+                emit=views.append,
+                viewport=SimpleNamespace(width=80),
+            ),
         ),
     )
 

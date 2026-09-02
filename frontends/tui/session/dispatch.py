@@ -194,7 +194,7 @@ class TuiCommandDispatcher(object):
         state: TuiSessionState,
         foreground_tasks: TuiForegroundTasks,
         *,
-        protocol_client: ProtocolCommandClient | None = None,
+        protocol_client: ProtocolCommandClient,
         conversation_compactor: ConversationCompactor | None = None,
     ) -> None:
         self.mind    = mind
@@ -1177,7 +1177,7 @@ class TuiCommandDispatcher(object):
                 "Conversation fork",
                 lambda: fork_current_conversation(
                     self.mind,
-                    protocol_client=self.protocol_client,
+                    self.protocol_client,
                 ),
                 activity_kind="compact",
                 on_succeeded=self._finish_conversation_fork,

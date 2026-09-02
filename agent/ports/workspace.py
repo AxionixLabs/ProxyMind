@@ -11,7 +11,10 @@ from .capabilities import ProcessCapability
 from .javascript import WorkspaceJavaScriptPort
 from .media import ImageReaderPort
 from .patching import WorkspacePatchPort
-from .process_tools import WorkspaceProcessPort
+from .process_tools import (
+    UserShellPort,
+    WorkspaceProcessPort,
+)
 
 __all__ = (
     "CodingFactory",
@@ -33,7 +36,7 @@ WorkspaceRoot: typing.TypeAlias = str | os.PathLike[str]
 class CodingRuntime(typing.Protocol):
     """定义工作区编码能力的资源生命周期契约。"""
 
-    user_shell: object
+    user_shell: UserShellPort
 
     async def close(self) -> None:
         """释放编码能力持有的全部资源。"""
@@ -157,7 +160,7 @@ class WorkspaceRuntime(typing.Protocol):
     coding: WorkspaceCodingPort
     execution_policy: ExecutionPolicy
     image_reader: ImageReaderPort
-    user_shell: object
+    user_shell: UserShellPort
 
     def replace(self, workspace_root: WorkspaceRoot) -> None:
         """切换工作区并安排旧编码资源回收。"""

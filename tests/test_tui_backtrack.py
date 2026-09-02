@@ -27,6 +27,7 @@ from frontends.tui.features.conversation import ForkLiveStatus
 from frontends.tui.session import loop
 from frontends.tui.session.state import TuiSessionState
 from agent.domain.policies import preset_permissions
+from agent.ports import ProtocolCommandClient
 from protocol.client.fork import ResubmittablePrompt
 
 
@@ -428,7 +429,10 @@ async def test_successful_backtrack_installs_canonical_prompt() -> None:
             attach=attach,
             conversation=SimpleNamespace(bind=bind),
             frontend=SimpleNamespace(
-                application=SimpleNamespace(emit=views.append),
+                application=SimpleNamespace(
+                    emit=views.append,
+                    viewport=SimpleNamespace(width=80),
+                ),
             ),
         ),
         runtime,
@@ -492,6 +496,7 @@ async def test_backtrack_request_restores_full_local_draft_before_fork() -> None
             attachments=({"kind": "file", "file_key": "file_123"},),
             extras={"selection": {"x": 10, "y": 20}},
         ),
+        protocol_client=Mock(spec=ProtocolCommandClient),
     )
 
     assert runtime.screen.input.buffer.text == "inspect this"
@@ -531,7 +536,10 @@ async def test_backtrack_loop_rolls_back_and_keeps_full_draft_on_false_commit(
         attach=attach,
         conversation=SimpleNamespace(bind=bind),
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=SimpleNamespace(
+                emit=views.append,
+                viewport=SimpleNamespace(width=80),
+            ),
         ),
     )
     status = ForkLiveStatus()
@@ -573,6 +581,7 @@ async def test_backtrack_loop_rolls_back_and_keeps_full_draft_on_false_commit(
         state,
         ForegroundStub(),
         request,
+        protocol_client=Mock(spec=ProtocolCommandClient),
     )
 
     assert bound == [
@@ -631,7 +640,10 @@ async def test_backtrack_rolls_conversation_back_if_local_commit_fails() -> None
             attach=attach,
             conversation=SimpleNamespace(bind=bind),
             frontend=SimpleNamespace(
-                application=SimpleNamespace(emit=views.append),
+                application=SimpleNamespace(
+                    emit=views.append,
+                    viewport=SimpleNamespace(width=80),
+                ),
             ),
         ),
         runtime,
@@ -724,7 +736,10 @@ async def test_backtrack_local_failure_restores_full_transaction_state() -> None
             attach=attach,
             conversation=SimpleNamespace(bind=bind),
             frontend=SimpleNamespace(
-                application=SimpleNamespace(emit=views.append),
+                application=SimpleNamespace(
+                    emit=views.append,
+                    viewport=SimpleNamespace(width=80),
+                ),
             ),
         ),
         runtime,
