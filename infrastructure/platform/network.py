@@ -12,7 +12,10 @@ from collections.abc import (
     Sequence,
 )
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import (
+    SplitResult,
+    urlsplit,
+)
 
 from agent.domain.approvals import (
     NetworkProtocol,
@@ -483,7 +486,8 @@ def _target_request(
         return NetworkTarget(host, protocol, port), b""
 
     parsed = urlsplit(target)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+    absolute_form = parsed.scheme in {"http", "https"} and bool(parsed.hostname)
+    if not absolute_form:
         host_header = headers.get("host", "")
         parsed = urlsplit(f"http://{host_header}{target}")
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -493,9 +497,14 @@ def _target_request(
         if parsed.scheme == "http"
         else NetworkProtocol.HTTPS
     )
-    port = parsed.port if parsed.port is not None else (
-        80 if protocol is NetworkProtocol.HTTP else 443
-    )
+    default_port = 80 if protocol is NetworkProtocol.HTTP else 443
+    port = parsed.port if parsed.port is not None else default_port
+    if absolute_form:
+        _validate_absolute_form_host_header(
+            parsed,
+            headers.get("host"),
+            default_port=default_port,
+        )
     path = parsed.path or "/"
     if parsed.query:
         path = f"{path}?{parsed.query}"
@@ -506,6 +515,41 @@ def _target_request(
         outbound.append(f"{name}: {value}\r\n")
     outbound.append("connection: close\r\n\r\n")
     return NetworkTarget(parsed.hostname, protocol, port), "".join(outbound).encode("latin-1")
+
+
+def _validate_absolute_form_host_header(
+    target: SplitResult,
+    host_header: str | None,
+    *,
+    default_port: int,
+) -> None:
+    """校验 absolute-form 目标和 Host authority 指向同一主机。"""
+    if host_header is None:
+        return None
+    try:
+        parsed_header = urlsplit(f"//{host_header}")
+        header_host = parsed_header.hostname
+        header_port = parsed_header.port
+    except ValueError as error:
+        raise ValueError("HTTP Host header is invalid") from error
+    if (
+        not header_host
+        or parsed_header.path
+        or parsed_header.query
+        or parsed_header.fragment
+        or parsed_header.username is not None
+        or parsed_header.password is not None
+    ):
+        raise ValueError("HTTP Host header is invalid")
+    target_host = (target.hostname or "").casefold().rstrip(".")
+    if header_host.casefold().rstrip(".") != target_host:
+        raise ValueError("HTTP Host header does not match request target")
+    if header_port is not None:
+        target_port = target.port if target.port is not None else default_port
+        if header_port != target_port:
+            raise ValueError("HTTP Host header does not match request target")
+    elif target.port is not None and target.port != default_port:
+        raise ValueError("HTTP Host header does not match request target")
 
 
 def _content_length(headers: Mapping[str, str]) -> int:

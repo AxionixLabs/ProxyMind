@@ -50,6 +50,37 @@ def test_static_policy_is_subdomain_aware_and_deny_wins() -> None:
     )) is NetworkDecision.DENY
 
 
+@pytest.mark.parametrize(
+    ("target", "host_header", "expected"),
+    [
+        ("http://example.com/", "example.com", None),
+        ("http://raw.githubusercontent.com/", "api.github.com", ValueError),
+        ("http://example.com:8080/", "example.com", ValueError),
+        ("http://example.com:8080/", "example.com:8080", None),
+    ],
+)
+def test_absolute_http_target_validates_host_header(
+    target: str,
+    host_header: str,
+    expected: type[ValueError] | None,
+) -> None:
+    if expected is None:
+        network_module._target_request(
+            "GET",
+            target,
+            "HTTP/1.1",
+            {"host": host_header},
+        )
+        return
+    with pytest.raises(expected, match="Host header"):
+        network_module._target_request(
+            "GET",
+            target,
+            "HTTP/1.1",
+            {"host": host_header},
+        )
+
+
 @pytest.mark.anyio
 async def test_managed_proxy_denies_by_default_and_reports_blocked_request() -> None:
     blocked = []
