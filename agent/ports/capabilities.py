@@ -34,7 +34,16 @@ from agent.protocol.json_value import (
     thaw_object,
 )
 
-ReconnectStatusCallback: typing.TypeAlias = Callable[[bool], None]
+TransportRecoveryPhase: typing.TypeAlias = typing.Literal[
+    "reconnecting",
+    "replaying",
+    "caught_up",
+    "closed",
+]
+RecoveryStatusCallback: typing.TypeAlias = Callable[
+    [TransportRecoveryPhase, int],
+    Awaitable[None],
+]
 
 HelixState: typing.TypeAlias = typing.Literal[
     "stopped",
@@ -424,7 +433,7 @@ class ModelCapability(typing.Protocol):
         self,
         request: ModelStreamRequest,
         *,
-        on_reconnect_status: ReconnectStatusCallback | None = None,
+        on_recovery_status: RecoveryStatusCallback | None = None,
         on_approval_snapshot: ApprovalSnapshotCallback | None = None,
     ) -> ModelEventStream:
         """创建可取消、可关闭且可报告服务端事件游标的流。"""

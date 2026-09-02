@@ -11,7 +11,7 @@ from agent.ports import (
     ModelCapabilityError,
     ProtocolCommandError,
     ModelEventStream,
-    ReconnectStatusCallback,
+    RecoveryStatusCallback,
 )
 from agent.protocol import (
     CanonicalItem,
@@ -253,7 +253,7 @@ class MindChatProtocolClient:
         self,
         request: ModelStreamRequest,
         *,
-        on_reconnect_status: ReconnectStatusCallback | None = None,
+        on_recovery_status: RecoveryStatusCallback | None = None,
         on_approval_snapshot: ApprovalSnapshotCallback | None = None,
     ) -> ModelEventStream:
         """按冻结请求创建具备恢复水位的正式协议事件流。"""
@@ -287,7 +287,7 @@ class MindChatProtocolClient:
                 request.tool_values(),
                 attachments=request.attachment_values() or None,
                 timeout=request.timeout,
-                on_reconnect_status=on_reconnect_status,
+                on_recovery_status=on_recovery_status,
                 on_approval_snapshot=restore_approval_snapshot,
                 initial_event_seq=self._event_cursors.current(
                     cid=request.cid,

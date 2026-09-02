@@ -177,14 +177,14 @@ def test_model_stream_request_rejects_coordinates_in_metadata() -> None:
 def test_protocol_client_translates_frozen_request(monkeypatch) -> None:
     event_stream = object()
     stream_chat = Mock(return_value=event_stream)
-    reconnect = Mock()
+    reconnect = AsyncMock()
     approval = Mock()
     monkeypatch.setattr(model_adapter, "stream_chat", stream_chat)
 
     capability = open_model_capability()
     result = capability.stream(
         _request(),
-        on_reconnect_status=reconnect,
+        on_recovery_status=reconnect,
         on_approval_snapshot=approval,
     )
 
@@ -195,7 +195,7 @@ def test_protocol_client_translates_frozen_request(monkeypatch) -> None:
         [{"name": "read_file"}],
         attachments=[{"path": "screen.png"}],
         timeout=12.0,
-        on_reconnect_status=reconnect,
+        on_recovery_status=reconnect,
         on_approval_snapshot=ANY,
         initial_event_seq=0,
         exec_env=_environment_snapshot(),

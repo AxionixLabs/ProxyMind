@@ -105,6 +105,9 @@ def _finalizer(
         operations.append("cleanup.await")
         return await awaitable
 
+    async def close_retry_activity() -> None:
+        operations.append("retry.close")
+
     finalizer = StreamTurnFinalizer(
         cid="cid-test",
         sid="sid-test",
@@ -116,7 +119,7 @@ def _finalizer(
         ),
         transcript=transcript,
         model_output=_Projection(operations),
-        retry_state_close=lambda: operations.append("retry.close"),
+        retry_activity_close=close_retry_activity,
         stream_end=(
             lambda reason: operations.append(("stream.end", reason))
             if stream_end

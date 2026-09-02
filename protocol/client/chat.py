@@ -17,7 +17,8 @@ from protocol.client.tools import (
 )
 from protocol.client.turn_control import (
     TurnStatusRequestError,
-    get_turn_status
+    TurnStatusSnapshot,
+    get_turn_status,
 )
 from protocol.schema.stream_events import (
     ChatStreamEvent,
@@ -44,7 +45,6 @@ ATTACH_BACKOFF_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
 ATTACH_BACKOFF_JITTER_RATIO: typing.Final[float] = 0.2
 ATTACH_RETRY_MAX_ELAPSED_SEC: typing.Final[float] = 60.0
 STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC: typing.Final[float] = 25.0
-TRANSPORT_RETRY_MIN_VISIBLE_SEC: typing.Final[float] = 0.8
 
 TurnStreamEndReason: typing.TypeAlias = typing.Literal[
     "settled",
@@ -53,7 +53,17 @@ TurnStreamEndReason: typing.TypeAlias = typing.Literal[
     "protocol_error",
 ]
 
-ReconnectStatusCallback: typing.TypeAlias = typing.Callable[[bool], None]
+TransportRecoveryPhase: typing.TypeAlias = typing.Literal[
+    "reconnecting",
+    "replaying",
+    "caught_up",
+    "closed",
+]
+
+RecoveryStatusCallback: typing.TypeAlias = typing.Callable[
+    [TransportRecoveryPhase, int],
+    typing.Awaitable[None],
+]
 
 ApprovalSnapshotCallback: typing.TypeAlias = typing.Callable[
     [ToolApprovalSnapshot],
@@ -82,7 +92,7 @@ class TurnEventStream(object):
         attachments: typing.Optional[list[dict[str, typing.Any]]],
         timeout: float,
         kwargs: dict[str, typing.Any],
-        on_reconnect_status: ReconnectStatusCallback | None = None,
+        on_recovery_status: RecoveryStatusCallback | None = None,
         on_approval_snapshot: ApprovalSnapshotCallback | None = None,
         initial_event_seq: int = 0,
     ) -> None:
@@ -96,11 +106,11 @@ class TurnEventStream(object):
         self._response_observed: bool = False
         self._close_after_yield: bool = False
         self._reconnect_failures: int = 0
-        self._reconnecting: bool = False
+        self._recovery_phase: TransportRecoveryPhase | None = None
+        self._replay_target_seq: int | None = None
+        self._recovery_catch_up_pending: bool = False
         self._reconnect_started_at: float | None = None
-        self._reconnect_visible_at: float | None = None
-        self._reconnect_clear_handle: asyncio.TimerHandle | None = None
-        self._on_reconnect_status = on_reconnect_status
+        self._on_recovery_status = on_recovery_status
         self._on_approval_snapshot = on_approval_snapshot
         self.end_reason: TurnStreamEndReason | None = None
 
@@ -182,72 +192,52 @@ class TurnEventStream(object):
             and event_seq > self.last_event_seq + 1
         )
 
-    def _set_reconnecting(self, reconnecting: bool) -> None:
-        """在连接状态实际变化时通知上层。"""
-        value = bool(reconnecting)
-
-        if value:
-            self._cancel_reconnect_clear()
-            if self._reconnecting:
-                self._reconnect_visible_at = time.monotonic()
-                return
-            self._reconnecting = True
-            self._reconnect_visible_at = time.monotonic()
-            if self._on_reconnect_status is not None:
-                self._on_reconnect_status(True)
+    async def _notify_recovery(
+        self,
+        phase: TransportRecoveryPhase,
+        *,
+        event_seq: int,
+    ) -> None:
+        """在恢复阶段实际变化时通知上层。"""
+        if phase == self._recovery_phase:
             return
+        self._recovery_phase = phase
+        if self._on_recovery_status is not None:
+            await self._on_recovery_status(phase, event_seq)
 
-        if not self._reconnecting or self._reconnect_clear_handle is not None:
-            return
-
-        visible_at = self._reconnect_visible_at
-        if visible_at is None:
-            self._clear_reconnecting()
-            return
-
-        elapsed = max(0.0, time.monotonic() - visible_at)
-
-        remaining = max(0.0, TRANSPORT_RETRY_MIN_VISIBLE_SEC - elapsed)
-        if remaining <= 0:
-            self._clear_reconnecting()
-            return
-
-        self._reconnect_clear_handle = asyncio.get_running_loop().call_later(
-            remaining,
-            self._clear_reconnecting_after,
-            visible_at,
+    async def _begin_replay(self, target_event_seq: int) -> None:
+        """冻结权威水位并进入无瞬时动画的 replay 阶段。"""
+        self._replay_target_seq = max(self.last_event_seq, target_event_seq)
+        self._recovery_catch_up_pending = False
+        await self._notify_recovery(
+            "replaying",
+            event_seq=self.last_event_seq,
         )
 
-    def _clear_reconnecting_after(self, visible_at: float) -> None:
-        """仅清除创建当前定时器的那一轮重连状态。"""
-        if self._reconnect_visible_at != visible_at:
-            return
-        self._clear_reconnecting()
+    async def _complete_replay(self) -> None:
+        """在最后一条历史事件交付后恢复实时展示。"""
+        self._replay_target_seq = None
+        self._recovery_catch_up_pending = False
+        await self._notify_recovery(
+            "caught_up",
+            event_seq=self.last_event_seq,
+        )
 
-    def _cancel_reconnect_clear(self) -> None:
-        """取消尚未执行的重连状态复位。"""
-        handle = self._reconnect_clear_handle
-        self._reconnect_clear_handle = None
-        if handle is not None and not handle.cancelled():
-            handle.cancel()
+    async def _prepare_recovery_delivery(self, event_seq: int) -> None:
+        """确定当前事件应在 replay 中处理还是恢复实时交付。"""
+        target_event_seq = self._replay_target_seq
+        if target_event_seq is None:
+            return None
+        if event_seq > target_event_seq:
+            await self._complete_replay()
+            return None
+        if event_seq >= target_event_seq:
+            self._recovery_catch_up_pending = True
 
-    def _clear_reconnecting(self) -> None:
-        """立即清除传输重连状态。"""
-        self._cancel_reconnect_clear()
-        if not self._reconnecting:
-            self._reconnect_visible_at = None
-            return
-
-        self._reconnecting = False
-        self._reconnect_visible_at = None
-        if self._on_reconnect_status is not None:
-            self._on_reconnect_status(False)
-
-    def _mark_transport_healthy(self) -> None:
+    async def _mark_transport_healthy(self) -> None:
         """在收到有效载荷后重置连续重连预算。"""
         self._reconnect_failures = 0
         self._reconnect_started_at = None
-        self._set_reconnecting(False)
 
     def _payload_silence_timeout(self) -> float:
         """返回不超过传输超时的 SSE 静默检测窗口。"""
@@ -296,9 +286,14 @@ class TurnEventStream(object):
         self.end_reason = reason
 
         self._reconnect_started_at = None
-        self._clear_reconnecting()
-
-        await self._close_payload_stream()
+        try:
+            if self._recovery_phase in {"reconnecting", "replaying"}:
+                await self._notify_recovery(
+                    "closed",
+                    event_seq=self.last_event_seq,
+                )
+        finally:
+            await self._close_payload_stream()
 
     async def _iterate(self) -> typing.AsyncIterator[ChatStreamEvent]:
         """持续读取事件并在消费终止时释放传输。"""
@@ -325,6 +320,8 @@ class TurnEventStream(object):
         """读取并解析下一项可交付事件。"""
         if self._state is _TurnStreamState.CLOSED:
             raise _TurnStreamEnded
+        if self._recovery_catch_up_pending:
+            await self._complete_replay()
         if self._close_after_yield:
             await self._finish("settled")
             raise _TurnStreamEnded
@@ -343,15 +340,14 @@ class TurnEventStream(object):
                 raise
 
             if parsed_event.type == "ping":
-                self._mark_transport_healthy()
+                await self._mark_transport_healthy()
                 continue
             if isinstance(parsed_event, StreamGapEvent):
                 self._validate_gap_identity(parsed_event)
                 if parsed_event.gap_kind == "internal":
                     await self._finish("protocol_error")
-                    raise RuntimeError(
-                        "authoritative turn event sequence contains an internal gap"
-                    )
+                    event = parsed_event
+                    continue
                 if parsed_event.next_seq is None:
                     await self._finish("protocol_error")
                     raise RuntimeError("retained event prefix is missing replay floor")
@@ -359,7 +355,18 @@ class TurnEventStream(object):
                     self.last_event_seq,
                     parsed_event.next_seq,
                 )
-                self._mark_transport_healthy()
+                if self._replay_target_seq is None:
+                    status = await self._turn_status_for_recovery(
+                        self._required_attach_target()
+                    )
+                    await self._begin_replay(
+                        status.last_event_seq
+                        if status is not None
+                        else self.last_event_seq
+                    )
+                if self.last_event_seq >= (self._replay_target_seq or 0):
+                    self._recovery_catch_up_pending = True
+                await self._mark_transport_healthy()
                 event = parsed_event
                 continue
             self._validate_turn_identity(parsed_event)
@@ -375,8 +382,9 @@ class TurnEventStream(object):
                 await self._finish("protocol_error")
                 raise RuntimeError("turn event sequence is not continuous")
             if parsed_event.event_seq is not None:
+                await self._prepare_recovery_delivery(parsed_event.event_seq)
                 self.last_event_seq = parsed_event.event_seq
-            self._mark_transport_healthy()
+            await self._mark_transport_healthy()
             event = parsed_event
 
         if isinstance(event, TurnLogicalSettledEvent):
@@ -477,7 +485,10 @@ class TurnEventStream(object):
 
         delay = self._attach_delay()
         self._reconnect_failures += 1
-        self._set_reconnecting(True)
+        await self._notify_recovery(
+            "reconnecting",
+            event_seq=self.last_event_seq,
+        )
 
         await self._close_payload_stream()
         await self._wait_before_attach(delay)
@@ -489,13 +500,25 @@ class TurnEventStream(object):
         ):
             return False
 
-        if not self._response_observed:
-            turn_exists = await self._turn_exists_for_recovery(attach_target)
-            if not turn_exists:
-                self._payload_stream = self._open_chat_stream()
-                return True
+        status = await self._turn_status_for_recovery(attach_target)
+        if not self._response_observed and status is None:
+            self._replay_target_seq = self.last_event_seq
+            self._payload_stream = self._open_chat_stream()
+            return True
 
-        await self._restore_approval_snapshot(attach_target)
+        await self._begin_replay(
+            status.last_event_seq
+            if status is not None
+            else self.last_event_seq
+        )
+        snapshot_event_seq = await self._restore_approval_snapshot(attach_target)
+        if snapshot_event_seq is not None:
+            self._replay_target_seq = max(
+                self._replay_target_seq or 0,
+                snapshot_event_seq,
+            )
+        if self.last_event_seq >= (self._replay_target_seq or 0):
+            self._recovery_catch_up_pending = True
 
         payload: dict[str, typing.Any] = dict(attach_target)
         payload["after_seq"] = self.last_event_seq
@@ -511,7 +534,7 @@ class TurnEventStream(object):
     async def _restore_approval_snapshot(
         self,
         attach_target: dict[str, str]
-    ) -> None:
+    ) -> int | None:
         """在重新接入前读取并交付审批恢复快照。"""
         callback = self._on_approval_snapshot
         if callback is None:
@@ -525,19 +548,26 @@ class TurnEventStream(object):
         result = callback(snapshot)
         if result is not None:
             await result
+        return snapshot.last_event_seq
 
-    async def _turn_exists_for_recovery(
+    async def _turn_status_for_recovery(
         self,
         attach_target: dict[str, str],
-    ) -> bool:
-        """查询首事件前断线的轮次是否已由服务端持久化。"""
+    ) -> TurnStatusSnapshot | None:
+        """查询恢复开始时的权威 Turn 水位；可安全重提时返回空。"""
         try:
-            await get_turn_status(**attach_target)
+            return await get_turn_status(**attach_target)
         except TurnStatusRequestError as error:
             if self._status_probe_allows_resubmit(error):
-                return False
+                return None
             raise
-        return True
+
+    def _required_attach_target(self) -> dict[str, str]:
+        """返回已经建立的恢复坐标。"""
+        attach_target = self._attach_target
+        if attach_target is None:
+            raise RuntimeError("turn stream is missing recovery coordinates")
+        return attach_target
 
     async def aclose(self) -> None:
         """关闭底层事件传输并固定结束原因。"""
@@ -557,7 +587,7 @@ def stream_chat(
     tools: list[dict],
     attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
     timeout: float = 60.0,
-    on_reconnect_status: ReconnectStatusCallback | None = None,
+    on_recovery_status: RecoveryStatusCallback | None = None,
     on_approval_snapshot: ApprovalSnapshotCallback | None = None,
     *_,
     initial_event_seq: int = 0,
@@ -571,7 +601,7 @@ def stream_chat(
         attachments,
         timeout,
         kwargs,
-        on_reconnect_status,
+        on_recovery_status,
         on_approval_snapshot,
         initial_event_seq,
     )

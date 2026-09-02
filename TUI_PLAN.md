@@ -295,39 +295,45 @@ Reducer 使用正交状态，避免把所有组合塞入单一枚举：
   文件头/文件清单基线失败，本阶段未改动该用户边界。retry、replay、终态和 continuation
   的 typed activity 接入由 S4 完成。
 
-## [ ] S4 重试、恢复、续跑与终态收束
+## [x] S4 重试、恢复、续跑与终态收束
 
 ### 任务
 
-- [ ] transport retry 和 provider retry 作为独立来源合并；transport 优先级、最短可见时间和清理
+- [x] transport retry 和 provider retry 作为独立来源合并；transport 优先级、最短可见时间和清理
   由 coordinator 管理，不通过同步回调直接修改活动渲染器。
-- [ ] `turn.retrying` 先完成旧 Attempt 正文审计和替代边界，再显示 `Retrying`；新 Attempt 正文
+- [x] `turn.retrying` 先完成旧 Attempt 正文审计和替代边界，再显示 `Retrying`；新 Attempt 正文
   可见后原子接管。
-- [ ] `presentation.superseded` 使用新的 `presentation_epoch` scope，陈旧事件和 timer 不得影响当前代次。
-- [ ] attach/replay 期间禁用瞬时动画；按 `event_seq` 重建状态，追平后结合活动 Turn 和 pending Item
+- [x] `presentation.superseded` 使用新的 `presentation_epoch` scope，陈旧事件和 timer 不得影响当前代次。
+- [x] attach/replay 期间禁用瞬时动画；按 `event_seq` 重建状态，追平后结合活动 Turn 和 pending Item
   派生一次当前状态。
-- [ ] `stream.gap`、连接恢复和审批 snapshot 不推进错误的展示确认水位。
-- [ ] lifecycle display 提交稳定块后登记 model wait，不把提示文本当作阶段状态来源。
-- [ ] `turn.done/failed/interrupted/cancelled/reconciliation_required` 立即取消 timer 和活动 lease，
+- [x] `stream.gap`、连接恢复和审批 snapshot 不推进错误的展示确认水位。
+- [x] lifecycle display 提交稳定块后登记 model wait，不把提示文本当作阶段状态来源。
+- [x] `turn.done/failed/interrupted/cancelled/reconciliation_required` 立即取消 timer 和活动 lease，
   再提交对应终态展示。
-- [ ] `turn.logical_settled` 只关闭逻辑交互和输入屏障；不得重新解释或覆盖已经显示的终态。
-- [ ] 本地异常、应用关闭、用户 Ctrl-C、输出关闭失败和清理异常均保证状态收敛，并继续执行后续清理。
-- [ ] Stop Hook continuation 使用新 Turn scope；超过续跑预算或续跑被拒绝时关闭 execution scope。
+- [x] `turn.logical_settled` 只关闭逻辑交互和输入屏障；不得重新解释或覆盖已经显示的终态。
+- [x] 本地异常、应用关闭、用户 Ctrl-C、输出关闭失败和清理异常均保证状态收敛，并继续执行后续清理。
+- [x] Stop Hook continuation 使用新 Turn scope；超过续跑预算或续跑被拒绝时关闭 execution scope。
 
 ### 出口
 
-- [ ] partial text 后 provider retry、transport reconnect、Worker presentation supersede 均有逐帧测试。
-- [ ] replay 终态历史不会播放动画，活动 Turn 追平后只显示一个正确状态。
-- [ ] 中断、失败、对账、连接缺口和 continuation 都不存在状态复活或悬挂 task。
-- [ ] Turn 终态、`turn.logical_settled` 和 TUI execution 完成三个边界保持职责分离。
+- [x] partial text 后 provider retry、transport reconnect、Worker presentation supersede 均有逐帧测试。
+- [x] replay 终态历史不会播放动画，活动 Turn 追平后只显示一个正确状态。
+- [x] 中断、失败、对账、连接缺口和 continuation 都不存在状态复活或悬挂 task。
+- [x] Turn 终态、`turn.logical_settled` 和 TUI execution 完成三个边界保持职责分离。
 
 ### 记录
 
-- 状态：未开始
-- 完成日期：
-- 提交：
-- 验证：
-- 遗留风险/决策：
+- 状态：已完成
+- 完成日期：2026-09-03
+- 提交：`feat(tui): converge retry and recovery lifecycle`
+- 验证：协议恢复、模型事件、终态、finalizer 与真实 TUI 核心回归 `148 passed`；排除
+  `test_mind_mcp_server.py` 的既有 `turn_id` 断言基线和架构审计文件后，全仓库其余回归
+  `3132 passed, 11 skipped in 56.00s`；受影响的 Turn stream 单一所有者守卫、`compileall`
+  与 `git diff --check` 通过。
+- 遗留风险/决策：传输恢复用权威 `/turn/status.last_event_seq` 冻结 replay 截止水位，并只在
+  最后一条历史事件交付后进入 `caught_up`；TUI 本地拥有 transport retry 最短可见时间。
+  全量架构审计只剩既有 MCP 文件头和文件清单两项基线失败；旧 MCP runtime 的三条测试仍
+  未接受主链路现已必需的 `turn_id`，均不属于本阶段改动。
 
 ## [ ] S5 清理旧路径与最终验收
 

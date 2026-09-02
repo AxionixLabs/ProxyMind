@@ -42,7 +42,6 @@ class ModelStreamEventHandler:
         content: ContentSink,
         activity: TurnActivityProjector,
         status_control: OutputStatusPort,
-        provider_retry_sink: typing.Callable[[bool], None],
         idle_reschedule: typing.Callable[[], None],
     ) -> None:
         """绑定输出端口并初始化 Transcript 交付水位。"""
@@ -50,7 +49,6 @@ class ModelStreamEventHandler:
         self.content = content
         self.activity = activity
         self.status_control = status_control
-        self.provider_retry_sink = provider_retry_sink
         self.idle_reschedule = idle_reschedule
         self._item_history: tuple[CanonicalItem, ...] = ()
         self._delivered_text: dict[_ItemRevision, str] = {}
@@ -67,9 +65,13 @@ class ModelStreamEventHandler:
         """交付一条已归约事件，并返回事件是否已被完整消费。"""
         self._item_history = projection.canonical_item_history
         current_item = projection.current_item
-
-        if not isinstance(event, TurnRetryingEvent):
-            self.provider_retry_sink(False)
+        self.activity.observe_event_seq(event.event_seq)
+        if current_item is not None:
+            self.activity.observe_presentation(
+                presentation_epoch=current_item.presentation_epoch,
+                round_no=current_item.round_no,
+                attempt=current_item.attempt,
+            )
 
         if is_assistant_output_boundary(event):
             self.flush_pending()
@@ -83,13 +85,21 @@ class ModelStreamEventHandler:
             await self._handle_text_delta(event, current_item=current_item)
             return True
         if isinstance(event, PresentationSupersededEvent):
+            self.activity.observe_presentation(
+                presentation_epoch=event.presentation_epoch,
+                round_no=event.round or 1,
+                attempt=1,
+            )
             await self._handle_presentation_superseded(event)
+            await self.activity.provider_retry_completed()
             return True
         if isinstance(event, TextDoneEvent):
             await self._handle_text_done(event, current_item=current_item)
             return True
         if isinstance(event, TextMetaEvent):
+            await self.activity.provider_retry_completed()
             return True
+        await self.activity.provider_retry_completed()
         return False
 
     def flush_pending(self, *, complete_only: bool = False) -> None:
@@ -103,7 +113,6 @@ class ModelStreamEventHandler:
 
     async def _handle_retrying(self, event: TurnRetryingEvent) -> None:
         """提交旧 attempt 的审计正文并投影替换边界。"""
-        self.provider_retry_sink(True)
         self.flush_pending()
         replaced_items = tuple(
             item
@@ -136,6 +145,11 @@ class ModelStreamEventHandler:
                 attempt=event.attempt,
                 item_id=event.supersedes_item_id,
             ))
+        await self.activity.provider_retry_started(
+            presentation_epoch=event.presentation_epoch,
+            round_no=event.round,
+            attempt=event.attempt,
+        )
         await self.status_control.begin_reply_wait_status()
 
     async def _handle_text_delta(
@@ -211,6 +225,7 @@ class ModelStreamEventHandler:
             final_text=event.final_text,
             item_id=item.item_id,
         ))
+        await self.activity.provider_retry_completed()
         if revision in self._buffered_activity_items:
             await self.activity.assistant_settled(
                 _response_identity(item),

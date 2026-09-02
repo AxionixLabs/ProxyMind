@@ -17,6 +17,7 @@ from agent.ports import (
     ModelWaitRequested,
     OutputSurfaceContext,
     ResponseIdentity,
+    RetryChanged,
 )
 from agent.ports.transcript import TranscriptSink
 from agent.adapters.protocol.model_events import ModelStreamEventHandler
@@ -137,7 +138,6 @@ def _handler() -> tuple[
         content=content,
         activity=TurnActivityProjector(context, activity),
         status_control=status,
-        provider_retry_sink=retry,
         idle_reschedule=idle,
     )
     return (
@@ -267,7 +267,7 @@ async def test_model_handler_projects_text_and_commits_transcript() -> None:
             reason="assistant_settled",
         ),
     ]
-    assert retry.call_args_list == [((False,), {}), ((False,), {})]
+    retry.assert_not_called()
     idle.assert_called_once_with()
 
 
@@ -384,12 +384,31 @@ async def test_model_handler_supersedes_partial_provider_attempt() -> None:
         "message.created",
     ]
     assert status.reply_wait_calls == 2
-    assert retry.call_args_list == [
-        ((False,), {}),
-        ((True,), {}),
-        ((False,), {}),
-        ((False,), {}),
+    assert [
+        item
+        for item in _activity.items
+        if isinstance(item, RetryChanged)
+    ] == [
+        RetryChanged(
+            surface_id="surface_test",
+            turn_id="turn_test",
+            source="provider",
+            state="started",
+            presentation_epoch=1,
+            round=1,
+            attempt=2,
+        ),
+        RetryChanged(
+            surface_id="surface_test",
+            turn_id="turn_test",
+            source="provider",
+            state="completed",
+            presentation_epoch=1,
+            round=1,
+            attempt=2,
+        ),
     ]
+    retry.assert_not_called()
 
 
 @pytest.mark.anyio

@@ -148,6 +148,7 @@ class TurnSurfaceTiming:
     tool_result_sec: float = 0.15
     lifecycle_sec: float = 0.15
     tool_started_sec: float = 0.12
+    transport_retry_min_visible_sec: float = 0.8
 
     def delay_for(self, reason: ModelWaitReason | None) -> float:
         """返回指定等待来源的非负本地延时。"""
@@ -281,6 +282,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         self._applied: SurfaceProjection | None = None
         self._timer: asyncio.Task[None] | None = None
         self._timer_error: BaseException | None = None
+        self._transport_retry_visible_until: float = 0.0
         self._opened: bool = False
         self._closed: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
@@ -322,6 +324,19 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
                 model_wait_reason=self.state.model_wait_reason,
             )
             if (
+                isinstance(event, (ApprovalStarted, TurnTerminal, SurfaceClosed))
+                or (
+                    isinstance(event, RecoveryChanged)
+                    and event.mode in {"replaying", "gap"}
+                )
+            ):
+                self._transport_retry_visible_until = 0.0
+            elif not (
+                projection.indicator == "retrying"
+                and projection.detail == "transport"
+            ):
+                delay = max(delay, self._transport_retry_remaining())
+            if (
                 projection.indicator == "working"
                 and isinstance(
                     event,
@@ -352,6 +367,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             raise RuntimeError("turn surface coordinator is applying a projection")
 
         self._cancel_timer()
+        self._transport_retry_visible_until = 0.0
         previous = self.state
         self.state = reduce_turn_surface(self.state, event)
         if self.state is previous:
@@ -425,8 +441,30 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         """跳过完全相同的派生投影并调用唯一视觉出口。"""
         if self._applied == projection:
             return None
+        previous = self._applied
         await self.apply_projection(projection)
         self._applied = projection
+        if (
+            projection.indicator == "retrying"
+            and projection.detail == "transport"
+            and not (
+                previous is not None
+                and previous.indicator == "retrying"
+                and previous.detail == "transport"
+            )
+        ):
+            self._transport_retry_visible_until = (
+                asyncio.get_running_loop().time()
+                + max(0.0, self.timing.transport_retry_min_visible_sec)
+            )
+
+    def _transport_retry_remaining(self) -> float:
+        """返回 transport retry 已展示帧的剩余最短可见时间。"""
+        return max(
+            0.0,
+            self._transport_retry_visible_until
+            - asyncio.get_running_loop().time(),
+        )
 
     def _cancel_timer(self) -> None:
         """同步取消当前 generation timer。"""

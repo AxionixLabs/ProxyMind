@@ -57,7 +57,7 @@ class StreamTurnFinalizer:
         turn_state_stores: typing.Iterable[_TurnStateStore],
         transcript: TranscriptLifecyclePort,
         model_output: _ModelOutputLifecycle,
-        retry_state_close: typing.Callable[[], None],
+        retry_activity_close: typing.Callable[[], typing.Awaitable[None]],
         stream_end: typing.Callable[[str], None] | None,
         idle_wait: IdleStatusPort,
         output_session: _OutputSessionLifecycle,
@@ -72,7 +72,7 @@ class StreamTurnFinalizer:
         self._turn_state_stores = tuple(turn_state_stores)
         self._transcript = transcript
         self._model_output = model_output
-        self._retry_state_close = retry_state_close
+        self._retry_activity_close = retry_activity_close
         self._stream_end = stream_end
         self._idle_wait = idle_wait
         self._output_session = output_session
@@ -89,7 +89,7 @@ class StreamTurnFinalizer:
     ) -> StopHookDecision:
         """按既定顺序收束当前轮次并返回可选的停止 Hook 续跑决定。"""
         self._clear_turn_state()
-        self._retry_state_close()
+        await self._retry_activity_close()
 
         if self._stream_end is not None and stream_end_reason is not None:
             self._stream_end(stream_end_reason or "cancelled")

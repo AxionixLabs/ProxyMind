@@ -25,13 +25,16 @@ from agent.ports import (
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
+    LogicalSettled,
+    RecoveryChanged,
+    RetryChanged,
     ResponseIdentity,
     SourcesOutput,
+    TurnTerminal,
 )
 from agent.ports import (
     OutputSession,
     OutputSurfaceContext,
-    PassiveOutputActivity,
 )
 from agent.application.views import (
     ApprovalView,
@@ -276,6 +279,16 @@ class _Sink(object):
         self.items.append(item)
 
 
+class _ActivitySink(_Sink):
+    """记录 OutputSession 的 typed activity 事实。"""
+
+    async def open(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
 class _TranscriptWriter(object):
     def __init__(self, entries) -> None:
         self.entries = entries
@@ -310,7 +323,7 @@ def _output_session(
     return OutputSession(
         context=context,
         control=_OutputControl(),
-        activity=PassiveOutputActivity(),
+        activity=_ActivitySink(),
         status=_OutputStatus(),
         content=_Sink(),
         presentation=_Sink(),
@@ -656,7 +669,7 @@ async def _run_stream(
             self,
             request: ModelStreamRequest,
             *,
-            on_reconnect_status=None,
+            on_recovery_status=None,
             on_approval_snapshot=None,
         ):
             """按旧测试工厂签名展开冻结请求。"""
@@ -673,7 +686,7 @@ async def _run_stream(
                 attachments=request.attachment_values() or None,
                 timeout=request.timeout,
                 initial_event_seq=0,
-                on_reconnect_status=on_reconnect_status,
+                on_recovery_status=on_recovery_status,
                 on_approval_snapshot=on_approval_snapshot,
                 **request_options,
             )
@@ -1205,10 +1218,32 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
         AssistantSegmentCompleted(response_identity(attempt=2)),
         SourcesOutput(()),
     ]
-    assert mind.frontend.runtime.set_wait_retry_state.call_args_list == [
-        (("provider",), {}),
-        (("idle",), {}),
+    surface_id = mind.output_session.context.surface_id
+    assert [
+        item
+        for item in mind.output_session.activity.items
+        if isinstance(item, RetryChanged)
+    ] == [
+        RetryChanged(
+            surface_id=surface_id,
+            turn_id="turn_test",
+            source="provider",
+            state="started",
+            presentation_epoch=1,
+            round=1,
+            attempt=2,
+        ),
+        RetryChanged(
+            surface_id=surface_id,
+            turn_id="turn_test",
+            source="provider",
+            state="completed",
+            presentation_epoch=1,
+            round=1,
+            attempt=2,
+        ),
     ]
+    mind.frontend.runtime.set_wait_retry_state.assert_not_called()
     assert [
         entry["event"]
         for entry in mind.transcripts.entries
@@ -1369,7 +1404,7 @@ async def test_provider_and_transport_retry_statuses_do_not_clear_each_other(
 ) -> None:
     """验证两个重试来源重叠时只产生一次完整状态区间。"""
     async def overlapping_retry_stream(*_args, **kwargs):
-        reconnect_status = kwargs["on_reconnect_status"]
+        recovery_status = kwargs["on_recovery_status"]
         yield parse_stream_event({
             "type": "turn.retrying",
             "turn_id": "turn_test",
@@ -1378,8 +1413,9 @@ async def test_provider_and_transport_retry_statuses_do_not_clear_each_other(
                 "max_attempts": 3,
                 "retry_in_ms": 20,
         })
-        reconnect_status(True)
-        reconnect_status(False)
+        await recovery_status("reconnecting", 1)
+        await recovery_status("replaying", 1)
+        await recovery_status("caught_up", 1)
         yield parse_stream_event({
             "type": "text.delta",
             "turn_id": "turn_test",
@@ -1402,12 +1438,50 @@ async def test_provider_and_transport_retry_statuses_do_not_clear_each_other(
 
     assert result.status == "completed"
     assert result.assistant_text == "answer"
-    assert mind.frontend.runtime.set_wait_retry_state.call_args_list == [
-        (("provider",), {}),
-        (("transport",), {}),
-        (("provider",), {}),
-        (("idle",), {}),
+    surface_id = mind.output_session.context.surface_id
+    assert [
+        item
+        for item in mind.output_session.activity.items
+        if isinstance(item, RetryChanged)
+    ] == [
+        RetryChanged(
+            surface_id=surface_id,
+            turn_id="turn_test",
+            source="provider",
+            state="started",
+            presentation_epoch=1,
+            round=1,
+            attempt=2,
+        ),
+        RetryChanged(
+            surface_id=surface_id,
+            turn_id="turn_test",
+            source="transport",
+            state="started",
+            presentation_epoch=1,
+            round=1,
+            attempt=1,
+        ),
+        RetryChanged(
+            surface_id=surface_id,
+            turn_id="turn_test",
+            source="transport",
+            state="completed",
+            presentation_epoch=1,
+            round=1,
+            attempt=1,
+        ),
+        RetryChanged(
+            surface_id=surface_id,
+            turn_id="turn_test",
+            source="provider",
+            state="completed",
+            presentation_epoch=1,
+            round=1,
+            attempt=2,
+        ),
     ]
+    mind.frontend.runtime.set_wait_retry_state.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -1625,6 +1699,81 @@ async def test_stream_reports_transport_end_after_processing_settlement(
     assert result.status == "completed"
     assert processed == ["turn.logical_settled"]
     assert stream_ends == ["settled"]
+
+
+@pytest.mark.anyio
+async def test_stream_projects_terminal_before_logical_settlement(
+    monkeypatch,
+) -> None:
+    """验证权威终态、逻辑结算和 OutputSession 关闭保持独立顺序。"""
+    result, mind = await _run_stream(monkeypatch, [
+        {
+            "type": "turn.done",
+            "turn_id": "turn_test",
+            "status": "completed",
+        },
+        {
+            "type": "turn.logical_settled",
+            "turn_id": "turn_test",
+            "next_input": None,
+        },
+    ])
+
+    surface_id = mind.output_session.context.surface_id
+    terminal_events = [
+        item
+        for item in mind.output_session.activity.items
+        if isinstance(item, (TurnTerminal, LogicalSettled))
+    ]
+    assert result.status == "completed"
+    assert terminal_events == [
+        TurnTerminal(
+            surface_id=surface_id,
+            turn_id="turn_test",
+            status="completed",
+        ),
+        LogicalSettled(
+            surface_id=surface_id,
+            turn_id="turn_test",
+        ),
+    ]
+
+
+@pytest.mark.anyio
+async def test_internal_stream_gap_projects_recovery_before_failure(
+    monkeypatch,
+) -> None:
+    """验证权威内部缺口不会恢复动画或伪装成普通流结束。"""
+    result, mind = await _run_stream(monkeypatch, [{
+        "type": "stream.gap",
+        "gap_kind": "internal",
+        "requested_after_seq": 3,
+        "expected_event_seq": 4,
+        "observed_event_seq": 6,
+        "retryable": True,
+    }])
+
+    surface_id = mind.output_session.context.surface_id
+    scoped_events = [
+        item
+        for item in mind.output_session.activity.items
+        if isinstance(item, (RecoveryChanged, TurnTerminal))
+    ]
+    assert result.status == "failed"
+    assert result.error_code == "stream_gap_internal"
+    assert scoped_events == [
+        RecoveryChanged(
+            surface_id=surface_id,
+            turn_id="turn_test",
+            mode="gap",
+            event_seq=4,
+        ),
+        TurnTerminal(
+            surface_id=surface_id,
+            turn_id="turn_test",
+            status="failed",
+        ),
+    ]
 
 
 @pytest.mark.anyio
@@ -2377,6 +2526,7 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
     assert result.status == "completed"
     assert result.assistant_text == "reply 2"
     assert messages == ["hello", "continue once"]
+    assert request_kwargs[0]["turn_id"] != request_kwargs[1]["turn_id"]
     assert "additional_context" not in request_kwargs[1]
     assert "system_message" not in request_kwargs[1]
     assert [payload["stop_hook_active"] for payload in runner.payloads] == [
@@ -2547,8 +2697,16 @@ async def test_stream_emits_assistant_boundary_before_structured_output(monkeypa
             "text": "first",
         },
         {"type": "text.done", "segment_id": "first-item"},
-        {"type": "tool.builtin.call"},
-        {"type": "tool.builtin.done"},
+        {
+            "type": "tool.builtin.call",
+            "builtin_call_id": "builtin-1",
+            "builtin_type": "web_search_call",
+        },
+        {
+            "type": "tool.builtin.done",
+            "builtin_call_id": "builtin-1",
+            "builtin_type": "web_search_call",
+        },
         {
             "type": "text.delta",
             "segment_id": "second-item",
@@ -2583,6 +2741,8 @@ async def test_stream_commits_output_before_tool_round_transition(
         {
             "type": "tool.builtin.call",
             "round": 2,
+            "builtin_call_id": "builtin-1",
+            "builtin_type": "web_search_call",
         },
         {
             "type": "text.delta",

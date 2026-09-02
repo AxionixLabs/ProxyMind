@@ -236,7 +236,13 @@ class TuiActivity(object):
         self._terminal_wait_command = (
             self._turn_surface_detail if indicator == "terminal" else ""
         )
-        if indicator != "retrying":
+        if indicator == "retrying":
+            self._wait_retry_state = (
+                "transport"
+                if self._turn_surface_detail == "transport"
+                else "provider"
+            )
+        else:
             self._wait_retry_state = "idle"
         slot = self._slots.get("foreground")
         if slot is not None and slot.kind == "wait" and not slot.frozen:

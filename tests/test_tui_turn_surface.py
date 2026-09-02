@@ -322,6 +322,98 @@ async def test_coordinator_suppresses_fast_tool_projection() -> None:
 
 
 @pytest.mark.anyio
+async def test_coordinator_owns_transport_retry_minimum_visibility() -> None:
+    """验证传输层只报告事实，最短可见时间和陈旧 timer 属于 coordinator。"""
+    context = _context(surface_id="surface_transport_retry")
+    projections: list[SurfaceProjection] = []
+
+    async def apply(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(
+        context,
+        apply,
+        timing=TurnSurfaceTiming(transport_retry_min_visible_sec=0.02),
+    )
+    await coordinator.open()
+    await coordinator.emit(ModelWaitRequested(
+        **_scope(context),
+        revision=1,
+        reason="initial",
+    ))
+    first = RetryChanged(
+        **_scope(context),
+        source="transport",
+        state="started",
+        presentation_epoch=1,
+        round=1,
+        attempt=1,
+    )
+    await coordinator.emit(first)
+    assert projections[-1].indicator == "retrying"
+
+    await coordinator.emit(RetryChanged(
+        **_scope(context),
+        source="transport",
+        state="completed",
+        presentation_epoch=1,
+        round=1,
+        attempt=1,
+    ))
+    assert coordinator.pending_timer
+    await coordinator.emit(RetryChanged(
+        **_scope(context),
+        source="transport",
+        state="started",
+        presentation_epoch=1,
+        round=1,
+        attempt=2,
+    ))
+    await asyncio.sleep(0.03)
+    assert projections[-1].indicator == "retrying"
+
+    await coordinator.emit(RetryChanged(
+        **_scope(context),
+        source="transport",
+        state="completed",
+        presentation_epoch=1,
+        round=1,
+        attempt=2,
+    ))
+    assert projections[-1].indicator == "thinking"
+    await coordinator.close()
+
+
+@pytest.mark.anyio
+async def test_tui_transport_retry_uses_typed_surface_until_terminal() -> None:
+    """验证真实 TUI 仅根据 typed retry 投影 Retrying 并由终态立即收束。"""
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context(surface_id="surface_retry_frame")
+    session = create_tui_output_session(
+        "",
+        context=context,
+        runtime=runtime,
+        animate=False,
+    )
+    await session.open()
+    activity = TurnActivityProjector(context, session.activity)
+    await activity.request_model_wait("initial")
+
+    await activity.transport_recovery_changed("reconnecting", 3)
+    assert "Retrying" in _activity_text(runtime)
+    await activity.transport_recovery_changed("replaying", 3)
+    assert runtime.screen.activity_block is None
+    await activity.transport_recovery_changed("caught_up", 5)
+    assert "Thinking" in _activity_text(runtime)
+
+    await activity.turn_terminal("interrupted")
+    assert runtime.screen.activity_block is None
+    await session.close()
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
 async def test_coordinator_joins_timer_when_close_projection_fails() -> None:
     context = _context()
 

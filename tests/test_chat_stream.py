@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import (
     AsyncMock,
     Mock,
@@ -11,12 +12,21 @@ import pytest
 
 from protocol.client import chat
 from protocol.schema.stream_events import (
+    StreamGapEvent,
     TextDeltaEvent,
     TurnDoneEvent,
     TurnFailedEvent,
     TurnLogicalSettledEvent,
 )
 from protocol.schema.tool_approval import ToolApprovalSnapshot
+
+
+def _recovery_recorder(events: list[tuple[str, int]]):
+    """返回记录传输恢复阶段和水位的异步回调。"""
+    async def record(phase: str, event_seq: int) -> None:
+        events.append((phase, event_seq))
+
+    return record
 
 
 @pytest.fixture(autouse=True)
@@ -81,7 +91,12 @@ def _install_stream(monkeypatch, payloads) -> _PayloadStream:
     return payload_stream
 
 
-def _install_reconnect_stream(monkeypatch, transport) -> None:
+def _install_reconnect_stream(
+    monkeypatch,
+    transport,
+    *,
+    replay_target_seq: int = 2,
+) -> None:
     monkeypatch.setattr(chat, "build_chat_payload", AsyncMock(return_value={
         "turn_id": "turn_001",
         "metadata": {"cid": "cid_1", "sid": "sid_1"},
@@ -95,6 +110,13 @@ def _install_reconnect_stream(monkeypatch, transport) -> None:
         lambda path: f"https://example.com{path}",
     )
     monkeypatch.setattr(chat, "streaming", transport)
+    monkeypatch.setattr(
+        chat,
+        "get_turn_status",
+        AsyncMock(return_value=SimpleNamespace(
+            last_event_seq=replay_target_seq,
+        )),
+    )
 
 
 async def _collect(stream):
@@ -241,9 +263,11 @@ async def test_internal_gap_stops_delivery(monkeypatch) -> None:
         initial_event_seq=1,
     )
 
-    with pytest.raises(RuntimeError, match="internal gap"):
-        await _collect(event_stream)
+    events = await _collect(event_stream)
 
+    assert len(events) == 1
+    assert isinstance(events[0], StreamGapEvent)
+    assert events[0].gap_kind == "internal"
     assert event_stream.last_event_seq == 1
     assert event_stream.end_reason == "protocol_error"
 
@@ -357,7 +381,7 @@ async def test_disconnect_after_outcome_recovers_until_settlement(monkeypatch) -
         {},
         "hello",
         [],
-        on_reconnect_status=reconnecting.append,
+        on_recovery_status=_recovery_recorder(reconnecting),
     )
 
     events = [event async for event in event_stream]
@@ -367,7 +391,11 @@ async def test_disconnect_after_outcome_recovers_until_settlement(monkeypatch) -
     assert isinstance(events[1], TurnLogicalSettledEvent)
     assert event_stream.end_reason == "settled"
     assert len(calls) == 2
-    assert reconnecting == [True, False]
+    assert reconnecting == [
+        ("reconnecting", 1),
+        ("replaying", 1),
+        ("caught_up", 2),
+    ]
 
 
 @pytest.mark.anyio
@@ -393,7 +421,7 @@ async def test_cancellation_clears_reconnecting_status(monkeypatch) -> None:
         {},
         "hello",
         [],
-        on_reconnect_status=reconnecting.append,
+        on_recovery_status=_recovery_recorder(reconnecting),
     )
 
     consuming = asyncio.create_task(anext(event_stream.__aiter__()))
@@ -403,7 +431,36 @@ async def test_cancellation_clears_reconnecting_status(monkeypatch) -> None:
         await consuming
 
     assert event_stream.end_reason == "cancelled"
-    assert reconnecting == [True, False]
+    assert reconnecting == [
+        ("reconnecting", 0),
+        ("closed", 0),
+    ]
+
+
+@pytest.mark.anyio
+async def test_recovery_callback_failure_still_closes_payload_stream() -> None:
+    """验证展示回调失败不能泄漏底层 HTTP 流。"""
+    async def payloads():
+        await asyncio.Event().wait()
+        yield {}
+
+    async def fail_recovery(_phase: str, _event_seq: int) -> None:
+        raise RuntimeError("recovery sink failed")
+
+    payload_stream = _PayloadStream(payloads())
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        on_recovery_status=fail_recovery,
+    )
+    event_stream._payload_stream = payload_stream
+    event_stream._recovery_phase = "reconnecting"
+
+    with pytest.raises(RuntimeError, match="recovery sink failed"):
+        await event_stream.aclose()
+
+    assert payload_stream.closed is True
 
 
 @pytest.mark.anyio
@@ -424,114 +481,16 @@ async def test_consecutive_attach_failures_stop_after_retry_budget(monkeypatch) 
     transport.assert_not_called()
 
 
-def test_valid_event_resets_consecutive_attach_budget(monkeypatch) -> None:
-    reconnecting = []
-    monkeypatch.setattr(chat, "TRANSPORT_RETRY_MIN_VISIBLE_SEC", 0.0)
-    event_stream = chat.stream_chat(
-        {},
-        "hello",
-        [],
-        on_reconnect_status=reconnecting.append,
-    )
+@pytest.mark.anyio
+async def test_valid_event_resets_consecutive_attach_budget(monkeypatch) -> None:
+    event_stream = chat.stream_chat({}, "hello", [])
     event_stream._reconnect_failures = 4
     event_stream._reconnect_started_at = 100.0
-    event_stream._set_reconnecting(True)
 
-    event_stream._mark_transport_healthy()
+    await event_stream._mark_transport_healthy()
 
     assert event_stream._reconnect_failures == 0
     assert event_stream._reconnect_started_at is None
-    assert reconnecting == [True, False]
-
-
-def test_transport_retry_status_has_minimum_visible_interval(monkeypatch) -> None:
-    now = [100.0]
-    scheduled = {}
-    reconnecting = []
-
-    class Handle:
-        cancelled_value = False
-
-        def cancel(self) -> None:
-            self.cancelled_value = True
-
-        def cancelled(self) -> bool:
-            return self.cancelled_value
-
-    handle = Handle()
-    loop = Mock()
-
-    def call_later(delay, callback, *args):
-        scheduled.update(delay=delay, callback=callback, args=args)
-        return handle
-
-    loop.call_later.side_effect = call_later
-    monkeypatch.setattr(chat.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(chat.asyncio, "get_running_loop", lambda: loop)
-
-    event_stream = chat.stream_chat(
-        {},
-        "hello",
-        [],
-        on_reconnect_status=reconnecting.append,
-    )
-    event_stream._set_reconnecting(True)
-
-    now[0] = 100.1
-    event_stream._mark_transport_healthy()
-
-    assert reconnecting == [True]
-    assert scheduled["delay"] == pytest.approx(0.7)
-
-    scheduled["callback"](*scheduled["args"])
-
-    assert reconnecting == [True, False]
-
-
-def test_stale_retry_clear_does_not_hide_new_reconnect(monkeypatch) -> None:
-    now = [100.0]
-    scheduled = []
-    reconnecting = []
-
-    class Handle:
-        cancelled_value = False
-
-        def cancel(self) -> None:
-            self.cancelled_value = True
-
-        def cancelled(self) -> bool:
-            return self.cancelled_value
-
-    loop = Mock()
-
-    def call_later(delay, callback, *args):
-        handle = Handle()
-        scheduled.append((delay, callback, args, handle))
-        return handle
-
-    loop.call_later.side_effect = call_later
-    monkeypatch.setattr(chat.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(chat.asyncio, "get_running_loop", lambda: loop)
-
-    event_stream = chat.stream_chat(
-        {},
-        "hello",
-        [],
-        on_reconnect_status=reconnecting.append,
-    )
-    event_stream._set_reconnecting(True)
-
-    now[0] = 100.1
-    event_stream._mark_transport_healthy()
-    _, stale_callback, stale_args, stale_handle = scheduled[-1]
-
-    now[0] = 100.2
-    event_stream._set_reconnecting(True)
-    stale_callback(*stale_args)
-
-    assert stale_handle.cancelled() is True
-    assert reconnecting == [True]
-    assert event_stream._reconnecting is True
 
 
 @pytest.mark.anyio
@@ -567,7 +526,7 @@ async def test_silent_stream_timeout_attaches_and_reports_reconnecting(
         "hello",
         [],
         timeout=1.0,
-        on_reconnect_status=reconnecting.append,
+        on_recovery_status=_recovery_recorder(reconnecting),
     )
 
     events = [event async for event in event_stream]
@@ -580,7 +539,11 @@ async def test_silent_stream_timeout_attaches_and_reports_reconnecting(
         "https://example.com/mind-chat",
         "https://example.com/mind-attach",
     ]
-    assert reconnecting == [True, False]
+    assert reconnecting == [
+        ("reconnecting", 1),
+        ("replaying", 1),
+        ("caught_up", 2),
+    ]
 
 
 @pytest.mark.anyio
@@ -661,6 +624,64 @@ async def test_disconnect_attaches_after_last_sequence_and_deduplicates_replay(
 
 
 @pytest.mark.anyio
+async def test_replay_reports_caught_up_after_last_historical_event(
+    monkeypatch,
+) -> None:
+    """验证恢复水位只在最后一条历史事件交付后切回实时模式。"""
+    recovery = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        if url.endswith("/mind-chat"):
+            yield {
+                "type": "text.delta",
+                "turn_id": "turn_001",
+                "event_seq": 1,
+                "segment_id": "segment_1",
+                "text": "first",
+            }
+            raise OSError("connection lost")
+        for event_seq in (2, 3, 4):
+            yield {
+                "type": "text.delta",
+                "turn_id": "turn_001",
+                "event_seq": event_seq,
+                "segment_id": "segment_1",
+                "text": str(event_seq),
+            }
+        yield {
+            "type": "turn.logical_settled",
+            "turn_id": "turn_001",
+            "event_seq": 5,
+            "next_input": None,
+        }
+
+    _install_reconnect_stream(
+        monkeypatch,
+        streaming,
+        replay_target_seq=4,
+    )
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        on_recovery_status=_recovery_recorder(recovery),
+    )
+    iterator = event_stream.__aiter__()
+
+    assert (await anext(iterator)).event_seq == 1
+    assert (await anext(iterator)).event_seq == 2
+    assert recovery == [
+        ("reconnecting", 1),
+        ("replaying", 1),
+    ]
+    assert (await anext(iterator)).event_seq == 3
+    assert (await anext(iterator)).event_seq == 4
+    assert recovery[-1] == ("replaying", 1)
+    assert (await anext(iterator)).event_seq == 5
+    assert recovery[-1] == ("caught_up", 4)
+
+
+@pytest.mark.anyio
 async def test_chat_conflict_does_not_attach_reused_turn(monkeypatch) -> None:
     calls = []
 
@@ -696,6 +717,7 @@ async def test_disconnect_before_first_event_resubmits_same_chat_when_missing(
     monkeypatch,
 ) -> None:
     calls = []
+    recovery = []
     payload = {
         "turn_id": "turn_001",
         "message": "hello",
@@ -722,7 +744,12 @@ async def test_disconnect_before_first_event_resubmits_same_chat_when_missing(
     monkeypatch.setattr(chat, "build_chat_payload", build_payload)
     monkeypatch.setattr(chat, "get_turn_status", status_probe)
 
-    event_stream = chat.stream_chat({}, "hello", [])
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        on_recovery_status=_recovery_recorder(recovery),
+    )
     events = [event async for event in event_stream]
 
     assert len(events) == 1
@@ -739,6 +766,10 @@ async def test_disconnect_before_first_event_resubmits_same_chat_when_missing(
         sid="sid_1",
         turn_id="turn_001",
     )
+    assert recovery == [
+        ("reconnecting", 0),
+        ("caught_up", 0),
+    ]
 
 
 @pytest.mark.anyio
@@ -788,7 +819,7 @@ async def test_disconnect_before_first_event_attaches_when_turn_exists(
     monkeypatch,
 ) -> None:
     calls = []
-    status_probe = AsyncMock(return_value=object())
+    status_probe = AsyncMock(return_value=SimpleNamespace(last_event_seq=3))
 
     async def streaming(url, _headers, payload, _timeout):
         calls.append((url, payload))

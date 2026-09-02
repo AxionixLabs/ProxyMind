@@ -31,7 +31,7 @@ _RESERVED_MODEL_OPTIONS = frozenset({
     "message",
     "metadata",
     "on_approval_snapshot",
-    "on_reconnect_status",
+    "on_recovery_status",
     "pref_config",
     "sid",
     "timeout",
