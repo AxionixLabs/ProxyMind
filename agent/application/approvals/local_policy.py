@@ -3,17 +3,18 @@
 
 import time
 import typing
-from agent.application.approvals.models import ApprovalDecisionValue
+
 from agent.application.approvals.amendments import approval_execpolicy_amendment
-from agent.domain.permission_profiles import normalize_permission_profile
-from agent.domain.execution_policy import (
-    ExecutionPolicyRequirement,
-    validate_sandbox_permission_arguments,
-)
+from agent.application.approvals.models import ApprovalDecisionValue
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext,
 )
+from agent.domain.execution_policy import (
+    ExecutionPolicyRequirement,
+    validate_sandbox_permission_arguments,
+)
+from agent.domain.permission_profiles import normalize_permission_profile
 from agent.ports import (
     ExecutionPolicy,
     PatchPreviewPort,
@@ -83,11 +84,11 @@ def local_exec_policy_requirement(
         sandbox_permissions == "with_additional_permissions"
         and additional_permissions
         and not _has_permission_grant(
-            turn_context,
-            arguments,
-            permissions=additional_permissions,
-            cwd=command_cwd,
-        )
+        turn_context,
+        arguments,
+        permissions=additional_permissions,
+        cwd=command_cwd,
+    )
     ):
         if requirement.state == "forbidden":
             return requirement
@@ -168,17 +169,17 @@ def local_exec_policy_approval(
         "environment": (
             "host"
             if str(invocation.arguments.get("sandbox_permissions") or "")
-            .strip()
-            .casefold() == "require_escalated"
+               .strip()
+               .casefold() == "require_escalated"
             else "local"
         ),
     }
     for field_name in (
-        "environment_id",
-        "tty",
-        "additional_permissions",
-        "policy_fingerprint",
-        "patch_scope",
+            "environment_id",
+            "tty",
+            "additional_permissions",
+            "policy_fingerprint",
+            "patch_scope",
     ):
         value = invocation.arguments.get(field_name)
         if value not in (None, "", (), [], {}):
@@ -218,7 +219,7 @@ def local_patch_approval(
 ) -> dict[str, typing.Any]:
     """构造补丁专用的本地审批请求。"""
     arguments = dict(invocation.arguments)
-    patch     = str(arguments.get("patch") or "")
+    patch = str(arguments.get("patch") or "")
 
     preview: dict[str, typing.Any] | None = None
 

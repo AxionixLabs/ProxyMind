@@ -8,8 +8,8 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
-from frontends.terminal.layout_rules import full_rule_width
 from frontends.terminal.formatting import format_elapsed
+from frontends.terminal.layout_rules import full_rule_width
 
 WORKED_RULE_STYLE = TextStyle(foreground="#414A54")
 WORKED_LABEL_STYLE = TextStyle(foreground="#626D78")

@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import json
+import sqlite3
 import time
 import typing
-import asyncio
-import sqlite3
 from pathlib import Path
+
 from agent.ports import (
     EffectIntent,
     EffectJournalDecision,

@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import httpx
-import typing
 import asyncio
+import typing
+
+import httpx
+
 from agent.ports import (
     ApprovalSnapshotCallback,
     ModelCapabilityError,
@@ -25,7 +27,13 @@ from agent.protocol import (
     validate_model_event,
 )
 from agent.protocol.json_value import ThawedJsonValue
+from protocol.client.chat import stream_chat
 from protocol.client.effects import post_effect_reconciliation as _post_effect_reconciliation
+from protocol.client.fork import (
+    ConversationForkRequestError,
+    ResubmittablePrompt as _WireResubmittablePrompt,
+    request_conversation_fork as _request_conversation_fork,
+)
 from protocol.client.tools import (
     ToolApprovalRequestError,
     ToolResultRequestError,
@@ -42,14 +50,8 @@ from protocol.client.turn_control import (
     reconcile_turn_inputs as _reconcile_turn_inputs,
     steer_turn as _steer_turn,
 )
-from protocol.client.fork import (
-    ConversationForkRequestError,
-    ResubmittablePrompt as _WireResubmittablePrompt,
-    request_conversation_fork as _request_conversation_fork,
-)
 from protocol.schema.turn_inputs import TurnInput as _WireTurnInput
 from .items import CanonicalItemReducer
-from protocol.client.chat import stream_chat
 
 SessionIdentity: typing.TypeAlias = tuple[str, str]
 

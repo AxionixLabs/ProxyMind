@@ -1,50 +1,35 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
 import hashlib
-from agent.ports import (
-    EffectJournal,
-    EffectJournalPersistenceError,
-    LocalEffectReconciliationRequired,
-)
+import typing
 from dataclasses import (
     dataclass,
     field,
     replace
 )
-from observability import observe_exception
+
+from agent.application.hooks.models import (
+    ToolOperationResult,
+    ToolResultSnapshot
+)
+from agent.application.tools.authorization import ToolTurnInterrupted
+from agent.application.tools.context import (
+    NESTED_TOOL_DISPATCH_META_KEY,
+    TURN_INTERRUPT_META_KEY,
+)
 from agent.application.tools.execution import (
     ClientToolResultEnvelope,
     ToolExecutionAdapter,
     ToolExecutionResult,
     build_client_tool_result,
 )
-from agent.application.tools.context import (
-    NESTED_TOOL_DISPATCH_META_KEY,
-    TURN_INTERRUPT_META_KEY,
-)
-from agent.application.tools.authorization import ToolTurnInterrupted
-from agent.ports import (
-    McpSessionPort,
-    NestedToolOutput,
-    ProtocolCommandError,
-)
-from agent.ports import (
-    OutputControlPort,
-    OutputStatusPort
-)
-from agent.application.views.contracts import PresentationSink
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext
 )
-from agent.application.hooks.models import (
-    ToolOperationResult,
-    ToolResultSnapshot
-)
-from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
+from agent.application.views.contracts import PresentationSink
 from agent.application.views.tool_display import (
     is_two_stage_tool,
     tool_status_text,
@@ -54,6 +39,22 @@ from agent.application.views.tool_execution import (
     show_tool_result,
     show_tool_start,
 )
+from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
+from agent.ports import (
+    EffectJournal,
+    EffectJournalPersistenceError,
+    LocalEffectReconciliationRequired,
+)
+from agent.ports import (
+    McpSessionPort,
+    NestedToolOutput,
+    ProtocolCommandError,
+)
+from agent.ports import (
+    OutputControlPort,
+    OutputStatusPort
+)
+from observability import observe_exception
 
 
 @dataclass(slots=True)
@@ -189,18 +190,18 @@ class ClientToolCallRunner:
         interrupt_turn: typing.Callable[[str], typing.Awaitable[bool]] | None = None,
     ) -> None:
         """绑定工具生命周期端口和持久效果依赖。"""
-        self.session               = session
-        self.output_control        = output_control
-        self.status_control        = status_control
-        self.presentation          = presentation
-        self.tools                 = tools
-        self.pref_config           = pref_config
+        self.session = session
+        self.output_control = output_control
+        self.status_control = status_control
+        self.presentation = presentation
+        self.tools = tools
+        self.pref_config = pref_config
         self.tool_call_coordinator = tool_call_coordinator
-        self.tool_execution        = tool_execution
-        self.patch_preview         = patch_preview
-        self.effect_journal        = effect_journal
-        self.effect_reconciler     = effect_reconciler
-        self.interrupt_turn        = interrupt_turn
+        self.tool_execution = tool_execution
+        self.patch_preview = patch_preview
+        self.effect_journal = effect_journal
+        self.effect_reconciler = effect_reconciler
+        self.interrupt_turn = interrupt_turn
 
     @staticmethod
     def _outcome_payload(outcome: ClientToolCallOutcome) -> dict[str, typing.Any]:
@@ -221,8 +222,8 @@ class ClientToolCallRunner:
     def _outcome_from_payload(payload: dict[str, typing.Any]) -> ClientToolCallOutcome:
         """从本地效果账本恢复最终可见结果。"""
         arguments = payload.get("arguments")
-        fields    = payload.get("fields")
-        contexts  = payload.get("additional_context")
+        fields = payload.get("fields")
+        contexts = payload.get("additional_context")
 
         if not isinstance(arguments, dict) or not isinstance(fields, dict):
             raise ValueError("persisted local effect result is invalid")
@@ -322,7 +323,7 @@ class ClientToolCallRunner:
             return None
 
         arguments = invocation.arguments
-        patch     = str(arguments.get("patch") or "")
+        patch = str(arguments.get("patch") or "")
 
         expected_sha256 = arguments.get("expected_sha256")
         if not isinstance(expected_sha256, dict):
@@ -352,9 +353,9 @@ class ClientToolCallRunner:
             or any(not isinstance(item, dict) for item in files)
             or any(not isinstance(item, dict) for item in changes)
             or any(
-                not isinstance(item.get("hunks"), list)
-                for item in changes
-            )
+            not isinstance(item.get("hunks"), list)
+            for item in changes
+        )
         ):
             return None
         return dict(data)
@@ -392,7 +393,7 @@ class ClientToolCallRunner:
         request_suffix = self._effect_request_suffix(effect_id)
 
         result = result_payload.get("result")
-        data   = result.get("data") if isinstance(result, dict) else None
+        data = result.get("data") if isinstance(result, dict) else None
 
         resolution: typing.Literal["failed", "committed"] = (
             "failed"
@@ -476,10 +477,10 @@ class ClientToolCallRunner:
         display: bool,
     ) -> ClientToolCallResult:
         """执行已通过前置检查的客户端工具调用。"""
-        name      = invocation.name
+        name = invocation.name
         arguments = dict(invocation.arguments)
-        call_id   = invocation.call_id
-        cost_ms   = 0
+        call_id = invocation.call_id
+        cost_ms = 0
 
         nested_output: NestedToolOutput | None = None
 
@@ -557,9 +558,9 @@ class ClientToolCallRunner:
                 status_text=tool_status_text(name),
             )
 
-            ok      = tool_run.ok
-            fields  = tool_run.fields
-            text    = tool_run.text
+            ok = tool_run.ok
+            fields = tool_run.fields
+            text = tool_run.text
             cost_ms = tool_run.cost_ms
 
             nested_output = getattr(tool_run, "nested_output", None)
@@ -569,7 +570,7 @@ class ClientToolCallRunner:
             raise
         except Exception as exc:
             text = f"{type(exc).__name__}: {exc}"
-            ok   = False
+            ok = False
 
             fields = build_client_tool_result(
                 tool=name,

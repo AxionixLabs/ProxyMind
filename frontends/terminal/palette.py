@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import math
+
 from .capabilities import (
     RgbColor,
     TerminalColorLevel,

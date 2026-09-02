@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import sys
 import json
 import math
+import sys
 import typing
-from agent.application.views.contracts import (
-    PresentationSink,
-    PresentationView
-)
+
 from agent.application.views import (
     ApprovalView,
     BatchCompletedView,
@@ -26,6 +23,10 @@ from agent.application.views import (
     RunIncompleteView,
     RunStartedView,
     ToolStartView
+)
+from agent.application.views.contracts import (
+    PresentationSink,
+    PresentationView
 )
 from agent.ports import (
     AssistantOutputBoundary,
@@ -75,13 +76,13 @@ def _terminal_payload(
     }
 
     for field_name in (
-        "response_id",
-        "model",
-        "route",
-        "request_id",
-        "service_tier",
-        "stop_reason",
-        "stop_sequence",
+            "response_id",
+            "model",
+            "route",
+            "request_id",
+            "service_tier",
+            "stop_reason",
+            "stop_sequence",
     ):
         value = getattr(view, field_name)
         if value not in {None, ""}:
@@ -198,13 +199,13 @@ class JsonOutputState:
         if (
             self._assistant_identity is not None
             and (
-                self._assistant_identity != identity
-                or (
-                    item_id
-                    and self._assistant_item_id
-                    and self._assistant_item_id != item_id
-                )
+            self._assistant_identity != identity
+            or (
+                item_id
+                and self._assistant_item_id
+                and self._assistant_item_id != item_id
             )
+        )
         ):
             self.flush_assistant()
 

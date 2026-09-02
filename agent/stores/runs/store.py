@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-import json
-import typing
 import asyncio
+import json
 import sqlite3
+import typing
 from pathlib import Path
+
 from agent.domain import (
     RECOVERABLE_RUN_STATUSES,
     RunStatus,
@@ -32,6 +33,7 @@ from .schema import (
     RUN_STORE_SCHEMA_SQL,
     RUN_STORE_SCHEMA_VERSION,
 )
+
 
 class SQLiteRunStore:
     """使用独立 SQLite 文件事务保存 Run 事件、快照、事实和 outbox。"""

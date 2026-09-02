@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+
 from agent.domain.identifiers import derive_stable_id
 
 

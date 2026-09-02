@@ -2,8 +2,9 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from agent.application.turns.run_result import RunResult
+
 from agent.application.turns.execution import TurnExecution
+from agent.application.turns.run_result import RunResult
 from agent.ports import (
     EventReportPort,
     McpSessionPort,

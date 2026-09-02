@@ -2,13 +2,14 @@
 # Notes: ==== Mind™ ====
 
 import copy
-import typing
 import dataclasses
+import typing
 from collections.abc import Mapping
 from dataclasses import (
     dataclass,
     field,
 )
+
 from agent.protocol import (
     CanonicalItem,
     ModelEvent,
@@ -255,8 +256,8 @@ class CanonicalItemReducer:
         first_event_seq = (
             event_seq
             if isinstance(event_seq, int)
-            and not isinstance(event_seq, bool)
-            and event_seq > 0
+               and not isinstance(event_seq, bool)
+               and event_seq > 0
             else watermark
         )
         if first_event_seq > watermark:
@@ -468,9 +469,9 @@ class CanonicalItemReducer:
             )
         round_no, attempt = self._response_position(event)
         if (
-            item_id,
-            event.presentation_epoch,
-            round_no,
+                item_id,
+                event.presentation_epoch,
+                round_no,
         ) in self._retired_response_items:
             return None
         key = (item_id, event.presentation_epoch, round_no, attempt)

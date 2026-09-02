@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.definitions import ClientTool
 from agent.application.tools.results import (
@@ -96,7 +97,7 @@ def normalize_update_plan_arguments(
     arguments: dict[str, typing.Any] | None
 ) -> tuple[bool, dict[str, typing.Any], list[str]]:
     """校验并标准化完整计划快照。"""
-    payload: dict     = dict(arguments or {})
+    payload: dict = dict(arguments or {})
     errors: list[str] = []
 
     explanation = _normalize_explanation(payload.get("explanation"), errors)
@@ -122,8 +123,8 @@ def normalize_update_plan_arguments(
         errors.append("multiple in_progress steps")
 
     normalized = {
-        "explanation" : explanation,
-        "plan"        : plan
+        "explanation": explanation,
+        "plan": plan
     }
     return bool(plan) and not errors, normalized, errors
 

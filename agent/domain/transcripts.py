@@ -157,12 +157,12 @@ class TranscriptReplay:
                         index
                         for index in range(len(replay) - 1, -1, -1)
                         if (
-                            replay[index].actor == "assistant"
-                            and _payload_text(
-                                replay[index].payload,
-                                "item_id",
-                            ) == item_id
-                        )
+                        replay[index].actor == "assistant"
+                        and _payload_text(
+                        replay[index].payload,
+                        "item_id",
+                    ) == item_id
+                    )
                     ),
                     None,
                 )
@@ -302,7 +302,6 @@ __all__ = (
     "TranscriptEntry",
     "TranscriptReplay",
 )
-
 
 if __name__ == "__main__":
     pass

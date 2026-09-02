@@ -2,11 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from pathlib import Path
 from collections.abc import (
     Callable,
     Mapping,
 )
+from pathlib import Path
+
 from agent.ports import (
     CapabilityError,
     EnvironmentSnapshotCapability,

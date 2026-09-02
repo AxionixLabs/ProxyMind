@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from dataclasses import dataclass
+
 from agent.domain.hook_trust import (
     HookTrustState,
     hook_is_active,

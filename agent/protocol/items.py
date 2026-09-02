@@ -6,6 +6,7 @@ from dataclasses import (
     dataclass,
     field
 )
+
 from .json_value import (
     JsonValue,
     ThawedJsonValue,
@@ -42,24 +43,24 @@ class CanonicalItem:
     def __post_init__(self) -> None:
         """校验身份、序号和替代标记并冻结展示载荷。"""
         for field_name in (
-            "cid",
-            "sid",
-            "turn_id",
-            "item_id",
-            "item_kind",
-            "item_status",
-            "last_event_type",
+                "cid",
+                "sid",
+                "turn_id",
+                "item_id",
+                "item_kind",
+                "item_status",
+                "last_event_type",
         ):
             value = getattr(self, field_name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"canonical item {field_name} is required")
             object.__setattr__(self, field_name, value.strip())
         for field_name in (
-            "presentation_epoch",
-            "round_no",
-            "attempt",
-            "first_event_seq",
-            "last_event_seq",
+                "presentation_epoch",
+                "round_no",
+                "attempt",
+                "first_event_seq",
+                "last_event_seq",
         ):
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:

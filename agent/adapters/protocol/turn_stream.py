@@ -1,9 +1,55 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import time
 import typing
-import asyncio
+
+from agent.adapters.protocol.approval_events import ApprovalEventHandler
+from agent.adapters.protocol.model_events import ModelStreamEventHandler
+from agent.adapters.protocol.model_request import (
+    build_model_stream_request,
+    extend_request_context,
+)
+from agent.adapters.protocol.tool_events import (
+    ToolCallBatchBuffer,
+    ToolEventHandler,
+)
+from agent.adapters.protocol.tool_results import ToolResultDelivery
+from agent.adapters.protocol.turn_interrupts import (
+    cancel_reconciliation_turn,
+    interrupt_approval_cancelled_turn,
+)
+from agent.adapters.protocol.turn_setup import prepare_stream_turn
+from agent.application.hooks.models import StopHookDecision
+from agent.application.tools.execution import ToolExecutionAdapter
+from agent.application.turns.exception_text import friendly_exception_text
+from agent.application.turns.execution import (
+    TurnExecution,
+    create_continuation_execution,
+)
+from agent.application.turns.lifecycle import handle_lifecycle_event
+from agent.application.turns.presentation import (
+    FailureProjectionMode,
+    StreamTurnPresentation,
+)
+from agent.application.turns.retry_status import RetryStatus
+from agent.application.turns.run_result import RunResult
+from agent.application.turns.stream_outcome import StreamTurnOutcome
+from agent.application.turns.transcript import (
+    build_turn_input_payload,
+    record_turn_started,
+)
+from agent.harness.execution.idle_status import IdleStatusTimer
+from agent.harness.execution.turn_finalizer import StreamTurnFinalizer
+from agent.harness.execution.turn_runner import turn_continuation_count
+from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
+from agent.harness.hooks.turn_lifecycle import (
+    PromptHookBlockedError,
+    TurnHookEvents
+)
+from agent.harness.tools.client_calls import ClientToolCallRunner
+from agent.harness.tools.plan_calls import PlanToolCallRunner
 from agent.ports import (
     ApprovalCoordinatorPort,
     ApprovalLedger,
@@ -21,17 +67,15 @@ from agent.ports import (
     TurnSessionContextPort,
     TurnSessionStatePort,
 )
-from agent.application.turns.run_result import RunResult
-from agent.application.turns.retry_status import RetryStatus
-from agent.application.turns.stream_outcome import StreamTurnOutcome
-from agent.application.turns.execution import (
-    TurnExecution,
-    create_continuation_execution,
+from agent.ports import OutputControlPort
+from agent.ports import OutputSessionFactory
+from observability import (
+    observe,
+    observe_exception
 )
-from protocol.client.turn_control import (
-    interrupt_turn
+from protocol.client.tools import (
+    ToolResultRequestError
 )
-from protocol.schema.turn_inputs import TurnInput
 from protocol.schema.stream_events import (
     ToolApprovalRequiredEvent,
     ToolBuiltinDoneEvent,
@@ -45,57 +89,7 @@ from protocol.schema.stream_events import (
     TurnLogicalSettledEvent,
     TurnReconciliationRequiredEvent
 )
-from protocol.client.tools import (
-    ToolResultRequestError,
-    get_tool_result_status,
-    post_tool_approval,
-    post_tool_result
-)
-from protocol.client.effects import post_effect_reconciliation
-from agent.ports import OutputControlPort
-from agent.ports import OutputSessionFactory
-from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
-from agent.application.tools.execution import ToolExecutionAdapter
-from agent.application.hooks.models import StopHookDecision
-from agent.harness.hooks.turn_lifecycle import (
-    PromptHookBlockedError,
-    TurnHookEvents
-)
-from agent.application.turns.exception_text import friendly_exception_text
-from agent.harness.tools.client_calls import ClientToolCallRunner
-from agent.harness.tools.plan_calls import PlanToolCallRunner
-from agent.harness.execution.turn_runner import turn_continuation_count
-from agent.application.turns.transcript import (
-    build_turn_input_payload,
-    record_turn_started,
-)
-from agent.harness.execution.idle_status import IdleStatusTimer
-from agent.adapters.protocol.approval_events import ApprovalEventHandler
-from agent.adapters.protocol.model_request import (
-    build_model_stream_request,
-    extend_request_context,
-)
-from agent.adapters.protocol.tool_events import (
-    ToolCallBatchBuffer,
-    ToolEventHandler,
-)
-from agent.adapters.protocol.turn_setup import prepare_stream_turn
-from agent.adapters.protocol.model_events import ModelStreamEventHandler
-from agent.adapters.protocol.tool_results import ToolResultDelivery
-from agent.adapters.protocol.turn_interrupts import (
-    cancel_reconciliation_turn,
-    interrupt_approval_cancelled_turn,
-)
-from agent.harness.execution.turn_finalizer import StreamTurnFinalizer
-from agent.application.turns.presentation import (
-    FailureProjectionMode,
-    StreamTurnPresentation,
-)
-from agent.application.turns.lifecycle import handle_lifecycle_event
-from observability import (
-    observe,
-    observe_exception
-)
+from protocol.schema.turn_inputs import TurnInput
 
 MAX_STOP_CONTINUATIONS = 3
 
@@ -144,8 +138,8 @@ async def stream_turn(
     output_control: OutputControlPort = output_session.control
 
     status_control = output_session.status
-    presentation   = output_session.presentation
-    content        = output_session.content
+    presentation = output_session.presentation
+    content = output_session.content
 
     first_frame: bool = True
     outcome = StreamTurnOutcome()
@@ -192,7 +186,7 @@ async def stream_turn(
     turn_hook_events: TurnHookEvents | None = None
 
     stop_decision = StopHookDecision.stop()
-    event_stream  = None
+    event_stream = None
     assistant_text = ""
 
     transcript_factory = turn_context.transcript_factory

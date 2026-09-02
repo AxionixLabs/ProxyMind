@@ -3,6 +3,7 @@
 
 import typing
 from collections.abc import Mapping
+
 from agent.application.tools.authorization import (
     ExecutionAuthorizationError,
     reject_model_execution,

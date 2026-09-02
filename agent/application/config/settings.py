@@ -32,7 +32,7 @@ class AgentSettings:
     @classmethod
     def from_config(cls, config: typing.Any) -> "AgentSettings":
         """从有效配置快照读取运行设置。"""
-        root   = config if isinstance(config, dict) else {}
+        root = config if isinstance(config, dict) else {}
         values = normalize_agent_table(root.get("agents"))
 
         return cls(

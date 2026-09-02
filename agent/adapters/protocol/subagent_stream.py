@@ -2,6 +2,7 @@
 
 import typing
 
+from agent.adapters.protocol.turn_stream import stream_turn
 from agent.application.tools.execution import ToolExecutionAdapter
 from agent.application.turns.execution import TurnExecution
 from agent.application.turns.run_result import RunResult
@@ -14,7 +15,6 @@ from agent.ports import (
     ProtocolCommandClient,
     TurnInputEventHandler,
 )
-from agent.adapters.protocol.turn_stream import stream_turn
 
 
 class ProtocolSubagentStream:

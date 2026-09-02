@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,

@@ -3,7 +3,9 @@
 
 import typing
 import unicodedata
+
 from prompt_toolkit.utils import get_cwidth
+
 from frontends.tui.contracts.text import (
     FormattedText,
     LineFill
@@ -39,7 +41,7 @@ def _iter_visible_formatted_text_units(fragments: FormattedText) -> typing.Itera
 
     plain_text = fragments_text(fragments)
 
-    fragment_index: int  = 0
+    fragment_index: int = 0
     fragment_offset: int = 0
 
     for unit_text in iter_text_units(plain_text):
@@ -50,8 +52,8 @@ def _iter_visible_formatted_text_units(fragments: FormattedText) -> typing.Itera
             style, text = fragments[fragment_index]
 
             available = len(text) - fragment_offset
-            count     = min(remaining, available)
-            value     = text[fragment_offset:fragment_offset + count]
+            count = min(remaining, available)
+            value = text[fragment_offset:fragment_offset + count]
 
             if unit and unit[-1][0] == style:
                 previous_style, previous_text = unit[-1]
@@ -178,7 +180,7 @@ def next_text_unit_end(text: str, start: int) -> int:
     return index
 
 
-def iter_text_unit_ranges(text: str,) -> typing.Iterator[tuple[int, int, str]]:
+def iter_text_unit_ranges(text: str, ) -> typing.Iterator[tuple[int, int, str]]:
     """按原文位置迭代不可拆分的组合文本单元。"""
     value = str(text or "")
     start = 0
@@ -194,7 +196,7 @@ def iter_text_units(text: str) -> typing.Iterator[str]:
         yield unit
 
 
-def iter_formatted_text_units( parts: FormattedText) -> typing.Iterator[FormattedText]:
+def iter_formatted_text_units(parts: FormattedText) -> typing.Iterator[FormattedText]:
     """迭代保留原始样式边界的组合文本单元。"""
     fragments: FormattedText = []
     for style, text in parts:
@@ -212,7 +214,7 @@ def iter_formatted_text_units( parts: FormattedText) -> typing.Iterator[Formatte
 def split_formatted_lines(parts: FormattedText) -> list[FormattedText]:
     """按显式换行拆分格式化片段并保留每行样式。"""
     lines: list[FormattedText] = []
-    current: FormattedText     = []
+    current: FormattedText = []
 
     found: bool = False
 
@@ -355,7 +357,7 @@ def fill_fragments(
 ) -> FormattedText:
     """裁剪或延伸单行片段，使其占满指定的可用宽度。"""
     target = max(1, int(width) - max(0, int(fill.margin)))
-    out    = clip_fragments(parts, width=target)
+    out = clip_fragments(parts, width=target)
 
     used = get_cwidth(fragments_text(out))
     if used >= target:
@@ -368,7 +370,7 @@ def fill_fragments(
         character = " "
         character_width = 1
 
-    count     = (target - used) // character_width
+    count = (target - used) // character_width
     remainder = target - used - count * character_width
 
     style = (
@@ -418,8 +420,8 @@ def fragment_continuation_widths(
     prefix_width: int
 ) -> tuple[int, ...]:
     """按逻辑行首样式返回自动折行前缀宽度。"""
-    widths: list[int]   = []
-    current_width: int  = 0
+    widths: list[int] = []
+    current_width: int = 0
     at_line_start: bool = True
 
     for style, text in parts:
@@ -457,9 +459,9 @@ def cursor_point_for_display_row(
 ) -> tuple[int, int]:
     """返回指定视觉行起点对应的逻辑光标位置。"""
     line_width: int = max(1, int(width))
-    target: int     = max(0, int(display_row))
+    target: int = max(0, int(display_row))
     visual_row: int = 0
-    logical_lines   = text.split("\n")
+    logical_lines = text.split("\n")
 
     for line_number, line in enumerate(logical_lines):
         if target == visual_row:

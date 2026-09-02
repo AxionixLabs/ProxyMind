@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import time
 import typing
-import asyncio
 from collections import deque
-from dataclasses import dataclass
-from observability import observe_exception
-from agent.domain.agents import (
-    AgentResumeStatus,
-    AgentStatus,
-    AgentSubmission,
-    FINAL_AGENT_STATUSES,
-    RESTART_INTERRUPTION_ERROR,
+
+from agent.application.agents.thread import (
+    AgentThreadContext,
+    AgentTurnContext,
 )
 from agent.application.agents.views import (
     AgentMailboxWaitResult,
@@ -20,9 +16,12 @@ from agent.application.agents.views import (
     AgentWaitResult,
 )
 from agent.application.turns.context import AgentContext
-from agent.application.agents.thread import (
-    AgentThreadContext,
-    AgentTurnContext,
+from agent.domain.agents import (
+    AgentResumeStatus,
+    AgentStatus,
+    AgentSubmission,
+    FINAL_AGENT_STATUSES,
+    RESTART_INTERRUPTION_ERROR,
 )
 from agent.stores.agents.graph import (
     AgentGraphCheckpoint,
@@ -30,9 +29,9 @@ from agent.stores.agents.graph import (
 )
 from agent.stores.agents.mailbox import (
     AgentMailboxEvent,
-    AgentMailboxSnapshot,
     AgentMailboxStore
 )
+from observability import observe_exception
 
 
 class AgentControlError(RuntimeError):
@@ -59,7 +58,6 @@ AgentTurnExecutor = typing.Callable[
     [AgentTurnContext, AgentSubmission],
     typing.Awaitable[typing.Any],
 ]
-
 
 AgentGraphPublisher = typing.Callable[[AgentGraphCheckpoint], None]
 
@@ -153,7 +151,7 @@ class AgentControl:
         self._records_by_path: dict[str, _AgentRecord] = {}
         self._mailbox = AgentMailboxStore()
         self._shutdown: bool = False
-        self._revision: int  = 0
+        self._revision: int = 0
 
     @classmethod
     def restore(
@@ -632,7 +630,7 @@ class AgentControl:
             await asyncio.gather(task, return_exceptions=True)
             async with self._condition:
 
-                record  = self._records.get(agent_id)
+                record = self._records.get(agent_id)
                 changed = False
 
                 if (
@@ -642,7 +640,7 @@ class AgentControl:
                 ):
                     record.status = "interrupted"
                     record.result = None
-                    record.error  = ""
+                    record.error = ""
 
                     changed = True
 
@@ -703,7 +701,7 @@ class AgentControl:
         record.turn_count += 1
 
         record.result = None
-        record.error  = ""
+        record.error = ""
 
         record.task = asyncio.create_task(
             self._run_turn(
@@ -809,8 +807,8 @@ class AgentControl:
 
             record.status = status
             record.result = result
-            record.error  = error
-            record.task   = None
+            record.error = error
+            record.task = None
 
             self._mailbox.publish(
                 "status",
@@ -879,7 +877,7 @@ class AgentControl:
                 agent_record.status = "closed"
                 agent_record.queue.clear()
                 agent_record.result = None
-                agent_record.error  = ""
+                agent_record.error = ""
 
                 if not was_closed:
                     self._mailbox.publish(
@@ -1053,7 +1051,7 @@ class AgentControl:
     ) -> _AgentRecord:
         """按标识或任务路径返回内部记录。"""
         context = self._require_target_context(target, caller=caller)
-        record  = self._records.get(context.agent_id)
+        record = self._records.get(context.agent_id)
 
         if record is None:
             normalized = str(target or "").strip()
@@ -1114,7 +1112,7 @@ class AgentControl:
     def _subtree_ids(self, agent_id: str) -> tuple[str, ...]:
         """返回指定执行主体及其全部后代标识。"""
         selected = {agent_id}
-        changed  = True
+        changed = True
 
         while changed:
             changed = False
@@ -1171,10 +1169,10 @@ def _validate_wait_timeout(timeout_sec: float | None) -> None:
     if (
         timeout_sec is not None
         and (
-            isinstance(timeout_sec, bool)
-            or not isinstance(timeout_sec, (int, float))
-            or timeout_sec < 0
-        )
+        isinstance(timeout_sec, bool)
+        or not isinstance(timeout_sec, (int, float))
+        or timeout_sec < 0
+    )
     ):
         raise ValueError("agent wait timeout must be non-negative")
 

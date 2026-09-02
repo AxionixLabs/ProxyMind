@@ -2,15 +2,16 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.application.approvals.summary import (
     approval_amendment_snippet,
     approval_summary,
 )
+from agent.application.views import ApprovalSource
 from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
-from agent.application.views import ApprovalSource
 from frontends.terminal.styles import (
     ERROR_STYLE,
     TITLE_STYLE,
@@ -24,6 +25,7 @@ APPROVAL_TOOL_STYLE = TextStyle(foreground="#7DD3FC", bold=True)
 APPROVAL_ARG_STYLE = TextStyle(foreground="#A7F3D0", bold=True)
 APPROVAL_RES_STYLE = TextStyle(foreground="#8FA4B8", dim=True)
 APPROVAL_SCOPE_STYLE = TextStyle(foreground="#A7F3D0", bold=True)
+
 
 def render_approval_approved_trace(
     approval: dict[str, typing.Any],
@@ -133,7 +135,7 @@ def _approval_title_parts(
         return [TextSpan(title, base_style)]
 
     start = title.find(summary)
-    end   = start + len(summary)
+    end = start + len(summary)
 
     parts: list[TextSpan] = []
 

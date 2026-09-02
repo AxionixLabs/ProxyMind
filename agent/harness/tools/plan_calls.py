@@ -2,30 +2,31 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from agent.application.tools.planning import PLAN_STEPS_TOOL
-from agent.application.tools.execution import ToolExecutionAdapter
-from agent.ports import McpSessionPort
-from agent.application.turns.context import (
-    ToolInvocation,
-    TurnContext
-)
-from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
+
 from agent.application.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
 )
+from agent.application.tools.execution import ToolExecutionAdapter
+from agent.application.tools.planning import PLAN_STEPS_TOOL
+from agent.application.turns.context import (
+    ToolInvocation,
+    TurnContext
+)
+from agent.application.views.builders.plan import build_plan_steps_start_view
+from agent.application.views.contracts import PresentationSink
+from agent.application.views.tool_execution import show_tool_result
+from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
+from agent.ports import McpSessionPort
 from agent.ports import (
     OutputControlPort,
     OutputStatusPort
 )
-from agent.application.views.contracts import PresentationSink
-from agent.application.views.builders.plan import build_plan_steps_start_view
-from agent.application.views.tool_execution import show_tool_result
+from .client_calls import ClientToolCallResult
 from .plan_execution import (
     PlanExecutionReport,
     StepPlanExecutor
 )
-from .client_calls import ClientToolCallResult
 
 
 class PlanToolCallRunner:
@@ -47,7 +48,7 @@ class PlanToolCallRunner:
         """绑定计划执行所需端口和步骤执行器。"""
         self.output_control = output_control
         self.status_control = status_control
-        self.presentation   = presentation
+        self.presentation = presentation
 
         self.executor = StepPlanExecutor(
             session=session,
@@ -65,7 +66,7 @@ class PlanToolCallRunner:
     ) -> "PlanExecutionReport":
         """处理一次完整的 plan_steps 工具调用。"""
         arguments = dict(invocation.arguments)
-        call_id   = invocation.call_id
+        call_id = invocation.call_id
 
         self.output_control.record_tool_arguments(
             PLAN_STEPS_TOOL,

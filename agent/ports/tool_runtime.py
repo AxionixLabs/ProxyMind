@@ -9,6 +9,7 @@ from collections.abc import (
 )
 from dataclasses import dataclass
 from datetime import timedelta
+
 from .mcp_session import McpSessionPort
 
 if typing.TYPE_CHECKING:
@@ -134,7 +135,6 @@ __all__ = (
     "ToolSessionCallback",
     "ToolSessionFactory",
 )
-
 
 if __name__ == '__main__':
     pass

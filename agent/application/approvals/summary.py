@@ -3,6 +3,7 @@
 
 import typing
 import unicodedata
+
 from agent.application.views.commands import command_preview
 from .amendments import approval_execpolicy_amendment
 

@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from collections.abc import (
     Awaitable,
     Callable,
     Mapping
 )
+
 from agent.domain import (
     RunState,
     RunStatus
@@ -188,7 +189,6 @@ class RunActor(typing.Generic[ResultValue]):
             self.state.status = previous_status
             self.state.sequence = previous_sequence
             raise
-
 
 
 if __name__ == '__main__':

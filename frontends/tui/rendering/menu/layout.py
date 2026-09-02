@@ -2,8 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.utils import get_cwidth
+
 from frontends.tui.contracts.menu import (
     MenuDescriptionLayout,
     MenuRequest
@@ -12,7 +14,6 @@ from ..fragments import (
     join_formatted_lines,
     split_formatted_lines
 )
-
 
 MENU_SURFACE_HORIZONTAL_INSET: typing.Final[int] = 2
 

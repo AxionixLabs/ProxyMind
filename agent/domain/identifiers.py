@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import hashlib
+import typing
 
 
 def derive_stable_id(prefix: str, *parts: typing.Any) -> str:

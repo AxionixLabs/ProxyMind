@@ -7,6 +7,7 @@ from dataclasses import (
     dataclass,
     field,
 )
+
 from .run_result import (
     RunResult,
     RunStatus,
@@ -222,13 +223,13 @@ def _terminal_metadata(
     """提取需要保留到运行结果和会话记录的终态字段。"""
     fields: dict[str, typing.Any] = {}
     for field_name, value in (
-        ("response_id", event.response_id),
-        ("model", event.model),
-        ("route", event.route),
-        ("request_id", event.request_id),
-        ("service_tier", event.service_tier),
-        ("stop_reason", event.stop_reason),
-        ("stop_sequence", event.stop_sequence),
+            ("response_id", event.response_id),
+            ("model", event.model),
+            ("route", event.route),
+            ("request_id", event.request_id),
+            ("service_tier", event.service_tier),
+            ("stop_reason", event.stop_reason),
+            ("stop_sequence", event.stop_sequence),
     ):
         if value not in {None, ""}:
             fields[field_name] = value

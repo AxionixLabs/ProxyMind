@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import replace
+
 from pygments import lex
 from pygments.lexer import RegexLexer
 from pygments.lexers import (
@@ -15,6 +16,7 @@ from pygments.token import (
     Whitespace,
 )
 from pygments.util import ClassNotFound
+
 from agent.ports.presentation import (
     TextSpan,
     TextStyle,

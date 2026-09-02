@@ -1,17 +1,22 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import asyncio
 import typing
 from collections.abc import (
     Awaitable,
     Callable
 )
+
 from agent.application.agents.thread import AgentTurnContext
-from agent.application.turns.run_result import RunResult
-from agent.application.turns.execution import TurnExecution
 from agent.application.turns.context import TurnContext
+from agent.application.turns.execution import TurnExecution
+from agent.application.turns.run_result import RunResult
 from agent.domain.agents import AgentSubmission
+from agent.harness.agents.control import AgentControl
+from agent.harness.agents.delivery import (
+    AgentActiveTurn,
+    AgentDeliveryRegistry,
+)
 from agent.ports import (
     EventReportPort,
     AgentMessageDeliveryPort,
@@ -23,14 +28,8 @@ from agent.ports import (
     PermissionGrantReader,
     PatchPreviewPort,
     SubagentExecutionPort,
-    SubagentOperation,
     TurnCleanupPort,
     TranscriptFactory,
-)
-from agent.harness.agents.control import AgentControl
-from agent.harness.agents.delivery import (
-    AgentActiveTurn,
-    AgentDeliveryRegistry,
 )
 from agent.stores.agents.mailbox import format_mailbox_context
 from .subagent_runner import SubagentRunner

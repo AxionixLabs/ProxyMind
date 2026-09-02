@@ -4,6 +4,7 @@
 import re
 import typing
 from dataclasses import dataclass
+
 from agent.domain.hooks import (
     HOOK_EVENT_CONFIG_SPECS,
     HookEventName,

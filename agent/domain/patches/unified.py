@@ -3,6 +3,7 @@
 
 import re
 import typing
+
 from agent.domain.patches.models import (
     PatchAction,
     PatchFile,
@@ -43,7 +44,7 @@ class _UnifiedPatchError(Exception):
         """记录稳定错误原因和相关字段。"""
         super().__init__(reason)
         self.reason = reason
-        self.data   = data
+        self.data = data
 
 
 def _fail(reason: str, **data: typing.Any) -> typing.NoReturn:

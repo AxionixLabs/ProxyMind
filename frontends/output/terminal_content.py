@@ -53,8 +53,8 @@ class TerminalContentSink(ContentSink):
             return None
 
         if isinstance(output, (
-            AssistantPresentationSuperseded,
-            AssistantResponseSuperseded,
+                AssistantPresentationSuperseded,
+                AssistantResponseSuperseded,
         )):
             await self.output.prepare_external_output()
             await self.output.feed(

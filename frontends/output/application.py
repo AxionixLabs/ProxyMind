@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
-import sys
 import json
+import os
 import shutil
+import sys
 import typing
+
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,

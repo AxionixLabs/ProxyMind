@@ -4,6 +4,7 @@
 import re
 import typing
 from dataclasses import dataclass
+
 from metadata import const
 
 HookEventName = typing.Literal[
@@ -268,7 +269,6 @@ class HookHandlerConfig:
         if platform == "nt" and self.command_windows:
             return self.command_windows
         return self.command
-
 
 
 @dataclass(frozen=True, slots=True)

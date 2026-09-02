@@ -1,26 +1,26 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 
-from observability import observe
+from agent.domain.policies import PermissionSettings
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,
 )
 from agent.ports.presentation import TextSpan
 from metadata import const
-from agent.domain.policies import PermissionSettings
-from ..runtime.ports import TurnRuntimePort
-from ..core.interrupt import InterruptDisposition
+from observability import observe
 from .turn_input import TuiTurnInputControl
+from ..core.interrupt import InterruptDisposition
 from ..core.styles import (
     BODY_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
     fragment_block
 )
+from ..runtime.ports import TurnRuntimePort
 
 if typing.TYPE_CHECKING:
     from agent.application.turns.run_result import RunResult
@@ -89,9 +89,9 @@ async def execute_tui_model_turn(
     *,
     turn_input_control: TuiTurnInputControl | None = None,
     stream_command_handler: typing.Callable[
-        [str, typing.Callable[[], InterruptDisposition]],
-        bool,
-    ] | None = None,
+                                [str, typing.Callable[[], InterruptDisposition]],
+                                bool,
+                            ] | None = None,
     show_interrupt_notice: typing.Callable[[], bool] = lambda: True
 ) -> TurnValue | None:
     """执行可由主输入区定向取消的单个模型轮次。"""
@@ -210,9 +210,9 @@ async def run_tui_model_turn(
     turn_id: str | None = None,
     prompt_extras: typing.Mapping[str, typing.Any] | None = None,
     on_prompt_prepared: typing.Callable[
-        [list[dict[str, typing.Any]]],
-        None,
-    ] | None = None,
+                            [list[dict[str, typing.Any]]],
+                            None,
+                        ] | None = None,
     turn_input_control: TuiTurnInputControl | None = None,
     on_interrupt_acknowledged: typing.Callable[[], None] | None = None,
 ) -> "RunResult":

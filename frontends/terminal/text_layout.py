@@ -3,6 +3,7 @@
 
 import typing
 import unicodedata
+
 from agent.ports.presentation import TextSpan
 
 

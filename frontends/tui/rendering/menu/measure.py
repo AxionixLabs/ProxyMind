@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from prompt_toolkit.formatted_text import StyleAndTextTuples
+
 from ..fragments import split_formatted_lines
 
 

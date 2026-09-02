@@ -69,6 +69,5 @@ __all__ = (
     "ExecutionPolicyState",
 )
 
-
 if __name__ == "__main__":
     pass

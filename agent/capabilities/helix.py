@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
 import inspect
+import typing
 from collections.abc import (
     Awaitable,
     Callable,
 )
+
 from agent.ports import (
     CapabilityError,
     HelixCapability,
@@ -134,7 +135,6 @@ class InMemoryHelixCapability:
 
 if not isinstance(InMemoryHelixCapability(), HelixCapability):
     raise TypeError("InMemoryHelixCapability must implement HelixCapability")
-
 
 if __name__ == '__main__':
     pass

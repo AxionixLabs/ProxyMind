@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
 import asyncio
+import os
 import tempfile
-from pathlib import Path
 from collections.abc import Iterable
+from pathlib import Path
+
 from agent.ports import (
     CapabilityError,
     FilesystemCapability,
@@ -286,7 +287,6 @@ if not isinstance(LocalFilesystemCapability(Path.cwd()), FilesystemCapability):
     raise TypeError("LocalFilesystemCapability must implement FilesystemCapability")
 if not isinstance(InMemoryFilesystemCapability(), FilesystemCapability):
     raise TypeError("InMemoryFilesystemCapability must implement FilesystemCapability")
-
 
 if __name__ == '__main__':
     pass

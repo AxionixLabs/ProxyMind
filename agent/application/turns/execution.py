@@ -9,6 +9,7 @@ from dataclasses import (
     replace,
 )
 from types import MappingProxyType
+
 from agent.ports import HookExecutionScopePort
 from protocol.schema.identifiers import short_uid
 from .context import TurnContext

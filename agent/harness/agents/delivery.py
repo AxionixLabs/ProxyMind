@@ -2,18 +2,19 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
-from protocol.schema.stream_events import (
-    StreamEvent,
-    TurnInputAcceptedEvent,
-    TurnLogicalSettledEvent
-)
-from protocol.schema.turn_inputs import TurnInput
+
 from agent.application.turns.context import TurnContext
 from agent.ports.agent_messages import (
     AgentMessageDeliveryPort,
     AgentMessageReceipt,
 )
 from agent.stores.agents.mailbox import AgentMailboxEvent
+from protocol.schema.stream_events import (
+    StreamEvent,
+    TurnInputAcceptedEvent,
+    TurnLogicalSettledEvent
+)
+from protocol.schema.turn_inputs import TurnInput
 
 __all__ = (
     "AgentActiveTurn",

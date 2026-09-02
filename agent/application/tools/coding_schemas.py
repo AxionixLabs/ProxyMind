@@ -3,6 +3,7 @@
 
 import copy
 import typing
+
 from agent.application.tools.permissions import PERMISSION_PROFILE_SCHEMA
 
 JS_REPL_INPUT_SCHEMA: dict[str, typing.Any] = {
@@ -203,6 +204,7 @@ def _with_exec_permission_schema(
         properties.pop("additional_permissions", None)
     return result
 
+
 WRITE_STDIN_INPUT_SCHEMA: dict[str, typing.Any] = {
     "type": "object",
     "properties": {
@@ -273,7 +275,6 @@ APPLY_PATCH_INPUT_SCHEMA: dict[str, typing.Any] = {
     "required": ["patch"],
     "additionalProperties": False,
 }
-
 
 if __name__ == '__main__':
     pass

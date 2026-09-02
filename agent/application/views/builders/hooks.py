@@ -32,6 +32,5 @@ def build_hook_run_view(
 
 __all__ = ("build_hook_run_view",)
 
-
 if __name__ == "__main__":
     pass

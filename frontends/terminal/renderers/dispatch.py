@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from agent.application.views.contracts import PresentationView
+
 from agent.application.views import (
     ApprovalView,
     BatchCompletedView,
@@ -21,14 +21,15 @@ from agent.application.views import (
     RunStartedView,
     ToolStartView,
 )
+from agent.application.views.contracts import PresentationView
 from agent.ports.presentation import StyledBlock
-from frontends.terminal.text import (
-    sanitize_styled_block,
-    sanitize_terminal_text,
-)
 from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
+)
+from frontends.terminal.text import (
+    sanitize_styled_block,
+    sanitize_terminal_text,
 )
 from .approval import render_approval_view
 from .batch import (
@@ -37,17 +38,17 @@ from .batch import (
     render_batch_start_transcript_view,
     render_batch_start_view
 )
+from .hook import render_hook_run_view
 from .lifecycle import (
     render_failure_view,
     render_incomplete_view,
     render_lifecycle_view
 )
-from .hook import render_hook_run_view
+from .patch import render_patch_view
 from .plan import (
     render_plan_steps_start_view,
     render_plan_update_view
 )
-from .patch import render_patch_view
 from .progress import render_progress_view
 from .tool import (
     render_generic_tool_result_raw_text,

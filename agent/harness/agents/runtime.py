@@ -1,30 +1,24 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
 import sqlite3
+import typing
+
+from agent.adapters.agents.fork_context import (
+    TranscriptEntriesReader,
+    load_fork_context,
+)
+from agent.adapters.agents.messages import SteeringMessageDelivery
+from agent.application.agents.fork_context import ForkTurns, normalize_fork_turns
+from agent.application.agents.messages import AgentMessageDispatch
+from agent.application.agents.thread import AgentThreadContext
 from agent.application.agents.views import (
     AgentMailboxWaitResult,
     AgentSnapshot,
     AgentWaitResult,
 )
-from agent.application.agents.messages import AgentMessageDispatch
 from agent.application.config.settings import AgentSettings
-from agent.application.agents.thread import AgentThreadContext
-from agent.ports import (
-    ExecutionPolicy,
-    ApprovalCoordinatorPort,
-    ApprovalLedger,
-    PatchPreviewPort,
-    SkillsProvider,
-    TurnCleanupPort,
-    TranscriptFactory,
-    PermissionGrantReader,
-    SubagentRuntimeHostPort,
-)
-from agent.harness.execution.subagent_runner import SubagentRunner
-from agent.harness.agents.registry import AgentControlRegistry
 from agent.application.turns.context import (
     AgentContext,
     TurnContext
@@ -37,17 +31,24 @@ from agent.harness.agents.control import (
     AgentNotFoundError,
     AgentStateError,
 )
-from agent.application.agents.fork_context import ForkTurns, normalize_fork_turns
-from agent.adapters.agents.fork_context import (
-    TranscriptEntriesReader,
-    load_fork_context,
-)
 from agent.harness.agents.delivery import (
     AgentDeliveryRegistry,
 )
+from agent.harness.agents.registry import AgentControlRegistry
+from agent.harness.execution.subagent_runner import SubagentRunner
 from agent.harness.execution.subagent_submission import SubagentSubmissionExecutor
 from agent.harness.hooks.scope import resolve_hook_scope
-from agent.adapters.agents.messages import SteeringMessageDelivery
+from agent.ports import (
+    ExecutionPolicy,
+    ApprovalCoordinatorPort,
+    ApprovalLedger,
+    PatchPreviewPort,
+    SkillsProvider,
+    TurnCleanupPort,
+    TranscriptFactory,
+    PermissionGrantReader,
+    SubagentRuntimeHostPort,
+)
 from agent.ports.agent_messages import AgentMessageDeliveryPort
 from agent.stores.agents.graph import (
     AgentGraphCheckpoint,
@@ -56,7 +57,7 @@ from agent.stores.agents.graph import (
 )
 
 TranscriptPathResolver = typing.Callable[[str], str]
-SessionCleanup         = typing.Callable[[str], typing.Awaitable[typing.Any]]
+SessionCleanup = typing.Callable[[str], typing.Awaitable[typing.Any]]
 
 
 class SubagentRuntime:
@@ -85,10 +86,10 @@ class SubagentRuntime:
         if not isinstance(enabled, bool):
             raise TypeError("subagent runtime enabled state must be a boolean")
 
-        self._settings         = settings or AgentSettings()
-        self._executor         = host.subagent_execution
+        self._settings = settings or AgentSettings()
+        self._executor = host.subagent_execution
         self._message_delivery = message_delivery or SteeringMessageDelivery()
-        self._graph_store      = graph_store
+        self._graph_store = graph_store
 
         self._graph_persistence = (
             AgentGraphPersistence(graph_store)
@@ -96,11 +97,11 @@ class SubagentRuntime:
             else None
         )
 
-        self._skills_provider     = skills_provider or (lambda: [])
+        self._skills_provider = skills_provider or (lambda: [])
         self._transcript_path_for = transcript_path_for or (lambda _sid: "")
         self._transcript_entries_for = transcript_entries_for
-        self._session_cleanup     = session_cleanup
-        self._execution_policy    = execution_policy
+        self._session_cleanup = session_cleanup
+        self._execution_policy = execution_policy
         self._approval_coordinator = approval_coordinator
         self._approval_ledger = approval_ledger
         self._transcript_factory = transcript_factory
@@ -208,7 +209,7 @@ class SubagentRuntime:
         caller: AgentContext | None = None,
     ) -> str:
         """向根会话中的已有执行线程提交或排队下一轮任务。"""
-        task    = _normalize_task(message)
+        task = _normalize_task(message)
         control = await self._existing_control(root_session_id)
 
         return await control.followup(
@@ -230,8 +231,8 @@ class SubagentRuntime:
         caller: AgentContext | None = None,
     ) -> AgentMessageDispatch:
         """优先向活动轮次投递消息，不可用时保留在邮箱。"""
-        task      = _normalize_task(message)
-        control   = await self._existing_control(root_session_id)
+        task = _normalize_task(message)
+        control = await self._existing_control(root_session_id)
         recipient = await control.get(target, caller=caller)
 
         active = await self._active_deliveries.get(
@@ -367,9 +368,9 @@ class SubagentRuntime:
         caller: AgentContext | None = None
     ) -> AgentSnapshot:
         """关闭根会话中指定执行线程及其后代并返回关闭前快照。"""
-        control         = await self._existing_control(root_session_id)
+        control = await self._existing_control(root_session_id)
         target_snapshot = await control.get(target, caller=caller)
-        previous        = await control.close(target, caller=caller)
+        previous = await control.close(target, caller=caller)
 
         snapshots = await control.list_snapshots(
             caller=caller,

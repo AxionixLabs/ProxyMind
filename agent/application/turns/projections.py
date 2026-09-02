@@ -8,6 +8,7 @@ from collections.abc import (
 )
 from dataclasses import dataclass
 from types import MappingProxyType
+
 from agent.protocol import RunEvent
 
 _TERMINAL_EVENT_STATUS: dict[str, str] = {

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.application.hooks.models import HookVisibleToolResult
 
 

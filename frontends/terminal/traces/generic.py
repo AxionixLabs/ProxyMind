@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.ports.presentation import TextSpan
 from .common import (
     _normalize_preview_lines,

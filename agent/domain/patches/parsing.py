@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.domain.patches.models import (
     PatchAction,
     PatchFile,
@@ -89,10 +90,10 @@ class PatchParser(object):
         if lines[-1:] != ["*** End Patch"]:
             return PatchParser._failure("native_patch_missing_end")
 
-        files: list[PatchFile]         = []
-        current: PatchFile | None      = None
+        files: list[PatchFile] = []
+        current: PatchFile | None = None
         current_hunk: PatchHunk | None = None
-        seen_paths: set[str]           = set()
+        seen_paths: set[str] = set()
 
         for line in lines[1:-1]:
             if line.startswith("*** Add File: "):

@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .helix import InMemoryHelixCapability
 from .environment import LocalEnvironmentSnapshotCapability
-from .mcp import InMemoryMcpCapability
 from .filesystem import (
     InMemoryFilesystemCapability,
     LocalFilesystemCapability,
 )
+from .helix import InMemoryHelixCapability
+from .mcp import InMemoryMcpCapability
 from .process import (
     InMemoryProcessCapability,
     InMemoryProcessHandle,
@@ -24,7 +24,6 @@ __all__ = (
     "LocalFilesystemCapability",
     "LocalProcessCapability",
 )
-
 
 if __name__ == '__main__':
     pass

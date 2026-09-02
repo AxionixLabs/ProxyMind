@@ -1,6 +1,20 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+from .agent_messages import (
+    AgentIdentity,
+    AgentMessageContext,
+    AgentMessageDeliveryPort,
+    AgentMessageDeliveryStatus,
+    AgentMessageReceipt,
+    AgentMessageReceiptStatus,
+)
+from .approvals import (
+    ApprovalCoordinatorPort,
+    ApprovalLedger,
+    ApprovalLedgerState,
+    ApprovalOutcomePort,
+)
 from .capabilities import (
     ApprovalSnapshotCallback,
     CapabilityError,
@@ -23,15 +37,34 @@ from .capabilities import (
     TurnExecutor,
     TurnExecutorResult,
 )
-from .approvals import (
-    ApprovalCoordinatorPort,
-    ApprovalLedger,
-    ApprovalLedgerState,
-    ApprovalOutcomePort,
+from .compaction import (
+    CompactProgress,
+    CompactionClientPort,
+    CompactionSessionPort,
+)
+from .content import (
+    AssistantOutputBoundary,
+    AssistantPresentationSuperseded,
+    AssistantResponseSuperseded,
+    AssistantSegmentCompleted,
+    AssistantTextDelta,
+    ContentOutput,
+    ContentSink,
+    ResponseIdentity,
+    SourcesOutput,
 )
 from .conversation import (
     ConversationHistoryPort,
     RootConversationPort,
+)
+from .frontend import (
+    ActivityRuntimePort,
+    ActivitySnapshot,
+    ActivityStatusKind,
+    AttachmentStatePort,
+    FrontendActivityPort,
+    FrontendPort,
+    TurnCompletionPresenterPort,
 )
 from .hooks import (
     CommandHookSessionPort,
@@ -49,6 +82,43 @@ from .hooks import (
     HookStatusPort,
     HookSessionCleanup,
 )
+from .javascript import (
+    NestedToolDispatch,
+    NestedToolOutput,
+    WorkspaceJavaScriptPort,
+)
+from .mcp_runtime import (
+    McpConfigReader,
+    McpRuntime,
+    McpRuntimeBuilder,
+    McpRuntimeFactory,
+    McpRuntimeContext,
+    McpToolGroupSnapshot,
+)
+from .mcp_session import McpSessionPort
+from .media import (
+    ImageAsset,
+    ImageReadError,
+    ImageReaderFactory,
+    ImageReaderPort,
+)
+from .output import (
+    IdleStatusPort,
+    BLOCK_OUTPUT,
+    OutputDisplay,
+    OutputControlPort,
+    OutputPort,
+    OutputPresentationPort,
+    OutputSession,
+    OutputSessionFactory,
+    OutputStatusPort,
+    STREAM_OUTPUT,
+)
+from .patching import WorkspacePatchPort
+from .permissions import (
+    PermissionGrantPort,
+    PermissionGrantReader,
+)
 from .persistence import (
     EffectIntent,
     EffectJournal,
@@ -62,54 +132,17 @@ from .persistence import (
     RunRecoveryRequired,
     RunSnapshot,
 )
-from .permissions import (
-    PermissionGrantPort,
-    PermissionGrantReader,
-)
-from .agent_messages import (
-    AgentIdentity,
-    AgentMessageContext,
-    AgentMessageDeliveryPort,
-    AgentMessageDeliveryStatus,
-    AgentMessageReceipt,
-    AgentMessageReceiptStatus,
-)
-from .mcp_session import McpSessionPort
-from .media import (
-    ImageAsset,
-    ImageReadError,
-    ImageReaderFactory,
-    ImageReaderPort,
-)
+from .presentation import TurnForegroundLifecyclePort
 from .process_lifecycle import ProcessLifecyclePort
 from .process_resources import ProcessResourcePort
-from .javascript import (
-    NestedToolDispatch,
-    NestedToolOutput,
-    WorkspaceJavaScriptPort,
-)
-from .patching import WorkspacePatchPort
 from .process_tools import (
     UserShellPort,
     WorkspaceProcessPort,
 )
-from .tool_runtime import (
-    BeforeToolSession,
-    ExternalToolGroupPort,
-    ToolRegistryPort,
-    ToolRuntimeBuilder,
-    ToolRuntimePort,
-    ToolRuntimeSources,
-    ToolSessionCallback,
-    ToolSessionFactory,
-)
-from .mcp_runtime import (
-    McpConfigReader,
-    McpRuntime,
-    McpRuntimeBuilder,
-    McpRuntimeFactory,
-    McpRuntimeContext,
-    McpToolGroupSnapshot,
+from .sessions import (
+    RunExecution,
+    SessionRuntime,
+    SessionRuntimeFactory,
 )
 from .subagents import (
     SubagentControlPort,
@@ -121,6 +154,30 @@ from .subagents import (
     SubagentStreamPort,
     SubagentTurnRunner,
     SkillsProvider,
+)
+from .subscription import (
+    SubscriptionHost,
+    SubscriptionInbox,
+    SubscriptionInboxItem,
+    SubscriptionRequest,
+    SubscriptionRuntime,
+)
+from .tool_runtime import (
+    BeforeToolSession,
+    ExternalToolGroupPort,
+    ToolRegistryPort,
+    ToolRuntimeBuilder,
+    ToolRuntimePort,
+    ToolRuntimeSources,
+    ToolSessionCallback,
+    ToolSessionFactory,
+)
+from .transcript import (
+    TranscriptLifecyclePort,
+    TranscriptActor,
+    TranscriptFactory,
+    TranscriptSessionPort,
+    TranscriptSink,
 )
 from .turns import (
     EventReportLifetime,
@@ -141,51 +198,6 @@ from .turns import (
     TurnResultPort,
     TurnResultValue,
 )
-from .transcript import (
-    TranscriptLifecyclePort,
-    TranscriptActor,
-    TranscriptFactory,
-    TranscriptSessionPort,
-    TranscriptSink,
-)
-from .presentation import TurnForegroundLifecyclePort
-from .frontend import (
-    ActivityRuntimePort,
-    ActivitySnapshot,
-    ActivityStatusKind,
-    AttachmentStatePort,
-    FrontendActivityPort,
-    FrontendPort,
-    TurnCompletionPresenterPort,
-)
-from .content import (
-    AssistantOutputBoundary,
-    AssistantPresentationSuperseded,
-    AssistantResponseSuperseded,
-    AssistantSegmentCompleted,
-    AssistantTextDelta,
-    ContentOutput,
-    ContentSink,
-    ResponseIdentity,
-    SourcesOutput,
-)
-from .compaction import (
-    CompactProgress,
-    CompactionClientPort,
-    CompactionSessionPort,
-)
-from .output import (
-    IdleStatusPort,
-    BLOCK_OUTPUT,
-    OutputDisplay,
-    OutputControlPort,
-    OutputPort,
-    OutputPresentationPort,
-    OutputSession,
-    OutputSessionFactory,
-    OutputStatusPort,
-    STREAM_OUTPUT,
-)
 from .workspace import (
     CodingFactory,
     CodingRuntime,
@@ -198,18 +210,6 @@ from .workspace import (
     WorkspaceCodingPort,
     WorkspaceRuntime,
     WorkspaceRuntimeFactory,
-)
-from .subscription import (
-    SubscriptionHost,
-    SubscriptionInbox,
-    SubscriptionInboxItem,
-    SubscriptionRequest,
-    SubscriptionRuntime,
-)
-from .sessions import (
-    RunExecution,
-    SessionRuntime,
-    SessionRuntimeFactory,
 )
 
 __all__ = (
@@ -379,7 +379,6 @@ __all__ = (
     "HookStatusPort",
     "HookSessionCleanup",
 )
-
 
 if __name__ == '__main__':
     pass

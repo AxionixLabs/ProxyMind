@@ -6,6 +6,7 @@ from dataclasses import (
     dataclass,
     replace,
 )
+
 from agent.domain.policies import PermissionSettings
 from agent.ports import (
     ApprovalCoordinatorPort,
@@ -20,11 +21,11 @@ from agent.ports import (
     TurnCleanupPort,
     TranscriptFactory,
 )
-from protocol.schema.stream_events import ExecutionEffect
 from protocol.schema.identifiers import (
     normalize_turn_id,
     short_uid,
 )
+from protocol.schema.stream_events import ExecutionEffect
 
 ROOT_AGENT_ID = "root"
 ROOT_AGENT_TYPE = "root"

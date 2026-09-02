@@ -1,26 +1,27 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from dataclasses import replace
-from observability import (
-    observe,
-    observe_exception
-)
+
+from agent.application.hooks.models import SubagentStopDecision
 from agent.application.hooks.subagent import SubagentHookEvents
-from agent.application.turns.run_result import RunResult
 from agent.application.turns.execution import (
     TurnExecution,
     create_continuation_execution,
 )
-from agent.application.hooks.models import SubagentStopDecision
+from agent.application.turns.run_result import RunResult
 from agent.ports import (
     EventReportPort,
     SubagentCleanupPort,
     McpSessionPort,
     SubagentOperation,
     SubagentTurnRunner,
+)
+from observability import (
+    observe,
+    observe_exception
 )
 
 SubagentOutcome = typing.Literal[
@@ -170,6 +171,7 @@ class SubagentRunner:
         cleanup: bool = False
     ) -> SubagentStopDecision:
         """分发停止事件，并避免 Hook 故障替换模型结果。"""
+
         async def dispatch_stop() -> SubagentStopDecision:
             """执行一次需要返回聚合决定的停止事件。"""
             return await hook_events.stop(

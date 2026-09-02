@@ -11,10 +11,11 @@ from collections.abc import (
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
+
+from agent.domain.execution_policy import SandboxPermission
 from agent.protocol import (
     CanonicalItem,
     ConversationForkReceipt,
-    ForkPrompt,
     McpToolDefinition,
     McpToolResult,
     ModelEvent,
@@ -32,7 +33,6 @@ from agent.protocol.json_value import (
     freeze_json,
     thaw_object,
 )
-from agent.domain.execution_policy import SandboxPermission
 
 ReconnectStatusCallback: typing.TypeAlias = Callable[[bool], None]
 
@@ -51,6 +51,7 @@ SandboxMode: typing.TypeAlias = typing.Literal[
     "workspace-read",
     "workspace-write",
 ]
+
 
 class CapabilityError(RuntimeError):
     """表示模型、MCP、Helix、进程或文件能力已经归一化的失败。"""
@@ -322,6 +323,7 @@ class EnvironmentSnapshotCapability(typing.Protocol):
     def clear_cache(self) -> None:
         """清除实现持有的可复用环境探测事实。"""
         ...
+
 
 ApprovalSnapshotCallback: typing.TypeAlias = Callable[
     [object],

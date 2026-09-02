@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import copy
-import httpx
-import typing
 import asyncio
+import copy
+import typing
 from dataclasses import dataclass
+
+import httpx
+
 from agent.ports import ProtocolCommandError
-from protocol.schema.identifiers import stable_request_id
 from protocol.client.tools import (
     ToolResultEnvelope,
     ToolResultRequestError,
     build_tool_result_payload,
 )
+from protocol.schema.identifiers import stable_request_id
 
 _AsyncCall = typing.Callable[..., typing.Awaitable[typing.Any]]
 _CommandError = ToolResultRequestError | ProtocolCommandError
@@ -326,11 +328,11 @@ class ToolResultDelivery:
         except ProtocolCommandError as error:
             return error
         except (
-            httpx.HTTPError,
-            OSError,
-            RuntimeError,
-            TypeError,
-            ValueError,
+                httpx.HTTPError,
+                OSError,
+                RuntimeError,
+                TypeError,
+                ValueError,
         ) as error:
             return ToolResultRequestError(
                 "tool_result_reconciliation_failed",

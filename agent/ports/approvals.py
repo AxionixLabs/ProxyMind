@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from collections.abc import Awaitable, Mapping
+from collections.abc import Mapping
 
 __all__ = (
     "ApprovalCoordinatorPort",
@@ -30,6 +30,7 @@ class ApprovalCoordinatorPort(typing.Protocol):
     ) -> ApprovalOutcomePort:
         """提交审批请求并返回决定来源和原因。"""
         ...
+
 
 ApprovalLedgerState: typing.TypeAlias = typing.Literal[
     "approved",

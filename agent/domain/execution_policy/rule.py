@@ -3,11 +3,11 @@
 
 import typing
 from dataclasses import (
-    dataclass,
-    field
+    dataclass
 )
 from enum import Enum
 from pathlib import Path
+
 from .decision import Decision
 
 

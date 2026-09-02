@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text

@@ -6,6 +6,7 @@ from collections.abc import (
     Awaitable,
     Callable
 )
+
 from .control import (
     AgentControl,
     AgentStateError,

@@ -6,6 +6,7 @@ from dataclasses import (
     dataclass,
     field,
 )
+
 from protocol.schema.permissions import (
     ApprovalPolicy,
     ApprovalReviewer,
@@ -86,10 +87,10 @@ def resolve_permissions(
     """根据配置和入口类型解析有效权限。"""
     data = config if isinstance(config, dict) else {}
 
-    default_sandbox: SandboxMode     = "workspace-write" if interactive else "read-only"
+    default_sandbox: SandboxMode = "workspace-write" if interactive else "read-only"
     default_approval: ApprovalPolicy = "on-request" if interactive else "never"
 
-    sandbox_value  = data.get("sandbox_mode") or default_sandbox
+    sandbox_value = data.get("sandbox_mode") or default_sandbox
     approval_value = data.get("approval_policy") or default_approval
     reviewer_value = data.get("approvals_reviewer") or "user"
     network_value = data.get("network_access") or "restricted"

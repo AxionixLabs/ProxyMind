@@ -3,10 +3,20 @@
 
 import typing
 from collections.abc import Mapping
-from agent.application.turns.run_result import RunResult
+
+from agent.adapters.protocol.turn_stream import stream_turn
+from agent.application.tools.execution import ToolExecutionAdapter
+from agent.application.turns.context import (
+    AgentContext,
+    TurnContext,
+)
 from agent.application.turns.execution import TurnExecution
 from agent.application.turns.foreground import run_foreground_turn
-from agent.application.tools.execution import ToolExecutionAdapter
+from agent.application.turns.run_result import RunResult
+from agent.application.turns.transcript import build_turn_input_payload
+from agent.domain.policies import PermissionSettings
+from agent.harness.execution.turn_runner import execute_turn
+from agent.harness.hooks.scope import resolve_hook_scope
 from agent.ports import (
     EventReportPort,
     ApprovalCoordinatorPort,
@@ -26,16 +36,7 @@ from agent.ports import (
     TurnCleanupPort,
     TranscriptFactory,
 )
-from agent.application.turns.context import (
-    AgentContext,
-    TurnContext,
-)
-from agent.harness.execution.turn_runner import execute_turn
-from agent.application.turns.transcript import build_turn_input_payload
-from agent.adapters.protocol.turn_stream import stream_turn
-from agent.harness.hooks.scope import resolve_hook_scope
 from agent.ports import OutputSessionFactory
-from agent.domain.policies import PermissionSettings
 
 if typing.TYPE_CHECKING:
     from agent.ports import McpSessionPort

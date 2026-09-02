@@ -6,6 +6,7 @@ from dataclasses import (
     dataclass,
     field
 )
+
 from .json_value import (
     JsonValue,
     ThawedJsonValue,

@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import json
-import uuid
-import typing
 import hashlib
+import json
+import typing
+import uuid
 from collections.abc import Mapping
 from dataclasses import (
     dataclass,
     field
 )
+
 from .json_value import (
     JsonValue,
     ThawedJsonValue,

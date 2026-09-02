@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .effects.journal import LocalEffectJournal
 from .agents.graph import (
     AgentGraphCheckpoint,
     AgentGraphPersistence,
@@ -24,6 +23,7 @@ from .approvals.permissions import (
     PermissionGrant,
     PermissionGrantStore,
 )
+from .effects.journal import LocalEffectJournal
 from .runs.store import SQLiteRunStore
 
 __all__ = (
@@ -46,7 +46,6 @@ __all__ = (
     "SQLiteRunStore",
     "format_mailbox_context",
 )
-
 
 if __name__ == '__main__':
     pass

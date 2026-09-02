@@ -2,13 +2,13 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.application.views.patch import PatchView
 from agent.application.views.tools import (
     GenericToolResultView,
     NativeToolResultView,
     ToolStartView,
 )
-
 from .patch import (
     build_patch_result_view,
     build_patch_start_view,

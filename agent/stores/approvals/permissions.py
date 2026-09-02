@@ -5,6 +5,7 @@ import copy
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+
 from agent.domain.permission_profiles import (
     PermissionGrantScope,
     PermissionProfile,
@@ -45,7 +46,7 @@ class PermissionGrantStore:
     def __init__(self) -> None:
         """创建空的权限授权存储。"""
         self._turn_grants: dict[tuple[str, str, str, str, str], PermissionGrant] = {}
-        self._session_grants: dict[tuple[str, str, str, str], PermissionGrant]   = {}
+        self._session_grants: dict[tuple[str, str, str, str], PermissionGrant] = {}
 
         self._strict_turns: set[tuple[str, str, str]] = set()
 
@@ -89,8 +90,8 @@ class PermissionGrantStore:
         if normalized_scope == "session" and strict_auto_review:
             raise ValueError("strict auto review is limited to turn grants")
 
-        normalized_cid  = str(cid or "").strip()
-        normalized_sid  = str(sid or "").strip()
+        normalized_cid = str(cid or "").strip()
+        normalized_sid = str(sid or "").strip()
         normalized_turn = str(turn_id or "").strip()
 
         if not normalized_sid or not normalized_turn:
@@ -157,7 +158,7 @@ class PermissionGrantStore:
         if not requested:
             return False
 
-        env            = str(environment_id or "").strip()
+        env = str(environment_id or "").strip()
         normalized_cwd = normalize_working_directory(cwd)
         key_prefix = (
             str(cid or "").strip(),
@@ -170,8 +171,8 @@ class PermissionGrantStore:
                 grant
                 for key, grant in self._turn_grants.items()
                 if key[:3] == key_prefix
-                and grant.environment_id == env
-                and grant.cwd == normalized_cwd
+                   and grant.environment_id == env
+                   and grant.cwd == normalized_cwd
             ]
             candidates.extend(
                 grant

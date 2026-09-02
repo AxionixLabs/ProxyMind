@@ -3,7 +3,9 @@
 
 import re
 import typing
+
 from prompt_toolkit.utils import get_cwidth
+
 from frontends.terminal.text import (
     TerminalTextFilter,
     sanitize_terminal_hyperlink
@@ -88,7 +90,7 @@ def _sanitize_zero_width_escape(text: str) -> str:
     if not value.startswith(OSC8_PREFIX) or not value.endswith(OSC8_SUFFIX):
         return ""
 
-    url      = value[len(OSC8_PREFIX):-len(OSC8_SUFFIX)]
+    url = value[len(OSC8_PREFIX):-len(OSC8_SUFFIX)]
     safe_url = sanitize_terminal_hyperlink(url)
 
     return f"{OSC8_PREFIX}{safe_url}{OSC8_SUFFIX}" if safe_url else ""

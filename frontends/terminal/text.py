@@ -4,6 +4,7 @@
 import typing
 import unicodedata
 from urllib.parse import urlsplit
+
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
@@ -16,7 +17,7 @@ TextWidth = typing.Callable[[str], int]
 _ESC = "\x1b"
 _BEL = "\x07"
 _CSI = "\x9b"
-_ST  = "\x9c"
+_ST = "\x9c"
 
 _CONTROL_STRING_STARTS = {
     "\x90",  # DCS
@@ -38,11 +39,11 @@ class TerminalTextFilter(object):
         tab_size: int = 8,
         measure_width: TextWidth | None = None,
     ) -> None:
-        self.tab_size      = max(1, int(tab_size or 1))
+        self.tab_size = max(1, int(tab_size or 1))
         self.measure_width = measure_width or text_display_width
 
-        self._state: str       = "text"
-        self._column: int      = 0
+        self._state: str = "text"
+        self._column: int = 0
         self._pending_cr: bool = False
 
     def feed(self, value: typing.Any) -> str:

@@ -160,9 +160,9 @@ def _shell_markers(executable: str) -> set[str]:
 
 def _find_argument_marker(text: str, marker: str) -> int:
     """按参数边界查找 marker。"""
-    lower  = text.lower()
+    lower = text.lower()
     marker = marker.lower()
-    start  = 0
+    start = 0
 
     while True:
         index = lower.find(marker, start)
@@ -170,8 +170,8 @@ def _find_argument_marker(text: str, marker: str) -> int:
             return -1
 
         before_ok = index == 0 or lower[index - 1].isspace()
-        after     = index + len(marker)
-        after_ok  = after >= len(lower) or lower[after].isspace()
+        after = index + len(marker)
+        after_ok = after >= len(lower) or lower[after].isspace()
 
         if before_ok and after_ok:
             return index

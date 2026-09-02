@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import re
 import copy
+import re
 import typing
-from agent.domain.policies import PermissionSettings
+
 from agent.application.views import (
     RunCompletedView,
     RunIncompleteView,
     RunStartedView,
 )
+from agent.domain.policies import PermissionSettings
 
 
 def _display_workdir(value: typing.Any) -> str:
@@ -63,6 +64,7 @@ def build_run_started_view(
             if str(warning)
         ),
     )
+
 
 def build_run_completed_view(
     usage: dict[str, typing.Any] | None,

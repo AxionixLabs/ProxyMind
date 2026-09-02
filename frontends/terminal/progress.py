@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import os
 import typing
-import asyncio
+
 from metadata import const
 
 TERMINAL_TITLE_SPINNER_FRAMES = (
@@ -14,7 +15,7 @@ TERMINAL_TITLE_SPINNER_FRAMES = (
 TERMINAL_TITLE_SPINNER_INTERVAL = 0.1
 TERMINAL_TITLE_ACTION_INTERVAL = 1.0
 
-TERMINAL_TITLE_ACTION_PREFIXES  = (
+TERMINAL_TITLE_ACTION_PREFIXES = (
     "[ ! ] Action Required",
     "[ . ] Action Required",
 )
@@ -153,12 +154,12 @@ class OscTerminalProgress(object):
         if self._mode == "spinner":
             prefix = TERMINAL_TITLE_SPINNER_FRAMES[
                 self._frame_index % len(TERMINAL_TITLE_SPINNER_FRAMES)
-            ]
+                ]
             title = f"{prefix} {self._workspace_title or const.APP_DESC}"
         else:
             title = TERMINAL_TITLE_ACTION_PREFIXES[
                 self._frame_index % len(TERMINAL_TITLE_ACTION_PREFIXES)
-            ]
+                ]
 
         self._write_title(title)
 

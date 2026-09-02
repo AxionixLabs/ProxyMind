@@ -3,6 +3,13 @@
 
 import typing
 from dataclasses import dataclass
+
+from agent.application.hooks.models import HookNormalizedOutput
+from agent.application.hooks.protocol import (
+    JsonSchema,
+    hook_input_schema,
+    hook_output_schema,
+)
 from agent.domain.hooks import (
     HOOK_EVENT_CONFIG_SPECS,
     HOOK_EVENT_NAMES,
@@ -10,12 +17,6 @@ from agent.domain.hooks import (
     HookEventName,
 )
 from .output import normalize_hook_output
-from agent.application.hooks.models import HookNormalizedOutput
-from agent.application.hooks.protocol import (
-    JsonSchema,
-    hook_input_schema,
-    hook_output_schema,
-)
 
 HookOutputNormalizer = typing.Callable[
     [dict[str, typing.Any]],
@@ -83,7 +84,6 @@ def validate_hook_event_catalog() -> None:
 
 
 validate_hook_event_catalog()
-
 
 if __name__ == '__main__':
     pass

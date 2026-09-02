@@ -3,29 +3,30 @@
 
 import asyncio
 import typing
+
+from agent.application.agents.fork_context import normalize_fork_turns
+from agent.application.agents.views import AgentSnapshot
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.definitions import ClientTool
 from agent.application.tools.results import (
     LocalToolResult,
     client_tool_result,
 )
-from agent.application.agents.views import AgentSnapshot
-from agent.application.agents.fork_context import normalize_fork_turns
 from agent.domain.agents import MAX_AGENT_MESSAGE_CHARS
 from agent.ports.subagents import SubagentControlPort
 
-SPAWN_AGENT_TOOL     = "spawn_agent"
-LIST_AGENTS_TOOL     = "list_agents"
-SEND_MESSAGE_TOOL    = "send_message"
-FOLLOWUP_TASK_TOOL   = "followup_task"
+SPAWN_AGENT_TOOL = "spawn_agent"
+LIST_AGENTS_TOOL = "list_agents"
+SEND_MESSAGE_TOOL = "send_message"
+FOLLOWUP_TASK_TOOL = "followup_task"
 INTERRUPT_AGENT_TOOL = "interrupt_agent"
-RESUME_AGENT_TOOL    = "resume_agent"
-WAIT_AGENT_TOOL      = "wait_agent"
-CLOSE_AGENT_TOOL     = "close_agent"
+RESUME_AGENT_TOOL = "resume_agent"
+WAIT_AGENT_TOOL = "wait_agent"
+CLOSE_AGENT_TOOL = "close_agent"
 
 DEFAULT_WAIT_TIMEOUT_MS = 30_000
-MIN_WAIT_TIMEOUT_MS     = 10_000
-MAX_WAIT_TIMEOUT_MS     = 3_600_000
+MIN_WAIT_TIMEOUT_MS = 10_000
+MAX_WAIT_TIMEOUT_MS = 3_600_000
 
 
 def subagent_tools(agents: SubagentControlPort) -> list[ClientTool]:
@@ -112,14 +113,15 @@ def subagent_tools(agents: SubagentControlPort) -> list[ClientTool]:
 
 def _spawn_handler(agents: SubagentControlPort):
     """创建新执行主体工具处理函数。"""
+
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
     ) -> LocalToolResult:
         try:
-            message    = _required_text(arguments, "message")
+            message = _required_text(arguments, "message")
             agent_type = _spawn_agent_type(arguments, tool_runtime)
-            task_name  = _required_text(arguments, "task_name")
+            task_name = _required_text(arguments, "task_name")
 
             fork_turns = normalize_fork_turns(
                 arguments.get("fork_turns"),
@@ -170,12 +172,13 @@ def _spawn_handler(agents: SubagentControlPort):
 
 def _list_handler(agents: SubagentControlPort):
     """创建执行主体发现工具处理函数。"""
+
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
     ) -> LocalToolResult:
         try:
-            caller      = tool_runtime.turn_context.agent
+            caller = tool_runtime.turn_context.agent
             path_prefix = _optional_text(arguments, "path_prefix")
 
             snapshots = await agents.list_snapshots(
@@ -202,14 +205,15 @@ def _list_handler(agents: SubagentControlPort):
 
 def _send_message_handler(agents: SubagentControlPort):
     """创建轻量消息投递工具处理函数。"""
+
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
     ) -> LocalToolResult:
         try:
-            target  = _required_text(arguments, "target")
+            target = _required_text(arguments, "target")
             message = _required_text(arguments, "message")
-            caller  = tool_runtime.turn_context.agent
+            caller = tool_runtime.turn_context.agent
 
             dispatch = await agents.send_message(
                 caller.root_session_id,
@@ -218,7 +222,7 @@ def _send_message_handler(agents: SubagentControlPort):
                 caller=caller,
             )
 
-            event   = dispatch.event
+            event = dispatch.event
             receipt = dispatch.receipt
 
             return client_tool_result(
@@ -255,14 +259,15 @@ def _send_message_handler(agents: SubagentControlPort):
 
 def _followup_handler(agents: SubagentControlPort):
     """创建后续任务工具处理函数。"""
+
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
     ) -> LocalToolResult:
         try:
-            target  = _required_text(arguments, "target")
+            target = _required_text(arguments, "target")
             message = _required_text(arguments, "message")
-            caller  = tool_runtime.turn_context.agent
+            caller = tool_runtime.turn_context.agent
 
             submission_id = await agents.followup_task(
                 caller.root_session_id,
@@ -289,6 +294,7 @@ def _followup_handler(agents: SubagentControlPort):
 
 def _interrupt_handler(agents: SubagentControlPort):
     """创建执行主体中断工具处理函数。"""
+
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
@@ -326,6 +332,7 @@ def _interrupt_handler(agents: SubagentControlPort):
 
 def _resume_handler(agents: SubagentControlPort):
     """创建执行主体恢复工具处理函数。"""
+
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
@@ -357,13 +364,14 @@ def _resume_handler(agents: SubagentControlPort):
 
 def _wait_handler(agents: SubagentControlPort):
     """创建执行主体等待工具处理函数。"""
+
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
     ) -> LocalToolResult:
         try:
-            targets    = _targets(arguments.get("targets"))
-            caller     = tool_runtime.turn_context.agent
+            targets = _targets(arguments.get("targets"))
+            caller = tool_runtime.turn_context.agent
             timeout_ms = _wait_timeout_ms(arguments.get("timeout_ms"))
 
             waited = await agents.wait_updates(
@@ -403,6 +411,7 @@ def _wait_handler(agents: SubagentControlPort):
 
 def _close_handler(agents: SubagentControlPort):
     """创建执行主体关闭工具处理函数。"""
+
     async def handle(
         arguments: dict[str, typing.Any],
         tool_runtime: ToolHandlerContext
@@ -546,9 +555,9 @@ def _error_result(
 def _agent_tool_meta() -> dict[str, typing.Any]:
     """返回多执行主体工具的通用元数据。"""
     return {
-        "hidden" : False,
-        "domain" : "client",
-        "class"  : "agent"
+        "hidden": False,
+        "domain": "client",
+        "class": "agent"
     }
 
 

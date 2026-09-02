@@ -3,8 +3,9 @@
 
 import json
 import typing
-from dataclasses import dataclass
 from collections.abc import Iterable
+from dataclasses import dataclass
+
 from ..config.settings import (
     DEFAULT_FORK_TURNS,
     DEFAULT_MAX_FORK_CONTEXT_CHARS,

@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+
 from protocol.schema.tool_approval import ToolApprovalDecision
 
 ApprovalDecision: typing.TypeAlias = ToolApprovalDecision

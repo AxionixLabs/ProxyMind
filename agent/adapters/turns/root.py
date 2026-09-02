@@ -3,6 +3,7 @@
 
 import typing
 from collections.abc import Mapping
+
 from agent.application.turns.run_result import RunResult
 from agent.domain.policies import PermissionSettings
 from agent.protocol import SubmitTurnCommand

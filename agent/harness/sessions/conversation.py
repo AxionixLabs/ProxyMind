@@ -50,18 +50,18 @@ class ConversationState(object):
             if not valid_session_ids(self.cid, self.sid):
                 raise ValueError("valid cid and sid are required")
 
-        self.created_at    = float(created_at or 0.0)
-        self.turn_count    = int(turn_count or 0)
-        self.reset_count   = int(reset_count or 0)
-        self.reset_reason  = str(reset_reason or "")
-        self.start_reason  = str(start_reason or "").strip()
+        self.created_at = float(created_at or 0.0)
+        self.turn_count = int(turn_count or 0)
+        self.reset_count = int(reset_count or 0)
+        self.reset_reason = str(reset_reason or "")
+        self.start_reason = str(start_reason or "").strip()
         self.session_bound = valid_session_ids(self.cid, self.sid)
 
         self.fork_source_available = bool(
             fork_source_available or self.turn_count > 0
         )
 
-        self._pending_context: list[str]         = []
+        self._pending_context: list[str] = []
         self._pending_system_messages: list[str] = []
 
     def begin_turn(
@@ -180,10 +180,10 @@ class ConversationState(object):
 
         return {
             **ids,
-            "created_at"   : self.created_at,
-            "turn_count"   : self.turn_count,
-            "reset_count"  : self.reset_count,
-            "reset_reason" : self.reset_reason
+            "created_at": self.created_at,
+            "turn_count": self.turn_count,
+            "reset_count": self.reset_count,
+            "reset_reason": self.reset_reason
         }
 
     def _bind_external(
@@ -198,8 +198,8 @@ class ConversationState(object):
             self.cid = cid
             self.sid = sid or new_sid(cid)
 
-            self.created_at  = time.time()
-            self.turn_count  = 0
+            self.created_at = time.time()
+            self.turn_count = 0
             self.session_bound = True
             self.start_reason = str(start_reason or "").strip() or "external"
 

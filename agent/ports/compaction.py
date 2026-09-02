@@ -13,9 +13,7 @@ from agent.ports.hooks import HookScopeProviderPort
 from agent.ports.transcript import TranscriptFactory
 
 if typing.TYPE_CHECKING:
-    from agent.application.hooks.context import HookExecutionContext
     from agent.application.turns.compact_result import CompactEvent
-
 
 CompactProgress: typing.TypeAlias = typing.Callable[[str], None]
 CleanupValue = typing.TypeVar("CleanupValue")

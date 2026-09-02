@@ -7,14 +7,15 @@ import sqlite3
 import time
 import typing
 from pathlib import Path
+
 from protocol.schema.identifiers import valid_session_ids
 
 TABLE_SESSION_CURSORS = "conversation_session_cursors"
-TABLE_PENDING_FORKS   = "conversation_pending_forks"
+TABLE_PENDING_FORKS = "conversation_pending_forks"
 
-HISTORY_TTL_MS     = 24 * 60 * 60 * 1000
-HISTORY_LIMIT      = 200
-TITLE_MAX_CHARS    = 80
+HISTORY_TTL_MS = 24 * 60 * 60 * 1000
+HISTORY_LIMIT = 200
+TITLE_MAX_CHARS = 80
 HISTORY_MENU_LIMIT = 10
 
 INTERACTIVE_HISTORY_SOURCES = (
@@ -70,8 +71,8 @@ class ConversationHistoryStore(object):
     ) -> None:
         if not str(db_path or "").strip():
             raise ValueError("history db path is required")
-        self.db_path   = Path(db_path).expanduser()
-        self.ttl_ms    = max(1, int(ttl_ms or HISTORY_TTL_MS))
+        self.db_path = Path(db_path).expanduser()
+        self.ttl_ms = max(1, int(ttl_ms or HISTORY_TTL_MS))
         self.max_items = max(1, int(max_items or HISTORY_LIMIT))
 
     def touch_session(
@@ -96,15 +97,15 @@ class ConversationHistoryStore(object):
         now = _now_ms() if now_ms is None else int(now_ms)
 
         record = {
-            "cid"        : cid_text,
-            "sid"        : sid_text,
-            "title"      : _clean_title(title),
-            "workspace"  : normalize_workspace(workspace),
-            "source"     : _clean(source),
-            "branch"     : _clean(branch),
-            "status"     : _normalize_status(status),
-            "updated_at" : now,
-            "expires_at" : now + self.ttl_ms
+            "cid": cid_text,
+            "sid": sid_text,
+            "title": _clean_title(title),
+            "workspace": normalize_workspace(workspace),
+            "source": _clean(source),
+            "branch": _clean(branch),
+            "status": _normalize_status(status),
+            "updated_at": now,
+            "expires_at": now + self.ttl_ms
         }
 
         conn = self._connect()
@@ -261,10 +262,10 @@ class ConversationHistoryStore(object):
         now_ms: typing.Optional[int] = None
     ) -> str:
         """返回源会话尚未完成的稳定分支请求标识。"""
-        cid_text  = _clean(cid)
-        sid_text  = _clean(sid)
+        cid_text = _clean(cid)
+        sid_text = _clean(sid)
         candidate = _clean(request_id)
-        boundary  = _clean(before_turn_id)
+        boundary = _clean(before_turn_id)
 
         if not candidate or not valid_session_ids(cid_text, sid_text):
             raise ValueError("valid cid/sid and request_id are required")
@@ -361,7 +362,7 @@ class ConversationHistoryStore(object):
         now_ms: typing.Optional[int]
     ) -> list[dict[str, typing.Any]]:
         """执行共享的会话游标查询。"""
-        now        = _now_ms() if now_ms is None else int(now_ms)
+        now = _now_ms() if now_ms is None else int(now_ms)
         item_limit = max(1, int(limit or HISTORY_MENU_LIMIT))
 
         clauses = ["expires_at > ?"]
@@ -433,7 +434,7 @@ class ConversationHistoryStore(object):
 
         target_status = _normalize_status(status)
 
-        now  = _now_ms() if now_ms is None else int(now_ms)
+        now = _now_ms() if now_ms is None else int(now_ms)
         conn = self._connect()
 
         try:
@@ -557,7 +558,7 @@ def normalize_workspace(workspace: typing.Any) -> str:
         return normalized
 
     try:
-        path     = Path(workspace_text).expanduser()
+        path = Path(workspace_text).expanduser()
         resolved = path.resolve(strict=False)
     except (OSError, RuntimeError, ValueError):
         normalized = workspace_text

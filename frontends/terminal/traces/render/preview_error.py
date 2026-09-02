@@ -3,11 +3,11 @@
 
 import re
 import typing
+
 from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
-
 from frontends.terminal.styles import (
     ERROR_PREVIEW_HEAD_STYLE,
     ERROR_PREVIEW_LINE_STYLE,
@@ -102,7 +102,9 @@ def error_preview_line_parts(
     if re.match(r"(?i)^stderr:\s*empty$", stripped):
         return [part(line, ERROR_PREVIEW_TEXT_STYLE)]
 
-    if re.search(r"(?i)\b(error|fatal|warning|cannot|missing|failed|failure|exception|not found|not recognized|permission denied|no such file|syntax error|parse error|not a valid)\b", stripped):
+    if re.search(
+        r"(?i)\b(error|fatal|warning|cannot|missing|failed|failure|exception|not found|not recognized|permission denied|no such file|syntax error|parse error|not a valid)\b",
+        stripped):
         return [part(line, ERROR_PREVIEW_TEXT_STYLE)]
 
     return None

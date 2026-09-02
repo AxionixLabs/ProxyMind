@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import copy
-import uuid
-import typing
 import asyncio
 import contextlib
-from collections.abc import Mapping
+import copy
+import typing
+import uuid
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass
+
+from agent.application.approvals.factory import build_approval_request
 from agent.application.approvals.models import (
     ApprovalDecisionSource,
     ApprovalDecisionValue,
@@ -18,7 +20,6 @@ from agent.application.approvals.models import (
     ApprovalRequestKey,
     ApprovalResolutionReason,
 )
-from agent.application.approvals.factory import build_approval_request
 from agent.application.approvals.presenter import ApprovalPresenterPort
 
 ApprovalSnapshotErrorHandler: typing.TypeAlias = typing.Callable[

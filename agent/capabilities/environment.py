@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
 import copy
+import datetime
+import os
 import shutil
 import typing
-import datetime
 from collections.abc import Mapping
 from pathlib import Path
+
 from agent.ports import CapabilityError
 from agent.protocol.json_value import JsonValue
-from protocol.schema.identifiers import short_uid
 from protocol.schema.environment import (
     ClientEnvironmentSnapshot,
     EnvironmentCapability,
@@ -20,6 +20,7 @@ from protocol.schema.environment import (
     normalize_client_environment_snapshot,
     normalize_environment_provider,
 )
+from protocol.schema.identifiers import short_uid
 
 
 class _EnvironmentFacts(typing.TypedDict):

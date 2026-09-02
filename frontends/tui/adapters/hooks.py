@@ -2,23 +2,17 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from functools import partial
 from dataclasses import dataclass
+from functools import partial
+
 from prompt_toolkit.utils import get_cwidth
-from agent.ports.presentation import TextStyle
+
 from agent.application.hooks.models import (
     HookOutputEntry,
     HookRunSummary,
 )
+from agent.ports.presentation import TextStyle
 from frontends.terminal.formatting import format_duration_ms
-from ..rendering.fragments import (
-    clip_fragments,
-    fragments_text,
-    join_formatted_lines,
-    split_formatted_lines,
-    transcript_hint,
-    wrap_formatted_lines
-)
 from ..core.models import (
     FormattedText,
     FragmentBlock,
@@ -29,6 +23,14 @@ from ..core.styles import (
     MUTED_STYLE,
     SUCCESS_STYLE,
     prompt_style
+)
+from ..rendering.fragments import (
+    clip_fragments,
+    fragments_text,
+    join_formatted_lines,
+    split_formatted_lines,
+    transcript_hint,
+    wrap_formatted_lines
 )
 
 HOOK_CONTEXT_MAX_DISPLAY_ROWS: typing.Final[int] = 3

@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from dataclasses import replace
+
+from agent.application.hooks.context import HookExecutionContext
 from agent.domain.hooks import (
     SESSION_END_REASONS,
     SessionEndReason,
 )
-from agent.application.hooks.context import HookExecutionContext
+from agent.harness.hooks.scope import HookExecutionScope
 from observability import (
     observe,
     observe_exception,
 )
-from agent.harness.hooks.scope import HookExecutionScope
 
 SessionScopeFactory = typing.Callable[
     [HookExecutionContext],

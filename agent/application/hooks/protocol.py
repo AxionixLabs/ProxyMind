@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.domain.hooks import (
     HOOK_EVENT_NAMES,
     HookEventName,
@@ -29,7 +30,7 @@ _STRING: JsonSchema = {"type": "string"}
 _BOOLEAN: JsonSchema = {"type": "boolean"}
 _INTEGER: JsonSchema = {"type": "integer"}
 
-_NULLABLE_STRING: JsonSchema  = {"type": ["string", "null"]}
+_NULLABLE_STRING: JsonSchema = {"type": ["string", "null"]}
 
 _OBJECT: JsonSchema = _object_schema({}, additional_properties=True)
 
@@ -585,7 +586,6 @@ def _matches_single_type(value: typing.Any, expected: str) -> bool:
 
 
 validate_hook_protocol_catalog()
-
 
 if __name__ == '__main__':
     pass

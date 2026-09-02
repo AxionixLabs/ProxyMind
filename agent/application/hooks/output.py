@@ -2,12 +2,13 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from agent.domain.hooks import HookEventName
-from agent.application.hooks.protocol import validate_hook_output
+
 from agent.application.hooks.models import (
     HookNormalizedOutput,
     HookOutputEffect,
 )
+from agent.application.hooks.protocol import validate_hook_output
+from agent.domain.hooks import HookEventName
 
 
 def normalize_business_block(
@@ -17,7 +18,7 @@ def normalize_business_block(
     transport_output: dict[str, typing.Any] | None = None
 ) -> HookNormalizedOutput:
     """把命令退出码表达的业务阻断转换为统一输出。"""
-    output         = dict(transport_output or {})
+    output = dict(transport_output or {})
     blocked_reason = str(reason or "").strip() or "hook blocked execution"
 
     if event == "PermissionRequest":
@@ -195,7 +196,7 @@ def _normalize_decision(
     data: dict[str, typing.Any]
 ) -> str:
     """读取并校验事件通用 decision 字段。"""
-    default      = "abstain" if event == "PermissionRequest" else ""
+    default = "abstain" if event == "PermissionRequest" else ""
     raw_decision = data.get("decision")
 
     if raw_decision is None:

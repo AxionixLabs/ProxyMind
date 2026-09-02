@@ -2,6 +2,7 @@
 # Notes: ==== Mind(TM) ====
 
 import typing
+
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.definitions import ClientTool
 from agent.application.tools.results import (

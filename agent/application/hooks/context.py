@@ -3,9 +3,10 @@
 
 import typing
 from dataclasses import dataclass
+
 from agent.domain.hooks import HookEventName
-from ..turns.context import TurnContext
 from .protocol import build_hook_input
+from ..turns.context import TurnContext
 
 __all__ = ("HookExecutionContext",)
 

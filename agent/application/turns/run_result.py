@@ -77,14 +77,14 @@ class RunResult(object):
         }
 
         for field_name in (
-            "response_id",
-            "model",
-            "route",
-            "request_id",
-            "service_tier",
-            "stop_reason",
-            "stop_sequence",
-            "reason",
+                "response_id",
+                "model",
+                "route",
+                "request_id",
+                "service_tier",
+                "stop_reason",
+                "stop_sequence",
+                "reason",
         ):
             value = getattr(self, field_name)
             if value not in {None, ""}:

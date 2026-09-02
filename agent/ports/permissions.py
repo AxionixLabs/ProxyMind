@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import typing
+
 from agent.domain.permission_profiles import (
     PermissionGrantScope,
     PermissionProfile,
@@ -53,7 +54,6 @@ class PermissionGrantPort(PermissionGrantReader, typing.Protocol):
 
 
 __all__ = ("PermissionGrantReader", "PermissionGrantPort")
-
 
 if __name__ == '__main__':
     pass

@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
-import typing
 import asyncio
+import os
 import secrets
+import typing
 from collections.abc import (
     AsyncIterator,
     Awaitable,
     Callable,
 )
+
 from agent.ports import (
     CapabilityError,
     ProcessCapability,
@@ -324,7 +325,6 @@ if not isinstance(LocalProcessCapability(), ProcessCapability):
     raise TypeError("LocalProcessCapability must implement ProcessCapability")
 if not isinstance(InMemoryProcessCapability(), ProcessCapability):
     raise TypeError("InMemoryProcessCapability must implement ProcessCapability")
-
 
 if __name__ == '__main__':
     pass

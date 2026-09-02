@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.application.views import (
     PlanItemView,
     PlanStatus,
@@ -31,7 +32,7 @@ def build_plan_update_view(data: typing.Any) -> PlanUpdateView | None:
         if not isinstance(raw_item, dict):
             return None
 
-        step   = raw_item.get("step")
+        step = raw_item.get("step")
         status = raw_item.get("status")
 
         if not isinstance(step, str) or not step.strip():

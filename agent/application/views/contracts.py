@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from .approval import ApprovalView
 from .hooks import HookRunView
 from .patch import PatchView

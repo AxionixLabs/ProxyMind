@@ -1,13 +1,18 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from collections.abc import (
     Awaitable,
     Callable,
 )
 from dataclasses import dataclass
+
+from agent.domain import (
+    RecoveryAction,
+    RunState,
+)
 from agent.ports import (
     RunExecution,
     RunPersistence,
@@ -16,10 +21,6 @@ from agent.ports import (
     RunSnapshot,
     TurnExecutor,
     TurnExecutorResult
-)
-from agent.domain import (
-    RecoveryAction,
-    RunState,
 )
 from agent.protocol import (
     RunEvent,
@@ -323,6 +324,7 @@ class SessionLoop(typing.Generic[ResultValue]):
         command: SubmitTurnCommand,
     ) -> Callable[[RunEvent], Awaitable[None]]:
         """把当前 Run 命令显式绑定到异步事件提交出口。"""
+
         async def publish(event: RunEvent) -> None:
             """持久提交一项事件后更新当前 Session 的易失投影。"""
             if self._persistence is not None:

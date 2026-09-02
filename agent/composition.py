@@ -4,8 +4,8 @@
 import functools
 import typing
 from pathlib import Path
-from observability import observe_exception
-from agent.application.turns.commands import TurnApplication
+
+from agent.adapters import MindChatProtocolClient
 from agent.application.services import (
     BuiltinToolRegistryBuilder,
     ClientToolRegistryBuilder,
@@ -14,29 +14,30 @@ from agent.application.services import (
 )
 from agent.application.services import SkillsConfigReader
 from agent.application.tools.execution import ToolExecutionAdapter
+from agent.application.turns.commands import TurnApplication
+from agent.capabilities import (
+    LocalEnvironmentSnapshotCapability,
+    LocalProcessCapability,
+)
+from agent.harness.sessions.owner import SessionRuntimeOwner
 from agent.ports import (
     EffectJournal,
     ProtocolCommandClient,
     SkillsProvider,
     TurnExecutorResult,
 )
+from agent.ports import EnvironmentSnapshotCapability, ModelCapability
 from agent.ports import (
     HookRegistryFactory,
     McpRuntimeBuilder,
     ToolRuntimeBuilder,
 )
+from agent.ports.workspace import WorkspaceRuntimeFactory
 from agent.stores import (
     LocalEffectJournal,
     SQLiteRunStore,
 )
-from agent.capabilities import (
-    LocalEnvironmentSnapshotCapability,
-    LocalProcessCapability,
-)
-from agent.adapters import MindChatProtocolClient
-from agent.ports import EnvironmentSnapshotCapability, ModelCapability
-from agent.ports.workspace import WorkspaceRuntimeFactory
-from agent.harness.sessions.owner import SessionRuntimeOwner
+from observability import observe_exception
 
 ResultValue = typing.TypeVar("ResultValue", bound=TurnExecutorResult)
 SkillsPayloadBuilder: typing.TypeAlias = typing.Callable[

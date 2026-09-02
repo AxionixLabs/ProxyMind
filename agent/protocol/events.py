@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import uuid
 import typing
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import (
     datetime,
     timezone
 )
+
 from .json_value import (
     JsonValue,
     freeze_json,
@@ -41,10 +42,10 @@ def validate_model_event(event: ModelEvent) -> ModelEvent:
     if not isinstance(event.type, str) or not event.type.strip():
         raise ValueError("model event type is required")
     for field_name, value in (
-        ("proto", event.proto),
-        ("cid", event.cid),
-        ("sid", event.sid),
-        ("turn_id", event.turn_id),
+            ("proto", event.proto),
+            ("cid", event.cid),
+            ("sid", event.sid),
+            ("turn_id", event.turn_id),
     ):
         if not isinstance(value, str):
             raise TypeError(f"model event {field_name} must be a string")
@@ -52,9 +53,9 @@ def validate_model_event(event: ModelEvent) -> ModelEvent:
     if event.type in {"ping", "stream.gap"}:
         if event.type == "stream.gap":
             for field_name, value in (
-                ("cid", event.cid),
-                ("sid", event.sid),
-                ("turn_id", event.turn_id),
+                    ("cid", event.cid),
+                    ("sid", event.sid),
+                    ("turn_id", event.turn_id),
             ):
                 if not value.strip():
                     raise ValueError(f"model event {field_name} is required")
@@ -77,9 +78,9 @@ def validate_model_event(event: ModelEvent) -> ModelEvent:
     if event.proto != "mind.chat":
         raise ValueError("model event proto must be mind.chat")
     for field_name, value in (
-        ("cid", event.cid),
-        ("sid", event.sid),
-        ("turn_id", event.turn_id),
+            ("cid", event.cid),
+            ("sid", event.sid),
+            ("turn_id", event.turn_id),
     ):
         if not value.strip():
             raise ValueError(f"model event {field_name} is required")
@@ -96,6 +97,7 @@ def validate_model_event(event: ModelEvent) -> ModelEvent:
     ):
         raise ValueError("model event presentation_epoch must be positive")
     return event
+
 
 RunEventKind = typing.Literal[
     "run_queued",
@@ -128,11 +130,11 @@ class RunEvent:
     def __post_init__(self) -> None:
         """校验事件坐标并冻结事件载荷。"""
         for field_name in (
-            "event_id",
-            "session_id",
-            "run_id",
-            "causation_id",
-            "occurred_at",
+                "event_id",
+                "session_id",
+                "run_id",
+                "causation_id",
+                "occurred_at",
         ):
             value = getattr(self, field_name)
             if not isinstance(value, str) or not value.strip():

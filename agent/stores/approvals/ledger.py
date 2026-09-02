@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import threading
+import typing
 
 ApprovalLedgerState: typing.TypeAlias = typing.Literal[
     "approved",
@@ -10,6 +10,7 @@ ApprovalLedgerState: typing.TypeAlias = typing.Literal[
     "unknown",
     "terminal",
 ]
+
 
 class ApprovalCallLedger(object):
     """维护审批请求与后续工具调用的本地生命周期。"""

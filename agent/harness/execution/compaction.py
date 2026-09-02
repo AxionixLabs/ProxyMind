@@ -1,21 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from dataclasses import replace
+
+from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.compact_result import CompactResult
+from agent.application.turns.context import AgentContext
 from agent.domain.hooks import (
     CompactTriggerReason,
     CompactTriggerSource,
-)
-from agent.application.hooks.context import HookExecutionContext
-from agent.application.turns.context import AgentContext
-from agent.ports import (
-    CompactProgress,
-    CompactionClientPort,
-    CompactionSessionPort,
-    HookExecutionScopePort,
 )
 from agent.harness.hooks.compaction import (
     CompactHookBlockedError,
@@ -23,6 +18,12 @@ from agent.harness.hooks.compaction import (
 )
 from agent.harness.hooks.scope import resolve_execution_hook_scope
 from agent.harness.hooks.turn_lifecycle import TurnHookEvents
+from agent.ports import (
+    CompactProgress,
+    CompactionClientPort,
+    CompactionSessionPort,
+    HookExecutionScopePort,
+)
 from observability import (
     observe,
     observe_exception
@@ -256,7 +257,7 @@ def _apply_post_compact_decision(
     message = result.message
 
     if not decision.allowed:
-        reason  = decision.reason or "continuation denied by hook"
+        reason = decision.reason or "continuation denied by hook"
         message = f"{message} Post-compact continuation blocked: {reason}"
 
     return replace(

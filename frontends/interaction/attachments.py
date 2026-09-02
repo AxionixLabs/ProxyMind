@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import glob
 import base64
-import typing
+import glob
 import mimetypes
+import typing
 from collections.abc import Mapping
-from pathlib import Path
 from copy import deepcopy
+from pathlib import Path
+
 from infrastructure.errors import AppError
 
 _RESTORED_ATTACHMENT_KEY = "_restored_attachment"

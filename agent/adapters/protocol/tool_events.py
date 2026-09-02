@@ -3,33 +3,44 @@
 
 import typing
 from dataclasses import dataclass
-from observability import observe
-from agent.stores.approvals.ledger import ApprovalCallLedger
+
+from agent.application.approvals.local_policy import (
+    apply_local_exec_policy_approval,
+    apply_local_patch_approval,
+    local_exec_policy_approval,
+    local_exec_policy_cancelled_result,
+    local_exec_policy_denied_result,
+    local_exec_policy_requirement,
+    local_patch_approval,
+    normalize_local_permission_arguments
+)
 from agent.application.approvals.models import ApprovalOutcome
-from agent.application.tools.planning import PLAN_STEPS_TOOL
 from agent.application.tools.authorization import ToolTurnInterrupted
+from agent.application.tools.catalog import meta_for_tool
 from agent.application.tools.execution import ToolExecutionAdapter
-from agent.ports.transcript import TranscriptSink
+from agent.application.tools.planning import PLAN_STEPS_TOOL
+from agent.application.turns.context import (
+    ToolInvocation,
+    TurnContext
+)
+from agent.application.views import uses_native_tool_view
+from agent.application.views.builders.approval import build_approval_view
+from agent.application.views.contracts import PresentationSink
+from agent.application.views.tool_execution import show_tool_result
+from agent.domain.execution_policy import ExecutionPolicyRequirement
+from agent.domain.tool_policy import is_approval_only_tool
+from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
+from agent.harness.tools.client_calls import ClientToolCallRunner
+from agent.harness.tools.plan_calls import PlanToolCallRunner
 from agent.ports import (
     ApprovalCoordinatorPort,
     ExecutionPolicy,
     PatchPreviewPort,
 )
-from agent.application.tools.catalog import meta_for_tool
-from agent.domain.execution_policy import ExecutionPolicyRequirement
 from agent.ports import OutputStatusPort
-from agent.application.views.builders.approval import build_approval_view
-from agent.application.views.contracts import PresentationSink
-from agent.domain.tool_policy import is_approval_only_tool
-from agent.application.turns.context import (
-    ToolInvocation,
-    TurnContext
-)
-from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
-from agent.harness.tools.client_calls import ClientToolCallRunner
-from agent.harness.tools.plan_calls import PlanToolCallRunner
-from agent.application.views.tool_execution import show_tool_result
-from agent.application.views import uses_native_tool_view
+from agent.ports.transcript import TranscriptSink
+from agent.stores.approvals.ledger import ApprovalCallLedger
+from observability import observe
 from protocol.client.tools import build_tool_result_envelope
 from protocol.client.turn_control import TurnControlRequestError
 from protocol.schema.stream_events import (
@@ -41,16 +52,7 @@ from protocol.schema.stream_events import (
     ToolOutputEvent,
 )
 from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
-from agent.application.approvals.local_policy import (
-    apply_local_exec_policy_approval,
-    apply_local_patch_approval,
-    local_exec_policy_approval,
-    local_exec_policy_cancelled_result,
-    local_exec_policy_denied_result,
-    local_exec_policy_requirement,
-    local_patch_approval,
-    normalize_local_permission_arguments
-)
+
 
 def tool_invocation_from_event(
     turn_context: TurnContext,
@@ -61,8 +63,8 @@ def tool_invocation_from_event(
     name: str | None = None
 ) -> ToolInvocation:
     """从流式事件构建不暴露内部授权字段的工具调用上下文。"""
-    event_name      = str(name or getattr(event, "name", "")).strip()
-    local_meta      = meta_for_tool(tools, event_name)
+    event_name = str(name or getattr(event, "name", "")).strip()
+    local_meta = meta_for_tool(tools, event_name)
     event_arguments = getattr(event, "arguments", {})
 
     return ToolInvocation(
@@ -124,10 +126,10 @@ class ToolCallBatchBuffer:
 
     def __init__(self) -> None:
         """初始化空批次缓冲区。"""
-        self._start: ToolCallsStartEvent | None         = None
-        self._calls: dict[str, ToolCallEvent]           = {}
+        self._start: ToolCallsStartEvent | None = None
+        self._calls: dict[str, ToolCallEvent] = {}
         self._ignored_batch: ToolCallsStartEvent | None = None
-        self._completed_batch_ids: set[str]             = set()
+        self._completed_batch_ids: set[str] = set()
 
     @property
     def active(self) -> bool:
@@ -212,20 +214,20 @@ class ToolEventHandler:
         interrupt_turn: typing.Callable[[str], typing.Awaitable[bool]],
     ) -> None:
         """绑定当前轮次拥有的工具执行依赖。"""
-        self.turn_context   = turn_context
+        self.turn_context = turn_context
         self.execution_policy = execution_policy
         self.approval_coordinator = approval_coordinator
-        self.patch_preview  = patch_preview
-        self.tools          = tools
-        self.ledger         = ledger
-        self.coordinator    = coordinator
-        self.client_runner  = client_runner
-        self.plan_runner    = plan_runner
+        self.patch_preview = patch_preview
+        self.tools = tools
+        self.ledger = ledger
+        self.coordinator = coordinator
+        self.client_runner = client_runner
+        self.plan_runner = plan_runner
         self.tool_execution = tool_execution
         self.status_control = status_control
-        self.presentation   = presentation
-        self.transcript     = transcript
-        self.post_result    = post_result
+        self.presentation = presentation
+        self.transcript = transcript
+        self.post_result = post_result
         self.interrupt_turn = interrupt_turn
 
     async def handle_call(
@@ -233,8 +235,8 @@ class ToolEventHandler:
         event: ToolCallEvent
     ) -> ToolCallHandlingResult:
         """处理客户端工具调用并返回外层循环应采取的动作。"""
-        name         = event.name
-        arguments    = dict(event.arguments)
+        name = event.name
+        arguments = dict(event.arguments)
         turn_context = self.turn_context
 
         approval_state = self.ledger.consume(
@@ -380,9 +382,9 @@ class ToolEventHandler:
         if not name:
             return
 
-        arguments        = dict(event.arguments)
+        arguments = dict(event.arguments)
         use_coding_trace = uses_native_tool_view(name)
-        tool_run         = self.tool_execution.project_server_output(event.payload)
+        tool_run = self.tool_execution.project_server_output(event.payload)
 
         self.transcript.append(
             "tool.failed" if tool_run.status == "failed" else "tool.completed",

@@ -4,10 +4,7 @@
 import os
 import sys
 import typing
-from agent.application.views.contracts import (
-    PresentationSink,
-    PresentationView,
-)
+
 from agent.application.views import (
     ApprovalView,
     BatchCompletedView,
@@ -26,6 +23,10 @@ from agent.application.views import (
     RunStartedView,
     ToolStartView,
 )
+from agent.application.views.contracts import (
+    PresentationSink,
+    PresentationView,
+)
 from agent.ports import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
@@ -39,11 +40,11 @@ from agent.ports import (
     OutputStatusPort,
     SourcesOutput,
 )
+from frontends.terminal.renderers.approval import render_approval_view
 from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text,
 )
-from frontends.terminal.renderers.approval import render_approval_view
 from metadata import const
 from .recording import StreamRecordWriter
 
@@ -399,8 +400,8 @@ class TextContentSink(ContentSink):
             self.state.settle_assistant()
             return None
         if isinstance(output, (
-            AssistantPresentationSuperseded,
-            AssistantResponseSuperseded,
+                AssistantPresentationSuperseded,
+                AssistantResponseSuperseded,
         )):
             self.state.settle_assistant()
             self.state.process("↻ Previous attempt interrupted; retrying\n")

@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import json
+import sqlite3
 import time
 import typing
-import asyncio
-import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from observability import observe_exception
-from agent.domain.policies import PermissionSettings
+
+from agent.application.agents.fork_context import ForkContextSnapshot
 from agent.application.agents.thread import AgentThreadContext
+from agent.application.turns.context import AgentContext
 from agent.domain.agents import (
     AgentResumeStatus,
     AgentStatus,
@@ -18,14 +19,14 @@ from agent.domain.agents import (
     AgentSubmissionKind,
     FINAL_AGENT_STATUSES,
 )
+from agent.domain.policies import PermissionSettings
+from observability import observe_exception
 from protocol.schema.permissions import (
     normalize_approval_policy,
     normalize_approval_reviewer,
     normalize_network_access,
     normalize_sandbox_mode,
 )
-from agent.application.turns.context import AgentContext
-from agent.application.agents.fork_context import ForkContextSnapshot
 from .mailbox import (
     AgentMailboxEvent,
     AgentMailboxEventKind,
@@ -35,7 +36,7 @@ from .mailbox import (
 TABLE_AGENT_GRAPH_CHECKPOINTS = "agent_graph_checkpoints"
 
 DEFAULT_AGENT_GRAPH_TTL_MS = 24 * 60 * 60 * 1000
-DEFAULT_AGENT_GRAPH_LIMIT  = 200
+DEFAULT_AGENT_GRAPH_LIMIT = 200
 
 __all__ = (
     "AgentGraphCheckpoint",
@@ -182,8 +183,8 @@ class AgentGraphStore:
         _require_positive_integer(ttl_ms, "agent graph ttl")
         _require_positive_integer(max_items, "agent graph item limit")
 
-        self.db_path   = Path(db_path).expanduser()
-        self.ttl_ms    = ttl_ms
+        self.db_path = Path(db_path).expanduser()
+        self.ttl_ms = ttl_ms
         self.max_items = max_items
 
     def save(
@@ -432,7 +433,7 @@ class AgentGraphPersistence:
             self._pending = {}
 
             for checkpoint in batch.values():
-                error   = await self._save(checkpoint)
+                error = await self._save(checkpoint)
                 current = self._pending.get(checkpoint.root_session_id)
 
                 if error is not None and (
@@ -501,8 +502,8 @@ def _checkpoint_payload(checkpoint: AgentGraphCheckpoint) -> dict[str, typing.An
 def _record_payload(record: AgentGraphRecord) -> dict[str, typing.Any]:
     """把单个执行主体快照转换为存储载荷。"""
     thread = record.thread
-    agent  = thread.agent
-    fork   = thread.fork_context
+    agent = thread.agent
+    fork = thread.fork_context
 
     return {
         "thread": {
@@ -686,12 +687,12 @@ def _record_from_payload(payload: typing.Any) -> AgentGraphRecord:
 
 def _thread_from_payload(payload: typing.Any) -> AgentThreadContext:
     """校验并还原执行线程的固定上下文。"""
-    data            = _mapping(payload, "agent thread")
-    agent_data      = _mapping(data.get("agent"), "agent context")
+    data = _mapping(payload, "agent thread")
+    agent_data = _mapping(data.get("agent"), "agent context")
     permission_data = _mapping(data.get("permissions"), "agent permissions")
-    fork_data       = _mapping(data.get("fork_context"), "fork context")
-    skills          = data.get("skills")
-    pref_config     = data.get("pref_config")
+    fork_data = _mapping(data.get("fork_context"), "fork context")
+    skills = data.get("skills")
+    pref_config = data.get("pref_config")
 
     if not isinstance(skills, list) or any(not isinstance(item, dict) for item in skills):
         raise TypeError("agent skills must be a list of objects")
@@ -795,8 +796,8 @@ def _submission_from_payload(payload: typing.Any) -> AgentSubmission | None:
 
 def _mailbox_from_payload(payload: typing.Any) -> AgentMailboxSnapshot:
     """校验并还原邮箱事件与消费位置。"""
-    data     = _mapping(payload, "agent mailbox")
-    events   = data.get("events")
+    data = _mapping(payload, "agent mailbox")
+    events = data.get("events")
     consumed = data.get("consumed")
 
     if not isinstance(events, list):

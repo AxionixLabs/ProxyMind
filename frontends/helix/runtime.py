@@ -1,21 +1,18 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import time
 import typing
-import asyncio
 from collections.abc import (
     Awaitable,
     Callable,
 )
+
 from agent.domain.tool_policy import ToolFilterMode
 from agent.ports.frontend import FrontendActivityPort
 from agent.ports.process_lifecycle import ProcessLifecyclePort
 from infrastructure.services.helix_environment import fetch_service_exec_env
-from infrastructure.services.server_manager import ServerManage
-from infrastructure.update.assets import ensure_asset
-from infrastructure.update.runtime import UpgradeProgress
-
 from infrastructure.services.runtime_context import (
     ServiceRuntimeContext,
     ServiceRuntimeSpec,
@@ -26,6 +23,9 @@ from infrastructure.services.runtime_setup import (
     service_runtime_asset_missing,
     verify_runtime_paths,
 )
+from infrastructure.services.server_manager import ServerManage
+from infrastructure.update.assets import ensure_asset
+from infrastructure.update.runtime import UpgradeProgress
 from observability import (
     observe,
     observe_exception,
@@ -195,9 +195,9 @@ async def prepare_and_start_service_runtime(
     tool_profile: ToolFilterMode = "app",
     label: str = "Helix MCP",
     confirm_download: typing.Callable[
-        [ServiceRuntimeContext],
-        typing.Awaitable[bool],
-    ] | None = None,
+                          [ServiceRuntimeContext],
+                          typing.Awaitable[bool],
+                      ] | None = None,
     progress: UpgradeProgress,
     download_confirmed: bool = False,
     defer_activity_stop: bool = False

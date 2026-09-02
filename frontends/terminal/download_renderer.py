@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
+
 from rich.console import Console
+
 from infrastructure.platform.animation import AsyncAnimManager
-from .download import download_animation
 from .contracts import TerminalDesign
+from .download import download_animation
 
 
 class TerminalDownloadProgress(object):

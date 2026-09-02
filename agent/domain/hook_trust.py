@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+
 from agent.domain.hooks import (
     HookDefinitionConfig,
     HookStateTable,

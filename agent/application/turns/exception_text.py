@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import json
-import httpx
 import contextlib
+import json
+
+import httpx
+
 from metadata import const
 
 

@@ -2,6 +2,7 @@
 
 import typing
 from dataclasses import dataclass
+
 from protocol.schema.turn_inputs import TurnInput
 
 AgentMessageDeliveryStatus = typing.Literal["active_turn", "mailbox"]
@@ -63,7 +64,6 @@ __all__ = (
     "AgentMessageReceipt",
     "AgentMessageReceiptStatus",
 )
-
 
 if __name__ == '__main__':
     pass

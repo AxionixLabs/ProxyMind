@@ -5,14 +5,14 @@ import asyncio
 import time
 import typing
 
-from observability import (
-    observe,
-    observe_exception
-)
 from agent.application.turns.execution import TurnExecution
 from agent.application.turns.transcript import (
     record_turn_finished,
     record_turn_started,
+)
+from agent.domain.tool_policy import (
+    ToolFilterMode,
+    filter_mode_tools
 )
 from agent.ports import (
     EventReportPort,
@@ -21,9 +21,9 @@ from agent.ports import (
     TurnEventReportHandle,
     TurnExecutionRuntimePort,
 )
-from agent.domain.tool_policy import (
-    ToolFilterMode,
-    filter_mode_tools
+from observability import (
+    observe,
+    observe_exception
 )
 
 if typing.TYPE_CHECKING:
@@ -81,7 +81,7 @@ async def execute_turn(
     ) = _UNSPECIFIED_TOOL_FILTER_MODE,
 ) -> TurnResultValue:
     """在独立工具和报告生命周期中执行显式模型轮次。"""
-    context    = execution.context
+    context = execution.context
     started_at = time.perf_counter()
 
     observe(

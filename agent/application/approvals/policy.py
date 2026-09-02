@@ -3,15 +3,16 @@
 
 import typing
 from pathlib import Path
+
+from agent.application.approvals.amendments import (
+    ExecPolicyAmendmentProposal,
+    approval_execpolicy_amendment,
+)
+from metadata import const
 from protocol.schema.stream_events import ToolApprovalRequiredEvent
 from protocol.schema.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
     TOOL_APPROVAL_DECISIONS_BY_KIND,
-)
-from metadata import const
-from agent.application.approvals.amendments import (
-    ExecPolicyAmendmentProposal,
-    approval_execpolicy_amendment,
 )
 from .models import (
     ApprovalDecisionValue,
@@ -45,6 +46,7 @@ DECISION_SHORTCUT_LABELS: dict[str, str] = {
     "grantForSession": "s",
     "decline": "n/esc",
 }
+
 
 def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.Any]:
     """把直接审批事件字段转换为客户端审批卡载荷。"""
@@ -149,8 +151,8 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
     if event.mcp_request_id:
         approval["mcp_request_id"] = event.mcp_request_id
     for field_name in (
-        "connector_id", "connector_name", "connector_description",
-        "connected_account_email", "tool_title", "tool_description",
+            "connector_id", "connector_name", "connector_description",
+            "connected_account_email", "tool_title", "tool_description",
     ):
         value = getattr(event, field_name)
         if value:
@@ -237,10 +239,10 @@ def approval_from_snapshot(
 def approval_reason(approval: dict[str, typing.Any]) -> str:
     """按重试、审批和调用说明的优先级读取最终理由。"""
     for field_name in (
-        "retry_reason",
-        "approval_reason",
-        "justification",
-        "reason",
+            "retry_reason",
+            "approval_reason",
+            "justification",
+            "reason",
     ):
         value = str(approval.get(field_name) or "").strip()
         if value:

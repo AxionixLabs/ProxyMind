@@ -13,6 +13,5 @@ __all__ = [
     "TerminalDownloadRenderer",
 ]
 
-
 if __name__ == '__main__':
     pass

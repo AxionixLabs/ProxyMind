@@ -4,16 +4,13 @@
 import copy
 import typing
 from dataclasses import dataclass
-from agent.application.views import PatchView
-from agent.application.views.builders.patch import build_patch_start_view
+
 from agent.application.approvals.amendments import (
     ExecPolicyAmendmentProposal,
     approval_execpolicy_amendment,
 )
-from .summary import (
-    approval_shell_commands,
-    approval_summary,
-)
+from agent.application.views import PatchView
+from agent.application.views.builders.patch import build_patch_start_view
 from .models import (
     ApprovalDecisionValue,
     ApprovalRequestKey,
@@ -22,6 +19,10 @@ from .models import (
 from .policy import (
     approval_decisions,
     approval_prompt,
+)
+from .summary import (
+    approval_shell_commands,
+    approval_summary,
 )
 
 ApprovalCommand: typing.TypeAlias = str | tuple[str, ...]
@@ -107,10 +108,10 @@ def ensure_approval_presentation(
     if isinstance(
         value,
         (
-            ExecApprovalPresentation,
-            ApplyPatchApprovalPresentation,
-            RequestPermissionsApprovalPresentation,
-            ToolApprovalPresentation,
+                ExecApprovalPresentation,
+                ApplyPatchApprovalPresentation,
+                RequestPermissionsApprovalPresentation,
+                ToolApprovalPresentation,
         ),
     ):
         return value
@@ -127,9 +128,9 @@ def build_approval_presentation(
     decisions: tuple[ApprovalDecisionValue, ...] | None = None
 ) -> ApprovalPresentation:
     """把原始审批载荷一次转换为按动作区分的不可变展示对象。"""
-    normalized    = dict(payload)
+    normalized = dict(payload)
     resolved_kind = kind or approval_request_kind(normalized)
-    resolved_key  = key or _request_key(normalized, resolved_kind)
+    resolved_key = key or _request_key(normalized, resolved_kind)
 
     if decisions is None:
         resolved_decisions: tuple[ApprovalDecisionValue, ...] = tuple(
@@ -280,7 +281,7 @@ def _presentation_context(
         payload.get("justification")
         or payload.get("reason")
     )
-    agent_depth   = payload.get("agent_depth")
+    agent_depth = payload.get("agent_depth")
 
     if isinstance(agent_depth, bool) or not isinstance(agent_depth, int):
         agent_depth = None
@@ -326,7 +327,7 @@ def _request_key(
 ) -> ApprovalRequestKey:
     """从独立载荷构造展示测试所需的稳定身份。"""
     approval_id = _text(payload.get("approval_id") or payload.get("id"))
-    call_id     = _text(payload.get("call_id"))
+    call_id = _text(payload.get("call_id"))
 
     request_id = _text(
         payload.get("request_id")
@@ -381,10 +382,10 @@ def _patch_values(
     context: ApprovalPresentationContext
 ) -> tuple[str, PatchView | None]:
     """读取补丁正文并在有结构化预览时构造补丁视图。"""
-    arguments      = payload.get("arguments")
+    arguments = payload.get("arguments")
     arguments_dict = dict(arguments) if isinstance(arguments, dict) else {}
-    raw_patch      = payload.get("patch", arguments_dict.get("patch", ""))
-    patch          = _command_text(raw_patch)
+    raw_patch = payload.get("patch", arguments_dict.get("patch", ""))
+    patch = _command_text(raw_patch)
 
     preview = payload.get("preview")
     if not isinstance(preview, dict):

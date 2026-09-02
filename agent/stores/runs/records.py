@@ -14,7 +14,6 @@ from agent.protocol import RunEvent, SubmitTurnCommand
 from agent.protocol.json_value import thaw_json
 from .schema import RUN_SNAPSHOT_VERSION
 
-
 _EVENT_STATUSES = {
     "run_queued": RunStatus.QUEUED,
     "run_started": RunStatus.RUNNING,
@@ -83,10 +82,10 @@ def terminal_facts(
     if isinstance(assistant_text, str):
         facts.append(("assistant_message", 0, {"text": assistant_text}))
     for field_name, kind in (
-        ("tool_results", "tool_result"),
-        ("approval_decisions", "approval_decision"),
-        ("evidence_references", "evidence_reference"),
-        ("evidence_refs", "evidence_reference"),
+            ("tool_results", "tool_result"),
+            ("approval_decisions", "approval_decision"),
+            ("evidence_references", "evidence_reference"),
+            ("evidence_refs", "evidence_reference"),
     ):
         values = result.get(field_name)
         if not isinstance(values, (list, tuple)):

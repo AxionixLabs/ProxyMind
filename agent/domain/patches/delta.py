@@ -41,12 +41,12 @@ class AppliedPatchChange:
     def payload(self) -> dict[str, typing.Any]:
         """返回可序列化的变更载荷。"""
         payload = {
-            "path"                : self.path,
-            "action"              : self.action,
-            "old_content"         : self.old_content,
-            "new_content"         : self.new_content,
-            "source_path"         : self.source_path,
-            "overwritten_content" : self.overwritten_content
+            "path": self.path,
+            "action": self.action,
+            "old_content": self.old_content,
+            "new_content": self.new_content,
+            "source_path": self.source_path,
+            "overwritten_content": self.overwritten_content
         }
         payload["hunks"] = self.hunks
         return payload
@@ -119,8 +119,8 @@ class AppliedPatchDelta:
     def payload(self) -> dict[str, typing.Any]:
         """返回可放入工具结果的 delta 载荷。"""
         return {
-            "exact"   : self.exact,
-            "changes" : [change.payload() for change in self.changes]
+            "exact": self.exact,
+            "changes": [change.payload() for change in self.changes]
         }
 
 

@@ -5,6 +5,7 @@ import copy
 import time
 import typing
 from dataclasses import dataclass
+
 from protocol.schema.tool_approval import (
     ToolApprovalDecision,
     ToolApprovalKind,

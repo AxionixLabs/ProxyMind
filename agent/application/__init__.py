@@ -15,6 +15,5 @@ __all__ = (
     "submit_turn",
 )
 
-
 if __name__ == '__main__':
     pass

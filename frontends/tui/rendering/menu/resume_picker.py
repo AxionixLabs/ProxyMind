@@ -8,7 +8,9 @@ from dataclasses import (
     replace
 )
 from enum import Enum
+
 from prompt_toolkit.utils import get_cwidth
+
 from frontends.tui.contracts.resume import (
     ResumeArchiveStatus,
     ResumeDensity,
@@ -21,6 +23,10 @@ from frontends.tui.contracts.resume import (
     ResumeSortKey
 )
 from frontends.tui.contracts.text import FormattedText
+from .layout import (
+    MENU_SURFACE_HORIZONTAL_INSET,
+    surface_content_width
+)
 from ..fragments import (
     clip_fragments,
     clip_text,
@@ -28,25 +34,21 @@ from ..fragments import (
     join_formatted_lines,
     wrap_formatted_lines
 )
-from .layout import (
-    MENU_SURFACE_HORIZONTAL_INSET,
-    surface_content_width
-)
 from ..screen.overlays import (
     transcript_header_fragments,
     transcript_separator_fragments
 )
 from ..text_sanitize import sanitize_formatted_text
 
-PICKER_CHROME_HEIGHT: typing.Final[int]         = 8
-PICKER_FOOTER_HEIGHT: typing.Final[int]         = 4
-SESSION_META_INDENT_WIDTH: typing.Final[int]    = 2
-SESSION_META_DATE_WIDTH: typing.Final[int]      = 12
+PICKER_CHROME_HEIGHT: typing.Final[int] = 8
+PICKER_FOOTER_HEIGHT: typing.Final[int] = 4
+SESSION_META_INDENT_WIDTH: typing.Final[int] = 2
+SESSION_META_DATE_WIDTH: typing.Final[int] = 12
 SESSION_META_FIELD_GAP_WIDTH: typing.Final[int] = 2
-SESSION_META_MIN_CWD_WIDTH: typing.Final[int]   = 30
-SESSION_META_MAX_CWD_WIDTH: typing.Final[int]   = 72
-SESSION_META_CWD_ICON: typing.Final[str]        = "⌁"
-SESSION_META_BRANCH_ICON: typing.Final[str]     = ""
+SESSION_META_MIN_CWD_WIDTH: typing.Final[int] = 30
+SESSION_META_MAX_CWD_WIDTH: typing.Final[int] = 72
+SESSION_META_CWD_ICON: typing.Final[str] = "⌁"
+SESSION_META_BRANCH_ICON: typing.Final[str] = ""
 
 
 class ResumeToolbarFocus(str, Enum):
@@ -177,19 +179,19 @@ def remove_resume_row(
 
 def filtered_resume_rows(state: ResumePickerState) -> tuple[ResumeRow, ...]:
     """返回按当前 query、工作区和排序条件生成的稳定行快照。"""
-    query     = state.query.casefold().strip()
+    query = state.query.casefold().strip()
     workspace = _workspace_key(state.request.filter_workspace)
 
     rows = (
         row
         for row in state.request.rows
         if (
-            state.filter_mode is ResumeFilterMode.ALL
-            or not workspace
-            or _workspace_key(row.workspace) == workspace
-        )
-        and row.status == state.status
-        and (not query or _row_matches_query(row, query))
+               state.filter_mode is ResumeFilterMode.ALL
+               or not workspace
+               or _workspace_key(row.workspace) == workspace
+           )
+           and row.status == state.status
+           and (not query or _row_matches_query(row, query))
     )
     return tuple(sorted(rows, key=lambda row: _sort_key(state, row), reverse=True))
 
@@ -356,7 +358,7 @@ def move_resume_selection(
         preview=(
             state.preview
             if state.preview is not None
-            and state.preview.row_key == rows[selected].key
+               and state.preview.row_key == rows[selected].key
             else None
         ),
     )
@@ -378,9 +380,9 @@ def ensure_resume_selection_visible(
     if not rows:
         return replace(state, selected=0, scroll_top=0)
 
-    selected   = min(max(0, state.selected), len(rows) - 1)
+    selected = min(max(0, state.selected), len(rows) - 1)
     scroll_top = min(max(0, state.scroll_top), selected)
-    available  = max(1, int(viewport_rows) - int(scroll_top > 0))
+    available = max(1, int(viewport_rows) - int(scroll_top > 0))
 
     while scroll_top < selected:
         height = _rendered_height_between(
@@ -482,11 +484,11 @@ def move_resume_transcript(
     """按 pager 动作移动完整 transcript 的可见窗口。"""
     if not state.transcript_mode:
         return state
-    lines      = _resume_transcript_lines(state, width=max(1, int(width)))
-    viewport   = _resume_transcript_body_height(max(1, int(height)))
+    lines = _resume_transcript_lines(state, width=max(1, int(width)))
+    viewport = _resume_transcript_body_height(max(1, int(height)))
     max_scroll = max(0, len(lines) - viewport)
-    current    = min(max(0, state.transcript_scroll_top), max_scroll)
-    page       = max(1, viewport - 1)
+    current = min(max(0, state.transcript_scroll_top), max_scroll)
+    page = max(1, viewport - 1)
 
     if action == "up":
         current -= 1
@@ -520,7 +522,7 @@ def render_resume_picker(
     height: int
 ) -> FormattedText:
     """生成不超过当前终端宽高的完整 Resume picker 画布。"""
-    canvas_width  = max(1, int(width))
+    canvas_width = max(1, int(width))
     canvas_height = max(1, int(height))
 
     if state.transcript_mode:
@@ -564,11 +566,11 @@ def render_resume_transcript(
     height: int
 ) -> FormattedText:
     """生成全屏 transcript pager 画布。"""
-    canvas_width  = max(1, int(width))
+    canvas_width = max(1, int(width))
     canvas_height = max(1, int(height))
-    body_height   = _resume_transcript_body_height(canvas_height)
-    content       = _resume_transcript_lines(state, width=canvas_width)
-    max_scroll    = max(0, len(content) - body_height)
+    body_height = _resume_transcript_body_height(canvas_height)
+    content = _resume_transcript_lines(state, width=canvas_width)
+    max_scroll = max(0, len(content) - body_height)
 
     scroll_top = (
         max_scroll
@@ -651,7 +653,7 @@ def _resume_transcript_lines(
 
 def _search_line(state: ResumePickerState, *, width: int) -> FormattedText:
     available = max(0, width - 2)
-    query     = _safe_text(state.query)
+    query = _safe_text(state.query)
 
     search: FormattedText = [(
         "class:resume-picker.search" if query else (
@@ -683,11 +685,11 @@ def _search_line(state: ResumePickerState, *, width: int) -> FormattedText:
         max(0, available - minimum_search_width - 2),
     )
     toolbar = clip_fragments(toolbar, width=toolbar_width)
-    search_width  = max(0, available - toolbar_width - 2)
+    search_width = max(0, available - toolbar_width - 2)
 
     search = clip_fragments(search, width=search_width)
     spacer = max(0, available - _fragments_width(search) - toolbar_width)
-    parts  = [*search, ("", " " * spacer), *toolbar]
+    parts = [*search, ("", " " * spacer), *toolbar]
 
     return _chrome_line(parts, width=width)
 
@@ -824,9 +826,9 @@ def _list_lines(
         width=width,
     )
 
-    top        = visible_state.scroll_top
+    top = visible_state.scroll_top
     show_above = top > 0
-    budget     = height - int(show_above)
+    budget = height - int(show_above)
 
     rendered, has_below = _render_visible_rows(
         visible_state,
@@ -954,7 +956,7 @@ def _comfortable_meta_lines(
     width: int
 ) -> list[FormattedText]:
     """按固定日期/CWD 列拼接紧凑行元数据。"""
-    date  = _relative_time(state, _row_sort_timestamp(state, row))
+    date = _relative_time(state, _row_sort_timestamp(state, row))
     style = "class:resume-picker.meta"
 
     fields: list[tuple[str, str, int | None]] = [

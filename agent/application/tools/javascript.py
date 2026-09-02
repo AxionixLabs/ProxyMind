@@ -342,11 +342,11 @@ async def _authorize_nested_tool(
         sandbox_permissions == "with_additional_permissions"
         and bool(additional_permissions)
         and not _nested_permission_granted(
-            runtime,
-            arguments,
-            permissions=additional_permissions,
-            cwd=command_cwd,
-        )
+        runtime,
+        arguments,
+        permissions=additional_permissions,
+        cwd=command_cwd,
+    )
     )
     if (
         additional_approval_required
@@ -502,7 +502,6 @@ __all__ = (
     "JS_REPL_TOOL_NAMES",
     "javascript_tools",
 )
-
 
 if __name__ == "__main__":
     pass

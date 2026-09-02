@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+from .agents.execution import StreamSubagentExecution
+from .agents.messages import SteeringMessageDelivery
 from .protocol.client import (
     MindChatProtocolClient,
     ProtocolEventCursorStore,
     ProtocolModelEventStream,
 )
-from .agents.messages import SteeringMessageDelivery
-from .agents.execution import StreamSubagentExecution
 
 __all__ = (
     "MindChatProtocolClient",
@@ -16,7 +16,6 @@ __all__ = (
     "SteeringMessageDelivery",
     "StreamSubagentExecution",
 )
-
 
 if __name__ == '__main__':
     pass

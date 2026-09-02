@@ -3,12 +3,12 @@
 
 import os
 import re
+import select
+import subprocess
 import sys
+import threading
 import time
 import typing
-import select
-import threading
-import subprocess
 from dataclasses import dataclass
 from enum import Enum
 
@@ -132,7 +132,6 @@ DEGRADED_TERMINAL_CAPABILITIES = TerminalCapabilities(
     identity=TerminalIdentity(TerminalKind.UNKNOWN, "unknown"),
     color_level=TerminalColorLevel.UNKNOWN,
 )
-
 
 ColorProbe: typing.TypeAlias = typing.Callable[
     [object, object, float],
@@ -584,14 +583,14 @@ def _query_unix_theme(
     """通过 Unix TTY 查询默认颜色。"""
     import termios
 
-    read_fd: int | None  = None
+    read_fd: int | None = None
     write_fd: int | None = None
-    tty_fd: int | None   = None
+    tty_fd: int | None = None
 
     original: list[typing.Any] | None = None
 
     try:
-        input_fd = int(input_stream.fileno())   # type: ignore[attr-defined]
+        input_fd = int(input_stream.fileno())  # type: ignore[attr-defined]
         output_fd = int(output_stream.fileno())  # type: ignore[attr-defined]
 
         if os.isatty(input_fd) and os.isatty(output_fd):
@@ -607,7 +606,7 @@ def _query_unix_theme(
         raw = list(original)
         raw[3] &= ~(termios.ICANON | termios.ECHO)
         raw[6] = list(raw[6])
-        raw[6][termios.VMIN]  = 0
+        raw[6][termios.VMIN] = 0
         raw[6][termios.VTIME] = 0
 
         termios.tcsetattr(read_fd, termios.TCSANOW, raw)

@@ -57,6 +57,5 @@ class PatchParseFailure(typing.TypedDict):
 
 PatchParseResult = PatchParseSuccess | PatchParseFailure
 
-
 if __name__ == '__main__':
     pass

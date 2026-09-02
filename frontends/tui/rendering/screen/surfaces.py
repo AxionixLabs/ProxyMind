@@ -2,10 +2,12 @@
 # Notes: ==== Mind™ ====
 
 from enum import Enum
-from frontends.terminal.text import sanitize_terminal_text
-from metadata import const
+
 from prompt_toolkit.utils import get_cwidth
+
+from frontends.terminal.text import sanitize_terminal_text
 from frontends.tui.contracts.text import FormattedText
+from metadata import const
 from ..fragments import clip_fragments
 
 

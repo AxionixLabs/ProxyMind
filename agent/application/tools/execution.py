@@ -145,6 +145,5 @@ __all__ = (
     "build_client_tool_result",
 )
 
-
 if __name__ == "__main__":
     pass

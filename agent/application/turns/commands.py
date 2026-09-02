@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 from dataclasses import dataclass
+
 from agent.ports import (
     RunFact,
     RunPersistence,

@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from observability import observe_exception
 from agent.ports.agent_messages import (
     AgentMessageContext,
     AgentMessageReceipt,
     AgentMessageReceiptStatus,
 )
+from observability import observe_exception
 from protocol.client.turn_control import (
     TurnControlRequestError,
     TurnControlStatus,

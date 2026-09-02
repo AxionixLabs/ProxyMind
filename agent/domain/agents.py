@@ -4,6 +4,7 @@
 import time
 import typing
 from dataclasses import dataclass
+
 from protocol.schema.identifiers import short_uid
 
 __all__ = (

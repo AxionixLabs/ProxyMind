@@ -3,6 +3,7 @@
 
 import os
 import typing
+
 from agent.domain.execution_policy import (
     ExecutionPolicyAmendment,
     ExecutionPolicyRequirement,

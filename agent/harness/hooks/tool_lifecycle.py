@@ -1,20 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
+import hashlib
 import json
 import time
 import typing
-import asyncio
-import hashlib
 from dataclasses import (
     dataclass,
     replace,
 )
-from agent.application.turns.context import ToolInvocation
-from agent.ports import CommandHookSessionPort
-from agent.ports.transcript import TranscriptSink
-from agent.domain.hook_matching import hook_tool_name
-from agent.application.hooks.result import apply_tool_result_effect
+
 from agent.application.hooks.models import (
     HookDecision,
     HookDispatchResult,
@@ -23,7 +19,12 @@ from agent.application.hooks.models import (
     ToolOperationResult,
     ToolOutcome,
 )
+from agent.application.hooks.result import apply_tool_result_effect
+from agent.application.turns.context import ToolInvocation
+from agent.domain.hook_matching import hook_tool_name
 from agent.harness.hooks.scope import HookExecutionScope
+from agent.ports import CommandHookSessionPort
+from agent.ports.transcript import TranscriptSink
 
 ToolValue = typing.TypeVar("ToolValue")
 
@@ -83,9 +84,9 @@ class ToolHookEvents:
             invocation,
         )
 
-        reasons: list[str]     = []
+        reasons: list[str] = []
         denied_keys: list[str] = []
-        contexts: list[str]    = []
+        contexts: list[str] = []
 
         for record in dispatched.records:
             if not record.ok:
@@ -678,8 +679,6 @@ def _updated_tool_arguments(
         return {**invocation.arguments, "patch": command}
 
     return dict(updated_input)
-
-
 
 
 def _invocation_fingerprint(invocation: ToolInvocation) -> str:

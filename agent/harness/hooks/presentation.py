@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from agent.application.views.contracts import PresentationSink
 from agent.application.hooks.models import HookRunSummary
 from agent.application.views.builders.hooks import build_hook_run_view
+from agent.application.views.contracts import PresentationSink
 
 
 class HookPresentationAdapter:

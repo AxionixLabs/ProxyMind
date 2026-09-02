@@ -3,6 +3,7 @@
 
 import copy
 import typing
+
 from agent.application.views import (
     FailureView,
     LifecycleView,

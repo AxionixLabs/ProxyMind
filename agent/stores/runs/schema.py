@@ -2,7 +2,6 @@
 
 import typing
 
-
 RUN_STORE_SCHEMA_VERSION: typing.Final = 1
 RUN_SNAPSHOT_VERSION: typing.Final = 1
 

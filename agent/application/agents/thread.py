@@ -3,24 +3,25 @@
 
 import copy
 import typing
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from collections.abc import Mapping
-from ..config.settings import DEFAULT_FORK_TURNS
+
 from agent.domain.policies import PermissionSettings
 from protocol.schema.identifiers import (
     new_cid,
     new_sid,
     valid_session_ids,
 )
-from ..turns.context import (
-    AgentContext,
-    TurnContext,
-)
 from .fork_context import (
     ForkContextSnapshot,
     ForkTurns,
     normalize_fork_turns,
+)
+from ..config.settings import DEFAULT_FORK_TURNS
+from ..turns.context import (
+    AgentContext,
+    TurnContext,
 )
 
 

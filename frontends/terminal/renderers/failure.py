@@ -2,13 +2,14 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle,
 )
-from frontends.terminal.text_layout import wrap_styled_line
 from frontends.terminal.text import sanitize_terminal_text
+from frontends.terminal.text_layout import wrap_styled_line
 
 FAILURE_DOT_STYLE = TextStyle(foreground="#FF5F5F")
 FAILURE_TITLE_STYLE = TextStyle(foreground="#FF8A8A")

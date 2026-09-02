@@ -11,6 +11,7 @@ from dataclasses import (
     dataclass,
     field,
 )
+
 from agent.protocol.json_value import (
     JsonValue,
     freeze_json,

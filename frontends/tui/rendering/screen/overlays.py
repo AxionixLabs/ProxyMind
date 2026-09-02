@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+from prompt_toolkit.utils import get_cwidth
+
 from frontends.tui.contracts.text import FormattedText
 from ..fragments import clip_text
-from prompt_toolkit.utils import get_cwidth
 
 
 def transcript_header_fragments(
@@ -33,9 +34,9 @@ def static_pager_header_fragments(
     title: str
 ) -> FormattedText:
     """生成静态页面标题行。"""
-    render_width  = max(0, int(width))
-    pattern       = ("/ " * ((render_width + 1) // 2))[:render_width]
-    heading       = clip_text(f"/ {title}", width=render_width)
+    render_width = max(0, int(width))
+    pattern = ("/ " * ((render_width + 1) // 2))[:render_width]
+    heading = clip_text(f"/ {title}", width=render_width)
     heading_width = get_cwidth(heading)
 
     return [
@@ -58,7 +59,7 @@ def static_pager_separator_fragments(
     )
 
     progress_width = get_cwidth(progress)
-    prefix_width   = max(0, render_width - progress_width - 1)
+    prefix_width = max(0, render_width - progress_width - 1)
 
     return [
         ("class:static-pager.rule", "─" * prefix_width),
@@ -76,8 +77,8 @@ def transcript_separator_fragments(
     percentage: int
 ) -> FormattedText:
     """生成包含滚动百分比的完整记录分隔线。"""
-    render_width   = max(0, int(width))
-    progress       = f" {percentage}% "
+    render_width = max(0, int(width))
+    progress = f" {percentage}% "
     progress_start = max(0, render_width - len(progress) - 1)
 
     return [
@@ -98,13 +99,13 @@ def mailbox_header_fragments(
 ) -> FormattedText:
     """生成收件箱 overlay 的标题、数量和监听状态。"""
     render_width = max(0, int(width))
-    state        = "listening" if listener_active else "stopped"
-    status       = f" {pending_count_label} pending · {state} "
-    title        = "/ M A I L B O X "
-    pattern      = ("/ " * ((render_width + 1) // 2))[:render_width]
-    available    = max(0, render_width - get_cwidth(status))
-    heading      = clip_text(title, width=available)
-    fill_width   = max(0, available - get_cwidth(heading))
+    state = "listening" if listener_active else "stopped"
+    status = f" {pending_count_label} pending · {state} "
+    title = "/ M A I L B O X "
+    pattern = ("/ " * ((render_width + 1) // 2))[:render_width]
+    available = max(0, render_width - get_cwidth(status))
+    heading = clip_text(title, width=available)
+    fill_width = max(0, available - get_cwidth(heading))
 
     return [
         ("class:mailbox.title", heading),
@@ -136,7 +137,7 @@ def mailbox_separator_fragments(
     )
 
     progress_width = get_cwidth(progress)
-    prefix_width   = max(0, render_width - progress_width - int(bool(progress)))
+    prefix_width = max(0, render_width - progress_width - int(bool(progress)))
 
     return [
         ("class:mailbox.filler", "─" * prefix_width),

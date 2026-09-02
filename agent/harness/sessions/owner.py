@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
+
 from agent.ports import (
-    RunExecution,
     RunPersistence,
     RunSnapshot,
     TurnExecutor,

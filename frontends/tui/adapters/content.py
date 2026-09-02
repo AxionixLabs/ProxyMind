@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.ports import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
@@ -64,8 +65,8 @@ class TuiContentSink(ContentSink):
             await self.output.prepare_external_output()
             return None
         if isinstance(output, (
-            AssistantPresentationSuperseded,
-            AssistantResponseSuperseded,
+                AssistantPresentationSuperseded,
+                AssistantResponseSuperseded,
         )):
             await self._flush_before_assistant_output()
             await self.output.supersede_assistant_presentation()

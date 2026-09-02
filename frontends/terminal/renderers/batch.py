@@ -3,6 +3,7 @@
 
 import json
 import typing
+
 from agent.application.views import (
     BatchCompletedView,
     BatchStartView,

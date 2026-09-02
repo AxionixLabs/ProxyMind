@@ -8,6 +8,7 @@ from collections.abc import (
     Iterable,
 )
 from pathlib import Path
+
 from agent.domain.hooks import (
     HookDefinitionConfig,
 )

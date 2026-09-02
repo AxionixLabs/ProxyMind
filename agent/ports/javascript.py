@@ -8,8 +8,8 @@ from collections.abc import (
     Mapping,
 )
 
-from agent.protocol.json_value import ThawedJsonValue
 from agent.ports.capabilities import SandboxMode
+from agent.protocol.json_value import ThawedJsonValue
 
 NestedToolOutput: typing.TypeAlias = dict[str, ThawedJsonValue]
 NestedToolDispatch: typing.TypeAlias = Callable[
@@ -49,7 +49,6 @@ __all__ = (
     "NestedToolOutput",
     "WorkspaceJavaScriptPort",
 )
-
 
 if __name__ == "__main__":
     pass

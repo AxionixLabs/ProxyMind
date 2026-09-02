@@ -8,7 +8,6 @@ Rule = dict[str, typing.Any]
 ToolFilterMode = typing.Literal["app", "api"]
 ModeToolPolicy = dict[str, tuple[Rule, ...] | None]
 
-
 MODE_TOOL_POLICIES: dict[ToolFilterMode, ModeToolPolicy] = {
     "app": {
         "deny": (

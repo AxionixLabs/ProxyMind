@@ -3,6 +3,7 @@
 
 import typing
 from pathlib import Path
+
 from agent.application.views import (
     PatchAction,
     PatchDiagnosticView,

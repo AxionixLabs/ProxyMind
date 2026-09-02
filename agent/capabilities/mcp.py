@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import inspect
+import typing
 from collections.abc import (
     Awaitable,
     Callable,
     Mapping,
 )
+
 from agent.ports import (
     CapabilityError,
     McpCapability,
@@ -146,7 +147,6 @@ class InMemoryMcpCapability:
 
 if not isinstance(InMemoryMcpCapability([], {}), McpCapability):
     raise TypeError("InMemoryMcpCapability must implement McpCapability")
-
 
 if __name__ == '__main__':
     pass

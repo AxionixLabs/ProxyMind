@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,

@@ -2,16 +2,17 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from observability import observe_exception
-from agent.ports.transcript import TranscriptLifecyclePort
+
+from agent.application.hooks.models import StopHookDecision
+from agent.application.turns.stream_outcome import StreamTurnOutcome
+from agent.application.turns.transcript import record_turn_finished
+from agent.harness.hooks.turn_lifecycle import TurnHookEvents
 from agent.ports import (
     IdleStatusPort,
     OutputControlPort,
 )
-from agent.application.turns.transcript import record_turn_finished
-from agent.application.turns.stream_outcome import StreamTurnOutcome
-from agent.application.hooks.models import StopHookDecision
-from agent.harness.hooks.turn_lifecycle import TurnHookEvents
+from agent.ports.transcript import TranscriptLifecyclePort
+from observability import observe_exception
 
 
 class _TurnStateStore(typing.Protocol):

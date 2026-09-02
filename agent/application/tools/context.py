@@ -9,8 +9,9 @@ from collections.abc import (
 )
 from dataclasses import dataclass
 from datetime import timedelta
-from agent.ports.mcp_session import McpSessionPort
+
 from agent.ports.javascript import NestedToolDispatch
+from agent.ports.mcp_session import McpSessionPort
 
 if typing.TYPE_CHECKING:
     from agent.application.turns.context import TurnContext

@@ -2,6 +2,7 @@
 # Notes: ==== Mind(TM) ====
 
 import typing
+
 from agent.application.tools.plan_update import UPDATE_PLAN_TOOL
 from agent.application.views import ProgressSource
 from agent.application.views.builders.plan import build_plan_update_view

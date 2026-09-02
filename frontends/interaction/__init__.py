@@ -15,6 +15,5 @@ __all__ = (
     "PromptContext",
 )
 
-
 if __name__ == '__main__':
     pass

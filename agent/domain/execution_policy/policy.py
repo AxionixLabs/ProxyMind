@@ -8,13 +8,13 @@ from dataclasses import (
 )
 from pathlib import Path
 from urllib.parse import urlparse
+
 from .decision import Decision
 from .rule import (
     HostExecutable,
     NetworkRule,
     NetworkRuleProtocol,
     PrefixRule,
-    RuleMatch,
 )
 
 

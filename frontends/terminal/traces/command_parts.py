@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import re
+
 from agent.ports.presentation import (
     TextSpan,
     TextStyle,

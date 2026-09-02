@@ -4,23 +4,24 @@
 import time
 import typing
 from dataclasses import dataclass
-from observability import observe
+
+from agent.application.hooks.models import (
+    ToolOperationResult,
+    ToolResultSnapshot
+)
+from agent.application.tools.catalog import has_tool
 from agent.application.tools.execution import (
     ToolExecutionAdapter,
     ToolExecutionResult,
 )
 from agent.application.tools.planning import normalize_plan_arguments
-from agent.ports import McpSessionPort
-from agent.application.tools.catalog import has_tool
 from agent.application.turns.context import (
     ToolInvocation,
     TurnContext
 )
-from agent.application.hooks.models import (
-    ToolOperationResult,
-    ToolResultSnapshot
-)
 from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
+from agent.ports import McpSessionPort
+from observability import observe
 
 ERROR_PREVIEW_LIMIT = 8
 FAILURE_GROUP_LIMIT = 8
@@ -318,7 +319,7 @@ class StepPlanExecutor:
             })
 
         complete_results: list[dict[str, typing.Any]] = []
-        attachments: list[dict[str, typing.Any]]      = []
+        attachments: list[dict[str, typing.Any]] = []
 
         if requested_runs == 1:
             for item in results:

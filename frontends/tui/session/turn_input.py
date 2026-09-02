@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import time
 import typing
-import asyncio
-from agent.protocol import (
-    ModelStreamEndReason,
-    SteerTurnInput,
-)
+from dataclasses import replace
+
+from agent.application.turns.context import TurnContext
 from agent.ports import (
     ProtocolCommandClient,
     ProtocolCommandError,
 )
-from dataclasses import replace
+from agent.protocol import (
+    ModelStreamEndReason,
+    SteerTurnInput,
+)
 from observability import (
     observe,
     observe_exception
@@ -24,10 +26,9 @@ from protocol.schema.stream_events import (
     TurnLogicalSettledEvent
 )
 from protocol.schema.turn_inputs import TurnInput
-from agent.application.turns.context import TurnContext
+from .steer_ledger import PendingSteerLedger
 from ..core.queued import TuiSubmission
 from ..runtime.ports import TurnInputRuntimePort
-from .steer_ledger import PendingSteerLedger
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
@@ -37,7 +38,7 @@ if typing.TYPE_CHECKING:
 class TuiTurnInputControl(object):
     """协调活动轮次的即时输入、下一轮输入和远端中断。"""
 
-    RECONCILE_DEADLINE_SEC: typing.Final[float]       = 2.0
+    RECONCILE_DEADLINE_SEC: typing.Final[float] = 2.0
     RECONCILE_RETRY_INTERVAL_SEC: typing.Final[float] = 0.2
 
     def __init__(
@@ -66,15 +67,15 @@ class TuiTurnInputControl(object):
 
         self._ledger: PendingSteerLedger = PendingSteerLedger()
 
-        self._steer_task: asyncio.Task[None] | None     = None
+        self._steer_task: asyncio.Task[None] | None = None
         self._interrupt_task: asyncio.Task[None] | None = None
 
         self._tasks: set[asyncio.Task[None]] = set()
 
     def activate(self, context: TurnContext) -> None:
         """更新等待服务端启动确认的远端轮次。"""
-        self._target            = (context.cid, context.sid, context.turn_id)
-        self._ready_turn_id     = ""
+        self._target = (context.cid, context.sid, context.turn_id)
+        self._ready_turn_id = ""
         self._stream_end_reason = "cancelled"
 
         resolution = self._ledger.advance()
@@ -149,8 +150,8 @@ class TuiTurnInputControl(object):
         submission = (
             pending
             or self._runtime.discard_rejected_steer(
-                next_input.client_message_id
-            )
+            next_input.client_message_id
+        )
             or self._submission_from_input(next_input)
         )
 
@@ -215,7 +216,7 @@ class TuiTurnInputControl(object):
         self._steer_task = None
 
         committed_ids: tuple[str, ...] = ()
-        retry_ids: tuple[str, ...]     = ()
+        retry_ids: tuple[str, ...] = ()
 
         sent_ids = self._ledger.sent_ids()
 
@@ -247,11 +248,11 @@ class TuiTurnInputControl(object):
 
         loop = asyncio.get_running_loop()
 
-        deadline    = loop.time() + self.RECONCILE_DEADLINE_SEC
+        deadline = loop.time() + self.RECONCILE_DEADLINE_SEC
         pending_ids = client_message_ids
 
         committed: list[str] = []
-        retry: list[str]     = []
+        retry: list[str] = []
 
         while pending_ids:
             remaining = deadline - loop.time()

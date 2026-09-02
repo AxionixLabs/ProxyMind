@@ -218,6 +218,5 @@ class ExecutionResources:
 
 __all__ = ("ExecutionResources",)
 
-
 if __name__ == "__main__":
     pass

@@ -1,32 +1,37 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import json
 import time
 import typing
-import asyncio
 from functools import partial
+
 from agent.ports import OutputControlPort
 from agent.ports.presentation import StyledBlock
+from frontends.output.recording import StreamRecordWriter
+from frontends.output.sanitize import sanitize_value
 from frontends.terminal.text import (
     TerminalTextFilter,
     sanitize_terminal_line,
     sanitize_styled_block,
     sanitize_terminal_text,
 )
-from frontends.output.recording import StreamRecordWriter
-from frontends.output.sanitize import sanitize_value
+from .markdown import (
+    TuiMarkdownStreamRenderer,
+    render_tui_assistant_markdown,
+)
 from ..core.assistant import TuiAssistantStream
 from ..core.document import (
     TranscriptCellSource,
     TuiBlockKind,
     WidthBlockRenderer
 )
-from ..core.runtime import TuiRuntime
 from ..core.models import (
     FormattedText,
     FragmentBlock,
 )
+from ..core.runtime import TuiRuntime
 from ..core.stream_chunking import (
     StreamChunkingPolicy,
     StreamQueueSnapshot,
@@ -42,10 +47,6 @@ from ..rendering.fragments import (
     wrap_formatted_lines,
 )
 from ..rendering.separators import final_message_separator
-from .markdown import (
-    TuiMarkdownStreamRenderer,
-    render_tui_assistant_markdown,
-)
 
 STREAM_RENDER_REGULAR_SEC = 1 / 20
 STREAM_RENDER_SLOW_SEC = 1 / 12
@@ -171,17 +172,17 @@ class TuiOutputControl(OutputControlPort):
 
     def _schedule_stream_render(self) -> None:
         """立即展示首帧，并把后续增量合并到自适应帧预算。"""
-        loop     = asyncio.get_running_loop()
-        now      = loop.time()
-        elapsed  = now - self._stream_rendered_at
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        elapsed = now - self._stream_rendered_at
         interval = self._stream_render_interval()
 
         if (
             self._stream_render_handle is None
             and (
-                self._stream_rendered_at <= 0.0
-                or elapsed >= interval
-            )
+            self._stream_rendered_at <= 0.0
+            or elapsed >= interval
+        )
         ):
             self._render_stream_frame()
 
@@ -281,8 +282,8 @@ class TuiOutputControl(OutputControlPort):
         """取消待展示帧并重置流式刷新时钟。"""
         handle = self._stream_render_handle
 
-        self._stream_render_handle   = None
-        self._stream_rendered_at     = 0.0
+        self._stream_render_handle = None
+        self._stream_rendered_at = 0.0
         self._stream_render_cost_sec = 0.0
         self._stream_chunking.reset()
 
@@ -315,7 +316,7 @@ class TuiOutputControl(OutputControlPort):
         block = self._render_stream_block(source, width=width)
 
         self._stream_source_end = end
-        self._stream_block      = block
+        self._stream_block = block
 
         self._capture_stable_stream_prefix(width)
 
@@ -405,7 +406,7 @@ class TuiOutputControl(OutputControlPort):
         old_visible = self._stream_rows[:self._stream_visible_rows]
 
         self._stream_width = width
-        self._stream_rows  = rows
+        self._stream_rows = rows
         self._stream_visible_rows = min(
             self._stream_visible_rows,
             len(rows),
@@ -478,7 +479,7 @@ class TuiOutputControl(OutputControlPort):
 
     def _render_visible_stream_rows(self) -> bool:
         """把变化后的完整显示行作为一个动态正文快照上屏。"""
-        changed    = self._set_visible_stream_block()
+        changed = self._set_visible_stream_block()
         stabilized = self._commit_visible_stream_prefix()
 
         return changed or stabilized
@@ -522,7 +523,7 @@ class TuiOutputControl(OutputControlPort):
     def _commit_visible_stream_prefix(self) -> bool:
         """提交已经完整显示且不再变化的 Markdown 前缀。"""
         source_len = self._stream_stable_source_len
-        row_count  = self._stream_stable_row_count
+        row_count = self._stream_stable_row_count
 
         if (
             source_len <= 0
@@ -531,7 +532,7 @@ class TuiOutputControl(OutputControlPort):
             return False
 
         start = self._stream_committed_source_end
-        end   = min(self._stream_source_end, start + source_len)
+        end = min(self._stream_source_end, start + source_len)
 
         if end <= start:
             return False
@@ -569,7 +570,7 @@ class TuiOutputControl(OutputControlPort):
 
     def _rebuild_stream_tail(self, *, visible_rows: int) -> None:
         """在稳定前缀提交后从剩余源码重建活动尾部。"""
-        width  = max(1, int(self._stream_width))
+        width = max(1, int(self._stream_width))
         source = self._pending_stream_text(end=self._stream_source_end)
 
         self._markdown_stream.reset()
@@ -601,15 +602,15 @@ class TuiOutputControl(OutputControlPort):
         self._cancel_stream_resize()
         self._markdown_stream.reset()
 
-        self._stream_source_end           = 0
+        self._stream_source_end = 0
         self._stream_committed_source_end = 0
-        self._stream_stable_source_len    = 0
-        self._stream_stable_row_count     = 0
-        self._stream_width                = 0
-        self._stream_block                = FragmentBlock(())
-        self._stream_rows                 = []
-        self._stream_visible_rows         = 0
-        self._stream_oldest_pending_at    = None
+        self._stream_stable_source_len = 0
+        self._stream_stable_row_count = 0
+        self._stream_width = 0
+        self._stream_block = FragmentBlock(())
+        self._stream_rows = []
+        self._stream_visible_rows = 0
+        self._stream_oldest_pending_at = None
 
     def _active_stream_text(self) -> str:
         """返回当前完整流式正文。"""

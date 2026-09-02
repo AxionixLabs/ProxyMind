@@ -2,18 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from agent.protocol import CanonicalItem
-from agent.ports import ModelEventStream
-from protocol.schema.stream_events import (
-    PresentationSupersededEvent,
-    StreamEvent,
-    TextDeltaEvent,
-    TextDoneEvent,
-    TextMetaEvent,
-    TurnRetryingEvent,
+
+from agent.application.turns.stream_boundaries import (
+    is_assistant_output_boundary,
 )
-from agent.ports.transcript import TranscriptSink
-from agent.ports import OutputStatusPort
 from agent.ports import (
     AssistantOutputBoundary,
     AssistantPresentationSuperseded,
@@ -23,8 +15,17 @@ from agent.ports import (
     ContentSink,
     ResponseIdentity,
 )
-from agent.application.turns.stream_boundaries import (
-    is_assistant_output_boundary,
+from agent.ports import ModelEventStream
+from agent.ports import OutputStatusPort
+from agent.ports.transcript import TranscriptSink
+from agent.protocol import CanonicalItem
+from protocol.schema.stream_events import (
+    PresentationSupersededEvent,
+    StreamEvent,
+    TextDeltaEvent,
+    TextDoneEvent,
+    TextMetaEvent,
+    TurnRetryingEvent,
 )
 
 _ItemRevision: typing.TypeAlias = tuple[str, int, int, int]

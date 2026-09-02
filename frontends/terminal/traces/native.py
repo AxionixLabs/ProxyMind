@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import textwrap
+import typing
+
 from agent.application.views.commands import command_text
 from agent.application.views.tool_display import (
     NATIVE_TOOL_NAMES,
     ToolDisplayKind,
     tool_display_spec,
 )
+from frontends.terminal.text import sanitize_terminal_line
 from frontends.terminal.text_layout import (
     clip_display_text,
     text_display_width
 )
-from frontends.terminal.text import sanitize_terminal_line
 from .common import (
     MAX_PREVIEW_WIDTH,
     SCREEN_PREVIEW_LINES,
@@ -236,7 +237,7 @@ def render_tool_trace(
 
     if kind in {ToolDisplayKind.SHELL, ToolDisplayKind.STDIN}:
         if kind is ToolDisplayKind.STDIN:
-            stdin   = str(args.get("stdin") or "")
+            stdin = str(args.get("stdin") or "")
             control = str(
                 args.get("control")
                 or payload.get("control")

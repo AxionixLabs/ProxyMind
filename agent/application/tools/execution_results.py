@@ -6,6 +6,7 @@ from collections.abc import (
     Iterable,
     Mapping,
 )
+
 from agent.application.tools.results import (
     LocalToolResult,
     LocalToolSource,

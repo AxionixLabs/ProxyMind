@@ -2,13 +2,14 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.definitions import ClientTool
+from agent.application.tools.plan_update import UPDATE_PLAN_TOOL
 from agent.application.tools.results import (
     LocalToolResult,
     client_tool_result,
 )
-from agent.application.tools.plan_update import UPDATE_PLAN_TOOL
 
 PLAN_STEPS_TOOL = "plan_steps"
 
@@ -101,7 +102,7 @@ def normalize_plan_arguments(
 
     errors: list[str] = []
 
-    loops        = _minimum_int(payload.get("loops"), default=1, minimum=1)
+    loops = _minimum_int(payload.get("loops"), default=1, minimum=1)
     stop_on_fail = bool(payload.get("stop_on_fail", True))
 
     raw_steps = payload.get("steps")
@@ -118,9 +119,9 @@ def normalize_plan_arguments(
             steps.append(step)
 
     plan = {
-        "loops"        : loops,
-        "stop_on_fail" : stop_on_fail,
-        "steps"        : steps
+        "loops": loops,
+        "stop_on_fail": stop_on_fail,
+        "steps": steps
     }
     ok = bool(steps) and not errors
 

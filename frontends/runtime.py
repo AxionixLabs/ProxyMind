@@ -6,6 +6,7 @@ from dataclasses import (
     dataclass,
     field,
 )
+
 from agent.ports import (
     ActivityRuntimePort,
     ActivitySnapshot,

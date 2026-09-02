@@ -66,6 +66,5 @@ __all__ = (
     "validate_sandbox_permission_arguments",
 )
 
-
 if __name__ == "__main__":
     pass

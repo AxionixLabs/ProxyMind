@@ -2,10 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import sys
+
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.base import Output
 from prompt_toolkit.output.plain_text import PlainTextOutput
 from prompt_toolkit.output.vt100 import Vt100_Output
+
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
     TerminalKind
@@ -18,10 +20,10 @@ def queued_message_edit_binding(capabilities: TerminalCapabilities) -> str:
     if (
         identity.multiplexer == TerminalKind.TMUX
         or identity.kind in {
-            TerminalKind.APPLE_TERMINAL,
-            TerminalKind.VSCODE,
-            TerminalKind.WARP,
-        }
+        TerminalKind.APPLE_TERMINAL,
+        TerminalKind.VSCODE,
+        TerminalKind.WARP,
+    }
     ):
         return "shift + ←"
     return "alt + ↑"

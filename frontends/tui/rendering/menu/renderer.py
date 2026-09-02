@@ -3,6 +3,7 @@
 
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.utils import get_cwidth
+
 from frontends.tui.contracts.menu import MenuRequest
 from ..fragments import (
     clip_fragments,
@@ -79,11 +80,11 @@ def body_fragments(request: MenuRequest, *, width: int) -> StyleAndTextTuples:
 
     lines = request.body_fragments or tuple(
         ((
-            request.body_styles[index]
-            if index < len(request.body_styles)
-            else "class:tui-menu.detail",
-            line,
-        ),)
+             request.body_styles[index]
+             if index < len(request.body_styles)
+             else "class:tui-menu.detail",
+             line,
+         ),)
         for index, line in enumerate(request.body)
     )
     for index, line_fragments in enumerate(lines):

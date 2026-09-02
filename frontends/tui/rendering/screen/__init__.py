@@ -20,6 +20,5 @@ __all__ = [
     "measure_overlay_layout",
 ]
 
-
 if __name__ == '__main__':
     pass

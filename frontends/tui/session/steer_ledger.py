@@ -3,19 +3,20 @@
 
 import enum
 from dataclasses import dataclass
+
 from ..core.queued import TuiSubmission
 
 
 class SteerState(enum.Enum):
-    LOCAL     = "local"
-    SENT      = "sent"
+    LOCAL = "local"
+    SENT = "sent"
     COMMITTED = "committed"
 
 
 class LedgerState(enum.Enum):
-    ACTIVE  = "active"
+    ACTIVE = "active"
     SETTLED = "settled"
-    CLOSED  = "closed"
+    CLOSED = "closed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,9 +128,9 @@ class PendingSteerLedger(object):
     ) -> SteerResolution:
         """关闭账本并按最终归属返回本地处理结果。"""
         committed = set(committed_ids)
-        retry     = set(retry_ids)
+        retry = set(retry_ids)
 
-        retry_items: list[TuiSubmission]     = []
+        retry_items: list[TuiSubmission] = []
         uncertain_items: list[TuiSubmission] = []
 
         resolved_ids = tuple(self._items)

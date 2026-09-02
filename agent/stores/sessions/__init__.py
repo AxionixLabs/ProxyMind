@@ -20,6 +20,5 @@ __all__ = (
     "normalize_workspace",
 )
 
-
 if __name__ == '__main__':
     pass

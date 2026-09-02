@@ -10,14 +10,16 @@ from agent.ports.frontend import (
     FrontendPort,
     TurnCompletionPresenterPort,
 )
-from agent.ports.process_lifecycle import ProcessLifecyclePort
 from agent.ports.presentation import (
     ApplicationSink,
     TurnForegroundLifecyclePort,
 )
+from agent.ports.process_lifecycle import ProcessLifecyclePort
 from agent.ports.turns import TurnAnimationPort
 
 ForegroundParameters = typing.ParamSpec("ForegroundParameters")
+
+
 class FrontendTurnAnimation(TurnAnimationPort):
     """把应用活动状态适配为模型轮次等待动画端口。"""
 

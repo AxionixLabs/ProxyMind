@@ -3,14 +3,12 @@
 
 import re
 import typing
+
 from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
-from frontends.terminal.text_layout import (
-    clip_display_text,
-    text_display_width,
-)
+from frontends.terminal.highlighting import code_parts
 from frontends.terminal.styles import (
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
@@ -22,11 +20,14 @@ from frontends.terminal.styles import (
     PREVIEW_STYLE,
     PREVIEW_TEXT_STYLE,
 )
-from frontends.terminal.highlighting import code_parts
-from ..common import _preview_text
-from ..models import TracePreview
+from frontends.terminal.text_layout import (
+    clip_display_text,
+    text_display_width,
+)
 from .preview_error import error_preview_line_parts
 from .title_parts import title_parts
+from ..common import _preview_text
+from ..models import TracePreview
 
 
 def _part(text: str, style: TextStyle | None) -> TextSpan:
@@ -232,7 +233,7 @@ def _preview_line_parts(
 
     summary_entry = re.match(r"^([A-Za-z_][A-Za-z0-9_ -]*)(: )(.+)$", line)
     if summary_entry:
-        key   = summary_entry.group(1)
+        key = summary_entry.group(1)
         value = summary_entry.group(3)
 
         return [

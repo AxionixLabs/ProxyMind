@@ -10,8 +10,8 @@ from collections.abc import (
 )
 from pathlib import Path
 
-from agent.application.hooks.context import HookExecutionContext
 from agent.application.agents.views import AgentSnapshot
+from agent.application.hooks.context import HookExecutionContext
 from agent.domain.hooks import SessionEndReason
 from agent.domain.policies import PermissionSettings
 from agent.harness.hooks.session_lifecycle import SessionLifecycleGateway
@@ -231,9 +231,9 @@ class RootConversationSession:
                 self._state.cid
                 and self._state.sid
                 and (
-                    external_cid != self._state.cid
-                    or external_sid != self._state.sid
-                )
+                external_cid != self._state.cid
+                or external_sid != self._state.sid
+            )
             ):
                 await self.end(reason="switch")
                 self._lifecycle_id += 1

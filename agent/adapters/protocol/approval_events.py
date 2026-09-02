@@ -3,11 +3,13 @@
 
 import time
 import typing
-from observability import (
-    observe,
-    observe_exception
+
+from agent.adapters.protocol.tool_events import tool_invocation_from_event
+from agent.application.approvals.amendments import approval_execpolicy_amendment
+from agent.application.approvals.local_policy import (
+    LOCAL_EXEC_POLICY_TOOLS,
+    apply_local_exec_policy_approval
 )
-from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.application.approvals.models import (
     ApprovalDecisionValue,
     normalize_approval_decision,
@@ -18,32 +20,30 @@ from agent.application.approvals.policy import (
     approval_from_snapshot,
     approval_id_from_event
 )
-from agent.application.approvals.amendments import approval_execpolicy_amendment
-from agent.ports import OutputStatusPort
+from agent.application.turns.context import (
+    ToolInvocation,
+    TurnContext
+)
+from agent.application.views import ApprovalSource
 from agent.application.views.builders.approval import build_approval_view
 from agent.application.views.contracts import PresentationSink
-from agent.application.views import ApprovalSource
+from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from agent.ports import (
     ApprovalCoordinatorPort,
     ExecutionPolicy,
     PermissionGrantPort,
 )
-from agent.application.turns.context import (
-    ToolInvocation,
-    TurnContext
+from agent.ports import OutputStatusPort
+from agent.stores.approvals.ledger import ApprovalCallLedger
+from observability import (
+    observe,
+    observe_exception
 )
-from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from protocol.schema.stream_events import ToolApprovalRequiredEvent
 from protocol.schema.tool_approval import (
     TOOL_APPROVAL_ACCEPT_DECISIONS,
     ToolApprovalSnapshot
 )
-
-from agent.application.approvals.local_policy import (
-    LOCAL_EXEC_POLICY_TOOLS,
-    apply_local_exec_policy_approval
-)
-from agent.adapters.protocol.tool_events import tool_invocation_from_event
 
 
 def _approval_source(value: object) -> ApprovalSource:
@@ -57,6 +57,7 @@ def _approval_source(value: object) -> ApprovalSource:
     if value == "auto_review":
         return "auto_review"
     raise ValueError(f"unsupported approval source: {value}")
+
 
 def approval_with_updated_input(
     approval: dict[str, typing.Any],
@@ -149,15 +150,15 @@ class ApprovalEventHandler:
         post_approval: typing.Callable[..., typing.Awaitable[typing.Any]],
     ) -> None:
         """绑定当前轮次拥有的审批依赖。"""
-        self.turn_context   = turn_context
+        self.turn_context = turn_context
         self.execution_policy = execution_policy
         self.approval_coordinator = approval_coordinator
-        self.tools          = tools
-        self.ledger         = ledger
-        self.coordinator    = coordinator
+        self.tools = tools
+        self.ledger = ledger
+        self.coordinator = coordinator
         self.status_control = status_control
-        self.presentation   = presentation
-        self.post_approval  = post_approval
+        self.presentation = presentation
+        self.post_approval = post_approval
 
     async def restore_snapshot(self, snapshot: ToolApprovalSnapshot) -> None:
         """恢复重连前的未决审批，并提交用户随后作出的决定。"""
@@ -249,7 +250,7 @@ class ApprovalEventHandler:
     async def handle(self, event: ToolApprovalRequiredEvent) -> None:
         """处理审批请求并把决定同步到服务端和本地账本。"""
         turn_context = self.turn_context
-        approval     = approval_from_event(event)
+        approval = approval_from_event(event)
 
         if self.ledger.is_terminal(
             cid=turn_context.cid,
@@ -318,8 +319,8 @@ class ApprovalEventHandler:
 
         approval_started_at = time.perf_counter()
 
-        approval_id      = approval_id_from_event(event)
-        approval_tool    = str(approval.get("tool") or "").strip()
+        approval_id = approval_id_from_event(event)
+        approval_tool = str(approval.get("tool") or "").strip()
         approval_call_id = event.call_id
 
         permission_decision = None
@@ -483,8 +484,8 @@ class ApprovalEventHandler:
         if agent.depth <= 0:
             return
 
-        approval["agent_id"]    = agent.agent_id
-        approval["agent_type"]  = agent.agent_type
+        approval["agent_id"] = agent.agent_id
+        approval["agent_type"] = agent.agent_type
         approval["agent_depth"] = agent.depth
 
     @staticmethod
@@ -527,9 +528,9 @@ class ApprovalEventHandler:
             invocation is None
             or tool not in LOCAL_EXEC_POLICY_TOOLS
             or decision not in {
-                "acceptForSession",
-                "acceptWithExecpolicyAmendment",
-            }
+            "acceptForSession",
+            "acceptWithExecpolicyAmendment",
+        }
         ):
             return
         update_error = apply_local_exec_policy_approval(

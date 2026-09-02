@@ -6,7 +6,7 @@ from frontends.tui.contracts.text import (
     LineFill
 )
 
-FINAL_SEPARATOR_CHAR  = "─"
+FINAL_SEPARATOR_CHAR = "─"
 FINAL_SEPARATOR_STYLE = "dim"
 
 

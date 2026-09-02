@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+from agent.application.hooks.models import HookDecision
 from agent.domain.hooks import (
     CompactResultSource,
     CompactTriggerReason,
     CompactTriggerSource
 )
-from agent.application.hooks.models import HookDecision
 from agent.ports import HookExecutionScopePort
 
 
@@ -42,7 +42,7 @@ class CompactHookEvents:
         )
 
         blocked_keys: list[str] = []
-        reasons: list[str]      = []
+        reasons: list[str] = []
 
         for record in dispatched.records:
             if not record.ok:
@@ -114,7 +114,7 @@ class CompactHookEvents:
         )
 
         blocked_keys: list[str] = []
-        reasons: list[str]      = []
+        reasons: list[str] = []
 
         for record in dispatched.records:
             if not record.ok:

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.application.agents.fork_context import (
     ForkContextEntry,
     ForkContextSnapshot,

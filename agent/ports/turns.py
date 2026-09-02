@@ -6,21 +6,19 @@ from collections.abc import (
     Callable,
 )
 
+from agent.domain.policies import PermissionSettings
 from protocol.schema.stream_events import StreamEvent
 from protocol.schema.turn_inputs import TurnInput
-from agent.domain.policies import PermissionSettings
 from .approvals import ApprovalLedger
 from .hooks import (
     CommandHookSessionPort,
     HookScopeProviderPort,
 )
-from .permissions import PermissionGrantReader
 from .mcp_session import McpSessionPort
+from .permissions import PermissionGrantReader
 
 if typing.TYPE_CHECKING:
-    from agent.application.turns.context import TurnContext
     from agent.application.turns.execution import TurnExecution
-
 
 RetryState: typing.TypeAlias = typing.Literal[
     "idle",
@@ -315,6 +313,7 @@ class TurnSessionStatePort(typing.Protocol):
     def remember_assistant_reply(self, text: str) -> None:
         """保存最近一次已完成的 assistant 回复。"""
         ...
+
 
 __all__ = (
     "TurnInputEventHandler",

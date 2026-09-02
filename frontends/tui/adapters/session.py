@@ -2,11 +2,11 @@
 # Notes: ==== Mind™ ====
 
 from agent.ports import OutputSession
-from ..core.runtime import TuiRuntime
 from .content import TuiContentSink
 from .output import TuiOutputControl
 from .presentation import TuiPresentationSink
 from .status import TuiStreamStatusControl
+from ..core.runtime import TuiRuntime
 
 
 def create_tui_output_session(

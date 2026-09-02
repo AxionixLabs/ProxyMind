@@ -2,9 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import copy
-import uuid
 import typing
+import uuid
 from collections.abc import Mapping
+
 from .models import (
     ApprovalPayload,
     ApprovalRequest,

@@ -5,20 +5,21 @@ import copy
 import time
 import typing
 from dataclasses import dataclass
-from protocol.schema.environment import normalize_client_environment_snapshot
+
+from agent.application.turns.context import TurnContext
+from agent.application.turns.execution import TurnExecution
+from agent.harness.hooks.presentation import HookPresentationAdapter
+from agent.harness.hooks.scope import HookExecutionScope
 from agent.ports import (
     EventReportPort,
     OutputSession,
     OutputSessionFactory,
 )
-from agent.application.turns.context import TurnContext
 from agent.ports import (
     RetryStatePort,
     TurnSessionContextPort,
 )
-from agent.harness.hooks.presentation import HookPresentationAdapter
-from agent.harness.hooks.scope import HookExecutionScope
-from agent.application.turns.execution import TurnExecution
+from protocol.schema.environment import normalize_client_environment_snapshot
 
 Callback = typing.Callable[..., typing.Any]
 

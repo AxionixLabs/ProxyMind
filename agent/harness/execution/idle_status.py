@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
 import asyncio
+import typing
 
 
 class IdleStatusTimer(object):

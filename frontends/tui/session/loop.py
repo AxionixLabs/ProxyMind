@@ -4,30 +4,47 @@
 import asyncio
 import typing
 
-from agent.ports import (
-    AttachmentStatePort,
-    ProtocolCommandClient,
-)
+from agent.application.config.session_identity import derive_local_session_id
 from agent.application.services import TurnApplicationFactory
-from agent.application.turns.run_result import RunResult
 from agent.application.turns.commands import (
     SubmitTurnCommand,
     TurnApplication,
 )
-from agent.application.config.session_identity import derive_local_session_id
+from agent.application.turns.run_result import RunResult
+from agent.ports import (
+    AttachmentStatePort,
+    ProtocolCommandClient,
+)
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,
 )
-from protocol.schema.identifiers import short_uid
-from protocol.client.fork import ResubmittablePrompt
-from ..core.runtime import (
-    TuiRuntime,
-    require_tui_runtime
+from infrastructure.config.runtime_paths import agent_runtime_db_path
+from infrastructure.services.turn_environment import (
+    capture_active_turn_environment,
 )
+from protocol.client.fork import ResubmittablePrompt
+from protocol.schema.identifiers import short_uid
+from .barriers import TuiForegroundTasks
+from .dispatch import (
+    DispatchAction,
+    TuiCommandDispatcher
+)
+from .state import TuiSessionState
+from .turn import (
+    TuiRootTurnRunner,
+    emit_tui_interrupt_notice,
+    execute_tui_model_turn,
+    run_tui_model_turn
+)
+from .turn_input import TuiTurnInputControl
 from ..core.models import (
     MailboxRunRequest,
     TranscriptBacktrackRequest
+)
+from ..core.runtime import (
+    TuiRuntime,
+    require_tui_runtime
 )
 from ..core.submission import (
     TuiInterruptRequested,
@@ -42,25 +59,8 @@ from ..features.conversation import (
     render_fork_interrupted,
     render_fork_result
 )
-from ..features.processes import monitor_exec_status
 from ..features.mailbox import render_mailbox_failure
-from .barriers import TuiForegroundTasks
-from .dispatch import (
-    DispatchAction,
-    TuiCommandDispatcher
-)
-from .state import TuiSessionState
-from .turn import (
-    TuiRootTurnRunner,
-    emit_tui_interrupt_notice,
-    execute_tui_model_turn,
-    run_tui_model_turn
-)
-from .turn_input import TuiTurnInputControl
-from infrastructure.config.runtime_paths import agent_runtime_db_path
-from infrastructure.services.turn_environment import (
-    capture_active_turn_environment,
-)
+from ..features.processes import monitor_exec_status
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost

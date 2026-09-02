@@ -71,8 +71,8 @@ def build_model_stream_request(
         raise TypeError("model request metadata must be an object")
     request_metadata = dict(raw_metadata)
     for field_name, expected in (
-        ("cid", context.cid),
-        ("sid", context.sid),
+            ("cid", context.cid),
+            ("sid", context.sid),
     ):
         existing = request_metadata.pop(field_name, expected)
         if existing != expected:

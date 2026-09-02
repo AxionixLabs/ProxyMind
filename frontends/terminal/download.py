@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import math
 import typing
-import asyncio
+
+from rich.console import Console
 from rich.live import Live
 from rich.text import Text
-from rich.console import Console
 
 
 async def download_animation(

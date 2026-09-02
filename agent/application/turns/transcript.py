@@ -107,6 +107,5 @@ __all__ = (
     "record_turn_started",
 )
 
-
 if __name__ == "__main__":
     pass

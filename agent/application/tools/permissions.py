@@ -3,6 +3,7 @@
 
 import json
 import typing
+
 from agent.application.tools.authorization import (
     ExecutionAuthorizationError,
     ToolTurnInterrupted,
