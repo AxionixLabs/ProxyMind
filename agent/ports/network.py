@@ -30,13 +30,14 @@ class NetworkBlockedHandler(typing.Protocol):
 
 
 class NetworkBlockedHandlerFactory(typing.Protocol):
-    """定义按 Session、Run 和 Environment 创建网络阻断回调的工厂。"""
+    """定义按 Session、Run、Environment 和 Execution 创建网络阻断回调的工厂。"""
 
     def __call__(
         self,
         session_id: str,
         run_id: str,
         environment_id: str,
+        execution_id: str,
     ) -> NetworkBlockedHandler | None:
         """返回绑定执行身份的回调，身份不完整时由实现拒绝创建。"""
         ...

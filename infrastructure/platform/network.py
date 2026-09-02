@@ -5,6 +5,7 @@ import asyncio
 import enum
 import ipaddress
 import os
+import socket
 import sys
 from collections.abc import (
     Mapping,
@@ -85,6 +86,10 @@ class BlockedNetworkRequest:
 
     target: NetworkTarget
     reason: str
+
+
+class _UnsafeNetworkTarget(ValueError):
+    """表示域名解析到了不应由受管代理转发的本地地址。"""
 
 
 class StaticNetworkPolicy:
@@ -334,8 +339,14 @@ class ManagedNetworkProxy:
             return None
 
         try:
+            upstream_host = await _safe_upstream_host(network_target.host)
+        except _UnsafeNetworkTarget:
+            await _write_response(writer, 403, "local network target is not allowed")
+            return None
+
+        try:
             upstream_reader, upstream_writer = await asyncio.open_connection(
-                network_target.host,
+                upstream_host,
                 network_target.port,
             )
         except (OSError, asyncio.TimeoutError):
@@ -411,7 +422,15 @@ class ManagedNetworkProxy:
             await _write_socks5_reply(writer, 0x02)
             return None
         try:
-            upstream_reader, upstream_writer = await asyncio.open_connection(host, port)
+            upstream_host = await _safe_upstream_host(host)
+        except _UnsafeNetworkTarget:
+            await _write_socks5_reply(writer, 0x02)
+            return None
+        try:
+            upstream_reader, upstream_writer = await asyncio.open_connection(
+                upstream_host,
+                port,
+            )
         except (OSError, asyncio.TimeoutError):
             await _write_socks5_reply(writer, 0x05)
             return None
@@ -557,6 +576,58 @@ async def _write_response(
 def _target_key(target: NetworkTarget) -> tuple[str, NetworkProtocol, int]:
     """返回运行时授权使用的规范化目标键。"""
     return (target.host.casefold().rstrip("."), target.protocol, target.port)
+
+
+async def _safe_upstream_host(host: str) -> str:
+    """解析域名并拒绝解析到本地或私网地址的主机名。"""
+    normalized = host.strip().rstrip(".")
+    if not normalized:
+        raise _UnsafeNetworkTarget("network target host is empty")
+    try:
+        ipaddress.ip_address(normalized)
+    except ValueError:
+        if normalized.casefold() == "localhost":
+            return normalized
+        try:
+            infos = await asyncio.wait_for(
+                asyncio.get_running_loop().getaddrinfo(
+                    normalized,
+                    None,
+                    type=socket.SOCK_STREAM,
+                ),
+                timeout=2.0,
+            )
+        except (OSError, asyncio.TimeoutError):
+            return normalized
+        addresses = {
+            str(sockaddr[0]).strip()
+            for _family, _socktype, _proto, _canonname, sockaddr in infos
+            if sockaddr and str(sockaddr[0]).strip()
+        }
+        if not addresses:
+            return normalized
+        if any(_is_local_private_address(address) for address in addresses):
+            raise _UnsafeNetworkTarget(
+                "network target hostname resolves to a local address"
+            )
+        return sorted(addresses)[0]
+    else:
+        return normalized
+
+
+def _is_local_private_address(value: str) -> bool:
+    """判断地址是否属于回环、私网、链路本地或保留地址。"""
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return bool(
+        address.is_loopback
+        or address.is_private
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_unspecified
+    )
 
 
 if __name__ == '__main__':

@@ -418,3 +418,43 @@ def test_inline_permissions_require_command_approval_until_granted(tmp_path) -> 
     )
     assert granted is not None
     assert granted.state != "needs_approval"
+
+
+def test_skill_script_reuses_the_regular_command_policy(tmp_path) -> None:
+    """Skill scripts must not gain a separate approval or permission path."""
+    context = TurnContext.create(
+        agent=AgentContext.root("sid-skill"),
+        cid="cid-skill",
+        sid="sid-skill",
+        source="test",
+        pref_config={"primary": {"model": "test"}},
+        cwd=str(tmp_path),
+        permissions=preset_permissions("auto"),
+    )
+    script = tmp_path / "skills" / "review" / "scripts" / "run.sh"
+    command = f'python "{script}"'
+    manager = ExecPolicyManager(workspace_root=tmp_path)
+
+    actual = local_exec_policy_requirement(
+        manager,
+        context,
+        tool="shell_command",
+        arguments={"command": command, "cwd": str(tmp_path)},
+        call_id="call-skill",
+    )
+    expected = manager.create_exec_approval_requirement_for_command(
+        command,
+        approval_policy=context.permissions.approval_policy,
+        sandbox_mode=context.permissions.sandbox_mode,
+        cwd=str(tmp_path),
+        tool="shell_command",
+        amendment_id="local-rule-call-skill",
+        sandbox_permissions="use_default",
+        environment_id=None,
+        tty=None,
+        additional_permissions=None,
+        policy_fingerprint=None,
+        patch_scope=None,
+    )
+
+    assert actual == expected

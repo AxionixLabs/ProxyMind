@@ -54,6 +54,7 @@ class ProcessSessionSpec(object):
     owner_sid: str = ""
     owner_run_id: str = ""
     environment_id: str = ""
+    execution_id: str = ""
     audit_mode: str = "off"
     audit_before: dict[str, typing.Any] | None = None
     stdin_enabled: bool = True
@@ -232,6 +233,8 @@ class ProcessSessionManager(object):
             raise ValueError(f"sandbox_mode_invalid: {spec.sandbox_mode}")
         await self.cleanup()
 
+        session_id = f"exec_{secrets.token_hex(8)}"
+        execution_id = str(spec.execution_id or "").strip() or session_id
         process_env = dict(spec.env) if spec.env is not None else None
         session_network_proxy: ManagedNetworkProxy | None = None
         if (
@@ -244,6 +247,7 @@ class ProcessSessionManager(object):
                     str(spec.owner_sid or "").strip(),
                     str(spec.owner_run_id or "").strip(),
                     str(spec.environment_id or "").strip() or "default",
+                    execution_id,
                 )
                 if callback_factory is not None
                 else None
@@ -309,7 +313,7 @@ class ProcessSessionManager(object):
             raise
 
         session = ProcessSession(
-            session_id=f"exec_{secrets.token_hex(8)}",
+            session_id=session_id,
             spec=spec,
             process=process,
             network_proxy=session_network_proxy,

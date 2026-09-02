@@ -461,6 +461,10 @@ grant、reviewer 和 Effect 边界，并用契约测试证明非法组合无法�
 
 - 受管代理覆盖 HTTP、HTTPS/CONNECT 和 SOCKS5 CONNECT；不支持的 SOCKS5 UDP 命令明确
   返回拒绝，不把未实现能力误报为已放行。
+- 每个实际受管进程生成独立 `execution_id`，网络阻断回调、审批载荷和去重 ID 均绑定该
+  执行身份；同一 Session 的会话授权仍可复用，不同执行不会共享一次性决定。
+- 允许域名在上游连接前执行有界 DNS 检查；解析到回环、私网、链路本地、保留或未指定
+  地址时拒绝转发，显式 IP 与 `localhost` 仍遵循静态规则。
 - 持久网络 allow amendment 先写入执行策略规则文件，再安装运行时规则；工作区运行时
   创建时从已有 `network_rule` 水合受管策略，重启后不丢失批准。
 - 对账 requested/resolved/abandoned Approval Facts 和 prepared/committed/unknown Effects。
@@ -472,7 +476,11 @@ grant、reviewer 和 Effect 边界，并用契约测试证明非法组合无法�
 
 出口证据：
 
-- 网络一致性、全量 Python、Rust 定向、架构守卫和编译检查通过。
+- 网络一致性、全量 Python、Rust 定向和编译检查通过；架构守卫按本轮开发指示不运行，
+  包边界仍以既有审计文件和代码复核为准。
+- `tests/test_managed_network.py`、`tests/test_network_approval_service.py`、
+  `tests/test_sandbox_client.py` 和 `tests/test_codex_execpolicy.py` 的网络/策略回归通过；
+  `tests/test_permission_grants.py` 覆盖 Skill `scripts/*` 复用普通 command policy。
 - Approval/Effect 恢复、重复 resolve、写入失败、迟到事件和未知结果对账通过。
 - 安全审查确认模型可达执行面不存在已知非代理网络路径。
 - Windows、macOS、Linux 都有用户在对应机器执行的真实端到端证据。

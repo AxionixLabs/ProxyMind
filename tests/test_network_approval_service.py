@@ -47,10 +47,12 @@ async def test_network_approval_card_has_typed_target_and_proposal() -> None:
         session_id="session-1",
         run_id="run-1",
         environment_id="workspace-write",
+        execution_id="execution-1",
     )
 
     approval = coordinator.requests[0]
     assert approval["kind"] == "network_access"
+    assert approval["execution_id"] == "execution-1"
     assert approval["host"] == "api.example.com"
     assert approval["protocol"] == "https"
     assert approval["port"] == 443
@@ -78,6 +80,7 @@ async def test_network_accept_is_one_shot() -> None:
         session_id="session-1",
         run_id="run-1",
         environment_id="workspace-write",
+        execution_id="execution-1",
     )
 
     assert policy.decide(_blocked().target) is NetworkDecision.ALLOW
@@ -94,6 +97,7 @@ async def test_network_session_grant_is_scoped() -> None:
         session_id="session-1",
         run_id="run-1",
         environment_id="workspace-write",
+        execution_id="execution-1",
     )
 
     assert policy.decide(
@@ -125,6 +129,7 @@ async def test_network_amendment_persists_before_runtime_install() -> None:
         session_id="session-1",
         run_id="run-1",
         environment_id="workspace-write",
+        execution_id="execution-1",
     )
 
     assert len(persisted) == 1
@@ -140,4 +145,40 @@ def test_network_handler_requires_stable_identity() -> None:
             session_id="",
             run_id="run-1",
             environment_id="workspace-write",
+            execution_id="execution-1",
         )
+
+
+@pytest.mark.anyio
+async def test_network_request_rejects_missing_execution_identity() -> None:
+    service = NetworkApprovalService(_Coordinator("decline"), StaticNetworkPolicy())
+
+    with pytest.raises(ValueError, match="identity"):
+        await service.request(
+            _blocked(),
+            session_id="session-1",
+            run_id="run-1",
+            environment_id="workspace-write",
+            execution_id="",
+        )
+
+
+@pytest.mark.anyio
+async def test_network_approval_identity_isolated_per_execution() -> None:
+    coordinator = _Coordinator("decline")
+    service = NetworkApprovalService(coordinator, StaticNetworkPolicy())
+
+    for execution_id in ("execution-1", "execution-2"):
+        await service.request(
+            _blocked(),
+            session_id="session-1",
+            run_id="run-1",
+            environment_id="workspace-write",
+            execution_id=execution_id,
+        )
+
+    assert [item["execution_id"] for item in coordinator.requests] == [
+        "execution-1",
+        "execution-2",
+    ]
+    assert coordinator.requests[0]["request_id"] != coordinator.requests[1]["request_id"]

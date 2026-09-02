@@ -49,12 +49,14 @@ class NetworkApprovalService:
         session_id: str,
         run_id: str,
         environment_id: str,
+        execution_id: str,
     ) -> Callable[[BlockedNetworkRequest], Awaitable[None]]:
         """创建绑定本地 Session/Run 身份的代理阻断回调。"""
         normalized_session = str(session_id or "").strip()
         normalized_run = str(run_id or "").strip()
         normalized_environment = str(environment_id or "").strip() or "default"
-        if not normalized_session or not normalized_run:
+        normalized_execution = str(execution_id or "").strip()
+        if not normalized_session or not normalized_run or not normalized_execution:
             raise ValueError("network approval handler identity is incomplete")
 
         async def handle(request: BlockedNetworkRequest) -> None:
@@ -64,6 +66,7 @@ class NetworkApprovalService:
                 session_id=normalized_session,
                 run_id=normalized_run,
                 environment_id=normalized_environment,
+                execution_id=normalized_execution,
             )
 
         return handle
@@ -75,12 +78,21 @@ class NetworkApprovalService:
         session_id: str,
         run_id: str,
         environment_id: str,
+        execution_id: str,
     ) -> ApprovalOutcome:
         """展示 network_access 卡并按决定更新一次、Session 或持久规则。"""
+        normalized_session = str(session_id or "").strip()
+        normalized_run = str(run_id or "").strip()
+        normalized_environment = str(environment_id or "").strip() or "default"
+        normalized_execution = str(execution_id or "").strip()
+        if not normalized_session or not normalized_run or not normalized_execution:
+            raise ValueError("network approval identity is incomplete")
+
         target = blocked.target
         approval_id = _approval_id(
-            session_id=session_id,
-            run_id=run_id,
+            session_id=normalized_session,
+            run_id=normalized_run,
+            execution_id=normalized_execution,
             target=target,
         )
         target_url = f"{target.protocol.value}://{target.host}:{target.port}"
@@ -90,10 +102,11 @@ class NetworkApprovalService:
             "request_id": approval_id,
             "action_id": approval_id,
             "call_id": approval_id,
-            "session_id": session_id,
-            "run_id": run_id,
-            "turn_id": run_id,
-            "environment_id": environment_id,
+            "session_id": normalized_session,
+            "run_id": normalized_run,
+            "execution_id": normalized_execution,
+            "turn_id": normalized_run,
+            "environment_id": normalized_environment,
             "kind": "network_access",
             "tool": "exec_command",
             "target": target_url,
@@ -118,7 +131,7 @@ class NetworkApprovalService:
         if outcome.decision == "accept":
             self._policy.grant_once(target)
         elif outcome.decision == "acceptForSession":
-            self._policy.grant_for_session(target, session_id)
+            self._policy.grant_for_session(target, normalized_session)
         elif outcome.decision == "applyNetworkPolicyAmendment":
             rule = ManagedNetworkRule(
                 host=target.host,
@@ -137,6 +150,7 @@ def _approval_id(
     *,
     session_id: str,
     run_id: str,
+    execution_id: str,
     target: NetworkTarget,
 ) -> str:
     """生成同一 Run/目标可复用的稳定审批 ID。"""
@@ -144,6 +158,7 @@ def _approval_id(
         {
             "session_id": session_id,
             "run_id": run_id,
+            "execution_id": execution_id,
             "host": target.host.casefold().rstrip("."),
             "protocol": target.protocol.value,
             "port": target.port,

@@ -258,6 +258,7 @@ class ApplicationHost:
             session_id: str,
             run_id: str,
             environment_id: str,
+            execution_id: str,
         ):
             """为受管进程创建绑定审批服务的网络阻断回调。"""
             service = network_service_holder.get("service")
@@ -268,6 +269,7 @@ class ApplicationHost:
                     session_id=session_id,
                     run_id=run_id,
                     environment_id=environment_id,
+                    execution_id=execution_id,
                 )
             except ValueError:
                 return None

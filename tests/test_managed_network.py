@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import socket
+from unittest.mock import AsyncMock
+from unittest.mock import patch
 
 import pytest
 
@@ -13,6 +16,7 @@ from infrastructure.platform.network import (
     StaticNetworkPolicy,
     managed_network_backend_name,
 )
+from infrastructure.platform import network as network_module
 
 
 def test_managed_network_backend_names_cover_all_target_platforms() -> None:
@@ -237,6 +241,23 @@ async def test_managed_proxy_rejects_socks5_udp_command() -> None:
         await writer.wait_closed()
     finally:
         await proxy.close()
+
+
+@pytest.mark.anyio
+async def test_dns_private_resolution_is_rejected_but_explicit_ip_is_allowed() -> None:
+    resolver = AsyncMock(return_value=[(
+        socket.AF_INET,
+        socket.SOCK_STREAM,
+        6,
+        "",
+        ("192.168.10.4", 0),
+    )])
+    loop = type("Resolver", (), {"getaddrinfo": resolver})()
+
+    with patch.object(network_module.asyncio, "get_running_loop", return_value=loop):
+        with pytest.raises(ValueError, match="local address"):
+            await network_module._safe_upstream_host("internal.example.test")
+        assert await network_module._safe_upstream_host("192.168.10.4") == "192.168.10.4"
 
 
 async def _record_blocked(
