@@ -459,18 +459,12 @@ Kernel 没有控制面消息，因此执行超时、调用方取消、reset 和 
 
 ### 安全与边界
 
-- `sidecars/js_repl` 只允许从原 `js_repl` 目录机械迁移。`kernel.js` 和
-  `vendor/meriyah.umd.min.js` 的文件名、目录关系和字节必须保持不变；禁止拆分、重写、格式化、
-  添加注释、转换行尾或注入握手。构建和测试以固定 SHA-256 校验该约束。
-- Node 可执行文件、最低版本和 Sidecar bundle 路径由 composition 解析后以不可变值传入
-  Provider；业务模块和 Kernel 不读取客户端配置目录。
-- `sandbox_mode` 在启动参数中落实，平台差异只存在于 `process.py`。Sidecar 不自行放宽文件、
-  网络或子进程权限。
-- `delegate.call` 只是调用提案；Python application 必须重新执行工具可见性、schema、审批和
-  Effect 规则，Host 无权绕过这些规则直接调用本地工具。
+- `sidecars/js_repl` 只允许从原 `js_repl` 目录机械迁移。`kernel.js` 和 `vendor/meriyah.umd.min.js` 的文件名、目录关系和字节必须保持不变；禁止拆分、重写、格式化、 添加注释、转换行尾或注入握手。构建和测试以固定 SHA-256 校验该约束。
+- Node 可执行文件、最低版本和 Sidecar bundle 路径由 composition 解析后以不可变值传入 Provider；业务模块和 Kernel 不读取客户端配置目录。
+- `sandbox_mode` 在启动参数中落实，平台差异只存在于 `process.py`。Sidecar 不自行放宽文件、 网络或子进程权限。
+- `delegate.call` 只是调用提案；Python application 必须重新执行工具可见性、schema、审批和 Effect 规则，Host 无权绕过这些规则直接调用本地工具。
 - Sidecar 内部状态不得进入 `/tool-result`、线上事件、Transcript 元数据或前端状态。
-- Sidecar 模块只使用 `observability` 的结构化入口；代码正文、完整输出、凭据和未筛选回调
-  载荷不得写入日志。
+- Sidecar 模块只使用 `observability` 的结构化入口；代码正文、完整输出、凭据和未筛选回调载荷不得写入日志。
 
 ### 发布与验收
 
@@ -482,14 +476,12 @@ JavaScript Sidecar 边界只有在以下事实持续成立时才视为健康：
 
 - JavaScript 运行时资产只位于 `sidecars/js_repl`，Python 进程实现只位于
   `infrastructure/sidecars/javascript`；
-- 两个 JavaScript 资产与迁移前的固定 SHA-256 完全相同，且不存在复制品、包装 Host 或拆分
-  后的运行时文件；
+- 两个 JavaScript 资产与迁移前的固定 SHA-256 完全相同，且不存在复制品、包装 Host 或拆分后的运行时文件；
 - application 工具、Harness 生命周期和 Sidecar 实现通过两个最小端口协作；
 - Session 隔离、权限冻结、取消、超时、崩溃、EOF、重置和关闭具有确定行为；
 - 嵌套工具调用完整经过现有授权、审批和 Effect 链路；
 - Windows、Linux、macOS 的 Node 发现、启动、终止和打包安装路径均有验证；
-- 架构守卫禁止 Workspace 所有权、跨 Session 共享宿主、直接 Sidecar 导入和私有状态进入
-  线上协议。
+- 架构守卫禁止 Workspace 所有权、跨 Session 共享宿主、直接 Sidecar 导入和私有状态进入线上协议。
 
 ## 可观测性
 
