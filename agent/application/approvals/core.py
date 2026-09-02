@@ -149,12 +149,40 @@ class _RegisteredApproval:
     task: asyncio.Task[ApprovalFact]
 
 
+@dataclass(frozen=True, slots=True)
+class _ApprovalRegistryKey:
+    """标识运行期应共享的同一审批等待任务。"""
+
+    session_id: str
+    run_id: str
+    approval_id: str
+    action_id: str
+
+
+def _approval_registry_key(action: ApprovalAction) -> _ApprovalRegistryKey:
+    """让同一 Run 内完全相同的 MCP 动作共享一个 pending 请求。"""
+    identity = action.identity
+    if action.kind is ApprovalActionKind.MCP:
+        return _ApprovalRegistryKey(
+            session_id=identity.session_id,
+            run_id=identity.run_id,
+            approval_id=f"mcp:{action.fingerprint.value}",
+            action_id="shared",
+        )
+    return _ApprovalRegistryKey(
+        session_id=identity.session_id,
+        run_id=identity.run_id,
+        approval_id=identity.approval_id,
+        action_id=identity.action_id,
+    )
+
+
 class RunApprovalRegistry:
     """按完整 Session/Run 身份去重审批任务并隔离不同 Run。"""
 
     def __init__(self) -> None:
         """创建空的运行期审批注册表。"""
-        self._entries: dict[ApprovalIdentity, _RegisteredApproval] = {}
+        self._entries: dict[_ApprovalRegistryKey, _RegisteredApproval] = {}
         self._lock = asyncio.Lock()
 
     async def run(
@@ -164,8 +192,9 @@ class RunApprovalRegistry:
     ) -> ApprovalFact:
         """共享同一身份的进行中任务，并拒绝语义冲突。"""
         identity = action.identity
+        registry_key = _approval_registry_key(action)
         async with self._lock:
-            current = self._entries.get(identity)
+            current = self._entries.get(registry_key)
             if current is not None:
                 if (
                     current.action_kind is not action.kind
@@ -178,7 +207,7 @@ class RunApprovalRegistry:
                     operation(),
                     name=f"approval {identity.approval_id}",
                 )
-                self._entries[identity] = _RegisteredApproval(
+                self._entries[registry_key] = _RegisteredApproval(
                     action_kind=action.kind,
                     action_fingerprint=action.fingerprint.value,
                     task=task,
@@ -189,9 +218,9 @@ class RunApprovalRegistry:
         finally:
             if task.done():
                 async with self._lock:
-                    current = self._entries.get(identity)
+                    current = self._entries.get(registry_key)
                     if current is not None and current.task is task:
-                        del self._entries[identity]
+                        del self._entries[registry_key]
 
     async def close(self) -> None:
         """取消全部未完成审批任务并清空注册表。"""

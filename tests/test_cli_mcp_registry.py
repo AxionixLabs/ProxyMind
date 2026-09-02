@@ -20,6 +20,8 @@ def test_mcp_add_parses_runtime_policy_fields() -> None:
         "--deny",
         "browser_evaluate",
         "--required",
+        "--approval-mode",
+        "writes",
         "--startup-timeout-sec",
         "12",
         "--tool-timeout-sec",
@@ -32,6 +34,7 @@ def test_mcp_add_parses_runtime_policy_fields() -> None:
         required=True,
         allow=("browser_*",),
         deny=("browser_evaluate",),
+        approval_mode="writes",
         startup_timeout_sec=12.0,
         tool_timeout_sec=45.0,
     )

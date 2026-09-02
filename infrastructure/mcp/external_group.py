@@ -32,6 +32,7 @@ from infrastructure.mcp.external_status import (
 )
 from infrastructure.mcp.settings import (
     is_mcp_tool_allowed,
+    normalize_mcp_approval_mode,
     request_timeout_sec,
     startup_timeout_sec,
 )
@@ -158,7 +159,9 @@ class ExternalMcpGroup(object):
         session: ClientSession,
         *,
         transport: str | None = None,
-        rules: dict[str, list[str]] | None = None
+        rules: dict[str, list[str]] | None = None,
+        default_approval_mode: str = "auto",
+        tool_approval_modes: dict[str, str] | None = None,
     ) -> tuple[dict[str, mcp_types.Tool], int]:
         """读取单个外部服务的工具列表，并生成待提交的工具映射。"""
         tools_temp: dict[str, mcp_types.Tool] = {}
@@ -192,6 +195,13 @@ class ExternalMcpGroup(object):
 
                 if transport:
                     meta.setdefault("transport", str(transport).strip().lower())
+                overrides = tool_approval_modes or {}
+                meta["approval_mode"] = normalize_mcp_approval_mode(
+                    overrides.get(tool.name),
+                    default=default_approval_mode,
+                )
+                meta.setdefault("approval_allow_session", True)
+                meta.setdefault("approval_allow_persistent", True)
 
                 tools_temp[name] = tool.model_copy(update={"meta": meta})
 
@@ -463,7 +473,15 @@ class ExternalMcpGroup(object):
                 alias_info,
                 session,
                 transport=str(server.get("transport") or "streamable_http"),
-                rules=server.get("tools") or {},
+                rules=server.get("tool_filter") or {},
+                default_approval_mode=str(
+                    server.get("default_tools_approval_mode") or "auto"
+                ),
+                tool_approval_modes=(
+                    dict(server.get("tool_approval_modes") or {})
+                    if isinstance(server.get("tool_approval_modes"), dict)
+                    else {}
+                ),
             )
 
             if not ready.done():

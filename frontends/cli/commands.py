@@ -25,6 +25,13 @@ CompletionShell = typing.Literal[
     "zsh",
 ]
 
+McpApprovalModeValue = typing.Literal[
+    "auto",
+    "prompt",
+    "writes",
+    "approve",
+]
+
 COMPLETION_SHELLS: tuple[CompletionShell, ...] = (
     "bash",
     "elvish",
@@ -132,6 +139,7 @@ class McpAddCommand(object):
     required: bool = False
     allow: tuple[str, ...] = ()
     deny: tuple[str, ...] = ()
+    approval_mode: McpApprovalModeValue | None = None
     startup_timeout_sec: float | None = None
     tool_timeout_sec: float | None = None
 

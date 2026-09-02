@@ -5,7 +5,7 @@
 - 目标平台：Windows、macOS、Linux
 - 架构权威：`ARCHITECTURE.md`
 - Codex 参考基线：`codex-main/codex-rs` revision `608f4a8a98feff0889cbfc9ed691efbf42d34cc6`
-- 当前状态：网络审批作为既有基线；MCP 审批优化尚未开始
+- 当前状态：网络审批作为既有基线；MCP 实际调用审批门已完成，事实与授权闭环实施中
 
 ## Codex 参考文件
 
@@ -189,7 +189,7 @@ MCP 的一次性 action fingerprint 必须包含规范化参数；Session/Persis
 
 ### 阶段 1：MCP 实际调用审批门
 
-**规模：大；优先级：P0；状态：待开始**
+**规模：大；优先级：P0；状态：已完成**
 
 交付内容：
 
@@ -206,6 +206,16 @@ MCP 的一次性 action fingerprint 必须包含规范化参数；Session/Persis
 - 只读、破坏性、open-world 和未知注解分别符合策略。
 - `approval_policy=never`、工具不存在、server 冲突、参数非法全部 fail closed。
 - Windows、macOS、Linux 使用同一调用行为和结果契约。
+
+实施结果：
+
+- 外部 MCP 工具目录保存真实 server、transport、SDK annotations、参数 schema 及逐服务/逐工具审批模式；
+  `CompositeToolSession` 在审批边界校验参数并生成不依赖 SDK 的类型化描述符。
+- `ClientToolCallRunner` 在 Effect 和外部 SDK 调用前执行统一 MCP 审批门，常规调用与 JS 嵌套调用
+  使用同一工具 metadata；应用内建 MCP 和 Hook reviewer 的受信任入口不进入该用户审批门。
+- `prompt/writes/auto/approve`、全局 `never`、缺失 coordinator、未知工具、server 冲突、非法参数和
+  同 Run 相同动作并发共享均有定向回归；拒绝路径不会调用外部 MCP SDK。
+- 三平台共享相同 Python 调用链，不包含平台分支；真实 macOS/Linux 传输验收保留到阶段 4 的平台矩阵。
 
 ### 阶段 2：统一事实、grant、Effect 和恢复
 

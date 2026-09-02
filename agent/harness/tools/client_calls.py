@@ -14,6 +14,11 @@ from agent.application.hooks.models import (
     ToolOperationResult,
     ToolResultSnapshot
 )
+from agent.application.approvals.mcp import (
+    McpApprovalAuthorization,
+    authorize_mcp_tool_call,
+)
+from agent.application.tools.catalog import meta_for_tool
 from agent.application.tools.authorization import ToolTurnInterrupted
 from agent.application.tools.context import (
     NESTED_TOOL_DISPATCH_META_KEY,
@@ -30,6 +35,7 @@ from agent.application.turns.context import (
     TurnContext
 )
 from agent.application.views.contracts import PresentationSink
+from agent.application.views.builders.approval import build_approval_view
 from agent.application.views.tool_display import (
     is_two_stage_tool,
     tool_status_text,
@@ -41,6 +47,7 @@ from agent.application.views.tool_execution import (
 )
 from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from agent.ports import (
+    ApprovalActionCoordinatorPort,
     EffectJournal,
     EffectJournalPersistenceError,
     LocalEffectReconciliationRequired,
@@ -280,6 +287,84 @@ class ClientToolCallRunner:
             call_id=invocation.call_id,
             fields=fields,
         )
+
+    @staticmethod
+    def _mcp_denied_outcome(
+        invocation: ToolInvocation,
+        reason: str,
+    ) -> ClientToolCallOutcome:
+        """构建未执行的 MCP 审批拒绝结果。"""
+        text = str(reason or "MCP tool approval denied")
+        fields = build_client_tool_result(
+            tool=invocation.name,
+            ok=False,
+            args=invocation.arguments,
+            text=text,
+            attachments=[],
+            data={
+                "approval_denied": True,
+                "executed": False,
+                "error": text,
+            },
+        )
+        return ClientToolCallOutcome(result=ClientToolCallResult(
+            name=invocation.name,
+            arguments=dict(invocation.arguments),
+            ok=False,
+            text=text,
+            call_id=invocation.call_id,
+            fields=fields,
+        ))
+
+    async def _authorize_external_mcp(
+        self,
+        invocation: ToolInvocation,
+    ) -> McpApprovalAuthorization | None:
+        """对目录标记的外部 MCP 调用执行类型化审批。"""
+        meta = invocation.meta
+        if not isinstance(meta, dict) or meta.get("external") is not True:
+            return None
+
+        descriptor = self.session.mcp_approval_descriptor(
+            invocation.name,
+            invocation.arguments,
+        )
+        if descriptor is None:
+            return McpApprovalAuthorization(
+                False,
+                "external MCP tool descriptor is unavailable",
+            )
+        catalog_server = meta.get("server")
+        if (
+            not isinstance(catalog_server, str)
+            or not catalog_server.strip()
+            or catalog_server.strip() != descriptor.server
+        ):
+            return McpApprovalAuthorization(
+                False,
+                "external MCP server identity conflicts with tool catalog",
+            )
+
+        coordinator = invocation.turn.approval_coordinator
+        typed_coordinator = (
+            coordinator
+            if isinstance(coordinator, ApprovalActionCoordinatorPort)
+            else None
+        )
+        authorization = await authorize_mcp_tool_call(
+            invocation.turn,
+            coordinator=typed_coordinator,
+            call_id=invocation.call_id,
+            descriptor=descriptor,
+            arguments=invocation.arguments,
+        )
+        if authorization.outcome is not None and authorization.presentation is not None:
+            await self.presentation.emit(build_approval_view(
+                authorization.presentation,
+                decision=authorization.outcome.decision,
+                source=authorization.outcome.source,
+            ))
+        return authorization
 
     @staticmethod
     def _not_executed_outcome(
@@ -642,6 +727,7 @@ class ClientToolCallRunner:
                 call_id=call_id,
                 name=tool_name,
                 arguments=arguments,
+                meta=meta_for_tool(self.tools, tool_name),
             ),
             use_coding_trace=uses_native_tool_view(tool_name),
             display=False,
@@ -660,6 +746,16 @@ class ClientToolCallRunner:
         operation_handler: ClientToolOperation | None = None,
     ) -> ClientToolCallOutcome:
         """执行经过 Hook 协调的客户端工具调用。"""
+        try:
+            mcp_authorization = await self._authorize_external_mcp(invocation)
+        except (TypeError, ValueError) as error:
+            return self._mcp_denied_outcome(invocation, str(error))
+        if mcp_authorization is not None and not mcp_authorization.allowed:
+            return self._mcp_denied_outcome(
+                invocation,
+                mcp_authorization.reason,
+            )
+
         effect = invocation.effect
         if effect is not None:
             try:

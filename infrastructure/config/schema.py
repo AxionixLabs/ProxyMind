@@ -407,6 +407,7 @@ MCP_STRING_FIELDS = frozenset({
     "cwd",
     "url",
     "bearer_token_env_var",
+    "default_tools_approval_mode",
 })
 
 MCP_BOOL_FIELDS = frozenset({
@@ -437,7 +438,10 @@ MCP_FIELDS = frozenset({
     *MCP_STRING_LIST_FIELDS,
     *MCP_STRING_MAP_FIELDS,
     *MCP_NUMBER_FIELDS,
+    "tools",
 })
+
+MCP_APPROVAL_MODES = frozenset({"auto", "prompt", "writes", "approve"})
 
 
 def _raw_path_value(
@@ -575,6 +579,27 @@ def validate_config_value(
 
     if len(path) == 3 and path[0] == "mcp_servers" and path[1]:
         _validate_mcp_field(path[1], path[2], value)
+        return None
+
+    if (
+        len(path) == 4
+        and path[0] == "mcp_servers"
+        and path[1]
+        and path[2] == "tools"
+        and path[3]
+    ):
+        _validate_mcp_tool(path[1], path[3], value)
+        return None
+
+    if (
+        len(path) == 5
+        and path[0] == "mcp_servers"
+        and path[1]
+        and path[2] == "tools"
+        and path[3]
+        and path[4] == "approval_mode"
+    ):
+        _validate_mcp_approval_mode(value, dotted=dotted)
         return None
 
     if (
@@ -915,6 +940,8 @@ def _validate_mcp_field(
     if field in MCP_STRING_FIELDS:
         if not isinstance(value, str):
             raise ConfigValidationError(f"{dotted} must be a string")
+        if field == "default_tools_approval_mode":
+            _validate_mcp_approval_mode(value, dotted=dotted)
         return None
     if field in MCP_BOOL_FIELDS:
         if not isinstance(value, bool):
@@ -942,8 +969,42 @@ def _validate_mcp_field(
         ):
             raise ConfigValidationError(f"{dotted} must be a positive number")
         return None
+    if field == "tools":
+        if not isinstance(value, dict):
+            raise ConfigValidationError(f"{dotted} must be a table")
+        for tool_name, tool in value.items():
+            _validate_mcp_tool(name, str(tool_name), tool)
+        return None
 
     raise ConfigValidationError(f"unknown MCP server key: {dotted}")
+
+
+def _validate_mcp_tool(
+    server_name: str,
+    tool_name: str,
+    value: typing.Any,
+) -> None:
+    """校验一个 MCP 工具的逐工具审批配置。"""
+    dotted = f"mcp_servers.{server_name}.tools.{tool_name}"
+    if not tool_name.strip():
+        raise ConfigValidationError(f"{dotted} name must be non-empty")
+    if not isinstance(value, dict):
+        raise ConfigValidationError(f"{dotted} must be a table")
+    if set(value) != {"approval_mode"}:
+        raise ConfigValidationError(
+            f"{dotted} must define only approval_mode"
+        )
+    _validate_mcp_approval_mode(
+        value.get("approval_mode"),
+        dotted=f"{dotted}.approval_mode",
+    )
+
+
+def _validate_mcp_approval_mode(value: typing.Any, *, dotted: str) -> None:
+    """校验 MCP server 或 tool 的审批模式。"""
+    if not isinstance(value, str) or value not in MCP_APPROVAL_MODES:
+        choices = ", ".join(sorted(MCP_APPROVAL_MODES))
+        raise ConfigValidationError(f"{dotted} must be one of: {choices}")
 
 
 def config_override(

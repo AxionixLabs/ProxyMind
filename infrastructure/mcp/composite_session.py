@@ -12,6 +12,8 @@ from agent.ports import (
     McpSessionPort,
     ToolRegistryPort,
 )
+from agent.domain.approvals import McpToolDescriptor
+from infrastructure.mcp.approval import prepare_mcp_approval_descriptor
 from infrastructure.mcp.external_status import should_reraise_external
 from infrastructure.mcp.values import truncate_text
 from observability import observe_exception
@@ -123,6 +125,19 @@ class CompositeToolSession(McpSessionPort):
 
         return mcp_types.ListToolsResult(tools=tools)
 
+    def mcp_approval_descriptor(
+        self,
+        name: str,
+        arguments: dict[str, typing.Any],
+    ) -> McpToolDescriptor | None:
+        """校验外部 MCP 调用并返回类型化审批描述符。"""
+        if self.external_group is None:
+            return None
+        tool = self.external_group.tools.get(name)
+        if tool is None:
+            return None
+        return prepare_mcp_approval_descriptor(name, tool, arguments)
+
     async def call_tool(
         self,
         name: str,
@@ -166,6 +181,8 @@ class CompositeToolSession(McpSessionPort):
             )
 
         if self.external_group is not None and name in self.external_group.tools:
+            if call_id is not None and not str(call_id).strip():
+                raise ValueError("external MCP call_id must be non-empty")
             return await self.external_group.call_tool(
                 name,
                 payload,

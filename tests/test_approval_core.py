@@ -23,6 +23,11 @@ from agent.domain.approvals import (
     ApprovalIdentity,
     CommandApprovalAction,
     ExecutionIdentity,
+    McpApprovalAction,
+    McpApprovalMode,
+    McpApprovalPolicy,
+    McpToolAnnotations,
+    McpToolDescriptor,
     ApprovalResolutionReason,
 )
 from agent.ports.persistence import EffectJournalDecision
@@ -145,11 +150,10 @@ async def test_registry_deduplicates_same_identity_and_rejects_conflict() -> Non
     registry = RunApprovalRegistry()
     started = asyncio.Event()
     release = asyncio.Event()
-    calls = 0
+    calls: list[str] = []
 
     async def operation():
-        nonlocal calls
-        calls += 1
+        calls.append("request")
         started.set()
         await release.wait()
         from agent.domain.approvals import ApprovalFact
@@ -171,7 +175,60 @@ async def test_registry_deduplicates_same_identity_and_rejects_conflict() -> Non
 
     release.set()
     assert (await first) == (await second)
-    assert calls == 1
+    assert calls == ["request"]
+
+
+@pytest.mark.anyio
+async def test_registry_shares_identical_mcp_actions_with_distinct_call_ids() -> None:
+    registry = RunApprovalRegistry()
+    descriptor = McpToolDescriptor(
+        server="docs",
+        exposed_name="mcp__docs__lookup",
+        tool_name="lookup",
+        schema_fingerprint=ActionFingerprint("schema"),
+        annotations=McpToolAnnotations(read_only_hint=False),
+        policy=McpApprovalPolicy(McpApprovalMode.PROMPT),
+    )
+
+    def action(call_id: str) -> McpApprovalAction:
+        return McpApprovalAction(
+            identity=ApprovalIdentity(
+                session_id="session-1",
+                run_id="run-mcp",
+                approval_id=f"approval-{call_id}",
+                action_id=call_id,
+            ),
+            execution=ExecutionIdentity(
+                environment_id="workspace-write",
+                execution_id="run-mcp",
+                tool_call_id=call_id,
+            ),
+            fingerprint=ActionFingerprint("mcp-action"),
+            descriptor=descriptor,
+            arguments_fingerprint=ActionFingerprint("arguments"),
+        )
+
+    first_action = action("call-1")
+    second_action = action("call-2")
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls: list[str] = []
+
+    async def operation():
+        calls.append("request")
+        started.set()
+        await release.wait()
+        from agent.domain.approvals import ApprovalFact
+
+        return ApprovalFact.requested(first_action)
+
+    first = asyncio.create_task(registry.run(first_action, operation))
+    await started.wait()
+    second = asyncio.create_task(registry.run(second_action, operation))
+    release.set()
+
+    assert await first == await second
+    assert calls == ["request"]
 
 
 @pytest.mark.anyio

@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
 
+import pytest
 from mcp import types as mcp_types
 from mcp.client.session_group import SseServerParameters
 from mcp.client.stdio import StdioServerParameters
 
+from infrastructure.config.schema import (
+    ConfigValidationError,
+    validate_config,
+)
 from infrastructure.mcp.settings import normalize_mcp_servers
 from infrastructure.mcp.transport import build_server_params
 from infrastructure.mcp.values import (
@@ -24,6 +29,10 @@ def test_mcp_settings_normalize_stdio_and_remote_servers() -> None:
             "deny": ["read_secret"],
             "startup_timeout_sec": 12,
             "tool_timeout_sec": 30,
+            "tools": {
+                "create_issue": {"approval_mode": "prompt"},
+            },
+            "default_tools_approval_mode": "writes",
         },
         "Docs API": {
             "url": "https://docs.example.test/sse",
@@ -43,10 +52,12 @@ def test_mcp_settings_normalize_stdio_and_remote_servers() -> None:
             "transport": "stdio",
             "startup_timeout_sec": 12.0,
             "timeout_sec": 30.0,
-            "tools": {
+            "tool_filter": {
                 "allow": ["read_*"],
                 "deny": ["read_secret"],
             },
+            "default_tools_approval_mode": "writes",
+            "tool_approval_modes": {"create_issue": "prompt"},
             "command": "runner",
             "args": ["serve", "2"],
             "env": {"MODE": "test"},
@@ -61,13 +72,41 @@ def test_mcp_settings_normalize_stdio_and_remote_servers() -> None:
             "transport": "sse",
             "startup_timeout_sec": 10.0,
             "timeout_sec": 60.0,
-            "tools": {},
+            "tool_filter": {},
+            "default_tools_approval_mode": "auto",
+            "tool_approval_modes": {},
             "url": "https://docs.example.test/sse",
             "headers": {"X-Client": "proxy"},
             "sse_read_timeout_sec": 60.0,
             "terminate_on_close": True,
         },
     ]
+
+
+def test_mcp_approval_modes_are_validated_at_config_boundary() -> None:
+    validate_config({
+        "mcp_servers": {
+            "docs": {
+                "command": "runner",
+                "default_tools_approval_mode": "writes",
+                "tools": {
+                    "publish": {"approval_mode": "prompt"},
+                },
+            },
+        },
+    })
+
+    with pytest.raises(ConfigValidationError, match="approval_mode"):
+        validate_config({
+            "mcp_servers": {
+                "docs": {
+                    "command": "runner",
+                    "tools": {
+                        "publish": {"approval_mode": "sometimes"},
+                    },
+                },
+            },
+        })
 
 
 def test_mcp_transport_builds_validated_sdk_parameters() -> None:

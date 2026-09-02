@@ -376,18 +376,27 @@ class McpApprovalAction:
     identity: ApprovalIdentity
     execution: ExecutionIdentity
     fingerprint: ActionFingerprint
-    server: str
-    tool_name: str
+    descriptor: McpToolDescriptor
     arguments_fingerprint: ActionFingerprint
     kind: typing.ClassVar[ApprovalActionKind] = ApprovalActionKind.MCP
 
     def __post_init__(self) -> None:
-        """校验 MCP 服务器、工具和参数指纹。"""
+        """校验 MCP 描述符和参数指纹。"""
         _require_action_components(self.identity, self.execution, self.fingerprint)
-        _require_text("server", self.server)
-        _require_text("tool_name", self.tool_name)
+        if not isinstance(self.descriptor, McpToolDescriptor):
+            raise ValueError("descriptor must be an McpToolDescriptor")
         if not isinstance(self.arguments_fingerprint, ActionFingerprint):
             raise ValueError("arguments_fingerprint must be an ActionFingerprint")
+
+    @property
+    def server(self) -> str:
+        """返回 MCP 服务稳定别名。"""
+        return self.descriptor.server
+
+    @property
+    def tool_name(self) -> str:
+        """返回服务声明的原始工具名。"""
+        return self.descriptor.tool_name
 
 
 @dataclass(frozen=True, slots=True)

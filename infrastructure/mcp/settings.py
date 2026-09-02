@@ -12,6 +12,7 @@ DEFAULT_MCP_TRANSPORT = "streamable_http"
 DEFAULT_MCP_START_TIMEOUT_SEC = 10.0
 DEFAULT_MCP_REQ_TIMEOUT_SEC = 60.0
 DEFAULT_MCP_SSE_TIMEOUT_SEC = 30 * 60
+MCP_APPROVAL_MODES = frozenset({"auto", "prompt", "writes", "approve"})
 
 
 class McpConfigError(ValueError):
@@ -68,6 +69,40 @@ def _tool_patterns(value: typing.Any) -> list[str]:
         seen.add(pattern)
         patterns.append(pattern)
     return patterns
+
+
+def normalize_mcp_approval_mode(
+    value: typing.Any,
+    *,
+    default: str = "auto",
+) -> str:
+    """把 MCP 工具审批模式规范化为受支持的稳定值。"""
+    mode = str(value if value is not None else default).strip().casefold()
+    if mode not in MCP_APPROVAL_MODES:
+        choices = ", ".join(sorted(MCP_APPROVAL_MODES))
+        raise McpConfigError(f"MCP approval mode must be one of: {choices}")
+    return mode
+
+
+def _tool_approval_modes(value: typing.Any) -> dict[str, str]:
+    """读取逐工具 MCP 审批覆盖并拒绝不完整条目。"""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise McpConfigError("MCP tools approval config must be a table")
+    result: dict[str, str] = {}
+    for raw_name, raw_config in value.items():
+        name = str(raw_name or "").strip()
+        if not name or not isinstance(raw_config, dict):
+            raise McpConfigError("MCP tool approval config is invalid")
+        if set(raw_config) != {"approval_mode"}:
+            raise McpConfigError(
+                f"MCP tool {name} must define only approval_mode"
+            )
+        result[name] = normalize_mcp_approval_mode(
+            raw_config.get("approval_mode")
+        )
+    return result
 
 
 def is_mcp_tool_allowed(name: str, rules: typing.Any) -> bool:
@@ -145,7 +180,11 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
                 DEFAULT_MCP_START_TIMEOUT_SEC,
             ),
             "timeout_sec": timeout_sec,
-            "tools": tool_rules,
+            "tool_filter": tool_rules,
+            "default_tools_approval_mode": normalize_mcp_approval_mode(
+                item.get("default_tools_approval_mode")
+            ),
+            "tool_approval_modes": _tool_approval_modes(item.get("tools")),
         }
 
         if transport == "stdio":

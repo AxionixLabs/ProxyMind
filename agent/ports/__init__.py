@@ -15,6 +15,7 @@ from .approvals import (
     ApprovalLedgerState,
     ApprovalOutcomePort,
 )
+from .approval_core import ApprovalActionCoordinatorPort
 from .capabilities import (
     ApprovalSnapshotCallback,
     CapabilityError,
@@ -230,6 +231,7 @@ from .workspace import (
 )
 
 __all__ = (
+    "ApprovalActionCoordinatorPort",
     "ApprovalLedger",
     "ApprovalLedgerState",
     "ApprovalCoordinatorPort",

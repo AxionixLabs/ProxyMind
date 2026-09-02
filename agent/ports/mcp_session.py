@@ -8,6 +8,7 @@ if typing.TYPE_CHECKING:
     from mcp import types as mcp_types
     from mcp.shared.session import ProgressFnT
     from agent.application.turns.context import TurnContext
+    from agent.domain.approvals import McpToolDescriptor
 
 __all__ = ("McpSessionPort",)
 
@@ -21,6 +22,14 @@ class McpSessionPort(typing.Protocol):
 
     async def list_tools(self) -> "mcp_types.ListToolsResult":
         """列出当前会话可用的工具。"""
+        ...
+
+    def mcp_approval_descriptor(
+        self,
+        name: str,
+        arguments: dict[str, typing.Any],
+    ) -> "McpToolDescriptor | None":
+        """返回外部 MCP 工具的已校验审批描述符，其他工具返回 None。"""
         ...
 
     async def call_tool(

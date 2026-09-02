@@ -37,6 +37,10 @@ from agent.domain.approvals import (
     CommandApprovalAction,
     ExecutionIdentity,
     McpApprovalAction,
+    McpApprovalMode,
+    McpApprovalPolicy,
+    McpToolAnnotations,
+    McpToolDescriptor,
     NetworkApprovalAction,
     NetworkProtocol,
     NetworkTarget,
@@ -135,6 +139,15 @@ class DomainApprovalCoordinator:
         )
         action = domain_action_from_request(request)
         payload = request.payload.as_dict()
+        return await self.request_action_outcome(action, payload)
+
+    async def request_action_outcome(
+        self,
+        action: ApprovalAction,
+        presentation: Mapping[str, typing.Any],
+    ) -> LegacyOutcome:
+        """把类型化动作直接交给审批核心并沿用当前展示队列。"""
+        payload = dict(presentation)
         self._presentation.register(action, payload)
         try:
             fact = await self._core.request(action)
@@ -270,8 +283,27 @@ def domain_action_from_request(request: ApprovalRequest) -> ApprovalAction:
             identity=identity,
             execution=execution,
             fingerprint=fingerprint,
-            server=_text(payload.get("server")) or "mcp",
-            tool_name=_text(payload.get("tool_name")) or request.key.tool,
+            descriptor=McpToolDescriptor(
+                server=_text(payload.get("server")) or "mcp",
+                exposed_name=_text(payload.get("tool")) or "mcp_tool_call",
+                tool_name=_text(payload.get("tool_name")) or request.key.tool,
+                schema_fingerprint=ActionFingerprint(
+                    _text(payload.get("schema_fingerprint")) or fingerprint.value
+                ),
+                annotations=_mcp_annotations(payload.get("annotations")),
+                policy=McpApprovalPolicy(McpApprovalMode.PROMPT),
+                title=_optional_text(payload.get("tool_title")),
+                description=_optional_text(payload.get("tool_description")),
+                connector_id=_optional_text(payload.get("connector_id")),
+                connector_name=_optional_text(payload.get("connector_name")),
+                connector_description=_optional_text(
+                    payload.get("connector_description")
+                ),
+                connected_account=_optional_text(
+                    payload.get("connected_account_email")
+                ),
+                transport=_text(payload.get("transport")) or "external",
+            ),
             arguments_fingerprint=ActionFingerprint(
                 hashlib.sha256(arguments_json.encode("utf-8")).hexdigest()
             ),
@@ -470,6 +502,21 @@ def _optional_text(value: object) -> str | None:
     """把空理由规范化为真正的 None。"""
     text = _text(value)
     return text or None
+
+
+def _mcp_annotations(value: object) -> McpToolAnnotations:
+    """把旧 MCP 展示载荷中的注解转换为严格领域值。"""
+    fields = value if isinstance(value, dict) else {}
+
+    def optional_bool(name: str) -> bool | None:
+        raw = fields.get(name)
+        return raw if isinstance(raw, bool) else None
+
+    return McpToolAnnotations(
+        read_only_hint=optional_bool("read_only_hint"),
+        destructive_hint=optional_bool("destructive_hint"),
+        open_world_hint=optional_bool("open_world_hint"),
+    )
 
 
 if __name__ == '__main__':

@@ -96,6 +96,12 @@ def _parse_add_command(
 
     allow = _patterns(parser, values, "allow")
     deny = _patterns(parser, values, "deny")
+    raw_approval_mode = _optional_string(parser, values, "approval_mode")
+    approval_mode = (
+        raw_approval_mode
+        if raw_approval_mode in {"auto", "prompt", "writes", "approve"}
+        else None
+    )
 
     startup_timeout_sec = _positive_number(
         parser,
@@ -139,6 +145,7 @@ def _parse_add_command(
             required=bool(values["required"]),
             allow=allow,
             deny=deny,
+            approval_mode=approval_mode,
             startup_timeout_sec=startup_timeout_sec,
             tool_timeout_sec=tool_timeout_sec,
         )
@@ -158,6 +165,7 @@ def _parse_add_command(
         required=bool(values["required"]),
         allow=allow,
         deny=deny,
+        approval_mode=approval_mode,
         startup_timeout_sec=startup_timeout_sec,
         tool_timeout_sec=tool_timeout_sec,
     )

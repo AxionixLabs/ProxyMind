@@ -494,6 +494,11 @@ def create_cli_parser() -> CliArgumentParser:
         help="Deny a tool name or glob pattern (repeatable)",
     )
     mcp_add_options.add_argument(
+        "--approval-mode",
+        choices=("auto", "prompt", "writes", "approve"),
+        help="Default approval mode for tools from this server",
+    )
+    mcp_add_options.add_argument(
         "--startup-timeout-sec",
         type=float,
         metavar="SECONDS",

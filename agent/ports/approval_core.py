@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from collections.abc import Mapping
 
 from agent.domain.approvals import (
     ApprovalAction,
@@ -13,13 +14,28 @@ from agent.domain.approvals import (
     ApprovalResolutionReason,
     SessionGrant,
 )
+from agent.ports.approvals import ApprovalOutcomePort
 
 __all__ = (
+    "ApprovalActionCoordinatorPort",
     "ApprovalFactStore",
     "ApprovalPresentationPort",
     "ApprovalReviewerPort",
     "SessionGrantStore",
 )
+
+
+@typing.runtime_checkable
+class ApprovalActionCoordinatorPort(typing.Protocol):
+    """定义类型化动作进入审批核心并复用现有展示面的入口。"""
+
+    async def request_action_outcome(
+        self,
+        action: ApprovalAction,
+        presentation: Mapping[str, typing.Any],
+    ) -> ApprovalOutcomePort:
+        """提交已经构造的动作并返回兼容前端使用的终态。"""
+        ...
 
 
 class ApprovalFactStore(typing.Protocol):
