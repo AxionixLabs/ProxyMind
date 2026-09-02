@@ -97,6 +97,37 @@ def test_permissions_approval_card_uses_native_fields_and_rule_color() -> None:
     ).bold
 
 
+def test_network_approval_card_uses_target_row_and_network_colors() -> None:
+    lines = tui_approval_content_lines(
+        ["accept", "acceptForSession", "applyNetworkPolicyAmendment", "decline"],
+        approval={
+            "kind": "network_access",
+            "approval_id": "approval-network",
+            "call_id": "call-network",
+            "host": "api.example.com",
+            "protocol": "https",
+            "port": 443,
+            "command": ["curl", "https://api.example.com/v1"],
+        },
+        width=100,
+    )
+
+    text = "\n".join(_line_texts(lines))
+    assert "Network target: https://api.example.com:443" in text
+    target_line = next(
+        line for line in lines
+        if any(value == "https://api.example.com:443" for _style, value in line)
+    )
+    assert target_line[0] == ("class:approval-network", "Network target: ")
+    assert target_line[1] == (
+        "class:approval-network-host",
+        "https://api.example.com:443",
+    )
+    assert TUI_APPROVAL_STYLE.get_attrs_for_style_str(
+        "class:approval-network-host"
+    ).color == "0EA5E9"
+
+
 def test_patch_approval_uses_dedicated_fullscreen_title_and_preview() -> None:
     approval = {
         "tool": "apply_patch",

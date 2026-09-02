@@ -4,6 +4,7 @@
 import copy
 import typing
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from agent.application.approvals.amendments import (
     ExecPolicyAmendmentProposal,
@@ -53,6 +54,7 @@ class ExecApprovalPresentation(object):
     summary: str
     amendment: ExecPolicyAmendmentProposal | None = None
     additional_permissions: dict[str, typing.Any] | None = None
+    network_target: str | None = None
 
     def __post_init__(self) -> None:
         """复制附加权限资料，避免展示状态被外部修改。"""
@@ -157,6 +159,11 @@ def build_approval_presentation(
             summary=summary,
             amendment=approval_execpolicy_amendment(normalized),
             additional_permissions=additional_permissions,
+            network_target=(
+                _network_target_label(normalized)
+                if resolved_kind == "network_access"
+                else None
+            ),
         )
 
     if resolved_kind == "apply_patch":
@@ -232,6 +239,33 @@ def _approval_summary(
         title = _text(payload.get("tool_title")) or _text(payload.get("tool_name"))
         return ": ".join(value for value in (server, title) if value) or "MCP tool call"
     return approval_summary(payload)
+
+
+def _network_target_label(payload: dict[str, typing.Any]) -> str | None:
+    """生成网络审批卡使用的规范化目标标签。"""
+    host = _text(payload.get("host"))
+    protocol = _text(payload.get("protocol")).casefold()
+    if not host:
+        target = _text(payload.get("target"))
+        parsed = urlparse(target)
+        host = _text(parsed.hostname)
+        protocol = protocol or parsed.scheme.casefold()
+        port = parsed.port
+    else:
+        raw_port = payload.get("port")
+        port = raw_port if isinstance(raw_port, int) and not isinstance(raw_port, bool) else None
+    if not host:
+        return None
+    protocol = protocol or "https"
+    if port is None:
+        port = {
+            "http": 80,
+            "https": 443,
+            "socks5": 1080,
+            "socks5_tcp": 1080,
+            "socks5_udp": 1080,
+        }.get(protocol)
+    return f"{protocol}://{host}:{port}" if port is not None else f"{protocol}://{host}"
 
 
 def approval_request_kind(payload: dict[str, typing.Any]) -> ApprovalRequestKind:

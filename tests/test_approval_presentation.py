@@ -114,6 +114,7 @@ def test_network_presentation_uses_command_surface_and_network_title() -> None:
     assert presentation.context.prompt == (
         'Do you want to approve network access to "api.example.com"?'
     )
+    assert presentation.network_target == "https://api.example.com:443"
 
 
 def test_permissions_and_mcp_presentation_summaries_are_action_specific() -> None:

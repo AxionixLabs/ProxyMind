@@ -87,20 +87,79 @@ class StaticNetworkPolicy:
     def __init__(self, rules: Sequence[ManagedNetworkRule] = ()) -> None:
         """绑定不可变静态网络规则。"""
         self._rules = tuple(rules)
+        self._once_grants: dict[tuple[str, NetworkProtocol, int], int] = {}
+        self._session_grants: dict[
+            str,
+            set[tuple[str, NetworkProtocol, int]],
+        ] = {}
 
     @property
     def rules(self) -> tuple[ManagedNetworkRule, ...]:
         """返回规则快照。"""
         return self._rules
 
-    def decide(self, target: NetworkTarget) -> NetworkDecision:
+    def decide(
+        self,
+        target: NetworkTarget,
+        *,
+        session_id: str = "",
+    ) -> NetworkDecision:
         """返回目标的静态决定，未命中时 fail closed。"""
+        key = _target_key(target)
+        if self._once_grants.get(key, 0):
+            remaining = self._once_grants[key] - 1
+            if remaining:
+                self._once_grants[key] = remaining
+            else:
+                del self._once_grants[key]
+            return NetworkDecision.ALLOW
+        normalized_session = session_id.strip()
+        if normalized_session and key in self._session_grants.get(
+            normalized_session,
+            set(),
+        ):
+            return NetworkDecision.ALLOW
         matches = tuple(rule for rule in self._rules if rule.matches(target))
         if any(rule.decision is NetworkDecision.DENY for rule in matches):
             return NetworkDecision.DENY
         if any(rule.decision is NetworkDecision.ALLOW for rule in matches):
             return NetworkDecision.ALLOW
         return NetworkDecision.DENY
+
+    def grant_once(self, target: NetworkTarget) -> None:
+        """授予目标一次网络连接。"""
+        key = _target_key(target)
+        self._once_grants[key] = self._once_grants.get(key, 0) + 1
+
+    def grant_for_session(self, target: NetworkTarget, session_id: str) -> None:
+        """授予目标在指定代理 Session 内的连接。"""
+        normalized = session_id.strip()
+        if not normalized:
+            raise ValueError("session_id is required for session grant")
+        self._session_grants.setdefault(normalized, set()).add(_target_key(target))
+
+    def add_persistent_rule(self, target: NetworkTarget) -> ManagedNetworkRule:
+        """添加允许目标主机和协议的持久运行时规则。"""
+        rule = ManagedNetworkRule(
+            host=target.host,
+            protocol=target.protocol,
+            decision=NetworkDecision.ALLOW,
+            port=target.port,
+        )
+        self.install_rule(rule)
+        return rule
+
+    def install_rule(self, rule: ManagedNetworkRule) -> None:
+        """安装一条已经由外部持久化确认的规则。"""
+        if rule.decision is not NetworkDecision.ALLOW:
+            raise ValueError("only allow rules can be installed at runtime")
+        self._rules = (*self._rules, rule)
+
+    def clear_session(self, session_id: str) -> None:
+        """清除指定代理 Session 的全部临时授权。"""
+        normalized = session_id.strip()
+        if normalized:
+            self._session_grants.pop(normalized, None)
 
 
 def managed_network_backend_name(platform: str | None = None) -> str:
@@ -121,6 +180,7 @@ class ManagedNetworkProxy:
         policy: StaticNetworkPolicy,
         *,
         host: str = "127.0.0.1",
+        session_id: str = "",
         on_blocked: Callable[[BlockedNetworkRequest], Awaitable[None]] | None = None,
     ) -> None:
         """绑定静态策略和可选的阻断观察回调。"""
@@ -128,6 +188,7 @@ class ManagedNetworkProxy:
             raise ValueError("network proxy host is required")
         self.policy = policy
         self.host = host.strip()
+        self.session_id = session_id.strip()
         self._on_blocked = on_blocked
         self._server: asyncio.AbstractServer | None = None
         self._connections: set[asyncio.Task[None]] = set()
@@ -242,7 +303,10 @@ class ManagedNetworkProxy:
             await _write_response(writer, 400, str(error))
             return None
 
-        if self.policy.decide(network_target) is NetworkDecision.DENY:
+        if self.policy.decide(
+            network_target,
+            session_id=self.session_id,
+        ) is NetworkDecision.DENY:
             blocked = BlockedNetworkRequest(network_target, "static_policy_denied")
             callback = self._on_blocked
             if callback is not None:
@@ -380,6 +444,11 @@ async def _write_response(
         + body
     )
     await writer.drain()
+
+
+def _target_key(target: NetworkTarget) -> tuple[str, NetworkProtocol, int]:
+    """返回运行时授权使用的规范化目标键。"""
+    return (target.host.casefold().rstrip("."), target.protocol, target.port)
 
 
 if __name__ == '__main__':

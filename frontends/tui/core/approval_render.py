@@ -23,7 +23,7 @@ from agent.application.approvals.presentation import (
 from agent.ports.presentation import StyledBlock
 from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
-    TerminalCapabilities
+    TerminalCapabilities,
 )
 from frontends.terminal.renderers.patch import render_patch_view
 from frontends.terminal.styles import (
@@ -33,7 +33,7 @@ from frontends.terminal.styles import (
     COMMAND_NUMBER_STYLE,
     COMMAND_OPERATOR_STYLE,
     COMMAND_PATH_STYLE,
-    COMMAND_STRING_STYLE
+    COMMAND_STRING_STYLE,
 )
 from frontends.terminal.traces.command_parts import render_command_parts
 from frontends.tui.contracts.text import FormattedLine
@@ -68,6 +68,8 @@ TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-patch-count-remove": "ansired",
     "approval-patch-context": "",
     "approval-permission-rule": "cyan",
+    "approval-network": "bold #2563EB",
+    "approval-network-host": "#0EA5E9",
 })
 
 
@@ -332,9 +334,27 @@ def _exec_approval_card_lines(
     max_width: int,
 ) -> list[list[tuple[str, str]]]:
     """生成命令类审批卡片中的操作行。"""
+    if approval.context.kind == "network_access" and approval.network_target:
+        return _network_target_lines(
+            approval.network_target,
+            max_width=max_width,
+        )
     if approval.commands:
         return _single_command_lines(approval.commands[0], max_width=max_width)
     return _approval_summary_lines(approval.summary, max_width=max_width)
+
+
+def _network_target_lines(
+    target: str,
+    *,
+    max_width: int,
+) -> list[list[tuple[str, str]]]:
+    """生成网络审批卡片中的协议和目标主机行。"""
+    return _wrap_prefixed_line(
+        ("class:approval-network", "Network target: "),
+        [("class:approval-network-host", target)],
+        max_width=max_width,
+    )
 
 
 def _tool_approval_card_lines(
