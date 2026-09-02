@@ -7,6 +7,65 @@
 - Codex 参考基线：`codex-main/codex-rs` revision `608f4a8a98feff0889cbfc9ed691efbf42d34cc6`
 - 当前状态：网络审批作为既有基线；MCP 审批优化尚未开始
 
+## Codex 参考文件
+
+以下文件均以元数据中的固定 revision 为准。实现阶段只吸收可观察行为和边界约束，
+不复制 Codex 的私有模块命名或内部状态所有权。
+
+### 审批核心与生命周期
+
+- `codex-main/codex-rs/core/src/tools/approvals.rs`
+- `codex-main/codex-rs/core/src/tools/sandboxing.rs`
+- `codex-main/codex-rs/core/src/tools/approvals_tests.rs`
+- `codex-main/codex-rs/core/src/session/mod.rs`
+- `codex-main/codex-rs/core/src/session/turn.rs`
+- `codex-main/codex-rs/protocol/src/approvals.rs`
+
+### MCP 工具审批
+
+- `codex-main/codex-rs/core/src/mcp_tool_call.rs`
+- `codex-main/codex-rs/core/src/mcp_tool_approval_templates.rs`
+- `codex-main/codex-rs/core/src/mcp_tool_call_tests.rs`
+- `codex-main/codex-rs/core/src/tools/handlers/mcp.rs`
+- `codex-main/codex-rs/core/src/session/mcp.rs`
+- `codex-main/codex-rs/protocol/src/mcp_approval_meta.rs`
+
+重点对齐 MCP 工具执行前审批、`auto/prompt/writes/approve` 模式、工具 annotations、
+Session/Persistent grant、connector 作用域、参数展示和 MCP request metadata。
+
+### 网络审批与执行边界
+
+- `codex-main/codex-rs/core/src/tools/network_approval.rs`
+- `codex-main/codex-rs/network-proxy/`
+- `codex-main/codex-rs/sandboxing/`
+- `codex-main/codex-rs/linux-sandbox/`
+- `codex-main/codex-rs/windows-sandbox-rs/`
+
+网络审批作为既有基线复核 HTTP、HTTPS CONNECT、SOCKS5、DNS、执行身份、规则 amendment、
+失败关闭和平台 adapter；MCP 工具 grant 不得冒充网络 grant。
+
+### TUI、Guardian 与交互表现
+
+- `codex-main/codex-rs/tui/src/bottom_pane/approval_overlay.rs`
+- `codex-main/codex-rs/tui/src/bottom_pane/mcp_server_elicitation.rs`
+- `codex-main/codex-rs/tui/src/chatwidget/tool_requests.rs`
+- `codex-main/codex-rs/core/src/guardian/approval_request.rs`
+- `codex-main/codex-rs/core/src/guardian/review.rs`
+- `codex-main/codex-rs/core/src/guardian/review_session.rs`
+
+重点对齐审批卡的结构化字段、选中态、取消、焦点恢复、颜色和 reviewer 路由，不把前端当作
+策略或事实状态 owner。
+
+### Skill 脚本边界
+
+- `codex-main/codex-rs/core/src/skills.rs`
+- `codex-main/codex-rs/core-plugins/src/script_attribution.rs`
+- `codex-main/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs`
+- `codex-main/codex-rs/core/tests/suite/skill_approval.rs`
+
+这些文件只用于确认 Skill `scripts/*` 作为普通 command 执行的行为。ProxyMind 不新增独立
+Skill 审批、Skill grant 或 `skill_approval` 生产路径。
+
 ## 目标
 
 本计划把既有网络审批实现和后续 MCP 审批优化放入同一条审批架构演进路径。目标不是复制
