@@ -1,6 +1,6 @@
 # JavaScript Sidecar 实施与验收计划
 
-状态：已确认，阶段 0 已验证，阶段 1 进行中（2026-09-02）
+状态：阶段 0–1 已验证，阶段 2 进行中（2026-09-02）
 
 本文把 `ARCHITECTURE.md` 中的 JavaScript Sidecar 边界转换为分阶段实施和验收门禁。稳定
 架构以 `ARCHITECTURE.md` 为准；本文只记录实施状态和证据，完成后不成为第二份架构权威。
@@ -134,7 +134,8 @@ Kernel 协议是一行一个 UTF-8 JSON 对象。Python 不改变 wire 结构。
 
 Python 只发送由具名构造器产生的消息。输入帧必须在改变 Session 状态前完成 JSON 对象、判别
 类型、精确字段、字段类型、身份关联和 `32 MiB` 帧预算校验。未知、畸形、残缺、超限或无法
-关联的输入是 protocol failure，当前进程必须关闭；不能延续旧实现的静默忽略。
+关联的执行结果是 protocol failure，当前进程必须关闭；合法的迟到 delegate 返回确定的
+`js_repl exec context not found`，不恢复旧 execution。
 
 Kernel 没有控制消息，因此 timeout、caller cancellation、reset 和 close 都通过终止进程实现。
 stderr 只保留最多 20 行、每行 512 bytes、合计 4096 bytes 的诊断尾部，不拥有协议语义。
@@ -188,7 +189,7 @@ Kernel 的实施步骤，用户无关改动保持原样。
 
 ### 阶段 1：不可变 Bundle 与 Python Sidecar 垂直切片
 
-状态：进行中
+状态：已验证
 
 实施：
 
@@ -217,12 +218,14 @@ Kernel 的实施步骤，用户无关改动保持原样。
 node --check sidecars\js_repl\kernel.js
 ```
 
-出口：主链路使用新 Provider；Python 进程实现和资产各只有一个位置；JS 文件散列未变化；没有
-未接入模块、旧 import 或双路径。
+出口证据：新增 bundle/protocol/process/session/provider 并接入生产主链路；91 项 Sidecar、
+真实 Kernel、配置和客户端工具测试通过；163 项扩大回归通过；compileall、Node syntax、asset
+hash 和 diff check 通过。旧 Python 单体、旧 import 和旧资产目录已删除，两个 Git blob 与迁移
+前完全相同。
 
 ### 阶段 2：组合根和 Harness 生命周期
 
-状态：待开始
+状态：进行中
 
 实施：
 
@@ -297,7 +300,7 @@ git diff --check
 
 | 阶段 | 状态 | Commit | 验证结果 | 平台/产物 | 未决风险 |
 | --- | --- | --- | --- | --- | --- |
-| 0 文档与基线 | 已验证 | 待提交 | 72 passed；Node syntax、asset hash、diff check 通过 | Windows 11/source；Python 3.11.8；Node 24.12.0 | - |
-| 1 Bundle/Adapter | 进行中 | - | - | Windows/source | - |
-| 2 Composition/Harness | 待开始 | - | - | - | - |
+| 0 文档与基线 | 已验证 | `136fcd24` | 72 passed；Node syntax、asset hash、diff check 通过 | Windows 11/source；Python 3.11.8；Node 24.12.0 | - |
+| 1 Bundle/Adapter | 已验证 | 待提交 | 91 passed；扩大回归 163 passed；compileall、Node syntax、asset hash、diff check 通过 | Windows 11/source | - |
+| 2 Composition/Harness | 进行中 | - | - | Windows 11/source | - |
 | 3 最终验收 | 待开始 | - | - | - | - |

@@ -30,14 +30,14 @@ from infrastructure.mcp.composite_session import CompositeToolSession
 from infrastructure.mcp.nested_tool_results import _nested_tool_response
 from mind import create_workspace_coding
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
-from infrastructure.platform.javascript_repl import (
-    JavaScriptReplPool,
-    ReplRuntimeError,
+from agent.ports.javascript import JavaScriptExecutionError
+from infrastructure.sidecars.javascript.process import (
     STDERR_TAIL_MAX_BYTES,
-    STDOUT_FRAME_MAX_BYTES,
-    _append_stderr_tail,
-    _stderr_tail_bytes,
+    append_stderr_tail,
+    stderr_tail_bytes,
 )
+from infrastructure.sidecars.javascript.protocol import FRAME_MAX_BYTES
+from infrastructure.sidecars.javascript.provider import JavaScriptSidecarProvider
 from infrastructure.platform.images import FileImageReader
 from agent.application.views import NativeToolResultView, ToolStartView
 from frontends.terminal.traces.native import render_tool_result_entries
@@ -80,12 +80,12 @@ def test_js_repl_timeout_contract_and_stderr_tail_match_upstream() -> None:
     assert "maximum" not in JS_REPL_INPUT_SCHEMA["properties"]["timeout_ms"]
 
     lines = deque()
-    _append_stderr_tail(lines, "甲" * 400)
+    append_stderr_tail(lines, "甲" * 400)
     for index in range(30):
-        _append_stderr_tail(lines, f"latest-{index}-" + "x" * 500)
+        append_stderr_tail(lines, f"latest-{index}-" + "x" * 500)
 
     assert len(lines) <= 20
-    assert _stderr_tail_bytes(lines) <= STDERR_TAIL_MAX_BYTES
+    assert stderr_tail_bytes(lines) <= STDERR_TAIL_MAX_BYTES
     assert lines[-1].startswith("latest-29-")
 
 
@@ -104,7 +104,7 @@ async def test_js_repl_persists_bindings_and_bridges_tools_and_images(
             "output": f"{name}:{arguments['value']}",
         }
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         first = await pool.execute(
             "session:root",
@@ -178,9 +178,9 @@ async def test_js_repl_preserves_initialized_bindings_after_cell_error(
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
-        with pytest.raises(ReplRuntimeError, match="expected failure"):
+        with pytest.raises(JavaScriptExecutionError, match="expected failure"):
             await pool.execute(
                 "sid-failed-cell",
                 "const committedBeforeFailure = 9; throw new Error('expected failure');",
@@ -195,7 +195,7 @@ async def test_js_repl_preserves_initialized_bindings_after_cell_error(
             timeout_ms=5000,
             call_tool=call_tool,
         )
-        with pytest.raises(ReplRuntimeError, match="Top-level static import"):
+        with pytest.raises(JavaScriptExecutionError, match="Top-level static import"):
             await pool.execute(
                 "sid-failed-cell",
                 "import fs from 'node:fs';",
@@ -218,7 +218,7 @@ async def test_js_repl_persists_complex_bindings_and_failed_cell_writes(
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         await pool.execute(
             "sid-complex-bindings",
@@ -246,7 +246,7 @@ async def test_js_repl_persists_complex_bindings_and_failed_cell_writes(
             call_tool=call_tool,
         )
 
-        with pytest.raises(ReplRuntimeError, match="commit selected bindings"):
+        with pytest.raises(JavaScriptExecutionError, match="commit selected bindings"):
             await pool.execute(
                 "sid-complex-bindings",
                 "let failedLet = 8; var failedVar = 9; "
@@ -291,7 +291,7 @@ async def test_js_repl_sessions_are_isolated_and_reset_lazily(tmp_path: Path) ->
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         assert await pool.reset_session("sid-a") is False
         assert pool._sessions == {}
@@ -311,11 +311,11 @@ async def test_js_repl_sessions_are_isolated_and_reset_lazily(tmp_path: Path) ->
             call_tool=call_tool,
         )
 
-        manager = pool._sessions["sid-a"]
-        process = manager._process
+        session = pool._sessions["sid-a"]
+        process = session._process.process
         assert process is not None
         assert await pool.reset_session("sid-a") is True
-        assert manager._process is None
+        assert session._process.process is None
         assert process.returncode is not None
 
         restarted = await pool.execute(
@@ -354,7 +354,7 @@ async def test_js_repl_serializes_same_session_without_blocking_other_sessions(
     async def unexpected_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         running = asyncio.create_task(pool.execute(
             "sid-serialized",
@@ -412,7 +412,7 @@ async def test_js_repl_close_session_only_closes_target(tmp_path: Path) -> None:
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         await pool.execute(
             "sid-a",
@@ -465,7 +465,7 @@ async def test_js_repl_waits_for_unawaited_tool_calls(tmp_path: Path) -> None:
             "output": f"{name}:{arguments['value']}",
         }
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         result = await pool.execute(
             "sid-unawaited",
@@ -488,9 +488,9 @@ async def test_js_repl_timeout_resets_kernel(tmp_path: Path) -> None:
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
-        with pytest.raises(ReplRuntimeError, match="timed out; kernel reset"):
+        with pytest.raises(JavaScriptExecutionError, match="timed out; kernel reset"):
             await pool.execute(
                 "session:root",
                 "await new Promise(() => {});",
@@ -518,7 +518,7 @@ async def test_js_repl_zero_timeout_resets_kernel(tmp_path: Path) -> None:
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         await pool.execute(
             "sid-zero-timeout",
@@ -527,7 +527,7 @@ async def test_js_repl_zero_timeout_resets_kernel(tmp_path: Path) -> None:
             timeout_ms=5000,
             call_tool=call_tool,
         )
-        with pytest.raises(ReplRuntimeError, match="timed out; kernel reset"):
+        with pytest.raises(JavaScriptExecutionError, match="timed out; kernel reset"):
             await pool.execute(
                 "sid-zero-timeout",
                 "console.log(beforeTimeout);",
@@ -557,7 +557,7 @@ async def test_js_repl_reads_output_frames_larger_than_default_stream_limit(
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         result = await pool.execute(
             "sid-large-frame",
@@ -577,7 +577,7 @@ async def test_js_repl_reads_output_frames_larger_than_default_stream_limit(
         await pool.close()
 
     assert len(result.output) == 100000
-    assert STDOUT_FRAME_MAX_BYTES > len(result.output)
+    assert FRAME_MAX_BYTES > len(result.output)
     assert recovered.output == "recovered"
 
 
@@ -597,7 +597,7 @@ async def test_js_repl_matches_module_and_local_import_rules(
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         first = await pool.execute(
             "sid-imports",
@@ -616,7 +616,7 @@ async def test_js_repl_matches_module_and_local_import_rules(
             "node:worker_threads",
         ):
             with pytest.raises(
-                ReplRuntimeError,
+                JavaScriptExecutionError,
                 match=re.escape(
                     f'Importing module "{specifier}" is not allowed in js_repl'
                 ),
@@ -680,7 +680,7 @@ async def test_js_repl_resolves_nested_files_packages_and_module_boundaries(
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         resolved = await pool.execute(
             "sid-module-boundaries",
@@ -696,7 +696,7 @@ async def test_js_repl_resolves_nested_files_packages_and_module_boundaries(
             call_tool=call_tool,
         )
         with pytest.raises(
-            ReplRuntimeError,
+            JavaScriptExecutionError,
             match="Directory imports are not supported",
         ):
             await pool.execute(
@@ -707,7 +707,7 @@ async def test_js_repl_resolves_nested_files_packages_and_module_boundaries(
                 call_tool=call_tool,
             )
         with pytest.raises(
-            ReplRuntimeError,
+            JavaScriptExecutionError,
             match="Only .js and .mjs files are supported",
         ):
             await pool.execute(
@@ -717,7 +717,7 @@ async def test_js_repl_resolves_nested_files_packages_and_module_boundaries(
                 timeout_ms=5000,
                 call_tool=call_tool,
             )
-        with pytest.raises(ReplRuntimeError, match="Unsupported import specifier"):
+        with pytest.raises(JavaScriptExecutionError, match="Unsupported import specifier"):
             await pool.execute(
                 "sid-module-boundaries",
                 "await import('https://example.com/module.js');",
@@ -739,7 +739,7 @@ async def test_js_repl_enforces_filesystem_access_mode(tmp_path: Path) -> None:
         raise AssertionError((name, arguments, call_id))
 
     outside_path = tmp_path.parent / "js-repl-outside-denied.txt"
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         workspace = await pool.execute(
             "sid-permissions",
@@ -788,7 +788,7 @@ async def test_js_repl_persisted_helpers_require_an_active_cell(tmp_path: Path) 
             "output": f"{name}:{arguments['value']}",
         }
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         await pool.execute(
             "sid-helper",
@@ -825,7 +825,7 @@ async def test_js_repl_uncaught_async_error_restarts_kernel(tmp_path: Path) -> N
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         await pool.execute(
             "sid-fatal",
@@ -834,8 +834,8 @@ async def test_js_repl_uncaught_async_error_restarts_kernel(tmp_path: Path) -> N
             timeout_ms=5000,
             call_tool=call_tool,
         )
-        manager = pool._sessions["sid-fatal"]
-        process = manager._process
+        session = pool._sessions["sid-fatal"]
+        process = session._process.process
         assert process is not None
         await asyncio.wait_for(process.wait(), timeout=2)
         recovered = await pool.execute(
@@ -858,7 +858,7 @@ async def test_js_repl_cancellation_resets_kernel(tmp_path: Path) -> None:
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         running = asyncio.create_task(pool.execute(
             "session:root",
@@ -892,7 +892,7 @@ async def test_js_repl_recovers_after_kernel_exit(tmp_path: Path) -> None:
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         await pool.execute(
             "sid-exit",
@@ -901,8 +901,8 @@ async def test_js_repl_recovers_after_kernel_exit(tmp_path: Path) -> None:
             timeout_ms=5000,
             call_tool=call_tool,
         )
-        manager = pool._sessions["sid-exit"]
-        process = manager._process
+        session = pool._sessions["sid-exit"]
+        process = session._process.process
         assert process is not None
         process.kill()
         await process.wait()
@@ -935,7 +935,7 @@ async def test_js_repl_kernel_exit_waits_for_started_tool_calls(tmp_path: Path) 
             "output": "finished",
         }
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         running = asyncio.create_task(pool.execute(
             "sid-exit-tool",
@@ -945,8 +945,8 @@ async def test_js_repl_kernel_exit_waits_for_started_tool_calls(tmp_path: Path) 
             call_tool=call_tool,
         ))
         await asyncio.wait_for(started.wait(), timeout=2)
-        manager = pool._sessions["sid-exit-tool"]
-        process = manager._process
+        session = pool._sessions["sid-exit-tool"]
+        process = session._process.process
         assert process is not None
         process.kill()
         await process.wait()
@@ -954,7 +954,7 @@ async def test_js_repl_kernel_exit_waits_for_started_tool_calls(tmp_path: Path) 
         assert not running.done()
 
         release.set()
-        with pytest.raises(ReplRuntimeError, match="kernel exited unexpectedly"):
+        with pytest.raises(JavaScriptExecutionError, match="kernel exited unexpectedly"):
             await asyncio.wait_for(running, timeout=2)
     finally:
         release.set()
@@ -1421,7 +1421,7 @@ async def test_js_repl_emits_byte_and_multiple_images(tmp_path: Path) -> None:
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         result = await pool.execute(
             "sid-images",
@@ -1440,7 +1440,7 @@ async def test_js_repl_emits_byte_and_multiple_images(tmp_path: Path) -> None:
             timeout_ms=5000,
             call_tool=call_tool,
         )
-        with pytest.raises(ReplRuntimeError, match="does not accept mixed text and image"):
+        with pytest.raises(JavaScriptExecutionError, match="does not accept mixed text and image"):
             await pool.execute(
                 "sid-images",
                 "await host.emitImage({type: 'function_call_output', output: ["
@@ -1479,7 +1479,7 @@ async def test_js_repl_waits_for_unawaited_image_and_tracks_errors(
     async def call_tool(name, arguments, call_id):
         raise AssertionError((name, arguments, call_id))
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         emitted = await pool.execute(
             "sid-background-image",
@@ -1489,7 +1489,7 @@ async def test_js_repl_waits_for_unawaited_image_and_tracks_errors(
             timeout_ms=5000,
             call_tool=call_tool,
         )
-        with pytest.raises(ReplRuntimeError, match="expected non-empty bytes"):
+        with pytest.raises(JavaScriptExecutionError, match="expected non-empty bytes"):
             await pool.execute(
                 "sid-background-image",
                 "void host.emitImage({bytes: new Uint8Array(), mimeType: 'image/png'}); "
@@ -1537,7 +1537,7 @@ async def test_js_repl_only_attaches_explicit_valid_images(tmp_path: Path) -> No
             }],
         }
 
-    pool = JavaScriptReplPool(tmp_path)
+    pool = JavaScriptSidecarProvider(tmp_path)
     try:
         tool_only = await pool.execute(
             "sid-explicit-image",
@@ -1553,7 +1553,7 @@ async def test_js_repl_only_attaches_explicit_valid_images(tmp_path: Path) -> No
             timeout_ms=5000,
             call_tool=call_tool,
         )
-        with pytest.raises(ReplRuntimeError, match="only accepts data URLs"):
+        with pytest.raises(JavaScriptExecutionError, match="only accepts data URLs"):
             await pool.execute(
                 "sid-explicit-image",
                 "void host.emitImage('https://example.com/image.png');",

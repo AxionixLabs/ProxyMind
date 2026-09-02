@@ -20,10 +20,10 @@ setup(
     description=const.APP_DESC,
     packages=find_packages(),
     data_files=[
-        ("js_repl", ["js_repl/kernel.js"]),
+        ("sidecars/js_repl", ["sidecars/js_repl/kernel.js"]),
         (
-            "js_repl/vendor",
-            ["js_repl/vendor/meriyah.umd.min.js"],
+            "sidecars/js_repl/vendor",
+            ["sidecars/js_repl/vendor/meriyah.umd.min.js"],
         ),
     ],
     long_description=open('README.md').read(),

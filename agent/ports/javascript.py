@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind(TM) ====
 
+import enum
 import typing
 from collections.abc import (
     Awaitable,
     Callable,
     Mapping,
 )
+from dataclasses import dataclass
 
 from agent.ports.capabilities import SandboxMode
 from agent.protocol.json_value import ThawedJsonValue
@@ -16,6 +18,38 @@ NestedToolDispatch: typing.TypeAlias = Callable[
     [str, dict[str, typing.Any], str],
     Awaitable[NestedToolOutput],
 ]
+
+
+class JavaScriptFailureKind(enum.StrEnum):
+    """定义 JavaScript 执行边界的稳定失败类别。"""
+
+    UNAVAILABLE = "unavailable"
+    PROTOCOL_ERROR = "protocol_error"
+    EXECUTION_TIMEOUT = "execution_timeout"
+    CANCELLED = "cancelled"
+    RUNTIME_ERROR = "runtime_error"
+
+
+class JavaScriptExecutionError(RuntimeError):
+    """携带 JavaScript 执行失败类别和有界诊断。"""
+
+    def __init__(
+        self,
+        kind: JavaScriptFailureKind,
+        detail: str,
+    ) -> None:
+        """保存可供调用边界映射的稳定失败事实。"""
+        self.kind = kind
+        self.detail = detail
+        super().__init__(detail)
+
+
+@dataclass(frozen=True, slots=True)
+class JavaScriptExecution:
+    """描述一次 JavaScript Cell 的已校验执行结果。"""
+
+    output: str
+    attachments: tuple[dict[str, ThawedJsonValue], ...] = ()
 
 
 class WorkspaceJavaScriptPort(typing.Protocol):
@@ -45,6 +79,9 @@ class WorkspaceJavaScriptPort(typing.Protocol):
 
 
 __all__ = (
+    "JavaScriptExecution",
+    "JavaScriptExecutionError",
+    "JavaScriptFailureKind",
     "NestedToolDispatch",
     "NestedToolOutput",
     "WorkspaceJavaScriptPort",

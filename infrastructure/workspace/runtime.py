@@ -3,15 +3,16 @@
 
 import os
 import typing
+from pathlib import Path
 
 from agent.domain.patches.parsing import PatchParser
 from agent.ports.capabilities import SandboxMode
-from agent.ports.javascript import NestedToolDispatch
-from infrastructure.platform.javascript_repl import (
-    JavaScriptReplPool,
-    ReplRuntimeError,
+from agent.ports.javascript import (
+    JavaScriptExecutionError,
+    NestedToolDispatch,
 )
 from infrastructure.platform.process_sessions import ProcessSessionManager
+from infrastructure.sidecars.javascript.provider import JavaScriptSidecarProvider
 from infrastructure.workspace.commands.audit import WorkspaceFileAudit
 from infrastructure.workspace.commands.process import ProcessCommandExecutor
 from infrastructure.workspace.commands.profile import CommandExecutionProfile
@@ -48,9 +49,15 @@ class WorkspaceCoding(WorkspaceContext):
             relative_path=self.relative_path,
         )
 
-        self._javascript_repls = JavaScriptReplPool(
+        asset_root = (
+            Path(application_root).resolve() / "sidecars" / "js_repl"
+            if application_root is not None
+            else None
+        )
+        self._javascript_repls = JavaScriptSidecarProvider(
             self.root,
-            application_root=application_root,
+            asset_root=asset_root,
+            configured_node_path=os.environ.get("JS_REPL_NODE_PATH"),
         )
 
         patch_diagnostics = PatchDiagnostics(self)
@@ -315,7 +322,7 @@ class WorkspaceCoding(WorkspaceContext):
                 timeout_ms=timeout_ms,
                 call_tool=call_tool,
             )
-        except (OSError, ReplRuntimeError) as exc:
+        except JavaScriptExecutionError as exc:
             return self.fail_result(
                 "js_repl_execution_failed",
                 error=str(exc).strip() or type(exc).__name__,
@@ -338,7 +345,7 @@ class WorkspaceCoding(WorkspaceContext):
         """重置指定会话的 JavaScript 内核。"""
         try:
             reset = await self._javascript_repls.reset_session(session_id)
-        except (OSError, ReplRuntimeError) as exc:
+        except JavaScriptExecutionError as exc:
             return self.fail_result(
                 "js_repl_reset_failed",
                 error=str(exc).strip() or type(exc).__name__,

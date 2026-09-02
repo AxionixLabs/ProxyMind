@@ -409,9 +409,10 @@ Kernel 只返回：
 - `emit_image`：按 `exec_id` 和 `id` 请求附加图片。
 
 `protocol.py` 对 Python 发出的消息执行具名构造，对收到的完整帧执行判别、字段、标识和大小
-校验；未知类型、未知字段、非法 JSON、错误字段类型、越界帧和无法关联的响应均使当前 Session
-失败并关闭进程，不能静默忽略或猜测。stdout 只承载协议帧；stderr 只作为受限诊断输入，
-不拥有状态语义。
+校验；未知类型、未知字段、非法 JSON、错误字段类型、越界帧和无法关联的执行结果均使当前
+Session 失败并关闭进程，不能静默忽略或猜测。合法但已经离开活动 Cell 的迟到 delegate 按
+既有契约返回 `js_repl exec context not found`，不恢复旧 execution。stdout 只承载协议帧；
+stderr 只作为受限诊断输入，不拥有状态语义。
 
 Kernel 没有控制面消息，因此执行超时、调用方取消、reset 和 close 均由 Python 终止整个
 子进程，并使当前 request 与 delegate task 确定收敛；下一次执行按需创建新进程。Host EOF、
