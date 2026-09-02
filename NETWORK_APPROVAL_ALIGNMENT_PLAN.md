@@ -110,7 +110,8 @@ Agent Harness 平行的系统。`mind.py` 和 `composition.py` 只负责选择�
 | 上游能力 | Codex 基线状态 | 本计划决定 |
 | --- | --- | --- |
 | 独立 Skill 审批 | 运行路径已移除 | 不新增 Skill 审批 kind、卡片或授权缓存 |
-| granular `skill_approval` | schema/提示词残留，无运行时消费者 | 新本地契约不消费；线上字段只在协议整体迁移时删除 |
+| Skill `scripts/*` | 作为普通 `exec_command` 执行，受同一 exec policy/sandbox；可信插件脚本可附带归因 | 按 command 审批、沙箱和网络策略执行；`plugin_id/script_path` 仅用于审计，不改变权限 |
+| granular `skill_approval` | schema/测试夹具仍有字段，但当前生产路径无消费者；Skill 脚本测试明确跳过旧 gate | 新本地契约不消费；线上字段只在协议整体迁移时删除 |
 | `approval_policy=untrusted` | 公共配置已退役 | 新路径不接受；project trust 保持独立概念 |
 | `guardian_subagent` | `auto_review` 的 legacy alias | 不接受 alias，不写兼容分支 |
 | `on-failure` | `on-request` 的 legacy alias | 不接受 alias |
@@ -121,6 +122,23 @@ Agent Harness 平行的系统。`mind.py` 和 `composition.py` 只负责选择�
 
 Skill 脚本与普通命令产生相同外部 Effect 时，必须走相同执行策略和审批链路。Skill 来源只
 用于审计，不能授予权限。
+
+### Skill 脚本行为复核
+
+对固定 Codex 基线复核后，Skill 的两条路径必须保持分离：
+
+1. `$skill`/Skill 列表只负责加载正文、脚本元数据和遥测，不产生独立审批请求。
+2. 模型随后调用 `exec_command` 执行 `scripts/*` 时，动作类别仍是 command；普通 exec policy、
+   sandbox、网络阻断和统一 reviewer chain 共同决定是否放行。
+3. 可信插件脚本可在审批事件中携带 `plugin_id`、`script_path` 作为来源证据；来源字段不得
+   变成额外 grant，也不得使用 Skill 声明的权限扩大本轮沙箱。
+4. 复杂 shell、缺失脚本、符号链接逃逸或多个插件根同时命中时不做可信归因，但仍按普通
+   command 处理，不能因为无法归因而放行。
+
+基线证据：`codex-main/codex-rs/core/src/skills.rs`、
+`codex-main/codex-rs/core-plugins/src/script_attribution.rs`、
+`codex-main/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs` 和
+`codex-main/codex-rs/core/tests/suite/skill_approval.rs`。
 
 ## 目标审批架构
 
@@ -414,6 +432,8 @@ grant、reviewer 和 Effect 边界，并用契约测试证明非法组合无法�
 - 原 Run 结束后保留明确后台审批上下文；不可用时拒绝，不附着当前或最近 Run。
 - `write_stdin`、轮询、超时、terminate、工作区切换和应用关闭共享一个状态机。
 - JS REPL 内核及嵌套 shell 纳入平台网络约束，不能只注入 proxy env。
+- Skill `scripts/*`、插件脚本和嵌套 shell 复用 command approval；保留可信来源归因但不提供
+  Skill 专属权限或缓存。
 - 审计 Hook、外部 MCP、用户 Shell 和应用 HTTP，防止误代理或模型绕行。
 - 加固 Windows 进程树/Job Object、macOS Seatbelt/Unix socket、Linux namespace/WSL 差异。
 - 完成三平台发布资产和真实产品目录烟测。
