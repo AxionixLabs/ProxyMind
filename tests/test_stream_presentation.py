@@ -158,6 +158,20 @@ async def test_presentation_reports_local_failure_before_emitting_view() -> None
 
 
 @pytest.mark.anyio
+async def test_presentation_reports_reconciliation_effect_identity() -> None:
+    outcome = StreamTurnOutcome()
+    outcome.require_reconciliation("effect requires reconciliation")
+    projection, _status, _content, _views, report = _presentation(outcome)
+
+    await projection.emit_failure(
+        "turn.reconciliation_required",
+        effect_id="effect-test",
+    )
+
+    assert report.events[0]["effect_id"] == "effect-test"
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("mode", "expected_usage", "expected_stop_reason"),
     (

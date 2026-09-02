@@ -31,6 +31,7 @@ class EventReport(object):
             proto, str
         ) and proto.strip() else self.default_proto()
         self.turn_id: str = short_uid(12)
+        self.presentation_epoch: int = 1
         self.round: int = 1
         self.timeout: float = 30.0
         self.seq: int = 0
@@ -72,6 +73,7 @@ class EventReport(object):
             if isinstance(round_no, int) and round_no > 0
             else 1
         )
+        self.presentation_epoch = 1
 
         return self.turn_id
 
@@ -83,12 +85,13 @@ class EventReport(object):
         """绑定服务端事件携带的报告元数据。"""
         if event.proto:
             self.proto = event.proto
+        self.presentation_epoch = event.presentation_epoch
         self.set_round(event.round)
 
     def emit(self, event: dict[str, typing.Any]) -> None:
         """
         非阻塞投递事件。
-        - 自动注入 cid/sid/ts/seq
+        - 自动注入协议坐标、展示轮次和序号
         - 队列满则丢弃（避免拖死主链路）
         """
         try:
@@ -99,6 +102,7 @@ class EventReport(object):
             ev["cid"] = self.cid
             ev["sid"] = self.sid
             ev.setdefault("turn_id", self.turn_id)
+            ev["presentation_epoch"] = self.presentation_epoch
             ev.setdefault("round", self.round)
             ev.setdefault("seq", self.seq)
 

@@ -21,23 +21,29 @@ def test_report_binds_typed_stream_metadata() -> None:
         "sid": "sid",
         "turn_id": "turn_test",
         "event_seq": 1,
-        "presentation_epoch": 1,
+        "presentation_epoch": 2,
         "round": 3,
     })
 
     report.bind_event(event)
 
     assert report.proto == "mind.chat"
+    assert report.presentation_epoch == 2
     assert report.round == 3
+
+    report.emit({"type": "probe"})
+    assert report.q.get_nowait()["presentation_epoch"] == 2
 
 
 def test_report_resets_turn_round_and_keeps_default_proto() -> None:
     report = EventReport("cid", "sid")
     report.set_round(3)
+    report.presentation_epoch = 2
 
     report.begin_turn("next")
 
     assert report.proto == report.default_proto()
+    assert report.presentation_epoch == 1
     assert report.round == 1
 
 

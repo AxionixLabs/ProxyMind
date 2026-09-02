@@ -76,11 +76,12 @@ class StreamTurnPresentation:
         phase: str,
         *,
         mode: FailureProjectionMode = FailureProjectionMode.REPORTED,
+        effect_id: str | None = None,
     ) -> None:
         """结束失败状态并按指定模式投影错误和权威终态字段。"""
         message = "" if self._outcome.error is None else str(self._outcome.error)
         if mode is FailureProjectionMode.REPORTED:
-            await self._report_failure(phase, message)
+            await self._report_failure(phase, message, effect_id=effect_id)
 
         await self._status_control.end_status(immediate=True)
         await self._presentation.emit(build_failure_view(
@@ -116,15 +117,24 @@ class StreamTurnPresentation:
                 terminal_meta=self._outcome.terminal_meta,
             ))
 
-    async def _report_failure(self, phase: str, message: str) -> None:
+    async def _report_failure(
+        self,
+        phase: str,
+        message: str,
+        *,
+        effect_id: str | None = None,
+    ) -> None:
         """把本地产生的失败事件写入报告队列并等待发送完成。"""
         if self._event_report is None:
             return
-        self._event_report.emit({
+        event: dict[str, typing.Any] = {
             "type": phase,
             "ts": time.time(),
             "error": message,
-        })
+        }
+        if effect_id:
+            event["effect_id"] = effect_id
+        self._event_report.emit(event)
         await self._event_report.flush()
 
 

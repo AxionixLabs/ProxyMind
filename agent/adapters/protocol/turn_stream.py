@@ -616,6 +616,7 @@ async def stream_turn(
             await cleanup.await_cleanup(animation.stop_wait())
         await run_presentation.emit_failure(
             failure_phase,
+            mode=FailureProjectionMode.PROJECTION_ONLY,
         )
 
     except LocalEffectReconciliationRequired as error:
@@ -628,7 +629,10 @@ async def stream_turn(
         )
         if turn_context.agent.depth == 0:
             await cleanup.await_cleanup(animation.stop_wait())
-        await run_presentation.emit_failure("turn.reconciliation_required")
+        await run_presentation.emit_failure(
+            "turn.reconciliation_required",
+            effect_id=error.effect_id,
+        )
 
     except PromptHookBlockedError as error:
         outcome.fail(
@@ -646,7 +650,10 @@ async def stream_turn(
             turn_id=turn_context.turn_id,
         )
 
-        await run_presentation.emit_failure("turn.prompt_blocked")
+        await run_presentation.emit_failure(
+            "turn.prompt_blocked",
+            mode=FailureProjectionMode.PROJECTION_ONLY,
+        )
 
     except ModelCapabilityError as error:
         outcome.fail(
@@ -705,7 +712,10 @@ async def stream_turn(
     else:
         outcome.settle_stream()
         if not outcome.has_terminal_status:
-            await run_presentation.emit_failure("turn.incomplete")
+            await run_presentation.emit_failure(
+                "turn.incomplete",
+                mode=FailureProjectionMode.PROJECTION_ONLY,
+            )
 
         if outcome.is_completed and turn_context.agent.depth == 0:
             model_events.flush_pending()
