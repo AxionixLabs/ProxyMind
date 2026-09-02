@@ -33,7 +33,8 @@ _PLAIN_STDOUT_CONTEXT_EVENTS = frozenset({
 
 _JSON_STDOUT_EVENTS = frozenset({
     "Stop",
-    "SubagentStop"
+    "SubagentStop",
+    "Interrupt",
 })
 
 _BUSINESS_BLOCK_EVENTS = frozenset({

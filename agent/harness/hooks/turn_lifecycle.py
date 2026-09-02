@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import typing
 
 from agent.application.hooks.models import (
@@ -9,6 +10,7 @@ from agent.application.hooks.models import (
     TurnStartResult,
 )
 from agent.ports import HookExecutionScopePort
+from observability import observe_exception
 
 SessionStartSource = typing.Literal[
     "startup",
@@ -243,6 +245,25 @@ class TurnHookEvents:
             hook_keys=tuple(record.hook_key for record in continuations),
             additional_context=tuple(contexts),
         )
+
+    async def interrupt(self) -> None:
+        """在根轮次中断确认后尽力通知 Interrupt Hook。"""
+        if self.scope.context.agent_depth > 0:
+            return None
+        if not self.scope.has_matching("Interrupt"):
+            return None
+
+        try:
+            await self.scope.dispatch("Interrupt")
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            observe_exception(
+                "hooks.interrupt.failed",
+                error,
+                level="WARNING",
+                turn_id=self.scope.context.turn_id,
+            )
 
 
 def _session_start_source(reason: str) -> str:

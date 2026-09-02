@@ -1158,6 +1158,44 @@ async def test_turn_hooks_dispatch_start_prompt_and_stop_in_order() -> None:
 
 
 @pytest.mark.anyio
+async def test_interrupt_hook_dispatches_for_root_and_reports_warning() -> None:
+    definitions = _definitions({
+        "Interrupt": [_hook("interrupt")],
+    })
+    runner = _CommandRunner(outputs={
+        definitions[0].key: {"systemMessage": "turn cancelled"},
+    })
+    scope = _scope(HookRuntime(definitions, command_runner=runner))
+
+    await TurnHookEvents(scope).interrupt()
+
+    assert [call[0].event for call in runner.calls] == ["Interrupt"]
+    assert runner.calls[0][1]["hook_event_name"] == "Interrupt"
+    assert runner.calls[0][1]["turn_id"] == "turn_test"
+
+
+@pytest.mark.anyio
+async def test_interrupt_hook_skips_subagent_scope() -> None:
+    root = _invocation().turn.agent
+    child_turn = replace(
+        _invocation().turn,
+        agent=root.child("worker", "task"),
+    )
+    definitions = _definitions({
+        "Interrupt": [_hook("interrupt")],
+    })
+    runner = _CommandRunner()
+    scope = HookExecutionScope(
+        context=HookExecutionContext.from_turn(child_turn),
+        dispatcher=HookRuntime(definitions, command_runner=runner),
+    )
+
+    await TurnHookEvents(scope).interrupt()
+
+    assert runner.calls == []
+
+
+@pytest.mark.anyio
 async def test_turn_hooks_skip_session_start_for_existing_session() -> None:
     definitions = _definitions({
         "SessionStart": [_hook("start", matcher="startup")],
@@ -2260,6 +2298,41 @@ async def test_command_executor_uses_json_stdin_and_stdout(tmp_path) -> None:
             "permissionDecisionReason": "shell_command",
         },
     }
+
+
+@pytest.mark.anyio
+async def test_command_executor_requires_json_for_interrupt_stdout(tmp_path) -> None:
+    script = tmp_path / "interrupt_hook.py"
+    script.write_text(
+        "import json\n"
+        "print(json.dumps({'systemMessage': 'cancelled'}))\n",
+        encoding="utf-8",
+    )
+    command = subprocess.list2cmdline([sys.executable, str(script)])
+    definition = _definitions({
+        "Interrupt": [_hook(command)],
+    })[0]
+
+    output = await HookCommandExecutor().execute(
+        definition,
+        {"cwd": str(tmp_path)},
+    )
+
+    assert output.data == {"systemMessage": "cancelled"}
+
+    invalid_script = tmp_path / "invalid_interrupt_hook.py"
+    invalid_script.write_text("print('not-json')\n", encoding="utf-8")
+    invalid_definition = _definitions({
+        "Interrupt": [_hook(
+            subprocess.list2cmdline([sys.executable, str(invalid_script)]),
+        )],
+    })[0]
+
+    with pytest.raises(HookCommandError, match="invalid JSON"):
+        await HookCommandExecutor().execute(
+            invalid_definition,
+            {"cwd": str(tmp_path)},
+        )
 
 
 @pytest.mark.anyio

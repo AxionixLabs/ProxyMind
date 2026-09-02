@@ -91,6 +91,47 @@ def test_lifecycle_schemas_use_codex_trigger_contracts() -> None:
     assert post_compact["trigger"]["enum"] == ["manual", "auto"]
 
 
+def test_interrupt_schema_matches_root_turn_context() -> None:
+    properties = HOOK_INPUT_SCHEMAS["Interrupt"]["properties"]
+
+    assert set(properties) == {
+        "session_id",
+        "transcript_path",
+        "cwd",
+        "model",
+        "turn_id",
+        "hook_event_name",
+        "permission_mode",
+    }
+    assert HOOK_INPUT_SCHEMAS["Interrupt"]["required"] == [
+        "session_id",
+        "transcript_path",
+        "cwd",
+        "model",
+        "hook_event_name",
+        "turn_id",
+        "permission_mode",
+    ]
+    validate_hook_output("Interrupt", {"systemMessage": "interrupted"})
+
+
+def test_interrupt_output_only_becomes_a_warning() -> None:
+    normalized = normalize_hook_output(
+        "Interrupt",
+        {"systemMessage": "the turn was interrupted"},
+    )
+
+    assert normalized.output == {
+        "systemMessage": "the turn was interrupted",
+    }
+    assert normalized.effect.warning == "the turn was interrupted"
+    assert normalized.effect.continue_execution
+    assert not normalized.effect.stop_requested
+
+    with pytest.raises(ValueError, match="unknown Interrupt output field"):
+        validate_hook_output("Interrupt", {"continue": False})
+
+
 def test_output_schema_validates_event_specific_output() -> None:
     validate_hook_output("PreToolUse", {
         "hookSpecificOutput": {

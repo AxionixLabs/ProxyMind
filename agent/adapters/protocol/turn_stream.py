@@ -512,6 +512,7 @@ async def stream_turn(
                 outcome.record_done_event(event)
 
                 if event.status == "interrupted":
+                    outcome.confirm_interrupt()
                     if callbacks.interrupted is not None:
                         callbacks.interrupted()
 
@@ -561,6 +562,7 @@ async def stream_turn(
                     tool_handling = await tool_event_handler.handle_call(ready_call)
                     if tool_handling.status == "interrupted":
                         outcome.interrupt(tool_handling.error)
+                        outcome.confirm_interrupt()
                         break
                 if outcome.is_interrupted:
                     break
@@ -575,6 +577,7 @@ async def stream_turn(
                     tool_handling = await tool_event_handler.handle_call(ready_call)
                     if tool_handling.status == "interrupted":
                         outcome.interrupt(tool_handling.error)
+                        outcome.confirm_interrupt()
                         break
                 if outcome.is_interrupted:
                     break

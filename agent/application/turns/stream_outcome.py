@@ -64,6 +64,7 @@ class StreamTurnOutcome:
     additional_context: tuple[str, ...] = ()
     error_code: str | None = None
     error_details: dict[str, typing.Any] = field(default_factory=dict)
+    interrupt_confirmed: bool = False
     _terminal_statuses: set[RunStatus] = field(
         default_factory=set,
         init=False,
@@ -153,6 +154,11 @@ class StreamTurnOutcome:
         self._terminal_statuses.add("interrupted")
         if error is not None:
             self.error = error
+
+    def confirm_interrupt(self) -> None:
+        """标记服务端或远端控制已经确认当前轮次中断。"""
+        self._terminal_statuses.add("interrupted")
+        self.interrupt_confirmed = True
 
     def require_reconciliation(self, error: str) -> None:
         """记录无法确定或无法提交的持久效果结果。"""

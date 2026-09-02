@@ -889,7 +889,25 @@ async def test_stream_passes_environment_as_explicit_model_request_field(
 async def test_interrupted_turn_notifies_before_stream_cleanup(monkeypatch) -> None:
     notifications: list[str] = []
 
-    result, _mind_state = await _run_stream(
+    definitions = resolve_hook_definitions(
+        {"Interrupt": [_hook("interrupt")]},
+        source_scope="user",
+        source_path=Path("hooks.json"),
+    )
+
+    class CommandRunner:
+        def __init__(self) -> None:
+            self.events: list[str] = []
+
+        async def execute(self, definition, _payload):
+            self.events.append(definition.event)
+            return HookCommandOutput(
+                data={"systemMessage": "interrupt noted"},
+            )
+
+    runner = CommandRunner()
+
+    result, mind_state = await _run_stream(
         monkeypatch,
         [
             {
@@ -902,11 +920,14 @@ async def test_interrupted_turn_notifies_before_stream_cleanup(monkeypatch) -> N
                 "next_input": None,
             },
         ],
+        hooks=HookRuntime(definitions, command_runner=runner),
         on_turn_interrupted=lambda: notifications.append("acknowledged"),
     )
 
     assert result.status == "interrupted"
     assert notifications == ["acknowledged"]
+    assert runner.events == ["Interrupt"]
+    assert mind_state.transcripts.entries[-1]["event"] == "turn.interrupted"
 
 
 def test_run_result_maps_status_to_exit_code() -> None:

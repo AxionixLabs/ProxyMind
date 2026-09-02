@@ -96,6 +96,9 @@ class StreamTurnFinalizer:
             terminal_meta=self._outcome.terminal_meta,
         )
 
+        if self._outcome.interrupt_confirmed and hook_events is not None:
+            await hook_events.interrupt()
+
         stop_decision = await self._run_stop_hook(
             hook_events,
             prompt_blocked=prompt_blocked,

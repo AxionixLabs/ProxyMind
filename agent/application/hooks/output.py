@@ -55,6 +55,21 @@ def normalize_hook_output(
     validate_hook_output(event, data)
     _validate_output_semantics(event, data)
 
+    if event == "Interrupt":
+        system_text = _normalize_optional_text(
+            data,
+            "systemMessage",
+            error="Interrupt hook systemMessage must be a string",
+        )
+        return HookNormalizedOutput(
+            output=(
+                {"systemMessage": system_text}
+                if system_text
+                else {}
+            ),
+            effect=HookOutputEffect(warning=system_text),
+        )
+
     merged = _merge_specific_output(event, data)
     decision = _normalize_decision(event, merged)
     continuation = _normalize_continue(merged)
