@@ -1,7 +1,7 @@
 # 审批架构与网络审批实施计划
 
 - 计划版本：V1
-- 状态：迭代 6 进行中
+- 状态：迭代 6 实现完成，三平台验收待补
 - 基线日期：2026-09-02
 - Codex 源码基线：revision `608f4a8a98feff0889cbfc9ed691efbf42d34cc6`
 - 目标平台：Windows、macOS、Linux
@@ -476,8 +476,15 @@ grant、reviewer 和 Effect 边界，并用契约测试证明非法组合无法�
 
 出口证据：
 
-- 网络一致性、全量 Python、Rust 定向和编译检查通过；架构守卫按本轮开发指示不运行，
+- 网络一致性定向回归 59 项通过，`compileall agent protocol frontends infrastructure
+  observability metadata` 和 `git diff --check` 通过；架构守卫按本轮开发指示不运行，
   包边界仍以既有审计文件和代码复核为准。
+- 全量 Python 回归在既有 `608f4a8a` 流式接口迁移后的
+  `tests/test_run_result.py::test_stream_passes_environment_as_explicit_model_request_field`
+  处失败（测试仍 monkeypatch 已移除的 `turn_stream.interrupt_turn` 模块入口），随后旧异步
+  用例出现无输出挂起；该失败不涉及网络审批改动，未将其标记为本迭代通过。
+- Rust 定向测试、Rust 编译和三平台真实产品目录烟测尚未在当前 Windows 工作机执行，
+  保持“实现完成待验收”。
 - `tests/test_managed_network.py`、`tests/test_network_approval_service.py`、
   `tests/test_sandbox_client.py` 和 `tests/test_codex_execpolicy.py` 的网络/策略回归通过；
   `tests/test_permission_grants.py` 覆盖 Skill `scripts/*` 复用普通 command policy。
