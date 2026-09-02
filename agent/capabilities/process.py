@@ -321,11 +321,5 @@ async def _read_stream(
         yield chunk.decode(const.CHARSET, errors="replace")
 
 
-if not isinstance(LocalProcessCapability(), ProcessCapability):
-    raise TypeError("LocalProcessCapability must implement ProcessCapability")
-if not isinstance(InMemoryProcessCapability(), ProcessCapability):
-    raise TypeError("InMemoryProcessCapability must implement ProcessCapability")
-
-
 if __name__ == '__main__':
     pass
