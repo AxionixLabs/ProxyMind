@@ -13,6 +13,7 @@ from agent.harness.process_resources import ProcessResourceOwner
 from agent.harness.sessions.conversation import ConversationState
 from agent.harness.sessions.root import RootConversationSession
 from agent.domain.policies import preset_permissions
+from agent.ports import TurnSessionContextPort
 from infrastructure.persistence.conversation_history import LocalConversationHistory
 
 
@@ -100,6 +101,17 @@ def test_controller_rebuilds_workspace_tools_after_runtime_replacement(
     assert controller.history_workspace == normalized
     controller.command_hook_sessions.clear.assert_called_once_with()
     controller.execution.rebuild_client_registry.assert_called_once_with()
+
+
+def test_application_host_exposes_turn_session_context_port() -> None:
+    controller = ApplicationHost.__new__(ApplicationHost)
+    controller.activity = SimpleNamespace(enabled=False)
+    controller.history_workspace = "D:/workspace"
+    controller.hook_startup_warnings = ()
+    controller.command_hook_sessions = SimpleNamespace()
+
+    assert isinstance(controller, TurnSessionContextPort)
+    assert controller.animate is False
 
 
 def test_controller_keeps_workspace_when_runtime_replacement_fails(

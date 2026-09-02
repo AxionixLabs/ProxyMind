@@ -132,7 +132,6 @@ def bind_root_turn_runner(
             execution_policy=controller.workspace_runtime.execution_policy,
             execution_runtime=controller.execution,
             lifecycle=controller.turn_foreground_lifecycle,
-            approval_ledger=controller.approval_call_ledger,
             session_factory=controller.frontend.session_factory,
             transcript_factory=controller.conversation.transcript_factory,
             cleanup=controller.conversation,

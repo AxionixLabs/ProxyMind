@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import mind as application_composition
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import (
@@ -67,6 +68,46 @@ class _ExecutionController(object):
 
     def tool_profile_for_turn(self):
         return None
+
+
+@pytest.mark.anyio
+async def test_root_turn_binding_does_not_forward_session_owned_ledger(
+    monkeypatch,
+) -> None:
+    run_root_turn = AsyncMock(return_value=RunResult(status="completed"))
+    monkeypatch.setattr(
+        application_composition,
+        "run_root_turn",
+        run_root_turn,
+    )
+    runtime_services = SimpleNamespace(
+        model_capability=object(),
+        protocol_client=object(),
+        create_effect_journal=Mock(),
+        tool_execution=object(),
+    )
+    conversation = SimpleNamespace(transcript_factory=Mock())
+    controller = SimpleNamespace(
+        conversation=conversation,
+        approval_coordinator=object(),
+        workspace_runtime=SimpleNamespace(
+            execution_policy=object(),
+            coding=SimpleNamespace(preview_patch=Mock()),
+        ),
+        execution=object(),
+        turn_foreground_lifecycle=object(),
+        frontend=SimpleNamespace(
+            session_factory=Mock(),
+            runtime=object(),
+        ),
+        turn_animation=object(),
+    )
+
+    runner = application_composition.bind_root_turn_runner(runtime_services)
+    await runner(controller, {}, message="inspect")
+
+    assert run_root_turn.await_args.args == (conversation, {})
+    assert "approval_ledger" not in run_root_turn.await_args.kwargs
 
 
 class _ReportPool(object):

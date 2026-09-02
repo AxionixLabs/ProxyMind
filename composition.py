@@ -443,6 +443,11 @@ class ApplicationHost:
         return configuration_service.address.base_url
 
     @property
+    def animate(self) -> bool:
+        """返回当前入口是否启用活动展示。"""
+        return self.activity.enabled
+
+    @property
     def workspace_root(self) -> str:
         """返回当前根轮次绑定的工作区。"""
         return self.history_workspace
