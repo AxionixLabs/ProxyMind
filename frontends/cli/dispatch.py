@@ -203,22 +203,25 @@ async def run_selected_command(
                 if environment_snapshot_provider is None
                 else environment_snapshot_provider
             )(mind)
-            remote_session = mind.conversation.snapshot()
-            turn_id = short_uid(12)
+            command_extras: dict[str, typing.Any] = {}
+            trace_context: dict[str, typing.Any] = {}
+            if durable_runtime:
+                remote_session = mind.conversation.snapshot()
+                turn_id = short_uid(12)
+                command_extras["turn_id"] = turn_id
+                trace_context["remote_turn"] = {
+                    "cid": remote_session["cid"],
+                    "sid": remote_session["sid"],
+                    "turn_id": turn_id,
+                }
             submit_command = SubmitTurnCommand.create(
                 session_id=local_session_id,
                 message=command.prompt,
                 attachments=attachments,
                 environment_snapshot=environment_snapshot,
                 pref_config=calling_kwargs.get("pref_config"),
-                extras={"turn_id": turn_id},
-                trace_context={
-                    "remote_turn": {
-                        "cid": remote_session["cid"],
-                        "sid": remote_session["sid"],
-                        "turn_id": turn_id,
-                    },
-                },
+                extras=command_extras,
+                trace_context=trace_context,
             )
 
             execute_root_turn = RootTurnCommandExecutor(

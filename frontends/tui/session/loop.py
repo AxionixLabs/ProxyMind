@@ -333,8 +333,9 @@ async def _run_tui_loop(
         interrupt_notice = _TurnInterruptNotice(application, runtime)
 
         resolved_local_session_id = local_session_id
-        remote_session = mind.conversation.snapshot()
+        remote_session: dict[str, str] | None = None
         if resolved_local_session_id is None:
+            remote_session = mind.conversation.snapshot()
             resolved_local_session_id = derive_local_session_id(
                 "tui",
                 remote_session,
@@ -347,13 +348,17 @@ async def _run_tui_loop(
             environment_snapshot=environment_snapshot,
             pref_config=state.pref_config,
             extras=prompt_extras,
-            trace_context={
-                "remote_turn": {
-                    "cid": remote_session["cid"],
-                    "sid": remote_session["sid"],
-                    "turn_id": turn_id,
-                },
-            },
+            trace_context=(
+                {
+                    "remote_turn": {
+                        "cid": remote_session["cid"],
+                        "sid": remote_session["sid"],
+                        "turn_id": turn_id,
+                    },
+                }
+                if remote_session is not None
+                else {}
+            ),
         )
 
         async def execute_submitted_turn(
