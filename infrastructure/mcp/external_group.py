@@ -45,15 +45,13 @@ from infrastructure.mcp.values import (
     slugify_mcp_name,
     tool_name_hook,
 )
-from observability import (
-    observe,
-    observe_exception,
-)
+from observability import observe
 from observability.third_party import route_session_termination_warnings
 
 EXTERNAL_MCP_CONNECT_CONCURRENCY = 2
 EXTERNAL_MCP_STDIO_CONCURRENCY = 1
 EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC = 2.0
+EXTERNAL_MCP_CLOSE_TIMEOUT_SEC = 5.0
 EXTERNAL_MCP_TOOL_YIELD_INTERVAL = 32
 
 
@@ -82,12 +80,11 @@ class ExternalMcpGroup(object):
         """初始化外部 MCP 工具索引和连接所有者集合。"""
         self.tools: dict[str, mcp_types.Tool] = {}
         self.server_stats: dict[str, dict[str, typing.Any]] = {}
-
         self._tool_to_session: dict[str, ClientSession] = {}
         self._connections: list[_ExternalMcpConnection] = []
-
         self._closing: bool = False
         self._closed: bool = False
+        self._close_lock: asyncio.Lock = asyncio.Lock()
 
     @staticmethod
     async def _establish_session(
@@ -179,11 +176,11 @@ class ExternalMcpGroup(object):
         except BaseException as exc:
             if should_reraise_external(exc):
                 raise
-            observe_exception(
+            observe(
                 "external_mcp.tools.failed",
-                exc,
                 level="WARNING",
                 server=server_info.name,
+                error=external_status_detail_from_exception(exc),
             )
             return tools_temp, 0
 
@@ -339,6 +336,11 @@ class ExternalMcpGroup(object):
 
     async def close(self) -> None:
         """通知所有连接所有者释放资源，并在完成后清空工具索引。"""
+        async with self._close_lock:
+            await self._close_unlocked()
+
+    async def _close_unlocked(self) -> None:
+        """在关闭锁内收束连接，并为协作退出设置固定等待窗口。"""
         if self._closed:
             return None
 
@@ -350,24 +352,44 @@ class ExternalMcpGroup(object):
             if not connection.ready.done() and not connection.task.done():
                 connection.task.cancel()
 
-        results = await asyncio.gather(
-            *(connection.task for connection in connections),
-            return_exceptions=True,
-        )
+        tasks = tuple(connection.task for connection in connections)
+        if tasks:
+            _, pending = await asyncio.wait(
+                tasks,
+                timeout=EXTERNAL_MCP_CLOSE_TIMEOUT_SEC,
+            )
+            if pending:
+                timed_out_servers = tuple(
+                    connection.server
+                    for connection in connections
+                    if connection.task in pending
+                )
+                observe(
+                    "external_mcp.cleanup.timeout",
+                    level="WARNING",
+                    servers=timed_out_servers,
+                    timeout_sec=EXTERNAL_MCP_CLOSE_TIMEOUT_SEC,
+                )
+                for task in pending:
+                    task.cancel()
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         critical_error: BaseException | None = None
         try:
             for connection, result in zip(connections, results):
                 if not isinstance(result, BaseException):
                     continue
+                if isinstance(result, asyncio.CancelledError):
+                    continue
                 if should_reraise_external(result):
                     critical_error = result
                     continue
-                observe_exception(
+                observe(
                     "external_mcp.cleanup.failed",
-                    result,
                     level="WARNING",
                     server=connection.server,
+                    error=external_status_detail_from_exception(result),
                 )
         finally:
             self._connections.clear()
@@ -588,9 +610,8 @@ async def _connect_external_server(
         else:
             detail = external_status_detail_from_exception(exc)
 
-        observe_exception(
+        observe(
             "external_mcp.server.failed",
-            exc,
             level="WARNING",
             server=name,
             transport=transport,

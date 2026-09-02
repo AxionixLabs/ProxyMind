@@ -5,8 +5,7 @@
 - 目标平台：Windows、macOS、Linux
 - 架构权威：`ARCHITECTURE.md`
 - Codex 参考基线：`codex-main/codex-rs` revision `608f4a8a98feff0889cbfc9ed691efbf42d34cc6`
-- 当前状态：网络审批作为既有基线；MCP 调用审批门、事实授权闭环和专用审批卡已完成，
-  传输边界与平台发布收口待实施
+- 当前状态：V1 代码实施与 Windows 本机验证已完成；macOS、Linux 保留对应机器的真实验收
 
 ## Codex 参考文件
 
@@ -95,9 +94,9 @@ Codex 的模块名称，而是让所有模型可达的外部效果都经过同�
 - `protocol/schema` 和 `protocol/client` 已能严格解析并提交 `mcp_tool_call` 审批载荷。
 - 网络审批的受管代理、DNS 安全检查、执行身份绑定、规则提交和网络卡已经形成既有基线。
 
-### 必须先修复的缺口
+### 基线缺口（均已按阶段收束）
 
-| 优先级 | 缺口 | 当前证据 | 结果 |
+| 优先级 | 缺口 | 基线证据 | 结果 |
 | --- | --- | --- | --- |
 | P0 | 本地 MCP 工具调用绕过审批 | `ToolEventHandler` 只在 command/patch 路径处理本地执行策略，之后直接进入 `ClientToolCallRunner`；外部 MCP 在 `CompositeToolSession` 中直接转给 `ExternalMcpGroup` | `on-request` 不保证弹卡，`never` 也不能阻止外部 MCP 调用 |
 | P0 | MCP 执行身份丢失 | 外部调用没有完整传递 `call_id`、`turn_context`、`pref_config` | 无法可靠绑定 Run/Execution、去重、恢复和审计 |
@@ -108,7 +107,7 @@ Codex 的模块名称，而是让所有模型可达的外部效果都经过同�
 | P1 | MCP Effect 未统一接入 | `ApprovalCore.execute_effect` 存在，但本地 MCP 调用没有通过它取得效果执行权 | 审批成功、调用成功和恢复状态没有统一闭环 |
 | P1 | MCP 审批卡信息不足 | 当前主要显示 `server: tool` 摘要，参数、风险注解和 connector 信息没有专用投影 | 用户无法充分判断具体外部效果 |
 | P2 | 传输边界和验收仍需明确 | 用户配置的外部 MCP/Hook 进程与应用自有 MCP HTTP 传输属于不同信任边界 | 不能把 MCP 工具审批误称为 MCP 传输网络审批 |
-| P2 | 回归门槛仍有债务 | 既有全量 Python 回归受旧 `turn_stream.interrupt_turn` 测试引用影响 | 发布前需单独清理测试基线 |
+| P2 | 回归门槛仍有债务 | 落后的 TUI 宿主夹具可在前置异常后永久等待，阻断全量回归 | 无法取得发布级完整统计 |
 
 ## 对齐原则
 
@@ -428,7 +427,7 @@ Press enter to confirm or ctrl + c to cancel
 
 ### 阶段 4：传输边界、平台加固与发布收口
 
-**规模：中到大；优先级：P1/P2；状态：待开始**
+**规模：中到大；优先级：P1/P2；状态：实施完成，macOS/Linux 待外部验收**
 
 交付内容：
 
@@ -440,6 +439,39 @@ Press enter to confirm or ctrl + c to cancel
 
 出口条件：产品文档只声明已有证据支持的 MCP 工具审批和网络审批行为；未验收平台明确标记，
 不以“审批卡能显示”代替执行面验收。
+
+实施结果：
+
+- 外部 MCP STDIO、SSE 和 Streamable HTTP 被固定为用户配置的传输信任边界；建连不复用 MCP
+  tool grant 或网络 grant，模型可达的外部工具调用继续经过统一 MCP 审批门。
+- 外部 HTTP client 固定 `trust_env=False`；传输异常在进入状态和日志前隐藏 URL 用户信息、查询串、
+  片段、长令牌路径、Bearer token 及常见凭据键值。
+- 外部连接关闭由单一锁串行收束，协作关闭超过固定窗口后取消 owner 任务；完成后清空连接、
+  tool、session route 和状态引用，并支持并发关闭及后续重复关闭。
+- Windows 本机使用真实 Python stdio MCP 子进程完成启动、工具发现、调用、进程退出和重复关闭；
+  SSE、Streamable HTTP 参数及环境代理隔离使用 transport 契约测试覆盖。
+- 断线调用只执行一次且不在 adapter 内盲目重放；启动、发现和调用超时继续使用原有独立预算。
+- 修复两个 TUI 生命周期测试宿主遗漏稳定配置 URL 端口的问题，并为偏好刷新用例补齐失败清理；
+  ProxyMind 全量回归为 3,124 passed、11 skipped，按要求未执行架构守卫。
+
+### 三平台验收状态
+
+| 平台 | 代码路径 | 当前证据 | 状态 |
+| --- | --- | --- | --- |
+| Windows | 共享 Python transport + MCP SDK 平台进程 adapter | 真实 stdio 启动/调用/退出；全量回归 | 已验收 |
+| macOS | 同一共享路径，无 ProxyMind 平台分支 | 可移植 stdio 与 transport 契约用例 | 待对应机器验收 |
+| Linux | 同一共享路径，无 ProxyMind 平台分支 | 可移植 stdio 与 transport 契约用例 | 待对应机器验收 |
+
+macOS 和 Linux 对应机器执行：
+
+```text
+python -m pytest tests/test_mcp_group.py tests/test_mcp_infrastructure.py tests/test_mcp_approval_gate.py -q
+python -m pytest tests/test_network_approval_service.py tests/test_managed_network.py -q
+python -m pytest tests --ignore=tests/test_package_architecture.py -q
+```
+
+验收时至少连接一个实际使用的外部 MCP 服务，并分别触发 `prompt` 拒绝与允许、Session grant、
+持久 grant、断线和应用关闭。远端 SSE/Streamable HTTP 需确认凭据未出现在终端状态或日志中。
 
 ## 验收矩阵
 
@@ -458,12 +490,12 @@ Press enter to confirm or ctrl + c to cancel
 
 ## 优先级结论
 
-先做阶段 1，再做阶段 2；在本地 MCP 调用真正经过审批核心之前，不应继续投入 MCP 卡片细节或
-持久策略。阶段 3 解决可判断性和视觉对齐，阶段 4 负责边界和发布验收。既有网络审批不回退、
-不重做，只作为阶段 4 的回归基线。
+阶段 1 到阶段 4 已按依赖顺序完成：先建立真实执行门，再统一事实、grant、Effect 和恢复，
+随后完成可判断的审批卡与传输发布边界。既有网络审批未重做，作为发布回归基线持续验证。
 
-本计划完成前，不能声称“整个审批架构完全对齐”；可以声称“网络审批基线已建立，MCP 审批
-正在按统一核心补齐”。
+当前可以声称“V1 审批架构在声明范围内完成对齐”：网络审批与 MCP 工具审批共享 application
+语义但保持不同授权域，Skill 脚本继续走普通 command 审批。该结论不包含外部 MCP 传输级网络
+管控，也不把尚未完成的 macOS/Linux 真实机器验收表述为已验证。
 
 ## 维护规则
 

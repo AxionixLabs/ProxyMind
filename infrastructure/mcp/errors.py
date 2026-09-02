@@ -1,7 +1,21 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import re
 import typing
+from urllib.parse import (
+    urlsplit,
+    urlunsplit,
+)
+
+_EXTERNAL_URL_PATTERN = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_SENSITIVE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9_-]{24,}$")
+_BEARER_PATTERN = re.compile(r"\bBearer\s+[^\s,;]+", re.IGNORECASE)
+_CREDENTIAL_PATTERN = re.compile(
+    r"\b(authorization|access[_-]?token|api[_-]?key|token|secret|password)"
+    r"(\s*[:=]\s*)([^\s,;&]+)",
+    re.IGNORECASE,
+)
 
 
 def flatten_exceptions(exc: BaseException) -> typing.Iterator[BaseException]:
@@ -20,13 +34,44 @@ def exception_type_name(exc: BaseException) -> str:
 
 
 def summarize_exception(exc: BaseException) -> str:
-    """从异常组中挑一个可读异常摘要用于 debug 日志。"""
+    """从异常组中挑一个经过脱敏的展示和日志摘要。"""
     for item in flatten_exceptions(exc):
-        text = str(item).strip()
+        text = _redact_external_error_text(str(item).strip())
         if text:
             return f"{type(item).__name__}: {text}"
 
-    return f"{type(exc).__name__}: {exc}"
+    return type(exc).__name__
+
+
+def _redact_external_error_text(value: str) -> str:
+    """隐藏外部传输异常中可能出现的 URL 和凭据值。"""
+    text = _EXTERNAL_URL_PATTERN.sub(_redact_external_url_match, str(value))
+    text = _BEARER_PATTERN.sub("Bearer <redacted>", text)
+    return _CREDENTIAL_PATTERN.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}<redacted>",
+        text,
+    )
+
+
+def _redact_external_url_match(match: re.Match[str]) -> str:
+    """把异常文本中的一个 HTTP URL 转换为可记录形式。"""
+    raw = match.group(0)
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return "<redacted-url>"
+
+    path = "/".join(
+        "<redacted>" if _SENSITIVE_PATH_COMPONENT.fullmatch(part) else part
+        for part in parsed.path.split("/")
+    )
+    return urlunsplit((
+        parsed.scheme,
+        parsed.netloc.rsplit("@", 1)[-1],
+        path,
+        "<redacted>" if parsed.query else "",
+        "<redacted>" if parsed.fragment else "",
+    ))
 
 
 def is_transport_close_exception(exc: BaseException) -> bool:

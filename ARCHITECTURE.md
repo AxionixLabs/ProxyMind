@@ -308,6 +308,10 @@ model intent
 - MCP 调用只消费正式调用携带的 Effect identity；缺失时不得合成本地 Effect 冒充线上权威事实。
 - MCP 审批由 application 投影可信身份、领域风险及经过脱敏和限长的参数摘要；前端只按语义
   Token 排版和降级颜色，不从第三方对象或原始载荷重新推断权限。
+- 用户配置的外部 MCP STDIO、SSE 和 Streamable HTTP 连接属于显式配置的传输信任边界；建连
+  本身不消费 MCP tool grant 或网络 grant，但模型可达的每次外部工具效果仍必须通过 MCP 策略链。
+- 外部 MCP HTTP client 不继承环境代理；传输凭据只在配置与 transport adapter 内解析，状态和
+  日志只能使用脱敏摘要，关闭时必须收束 owner 任务并解除工具、会话和凭据引用。
 - 外部效果成功与本地提交之间存在未知窗口时进入 reconciliation，不伪装为普通失败。
 - 不可重放效果不得由接管 actor 自动重试；只读或有供应商幂等保证的效果按明确策略恢复。
 - `/tool-result` 只发送正式协议字段，本地工作区、sidecar 或 UI 状态不能混入 wire payload。

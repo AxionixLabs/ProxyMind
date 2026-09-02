@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import logging
+import sys
 import time
 from types import SimpleNamespace
 
@@ -14,6 +15,7 @@ from infrastructure.mcp import external_group as mcp_group
 from infrastructure.mcp import transport as mcp_transport
 from infrastructure.mcp.external_group import ExternalMcpGroup
 from infrastructure.mcp.external_status import ExternalMcpStatus
+from infrastructure.mcp.errors import summarize_exception
 
 
 def _servers(count: int, *, startup_timeout_sec: float = 1.0) -> list[dict]:
@@ -419,6 +421,148 @@ async def test_external_mcp_timeout_closes_resources_in_owner_task(
     assert connected == 0
     assert state["entered_task"] is not asyncio.current_task()
     assert state["closed_task"] is state["entered_task"]
+
+
+@pytest.mark.anyio
+async def test_external_mcp_close_cancels_stalled_owner_then_is_idempotent(
+    monkeypatch,
+) -> None:
+    close_started = asyncio.Event()
+    close_cancelled = asyncio.Event()
+
+    class SessionStack(object):
+        async def aclose(self) -> None:
+            close_started.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                close_cancelled.set()
+                raise
+
+    async def establish(_params, _session_params):
+        server_info = SimpleNamespace(version="1", websiteUrl=None, icons=None)
+        return server_info, object(), SessionStack()
+
+    async def collect(
+        _server_info,
+        _session,
+        **_options,
+    ):
+        return {}, 0
+
+    monkeypatch.setattr(
+        ExternalMcpGroup,
+        "_establish_session",
+        staticmethod(establish),
+    )
+    monkeypatch.setattr(
+        ExternalMcpGroup,
+        "_collect_tools",
+        staticmethod(collect),
+    )
+    monkeypatch.setattr(mcp_group, "EXTERNAL_MCP_CLOSE_TIMEOUT_SEC", 0.01)
+
+    group = ExternalMcpGroup()
+    await group.connect_with_alias({
+        "name": "docs",
+        "transport": "streamable_http",
+        "url": "https://docs.example.test/mcp",
+    })
+
+    first_close = asyncio.create_task(group.close())
+    await close_started.wait()
+    second_close = asyncio.create_task(group.close())
+    await asyncio.gather(first_close, second_close)
+    await group.close()
+
+    assert close_started.is_set()
+    assert close_cancelled.is_set()
+    assert group.tools == {}
+    assert group.server_stats == {}
+    assert group._tool_to_session == {}
+    assert group._connections == []
+
+
+@pytest.mark.anyio
+async def test_external_mcp_disconnect_is_not_replayed() -> None:
+    state = {"calls": 0}
+
+    class DisconnectedSession(object):
+        async def call_tool(self, *_args, **_kwargs):
+            state["calls"] += 1
+            raise anyio.EndOfStream
+
+    group = ExternalMcpGroup()
+    exposed_name = "mcp__docs__lookup"
+    group.tools[exposed_name] = mcp_types.Tool(
+        name="lookup",
+        inputSchema={},
+    )
+    group._tool_to_session[exposed_name] = DisconnectedSession()
+
+    with pytest.raises(anyio.EndOfStream):
+        await group.call_tool(exposed_name, {"query": "value"})
+
+    assert state["calls"] == 1
+    await group.close()
+
+
+@pytest.mark.anyio
+async def test_external_mcp_real_stdio_round_trip_and_repeated_close(
+    tmp_path,
+) -> None:
+    server_script = tmp_path / "mcp_stdio_fixture.py"
+    server_script.write_text(
+        "from mcp.server.fastmcp import FastMCP\n"
+        "server = FastMCP('fixture')\n"
+        "@server.tool()\n"
+        "def ping(value: str) -> str:\n"
+        "    return f'pong:{value}'\n"
+        "if __name__ == '__main__':\n"
+        "    server.run(transport='stdio')\n",
+        encoding="utf-8",
+    )
+    group = ExternalMcpGroup()
+
+    connected = await group.start([{
+        "name": "stage4",
+        "transport": "stdio",
+        "command": sys.executable,
+        "args": [str(server_script)],
+        "cwd": str(tmp_path),
+        "startup_timeout_sec": 10.0,
+        "timeout_sec": 10.0,
+    }])
+    result = await group.call_tool(
+        "mcp__stage4__ping",
+        {"value": "ok"},
+    )
+
+    assert connected == 1
+    assert result.content == [mcp_types.TextContent(
+        type="text",
+        text="pong:ok",
+    )]
+
+    await group.close()
+    await group.close()
+
+    assert group.tools == {}
+    assert group.server_stats == {}
+
+
+def test_external_mcp_error_summary_redacts_transport_credentials() -> None:
+    detail = summarize_exception(RuntimeError(
+        "failed https://user:password@example.test/"
+        "0123456789abcdef0123456789abcdef?api_key=query-secret#token "
+        "Authorization: Bearer header-secret password=plain-secret"
+    ))
+
+    assert "user:password" not in detail.casefold()
+    assert "query-secret" not in detail
+    assert "header-secret" not in detail
+    assert "plain-secret" not in detail
+    assert detail.count("<redacted>") >= 4
 
 
 @pytest.mark.anyio

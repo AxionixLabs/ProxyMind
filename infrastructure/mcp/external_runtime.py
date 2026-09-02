@@ -16,10 +16,7 @@ from infrastructure.mcp.external_status import (
     external_status_detail_from_exception,
 )
 from infrastructure.mcp.settings import normalize_mcp_servers
-from observability import (
-    observe,
-    observe_exception
-)
+from observability import observe
 
 
 class ExternalMcpRuntime(object):
@@ -188,9 +185,17 @@ class ExternalMcpRuntime(object):
                 exc,
                 (asyncio.CancelledError, KeyboardInterrupt, SystemExit, AppError),
             ):
-                observe_exception("external_mcp.start.failed", exc)
+                observe(
+                    "external_mcp.start.failed",
+                    level="ERROR",
+                    error=external_status_detail_from_exception(exc),
+                )
                 raise
-            observe_exception("external_mcp.start.failed", exc, level="WARNING")
+            observe(
+                "external_mcp.start.failed",
+                level="WARNING",
+                error=external_status_detail_from_exception(exc),
+            )
         finally:
             if external_anim_started and not defer_activity_stop:
                 await self._context.await_cleanup(self._context.stop_activity(

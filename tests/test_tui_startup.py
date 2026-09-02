@@ -145,6 +145,10 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
             application=ApplicationStub(),
         )
 
+        @staticmethod
+        def configuration_service_url() -> str:
+            return ""
+
         def __init__(self) -> None:
             self.lifecycle = ProcessLifecycle()
             self.attach = SimpleNamespace(
@@ -171,24 +175,25 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
         protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
-    await refresh_started.wait()
+    try:
+        await refresh_started.wait()
 
-    runtime.screen.input.buffer.text = "show this immediately"
-    runtime.submissions.accept_input(runtime.screen.input.buffer)
-    for _ in range(20):
-        if runtime.document.blocks:
-            break
-        await asyncio.sleep(0)
+        runtime.screen.input.buffer.text = "show this immediately"
+        runtime.submissions.accept_input(runtime.screen.input.buffer)
+        for _ in range(20):
+            if runtime.document.blocks:
+                break
+            await asyncio.sleep(0)
 
-    assert fragments_text(runtime.document.fragments(width=80)).strip() == (
+        assert fragments_text(runtime.document.fragments(width=80)).strip() == (
             "› show this immediately"
-    )
-    assert not run_task.done()
-
-    run_task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await run_task
-    await runtime.close()
+        )
+        assert not run_task.done()
+    finally:
+        release_refresh.set()
+        run_task.cancel()
+        await asyncio.gather(run_task, return_exceptions=True)
+        await runtime.close()
 
 
 @pytest.mark.anyio

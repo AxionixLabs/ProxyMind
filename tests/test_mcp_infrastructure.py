@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 
+import httpx
 import pytest
 from mcp import types as mcp_types
-from mcp.client.session_group import SseServerParameters
+from mcp.client.session_group import (
+    SseServerParameters,
+    StreamableHttpParameters,
+)
 from mcp.client.stdio import StdioServerParameters
 
 from infrastructure.config.schema import (
@@ -10,7 +14,10 @@ from infrastructure.config.schema import (
     validate_config,
 )
 from infrastructure.mcp.settings import normalize_mcp_servers
-from infrastructure.mcp.transport import build_server_params
+from infrastructure.mcp.transport import (
+    build_server_params,
+    external_http_client,
+)
 from infrastructure.mcp.values import (
     tool_name_hook,
     truncate_text,
@@ -126,6 +133,14 @@ def test_mcp_transport_builds_validated_sdk_parameters() -> None:
         "timeout_sec": 12,
         "sse_read_timeout_sec": 30,
     })
+    streamable_http = build_server_params({
+        "transport": "streamable_http",
+        "url": "https://docs.example.test/mcp",
+        "headers": {"Authorization": "Bearer runtime-secret"},
+        "timeout_sec": 15,
+        "sse_read_timeout_sec": 45,
+        "terminate_on_close": True,
+    })
 
     assert isinstance(stdio, StdioServerParameters)
     assert stdio.command == "runner"
@@ -138,6 +153,41 @@ def test_mcp_transport_builds_validated_sdk_parameters() -> None:
     assert sse.headers == {"X-Client": "proxy"}
     assert sse.timeout == 12.0
     assert sse.sse_read_timeout == 30.0
+    assert isinstance(streamable_http, StreamableHttpParameters)
+    assert streamable_http.url == "https://docs.example.test/mcp"
+    assert streamable_http.headers == {
+        "Authorization": "Bearer runtime-secret",
+    }
+    assert streamable_http.timeout.total_seconds() == 15
+    assert streamable_http.sse_read_timeout.total_seconds() == 45
+    assert streamable_http.terminate_on_close is True
+
+
+@pytest.mark.anyio
+async def test_external_mcp_http_client_ignores_ambient_proxy_credentials(
+    monkeypatch,
+) -> None:
+    client_type = httpx.AsyncClient
+    captured = {}
+
+    def create_client(**kwargs):
+        captured.update(kwargs)
+        return client_type(**kwargs)
+
+    monkeypatch.setattr(
+        "infrastructure.mcp.transport.httpx.AsyncClient",
+        create_client,
+    )
+    client = external_http_client(
+        headers={"Authorization": "Bearer runtime-secret"},
+        timeout=httpx.Timeout(5.0),
+    )
+
+    try:
+        assert captured["trust_env"] is False
+        assert client.headers["Authorization"] == "Bearer runtime-secret"
+    finally:
+        await client.aclose()
 
 
 def test_mcp_values_keep_stable_names_and_bounded_text() -> None:
