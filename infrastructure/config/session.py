@@ -3,14 +3,15 @@
 
 import typing
 from pathlib import Path
-from infrastructure.config.schema import (
-    ConfigOverride,
-    config_override,
-)
+
 from infrastructure.config.layers import (
     ConfigLayer,
     ConfigResolution,
     ConfigResolver
+)
+from infrastructure.config.schema import (
+    ConfigOverride,
+    config_override,
 )
 from infrastructure.config.store import (
     ConfigStore,

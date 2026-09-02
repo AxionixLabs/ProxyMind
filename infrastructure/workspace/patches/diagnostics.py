@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import difflib
 import os
 import re
 import time
 import typing
-import difflib
 from pathlib import Path
+
 from infrastructure.workspace.context import WorkspaceComponent
 from metadata import const
 

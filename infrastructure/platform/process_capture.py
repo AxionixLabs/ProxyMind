@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
 import asyncio
+import time
 from dataclasses import dataclass
+
+from infrastructure.platform.encoding import decode_process_output
 from infrastructure.platform.processes import (
     subprocess_process_group_kwargs,
     terminate_process_tree
 )
-from infrastructure.platform.encoding import decode_process_output
 
 
 @dataclass(frozen=True, slots=True)

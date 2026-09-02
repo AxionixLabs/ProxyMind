@@ -1,22 +1,30 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import functools
 import os
 import typing
-import functools
-from composition import ApplicationHost
+
+from agent.adapters.protocol.compaction import ProtocolCompactionClient
+from agent.application import RuntimeServices
+from agent.application.approvals.presenter import ApprovalPresenterPort
 from agent.application.config.settings import (
     AgentSettings,
     FeatureSettings,
 )
-from agent.domain.policies import PermissionSettings
-from agent.harness.process_lifecycle import ProcessLifecycle
-from agent.composition import create_runtime_services
-from agent.application import RuntimeServices
-from agent.application.approvals.presenter import ApprovalPresenterPort
 from agent.application.turns.run_result import RunResult
-from agent.ports import FrontendPort
+from agent.composition import create_runtime_services
+from agent.domain.policies import PermissionSettings
+from agent.harness.execution.compaction import compact_conversation
+from agent.harness.execution.root_runner import run_root_turn
+from agent.harness.hooks.registry import HookRegistry
+from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
+from agent.ports import FrontendPort
+from agent.ports import (
+    HookRegistryPort,
+    HookStatusPort,
+)
 from agent.ports import (
     McpRuntime,
     McpRuntimeContext,
@@ -26,45 +34,38 @@ from agent.ports import (
     ToolRuntimePort,
     ToolRuntimeSources,
 )
-from infrastructure.skills import skills_payload
+from composition import ApplicationHost
+from frontends.cli.entry import run
+from frontends.interaction.attachments import Attach
+from frontends.mcp.server import run_mind_mcp_server
+from frontends.output.silent import create_silent_output_session
+from frontends.runtime import FrontendActivity
+from frontends.subscription.runtime import AgentRuntime
+from frontends.terminal.worked import emit_worked_footer
+from frontends.tui.features.conversation import ConversationCompactor
+from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from infrastructure.config.paths import ApplicationLayout
+from infrastructure.config.preferences import Preferences
 from infrastructure.config.runtime_paths import effect_journal_db_path
-from infrastructure.platform.process_sessions import ProcessSessionManager
-from infrastructure.platform.animation import AsyncAnimManager
-from infrastructure.platform.sandbox import SandboxClient
-from infrastructure.platform.hook_command import HookCommandExecutor
-from infrastructure.platform.images import FileImageReader
+from infrastructure.config.session import ConfigSession
 from infrastructure.mcp.external_runtime import ExternalMcpRuntime
 from infrastructure.mcp.local_tool_factory import (
     build_builtin_tool_registry,
     build_client_tool_registry,
 )
-from infrastructure.mcp.tool_runtime import CompositeToolRuntime
 from infrastructure.mcp.tool_execution import McpToolExecutionAdapter
-from frontends.cli.entry import run
-from frontends.runtime import FrontendActivity
-from frontends.mcp.server import run_mind_mcp_server
-from infrastructure.workspace.runtime import WorkspaceCoding
-from infrastructure.config.execution_policy_manager import ExecPolicyManager
-from agent.harness.hooks.registry import HookRegistry
+from infrastructure.mcp.tool_runtime import CompositeToolRuntime
+from infrastructure.platform.animation import AsyncAnimManager
+from infrastructure.platform.hook_command import HookCommandExecutor
+from infrastructure.platform.images import FileImageReader
+from infrastructure.platform.process_sessions import ProcessSessionManager
+from infrastructure.platform.sandbox import SandboxClient
 from infrastructure.services.turn_environment import (
     capture_active_turn_environment,
     capture_turn_environment,
 )
-from agent.harness.execution.root_runner import run_root_turn
-from agent.adapters.protocol.compaction import ProtocolCompactionClient
-from agent.harness.execution.compaction import compact_conversation
-from agent.ports import (
-    HookRegistryPort,
-    HookStatusPort,
-)
-from frontends.interaction.attachments import Attach
-from frontends.output.silent import create_silent_output_session
-from frontends.terminal.worked import emit_worked_footer
-from frontends.tui.features.conversation import ConversationCompactor
-from frontends.subscription.runtime import AgentRuntime
-from infrastructure.config.preferences import Preferences
-from infrastructure.config.session import ConfigSession
+from infrastructure.skills import skills_payload
+from infrastructure.workspace.runtime import WorkspaceCoding
 from observability.reporting import RunReport
 
 

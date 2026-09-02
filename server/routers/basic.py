@@ -3,6 +3,7 @@
 
 from fastapi import APIRouter
 from fastapi.responses import Response
+
 from metadata import const
 from ..page import render_page
 
@@ -25,9 +26,9 @@ async def api_ready() -> dict[str, bool]:
 async def api_healthz() -> dict[str, str | bool]:
     """返回配置服务健康状态。"""
     return {
-        "ok"        : True,
-        "service"   : "configuration",
-        "transport" : "http"
+        "ok": True,
+        "service": "configuration",
+        "transport": "http"
     }
 
 
@@ -35,9 +36,9 @@ async def api_healthz() -> dict[str, str | bool]:
 async def api_version() -> dict[str, str | bool]:
     """返回配置服务版本信息。"""
     return {
-        "ok"      : True,
-        "service" : "configuration",
-        "version" : const.APP_VERSION
+        "ok": True,
+        "service": "configuration",
+        "version": const.APP_VERSION
     }
 
 

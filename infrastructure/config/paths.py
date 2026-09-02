@@ -6,6 +6,7 @@ import sys
 import typing
 from dataclasses import dataclass
 from pathlib import Path
+
 from metadata import const
 
 ApplicationMode = typing.Literal["source", "packaged"]

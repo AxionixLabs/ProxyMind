@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
+import shutil
 import sys
 import typing
-import shutil
-import asyncio
+
 from infrastructure.platform.terminal import Terminal
 
 

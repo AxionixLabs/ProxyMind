@@ -1,26 +1,28 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
-import sys
-import json
-import time
-import httpx
-import typing
 import asyncio
-import subprocess
 import contextlib
+import json
+import os
+import subprocess
+import sys
+import time
+import typing
 from urllib.parse import urlparse
+
+import httpx
 from mcp import types as mcp_types
+
 from infrastructure.errors import AppError
+from infrastructure.platform.ports import terminate_port_process
+from metadata import const
 from observability import (
     observe,
     observe_exception
 )
-from infrastructure.platform.ports import terminate_port_process
-from protocol.transport.auth import manufacture_token
-from metadata import const
 from protocol.transport import config
+from protocol.transport.auth import manufacture_token
 
 
 class ServerManage(object):

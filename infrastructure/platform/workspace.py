@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import os
 import typing
-import asyncio
 from dataclasses import dataclass
 from pathlib import Path
+
 from infrastructure.platform.encoding import decode_process_output
 from infrastructure.platform.processes import (
     subprocess_process_group_kwargs,

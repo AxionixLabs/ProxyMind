@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import hashlib
+import json
 import os
 import re
-import json
 import shlex
-import hashlib
 import threading
 from collections.abc import (
     Iterable,
@@ -13,12 +13,7 @@ from collections.abc import (
 )
 from dataclasses import dataclass
 from pathlib import Path
-from infrastructure.config.paths import default_application_home
-from metadata import const
-from infrastructure.platform.command_safety.is_dangerous_command import (
-    DangerousCommandMatch,
-    dangerous_command_match as _dangerous_command_match,
-)
+
 from agent.domain.execution_policy import (
     Decision,
     Evaluation,
@@ -32,6 +27,12 @@ from agent.domain.execution_policy import (
     normalize_sandbox_permission,
 )
 from infrastructure.config.execution_policy import PolicyParser
+from infrastructure.config.paths import default_application_home
+from infrastructure.platform.command_safety.is_dangerous_command import (
+    DangerousCommandMatch,
+    dangerous_command_match as _dangerous_command_match,
+)
+from metadata import const
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import os
 import signal
-import typing
-import asyncio
 import subprocess
+import typing
 
 TERMINATE_GRACE_SEC = 0.5
 FINAL_WAIT_SEC = 1.0

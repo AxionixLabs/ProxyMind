@@ -1,21 +1,24 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import enum
-import time
-import httpx
-import random
-import typing
 import asyncio
 import contextlib
-from protocol.transport.auth import build_service_headers
+import enum
+import random
+import time
+import typing
+
+import httpx
+
 from protocol.client.payload import build_chat_payload
-from protocol.transport.streaming import streaming
+from protocol.client.tools import (
+    ToolApprovalSnapshotRequestError,
+    reconcile_tool_approval_snapshot,
+)
 from protocol.client.turn_control import (
     TurnStatusRequestError,
     get_turn_status
 )
-from protocol.transport.endpoints import service_endpoints
 from protocol.schema.stream_events import (
     ChatStreamEvent,
     StreamGapEvent,
@@ -25,10 +28,9 @@ from protocol.schema.stream_events import (
     parse_stream_event
 )
 from protocol.schema.tool_approval import ToolApprovalSnapshot
-from protocol.client.tools import (
-    ToolApprovalSnapshotRequestError,
-    reconcile_tool_approval_snapshot,
-)
+from protocol.transport.auth import build_service_headers
+from protocol.transport.endpoints import service_endpoints
+from protocol.transport.streaming import streaming
 
 ATTACH_BACKOFF_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
     0.0,
@@ -290,7 +292,7 @@ class TurnEventStream(object):
         if self._state is _TurnStreamState.CLOSED:
             return
 
-        self._state     = _TurnStreamState.CLOSED
+        self._state = _TurnStreamState.CLOSED
         self.end_reason = reason
 
         self._reconnect_started_at = None

@@ -1,15 +1,20 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import copy
 import os
 import re
-import copy
 import typing
 from dataclasses import (
     dataclass,
     field,
 )
 from pathlib import Path
+
+from agent.domain.hooks import (
+    HookDefinitionConfig,
+    HookStateTable,
+)
 from infrastructure.config.schema import (
     ConfigOverride,
     apply_config_overrides,
@@ -20,6 +25,10 @@ from infrastructure.config.store import (
     ConfigStore,
     ConfigStoreError,
 )
+from infrastructure.config.trust import (
+    ProjectTrustContext,
+    ProjectTrustDecision,
+)
 from infrastructure.hooks.discovery import (
     HOOKS_FILE_NAME,
     HookSourceResolution,
@@ -27,14 +36,6 @@ from infrastructure.hooks.discovery import (
     resolve_hook_definitions,
     resolve_hook_file_source,
     resolve_hook_source,
-)
-from agent.domain.hooks import (
-    HookDefinitionConfig,
-    HookStateTable,
-)
-from infrastructure.config.trust import (
-    ProjectTrustContext,
-    ProjectTrustDecision,
 )
 from metadata import const
 

@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+
 from infrastructure.platform.encoding import (
     DecodedProcessOutput,
     UTF8_ENCODING,

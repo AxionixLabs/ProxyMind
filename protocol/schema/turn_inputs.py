@@ -3,11 +3,11 @@
 
 import copy
 import typing
+from collections.abc import Mapping
 from dataclasses import (
     dataclass,
     field,
 )
-from collections.abc import Mapping
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,8 +6,8 @@ from agent.application.tools.coding import coding_tools
 from agent.application.tools.javascript import JS_REPL_TOOL_NAMES
 from agent.application.tools.media import media_tools
 from agent.application.tools.permissions import permission_tools
-from agent.application.tools.planning import planning_tools
 from agent.application.tools.plan_update import update_plan_tools
+from agent.application.tools.planning import planning_tools
 from agent.application.tools.subagents import subagent_tools
 from agent.ports.approvals import ApprovalCoordinatorPort
 from agent.ports.media import ImageReaderPort

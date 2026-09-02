@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
-import re
-import sys
-import time
-import errno
-import shutil
-import typing
 import asyncio
+import errno
+import os
 import plistlib
+import re
+import shutil
+import sys
 import textwrap
+import time
+import typing
 from pathlib import Path
+
 from rich.console import Console
-from rich.text import Text
 from rich.progress import (
     BarColumn,
     TimeElapsedColumn,
@@ -21,6 +21,8 @@ from rich.progress import (
     SpinnerColumn,
     TextColumn
 )
+from rich.text import Text
+
 from infrastructure.errors import AppError
 from infrastructure.platform.terminal import Terminal
 from metadata import const
@@ -34,7 +36,7 @@ except ImportError:
 
 CONSOLE = Console()
 
-RENAME_RETRY_ATTEMPTS  = 12
+RENAME_RETRY_ATTEMPTS = 12
 RENAME_RETRY_DELAY_SEC = 0.25
 
 RENAME_RETRY_ERRNOS = frozenset({
@@ -205,7 +207,7 @@ async def rename_sensitive(src: Path, dst: Path) -> None:
             raise AppError(f"目标路径已存在: {dst}")
 
     timestamp = time.strftime("%Y%m%d%H%M%S")
-    nonce     = time.time_ns() % 1_000_000_000
+    nonce = time.time_ns() % 1_000_000_000
     temporary = src.with_name(f"__temp_{timestamp}_{nonce:09d}__")
     if os.path.lexists(temporary):
         raise AppError(f"临时重命名路径已存在: {temporary}")
@@ -287,7 +289,7 @@ async def authorized_tools(ops: str, *args: Path, **__) -> None:
         compile_log(f"[!] Authorizing {resp}")
 
     for resp in await asyncio.gather(
-            *(Terminal.cmd_line(kit) for kit in ensure)
+        *(Terminal.cmd_line(kit) for kit in ensure)
     ):
         compile_log(f"[!] Authorize resp={resp}")
 
@@ -495,13 +497,14 @@ async def post_build() -> None:
         await rename_so_files(ops, target)
 
         with Progress(
-                TextColumn(text_format=f"[bold #80C0FF]{const.APP_DESC} | {{task.description}}", justify="right"),
-                SpinnerColumn(style="bold #FFA07A", speed=1, finished_text="[bold #7CFC00]✓"),
-                BarColumn(bar_width=None, style="bold #ADD8E6", complete_style="bold #90EE90", finished_style="bold #00CED1"),
-                TimeElapsedColumn(),
-                TextColumn(
-                    "[progress.percentage][bold #F0E68C]{task.completed:>2.0f}[/]/[bold #FFD700]{task.total}[/]"
-                ), expand=False, console=CONSOLE
+            TextColumn(text_format=f"[bold #80C0FF]{const.APP_DESC} | {{task.description}}", justify="right"),
+            SpinnerColumn(style="bold #FFA07A", speed=1, finished_text="[bold #7CFC00]✓"),
+            BarColumn(bar_width=None, style="bold #ADD8E6", complete_style="bold #90EE90",
+                      finished_style="bold #00CED1"),
+            TimeElapsedColumn(),
+            TextColumn(
+                "[progress.percentage][bold #F0E68C]{task.completed:>2.0f}[/]/[bold #FFD700]{task.total}[/]"
+            ), expand=False, console=CONSOLE
         ) as progress:
 
             task = progress.add_task(description="Dependencies", total=len(done_list))

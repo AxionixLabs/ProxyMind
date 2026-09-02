@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import httpx
 import typing
 from urllib.parse import urlparse
+
+import httpx
+
+from metadata import const
 from observability import (
     observe,
     observe_exception
 )
-from metadata import const
 
 
 def normalize_domain(value: typing.Any) -> str:

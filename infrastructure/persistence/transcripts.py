@@ -8,14 +8,15 @@ from datetime import (
     timezone
 )
 from pathlib import Path
-from observability import observe_exception
-from infrastructure.config.runtime_paths import sessions_dir
-from metadata import const
+
+from agent.domain.transcripts import TranscriptEntry
 from agent.ports.transcript import (
     TranscriptActor,
     TranscriptSink
 )
-from agent.domain.transcripts import TranscriptEntry
+from infrastructure.config.runtime_paths import sessions_dir
+from metadata import const
+from observability import observe_exception
 from protocol.schema.identifiers import SID_RE
 
 

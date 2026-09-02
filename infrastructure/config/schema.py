@@ -3,9 +3,23 @@
 
 import copy
 import math
-import typing
 import tomllib
+import typing
 from dataclasses import dataclass
+
+from agent.application.config.settings import (
+    AgentConfigError,
+    normalize_agent_table
+)
+from agent.application.config.settings import (
+    FEATURE_CONFIG_FIELDS,
+    FeatureConfigError,
+    normalize_feature_table
+)
+from agent.domain.hooks import (
+    HookConfigError,
+    normalize_hook_state_table
+)
 from infrastructure.config.providers import (
     DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,
@@ -17,19 +31,6 @@ from infrastructure.config.providers import (
     supported_routes_for_kind
 )
 from infrastructure.hooks.discovery import normalize_hook_table
-from agent.domain.hooks import (
-    HookConfigError,
-    normalize_hook_state_table
-)
-from agent.application.config.settings import (
-    AgentConfigError,
-    normalize_agent_table
-)
-from agent.application.config.settings import (
-    FEATURE_CONFIG_FIELDS,
-    FeatureConfigError,
-    normalize_feature_table
-)
 
 DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT: typing.Final[int] = 10_000
 

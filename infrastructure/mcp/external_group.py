@@ -1,33 +1,35 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import httpx
-import typing
 import asyncio
 import contextlib
-from datetime import timedelta
+import typing
 from dataclasses import dataclass
+from datetime import timedelta
+
+import httpx
 from mcp import (
     ClientSession,
     types as mcp_types,
 )
-from infrastructure.errors import AppError
-from observability import (
-    observe,
-    observe_exception,
+from mcp.client.session_group import (
+    ClientSessionParameters,
+    SseServerParameters
 )
-from observability.third_party import route_session_termination_warnings
 from mcp.client.sse import sse_client
 from mcp.client.stdio import (
     StdioServerParameters,
     stdio_client
 )
 from mcp.client.streamable_http import streamable_http_client
-from mcp.client.session_group import (
-    ClientSessionParameters,
-    SseServerParameters
-)
 from mcp.shared.exceptions import McpError
+
+from infrastructure.errors import AppError
+from infrastructure.mcp.external_status import (
+    ExternalMcpStatus,
+    external_status_detail_from_exception,
+    should_reraise_external,
+)
 from infrastructure.mcp.settings import (
     is_mcp_tool_allowed,
     request_timeout_sec,
@@ -42,11 +44,11 @@ from infrastructure.mcp.values import (
     slugify_mcp_name,
     tool_name_hook,
 )
-from infrastructure.mcp.external_status import (
-    ExternalMcpStatus,
-    external_status_detail_from_exception,
-    should_reraise_external,
+from observability import (
+    observe,
+    observe_exception,
 )
+from observability.third_party import route_session_termination_warnings
 
 EXTERNAL_MCP_CONNECT_CONCURRENCY = 2
 EXTERNAL_MCP_STDIO_CONCURRENCY = 1

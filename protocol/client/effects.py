@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import httpx
 import typing
+
+import httpx
+
+from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
 from protocol.transport.reliable import post_json_reliably
-from protocol.transport.auth import build_service_headers
 
 
 async def post_effect_reconciliation(

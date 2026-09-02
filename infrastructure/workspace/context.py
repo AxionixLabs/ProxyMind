@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import hashlib
 import os
 import typing
-import hashlib
 from pathlib import Path
+
 from infrastructure.platform.encoding import (
     decode_process_output,
     process_output_encodings,

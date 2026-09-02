@@ -3,7 +3,6 @@
 
 from agent.ports import (
     CapabilityError,
-    HelixCapability,
     HelixState,
 )
 from infrastructure.platform.ports import terminate_port_process

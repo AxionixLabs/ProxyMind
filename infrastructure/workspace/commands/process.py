@@ -4,19 +4,20 @@
 import os
 import time
 import typing
+
 from agent.domain.execution_policy import (
     effective_sandbox_mode,
     normalize_sandbox_permission,
 )
 from agent.domain.permission_profiles import normalize_permission_profile
-from infrastructure.platform.processes import (
-    terminate_process_tree,
-    wait_for_process,
-)
 from infrastructure.platform.process_sessions import (
     ProcessSession as ExecSession,
     ProcessSessionManager,
     ProcessSessionSpec,
+)
+from infrastructure.platform.processes import (
+    terminate_process_tree,
+    wait_for_process,
 )
 from infrastructure.platform.sandbox import (
     SandboxProtocolError,

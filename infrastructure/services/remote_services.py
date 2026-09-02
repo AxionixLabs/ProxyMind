@@ -5,13 +5,13 @@ import typing
 
 import httpx
 
-from observability import observe_exception
-from .licensing import verify_signature
 from metadata import const
+from observability import observe_exception
 from protocol.transport.auth import (
     build_service_headers,
     build_service_query,
 )
+from .licensing import verify_signature
 
 
 class RemoteServices(object):

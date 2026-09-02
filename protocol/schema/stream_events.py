@@ -3,11 +3,12 @@
 
 import copy
 import typing
+from collections.abc import Mapping
 from dataclasses import (
     dataclass,
     field,
 )
-from collections.abc import Mapping
+
 from protocol.schema.item_projection import (
     ItemKind,
     ItemStatus,
@@ -17,7 +18,6 @@ from protocol.schema.item_projection import (
     tool_output_item_status as _tool_output_item_status,
     validate_item_fields as _item_fields,
 )
-from protocol.schema.turn_inputs import TurnInput
 from protocol.schema.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
     TOOL_APPROVAL_DECISIONS_BY_KIND,
@@ -25,6 +25,7 @@ from protocol.schema.tool_approval import (
     ToolApprovalKind,
     ToolApprovalSnapshotStatus
 )
+from protocol.schema.turn_inputs import TurnInput
 
 TurnDoneStatus: typing.TypeAlias = typing.Literal[
     "completed",
@@ -36,6 +37,7 @@ EffectReplay: typing.TypeAlias = typing.Literal[
     "safe",
     "manual"
 ]
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionEffect:
@@ -715,7 +717,7 @@ def parse_stream_event(
             action_fields["strict_auto_review"] = (
                 ack.get("strict_auto_review")
                 if isinstance(ack, dict)
-                and isinstance(ack.get("strict_auto_review"), bool)
+                   and isinstance(ack.get("strict_auto_review"), bool)
                 else None
             )
 
@@ -1350,8 +1352,8 @@ def _approval_action_fields(
             payload.get("mcp_request_id"), "tool.approval_required mcp_request_id"
         )
         for name in (
-            "connector_id", "connector_name", "connector_description",
-            "connected_account_email", "tool_title", "tool_description",
+                "connector_id", "connector_name", "connector_description",
+                "connected_account_email", "tool_title", "tool_description",
         ):
             raw_value = payload.get(name)
             if raw_value is not None and not isinstance(raw_value, str):

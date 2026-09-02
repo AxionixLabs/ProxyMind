@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import httpx
 import typing
 from copy import deepcopy
 from dataclasses import dataclass
+
+import httpx
+
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
 
@@ -28,10 +30,10 @@ class ConversationForkRequestError(Exception):
     ) -> None:
         super().__init__(message)
 
-        self.message     = message
+        self.message = message
         self.status_code = int(status_code or 0)
-        self.code        = str(code or "").strip()
-        self.retryable   = bool(retryable)
+        self.code = str(code or "").strip()
+        self.retryable = bool(retryable)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,13 +160,13 @@ async def request_conversation_fork(
         or not isinstance(copied_items, int)
         or copied_items < (0 if bounded else 1)
         or (
-            bounded
-            and (
-                isinstance(copied_turns, bool)
-                or not isinstance(copied_turns, int)
-                or copied_turns < 0
-            )
+        bounded
+        and (
+            isinstance(copied_turns, bool)
+            or not isinstance(copied_turns, int)
+            or copied_turns < 0
         )
+    )
     ):
         raise ConversationForkRequestError(
             "Conversation fork returned an invalid response.",

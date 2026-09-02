@@ -14,14 +14,14 @@ class ConfigServiceEndpoints(object):
         host: str = DEFAULT_CONFIG_SERVICE_HOST,
         port: int = DEFAULT_CONFIG_SERVICE_PORT
     ) -> None:
-        self.host     = str(host or DEFAULT_CONFIG_SERVICE_HOST)
-        self.port     = int(port)
+        self.host = str(host or DEFAULT_CONFIG_SERVICE_HOST)
+        self.port = int(port)
         self.base_url = self._build_base_url()
 
     def configure(self, *, host: str, port: int) -> str:
         """更新配置服务运行时地址。"""
-        self.host     = str(host or DEFAULT_CONFIG_SERVICE_HOST)
-        self.port     = int(port)
+        self.host = str(host or DEFAULT_CONFIG_SERVICE_HOST)
+        self.port = int(port)
         self.base_url = self._build_base_url()
 
         return self.base_url

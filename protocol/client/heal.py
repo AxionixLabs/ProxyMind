@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from protocol.client.payload import request_llm_conf
 from protocol.transport import config
 from protocol.transport.auth import build_service_headers

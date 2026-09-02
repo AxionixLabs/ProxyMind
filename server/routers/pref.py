@@ -2,12 +2,14 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from fastapi import (
     APIRouter,
     HTTPException,
     Request
 )
 from fastapi.responses import Response
+
 from infrastructure.config.session import ConfigSession
 from ..page import render_page
 from ..storage import (
@@ -33,8 +35,8 @@ async def api_pref_load(request: Request) -> dict[str, typing.Any]:
     """读取偏好配置。"""
     config_session: ConfigSession = request.app.state.config_session
     return {
-        "ok"   : True,
-        "data" : load_pref(config_session)
+        "ok": True,
+        "data": load_pref(config_session)
     }
 
 
@@ -45,8 +47,8 @@ async def api_pref_save(request: Request) -> dict[str, typing.Any]:
     config_session: ConfigSession = request.app.state.config_session
 
     return {
-        "ok"   : True,
-        "data" : save_pref(config_session, payload)
+        "ok": True,
+        "data": save_pref(config_session, payload)
     }
 
 
@@ -83,7 +85,7 @@ async def api_provider_delete(
 async def api_provider_activate(request: Request) -> dict[str, typing.Any]:
     """切换当前 Provider Profile。"""
     payload = await request.json()
-    data    = payload if isinstance(payload, dict) else {}
+    data = payload if isinstance(payload, dict) else {}
 
     config_session: ConfigSession = request.app.state.config_session
 

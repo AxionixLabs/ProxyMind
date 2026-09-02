@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
-import uuid
-import httpx
-import typing
 import mimetypes
+import time
+import typing
+import uuid
 from pathlib import Path
+
+import httpx
+
+from protocol.transport import config
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
-from protocol.transport import config
 
 
 async def upload_file_stream(
@@ -135,7 +137,8 @@ async def upload_file_stream(
 
     if progress_callback is not None:
         await progress_callback(
-            upload_progress_payload(upload_state["uploaded_bytes"], file_size, started_at, done=False, phase="uploading")
+            upload_progress_payload(upload_state["uploaded_bytes"], file_size, started_at, done=False,
+                                    phase="uploading")
         )
 
     async with httpx.AsyncClient(timeout=timeout) as client:

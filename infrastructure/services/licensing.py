@@ -1,33 +1,35 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import json
-import uuid
-import httpx
 import base64
+import hashlib
+import json
+import platform
 import socket
 import struct
 import typing
-import hashlib
-import platform
-from pathlib import Path
+import uuid
 from copy import deepcopy
-from observability import (
-    observe,
-    observe_exception
-)
 from datetime import (
     datetime,
     timezone
 )
+from pathlib import Path
+
+import httpx
 from cryptography.hazmat.primitives import (
     hashes,
     serialization
 )
 from cryptography.hazmat.primitives.asymmetric import padding
-from infrastructure.platform.terminal import Terminal
+
 from infrastructure.errors import AppError
+from infrastructure.platform.terminal import Terminal
 from metadata import const
+from observability import (
+    observe,
+    observe_exception
+)
 from protocol.transport.auth import (
     build_service_headers,
     build_service_query,

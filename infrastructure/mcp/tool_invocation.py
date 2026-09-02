@@ -2,15 +2,17 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
+from mcp.types import CallToolResult
+
+from agent.application.tools.catalog import has_tool
 from agent.application.tools.context import (
     NESTED_TOOL_DISPATCH_META_KEY,
     TURN_INTERRUPT_META_KEY,
 )
-from agent.application.tools.catalog import has_tool
 from agent.application.turns.context import ToolInvocation
 from agent.domain.tool_policy import supports_progress_notifications
 from agent.ports import McpSessionPort
-from mcp.types import CallToolResult
 from observability import observe
 
 

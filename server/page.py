@@ -2,7 +2,9 @@
 # Notes: ==== Mind™ ====
 
 from pathlib import Path
+
 from fastapi.responses import Response
+
 from metadata import const
 
 
@@ -13,7 +15,7 @@ def web_dir() -> Path:
 
 def render_page(name: str) -> Response:
     """读取并返回配置服务页面。"""
-    target  = web_dir() / name
+    target = web_dir() / name
     content = target.read_text(encoding=const.CHARSET, errors="replace")
 
     content = (

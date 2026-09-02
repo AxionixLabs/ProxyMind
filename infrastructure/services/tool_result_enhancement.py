@@ -2,6 +2,7 @@
 # Notes: ==== Mind(TM) ====
 
 import typing
+
 from infrastructure.services.remote_services import RemoteServices
 from observability import observe
 from protocol.client.heal import stream_heal

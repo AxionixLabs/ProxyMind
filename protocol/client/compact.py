@@ -2,8 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import json
-import httpx
 import typing
+
+import httpx
+
 from protocol.client.payload import request_llm_conf
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints

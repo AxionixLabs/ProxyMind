@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import httpx
 import typing
 from dataclasses import dataclass
+
+import httpx
+
 from protocol.schema.identifiers import (
     normalize_turn_id,
     resolve_request_id,
 )
+from protocol.schema.turn_inputs import TurnInput
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
 from protocol.transport.reliable import post_json_reliably
-from protocol.schema.turn_inputs import TurnInput
 
 TurnControlStatus = typing.Literal[
     "accepted",
@@ -460,9 +462,9 @@ def _status_snapshot(
         or terminal != (status in _TERMINAL_TURN_STATUSES)
         or not isinstance(error, str)
         or any(
-            isinstance(value, bool) or not isinstance(value, (int, float))
-            for value in numeric_values
-        )
+        isinstance(value, bool) or not isinstance(value, (int, float))
+        for value in numeric_values
+    )
         or not isinstance(attempt, int)
         or attempt < 1
         or not isinstance(version, int)

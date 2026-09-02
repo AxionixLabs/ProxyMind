@@ -2,12 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import copy
-import httpx
 import typing
-from observability import (
-    observe,
-    observe_exception
-)
+
+import httpx
+
 from infrastructure.config.providers import (
     DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,
@@ -16,6 +14,10 @@ from infrastructure.config.providers import (
     default_route_for_kind
 )
 from metadata import const
+from observability import (
+    observe,
+    observe_exception
+)
 
 
 class ConfigReader(typing.Protocol):

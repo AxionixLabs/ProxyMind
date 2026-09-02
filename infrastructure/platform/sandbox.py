@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
+import base64
+import json
 import os
 import sys
-import json
-import base64
 import typing
-import asyncio
 from pathlib import Path
+
 from infrastructure.config.paths import is_packaged_executable
 
 

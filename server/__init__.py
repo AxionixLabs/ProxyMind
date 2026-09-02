@@ -9,6 +9,5 @@ __all__ = [
     "config_service_base_url"
 ]
 
-
 if __name__ == "__main__":
     pass

@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import sys
-import httpx
-import typing
 import asyncio
 import platform
+import sys
+import typing
+
+import httpx
+
+from observability import observe_exception
 from protocol.transport.auth import (
     build_service_headers,
     build_service_query,
 )
 from protocol.transport.endpoints import service_endpoints
-from observability import observe_exception
 
 
 async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:

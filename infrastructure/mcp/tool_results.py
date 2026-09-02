@@ -4,6 +4,7 @@
 import json
 import typing
 from dataclasses import dataclass
+
 from mcp import types as mcp_types
 
 _ENVELOPE_KEYS = frozenset({"ok", "text", "attachments", "data"})

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from fastapi import FastAPI
+
 from .agent import agent_router
 from .basic import basic_router
 from .pref import pref_router

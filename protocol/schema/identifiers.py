@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import base64
+import hashlib
 import re
 import time
-import uuid
-import base64
 import typing
-import hashlib
+import uuid
 
 TURN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,160}$")

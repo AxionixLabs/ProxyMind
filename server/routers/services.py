@@ -2,7 +2,9 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from fastapi import APIRouter, Request
+
 from infrastructure.config.session import ConfigSession
 from ..storage import (
     load_service_config,
@@ -18,8 +20,8 @@ async def api_service_config_load(request: Request) -> dict[str, typing.Any]:
     config_session: ConfigSession = request.app.state.config_session
 
     return {
-        "ok"   : True,
-        "data" : load_service_config(config_session)
+        "ok": True,
+        "data": load_service_config(config_session)
     }
 
 
@@ -31,8 +33,8 @@ async def api_service_config_save(request: Request) -> dict[str, typing.Any]:
     config_session: ConfigSession = request.app.state.config_session
 
     return {
-        "ok"   : True,
-        "data" : save_service_config(config_session, payload)
+        "ok": True,
+        "data": save_service_config(config_session, payload)
     }
 
 

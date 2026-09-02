@@ -8,7 +8,7 @@ from dataclasses import (
     field
 )
 from pathlib import Path
-from metadata import const
+
 from agent.domain.execution_policy import (
     Decision,
     Policy,
@@ -20,6 +20,7 @@ from agent.domain.execution_policy.rule import (
     PrefixPattern,
     HostExecutable
 )
+from metadata import const
 
 
 @dataclass

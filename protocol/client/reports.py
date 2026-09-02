@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from protocol.transport.events import (
     EventReport,
     EventReportPool,

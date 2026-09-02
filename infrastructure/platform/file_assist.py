@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
-import sys
-import json
-import shutil
-import typing
 import asyncio
+import json
+import os
+import shutil
+import sys
+import typing
 import webbrowser
+
 from infrastructure.platform.terminal import Terminal
 from metadata import const
 

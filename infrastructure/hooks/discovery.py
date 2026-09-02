@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import hashlib
+import json
 import os
 import re
-import json
 import typing
-import hashlib
 from dataclasses import dataclass
 from pathlib import Path
+
 from agent.domain.hooks import (
     HOOK_EVENT_CONFIG_SPECS,
     HOOK_EVENT_NAMES,

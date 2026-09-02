@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from pathlib import Path
 from functools import lru_cache
+from pathlib import Path
+
 from .models import SkillSpec
 from .parser import parse_skill_frontmatter
 from .paths import (

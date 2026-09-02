@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import re
 import copy
-import typing
 import datetime
+import re
+import typing
 
 EnvironmentStatus = typing.Literal[
     "available",

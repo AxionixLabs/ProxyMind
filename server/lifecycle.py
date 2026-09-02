@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
-import httpx
 import asyncio
-import uvicorn
 import contextlib
+import time
+
+import httpx
+import uvicorn
+
+from infrastructure.config.session import ConfigSession
 from infrastructure.errors import AppError
 from infrastructure.platform.ports import port_available
-from infrastructure.config.session import ConfigSession
 from observability import observe_exception
 from .app import create_app
 from .endpoints import (
@@ -30,15 +32,15 @@ class ConfigServiceRuntime(object):
         port_scan_limit: int = 50,
         log_level: str = "INFO"
     ) -> None:
-        self.config_session  = config_session
-        self.host            = str(host or DEFAULT_CONFIG_SERVICE_HOST)
-        self.preferred_port  = int(preferred_port)
+        self.config_session = config_session
+        self.host = str(host or DEFAULT_CONFIG_SERVICE_HOST)
+        self.preferred_port = int(preferred_port)
         self.port_scan_limit = max(1, int(port_scan_limit))
-        self.log_level       = str(log_level or "INFO").lower()
-        self.port            = self.preferred_port
-        self.base_url        = f"http://{self.host}:{self.port}"
+        self.log_level = str(log_level or "INFO").lower()
+        self.port = self.preferred_port
+        self.base_url = f"http://{self.host}:{self.port}"
 
-        self.server: uvicorn.Server | None   = None
+        self.server: uvicorn.Server | None = None
         self.task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
@@ -75,10 +77,10 @@ class ConfigServiceRuntime(object):
     async def stop(self) -> None:
         """停止配置服务。"""
         server = self.server
-        task   = self.task
+        task = self.task
 
         self.server = None
-        self.task   = None
+        self.task = None
 
         if server is not None:
             server.should_exit = True

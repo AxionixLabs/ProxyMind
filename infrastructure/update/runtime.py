@@ -1,27 +1,29 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import sys
-import time
-import stat
-import httpx
-import shutil
-import typing
 import asyncio
 import hashlib
-import zipfile
+import shutil
+import stat
+import sys
 import tempfile
+import time
+import typing
+import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
+
+import httpx
+
 from infrastructure.errors import AppError
-from observability import (
-    observe,
-    observe_exception,
-)
 from infrastructure.platform import signals
 from infrastructure.platform.ports import (
     port_available,
     terminate_port_process,
+)
+from observability import (
+    observe,
+    observe_exception,
 )
 from protocol.client.manifest import fetch_manifest
 

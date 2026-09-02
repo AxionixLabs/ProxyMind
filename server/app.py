@@ -3,6 +3,7 @@
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+
 from infrastructure.config.session import ConfigSession
 from .page import web_dir
 from .routers import register_routers

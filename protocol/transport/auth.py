@@ -30,17 +30,17 @@ def derive_hs256_secret(*, step_sec: int = 300, ts: int | None = None) -> str:
 
 def manufacture_token(ttl_sec: int = 3600) -> str:
     """生成本地服务认证使用的短期令牌。"""
-    now    = int(time.time())
+    now = int(time.time())
     secret = derive_hs256_secret(ts=now)
 
     payload = {
-        "iss"   : config.ISSUER,
-        "aud"   : config.AUDIENCE,
-        "sub"   : "local-user",
-        "scope" : "user",
-        "iat"   : now,
-        "exp"   : now + ttl_sec,
-        "jti"   : secrets.token_urlsafe(16)
+        "iss": config.ISSUER,
+        "aud": config.AUDIENCE,
+        "sub": "local-user",
+        "scope": "user",
+        "iat": now,
+        "exp": now + ttl_sec,
+        "jti": secrets.token_urlsafe(16)
     }
 
     return jwt.encode(payload, secret, algorithm="HS256")

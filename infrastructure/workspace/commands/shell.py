@@ -2,9 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import os
-import time
 import shlex
+import time
 import typing
+
 from agent.domain.execution_policy import (
     effective_sandbox_mode,
     normalize_sandbox_permission,

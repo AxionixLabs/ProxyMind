@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
+import contextlib
+import hashlib
 import os
 import shutil
-import typing
-import hashlib
-import asyncio
 import tempfile
-import contextlib
+import typing
 from dataclasses import dataclass
 from pathlib import Path
+
 from metadata import const
 
 DEFAULT_OUTPUT_THRESHOLD_BYTES = 256 * 1024

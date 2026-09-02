@@ -2,13 +2,13 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
+from protocol.schema.environment import normalize_client_environment_snapshot
 from protocol.schema.identifiers import (
     normalize_turn_id,
     short_uid,
 )
-from protocol.schema.environment import normalize_client_environment_snapshot
 from protocol.schema.permissions import permission_payload
-
 
 _AGENT_REQUEST_OPTION_FIELDS = frozenset({
     "agent",

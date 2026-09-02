@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import json
 import time
-import httpx
 import typing
-import asyncio
 from urllib.parse import urlsplit
+
+import httpx
+
 from observability import (
     observe,
     observe_exception,

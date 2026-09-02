@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from agent.domain.patches.models import PatchHunk
 from infrastructure.workspace.context import (
     WorkspaceComponent,

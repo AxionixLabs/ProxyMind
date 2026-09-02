@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import re
 import json
+import re
 import typing
+
 from loguru import logger
 
 __all__ = [

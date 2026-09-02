@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import httpx
-import typing
 import asyncio
+import typing
+
+import httpx
 
 RETRY_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
     0.0,

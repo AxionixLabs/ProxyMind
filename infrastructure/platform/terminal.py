@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import os
 import sys
 import typing
-import asyncio
+
 from infrastructure.platform.encoding import decode_process_output
 
 

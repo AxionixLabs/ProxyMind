@@ -2,8 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from infrastructure.config.schema import provider_profile_values
-from infrastructure.config.session import ConfigSession
+
 from infrastructure.config.providers import (
     DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,
@@ -13,30 +12,32 @@ from infrastructure.config.providers import (
     is_valid_provider_id,
     supported_routes_for_kind
 )
+from infrastructure.config.schema import provider_profile_values
+from infrastructure.config.session import ConfigSession
 from infrastructure.services.service_config import normalize_domain
 
-HOSTED_TOOL_GROUPS  = ("perf_engine", "sandbox_cloud")
+HOSTED_TOOL_GROUPS = ("perf_engine", "sandbox_cloud")
 
 
 def load_pref(config_session: ConfigSession) -> dict[str, typing.Any]:
     """读取模型偏好配置。"""
-    config    = config_session.load()
-    model     = config.get("model") if isinstance(config, dict) else {}
-    primary   = model.get("primary") if isinstance(model, dict) else {}
-    raw       = config_session.store.read_raw()
+    config = config_session.load()
+    model = config.get("model") if isinstance(config, dict) else {}
+    primary = model.get("primary") if isinstance(model, dict) else {}
+    raw = config_session.store.read_raw()
     providers = raw.get("model_providers") if isinstance(raw, dict) else {}
-    profiles  = providers if isinstance(providers, dict) else {}
+    profiles = providers if isinstance(providers, dict) else {}
     active_id = clean_text(primary.get("provider")) if isinstance(primary, dict) else ""
 
     return {
         "active_provider": active_id,
-        "provider_kinds" : [provider_kind_to_pref(item) for item in SUPPORTED_PROVIDER_OPTIONS],
-        "providers"      : [
+        "provider_kinds": [provider_kind_to_pref(item) for item in SUPPORTED_PROVIDER_OPTIONS],
+        "providers": [
             provider_profile_to_pref(provider_id, profile, active_id=active_id)
             for provider_id, profile in profiles.items()
             if isinstance(provider_id, str) and isinstance(profile, dict)
         ],
-        "hosted_tools" : hosted_tools_to_pref(config.get("hosted_tools"))
+        "hosted_tools": hosted_tools_to_pref(config.get("hosted_tools"))
     }
 
 
@@ -63,9 +64,9 @@ def create_provider(
     raw: typing.Any
 ) -> dict[str, typing.Any]:
     """创建一个 Provider Profile。"""
-    payload     = raw if isinstance(raw, dict) else {}
+    payload = raw if isinstance(raw, dict) else {}
     provider_id = normalize_provider_id(payload.get("id"))
-    profiles    = _raw_provider_profiles(config_session)
+    profiles = _raw_provider_profiles(config_session)
 
     if provider_id in profiles:
         raise ValueError(f"provider already exists: {provider_id}")
@@ -83,13 +84,13 @@ def update_provider(
 ) -> dict[str, typing.Any]:
     """更新一个 Provider Profile。"""
     normalized_id = normalize_provider_id(provider_id)
-    profiles       = _raw_provider_profiles(config_session)
-    current        = profiles.get(normalized_id)
+    profiles = _raw_provider_profiles(config_session)
+    current = profiles.get(normalized_id)
     if not isinstance(current, dict):
         raise ValueError(f"provider does not exist: {normalized_id}")
 
     payload = raw if isinstance(raw, dict) else {}
-    merged  = dict(current)
+    merged = dict(current)
     for field in ("name", "kind", "model", "route", "reasoning_effort", "base_url"):
         if field in payload:
             merged[field] = payload[field]
@@ -131,11 +132,11 @@ def delete_provider(
 ) -> dict[str, typing.Any]:
     """删除一个 Provider Profile。"""
     normalized_id = normalize_provider_id(provider_id)
-    profiles       = _raw_provider_profiles(config_session)
+    profiles = _raw_provider_profiles(config_session)
     if normalized_id not in profiles:
         raise ValueError(f"provider does not exist: {normalized_id}")
 
-    raw       = config_session.store.read_raw()
+    raw = config_session.store.read_raw()
     active_id = clean_text(raw.get("model_provider"))
     if normalized_id == active_id and len(profiles) > 1:
         raise ValueError("select another provider before deleting the active provider")
@@ -151,13 +152,13 @@ def load_service_config(
     config_session: ConfigSession
 ) -> dict[str, typing.Any]:
     """读取远程服务域名配置。"""
-    config  = config_session.load()
+    config = config_session.load()
     service = config.get("service") if isinstance(config, dict) else {}
-    domain  = normalize_domain(service.get("domain") if isinstance(service, dict) else "")
+    domain = normalize_domain(service.get("domain") if isinstance(service, dict) else "")
 
     return {
-        "domain"     : domain,
-        "configured" : bool(domain)
+        "domain": domain,
+        "configured": bool(domain)
     }
 
 
@@ -244,7 +245,7 @@ def normalize_provider_profile(provider_id: str, raw: typing.Any) -> dict[str, s
 
 def _raw_provider_profiles(config_session: ConfigSession) -> dict[str, typing.Any]:
     """读取用户配置中保存的 Provider Profile 表。"""
-    raw       = config_session.store.read_raw()
+    raw = config_session.store.read_raw()
     providers = raw.get("model_providers") if isinstance(raw, dict) else {}
     return dict(providers) if isinstance(providers, dict) else {}
 
@@ -267,7 +268,7 @@ def _validate_unique_provider_name(
 
 def hosted_tools_to_pref(raw: typing.Any) -> dict[str, typing.Any]:
     """把配置中的托管工具开关转换为偏好接口结构。"""
-    data   = raw if isinstance(raw, dict) else {}
+    data = raw if isinstance(raw, dict) else {}
     groups = data.get("groups") if isinstance(data.get("groups"), dict) else {}
 
     return {
@@ -280,7 +281,7 @@ def hosted_tools_to_pref(raw: typing.Any) -> dict[str, typing.Any]:
 
 def pref_to_hosted_tools(raw: typing.Any) -> dict[str, typing.Any]:
     """把偏好接口中的托管工具开关转换为配置结构。"""
-    data   = raw if isinstance(raw, dict) else {}
+    data = raw if isinstance(raw, dict) else {}
     groups = data.get("groups") if isinstance(data.get("groups"), dict) else {}
 
     return {

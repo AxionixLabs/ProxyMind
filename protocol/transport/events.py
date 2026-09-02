@@ -1,24 +1,23 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
-import typing
 import asyncio
 import contextlib
-from protocol.schema.identifiers import short_uid
-from protocol.transport.reports import post_stream_event
-from protocol.schema.stream_events import StreamEvent
-from protocol.transport import config
+import time
+import typing
+
 from observability import (
     observe_exception,
     observe,
 )
+from protocol.schema.identifiers import short_uid
+from protocol.schema.stream_events import StreamEvent
+from protocol.transport import config
+from protocol.transport.reports import post_stream_event
 
 
 class EventReport(object):
     """事件上报器，保证队列内事件按顺序发送。"""
-
-
 
     def __init__(
         self,

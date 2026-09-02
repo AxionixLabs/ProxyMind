@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import typing
-import logging
 import contextlib
+import logging
+import typing
+
 from . import observe
 
 __all__ = ["route_session_termination_warnings"]

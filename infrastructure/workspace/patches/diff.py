@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
 import difflib
 import hashlib
+import time
 from dataclasses import dataclass
+
 from metadata import const
 
 

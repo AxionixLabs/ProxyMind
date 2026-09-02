@@ -8,8 +8,10 @@ from collections.abc import (
     Mapping,
 )
 from datetime import timedelta
+
 from mcp import types as mcp_types
 from mcp.shared.session import ProgressFnT
+
 from agent.application.tools.context import (
     NESTED_TOOL_DISPATCH_META_KEY,
     TURN_INTERRUPT_META_KEY,
@@ -25,11 +27,11 @@ from agent.application.tools.results import (
     LocalToolSource,
 )
 from agent.application.turns.context import TurnContext
+from agent.ports.mcp_session import McpSessionPort
 from agent.protocol.json_value import (
     thaw_json,
     thaw_object,
 )
-from agent.ports.mcp_session import McpSessionPort
 from infrastructure.mcp.nested_tool_results import create_nested_tool_dispatch
 
 

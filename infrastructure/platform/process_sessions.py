@@ -1,20 +1,22 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
-import typing
 import asyncio
 import secrets
+import time
+import typing
 from collections import deque
 from dataclasses import dataclass
+
 from agent.ports import (
     ProcessCapability,
     ProcessHandle,
     ProcessSpec,
 )
-from observability import (
-    observe,
-    observe_exception
+from infrastructure.platform.encoding import decode_process_output
+from infrastructure.platform.process_capture import (
+    OrderedOutputBuffer,
+    ProcessCapture
 )
 from infrastructure.platform.processes import (
     close_process_stdin,
@@ -23,15 +25,14 @@ from infrastructure.platform.processes import (
     terminate_process_tree,
     wait_for_process
 )
-from infrastructure.platform.encoding import decode_process_output
-from infrastructure.platform.process_capture import (
-    OrderedOutputBuffer,
-    ProcessCapture
-)
 from infrastructure.platform.sandbox import (
     SandboxClient,
     SandboxUnavailable,
     SidecarProcess,
+)
+from observability import (
+    observe,
+    observe_exception
 )
 
 

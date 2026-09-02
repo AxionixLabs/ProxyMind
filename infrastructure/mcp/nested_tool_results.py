@@ -11,15 +11,15 @@ from mcp import types as mcp_types
 from mcp.shared.session import ProgressFnT
 
 from agent.application.turns.context import TurnContext
-from agent.protocol.json_value import (
-    freeze_json,
-    thaw_object,
-)
 from agent.ports.javascript import (
     NestedToolDispatch,
     NestedToolOutput,
 )
 from agent.ports.mcp_session import McpSessionPort
+from agent.protocol.json_value import (
+    freeze_json,
+    thaw_object,
+)
 from infrastructure.mcp.composite_session import CompositeToolSession
 from infrastructure.mcp.tool_results import normalize_call_tool_result
 

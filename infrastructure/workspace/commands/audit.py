@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from infrastructure.workspace.context import WorkspaceComponent
 
 

@@ -6,11 +6,14 @@ import functools
 import time
 import typing
 from collections.abc import Mapping
+
+from mcp import types as mcp_types
+
+from agent.application.tools.catalog import meta_for_tool
 from agent.application.tools.execution import (
     ToolExecutionAdapter,
     ToolExecutionResult,
 )
-from agent.application.tools.catalog import meta_for_tool
 from agent.application.turns.context import ToolInvocation
 from agent.application.views.contracts import PresentationSink
 from agent.application.views.tool_execution import (
@@ -22,15 +25,14 @@ from agent.ports import (
     McpSessionPort,
     OutputStatusPort,
 )
-from infrastructure.mcp.tool_invocation import execute_tool
 from infrastructure.mcp.nested_tool_results import nested_tool_output
+from infrastructure.mcp.tool_invocation import execute_tool
 from infrastructure.mcp.tool_results import (
     normalize_call_tool_result,
     normalize_tool_fields,
     serialize_call_tool_result,
 )
 from infrastructure.services.tool_result_enhancement import enhance_tool_result
-from mcp import types as mcp_types
 from observability import (
     observe,
     observe_exception,

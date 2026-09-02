@@ -1,19 +1,15 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import httpx
 import typing
+
+import httpx
+
 from protocol.schema.identifiers import (
     normalize_turn_id,
     resolve_request_id,
     stable_request_id,
 )
-from protocol.transport.auth import build_service_headers
-from protocol.transport.reliable import (
-    get_json_reliably,
-    post_json_reliably,
-)
-from protocol.transport.endpoints import service_endpoints
 from protocol.schema.tool_approval import (
     TOOL_APPROVAL_DECISIONS_BY_KIND,
     ToolApprovalAck,
@@ -26,6 +22,12 @@ from protocol.schema.tool_approval import (
     ToolApprovalSnapshot,
     ToolApprovalSnapshotItem,
     ToolApprovalTurnStatus,
+)
+from protocol.transport.auth import build_service_headers
+from protocol.transport.endpoints import service_endpoints
+from protocol.transport.reliable import (
+    get_json_reliably,
+    post_json_reliably,
 )
 
 _TOOL_RESULT_STATUS_VALUES = frozenset({
@@ -261,6 +263,7 @@ def _tool_approval_snapshot_status(
         return "cancelled"
     return None
 
+
 class ToolApprovalSnapshotRequestError(Exception):
     """描述审批恢复快照请求失败或返回无效响应。"""
 
@@ -482,10 +485,10 @@ def _approval_snapshot_item(
     if (
         len(raw_decisions) > 5
         or any(
-            not isinstance(item, str)
-            or item not in TOOL_APPROVAL_DECISIONS_BY_KIND[typed_kind]
-            for item in raw_decisions
-        )
+        not isinstance(item, str)
+        or item not in TOOL_APPROVAL_DECISIONS_BY_KIND[typed_kind]
+        for item in raw_decisions
+    )
         or len(set(raw_decisions)) != len(raw_decisions)
     ):
         raise ToolApprovalSnapshotRequestError(
@@ -711,8 +714,8 @@ def _validate_snapshot_action(
                     "MCP annotations must be boolean or null"
                 )
         for field_name in (
-            "connector_id", "connector_name", "connector_description",
-            "connected_account_email", "tool_title", "tool_description",
+                "connector_id", "connector_name", "connector_description",
+                "connected_account_email", "tool_title", "tool_description",
         ):
             if field_name in value and value[field_name] is not None:
                 _snapshot_text(value[field_name], field_name)
@@ -1029,12 +1032,12 @@ async def get_tool_result_status(
         or "execution_deadline_at" not in data
         or completion_mode not in {"interactive", "execution"}
         or (
-            execution_deadline_at is not None
-            and (
-                not isinstance(execution_deadline_at, str)
-                or not execution_deadline_at.strip()
-            )
+        execution_deadline_at is not None
+        and (
+            not isinstance(execution_deadline_at, str)
+            or not execution_deadline_at.strip()
         )
+    )
         or (completion_mode == "interactive" and execution_deadline_at is not None)
     ):
         raise ToolResultRequestError(
@@ -1182,7 +1185,7 @@ async def post_tool_approval(
 ) -> ToolApprovalAck:
     """把用户对服务端审批请求的决定回传给主循环。"""
     clean_decision = str(decision or "").strip()
-    clean_turn_id  = str(turn_id or "").strip()
+    clean_turn_id = str(turn_id or "").strip()
     clean_kind = str(kind or "").strip()
 
     normalized_request_id = (

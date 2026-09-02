@@ -2,11 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
+from agent.domain.patches.delta import AppliedPatchDelta
 from infrastructure.workspace.context import (
     WorkspaceComponent,
     WorkspaceContext,
 )
-from agent.domain.patches.delta import AppliedPatchDelta
 from infrastructure.workspace.patches.diagnostics import PatchDiagnostics
 from infrastructure.workspace.patches.planner import PatchPlanner
 from metadata import const

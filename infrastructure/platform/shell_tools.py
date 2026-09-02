@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import os
-import sys
 import stat
+import sys
 import typing
 from pathlib import Path
 

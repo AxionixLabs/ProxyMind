@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
-import sys
 import codecs
 import locale
+import os
+import sys
 import typing
 import unicodedata
 from dataclasses import dataclass
+
 from metadata import const
 
 UTF8_ENCODING = codecs.lookup("utf-8").name

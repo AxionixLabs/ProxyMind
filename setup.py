@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from metadata import const
 from setuptools import (
     setup, find_packages
 )
+
+from metadata import const
 
 with open('requirements.txt') as f:
     requirements = f.read().splitlines()
@@ -40,7 +41,6 @@ setup(
         'Natural Language :: English',
     ]
 )
-
 
 if __name__ == '__main__':
     pass

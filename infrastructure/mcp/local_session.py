@@ -2,20 +2,22 @@
 # Notes: ==== Mind™ ====
 
 import time
-import httpx
 import typing
-from datetime import timedelta
-from observability import observe_exception
 from contextlib import asynccontextmanager
+from datetime import timedelta
+
+import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+
 from infrastructure.mcp.errors import (
     flatten_exceptions,
     is_transport_close_exception,
 )
 from metadata import const
-from protocol.transport.streaming import cap_response
+from observability import observe_exception
 from protocol.transport.auth import manufacture_token
+from protocol.transport.streaming import cap_response
 
 LOCAL_MCP_READ_TIMEOUT: timedelta = timedelta(minutes=30)
 

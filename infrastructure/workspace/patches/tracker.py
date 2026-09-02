@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+
 from infrastructure.workspace.patches.diff import DiffRenderer
 
 

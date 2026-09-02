@@ -4,6 +4,7 @@
 import os
 import typing
 from urllib.parse import urlparse
+
 from protocol.transport import config
 
 SERVICE_DOMAIN_ENV = "MIND_SERVICE_DOMAIN"
@@ -32,8 +33,8 @@ class ServiceEndpoints(object):
         env_name: str = SERVICE_DOMAIN_ENV
     ) -> None:
         self.default_domain = normalize_domain(default_domain)
-        self.env_name       = str(env_name or SERVICE_DOMAIN_ENV)
-        self.configured     = ""
+        self.env_name = str(env_name or SERVICE_DOMAIN_ENV)
+        self.configured = ""
 
     def configure(self, domain: typing.Any) -> str:
         """配置运行时远端服务域名；非法或空值会清空覆盖。"""
@@ -55,7 +56,6 @@ class ServiceEndpoints(object):
 
 
 service_endpoints = ServiceEndpoints(default_domain=config.DOMAIN)
-
 
 if __name__ == '__main__':
     pass

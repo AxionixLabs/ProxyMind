@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from pathlib import Path
+
 from infrastructure.update.runtime import (
     Upgrade,
     UpgradeProgress,

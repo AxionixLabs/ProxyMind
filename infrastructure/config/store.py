@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
-import typing
-import tomlkit
-import tempfile
 import contextlib
+import os
+import tempfile
+import typing
 from collections.abc import (
     Callable,
     MutableMapping,
 )
 from pathlib import Path
+
+import tomlkit
 from tomlkit.items import (
     AoT,
     Comment,
@@ -18,7 +19,7 @@ from tomlkit.items import (
     Whitespace,
 )
 from tomlkit.toml_document import TOMLDocument
-from metadata import const
+
 from infrastructure.config.paths import default_application_home
 from infrastructure.config.providers import (
     DEFAULT_PROVIDER_ID,
@@ -26,6 +27,7 @@ from infrastructure.config.providers import (
     DEFAULT_REASONING_EFFORT,
     DEFAULT_ROUTE_NAME,
 )
+from metadata import const
 
 ConfigBody = list[tuple[typing.Any, typing.Any]]
 

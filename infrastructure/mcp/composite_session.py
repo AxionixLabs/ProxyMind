@@ -3,8 +3,10 @@
 
 import typing
 from datetime import timedelta
+
 from mcp import types as mcp_types
 from mcp.shared.session import ProgressFnT
+
 from agent.ports import (
     ExternalToolGroupPort,
     McpSessionPort,

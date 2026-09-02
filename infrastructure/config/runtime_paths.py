@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
 import contextlib
+import os
 from pathlib import Path
-from infrastructure.errors import AppError
+
 from infrastructure.config.paths import (
     APP_HOME_ENV,
     default_application_home
 )
 from infrastructure.config.store import default_config_path
+from infrastructure.errors import AppError
 from metadata import const
 
 HX_HOME_ENV = "HELIX_HOME"
