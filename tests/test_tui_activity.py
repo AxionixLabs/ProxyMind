@@ -1301,7 +1301,8 @@ async def test_mcp_activities_render_together_and_finish_independently() -> None
     text = _block_text(rendered[-1])
     assert "Helix MCP starting" in text
     assert "External MCP linking · 0/1 servers" in text
-    assert "\n" in text
+    assert "\n\n" in text
+    assert rendered[-1].preserve_newlines
 
     inbuild["state"] = "ready"
     await activity.stop("inbuild")

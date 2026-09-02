@@ -613,7 +613,10 @@ class TuiActivity(object):
             )
 
             if fragments:
-                fragments.append(("", "\n"))
+                # 合成多个槽位时，使用与稳定正文块一致的空行分隔；通知
+                # Screen 保留它，否则单行裁剪会把换行转换为空格。
+                preserve_newlines = True
+                fragments.append(("", "\n\n"))
             fragments.extend(clipped)
 
         if fragments:
