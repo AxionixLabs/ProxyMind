@@ -221,6 +221,24 @@ async def test_managed_proxy_forwards_allowed_socks5_connect() -> None:
         await target_server.wait_closed()
 
 
+@pytest.mark.anyio
+async def test_managed_proxy_rejects_socks5_udp_command() -> None:
+    proxy = ManagedNetworkProxy(StaticNetworkPolicy())
+    await proxy.start()
+    try:
+        reader, writer = await asyncio.open_connection(proxy.host, proxy.port)
+        writer.write(b"\x05\x01\x00")
+        await writer.drain()
+        assert await reader.readexactly(2) == b"\x05\x00"
+        writer.write(b"\x05\x03\x00\x01\x7f\x00\x00\x01\x00\x35")
+        await writer.drain()
+        assert (await reader.readexactly(10))[1] == 0x07
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await proxy.close()
+
+
 async def _record_blocked(
     blocked: list[BlockedNetworkRequest],
     request: BlockedNetworkRequest,

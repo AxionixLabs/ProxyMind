@@ -179,7 +179,7 @@ def managed_network_backend_name(platform: str | None = None) -> str:
 
 
 class ManagedNetworkProxy:
-    """提供本机回环 HTTP/CONNECT 代理并执行静态网络策略。"""
+    """提供本机回环 HTTP、CONNECT 和 SOCKS5 CONNECT 代理。"""
 
     def __init__(
         self,
