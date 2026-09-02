@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import asyncio
 from pathlib import Path
@@ -8,8 +8,10 @@ from agent.ports.capabilities import SandboxMode
 from agent.ports.javascript import (
     JavaScriptExecution,
     JavaScriptExecutionError,
+    JavaScriptExecutionRequest,
     JavaScriptFailureKind,
     NestedToolDispatch,
+    JavaScriptResetDisposition,
 )
 from infrastructure.sidecars.javascript.bundle import JavaScriptBundle
 from infrastructure.sidecars.javascript.process import resolve_node_path
@@ -18,6 +20,8 @@ from infrastructure.sidecars.javascript.session import JavaScriptSidecarSession
 
 class JavaScriptSidecarProvider:
     """按 Session 和安全信封提供惰性 JavaScript Sidecar。"""
+
+    agent_id = "native_coding"
 
     def __init__(
         self,
@@ -44,13 +48,9 @@ class JavaScriptSidecarProvider:
 
     async def execute(
         self,
-        session_id: str,
-        code: str,
         *,
-        cwd: str | Path | None,
-        timeout_ms: int,
+        request: JavaScriptExecutionRequest,
         call_tool: NestedToolDispatch,
-        access_mode: str = "workspace-write",
     ) -> JavaScriptExecution:
         """在匹配 Session 安全信封的 Kernel 中执行一个 Cell。"""
         if self._closed:
@@ -58,14 +58,16 @@ class JavaScriptSidecarProvider:
                 JavaScriptFailureKind.UNAVAILABLE,
                 "JavaScript sidecar provider is closed",
             )
-        key = str(session_id or "").strip()
+        if not isinstance(request, JavaScriptExecutionRequest):
+            raise TypeError("request must be JavaScriptExecutionRequest")
+        key = request.session_id.strip()
         if not key:
             raise JavaScriptExecutionError(
                 JavaScriptFailureKind.RUNTIME_ERROR,
                 "js_repl session id is required",
             )
-        sandbox_mode = _sandbox_mode(access_mode)
-        target_cwd = Path(cwd or self.root).resolve()
+        sandbox_mode = _sandbox_mode(request.access_mode)
+        target_cwd = Path(request.cwd or self.root).resolve()
 
         async with self._lock:
             session = self._sessions.get(key)
@@ -87,12 +89,15 @@ class JavaScriptSidecarProvider:
                 self._sessions[key] = session
 
         return await session.execute(
-            code,
-            timeout_ms=timeout_ms,
+            request.code,
+            timeout_ms=request.timeout_ms,
             call_tool=call_tool,
         )
 
-    async def reset_session(self, session_id: str) -> bool:
+    async def reset_session(
+        self,
+        session_id: str,
+    ) -> JavaScriptResetDisposition:
         """重置已创建 Session；未创建时保持无副作用。"""
         key = str(session_id or "").strip()
         if not key:
@@ -103,21 +108,20 @@ class JavaScriptSidecarProvider:
         async with self._lock:
             session = self._sessions.get(key)
         if session is None:
-            return False
+            return JavaScriptResetDisposition.NOT_STARTED
         await session.reset()
-        return True
+        return JavaScriptResetDisposition.RESET
 
-    async def close_session(self, session_id: str) -> bool:
+    async def close_session(self, session_id: str) -> None:
         """关闭并移除指定 Session。"""
         key = str(session_id or "").strip()
         if not key:
-            return False
+            return None
         async with self._lock:
             session = self._sessions.pop(key, None)
         if session is None:
-            return False
+            return None
         await session.close()
-        return True
 
     async def close(self) -> None:
         """幂等关闭 Provider 持有的全部 Session。"""
@@ -134,7 +138,7 @@ class JavaScriptSidecarProvider:
             )
 
 
-def _sandbox_mode(value: str) -> SandboxMode:
+def _sandbox_mode(value: SandboxMode) -> SandboxMode:
     """把外部模式字符串收窄为受支持的 Sandbox 模式。"""
     if value == "read-only":
         return "read-only"

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 
@@ -24,8 +24,12 @@ from agent.domain.execution_policy import validate_sandbox_permission_arguments
 from agent.domain.permission_profiles import normalize_permission_profile
 from agent.ports.approvals import ApprovalCoordinatorPort
 from agent.ports.javascript import (
+    JavaScriptExecution,
+    JavaScriptExecutionError,
+    JavaScriptExecutionPort,
+    JavaScriptExecutionRequest,
+    JavaScriptResetDisposition,
     NestedToolOutput,
-    WorkspaceJavaScriptPort,
 )
 from agent.ports.workspace import ExecutionPolicy
 from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
@@ -65,7 +69,7 @@ JS_REPL_DESCRIPTION = (
 
 
 def javascript_tools(
-    executor: WorkspaceJavaScriptPort,
+    executor: JavaScriptExecutionPort,
     *,
     approval_coordinator: ApprovalCoordinatorPort | None = None,
     execution_policy: ExecutionPolicy | None = None,
@@ -111,14 +115,24 @@ def javascript_tools(
             )
 
         turn = runtime.turn_context
-        result = await executor.js_repl(
-            session_id=turn.sid,
-            code=str(args["code"]),
-            cwd=turn.cwd,
-            access_mode=turn.permissions.sandbox_mode,
-            timeout_ms=int(args["timeout_ms"]),
-            call_tool=call_nested_tool,
-        )
+        try:
+            execution = await executor.execute(
+                request=JavaScriptExecutionRequest(
+                    session_id=turn.sid,
+                    code=str(args["code"]),
+                    cwd=turn.cwd,
+                    access_mode=turn.permissions.sandbox_mode,
+                    timeout_ms=int(args["timeout_ms"]),
+                ),
+                call_tool=call_nested_tool,
+            )
+        except JavaScriptExecutionError as error:
+            result = _javascript_failure_result(
+                "js_repl_execution_failed",
+                error,
+            )
+        else:
+            result = _javascript_execution_result(execution)
         return client_execution_result(
             tool=JS_REPL_TOOL,
             arguments=args,
@@ -142,7 +156,22 @@ def javascript_tools(
                 error=error,
             )
 
-        result = await executor.reset_js_repl(runtime.turn_context.sid)
+        try:
+            disposition = await executor.reset_session(runtime.turn_context.sid)
+        except JavaScriptExecutionError as error:
+            result = _javascript_failure_result(
+                "js_repl_reset_failed",
+                error,
+            )
+        else:
+            result = {
+                "ok": True,
+                "text": "JavaScript kernel reset.",
+                "data": {
+                    "reset": disposition is JavaScriptResetDisposition.RESET,
+                },
+                "logs": [],
+            }
         return client_execution_result(
             tool=JS_REPL_RESET_TOOL,
             arguments=args,
@@ -472,7 +501,7 @@ def _nested_permission_granted(
 
 
 def _authorization_failure(
-    executor: WorkspaceJavaScriptPort,
+    executor: JavaScriptExecutionPort,
     *,
     tool: str,
     arguments: dict[str, typing.Any],
@@ -494,6 +523,49 @@ def _authorization_failure(
             "detail": error.detail,
         },
     )
+
+
+def _javascript_execution_result(
+    execution: JavaScriptExecution,
+) -> dict[str, typing.Any]:
+    """把 Sidecar 结果投影为既有本地工具结果信封。"""
+    output = _clip_javascript_output(execution.output)
+    return {
+        "ok": True,
+        "text": output or "JavaScript cell completed.",
+        "attachments": list(execution.attachments),
+        "data": {
+            "output": output,
+            "output_truncated": output != execution.output,
+        },
+        "logs": [],
+    }
+
+
+def _javascript_failure_result(
+    reason: str,
+    error: JavaScriptExecutionError,
+) -> dict[str, typing.Any]:
+    """把 Sidecar 失败投影为既有本地工具失败信封。"""
+    detail = error.detail.strip() or type(error).__name__
+    return {
+        "ok": False,
+        "text": f"native coding failed: {reason}",
+        "attachments": [],
+        "data": {
+            "reason": reason,
+            "error": detail,
+            "failure_context": {"error": detail},
+        },
+        "logs": [],
+    }
+
+
+def _clip_javascript_output(text: str, *, max_chars: int = 24000) -> str:
+    """按既有工具上限截断 JavaScript 显式输出。"""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + f"\n...[truncated {len(text) - max_chars} chars]"
 
 
 __all__ = (

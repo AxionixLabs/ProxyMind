@@ -1,6 +1,6 @@
 # JavaScript Sidecar 实施与验收计划
 
-状态：阶段 0–1 已验证，阶段 2 进行中（2026-09-02）
+状态：阶段 0–2 已验证，阶段 3 进行中（2026-09-02）
 
 本文把 `ARCHITECTURE.md` 中的 JavaScript Sidecar 边界转换为分阶段实施和验收门禁。稳定
 架构以 `ARCHITECTURE.md` 为准；本文只记录实施状态和证据，完成后不成为第二份架构权威。
@@ -225,7 +225,7 @@ hash 和 diff check 通过。旧 Python 单体、旧 import 和旧资产目录�
 
 ### 阶段 2：组合根和 Harness 生命周期
 
-状态：进行中
+状态：已验证
 
 实施：
 
@@ -241,10 +241,14 @@ hash 和 diff check 通过。旧 Python 单体、旧 import 和旧资产目录�
 .\venv\Scripts\python.exe -m pytest tests\test_js_repl.py tests\test_feature_config.py tests\test_client_tool_call.py
 .\venv\Scripts\python.exe -m pytest tests\test_agent_composition.py tests\test_workspace_coding_lifecycle.py tests\test_subagent_tools.py
 .\venv\Scripts\python.exe -m pytest tests\test_package_architecture.py -k "javascript or workspace"
+.\venv\Scripts\python.exe -m pytest tests\test_package_architecture.py -q
+.\venv\Scripts\python.exe -m compileall -q agent infrastructure composition.py mind.py
+node --check sidecars\js_repl\kernel.js
 ```
 
 出口：Workspace 不再包含 JavaScript 成员或清理；组合根是具体 Provider 和 bundle 路径的唯一
-创建者；模型工具、审批、Subagent 和展示行为不变。
+创建者；模型工具、审批、Subagent 和展示行为不变。定向回归 190 passed，完整架构守卫
+116 passed；compileall、Node syntax、bundle hash、diff check 和打包资产配置检查通过。
 
 ### 阶段 3：可靠性、打包与最终验收
 
@@ -301,6 +305,6 @@ git diff --check
 | 阶段 | 状态 | Commit | 验证结果 | 平台/产物 | 未决风险 |
 | --- | --- | --- | --- | --- | --- |
 | 0 文档与基线 | 已验证 | `136fcd24` | 72 passed；Node syntax、asset hash、diff check 通过 | Windows 11/source；Python 3.11.8；Node 24.12.0 | - |
-| 1 Bundle/Adapter | 已验证 | 待提交 | 91 passed；扩大回归 163 passed；compileall、Node syntax、asset hash、diff check 通过 | Windows 11/source | - |
-| 2 Composition/Harness | 进行中 | - | - | Windows 11/source | - |
-| 3 最终验收 | 待开始 | - | - | - | - |
+| 1 Bundle/Adapter | 已验证 | `e38614ae` | 91 passed；扩大回归 163 passed；compileall、Node syntax、asset hash、diff check 通过 | Windows 11/source | - |
+| 2 Composition/Harness | 已验证 | 待提交 | 190 passed；架构守卫 116 passed；compileall、Node syntax、asset hash、diff check、打包资产配置检查通过 | Windows 11/source；Python 3.11.8；Node 24.12.0 | wheel/sdist/Nuitka 真实产物留待阶段 3 |
+| 3 最终验收 | 进行中 | - | - | - | - |

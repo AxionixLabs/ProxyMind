@@ -297,7 +297,7 @@ async def test_runtime_close_cleans_target_and_descendant_sessions() -> None:
     runtime = SubagentRuntime(
         controller,
         settings=AgentSettings(max_depth=2),
-        session_cleanup=cleanup,
+        javascript_session_cleanup=cleanup,
     )
     parent = _parent_turn()
     child = await runtime.spawn(

@@ -4,6 +4,7 @@
 import functools
 import os
 import typing
+from pathlib import Path
 
 from agent.adapters.protocol.compaction import ProtocolCompactionClient
 from agent.application import RuntimeServices
@@ -64,6 +65,7 @@ from infrastructure.services.turn_environment import (
     capture_active_turn_environment,
     capture_turn_environment,
 )
+from infrastructure.sidecars.javascript.provider import JavaScriptSidecarProvider
 from infrastructure.skills import skills_payload
 from infrastructure.workspace.runtime import WorkspaceCoding
 from observability.reporting import RunReport
@@ -160,6 +162,10 @@ def create_application_host(
         fallback_animation,
         enabled=animation_enabled,
     )
+    javascript = create_javascript_provider(
+        workspace_root=workspace_root,
+        application_layout=application_layout,
+    )
     return ApplicationHost(
         workspace_root=(
             os.fspath(workspace_root)
@@ -168,6 +174,8 @@ def create_application_host(
         ),
         application_layout=application_layout,
         runtime_services=runtime_services,
+        javascript_execution=javascript,
+        javascript_lifecycle=javascript,
         config_session=config_session,
         preferences=preferences,
         permissions=permissions,
@@ -252,10 +260,30 @@ def create_workspace_coding(
     )
     return WorkspaceCoding(
         root=root,
-        application_root=(
-            application_layout.root if application_layout is not None else None
-        ),
         process_sessions=process_sessions,
+    )
+
+
+def create_javascript_provider(
+    *,
+    workspace_root: str | os.PathLike[str] | None,
+    application_layout: ApplicationLayout | None,
+) -> JavaScriptSidecarProvider:
+    """在唯一进程组合根创建 JavaScript Sidecar Provider。"""
+    if (
+        application_layout is not None
+        and not isinstance(application_layout, ApplicationLayout)
+    ):
+        raise TypeError("application_layout must be ApplicationLayout")
+    application_root = (
+        application_layout.root
+        if application_layout is not None
+        else Path(__file__).resolve().parent
+    )
+    return JavaScriptSidecarProvider(
+        workspace_root or Path.cwd(),
+        asset_root=application_root / "sidecars" / "js_repl",
+        configured_node_path=os.environ.get("JS_REPL_NODE_PATH"),
     )
 
 

@@ -34,6 +34,8 @@ from agent.ports import (
     HookRegistryPort,
     HookScopeProviderPort,
     HookStatusPort,
+    JavaScriptExecutionPort,
+    JavaScriptSessionLifecyclePort,
     McpRuntimeContext,
     OutputSessionFactory,
     ProcessLifecyclePort,
@@ -135,6 +137,8 @@ class ApplicationHost:
         workspace_root: str | Path | None,
         application_layout: ApplicationLayout | None,
         runtime_services: RuntimeServices,
+        javascript_execution: JavaScriptExecutionPort,
+        javascript_lifecycle: JavaScriptSessionLifecyclePort,
         config_session: ConfigSession,
         preferences: Preferences,
         permissions: PermissionSettings,
@@ -169,6 +173,8 @@ class ApplicationHost:
         self.history_workspace = normalize_workspace(workspace_root or Path.cwd())
         self.application_layout = application_layout
         self.runtime_services = runtime_services
+        self.javascript_execution = javascript_execution
+        self.javascript_lifecycle = javascript_lifecycle
         self.frontend = frontend
         self.lifecycle = lifecycle
         self.activity = activity
@@ -255,6 +261,7 @@ class ApplicationHost:
             client_registry_factory=(
                 lambda: runtime_services.create_client_tool_registry(
                     self.workspace_runtime.coding,
+                    javascript=self.javascript_execution,
                     image_reader=self.workspace_runtime.image_reader,
                     execution_policy=self.workspace_runtime.execution_policy,
                     subagent_runtime=self.subagents,
@@ -299,9 +306,7 @@ class ApplicationHost:
             session_lifecycle=self.session_lifecycle,
             subagent_shutdown=lambda sid: self.subagents.shutdown_root(sid),
             hook_session_cleanup=self.hooks.cleanup_session,
-            execution_session_cleanup=(
-                lambda sid: self.workspace_runtime.coding.close_js_repl_session(sid)
-            ),
+            javascript_session_cleanup=self.javascript_lifecycle.close_session,
             command_hook_cleanup=self.command_hook_sessions.clear_root,
             event_session_close=self.execution.event_reporting.close_session,
             await_cleanup=self.lifecycle.await_cleanup,
@@ -326,9 +331,7 @@ class ApplicationHost:
             skills_provider=self._skills_provider,
             transcript_path_for=self.conversation.transcript_path_for_session,
             transcript_entries_for=lambda path: transcripts.reader(path).read(),
-            session_cleanup=(
-                lambda sid: self.workspace_runtime.coding.close_js_repl_session(sid)
-            ),
+            javascript_session_cleanup=self.javascript_lifecycle.close_session,
             graph_store=AgentGraphStore(
                 agent_graph_db_path(),
                 ttl_ms=self.conversation.history_ttl_ms,
@@ -351,6 +354,7 @@ class ApplicationHost:
             close_approvals=self.approval_coordinator.close,
             clear_command_hooks=self.command_hook_sessions.clear,
             close_hooks=self.hooks.close,
+            close_javascript=self.javascript_lifecycle.close,
             close_workspace=self.workspace_runtime.close,
             close_execution=self.execution.close,
             close_service=self.service_runtime.close,

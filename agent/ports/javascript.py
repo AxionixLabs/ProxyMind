@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import enum
 import typing
 from collections.abc import (
     Awaitable,
     Callable,
-    Mapping,
 )
 from dataclasses import dataclass
 
@@ -52,39 +51,68 @@ class JavaScriptExecution:
     attachments: tuple[dict[str, ThawedJsonValue], ...] = ()
 
 
-class WorkspaceJavaScriptPort(typing.Protocol):
-    """定义绑定工作区的持久 JavaScript 内核执行契约。"""
+@dataclass(frozen=True, slots=True)
+class JavaScriptExecutionRequest:
+    """描述一次绑定 Session 与安全信封的 JavaScript Cell 请求。"""
+
+    session_id: str
+    code: str
+    cwd: str
+    access_mode: SandboxMode
+    timeout_ms: int
+
+
+class JavaScriptResetDisposition(enum.StrEnum):
+    """描述重置命令是否关闭了已经启动的 Kernel。"""
+
+    NOT_STARTED = "not_started"
+    RESET = "reset"
+
+
+class JavaScriptExecutionPort(typing.Protocol):
+    """定义应用层调用持久 JavaScript Sidecar 的执行契约。"""
 
     agent_id: str
 
-    async def js_repl(
+    async def execute(
         self,
         *,
-        session_id: str,
-        code: str,
-        cwd: str,
-        access_mode: SandboxMode,
-        timeout_ms: int,
+        request: JavaScriptExecutionRequest,
         call_tool: NestedToolDispatch,
-    ) -> Mapping[str, typing.Any]:
-        """执行一个 Cell，并允许通过稳定 JSON 回调调用嵌套工具。"""
+    ) -> JavaScriptExecution:
+        """执行一个 Cell，并返回完成边界已校验的领域无关结果。"""
         ...
 
-    async def reset_js_repl(
+    async def reset_session(
         self,
         session_id: str,
-    ) -> Mapping[str, typing.Any]:
-        """重置指定会话持有的内核。"""
+    ) -> JavaScriptResetDisposition:
+        """重置指定会话的 Kernel，并返回明确处置结果。"""
+        ...
+
+
+class JavaScriptSessionLifecyclePort(typing.Protocol):
+    """定义 Harness Session 与进程生命周期使用的 Sidecar 清理端口。"""
+
+    async def close_session(self, session_id: str) -> None:
+        """幂等关闭指定 Harness Session 的 Kernel。"""
+        ...
+
+    async def close(self) -> None:
+        """幂等关闭当前进程持有的全部 Kernel。"""
         ...
 
 
 __all__ = (
     "JavaScriptExecution",
     "JavaScriptExecutionError",
+    "JavaScriptExecutionPort",
+    "JavaScriptExecutionRequest",
     "JavaScriptFailureKind",
+    "JavaScriptResetDisposition",
+    "JavaScriptSessionLifecyclePort",
     "NestedToolDispatch",
     "NestedToolOutput",
-    "WorkspaceJavaScriptPort",
 )
 
 if __name__ == "__main__":

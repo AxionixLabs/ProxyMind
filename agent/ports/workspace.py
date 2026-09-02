@@ -9,7 +9,6 @@ from agent.domain.execution_policy import (
     ExecutionPolicyRequirement,
 )
 from .capabilities import ProcessCapability
-from .javascript import WorkspaceJavaScriptPort
 from .media import ImageReaderPort
 from .patching import WorkspacePatchPort
 from .process_tools import (
@@ -46,12 +45,11 @@ class CodingRuntime(typing.Protocol):
 
 class WorkspaceCodingPort(
     CodingRuntime,
-    WorkspaceJavaScriptPort,
     WorkspacePatchPort,
     WorkspaceProcessPort,
     typing.Protocol,
 ):
-    """聚合一个工作区内共享生命周期的编码执行能力。"""
+    """聚合一个工作区内共享生命周期的进程与补丁能力。"""
 
 
 class PatchPreviewPort(typing.Protocol):

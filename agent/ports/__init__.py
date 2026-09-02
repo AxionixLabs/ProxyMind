@@ -83,9 +83,15 @@ from .hooks import (
     HookSessionCleanup,
 )
 from .javascript import (
+    JavaScriptExecution,
+    JavaScriptExecutionError,
+    JavaScriptExecutionPort,
+    JavaScriptExecutionRequest,
+    JavaScriptFailureKind,
+    JavaScriptResetDisposition,
+    JavaScriptSessionLifecyclePort,
     NestedToolDispatch,
     NestedToolOutput,
-    WorkspaceJavaScriptPort,
 )
 from .mcp_runtime import (
     McpConfigReader,
@@ -266,7 +272,13 @@ __all__ = (
     "ProcessResourcePort",
     "NestedToolDispatch",
     "NestedToolOutput",
-    "WorkspaceJavaScriptPort",
+    "JavaScriptExecution",
+    "JavaScriptExecutionError",
+    "JavaScriptExecutionPort",
+    "JavaScriptExecutionRequest",
+    "JavaScriptFailureKind",
+    "JavaScriptResetDisposition",
+    "JavaScriptSessionLifecyclePort",
     "WorkspacePatchPort",
     "WorkspaceProcessPort",
     "UserShellPort",

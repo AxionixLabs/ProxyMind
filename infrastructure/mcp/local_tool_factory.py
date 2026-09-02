@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 from agent.application.config.settings import FeatureSettings
 from agent.application.tools.coding import coding_tools
-from agent.application.tools.javascript import JS_REPL_TOOL_NAMES
+from agent.application.tools.javascript import (
+    JS_REPL_TOOL_NAMES,
+    javascript_tools,
+)
 from agent.application.tools.media import media_tools
 from agent.application.tools.permissions import permission_tools
 from agent.application.tools.plan_update import update_plan_tools
 from agent.application.tools.planning import planning_tools
 from agent.application.tools.subagents import subagent_tools
 from agent.ports.approvals import ApprovalCoordinatorPort
+from agent.ports.javascript import JavaScriptExecutionPort
 from agent.ports.media import ImageReaderPort
 from agent.ports.permissions import PermissionGrantPort
 from agent.ports.subagents import SubagentControlPort
@@ -23,6 +27,7 @@ from infrastructure.mcp.local_tool_registry import ToolRegistry
 def build_client_tool_registry(
     coding: WorkspaceCodingPort,
     *,
+    javascript: JavaScriptExecutionPort,
     image_reader: ImageReaderPort,
     execution_policy: ExecutionPolicy | None = None,
     subagent_runtime: SubagentControlPort | None = None,
@@ -31,14 +36,19 @@ def build_client_tool_registry(
 ) -> ToolRegistry:
     """构建经过 MCP SDK 适配的默认客户端工具注册表。"""
     feature_settings = features or FeatureSettings()
-    coding_definitions = coding_tools(
-        coding,
-        approval_coordinator=approval_coordinator,
-        execution_policy=execution_policy,
-        exec_permission_approvals_enabled=(
-            feature_settings.exec_permission_approvals
+    coding_definitions = [
+        *javascript_tools(
+            javascript,
+            approval_coordinator=approval_coordinator,
+            execution_policy=execution_policy,
         ),
-    )
+        *coding_tools(
+            coding,
+            exec_permission_approvals_enabled=(
+                feature_settings.exec_permission_approvals
+            ),
+        ),
+    ]
     if not feature_settings.js_repl:
         coding_definitions = [
             tool

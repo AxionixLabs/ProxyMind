@@ -5,7 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from mind import create_workspace_coding
+from mind import (
+    create_javascript_provider,
+    create_workspace_coding,
+)
 from infrastructure.mcp.local_tool_registry import ToolRegistry
 from infrastructure.mcp.local_tool_factory import build_client_tool_registry
 from agent.application.tools.subagents import subagent_tools
@@ -162,9 +165,14 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
         enabled=False,
     )
     coding = create_workspace_coding(root=tmp_path, application_layout=None)
+    javascript = create_javascript_provider(
+        workspace_root=tmp_path,
+        application_layout=None,
+    )
 
     enabled_tools = build_client_tool_registry(
         coding,
+        javascript=javascript,
         image_reader=FileImageReader(tmp_path),
         subagent_runtime=enabled,
     ).list_tools().tools
@@ -173,6 +181,7 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
         tool.name
         for tool in build_client_tool_registry(
             coding,
+            javascript=javascript,
             image_reader=FileImageReader(tmp_path),
             subagent_runtime=disabled,
         ).list_tools().tools

@@ -1,6 +1,9 @@
 import pytest
 
-from mind import create_workspace_coding
+from mind import (
+    create_javascript_provider,
+    create_workspace_coding,
+)
 from infrastructure.mcp.local_tool_registry import ToolRegistry
 from agent.application.tools.permissions import permission_tools
 from agent.stores.approvals.permissions import PermissionGrantStore
@@ -74,6 +77,10 @@ def test_invalid_feature_settings_are_rejected(features, message) -> None:
 def test_js_repl_feature_removes_both_repl_tools(tmp_path) -> None:
     tools = build_client_tool_registry(
         create_workspace_coding(root=tmp_path, application_layout=None),
+        javascript=create_javascript_provider(
+            workspace_root=tmp_path,
+            application_layout=None,
+        ),
         image_reader=FileImageReader(tmp_path),
         features=FeatureSettings(js_repl=False),
     ).list_tools().tools
@@ -87,6 +94,10 @@ def test_js_repl_feature_removes_both_repl_tools(tmp_path) -> None:
 def test_permission_features_control_tool_surface(tmp_path) -> None:
     tools = build_client_tool_registry(
         create_workspace_coding(root=tmp_path, application_layout=None),
+        javascript=create_javascript_provider(
+            workspace_root=tmp_path,
+            application_layout=None,
+        ),
         image_reader=FileImageReader(tmp_path),
         features=FeatureSettings(
             request_permissions_tool=False,
@@ -109,6 +120,10 @@ def test_permission_features_are_disabled_by_default(tmp_path) -> None:
         tool.name
         for tool in build_client_tool_registry(
             create_workspace_coding(root=tmp_path, application_layout=None),
+            javascript=create_javascript_provider(
+                workspace_root=tmp_path,
+                application_layout=None,
+            ),
             image_reader=FileImageReader(tmp_path),
         ).list_tools().tools
     }
@@ -118,6 +133,10 @@ def test_permission_features_are_disabled_by_default(tmp_path) -> None:
 def test_permission_features_can_be_enabled_explicitly(tmp_path) -> None:
     tools = build_client_tool_registry(
         create_workspace_coding(root=tmp_path, application_layout=None),
+        javascript=create_javascript_provider(
+            workspace_root=tmp_path,
+            application_layout=None,
+        ),
         image_reader=FileImageReader(tmp_path),
         features=FeatureSettings(
             request_permissions_tool=True,

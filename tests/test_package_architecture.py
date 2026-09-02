@@ -1728,43 +1728,33 @@ def test_hook_output_spill_has_platform_ownership() -> None:
     )
 
 
-def test_javascript_repl_has_platform_ownership() -> None:
-    """确保 JavaScript 内核进程生命周期由平台基础设施持有。"""
-    legacy_paths = (
-        PROJECT_ROOT / "mind_app" / "native_coding" / "js_repl" / "runtime.py",
-        PROJECT_ROOT / "mind_app" / "native_coding" / "js_repl" / "__init__.py",
-    )
-    assert not any(path.is_file() for path in legacy_paths), (
-        "legacy JavaScript REPL sources still exist: "
-        + ", ".join(
-            str(path.relative_to(PROJECT_ROOT))
-            for path in legacy_paths
-            if path.is_file()
-        )
-    )
+def test_javascript_sidecar_has_explicit_adapter_ownership() -> None:
+    """确保不可变 Bundle、Python Adapter 和 Harness 生命周期边界分离。"""
+    assert (PROJECT_ROOT / "sidecars" / "js_repl" / "kernel.js").is_file()
+    assert (
+        PROJECT_ROOT / "sidecars" / "js_repl" / "vendor" / "meriyah.umd.min.js"
+    ).is_file()
+    assert not (PROJECT_ROOT / "js_repl").exists()
+    assert not (
+        PROJECT_ROOT / "infrastructure" / "platform" / "javascript_repl.py"
+    ).exists()
 
-    legacy_modules = {
-        "mind_app.native_coding.js_repl",
-        "mind_app.native_coding.js_repl.runtime",
-    }
-    violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
-        for node in ast.walk(tree):
-            modules: tuple[str, ...] = ()
-            if isinstance(node, ast.Import):
-                modules = tuple(alias.name for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.level == 0:
-                modules = (node.module or "",)
-            for module in modules:
-                if module in legacy_modules:
-                    violations.append(
-                        f"{path.relative_to(PROJECT_ROOT)}:{node.lineno} -> {module}"
-                    )
+    workspace = (
+        PROJECT_ROOT / "infrastructure" / "workspace" / "runtime.py"
+    ).read_text(encoding="utf-8-sig")
+    workspace_port = (
+        PROJECT_ROOT / "agent" / "ports" / "workspace.py"
+    ).read_text(encoding="utf-8-sig")
+    composition = (PROJECT_ROOT / "mind.py").read_text(encoding="utf-8-sig")
+    host = (PROJECT_ROOT / "composition.py").read_text(encoding="utf-8-sig")
 
-    assert not violations, (
-        "legacy JavaScript REPL imports remain:\n" + "\n".join(violations)
-    )
+    assert "JavaScriptSidecarProvider" not in workspace
+    assert "close_js_repl_session" not in workspace
+    assert "WorkspaceJavaScriptPort" not in workspace_port
+    assert "def create_javascript_provider(" in composition
+    assert "javascript_execution=javascript" in composition
+    assert "javascript_lifecycle=javascript" in composition
+    assert "close_javascript=self.javascript_lifecycle.close" in host
 
 
 def test_runtime_environment_helpers_have_platform_ownership() -> None:

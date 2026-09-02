@@ -32,7 +32,7 @@ def _root_session(
         thread=SimpleNamespace(sid="sid_child"),
     ),))
     hook_cleanup = AsyncMock()
-    execution_cleanup = AsyncMock(return_value=True)
+    javascript_cleanup = AsyncMock()
     command_cleanup = Mock()
     event_close = AsyncMock()
 
@@ -62,7 +62,7 @@ def _root_session(
         session_lifecycle=lifecycle,
         subagent_shutdown=shutdown_root,
         hook_session_cleanup=hook_cleanup,
-        execution_session_cleanup=execution_cleanup,
+        javascript_session_cleanup=javascript_cleanup,
         command_hook_cleanup=command_cleanup,
         event_session_close=event_close,
         await_cleanup=await_cleanup,
@@ -75,7 +75,7 @@ def _root_session(
         lifecycle=lifecycle,
         shutdown_root=shutdown_root,
         hook_cleanup=hook_cleanup,
-        execution_cleanup=execution_cleanup,
+        javascript_cleanup=javascript_cleanup,
         command_cleanup=command_cleanup,
         event_close=event_close,
     )
@@ -135,6 +135,7 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
         close_approvals=lambda: step("approvals"),
         clear_command_hooks=lambda: timeline.append("command_hooks"),
         close_hooks=lambda: step("hooks"),
+        close_javascript=lambda: step("javascript"),
         close_workspace=lambda: step("workspace_runtime"),
         close_execution=lambda: step("execution"),
         close_service=lambda: step("service_runtime"),
@@ -150,6 +151,7 @@ async def test_controller_stops_subagents_before_shared_resources() -> None:
         "approvals",
         "command_hooks",
         "hooks",
+        "javascript",
         "workspace_runtime",
         "execution",
         "service_runtime",
@@ -178,6 +180,7 @@ async def test_process_resources_resume_at_failed_step() -> None:
         close_approvals=lambda: step("approvals"),
         clear_command_hooks=lambda: timeline.append("command_hooks"),
         close_hooks=lambda: step("hooks"),
+        close_javascript=lambda: step("javascript"),
         close_workspace=lambda: step("workspace_runtime"),
         close_execution=lambda: step("execution"),
         close_service=lambda: step("service_runtime"),
@@ -200,6 +203,7 @@ async def test_process_resources_resume_at_failed_step() -> None:
         "approvals",
         "command_hooks",
         "hooks",
+        "javascript",
         "workspace_runtime",
         "execution",
         "service_runtime",
@@ -238,7 +242,7 @@ async def test_root_session_end_uses_current_snapshot(
     resources.hook_cleanup.assert_awaited_once_with("sid_child")
     assert [
         item.args[0]
-        for item in resources.execution_cleanup.await_args_list
+        for item in resources.javascript_cleanup.await_args_list
     ] == ["sid_child", "sid_test_1_abcdef"]
     resources.command_cleanup.assert_called_once_with(
         "sid_test_1_abcdef"

@@ -3,16 +3,10 @@
 
 import os
 import typing
-from pathlib import Path
 
 from agent.domain.patches.parsing import PatchParser
 from agent.ports.capabilities import SandboxMode
-from agent.ports.javascript import (
-    JavaScriptExecutionError,
-    NestedToolDispatch,
-)
 from infrastructure.platform.process_sessions import ProcessSessionManager
-from infrastructure.sidecars.javascript.provider import JavaScriptSidecarProvider
 from infrastructure.workspace.commands.audit import WorkspaceFileAudit
 from infrastructure.workspace.commands.process import ProcessCommandExecutor
 from infrastructure.workspace.commands.profile import CommandExecutionProfile
@@ -33,7 +27,6 @@ class WorkspaceCoding(WorkspaceContext):
         self,
         root: str | os.PathLike[str] | None = None,
         *,
-        application_root: str | os.PathLike[str] | None = None,
         process_sessions: ProcessSessionManager,
     ) -> None:
         """初始化共享运行时状态并装配各能力组件。"""
@@ -47,17 +40,6 @@ class WorkspaceCoding(WorkspaceContext):
             root=self.root,
             sessions=self._process_sessions,
             relative_path=self.relative_path,
-        )
-
-        asset_root = (
-            Path(application_root).resolve() / "sidecars" / "js_repl"
-            if application_root is not None
-            else None
-        )
-        self._javascript_repls = JavaScriptSidecarProvider(
-            self.root,
-            asset_root=asset_root,
-            configured_node_path=os.environ.get("JS_REPL_NODE_PATH"),
         )
 
         patch_diagnostics = PatchDiagnostics(self)
@@ -299,68 +281,7 @@ class WorkspaceCoding(WorkspaceContext):
 
     async def close(self) -> None:
         """关闭全部本地进程会话。"""
-        await self._javascript_repls.close()
         await self._process_sessions.close()
-
-    async def js_repl(
-        self,
-        *,
-        session_id: str,
-        code: str,
-        cwd: str,
-        access_mode: SandboxMode,
-        timeout_ms: int,
-        call_tool: NestedToolDispatch,
-    ) -> dict[str, typing.Any]:
-        """在会话持有的持久 JavaScript 内核中执行代码。"""
-        try:
-            result = await self._javascript_repls.execute(
-                session_id,
-                code,
-                cwd=cwd,
-                access_mode=access_mode,
-                timeout_ms=timeout_ms,
-                call_tool=call_tool,
-            )
-        except JavaScriptExecutionError as exc:
-            return self.fail_result(
-                "js_repl_execution_failed",
-                error=str(exc).strip() or type(exc).__name__,
-            )
-
-        output = self.clip_output(result.output)
-
-        return {
-            "ok": True,
-            "text": output or "JavaScript cell completed.",
-            "attachments": list(result.attachments),
-            "data": {
-                "output": output,
-                "output_truncated": output != result.output,
-            },
-            "logs": [],
-        }
-
-    async def reset_js_repl(self, session_id: str) -> dict[str, typing.Any]:
-        """重置指定会话的 JavaScript 内核。"""
-        try:
-            reset = await self._javascript_repls.reset_session(session_id)
-        except JavaScriptExecutionError as exc:
-            return self.fail_result(
-                "js_repl_reset_failed",
-                error=str(exc).strip() or type(exc).__name__,
-            )
-
-        return {
-            "ok": True,
-            "text": "JavaScript kernel reset.",
-            "data": {"reset": reset},
-            "logs": []
-        }
-
-    async def close_js_repl_session(self, session_id: str) -> bool:
-        """关闭指定会话持有的 JavaScript 内核。"""
-        return await self._javascript_repls.close_session(session_id)
 
     def apply_patch(
         self,
