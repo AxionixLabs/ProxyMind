@@ -27,6 +27,7 @@ mind.py
       -> agent
       -> protocol
       -> infrastructure
+          -> sidecars
       -> observability
   -> frontends
 
@@ -51,6 +52,7 @@ infrastructure
 | `protocol/` | 可供多前端复用的 `mind.chat` wire SDK | Harness 生命周期、本地 UI 或配置策略 |
 | `frontends/` | CLI、TUI、stdio MCP、Subscription 和终端展示适配 | Run/Effect 权威状态、具体能力组装 |
 | `infrastructure/` | 配置、平台、MCP、持久化、服务、技能和工作区实现 | 前端状态、线上 Turn 权威状态 |
+| `sidecars/` | 随客户端发布的隔离子进程入口和私有运行时资产 | Harness 编排、审批决策、线上协议语义 |
 | `observability/` | 结构化日志、报告和异常观测入口 | 业务状态机、用户交互策略 |
 | `metadata/` | 产品名称、版本、编码和展示元数据 | 运行状态、配置读取 |
 | `server/` | 客户端内置的可选配置 UI 与健康检查 | Harness 状态、`mind.chat` 服务端语义 |
@@ -117,7 +119,7 @@ Agent 消息、RunResult 和 PresentationView。它协调领域规则与端口�
 负责长生命周期和并发所有权：
 
 - `sessions/`：Session 单写者、Command 队列、恢复和关闭；
-- `execution/`：Run actor、根 Turn、Subagent、压缩、终结和执行资源；
+- `execution/`：Run actor、根 Turn、Subagent、压缩、终结和 Sidecar 等执行资源；
 - `agents/`：Agent 树、活动 Turn、mailbox 投递和根会话注册；
 - `hooks/`：Hook 作用域、注册、调用顺序和收束；
 - `tools/`：客户端工具、计划工具和调用闭环；
@@ -180,6 +182,8 @@ stores / capabilities / adapters / infrastructure / frontends
    不构造模型、Store、MCP runtime 或进程 owner。
 7. `protocol` 不依赖 `agent`、frontends、infrastructure、server 或 backend。
 8. `backend` 只依赖自身、标准库和第三方库；客户端代码不导入 backend。
+9. `sidecars` 不导入 Python 业务包；只有 `infrastructure.sidecars` 可以解析、启动并通过
+   私有 IPC 驱动对应宿主，其他包只依赖 agent ports。
 
 禁止通过 `typing.cast()`、`Any` 扩大、动态 `getattr`、模块级可变替身或可空 fallback
 绕过这些方向。测试替身从组合边界显式注入。
@@ -192,8 +196,8 @@ stores / capabilities / adapters / infrastructure / frontends
 2. `agent.composition.create_runtime_services` 创建与 UI 无关的 Harness 服务集合。
 3. `composition.py` 组装 `ApplicationHost`、Session、执行资源、持久化和服务 owner。
 4. CLI/TUI/MCP/Subscription 接收已组装的 host、factory 或 port。
-5. `ProcessResourceOwner` 按确定顺序关闭前台 Turn、后台任务、MCP、服务、Sandbox、
-   Store 和观测资源；清理失败必须可观测且不得跳过后续资源。
+5. `ProcessResourceOwner` 按确定顺序关闭前台 Turn、后台任务、MCP、Sidecar、服务、
+   Sandbox、Store 和观测资源；清理失败必须可观测且不得跳过后续资源。
 
 业务模块不得从 `Mind`、Controller、frontend 或全局变量反射发现能力。需要的新能力应先
 形成最小端口，再由组合边界注入完整调用链。
@@ -327,10 +331,118 @@ model intent
 - `services/`：可选服务 owner、健康、许可、Helix 与 Turn 环境；
 - `skills/`：技能发现、解析和不可变 payload；
 - `hooks/`：Hook 文件发现；
+- `sidecars/`：私有子进程协议、进程托管、会话连接和资源关闭；
 - `update/`：升级资产和运行流程。
 
 Infrastructure 不得读取 TUI 控件、构造前端文案或修改 Harness 内部状态；它通过 ports、
 具名 application 契约和返回值交互。
+
+## JavaScript Sidecar
+
+JavaScript REPL 是受 Harness 管理的本地执行能力，模型侧稳定工具名为 `js_repl` 和
+`js_repl_reset`。它不是线上协议、Workspace 聚合能力或前端特性；工具授权、审批、
+嵌套工具调用和结果投影仍由 application/Harness 裁决，Sidecar 只执行已经授权的代码并
+返回具名结果。
+
+### 最终结构
+
+```text
+agent/
+├── ports/
+│   └── javascript.py             # 执行与会话生命周期端口
+└── application/
+    └── tools/
+        └── javascript.py         # 模型工具、参数校验、授权和结果投影
+
+infrastructure/
+└── sidecars/
+    └── javascript/
+        ├── messages.py           # 私有 IPC 判别联合与边界校验
+        ├── codec.py              # JSONL framing 和帧预算
+        ├── process.py            # Node 发现、权限参数、启动和终止
+        ├── session.py            # 进程托管会话、请求关联和回调任务
+        └── provider.py           # 会话索引、创建、重置和关闭
+
+sidecars/
+└── javascript/
+    ├── host.js                   # 进程入口、握手和消息路由
+    ├── runtime.js                # 持久 JavaScript 上下文与代码执行
+    ├── transform.js              # 语法解析和执行前转换
+    └── vendor/
+        └── meriyah.umd.min.js
+```
+
+`agent.ports.javascript` 分离消费者所需的执行端口与 Harness 所需的会话生命周期端口，
+不得重新形成包含 Shell、补丁、Workspace 和 JavaScript 的聚合接口。具体 Provider 由
+`composition.py` 创建：application 工具只接收执行端口，Harness 资源 owner 只接收生命周期
+端口，二者不发现或向下转换具体实现。
+
+### 状态与进程所有权
+
+- Provider 以 `session_id` 索引唯一活动 JavaScript 会话，并保存已经规范化的工作目录和
+  `sandbox_mode` 安全信封。
+- 每个活动安全信封拥有独立 Node 进程。不同 Session 不共享宿主，因为 Node 文件权限、
+  工作目录和进程环境是进程级安全边界。
+- 同一 Session 的工作目录或 `sandbox_mode` 发生变化时，必须先关闭原进程，再用新的不可变
+  安全信封创建会话；不得在活动进程上扩大权限。
+- Session 对象拥有子进程、stdin/stdout、接收任务、pending request 和 delegate callback；
+  JavaScript Host 只拥有该进程内的 REPL 变量与当前 execution。
+- 每个 Session 只有一个 execution 写入者。外部执行按 FIFO 串行进入 Host，delegate callback
+  只归属于触发它的 execution；`reset` 和 `close` 是阻止后续执行越过的生命周期屏障。
+- Workspace 能力只负责工作区命令、补丁和文件操作，不拥有 JavaScript 会话或清理回调。
+- 根 Session、Subagent 和进程退出均通过同一生命周期端口关闭对应会话；关闭操作幂等，
+  单个资源清理失败不得阻止其余资源收束。
+
+### 私有 IPC
+
+Python Client 与 JavaScript Host 使用带版本的严格 JSONL 协议。协议至少定义：
+
+- `hello` / `ready`：协议版本、必需能力和可选能力协商；
+- `execute` / `result` / `error`：按 `request_id` 和 `execution_id` 关联一次执行；
+- `cancel` / `reset` / `shutdown`：执行取消、上下文重置和进程关闭；
+- `delegate.call` / `delegate.result`：嵌套工具调用及其结果；
+- 具名文本、结构化值和图片内容项，不以 stdout 文本推断结果类型。
+
+消息在进入会话状态前完成判别联合、字段、标识和大小校验。未知消息、未知字段、版本不兼容、
+重复请求标识、越界帧和无法关联的响应均为协议错误，连接必须失败收敛，不能静默忽略或降级到
+旧格式。stdout 只承载协议帧；stderr 只作为受限诊断输入，不拥有状态语义。
+
+每个进程设置代码、单帧、输出、附件和 pending delegate 上限。执行取消或超时先发送
+`cancel`，宿主未在有界宽限期内确认时终止整个子进程，并使全部 pending request 得到确定的
+Sidecar unavailable 结果。Host EOF、崩溃和握手失败采用同一收敛路径。
+
+基础设施以具名失败类型向上层报告 `unavailable`、`protocol_error`、`execution_timeout`、
+`cancelled` 和 `runtime_error`；application 依据类型构造工具结果，不解析异常文本、stderr
+或进程退出文案。失败类型不直接成为线上协议错误码。
+
+### 安全与边界
+
+- Node 可执行文件、最低版本和 Sidecar 资产路径由 composition 解析后以不可变值传入
+  Provider；业务模块和 Host 不读取客户端配置目录。
+- `sandbox_mode` 在启动参数中落实，平台差异只存在于 `process.py`。Sidecar 不自行放宽文件、
+  网络或子进程权限。
+- `delegate.call` 只是调用提案；Python application 必须重新执行工具可见性、schema、审批和
+  Effect 规则，Host 无权绕过这些规则直接调用本地工具。
+- Sidecar 内部状态不得进入 `/tool-result`、线上事件、Transcript 元数据或前端状态。
+- Sidecar 模块只使用 `observability` 的结构化入口；代码正文、完整输出、凭据和未筛选回调
+  载荷不得写入日志。
+
+### 发布与验收
+
+`sidecars/javascript` 作为完整目录随 wheel、源码分发和独立可执行包发布，运行时路径解析不
+依赖当前工作目录。发布验证必须从安装产物启动真实 Host 并完成握手、执行和关闭，不能只检查
+文件存在。
+
+JavaScript Sidecar 边界只有在以下事实持续成立时才视为健康：
+
+- JavaScript 运行时资产只位于 `sidecars/javascript`，Python 进程实现只位于
+  `infrastructure/sidecars/javascript`；
+- application 工具、Harness 生命周期和 Sidecar 实现通过两个最小端口协作；
+- Session 隔离、权限冻结、取消、超时、崩溃、EOF、重置和关闭具有确定行为；
+- 嵌套工具调用完整经过现有授权、审批和 Effect 链路；
+- Windows、Linux、macOS 的 Node 发现、启动、终止和打包安装路径均有验证；
+- 架构守卫禁止 Workspace 所有权、跨 Session 共享宿主、直接 Sidecar 导入和私有状态进入
+  线上协议。
 
 ## 可观测性
 
