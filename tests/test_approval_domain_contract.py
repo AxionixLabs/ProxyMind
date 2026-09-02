@@ -19,6 +19,12 @@ from agent.domain.approvals import (
     ApprovalResolutionReason,
     CommandApprovalAction,
     ExecutionIdentity,
+    McpApprovalGrantKey,
+    McpApprovalMode,
+    McpApprovalPolicy,
+    McpApprovalRisk,
+    McpToolAnnotations,
+    McpToolDescriptor,
     NetworkApprovalAction,
     NetworkProtocol,
     NetworkTarget,
@@ -28,6 +34,8 @@ from agent.domain.approvals import (
     allowed_decisions,
     is_terminal_decision,
     validate_decision,
+    mcp_approval_risk,
+    mcp_requires_approval,
 )
 
 
@@ -255,4 +263,78 @@ def test_identity_and_network_target_reject_ambiguous_values() -> None:
             source=ApprovalDecisionSource.USER,
             reason=ApprovalResolutionReason.USER,
             resolved_at=float("nan"),
+        )
+
+
+def _mcp_descriptor(
+    mode: McpApprovalMode,
+    *,
+    read_only: bool | None = None,
+    destructive: bool | None = None,
+    open_world: bool | None = None,
+) -> McpToolDescriptor:
+    return McpToolDescriptor(
+        server="github",
+        exposed_name="mcp__github__create_issue",
+        tool_name="create_issue",
+        schema_fingerprint=ActionFingerprint("schema:github:create_issue"),
+        annotations=McpToolAnnotations(
+            read_only_hint=read_only,
+            destructive_hint=destructive,
+            open_world_hint=open_world,
+        ),
+        policy=McpApprovalPolicy(mode),
+        title="Create issue",
+        connector_id="github",
+        transport="streamable_http",
+    )
+
+
+def test_mcp_policy_modes_use_conservative_unknown_annotation_rules() -> None:
+    assert not mcp_requires_approval(_mcp_descriptor(McpApprovalMode.APPROVE))
+    assert mcp_requires_approval(_mcp_descriptor(McpApprovalMode.PROMPT))
+    assert not mcp_requires_approval(_mcp_descriptor(
+        McpApprovalMode.WRITES,
+        read_only=True,
+    ))
+    assert mcp_requires_approval(_mcp_descriptor(McpApprovalMode.WRITES))
+    assert not mcp_requires_approval(_mcp_descriptor(
+        McpApprovalMode.AUTO,
+        read_only=True,
+    ))
+    assert mcp_requires_approval(_mcp_descriptor(McpApprovalMode.AUTO))
+    assert not mcp_requires_approval(_mcp_descriptor(
+        McpApprovalMode.AUTO,
+        destructive=False,
+        open_world=False,
+    ))
+
+
+def test_mcp_risk_and_grant_scope_keep_connector_identity() -> None:
+    descriptor = _mcp_descriptor(
+        McpApprovalMode.AUTO,
+        destructive=True,
+    )
+    key = McpApprovalGrantKey(
+        session_id="session-1",
+        environment_id="workspace-write",
+        server=descriptor.server,
+        connector_id=descriptor.connector_id,
+        tool_name=descriptor.tool_name,
+    )
+
+    assert mcp_approval_risk(descriptor.annotations) is McpApprovalRisk.DESTRUCTIVE
+    assert key.connector_id == "github"
+    assert key.tool_name == "create_issue"
+
+
+def test_mcp_descriptor_rejects_untyped_annotations() -> None:
+    with pytest.raises(ValueError, match="annotations"):
+        McpToolDescriptor(
+            server="github",
+            exposed_name="mcp__github__create_issue",
+            tool_name="create_issue",
+            schema_fingerprint=ActionFingerprint("schema"),
+            annotations={"read_only_hint": True},
+            policy=McpApprovalPolicy(McpApprovalMode.AUTO),
         )

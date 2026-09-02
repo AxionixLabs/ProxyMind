@@ -82,6 +82,25 @@ class NetworkProtocol(enum.StrEnum):
     SOCKS5_UDP = "socks5_udp"
 
 
+class McpApprovalMode(enum.StrEnum):
+    """列出 MCP 工具配置支持的审批模式。"""
+
+    AUTO = "auto"
+    PROMPT = "prompt"
+    WRITES = "writes"
+    APPROVE = "approve"
+
+
+class McpApprovalRisk(enum.StrEnum):
+    """列出 MCP 工具注解可以确定的展示风险。"""
+
+    READ_ONLY = "read-only"
+    EXTERNAL_WRITE = "external write"
+    DESTRUCTIVE = "destructive"
+    OPEN_WORLD = "open-world"
+    UNKNOWN = "unknown"
+
+
 def _require_text(name: str, value: str) -> None:
     """校验一个身份或领域字段不是空文本。"""
     if not isinstance(value, str) or not value.strip():
@@ -186,6 +205,111 @@ class NetworkTarget:
             raise ValueError("port must be an integer")
         if not 1 <= self.port <= 65535:
             raise ValueError("port must be between 1 and 65535")
+
+
+@dataclass(frozen=True, slots=True)
+class McpToolAnnotations:
+    """保存已经从 MCP SDK 边界校验的工具行为提示。"""
+
+    read_only_hint: bool | None = None
+    destructive_hint: bool | None = None
+    open_world_hint: bool | None = None
+
+    def __post_init__(self) -> None:
+        """拒绝非布尔注解，避免真值转换改变策略。"""
+        for name, value in (
+            ("read_only_hint", self.read_only_hint),
+            ("destructive_hint", self.destructive_hint),
+            ("open_world_hint", self.open_world_hint),
+        ):
+            if value is not None and not isinstance(value, bool):
+                raise ValueError(f"{name} must be boolean or None")
+
+
+@dataclass(frozen=True, slots=True)
+class McpApprovalPolicy:
+    """描述单个 MCP 工具调用采用的审批和授权能力。"""
+
+    mode: McpApprovalMode
+    allow_session_remember: bool = True
+    allow_persistent_approval: bool = True
+
+    def __post_init__(self) -> None:
+        """校验策略模式和授权开关是明确值。"""
+        if not isinstance(self.mode, McpApprovalMode):
+            raise ValueError("mode must be an McpApprovalMode")
+        if not isinstance(self.allow_session_remember, bool):
+            raise ValueError("allow_session_remember must be boolean")
+        if not isinstance(self.allow_persistent_approval, bool):
+            raise ValueError("allow_persistent_approval must be boolean")
+
+
+@dataclass(frozen=True, slots=True)
+class McpToolDescriptor:
+    """描述外部 MCP 工具在一次目录快照中的稳定审批元数据。"""
+
+    server: str
+    exposed_name: str
+    tool_name: str
+    schema_fingerprint: ActionFingerprint
+    annotations: McpToolAnnotations
+    policy: McpApprovalPolicy
+    title: str | None = None
+    description: str | None = None
+    connector_id: str | None = None
+    connector_name: str | None = None
+    connector_description: str | None = None
+    connected_account: str | None = None
+    transport: str = "external"
+
+    def __post_init__(self) -> None:
+        """校验工具身份、schema 指纹和可选展示字段。"""
+        for name, value in (
+            ("server", self.server),
+            ("exposed_name", self.exposed_name),
+            ("tool_name", self.tool_name),
+            ("transport", self.transport),
+        ):
+            _require_text(name, value)
+        if not isinstance(self.schema_fingerprint, ActionFingerprint):
+            raise ValueError("schema_fingerprint must be an ActionFingerprint")
+        if not isinstance(self.annotations, McpToolAnnotations):
+            raise ValueError("annotations must be McpToolAnnotations")
+        if not isinstance(self.policy, McpApprovalPolicy):
+            raise ValueError("policy must be McpApprovalPolicy")
+        for name, value in (
+            ("title", self.title),
+            ("description", self.description),
+            ("connector_id", self.connector_id),
+            ("connector_name", self.connector_name),
+            ("connector_description", self.connector_description),
+            ("connected_account", self.connected_account),
+        ):
+            if value is not None:
+                _require_text(name, value)
+
+
+@dataclass(frozen=True, slots=True)
+class McpApprovalGrantKey:
+    """标识 MCP 工具在一个 Session 和环境中的授权范围。"""
+
+    session_id: str
+    environment_id: str
+    server: str
+    tool_name: str
+    connector_id: str | None = None
+
+    def __post_init__(self) -> None:
+        """校验授权不能跨越未定义的 Session、环境或工具。"""
+        for name, value in (
+            ("session_id", self.session_id),
+            ("environment_id", self.environment_id),
+            ("server", self.server),
+            ("tool_name", self.tool_name),
+        ):
+            _require_text(name, value)
+        if self.connector_id is not None:
+            _require_text("connector_id", self.connector_id)
 
 
 @dataclass(frozen=True, slots=True)

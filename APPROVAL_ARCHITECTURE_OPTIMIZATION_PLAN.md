@@ -159,7 +159,7 @@ MCP 的一次性 action fingerprint 必须包含规范化参数；Session/Persis
 
 ### 阶段 0：契约冻结与调用面盘点
 
-**规模：中；优先级：P0；状态：待开始**
+**规模：中；优先级：P0；状态：已完成**
 
 交付内容：
 
@@ -170,6 +170,22 @@ MCP 的一次性 action fingerprint 必须包含规范化参数；Session/Persis
 - 列出旧 `Mapping` 入口、ledger 查询和所有 MCP 调用入口的删除条件。
 
 出口条件：文档和类型契约能回答“谁构造动作、谁决定策略、谁保存事实、谁执行效果、谁渲染卡片”。
+
+冻结结果：
+
+- `CompositeToolSession.call_tool` 是模型可达本地工具的统一分发入口；只有其外部工具分支构造
+  MCP 审批描述符。`ExternalMcpGroup.call_hook_tool` 是 Hook reviewer 的独立受信任调用入口，
+  不递归触发用户工具审批。
+- `McpToolDescriptor` 保存 SDK 边界已经校验的 server、原始/暴露工具名、schema 指纹、annotations、
+  connector/account、transport 和有效策略；domain 只消费该值对象，不导入 MCP SDK。
+- `McpApprovalPolicy` 和 `mcp_requires_approval` 是策略唯一语义；配置 adapter 只负责把 TOML
+  转成 `auto/prompt/writes/approve`，前端不得重新判断风险。
+- 本地身份映射固定为 `session_id = root_session_id`、`run_id = turn_id`、`action_id = tool_call_id`；
+  本地审批 ID 使用动作指纹派生。线上审批继续使用正式 `approval_id + mcp_request_id`，两者不互换。
+- `ApprovalFactStore` 保存审批首终态，`SessionGrantStore` 保存 Session grant，Effect Journal 保存
+  外部调用效果；`McpApprovalPresentation` 只渲染结构化字段。
+- 旧 MCP `Mapping` 入口在所有本地外部调用改用类型化动作、快照恢复不再依赖动态载荷且定向
+  回归通过后删除；`ApprovalCallLedger` 只保留线上协议调用的兼容消费投影。
 
 ### 阶段 1：MCP 实际调用审批门
 
