@@ -342,7 +342,8 @@ Infrastructure 不得读取 TUI 控件、构造前端文案或修改 Harness 内
 JavaScript REPL 是受 Harness 管理的本地执行能力，模型侧稳定工具名为 `js_repl` 和
 `js_repl_reset`。它不是线上协议、Workspace 聚合能力或前端特性；工具授权、审批、
 嵌套工具调用和结果投影仍由 application/Harness 裁决，Sidecar 只执行已经授权的代码并
-返回具名结果。
+返回具名结果。`kernel.js` 及其 `vendor` 目录是来自 Codex 的稳定、不可变运行时资产；架构
+重组只调整资产位置和 Python 托管边界，不重写或拆解该运行时。
 
 ### 最终结构
 
@@ -357,17 +358,15 @@ agent/
 infrastructure/
 └── sidecars/
     └── javascript/
-        ├── messages.py           # 私有 IPC 判别联合与边界校验
-        ├── codec.py              # JSONL framing 和帧预算
+        ├── bundle.py             # 不可变资产清单、散列和路径校验
+        ├── protocol.py           # 既有 JSONL 消息的具名模型和边界校验
         ├── process.py            # Node 发现、权限参数、启动和终止
-        ├── session.py            # 进程托管会话、请求关联和回调任务
+        ├── session.py            # 执行串行化、请求关联和回调任务
         └── provider.py           # 会话索引、创建、重置和关闭
 
 sidecars/
-└── javascript/
-    ├── host.js                   # 进程入口、握手和消息路由
-    ├── runtime.js                # 持久 JavaScript 上下文与代码执行
-    ├── transform.js              # 语法解析和执行前转换
+└── js_repl/                      # Codex 原始资产目录，内容不可变
+    ├── kernel.js                 # 完整 Host、Runtime、转换和 JSONL 入口
     └── vendor/
         └── meriyah.umd.min.js
 ```
@@ -385,8 +384,9 @@ sidecars/
   工作目录和进程环境是进程级安全边界。
 - 同一 Session 的工作目录或 `sandbox_mode` 发生变化时，必须先关闭原进程，再用新的不可变
   安全信封创建会话；不得在活动进程上扩大权限。
-- Session 对象拥有子进程、stdin/stdout、接收任务、pending request 和 delegate callback；
-  JavaScript Host 只拥有该进程内的 REPL 变量与当前 execution。
+- Process 对象拥有子进程、stdin/stdout/stderr 和进程终止；Session 对象拥有执行锁、当前
+  request 和 delegate callback；不可变 JavaScript Kernel 只拥有进程内的 REPL 变量与当前
+  execution。
 - 每个 Session 只有一个 execution 写入者。外部执行按 FIFO 串行进入 Host，delegate callback
   只归属于触发它的 execution；`reset` 和 `close` 是阻止后续执行越过的生命周期屏障。
 - Workspace 能力只负责工作区命令、补丁和文件操作，不拥有 JavaScript 会话或清理回调。
@@ -395,21 +395,27 @@ sidecars/
 
 ### 私有 IPC
 
-Python Client 与 JavaScript Host 使用带版本的严格 JSONL 协议。协议至少定义：
+Python Client 与不可变 JavaScript Kernel 沿用现有 UTF-8 JSONL 协议，不增加握手、版本协商、
+cancel、reset 或 shutdown 消息，也不增加包装进程。Client 只发送：
 
-- `hello` / `ready`：协议版本、必需能力和可选能力协商；
-- `execute` / `result` / `error`：按 `request_id` 和 `execution_id` 关联一次执行；
-- `cancel` / `reset` / `shutdown`：执行取消、上下文重置和进程关闭；
-- `delegate.call` / `delegate.result`：嵌套工具调用及其结果；
-- 具名文本、结构化值和图片内容项，不以 stdout 文本推断结果类型。
+- `exec`：携带 `id`、`code` 和 `timeout_ms`；
+- `run_tool_result`：按 `id` 返回嵌套工具结果；
+- `emit_image_result`：按 `id` 返回图片接收结果。
 
-消息在进入会话状态前完成判别联合、字段、标识和大小校验。未知消息、未知字段、版本不兼容、
-重复请求标识、越界帧和无法关联的响应均为协议错误，连接必须失败收敛，不能静默忽略或降级到
-旧格式。stdout 只承载协议帧；stderr 只作为受限诊断输入，不拥有状态语义。
+Kernel 只返回：
 
-每个进程设置代码、单帧、输出、附件和 pending delegate 上限。执行取消或超时先发送
-`cancel`，宿主未在有界宽限期内确认时终止整个子进程，并使全部 pending request 得到确定的
-Sidecar unavailable 结果。Host EOF、崩溃和握手失败采用同一收敛路径。
+- `exec_result`：按 `id` 返回执行结果；
+- `run_tool`：按 `exec_id` 和 `id` 请求嵌套工具；
+- `emit_image`：按 `exec_id` 和 `id` 请求附加图片。
+
+`protocol.py` 对 Python 发出的消息执行具名构造，对收到的完整帧执行判别、字段、标识和大小
+校验；未知类型、未知字段、非法 JSON、错误字段类型、越界帧和无法关联的响应均使当前 Session
+失败并关闭进程，不能静默忽略或猜测。stdout 只承载协议帧；stderr 只作为受限诊断输入，
+不拥有状态语义。
+
+Kernel 没有控制面消息，因此执行超时、调用方取消、reset 和 close 均由 Python 终止整个
+子进程，并使当前 request 与 delegate task 确定收敛；下一次执行按需创建新进程。Host EOF、
+崩溃和残缺帧采用同一失效路径。
 
 基础设施以具名失败类型向上层报告 `unavailable`、`protocol_error`、`execution_timeout`、
 `cancelled` 和 `runtime_error`；application 依据类型构造工具结果，不解析异常文本、stderr
@@ -417,8 +423,11 @@ Sidecar unavailable 结果。Host EOF、崩溃和握手失败采用同一收敛�
 
 ### 安全与边界
 
-- Node 可执行文件、最低版本和 Sidecar 资产路径由 composition 解析后以不可变值传入
-  Provider；业务模块和 Host 不读取客户端配置目录。
+- `sidecars/js_repl` 只允许从原 `js_repl` 目录机械迁移。`kernel.js` 和
+  `vendor/meriyah.umd.min.js` 的文件名、目录关系和字节必须保持不变；禁止拆分、重写、格式化、
+  添加注释、转换行尾或注入握手。构建和测试以固定 SHA-256 校验该约束。
+- Node 可执行文件、最低版本和 Sidecar bundle 路径由 composition 解析后以不可变值传入
+  Provider；业务模块和 Kernel 不读取客户端配置目录。
 - `sandbox_mode` 在启动参数中落实，平台差异只存在于 `process.py`。Sidecar 不自行放宽文件、
   网络或子进程权限。
 - `delegate.call` 只是调用提案；Python application 必须重新执行工具可见性、schema、审批和
@@ -429,14 +438,16 @@ Sidecar unavailable 结果。Host EOF、崩溃和握手失败采用同一收敛�
 
 ### 发布与验收
 
-`sidecars/javascript` 作为完整目录随 wheel、源码分发和独立可执行包发布，运行时路径解析不
-依赖当前工作目录。发布验证必须从安装产物启动真实 Host 并完成握手、执行和关闭，不能只检查
-文件存在。
+`sidecars/js_repl` 作为完整目录随 wheel、源码分发和独立可执行包发布，运行时路径解析不
+依赖当前工作目录。发布验证必须先校验资产散列，再从安装产物启动真实 Kernel，完成跨 Cell
+状态保持、reset 和关闭，不能只检查文件存在。
 
 JavaScript Sidecar 边界只有在以下事实持续成立时才视为健康：
 
-- JavaScript 运行时资产只位于 `sidecars/javascript`，Python 进程实现只位于
+- JavaScript 运行时资产只位于 `sidecars/js_repl`，Python 进程实现只位于
   `infrastructure/sidecars/javascript`；
+- 两个 JavaScript 资产与迁移前的固定 SHA-256 完全相同，且不存在复制品、包装 Host 或拆分
+  后的运行时文件；
 - application 工具、Harness 生命周期和 Sidecar 实现通过两个最小端口协作；
 - Session 隔离、权限冻结、取消、超时、崩溃、EOF、重置和关闭具有确定行为；
 - 嵌套工具调用完整经过现有授权、审批和 Effect 链路；
