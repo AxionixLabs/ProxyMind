@@ -343,11 +343,6 @@ async def test_preferences_uses_browser_status_without_command_prefix(
 
     views = []
     open_url = AsyncMock()
-    monkeypatch.setattr(
-        dispatch_module,
-        "config_service_base_url",
-        lambda: "http://127.0.0.1:8765",
-    )
     monkeypatch.setattr(dispatch_module.FileAssist, "open_url", open_url)
     mind = SimpleNamespace(
         frontend=SimpleNamespace(
@@ -359,6 +354,7 @@ async def test_preferences_uses_browser_status_without_command_prefix(
         SimpleNamespace(),
         SimpleNamespace(),
         SimpleNamespace(),
+        configuration_service_url=lambda: "http://127.0.0.1:8765",
     )
 
     action = await dispatcher.dispatch("/preferences")
@@ -381,11 +377,6 @@ async def test_preferences_browser_failure_uses_failure_status(
 
     views = []
     monkeypatch.setattr(
-        dispatch_module,
-        "config_service_base_url",
-        lambda: "http://127.0.0.1:8765",
-    )
-    monkeypatch.setattr(
         dispatch_module.FileAssist,
         "open_url",
         AsyncMock(side_effect=OSError("browser unavailable")),
@@ -400,6 +391,7 @@ async def test_preferences_browser_failure_uses_failure_status(
         SimpleNamespace(),
         SimpleNamespace(),
         SimpleNamespace(),
+        configuration_service_url=lambda: "http://127.0.0.1:8765",
     )
 
     action = await dispatcher.dispatch("/preferences")

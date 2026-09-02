@@ -54,6 +54,7 @@ schematic/supports/
 Structure/
 website/mind/site/
 website/mind/pages/generated/*.md
+/.mind/hook-events.jsonl
 
 # 沙箱发布产物按平台生成，源码仍位于 codex-main/codex-rs
 /schematic/sandbox

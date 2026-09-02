@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .endpoints import config_service_base_url
+from .endpoints import ConfigServiceAddress
 from .lifecycle import ConfigServiceRuntime
 
 __all__ = [
+    "ConfigServiceAddress",
     "ConfigServiceRuntime",
-    "config_service_base_url"
 ]
 
 if __name__ == "__main__":

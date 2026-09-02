@@ -1,17 +1,22 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+from collections.abc import Callable
+
 import httpx
 
 from observability import (
     observe,
     observe_exception,
 )
-from server import config_service_base_url
 from .models import AgentSessionRuntime
 
 
-async def publish_external_access(runtime: AgentSessionRuntime) -> None:
+async def publish_external_access(
+    runtime: AgentSessionRuntime,
+    *,
+    configuration_service_url: Callable[[], str] | None,
+) -> None:
     """把当前订阅会话的调用示例同步到本地配置页面。"""
     example = runtime.mind_call_example
     if not isinstance(example, dict):
@@ -22,7 +27,13 @@ async def publish_external_access(runtime: AgentSessionRuntime) -> None:
         observe("agent.page_sync.skipped", reason="credential_missing")
 
     try:
-        base_url = config_service_base_url()
+        if configuration_service_url is None:
+            observe(
+                "agent.page_sync.skipped",
+                reason="configuration_service_unavailable",
+            )
+            return None
+        base_url = configuration_service_url()
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(3.0, connect=1.5),
             trust_env=False,

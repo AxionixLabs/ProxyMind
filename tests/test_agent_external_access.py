@@ -45,10 +45,6 @@ async def test_agent_example_sync_bypasses_proxy_environment(monkeypatch) -> Non
         "frontends.subscription.external_access.httpx.AsyncClient",
         factory,
     )
-    monkeypatch.setattr(
-        "frontends.subscription.external_access.config_service_base_url",
-        lambda: "http://127.0.0.1:37300",
-    )
     runtime = SimpleNamespace(
         session_id="session-1",
         credential="credential-1",
@@ -60,7 +56,10 @@ async def test_agent_example_sync_bypasses_proxy_environment(monkeypatch) -> Non
         },
     )
 
-    await publish_external_access(runtime)
+    await publish_external_access(
+        runtime,
+        configuration_service_url=lambda: "http://127.0.0.1:37300",
+    )
 
     assert factory.call_args.kwargs["trust_env"] is False
     put.assert_awaited_once_with(

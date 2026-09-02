@@ -553,7 +553,7 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
         return controller
 
     monkeypatch.setattr(
-        "server.ConfigServiceRuntime",
+        "frontends.cli.bootstrap.ConfigServiceRuntime",
         lambda *_args, **_kwargs: config_service,
     )
     monkeypatch.setattr(bootstrap, "ServerManage", lambda *_args, **_kwargs: object())
@@ -651,7 +651,7 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
 
     config_service = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
     monkeypatch.setattr(
-        "server.ConfigServiceRuntime",
+        "frontends.cli.bootstrap.ConfigServiceRuntime",
         lambda *_args, **_kwargs: config_service,
     )
     monkeypatch.setattr(bootstrap, "ServerManage", lambda *_args, **_kwargs: object())

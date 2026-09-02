@@ -25,7 +25,6 @@ from frontends.tui.contracts.resume import (
 from infrastructure.config.store import ConfigStoreError
 from infrastructure.platform.file_assist import FileAssist
 from infrastructure.services.runtime_setup import service_runtime_asset_missing
-from server import config_service_base_url
 from .barriers import TuiForegroundTasks
 from .state import TuiSessionState
 from ..core.interrupt import InterruptDisposition
@@ -197,6 +196,7 @@ class TuiCommandDispatcher(object):
         *,
         protocol_client: ProtocolCommandClient,
         conversation_compactor: ConversationCompactor | None = None,
+        configuration_service_url: typing.Callable[[], str] | None = None,
     ) -> None:
         self.mind = mind
         self.runtime = runtime
@@ -205,6 +205,7 @@ class TuiCommandDispatcher(object):
         self.foreground_tasks = foreground_tasks
         self.protocol_client = protocol_client
         self.conversation_compactor = conversation_compactor
+        self.configuration_service_url = configuration_service_url
         self.application = mind.frontend.application
         self.mailbox = TuiMailboxFeature(runtime, mind)
 
@@ -681,8 +682,11 @@ class TuiCommandDispatcher(object):
 
     async def _open_preferences(self) -> None:
         """在系统浏览器中打开偏好配置页面。"""
-        preferences_url = f"{config_service_base_url()}/pref"
         try:
+            provider = self.configuration_service_url
+            if provider is None:
+                raise RuntimeError("configuration service is unavailable")
+            preferences_url = f"{provider()}/pref"
             await FileAssist.open_url(preferences_url)
         except Exception as failure:
             self._present(failure_text_block(

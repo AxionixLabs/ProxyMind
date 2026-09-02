@@ -245,6 +245,11 @@ class TuiApplicationHost(typing.Protocol):
     frontend: Frontend
     history_workspace: str
     lifecycle: ProcessLifecyclePort
+
+    def configuration_service_url(self) -> str:
+        """返回进程内配置服务地址。"""
+        ...
+
     service_runtime: TuiServiceRuntimePort
     settings: TuiSettingsPort
     subagents: TuiSubagentPort

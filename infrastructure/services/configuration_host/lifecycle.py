@@ -14,9 +14,9 @@ from infrastructure.platform.ports import port_available
 from observability import observe_exception
 from .app import create_app
 from .endpoints import (
+    ConfigServiceAddress,
     DEFAULT_CONFIG_SERVICE_HOST,
     DEFAULT_CONFIG_SERVICE_PORT,
-    config_service_endpoints
 )
 
 
@@ -38,7 +38,10 @@ class ConfigServiceRuntime(object):
         self.port_scan_limit = max(1, int(port_scan_limit))
         self.log_level = str(log_level or "INFO").lower()
         self.port = self.preferred_port
-        self.base_url = f"http://{self.host}:{self.port}"
+        self.address = ConfigServiceAddress(
+            host=self.host,
+            port=self.port,
+        )
 
         self.server: uvicorn.Server | None = None
         self.task: asyncio.Task[None] | None = None
@@ -50,7 +53,7 @@ class ConfigServiceRuntime(object):
 
         self.port = await self._find_available_port()
 
-        self.base_url = config_service_endpoints.configure(
+        self.address = ConfigServiceAddress(
             host=self.host,
             port=self.port
         )
@@ -116,7 +119,7 @@ class ConfigServiceRuntime(object):
         """探测配置服务是否已响应。"""
         try:
             async with httpx.AsyncClient(timeout=0.6, trust_env=False) as client:
-                response = await client.get(f"{self.base_url}/ready")
+                response = await client.get(f"{self.address.base_url}/ready")
                 response.raise_for_status()
                 payload = response.json()
         except (httpx.HTTPError, TypeError, ValueError):

@@ -60,6 +60,7 @@ from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.platform.shell_tools import route_shell_tools
 from infrastructure.platform.workspace_context import fetch_runtime_workspace_root
 from infrastructure.services.helix_capability import ServerManageHelixCapability
+from infrastructure.services.configuration_host import ConfigServiceRuntime
 from infrastructure.services.runtime_context import (
     ServiceRuntimeContext,
     ServiceRuntimeSpec,
@@ -187,6 +188,7 @@ class CliApplicationHostFactory(typing.Protocol):
         animation_enabled: bool = True,
         hook_startup_warnings: tuple[str, ...] = (),
         hook_status: HookStatusPort | None = None,
+        configuration_service: ConfigServiceRuntime | None = None,
         agent_settings: AgentSettings | None = None,
         feature_settings: FeatureSettings | None = None,
     ) -> CliApplicationHost:
@@ -600,6 +602,7 @@ async def _run_controller(
 ) -> int:
     """创建 Controller 并运行用户命令。"""
     hook_status = None
+    configuration_service: ConfigServiceRuntime | None = None
 
     try:
         if output_mode == "tui":
@@ -616,6 +619,12 @@ async def _run_controller(
             cwd=runtime_spec.working_directory,
         )
 
+        if output_mode == "tui":
+            configuration_service = ConfigServiceRuntime(
+                config_session,
+                log_level=const.SHOW_LEVEL,
+            )
+
         controller = application_host_factory(
             config_session=config_session,
             preferences=preference,
@@ -628,6 +637,7 @@ async def _run_controller(
             hook_startup_warnings=hook_startup_warnings,
             hook_status=hook_status,
             application_layout=application_layout,
+            configuration_service=configuration_service,
             runtime_services=runtime_services,
             agent_settings=agent_settings or AgentSettings(),
             feature_settings=feature_settings or FeatureSettings(),
@@ -644,7 +654,6 @@ async def _run_controller(
         output_mode == "tui"
         and isinstance(command, (InteractiveCommand, ResumeCommand))
     )
-    config_service = None
 
     try:
         configured_helix = runtime_services.helix_capability
@@ -690,13 +699,9 @@ async def _run_controller(
                 _emit_helix_skipped(controller)
 
         if output_mode == "tui":
-            from server import ConfigServiceRuntime
-
-            config_service = ConfigServiceRuntime(
-                config_session,
-                log_level=const.SHOW_LEVEL,
-            )
-            await config_service.start()
+            if configuration_service is None:
+                raise RuntimeError("configuration service was not composed")
+            await configuration_service.start()
             observe("config_service.started")
 
         runtime_workspace_root = await fetch_runtime_workspace_root()
@@ -829,12 +834,7 @@ async def _run_controller(
                 completed=completed,
             )
         finally:
-            try:
-                if config_service is not None:
-                    await config_service.stop()
-                    observe("config_service.stopped")
-            finally:
-                report.close()
+            report.close()
 
 
 async def start_tui_external_mcp(controller: CliApplicationHost) -> None:

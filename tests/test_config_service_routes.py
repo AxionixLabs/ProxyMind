@@ -13,9 +13,12 @@ from infrastructure.config.providers import (
     SUPPORTED_ROUTE_NAMES,
     default_route_for_kind,
 )
-from server.app import create_app
-from server.page import render_page
-from server.storage import (
+from infrastructure.services.configuration_host.app import create_app
+from infrastructure.services.configuration_host.page import (
+    asset_root,
+    render_page,
+)
+from infrastructure.services.configuration_host.storage import (
     create_provider,
     load_pref,
     set_active_provider,
@@ -36,6 +39,22 @@ def test_config_service_exposes_only_active_pages(tmp_path) -> None:
         "/api/pref/active-provider",
     } <= paths
     assert "/code" not in paths
+
+
+def test_configuration_assets_prefer_packaged_web_directory(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    executable = tmp_path / "Mind.exe"
+    executable.write_bytes(b"binary")
+    packaged_web = tmp_path / "web"
+    packaged_web.mkdir()
+
+    import infrastructure.services.configuration_host.page as page_module
+
+    monkeypatch.setattr(page_module.sys, "executable", str(executable))
+
+    assert asset_root() == packaged_web
 
 
 def test_anthropic_provider_is_available_in_config_and_page() -> None:

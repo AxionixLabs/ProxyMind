@@ -64,6 +64,7 @@ from infrastructure.config.settings_session import SettingsSession
 from infrastructure.persistence.conversation_history import LocalConversationHistory
 from infrastructure.persistence.transcripts import ConversationTranscriptStore
 from infrastructure.services.runtime_owner import ServiceRuntimeOwner
+from infrastructure.services.configuration_host import ConfigServiceRuntime
 from infrastructure.services.turn_environment import capture_turn_environment
 from observability import (
     observe,
@@ -140,6 +141,7 @@ class ApplicationHost:
         javascript_execution: JavaScriptExecutionPort,
         javascript_lifecycle: JavaScriptSessionLifecyclePort,
         config_session: ConfigSession,
+        configuration_service: ConfigServiceRuntime | None,
         preferences: Preferences,
         permissions: PermissionSettings,
         frontend: FrontendPort,
@@ -188,6 +190,7 @@ class ApplicationHost:
             preferences,
             permissions,
         )
+        self.configuration_service = configuration_service
         skills_provider_factory = runtime_services.create_skills_provider
         self._skills_provider: SkillsProvider | None = (
             skills_provider_factory(self.settings.config.load)
@@ -357,7 +360,7 @@ class ApplicationHost:
             close_javascript=self.javascript_lifecycle.close,
             close_workspace=self.workspace_runtime.close,
             close_execution=self.execution.close,
-            close_service=self.service_runtime.close,
+            close_service=self._close_services,
             observe_failure=_observe_resource_close_failure,
         )
 
@@ -368,6 +371,22 @@ class ApplicationHost:
             animate=self.activity.enabled,
             client_tools=self.execution.client_tool_count(),
         )
+
+    async def _close_services(self) -> None:
+        """按组合根顺序关闭内置配置宿主和 Helix 服务。"""
+        configuration_service = self.configuration_service
+        try:
+            if configuration_service is not None:
+                await configuration_service.stop()
+        finally:
+            await self.service_runtime.close()
+
+    def configuration_service_url(self) -> str:
+        """返回已启动的内置配置服务地址。"""
+        configuration_service = self.configuration_service
+        if configuration_service is None:
+            raise RuntimeError("configuration service is not available")
+        return configuration_service.address.base_url
 
     @property
     def workspace_root(self) -> str:

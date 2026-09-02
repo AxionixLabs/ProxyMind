@@ -66,6 +66,8 @@ infrastructure -> agent.domain / agent.ports / protocol
 - 新增功能或复杂行为变化覆盖核心主流程和关键失败路径；小改动不机械新增测试。
 - 测试不要直接修改进程环境；优先从上层传入环境派生值或依赖。
 - 先运行受影响模块的定向测试；修改共享配置、协议、控制器或公共契约时再扩大范围。
+- `tests/test_package_architecture.py` 是架构边界审计，不得删除；日常迭代运行受影响测试，
+  仅在包边界、依赖方向或发布收口变更时运行完整架构审计。
 - Windows 下使用仓库虚拟环境运行测试：`.\venv\Scripts\python.exe -m pytest`，不要直接调用系统 `pytest`。
 
 ## 验证

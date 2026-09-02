@@ -1,4 +1,4 @@
-# NPM 发布命令
+# npm 发布工作流
 
 ## 登录和配置 Token
 
@@ -47,7 +47,7 @@ packages/mind/package.json optionalDependencies
 进入 npm 工作目录，后续 `npm pack`、本地 tarball 安装和发布命令都在该目录执行。
 
 ```shell
-Set-Location .\mind_npm; npm pkg get version --workspaces
+Set-Location .\npm; npm pkg get version --workspaces
 ```
 
 ### 🪟 同步产物
@@ -110,7 +110,7 @@ npm publish -w @craftline/mind --access public
 进入 npm 工作目录，后续 `npm pack`、本地 tarball 安装和发布命令都在该目录执行。
 
 ```bash
-cd mind_npm && npm pkg get version --workspaces
+cd npm && npm pkg get version --workspaces
 ```
 
 ### 🍎 同步产物

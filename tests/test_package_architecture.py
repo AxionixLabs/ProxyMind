@@ -1,12 +1,29 @@
 # -*- coding: utf-8 -*-
 
 import ast
+import functools
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).parents[1]
 
 
+@functools.lru_cache(maxsize=1)
+def _all_python_sources() -> tuple[Path, ...]:
+    """返回仓库内的 Python 源码清单，并在本次测试进程中复用。"""
+    return tuple(PROJECT_ROOT.rglob("*.py"))
+
+
+@functools.lru_cache(maxsize=None)
+def _parsed_source(path: Path) -> ast.Module:
+    """读取并解析单个 Python 源文件，避免重复 AST 扫描。"""
+    return ast.parse(
+        path.read_text(encoding="utf-8-sig"),
+        filename=str(path),
+    )
+
+
+@functools.lru_cache(maxsize=1)
 def _production_python_sources() -> tuple[Path, ...]:
     """返回仓库内不属于测试或本地环境的 Python 源码。"""
     excluded_parts = {
@@ -23,7 +40,7 @@ def _production_python_sources() -> tuple[Path, ...]:
     }
     return tuple(
         path
-        for path in PROJECT_ROOT.rglob("*.py")
+        for path in _all_python_sources()
         if not excluded_parts.intersection(
             path.relative_to(PROJECT_ROOT).parts
         )
@@ -77,7 +94,7 @@ def _forbidden_imports(
     violations: list[str] = []
 
     for path in package_root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             imported: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -102,7 +119,7 @@ def _forbidden_module_imports(
     violations: list[str] = []
 
     for path in package_root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             imported: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -601,7 +618,7 @@ def test_session_history_store_is_owned_by_stores() -> None:
 def test_agent_application_public_api_is_minimal() -> None:
     """application 包只公开跨入口用例，不重新聚合领域和基础端口。"""
     path = PROJECT_ROOT / "agent" / "application" / "__init__.py"
-    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    tree = _parsed_source(path)
     exported: object | None = None
     imported_modules: set[str] = set()
     for node in tree.body:
@@ -667,7 +684,7 @@ def test_runtime_services_keep_model_control_and_subscription_wiring_explicit(
 def test_agent_composition_has_no_infrastructure_imports() -> None:
     """组合契约接收基础设施适配器，不在 agent 包内反向导入实现。"""
     path = PROJECT_ROOT / "agent" / "composition.py"
-    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    tree = _parsed_source(path)
     violations: list[str] = []
     for node in ast.walk(tree):
         imported: tuple[str, ...] = ()
@@ -819,11 +836,11 @@ def test_retired_packages_have_no_production_imports() -> None:
         "website",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
+    for path in _all_python_sources():
         relative = path.relative_to(PROJECT_ROOT)
         if relative.parts and relative.parts[0] in ignored_roots:
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -861,8 +878,8 @@ def test_migrated_configuration_modules_have_no_legacy_sources_or_imports() -> N
         "mind_core.provider_config",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -886,8 +903,8 @@ def test_skills_resources_have_no_legacy_package_or_imports() -> None:
     assert not legacy_root.exists(), "legacy skills package still exists"
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -909,8 +926,8 @@ def test_project_trust_has_no_legacy_source_or_imports() -> None:
     assert not legacy_path.exists(), "legacy project trust source still exists"
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -932,8 +949,8 @@ def test_permission_policy_has_no_legacy_source_or_imports() -> None:
     assert not legacy_path.exists(), "legacy permission policy source still exists"
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -971,8 +988,8 @@ def test_hook_modules_have_no_legacy_sources_or_imports() -> None:
         "mind_core.hook_discovery",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -994,8 +1011,8 @@ def test_service_config_has_no_legacy_source_or_imports() -> None:
     assert not legacy_path.exists(), "legacy service config source still exists"
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1017,8 +1034,8 @@ def test_preference_projection_has_no_legacy_source_or_imports() -> None:
     assert not legacy_path.exists(), "legacy preference source still exists"
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1040,8 +1057,8 @@ def test_config_store_has_no_legacy_source_or_imports() -> None:
     assert not legacy_path.exists(), "legacy config store source still exists"
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1079,8 +1096,8 @@ def test_configuration_layers_have_no_legacy_sources_or_imports() -> None:
         "mind_core.config_session",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1104,8 +1121,8 @@ def test_runtime_paths_have_no_legacy_application_module() -> None:
     assert not legacy_path.is_file(), "legacy application paths module still exists"
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1141,8 +1158,8 @@ def test_runtime_asset_and_attachment_boundaries_have_no_legacy_sources() -> Non
         "mind_app.attach",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1175,8 +1192,8 @@ def test_mcp_runtime_has_no_legacy_root_package_or_imports() -> None:
     )
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1225,7 +1242,7 @@ def test_mcp_stdio_adapter_is_owned_by_frontends() -> None:
 
     violations: list[str] = []
     legacy_module = "mind_app.runtime.mcp.server"
-    for path in PROJECT_ROOT.rglob("*.py"):
+    for path in _all_python_sources():
         source_tree = ast.parse(
             path.read_text(encoding="utf-8-sig"),
             filename=str(path),
@@ -1260,7 +1277,7 @@ def test_mcp_lifecycle_owner_is_harness_owned() -> None:
 
     violations: list[str] = []
     legacy_module = "mind_app.runtime.mcp." + "lifecycle"
-    for path in PROJECT_ROOT.rglob("*.py"):
+    for path in _all_python_sources():
         source_tree = ast.parse(
             path.read_text(encoding="utf-8-sig"),
             filename=str(path),
@@ -1325,8 +1342,8 @@ def test_helix_lifecycle_adapter_is_owned_by_infrastructure() -> None:
     assert "mind_app" not in owner_source
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.level == 0:
                 module = node.module or ""
@@ -1387,8 +1404,8 @@ def test_service_runtime_setup_is_infrastructure_owned() -> None:
     assert not definitions.intersection(moved_names)
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom) or node.level != 0:
                 continue
@@ -1618,8 +1635,8 @@ def test_process_encoding_has_one_platform_owner() -> None:
     assert not legacy_path.is_file(), "legacy native coding encoding still exists"
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1659,8 +1676,8 @@ def test_workspace_process_boundaries_have_no_legacy_sources() -> None:
         "mind_app.native_coding.git_diff",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1742,8 +1759,8 @@ def test_command_safety_has_platform_ownership() -> None:
     )
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1796,8 +1813,8 @@ def test_process_execution_substrate_has_platform_ownership() -> None:
         f"{legacy_prefix}shell_runtime",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1847,8 +1864,8 @@ def test_hook_output_spill_has_platform_ownership() -> None:
 
     legacy_modules = {"mind_app.runtime.hooks.output_spill"}
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1939,8 +1956,8 @@ def test_runtime_environment_helpers_have_platform_ownership() -> None:
         "mind_app.runtime.environment.workspace",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1973,8 +1990,8 @@ def test_workspace_runtime_owner_belongs_to_harness() -> None:
         "mind_app.runtime.environment.coding_lifecycle",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2007,8 +2024,8 @@ def test_environment_snapshot_capture_has_application_ownership() -> None:
         "mind_app.runtime.environment.snapshot",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2057,8 +2074,8 @@ def test_hook_models_have_application_ownership() -> None:
 
     legacy_modules = {"mind_app.runtime.hooks.models"}
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2107,8 +2124,8 @@ def test_hook_protocol_has_application_ownership() -> None:
 
     legacy_modules = {"mind_app.runtime.hooks.protocol"}
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2157,8 +2174,8 @@ def test_hook_catalog_has_application_ownership() -> None:
 
     legacy_modules = {"mind_app.runtime.hooks.catalog"}
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2208,8 +2225,8 @@ def test_hook_matching_belongs_to_domain() -> None:
 
     legacy_modules = {"mind_app.runtime.hooks.matching"}
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2269,8 +2286,8 @@ def test_hook_output_and_events_have_application_ownership() -> None:
         )
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2320,8 +2337,8 @@ def test_hook_result_projection_has_application_ownership() -> None:
 
     legacy_modules = {"mind_app.runtime.hooks.results"}
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2380,8 +2397,8 @@ def test_tool_mode_policy_belongs_to_domain() -> None:
         "mind_app.presentation.tool_policy",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2453,8 +2470,8 @@ def test_turn_result_and_session_identity_boundaries_are_explicit() -> None:
         "mind_app.runtime.support.rwlock",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2560,8 +2577,8 @@ def test_runtime_support_responsibilities_have_explicit_owners() -> None:
         "mind_app.runtime.support.session_policy",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2622,8 +2639,8 @@ def test_compaction_result_and_runtime_orchestration_have_separate_owners() -> N
 
     legacy_modules = {"mind_app.runtime.conversation"}
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2672,8 +2689,8 @@ def test_execution_context_contracts_are_owned_by_agent_application() -> None:
 
     legacy_modules = {"mind_app.runtime.execution"}
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2718,8 +2735,8 @@ def test_agent_mailbox_is_owned_by_stores() -> None:
 
     legacy_modules = {"mind_app.runtime.subagents.mailbox"}
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2762,8 +2779,8 @@ def test_agent_thread_context_is_owned_by_application() -> None:
 
     legacy_modules = {"mind_app.runtime.subagents.thread"}
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2844,8 +2861,8 @@ def test_session_identity_validation_is_owned_by_protocol_schema() -> None:
 
     legacy_modules = {"mind_app.history.ids"}
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2916,8 +2933,8 @@ def test_transcript_sink_port_is_owned_by_agent_ports() -> None:
     )
 
     legacy_imports: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -2952,8 +2969,8 @@ def test_agent_graph_persistence_is_owned_by_stores() -> None:
 
     legacy_modules = {"mind_app.runtime.subagents.graph"}
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -3176,8 +3193,8 @@ def test_subagent_message_delivery_has_port_and_adapter_owners() -> None:
     assert "AgentMessageDispatch" not in runtime_classes
 
     old_imports: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom) or node.level != 0:
                 continue
@@ -3235,8 +3252,8 @@ def test_hook_execution_context_is_owned_by_application() -> None:
     assert "HookExecutionScope" in scope_classes
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom) or node.level != 0:
                 continue
@@ -3281,8 +3298,8 @@ def test_turn_execution_contract_is_owned_by_application() -> None:
     assert ports_path.is_file(), "hook execution scope port is missing"
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom) or node.level != 0:
                 continue
@@ -3441,8 +3458,8 @@ def test_mcp_session_contract_is_owned_by_agent_ports() -> None:
     assert target_path.is_file(), "agent MCP session port is missing"
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -3536,7 +3553,7 @@ def test_turn_and_subagent_execution_ports_are_owned_by_agent_ports() -> None:
 
     legacy_violations: list[str] = []
     for path in implementation_paths:
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in tree.body:
             if isinstance(node, ast.ClassDef) and node.name in {
                 "TurnResult",
@@ -3577,8 +3594,8 @@ def test_subagent_hook_events_are_owned_by_application() -> None:
     assert not violations, "application subagent hooks cross their boundary:\n" + "\n".join(violations)
 
     import_violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -3748,8 +3765,8 @@ def test_subagent_stream_execution_is_owned_by_adapter() -> None:
     assert not violations, "subagent adapter crosses legacy boundary:\n" + "\n".join(violations)
 
     import_violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -3820,8 +3837,8 @@ def test_tool_progress_policy_and_dispatch_have_single_owners() -> None:
         "mind_app.runtime.mcp.tool_progress",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -3898,8 +3915,8 @@ def test_hook_command_executor_is_owned_by_platform_infrastructure() -> None:
     )
 
     legacy_imports: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -3972,7 +3989,7 @@ def test_hook_runtime_and_registry_are_harness_owned() -> None:
 
     violations: list[str] = []
     for path in target_paths:
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -4032,8 +4049,8 @@ def test_execution_policy_is_split_between_domain_and_config() -> None:
         "mind_app.native_coding.exec.execpolicy.parser",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -4053,7 +4070,7 @@ def test_execution_policy_is_split_between_domain_and_config() -> None:
     domain_root = PROJECT_ROOT / "agent" / "domain" / "execution_policy"
     domain_violations: list[str] = []
     for path in domain_root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -4100,8 +4117,8 @@ def test_terminal_presentation_has_no_legacy_design_sources_or_imports() -> None
         "mind_app.runtime.design",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -4133,8 +4150,8 @@ def test_frontend_contracts_have_no_legacy_package_or_imports() -> None:
     )
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -4273,8 +4290,8 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
     assert not model_path.exists(), "legacy presentation models module still exists"
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom) or node.level != 0:
                 continue
@@ -4345,8 +4362,8 @@ def test_frontend_runtime_and_terminal_are_owned_by_frontends() -> None:
 
     violations: list[str] = []
     legacy_modules = ("mind_app.presentation",)
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -4385,7 +4402,7 @@ def test_application_view_builders_are_pure_and_owned_by_application() -> None:
 
     violations: list[str] = []
     for path in builders_root.glob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -4591,7 +4608,7 @@ def test_turn_stream_projection_is_owned_by_application() -> None:
     violations: list[str] = []
     for path in target_paths:
         assert path.is_file(), f"turn stream projection is missing: {path.name}"
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -4742,7 +4759,7 @@ def test_tui_contracts_are_owned_by_frontends() -> None:
     )
     violations: list[str] = []
     for path in target_root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -4761,8 +4778,8 @@ def test_tui_contracts_are_owned_by_frontends() -> None:
 
     old_imports: list[str] = []
     old_tui_root = PROJECT_ROOT / "mind_app" / "tui"
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         relative_to_tui = path.is_relative_to(old_tui_root)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -4826,7 +4843,7 @@ def test_tui_adapter_is_owned_by_frontends() -> None:
 
     legacy_imports: list[str] = []
     for path in (PROJECT_ROOT / "mind_app").rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -4887,7 +4904,7 @@ def test_subscription_adapter_is_owned_by_frontends() -> None:
 
     legacy_imports: list[str] = []
     for path in frontend_root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -5236,8 +5253,8 @@ def test_cli_adapter_is_owned_by_frontends() -> None:
     violations: list[str] = []
     reverse_dependencies: list[str] = []
     legacy_module = "mind_app.cli"
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -5250,7 +5267,7 @@ def test_cli_adapter_is_owned_by_frontends() -> None:
             ):
                 violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
     for path in target_root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -5279,7 +5296,7 @@ def test_frontends_use_injected_application_hosts() -> None:
     frontend_root = PROJECT_ROOT / "frontends"
     violations: list[str] = []
     for path in frontend_root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -5416,8 +5433,8 @@ def test_presentation_output_has_no_legacy_package_or_imports() -> None:
     )
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -5460,8 +5477,8 @@ def test_presentation_stream_has_no_legacy_packages_or_facades() -> None:
         "mind_app.presentation.stream.tool_trace",
     )
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -5502,8 +5519,8 @@ def test_approval_state_stores_have_no_legacy_package_or_imports() -> None:
         "mind_app.approval.permission_grants",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -5680,7 +5697,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
     package_root = PROJECT_ROOT / "mind_app"
 
     for path in package_root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             imported: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -5707,12 +5724,12 @@ def test_product_logging_enters_observability_boundary() -> None:
     violations: list[str] = []
     excluded_parts = {"tests", "venv", "codex-main", "backend", "observability"}
 
-    for path in PROJECT_ROOT.rglob("*.py"):
+    for path in _all_python_sources():
         relative_parts = set(path.relative_to(PROJECT_ROOT).parts)
         if relative_parts & excluded_parts:
             continue
 
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 if any(alias.name == "logging" for alias in node.names):
@@ -5749,8 +5766,8 @@ def test_run_report_has_observability_ownership() -> None:
     assert not legacy_path.is_file(), "legacy RunReport module still exists"
 
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -5784,8 +5801,8 @@ def test_event_report_lifecycle_has_protocol_client_ownership() -> None:
         "mind_app.runtime.turns.event_reporting",
     }
     violations: list[str] = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    for path in _all_python_sources():
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -5812,7 +5829,7 @@ def test_hook_registry_is_composed_at_the_process_root() -> None:
     )
     violations: list[str] = []
     for path in entry_paths:
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        tree = _parsed_source(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 module = node.module or ""

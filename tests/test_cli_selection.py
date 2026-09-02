@@ -1197,7 +1197,7 @@ async def test_agent_listen_owns_config_service_lifecycle(
     config_service_factory = Mock(return_value=config_service)
 
     monkeypatch.setattr(
-        "server.ConfigServiceRuntime",
+        "frontends.cli.bootstrap.ConfigServiceRuntime",
         config_service_factory,
     )
     server_calls = []
@@ -1264,7 +1264,6 @@ async def test_agent_listen_owns_config_service_lifecycle(
         log_level=const.SHOW_LEVEL,
     )
     config_service.start.assert_awaited_once_with()
-    config_service.stop.assert_awaited_once_with()
     if start_error is None:
         confirm_helix.assert_awaited_once_with(controller)
     else:

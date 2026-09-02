@@ -81,6 +81,7 @@ class AgentRuntime(object):
         executor: AgentExecutor | None = None,
         live_status: AgentLiveStatus | None = None,
         supervisor: AgentSupervisor | None = None,
+        configuration_service_url: Callable[[], str] | None = None,
         turn_runner: RootTurnRunner | None = None,
         environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
         turn_application_factory: TurnApplicationFactory | None = None,
@@ -129,7 +130,8 @@ class AgentRuntime(object):
         self.supervisor = supervisor or AgentSupervisor(
             mind,
             self.connection,
-            self.live_status
+            self.live_status,
+            configuration_service_url=configuration_service_url,
         )
         self.task: asyncio.Task[None] | None = None
 

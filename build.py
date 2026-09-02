@@ -434,7 +434,7 @@ async def packaging() -> tuple[
     compile_cmd += [
         f"--assume-yes-for-downloads", f"--show-progress", f"--show-memory",
         f"--include-package=pygments",
-        f"--include-data-dir=web=web",
+        f"--include-data-dir=infrastructure/services/configuration_host/assets=web",
         f"--include-data-dir=sidecars=sidecars",
         f"--output-dir={app}", f"{const.APP_NAME}.py"
     ]

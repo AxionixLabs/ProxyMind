@@ -51,11 +51,12 @@ infrastructure
 | `agent/` | 本地 Agent Harness 的领域、用例、编排、端口和本地事实 | 具体 UI、配置文件路径、HTTP 实现 |
 | `protocol/` | 可供多前端复用的 `mind.chat` wire SDK | Harness 生命周期、本地 UI 或配置策略 |
 | `frontends/` | CLI、TUI、stdio MCP、Subscription 和终端展示适配 | Run/Effect 权威状态、具体能力组装 |
-| `infrastructure/` | 配置、平台、MCP、持久化、服务、技能和工作区实现 | 前端状态、线上 Turn 权威状态 |
+| `infrastructure/` | 配置、平台、MCP、持久化、服务、技能、工作区和内置宿主实现 | 前端状态、线上 Turn 权威状态 |
 | `sidecars/` | 随客户端发布的隔离子进程入口和私有运行时资产 | Harness 编排、审批决策、线上协议语义 |
 | `observability/` | 结构化日志、报告和异常观测入口 | 业务状态机、用户交互策略 |
 | `metadata/` | 产品名称、版本、编码和展示元数据 | 运行状态、配置读取 |
-| `server/` | 客户端内置的可选配置 UI 与健康检查 | Harness 状态、`mind.chat` 服务端语义 |
+| `infrastructure/services/configuration_host/` | 客户端内置的可选配置 HTTP 宿主、配置页和健康检查 | Harness 状态、`mind.chat` 服务端语义 |
+| `npm/` | npm launcher、平台运行时包和发布工作区 | Python 运行时、Harness 状态、线上协议语义 |
 | `backend/` | 独立打包服务 | 对客户端包的反向依赖 |
 
 ## Agent 包结构
@@ -328,7 +329,7 @@ model intent
 - `workspace/`：工作区命令、补丁应用、diff 和运行资源；
 - `mcp/`：外部/本地 MCP session、工具目录、调用和结果适配；
 - `persistence/`：Transcript 与会话索引的具体存储；
-- `services/`：可选服务 owner、健康、许可、Helix 与 Turn 环境；
+- `services/`：可选服务 owner、健康、许可、Helix、Turn 环境和进程内配置宿主；
 - `skills/`：技能发现、解析和不可变 payload；
 - `hooks/`：Hook 文件发现；
 - `sidecars/`：私有子进程协议、进程托管、会话连接和资源关闭；
@@ -336,6 +337,28 @@ model intent
 
 Infrastructure 不得读取 TUI 控件、构造前端文案或修改 Harness 内部状态；它通过 ports、
 具名 application 契约和返回值交互。
+
+### 内置配置宿主
+
+`infrastructure/services/configuration_host/` 是客户端进程内的可选配置服务，不是独立部署
+边界，也不实现线上 `mind.chat` 语义。它只负责 FastAPI 组合、配置页路由、配置操作映射、
+本地端口生命周期和健康检查；持久配置事实仍由 `infrastructure.config` 所有，Harness 不依赖
+该宿主。
+
+配置页面和静态文件位于宿主的 `assets/` 下，由宿主统一解析。源码运行读取该目录；Nuitka
+standalone 构建通过 `--include-data-dir` 将同一资产映射到发布目录根下的 `web/`，运行时
+优先读取可执行文件旁的 `web/`，因此启动工作目录变化或源码目录不存在都不影响页面加载。
+`ConfigServiceRuntime` 持有当前实例的不可变地址，组合根将地址提供给 TUI 和 Subscription；
+配置宿主关闭由 `ApplicationHost` 的进程资源 owner 统一收束，不使用模块级地址单例。
+`build.py` 只负责发布资源包含，不改变 Python 包或 wheel 边界。
+
+### npm 分发工作区
+
+`npm/` 是独立的 npm workspace，所有权只覆盖 launcher、平台运行时包、产物同步脚本和发布
+流程文档。`npm/PUBLISHING.md` 与 workspace 同属该边界；发布操作必须从 workspace 根目录执行。
+该目录不承载 Python 实现、Harness 状态或 `mind.chat` 协议，不能被运行时模块导入。平台运行时
+由 `npm/scripts/sync-applications.js` 从仓库构建产物同步，npm 包发布不改变 Python wheel 的
+内容或边界。
 
 ## JavaScript Sidecar
 

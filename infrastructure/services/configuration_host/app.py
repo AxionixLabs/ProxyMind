@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from infrastructure.config.session import ConfigSession
-from .page import web_dir
+from .page import asset_root
 from .routers import register_routers
 
 
@@ -17,7 +17,7 @@ def create_app(config_session: ConfigSession) -> FastAPI:
 
     register_routers(app)
 
-    static_dir = web_dir() / "static"
+    static_dir = asset_root() / "static"
     if static_dir.is_dir():
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
 

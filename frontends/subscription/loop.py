@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
+from collections.abc import Callable
 
 import httpx
 from websockets.exceptions import (
@@ -241,12 +242,15 @@ class AgentSupervisor(object):
         self,
         mind: SubscriptionHost,
         connection: AgentConnection,
-        live_status: AgentLiveStatus
+        live_status: AgentLiveStatus,
+        *,
+        configuration_service_url: Callable[[], str] | None = None,
     ) -> None:
         """保存订阅运行所需依赖。"""
         self.mind = mind
         self.connection = connection
         self.live_status = live_status
+        self.configuration_service_url = configuration_service_url
         self.runtime: AgentSessionRuntime | None = None
 
     async def run(self) -> None:
@@ -274,7 +278,10 @@ class AgentSupervisor(object):
                 "Subscription Ready", "Rendering external call example"
             )
 
-            await publish_external_access(runtime)
+            await publish_external_access(
+                runtime,
+                configuration_service_url=self.configuration_service_url,
+            )
             self.live_status.update(
                 "Waiting for Server Tasks", "Long link established and listening"
             )
@@ -369,7 +376,10 @@ class AgentSupervisor(object):
                 await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
                 return runtime
 
-            await publish_external_access(runtime)
+            await publish_external_access(
+                runtime,
+                configuration_service_url=self.configuration_service_url,
+            )
             self.live_status.update(
                 "Reopened and Waiting", "Returning to listening state in 1s"
             )
@@ -498,7 +508,10 @@ class AgentSupervisor(object):
             await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
             return runtime
 
-        await publish_external_access(runtime)
+        await publish_external_access(
+            runtime,
+            configuration_service_url=self.configuration_service_url,
+        )
         self.live_status.update(
             "Reopened and Waiting", "Returning to listening state in 1s"
         )
@@ -559,7 +572,10 @@ class AgentSupervisor(object):
         self.live_status.update(
             "Resumed and Waiting", "Returning to listening state in 1s"
         )
-        await publish_external_access(runtime)
+        await publish_external_access(
+            runtime,
+            configuration_service_url=self.configuration_service_url,
+        )
         await sleep_or_stop(1.0, self.mind.lifecycle.stop_event)
         return runtime
 

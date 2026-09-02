@@ -65,6 +65,7 @@ from infrastructure.services.turn_environment import (
     capture_active_turn_environment,
     capture_turn_environment,
 )
+from infrastructure.services.configuration_host import ConfigServiceRuntime
 from infrastructure.sidecars.javascript.provider import JavaScriptSidecarProvider
 from infrastructure.skills import skills_payload
 from infrastructure.workspace.runtime import WorkspaceCoding
@@ -78,6 +79,14 @@ class _ComposedFrontend(FrontendPort, typing.Protocol):
     @property
     def interaction(self) -> ApprovalPresenterPort:
         """返回工具审批展示端口。"""
+        ...
+
+
+class _ConfigurationServiceHost(SubscriptionHost, typing.Protocol):
+    """描述组合根向订阅适配器注入配置服务地址的最小能力。"""
+
+    def configuration_service_url(self) -> str:
+        """返回当前进程内配置服务地址。"""
         ...
 
 
@@ -145,6 +154,7 @@ def create_application_host(
     hook_registry: HookRegistryPort,
     runtime_services: RuntimeServices,
     application_layout: ApplicationLayout | None,
+    configuration_service: ConfigServiceRuntime | None = None,
     workspace_root: str | os.PathLike[str] | None = None,
     animation: AsyncAnimManager | None = None,
     animation_enabled: bool = True,
@@ -177,6 +187,7 @@ def create_application_host(
         javascript_execution=javascript,
         javascript_lifecycle=javascript,
         config_session=config_session,
+        configuration_service=configuration_service,
         preferences=preferences,
         permissions=permissions,
         frontend=frontend,
@@ -218,12 +229,13 @@ def create_tool_runtime(sources: ToolRuntimeSources) -> ToolRuntimePort:
 
 
 def create_subscription_runtime(
-    host: SubscriptionHost,
+    host: _ConfigurationServiceHost,
     runtime_services: RuntimeServices,
 ) -> SubscriptionRuntime:
     """在进程组合根创建绑定应用宿主的远端订阅运行时。"""
     return AgentRuntime(
         host,
+        configuration_service_url=host.configuration_service_url,
         turn_runner=bind_root_turn_runner(runtime_services),
         environment_snapshot_provider=capture_active_turn_environment,
         turn_application_factory=runtime_services.create_turn_application,

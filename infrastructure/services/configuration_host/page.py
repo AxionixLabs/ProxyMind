@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import sys
 from pathlib import Path
 
 from fastapi.responses import Response
@@ -8,14 +9,17 @@ from fastapi.responses import Response
 from metadata import const
 
 
-def web_dir() -> Path:
-    """返回配置服务页面目录。"""
-    return Path(__file__).resolve().parent.parent / "web"
+def asset_root() -> Path:
+    """返回配置服务资源根目录。"""
+    packaged_root = Path(sys.executable).resolve().parent / "web"
+    if packaged_root.is_dir():
+        return packaged_root
+    return Path(__file__).resolve().parent / "assets"
 
 
 def render_page(name: str) -> Response:
     """读取并返回配置服务页面。"""
-    target = web_dir() / name
+    target = asset_root() / name
     content = target.read_text(encoding=const.CHARSET, errors="replace")
 
     content = (

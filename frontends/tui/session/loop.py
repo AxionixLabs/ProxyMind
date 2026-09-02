@@ -179,6 +179,7 @@ async def _run_tui_loop(
         foreground_tasks,
         protocol_client=protocol_client,
         conversation_compactor=conversation_compactor,
+        configuration_service_url=mind.configuration_service_url,
     )
     dispatcher.mailbox.bind_listener()
     if initial_prompt is not None:
