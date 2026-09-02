@@ -13,11 +13,11 @@ from infrastructure.config.providers import (
     SUPPORTED_REASONING_EFFORTS,
     default_route_for_kind
 )
-from metadata import const
 from observability import (
     observe,
     observe_exception
 )
+from protocol.transport import config
 
 
 class ConfigReader(typing.Protocol):
@@ -208,7 +208,7 @@ class Preferences(object):
     @property
     def pref_api(self) -> str:
         """返回偏好配置接口地址。"""
-        return const.BASE_URL.rstrip("/") + "/api/pref"
+        return config.BASE_URL.rstrip("/") + "/api/pref"
 
     @staticmethod
     def _merge_missing_slot(

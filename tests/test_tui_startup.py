@@ -304,6 +304,7 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
     entered = asyncio.Event()
     release = asyncio.Event()
     start_called = Mock()
+    activity_snapshots = []
 
     class ExternalGroup(object):
         def __init__(self) -> None:
@@ -355,7 +356,8 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
             )
             self.lifecycle = ProcessLifecycle()
 
-        async def _start_external_mcp(self, _snapshot):
+        async def _start_external_mcp(self, snapshot):
+            activity_snapshots.append(snapshot)
             return None
 
         async def _stop_activity(self, _kind=None, *, settle=True):
@@ -397,6 +399,8 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
         filtered=1,
     ),)
     assert mind.stop_calls == [("external_mcp", False)]
+    assert len(activity_snapshots) == 1
+    assert isinstance(activity_snapshots[0](), dict)
 
     await runtime.stop()
 

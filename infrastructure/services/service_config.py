@@ -6,11 +6,11 @@ from urllib.parse import urlparse
 
 import httpx
 
-from metadata import const
 from observability import (
     observe,
     observe_exception
 )
+from protocol.transport import config
 
 
 def normalize_domain(value: typing.Any) -> str:
@@ -46,7 +46,7 @@ class ServiceConfig(object):
     @property
     def service_config_api(self) -> str:
         """返回服务配置接口地址。"""
-        return const.BASE_URL.rstrip("/") + "/api/service-config"
+        return config.BASE_URL.rstrip("/") + "/api/service-config"
 
     def load_local_domain(self) -> str:
         """读取本地配置中的服务域名。"""

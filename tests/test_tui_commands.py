@@ -29,6 +29,7 @@ from frontends.tui.core.models import (
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.styles import BODY_STYLE, BRIGHT_STYLE, prompt_style
 from frontends.tui.features import helix
+from protocol.transport import config as transport_config
 from frontends.tui.features.model import (
     choose_provider,
     save_active_provider,
@@ -839,6 +840,16 @@ def test_linked_helix_unlink_reports_unlinked() -> None:
     assert "".join(text for _style, text in status.renderable.fragments) == (
         "• Helix MCP unlinked"
     )
+
+
+def test_helix_home_uses_transport_base_url_when_manager_url_is_empty() -> None:
+    mind = SimpleNamespace(
+        service_runtime=SimpleNamespace(
+            manager=SimpleNamespace(url=""),
+        ),
+    )
+
+    assert helix.helix_runtime_home_url(mind) == transport_config.BASE_URL
 
 
 @pytest.mark.anyio

@@ -5,15 +5,15 @@ import typing
 
 import httpx
 
-from metadata import const
 from observability import observe_exception
+from protocol.transport import config
 
 
 async def fetch_service_exec_env(timeout: float = 1.5) -> dict[str, typing.Any] | None:
     """读取本地服务运行时环境，失败时返回空值。"""
     try:
         async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-            resp = await client.get(f"{const.BASE_URL}/api/runtime/exec-env")
+            resp = await client.get(f"{config.BASE_URL}/api/runtime/exec-env")
             resp.raise_for_status()
             body = resp.json()
     except (httpx.HTTPError, ValueError) as exc:

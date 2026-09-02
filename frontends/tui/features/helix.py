@@ -24,7 +24,7 @@ from infrastructure.errors import AppError
 from infrastructure.platform.file_assist import FileAssist
 from infrastructure.services.runtime_context import ServiceRuntimeContext
 from infrastructure.services.runtime_setup import service_runtime_asset_missing
-from metadata import const
+from protocol.transport import config
 from ..core.models import (
     FragmentBlock,
     MenuDescriptionLayout,
@@ -295,7 +295,7 @@ def helix_runtime_home_url(mind: "TuiApplicationHost") -> str:
 
     url = str(server_manager.url or "").strip()
 
-    return (url or const.BASE_URL).rstrip("/")
+    return (url or config.BASE_URL).rstrip("/")
 
 
 def unlink_helix_runtime(mind: "TuiApplicationHost") -> None:

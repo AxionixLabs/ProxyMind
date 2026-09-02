@@ -163,7 +163,7 @@ class ExternalMcpRuntime(object):
 
         try:
             if status.visible:
-                await self._context.start_activity(lambda: status.snapshot)
+                await self._context.start_activity(status.snapshot)
                 external_anim_started = True
 
             group = ExternalMcpGroup()

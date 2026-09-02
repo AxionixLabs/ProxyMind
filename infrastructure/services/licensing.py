@@ -34,6 +34,7 @@ from protocol.transport.auth import (
     build_service_headers,
     build_service_query,
 )
+from protocol.transport import config
 
 AuthorizationDataEmitter = typing.Callable[[dict[str, typing.Any]], None]
 
@@ -132,7 +133,7 @@ def verify_signature(lic_input: typing.Union["Path", dict]) -> dict:
     """
     try:
         # 加载公钥
-        pubkey = serialization.load_pem_public_key(const.PUBLIC_KEY)
+        pubkey = serialization.load_pem_public_key(config.PUBLIC_KEY)
 
         lic = json.loads(
             lic_input.read_text()
@@ -241,7 +242,7 @@ async def receive_license(
     observe("license.activation.start")
 
     async with httpx.AsyncClient(headers=headers, timeout=30) as client:
-        bs_lic_data = await send(client, "GET", const.BOOTSTRAP_URL, params=params)
+        bs_lic_data = await send(client, "GET", config.BOOTSTRAP_URL, params=params)
         auth_info = verify_signature(bs_lic_data)
 
         if emit_data is not None:

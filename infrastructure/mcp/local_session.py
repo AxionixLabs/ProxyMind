@@ -14,8 +14,8 @@ from infrastructure.mcp.errors import (
     flatten_exceptions,
     is_transport_close_exception,
 )
-from metadata import const
 from observability import observe_exception
+from protocol.transport import config
 from protocol.transport.auth import manufacture_token
 from protocol.transport.streaming import cap_response
 
@@ -56,7 +56,7 @@ async def open_local_mcp_session() -> typing.AsyncIterator[ClientSession]:
 
     async with httpx.AsyncClient(timeout=timeout, event_hooks=event_hooks, trust_env=False) as client:
         try:
-            async with streamable_http_client(const.BASE_URL + const.MCP_ED, http_client=client) as (r, w, _):
+            async with streamable_http_client(config.BASE_URL + config.MCP_ED, http_client=client) as (r, w, _):
                 async with ClientSession(r, w, read_timeout_seconds=LOCAL_MCP_READ_TIMEOUT) as session:
                     await session.initialize()
                     try:

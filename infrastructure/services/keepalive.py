@@ -7,8 +7,8 @@ import typing
 
 import httpx
 
-from metadata import const
 from observability import observe_exception
+from protocol.transport import config
 
 if typing.TYPE_CHECKING:
     from infrastructure.services.server_manager import ServerManage
@@ -39,11 +39,11 @@ async def run_keepalive(
     server_manager: "ServerManage | None" = None
 ) -> None:
     """后台定时执行 keepalive，并接受服务端返回的动态周期。"""
-    keepalive_sec = float(const.KEEPALIVE_SEC)
+    keepalive_sec = float(config.KEEPALIVE_SEC)
     owns_client = req_client is None
 
     client = req_client or httpx.AsyncClient(
-        timeout=httpx.Timeout(float(const.KEEPALIVE_TIMEOUT_SEC), connect=1.5)
+        timeout=httpx.Timeout(float(config.KEEPALIVE_TIMEOUT_SEC), connect=1.5)
     )
 
     try:
@@ -56,9 +56,9 @@ async def run_keepalive(
 
             try:
                 response = await client.get(
-                    f"{const.BASE_URL}/api/keepalive",
+                    f"{config.BASE_URL}/api/keepalive",
                     headers={"accept": "application/json"},
-                    timeout=float(const.KEEPALIVE_TIMEOUT_SEC),
+                    timeout=float(config.KEEPALIVE_TIMEOUT_SEC),
                 )
                 response.raise_for_status()
 

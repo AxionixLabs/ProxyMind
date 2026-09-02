@@ -5,8 +5,8 @@ import typing
 
 import httpx
 
-from metadata import const
 from observability import observe_exception
+from protocol.transport import config
 from protocol.transport.auth import (
     build_service_headers,
     build_service_query,
@@ -36,7 +36,7 @@ class RemoteServices(object):
     async def formatting() -> typing.Optional[dict]:
         """获取远程 TTS 服务的可用状态及支持的音频格式列表。"""
         try:
-            sign_data = await RemoteServices.ask_request_get(const.SPEECH_META_URL)
+            sign_data = await RemoteServices.ask_request_get(config.SPEECH_META_URL)
             auth_info = verify_signature(sign_data)
         except Exception as e:
             observe_exception("remote_service.failed", e, level="WARNING", service="speech")
@@ -48,7 +48,7 @@ class RemoteServices(object):
     async def heal_license() -> typing.Optional[dict]:
         """获取远程元素自愈服务的可用状态。"""
         try:
-            sign_data = await RemoteServices.ask_request_get(const.HEAL_LIC_URL)
+            sign_data = await RemoteServices.ask_request_get(config.HEAL_LIC_URL)
             auth_info = verify_signature(sign_data)
         except Exception as e:
             observe_exception("remote_service.failed", e, level="WARNING", service="heal_license")
@@ -60,7 +60,7 @@ class RemoteServices(object):
     async def remote_config() -> typing.Optional[dict]:
         """获取远程配置中心的全局配置数据。"""
         try:
-            sign_data = await RemoteServices.ask_request_get(const.GLOBAL_CF_URL)
+            sign_data = await RemoteServices.ask_request_get(config.GLOBAL_CF_URL)
             auth_info = verify_signature(sign_data)
         except Exception as e:
             observe_exception("remote_service.failed", e, level="WARNING", service="global_config")
