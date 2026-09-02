@@ -32,6 +32,7 @@ from agent.ports import (
     HookRegistryPort,
     ProcessResourcePort,
     RootConversationPort,
+    RunRecoveryRequired,
 )
 from frontends.interaction import NonInteractiveInteraction
 from frontends.output.application import NullApplicationSink
@@ -400,6 +401,11 @@ class MindMcpRuntime(object):
                 f"request timed out after {timeout_sec:g} seconds",
                 session_id=request.session_id,
             )
+        except RunRecoveryRequired as error:
+            return self._recovery_required(
+                error,
+                session_id=request.session_id,
+            )
 
     async def _execute_locked(
         self,
@@ -479,6 +485,21 @@ class MindMcpRuntime(object):
         """构造 MCP 工具调用的结构化失败结果。"""
         return MindMcpExecutionResult(
             run=RunResult(status="failed", error=error),
+            session_id=session_id,
+        )
+
+    @staticmethod
+    def _recovery_required(
+        error: RunRecoveryRequired,
+        *,
+        session_id: str | None,
+    ) -> MindMcpExecutionResult:
+        """返回需要先完成本地 Run 核对的结构化 MCP 结果。"""
+        return MindMcpExecutionResult(
+            run=RunResult(
+                status="reconciliation_required",
+                error=str(error),
+            ),
             session_id=session_id,
         )
 

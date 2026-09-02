@@ -26,6 +26,7 @@ from agent.protocol import (
     RunEvent,
     SubmitTurnCommand
 )
+from observability import observe
 from ..execution.actor import RunActor
 
 ResultValue = typing.TypeVar("ResultValue", bound=TurnExecutorResult)
@@ -255,6 +256,27 @@ class SessionLoop(typing.Generic[ResultValue]):
                 self._recoveries = await self._persistence.recover_session(
                     self.session_id
                 )
+                if self._recoveries:
+                    observe(
+                        "run.recovery_required",
+                        session_id=self.session_id,
+                        recoveries=tuple(
+                            {
+                                "run_id": item.command.run_id,
+                                "status": item.status.value,
+                                "sequence": item.sequence,
+                                "effect_id": item.effect_id,
+                                "effect_status": item.effect_status,
+                                "action": (
+                                    item.recovery_action.value
+                                    if item.recovery_action is not None
+                                    else ""
+                                ),
+                                "updated_at": item.updated_at,
+                            }
+                            for item in self._recoveries
+                        ),
+                    )
             self._initialized = True
 
     async def _prepare_actor(

@@ -9,6 +9,7 @@ import typing
 from types import FrameType
 
 from agent.application import RuntimeServices
+from agent.ports import RunRecoveryRequired
 from frontends.tui.features.conversation import ConversationCompactorFactory
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.errors import AppError
@@ -138,12 +139,27 @@ def emit_entry_failure(
     application = _entry_application(command)
 
     if command_requests_json(command):
+        if isinstance(error, RunRecoveryRequired):
+            error_type = "turn.recovery_required"
+            recoveries = [
+                {
+                    "run_id": detail.run_id,
+                    "status": detail.status,
+                    "action": detail.action,
+                    "effect_id": detail.effect_id,
+                }
+                for detail in error.details
+            ]
+        else:
+            error_type = "turn.failed"
+            recoveries = []
         application.emit(ApplicationView(
             type="json",
             renderable={
-                "type": "turn.failed",
+                "type": error_type,
                 "error": str(error),
                 "phase": phase or "runtime",
+                "recoveries": recoveries,
             },
         ))
         return None
@@ -336,6 +352,9 @@ def run(
             ))
     except AppError as error:
         emit_entry_failure(command, error, phase="runtime")
+        return 1
+    except RunRecoveryRequired as error:
+        emit_entry_failure(command, error, phase="recovery")
         return 1
     except (KeyboardInterrupt, asyncio.CancelledError):
         emit_entry_interruption(command)

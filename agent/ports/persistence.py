@@ -33,6 +33,20 @@ class RunSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class RunRecoveryDetail:
+    """描述一项阻止新 Run 派发的恢复快照摘要。"""
+
+    run_id: str
+    session_id: str
+    status: str
+    sequence: int
+    effect_id: str
+    effect_status: str
+    action: str
+    updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class RunFact:
     """描述一个 Run 可独立读取的最终消息、工具或证据事实。"""
 
@@ -52,6 +66,23 @@ class RunRecoveryRequired(RuntimeError):
     def __init__(self, snapshots: tuple[RunSnapshot, ...]) -> None:
         """保存阻止新派发的权威恢复快照。"""
         self.snapshots = snapshots
+        self.details = tuple(
+            RunRecoveryDetail(
+                run_id=item.command.run_id,
+                session_id=item.command.session_id,
+                status=item.status.value,
+                sequence=item.sequence,
+                effect_id=item.effect_id,
+                effect_status=item.effect_status,
+                action=(
+                    item.recovery_action.value
+                    if item.recovery_action is not None
+                    else ""
+                ),
+                updated_at=item.updated_at,
+            )
+            for item in snapshots
+        )
         actions = ", ".join(
             f"{item.command.run_id}:{item.recovery_action.value}"
             for item in snapshots

@@ -150,6 +150,7 @@ from .persistence import (
     RunFact,
     RunPersistence,
     RunPersistenceConflict,
+    RunRecoveryDetail,
     RunRecoveryRequired,
     RunSnapshot,
 )
@@ -269,6 +270,7 @@ __all__ = (
     "RunFact",
     "RunPersistence",
     "RunPersistenceConflict",
+    "RunRecoveryDetail",
     "RunRecoveryRequired",
     "RunSnapshot",
     "RootConversationPort",

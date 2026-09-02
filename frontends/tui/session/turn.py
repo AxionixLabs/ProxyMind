@@ -5,6 +5,7 @@ import asyncio
 import typing
 
 from agent.domain.policies import PermissionSettings
+from agent.ports import RunRecoveryRequired
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,
@@ -69,6 +70,41 @@ def emit_tui_interrupt_notice(application: ApplicationSink) -> None:
                 MUTED_STYLE,
             ),
         ),
+    ))
+
+
+def emit_tui_recovery_notice(
+    application: ApplicationSink,
+    error: RunRecoveryRequired,
+) -> None:
+    """把本地 Run 恢复阻塞转换为可继续交互的提示。"""
+    first = error.details[0] if error.details else None
+    suffix = (
+        f" ({first.run_id}: {first.action})"
+        if first is not None
+        else ""
+    )
+    application.emit(ApplicationView(
+        type="turn.recovery_required",
+        renderable=fragment_block(
+            TextSpan("■", FAILURE_STYLE),
+            TextSpan(
+                " Previous turn requires recovery before this command can run"
+                f"{suffix}.",
+                BODY_STYLE,
+            ),
+        ),
+        payload={
+            "recoveries": tuple(
+                {
+                    "run_id": detail.run_id,
+                    "status": detail.status,
+                    "action": detail.action,
+                    "effect_id": detail.effect_id,
+                }
+                for detail in error.details
+            ),
+        },
     ))
 
 
@@ -149,6 +185,11 @@ async def execute_tui_model_turn(
             result = None
         else:
             result = await task
+
+    except RunRecoveryRequired as error:
+        emit_tui_recovery_notice(application, error)
+        result = None
+        interrupted = False
 
     except asyncio.CancelledError:
         if not task.done():
