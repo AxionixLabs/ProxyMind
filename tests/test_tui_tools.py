@@ -44,7 +44,11 @@ def test_tools_summary_renders_as_one_compact_block() -> None:
         },
     ]
 
-    render_tools_summary(application=application, tools=tools)
+    render_tools_summary(
+        application=application,
+        tools=tools,
+        terminal_width=application.viewport.width,
+    )
 
     summary, gap = (
         call.args[0]
@@ -98,7 +102,11 @@ def test_tools_summary_uses_supplied_catalog_without_implicit_filtering() -> Non
         },
     ]
 
-    render_tools_summary(application=application, tools=tools)
+    render_tools_summary(
+        application=application,
+        tools=tools,
+        terminal_width=application.viewport.width,
+    )
 
     summary = application.emit.call_args_list[0].args[0]
     text = "".join(value for _style, value in summary.renderable.fragments)
@@ -116,7 +124,11 @@ def test_tools_summary_renders_empty_state_in_codex_layout() -> None:
         viewport=SimpleNamespace(width=120),
     )
 
-    render_tools_summary(application=application, tools=[])
+    render_tools_summary(
+        application=application,
+        tools=[],
+        terminal_width=application.viewport.width,
+    )
 
     summary = application.emit.call_args_list[0].args[0]
     text = "".join(value for _style, value in summary.renderable.fragments)
@@ -139,7 +151,11 @@ def test_tools_summary_wraps_tool_names_with_hanging_indent() -> None:
         {"name": "browser_console_messages", "meta": {"external": True, "server": "playwright"}},
     ]
 
-    render_tools_summary(application=application, tools=tools)
+    render_tools_summary(
+        application=application,
+        tools=tools,
+        terminal_width=application.viewport.width,
+    )
 
     summary = application.emit.call_args_list[0].args[0]
     text = "".join(value for _style, value in summary.renderable.fragments)
@@ -156,11 +172,11 @@ async def test_print_available_tools_uses_external_original_names() -> None:
         viewport=SimpleNamespace(width=120),
     )
     session = SimpleNamespace(
-        external_group=SimpleNamespace(tools={
-            "mcp__playwright__browser_click": SimpleNamespace(
-                name="browser_click",
-            ),
-        }),
+        display_name_for_tool=lambda name: (
+            "browser_click"
+            if name == "mcp__playwright__browser_click"
+            else name
+        ),
     )
     catalog = [{
         "name": "mcp__playwright__browser_click",

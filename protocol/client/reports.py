@@ -2,15 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
-
 from protocol.transport.events import (
     EventReport,
     EventReportPool,
 )
 
-
 EventReportFactory = typing.Callable[[str, str], EventReport]
-
 
 _EventReportLifetime: typing.TypeAlias = typing.Literal[
     "turn",

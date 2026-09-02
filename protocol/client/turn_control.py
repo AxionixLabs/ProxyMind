@@ -6,7 +6,7 @@ import typing
 from dataclasses import dataclass
 from protocol.schema.identifiers import (
     normalize_turn_id,
-    resolve_request_id
+    resolve_request_id,
 )
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
@@ -272,7 +272,7 @@ async def reconcile_turn_inputs(
     )
 
     response_turn_id = str(body.get("turn_id") or "").strip()
-    turn_status      = str(body.get("turn_status") or "").strip()
+    turn_status = str(body.get("turn_status") or "").strip()
 
     classifications = {
         field: _response_ids(body, field)
@@ -358,8 +358,8 @@ async def _post_control(
     status = str(body.get("status") or "").strip()
 
     response_request_id = str(body.get("request_id") or "").strip()
-    response_turn_id    = str(body.get("turn_id") or "").strip()
-    raw_message_id      = body.get("client_message_id")
+    response_turn_id = str(body.get("turn_id") or "").strip()
+    raw_message_id = body.get("client_message_id")
 
     response_message_id = (
         str(raw_message_id or "").strip()
@@ -438,15 +438,15 @@ def _status_snapshot(
     if not isinstance(body, dict) or body.get("ok") is not True:
         raise TurnStatusRequestError(invalid_message)
 
-    run_id    = body.get("run_id")
-    status    = body.get("status")
-    terminal  = body.get("terminal")
-    error     = body.get("error")
-    attempt   = body.get("attempt")
-    version   = body.get("version")
+    run_id = body.get("run_id")
+    status = body.get("status")
+    terminal = body.get("terminal")
+    error = body.get("error")
+    attempt = body.get("attempt")
+    version = body.get("version")
     event_seq = body.get("last_event_seq")
-    created   = body.get("created_at")
-    updated   = body.get("updated_at")
+    created = body.get("created_at")
+    updated = body.get("updated_at")
 
     numeric_values = (attempt, version, event_seq, created, updated)
     if (

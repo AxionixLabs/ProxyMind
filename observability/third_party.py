@@ -6,6 +6,8 @@ import logging
 import contextlib
 from . import observe
 
+__all__ = ["route_session_termination_warnings"]
+
 _STREAMABLE_HTTP_LOGGER_NAME = "mcp.client.streamable_http"
 _SESSION_TERMINATION_WARNING = "Session termination failed:"
 
@@ -38,4 +40,5 @@ def route_session_termination_warnings() -> typing.Iterator[None]:
         sdk_logger.removeFilter(log_filter)
 
 
-__all__ = ["route_session_termination_warnings"]
+if __name__ == '__main__':
+    pass

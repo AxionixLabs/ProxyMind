@@ -143,6 +143,10 @@ async def test_double_ctrl_c_returns_normally_from_session_loop(
     lifecycle = ProcessLifecycle()
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
+        attach=SimpleNamespace(
+            has_pending_attachments=lambda: False,
+            pending_attachments_snapshot=lambda: [],
+        ),
         subscription=SimpleNamespace(current=None),
         lifecycle=lifecycle,
         settings=SimpleNamespace(

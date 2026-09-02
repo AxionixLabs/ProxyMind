@@ -39,11 +39,10 @@ ATTACH_BACKOFF_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
     5.0,
 )
 
-ATTACH_BACKOFF_JITTER_RATIO: typing.Final[float]  = 0.2
+ATTACH_BACKOFF_JITTER_RATIO: typing.Final[float] = 0.2
 ATTACH_RETRY_MAX_ELAPSED_SEC: typing.Final[float] = 60.0
-
 STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC: typing.Final[float] = 25.0
-TRANSPORT_RETRY_MIN_VISIBLE_SEC: typing.Final[float]    = 0.8
+TRANSPORT_RETRY_MIN_VISIBLE_SEC: typing.Final[float] = 0.8
 
 TurnStreamEndReason: typing.TypeAlias = typing.Literal[
     "settled",
@@ -61,9 +60,9 @@ ApprovalSnapshotCallback: typing.TypeAlias = typing.Callable[
 
 
 class _TurnStreamState(enum.Enum):
-    RUNNING      = "running"
+    RUNNING = "running"
     OUTCOME_SEEN = "outcome_seen"
-    CLOSED       = "closed"
+    CLOSED = "closed"
 
 
 class _TurnStreamEnded(Exception):
@@ -88,28 +87,19 @@ class TurnEventStream(object):
         """保存请求参数并初始化逻辑轮次观察状态。"""
         self._request = (pref_config, message, tools, attachments, kwargs)
         self._timeout = timeout
-        self._state   = _TurnStreamState.RUNNING
-
+        self._state = _TurnStreamState.RUNNING
         self._payload_stream: typing.AsyncGenerator[dict, None] | None = None
-
         self._chat_payload: dict[str, typing.Any] | None = None
-
         self._attach_target: dict[str, str] | None = None
-
         self._response_observed: bool = False
-
         self._close_after_yield: bool = False
-
-        self._reconnect_failures: int            = 0
-        self._reconnecting: bool                 = False
+        self._reconnect_failures: int = 0
+        self._reconnecting: bool = False
         self._reconnect_started_at: float | None = None
         self._reconnect_visible_at: float | None = None
-
         self._reconnect_clear_handle: asyncio.TimerHandle | None = None
-
         self._on_reconnect_status = on_reconnect_status
         self._on_approval_snapshot = on_approval_snapshot
-
         self.end_reason: TurnStreamEndReason | None = None
 
         if (
@@ -124,242 +114,33 @@ class TurnEventStream(object):
         """返回当前逻辑轮次的异步事件迭代器。"""
         return self._iterate()
 
-    async def _iterate(self) -> typing.AsyncIterator[ChatStreamEvent]:
-        """持续读取事件并在消费终止时释放传输。"""
-        try:
-            while True:
-                try:
-                    event = await self._next_event()
-                except _TurnStreamEnded:
-                    return
-                yield event
-        except asyncio.CancelledError:
-            await self._finish("cancelled")
-            raise
-        except (TypeError, ValueError):
-            await self._finish("protocol_error")
-            raise
-        except Exception:
-            await self._finish("fatal")
-            raise
-        finally:
-            await self.aclose()
+    @staticmethod
+    def _status_probe_allows_resubmit(error: TurnStatusRequestError) -> bool:
+        """判断状态查询失败后能否安全重提幂等对话请求。"""
+        status_code = error.status_code
+        if status_code is None or status_code == 404:
+            return True
+        return status_code >= 500 or status_code in {408, 425, 429}
 
-    async def _next_event(self) -> ChatStreamEvent:
-        """读取并解析下一项可交付事件。"""
-        if self._state is _TurnStreamState.CLOSED:
-            raise _TurnStreamEnded
-        if self._close_after_yield:
-            await self._finish("settled")
-            raise _TurnStreamEnded
+    @staticmethod
+    def _recoverable(error: httpx.HTTPError | OSError | None) -> bool:
+        """判断传输错误是否允许重新接入当前轮次。"""
+        if not isinstance(error, httpx.HTTPStatusError):
+            return True
+        status_code = error.response.status_code
+        return status_code >= 500 or status_code in {408, 425, 429}
 
-        event: ChatStreamEvent | None = None
-
-        while event is None:
-            payload = await self._next_payload()
-
-            try:
-                parsed_event = parse_stream_event(payload)
-                if parsed_event is None:
-                    raise ValueError("stream event parser returned no event")
-            except (TypeError, ValueError):
-                await self._finish("protocol_error")
-                raise
-
-            if parsed_event.type == "ping":
-                self._mark_transport_healthy()
-                continue
-            if isinstance(parsed_event, StreamGapEvent):
-                self._validate_gap_identity(parsed_event)
-                if parsed_event.gap_kind == "internal":
-                    await self._finish("protocol_error")
-                    raise RuntimeError(
-                        "authoritative turn event sequence contains an internal gap"
-                    )
-                if parsed_event.next_seq is None:
-                    await self._finish("protocol_error")
-                    raise RuntimeError("retained event prefix is missing replay floor")
-                self.last_event_seq = max(
-                    self.last_event_seq,
-                    parsed_event.next_seq,
-                )
-                self._mark_transport_healthy()
-                event = parsed_event
-                continue
-            self._validate_turn_identity(parsed_event)
-            self._response_observed = True
-            if (
-                parsed_event.event_seq is not None
-                and parsed_event.event_seq <= self.last_event_seq
-            ):
-                continue
-            if self._has_sequence_gap(parsed_event):
-                if await self._resume_stream():
-                    continue
-                await self._finish("protocol_error")
-                raise RuntimeError("turn event sequence is not continuous")
-            if parsed_event.event_seq is not None:
-                self.last_event_seq = parsed_event.event_seq
-            self._mark_transport_healthy()
-            event = parsed_event
-
-        if isinstance(event, TurnLogicalSettledEvent):
-            self._close_after_yield = True
-        elif (
-            isinstance(event, (TurnDoneEvent, TurnFailedEvent))
-            and self._state is _TurnStreamState.RUNNING
-        ):
-            self._state = _TurnStreamState.OUTCOME_SEEN
-
-        return event
-
-    async def aclose(self) -> None:
-        """关闭底层事件传输并固定结束原因。"""
-        reason: TurnStreamEndReason = (
-            self.end_reason
-            if self.end_reason is not None
-            else "settled"
-            if self._close_after_yield
-            else "cancelled"
+    def _attach_delay(self) -> float:
+        """计算当前连续失败次数对应的封顶抖动退避。"""
+        index = min(
+            self._reconnect_failures,
+            len(ATTACH_BACKOFF_DELAYS_SEC) - 1,
         )
-        await self._finish(reason)
-
-    async def _next_payload(self) -> dict:
-        """读取下一项载荷或以内部结束信号完成当前流。"""
-        while True:
-            payload_stream = await self._ensure_open()
-
-            try:
-                async with asyncio.timeout(self._payload_silence_timeout()):
-                    payload: typing.Any = await anext(payload_stream)
-                if not isinstance(payload, dict):
-                    await self._finish("protocol_error")
-                    raise TypeError("stream payload must be an object")
-                return payload
-            except StopAsyncIteration:
-                if await self._resume_stream():
-                    continue
-                await self._finish("protocol_error")
-                raise RuntimeError(
-                    "turn stream is missing recovery coordinates"
-                ) from None
-            except asyncio.CancelledError:
-                await self._finish("cancelled")
-                raise
-            except TimeoutError as error:
-                if await self._resume_stream(error):
-                    continue
-                await self._finish("fatal")
-                raise
-            except (httpx.HTTPError, OSError) as error:
-                if await self._resume_stream(error):
-                    continue
-                await self._finish("fatal")
-                raise
-
-        raise RuntimeError("event payload loop exited unexpectedly")
-
-    async def _ensure_open(self) -> typing.AsyncGenerator[dict, None]:
-        """按首次读取延迟创建并返回底层事件传输。"""
-        if self._payload_stream is not None:
-            return self._payload_stream
-
-        pref_config, message, tools, attachments, kwargs = self._request
-
-        payload = self._chat_payload
-        if payload is None:
-            payload = await build_chat_payload(
-                pref_config,
-                message,
-                tools,
-                attachments,
-                **kwargs,
-            )
-            self._chat_payload = payload
-
-        metadata = payload.get("metadata")
-
-        if isinstance(metadata, dict):
-            cid     = str(metadata.get("cid") or "").strip()
-            sid     = str(metadata.get("sid") or "").strip()
-            turn_id = str(payload.get("turn_id") or "").strip()
-
-            if cid and sid and turn_id:
-                self._attach_target = {
-                    "cid": cid,
-                    "sid": sid,
-                    "turn_id": turn_id,
-                }
-
-        self._payload_stream = self._open_chat_stream()
-
-        return self._payload_stream
-
-    async def _resume_stream(
-        self,
-        error: httpx.HTTPError | OSError | None = None,
-    ) -> bool:
-        """在可恢复的传输中断后重新提交或接入当前轮次。"""
-        attach_target = self._attach_target
-        if attach_target is None or not self._recoverable(error):
-            return False
-
-        now = time.monotonic()
-        if self._reconnect_started_at is None:
-            self._reconnect_started_at = now
-        elif now - self._reconnect_started_at >= ATTACH_RETRY_MAX_ELAPSED_SEC:
-            return False
-
-        delay = self._attach_delay()
-        self._reconnect_failures += 1
-        self._set_reconnecting(True)
-
-        await self._close_payload_stream()
-        await self._wait_before_attach(delay)
-
-        if (
-            self._reconnect_started_at is not None
-            and time.monotonic() - self._reconnect_started_at
-            >= ATTACH_RETRY_MAX_ELAPSED_SEC
-        ):
-            return False
-
-        if not self._response_observed:
-            turn_exists = await self._turn_exists_for_recovery(attach_target)
-            if not turn_exists:
-                self._payload_stream = self._open_chat_stream()
-                return True
-
-        await self._restore_approval_snapshot(attach_target)
-
-        payload: dict[str, typing.Any] = dict(attach_target)
-        payload["after_seq"] = self.last_event_seq
-
-        self._payload_stream = streaming(
-            service_endpoints.endpoint("/mind-attach"),
-            build_service_headers(),
-            payload,
-            self._timeout,
-        )
-        return True
-
-    async def _restore_approval_snapshot(
-        self,
-        attach_target: dict[str, str]
-    ) -> None:
-        """在重新接入前读取并交付审批恢复快照。"""
-        callback = self._on_approval_snapshot
-        if callback is None:
-            return None
-
-        try:
-            snapshot = await reconcile_tool_approval_snapshot(**attach_target)
-        except ToolApprovalSnapshotRequestError:
-            return None
-
-        result = callback(snapshot)
-        if result is not None:
-            await result
+        base_delay = ATTACH_BACKOFF_DELAYS_SEC[index]
+        if base_delay <= 0:
+            return 0.0
+        lower_bound = base_delay * (1.0 - ATTACH_BACKOFF_JITTER_RATIO)
+        return random.uniform(lower_bound, base_delay)
 
     def _validate_turn_identity(self, event: ChatStreamEvent) -> None:
         """拒绝缺失坐标或不属于当前逻辑轮次的业务事件。"""
@@ -486,47 +267,6 @@ class TurnEventStream(object):
             self._timeout,
         )
 
-    async def _turn_exists_for_recovery(
-        self,
-        attach_target: dict[str, str],
-    ) -> bool:
-        """查询首事件前断线的轮次是否已由服务端持久化。"""
-        try:
-            await get_turn_status(**attach_target)
-        except TurnStatusRequestError as error:
-            if self._status_probe_allows_resubmit(error):
-                return False
-            raise
-        return True
-
-    @staticmethod
-    def _status_probe_allows_resubmit(error: TurnStatusRequestError) -> bool:
-        """判断状态查询失败后能否安全重提幂等对话请求。"""
-        status_code = error.status_code
-        if status_code is None or status_code == 404:
-            return True
-        return status_code >= 500 or status_code in {408, 425, 429}
-
-    @staticmethod
-    def _recoverable(error: httpx.HTTPError | OSError | None) -> bool:
-        """判断传输错误是否允许重新接入当前轮次。"""
-        if not isinstance(error, httpx.HTTPStatusError):
-            return True
-        status_code = error.response.status_code
-        return status_code >= 500 or status_code in {408, 425, 429}
-
-    def _attach_delay(self) -> float:
-        """计算当前连续失败次数对应的封顶抖动退避。"""
-        index = min(
-            self._reconnect_failures,
-            len(ATTACH_BACKOFF_DELAYS_SEC) - 1,
-        )
-        base_delay = ATTACH_BACKOFF_DELAYS_SEC[index]
-        if base_delay <= 0:
-            return 0.0
-        lower_bound = base_delay * (1.0 - ATTACH_BACKOFF_JITTER_RATIO)
-        return random.uniform(lower_bound, base_delay)
-
     @staticmethod
     async def _wait_before_attach(delay: float) -> None:
         """等待下一次重新接入且保持任务可取消。"""
@@ -557,6 +297,256 @@ class TurnEventStream(object):
         self._clear_reconnecting()
 
         await self._close_payload_stream()
+
+    async def _iterate(self) -> typing.AsyncIterator[ChatStreamEvent]:
+        """持续读取事件并在消费终止时释放传输。"""
+        try:
+            while True:
+                try:
+                    event = await self._next_event()
+                except _TurnStreamEnded:
+                    return
+                yield event
+        except asyncio.CancelledError:
+            await self._finish("cancelled")
+            raise
+        except (TypeError, ValueError):
+            await self._finish("protocol_error")
+            raise
+        except Exception:
+            await self._finish("fatal")
+            raise
+        finally:
+            await self.aclose()
+
+    async def _next_event(self) -> ChatStreamEvent:
+        """读取并解析下一项可交付事件。"""
+        if self._state is _TurnStreamState.CLOSED:
+            raise _TurnStreamEnded
+        if self._close_after_yield:
+            await self._finish("settled")
+            raise _TurnStreamEnded
+
+        event: ChatStreamEvent | None = None
+
+        while event is None:
+            payload = await self._next_payload()
+
+            try:
+                parsed_event = parse_stream_event(payload)
+                if parsed_event is None:
+                    raise ValueError("stream event parser returned no event")
+            except (TypeError, ValueError):
+                await self._finish("protocol_error")
+                raise
+
+            if parsed_event.type == "ping":
+                self._mark_transport_healthy()
+                continue
+            if isinstance(parsed_event, StreamGapEvent):
+                self._validate_gap_identity(parsed_event)
+                if parsed_event.gap_kind == "internal":
+                    await self._finish("protocol_error")
+                    raise RuntimeError(
+                        "authoritative turn event sequence contains an internal gap"
+                    )
+                if parsed_event.next_seq is None:
+                    await self._finish("protocol_error")
+                    raise RuntimeError("retained event prefix is missing replay floor")
+                self.last_event_seq = max(
+                    self.last_event_seq,
+                    parsed_event.next_seq,
+                )
+                self._mark_transport_healthy()
+                event = parsed_event
+                continue
+            self._validate_turn_identity(parsed_event)
+            self._response_observed = True
+            if (
+                parsed_event.event_seq is not None
+                and parsed_event.event_seq <= self.last_event_seq
+            ):
+                continue
+            if self._has_sequence_gap(parsed_event):
+                if await self._resume_stream():
+                    continue
+                await self._finish("protocol_error")
+                raise RuntimeError("turn event sequence is not continuous")
+            if parsed_event.event_seq is not None:
+                self.last_event_seq = parsed_event.event_seq
+            self._mark_transport_healthy()
+            event = parsed_event
+
+        if isinstance(event, TurnLogicalSettledEvent):
+            self._close_after_yield = True
+        elif (
+            isinstance(event, (TurnDoneEvent, TurnFailedEvent))
+            and self._state is _TurnStreamState.RUNNING
+        ):
+            self._state = _TurnStreamState.OUTCOME_SEEN
+
+        return event
+
+    async def _next_payload(self) -> dict:
+        """读取下一项载荷或以内部结束信号完成当前流。"""
+        while True:
+            payload_stream = await self._ensure_open()
+
+            try:
+                async with asyncio.timeout(self._payload_silence_timeout()):
+                    payload: typing.Any = await anext(payload_stream)
+                if not isinstance(payload, dict):
+                    await self._finish("protocol_error")
+                    raise TypeError("stream payload must be an object")
+                return payload
+            except StopAsyncIteration:
+                if await self._resume_stream():
+                    continue
+                await self._finish("protocol_error")
+                raise RuntimeError(
+                    "turn stream is missing recovery coordinates"
+                ) from None
+            except asyncio.CancelledError:
+                await self._finish("cancelled")
+                raise
+            except TimeoutError as error:
+                if await self._resume_stream(error):
+                    continue
+                await self._finish("fatal")
+                raise
+            except (httpx.HTTPError, OSError) as error:
+                if await self._resume_stream(error):
+                    continue
+                await self._finish("fatal")
+                raise
+
+        raise RuntimeError("event payload loop exited unexpectedly")
+
+    async def _ensure_open(self) -> typing.AsyncGenerator[dict, None]:
+        """按首次读取延迟创建并返回底层事件传输。"""
+        if self._payload_stream is not None:
+            return self._payload_stream
+
+        pref_config, message, tools, attachments, kwargs = self._request
+
+        payload = self._chat_payload
+        if payload is None:
+            payload = await build_chat_payload(
+                pref_config,
+                message,
+                tools,
+                attachments,
+                **kwargs,
+            )
+            self._chat_payload = payload
+
+        metadata = payload.get("metadata")
+
+        if isinstance(metadata, dict):
+            cid = str(metadata.get("cid") or "").strip()
+            sid = str(metadata.get("sid") or "").strip()
+            turn_id = str(payload.get("turn_id") or "").strip()
+
+            if cid and sid and turn_id:
+                self._attach_target = {
+                    "cid": cid,
+                    "sid": sid,
+                    "turn_id": turn_id,
+                }
+
+        self._payload_stream = self._open_chat_stream()
+
+        return self._payload_stream
+
+    async def _resume_stream(
+        self,
+        error: httpx.HTTPError | OSError | None = None,
+    ) -> bool:
+        """在可恢复的传输中断后重新提交或接入当前轮次。"""
+        attach_target = self._attach_target
+        if attach_target is None or not self._recoverable(error):
+            return False
+
+        now = time.monotonic()
+        if self._reconnect_started_at is None:
+            self._reconnect_started_at = now
+        elif now - self._reconnect_started_at >= ATTACH_RETRY_MAX_ELAPSED_SEC:
+            return False
+
+        delay = self._attach_delay()
+        self._reconnect_failures += 1
+        self._set_reconnecting(True)
+
+        await self._close_payload_stream()
+        await self._wait_before_attach(delay)
+
+        if (
+            self._reconnect_started_at is not None
+            and time.monotonic() - self._reconnect_started_at
+            >= ATTACH_RETRY_MAX_ELAPSED_SEC
+        ):
+            return False
+
+        if not self._response_observed:
+            turn_exists = await self._turn_exists_for_recovery(attach_target)
+            if not turn_exists:
+                self._payload_stream = self._open_chat_stream()
+                return True
+
+        await self._restore_approval_snapshot(attach_target)
+
+        payload: dict[str, typing.Any] = dict(attach_target)
+        payload["after_seq"] = self.last_event_seq
+
+        self._payload_stream = streaming(
+            service_endpoints.endpoint("/mind-attach"),
+            build_service_headers(),
+            payload,
+            self._timeout,
+        )
+        return True
+
+    async def _restore_approval_snapshot(
+        self,
+        attach_target: dict[str, str]
+    ) -> None:
+        """在重新接入前读取并交付审批恢复快照。"""
+        callback = self._on_approval_snapshot
+        if callback is None:
+            return None
+
+        try:
+            snapshot = await reconcile_tool_approval_snapshot(**attach_target)
+        except ToolApprovalSnapshotRequestError:
+            return None
+
+        result = callback(snapshot)
+        if result is not None:
+            await result
+
+    async def _turn_exists_for_recovery(
+        self,
+        attach_target: dict[str, str],
+    ) -> bool:
+        """查询首事件前断线的轮次是否已由服务端持久化。"""
+        try:
+            await get_turn_status(**attach_target)
+        except TurnStatusRequestError as error:
+            if self._status_probe_allows_resubmit(error):
+                return False
+            raise
+        return True
+
+    async def aclose(self) -> None:
+        """关闭底层事件传输并固定结束原因。"""
+        reason: TurnStreamEndReason = (
+            self.end_reason
+            if self.end_reason is not None
+            else "settled"
+            if self._close_after_yield
+            else "cancelled"
+        )
+        await self._finish(reason)
 
 
 def stream_chat(

@@ -278,6 +278,18 @@ async def test_external_tool_does_not_receive_turn_context() -> None:
     )
 
 
+def test_composite_session_projects_external_tool_display_name() -> None:
+    external = SimpleNamespace(
+        tools={
+            "mcp__docs__lookup": SimpleNamespace(name="lookup"),
+        },
+    )
+    session = CompositeToolSession(external_group=external)
+
+    assert session.display_name_for_tool("mcp__docs__lookup") == "lookup"
+    assert session.display_name_for_tool("apply_patch") == "apply_patch"
+
+
 @pytest.mark.anyio
 async def test_service_tool_does_not_receive_turn_context() -> None:
     service = SimpleNamespace(

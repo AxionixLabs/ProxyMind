@@ -10,47 +10,53 @@ class WorkspaceDiffTracker:
 
     def __init__(self) -> None:
         """初始化差异跟踪状态。"""
-        self.invalidated = False
+        self.invalidated: bool = False
         self.baseline_by_path: dict[str, str | None] = {}
         self.current_by_path: dict[str, str] = {}
         self.origin_by_current_path: dict[str, str] = {}
-        self.unified_diff = ""
+        self.unified_diff: str = ""
 
-    def invalidate(self) -> None:
-        """标记跟踪状态失效并清空当前差异。"""
-        self.invalidated = True
-        self.baseline_by_path.clear()
-        self.current_by_path.clear()
-        self.origin_by_current_path.clear()
-        self.unified_diff = ""
+    @staticmethod
+    def _optional_text(value: typing.Any) -> str | None:
+        """把可选值转换为可选文本。"""
+        if value is None:
+            return None
+        return str(value)
 
-    def track_delta(self, delta: dict[str, typing.Any]) -> str:
-        """消费一次文本变更并返回更新后的差异文本。"""
-        if self.invalidated:
-            return ""
-        if not isinstance(delta, dict) or not bool(delta.get("exact", False)):
-            self.invalidate()
-            return ""
+    def _render_entries(self) -> list[dict[str, str | None]]:
+        """生成待渲染的净差异条目。"""
+        entries: list[dict[str, str | None]] = []
+        origins_to_current = {
+            origin: current
+            for current, origin in self.origin_by_current_path.items()
+        }
 
-        changes = delta.get("changes")
-        if not isinstance(changes, list):
-            self.invalidate()
-            return ""
+        for origin in sorted(self.baseline_by_path):
+            old_content = self.baseline_by_path.get(origin)
+            current_path = origins_to_current.get(origin)
+            new_content = (
+                self.current_by_path.get(current_path)
+                if current_path is not None else None
+            )
 
-        for change in changes:
-            if not isinstance(change, dict):
-                self.invalidate()
-                return ""
-            self._track_change(change)
+            if old_content is None and new_content is None:
+                continue
+            if current_path == origin and old_content == new_content:
+                continue
 
-        self.unified_diff = DiffRenderer.render_many(self._render_entries())
-        return self.unified_diff
+            entries.append({
+                "old_path": origin,
+                "new_path": current_path or origin,
+                "old_content": old_content,
+                "new_content": new_content
+            })
+
+        return entries
 
     def _track_change(self, change: dict[str, typing.Any]) -> None:
         """根据变更类型更新内存状态。"""
         action = str(change.get("action") or "").strip()
-        path   = str(change.get("path") or "").strip()
-
+        path = str(change.get("path") or "").strip()
         source_path = str(change.get("source_path") or "").strip()
         old_content = self._optional_text(change.get("old_content"))
         new_content = self._optional_text(change.get("new_content"))
@@ -127,42 +133,35 @@ class WorkspaceDiffTracker:
         self.current_by_path[path] = new_content
         self.origin_by_current_path[path] = origin
 
-    def _render_entries(self) -> list[dict[str, str | None]]:
-        """生成待渲染的净差异条目。"""
-        entries: list[dict[str, str | None]] = []
-        origins_to_current = {
-            origin: current
-            for current, origin in self.origin_by_current_path.items()
-        }
+    def invalidate(self) -> None:
+        """标记跟踪状态失效并清空当前差异。"""
+        self.invalidated = True
+        self.baseline_by_path.clear()
+        self.current_by_path.clear()
+        self.origin_by_current_path.clear()
+        self.unified_diff = ""
 
-        for origin in sorted(self.baseline_by_path):
-            old_content = self.baseline_by_path.get(origin)
-            current_path = origins_to_current.get(origin)
-            new_content = (
-                self.current_by_path.get(current_path)
-                if current_path is not None else None
-            )
+    def track_delta(self, delta: dict[str, typing.Any]) -> str:
+        """消费一次文本变更并返回更新后的差异文本。"""
+        if self.invalidated:
+            return ""
+        if not isinstance(delta, dict) or not bool(delta.get("exact", False)):
+            self.invalidate()
+            return ""
 
-            if old_content is None and new_content is None:
-                continue
-            if current_path == origin and old_content == new_content:
-                continue
+        changes = delta.get("changes")
+        if not isinstance(changes, list):
+            self.invalidate()
+            return ""
 
-            entries.append({
-                "old_path"    : origin,
-                "new_path"    : current_path or origin,
-                "old_content" : old_content,
-                "new_content" : new_content
-            })
+        for change in changes:
+            if not isinstance(change, dict):
+                self.invalidate()
+                return ""
+            self._track_change(change)
 
-        return entries
-
-    @staticmethod
-    def _optional_text(value: typing.Any) -> str | None:
-        """把可选值转换为可选文本。"""
-        if value is None:
-            return None
-        return str(value)
+        self.unified_diff = DiffRenderer.render_many(self._render_entries())
+        return self.unified_diff
 
 
 if __name__ == '__main__':

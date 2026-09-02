@@ -147,6 +147,10 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
 
         def __init__(self) -> None:
             self.lifecycle = ProcessLifecycle()
+            self.attach = SimpleNamespace(
+                has_pending_attachments=lambda: False,
+                pending_attachments_snapshot=lambda: [],
+            )
             self.settings = SimpleNamespace(
                 permissions=preset_permissions("auto"),
                 preference_config=lambda: {
@@ -282,7 +286,7 @@ async def test_service_runtime_activity_clears_without_settling() -> None:
         activity=activity,
         lifecycle=ProcessLifecycle(),
         service_runtime=SimpleNamespace(
-            manager=SimpleNamespace(ensure_running=AsyncMock()),
+            ensure_ready=AsyncMock(),
             start_keepalive=Mock(),
         ),
     )

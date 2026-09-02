@@ -69,8 +69,8 @@ class WorkspaceCoding(WorkspaceContext):
             diagnostics=patch_diagnostics,
         )
         self._command_policy = CommandExecutionProfile(self)
-        self._file_audit     = WorkspaceFileAudit(self)
-        self._turn_diff      = WorkspaceDiffTracker()
+        self._file_audit = WorkspaceFileAudit(self)
+        self._turn_diff = WorkspaceDiffTracker()
 
         self._shell_command = ShellCommandExecutor(
             self,

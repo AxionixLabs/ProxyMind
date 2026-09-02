@@ -17,9 +17,9 @@ async def post_stream_event(
     """事件上报：把一条事件写入服务端缓存并广播给 SSE 订阅者。"""
     headers = build_service_headers()
     payload = {
-        "cid"   : cid,
-        "sid"   : sid,
-        "event" : event
+        "cid": cid,
+        "sid": sid,
+        "event": event
     }
     async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(service_endpoints.endpoint("/events-ingest"), headers=headers, json=payload)
@@ -36,8 +36,8 @@ async def open_report_session(
     """打开服务端报告会话，返回 report_url / report_id / stream_url / replay_url。"""
     headers = build_service_headers()
     payload: dict[str, typing.Any] = {
-        "cid"  : cid,
-        "sid"  : sid
+        "cid": cid,
+        "sid": sid
     }
     if isinstance(proto, str) and proto.strip():
         payload["proto"] = proto.strip()

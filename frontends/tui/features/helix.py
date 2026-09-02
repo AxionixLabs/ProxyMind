@@ -112,11 +112,7 @@ def _present_helix_result(
 
     block = render_mcp_status_block(
         view,
-        terminal_width=getattr(
-            getattr(mind.frontend.application, "viewport", None),
-            "width",
-            None,
-        ),
+        terminal_width=mind.frontend.application.viewport.width,
     )
 
     if not block.plain_text:
@@ -296,7 +292,7 @@ def helix_runtime_home_url(mind: "TuiApplicationHost") -> str:
     """返回当前 Helix 服务管理器确认的首页地址。"""
     server_manager = mind.service_runtime.manager
 
-    url = str(getattr(server_manager, "url", "") or "").strip()
+    url = str(server_manager.url or "").strip()
 
     return (url or const.BASE_URL).rstrip("/")
 
@@ -393,7 +389,7 @@ async def open_helix_home(mind: "TuiApplicationHost") -> str | None:
 async def stop_helix_runtime(mind: "TuiApplicationHost") -> None:
     """显示停止活动并关闭 Helix 服务。"""
     runtime = require_tui_runtime(mind.frontend.runtime)
-    if bool(getattr(mind, "animate", True)):
+    if mind.activity.enabled:
         await runtime.begin_operation_status(
             lambda: {"summary": "Helix MCP stopping"},
         )

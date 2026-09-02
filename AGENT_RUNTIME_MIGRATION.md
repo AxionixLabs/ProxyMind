@@ -13,7 +13,7 @@
 1. 本文件的“当前状态”和“稳定入口”。
 2. [Agent Harness 架构基线](AGENT_RUNTIME_ARCHITECTURE.md)，确认职责边界与目标目录。
 3. [导入图](AGENT_RUNTIME_IMPORT_GRAPH.md)，确认实际依赖方向。
-4. [协议文档](services/llm/PROTOCOL.md)，确认线上 `mind.chat` 契约未被本地迁移改变。
+4. [协议文档](PROTOCOL.md)，确认线上 `mind.chat` 契约未被本地迁移改变。
 5. [历史归档](AGENT_RUNTIME_MIGRATION_HISTORY.md)，只在需要审计某个已完成切片时查阅。
 
 阶段状态只能在本文件更新。迁移已经完成；后续架构调整按 `AGENTS.md` 和 ADR 的稳定
@@ -165,11 +165,18 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
   均已删除。MCP、进程和 Shell feature 统一消费 `TuiApplicationHost`，工作区进程与用户
   Shell 通过独立端口暴露生命周期，MCP SDK 工具组只在 infrastructure 内投影为不可变
   `McpToolGroupSnapshot` 后交给前端。
+- TUI 的 Helix、Listener、Mailbox、Agents 和 Tools feature 已删除宿主动画、viewport、
+  附件、服务就绪和 MCP 连接组的动态发现；服务生命周期归 `TuiServiceRuntimePort`，工具
+  原始展示名由 `McpSessionPort` 投影，具体 SDK 工具对象不再越过 infrastructure 边界。
 
 ### 最新证据
 
 截至 2026-09-02，本切片已完成：
 
+- TUI 宿主能力收口联合回归 `246 passed`，协议、权限、EventReport 与组合根并发改动专项
+  `182 passed`；排除已知占用文件和单独架构文件后的全行为回归
+  `2987 passed, 11 skipped`。新增职责守卫 `1 passed`，导入图、`compileall` 和差异检查
+  通过。
 - 阶段 5 后 TUI 能力边界加固定向回归 `430 passed`；排除已由用户进程长期占用的
   `tests/test_tui_stream_commands.py` 和单独执行的架构文件后，全行为回归
   `2986 passed, 11 skipped`。完整架构守卫其余 `115 passed, 66 warnings`，修正唯一过宽
@@ -1055,7 +1062,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 - **外部副作用重复**：效果账本和 lease/fence 先于重新派发；未知效果必须进入 reconciliation。
 - **过渡层永久化**：迁移期临时入口已经清零，后续不得恢复历史导入或兼容 facade。
 - **前端分叉**：事件展示只消费 Protocol Client 的 Canonical Item，不在 TUI/CLI 复制 reducer。
-- **文档漂移**：协议变更先同步 `services/llm/PROTOCOL.md` 与 fixture，再更新实现和本计划证据。
+- **文档漂移**：协议变更先同步 `PROTOCOL.md` 与 fixture，再更新实现和本计划证据。
 
 ## 交接检查清单
 
@@ -1069,6 +1076,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 删除 TUI feature 对动画、viewport、附件、服务和 MCP 连接组的动态能力发现；以正式宿主/会话端口提供生命周期和工具展示名投影，并合入已验证的协议类型收窄 | TUI/工具/宿主 `246 passed`；协议/权限/EventReport/组合根 `182 passed`；不含已知占用文件和单独架构文件的全行为 `2987 passed, 11 skipped`；职责守卫、导入图、`compileall` 和差异检查通过 |
 | 2026-09-02 | 将协议命令设为 CLI 到 TUI fork/backtrack 的完整必填依赖，以 `TuiApplicationHost` 和进程/Shell 端口替代 feature 动态能力发现，并把 MCP SDK 连接组投影为稳定前端快照 | 定向 `430 passed`；不含已知占用文件和单独架构文件的全行为 `2986 passed, 11 skipped`；完整架构其余 `115 passed, 66 warnings`，修正过宽守卫后专项 `1 passed`；导入图、`compileall` 和差异检查通过 |
 | 2026-09-02 | 显式拆分进程级模型流与协议控制能力，将 Subscription 完整 builder 提升到 application 组合契约并在组合根绑定，删除 CLI 可空服务、模型能力猜测和宿主服务反射 | 不含 `test_tui_stream_commands.py` 的全行为 `2986 passed, 11 skipped`；CLI/Subscription/Run/Subagent 定向 `257 passed`；职责守卫 `6 passed`；导入图已刷新且无跨边界循环，`compileall`、文档契约和差异检查通过 |
 | 2026-09-02 | 收紧 TUI 控制与生命周期边界：`ProtocolCommandClient` 改为必填构造依赖，删除模块级命令测试替身、可空回退和 Runtime 生命周期内部状态代理 | 不含 `test_tui_stream_commands.py` 的全行为 `2984 passed, 11 skipped`；Turn 输入与错误边界 `28 passed`；TUI 启动/监听/Run `110 passed`；职责守卫与导入图基线 `3 passed`；导入图、`compileall`、文档契约和差异检查通过 |

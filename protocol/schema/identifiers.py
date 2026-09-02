@@ -5,10 +5,10 @@ import re
 import time
 import uuid
 import base64
-import hashlib
 import typing
+import hashlib
 
-TURN_ID_PATTERN    = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+TURN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,160}$")
 CID_RE = re.compile(r"^cid_([0-9a-z]+)_[0-9a-f]{8}$")
 SID_RE = re.compile(r"^sid_([0-9a-z]+)_[0-9a-z]+_[0-9a-f]{6}$")
@@ -69,7 +69,7 @@ def short_uid(length: int = 8) -> str:
 def new_request_id(prefix: str = "request") -> str:
     """生成新的幂等请求标识。"""
     normalized_prefix = str(prefix or "request").strip("_-") or "request"
-    request_id        = f"{normalized_prefix}_{short_uid(24)}"
+    request_id = f"{normalized_prefix}_{short_uid(24)}"
 
     return normalize_request_id(request_id)
 

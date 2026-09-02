@@ -64,6 +64,15 @@ def _activity() -> SimpleNamespace:
     )
 
 
+def _attachments() -> SimpleNamespace:
+    """构造会话循环使用的附件状态端口。"""
+    return SimpleNamespace(
+        has_pending_attachments=lambda: False,
+        pending_attachments_snapshot=lambda: [],
+        replace_pending_attachments=lambda _items: None,
+    )
+
+
 @pytest.fixture(autouse=True)
 def frozen_environment_snapshot(monkeypatch) -> None:
     """固定 TUI 命令提交时捕获的环境事实。"""
@@ -372,10 +381,7 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
             interaction=runtime,
             application=SimpleNamespace(emit=Mock()),
         ),
-        attach=SimpleNamespace(
-            has_pending_attachments=lambda: False,
-            replace_pending_attachments=lambda _items: None,
-        ),
+        attach=_attachments(),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
@@ -478,10 +484,7 @@ async def test_stream_settings_settle_before_queued_model_turn(
             interaction=runtime,
             application=SimpleNamespace(emit=Mock()),
         ),
-        attach=SimpleNamespace(
-            has_pending_attachments=lambda: False,
-            replace_pending_attachments=lambda _items: None,
-        ),
+        attach=_attachments(),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
@@ -576,10 +579,7 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
             interaction=runtime,
             application=SimpleNamespace(emit=Mock()),
         ),
-        attach=SimpleNamespace(
-            has_pending_attachments=lambda: False,
-            replace_pending_attachments=lambda _items: None,
-        ),
+        attach=_attachments(),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
@@ -656,6 +656,7 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
     link_cancelled = asyncio.Event()
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
+        attach=_attachments(),
         subscription=SimpleNamespace(current=None),
         settings=_settings(pref_config),
         lifecycle=_lifecycle(task_event),
@@ -750,6 +751,7 @@ async def test_idle_mcp_start_commits_result_before_next_query(
     model_started = asyncio.Event()
     pref_config = {"primary": {"model": "test-model"}}
     mind = SimpleNamespace(
+        attach=_attachments(),
         subscription=SimpleNamespace(current=None),
         settings=_settings(pref_config),
         lifecycle=_lifecycle(task_event),
@@ -844,6 +846,7 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
 
     cancel_startup = AsyncMock(side_effect=cancel_startup_cleanup)
     mind = SimpleNamespace(
+        attach=_attachments(),
         subscription=SimpleNamespace(current=None),
         settings=_settings(pref_config),
         lifecycle=_lifecycle(task_event),

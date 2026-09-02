@@ -24,8 +24,7 @@ class TextPatchOperations(WorkspaceComponent):
     ) -> None:
         """保存共享运行时上下文和补丁执行依赖。"""
         super().__init__(core)
-
-        self._planner     = planner
+        self._planner = planner
         self._diagnostics = diagnostics
 
     def apply_patch(
@@ -51,7 +50,7 @@ class TextPatchOperations(WorkspaceComponent):
             return self.fail_result(planned_result["reason"], **data)
 
         planned = planned_result["planned"]
-        delta   = AppliedPatchDelta()
+        delta = AppliedPatchDelta()
 
         for item in planned:
             try:
@@ -95,18 +94,18 @@ class TextPatchOperations(WorkspaceComponent):
             f"apply patch ok files={len(planned)} hunks={sum(item['hunks'] for item in planned)}",
             files=[
                 {
-                    "path"            : item["path"],
-                    "source_path"     : item["source_path"],
-                    "action"          : item["action"],
-                    "hunks"           : item["hunks"],
-                    "relocated_hunks" : item["relocated_hunks"],
-                    "corrected_hunks" : item["corrected_hunks"],
-                    "sha256"          : item["sha256"],
-                    "sha256_before"   : item["sha256_before"],
-                    "sha256_after"    : item["sha256_after"],
-                    "added_lines"     : item["added_lines"],
-                    "removed_lines"   : item["removed_lines"],
-                    "replacements"    : item["replacements"]
+                    "path": item["path"],
+                    "source_path": item["source_path"],
+                    "action": item["action"],
+                    "hunks": item["hunks"],
+                    "relocated_hunks": item["relocated_hunks"],
+                    "corrected_hunks": item["corrected_hunks"],
+                    "sha256": item["sha256"],
+                    "sha256_before": item["sha256_before"],
+                    "sha256_after": item["sha256_after"],
+                    "added_lines": item["added_lines"],
+                    "removed_lines": item["removed_lines"],
+                    "replacements": item["replacements"]
                 }
                 for item in planned
             ],
@@ -147,7 +146,7 @@ class TextPatchOperations(WorkspaceComponent):
             return self.fail_result(planned_result["reason"], **data)
 
         planned = planned_result["planned"]
-        delta   = AppliedPatchDelta()
+        delta = AppliedPatchDelta()
 
         for item in planned:
             delta.add_planned_change(item)

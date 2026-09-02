@@ -153,7 +153,7 @@ class ProcessCommandExecutor(WorkspaceComponent):
             max_output_chars, default=self.max_output_chars, minimum=1024, maximum=120000
         )
 
-        env     = os.environ.copy()
+        env = os.environ.copy()
         runtime = ShellRuntimeResolver.resolve(env=env, shell=shell)
 
         runtime_info = {
@@ -337,7 +337,7 @@ class ProcessCommandExecutor(WorkspaceComponent):
         sid: typing.Any,
     ) -> dict[str, typing.Any] | None:
         """校验命令会话是否属于当前服务端会话。"""
-        owner  = (session.owner_cid, session.owner_sid)
+        owner = (session.owner_cid, session.owner_sid)
         caller = (str(cid or ""), str(sid or ""))
 
         if owner == caller:
@@ -427,7 +427,7 @@ class ProcessCommandExecutor(WorkspaceComponent):
         clipped_stderr = self.clip_output(stderr_text, max_chars=output_limit)
 
         exit_code = session.process.returncode
-        status    = "running" if exit_code is None else "exited"
+        status = "running" if exit_code is None else "exited"
         timed_out = time.time() >= session.expires_at and exit_code is None
 
         if timed_out:
@@ -442,7 +442,7 @@ class ProcessCommandExecutor(WorkspaceComponent):
             await self._session_manager.finalize_if_exited(session)
 
             exit_code = session.process.returncode
-            status    = "exited" if exit_code is not None else "running"
+            status = "exited" if exit_code is not None else "running"
 
         output_truncated = len(output_text) > output_limit
         stdout_truncated = len(stdout_text) > output_limit
@@ -567,9 +567,9 @@ class ProcessCommandExecutor(WorkspaceComponent):
         data: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
         """根据会话状态构造工具结果。"""
-        status    = str(data.get("status") or "running")
+        status = str(data.get("status") or "running")
         exit_code = data.get("exit_code")
-        ok        = exit_code in (None, 0) and not bool(data.get("timed_out"))
+        ok = exit_code in (None, 0) and not bool(data.get("timed_out"))
 
         if (
             tool == "write_stdin"

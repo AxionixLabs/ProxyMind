@@ -23,12 +23,12 @@ _AGENT_REQUEST_OPTION_FIELDS = frozenset({
 def empty_primary_request_slot() -> dict[str, str]:
     """返回请求协议要求的空 primary 配置。"""
     return {
-        "provider"         : "",
-        "route"            : "",
-        "model"            : "",
-        "apikey"           : "",
-        "base_url"         : "",
-        "reasoning_effort" : ""
+        "provider": "",
+        "route": "",
+        "model": "",
+        "apikey": "",
+        "base_url": "",
+        "reasoning_effort": ""
     }
 
 
@@ -163,3 +163,7 @@ async def build_chat_payload(
         payload["system_message"] = system_message
 
     return payload
+
+
+if __name__ == '__main__':
+    pass

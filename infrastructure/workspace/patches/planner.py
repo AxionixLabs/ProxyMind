@@ -2,12 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from agent.domain.patches.models import PatchHunk
+from agent.domain.patches.parsing import PatchParser
 from infrastructure.workspace.context import (
     WorkspaceComponent,
     WorkspaceContext,
 )
-from agent.domain.patches.models import PatchHunk
-from agent.domain.patches.parsing import PatchParser
 from infrastructure.workspace.patches.applier import PatchApplier
 from infrastructure.workspace.patches.diagnostics import PatchDiagnostics
 from metadata import const
@@ -26,9 +26,8 @@ class PatchPlanner(WorkspaceComponent):
     ) -> None:
         """保存共享运行时上下文和 patch 处理依赖。"""
         super().__init__(core)
-
-        self._parser      = parser
-        self._applier     = applier
+        self._parser = parser
+        self._applier = applier
         self._diagnostics = diagnostics
 
     @staticmethod
@@ -49,10 +48,10 @@ class PatchPlanner(WorkspaceComponent):
                     context += 1
 
         return {
-            "added_lines"   : added,
-            "removed_lines" : removed,
-            "context_lines" : context,
-            "replacements"  : min(added, removed)
+            "added_lines": added,
+            "removed_lines": removed,
+            "context_lines": context,
+            "replacements": min(added, removed)
         }
 
     @staticmethod
@@ -76,17 +75,17 @@ class PatchPlanner(WorkspaceComponent):
     def public_patch_file(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
         """把内部变更计划转换为对外返回的文件摘要。"""
         return {
-            "path"            : item.get("path"),
-            "source_path"     : item.get("source_path"),
-            "action"          : item.get("action"),
-            "hunks"           : item.get("hunks"),
-            "relocated_hunks" : list(item.get("relocated_hunks") or []),
-            "corrected_hunks" : list(item.get("corrected_hunks") or []),
-            "sha256_before"   : item.get("sha256_before"),
-            "sha256_after"    : item.get("sha256_after"),
-            "added_lines"     : item.get("added_lines"),
-            "removed_lines"   : item.get("removed_lines"),
-            "replacements"    : item.get("replacements")
+            "path": item.get("path"),
+            "source_path": item.get("source_path"),
+            "action": item.get("action"),
+            "hunks": item.get("hunks"),
+            "relocated_hunks": list(item.get("relocated_hunks") or []),
+            "corrected_hunks": list(item.get("corrected_hunks") or []),
+            "sha256_before": item.get("sha256_before"),
+            "sha256_after": item.get("sha256_after"),
+            "added_lines": item.get("added_lines"),
+            "removed_lines": item.get("removed_lines"),
+            "replacements": item.get("replacements")
         }
 
     @staticmethod
@@ -111,9 +110,9 @@ class PatchPlanner(WorkspaceComponent):
         parsed = self._parser.parse_patch(patch)
         if not parsed.get("ok"):
             return {
-                "ok"     : False,
-                "reason" : parsed["reason"],
-                "data"   : parsed.get("data") or {}
+                "ok": False,
+                "reason": parsed["reason"],
+                "data": parsed.get("data") or {}
             }
 
         expected_map = {
@@ -123,24 +122,24 @@ class PatchPlanner(WorkspaceComponent):
         }
 
         planned: list[dict[str, typing.Any]] = []
-        seen_paths: set[str]                 = set()
+        seen_paths: set[str] = set()
 
         for item in parsed["files"]:
-            path   = item.path
+            path = item.path
             action = item.action
 
             try:
                 target = self.resolve_path(path)
             except ValueError as exc:
                 return {
-                    "ok"     : False,
-                    "reason" : "path_outside_workspace",
-                    "data"   : {"path": path, "error": str(exc)}
+                    "ok": False,
+                    "reason": "path_outside_workspace",
+                    "data": {"path": path, "error": str(exc)}
                 }
 
-            rel           = self.relative_path(target)
+            rel = self.relative_path(target)
             source_target = target
-            source_rel    = rel
+            source_rel = rel
 
             if action == "rename":
                 source_path = item.old_path
@@ -148,9 +147,9 @@ class PatchPlanner(WorkspaceComponent):
                     source_target = self.resolve_path(source_path)
                 except ValueError as exc:
                     return {
-                        "ok"     : False,
-                        "reason" : "path_outside_workspace",
-                        "data"   : {"path": source_path, "error": str(exc)}
+                        "ok": False,
+                        "reason": "path_outside_workspace",
+                        "data": {"path": source_path, "error": str(exc)}
                     }
                 source_rel = self.relative_path(source_target)
 
@@ -160,9 +159,9 @@ class PatchPlanner(WorkspaceComponent):
             duplicate = next((item_path for item_path in duplicate_paths if item_path in seen_paths), "")
             if duplicate:
                 return {
-                    "ok"     : False,
-                    "reason" : "native_patch_duplicate_file",
-                    "data"   : {"path": duplicate}
+                    "ok": False,
+                    "reason": "native_patch_duplicate_file",
+                    "data": {"path": duplicate}
                 }
             seen_paths.update(duplicate_paths)
 
@@ -185,27 +184,27 @@ class PatchPlanner(WorkspaceComponent):
                     expected = expected or expected_map.get(source_rel) or expected_map.get(item.old_path)
                     if conflict := self.conflict_guard(source_target, expected_sha256=expected, force=force):
                         return {
-                            "ok"     : False,
-                            "reason" : (conflict.get("data") or {}).get("reason") or "file_changed_since_read",
-                            "data"   : conflict.get("data") or {}
+                            "ok": False,
+                            "reason": (conflict.get("data") or {}).get("reason") or "file_changed_since_read",
+                            "data": conflict.get("data") or {}
                         }
 
-                    current     = self._diagnostics.read_text_preserve_newlines(source_target)
+                    current = self._diagnostics.read_text_preserve_newlines(source_target)
                     delta_exact = self._delta_exact_for_source(source_target)
 
                 else:
                     if conflict := self.conflict_guard(target, expected_sha256=expected, force=force):
                         return {
-                            "ok"     : False,
-                            "reason" : (conflict.get("data") or {}).get("reason") or "file_changed_since_read",
-                            "data"   : conflict.get("data") or {}
+                            "ok": False,
+                            "reason": (conflict.get("data") or {}).get("reason") or "file_changed_since_read",
+                            "data": conflict.get("data") or {}
                         }
 
-                    current     = self._diagnostics.read_text_preserve_newlines(target)
+                    current = self._diagnostics.read_text_preserve_newlines(target)
                     delta_exact = self._delta_exact_for_source(target)
 
             else:
-                current     = ""
+                current = ""
                 delta_exact = True
 
             sha256_before = (
@@ -223,8 +222,8 @@ class PatchPlanner(WorkspaceComponent):
                 applied = self._applier.apply_patch_hunks(current, item.hunks)
                 if not applied.get("ok"):
                     reason = str(applied["reason"])
-                    data   = {"path": path, **(applied.get("data") or {})}
-                    data   = self._diagnostics.with_patch_diagnostics(data=data, patch=patch)
+                    data = {"path": path, **(applied.get("data") or {})}
+                    data = self._diagnostics.with_patch_diagnostics(data=data, patch=patch)
 
                     return {"ok": False, "reason": reason, "data": data}
 
@@ -236,31 +235,31 @@ class PatchPlanner(WorkspaceComponent):
             size = len(content.encode(const.CHARSET, const.IGNORE))
             if size > self.max_write_bytes:
                 return {
-                    "ok"     : False,
-                    "reason" : "content_too_large",
-                    "data"   : {"path": path, "size": size, "max_bytes": self.max_write_bytes}
+                    "ok": False,
+                    "reason": "content_too_large",
+                    "data": {"path": path, "size": size, "max_bytes": self.max_write_bytes}
                 }
 
-            line_stats     = self._patch_line_stats(item.hunks)
+            line_stats = self._patch_line_stats(item.hunks)
             sha256_content = self.sha256_bytes(content.encode(const.CHARSET, const.IGNORE))
 
             planned.append({
-                "path"                : rel,
-                "source_path"         : source_rel if action == "rename" else None,
-                "action"              : action,
-                "target"              : target,
-                "source_target"       : source_target if action == "rename" else None,
-                "content"             : content,
-                "old_content"         : None if action == "create" else current,
-                "new_content"         : None if action == "delete" else content,
-                "overwritten_content" : None,
-                "delta_exact"         : delta_exact,
-                "hunks"               : len(item.hunks),
-                "relocated_hunks"     : list(applied.get("relocated_hunks") or []),
-                "corrected_hunks"     : [],
-                "sha256"              : sha256_content,
-                "sha256_before"       : sha256_before,
-                "sha256_after"        : None if action == "delete" else sha256_content,
+                "path": rel,
+                "source_path": source_rel if action == "rename" else None,
+                "action": action,
+                "target": target,
+                "source_target": source_target if action == "rename" else None,
+                "content": content,
+                "old_content": None if action == "create" else current,
+                "new_content": None if action == "delete" else content,
+                "overwritten_content": None,
+                "delta_exact": delta_exact,
+                "hunks": len(item.hunks),
+                "relocated_hunks": list(applied.get("relocated_hunks") or []),
+                "corrected_hunks": [],
+                "sha256": sha256_content,
+                "sha256_before": sha256_before,
+                "sha256_after": None if action == "delete" else sha256_content,
                 **line_stats
             })
 

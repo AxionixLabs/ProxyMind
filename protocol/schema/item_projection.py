@@ -77,10 +77,11 @@ def validate_item_fields(
         )
     if source_id and item_id != source_id:
         raise ValueError(f"{event_type} item_id does not match domain identity")
+
     return {
         "item_id": item_id,
-        "item_kind": typing.cast(ItemKind, item_kind),
-        "item_status": typing.cast(ItemStatus, item_status),
+        "item_kind": item_kind,
+        "item_status": item_status,
     }
 
 

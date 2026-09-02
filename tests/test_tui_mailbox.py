@@ -88,7 +88,10 @@ def _feature(
     controller = SimpleNamespace(
         subscription=SimpleNamespace(current=listener),
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=SimpleNamespace(
+                emit=views.append,
+                viewport=SimpleNamespace(width=80),
+            ),
         ),
     )
     feature = TuiMailboxFeature(runtime, controller)
@@ -495,7 +498,10 @@ async def test_mailbox_run_failure_is_rendered_and_releases_auto_slot() -> None:
     mind = SimpleNamespace(
         lifecycle=ProcessLifecycle(),
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=SimpleNamespace(
+                emit=views.append,
+                viewport=SimpleNamespace(width=80),
+            ),
         ),
     )
 

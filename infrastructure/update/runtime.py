@@ -16,12 +16,12 @@ from urllib.parse import urlparse
 from infrastructure.errors import AppError
 from observability import (
     observe,
-    observe_exception
+    observe_exception,
 )
 from infrastructure.platform import signals
 from infrastructure.platform.ports import (
     port_available,
-    terminate_port_process
+    terminate_port_process,
 )
 from protocol.client.manifest import fetch_manifest
 
@@ -71,8 +71,8 @@ class UpgradeProgressController(object):
     ) -> None:
         """绑定进度展示对象和共享状态。"""
         self.progress = progress
-        self.state    = state
-        self.started  = False
+        self.state = state
+        self.started: bool = False
 
     async def start(self) -> None:
         """按需启动进度展示。"""
@@ -105,8 +105,8 @@ class Upgrade(object):
         if stage is not None:
             state["stage"] = stage
 
-        state["speed"]       = 0.0
-        state["final_icon"]  = icon
+        state["speed"] = 0.0
+        state["final_icon"] = icon
         state["final_label"] = label
         state["final_style"] = style
 
@@ -123,7 +123,7 @@ class Upgrade(object):
             state["stage"] = stage
         if reset_progress:
             state["phase"] = 0.0
-            state["done"]  = 0
+            state["done"] = 0
 
         archive_path.unlink(missing_ok=True)
 
@@ -147,10 +147,10 @@ class Upgrade(object):
     def download_state() -> dict[str, typing.Any]:
         """创建下载动画使用的初始状态。"""
         return {
-            "stage" : "warming",
-            "phase" : 0.0,
-            "done"  : 0,
-            "speed" : 0.0
+            "stage": "warming",
+            "phase": 0.0,
+            "done": 0,
+            "speed": 0.0
         }
 
     @staticmethod
@@ -267,13 +267,13 @@ class Upgrade(object):
     def resolve_runtime_root(cls, extract_dir: Path) -> Path:
         """从解压目录中定位并校验后端运行时根目录。"""
         runtime_name = cls.backend_runtime_name()
-        direct       = extract_dir / runtime_name
+        direct = extract_dir / runtime_name
 
         if direct.is_dir():
             runtime_root = direct
         else:
             children = [p for p in extract_dir.iterdir() if p.exists()]
-            dirs     = [p for p in children if p.is_dir()]
+            dirs = [p for p in children if p.is_dir()]
 
             if len(children) == 1 and len(dirs) == 1:
                 nested = dirs[0] / runtime_name
@@ -359,7 +359,7 @@ class Upgrade(object):
         start_progress: UpgradeProgressStarter | None = None
     ) -> tuple[int, str | None]:
         """下载远端归档文件并更新进度状态。"""
-        done   = 0
+        done = 0
         hasher = hashlib.sha256() if sha256_enabled else None
 
         self.set_stage(state, "connecting")
@@ -434,10 +434,10 @@ class Upgrade(object):
             raise AppError("No backend upgrade package is available for this platform.")
 
         target_dir = Path(install_dir).expanduser().resolve()
-        filename   = Path(urlparse(url).path or "").name.strip() or f"runtime_{version}.zip"
+        filename = Path(urlparse(url).path or "").name.strip() or f"runtime_{version}.zip"
 
         archive_path: Path | None = None
-        tmp_path: Path | None     = None
+        tmp_path: Path | None = None
 
         started = time.perf_counter()
 
@@ -522,13 +522,13 @@ class Upgrade(object):
             )
 
             return {
-                "ok"               : True,
-                "version"          : version,
-                "install_dir"      : str(target_dir),
-                "archive"          : str(archive_path or ""),
-                "removed_archive"  : True,
-                "downloaded_bytes" : done,
-                "elapsed_sec"      : round(elapsed, 3)
+                "ok": True,
+                "version": version,
+                "install_dir": str(target_dir),
+                "archive": str(archive_path or ""),
+                "removed_archive": True,
+                "downloaded_bytes": done,
+                "elapsed_sec": round(elapsed, 3)
             }
 
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit) as error:

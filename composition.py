@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from pathlib import Path
-
 from agent.adapters.agents.execution import StreamSubagentExecution
 from agent.adapters.protocol.subagent_stream import ProtocolSubagentStream
 from agent.application import RuntimeServices
@@ -69,6 +69,8 @@ from observability import (
 )
 from observability.reporting import RunReport
 from protocol.client.reports import EventReportRuntimeOwner
+
+__all__ = ("ApplicationHost",)
 
 
 def _unconfigured_subscription_runtime(
@@ -363,21 +365,15 @@ class ApplicationHost:
             client_tools=self.execution.client_tool_count(),
         )
 
-    def set_history_workspace(self, workspace: str | Path) -> str:
-        """原子替换后续 Turn 使用的工作区能力和工具注册表。"""
-        normalized = normalize_workspace(workspace)
-        if normalized and normalized != self.history_workspace:
-            self.workspace_runtime.replace(normalized)
-            self.history_workspace = normalized
-            self.command_hook_sessions.clear()
-            self.execution.rebuild_client_registry()
-            observe("workspace.changed", workspace=self.history_workspace)
-        return self.history_workspace
-
     @property
     def workspace_root(self) -> str:
         """返回当前根轮次绑定的工作区。"""
         return self.history_workspace
+
+    @property
+    def hook_scope_provider(self) -> HookScopeProviderPort:
+        """返回根轮次和子 Agent 共享的 Hook 作用域提供器。"""
+        return self.hooks
 
     def capture_environment(
         self,
@@ -392,16 +388,23 @@ class ApplicationHost:
             workspace_root=Path(workspace_root),
         )
 
+    def set_history_workspace(self, workspace: str | Path) -> str:
+        """原子替换后续 Turn 使用的工作区能力和工具注册表。"""
+        normalized = normalize_workspace(workspace)
+        if normalized and normalized != self.history_workspace:
+            self.workspace_runtime.replace(normalized)
+            self.history_workspace = normalized
+            self.command_hook_sessions.clear()
+            self.execution.rebuild_client_registry()
+            observe("workspace.changed", workspace=self.history_workspace)
+        return self.history_workspace
+
     def skills_payload(self) -> list[dict[str, typing.Any]]:
         """返回当前配置对应的模型可见 skills 快照。"""
         if self._skills_provider is None:
             return []
         return list(self._skills_provider())
 
-    @property
-    def hook_scope_provider(self) -> HookScopeProviderPort:
-        """返回根轮次和子 Agent 共享的 Hook 作用域提供器。"""
-        return self.hooks
 
-
-__all__ = ("ApplicationHost",)
+if __name__ == '__main__':
+    pass

@@ -17,9 +17,9 @@ from observability import observe_exception
 async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:
     """获取当前平台对应的清单配置。"""
     headers = build_service_headers()
-    params  = build_service_query() | {
-        "station" : sys.platform,
-        "arch"    : platform.machine()
+    params = build_service_query() | {
+        "station": sys.platform,
+        "arch": platform.machine()
     }
 
     try:

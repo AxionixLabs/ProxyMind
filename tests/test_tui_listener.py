@@ -85,7 +85,10 @@ class _OperationController(object):
         sink = TuiApplicationSink(runtime)
         self.frontend = SimpleNamespace(
             runtime=runtime,
-            application=SimpleNamespace(emit=sink._emit_active),
+            application=SimpleNamespace(
+                emit=sink._emit_active,
+                viewport=SimpleNamespace(width=80),
+            ),
         )
         self.subscription = SimpleNamespace(
             current=listener,
@@ -93,7 +96,7 @@ class _OperationController(object):
             pause=self._pause_subscription,
         )
         self.lifecycle = SimpleNamespace(await_cleanup=self._await_cleanup)
-        self.animate = True
+        self.activity = SimpleNamespace(enabled=True)
         self.pause_started = asyncio.Event()
         self.pause_release = asyncio.Event()
 
@@ -315,7 +318,10 @@ def test_listener_result_is_a_compact_stable_block(
     views = []
     controller = SimpleNamespace(
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=SimpleNamespace(
+                emit=views.append,
+                viewport=SimpleNamespace(width=80),
+            ),
         ),
     )
 
@@ -375,7 +381,10 @@ def test_listener_status_uses_query_layout_instead_of_stop_result_style(
     controller = SimpleNamespace(
         subscription=SimpleNamespace(current=listener),
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=SimpleNamespace(
+                emit=views.append,
+                viewport=SimpleNamespace(width=80),
+            ),
         ),
     )
 
@@ -394,7 +403,10 @@ def test_listener_failure_and_interruption_do_not_echo_command() -> None:
     views = []
     controller = SimpleNamespace(
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=SimpleNamespace(
+                emit=views.append,
+                viewport=SimpleNamespace(width=80),
+            ),
         ),
     )
 

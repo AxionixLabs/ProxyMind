@@ -161,11 +161,7 @@ def _present_listener_view(
     """提交一项监听器最终状态。"""
     block = render_mcp_status_block(
         view,
-        terminal_width=getattr(
-            getattr(controller.frontend.application, "viewport", None),
-            "width",
-            None,
-        ),
+        terminal_width=controller.frontend.application.viewport.width,
     )
     if not block.plain_text:
         return None
@@ -195,7 +191,7 @@ async def _begin_listener_activity(
     summary: str
 ) -> None:
     """按当前动画设置启动单行监听器操作状态。"""
-    if not bool(getattr(controller, "animate", True)):
+    if not controller.activity.enabled:
         return None
     runtime = require_tui_runtime(controller.frontend.runtime)
     await runtime.begin_operation_status(lambda: {"summary": summary})

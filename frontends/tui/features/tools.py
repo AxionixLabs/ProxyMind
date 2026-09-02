@@ -33,19 +33,11 @@ if typing.TYPE_CHECKING:
 
 
 def _terminal_width(
-    application: ApplicationSink,
-    terminal_width: int | None
+    terminal_width: int,
 ) -> int:
     """返回工具摘要使用的有效终端宽度。"""
     if isinstance(terminal_width, int) and terminal_width > 0:
         return terminal_width
-
-    viewport = getattr(application, "viewport", None)
-    width    = getattr(viewport, "width", None)
-
-    if isinstance(width, int) and width > 0:
-        return width
-
     return DEFAULT_TERMINAL_WIDTH
 
 
@@ -94,26 +86,17 @@ def _tools_for_display(
     tools: list[dict[str, typing.Any]]
 ) -> list[dict[str, typing.Any]]:
     """复制工具目录，并把外接工具限定名替换为服务原始名称。"""
-    external_group = getattr(session, "external_group", None)
-    source_tools   = getattr(external_group, "tools", {})
-
-    original_names = {
-        str(qualified_name): str(getattr(tool, "name", "") or "").strip()
-        for qualified_name, tool in dict(source_tools or {}).items()
-    }
-
     display_tools: list[dict[str, typing.Any]] = []
 
     for tool in tools:
         name = str(tool.get("name") or "")
-
-        original_name = original_names.get(name, "")
-        if not original_name:
+        display_name = session.display_name_for_tool(name)
+        if display_name == name:
             display_tools.append(tool)
             continue
 
         display_tool = dict(tool)
-        display_tool["name"] = original_name
+        display_tool["name"] = display_name
         display_tools.append(display_tool)
 
     return display_tools
@@ -177,12 +160,12 @@ def render_tools_summary(
     *,
     application: ApplicationSink,
     tools: list[dict[str, typing.Any]],
+    terminal_width: int,
     limit: int = GROUP_DISPLAY_LIMIT,
-    terminal_width: int | None = None
 ) -> None:
     """打印当前会话可见工具摘要。"""
     groups = summarize_tool_groups(tools)
-    width  = _terminal_width(application, terminal_width)
+    width  = _terminal_width(terminal_width)
 
     parts = [
         TextSpan("/tools", TOOLS_COMMAND_STYLE),

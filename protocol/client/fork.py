@@ -60,10 +60,10 @@ def build_fork_payload(
         raise ValueError("unbounded fork requires prompt_source=none")
 
     payload = {
-        "request_id"    : str(request_id or "").strip(),
-        "cid"           : str(cid or "").strip(),
-        "sid"           : str(sid or "").strip(),
-        "prompt_source" : prompt_source,
+        "request_id": str(request_id or "").strip(),
+        "cid": str(cid or "").strip(),
+        "sid": str(sid or "").strip(),
+        "prompt_source": prompt_source,
     }
     if boundary:
         payload["before_turn_id"] = boundary
@@ -131,10 +131,10 @@ async def request_conversation_fork(
         )
 
     expected = {
-        "request_id"    : payload["request_id"],
-        "source_cid"    : payload["cid"],
-        "source_sid"    : payload["sid"],
-        "prompt_source" : payload["prompt_source"],
+        "request_id": payload["request_id"],
+        "source_cid": payload["cid"],
+        "source_sid": payload["sid"],
+        "prompt_source": payload["prompt_source"],
     }
 
     if "before_turn_id" in payload:
@@ -145,11 +145,11 @@ async def request_conversation_fork(
             "Conversation fork response does not match the source request.",
         )
 
-    target_cid   = str(data.get("cid") or "").strip()
-    target_sid   = str(data.get("sid") or "").strip()
+    target_cid = str(data.get("cid") or "").strip()
+    target_sid = str(data.get("sid") or "").strip()
     copied_items = data.get("copied_items")
     copied_turns = data.get("copied_turns")
-    bounded      = "before_turn_id" in payload
+    bounded = "before_turn_id" in payload
 
     if (
         not target_cid
@@ -195,9 +195,9 @@ def _parse_resubmittable_prompt(value: typing.Any) -> ResubmittablePrompt:
     if not isinstance(value, dict):
         raise TypeError("fork prompt must be an object")
 
-    message     = value.get("message")
+    message = value.get("message")
     attachments = value.get("attachments")
-    extras      = value.get("extras")
+    extras = value.get("extras")
 
     if attachments is None:
         attachments = []

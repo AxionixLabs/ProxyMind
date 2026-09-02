@@ -16,10 +16,10 @@ def build_compact_payload(raw: typing.Any) -> dict[str, typing.Any]:
     data = raw if isinstance(raw, dict) else {}
 
     return {
-        "cid"      : str(data.get("cid") or "").strip(),
-        "sid"      : str(data.get("sid") or "").strip(),
-        "llm_conf" : request_llm_conf(data.get("llm_conf")),
-        "strategy" : str(data.get("strategy") or COMPACT_DEFAULT_STRATEGY).strip() or COMPACT_DEFAULT_STRATEGY
+        "cid": str(data.get("cid") or "").strip(),
+        "sid": str(data.get("sid") or "").strip(),
+        "llm_conf": request_llm_conf(data.get("llm_conf")),
+        "strategy": str(data.get("strategy") or COMPACT_DEFAULT_STRATEGY).strip() or COMPACT_DEFAULT_STRATEGY
     }
 
 
@@ -68,11 +68,11 @@ def compact_failed_event(
     code = int(status_code or 502)
 
     return {
-        "type"        : "conversation.compact.failed",
-        "status"      : "failed",
-        "status_code" : code,
-        "message"     : message or compact_failure_message(code),
-        "error"       : str(error or "").strip()
+        "type": "conversation.compact.failed",
+        "status": "failed",
+        "status_code": code,
+        "message": message or compact_failure_message(code),
+        "error": str(error or "").strip()
     }
 
 

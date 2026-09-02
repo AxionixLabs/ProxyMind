@@ -34,6 +34,15 @@ class CompositeToolSession(McpSessionPort):
         self.client_registry = client_registry
         self.builtin_registry = builtin_registry
 
+    def display_name_for_tool(self, name: str) -> str:
+        """把外部工具限定名投影为服务声明的原始名称。"""
+        if self.external_group is None:
+            return name
+        tool = self.external_group.tools.get(name)
+        if tool is None:
+            return name
+        return str(tool.name or name).strip() or name
+
     @staticmethod
     def tool_for_openai(
         tool: mcp_types.Tool,

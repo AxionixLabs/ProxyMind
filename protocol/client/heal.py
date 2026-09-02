@@ -8,6 +8,8 @@ from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
 from protocol.transport.streaming import streaming
 
+__all__ = ("stream_heal",)
+
 
 async def stream_heal(
     pref_config: dict[str, typing.Any],
@@ -49,5 +51,5 @@ async def stream_heal(
         yield event
 
 
-__all__ = ("stream_heal",)
-
+if __name__ == '__main__':
+    pass

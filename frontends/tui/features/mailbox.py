@@ -506,11 +506,7 @@ def _present_status(
             done=True,
             details=details,
         ),
-        terminal_width=getattr(
-            getattr(controller.frontend.application, "viewport", None),
-            "width",
-            None,
-        ),
+        terminal_width=controller.frontend.application.viewport.width,
     )
     controller.frontend.application.emit(ApplicationView(
         type="tui.mailbox.status",

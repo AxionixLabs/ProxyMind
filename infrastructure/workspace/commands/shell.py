@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import os
-import shlex
 import time
+import shlex
 import typing
 from agent.domain.execution_policy import (
     effective_sandbox_mode,
@@ -73,14 +73,14 @@ class ShellCommandExecutor(WorkspaceComponent):
     }
 
     AUDIT_METADATA_VERSION_COMMANDS = {
-        "go"     : {"version"},
-        "node"   : {"--version", "-v"},
-        "npm"    : {"--version", "-v", "version"},
-        "npx"    : {"--version", "-v"},
-        "java"   : {"-version", "--version"},
-        "javac"  : {"-version", "--version"},
-        "mvn"    : {"-version", "--version", "-v"},
-        "gradle" : {"-version", "--version", "-v"}
+        "go": {"version"},
+        "node": {"--version", "-v"},
+        "npm": {"--version", "-v", "version"},
+        "npx": {"--version", "-v"},
+        "java": {"-version", "--version"},
+        "javac": {"-version", "--version"},
+        "mvn": {"-version", "--version", "-v"},
+        "gradle": {"-version", "--version", "-v"}
     }
 
     AUDIT_METADATA_GIT_SUBCOMMANDS = {
@@ -103,8 +103,8 @@ class ShellCommandExecutor(WorkspaceComponent):
         """保存共享运行时上下文、命令策略和文件审计依赖。"""
         super().__init__(core)
         self._command_policy = command_policy
-        self._file_audit     = file_audit
-        self._sessions       = sessions
+        self._file_audit = file_audit
+        self._sessions = sessions
 
     @classmethod
     def audit_mode_for_command(
@@ -128,7 +128,7 @@ class ShellCommandExecutor(WorkspaceComponent):
             return "full"
 
         executable = os.path.basename(parts[0]).lower()
-        lowered    = text.lower()
+        lowered = text.lower()
 
         if executable == "git":
             subcommand = parts[1].lower() if len(parts) > 1 else ""
@@ -324,9 +324,9 @@ class ShellCommandExecutor(WorkspaceComponent):
                 )
 
         effective_timeout = int(policy.get("timeout_sec") or timeout_sec or 60)
-        output_limit      = int(policy.get("output_limit") or self.max_output_chars)
+        output_limit = int(policy.get("output_limit") or self.max_output_chars)
 
-        env     = os.environ.copy()
+        env = os.environ.copy()
         runtime = ShellRuntimeResolver.resolve(env=env)
 
         runtime_info = {
@@ -343,7 +343,7 @@ class ShellCommandExecutor(WorkspaceComponent):
         exec_cmd = list(runtime.prefix or [])
         exec_cmd.append(cmd)
 
-        audit_mode   = self.audit_mode_for_command(cmd, audit_files=audit_files)
+        audit_mode = self.audit_mode_for_command(cmd, audit_files=audit_files)
         audit_before = self._capture_shell_audit(audit_mode)
 
         try:
@@ -392,7 +392,7 @@ class ShellCommandExecutor(WorkspaceComponent):
             self._record_shell_result(data)
             return result
 
-        elapsed_ms  = capture.elapsed_ms
+        elapsed_ms = capture.elapsed_ms
         audit_after = self._capture_shell_audit(audit_mode)
 
         shell_file_changes = self._file_audit.diff_file_fingerprints(
@@ -420,12 +420,10 @@ class ShellCommandExecutor(WorkspaceComponent):
 
         raw_stdout = decoded_output.stdout
         raw_stderr = decoded_output.stderr
-        out_text   = self.clip_output(raw_stdout, max_chars=output_limit)
-        err_text   = self.clip_output(raw_stderr, max_chars=output_limit)
-        exit_code  = int(capture.exit_code or 0)
-
+        out_text = self.clip_output(raw_stdout, max_chars=output_limit)
+        err_text = self.clip_output(raw_stderr, max_chars=output_limit)
+        exit_code = int(capture.exit_code or 0)
         ok = (exit_code == 0) and not capture.timed_out
-
         stdout_truncated = capture.stdout_dropped > 0 or len(raw_stdout) > output_limit
         stderr_truncated = capture.stderr_dropped > 0 or len(raw_stderr) > output_limit
 
@@ -524,7 +522,7 @@ class ShellCommandExecutor(WorkspaceComponent):
             additional_permissions=additional_permissions,
         ))
 
-        timed_out = False
+        timed_out: bool = False
         try:
             await wait_for_process(session.process, max(1, int(timeout_sec)) * 1000)
             if session.process.returncode is None:

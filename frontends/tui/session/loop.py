@@ -4,7 +4,10 @@
 import asyncio
 import typing
 
-from agent.ports import ProtocolCommandClient
+from agent.ports import (
+    AttachmentStatePort,
+    ProtocolCommandClient,
+)
 from agent.application.services import TurnApplicationFactory
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.commands import (
@@ -63,26 +66,6 @@ if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
 
 
-@typing.runtime_checkable
-class _PendingAttachmentCheck(typing.Protocol):
-    """描述会话循环读取待提交附件状态所需的能力。"""
-
-    def has_pending_attachments(self) -> bool:
-        """返回当前是否存在待提交附件。"""
-        ...
-
-
-@typing.runtime_checkable
-class _PendingAttachmentSnapshot(typing.Protocol):
-    """描述会话循环固定待提交附件快照所需的能力。"""
-
-    def pending_attachments_snapshot(
-        self,
-    ) -> list[dict[str, typing.Any]]:
-        """返回待提交附件的独立快照。"""
-        ...
-
-
 class _TurnInterruptNotice:
     """管理单轮中断提示的展示状态。"""
 
@@ -107,11 +90,9 @@ class _TurnInterruptNotice:
 
 
 def _pending_attachment_snapshot(
-    attachment_state: object
+    attachment_state: AttachmentStatePort,
 ) -> tuple[dict[str, typing.Any], ...]:
     """读取并固定待提交附件快照的结构。"""
-    if not isinstance(attachment_state, _PendingAttachmentSnapshot):
-        return ()
     return tuple(
         item.copy()
         for item in attachment_state.pending_attachments_snapshot()
@@ -175,13 +156,10 @@ async def _run_tui_loop(
     application = mind.frontend.application
     runtime     = require_tui_runtime(mind.frontend.runtime)
 
-    attachment_state: object = getattr(mind, "attach", None)
-    attachment_check = (
-        attachment_state.has_pending_attachments
-        if isinstance(attachment_state, _PendingAttachmentCheck)
-        else None
+    attachment_state = mind.attach
+    runtime.bind_pending_attachment_check(
+        attachment_state.has_pending_attachments,
     )
-    runtime.bind_pending_attachment_check(attachment_check)
     runtime.start_background_task(
         monitor_exec_status(runtime, mind),
         name="process status",

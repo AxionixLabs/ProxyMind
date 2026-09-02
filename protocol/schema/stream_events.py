@@ -5,7 +5,7 @@ import copy
 import typing
 from dataclasses import (
     dataclass,
-    field
+    field,
 )
 from collections.abc import Mapping
 from protocol.schema.item_projection import (
@@ -32,7 +32,10 @@ TurnDoneStatus: typing.TypeAlias = typing.Literal[
     "interrupted",
 ]
 
-EffectReplay: typing.TypeAlias = typing.Literal["safe", "manual"]
+EffectReplay: typing.TypeAlias = typing.Literal[
+    "safe",
+    "manual"
+]
 
 @dataclass(frozen=True, slots=True)
 class ExecutionEffect:
@@ -174,6 +177,7 @@ class TextDeltaEvent(ItemStreamEvent):
             item_status="in_progress",
         )
 
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TextDoneEvent(ItemStreamEvent):
     """描述 assistant 正文段完成事件。"""
@@ -188,6 +192,7 @@ class TextDoneEvent(ItemStreamEvent):
             item_kind="text",
             item_status="completed",
         )
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TextMetaEvent(ItemStreamEvent):
@@ -207,6 +212,7 @@ class TextMetaEvent(ItemStreamEvent):
             item_kind="text",
             item_status="completed",
         )
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ToolBuiltinCallEvent(ItemStreamEvent):
@@ -277,6 +283,8 @@ class ToolEvent(ItemStreamEvent):
             "arguments",
             copy.deepcopy(dict(self.arguments or {})),
         )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ToolApprovalRequiredEvent(ItemStreamEvent):
     """描述需要客户端决定的直接工具审批请求。"""
@@ -641,7 +649,11 @@ def parse_stream_event(
         removed_fields = {"name", "approval", "patch_scope"}
         if kind != "mcp_tool_call":
             removed_fields.add("arguments")
-        present_removed = sorted(field for field in removed_fields if field in raw)
+        present_removed = sorted(
+            removed_field
+            for removed_field in removed_fields
+            if removed_field in raw
+        )
         if present_removed:
             raise ValueError(
                 "tool.approval_required contains removed protocol fields: "
@@ -825,13 +837,10 @@ def _common_fields(
     display = payload.get("display")
     if event_type == "ping":
         proto = _text(payload.get("proto"))
-
-        cid     = _text(payload.get("cid"))
-        sid     = _text(payload.get("sid"))
+        cid = _text(payload.get("cid"))
+        sid = _text(payload.get("sid"))
         turn_id = _text(payload.get("turn_id"))
-
         event_seq = _event_sequence(payload)
-
         presentation_epoch = _positive_int(
             payload.get("presentation_epoch")
         ) or 1
@@ -840,13 +849,10 @@ def _common_fields(
         proto = _required_text(payload.get("proto"), "proto")
         if proto != "mind.chat":
             raise ValueError("stream event proto must be mind.chat")
-
-        cid     = _required_text(payload.get("cid"), "cid")
-        sid     = _required_text(payload.get("sid"), "sid")
+        cid = _required_text(payload.get("cid"), "cid")
+        sid = _required_text(payload.get("sid"), "sid")
         turn_id = _required_text(payload.get("turn_id"), "turn_id")
-
         event_seq = _required_positive_int(payload.get("event_seq"), "event_seq")
-
         presentation_epoch = _required_positive_int(
             payload.get("presentation_epoch"),
             "presentation_epoch",
@@ -905,7 +911,8 @@ def _tool_calls_start_fields(
 ) -> dict[str, typing.Any]:
     """读取仅属于 tool.calls.start 的就绪与执行预算字段。"""
     fields = _tool_calls_boundary_identity(payload, "tool.calls.start")
-    if payload.get("ready") is not True:
+    ready = _required_bool(payload.get("ready"), "tool.calls.start ready")
+    if not ready:
         raise ValueError("tool.calls.start ready must be true")
     timeout_sec = payload.get("timeout_sec")
     if timeout_sec is not None:
@@ -956,10 +963,7 @@ def _stream_gap_event(payload: dict[str, typing.Any]) -> StreamGapEvent:
         cid=_required_text(payload.get("cid"), "stream.gap cid"),
         sid=_required_text(payload.get("sid"), "stream.gap sid"),
         turn_id=_required_text(payload.get("turn_id"), "stream.gap turn_id"),
-        gap_kind=typing.cast(
-            typing.Literal["retained_prefix", "internal"],
-            gap_kind,
-        ),
+        gap_kind=gap_kind,
         requested_after_seq=requested_after_seq,
         first_event_seq=first_event_seq,
         next_seq=next_seq,

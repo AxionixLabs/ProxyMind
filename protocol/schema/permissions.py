@@ -197,3 +197,7 @@ def _approval_flag(value: typing.Any, *, name: str) -> bool:
     if not isinstance(value, bool):
         raise TypeError(f"granular approval policy {name} must be a boolean")
     return value
+
+
+if __name__ == '__main__':
+    pass

@@ -56,15 +56,6 @@ class RunReport(object):
         self.run_id = tender
         observe("report.open", run_id=self.run_id)
 
-    def close(self) -> None:
-        """刷新并关闭当前运行持有的诊断日志。"""
-        sink_id = self.__log_sink_id
-        if sink_id is None:
-            return None
-        observe("report.close", run_id=self.run_id)
-        self.__log_sink_id = None
-        remove_sink(sink_id)
-
     @property
     def output_record_path(self) -> str:
         """返回当前进程的终端展示记录路径。"""
@@ -74,6 +65,15 @@ class RunReport(object):
     def debug_log(self) -> str:
         """返回当前运行使用的诊断日志路径。"""
         return self.__debug_log
+
+    def close(self) -> None:
+        """刷新并关闭当前运行持有的诊断日志。"""
+        sink_id = self.__log_sink_id
+        if sink_id is None:
+            return None
+        observe("report.close", run_id=self.run_id)
+        self.__log_sink_id = None
+        remove_sink(sink_id)
 
 
 if __name__ == '__main__':

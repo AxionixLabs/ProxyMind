@@ -431,7 +431,7 @@ def _approval_snapshot_item(
         )
 
     approval_id = text_field("approval_id", required=True)
-    turn_id     = text_field("turn_id", required=True)
+    turn_id = text_field("turn_id", required=True)
 
     if turn_id != expected_turn_id:
         raise ToolApprovalSnapshotRequestError(
@@ -439,7 +439,7 @@ def _approval_snapshot_item(
         )
 
     call_id = text_field("call_id", required=True)
-    kind    = text_field("kind", required=True)
+    kind = text_field("kind", required=True)
 
     typed_kind = _tool_approval_kind(kind)
     if typed_kind is None:
@@ -1202,7 +1202,7 @@ async def post_tool_approval(
     )
 
     amendment_id = str(execpolicy_amendment_id or "").strip()
-    reason_text  = str(reason or "").strip()
+    reason_text = str(reason or "").strip()
 
     if not clean_turn_id:
         raise ValueError("tool approval requires turn_id")
@@ -1225,14 +1225,14 @@ async def post_tool_approval(
     headers = build_service_headers()
 
     payload: _ToolApprovalPayload = {
-        "request_id" : normalized_request_id,
-        "cid"         : cid,
-        "sid"         : sid,
-        "turn_id"     : clean_turn_id,
-        "call_id"     : call_id,
-        "approval_id" : approval_id,
-        "kind"        : typed_kind,
-        "decision"    : typed_decision
+        "request_id": normalized_request_id,
+        "cid": cid,
+        "sid": sid,
+        "turn_id": clean_turn_id,
+        "call_id": call_id,
+        "approval_id": approval_id,
+        "kind": typed_kind,
+        "decision": typed_decision
     }
     if amendment_id:
         payload["execpolicy_amendment_id"] = amendment_id
@@ -1570,7 +1570,7 @@ def _tool_approval_error(response: httpx.Response) -> tuple[str, str]:
     detail = body.get("detail") if isinstance(body, dict) else None
 
     if isinstance(detail, dict):
-        code    = str(detail.get("code") or "").strip()
+        code = str(detail.get("code") or "").strip()
         message = str(detail.get("message") or detail.get("detail") or "").strip()
 
         if code:

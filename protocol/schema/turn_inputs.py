@@ -5,7 +5,7 @@ import copy
 import typing
 from dataclasses import (
     dataclass,
-    field
+    field,
 )
 from collections.abc import Mapping
 
@@ -36,9 +36,9 @@ class TurnInput(object):
     def from_mapping(cls, value: Mapping[str, typing.Any]) -> "TurnInput":
         """校验协议对象并创建轮次输入。"""
         client_message_id = str(value.get("client_message_id") or "").strip()
-        text              = value.get("text")
-        attachments       = value.get("attachments", [])
-        extras            = value.get("extras", {})
+        text = value.get("text")
+        attachments = value.get("attachments", [])
+        extras = value.get("extras", {})
 
         if not client_message_id:
             raise ValueError("turn input client_message_id is required")

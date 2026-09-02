@@ -1,11 +1,18 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import json
 import re
+import json
 import typing
-
 from loguru import logger
+
+__all__ = [
+    "add_file_sink",
+    "observe",
+    "observe_exception",
+    "remove_sink",
+    "reset_sinks",
+]
 
 _SAFE_VALUE = re.compile(r"^[A-Za-z0-9._:/@+\\-]+$")
 _MAX_FIELD_LENGTH = 320
@@ -98,10 +105,5 @@ def remove_sink(sink_id: int) -> None:
     logger.remove(sink_id)
 
 
-__all__ = [
-    "add_file_sink",
-    "observe",
-    "observe_exception",
-    "remove_sink",
-    "reset_sinks",
-]
+if __name__ == '__main__':
+    pass

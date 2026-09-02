@@ -21,8 +21,8 @@ class DiffRenderer:
     """把两份文本内容渲染为统一差异文本。"""
 
     MAX_CONTENT_BYTES = 512_000
-    MAX_DIFF_BYTES    = 512_000
-    TIMEOUT_SEC       = 0.10
+    MAX_DIFF_BYTES = 512_000
+    TIMEOUT_SEC = 0.10
 
     @classmethod
     def render_file(

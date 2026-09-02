@@ -2,11 +2,11 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from agent.domain.patches.models import PatchHunk
 from infrastructure.workspace.context import (
     WorkspaceComponent,
     WorkspaceContext,
 )
-from agent.domain.patches.models import PatchHunk
 from infrastructure.workspace.patches.diagnostics import PatchDiagnostics
 
 
@@ -52,12 +52,12 @@ class PatchApplier(WorkspaceComponent):
             return []
 
         start = max(0, index - radius)
-        end   = min(len(lines), index + radius + 1)
+        end = min(len(lines), index + radius + 1)
 
         return [
             {
-                "line" : item + 1,
-                "text" : lines[item].rstrip("\r\n")
+                "line": item + 1,
+                "text": lines[item].rstrip("\r\n")
             }
             for item in range(start, end)
         ]
@@ -112,9 +112,8 @@ class PatchApplier(WorkspaceComponent):
         sequence: list[str] = []
 
         for raw_line in hunk.entries:
-
-            marker     = raw_line.marker
-            text       = raw_line.text
+            marker = raw_line.marker
+            text = raw_line.text
             no_newline = raw_line.no_newline
 
             if marker in {" ", "-"}:
@@ -135,21 +134,21 @@ class PatchApplier(WorkspaceComponent):
         """在当前文本中查找可唯一匹配的 hunk 上下文位置。"""
         if not expected:
             return {
-                "ok"     : False,
-                "reason" : "patch_context_empty",
-                "data"   : {}
+                "ok": False,
+                "reason": "patch_context_empty",
+                "data": {}
             }
 
-        max_start    = len(lines) - len(expected)
+        max_start = len(lines) - len(expected)
         search_start = cursor
 
         if allow_overlap:
             search_start = max(0, cursor - len(expected))
         if max_start < search_start:
             return {
-                "ok"     : False,
-                "reason" : "patch_context_out_of_range",
-                "data"   : {}
+                "ok": False,
+                "reason": "patch_context_out_of_range",
+                "data": {}
             }
 
         candidates: list[int] = []
@@ -162,9 +161,9 @@ class PatchApplier(WorkspaceComponent):
 
         if not candidates:
             return {
-                "ok"     : False,
-                "reason" : "patch_context_mismatch",
-                "data"   : {}
+                "ok": False,
+                "reason": "patch_context_mismatch",
+                "data": {}
             }
 
         if len(candidates) > 1:
@@ -185,18 +184,14 @@ class PatchApplier(WorkspaceComponent):
     ) -> dict[str, typing.Any]:
         """把已解析的 hunk 应用到文本内容并返回新内容。"""
         original = content.splitlines(keepends=True)
-
         output: list[str] = []
-        cursor: int       = 0
-
+        cursor: int = 0
         relocated_hunks: list[dict[str, int]] = []
-
         newline = self._detect_newline(original)
 
         for hunk_index, hunk in enumerate(hunks, start=1):
-
-            old_start    = hunk.old_start
-            old_count    = hunk.old_count
+            old_start = hunk.old_start
+            old_count = hunk.old_count
             target_index = self._hunk_target_index(old_start=old_start, old_count=old_count)
             old_sequence = self._hunk_old_sequence(hunk, newline=newline)
 
@@ -265,9 +260,9 @@ class PatchApplier(WorkspaceComponent):
                         "nearby": self._nearby_lines(original, target_index)
                     })
                     return {
-                        "ok"     : False,
-                        "reason" : located.get("reason") or "patch_context_mismatch",
-                        "data"   : data
+                        "ok": False,
+                        "reason": located.get("reason") or "patch_context_mismatch",
+                        "data": data
                     }
             elif target_index < cursor:
                 return {
@@ -285,11 +280,9 @@ class PatchApplier(WorkspaceComponent):
                 cursor = target_index
 
             for body_index, raw_line in enumerate(hunk.entries, start=1):
-
-                marker     = raw_line.marker
-                text       = raw_line.text
+                marker = raw_line.marker
+                text = raw_line.text
                 no_newline = raw_line.no_newline
-
                 expected_line = self._patch_line_content(text, no_newline=no_newline, newline=newline)
 
                 if marker in {" ", "-"}:
@@ -350,9 +343,9 @@ class PatchApplier(WorkspaceComponent):
         output.extend(original[cursor:])
 
         return {
-            "ok"              : True,
-            "content"         : "".join(output),
-            "relocated_hunks" : relocated_hunks
+            "ok": True,
+            "content": "".join(output),
+            "relocated_hunks": relocated_hunks
         }
 
 

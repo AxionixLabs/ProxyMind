@@ -130,6 +130,21 @@ class TuiServiceRuntimePort(typing.Protocol):
 
     manager: ServerManage | None
 
+    async def ensure_ready(self, *, wait_sec: float = 10.0) -> None:
+        """确保服务在预算内进入就绪状态。"""
+        ...
+
+    async def run_startup(
+        self,
+        operation: Callable[[], Awaitable[bool]],
+    ) -> bool:
+        """串行执行或复用当前服务准备任务。"""
+        ...
+
+    def start_keepalive(self) -> None:
+        """启动服务保活任务。"""
+        ...
+
     async def cancel_startup(self) -> None:
         """取消未完成的服务启动。"""
         ...

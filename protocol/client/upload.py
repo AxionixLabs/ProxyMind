@@ -117,11 +117,11 @@ async def upload_file_stream(
 
     ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
 
-    boundary     = uuid.uuid4().hex
-    field_agent  = multipart_field(boundary, "agent_id", agent_id)
+    boundary = uuid.uuid4().hex
+    field_agent = multipart_field(boundary, "agent_id", agent_id)
     field_prefix = multipart_field(boundary, "prefix", prefix)
-    field_file   = multipart_file_header(boundary, "file", p.name, ctype)
-    closing      = multipart_closing(boundary)
+    field_file = multipart_file_header(boundary, "file", p.name, ctype)
+    closing = multipart_closing(boundary)
 
     file_size = int(p.stat().st_size)
 
@@ -130,7 +130,7 @@ async def upload_file_stream(
         len(field_agent) + len(field_prefix) + len(field_file) + file_size + len(closing)
     )
 
-    started_at   = time.monotonic()
+    started_at = time.monotonic()
     upload_state = {"uploaded_bytes": 0}
 
     if progress_callback is not None:

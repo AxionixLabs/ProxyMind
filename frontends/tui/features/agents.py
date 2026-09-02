@@ -167,8 +167,7 @@ async def _agent_snapshots(mind: "TuiApplicationHost", root_session_id: str) -> 
 
 def current_agent_root_session_id(mind: "TuiApplicationHost") -> str:
     """返回当前对话已经建立的根会话标识。"""
-    conversation = getattr(mind, "conversation", None)
-    return str(getattr(conversation, "sid", "") or "").strip()
+    return str(mind.conversation.sid or "").strip()
 
 
 def agent_list_menu(

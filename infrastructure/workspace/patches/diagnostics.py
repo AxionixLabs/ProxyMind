@@ -38,7 +38,7 @@ class PatchDiagnostics(WorkspaceComponent):
         scored: list[dict[str, typing.Any]] = []
 
         normalized_old = cls._normalize_patch_text_for_compare(old_text)
-        newline_old    = cls._normalize_newlines(old_text)
+        newline_old = cls._normalize_newlines(old_text)
 
         for window_size in window_sizes:
             if window_size > len(lines):
@@ -149,10 +149,10 @@ class PatchDiagnostics(WorkspaceComponent):
         old_text: str
     ) -> dict[str, typing.Any]:
         """为精确替换失败返回可用于重试的近似匹配诊断。"""
-        normalized_old     = self._normalize_patch_text_for_compare(old_text)
+        normalized_old = self._normalize_patch_text_for_compare(old_text)
         normalized_current = self._normalize_patch_text_for_compare(current)
-        newline_old        = self._normalize_newlines(old_text)
-        newline_current    = self._normalize_newlines(current)
+        newline_old = self._normalize_newlines(old_text)
+        newline_current = self._normalize_newlines(current)
 
         actual_occurrences = [
             {"line": self._line_number_for_offset(current, index)}

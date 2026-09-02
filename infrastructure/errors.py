@@ -3,6 +3,8 @@
 
 import typing
 
+__all__ = ("AppError",)
+
 
 class _ApplicationBaseError(BaseException):
     """作为可预期入口错误的基础类型。"""
@@ -20,5 +22,5 @@ class AppError(_ApplicationBaseError):
     __repr__ = __str__
 
 
-__all__ = ("AppError",)
-
+if __name__ == '__main__':
+    pass

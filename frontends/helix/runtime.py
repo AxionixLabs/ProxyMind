@@ -22,7 +22,6 @@ from infrastructure.services.runtime_context import (
 )
 from infrastructure.services.runtime_setup import (
     authorize_runtime_files,
-    ensure_runtime_started,
     prepend_runtime_paths,
     service_runtime_asset_missing,
     verify_runtime_paths,
@@ -163,11 +162,7 @@ async def start_service_runtime(
     await mind.activity.start_inbuild(lambda: dict(status))
 
     try:
-        ensure_ready = getattr(mind.service_runtime, "ensure_ready", None)
-        if callable(ensure_ready):
-            await ensure_ready(wait_sec=10.0)
-        else:
-            await ensure_runtime_started(mind.service_runtime.manager)
+        await mind.service_runtime.ensure_ready(wait_sec=10.0)
         status["state"] = "ready"
     except Exception as error:
         status["state"] = "failed"

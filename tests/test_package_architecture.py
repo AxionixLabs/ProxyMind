@@ -4970,7 +4970,15 @@ def test_tui_runtime_exposes_only_explicit_control_and_lifecycle_ports() -> None
     assert dispatcher_protocol.annotation is not None
     assert ast.unparse(dispatcher_protocol.annotation) == "ProtocolCommandClient"
 
-    for feature_name in ("mcp.py", "processes.py", "shell.py"):
+    for feature_name in (
+        "agents.py",
+        "helix.py",
+        "listener.py",
+        "mailbox.py",
+        "mcp.py",
+        "processes.py",
+        "shell.py",
+    ):
         feature_source = (
             PROJECT_ROOT / "frontends" / "tui" / "features" / feature_name
         ).read_text(encoding="utf-8-sig")
@@ -4978,6 +4986,11 @@ def test_tui_runtime_exposes_only_explicit_control_and_lifecycle_ports() -> None
         assert 'getattr(controller, "conversation"' not in feature_source
         assert 'getattr(mind, "animate"' not in feature_source
         assert 'getattr(mind.workspace_runtime, "coding"' not in feature_source
+        assert 'getattr(mind.frontend.application, "viewport"' not in feature_source
+        assert (
+            'getattr(controller.frontend.application, "viewport"'
+            not in feature_source
+        )
 
     mcp_feature_source = (
         PROJECT_ROOT / "frontends" / "tui" / "features" / "mcp.py"
@@ -4986,6 +4999,33 @@ def test_tui_runtime_exposes_only_explicit_control_and_lifecycle_ports() -> None
     assert "runtime.group" not in mcp_feature_source
     assert 'getattr(runtime, "group"' not in mcp_feature_source
     assert "server_stats" not in mcp_feature_source
+
+    tools_feature_source = (
+        PROJECT_ROOT / "frontends" / "tui" / "features" / "tools.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "display_name_for_tool" in tools_feature_source
+    assert "external_group" not in tools_feature_source
+    assert 'getattr(application, "viewport"' not in tools_feature_source
+
+    mcp_session_source = (
+        PROJECT_ROOT / "agent" / "ports" / "mcp_session.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "def display_name_for_tool" in mcp_session_source
+
+    helix_runtime_source = (
+        PROJECT_ROOT / "frontends" / "helix" / "runtime.py"
+    ).read_text(encoding="utf-8-sig")
+    assert 'getattr(mind.service_runtime, "ensure_ready"' not in helix_runtime_source
+
+    loop_source = (
+        PROJECT_ROOT / "frontends" / "tui" / "session" / "loop.py"
+    ).read_text(encoding="utf-8-sig")
+    assert 'getattr(mind, "attach"' not in loop_source
+
+    barrier_source = (
+        PROJECT_ROOT / "frontends" / "tui" / "session" / "barriers.py"
+    ).read_text(encoding="utf-8-sig")
+    assert 'getattr(external_mcp, "started"' not in barrier_source
 
     tool_runtime_source = (
         PROJECT_ROOT / "agent" / "ports" / "tool_runtime.py"

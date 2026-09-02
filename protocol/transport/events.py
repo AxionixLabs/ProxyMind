@@ -18,10 +18,7 @@ from observability import (
 class EventReport(object):
     """事件上报器，保证队列内事件按顺序发送。"""
 
-    @staticmethod
-    def default_proto() -> str:
-        """返回默认事件协议名。"""
-        return f"{config.CLIENT_NAME}.stream"
+
 
     def __init__(
         self,
@@ -31,21 +28,37 @@ class EventReport(object):
     ):
         self.cid = cid
         self.sid = sid
-
         self.proto = proto.strip() if isinstance(
             proto, str
         ) and proto.strip() else self.default_proto()
-
-        self.turn_id: str   = short_uid(12)
-        self.round: int     = 1
+        self.turn_id: str = short_uid(12)
+        self.round: int = 1
         self.timeout: float = 30.0
-        self.seq: int       = 0
-
+        self.seq: int = 0
         self.q: asyncio.Queue[dict[str, typing.Any]] = asyncio.Queue(maxsize=2000)
-
-        self.stop = asyncio.Event()
-
+        self.stop: asyncio.Event = asyncio.Event()
         self.worker: typing.Optional[asyncio.Task] = None
+
+    @staticmethod
+    def _worker_done(worker: asyncio.Task[None]) -> None:
+        """回收后台任务异常，避免事件循环输出未取回异常。"""
+        if worker.cancelled():
+            return None
+
+        error = worker.exception()
+        if error is None or isinstance(error, (KeyboardInterrupt, SystemExit)):
+            return None
+
+        observe_exception(
+            "event_report.worker_failed",
+            error,
+            level="WARNING",
+        )
+
+    @staticmethod
+    def default_proto() -> str:
+        """返回默认事件协议名。"""
+        return f"{config.CLIENT_NAME}.stream"
 
     def begin_turn(
         self,
@@ -108,28 +121,23 @@ class EventReport(object):
                 event_type=event.get("type"),
             )
 
+    @staticmethod
+    async def _cancel_worker(worker: asyncio.Task[None]) -> None:
+        """取消 worker，并仅吸收预期的任务取消异常。"""
+        if not worker.done():
+            worker.cancel()
+
+        try:
+            await worker
+        except asyncio.CancelledError:
+            return None
+
     async def open(self) -> None:
         """启动后台发送 worker（建议在 pack_start 前调用）"""
         if self.worker and not self.worker.done():
             return None
         self.worker = asyncio.create_task(self.work(), name="event report worker")
         self.worker.add_done_callback(self._worker_done)
-
-    @staticmethod
-    def _worker_done(worker: asyncio.Task[None]) -> None:
-        """回收后台任务异常，避免事件循环输出未取回异常。"""
-        if worker.cancelled():
-            return None
-
-        error = worker.exception()
-        if error is None or isinstance(error, (KeyboardInterrupt, SystemExit)):
-            return None
-
-        observe_exception(
-            "event_report.worker_failed",
-            error,
-            level="WARNING",
-        )
 
     async def work(self) -> None:
         """单 worker：严格按队列顺序发送"""
@@ -186,17 +194,6 @@ class EventReport(object):
                 joined.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await joined
-
-    @staticmethod
-    async def _cancel_worker(worker: asyncio.Task[None]) -> None:
-        """取消 worker，并仅吸收预期的任务取消异常。"""
-        if not worker.done():
-            worker.cancel()
-
-        try:
-            await worker
-        except asyncio.CancelledError:
-            return None
 
     async def close(self, *, drain: bool = True) -> None:
         """停止 worker，并按需发送队列中的剩余事件。"""

@@ -1705,7 +1705,10 @@ async def test_helix_link_result_is_committed_to_tui(
     mind = SimpleNamespace(
         execution=SimpleNamespace(is_service_linked=lambda: False),
         frontend=SimpleNamespace(
-            application=SimpleNamespace(emit=views.append),
+            application=SimpleNamespace(
+                emit=views.append,
+                viewport=SimpleNamespace(width=80),
+            ),
         ),
     )
     prepare = (
@@ -1913,11 +1916,15 @@ async def test_helix_stop_commits_one_final_status(error, expected) -> None:
     views = []
     stop_runtime = AsyncMock(side_effect=error)
     mind = SimpleNamespace(
+        activity=SimpleNamespace(enabled=False),
         service_runtime=SimpleNamespace(stop=stop_runtime),
         execution=SimpleNamespace(unlink_service=Mock()),
         frontend=SimpleNamespace(
             runtime=TuiRuntime(),
-            application=SimpleNamespace(emit=views.append),
+            application=SimpleNamespace(
+                emit=views.append,
+                viewport=SimpleNamespace(width=80),
+            ),
         ),
     )
 

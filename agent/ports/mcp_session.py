@@ -15,6 +15,10 @@ __all__ = ("McpSessionPort",)
 class McpSessionPort(typing.Protocol):
     """定义工具执行所需的 MCP 会话端口。"""
 
+    def display_name_for_tool(self, name: str) -> str:
+        """返回工具目录中模型侧名称对应的用户展示名。"""
+        ...
+
     async def list_tools(self) -> "mcp_types.ListToolsResult":
         """列出当前会话可用的工具。"""
         ...

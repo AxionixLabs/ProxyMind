@@ -35,10 +35,9 @@ async def streaming(
 ) -> typing.AsyncGenerator[dict, None]:
     """按 SSE `data:` 行读取并解析事件流。"""
     route = urlsplit(url).path or "/"
-
-    started_at    = time.perf_counter()
-    event_count   = 0
-    invalid_lines = 0
+    started_at = time.perf_counter()
+    event_count: int = 0
+    invalid_lines: int = 0
 
     observe(
         "http.stream.start",

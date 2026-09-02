@@ -8,8 +8,8 @@ from infrastructure.workspace.context import WorkspaceComponent
 class CommandExecutionProfile(WorkspaceComponent):
     """根据可信执行授权生成命令运行参数。"""
 
-    LONG_TASK_TIMEOUT_SEC  = 300
-    DEFAULT_OUTPUT_LIMIT   = 24000
+    LONG_TASK_TIMEOUT_SEC = 300
+    DEFAULT_OUTPUT_LIMIT = 24000
     LONG_TASK_OUTPUT_LIMIT = 12000
 
     @staticmethod
@@ -30,7 +30,7 @@ class CommandExecutionProfile(WorkspaceComponent):
             raw_arguments.setdefault("output_encoding", "auto")
 
         canonical = raw_arguments
-        timeout   = max(1, int(canonical.get("timeout_sec") or 60))
+        timeout = max(1, int(canonical.get("timeout_sec") or 60))
 
         return CommandExecutionProfile._allow(
             risk="local",

@@ -240,7 +240,7 @@ class TuiForegroundTasks(object):
 
         external_mcp = self.mind.execution.external_mcp.current
 
-        if bool(getattr(external_mcp, "started", False)):
+        if external_mcp is not None and external_mcp.started:
             if mcp_action == "start":
                 self._defer_notice("External MCP is already started.")
                 return True
