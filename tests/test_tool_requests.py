@@ -69,6 +69,20 @@ def _result_envelope(
     }
 
 
+def test_tool_result_error_classifies_transient_http_status() -> None:
+    response = httpx.Response(
+        503,
+        text="upstream temporarily unavailable",
+        request=httpx.Request("POST", "https://example.test/tool-result"),
+    )
+
+    error = tools._tool_result_error(response)
+
+    assert error.code == "tool_result_http_error"
+    assert error.status_code == 503
+    assert error.retryable
+
+
 def _install_snapshot_client(monkeypatch, response, captured) -> None:
     class ClientStub:
         def __init__(self, *, timeout) -> None:

@@ -27,6 +27,7 @@ from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
 from protocol.transport.reliable import (
     get_json_reliably,
+    is_retryable_status,
     post_json_reliably,
 )
 
@@ -941,7 +942,10 @@ def _tool_result_error(response: httpx.Response) -> ToolResultRequestError:
         code,
         message,
         status_code=response.status_code,
-        retryable=details.get("retryable") is True,
+        retryable=(
+            details.get("retryable") is True
+            or is_retryable_status(response.status_code)
+        ),
         details=details,
         trace_id=(body.get("trace_id") if isinstance(body, dict) else ""),
     )
