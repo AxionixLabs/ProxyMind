@@ -415,7 +415,7 @@ def test_exec_hook_trust_bypass_runs_enabled_untrusted_hooks(tmp_path) -> None:
     assert not disabled.hooks[0].active
 
 
-def test_exec_mcp_hook_warning_respects_trust_and_enabled_state(tmp_path) -> None:
+def test_exec_mcp_hook_requires_a_runner_only_when_activated(tmp_path) -> None:
     definition = resolve_hook_definitions(
         {"PreToolUse": [{"hooks": [{
             "type": "mcp_tool",
@@ -429,10 +429,7 @@ def test_exec_mcp_hook_warning_respects_trust_and_enabled_state(tmp_path) -> Non
     assert HookRegistry().startup_warnings((definition,)) == ()
     assert HookRegistry(bypass_hook_trust=True).startup_warnings(
         (definition,),
-    ) == (
-        f"skipping MCP tool hook in {definition.source_path}: "
-        "MCP invocation is not available yet",
-    )
+    ) == ()
     assert HookRegistry(bypass_hook_trust=True).startup_warnings(
         (definition,),
         hook_states={definition.key: {"enabled": False}},

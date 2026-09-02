@@ -93,6 +93,17 @@ class ExternalToolGroupPort(typing.Protocol):
         """调用已登记的外部 MCP 工具。"""
         ...
 
+    async def call_hook_tool(
+        self,
+        server: str,
+        tool: str,
+        arguments: dict[str, typing.Any] | None = None,
+        *,
+        read_timeout_seconds: timedelta | None = None,
+    ) -> "mcp_types.CallToolResult":
+        """按原始 server/tool 身份调用 Hook 专用 MCP 工具。"""
+        ...
+
 
 class ToolRuntimePort(typing.Protocol):
     """定义一次模型 Turn 获取组合工具会话的生命周期入口。"""

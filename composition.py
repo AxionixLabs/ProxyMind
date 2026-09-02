@@ -33,6 +33,7 @@ from agent.ports import (
     AttachmentStatePort,
     FrontendActivityPort,
     FrontendPort,
+    HookMcpRunnerBinder,
     HookRegistryPort,
     HookScopeProviderPort,
     HookStatusPort,
@@ -66,6 +67,7 @@ from infrastructure.config.runtime_paths import (
 )
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.settings_session import SettingsSession
+from infrastructure.mcp.hook_runner import HookMcpRunner as HookMcpRunnerAdapter
 from infrastructure.persistence.conversation_history import LocalConversationHistory
 from infrastructure.persistence.transcripts import ConversationTranscriptStore
 from infrastructure.platform.network import (
@@ -336,6 +338,10 @@ class ApplicationHost:
             external_runtime_factory=external_runtime_factory,
             await_cleanup=self.lifecycle.await_cleanup,
         )
+        if isinstance(hook_registry, HookMcpRunnerBinder):
+            hook_registry.bind_mcp_runner(
+                HookMcpRunnerAdapter(self.execution.external_tool_group)
+            )
 
         history = LocalConversationHistory(
             history_store,

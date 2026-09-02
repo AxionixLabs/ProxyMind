@@ -283,8 +283,10 @@ class McpToolHookHandlerConfig:
     type: typing.Literal["mcp_tool"]
     server: str
     tool: str
+    input: dict[str, typing.Any]
     status_message: str | None
     timeout_sec: int
+    additional_context_limit: int | None
 
     @property
     def selector(self) -> str:
@@ -297,14 +299,13 @@ class McpToolHookHandlerConfig:
         return False
 
     @property
-    def additional_context_limit(self) -> int | None:
-        """返回 MCP Hook 的附加上下文限制。"""
-        return None
-
-    @property
     def effective_additional_context_limit(self) -> int:
         """返回 MCP Hook 使用的默认上下文阈值。"""
-        return _DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT
+        return (
+            self.additional_context_limit
+            if self.additional_context_limit is not None
+            else _DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT
+        )
 
 
 HookHandlerConfig: typing.TypeAlias = (

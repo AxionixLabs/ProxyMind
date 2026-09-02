@@ -455,7 +455,7 @@ def test_handler_content_changes_update_content_hash() -> None:
     assert first.content_hash != second.content_hash
 
 
-def test_registry_keeps_non_command_hooks_in_catalog_but_out_of_runtime() -> None:
+def test_registry_keeps_mcp_hooks_in_catalog_and_runtime() -> None:
     definitions = resolve_hook_definitions(
         {"PreToolUse": [{"hooks": [
             {"type": "mcp_tool", "server": "files", "tool": "read"},
@@ -464,7 +464,10 @@ def test_registry_keeps_non_command_hooks_in_catalog_but_out_of_runtime() -> Non
         source_scope="project",
         source_path=None,
     )
-    registry = HookRegistry(command_runner=_CommandRunner())
+    registry = HookRegistry(
+        command_runner=_CommandRunner(),
+        mcp_runner=_CommandRunner(),
+    )
     runtime = registry.build(
         definitions,
         hook_states={
@@ -472,13 +475,13 @@ def test_registry_keeps_non_command_hooks_in_catalog_but_out_of_runtime() -> Non
             for item in definitions
         },
     )
-    assert [item.handler.type for item in runtime.definitions] == ["command"]
+    assert [item.handler.type for item in runtime.definitions] == [
+        "mcp_tool",
+        "command",
+    ]
     assert runtime.installed_count == 2
-    assert runtime.active_count == 1
-    assert runtime.status().warnings == (
-        "skipping MCP tool hook in hooks configuration: "
-        "MCP invocation is not available yet",
-    )
+    assert runtime.active_count == 2
+    assert runtime.status().warnings == ()
     snapshot = registry.inspect(
         definitions,
         workspace=Path("."),
@@ -510,7 +513,7 @@ async def test_registry_uses_explicit_hook_resource_lifecycle() -> None:
     assert close_calls == ["closed"]
 
 
-def test_registry_reports_each_unsupported_mcp_hook_source_once(tmp_path) -> None:
+def test_registry_does_not_warn_for_supported_mcp_hook_sources(tmp_path) -> None:
     first_path = tmp_path / "first.toml"
     second_path = tmp_path / "second.toml"
     definitions = (
@@ -540,12 +543,7 @@ def test_registry_reports_each_unsupported_mcp_hook_source_once(tmp_path) -> Non
         hook_states=states,
     )
 
-    assert warnings == (
-        f"skipping MCP tool hook in {first_path}: "
-        "MCP invocation is not available yet",
-        f"skipping MCP tool hook in {second_path}: "
-        "MCP invocation is not available yet",
-    )
+    assert warnings == ()
 
 
 def test_non_session_async_hook_is_skipped_with_warning() -> None:

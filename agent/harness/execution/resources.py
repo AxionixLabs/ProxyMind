@@ -185,6 +185,10 @@ class ExecutionResources:
             return None
         return copy.deepcopy(environment)
 
+    def external_tool_group(self) -> ExternalToolGroupPort | None:
+        """返回当前已启动的外部 MCP 工具组供专用适配器复用。"""
+        return self._current_external_tool_group()
+
     async def with_mcp_session(
         self,
         pref_config: dict[str, typing.Any],

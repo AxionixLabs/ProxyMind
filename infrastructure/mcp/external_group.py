@@ -225,6 +225,33 @@ class ExternalMcpGroup(object):
             meta=meta
         )
 
+    async def call_hook_tool(
+        self,
+        server: str,
+        tool: str,
+        arguments: dict[str, typing.Any] | None = None,
+        *,
+        read_timeout_seconds: typing.Any = None,
+    ) -> mcp_types.CallToolResult:
+        """按 MCP server 别名和原始工具名调用 Hook 工具。"""
+        normalized_server = str(server or "").strip()
+        normalized_tool = str(tool or "").strip()
+        for exposed_name, descriptor in self.tools.items():
+            meta = descriptor.meta or {}
+            if (
+                str(meta.get("server") or "").strip() == normalized_server
+                and descriptor.name == normalized_tool
+            ):
+                return await self.call_tool(
+                    exposed_name,
+                    arguments,
+                    read_timeout_seconds=read_timeout_seconds,
+                    meta={"hook": True},
+                )
+        raise KeyError(
+            f"MCP Hook tool not found: {normalized_server}/{normalized_tool}"
+        )
+
     async def start(
         self,
         servers: list[dict[str, typing.Any]],

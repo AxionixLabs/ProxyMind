@@ -31,6 +31,8 @@ from agent.ports import (
     HookCommandRunner,
     HookContextSpiller,
     HookDispatcherPort,
+    HookMcpRunner,
+    HookMcpRunnerBinder,
     HookResourceClose,
     HookStatusPort,
     HookSessionCleanup,
@@ -48,25 +50,35 @@ class _ResolvedHook:
     active: bool
 
 
-class HookRegistry:
+class HookRegistry(HookMcpRunnerBinder):
     """解析信任状态并为单个轮次构建不可变 Hook 运行时。"""
 
     def __init__(
         self,
         *,
         command_runner: HookCommandRunner | None = None,
+        mcp_runner: HookMcpRunner | None = None,
         context_spiller: HookContextSpiller | None = None,
         cleanup_session: HookSessionCleanup | None = None,
         close: HookResourceClose | None = None,
         bypass_hook_trust: bool = False
     ) -> None:
         self._command_runner = command_runner
+        self._mcp_runner = mcp_runner
         self._context_spiller = context_spiller
         self._cleanup_session = cleanup_session
         self._close = close
         self._bypass_hook_trust = bool(bypass_hook_trust)
 
         self._observed_warnings: set[str] = set()
+
+    def bind_mcp_runner(self, runner: HookMcpRunner) -> None:
+        """绑定复用现有 MCP owner 的 Hook 适配器。"""
+        if not isinstance(runner, HookMcpRunner):
+            raise TypeError("hook MCP runner is invalid")
+        if self._mcp_runner is not None:
+            raise RuntimeError("hook MCP runner is already bound")
+        self._mcp_runner = runner
 
     @staticmethod
     def _runtime_entry(item: _ResolvedHook) -> HookRuntimeEntry:
@@ -141,32 +153,9 @@ class HookRegistry:
     def _unsupported_warnings(
         resolved: typing.Iterable[_ResolvedHook]
     ) -> tuple[str, ...]:
-        """生成当前运行时无法执行的活动 Hook 告警。"""
-        warnings: list[str] = []
-        for item in resolved:
-            if not item.active or item.definition.handler.type == "command":
-                continue
-
-            source_path = (
-                str(item.definition.source_path)
-                if item.definition.source_path
-                else "hooks configuration"
-            )
-            handler_type = item.definition.handler.type
-            if handler_type == "mcp_tool":
-                message = (
-                    f"skipping MCP tool hook in {source_path}: "
-                    "MCP invocation is not available yet"
-                )
-            else:
-                message = (
-                    f"active {handler_type} hook is available for management "
-                    "but is not executable by the local command runtime"
-                )
-            if message not in warnings:
-                warnings.append(message)
-
-        return tuple(warnings)
+        """返回当前可执行 handler 不需要的兼容告警。"""
+        del resolved
+        return ()
 
     def _observe_warnings(self, warnings: tuple[str, ...]) -> None:
         """记录当前进程中尚未报告过的 discovery warning。"""
@@ -246,7 +235,6 @@ class HookRegistry:
             item.definition
             for item in resolved
             if item.active
-            and item.definition.handler.type == "command"
         )
 
         status = HookRuntimeStatus(
@@ -259,12 +247,16 @@ class HookRegistry:
             warnings=warning_items,
         )
 
-        if active and self._command_runner is None:
+        active_types = {definition.handler.type for definition in active}
+        if "command" in active_types and self._command_runner is None:
             raise TypeError("Hook command runner is required for active hooks")
+        if "mcp_tool" in active_types and self._mcp_runner is None:
+            raise TypeError("Hook MCP runner is required for active hooks")
 
         return HookRuntime(
             active,
             command_runner=self._command_runner,
+            mcp_runner=self._mcp_runner,
             context_spiller=self._context_spiller,
             status_port=status_port,
             status=status,

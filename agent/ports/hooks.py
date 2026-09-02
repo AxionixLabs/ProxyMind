@@ -74,6 +74,35 @@ class HookCommandRunner(typing.Protocol):
         ...
 
 
+class HookMcpResult(typing.Protocol):
+    """定义 MCP Hook 适配器返回的已校验结果字段。"""
+
+    data: dict[str, typing.Any]
+    stderr: str
+
+
+@typing.runtime_checkable
+class HookMcpRunner(typing.Protocol):
+    """定义 Hook runtime 调用现有 MCP 工具组的端口。"""
+
+    async def execute(
+        self,
+        definition: HookDefinitionConfig,
+        payload: dict[str, typing.Any],
+    ) -> HookMcpResult:
+        """调用指定 MCP Hook 工具并返回已解析输出。"""
+        ...
+
+
+@typing.runtime_checkable
+class HookMcpRunnerBinder(typing.Protocol):
+    """定义组合根向 Hook Registry 注入 MCP 适配器的边界。"""
+
+    def bind_mcp_runner(self, runner: HookMcpRunner) -> None:
+        """绑定与现有 MCP owner 共享连接的 Hook 适配器。"""
+        ...
+
+
 class HookContextSpiller(typing.Protocol):
     """定义 Hook 输出超限时写入会话临时文件的端口。"""
 

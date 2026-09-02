@@ -35,6 +35,7 @@ from agent.domain.hooks import (
 from agent.ports import (
     HookCommandRunner,
     HookContextSpiller,
+    HookMcpRunner,
     HookStatusPort,
 )
 from observability import (
@@ -54,6 +55,7 @@ class _RegisteredHook:
 class HookRuntime:
     """匹配并执行一个轮次内固定的生命周期 Hook。"""
     command_runner: HookCommandRunner | None
+    mcp_runner: HookMcpRunner | None
     context_spiller: HookContextSpiller | None
     status_port: HookStatusPort | None
     _definitions: tuple[HookDefinitionConfig, ...]
@@ -66,6 +68,7 @@ class HookRuntime:
         definitions: typing.Iterable[HookDefinitionConfig] = (),
         *,
         command_runner: HookCommandRunner | None = None,
+        mcp_runner: HookMcpRunner | None = None,
         context_spiller: HookContextSpiller | None = None,
         status_port: HookStatusPort | None = None,
         status: HookRuntimeStatus | None = None
@@ -85,6 +88,7 @@ class HookRuntime:
         )
 
         object.__setattr__(self, "command_runner", command_runner)
+        object.__setattr__(self, "mcp_runner", mcp_runner)
         object.__setattr__(
             self,
             "context_spiller",
@@ -137,6 +141,7 @@ class HookRuntime:
         return type(self)(
             self._definitions,
             command_runner=self.command_runner,
+            mcp_runner=self.mcp_runner,
             context_spiller=self.context_spiller,
             status_port=status_port,
             status=self._status,
@@ -339,18 +344,22 @@ class HookRuntime:
         stderr_text = ""
 
         try:
-            command_runner = self.command_runner
-            if command_runner is None:
-                raise RuntimeError("hook command runner is required")
-            if definition.handler.type != "command":
-                raise RuntimeError(
-                    f"hook handler {definition.handler.type!r} is not supported"
+            if definition.handler.type == "command":
+                command_runner = self.command_runner
+                if command_runner is None:
+                    raise RuntimeError("hook command runner is required")
+                result = await command_runner.execute(
+                    definition,
+                    dict(payload),
                 )
-
-            result = await command_runner.execute(
-                definition,
-                dict(payload),
-            )
+            else:
+                mcp_runner = self.mcp_runner
+                if mcp_runner is None:
+                    raise RuntimeError("hook MCP runner is required")
+                result = await mcp_runner.execute(
+                    definition,
+                    dict(payload),
+                )
 
             raw_output = result.data
             if not isinstance(raw_output, dict):

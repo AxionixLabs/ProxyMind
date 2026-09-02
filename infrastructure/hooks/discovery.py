@@ -39,6 +39,7 @@ _HANDLER_FIELDS = frozenset({
     "additionalContextLimit",
     "server",
     "tool",
+    "input",
 })
 
 _DEFAULT_HOOK_TIMEOUT_SEC = 600
@@ -619,6 +620,7 @@ def _normalize_hook_handler(
             status_message = status_message.strip() or None
 
     mcp_server = mcp_tool = None
+    mcp_input: dict[str, typing.Any] = {}
 
     if handler_type == "mcp_tool":
         mcp_server = raw.get("server")
@@ -635,6 +637,14 @@ def _normalize_hook_handler(
             return None
         mcp_server = mcp_server.strip()
         mcp_tool = mcp_tool.strip()
+        mcp_input = _normalize_mcp_input(
+            raw.get("input", {}),
+            dotted=dotted,
+            warnings=warnings,
+            source=source,
+        )
+        if mcp_input is None:
+            return None
 
     timeout = _normalize_timeout(
         event,
@@ -677,10 +687,54 @@ def _normalize_hook_handler(
         "statusMessage": status_message,
         "server": mcp_server,
         "tool": mcp_tool,
+        "input": mcp_input,
         "timeout": timeout,
         "async": run_async,
         "additionalContextLimit": context_limit,
     }
+
+
+def _normalize_mcp_input(
+    value: typing.Any,
+    *,
+    dotted: str,
+    warnings: list[str] | None,
+    source: str,
+) -> dict[str, typing.Any] | None:
+    """校验 MCP Hook 静态输入并固定为可稳定序列化对象。"""
+    if not isinstance(value, dict):
+        _append_warning(
+            warnings,
+            f"skipping mcp_tool hook in {dotted} from {source}: "
+            "input must be an object",
+        )
+        return None
+
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=True,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        normalized = json.loads(encoded)
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        _append_warning(
+            warnings,
+            f"skipping mcp_tool hook in {dotted} from {source}: "
+            f"input is not stable JSON ({error})",
+        )
+        return None
+
+    if not isinstance(normalized, dict):
+        _append_warning(
+            warnings,
+            f"skipping mcp_tool hook in {dotted} from {source}: "
+            "input must be an object",
+        )
+        return None
+    return normalized
 
 
 def _handler_config(
@@ -750,8 +804,10 @@ def _handler_config(
             type="mcp_tool",
             server=server,
             tool=tool,
+            input=dict(handler.get("input") or {}),
             status_message=status_message,
             timeout_sec=timeout,
+            additional_context_limit=additional_context_limit,
         )
 
     raise HookConfigError(f"{dotted}.type is not executable")
