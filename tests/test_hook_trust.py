@@ -6,6 +6,12 @@ import pytest
 
 from agent.harness.hooks.registry import HookRegistry
 from infrastructure.hooks.discovery import resolve_hook_definitions
+from infrastructure.platform.hook_command import HookCommandOutput
+
+
+class _NoopRunner:
+    async def execute(self, _definition, _payload):
+        return HookCommandOutput(data={})
 
 
 def _definition(
@@ -40,7 +46,7 @@ def test_non_managed_hooks_are_untrusted_by_default(
         source_scope=source_scope,
     )
 
-    status = HookRegistry().build((definition,)).status()
+    status = HookRegistry(command_runner=_NoopRunner()).build((definition,)).status()
 
     assert status.active_count == 0
     assert status.hooks[0].trust_policy == "content_hash"
@@ -56,7 +62,7 @@ def test_managed_hook_is_always_enabled_and_active(tmp_path) -> None:
         trust_policy="managed",
     )
 
-    status = HookRegistry().build(
+    status = HookRegistry(command_runner=_NoopRunner()).build(
         (definition,),
         hook_states={
             definition.key: {
@@ -79,7 +85,7 @@ def test_source_scope_does_not_grant_managed_trust_policy(tmp_path) -> None:
         source_scope="managed",
     )
 
-    status = HookRegistry().build((definition,)).status()
+    status = HookRegistry(command_runner=_NoopRunner()).build((definition,)).status()
 
     assert status.active_count == 0
     assert status.hooks[0].trust_policy == "content_hash"
@@ -93,7 +99,7 @@ def test_hook_requires_its_exact_trusted_content_hash(tmp_path) -> None:
         definition.key: {"trusted_hash": definition.content_hash},
     }
 
-    trusted = HookRegistry().build(
+    trusted = HookRegistry(command_runner=_NoopRunner()).build(
         (definition,),
         hook_states=states,
     ).status()
@@ -106,7 +112,7 @@ def test_hook_requires_its_exact_trusted_content_hash(tmp_path) -> None:
         source_scope="project",
         command="check-changed-hook",
     )
-    modified = HookRegistry().build(
+    modified = HookRegistry(command_runner=_NoopRunner()).build(
         (changed,),
         hook_states=states,
     ).status()
@@ -122,7 +128,7 @@ def test_enabled_state_is_independent_from_trust(tmp_path) -> None:
         tmp_path / "user.toml",
         source_scope="user",
     )
-    registry = HookRegistry()
+    registry = HookRegistry(command_runner=_NoopRunner())
 
     trusted = registry.build(
         (definition,),

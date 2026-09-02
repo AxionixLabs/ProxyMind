@@ -318,9 +318,9 @@ def _prompt_keys(
 def _validate_context_conflicts(context: str, keymap: TuiPagerKeymap) -> None:
     """拒绝同一输入上下文中分配给多个动作的按键。"""
     owners: dict[tuple[typing.Any, ...], str] = {}
-    for field in fields(keymap):
-        action = field.name
-        bindings = typing.cast(tuple[TuiKeyBinding, ...], getattr(keymap, action))
+    for field_info in fields(keymap):
+        action = field_info.name
+        bindings = _bindings_for_action(keymap, action)
         for binding in bindings:
             previous = owners.get(binding.keys)
             if previous is not None:
@@ -343,9 +343,9 @@ def _validate_reserved_pager_bindings(keymap: TuiPagerKeymap) -> None:
         )
     }
 
-    for field in fields(keymap):
-        action = field.name
-        bindings = typing.cast(tuple[TuiKeyBinding, ...], getattr(keymap, action))
+    for field_info in fields(keymap):
+        action = field_info.name
+        bindings = _bindings_for_action(keymap, action)
 
         for binding in bindings:
             fixed = reserved.get(binding.keys)
@@ -354,6 +354,20 @@ def _validate_reserved_pager_bindings(keymap: TuiPagerKeymap) -> None:
                     f"tui.keymap.pager.{action} conflicts with fixed "
                     f"transcript {fixed}: {binding.label}"
                 )
+
+
+def _bindings_for_action(
+    keymap: TuiPagerKeymap,
+    action: str,
+) -> tuple[TuiKeyBinding, ...]:
+    """读取并校验按键映射动作的绑定集合。"""
+    value = getattr(keymap, action, None)
+    if not isinstance(value, tuple) or any(
+        not isinstance(binding, TuiKeyBinding)
+        for binding in value
+    ):
+        raise ValueError(f"tui.keymap action {action} has invalid bindings")
+    return value
 
 
 def _primary_label(bindings: tuple[TuiKeyBinding, ...]) -> str:

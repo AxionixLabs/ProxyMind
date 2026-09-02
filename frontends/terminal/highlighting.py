@@ -175,12 +175,10 @@ def _lex_regex_suffix(
     initial_stack: tuple[str, ...],
 ) -> tuple[list[tuple[typing.Any, str]], tuple[str, ...]]:
     """执行 RegexLexer 状态机并返回可用于下一段源码的最终状态。"""
-    token_definitions = typing.cast(
-        dict[str, typing.Any],
-        getattr(lexer, "_tokens", None),
-    )
-    if not token_definitions:
+    raw_token_definitions = getattr(lexer, "_tokens", None)
+    if not isinstance(raw_token_definitions, dict) or not raw_token_definitions:
         raise TypeError("RegexLexer token definitions are unavailable")
+    token_definitions = raw_token_definitions
 
     position: int = 0
     state_stack = list(initial_stack)

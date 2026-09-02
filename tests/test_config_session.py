@@ -1564,11 +1564,10 @@ def test_dual_source_warning_uses_nonempty_event_sources(tmp_path) -> None:
         (hook.handler.type, hook.handler.command)
         for hook in resolution.hooks
     ] == [
-        ("prompt", None),
         ("command", "check-inline"),
     ]
     warnings = "\n".join(resolution.hook_warnings)
-    assert "skipping prompt hook" not in warnings
+    assert "skipping unsupported prompt hook" in warnings
     assert "loading hooks from both" in warnings
 
 
@@ -1900,6 +1899,7 @@ def test_hook_event_contracts_are_explicit() -> None:
         "SubagentStop": ("agent_type", "notify", False),
         "Stop": (None, "notify", False),
         "SessionEnd": ("session_reason", "notify", False),
+        "Interrupt": (None, "notify", False),
     }
 
     assert {
@@ -2007,6 +2007,7 @@ def test_hook_handler_timeout_is_normalized() -> None:
         "timeout": 2,
         "async": False,
         "additionalContextLimit": 2500,
+        "input": {},
     }
 
 
@@ -2120,15 +2121,14 @@ def test_discovery_retains_catalog_handlers_and_keeps_valid_hook(
         (hook.handler.type, hook.handler.command)
         for hook in resolution.hooks
     ] == [
-        ("prompt", None),
-        ("agent", None),
+        ("command", "async-command"),
         ("command", "valid"),
     ]
     assert resolution.hooks[-1].key.endswith(":PreToolUse:0:5")
     warnings = "\n".join(resolution.hook_warnings)
-    assert "skipping prompt hook" not in warnings
-    assert "skipping agent hook" not in warnings
+    assert "skipping unsupported prompt hook" in warnings
+    assert "skipping unsupported agent hook" in warnings
     assert "unsupported handler type 'custom'" in warnings
     assert "skipping empty hook command" in warnings
-    assert "skipping async hook" in warnings
+    assert "skipping async hook" not in warnings
     assert "ignoring unknown fields" in warnings

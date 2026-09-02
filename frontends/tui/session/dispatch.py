@@ -127,7 +127,6 @@ from ..prompting.commands import (
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
-    from ..runtime.ports import ProcessRuntimePort, SkillRuntimePort
 
 MODEL_COMMAND_PATTERN = re.compile(
     rf"^\s*{re.escape(command_spec('model').command)}(?:\s+(.+))?\s*$",
@@ -201,14 +200,12 @@ class TuiCommandDispatcher(object):
         self.mind = mind
         self.runtime = runtime
         self.state = state
-
         self.foreground_tasks = foreground_tasks
         self.protocol_client = protocol_client
         self.conversation_compactor = conversation_compactor
         self.configuration_service_url = configuration_service_url
         self.application = mind.frontend.application
         self.mailbox = TuiMailboxFeature(runtime, mind)
-
         self._local_tasks: dict[str, asyncio.Task[None]] = {}
         self._stream_action_resolvers = self._build_stream_action_resolvers()
         self._validate_stream_action_resolvers()
@@ -287,10 +284,7 @@ class TuiCommandDispatcher(object):
                 key="ps",
                 name="tui background terminals snapshot",
                 factory=lambda: append_exec_stream_snapshot(
-                    typing.cast(
-                        "ProcessRuntimePort",
-                        typing.cast(object, self.runtime),
-                    ),
+                    self.runtime,
                     self.mind,
                 ),
             ),
@@ -298,10 +292,7 @@ class TuiCommandDispatcher(object):
                 lambda: self.foreground_tasks.start(
                     "Stop background terminals",
                     lambda: stop_all_exec_sessions(
-                        typing.cast(
-                            "ProcessRuntimePort",
-                            typing.cast(object, self.runtime),
-                        ),
+                        self.runtime,
                         self.mind,
                     ),
                 )
@@ -704,11 +695,7 @@ class TuiCommandDispatcher(object):
 
     async def _choose_skill(self) -> None:
         """打开当前运行时可用的 skill 选择面板。"""
-        skill_runtime = typing.cast(
-            "SkillRuntimePort",
-            typing.cast(object, self.runtime),
-        )
-        await choose_skill(skill_runtime, self.mind.settings.config)
+        await choose_skill(self.runtime, self.mind.settings.config)
 
     def _resolve_stream_listener_action(
         self,
@@ -1124,10 +1111,7 @@ class TuiCommandDispatcher(object):
 
         if matches_command(command, "ps"):
             if await manage_exec_sessions(
-                typing.cast(
-                    "ProcessRuntimePort",
-                    typing.cast(object, self.runtime),
-                ),
+                self.runtime,
                 self.mind,
             ):
                 self._present()
@@ -1135,10 +1119,7 @@ class TuiCommandDispatcher(object):
 
         if matches_command(command, "stop"):
             await stop_all_exec_sessions(
-                typing.cast(
-                    "ProcessRuntimePort",
-                    typing.cast(object, self.runtime),
-                ),
+                self.runtime,
                 self.mind,
             )
             self._present()

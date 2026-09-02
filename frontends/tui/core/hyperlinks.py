@@ -42,10 +42,7 @@ class TerminalHyperlinkStyle(str):
         style: str,
         destination: str,
     ) -> "TerminalHyperlinkStyle":
-        value = typing.cast(
-            TerminalHyperlinkStyle,
-            super().__new__(cls, str(style or "")),
-        )
+        value = super().__new__(cls, str(style or ""))
         object.__setattr__(value, "_destination", destination)
         return value
 
@@ -142,7 +139,7 @@ class TerminalHyperlinkWindow(Window):
         )
         super()._apply_style(
             screen,
-            typing.cast(typing.Any, write_position),
+            write_position,
             parent_style,
         )
         _decorate_screen_cells(screen, destinations)

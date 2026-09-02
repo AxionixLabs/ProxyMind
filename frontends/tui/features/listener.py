@@ -34,8 +34,16 @@ from ..core.styles import (
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
 
-ListenerAction = typing.Literal["start", "stop", "status"]
-ListenerOperation = typing.Literal["start", "stop"]
+ListenerAction = typing.Literal[
+    "start",
+    "stop",
+    "status"
+]
+
+ListenerOperation = typing.Literal[
+    "start",
+    "stop"
+]
 
 ListenerOutcome = typing.Literal[
     "ready",
@@ -43,12 +51,6 @@ ListenerOutcome = typing.Literal[
     "stopped",
     "already_stopped",
 ]
-
-_LISTENER_ACTIONS: typing.Final[frozenset[str]] = frozenset({
-    "start",
-    "stop",
-    "status",
-})
 
 _LISTENER_MENU_OPTIONS: typing.Final[tuple[MenuOption, ...]] = (
     MenuOption(
@@ -73,8 +75,13 @@ def parse_listener_command(
         return False, None
     if len(parts) == 1:
         return True, None
-    if len(parts) == 2 and parts[1] in _LISTENER_ACTIONS:
-        return True, typing.cast(ListenerAction, parts[1])
+    if len(parts) == 2:
+        if parts[1] == "start":
+            return True, parts[1]
+        if parts[1] == "stop":
+            return True, parts[1]
+        if parts[1] == "status":
+            return True, parts[1]
     return False, None
 
 

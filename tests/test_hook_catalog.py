@@ -13,7 +13,10 @@ from infrastructure.config.hooks import HookManager
 from infrastructure.config.layers import PROJECT_CONFIG_DIR
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
-from infrastructure.hooks.discovery import resolve_hook_definitions
+from infrastructure.hooks.discovery import (
+    resolve_hook_definitions,
+    resolve_hook_file_source,
+)
 from infrastructure.platform.hook_command import HookCommandOutput
 from agent.domain.hooks import HOOK_EVENT_NAMES
 from agent.application.hooks.context import HookExecutionContext
@@ -134,6 +137,24 @@ def test_hook_event_names_use_the_stable_codex_order() -> None:
         "SubagentStop",
         "Stop",
         "Interrupt",
+    )
+
+
+def test_all_hooks_fixture_covers_every_supported_event() -> None:
+    fixture = (
+        Path(__file__).parent
+        / "fixtures"
+        / "hooks"
+        / "all_hooks.json"
+    )
+
+    resolution = resolve_hook_file_source(
+        fixture,
+        source_scope="user",
+    )
+
+    assert tuple(definition.event for definition in resolution.definitions) == (
+        *HOOK_EVENT_NAMES,
     )
 
 

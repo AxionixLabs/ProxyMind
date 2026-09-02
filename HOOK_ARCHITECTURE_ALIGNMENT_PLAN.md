@@ -1,7 +1,7 @@
 # Hook 架构与能力对齐方案
 
 - 计划版本：V1
-- 状态：基线评估完成，待进入迭代 1
+- 状态：迭代 1 至 5 已分阶段提交；迭代 6 本地验收完成，CI 不纳入本轮
 - 基线日期：2026-09-02
 - Codex 源码基线：工作区 `codex-main` 快照；实施迭代 1 时必须补录并校验准确 revision
 - 目标平台：Windows、macOS、Linux
@@ -56,31 +56,36 @@
 - Hook 已按 `agent.domain`、`agent.application`、`agent.harness`、`agent.ports`、
   `infrastructure` 和 `frontends` 分层，没有依赖退役源码包或 `backend`。
 - 已实现 PreToolUse、PermissionRequest、PostToolUse、PreCompact、PostCompact、
-  SessionStart、SessionEnd、UserPromptSubmit、SubagentStart、SubagentStop 和 Stop。
+  SessionStart、SessionEnd、UserPromptSubmit、SubagentStart、SubagentStop、Stop 和
+  Interrupt，共 12 个稳定事件。
 - 命令 Hook 已覆盖 JSON stdin、事件化输出、退出码 2、超时、并发匹配、取消、状态展示、
   大输出溢写和会话清理。
+- MCP Hook 已通过现有 MCP runtime 真实调用，支持静态 `input`、超时、错误和结果校验；
+  异步 command Hook 由有所有权的任务 owner 调度并在关闭时收束。
+- Hook 运行摘要已包含 handler、执行模式、scope、来源、顺序和状态条目，展示层只做投影。
 - matcher 同时支持本地 canonical 工具名和 `Bash`、`Edit`、`Write`、`Agent` 上游名称，
   且一个 handler 不会因多个别名重复执行。
 - 用户、profile、project、CLI 和独立 `hooks.json` 已进入统一配置解析与内容哈希信任流程。
-- 现有 Hook 定向测试基线为 190 个用例通过。
+- 现有 Hook 定向测试基线为 195 个用例通过；12 事件 fixture 和 Python 布局检查已纳入本地
+  验收命令。
 
 ### 尚未对齐的部分
 
 | 维度 | Codex 基线 | ProxyMind 当前状态 | 结论 |
 | --- | --- | --- | --- |
-| 事件全集 | 12 个，包含 `Interrupt` | 11 个 | 缺失能力 |
+| 事件全集 | 12 个，包含 `Interrupt` | 12 个 | 已对齐 |
 | `command` 同步执行 | 支持 | 支持 | 基本对齐 |
-| `command` 异步执行 | 后台调度、完成通知、关闭收束 | discovery 阶段跳过 | 缺失能力 |
-| `mcp_tool` | 支持 `server`、`tool`、`input` 并真实调用 | 可解析、可展示，但不执行且缺 `input` | 伪支持 |
-| `prompt` / `agent` | 识别后在 discovery 阶段警告并跳过 | 保留为 installed/active 管理项 | 伪目录项 |
-| Interrupt 输出 | 只接受 `systemMessage`，短超时 | 无 schema、runtime 和调用点 | 缺失能力 |
-| 运行摘要 | handler、mode、scope、source、order、状态和输出 | 缺少多项身份和执行元数据 | 契约不完整 |
-| 配置失败 | 无效可选项局部跳过；组合错误不伪装为空运行时 | 整体 scope 解析异常可退回 empty | 失败边界过宽 |
-| 输出模型 | wire 输出与内部 effect 分离 | 同时维护 effect 和兼容 snake_case 字典 | 重复状态 |
-| schema 锁定 | 类型生成并提交 JSON Schema fixture | 手写 schema，仅校验本地目录自洽 | 无上游漂移检测 |
+| `command` 异步执行 | 后台调度、完成通知、关闭收束 | 有 owner 调度、状态发布和关闭收束 | 已对齐 |
+| `mcp_tool` | 支持 `server`、`tool`、`input` 并真实调用 | 复用现有 MCP runtime 真实调用 | 已对齐 |
+| `prompt` / `agent` | 识别后在 discovery 阶段警告并跳过 | discovery 告警，不进入 installed/catalog/runtime | 已对齐 |
+| Interrupt 输出 | 只接受 `systemMessage`，短超时 | 有 schema、runtime 和 Root Turn 调用点 | 已对齐 |
+| 运行摘要 | handler、mode、scope、source、order、状态和输出 | HookRunSummary 与 view 均提供 | 已对齐 |
+| 配置失败 | 无效可选项局部跳过；组合错误不伪装为空运行时 | 局部告警，runner/owner 缺失显式失败 | 已对齐 |
+| 输出模型 | wire 输出与内部 effect 分离 | 移除 snake_case 副本和结果替换扩展 | 已对齐 |
+| schema 锁定 | 类型生成并提交 JSON Schema fixture | manifest digest 与本地 checker 锁定 | 已对齐 |
 
-当前测试会主动断言“异步 Hook 被跳过”和“非 command Hook 只进入目录不进入运行时”。
-因此现有测试全绿只能证明当前行为稳定，不能作为 Codex 能力等价证据。
+剩余差异仅包括 ProxyMind 自有 transcript、目录来源和前端展示，不宣称与 Codex 内部实现
+完全相同；三平台实机证据仍由发布环境自行补充，本轮不接入 CI 工作流。
 
 ## 对齐边界
 
@@ -126,7 +131,7 @@
 | `prompt` / `agent` | 仅在 discovery 边界识别并产生“不支持”告警，不创建定义、信任状态或目录项 |
 | 异步 command | 完整实现后台任务、并发上限、状态发布、配置刷新存续和关闭收束 |
 | `replacementResult` | 默认删除；它不属于固定 Codex wire 契约，也没有独立产品命名空间和所有权 |
-| `updatedMCPToolOutput` | 保持上游保留字段并 fail closed，直到 Codex 基线正式实现其语义 |
+| `updatedMCPToolOutput` | 删除本地未实现字段；未知结果改写字段统一 fail closed |
 | legacy `notify` | 不引入 |
 | managed/plugin hooks | 不预建 facade；出现真实产品来源时按同一 discovery/registry 端口接入 |
 | fail-open scope | 删除整体 empty fallback；无效可选 handler 局部告警，组合和类型错误显式失败 |
@@ -390,7 +395,7 @@ Interrupt，并发布 started/completed 状态。
 - 补齐 HookRunSummary 的 handler/mode/scope/source/order 字段并更新 presentation projection。
 - 区分 installed、enabled、trusted、active、running；不允许目录 active 与 runtime active 不同。
 - consumer 全部改读 HookOutputEffect/事件具名 outcome，删除 `_normalized_output` 双写。
-- 删除 `replacementResult` 及其 PostToolUse 应用路径；保留 `updatedMCPToolOutput` fail-closed。
+- 删除 `replacementResult`、`updatedMCPToolOutput` 及其 PostToolUse 应用路径；未知结果改写字段统一 fail-closed。
 - 复核 HookManager、HookRegistry、HookExecutionScope 和资源回调；只保留有状态所有权或真实边界
   的类型。
 - 收紧 package `__all__`，不因测试扩大生产公开面。
@@ -424,6 +429,9 @@ Interrupt，并发布 started/completed 状态。
 - 全量 Python 测试、Hook contract checker、package architecture 和 `py_compile` 通过。
 - `.mind/hooks.json` 的事件集合由 checker 验证，不能再次少于固定基线。
 - 文档中的“已支持”只对应真实可执行能力。
+
+本轮实现记录：迭代 1 至 5 已分别提交，迭代 6 增加 Python 布局检查和覆盖 12 个事件的
+`tests/fixtures/hooks/all_hooks.json`。本地 Windows 验证通过；CI 接入不在本轮范围内。
 
 ## CI 验证矩阵
 

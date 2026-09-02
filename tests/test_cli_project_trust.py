@@ -486,10 +486,11 @@ async def test_exec_hook_trust_bypass_is_invocation_scoped(
     assert result == 0
     arguments = run_controller.await_args.kwargs
     resolution = arguments["config_session"].resolve()
-    runtime_status = arguments["hook_registry"].build(
+    runtime_status = arguments["hook_registry"].inspect(
         resolution.hooks,
         hook_states=resolution.hook_states,
-    ).status()
+        workspace=tmp_path,
+    )
     assert runtime_status.active_count == 1
     assert runtime_status.hooks[0].trust_state == "untrusted"
     assert arguments["startup_warnings"] == ()

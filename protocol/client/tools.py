@@ -453,7 +453,11 @@ def _approval_snapshot_item(
     removed_fields = {"name", "approval", "patch_scope"}
     if kind != "mcp_tool_call":
         removed_fields.add("arguments")
-    present_removed = sorted(field for field in removed_fields if field in value)
+    present_removed = sorted(
+        removed_field
+        for removed_field in removed_fields
+        if removed_field in value
+    )
     if present_removed:
         raise ToolApprovalSnapshotRequestError(
             "approval snapshot contains removed protocol fields: "

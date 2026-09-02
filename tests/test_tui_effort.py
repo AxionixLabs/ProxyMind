@@ -129,6 +129,7 @@ async def test_effort_command_updates_footer_context_immediately(
         },
     }
     mind = SimpleNamespace(
+        configuration_service_url=None,
         attach=SimpleNamespace(
             has_pending_attachments=lambda: False,
             pending_attachments_snapshot=lambda: [],

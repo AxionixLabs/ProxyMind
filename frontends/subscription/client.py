@@ -89,7 +89,10 @@ class AgentClient(object):
         if not response.content:
             return {}
 
-        return typing.cast(dict[str, typing.Any], response.json())
+        body = response.json()
+        if not isinstance(body, dict):
+            raise ValueError("subscription response must be a JSON object")
+        return body
 
     async def open_session(
         self,
@@ -238,7 +241,10 @@ class AgentClient(object):
         raw = await connection.recv()
         if isinstance(raw, bytes):
             raw = raw.decode(const.CHARSET)
-        return typing.cast(dict[str, typing.Any], json.loads(raw))
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise ValueError("subscription message must be a JSON object")
+        return value
 
     async def send_hello(
         self,

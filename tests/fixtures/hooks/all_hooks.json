@@ -1,0 +1,17 @@
+{
+  "description": "All supported hook events",
+  "hooks": {
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "hook-test"}]}],
+    "PermissionRequest": [{"hooks": [{"type": "command", "command": "hook-test"}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "hook-test"}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "hook-test"}]}],
+    "PostCompact": [{"hooks": [{"type": "command", "command": "hook-test"}]}],
+    "SessionStart": [{"hooks": [{"type": "command", "command": "hook-test"}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "hook-test"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "hook-test"}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "hook-test"}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "hook-test"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "hook-test"}]}],
+    "Interrupt": [{"hooks": [{"type": "command", "command": "hook-test"}]}]
+  }
+}

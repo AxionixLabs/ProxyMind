@@ -67,6 +67,48 @@ _TERMINAL_TURN_STATUSES: typing.Final[set[str]] = {
 }
 
 
+def _control_status(value: str) -> TurnControlStatus | None:
+    """把服务端控制状态收窄为协议字面量。"""
+    if value == "accepted":
+        return value
+    if value == "turn_not_active":
+        return value
+    if value == "turn_not_steerable":
+        return value
+    if value == "turn_mismatch":
+        return value
+    if value == "duplicate":
+        return value
+    return None
+
+
+def _runtime_status(value: str) -> TurnRuntimeStatus | None:
+    """把服务端轮次状态收窄为协议字面量。"""
+    if value == "queued":
+        return value
+    if value == "running":
+        return value
+    if value == "waiting_tool":
+        return value
+    if value == "waiting_approval":
+        return value
+    if value == "waiting_user":
+        return value
+    if value == "reconciliation_required":
+        return value
+    if value == "finalizing":
+        return value
+    if value == "completed":
+        return value
+    if value == "failed":
+        return value
+    if value == "interrupted":
+        return value
+    if value == "cancelled":
+        return value
+    return None
+
+
 class TurnControlRequestError(Exception):
     """描述轮次控制请求未得到有效响应。"""
 
@@ -377,8 +419,12 @@ async def _post_control(
     ):
         raise TurnControlRequestError("turn control response does not match request")
 
+    typed_status = _control_status(status)
+    if typed_status is None:
+        raise TurnControlRequestError("turn control response has invalid status")
+
     return TurnControlResponse(
-        status=typing.cast(TurnControlStatus, status),
+        status=typed_status,
         request_id=response_request_id,
         turn_id=response_turn_id,
         client_message_id=response_message_id,
@@ -474,12 +520,16 @@ def _status_snapshot(
     ):
         raise TurnStatusRequestError(invalid_message)
 
+    typed_status = _runtime_status(status)
+    if typed_status is None:
+        raise TurnStatusRequestError(invalid_message)
+
     return TurnStatusSnapshot(
         cid=expected_cid,
         sid=expected_sid,
         turn_id=expected_turn_id,
         run_id=run_id,
-        status=typing.cast(TurnRuntimeStatus, status),
+        status=typed_status,
         terminal=terminal,
         attempt=attempt,
         version=version,

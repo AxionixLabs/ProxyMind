@@ -122,7 +122,7 @@ def builtin_done_item_status(value: typing.Any) -> ItemStatus:
         "cancelled": "cancelled",
         "incomplete": "failed",
     }.get(status, "completed")
-    return typing.cast(ItemStatus, mapped)
+    return mapped
 
 
 def _required_text(value: typing.Any, field_name: str) -> str:

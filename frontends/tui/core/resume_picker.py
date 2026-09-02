@@ -168,20 +168,21 @@ class TuiResumePicker(object):
                 self._cancel_preview()
                 self._set_state(exit_resume_transcript(state))
 
-        for key, action in (
+        navigation_actions: tuple[
+            tuple[str, typing.Literal[
+                "up", "down", "home", "end", "page_up", "page_down"
+            ]],
+            ...,
+        ] = (
                 ("up", "up"),
                 ("down", "down"),
                 ("home", "home"),
                 ("end", "end"),
                 ("pageup", "page_up"),
                 ("pagedown", "page_down"),
-        ):
-            bindings.add(key)(self._navigation_handler(typing.cast(
-                typing.Literal[
-                    "up", "down", "home", "end", "page_up", "page_down"
-                ],
-                action,
-            )))
+        )
+        for key, action in navigation_actions:
+            bindings.add(key)(self._navigation_handler(action))
 
         @bindings.add("tab")
         def focus_next(_event) -> None:

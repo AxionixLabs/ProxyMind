@@ -365,12 +365,10 @@ def _blend_color(
 ) -> RgbColor:
     """按给定比例把前景 RGB 混入背景 RGB。"""
     weight = max(0.0, min(1.0, ratio))
-    return typing.cast(
-        RgbColor,
-        tuple(
-            round(front * weight + back * (1.0 - weight))
-            for front, back in zip(foreground, background)
-        ),
+    return (
+        round(foreground[0] * weight + background[0] * (1.0 - weight)),
+        round(foreground[1] * weight + background[1] * (1.0 - weight)),
+        round(foreground[2] * weight + background[2] * (1.0 - weight)),
     )
 
 

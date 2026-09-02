@@ -675,7 +675,12 @@ def parse_stream_event(
                 raise ValueError(
                     f"tool.approval_required decision is invalid for {kind}"
                 )
-            available_decisions.append(typing.cast(ToolApprovalDecision, decision))
+            typed_decision = _approval_decision(decision)
+            if typed_decision is None:
+                raise ValueError(
+                    f"unsupported tool approval decision: {decision}"
+                )
+            available_decisions.append(typed_decision)
         if "reason" not in raw or not isinstance(raw.get("reason"), str):
             raise ValueError("tool.approval_required reason is required")
 
@@ -1174,9 +1179,42 @@ def _approval_kind(
 ) -> ToolApprovalKind:
     """读取直接审批请求的操作类型。"""
     kind = _required_text(value, "tool.approval_required kind")
-    if kind not in TOOL_APPROVAL_DECISIONS_BY_KIND:
-        raise ValueError("tool.approval_required kind is invalid")
-    return typing.cast(ToolApprovalKind, kind)
+    if kind == "command":
+        return kind
+    if kind == "write_stdin":
+        return kind
+    if kind == "apply_patch":
+        return kind
+    if kind == "network_access":
+        return kind
+    if kind == "request_permissions":
+        return kind
+    if kind == "mcp_tool_call":
+        return kind
+    raise ValueError("tool.approval_required kind is invalid")
+
+
+def _approval_decision(value: str) -> ToolApprovalDecision | None:
+    """把审批决定文本收窄为协议字面量。"""
+    if value == "accept":
+        return value
+    if value == "acceptForSession":
+        return value
+    if value == "acceptWithExecpolicyAmendment":
+        return value
+    if value == "applyNetworkPolicyAmendment":
+        return value
+    if value == "grantForTurn":
+        return value
+    if value == "grantForTurnWithStrictAutoReview":
+        return value
+    if value == "grantForSession":
+        return value
+    if value == "decline":
+        return value
+    if value == "cancel":
+        return value
+    return None
 
 
 def _approval_status(value: typing.Any) -> ToolApprovalSnapshotStatus:
@@ -1371,13 +1409,13 @@ def _approval_sandbox_permissions(
     if kind != "command":
         return "use_default"
     value = payload.get("sandbox_permissions")
-    if value not in {
-        "use_default",
-        "require_escalated",
-        "with_additional_permissions",
-    }:
-        raise ValueError("tool.approval_required sandbox_permissions is invalid")
-    return typing.cast(str, value)
+    if value == "use_default":
+        return value
+    if value == "require_escalated":
+        return value
+    if value == "with_additional_permissions":
+        return value
+    raise ValueError("tool.approval_required sandbox_permissions is invalid")
 
 
 def _required_list(value: typing.Any, field_name: str) -> list[typing.Any]:

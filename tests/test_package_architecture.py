@@ -1434,6 +1434,7 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "external_group.py",
         "external_runtime.py",
         "external_status.py",
+        "hook_runner.py",
         "local_session.py",
         "local_tool_factory.py",
         "local_tool_registry.py",

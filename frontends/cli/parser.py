@@ -152,8 +152,10 @@ def _selected_helix_profile(
         profile = _optional_string(parser, values, "root_helix_profile")
     if profile is None:
         return None
-    if profile in HELIX_PROFILES:
-        return typing.cast(typing.Literal["app", "api"], profile)
+    if profile == "app":
+        return profile
+    if profile == "api":
+        return profile
     parser.error(f"invalid Helix profile: {profile}")
 
 
