@@ -201,7 +201,6 @@ from .subscription import (
     SubscriptionInboxItem,
     SubscriptionRequest,
     SubscriptionRuntime,
-    SubscriptionRuntimeBuilder,
 )
 from .sessions import (
     RunExecution,
@@ -284,7 +283,6 @@ __all__ = (
     "SubscriptionInboxItem",
     "SubscriptionRequest",
     "SubscriptionRuntime",
-    "SubscriptionRuntimeBuilder",
     "SubagentExecutionPort",
     "SkillsProvider",
     "SubagentStreamPort",

@@ -10,18 +10,19 @@ from agent.application.services import (
     BuiltinToolRegistryBuilder,
     ClientToolRegistryBuilder,
     RuntimeServices,
+    SubscriptionRuntimeBuilder,
 )
 from agent.application.services import SkillsConfigReader
 from agent.application.tools.execution import ToolExecutionAdapter
 from agent.ports import (
     EffectJournal,
+    ProtocolCommandClient,
     SkillsProvider,
     TurnExecutorResult,
 )
 from agent.ports import (
     HookRegistryFactory,
     McpRuntimeBuilder,
-    SubscriptionRuntimeBuilder,
     ToolRuntimeBuilder,
 )
 from agent.stores import (
@@ -116,8 +117,12 @@ def create_runtime_services(
     """创建供单个进程入口共享的 Agent Harness 依赖。"""
     if not callable(skills_payload_builder):
         raise TypeError("skills payload builder must be callable")
+    model_capability = open_model_capability()
+    if not isinstance(model_capability, ProtocolCommandClient):
+        raise TypeError("model capability does not implement ProtocolCommandClient")
     return RuntimeServices(
-        model_capability=open_model_capability(),
+        model_capability=model_capability,
+        protocol_client=model_capability,
         environment_capability=open_environment_capability(),
         create_turn_application=open_turn_application,
         create_effect_journal=functools.partial(

@@ -7,10 +7,20 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from agent.harness.process_lifecycle import ProcessLifecycle
-from agent.application import TurnApplication
+from agent.application import (
+    RuntimeServices,
+    TurnApplication,
+)
 from agent.harness.sessions.owner import SessionRuntimeOwner
+from agent.ports import (
+    SubscriptionHost,
+    SubscriptionRuntime,
+)
 
-from composition import ApplicationHost
+from composition import (
+    ApplicationHost,
+    _bind_subscription_runtime,
+)
 from frontends.subscription.forwarding import AgentInbox
 from frontends.subscription.models import (
     AgentConfig,
@@ -582,3 +592,24 @@ async def test_subscription_owner_pauses_reuses_and_releases_listener() -> None:
     assert subscription.current is None
     listener.bind_inbox_changed.assert_called_once_with(None)
     listener.shutdown.assert_awaited_once_with()
+
+
+def test_subscription_builder_receives_explicit_runtime_services() -> None:
+    """订阅具体组合器从组合根接收服务，不从最小宿主反射发现。"""
+    host = Mock(spec=SubscriptionHost)
+    runtime_services = Mock(spec=RuntimeServices)
+    runtime = Mock(spec=SubscriptionRuntime)
+    builder = Mock(return_value=runtime)
+
+    factory = _bind_subscription_runtime(builder, runtime_services)
+
+    assert factory(host) is runtime
+    builder.assert_called_once_with(host, runtime_services)
+
+
+def test_unconfigured_subscription_builder_fails_when_owner_starts() -> None:
+    """缺失订阅组合器时保留按需启动失败语义。"""
+    factory = _bind_subscription_runtime(None, Mock(spec=RuntimeServices))
+
+    with pytest.raises(RuntimeError, match="subscription runtime factory"):
+        factory(Mock(spec=SubscriptionHost))

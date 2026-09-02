@@ -156,6 +156,10 @@ server/                         # 客户端内置配置服务，不拥有 Harnes
 - TUI Turn 控制器强制消费构造器注入的 `ProtocolCommandClient`，模块级 steer/interrupt/
   reconcile 测试替身和可空回退已删除；Application task、原始错误槽和失败事件不再通过
   Runtime 代理，错误边界测试改用公开生命周期接口。
+- `RuntimeServices` 已把模型流与协议控制声明为独立必填能力；根 Turn、Subagent 和 CLI
+  直接消费对应字段，不再从 `model_capability` 做运行时猜测。Subscription builder 已从
+  最小 ports 提升到 application 组合契约并显式接收进程服务，`mind.py` 不再从宿主反射
+  `runtime_services`，Harness owner 继续只持有已绑定的最小工厂。
 
 ### 最新证据
 
@@ -694,8 +698,9 @@ infrastructure reader；旧 `mind_app/runtime/subagents/context.py` 已删除，
 
 本次 Subscription 独立装配切片已满足上述条件：订阅运行时回归 `18 passed`，架构/旧路径
 守卫与装配专项回归合计 `19 passed`；缺失显式 factory 时保持未配置状态，错误 factory
-结果会在边界抛出，shutdown 回收持久 application；导入图、`compileall` 和
-`git diff --check` 通过，`frontends/subscription/runtime.py` 已无 `runtime_services` 动态发现。
+结果会在边界抛出，shutdown 回收持久 application；后续完成态复核又将 builder 的完整依赖
+提升到 application 组合契约，`frontends/subscription/runtime.py` 与 `mind.py` 均不再从宿主
+动态发现 `runtime_services`。导入图、`compileall` 和 `git diff --check` 通过。
 
 下一切片 TUI 输入端口的准入条件：`TuiTurnInputControl` 只接收显式且必填的
 `ProtocolCommandClient`，生产 session 在创建控制器时绑定能力；控制器不提供模块级命令
@@ -1055,6 +1060,7 @@ Windows 使用仓库虚拟环境：`.\venv\Scripts\python.exe -m pytest`。提�
 
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
+| 2026-09-02 | 显式拆分进程级模型流与协议控制能力，将 Subscription 完整 builder 提升到 application 组合契约并在组合根绑定，删除 CLI 可空服务、模型能力猜测和宿主服务反射 | 不含 `test_tui_stream_commands.py` 的全行为 `2986 passed, 11 skipped`；CLI/Subscription/Run/Subagent 定向 `257 passed`；职责守卫 `6 passed`；导入图已刷新且无跨边界循环，`compileall`、文档契约和差异检查通过 |
 | 2026-09-02 | 收紧 TUI 控制与生命周期边界：`ProtocolCommandClient` 改为必填构造依赖，删除模块级命令测试替身、可空回退和 Runtime 生命周期内部状态代理 | 不含 `test_tui_stream_commands.py` 的全行为 `2984 passed, 11 skipped`；Turn 输入与错误边界 `28 passed`；TUI 启动/监听/Run `110 passed`；职责守卫与导入图基线 `3 passed`；导入图、`compileall`、文档契约和差异检查通过 |
 | 2026-09-02 | 删除最后的 `mind_app` 应用宿主，建立显式 `ApplicationHost`、TUI 宿主协议和可重试 `ProcessResourceOwner`，同步官网路径与退役包守卫，完成阶段 5 | 全行为 `3000 passed, 11 skipped`；完整架构 `114 passed, 66 warnings`；文档契约、导入图、`compileall`、旧路径扫描和差异检查通过 |
 | 2026-09-02 | 将进程停止/退出/取消态清理与前端活动展示迁出 Controller，由组合根注入 `ProcessLifecycle` 和 `FrontendActivity`，删除旧状态字段与动画/清理 facade，并修正 stdio MCP 权限来源 | 四入口、生命周期、活动与流式联合回归 `605 passed`；完整架构 `113 passed / 2 stale assertions`，修正后职责专项 `6 passed, 1 warning`；`compileall`、导入图和差异检查通过 |

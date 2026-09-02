@@ -15,11 +15,7 @@ from agent.composition import create_runtime_services
 from agent.application import RuntimeServices
 from agent.application.approvals.presenter import ApprovalPresenterPort
 from agent.application.turns.run_result import RunResult
-from agent.ports import (
-    FrontendPort,
-    ModelCapability,
-    ProtocolCommandClient,
-)
+from agent.ports import FrontendPort
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
 from agent.ports import (
     McpRuntime,
@@ -87,10 +83,7 @@ def bind_root_turn_runner(
 ) -> typing.Callable[..., typing.Awaitable[RunResult]]:
     """在进程组合根绑定根轮次的模型、协议和效果能力。"""
     model_capability = runtime_services.model_capability
-    if not isinstance(model_capability, ModelCapability):
-        raise TypeError("root turn model capability is invalid")
-    if not isinstance(model_capability, ProtocolCommandClient):
-        raise TypeError("root turn protocol client is invalid")
+    protocol_client = runtime_services.protocol_client
     effect_journal_factory = runtime_services.create_effect_journal
 
     async def run_bound_root_turn(
@@ -106,7 +99,7 @@ def bind_root_turn_runner(
             pref_config,
             message=message,
             model_capability=model_capability,
-            protocol_client=model_capability,
+            protocol_client=protocol_client,
             effect_journal_factory=effect_journal_factory,
             tool_execution=runtime_services.tool_execution,
             approval_coordinator=controller.approval_coordinator,
@@ -215,21 +208,16 @@ def create_tool_runtime(sources: ToolRuntimeSources) -> ToolRuntimePort:
     return CompositeToolRuntime(sources)
 
 
-def create_subscription_runtime(host: SubscriptionHost) -> SubscriptionRuntime:
+def create_subscription_runtime(
+    host: SubscriptionHost,
+    runtime_services: RuntimeServices,
+) -> SubscriptionRuntime:
     """在进程组合根创建绑定应用宿主的远端订阅运行时。"""
-    runtime_services = getattr(host, "runtime_services", None)
-    turn_application_factory = getattr(
-        runtime_services,
-        "create_turn_application",
-        None,
-    )
-    if not callable(turn_application_factory):
-        raise RuntimeError("subscription turn application factory is required")
     return AgentRuntime(
         host,
         turn_runner=bind_root_turn_runner(runtime_services),
         environment_snapshot_provider=capture_active_turn_environment,
-        turn_application_factory=turn_application_factory,
+        turn_application_factory=runtime_services.create_turn_application,
     )
 
 

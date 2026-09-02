@@ -6,6 +6,7 @@ from pathlib import Path
 from agent.adapters.agents.execution import StreamSubagentExecution
 from agent.adapters.protocol.subagent_stream import ProtocolSubagentStream
 from agent.application import RuntimeServices
+from agent.application.services import SubscriptionRuntimeBuilder
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.application.approvals.presenter import ApprovalPresenterPort
 from agent.application.config.settings import (
@@ -37,7 +38,6 @@ from agent.ports import (
     OutputSessionFactory,
     ProcessLifecyclePort,
     ProcessResourcePort,
-    ProtocolCommandClient,
     SkillsProvider,
     SubscriptionHost,
     SubscriptionRuntime,
@@ -76,6 +76,21 @@ def _unconfigured_subscription_runtime(
 ) -> SubscriptionRuntime:
     """返回明确配置错误，禁止入口隐式构造订阅实现。"""
     raise RuntimeError("subscription runtime factory is required")
+
+
+def _bind_subscription_runtime(
+    builder: SubscriptionRuntimeBuilder | None,
+    runtime_services: RuntimeServices,
+) -> typing.Callable[[SubscriptionHost], SubscriptionRuntime]:
+    """把完整订阅组合器绑定为 Harness owner 所需的最小工厂。"""
+    if builder is None:
+        return _unconfigured_subscription_runtime
+
+    def create(host: SubscriptionHost) -> SubscriptionRuntime:
+        """使用当前进程服务创建订阅运行时。"""
+        return builder(host, runtime_services)
+
+    return create
 
 
 def _observe_approval_snapshot_failure(
@@ -191,13 +206,10 @@ class ApplicationHost:
         transcripts = ConversationTranscriptStore()
         event_reporting = EventReportRuntimeOwner()
 
-        model_capability = runtime_services.model_capability
-        if not isinstance(model_capability, ProtocolCommandClient):
-            raise TypeError("subagent protocol client is required")
         self.subagent_execution = StreamSubagentExecution(
             ProtocolSubagentStream(
-                model_capability=model_capability,
-                protocol_client=model_capability,
+                model_capability=runtime_services.model_capability,
+                protocol_client=runtime_services.protocol_client,
                 effect_journal_factory=runtime_services.create_effect_journal,
                 tool_execution=runtime_services.tool_execution,
                 session_factory=subagent_session_factory,
@@ -323,13 +335,11 @@ class ApplicationHost:
         )
         self.service_runtime = ServiceRuntimeOwner()
 
-        subscription_factory = runtime_services.create_subscription_runtime
         self.subscription = SubscriptionRuntimeOwner(
             self,
-            runtime_factory=(
-                subscription_factory
-                if subscription_factory is not None
-                else _unconfigured_subscription_runtime
+            runtime_factory=_bind_subscription_runtime(
+                runtime_services.create_subscription_runtime,
+                runtime_services,
             ),
         )
         self.resources: ProcessResourcePort = ProcessResourceOwner(

@@ -26,6 +26,9 @@
   `agent.runtime` 已在阶段 4B 的首个切片中删除，不得重新创建兼容 facade。
   `RuntimeServices` 等既有技术名称暂不随包名机械重命名，必须在对应职责完成
   迁移时单独评审。
+- `RuntimeServices` 将 `ModelCapability` 与 `ProtocolCommandClient` 声明为两个独立必填
+  字段；当前具体组合允许二者引用同一个 Protocol Client 实例，但前端、根 Turn 和
+  Subagent 不得通过运行时类型检查从模型能力猜测控制面。
 - 阶段 0、阶段 1、阶段 2 已于 2026-08-28 通过；阶段 3 已于 2026-08-29
   通过，阶段 4 已于 2026-08-30 通过。主动 `exec` 和 TUI 普通 prompt 已使用顶层 `agent` 包、持久化
   `SessionLoop`、`RunActor` 和注入式模型能力；`mind.py` 已成为唯一具体组合根，
@@ -560,7 +563,7 @@ running -> cancelled
 
 | 当前位置 | 目标归属 | 迁移要求 |
 | --- | --- | --- |
-| `mind.py`、`composition.py`、`agent/composition.py` | 唯一进程组合边界 | `mind.py` 创建单个 `RuntimeServices` 并选择入口工厂；`composition.py::ApplicationHost` 组装职责化 owner；具体 store 和 capability builders 只在该边界选择，前端不导入具体宿主 |
+| `mind.py`、`composition.py`、`agent/composition.py` | 唯一进程组合边界 | `mind.py` 创建单个 `RuntimeServices` 并选择入口工厂；模型流与协议控制分别以 `model_capability`/`protocol_client` 注入，具体实现可共享身份；`composition.py::ApplicationHost` 组装职责化 owner；具体 store 和 capability builders 只在该边界选择，前端不导入具体宿主 |
 | 已删除的 `mind_app/controller.py` | `composition.py::ApplicationHost` + `frontends/tui/application.py::TuiApplicationHost` | 具体宿主只组合 owner；TUI、CLI 和 MCP 消费各自的结构协议。旧位置参数、动态 `kwargs`、`Mind` 类型和历史字段已经删除，不保留兼容 facade |
 | 已删除的 Controller 进程资源关闭逻辑 | `agent/ports/process_resources.py` + `agent/harness/process_resources.py::ProcessResourceOwner` | Harness owner 单一冻结关闭顺序和可重试进度；CLI/MCP 只调用 `resources.close()`，宿主不暴露同义关闭方法 |
 | 已删除的 Controller registry、外部 MCP、Helix 工具链接、执行环境与事件报告资源 | `agent/harness/execution/resources.py::ExecutionResources` + `RuntimeServices` builders | Harness 单一持有动态工具来源和关闭生命周期，只依赖 ports；组合根注入 client/builtin registry、Composite runtime 和外部 MCP builders。前端、环境采集和根/子 Turn 显式消费 `execution` |
@@ -581,8 +584,8 @@ running -> cancelled
 | `agent/application/turns/context.py::TurnContext.approval_coordinator`、`permission_grants` | `agent/ports/approvals.py`、`agent/ports/permissions.py` + application adapter | 审批等待和权限授予通过单轮协调器/授权端口消费；流式工具和审批处理器不得读取 Controller 的审批协调器或权限存储属性 |
 | `agent/harness/agents/runtime.py::__init__` | `agent/ports/subagents.py::SubagentRuntimeHostPort` + 组合根 | SubagentRuntime 只接收子执行、子轮次 runner、Hook scope 和清理端口；不暴露通用 Turn runtime 或可选执行器覆盖，Harness 持有 Agent 树、mailbox 和子轮次生命周期 |
 | 已删除的 `mind_app/runtime/turns/subagent_adapter.py` | `agent/adapters/agents/execution.py` + `agent/adapters/protocol/subagent_stream.py` + `agent/harness/execution/turn_runner.py` | Harness `TurnRunner` 绑定会话运行时，Protocol adapter 绑定模型、控制、效果、工具和静默输出能力，通用 Subagent execution 只消费 `SubagentStreamPort`；不保留 Controller 命名或旧 runtime facade |
-| `mind_app/runtime/mcp/*`、`subscription/lifecycle.py` | capabilities、adapters、harness supervisor；MCP 生命周期所有者归 `agent/harness/mcp/owner.py`，Subscription 生命周期所有者归 `agent/harness/subscription/owner.py` | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运；具体 MCP/Subscription runtime 均由组合根工厂注入 |
-| `frontends/subscription/runtime.py::_build_default_executor` | `frontends/subscription/runtime.py` + 组合根 `mind.py` | `AgentRuntime` 只接受显式 `TurnApplicationFactory`；持久 application 由 `mind.py` 绑定，前端不通过宿主动态属性发现 `RuntimeServices`，关闭时由执行器回收 application |
+| `mind_app/runtime/mcp/*`、`subscription/lifecycle.py` | capabilities、adapters、harness supervisor；MCP 生命周期所有者归 `agent/harness/mcp/owner.py`，Subscription 生命周期所有者归 `agent/harness/subscription/owner.py` | 保留已收敛的资源所有权，迁移时按端口而非按文件直接搬运；具体 MCP runtime 由组合根工厂注入；Subscription owner 只接收已绑定的单参工厂，不依赖 application 组合服务 |
+| `frontends/subscription/runtime.py::_build_default_executor` | `frontends/subscription/runtime.py` + `agent.application.services.SubscriptionRuntimeBuilder` + 组合根 `mind.py` | `AgentRuntime` 只接受显式 `TurnApplicationFactory`；application 组合契约显式向具体 builder 传入 `RuntimeServices`，`composition.py` 再绑定为 Harness owner 的最小单参工厂。前端和具体 builder 均不通过宿主属性发现服务，关闭时由执行器回收 application |
 | `mind_app/runtime/mcp/service_lifecycle.py`、`keepalive.py`、`service_runtime.py`、`service_exec_env.py` | `infrastructure/services/runtime_owner.py`、`keepalive.py`、`runtime_context.py`、`runtime_setup.py`、`helix_environment.py` 与 `frontends/helix/runtime.py` | 本地 Helix 服务的进程、保活、路径解析、上下文和环境聚合属于基础设施；启动展示、等待与前端宿主协调属于可替换前端。两侧只通过具名生命周期协议连接，不让 legacy runtime 或 Controller 成为能力对象 |
 | `mind_app/runtime/subagents/control.py` | `agent/harness/agents/control.py`；状态值对象归 `agent/domain/agents.py`、图归 `agent/stores/agents/graph.py` | AgentControl 只保留可变树调度、mailbox 协调和观察快照；Harness 持有状态机，domain/stores 不反向依赖它 |
 | `SubagentRuntime._execute_submission` | `agent/harness/execution/subagent_submission.py` | 已分配提交的 mailbox claim、Turn 上下文构造、活动轮次投递、结果确认和失败收束归 Harness；runtime 只注入会话端口、Hook scope 与执行适配器，执行器不把 Controller 当作能力对象 |

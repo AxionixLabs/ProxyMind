@@ -101,11 +101,5 @@ class SubscriptionHost(typing.Protocol):
     lifecycle: ProcessLifecyclePort
 
 
-SubscriptionRuntimeBuilder: typing.TypeAlias = Callable[
-    [SubscriptionHost],
-    SubscriptionRuntime,
-]
-
-
 if __name__ == "__main__":
     pass

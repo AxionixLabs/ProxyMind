@@ -48,14 +48,7 @@ from frontends.cli.parser import (
 )
 from agent.harness.hooks.registry import HookRegistry
 from agent.harness.process_lifecycle import ProcessLifecycle
-
-
-def _runtime_services() -> SimpleNamespace:
-    """构造 bootstrap 单测使用的显式 Hook 组合工厂。"""
-    return SimpleNamespace(
-        environment_capability=SimpleNamespace(clear_cache=Mock()),
-        create_hook_registry=lambda **kwargs: HookRegistry(**kwargs),
-    )
+from agent.ports import ProtocolCommandClient
 from frontends.cli.selection import OutputMode, resolve_cli_output_mode
 from frontends.cli.dispatch import run_selected_command
 from agent.application.turns.run_result import RunResult
@@ -70,6 +63,17 @@ from infrastructure.config.schema import ConfigOverride
 from frontends.terminal.capabilities import DEGRADED_TERMINAL_CAPABILITIES
 from agent.domain.policies import preset_permissions
 from infrastructure.errors import AppError
+
+
+def _runtime_services() -> SimpleNamespace:
+    """构造 bootstrap 单测使用的显式进程服务。"""
+    return SimpleNamespace(
+        environment_capability=SimpleNamespace(clear_cache=Mock()),
+        create_hook_registry=lambda **kwargs: HookRegistry(**kwargs),
+        create_turn_application=Mock(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
+        helix_capability=None,
+    )
 
 
 @pytest.fixture
@@ -1208,6 +1212,7 @@ async def test_agent_listen_owns_config_service_lifecycle(
         service_context=SimpleNamespace(),
         output_mode="tui",
         permissions=preset_permissions("auto"),
+        runtime_services=_runtime_services(),
         application_host_factory=lambda *_args, **_kwargs: controller,
     )
 
@@ -1266,6 +1271,7 @@ async def test_run_controller_closes_report_when_initialization_fails(
             service_context=SimpleNamespace(),
             output_mode="text",
             permissions=preset_permissions("auto"),
+            runtime_services=_runtime_services(),
             application_host_factory=fail_controller,
         )
 

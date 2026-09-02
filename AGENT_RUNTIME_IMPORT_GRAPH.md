@@ -56,7 +56,7 @@ flowchart LR
 | `agent` | `protocol` | 32 | 55 | `agent/adapters/agents/messages.py`<br>`agent/adapters/protocol/approval_events.py`<br>`agent/adapters/protocol/client.py`<br>`agent/adapters/protocol/compaction.py`<br>`agent/adapters/protocol/model_events.py`<br>`agent/adapters/protocol/tool_events.py`<br>`agent/adapters/protocol/tool_results.py`<br>`agent/adapters/protocol/turn_interrupts.py`<br>`agent/adapters/protocol/turn_setup.py`<br>`agent/adapters/protocol/turn_stream.py`<br>`agent/application/agents/thread.py`<br>`agent/application/approvals/models.py`<br>`agent/application/approvals/policy.py`<br>`agent/application/tools/javascript.py`<br>`agent/application/turns/context.py`<br>`agent/application/turns/execution.py`<br>`agent/application/turns/lifecycle.py`<br>`agent/application/turns/stream_boundaries.py`<br>`agent/application/views/approval.py`<br>`agent/application/views/builders/approval.py`<br>`agent/capabilities/environment.py`<br>`agent/domain/agents.py`<br>`agent/domain/policies.py`<br>`agent/harness/agents/delivery.py`<br>`agent/harness/sessions/conversation.py`<br>`agent/harness/sessions/root.py`<br>`agent/ports/agent_messages.py`<br>`agent/ports/subagents.py`<br>`agent/ports/turns.py`<br>`agent/stores/agents/graph.py`<br>`agent/stores/agents/mailbox.py`<br>`agent/stores/sessions/history.py` |
 | `build` | `infrastructure` | 1 | 2 | `build.py` |
 | `build` | `metadata` | 1 | 1 | `build.py` |
-| `composition` | `agent` | 1 | 21 | `composition.py` |
+| `composition` | `agent` | 1 | 22 | `composition.py` |
 | `composition` | `infrastructure` | 1 | 10 | `composition.py` |
 | `composition` | `observability` | 1 | 2 | `composition.py` |
 | `composition` | `protocol` | 1 | 1 | `composition.py` |

@@ -460,6 +460,48 @@ def test_agent_application_public_api_is_minimal() -> None:
     assert imported_modules == {"services", "turns.commands"}
 
 
+def test_runtime_services_keep_model_control_and_subscription_wiring_explicit(
+) -> None:
+    """确保组合服务不再由 CLI 或订阅宿主动态发现。"""
+    services_path = PROJECT_ROOT / "agent" / "application" / "services.py"
+    services_source = services_path.read_text(encoding="utf-8-sig")
+    services_tree = ast.parse(services_source, filename=str(services_path))
+    runtime_services = next(
+        node
+        for node in services_tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "RuntimeServices"
+    )
+    service_fields = {
+        node.target.id: ast.unparse(node.annotation)
+        for node in runtime_services.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+    }
+    assert service_fields["model_capability"] == "ModelCapability"
+    assert service_fields["protocol_client"] == "ProtocolCommandClient"
+    assert "class SubscriptionRuntimeBuilder(typing.Protocol)" in services_source
+
+    subscription_port_source = (
+        PROJECT_ROOT / "agent" / "ports" / "subscription.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "SubscriptionRuntimeBuilder" not in subscription_port_source
+
+    cli_source = (
+        PROJECT_ROOT / "frontends" / "cli" / "bootstrap.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "runtime_services: RuntimeServices | None" not in cli_source
+    assert "getattr(runtime_services" not in cli_source
+    assert "runtime_services.model_capability" not in cli_source
+    assert "runtime_services.protocol_client" in cli_source
+
+    composition_source = (PROJECT_ROOT / "mind.py").read_text(
+        encoding="utf-8-sig"
+    )
+    assert 'getattr(host, "runtime_services"' not in composition_source
+    assert "runtime_services: RuntimeServices" in composition_source
+
+
 def test_agent_composition_has_no_infrastructure_imports() -> None:
     """组合契约接收基础设施适配器，不在 agent 包内反向导入实现。"""
     path = PROJECT_ROOT / "agent" / "composition.py"

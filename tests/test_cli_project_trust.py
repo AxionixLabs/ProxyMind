@@ -22,6 +22,7 @@ from frontends.output.application import (
     JsonApplicationSink,
 )
 from agent.ports.presentation import ApplicationView
+from agent.ports import ProtocolCommandClient
 from infrastructure.services.runtime_context import ServiceRuntimeSpec
 from agent.harness.hooks.registry import HookRegistry
 from frontends.tui.adapters.hooks import TuiHookStatusAdapter
@@ -53,10 +54,13 @@ class _TrustRuntime(object):
 
 
 def _runtime_services() -> SimpleNamespace:
-    """构造 bootstrap 单测使用的显式 Hook 组合工厂。"""
+    """构造 bootstrap 单测使用的显式进程服务。"""
     return SimpleNamespace(
         environment_capability=SimpleNamespace(clear_cache=Mock()),
         create_hook_registry=lambda **kwargs: HookRegistry(**kwargs),
+        create_turn_application=Mock(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
+        helix_capability=None,
     )
 
 
@@ -542,7 +546,7 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
     )
     preference = SimpleNamespace(load_pref=AsyncMock())
     config_service = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
-    runtime_services = None
+    runtime_services = _runtime_services()
 
     def build_controller(*_args, **kwargs):
         controller_arguments.update(kwargs)
@@ -718,6 +722,7 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
         service_context=SimpleNamespace(),
         output_mode="tui",
         permissions=SimpleNamespace(),
+        runtime_services=_runtime_services(),
         startup_warnings=(),
         application_host_factory=lambda *_args, **_kwargs: controller,
     )

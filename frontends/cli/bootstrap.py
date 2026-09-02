@@ -27,7 +27,6 @@ from agent.ports import (
     HookStatusPort,
     ProcessLifecyclePort,
     ProcessResourcePort,
-    ProtocolCommandClient,
 )
 from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.update.runtime import UpgradeProgress
@@ -325,7 +324,7 @@ async def _run_application(
     animation: AsyncAnimManager,
     config_overrides: tuple[ConfigOverride, ...],
     config_profile: str | None,
-    runtime_services: RuntimeServices | None = None,
+    runtime_services: RuntimeServices,
     *,
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
@@ -433,8 +432,7 @@ async def _run_application(
         )
 
         route_shell_tools(supports)
-        if runtime_services is not None:
-            runtime_services.environment_capability.clear_cache()
+        runtime_services.environment_capability.clear_cache()
 
         observe(
             "runtime.resolved",
@@ -585,13 +583,13 @@ async def _run_controller(
     service_context: ServiceRuntimeContext,
     output_mode: OutputMode,
     permissions: PermissionSettings,
+    runtime_services: RuntimeServices,
     application_layout: ApplicationLayout | None = None,
     hook_registry: HookRegistryPort | None = None,
     hook_startup_warnings: tuple[str, ...] = (),
     agent_settings: AgentSettings | None = None,
     feature_settings: FeatureSettings | None = None,
     startup_warnings: tuple[str, ...] = (),
-    runtime_services: RuntimeServices | None = None,
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     conversation_compactor_factory: ConversationCompactorFactory | None = None,
@@ -648,7 +646,7 @@ async def _run_controller(
     config_service = None
 
     try:
-        configured_helix = getattr(runtime_services, "helix_capability", None)
+        configured_helix = runtime_services.helix_capability
         helix_capability = (
             configured_helix
             if configured_helix is not None
@@ -795,17 +793,8 @@ async def _run_controller(
                     name="tui service runtime startup",
                 )
 
-        protocol_client = None
-        turn_application_factory = None
         conversation_compactor: ConversationCompactor | None = None
 
-        if runtime_services is not None:
-            turn_application_factory = runtime_services.create_turn_application
-            if isinstance(
-                runtime_services.model_capability,
-                ProtocolCommandClient,
-            ):
-                protocol_client = runtime_services.model_capability
         if conversation_compactor_factory is not None:
             conversation_compactor = conversation_compactor_factory(controller)
 
@@ -814,9 +803,9 @@ async def _run_controller(
             command,
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
-            turn_application_factory=turn_application_factory,
+            turn_application_factory=runtime_services.create_turn_application,
             conversation_compactor=conversation_compactor,
-            protocol_client=protocol_client,
+            protocol_client=runtime_services.protocol_client,
         )
         completed = True
         observe("app.complete", exit_code=controller.lifecycle.exit_code)

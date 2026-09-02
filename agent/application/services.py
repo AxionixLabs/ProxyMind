@@ -15,9 +15,11 @@ from agent.ports import (
     ModelCapability,
     ProcessCapability,
     PermissionGrantPort,
+    ProtocolCommandClient,
     SkillsProvider,
     SubagentControlPort,
-    SubscriptionRuntimeBuilder,
+    SubscriptionHost,
+    SubscriptionRuntime,
     ToolRegistryPort,
     ToolRuntimeBuilder,
 )
@@ -39,6 +41,22 @@ TurnApplicationFactory: typing.TypeAlias = Callable[
 SkillsConfigReader: typing.TypeAlias = Callable[[], dict[str, typing.Any]]
 
 SkillsProviderFactory: typing.TypeAlias = Callable[[SkillsConfigReader], SkillsProvider]
+
+
+class SubscriptionRuntimeBuilder(typing.Protocol):
+    """定义组合层创建订阅前端运行时所需的完整依赖。
+
+    实现方可以使用进程级服务绑定根轮次和环境能力，但不得从最小订阅宿主动态发现
+    组合对象；调用方在创建 Harness 生命周期 owner 前完成依赖绑定。
+    """
+
+    def __call__(
+        self,
+        host: SubscriptionHost,
+        runtime_services: "RuntimeServices",
+    ) -> SubscriptionRuntime:
+        """使用显式宿主和进程服务创建一个订阅运行时。"""
+        ...
 
 
 class ClientToolRegistryBuilder(typing.Protocol):
@@ -81,6 +99,7 @@ class RuntimeServices:
     """
 
     model_capability: ModelCapability
+    protocol_client: ProtocolCommandClient
     environment_capability: EnvironmentSnapshotCapability
     create_turn_application: TurnApplicationFactory
     create_effect_journal: EffectJournalFactory
@@ -100,6 +119,8 @@ class RuntimeServices:
         """拒绝缺失能力，确保组合错误在启动边界暴露。"""
         if not isinstance(self.model_capability, ModelCapability):
             raise TypeError("model capability does not implement ModelCapability")
+        if not isinstance(self.protocol_client, ProtocolCommandClient):
+            raise TypeError("protocol client does not implement ProtocolCommandClient")
         if not isinstance(
             self.environment_capability,
             EnvironmentSnapshotCapability,
