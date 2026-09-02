@@ -12,6 +12,12 @@ from infrastructure.platform.process_sessions import (
     ProcessSessionSpec,
 )
 from mind import create_workspace_coding
+from mind import create_workspace_runtime
+from agent.domain.approvals import NetworkProtocol, NetworkTarget
+from infrastructure.platform.network import (
+    NetworkDecision,
+    StaticNetworkPolicy,
+)
 from infrastructure.config.paths import ApplicationLayout
 
 
@@ -139,6 +145,28 @@ def test_native_coding_reuses_application_layout_for_sandbox_paths(tmp_path) -> 
         assert sandbox_client.platform == layout.platform
     finally:
         asyncio.run(coding.close())
+
+
+def test_workspace_runtime_hydrates_persistent_network_rules(tmp_path) -> None:
+    rules = tmp_path / ".mind" / "rules"
+    rules.mkdir(parents=True)
+    (rules / "local.rules").write_text(
+        'network_rule(host="api.example.com", protocol="https", decision="allow")\n',
+        encoding="utf-8",
+    )
+    policy = StaticNetworkPolicy()
+    runtime = create_workspace_runtime(
+        tmp_path,
+        network_policy=policy,
+    )
+    try:
+        assert policy.decide(NetworkTarget(
+            "api.example.com",
+            NetworkProtocol.HTTPS,
+            443,
+        )) is NetworkDecision.ALLOW
+    finally:
+        asyncio.run(runtime.close())
 
 
 def test_sidecar_stream_read_without_size_collects_until_eof() -> None:

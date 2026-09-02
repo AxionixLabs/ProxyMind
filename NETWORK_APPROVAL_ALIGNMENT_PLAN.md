@@ -1,7 +1,7 @@
 # 审批架构与网络审批实施计划
 
 - 计划版本：V1
-- 状态：迭代 5 已实现，待进入迭代 6
+- 状态：迭代 6 进行中
 - 基线日期：2026-09-02
 - Codex 源码基线：revision `608f4a8a98feff0889cbfc9ed691efbf42d34cc6`
 - 目标平台：Windows、macOS、Linux
@@ -47,7 +47,7 @@ Agent Harness 平行的系统。`mind.py` 和 `composition.py` 只负责选择�
 | 3 | 三平台静态受管网络 | 特大 | 已实现 | 静态网络规则可执行 |
 | 4 | 网络决定、规则提交和审批卡 | 特大 | 已实现 | 前台网络审批闭环 |
 | 5 | 后台生命周期、执行面收口和平台加固 | 特大 | 已实现 | 三平台功能闭环 |
-| 6 | 恢复、安全一致性和发布验收 | 大 | 待开始 | 可声明选定 Codex 基线行为等价 |
+| 6 | 恢复、安全一致性和发布验收 | 大 | 进行中 | 可声明选定 Codex 基线行为等价 |
 
 计划版本 V1 只表示本文的产品实施版本，与任何 Python/Rust 私有协议版本无关。执行适配器
 需要升级协议时，应根据兼容性和安全字段变化独立决策，不得为了维持“V1”而静默接受未知
@@ -459,6 +459,10 @@ grant、reviewer 和 Effect 边界，并用契约测试证明非法组合无法�
 
 实施范围：
 
+- 受管代理覆盖 HTTP、HTTPS/CONNECT 和 SOCKS5 CONNECT；不支持的 SOCKS5 UDP 命令明确
+  返回拒绝，不把未实现能力误报为已放行。
+- 持久网络 allow amendment 先写入执行策略规则文件，再安装运行时规则；工作区运行时
+  创建时从已有 `network_rule` 水合受管策略，重启后不丢失批准。
 - 对账 requested/resolved/abandoned Approval Facts 和 prepared/committed/unknown Effects。
 - 覆盖代理端口占用、CA 失败、DNS 变化、上游代理、规则热更新和 Rust 执行组件崩溃。
 - 对比 Codex 测试，为每项记录“等价、严格改进、明确不支持或阻塞”。

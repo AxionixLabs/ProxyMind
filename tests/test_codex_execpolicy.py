@@ -12,6 +12,11 @@ from agent.domain.execution_policy import (
     normalize_sandbox_permission,
 )
 from infrastructure.config.execution_policy import PolicyParser
+from infrastructure.platform.network import (
+    ManagedNetworkRule,
+    NetworkDecision,
+)
+from agent.domain.approvals import NetworkProtocol
 
 
 def test_rules_parser_uses_strictest_matching_decision() -> None:
@@ -186,6 +191,32 @@ def test_persistent_amendment_updates_memory_and_local_rules(tmp_path) -> None:
         writable_rules_path=rules_path,
     )
     assert reloaded.decide("rm -rf cache").decision is Decision.Allow
+
+
+def test_persistent_network_rule_updates_memory_and_local_rules(tmp_path) -> None:
+    rules_path = tmp_path / ".mind" / "rules" / "default.rules"
+    manager = ExecPolicyManager(
+        workspace_root=tmp_path,
+        rules_paths=(),
+        writable_rules_path=rules_path,
+    )
+    manager.persist_network_rule(ManagedNetworkRule(
+        host="api.example.com",
+        protocol=NetworkProtocol.HTTPS,
+        decision=NetworkDecision.ALLOW,
+        port=443,
+    ))
+    manager.persist_network_rule(ManagedNetworkRule(
+        host="api.example.com",
+        protocol=NetworkProtocol.HTTPS,
+        decision=NetworkDecision.ALLOW,
+        port=443,
+    ))
+
+    assert rules_path.read_text(encoding="utf-8") == (
+        'network_rule(host="api.example.com", protocol="https", decision="allow")\n'
+    )
+    assert manager.policy.network_rules[0].host == "api.example.com"
 
 
 def test_complex_shell_command_has_no_persistent_prefix_proposal(tmp_path) -> None:

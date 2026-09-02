@@ -68,7 +68,10 @@ from infrastructure.config.session import ConfigSession
 from infrastructure.config.settings_session import SettingsSession
 from infrastructure.persistence.conversation_history import LocalConversationHistory
 from infrastructure.persistence.transcripts import ConversationTranscriptStore
-from infrastructure.platform.network import StaticNetworkPolicy
+from infrastructure.platform.network import (
+    ManagedNetworkRule,
+    StaticNetworkPolicy,
+)
 from infrastructure.services.runtime_owner import ServiceRuntimeOwner
 from infrastructure.services.configuration_host import ConfigServiceRuntime
 from infrastructure.services.turn_environment import capture_turn_environment
@@ -269,6 +272,14 @@ class ApplicationHost:
             except ValueError:
                 return None
 
+        async def persist_network_rule(rule: ManagedNetworkRule) -> None:
+            """把网络持久允许交给当前执行策略的 Effect owner。"""
+            execution_policy = self.workspace_runtime.execution_policy
+            persist = getattr(execution_policy, "persist_network_rule", None)
+            if not callable(persist):
+                raise RuntimeError("network policy persistence is unavailable")
+            persist(rule)
+
         workspace_runtime_factory = runtime_services.create_workspace_runtime
         if workspace_runtime_factory is None:
             raise TypeError("workspace runtime factory is required")
@@ -283,6 +294,7 @@ class ApplicationHost:
         network_service_holder["service"] = NetworkApprovalService(
             self.approval_coordinator,
             network_policy,
+            rule_sink=persist_network_rule,
         )
         self.network_approval_service = network_service_holder["service"]
 

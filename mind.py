@@ -15,6 +15,7 @@ from agent.application.config.settings import (
 )
 from agent.application.turns.run_result import RunResult
 from agent.composition import create_runtime_services
+from agent.domain.approvals import NetworkProtocol
 from agent.domain.policies import (
     NetworkAccess,
     PermissionSettings,
@@ -68,8 +69,12 @@ from infrastructure.platform.hook_command import HookCommandExecutor
 from infrastructure.platform.images import FileImageReader
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.sandbox import SandboxClient
-from infrastructure.platform.network import ManagedNetworkProxy
-from infrastructure.platform.network import StaticNetworkPolicy
+from infrastructure.platform.network import (
+    ManagedNetworkProxy,
+    ManagedNetworkRule,
+    NetworkDecision,
+    StaticNetworkPolicy,
+)
 from infrastructure.services.turn_environment import (
     capture_active_turn_environment,
     capture_turn_environment,
@@ -329,11 +334,38 @@ def create_workspace_runtime(
     network_blocked_handler_factory: NetworkBlockedHandlerFactory | None = None,
 ) -> WorkspaceRuntimeOwner:
     """在唯一进程组合根装配本机工作区运行时。"""
+
+    def create_execution_policy(
+        *,
+        workspace_root: str | os.PathLike[str],
+    ) -> ExecPolicyManager:
+        """创建执行策略并把已有网络规则水合到受管代理。"""
+        manager = ExecPolicyManager(workspace_root=workspace_root)
+        if network_policy is not None:
+            protocol_map = {
+                "http": NetworkProtocol.HTTP,
+                "https": NetworkProtocol.HTTPS,
+                "socks5_tcp": NetworkProtocol.SOCKS5_TCP,
+                "socks5_udp": NetworkProtocol.SOCKS5_UDP,
+            }
+            for rule in manager.policy.network_rules:
+                protocol = protocol_map.get(
+                    str(getattr(rule.protocol, "value", rule.protocol)).casefold()
+                )
+                if protocol is None:
+                    continue
+                network_policy.install_rule(ManagedNetworkRule(
+                    host=rule.host,
+                    protocol=protocol,
+                    decision=NetworkDecision.ALLOW,
+                ))
+        return manager
+
     return WorkspaceRuntimeOwner(
         workspace_root,
         application_layout=application_layout,
         coding_factory=create_workspace_coding,
-        execution_policy_factory=ExecPolicyManager,
+        execution_policy_factory=create_execution_policy,
         image_reader_factory=FileImageReader,
         process_capability=process_capability,
         network_access=network_access,

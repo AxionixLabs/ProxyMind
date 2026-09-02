@@ -3,6 +3,7 @@
 
 import asyncio
 import enum
+import ipaddress
 import os
 import sys
 from collections.abc import (
@@ -300,7 +301,13 @@ class ManagedNetworkProxy:
     ) -> None:
         """解析 HTTP 代理请求、执行策略并转发允许的请求。"""
         try:
-            raw_head = await reader.readuntil(b"\r\n\r\n")
+            first = await reader.read(1)
+            if not first:
+                return None
+            if first == b"\x05":
+                await self._handle_socks5(reader, writer)
+                return None
+            raw_head = first + await reader.readuntil(b"\r\n\r\n")
         except (asyncio.IncompleteReadError, asyncio.LimitOverrunError):
             return None
         try:
@@ -322,23 +329,9 @@ class ManagedNetworkProxy:
             await _write_response(writer, 400, str(error))
             return None
 
-        if self.policy.decide(
-            network_target,
-            session_id=self.session_id,
-        ) is NetworkDecision.DENY:
-            blocked = BlockedNetworkRequest(network_target, "static_policy_denied")
-            callback = self._on_blocked
-            if callback is not None:
-                try:
-                    await callback(blocked)
-                except Exception:
-                    pass
-            if self.policy.decide(
-                network_target,
-                session_id=self.session_id,
-            ) is NetworkDecision.DENY:
-                await _write_response(writer, 403, "network target is not allowed")
-                return None
+        if not await self._allow_target(network_target):
+            await _write_response(writer, 403, "network target is not allowed")
+            return None
 
         try:
             upstream_reader, upstream_writer = await asyncio.open_connection(
@@ -364,6 +357,72 @@ class ManagedNetworkProxy:
                     upstream_writer.write(await reader.readexactly(content_length))
                 await upstream_writer.drain()
                 await _pipe(upstream_reader, writer)
+        except (BrokenPipeError, ConnectionResetError, asyncio.IncompleteReadError):
+            return None
+        finally:
+            upstream_writer.close()
+            await upstream_writer.wait_closed()
+
+    async def _allow_target(self, target: NetworkTarget) -> bool:
+        """评估目标并在阻断时等待统一审批回调。"""
+        if self.policy.decide(target, session_id=self.session_id) is NetworkDecision.ALLOW:
+            return True
+        callback = self._on_blocked
+        if callback is not None:
+            try:
+                await callback(BlockedNetworkRequest(target, "static_policy_denied"))
+            except Exception:
+                return False
+        return self.policy.decide(target, session_id=self.session_id) is NetworkDecision.ALLOW
+
+    async def _handle_socks5(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        """处理 SOCKS5 无认证 CONNECT，并复用同一网络策略。"""
+        try:
+            method_count = (await reader.readexactly(1))[0]
+            methods = await reader.readexactly(method_count)
+        except asyncio.IncompleteReadError:
+            return None
+        if 0 not in methods:
+            writer.write(b"\x05\xff")
+            await writer.drain()
+            return None
+        writer.write(b"\x05\x00")
+        await writer.drain()
+
+        try:
+            version, command, _reserved, address_type = await reader.readexactly(4)
+            if version != 5:
+                return None
+            host = await _read_socks5_host(reader, address_type)
+            port = int.from_bytes(await reader.readexactly(2), "big")
+        except (asyncio.IncompleteReadError, ValueError):
+            await _write_socks5_reply(writer, 0x01)
+            return None
+        if command != 0x01:
+            await _write_socks5_reply(writer, 0x07)
+            return None
+
+        target = NetworkTarget(host, NetworkProtocol.SOCKS5_TCP, port)
+        if not await self._allow_target(target):
+            await _write_socks5_reply(writer, 0x02)
+            return None
+        try:
+            upstream_reader, upstream_writer = await asyncio.open_connection(host, port)
+        except (OSError, asyncio.TimeoutError):
+            await _write_socks5_reply(writer, 0x05)
+            return None
+
+        try:
+            writer.write(b"\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00")
+            await writer.drain()
+            await asyncio.gather(
+                _pipe(reader, upstream_writer),
+                _pipe(upstream_reader, writer),
+            )
         except (BrokenPipeError, ConnectionResetError, asyncio.IncompleteReadError):
             return None
         finally:
@@ -451,6 +510,32 @@ async def _pipe(
             return None
         writer.write(chunk)
         await writer.drain()
+
+
+async def _read_socks5_host(
+    reader: asyncio.StreamReader,
+    address_type: int,
+) -> str:
+    """读取 SOCKS5 域名、IPv4 或 IPv6 目标地址。"""
+    if address_type == 0x01:
+        return str(ipaddress.ip_address(await reader.readexactly(4)))
+    if address_type == 0x04:
+        return str(ipaddress.ip_address(await reader.readexactly(16)))
+    if address_type == 0x03:
+        length = (await reader.readexactly(1))[0]
+        if length == 0:
+            raise ValueError("SOCKS5 domain is empty")
+        return (await reader.readexactly(length)).decode("idna")
+    raise ValueError("SOCKS5 address type is unsupported")
+
+
+async def _write_socks5_reply(
+    writer: asyncio.StreamWriter,
+    reply: int,
+) -> None:
+    """写入 SOCKS5 最小响应并保持连接由调用方收束。"""
+    writer.write(bytes((5, reply, 0, 1, 0, 0, 0, 0, 0, 0)))
+    await writer.drain()
 
 
 async def _write_response(

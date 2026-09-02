@@ -176,6 +176,51 @@ async def test_managed_proxy_rechecks_policy_after_blocked_callback() -> None:
         await target_server.wait_closed()
 
 
+@pytest.mark.anyio
+async def test_managed_proxy_forwards_allowed_socks5_connect() -> None:
+    async def target_handler(
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        payload = await reader.readexactly(4)
+        writer.write(payload)
+        await writer.drain()
+        writer.close()
+
+    target_server = await asyncio.start_server(target_handler, "127.0.0.1", 0)
+    target_port = int(target_server.sockets[0].getsockname()[1])
+    proxy = ManagedNetworkProxy(StaticNetworkPolicy((
+        ManagedNetworkRule(
+            host="127.0.0.1",
+            protocol=NetworkProtocol.SOCKS5_TCP,
+            port=target_port,
+            decision=NetworkDecision.ALLOW,
+        ),
+    )))
+    await proxy.start()
+    try:
+        reader, writer = await asyncio.open_connection(proxy.host, proxy.port)
+        writer.write(b"\x05\x01\x00")
+        await writer.drain()
+        assert await reader.readexactly(2) == b"\x05\x00"
+        writer.write(
+            b"\x05\x01\x00\x01"
+            b"\x7f\x00\x00\x01"
+            + target_port.to_bytes(2, "big")
+        )
+        await writer.drain()
+        assert (await reader.readexactly(10))[:2] == b"\x05\x00"
+        writer.write(b"ping")
+        await writer.drain()
+        assert await reader.readexactly(4) == b"ping"
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await proxy.close()
+        target_server.close()
+        await target_server.wait_closed()
+
+
 async def _record_blocked(
     blocked: list[BlockedNetworkRequest],
     request: BlockedNetworkRequest,

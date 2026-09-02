@@ -20,12 +20,15 @@ from agent.domain.execution_policy import (
     ExecutionPolicyAmendment,
     ExecutionPolicyRequirement,
     MatchOptions,
+    NetworkRule,
+    NetworkRuleProtocol,
     Policy,
     PrefixPattern,
     PrefixRule,
     SandboxPermission,
     normalize_sandbox_permission,
 )
+from agent.ports.network import NetworkRulePort
 from infrastructure.config.execution_policy import PolicyParser
 from infrastructure.config.paths import default_application_home
 from infrastructure.platform.command_safety.is_dangerous_command import (
@@ -468,6 +471,51 @@ class ExecPolicyManager:
                 source += f'prefix_rule(pattern={encoded_prefix}, decision="allow")\n'
                 target.write_text(source, encoding=const.CHARSET)
                 self.policy.add_prefix_rule(rule)
+        return self.writable_rules_path
+
+    def persist_network_rule(self, rule: NetworkRulePort) -> Path:
+        """校验并持久化用户确认的网络允许规则。"""
+        host = str(rule.host or "").strip()
+        if not host:
+            raise ValueError("network rule host is required")
+        raw_protocol = getattr(rule.protocol, "value", rule.protocol)
+        protocol = str(raw_protocol or "").strip().casefold()
+        if protocol not in {
+            "http",
+            "https",
+            "socks5_tcp",
+            "socks5_udp",
+        }:
+            raise ValueError("network rule protocol is invalid")
+        with self._write_lock:
+            already_allowed = any(
+                str(existing.host).strip().casefold().rstrip(".")
+                == host.casefold().rstrip(".")
+                and str(getattr(existing.protocol, "value", existing.protocol))
+                .strip()
+                .casefold()
+                == protocol
+                and existing.decision is Decision.Allow
+                for existing in self.policy.network_rules
+            )
+            if not already_allowed:
+                target = self.writable_rules_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                source = target.read_text(encoding=const.CHARSET) if target.is_file() else ""
+                if source and not source.endswith("\n"):
+                    source += "\n"
+                source += (
+                    "network_rule("
+                    f"host={json.dumps(host, ensure_ascii=False)}, "
+                    f"protocol={json.dumps(protocol)}, decision=\"allow\")\n"
+                )
+                target.write_text(source, encoding=const.CHARSET)
+                self.policy.add_network_rule(NetworkRule(
+                    host=host,
+                    protocol=NetworkRuleProtocol.parse(protocol),
+                    decision=Decision.Allow,
+                    source=str(target),
+                ))
         return self.writable_rules_path
 
     def check(
