@@ -101,28 +101,14 @@ def normalize_hook_output(
     ):
         raise ValueError(f"{event} block decision requires a continuation prompt")
 
-    replacement_set, replacement_result = _replacement_result(merged)
-
     continue_execution = _continue_execution(
         event,
         decision=decision,
         continuation=continuation,
     )
 
-    output = _normalized_output(
-        data,
-        decision=decision,
-        continuation=continuation,
-        reason=reason,
-        updated_input=updated_input,
-        additional_context=contexts,
-        replacement_set=replacement_set,
-        replacement_result=replacement_result,
-        continuation_prompt=continuation_prompt,
-    )
-
     return HookNormalizedOutput(
-        output=output,
+        output=dict(data),
         effect=HookOutputEffect(
             continue_execution=continue_execution,
             stop_requested=not continuation,
@@ -131,8 +117,6 @@ def normalize_hook_output(
             updated_input=updated_input,
             additional_context=contexts,
             warning=system_text,
-            replacement_result=replacement_result,
-            replacement_result_set=replacement_set,
             continuation_prompt=continuation_prompt,
         ),
     )
@@ -295,14 +279,6 @@ def _validate_output_semantics(
         if data.get("suppressOutput"):
             raise ValueError(
                 "PostToolUse hook returned unsupported suppressOutput"
-            )
-        specific = data.get("hookSpecificOutput")
-        if (
-            isinstance(specific, dict)
-            and specific.get("updatedMCPToolOutput") is not None
-        ):
-            raise ValueError(
-                "PostToolUse hook returned unsupported updatedMCPToolOutput"
             )
         if (
             data.get("continue", True) is True
@@ -471,16 +447,6 @@ def _normalize_optional_text(
     return value.strip()
 
 
-def _replacement_result(
-    data: dict[str, typing.Any]
-) -> tuple[bool, typing.Any]:
-    """读取可选的工具结果替换对象。"""
-    return _first_present(
-        data,
-        "replacementResult",
-    )
-
-
 def _continue_execution(
     event: HookEventName,
     *,
@@ -496,36 +462,6 @@ def _continue_execution(
         return False
 
     return True
-
-
-def _normalized_output(
-    data: dict[str, typing.Any],
-    *,
-    decision: str,
-    continuation: bool,
-    reason: str,
-    updated_input: dict[str, typing.Any] | None,
-    additional_context: tuple[str, ...],
-    replacement_set: bool,
-    replacement_result: typing.Any,
-    continuation_prompt: str,
-) -> dict[str, typing.Any]:
-    """构建兼容既有调用点的规范化输出字典。"""
-    output = dict(data)
-    output["decision"] = decision
-    output["continue"] = continuation
-    output["reason"] = reason
-
-    if updated_input is not None:
-        output["updated_input"] = dict(updated_input)
-    if additional_context:
-        output["additional_context"] = "\n\n".join(additional_context)
-    if replacement_set:
-        output["replacement_result"] = replacement_result
-    if continuation_prompt:
-        output["continuation_prompt"] = continuation_prompt
-
-    return output
 
 
 def _first_present(

@@ -288,9 +288,6 @@ _COMMAND_OUTPUT_PROPERTIES: dict[str, JsonSchema] = {
     }),
 }
 
-_REPLACEMENT_PROPERTIES: dict[str, JsonSchema] = {
-    "replacementResult": _ANY,
-}
 
 def _decision_schema(*values: str) -> JsonSchema:
     """构建只允许指定决策文本的 schema。"""
@@ -361,11 +358,7 @@ HOOK_OUTPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
             "decision": _decision_schema("block"),
             "reason": _STRING,
         },
-        _REPLACEMENT_PROPERTIES,
-        specific={
-            **_CONTEXT_OUTPUT_PROPERTIES,
-            "updatedMCPToolOutput": _ANY,
-        },
+        specific=_CONTEXT_OUTPUT_PROPERTIES,
     ),
     "PreCompact": _output_schema(
         "PreCompact",

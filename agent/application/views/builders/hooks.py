@@ -25,6 +25,12 @@ def build_hook_run_view(
         status=run.status,
         status_message=run.status_message,
         duration_ms=run.duration_ms,
+        handler_type=run.handler_type,
+        execution_mode=run.execution_mode,
+        scope=run.scope,
+        source_path=run.source_path,
+        source=run.source,
+        display_order=run.display_order,
         entries=tuple(
             HookOutputView(entry.kind, entry.text)
             for entry in run.entries

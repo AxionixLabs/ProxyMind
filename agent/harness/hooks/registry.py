@@ -84,7 +84,11 @@ class HookRegistry(HookMcpRunnerBinder):
         self._mcp_runner = runner
 
     @staticmethod
-    def _runtime_entry(item: _ResolvedHook) -> HookRuntimeEntry:
+    def _runtime_entry(
+        item: _ResolvedHook,
+        *,
+        display_order: int,
+    ) -> HookRuntimeEntry:
         """把解析结果转换为执行状态条目。"""
         definition = item.definition
 
@@ -98,6 +102,23 @@ class HookRegistry(HookMcpRunnerBinder):
             trust_state=item.trust_state,
             enabled=item.enabled,
             active=item.active,
+            handler_type=definition.handler.type,
+            execution_mode=(
+                "async"
+                if definition.handler.run_async
+                and definition.event != "SessionEnd"
+                else "sync"
+            ),
+            scope=(
+                "thread"
+                if definition.event in {
+                    "SessionStart",
+                    "SessionEnd",
+                    "SubagentStart",
+                }
+                else "turn"
+            ),
+            display_order=display_order,
         )
 
     @staticmethod
@@ -244,8 +265,8 @@ class HookRegistry(HookMcpRunnerBinder):
             installed_count=len(resolved),
             active_count=len(active),
             hooks=tuple(
-                self._runtime_entry(item)
-                for item in resolved
+                self._runtime_entry(item, display_order=display_order)
+                for display_order, item in enumerate(resolved)
             ),
             warnings=warning_items,
         )

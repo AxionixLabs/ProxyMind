@@ -246,13 +246,18 @@ def test_pre_tool_use_requires_allow_to_include_updated_input() -> None:
         })
 
 
-def test_post_tool_use_rejects_reserved_result_rewrite() -> None:
-    with pytest.raises(ValueError, match="updatedMCPToolOutput"):
+def test_post_tool_use_rejects_result_rewrite_fields() -> None:
+    with pytest.raises(ValueError, match="unknown PostToolUse output"):
         normalize_hook_output("PostToolUse", {
             "hookSpecificOutput": {
                 "hookEventName": "PostToolUse",
                 "updatedMCPToolOutput": {},
             },
+        })
+
+    with pytest.raises(ValueError, match="unknown PostToolUse output field"):
+        normalize_hook_output("PostToolUse", {
+            "replacementResult": {"ok": False},
         })
 
 

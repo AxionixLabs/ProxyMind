@@ -57,6 +57,12 @@ class HookRunSummary:
     completed_at: float | None = None
     duration_ms: int | None = None
     entries: tuple[HookOutputEntry, ...] = ()
+    handler_type: typing.Literal["command", "mcp_tool"] = "command"
+    execution_mode: typing.Literal["sync", "async"] = "sync"
+    scope: typing.Literal["thread", "turn"] = "turn"
+    source_path: str | None = None
+    source: str = ""
+    display_order: int = 0
 
     def __post_init__(self) -> None:
         """规范化展示文本并冻结输出条目。"""
@@ -80,6 +86,10 @@ class HookRuntimeEntry:
     trust_state: HookTrustState
     enabled: bool
     active: bool
+    handler_type: typing.Literal["command", "mcp_tool"] = "command"
+    execution_mode: typing.Literal["sync", "async"] = "sync"
+    scope: typing.Literal["thread", "turn"] = "turn"
+    display_order: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,8 +125,6 @@ class HookOutputEffect:
     updated_input: dict[str, typing.Any] | None = None
     additional_context: tuple[str, ...] = ()
     warning: str = ""
-    replacement_result: typing.Any = None
-    replacement_result_set: bool = False
     continuation_prompt: str = ""
 
     def __post_init__(self) -> None:

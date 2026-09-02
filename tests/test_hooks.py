@@ -719,7 +719,7 @@ async def test_stop_continuation_limit_spills_before_aggregation() -> None:
 
     record = result.records[0]
     summary = "continuation spilled to D:/tmp/continuation.log"
-    assert record.output["reason"] == summary
+    assert record.output["reason"] == "0123456789"
     assert record.effect.reason == summary
     assert record.effect.continuation_prompt == summary
     assert spiller.calls == [(
@@ -2164,7 +2164,7 @@ async def test_pre_tool_use_context_reaches_tool_run_result() -> None:
 
 
 @pytest.mark.anyio
-async def test_post_tool_use_exposes_replacement_result_effect() -> None:
+async def test_post_tool_use_ignores_unsupported_result_rewrite() -> None:
     definitions = _definitions({
         "PostToolUse": [_hook("post")],
     })
@@ -2192,9 +2192,9 @@ async def test_post_tool_use_exposes_replacement_result_effect() -> None:
         )),
     )
 
-    assert result.visible_result.text == "redacted"
-    assert result.visible_result.fields["data"] == {"redacted": True}
-    assert result.visible_result.additional_context == ("explain the redaction",)
+    assert result.visible_result.text == "secret"
+    assert result.visible_result.fields["data"] == {"secret": "value"}
+    assert result.visible_result.additional_context == ()
 
 
 @pytest.mark.anyio
@@ -2236,14 +2236,12 @@ async def test_post_tool_use_stop_returns_feedback_without_blocking() -> None:
 
 
 @pytest.mark.anyio
-async def test_post_tool_use_block_rejects_result_before_replacement() -> None:
+async def test_post_tool_use_rewrite_cannot_bypass_original_result() -> None:
     definitions = _definitions({
         "PostToolUse": [_hook("post")],
     })
     runner = _CommandRunner(outputs={
         definitions[0].key: {
-            "decision": "block",
-            "reason": "reject this result",
             "replacementResult": {
                 "ok": True,
                 "text": "replacement",
@@ -2266,17 +2264,9 @@ async def test_post_tool_use_block_rejects_result_before_replacement() -> None:
 
     assert result.allowed
     assert result.value is original
-    assert result.visible_result.ok is False
-    assert result.visible_result.text == "reject this result"
-    assert result.visible_result.fields == {
-        "ok": False,
-        "text": "reject this result",
-        "attachments": [],
-        "data": {
-            "hook_blocked": True,
-            "error": "reject this result",
-        },
-    }
+    assert result.visible_result.ok is True
+    assert result.visible_result.text == "original"
+    assert result.visible_result.fields == original.fields
 
 
 @pytest.mark.anyio
@@ -2578,7 +2568,8 @@ async def test_stop_exit_two_spills_full_stderr_continuation(tmp_path) -> None:
     assert record.effect.continuation_prompt.startswith(
         "Hook continuation-prompt output spilled to "
     )
-    assert record.output["reason"] == record.effect.continuation_prompt
+    assert record.output["reason"].startswith("x")
+    assert record.output["reason"] != record.effect.continuation_prompt
     assert "x" * 5 not in record.effect.continuation_prompt
     assert "size_bytes: 10000" in record.effect.continuation_prompt
 

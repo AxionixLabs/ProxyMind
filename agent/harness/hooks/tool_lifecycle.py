@@ -43,8 +43,6 @@ class _PostToolUseResult:
     """保存工具后置 Hook 对模型可见结果的影响。"""
     blocked: bool = False
     feedback_message: str = ""
-    replacement_result: typing.Any = None
-    replacement_result_set: bool = False
     additional_context: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -151,9 +149,6 @@ class ToolHookEvents:
         contexts: list[str] = []
         feedback: list[str] = []
 
-        replacement_result: typing.Any = None
-        replacement_result_set: bool = False
-
         blocked: bool = False
 
         for record in dispatched.records:
@@ -163,10 +158,6 @@ class ToolHookEvents:
             effect = record.effect
 
             contexts.extend(effect.additional_context)
-            if effect.replacement_result_set:
-                replacement_result = effect.replacement_result
-                replacement_result_set = True
-
             if effect.stop_requested:
                 feedback.append(_bounded_reason(
                     effect.reason or "PostToolUse hook stopped execution"
@@ -180,8 +171,6 @@ class ToolHookEvents:
             feedback_message="\n\n".join(
                 message for message in feedback if message
             ),
-            replacement_result=replacement_result,
-            replacement_result_set=replacement_result_set,
             additional_context=tuple(contexts),
         )
 
@@ -415,8 +404,6 @@ class ToolCallCoordinator:
             ok=operation_result.snapshot.ok,
             text=operation_result.snapshot.text,
             fields=operation_result.snapshot.fields,
-            replacement_result=post_result.replacement_result,
-            replacement_result_set=post_result.replacement_result_set,
             blocked=post_result.blocked,
             feedback_message=post_result.feedback_message,
             additional_context=additional_context,

@@ -50,6 +50,14 @@ class _RegisteredHook:
     """保存已编译 matcher 的活动 Hook。"""
     definition: HookDefinitionConfig
     matcher: HookMatcher
+    display_order: int
+
+
+def _hook_scope(event: HookEventName) -> typing.Literal["thread", "turn"]:
+    """返回 Hook 所属的生命周期范围。"""
+    if event in {"SessionStart", "SessionEnd", "SubagentStart"}:
+        return "thread"
+    return "turn"
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -86,8 +94,9 @@ class HookRuntime:
                     definition.event,
                     definition.matcher,
                 ),
+                display_order=display_order,
             )
-            for definition in active_definitions
+            for display_order, definition in enumerate(active_definitions)
         )
 
         object.__setattr__(self, "command_runner", command_runner)
@@ -260,6 +269,17 @@ class HookRuntime:
             status="running",
             status_message=(definition.handler.status_message or "").strip(),
             started_at=time.monotonic(),
+            handler_type=definition.handler.type,
+            execution_mode=(
+                "async"
+                if definition.handler.run_async
+                and definition.event != "SessionEnd"
+                else "sync"
+            ),
+            scope=_hook_scope(definition.event),
+            source_path=definition.source_path,
+            source=definition.source_scope,
+            display_order=registered.display_order,
         )
         await self._status_started(run)
 
@@ -537,13 +557,8 @@ class HookRuntime:
             preview_chars=limit * 4,
         )
 
-        output = _replace_additional_context_output(
-            normalized.output,
-            summary,
-        )
-
         return HookNormalizedOutput(
-            output=output,
+            output=normalized.output,
             effect=replace(
                 normalized.effect,
                 additional_context=(summary,),
@@ -580,14 +595,8 @@ class HookRuntime:
             preview_chars=limit * 4,
         )
 
-        output = dict(normalized.output)
-        if output.get("reason") == prompt:
-            output["reason"] = summary
-        if output.get("continuation_prompt") == prompt:
-            output["continuation_prompt"] = summary
-
         return HookNormalizedOutput(
-            output=output,
+            output=normalized.output,
             effect=replace(
                 normalized.effect,
                 reason=(
@@ -614,7 +623,6 @@ class HookRuntime:
                 hook_match_candidates(event, match_value)
             )
         )
-
     @staticmethod
     def _observe_failure(
         definition: HookDefinitionConfig,
@@ -677,29 +685,6 @@ class HookRuntime:
             if key not in fields
         })
         observe("hook.warning", level="WARNING", **fields)
-
-
-def _replace_additional_context_output(
-    output: dict[str, typing.Any],
-    summary: str
-) -> dict[str, typing.Any]:
-    """用落盘恢复摘要替换执行记录中的完整附加上下文。"""
-    replaced = dict(output)
-    for key in ("additionalContext", "additional_context"):
-        if key in replaced:
-            replaced[key] = summary
-
-    specific = replaced.get("hookSpecificOutput")
-    if isinstance(specific, dict):
-        specific_copy = dict(specific)
-        for key in ("additionalContext", "additional_context"):
-            if key in specific_copy:
-                specific_copy[key] = summary
-        replaced["hookSpecificOutput"] = specific_copy
-
-    replaced["additional_context"] = summary
-
-    return replaced
 
 
 if __name__ == '__main__':

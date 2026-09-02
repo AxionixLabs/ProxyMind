@@ -228,11 +228,6 @@ async def test_plan_step_applies_post_hook_result_and_feedback() -> None:
         },
         hook_outputs={
             "redact": {
-                "replacementResult": {
-                    "ok": False,
-                    "text": "redacted",
-                    "data": {"redacted": True},
-                },
                 "systemMessage": "Do not expose the original result.",
                 "hookSpecificOutput": {
                     "hookEventName": "PostToolUse",
@@ -248,9 +243,9 @@ async def test_plan_step_applies_post_hook_result_and_feedback() -> None:
     })
 
     step = report.results[0]
-    assert step.ok is False
-    assert step.text == "redacted"
-    assert step.result["data"] == {"redacted": True}
+    assert step.ok is True
+    assert step.text == "secret"
+    assert step.result["data"] == {"secret": True}
     assert report.additional_context == ("explain the redaction",)
 
 

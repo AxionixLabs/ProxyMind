@@ -3055,7 +3055,7 @@ async def test_stream_queues_pre_tool_context_after_operation_error(
 
 
 @pytest.mark.anyio
-async def test_post_tool_hook_replaces_plan_result_for_model(
+async def test_post_tool_hook_cannot_replace_plan_result_for_model(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -3063,11 +3063,6 @@ async def test_post_tool_hook_replaces_plan_result_for_model(
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
             return HookCommandOutput(data={
-                "replacementResult": {
-                    "ok": False,
-                    "text": "plan result replaced",
-                    "data": {"replaced": True},
-                },
                 "systemMessage": "Use the replacement result.",
                 "hookSpecificOutput": {
                     "hookEventName": "PostToolUse",
@@ -3121,9 +3116,9 @@ async def test_post_tool_hook_replaces_plan_result_for_model(
         "sid_test",
         "call-plan",
         PLAN_STEPS_TOOL,
-        False,
+        True,
     )
-    assert posted[0][0][5]["data"] == {"replaced": True}
+    assert posted[0][0][5]["data"] == {"steps": 1}
     assert posted[0][1]["additional_context"] == ("explain replacement",)
     assert "system_message" not in posted[0][1]
 

@@ -44,6 +44,12 @@ class HookRunView:
     status_message: str = ""
     duration_ms: int | None = None
     entries: tuple[HookOutputView, ...] = ()
+    handler_type: str = "command"
+    execution_mode: str = "sync"
+    scope: str = "turn"
+    source_path: str | None = None
+    source: str = ""
+    display_order: int = 0
 
 
 if __name__ == '__main__':
