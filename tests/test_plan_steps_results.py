@@ -18,6 +18,7 @@ from agent.harness.hooks.scope import HookExecutionScope
 from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from infrastructure.mcp.tool_execution import McpToolExecutionAdapter
+from infrastructure.platform.hook_command import HookCommandOutput
 from agent.domain.policies import preset_permissions
 
 
@@ -47,7 +48,7 @@ class _HookRunner(object):
 
     async def execute(self, definition, payload):
         self.calls.append((definition, payload))
-        return SimpleNamespace(data=dict(
+        return HookCommandOutput(data=dict(
             self.outputs.get(definition.handler.command) or {}
         ))
 

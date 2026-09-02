@@ -59,6 +59,7 @@ HOOK_EVENT_SPECS: dict[HookEventName, HookEventSpec] = {
     "SubagentStart": _event_spec("SubagentStart"),
     "SubagentStop": _event_spec("SubagentStop"),
     "Stop": _event_spec("Stop"),
+    "Interrupt": _event_spec("Interrupt"),
 }
 
 

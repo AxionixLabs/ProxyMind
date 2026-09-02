@@ -19,6 +19,7 @@ HookEventName = typing.Literal[
     "SubagentStart",
     "SubagentStop",
     "Stop",
+    "Interrupt",
 ]
 
 HookMatcherSubject = typing.Literal[
@@ -42,8 +43,11 @@ HookTrustPolicy = typing.Literal[
 HookHandlerType = typing.Literal[
     "command",
     "mcp_tool",
+]
+
+HookUnsupportedHandlerType = typing.Literal[
     "prompt",
-    "agent"
+    "agent",
 ]
 
 HookStateTable = dict[str, dict[str, bool | str]]
@@ -211,6 +215,13 @@ HOOK_EVENT_CONFIG_SPECS: dict[HookEventName, HookEventConfigSpec] = {
         control_policy="notify",
         supports_additional_context=False,
     ),
+    "Interrupt": HookEventConfigSpec(
+        name="Interrupt",
+        description="When an active root turn is interrupted",
+        matcher_subject=None,
+        control_policy="notify",
+        supports_additional_context=False,
+    ),
 }
 
 HOOK_EVENT_NAMES: tuple[HookEventName, ...] = (
@@ -225,6 +236,7 @@ HOOK_EVENT_NAMES: tuple[HookEventName, ...] = (
     "SubagentStart",
     "SubagentStop",
     "Stop",
+    "Interrupt",
 )
 
 if set(HOOK_EVENT_CONFIG_SPECS) != set(HOOK_EVENT_NAMES):
@@ -232,23 +244,20 @@ if set(HOOK_EVENT_CONFIG_SPECS) != set(HOOK_EVENT_NAMES):
 
 
 @dataclass(frozen=True, slots=True)
-class HookHandlerConfig:
-    """描述 Hook 使用的执行处理器。"""
-    type: HookHandlerType
-    command: str | None
+class CommandHookHandlerConfig:
+    """描述一个可执行的本地命令 Hook。"""
+
+    type: typing.Literal["command"]
+    command: str
     command_windows: str | None
     status_message: str | None
-    mcp_server: str | None
-    mcp_tool: str | None
     timeout_sec: int
     run_async: bool
     additional_context_limit: int | None
 
     @property
     def selector(self) -> str:
-        """返回用于稳定身份区分的处理器选择器。"""
-        if self.type == "mcp_tool":
-            return f"mcp_tool:{self.mcp_server or ''}/{self.mcp_tool or ''}"
+        """返回用于稳定身份区分的命令处理器选择器。"""
         return self.type
 
     @property
@@ -262,14 +271,45 @@ class HookHandlerConfig:
 
     def command_for_platform(self, platform: str) -> str:
         """返回当前平台应执行的命令。"""
-        if self.type != "command" or self.command is None:
-            raise HookConfigError(
-                f"handler type {self.type!r} does not provide a command"
-            )
         if platform == "nt" and self.command_windows:
             return self.command_windows
         return self.command
 
+
+@dataclass(frozen=True, slots=True)
+class McpToolHookHandlerConfig:
+    """描述一个指向已注册 MCP 工具的 Hook。"""
+
+    type: typing.Literal["mcp_tool"]
+    server: str
+    tool: str
+    status_message: str | None
+    timeout_sec: int
+
+    @property
+    def selector(self) -> str:
+        """返回用于稳定身份区分的 MCP 工具选择器。"""
+        return f"mcp_tool:{self.server}/{self.tool}"
+
+    @property
+    def run_async(self) -> bool:
+        """返回 MCP Hook 是否异步执行。"""
+        return False
+
+    @property
+    def additional_context_limit(self) -> int | None:
+        """返回 MCP Hook 的附加上下文限制。"""
+        return None
+
+    @property
+    def effective_additional_context_limit(self) -> int:
+        """返回 MCP Hook 使用的默认上下文阈值。"""
+        return _DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT
+
+
+HookHandlerConfig: typing.TypeAlias = (
+    CommandHookHandlerConfig | McpToolHookHandlerConfig
+)
 
 @dataclass(frozen=True, slots=True)
 class HookDefinitionConfig:

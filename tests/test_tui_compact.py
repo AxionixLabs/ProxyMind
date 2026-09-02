@@ -12,6 +12,7 @@ from agent.harness.hooks.runtime import HookRuntime
 from agent.harness.hooks.scope import HookExecutionScope
 from frontends.tui.features import conversation
 from infrastructure.hooks.discovery import resolve_hook_definitions
+from infrastructure.platform.hook_command import HookCommandOutput
 from agent.domain.policies import preset_permissions
 
 
@@ -35,7 +36,7 @@ class _RecordingHookRunner(object):
 
     async def execute(self, definition, payload):
         self.calls.append((definition.event, payload))
-        return SimpleNamespace(data=self.outputs.get(definition.event, {}))
+        return HookCommandOutput(data=self.outputs.get(definition.event, {}))
 
 
 class _DiscardTranscriptWriter(object):
@@ -347,7 +348,7 @@ async def test_pre_compact_hook_blocks_remote_operation(monkeypatch, tmp_path) -
 
         async def execute(self, definition, payload):
             self.calls.append((definition.event, payload))
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "continue": False,
                 "stopReason": "keep current context",
             })
@@ -402,7 +403,7 @@ async def test_pre_compact_hook_failure_does_not_block(monkeypatch, tmp_path) ->
             self.calls.append((definition.event, payload))
             if definition.event == "PreCompact":
                 raise RuntimeError("compact hook failed")
-            return SimpleNamespace(data={})
+            return HookCommandOutput(data={})
 
     runner = Runner()
     runtime = _compact_hook_runtime(tmp_path, runner)
@@ -445,7 +446,7 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
 
         async def execute(self, definition, payload):
             self.calls.append((definition.event, payload))
-            return SimpleNamespace(data={})
+            return HookCommandOutput(data={})
 
     runner = Runner()
     runtime = HookRuntime(definitions, command_runner=runner)

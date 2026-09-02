@@ -251,6 +251,12 @@ HOOK_INPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
             "last_assistant_message",
         ),
     ),
+    "Interrupt": _input_schema(
+        "Interrupt",
+        _TURN_INPUT_PROPERTIES,
+        _PERMISSION_INPUT_PROPERTIES,
+        required=(*_TURN_INPUT_PROPERTIES, *_PERMISSION_INPUT_PROPERTIES),
+    ),
 }
 
 _COMMON_OUTPUT_PROPERTIES: dict[str, JsonSchema] = {
@@ -285,7 +291,6 @@ _COMMAND_OUTPUT_PROPERTIES: dict[str, JsonSchema] = {
 _REPLACEMENT_PROPERTIES: dict[str, JsonSchema] = {
     "replacementResult": _ANY,
 }
-
 
 def _decision_schema(*values: str) -> JsonSchema:
     """构建只允许指定决策文本的 schema。"""
@@ -405,6 +410,9 @@ HOOK_OUTPUT_SCHEMAS: dict[HookEventName, JsonSchema] = {
             "decision": _decision_schema("block"),
             "reason": _STRING,
         },
+    ),
+    "Interrupt": _object_schema(
+        {"systemMessage": _STRING},
     ),
 }
 

@@ -22,6 +22,7 @@ from agent.harness.execution.subagent_runner import (
     MAX_SUBAGENT_STOP_CONTINUATIONS,
 )
 from infrastructure.hooks.discovery import resolve_hook_definitions
+from infrastructure.platform.hook_command import HookCommandOutput
 from agent.domain.policies import preset_permissions
 
 
@@ -42,7 +43,7 @@ class _CommandRunner:
         error = self.errors.get(definition.key)
         if error is not None:
             raise error
-        return SimpleNamespace(data=dict(self.outputs.get(definition.key) or {}))
+        return HookCommandOutput(data=dict(self.outputs.get(definition.key) or {}))
 
 
 class _Controller:

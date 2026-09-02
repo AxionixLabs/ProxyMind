@@ -14,6 +14,7 @@ from infrastructure.config.layers import PROJECT_CONFIG_DIR
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from infrastructure.hooks.discovery import resolve_hook_definitions
+from infrastructure.platform.hook_command import HookCommandOutput
 from agent.domain.hooks import HOOK_EVENT_NAMES
 from agent.application.hooks.context import HookExecutionContext
 
@@ -25,6 +26,11 @@ def _hook(command, *, matcher=None):
     if matcher is not None:
         config["matcher"] = matcher
     return config
+
+
+class _NoopRunner:
+    async def execute(self, _definition, _payload):
+        return HookCommandOutput(data={})
 
 
 def _definitions(source_path: Path):
@@ -52,7 +58,7 @@ def _definitions(source_path: Path):
 def _controller(tmp_path: Path, config_session) -> HookManager:
     return HookManager(
         config_session,
-        HookRegistry(),
+        HookRegistry(command_runner=_NoopRunner()),
         workspace=lambda: tmp_path,
     )
 
@@ -99,6 +105,7 @@ def test_catalog_summarizes_registered_events_and_hook_details(tmp_path) -> None
         ("SubagentStart", 0, 0, "When a subagent is created"),
         ("SubagentStop", 0, 0, "Right before a subagent ends its turn"),
         ("Stop", 0, 0, f"Right before {const.APP_DESC} ends its turn"),
+        ("Interrupt", 0, 0, "When an active root turn is interrupted"),
     ]
     assert catalog.hooks[0].command == "check-project"
     assert catalog.hooks[0].matcher == "shell_command"
@@ -126,6 +133,7 @@ def test_hook_event_names_use_the_stable_codex_order() -> None:
         "SubagentStart",
         "SubagentStop",
         "Stop",
+        "Interrupt",
     )
 
 
@@ -362,7 +370,7 @@ def test_trusted_project_layer_does_not_bypass_hook_content_trust(
     })
 
     resolution = ConfigSession(store, workspace=project_root).resolve()
-    status = HookRegistry().build(
+    status = HookRegistry(command_runner=_NoopRunner()).build(
         resolution.hooks,
         hook_states=resolution.hook_states,
     ).status()
@@ -381,7 +389,10 @@ def test_exec_hook_trust_bypass_runs_enabled_untrusted_hooks(tmp_path) -> None:
         source_path=tmp_path / "config.toml",
     )[0]
 
-    status = HookRegistry(bypass_hook_trust=True).build(
+    status = HookRegistry(
+        command_runner=_NoopRunner(),
+        bypass_hook_trust=True,
+    ).build(
         (definition,),
         hook_states={},
     ).status()
@@ -391,7 +402,10 @@ def test_exec_hook_trust_bypass_runs_enabled_untrusted_hooks(tmp_path) -> None:
     assert status.hooks[0].enabled
     assert status.hooks[0].active
 
-    disabled = HookRegistry(bypass_hook_trust=True).build(
+    disabled = HookRegistry(
+        command_runner=_NoopRunner(),
+        bypass_hook_trust=True,
+    ).build(
         (definition,),
         hook_states={definition.key: {"enabled": False}},
     ).status()

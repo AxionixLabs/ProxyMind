@@ -807,21 +807,15 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
     activity.stop.assert_awaited_once_with("wait")
 
 
-def test_turn_hook_scope_resolution_failure_uses_empty_snapshot() -> None:
+def test_turn_hook_scope_resolution_failure_is_explicit() -> None:
     context = _child_execution().context
     controller = SimpleNamespace(
         hook_scope=Mock(side_effect=ValueError("invalid hooks")),
     )
 
-    scope = resolve_hook_scope(controller, context)
-    execution = TurnExecution(
-        context=context,
-        message="inspect workspace",
-        hook_scope=scope,
-    )
+    with pytest.raises(ValueError, match="invalid hooks"):
+        resolve_hook_scope(controller, context)
 
-    assert execution.hook_scope is scope
-    assert scope.has_matching("UserPromptSubmit") is False
     controller.hook_scope.assert_called_once_with(
         HookExecutionContext.from_turn(context)
     )

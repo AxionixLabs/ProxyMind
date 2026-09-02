@@ -19,7 +19,8 @@ from agent.application.turns.context import (
 )
 from infrastructure.platform.hook_command import (
     HookCommandError,
-    HookCommandExecutor
+    HookCommandExecutor,
+    HookCommandOutput,
 )
 from agent.application.hooks.events import HOOK_EVENT_SPECS
 from agent.application.hooks.models import (
@@ -61,7 +62,7 @@ class _CommandRunner:
         error = self.errors.get(definition.key)
         if error is not None:
             raise error
-        return SimpleNamespace(data=_wire_output(
+        return HookCommandOutput(data=_wire_output(
             definition.event,
             self.outputs.get(definition.key),
         ))
@@ -411,7 +412,7 @@ def test_matcher_group_expands_handlers_with_platform_commands() -> None:
     assert definitions[0].handler.command_for_platform("nt") == "check-windows"
 
 
-def test_discovery_supports_all_codex_handler_types_and_stable_selectors() -> None:
+def test_discovery_keeps_executable_handler_types_and_skips_unsupported() -> None:
     raw = {
         "PreToolUse": [{
             "matcher": "shell_command",
@@ -423,30 +424,31 @@ def test_discovery_supports_all_codex_handler_types_and_stable_selectors() -> No
             ],
         }],
     }
+    warnings = []
     definitions = resolve_hook_definitions(
         raw,
         source_scope="project",
         source_path=None,
+        warnings=warnings,
     )
 
     assert [item.handler.type for item in definitions] == [
-        "command", "mcp_tool", "prompt", "agent",
+        "command", "mcp_tool",
     ]
     assert "|mcp_tool:files:read:" in definitions[1].key
-    assert "|prompt:" in definitions[2].key
-    assert definitions[1].handler.command is None
-    assert definitions[1].handler.mcp_server == "files"
-    assert definitions[1].handler.mcp_tool == "read"
+    assert definitions[1].handler.server == "files"
+    assert definitions[1].handler.tool == "read"
+    assert len(warnings) == 2
 
 
 def test_handler_content_changes_update_content_hash() -> None:
     first = resolve_hook_definitions(
-        {"PreToolUse": [{"hooks": [{"type": "prompt"}]}]},
+        {"PreToolUse": [{"hooks": [{"type": "command", "command": "one"}]}]},
         source_scope="project",
         source_path=None,
     )[0]
     second = resolve_hook_definitions(
-        {"PreToolUse": [{"hooks": [{"type": "agent"}]}]},
+        {"PreToolUse": [{"hooks": [{"type": "command", "command": "two"}]}]},
         source_scope="project",
         source_path=None,
     )[0]
@@ -575,7 +577,7 @@ async def test_async_session_end_hook_runs_synchronously() -> None:
         async def execute(self, _definition, _payload):
             started.set()
             await release.wait()
-            return SimpleNamespace(data={})
+            return HookCommandOutput(data={})
 
     definitions = _definitions({
         "SessionEnd": [_hook("close", run_async=True)],
@@ -753,7 +755,7 @@ async def test_runtime_assigns_unique_ids_to_concurrent_hook_invocations() -> No
             if self.count == 2:
                 self.all_started.set()
             await self.release.wait()
-            return SimpleNamespace(data={})
+            return HookCommandOutput(data={})
 
     runner = ConcurrentRunner()
     status = _RecordingHookStatus()
@@ -947,7 +949,7 @@ async def test_runtime_launches_matching_hooks_concurrently() -> None:
             if self.started == len(definitions):
                 self.all_started.set()
             await self.release.wait()
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "systemMessage": definition.handler.command,
             })
 
@@ -1021,7 +1023,7 @@ async def test_pre_tool_use_uses_last_completed_updated_input() -> None:
             else:
                 earlier_finished.set()
                 output = {"updatedInput": {"command": "B"}}
-            return SimpleNamespace(data=_wire_output(
+            return HookCommandOutput(data=_wire_output(
                 definition.event,
                 output,
             ))

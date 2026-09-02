@@ -8,25 +8,26 @@ from pathlib import Path
 from agent.application.hooks.catalog import (
     HookCatalogEntry,
     HookCatalogSnapshot,
-    HookEventSummary
+    HookEventSummary,
 )
 from agent.application.hooks.models import (
     HookRuntimeEntry,
-    HookRuntimeStatus
+    HookRuntimeStatus,
 )
 from agent.domain.hook_trust import (
     HookTrustState,
     hook_needs_review,
-    resolve_hook_state
+    resolve_hook_state,
 )
 from agent.domain.hooks import (
+    CommandHookHandlerConfig,
     HOOK_EVENT_CONFIG_SPECS,
     HOOK_EVENT_NAMES,
     HookDefinitionConfig,
-    HookStateTable
+    HookStateTable,
+    McpToolHookHandlerConfig,
 )
 from agent.ports import (
-    HookCommandResult,
     HookCommandRunner,
     HookContextSpiller,
     HookDispatcherPort,
@@ -35,21 +36,7 @@ from agent.ports import (
     HookSessionCleanup,
 )
 from observability import observe
-from .runtime import (
-    HookRuntime,
-)
-
-
-class _UnconfiguredHookCommandRunner:
-    """表示 Harness 未注入平台 Hook 执行器的失败端口。"""
-
-    async def execute(
-        self,
-        _definition: HookDefinitionConfig,
-        _payload: dict[str, typing.Any],
-    ) -> HookCommandResult:
-        """拒绝在缺少平台执行器时隐式创建进程。"""
-        raise RuntimeError("hook command runner is not configured")
+from .runtime import HookRuntime
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,16 +60,10 @@ class HookRegistry:
         close: HookResourceClose | None = None,
         bypass_hook_trust: bool = False
     ) -> None:
-        if command_runner is None:
-            self._command_runner: HookCommandRunner = _UnconfiguredHookCommandRunner()
-            self._context_spiller = context_spiller
-            self._cleanup_session = cleanup_session
-            self._close = close
-        else:
-            self._command_runner = command_runner
-            self._context_spiller = context_spiller
-            self._cleanup_session = cleanup_session
-            self._close = close
+        self._command_runner = command_runner
+        self._context_spiller = context_spiller
+        self._cleanup_session = cleanup_session
+        self._close = close
         self._bypass_hook_trust = bool(bypass_hook_trust)
 
         self._observed_warnings: set[str] = set()
@@ -118,11 +99,27 @@ class HookRegistry:
             key=definition.key,
             event=definition.event,
             handler_type=definition.handler.type,
-            command=definition.handler.command,
-            command_windows=definition.handler.command_windows,
+            command=(
+                definition.handler.command
+                if isinstance(definition.handler, CommandHookHandlerConfig)
+                else None
+            ),
+            command_windows=(
+                definition.handler.command_windows
+                if isinstance(definition.handler, CommandHookHandlerConfig)
+                else None
+            ),
             status_message=definition.handler.status_message,
-            mcp_server=definition.handler.mcp_server,
-            mcp_tool=definition.handler.mcp_tool,
+            mcp_server=(
+                definition.handler.server
+                if isinstance(definition.handler, McpToolHookHandlerConfig)
+                else None
+            ),
+            mcp_tool=(
+                definition.handler.tool
+                if isinstance(definition.handler, McpToolHookHandlerConfig)
+                else None
+            ),
             matcher=definition.matcher,
             matcher_subject=event_spec.matcher_subject,
             timeout_sec=definition.handler.timeout_sec,
@@ -261,6 +258,9 @@ class HookRegistry:
             ),
             warnings=warning_items,
         )
+
+        if active and self._command_runner is None:
+            raise TypeError("Hook command runner is required for active hooks")
 
         return HookRuntime(
             active,

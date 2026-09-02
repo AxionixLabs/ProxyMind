@@ -37,6 +37,7 @@ from agent.application.views import (
 )
 from infrastructure.mcp import tool_runtime
 from infrastructure.mcp.tool_execution import McpToolExecutionAdapter
+from infrastructure.platform.hook_command import HookCommandOutput
 from agent.ports import ToolRuntimeSources
 from agent.application.turns.context import (
     AgentContext,
@@ -70,12 +71,49 @@ from agent.domain.policies import (
     PermissionSettings,
     preset_permissions,
 )
+
+
 from protocol.schema.stream_events import (
     TurnInputAcceptedEvent,
     parse_stream_event as _parse_stream_event,
 )
 from protocol.client.tools import ToolResultRequestError
 from protocol.schema.turn_inputs import TurnInput
+
+
+@pytest.fixture(autouse=True)
+def _stream_command_stubs(monkeypatch):
+    """为测试替身提供协议客户端方法，不向生产流恢复模块级兼容入口。"""
+    monkeypatch.setattr(
+        stream,
+        "interrupt_turn",
+        AsyncMock(return_value=SimpleNamespace(status="accepted")),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stream,
+        "post_tool_result",
+        AsyncMock(return_value={}),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stream,
+        "get_tool_result_status",
+        AsyncMock(return_value={}),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stream,
+        "post_effect_reconciliation",
+        AsyncMock(return_value={}),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stream,
+        "post_tool_approval",
+        AsyncMock(return_value=None),
+        raising=False,
+    )
 
 
 def parse_stream_event(payload):
@@ -532,6 +570,7 @@ async def _run_stream(
         stream,
         "interrupt_turn",
         AsyncMock(return_value=SimpleNamespace(status="accepted")),
+        raising=False,
     )
     mind = mind_state or _mind(
         frontend_active=frontend_active,
@@ -1801,14 +1840,14 @@ async def test_stream_forwards_turn_hook_context(monkeypatch) -> None:
     class CommandRunner(object):
         async def execute(self, definition, _payload):
             if definition.event == "SessionStart":
-                return SimpleNamespace(data={
+                return HookCommandOutput(data={
                     "systemMessage": "session system",
                     "hookSpecificOutput": {
                         "hookEventName": "SessionStart",
                         "additionalContext": "session context",
                     },
                 })
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "systemMessage": "prompt system",
                 "hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit",
@@ -1850,7 +1889,7 @@ async def test_exec_output_session_receives_hook_lifecycle_views(
 ) -> None:
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
-            return SimpleNamespace(data={})
+            return HookCommandOutput(data={})
 
     definitions = resolve_hook_definitions(
         {
@@ -1890,7 +1929,7 @@ async def test_exec_output_session_receives_hook_lifecycle_views(
 async def test_session_start_stop_queues_context_for_next_turn(monkeypatch) -> None:
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "continue": False,
                 "stopReason": "configure first",
                 "hookSpecificOutput": {
@@ -1921,7 +1960,7 @@ async def test_session_start_stop_queues_context_for_next_turn(monkeypatch) -> N
 async def test_prompt_stop_queues_context_for_next_turn(monkeypatch) -> None:
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "continue": False,
                 "stopReason": "Select a project first.",
                 "hookSpecificOutput": {
@@ -1957,7 +1996,7 @@ async def test_child_prompt_stop_returns_context_without_queuing_root(
 ) -> None:
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "continue": False,
                 "stopReason": "Select a project first.",
                 "hookSpecificOutput": {
@@ -1996,7 +2035,7 @@ async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
 
         async def execute(self, definition, payload):
             self.calls.append((definition.event, payload))
-            return SimpleNamespace(data={})
+            return HookCommandOutput(data={})
 
     runner = CommandRunner()
     definitions = resolve_hook_definitions(
@@ -2049,16 +2088,16 @@ async def test_child_stream_skips_root_session_and_stop_lifecycle_hooks(
         async def execute(self, definition, _payload):
             self.events.append(definition.event)
             if definition.event == "SessionStart":
-                return SimpleNamespace(data={
+                return HookCommandOutput(data={
                     "continue": False,
                     "stopReason": "root startup policy",
                 })
             if definition.event == "Stop":
-                return SimpleNamespace(data={
+                return HookCommandOutput(data={
                     "decision": "block",
                     "reason": "root continuation",
                 })
-            return SimpleNamespace(data={})
+            return HookCommandOutput(data={})
 
     runner = CommandRunner()
     definitions = resolve_hook_definitions(
@@ -2091,7 +2130,7 @@ async def test_stream_reuses_injected_hook_scope_snapshot(monkeypatch) -> None:
 
         async def execute(self, definition, _payload):
             self.events.append(definition.event)
-            return SimpleNamespace(data={})
+            return HookCommandOutput(data={})
 
     injected_runner = CommandRunner()
     resolved_runner = CommandRunner()
@@ -2145,11 +2184,11 @@ async def test_prompt_hook_denial_skips_stop_and_continuation(monkeypatch) -> No
         async def execute(self, definition, payload):
             self.calls.append((definition.event, payload))
             if definition.event == "UserPromptSubmit":
-                return SimpleNamespace(data={
+                return HookCommandOutput(data={
                     "continue": False,
                     "stopReason": "prompt blocked",
                 })
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "decision": "block",
                 "reason": "retry blocked prompt",
             })
@@ -2183,7 +2222,7 @@ async def test_stop_hook_failure_does_not_replace_completed_result(
         async def execute(self, definition, _payload):
             if definition.event == "Stop":
                 raise RuntimeError("stop hook failed")
-            return SimpleNamespace(data={})
+            return HookCommandOutput(data={})
 
     definitions = resolve_hook_definitions(
         {"Stop": [_hook("stop")]},
@@ -2221,7 +2260,7 @@ async def test_stream_cancellation_reports_interrupted_stop_hook(
 
         async def execute(self, definition, payload):
             self.calls.append((definition.event, payload))
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "decision": "block",
                 "reason": "should be ignored",
             })
@@ -2257,12 +2296,12 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
         async def execute(self, _definition, payload):
             self.payloads.append(payload)
             if not payload["stop_hook_active"]:
-                return SimpleNamespace(data={
+                return HookCommandOutput(data={
                     "decision": "block",
                     "reason": "continue once",
                     "systemMessage": "stop system",
                 })
-            return SimpleNamespace(data={})
+            return HookCommandOutput(data={})
 
     definitions = resolve_hook_definitions(
         {"Stop": [_hook("stop")]},
@@ -2321,11 +2360,11 @@ async def test_incomplete_turn_gates_stop_hook_continuation(
     class CommandRunner(object):
         async def execute(self, _definition, payload):
             if not payload["stop_hook_active"]:
-                return SimpleNamespace(data={
+                return HookCommandOutput(data={
                     "decision": "block",
                     "reason": "continue once",
                 })
-            return SimpleNamespace(data={})
+            return HookCommandOutput(data={})
 
     definitions = resolve_hook_definitions(
         {"Stop": [_hook("stop")]},
@@ -2392,7 +2431,7 @@ async def test_pause_turn_failure_does_not_run_stop_hook_continuation(
 ) -> None:
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "decision": "block",
                 "reason": "retry",
             })
@@ -2954,7 +2993,7 @@ async def test_stream_queues_pre_tool_context_after_operation_error(
     effect_journal = _open_effect_journal(tmp_path / "effects.db")
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "additionalContext": "inspect protected paths",
@@ -3002,7 +3041,7 @@ async def test_post_tool_hook_replaces_plan_result_for_model(
     effect_journal = _open_effect_journal(tmp_path / "effects.db")
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "replacementResult": {
                     "ok": False,
                     "text": "plan result replaced",
@@ -3114,7 +3153,7 @@ async def test_approval_request_event_is_presented_without_nested_metadata(
 ) -> None:
     class CommandRunner(object):
         async def execute(self, _definition, _payload):
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
@@ -3786,7 +3825,7 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
 
         async def execute(self, _definition, payload):
             self.calls.append(payload)
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
@@ -3893,7 +3932,7 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
 
         async def execute(self, _definition, payload):
             self.calls.append(payload)
-            return SimpleNamespace(data={
+            return HookCommandOutput(data={
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "allow",

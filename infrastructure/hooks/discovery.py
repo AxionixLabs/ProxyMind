@@ -13,10 +13,11 @@ from agent.domain.hooks import (
     HOOK_EVENT_CONFIG_SPECS,
     HOOK_EVENT_NAMES,
     _DEFAULT_ADDITIONAL_CONTEXT_TOKEN_LIMIT,
+    CommandHookHandlerConfig,
     HookConfigError,
     HookDefinitionConfig,
     HookEventName,
-    HookHandlerConfig,
+    McpToolHookHandlerConfig,
     HookStateTable,
     HookTrustPolicy
 )
@@ -160,6 +161,19 @@ def resolve_hook_source(
                     "handler": handler,
                 })
 
+                handler_config = _handler_config(
+                    handler,
+                    additional_context_limit=(
+                        normalized_handler.additional_context_limit
+                    ),
+                    dotted=(
+                        f"hooks.{event}[{group.source_index}].hooks["
+                        f"{normalized_handler.source_index}]"
+                    ),
+                )
+                if handler_config is None:
+                    continue
+
                 definitions.append(HookDefinitionConfig(
                     key=(
                         f"{source_key}|{handler['type']}"
@@ -171,19 +185,7 @@ def resolve_hook_source(
                           f"{normalized_handler.source_index}"
                     ),
                     event=event,
-                    handler=HookHandlerConfig(
-                        type=handler["type"],
-                        command=handler.get("command"),
-                        command_windows=handler.get("commandWindows"),
-                        status_message=handler["statusMessage"],
-                        mcp_server=handler.get("server"),
-                        mcp_tool=handler.get("tool"),
-                        timeout_sec=handler["timeout"],
-                        run_async=handler["async"],
-                        additional_context_limit=(
-                            normalized_handler.additional_context_limit
-                        ),
-                    ),
+                    handler=handler_config,
                     matcher=group.matcher,
                     source_scope=source_scope,
                     source_path=path_text,
@@ -579,6 +581,13 @@ def _normalize_hook_handler(
         )
         return None
 
+    if handler_type in {"prompt", "agent"}:
+        _append_warning(
+            warnings,
+            f"skipping unsupported {handler_type} hook in {dotted} from {source}",
+        )
+        return None
+
     unknown = sorted(set(raw).difference(_HANDLER_FIELDS))
     if unknown:
         _append_warning(
@@ -672,6 +681,80 @@ def _normalize_hook_handler(
         "async": run_async,
         "additionalContextLimit": context_limit,
     }
+
+
+def _handler_config(
+    handler: dict[str, typing.Any],
+    *,
+    additional_context_limit: int | None,
+    dotted: str,
+) -> CommandHookHandlerConfig | McpToolHookHandlerConfig | None:
+    """把边界规范字典转换为可执行的判别联合。"""
+    handler_type = handler["type"]
+    if handler_type == "command":
+        command = handler.get("command")
+        if not isinstance(command, str):
+            raise HookConfigError(f"{dotted}.command must be a string")
+        command_windows = handler.get("commandWindows")
+        if command_windows is not None and not isinstance(command_windows, str):
+            raise HookConfigError(
+                f"{dotted}.commandWindows must be a string"
+            )
+        status_message = handler.get("statusMessage")
+        if status_message is not None and not isinstance(status_message, str):
+            raise HookConfigError(
+                f"{dotted}.statusMessage must be a string"
+            )
+        timeout = handler["timeout"]
+        run_async = handler["async"]
+        context_limit = additional_context_limit
+        if (
+            not isinstance(timeout, int)
+            or isinstance(timeout, bool)
+            or not isinstance(run_async, bool)
+            or (
+                context_limit is not None
+                and (
+                    not isinstance(context_limit, int)
+                    or isinstance(context_limit, bool)
+                )
+            )
+        ):
+            raise HookConfigError(f"{dotted} contains invalid command fields")
+        return CommandHookHandlerConfig(
+            type="command",
+            command=command,
+            command_windows=command_windows,
+            status_message=status_message,
+            timeout_sec=timeout,
+            run_async=run_async,
+            additional_context_limit=context_limit,
+        )
+
+    if handler_type == "mcp_tool":
+        server = handler.get("server")
+        tool = handler.get("tool")
+        status_message = handler.get("statusMessage")
+        timeout = handler["timeout"]
+        if (
+            not isinstance(server, str)
+            or not server
+            or not isinstance(tool, str)
+            or not tool
+            or (status_message is not None and not isinstance(status_message, str))
+            or not isinstance(timeout, int)
+            or isinstance(timeout, bool)
+        ):
+            raise HookConfigError(f"{dotted} contains invalid MCP fields")
+        return McpToolHookHandlerConfig(
+            type="mcp_tool",
+            server=server,
+            tool=tool,
+            status_message=status_message,
+            timeout_sec=timeout,
+        )
+
+    raise HookConfigError(f"{dotted}.type is not executable")
 
 
 def _normalize_command_fields(

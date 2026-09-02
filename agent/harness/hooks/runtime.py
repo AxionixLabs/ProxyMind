@@ -33,7 +33,6 @@ from agent.domain.hooks import (
     HookEventName
 )
 from agent.ports import (
-    HookCommandResult,
     HookCommandRunner,
     HookContextSpiller,
     HookStatusPort,
@@ -51,22 +50,10 @@ class _RegisteredHook:
     matcher: HookMatcher
 
 
-class _UnconfiguredHookCommandRunner:
-    """表示 Harness 未注入平台 Hook 执行器的失败端口。"""
-
-    async def execute(
-        self,
-        _definition: HookDefinitionConfig,
-        _payload: dict[str, typing.Any],
-    ) -> HookCommandResult:
-        """拒绝在缺少平台执行器时隐式创建进程。"""
-        raise RuntimeError("hook command runner is not configured")
-
-
 @dataclass(frozen=True, slots=True, init=False)
 class HookRuntime:
     """匹配并执行一个轮次内固定的生命周期 Hook。"""
-    command_runner: HookCommandRunner
+    command_runner: HookCommandRunner | None
     context_spiller: HookContextSpiller | None
     status_port: HookStatusPort | None
     _definitions: tuple[HookDefinitionConfig, ...]
@@ -97,18 +84,11 @@ class HookRuntime:
             for definition in active_definitions
         )
 
-        if command_runner is None:
-            resolved_runner: HookCommandRunner = _UnconfiguredHookCommandRunner()
-            resolved_spiller = context_spiller
-        else:
-            resolved_runner = command_runner
-            resolved_spiller = context_spiller
-
-        object.__setattr__(self, "command_runner", resolved_runner)
+        object.__setattr__(self, "command_runner", command_runner)
         object.__setattr__(
             self,
             "context_spiller",
-            resolved_spiller,
+            context_spiller,
         )
         object.__setattr__(self, "status_port", status_port)
         object.__setattr__(self, "_definitions", active_definitions)
@@ -233,21 +213,12 @@ class HookRuntime:
         """按当前支持范围执行单个 Hook。"""
         definition = registered.definition
 
-        if definition.handler.run_async and definition.event != "SessionEnd":
-            self._observe_unsupported_async(definition)
-            return HookExecutionRecord(
-                hook_key=definition.key,
-                completion_order=next(self._completion_order),
-            )
-
         run = HookRunSummary(
             id=uuid.uuid4().hex,
             hook_key=definition.key,
             event=definition.event,
             status="running",
-            status_message=str(
-                definition.handler.status_message or ""
-            ).strip(),
+            status_message=(definition.handler.status_message or "").strip(),
             started_at=time.monotonic(),
         )
         await self._status_started(run)
@@ -368,23 +339,31 @@ class HookRuntime:
         stderr_text = ""
 
         try:
-            result = await self.command_runner.execute(
+            command_runner = self.command_runner
+            if command_runner is None:
+                raise RuntimeError("hook command runner is required")
+            if definition.handler.type != "command":
+                raise RuntimeError(
+                    f"hook handler {definition.handler.type!r} is not supported"
+                )
+
+            result = await command_runner.execute(
                 definition,
                 dict(payload),
             )
 
-            raw_output = getattr(result, "data", None)
+            raw_output = result.data
             if not isinstance(raw_output, dict):
                 raise ValueError("hook output must be a JSON object")
 
-            stderr_text = str(getattr(result, "stderr", "") or "").strip()
+            stderr_text = result.stderr.strip()
             if stderr_text:
                 self._observe_stderr(definition, request, stderr_text)
 
-            if bool(getattr(result, "business_block", False)):
+            if result.business_block:
                 normalized = normalize_business_block(
                     request.event,
-                    reason=str(getattr(result, "block_reason", "") or ""),
+                    reason=result.block_reason,
                     transport_output=raw_output,
                 )
             else:
@@ -607,18 +586,6 @@ class HookRuntime:
             error,
             level="WARNING",
             **fields,
-        )
-
-    @staticmethod
-    def _observe_unsupported_async(
-        definition: HookDefinitionConfig
-    ) -> None:
-        """记录当前事件不支持异步命令处理器。"""
-        observe(
-            "hook.async_unsupported",
-            level="WARNING",
-            hook_key=definition.key,
-            hook_event=definition.event,
         )
 
     @staticmethod

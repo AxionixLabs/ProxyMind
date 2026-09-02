@@ -111,7 +111,7 @@ def resolve_execution_hook_scope(
             error,
             level="WARNING",
         )
-        return HookExecutionScope.empty(context)
+        raise
 
 
 if __name__ == '__main__':

@@ -648,6 +648,7 @@ async def test_hook_event_menu_renders_all_codex_events_without_gutter(tmp_path)
         "SubagentStart",
         "SubagentStop",
         "Stop",
+        "Interrupt",
     ]
     assert all("›" not in line for line in event_lines)
     assert all(not line.split(maxsplit=1)[0].rstrip(".").isdigit() for line in event_lines)
