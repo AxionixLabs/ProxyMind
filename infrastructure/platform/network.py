@@ -597,15 +597,23 @@ async def _safe_upstream_host(host: str) -> str:
                 ),
                 timeout=2.0,
             )
-        except (OSError, asyncio.TimeoutError):
-            return normalized
+        except OSError as error:
+            raise _UnsafeNetworkTarget(
+                "network target hostname could not be resolved"
+            ) from error
+        except asyncio.TimeoutError as error:
+            raise _UnsafeNetworkTarget(
+                "network target hostname resolution timed out"
+            ) from error
         addresses = {
             str(sockaddr[0]).strip()
             for _family, _socktype, _proto, _canonname, sockaddr in infos
             if sockaddr and str(sockaddr[0]).strip()
         }
         if not addresses:
-            return normalized
+            raise _UnsafeNetworkTarget(
+                "network target hostname has no resolved addresses"
+            )
         if any(_is_local_private_address(address) for address in addresses):
             raise _UnsafeNetworkTarget(
                 "network target hostname resolves to a local address"

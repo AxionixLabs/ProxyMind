@@ -260,6 +260,17 @@ async def test_dns_private_resolution_is_rejected_but_explicit_ip_is_allowed() -
         assert await network_module._safe_upstream_host("192.168.10.4") == "192.168.10.4"
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", [OSError("dns failed"), asyncio.TimeoutError()])
+async def test_dns_resolution_failure_is_fail_closed(failure: BaseException) -> None:
+    resolver = AsyncMock(side_effect=failure)
+    loop = type("Resolver", (), {"getaddrinfo": resolver})()
+
+    with patch.object(network_module.asyncio, "get_running_loop", return_value=loop):
+        with pytest.raises(ValueError, match="hostname .*resolved|resolution timed out"):
+            await network_module._safe_upstream_host("unavailable.example.test")
+
+
 async def _record_blocked(
     blocked: list[BlockedNetworkRequest],
     request: BlockedNetworkRequest,
