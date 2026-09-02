@@ -52,11 +52,14 @@ def render_approval_approved_trace(
                 f"start with {amendment}"
             ).rstrip()
         scope = "with the proposed command policy"
+    elif decision == "acceptAndRemember":
+        scope = "without asking again"
     elif decision == "acceptForSession":
         scope = "every time this session"
     else:
         scope = "this time"
-    return f"✔ You approved {const.APP_NAME} to run {summary} {scope}".rstrip()
+    verb = "call" if _is_mcp_approval(approval) else "run"
+    return f"✔ You approved {const.APP_NAME} to {verb} {summary} {scope}".rstrip()
 
 
 def render_approval_denied_trace(
@@ -75,7 +78,13 @@ def render_approval_denied_trace(
         suffix = f" · {rationale}" if rationale else ""
         return f"• Auto review denied {summary}{suffix}".rstrip()
 
-    return f"• You denied {const.APP_NAME} to run {summary}".rstrip()
+    verb = "call" if _is_mcp_approval(approval) else "run"
+    return f"• You denied {const.APP_NAME} to {verb} {summary}".rstrip()
+
+
+def _is_mcp_approval(approval: dict[str, typing.Any]) -> bool:
+    """判断审批结果是否属于 MCP 工具调用。"""
+    return str(approval.get("kind") or "").strip() == "mcp_tool_call"
 
 
 def _review_rationale(approval: dict[str, typing.Any]) -> str:
@@ -156,7 +165,12 @@ def _approval_suffix_parts(
     if base_style != APPROVAL_APPROVED_STYLE:
         return [TextSpan(suffix, base_style)]
 
-    for scope in ("every time this session", "for this session", "this time"):
+    for scope in (
+        "without asking again",
+        "every time this session",
+        "for this session",
+        "this time",
+    ):
         if suffix.endswith(scope):
             prefix = suffix[:-len(scope)]
             parts: list[TextSpan] = []

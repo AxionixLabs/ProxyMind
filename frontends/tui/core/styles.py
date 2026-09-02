@@ -18,6 +18,7 @@ from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     RgbColor,
     TerminalCapabilities,
+    TerminalColorLevel,
 )
 from frontends.terminal.palette import (
     best_color,
@@ -188,6 +189,13 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "approval-patch-context": "",
     "approval-network": "fg:#2563EB bold",
     "approval-network-host": "fg:#0EA5E9",
+    "approval-mcp-label": "fg:#2563EB bold",
+    "approval-mcp-value": "fg:#AAB7C4",
+    "approval-mcp-connector": "fg:#0EA5E9",
+    "approval-mcp-readonly": "fg:#16A34A bold",
+    "approval-mcp-write": "fg:#D97706 bold",
+    "approval-mcp-destructive": "fg:#DC2626 bold",
+    "approval-mcp-unknown": "fg:#7D8A98 dim",
     "mailbox.title": "fg:#87919D dim",
     "mailbox.rule": "fg:#69727D dim",
     "mailbox.status": "fg:#DDE7EF bold",
@@ -329,6 +337,13 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
             "approval-patch-context": "",
             "approval-network": "bold #005F87",
             "approval-network-host": "#0E7490",
+            "approval-mcp-label": "bold #005F87",
+            "approval-mcp-value": "#43505C",
+            "approval-mcp-connector": "#0E7490",
+            "approval-mcp-readonly": "bold #166534",
+            "approval-mcp-write": "bold #92400E",
+            "approval-mcp-destructive": "bold #B91C1C",
+            "approval-mcp-unknown": "dim #687480",
             "tui-menu.tab-selected": "bold #005F87",
             "tui-menu.title.current": "#005F87",
             "tui-menu.index.active": "bold #005F87",
@@ -452,6 +467,64 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
             styles[style_class] = separator_style
 
     light = background is not None and _is_light_color(background)
+
+    if capabilities.color_level is TerminalColorLevel.UNKNOWN:
+        styles.update({
+            "approval-mcp-label": "fg:default bold",
+            "approval-mcp-value": "fg:default",
+            "approval-mcp-connector": "fg:default",
+            "approval-mcp-readonly": "fg:default bold",
+            "approval-mcp-write": "fg:default bold",
+            "approval-mcp-destructive": "fg:default bold",
+            "approval-mcp-unknown": "fg:default dim",
+        })
+    else:
+        mcp_palette = {
+            "approval-mcp-label": (
+                (0, 95, 135) if light else (37, 99, 235),
+                "ansiblue",
+                "bold",
+            ),
+            "approval-mcp-value": (
+                (67, 80, 92) if light else (170, 183, 196),
+                "default",
+                "",
+            ),
+            "approval-mcp-connector": (
+                (14, 116, 144) if light else (14, 165, 233),
+                "ansicyan",
+                "",
+            ),
+            "approval-mcp-readonly": (
+                (22, 101, 52) if light else (22, 163, 74),
+                "ansigreen",
+                "bold",
+            ),
+            "approval-mcp-write": (
+                (146, 64, 14) if light else (217, 119, 6),
+                "ansiyellow",
+                "bold",
+            ),
+            "approval-mcp-destructive": (
+                (185, 28, 28) if light else (220, 38, 38),
+                "ansired",
+                "bold",
+            ),
+            "approval-mcp-unknown": (
+                (104, 116, 128) if light else (125, 138, 152),
+                "default",
+                "dim",
+            ),
+        }
+        for style_class, (rgb, fallback, emphasis) in mcp_palette.items():
+            color = semantic_color(
+                rgb,
+                capabilities.color_level,
+                fallback=fallback,
+            )
+            styles[style_class] = " ".join(
+                part for part in (f"fg:{color}", emphasis) if part
+            )
 
     accent = (
         semantic_color(

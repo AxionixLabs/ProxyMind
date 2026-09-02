@@ -9,7 +9,17 @@ from agent.application.views import (
     ApprovalState,
     ApprovalView,
 )
-from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
+
+_LOCAL_APPROVAL_ACCEPT_DECISIONS = frozenset({
+    "accept",
+    "acceptForSession",
+    "acceptAndRemember",
+    "acceptWithExecpolicyAmendment",
+    "applyNetworkPolicyAmendment",
+    "grantForTurn",
+    "grantForTurnWithStrictAutoReview",
+    "grantForSession",
+})
 
 
 def build_approval_view(
@@ -36,6 +46,8 @@ def _approval_decision(decision: str) -> ApprovalDecision:
         return decision
     if decision == "acceptForSession":
         return decision
+    if decision == "acceptAndRemember":
+        return decision
     if decision == "acceptWithExecpolicyAmendment":
         return decision
     if decision == "applyNetworkPolicyAmendment":
@@ -58,7 +70,7 @@ def _approval_state(decision: ApprovalDecision) -> ApprovalState:
     """返回工具审批结果对应的展示状态。"""
     if decision == "cancel":
         return "cancelled"
-    if decision in TOOL_APPROVAL_ACCEPT_DECISIONS:
+    if decision in _LOCAL_APPROVAL_ACCEPT_DECISIONS:
         return "approved"
 
     return "denied"

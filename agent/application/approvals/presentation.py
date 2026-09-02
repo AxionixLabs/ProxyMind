@@ -2,7 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import copy
+import json
+import math
 import typing
+import unicodedata
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -12,6 +15,11 @@ from agent.application.approvals.amendments import (
 )
 from agent.application.views import PatchView
 from agent.application.views.builders.patch import build_patch_start_view
+from agent.domain.approvals import (
+    McpApprovalRisk,
+    McpToolAnnotations,
+    mcp_approval_risk,
+)
 from .models import (
     ApprovalDecisionValue,
     ApprovalRequestKey,
@@ -27,6 +35,21 @@ from .summary import (
 )
 
 ApprovalCommand: typing.TypeAlias = str | tuple[str, ...]
+
+MCP_ARGUMENT_FIELD_LIMIT = 12
+MCP_ARGUMENT_VALUE_WIDTH = 120
+MCP_ARGUMENT_BYTE_LIMIT = 2048
+MCP_ARGUMENT_NESTING_LIMIT = 2
+_MCP_SENSITIVE_KEYS = (
+    "token",
+    "secret",
+    "password",
+    "authorization",
+    "apikey",
+    "accesstoken",
+    "privatekey",
+    "credential",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +107,33 @@ class ToolApprovalPresentation(object):
 
 
 @dataclass(frozen=True, slots=True)
+class McpArgumentPresentation(object):
+    """保存一个已经脱敏、折叠和限长的 MCP 参数字段。"""
+    name: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class McpApprovalPresentation(object):
+    """保存 MCP 工具审批卡使用的完整结构化展示数据。"""
+    context: ApprovalPresentationContext
+    server: str
+    tool_name: str
+    title: str
+    description: str
+    arguments: tuple[McpArgumentPresentation, ...]
+    argument_count: int
+    omitted_arguments: int
+    arguments_truncated: bool
+    risk: McpApprovalRisk
+    connector: str
+    account: str
+    source_verified: bool
+    degraded: bool
+    summary: str
+
+
+@dataclass(frozen=True, slots=True)
 class RequestPermissionsApprovalPresentation(object):
     """保存权限申请卡片的展示数据。"""
     context: ApprovalPresentationContext
@@ -98,6 +148,7 @@ class RequestPermissionsApprovalPresentation(object):
 ApprovalPresentation: typing.TypeAlias = (
     ExecApprovalPresentation
     | ApplyPatchApprovalPresentation
+    | McpApprovalPresentation
     | RequestPermissionsApprovalPresentation
     | ToolApprovalPresentation
 )
@@ -112,6 +163,7 @@ def ensure_approval_presentation(
         (
                 ExecApprovalPresentation,
                 ApplyPatchApprovalPresentation,
+                McpApprovalPresentation,
                 RequestPermissionsApprovalPresentation,
                 ToolApprovalPresentation,
         ),
@@ -182,6 +234,13 @@ def build_approval_presentation(
         return RequestPermissionsApprovalPresentation(
             context=context,
             permissions=permissions,
+            summary=summary,
+        )
+
+    if resolved_kind == "mcp_tool_call":
+        return _mcp_approval_presentation(
+            normalized,
+            context=context,
             summary=summary,
         )
 
@@ -352,7 +411,267 @@ def _presentation_prompt(
         return "Would you like to make the following edits?"
     if kind == "request_permissions":
         return "Would you like to grant these permissions?"
+    if kind == "mcp_tool_call":
+        return "Would you like to approve the following MCP tool call?"
     return approval_prompt(payload)
+
+
+def _mcp_approval_presentation(
+    payload: dict[str, typing.Any],
+    *,
+    context: ApprovalPresentationContext,
+    summary: str,
+) -> McpApprovalPresentation:
+    """把经过边界校验的 MCP 字段投影为不可变安全展示。"""
+    server = _mcp_display_text(payload.get("server"))
+    tool_name = _mcp_display_text(payload.get("tool_name"))
+    title = _mcp_display_text(payload.get("tool_title"))
+    description = _mcp_display_text(payload.get("tool_description"))
+    arguments, argument_count, omitted, truncated, arguments_degraded = (
+        _mcp_argument_presentations(payload.get("arguments"))
+    )
+    risk, risk_degraded = _mcp_risk(payload.get("annotations"))
+    identity_degraded = not server or not tool_name
+    if identity_degraded or arguments_degraded:
+        risk = McpApprovalRisk.UNKNOWN
+
+    connector = _mcp_display_text(
+        payload.get("connector_name") or payload.get("connector_id")
+    )
+    account = _mcp_display_text(payload.get("connected_account_email"))
+    return McpApprovalPresentation(
+        context=context,
+        server=server or "unknown",
+        tool_name=tool_name or "unknown",
+        title=title,
+        description=description,
+        arguments=arguments,
+        argument_count=argument_count,
+        omitted_arguments=omitted,
+        arguments_truncated=truncated,
+        risk=risk,
+        connector=connector or "unverified",
+        account=account or "unverified",
+        source_verified=bool(connector),
+        degraded=identity_degraded or arguments_degraded or risk_degraded,
+        summary=summary,
+    )
+
+
+def _mcp_argument_presentations(
+    raw_arguments: typing.Any,
+) -> tuple[tuple[McpArgumentPresentation, ...], int, int, bool, bool]:
+    """生成受字段数、显示宽度、嵌套深度和字节预算约束的参数摘要。"""
+    if isinstance(raw_arguments, dict):
+        invalid_keys = any(not isinstance(key, str) for key in raw_arguments)
+        items = sorted(
+            ((str(key), value) for key, value in raw_arguments.items()),
+            key=lambda item: item[0],
+        )
+    elif _mcp_json_scalar(raw_arguments) or isinstance(raw_arguments, list):
+        invalid_keys = False
+        items = [] if raw_arguments is None else [("value", raw_arguments)]
+    else:
+        return (), 0, 0, False, True
+
+    total = len(items)
+    fields: list[McpArgumentPresentation] = []
+    byte_budget = MCP_ARGUMENT_BYTE_LIMIT
+    truncated = False
+    degraded = invalid_keys
+
+    for name, value in items[:MCP_ARGUMENT_FIELD_LIMIT]:
+        safe_name = _mcp_json_name(name)
+        separator_bytes = 1 if fields else 0
+        safe_value, value_degraded = _mcp_argument_json(
+            "[redacted]" if _mcp_sensitive_key(name) else value,
+            depth=0,
+        )
+        degraded = degraded or value_degraded
+        display_value = _clip_mcp_display_value(
+            safe_value,
+            display_width=MCP_ARGUMENT_VALUE_WIDTH,
+            byte_limit=max(
+                0,
+                byte_budget
+                - separator_bytes
+                - len(safe_name.encode("utf-8"))
+                - 2,
+            ),
+        )
+        if display_value != safe_value:
+            truncated = True
+        entry_bytes = separator_bytes + len(
+            f"{safe_name}: {display_value}".encode("utf-8")
+        )
+        if entry_bytes > byte_budget:
+            truncated = True
+            break
+        fields.append(McpArgumentPresentation(safe_name, display_value))
+        byte_budget -= entry_bytes
+
+    omitted = total - len(fields)
+    if omitted:
+        truncated = True
+    return tuple(fields), total, omitted, truncated, degraded
+
+
+def _mcp_argument_json(value: typing.Any, *, depth: int) -> tuple[str, bool]:
+    """递归脱敏结构化参数，并返回稳定 JSON 展示。"""
+    sanitized, degraded = _mcp_sanitized_json_value(value, depth=depth)
+    try:
+        return json.dumps(
+            sanitized,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(", ", ": "),
+            allow_nan=False,
+        ), degraded
+    except (TypeError, ValueError):
+        return '"unknown"', True
+
+
+def _mcp_sanitized_json_value(
+    value: typing.Any,
+    *,
+    depth: int,
+) -> tuple[typing.Any, bool]:
+    """递归脱敏 JSON 值，并在深度上限处折叠集合。"""
+    if isinstance(value, dict):
+        if depth >= MCP_ARGUMENT_NESTING_LIMIT:
+            return f"[{len(value)} fields]", False
+        result: dict[str, typing.Any] = {}
+        degraded = False
+        for raw_key, nested in sorted(value.items(), key=lambda item: str(item[0])):
+            key = str(raw_key)
+            if not isinstance(raw_key, str):
+                degraded = True
+            if _mcp_sensitive_key(key):
+                result[key] = "[redacted]"
+                continue
+            safe_nested, nested_degraded = _mcp_sanitized_json_value(
+                nested,
+                depth=depth + 1,
+            )
+            result[key] = safe_nested
+            degraded = degraded or nested_degraded
+        return result, degraded
+    if isinstance(value, list):
+        if depth >= MCP_ARGUMENT_NESTING_LIMIT:
+            return f"[{len(value)} items]", False
+        result_list: list[typing.Any] = []
+        degraded = False
+        for nested in value:
+            safe_nested, nested_degraded = _mcp_sanitized_json_value(
+                nested,
+                depth=depth + 1,
+            )
+            result_list.append(safe_nested)
+            degraded = degraded or nested_degraded
+        return result_list, degraded
+    if _mcp_json_scalar(value):
+        if isinstance(value, float) and not math.isfinite(value):
+            return "unknown", True
+        return value, False
+    return "unknown", True
+
+
+def _mcp_json_scalar(value: typing.Any) -> bool:
+    """判断值是否属于 JSON 标量。"""
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def _mcp_sensitive_key(value: str) -> bool:
+    """按大小写不敏感的规范键名识别凭据字段。"""
+    normalized = "".join(
+        char for char in str(value).casefold() if char.isalnum()
+    )
+    return any(token in normalized for token in _MCP_SENSITIVE_KEYS)
+
+
+def _mcp_json_name(value: str) -> str:
+    """把参数键名转换为不会携带控制字符的单行文本。"""
+    encoded = json.dumps(str(value), ensure_ascii=False)
+    return encoded[1:-1]
+
+
+def _mcp_display_text(value: typing.Any) -> str:
+    """把 MCP 元数据转换为无终端控制符的单行展示文本。"""
+    parts: list[str] = []
+    for char in str(value or "").strip():
+        codepoint = ord(char)
+        if char.isspace():
+            parts.append(" ")
+        elif codepoint < 32 or 127 <= codepoint <= 159:
+            parts.append(f"\\u{codepoint:04x}")
+        else:
+            parts.append(char)
+    return " ".join("".join(parts).split())
+
+
+def _mcp_risk(raw_annotations: typing.Any) -> tuple[McpApprovalRisk, bool]:
+    """按领域优先级从严格布尔注解生成风险展示。"""
+    if raw_annotations is None:
+        return McpApprovalRisk.UNKNOWN, False
+    if not isinstance(raw_annotations, dict):
+        return McpApprovalRisk.UNKNOWN, True
+    allowed = {"read_only_hint", "destructive_hint", "open_world_hint"}
+    if set(raw_annotations) - allowed:
+        return McpApprovalRisk.UNKNOWN, True
+    values: dict[str, bool | None] = {}
+    for name in allowed:
+        value = raw_annotations.get(name)
+        if value is not None and not isinstance(value, bool):
+            return McpApprovalRisk.UNKNOWN, True
+        values[name] = value
+    annotations = McpToolAnnotations(
+        read_only_hint=values["read_only_hint"],
+        destructive_hint=values["destructive_hint"],
+        open_world_hint=values["open_world_hint"],
+    )
+    return mcp_approval_risk(annotations), False
+
+
+def _clip_mcp_display_value(
+    value: str,
+    *,
+    display_width: int,
+    byte_limit: int,
+) -> str:
+    """同时按显示列与 UTF-8 字节预算裁剪单个参数值。"""
+    text = str(value)
+    if _mcp_text_width(text) <= display_width and len(text.encode("utf-8")) <= byte_limit:
+        return text
+    ellipsis = "…"
+    ellipsis_bytes = len(ellipsis.encode("utf-8"))
+    if byte_limit < ellipsis_bytes or display_width < 1:
+        return ""
+    remaining_bytes = byte_limit - ellipsis_bytes
+    remaining_width = display_width - 1
+    units: list[str] = []
+    used_bytes = 0
+    used_width = 0
+    for char in text:
+        char_bytes = len(char.encode("utf-8"))
+        char_width = _mcp_character_width(char)
+        if used_bytes + char_bytes > remaining_bytes or used_width + char_width > remaining_width:
+            break
+        units.append(char)
+        used_bytes += char_bytes
+        used_width += char_width
+    return f"{''.join(units).rstrip()}{ellipsis}"
+
+
+def _mcp_text_width(value: str) -> int:
+    """计算参数摘要使用的保守终端显示宽度。"""
+    return sum(_mcp_character_width(char) for char in value)
+
+
+def _mcp_character_width(char: str) -> int:
+    """返回单个字符的保守终端显示宽度。"""
+    if unicodedata.combining(char):
+        return 0
+    return 2 if unicodedata.east_asian_width(char) in {"F", "W"} else 1
 
 
 def _request_key(

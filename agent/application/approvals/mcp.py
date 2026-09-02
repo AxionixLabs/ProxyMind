@@ -7,7 +7,10 @@ import typing
 from dataclasses import dataclass
 
 from agent.application.approvals.models import ApprovalOutcome
-from agent.application.turns.context import TurnContext
+from agent.application.turns.context import (
+    AgentContext,
+    TurnContext,
+)
 from agent.domain.approvals import (
     ActionFingerprint,
     ApprovalIdentity,
@@ -102,6 +105,8 @@ def build_mcp_approval_action(
 def mcp_approval_payload(
     action: McpApprovalAction,
     arguments: dict[str, typing.Any],
+    *,
+    agent: AgentContext | None = None,
 ) -> dict[str, typing.Any]:
     """把类型化 MCP 动作投影为当前审批展示队列的结构化载荷。"""
     descriptor = action.descriptor
@@ -112,7 +117,7 @@ def mcp_approval_payload(
     if descriptor.policy.allow_persistent_approval:
         decisions.append("acceptAndRemember")
     decisions.append("decline")
-    return {
+    payload: dict[str, typing.Any] = {
         "request_id": action.identity.approval_id,
         "approval_id": action.identity.approval_id,
         "session_id": action.identity.session_id,
@@ -143,6 +148,11 @@ def mcp_approval_payload(
         "schema_fingerprint": descriptor.schema_fingerprint.value,
         "available_decisions": decisions,
     }
+    if agent is not None and agent.depth > 0:
+        payload["agent_id"] = agent.agent_id
+        payload["agent_type"] = agent.agent_type
+        payload["agent_depth"] = agent.depth
+    return payload
 
 
 async def authorize_mcp_tool_call(
@@ -173,7 +183,7 @@ async def authorize_mcp_tool_call(
         descriptor=descriptor,
         arguments=arguments,
     )
-    presentation = mcp_approval_payload(action, arguments)
+    presentation = mcp_approval_payload(action, arguments, agent=turn.agent)
     outcome = await coordinator.request_action_outcome(action, presentation)
     allowed = outcome.decision in {
         "accept",

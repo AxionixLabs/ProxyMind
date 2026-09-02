@@ -16,6 +16,7 @@ from agent.application.approvals.presentation import (
     ApplyPatchApprovalPresentation,
     ApprovalPresentation,
     ExecApprovalPresentation,
+    McpApprovalPresentation,
     RequestPermissionsApprovalPresentation,
     ToolApprovalPresentation,
     ensure_approval_presentation,
@@ -70,6 +71,13 @@ TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-permission-rule": "cyan",
     "approval-network": "bold #2563EB",
     "approval-network-host": "#0EA5E9",
+    "approval-mcp-label": "bold #2563EB",
+    "approval-mcp-value": "#AAB7C4",
+    "approval-mcp-connector": "#0EA5E9",
+    "approval-mcp-readonly": "bold #16A34A",
+    "approval-mcp-write": "bold #D97706",
+    "approval-mcp-destructive": "bold #DC2626",
+    "approval-mcp-unknown": "dim #7D8A98",
 })
 
 
@@ -104,7 +112,10 @@ def tui_approval_content_lines(
 
     detail_groups: list[list[list[tuple[str, str]]]] = []
 
-    if environment := _approval_environment(approval):
+    if (
+        not isinstance(approval, McpApprovalPresentation)
+        and (environment := _approval_environment(approval))
+    ):
         detail_groups.append(
             _approval_permission_field_lines(
                 "Environment",
@@ -120,7 +131,7 @@ def tui_approval_content_lines(
         )
 
     justification = approval.context.justification
-    if justification:
+    if justification and not isinstance(approval, McpApprovalPresentation):
         detail_groups.append(
             _approval_permission_field_lines(
                 "Reason",
@@ -173,6 +184,11 @@ def tui_approval_content_lines(
         question_lines=question_lines,
         detail_groups=detail_groups,
         command_lines=command_lines,
+        compact_command_lines=(
+            _mcp_compact_card_lines(approval, max_width=content_width)
+            if isinstance(approval, McpApprovalPresentation)
+            else None
+        ),
         option_groups=option_groups,
         footer_lines=footer_lines,
         max_width=content_width,
@@ -325,6 +341,8 @@ def _approval_operation_lines(
         return _exec_approval_card_lines(approval, max_width=max_width)
     if isinstance(approval, RequestPermissionsApprovalPresentation):
         return []
+    if isinstance(approval, McpApprovalPresentation):
+        return _mcp_approval_card_lines(approval, max_width=max_width)
     return _tool_approval_card_lines(approval, max_width=max_width)
 
 
@@ -368,6 +386,159 @@ def _tool_approval_card_lines(
     return _approval_summary_lines(approval.summary, max_width=max_width)
 
 
+def _mcp_approval_card_lines(
+    approval: McpApprovalPresentation,
+    *,
+    max_width: int,
+) -> list[list[tuple[str, str]]]:
+    """按固定语义顺序生成 MCP 工具审批字段。"""
+    groups = [
+        _mcp_field_lines("Server", approval.server, max_width=max_width),
+        _mcp_field_lines("Tool", approval.tool_name, max_width=max_width),
+    ]
+    if approval.title:
+        groups.append(_mcp_field_lines("Title", approval.title, max_width=max_width))
+    if approval.description:
+        groups.append(_mcp_field_lines(
+            "Description",
+            approval.description,
+            max_width=max_width,
+        ))
+    groups.append(_mcp_argument_lines(approval, max_width=max_width))
+    groups.append(_mcp_field_lines(
+        "Risk",
+        approval.risk,
+        value_style=_mcp_risk_style(approval.risk),
+        max_width=max_width,
+    ))
+    groups.append(_mcp_field_lines(
+        "Connector",
+        approval.connector,
+        value_style=(
+            "class:approval-mcp-connector"
+            if approval.source_verified
+            else "class:approval-mcp-unknown"
+        ),
+        max_width=max_width,
+    ))
+    groups.append(_mcp_field_lines(
+        "Account",
+        approval.account,
+        value_style=(
+            "class:approval-mcp-connector"
+            if approval.account != "unverified"
+            else "class:approval-mcp-unknown"
+        ),
+        max_width=max_width,
+    ))
+    if approval.context.justification:
+        groups.append(_mcp_field_lines(
+            "Reason",
+            approval.context.justification,
+            max_width=max_width,
+        ))
+    if approval.context.environment:
+        groups.append(_mcp_field_lines(
+            "Environment",
+            approval.context.environment,
+            max_width=max_width,
+        ))
+    return [line for group in groups for line in group]
+
+
+def _mcp_compact_card_lines(
+    approval: McpApprovalPresentation,
+    *,
+    max_width: int,
+) -> list[list[tuple[str, str]]]:
+    """生成窄高度下仍保留目标身份和风险的 MCP 摘要。"""
+    groups = (
+        _mcp_field_lines("Server", approval.server, max_width=max_width),
+        _mcp_field_lines("Tool", approval.tool_name, max_width=max_width),
+        _mcp_field_lines(
+            "Risk",
+            approval.risk,
+            value_style=_mcp_risk_style(approval.risk),
+            max_width=max_width,
+        ),
+    )
+    return [
+        _collapse_wrapped_group(group, max_width=max_width)
+        for group in groups
+    ]
+
+
+def _mcp_field_lines(
+    label: str,
+    value: str,
+    *,
+    max_width: int,
+    value_style: str = "class:approval-mcp-value",
+) -> list[list[tuple[str, str]]]:
+    """生成 MCP 卡片中带蓝色标签和稳定续行缩进的字段。"""
+    return _wrap_prefixed_line(
+        ("class:approval-mcp-label", f"{label}: "),
+        [(value_style, value)],
+        max_width=max_width,
+    )
+
+
+def _mcp_argument_lines(
+    approval: McpApprovalPresentation,
+    *,
+    max_width: int,
+) -> list[list[tuple[str, str]]]:
+    """生成 MCP 参数字段、折叠标记和截断说明。"""
+    label = f"Arguments ({approval.argument_count}): "
+    if not approval.arguments:
+        value = "unknown" if approval.degraded else "none"
+        return _wrap_prefixed_line(
+            ("class:approval-mcp-label", label),
+            [(
+                "class:approval-mcp-unknown"
+                if approval.degraded
+                else "class:approval-mcp-value",
+                value,
+            )],
+            max_width=max_width,
+        )
+
+    lines = _wrap_fragment_line(
+        [("class:approval-mcp-label", label.rstrip())],
+        max_width=max_width,
+    )
+    for argument in approval.arguments:
+        lines.extend(_wrap_prefixed_line(
+            ("class:approval-mcp-value", f"  {argument.name}: "),
+            [("class:approval-mcp-value", argument.value)],
+            max_width=max_width,
+        ))
+    if approval.omitted_arguments:
+        lines.extend(_wrap_fragment_line(
+            [(
+                "class:approval-mcp-unknown",
+                f"  … +{approval.omitted_arguments} more",
+            )],
+            max_width=max_width,
+        ))
+    elif approval.arguments_truncated:
+        lines.extend(_wrap_fragment_line(
+            [("class:approval-mcp-unknown", "  … display truncated")],
+            max_width=max_width,
+        ))
+    return lines
+
+
+def _mcp_risk_style(risk: str) -> str:
+    """返回 MCP 风险等级对应的语义样式 Token。"""
+    return {
+        "read-only": "class:approval-mcp-readonly",
+        "external write": "class:approval-mcp-write",
+        "open-world": "class:approval-mcp-write",
+        "destructive": "class:approval-mcp-destructive",
+    }.get(risk, "class:approval-mcp-unknown")
+
+
 def _approval_summary_lines(
     summary: str,
     *,
@@ -392,6 +563,12 @@ def approval_command_pager_lines(
         return approval_patch_pager_lines(
             approval,
             terminal_capabilities=terminal_capabilities,
+        )
+
+    if isinstance(approval, McpApprovalPresentation):
+        return tuple(
+            tuple(line)
+            for line in _mcp_approval_card_lines(approval, max_width=120)
         )
 
     if isinstance(approval, RequestPermissionsApprovalPresentation):
@@ -420,11 +597,11 @@ def approval_pager_title(
 ) -> str:
     """返回审批全屏页面的操作标题。"""
     approval = ensure_approval_presentation(approval)
-    return (
-        "P A T C H"
-        if isinstance(approval, ApplyPatchApprovalPresentation)
-        else "E X E C"
-    )
+    if isinstance(approval, ApplyPatchApprovalPresentation):
+        return "P A T C H"
+    if isinstance(approval, McpApprovalPresentation):
+        return "M C P"
+    return "E X E C"
 
 
 def approval_patch_pager_lines(
@@ -599,6 +776,7 @@ def _fit_approval_sections(
     question_lines: list[list[tuple[str, str]]],
     detail_groups: list[list[list[tuple[str, str]]]],
     command_lines: list[list[tuple[str, str]]],
+    compact_command_lines: list[list[tuple[str, str]]] | None,
     option_groups: list[list[list[tuple[str, str]]]],
     footer_lines: list[list[tuple[str, str]]],
     max_width: int,
@@ -621,7 +799,7 @@ def _fit_approval_sections(
 
     options = [line for group in option_groups for line in group]
 
-    if len(options) + 2 > height:
+    if compact_command_lines is not None or len(options) + 2 > height:
         options = [
             _collapse_wrapped_group(group, max_width=max_width)
             for group in option_groups
@@ -659,8 +837,13 @@ def _fit_approval_sections(
                 has_footer=bool(footer),
                 gaps=gaps,
             )
+            minimum_text_rows = 1 + (
+                len(compact_command_lines)
+                if compact_command_lines is not None
+                else 1
+            )
             minimum = (
-                2
+                minimum_text_rows
                 + detail_min
                 + len(options)
                 + len(footer)
@@ -719,10 +902,16 @@ def _fit_approval_sections(
 
     question_command_budget = max(2, text_budget - len(details))
 
-    question_budget = min(
-        len(question_lines),
-        max(1, min(3, question_command_budget - 1)),
-    )
+    if compact_command_lines is not None:
+        question_budget = min(
+            len(question_lines),
+            max(1, question_command_budget - len(compact_command_lines)),
+        )
+    else:
+        question_budget = min(
+            len(question_lines),
+            max(1, min(3, question_command_budget - 1)),
+        )
 
     command_budget = max(1, question_command_budget - question_budget)
 
@@ -732,7 +921,7 @@ def _fit_approval_sections(
         max_width=max_width,
     )
     command = _truncate_command_lines(
-        command_lines,
+        compact_command_lines or command_lines,
         budget=command_budget,
         max_width=max_width,
     )

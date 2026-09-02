@@ -5,8 +5,8 @@ import pytest
 from agent.application.approvals.presentation import (
     ApplyPatchApprovalPresentation,
     ExecApprovalPresentation,
+    McpApprovalPresentation,
     RequestPermissionsApprovalPresentation,
-    ToolApprovalPresentation,
     build_approval_presentation,
     ensure_approval_presentation,
 )
@@ -145,8 +145,142 @@ def test_permissions_and_mcp_presentation_summaries_are_action_specific() -> Non
     assert permissions.summary == (
         "network; write `D:/workspace/out`"
     )
-    assert isinstance(mcp, ToolApprovalPresentation)
+    assert isinstance(mcp, McpApprovalPresentation)
     assert mcp.summary == "github: create_issue"
+    assert mcp.context.prompt == (
+        "Would you like to approve the following MCP tool call?"
+    )
+    assert mcp.risk == "unknown"
+
+
+def test_mcp_presentation_redacts_and_bounds_structured_arguments() -> None:
+    arguments = {
+        "authorization": "Bearer private",
+        "body": "line\nnext\x1b[2J",
+        "_nested": {
+            "api_key": "private",
+            "items": [{"password": "private", "visible": "value"}],
+        },
+        "a_wide": "路" * 100,
+        **{f"field_{index:02d}": index for index in range(10)},
+    }
+    presentation = build_approval_presentation({
+        "kind": "mcp_tool_call",
+        "approval_id": "approval-mcp",
+        "call_id": "call-mcp",
+        "server": "github",
+        "tool_name": "create_issue",
+        "tool_title": "Create issue",
+        "tool_description": "Create\nan issue.\x1b[31m",
+        "connector_name": "GitHub",
+        "connected_account_email": "user@example.com",
+        "arguments": arguments,
+        "annotations": {
+            "read_only_hint": False,
+            "destructive_hint": False,
+            "open_world_hint": False,
+        },
+        "available_decisions": ["accept", "decline"],
+    })
+
+    assert isinstance(presentation, McpApprovalPresentation)
+    assert presentation.server == "github"
+    assert presentation.tool_name == "create_issue"
+    assert presentation.title == "Create issue"
+    assert presentation.description == "Create an issue.\\u001b[31m"
+    assert presentation.risk == "external write"
+    assert presentation.connector == "GitHub"
+    assert presentation.account == "user@example.com"
+    assert presentation.source_verified is True
+    assert presentation.argument_count == 14
+    assert len(presentation.arguments) == 12
+    assert presentation.omitted_arguments == 2
+    assert presentation.arguments_truncated is True
+    rendered = "\n".join(
+        f"{argument.name}: {argument.value}"
+        for argument in presentation.arguments
+    )
+    assert "private" not in rendered
+    assert '"authorization":' not in rendered
+    assert "[redacted]" in rendered
+    assert any(
+        argument.name == "a_wide" and argument.value.endswith("…")
+        for argument in presentation.arguments
+    )
+    assert "\\n" in rendered
+    assert "\\u001b" in rendered
+    assert len(rendered.encode("utf-8")) <= 2048
+
+
+def test_mcp_argument_budget_includes_field_separators() -> None:
+    presentation = build_approval_presentation({
+        "kind": "mcp_tool_call",
+        "approval_id": "approval-mcp-budget",
+        "call_id": "call-mcp-budget",
+        "server": "docs",
+        "tool_name": "publish",
+        "arguments": {
+            f"field_{index:02d}_{'n' * 100}": "v" * 500
+            for index in range(12)
+        },
+        "available_decisions": ["accept", "decline"],
+    })
+
+    assert isinstance(presentation, McpApprovalPresentation)
+    rendered = "\n".join(
+        f"{argument.name}: {argument.value}"
+        for argument in presentation.arguments
+    )
+    assert len(rendered.encode("utf-8")) <= 2048
+
+
+def test_mcp_presentation_degrades_invalid_arguments_and_identity() -> None:
+    presentation = build_approval_presentation({
+        "kind": "mcp_tool_call",
+        "approval_id": "approval-mcp-degraded",
+        "call_id": "call-mcp-degraded",
+        "arguments": object(),
+        "annotations": {"read_only_hint": True},
+        "available_decisions": ["accept", "decline"],
+    })
+
+    assert isinstance(presentation, McpApprovalPresentation)
+    assert presentation.server == "unknown"
+    assert presentation.tool_name == "unknown"
+    assert presentation.risk == "unknown"
+    assert presentation.degraded is True
+
+
+@pytest.mark.parametrize(
+    ("annotations", "risk"),
+    (
+        ({"read_only_hint": True}, "read-only"),
+        ({"destructive_hint": True}, "destructive"),
+        ({"open_world_hint": True}, "open-world"),
+        (
+            {"destructive_hint": False, "open_world_hint": False},
+            "external write",
+        ),
+        (None, "unknown"),
+    ),
+)
+def test_mcp_presentation_projects_each_risk_level(
+    annotations: dict[str, bool] | None,
+    risk: str,
+) -> None:
+    presentation = build_approval_presentation({
+        "kind": "mcp_tool_call",
+        "approval_id": f"approval-{risk}",
+        "call_id": f"call-{risk}",
+        "server": "docs",
+        "tool_name": "lookup",
+        "arguments": {},
+        "annotations": annotations,
+        "available_decisions": ["accept", "decline"],
+    })
+
+    assert isinstance(presentation, McpApprovalPresentation)
+    assert presentation.risk == risk
 
 
 def test_local_mcp_remember_decisions_do_not_expand_wire_contract() -> None:
@@ -259,6 +393,22 @@ def test_approval_trace_uses_codex_session_wording() -> None:
 
     assert block.plain_text == (
         "✔ You approved mind to run git status every time this session"
+    )
+
+
+def test_local_mcp_persistent_approval_trace_uses_tool_scope() -> None:
+    block = render_approval_view(build_approval_view(
+        {
+            "kind": "mcp_tool_call",
+            "tool": "mcp__github__create_issue",
+            "server": "github",
+            "tool_name": "create_issue",
+        },
+        decision="acceptAndRemember",
+    ))
+
+    assert block.plain_text == (
+        "✔ You approved mind to call github: create_issue without asking again"
     )
 
 

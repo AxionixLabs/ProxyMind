@@ -128,6 +128,101 @@ def test_network_approval_card_uses_target_row_and_network_colors() -> None:
     ).color == "0EA5E9"
 
 
+def test_mcp_approval_card_uses_structured_fields_and_semantic_styles() -> None:
+    approval = {
+        "kind": "mcp_tool_call",
+        "approval_id": "approval-mcp",
+        "call_id": "call-mcp",
+        "server": "github",
+        "tool_name": "create_issue",
+        "tool_title": "Create issue",
+        "tool_description": "Create an issue in the selected repository.",
+        "arguments": {
+            "title": "Bug report",
+            "authorization": "Bearer private",
+        },
+        "annotations": {
+            "read_only_hint": False,
+            "destructive_hint": False,
+            "open_world_hint": False,
+        },
+        "connector_name": "GitHub",
+        "connected_account_email": "user@example.com",
+        "agent_id": "agent-worker",
+        "agent_type": "worker",
+        "agent_depth": 1,
+        "environment_id": "workspace-write",
+        "available_decisions": ["accept", "decline"],
+    }
+
+    lines = tui_approval_content_lines(
+        ["accept", "decline"],
+        approval=approval,
+        width=72,
+    )
+    text_lines = _line_texts(lines)
+    text = "\n".join(text_lines)
+
+    assert "Would you like to approve the following MCP tool call?" in text
+    ordered = [
+        next(index for index, line in enumerate(text_lines) if line.startswith(label))
+        for label in (
+            "Server:",
+            "Tool:",
+            "Title:",
+            "Description:",
+            "Arguments (2):",
+            "Risk:",
+            "Connector:",
+            "Account:",
+            "Environment:",
+        )
+    ]
+    assert ordered == sorted(ordered)
+    source_index = next(
+        index for index, line in enumerate(text_lines)
+        if line == "Agent worker · agent-worker"
+    )
+    assert source_index < ordered[0]
+    assert "Bearer private" not in text
+    assert "[redacted]" in text
+    assert any(
+        style == "class:approval-mcp-write"
+        for line in lines
+        for style, value in line
+        if "external" in value or "write" in value
+    )
+    assert approval_pager_title(approval) == "M C P"
+
+
+def test_mcp_approval_narrow_layout_keeps_identity_risk_and_options() -> None:
+    lines = tui_approval_content_lines(
+        ["accept", "acceptForSession", "decline"],
+        approval={
+            "kind": "mcp_tool_call",
+            "approval_id": "approval-mcp-narrow",
+            "call_id": "call-mcp-narrow",
+            "server": "very-long-server-name",
+            "tool_name": "create_issue_with_a_long_name",
+            "tool_description": "Long description " * 10,
+            "arguments": {"body": "value" * 100},
+            "annotations": {"destructive_hint": True},
+            "available_decisions": ["accept", "decline"],
+        },
+        width=24,
+        max_height=10,
+    )
+    text_lines = _line_texts(lines)
+
+    assert len(lines) <= 10
+    assert all(get_cwidth(line) <= 24 for line in text_lines)
+    assert any(line.startswith("Server:") for line in text_lines)
+    assert any(line.startswith("Tool:") for line in text_lines)
+    assert any(line.startswith("Risk:") for line in text_lines)
+    assert any(line.startswith("› 1.") for line in text_lines)
+    assert any(line.startswith("  3.") for line in text_lines)
+
+
 def test_patch_approval_uses_dedicated_fullscreen_title_and_preview() -> None:
     approval = {
         "tool": "apply_patch",
@@ -454,6 +549,13 @@ def test_approval_surface_uses_no_background() -> None:
         "approval-option",
         "approval-option-selected",
         "approval-command",
+        "approval-mcp-label",
+        "approval-mcp-value",
+        "approval-mcp-connector",
+        "approval-mcp-readonly",
+        "approval-mcp-write",
+        "approval-mcp-destructive",
+        "approval-mcp-unknown",
     )
 
     assert all(
@@ -677,6 +779,108 @@ def test_dark_terminal_uses_blue_selection_palette(
     assert selected.color == selection
     assert selected.bold
     assert transcript.bgcolor == selection_background
+
+
+@pytest.mark.parametrize(
+    ("level", "expected"),
+    (
+        (
+            TerminalColorLevel.TRUECOLOR,
+            ("2563EB", "AAB7C4", "0EA5E9", "16A34A", "D97706", "DC2626", "7D8A98"),
+        ),
+        (
+            TerminalColorLevel.ANSI256,
+            ("005FD7", "B2B2B2", "00AFFF", "00AF5F", "D78700", "D70000", "878787"),
+        ),
+        (
+            TerminalColorLevel.ANSI16,
+            ("ansiblue", "default", "ansicyan", "ansigreen", "ansiyellow", "ansired", "default"),
+        ),
+        (
+            TerminalColorLevel.UNKNOWN,
+            ("default", "default", "default", "default", "default", "default", "default"),
+        ),
+    ),
+)
+def test_mcp_semantic_colors_degrade_by_terminal_capability(
+    level: TerminalColorLevel,
+    expected: tuple[str, ...],
+) -> None:
+    style = build_tui_application_style(
+        Style.from_dict({}),
+        TUI_APPROVAL_STYLE,
+        Style.from_dict({}),
+        capabilities=TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+            color_level=level,
+            theme=TerminalTheme(background=(0, 0, 0)),
+        ),
+    )
+    classes = (
+        "approval-mcp-label",
+        "approval-mcp-value",
+        "approval-mcp-connector",
+        "approval-mcp-readonly",
+        "approval-mcp-write",
+        "approval-mcp-destructive",
+        "approval-mcp-unknown",
+    )
+
+    assert tuple(
+        style.get_attrs_for_style_str(f"class:{style_class}").color
+        for style_class in classes
+    ) == expected
+    assert style.get_attrs_for_style_str("class:approval-mcp-label").bold
+    assert style.get_attrs_for_style_str("class:approval-mcp-unknown").dim
+
+
+def test_mcp_semantic_colors_use_readable_light_palette() -> None:
+    style = build_tui_application_style(
+        Style.from_dict({}),
+        TUI_APPROVAL_STYLE,
+        Style.from_dict({}),
+        capabilities=TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
+            color_level=TerminalColorLevel.TRUECOLOR,
+            theme=TerminalTheme(background=(255, 255, 255)),
+        ),
+    )
+
+    assert style.get_attrs_for_style_str(
+        "class:approval-mcp-label"
+    ).color == "005F87"
+    assert style.get_attrs_for_style_str(
+        "class:approval-mcp-value"
+    ).color == "43505C"
+    assert style.get_attrs_for_style_str(
+        "class:approval-mcp-destructive"
+    ).color == "B91C1C"
+
+
+@pytest.mark.anyio
+async def test_local_mcp_persistent_shortcut_returns_declared_decision() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+    assert approval.begin({
+        "kind": "mcp_tool_call",
+        "id": "approval-mcp-persistent",
+        "tool": "mcp__docs__publish",
+        "server": "docs",
+        "tool_name": "publish",
+        "arguments": {"value": 1},
+        "_local_mcp_approval": True,
+        "available_decisions": [
+            "accept",
+            "acceptForSession",
+            "acceptAndRemember",
+            "decline",
+        ],
+    })
+
+    _invoke_approval_binding(approval, ("p",))
+
+    assert await approval.wait() == "acceptAndRemember"
+    await approval.dismiss()
 
 
 def test_shell_actions_use_blue_semantics_and_process_footer_is_dim() -> None:

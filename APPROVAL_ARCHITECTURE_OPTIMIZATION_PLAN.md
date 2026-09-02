@@ -5,7 +5,8 @@
 - 目标平台：Windows、macOS、Linux
 - 架构权威：`ARCHITECTURE.md`
 - Codex 参考基线：`codex-main/codex-rs` revision `608f4a8a98feff0889cbfc9ed691efbf42d34cc6`
-- 当前状态：网络审批作为既有基线；MCP 调用审批门与事实授权闭环已完成，审批卡实施中
+- 当前状态：网络审批作为既有基线；MCP 调用审批门、事实授权闭环和专用审批卡已完成，
+  传输边界与平台发布收口待实施
 
 ## Codex 参考文件
 
@@ -249,7 +250,7 @@ MCP 的一次性 action fingerprint 必须包含规范化参数；Session/Persis
 
 ### 阶段 3：MCP 审批卡与协议表现
 
-**规模：中；优先级：P1；状态：待开始**
+**规模：中；优先级：P1；状态：已完成**
 
 交付内容：
 
@@ -266,9 +267,9 @@ MCP 的一次性 action fingerprint 必须包含规范化参数；Session/Persis
 对象、原始异常或未经校验的字典重新推断语义。TUI、CLI、Subscription 和 Subagent 的展示
 可以有不同排版，但字段语义、顺序、颜色角色和脱敏结果必须一致。
 
-##### 当前基线
+##### 迁移前基线
 
-当前 MCP 请求复用通用工具审批卡，典型内容为：
+迁移前 MCP 请求复用通用工具审批卡，典型内容为：
 
 ```text
 Would you like to approve the following tool action?
@@ -281,7 +282,7 @@ $ github: create_issue
 Press enter to confirm or ctrl + c to cancel
 ```
 
-当前基线不展示参数、工具描述、风险注解、connector 或 account，也没有 MCP 专用颜色。该
+迁移前基线不展示参数、工具描述、风险注解、connector 或 account，也没有 MCP 专用颜色。该
 基线只用于兼容回放和迁移期对照，不能作为阶段 3 的完成标准。
 
 ##### 目标字段与顺序
@@ -409,6 +410,21 @@ Press enter to confirm or ctrl + c to cancel
 - truecolor、ANSI 256、ANSI 16、深色、浅色和未知能力终端均有稳定快照。
 - 长参数、Unicode、窄宽度、多 pending、取消和焦点恢复无重叠或越界。
 - 协议回放、重复 ack、旧 snapshot 和迟到决定均保持首终态。
+
+实施结果：
+
+- application 生成不可变 `McpApprovalPresentation`，统一投影可信 server/tool、可选来源身份、
+  描述、参数、领域风险、connector/account、环境和决定；前端不读取第三方 MCP 对象。
+- 参数摘要按顶层字段数、显示列、嵌套深度和包含分隔符的 UTF-8 总字节预算限制；敏感键递归
+  脱敏，控制字符使用稳定 JSON 转义，身份或载荷异常时降级为 `unknown` 风险。
+- TUI 按固定字段顺序渲染专用卡片，窄高度优先保留 Question、Server、Tool、Risk 和所有决定；
+  全屏查看使用 `M C P` 标题，本地持久允许使用独立快捷键和作用域结果文案。
+- MCP 语义颜色覆盖 truecolor、ANSI 256、ANSI 16、深色、浅色和未知终端能力，所有卡片 Token
+  均不设置背景色；网络卡保持独立 `approval-network` 语义。
+- 正式 wire 决定集合保持不变，`acceptForSession` / `acceptAndRemember` 仍只属于本地审批面；
+  线上 ack、snapshot 和 terminal 投影继续使用既有严格协议解析。
+- 字段顺序、参数安全边界、风险映射、子 Agent 来源、窄终端、颜色降级、本地持久快捷键、
+  completion trace 和协议隔离均有定向回归。
 
 ### 阶段 4：传输边界、平台加固与发布收口
 

@@ -4,9 +4,9 @@
 import typing
 from dataclasses import dataclass
 
-from protocol.schema.tool_approval import ToolApprovalDecision
+from agent.application.approvals.models import ApprovalDecisionValue
 
-ApprovalDecision: typing.TypeAlias = ToolApprovalDecision
+ApprovalDecision: typing.TypeAlias = ApprovalDecisionValue
 
 ApprovalState: typing.TypeAlias = typing.Literal[
     "approved",

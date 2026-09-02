@@ -12,6 +12,11 @@ APPROVAL_SNIPPET_MAX_GRAPHEMES = 80
 
 def approval_summary(approval: dict[str, typing.Any]) -> str:
     """生成审批请求的简短摘要。"""
+    if str(approval.get("kind") or "").strip() == "mcp_tool_call":
+        server = str(approval.get("server") or "").strip()
+        tool_name = str(approval.get("tool_name") or "").strip()
+        summary = ": ".join(value for value in (server, tool_name) if value)
+        return _truncate_approval_snippet(summary or "MCP tool call")
     command = _approval_command_summary(approval)
     if not command:
         command = command_preview(approval.get("command")).title

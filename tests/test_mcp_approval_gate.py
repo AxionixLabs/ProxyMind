@@ -165,6 +165,32 @@ async def test_prompt_mode_approves_before_external_mcp_execution() -> None:
 
 
 @pytest.mark.anyio
+async def test_subagent_mcp_approval_projects_trusted_source_identity() -> None:
+    runner, invocation, approval, external, _presentation = _runtime("prompt")
+    agent = AgentContext.root("sid-mcp").child(
+        "worker",
+        "research",
+        agent_id="agent-worker",
+    )
+    child_invocation = replace(
+        invocation,
+        turn=replace(invocation.turn, agent=agent),
+    )
+
+    outcome = await runner.execute(
+        child_invocation,
+        use_coding_trace=False,
+        display=False,
+    )
+
+    assert outcome.result.ok is True
+    assert approval.presentations[0]["agent_id"] == "agent-worker"
+    assert approval.presentations[0]["agent_type"] == "worker"
+    assert approval.presentations[0]["agent_depth"] == 1
+    external.call_tool.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_declined_external_mcp_call_never_reaches_sdk() -> None:
     runner, invocation, approval, external, _presentation = _runtime(
         "prompt",
