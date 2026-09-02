@@ -5,8 +5,13 @@
 本文是 ProxyMind 客户端 Agent Harness 的唯一架构权威，定义职责归属、依赖方向、
 状态所有权、生命周期和验收边界。需求、修复与重构必须先符合本文，再进入实现。
 
-线上 `mind.chat` 的字段、端点、事件、错误和恢复语义只以根目录 `PROTOCOL.md` 为准。
-本文不复制服务端状态机，也不改变 `backend/` 的独立打包边界。
+线上 `mind.chat` 的字段、端点、事件、错误和恢复语义只以服务端正式契约为准；客户端映射位于
+`protocol/schema/` 和 `protocol/client/`。本文不复制服务端状态机，也不改变 `backend/` 的独立
+打包边界。
+
+文档边界：`AGENTS.md` 只规定代理的工作方式、代码质量和验证流程；本文件只规定系统架构、
+职责、依赖、状态所有权、生命周期和稳定不变量；服务端正式契约与 `protocol/` 负责线上 wire
+契约；领域细节由对应目录的局部文档维护。
 
 ## 架构目标
 
@@ -148,7 +153,7 @@ Adapters 负责边界映射：
 - `adapters/agents` 连接子 Agent 执行、消息和 fork context；
 - `adapters/turns` 连接稳定入口与根 Turn 用例。
 
-Adapter 可以隔离第三方无类型数据，但必须在边界完成校验，内部只传递具名类型。
+Adapter 是外部变化的隔离边界；跨层只暴露已经确定的领域或 application 契约。
 
 ## 依赖规则
 
@@ -185,9 +190,6 @@ stores / capabilities / adapters / infrastructure / frontends
 8. `backend` 只依赖自身、标准库和第三方库；客户端代码不导入 backend。
 9. `sidecars` 不导入 Python 业务包；只有 `infrastructure.sidecars` 可以解析、启动并通过
    私有 IPC 驱动对应宿主，其他包只依赖 agent ports。
-
-禁止通过 `typing.cast()`、`Any` 扩大、动态 `getattr`、模块级可变替身或可空 fallback
-绕过这些方向。测试替身从组合边界显式注入。
 
 ## 组合与生命周期
 
@@ -489,7 +491,7 @@ logger 方法、吞异常和日志文本协议都被架构守卫禁止。
 
 可观测性是事实的投影，不拥有重试、取消、审批或终态决定。
 
-## 公共 API 与扩展规则
+## 扩展规则
 
 新增能力时按以下判断顺序：
 
@@ -498,16 +500,15 @@ logger 方法、吞异常和日志文本协议都被架构守卫禁止。
 3. 优先复用现有端口；只有出现真实可替换边界时新增端口。
 4. 由组合边界注入实现，删除动态发现和备用构造路径。
 5. 同次变更删除被替代的字段、路径和回退，不保留无期限兼容层。
-6. 用核心成功路径、关键失败路径、架构守卫和语法检查证明边界成立。
 
 不允许：
 
-- 创建 `core`、`common`、`shared`、`utils` 等无明确所有者的杂项层；
-- 为测试扩大生产公开 API 或保留模块级替身；
+- 创建没有明确所有者的 `core`、`common`、`shared` 或 `utils` 层；
 - 在前端复制协议 reducer、Run 状态机或效果对账；
 - 让 adapter 的第三方类型穿透 application/domain；
-- 以目录移动、命名变化或单个测试通过代替完整用例证据；
-- 为已删除字段增加 `pop`、别名、存在性检查或静默忽略。
+- 让测试替身扩大生产公开面或改变生产依赖方向；
+- 让 sidecar、配置宿主或 npm workspace 取得 Harness 状态所有权；
+- 以目录移动或命名变化代替完整用例和边界迁移。
 
 ## 架构验收
 
@@ -517,18 +518,9 @@ logger 方法、吞异常和日志文本协议都被架构守卫禁止。
 - 新路径接入完整用例，旧路径与回退已经删除；
 - Command、Event、Effect、Approval 和线上 identity 保持稳定；
 - CLI、TUI、stdio MCP、Subscription 中受影响入口使用同一 application 语义；
-- `tests/test_package_architecture.py` 的依赖方向和公开面守卫通过；
-- 受影响行为测试、`compileall` 或等价语法检查、`git diff --check` 通过；
-- 协议变更同时更新 `PROTOCOL.md`、schema、client 和契约测试；
-- 文档只记录稳定决策和当前验证方式。
+- 协议变更同时更新服务端正式契约、`protocol/schema/`、`protocol/client/` 和契约测试。
 
-仓库级推荐复核命令：
-
-```powershell
-.\venv\Scripts\python.exe -m pytest tests\test_package_architecture.py
-.\venv\Scripts\python.exe -m compileall agent protocol frontends infrastructure observability metadata
-git diff --check
-```
+具体测试选择、静态检查命令和架构守卫执行频率由 `AGENTS.md` 规定。
 
 ## 现行完成定义
 
@@ -540,6 +532,4 @@ git diff --check
 - 所有具体前端只消费显式 host、factory 或 port；
 - 本地执行状态、线上协议状态和 Subscription 状态相互隔离；
 - 持久事实能够驱动恢复，未知 Effect 有确定的对账路径；
-- 架构守卫能够阻止反向依赖、动态宿主发现、直接 logging 和旧路径回归。
-
-任一事实不成立都属于架构缺陷，应先恢复边界，再继续叠加业务能力。
+- 结构化观测由 `observability` 统一承载，运行时模块不拥有日志实现。
