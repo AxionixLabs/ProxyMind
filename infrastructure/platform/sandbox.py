@@ -311,7 +311,7 @@ class SandboxClient(object):
             "tty": bool(tty),
             "timeout_ms": timeout_ms,
         }
-        if self.platform != "darwin":
+        if self.platform == "win32":
             params["level"] = "restricted-token"
         if additional_permissions is not None:
             params["additional_permissions"] = dict(additional_permissions)

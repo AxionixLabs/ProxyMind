@@ -107,9 +107,11 @@ def test_spawn_payload_only_sends_windows_fields_to_windows_sidecar(
         )
 
     asyncio.run(run("darwin"))
+    asyncio.run(run("linux"))
     asyncio.run(run("win32"))
 
     assert "level" not in captured["darwin"]
+    assert "level" not in captured["linux"]
     assert captured["win32"]["level"] == "restricted-token"
     assert captured["win32"]["additional_permissions"]["file_system"]["read"] == [
         str(tmp_path / "out.txt")
