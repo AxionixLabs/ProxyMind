@@ -220,6 +220,150 @@ MCP 的一次性 action fingerprint 必须包含规范化参数；Session/Persis
 - 协议 adapter 严格保留 `mcp_request_id`、ack、snapshot 和 terminal 状态；不引入未获服务端契约
   支持的决定字段。
 
+#### MCP 审批卡样式实施规范
+
+本节是阶段 3 的 UI 实施契约。卡片只消费结构化 `McpApprovalPresentation`，不从第三方 MCP
+对象、原始异常或未经校验的字典重新推断语义。TUI、CLI、Subscription 和 Subagent 的展示
+可以有不同排版，但字段语义、顺序、颜色角色和脱敏结果必须一致。
+
+##### 当前基线
+
+当前 MCP 请求复用通用工具审批卡，典型内容为：
+
+```text
+Would you like to approve the following tool action?
+
+$ github: create_issue
+
+› 1. Yes, proceed (y)
+  2. No, and tell ProxyMind what to do differently (n/esc)
+
+Press enter to confirm or ctrl + c to cancel
+```
+
+当前基线不展示参数、工具描述、风险注解、connector 或 account，也没有 MCP 专用颜色。该
+基线只用于兼容回放和迁移期对照，不能作为阶段 3 的完成标准。
+
+##### 目标字段与顺序
+
+MCP 卡片按以下顺序生成；缺失的可选字段整行省略，缺失的安全关键信息不能触发自动允许：
+
+1. **Question**：`Would you like to approve the following MCP tool call?`
+2. **Source**：子执行线程存在时显示 `Agent <type> · <id>`。
+3. **Target**：`Server`、`Tool`，有值时追加 `Title`。
+4. **Description**：工具描述，按终端宽度折行，禁止使用原始 Markdown 控制布局。
+5. **Arguments**：规范化参数摘要；默认折叠结构化值，显示字段数和可展开提示。
+6. **Risk**：根据 annotations 和策略评估显示 `read-only`、`external write`、`destructive`、
+   `open-world` 或 `unknown`。`unknown` 必须按需审批。
+7. **Connector / Account**：存在且已通过边界校验时显示；不可用时显示 `unverified`，不猜测来源。
+8. **Reason / Environment**：服务端或策略提供时显示，不能覆盖 Target 和 Arguments。
+9. **Decisions**：只渲染协议实际提供并通过 `approval_decisions` 校验的选项。
+10. **Footer**：保留 pending 数量、确认和取消提示。
+
+标准宽度下的目标示例：
+
+```text
+Would you like to approve the following MCP tool call?
+Agent worker · agent-7
+
+Server: github
+Tool: create_issue
+Title: Create issue
+Description: Create an issue in the selected repository.
+Arguments (2):
+  title: Bug report
+  body: Request details
+Risk: external write
+Connector: github
+Account: configured account
+
+› 1. Yes, proceed (y)
+  2. Yes, for this session (s)
+  3. No, and tell ProxyMind what to do differently (n/esc)
+
+Press enter to confirm or ctrl + c to cancel
+```
+
+示例中的 `acceptForSession` 只在协议和策略实际提供时出现；MCP 卡不得自行增加服务端未声明
+的决定值。一次性允许、Session grant 和持久 grant 的作用域文案必须与决定值一一对应，不能
+复用命令前缀 amendment 文案。
+
+##### 参数摘要与安全规则
+
+- 参数先按协议 schema 校验，再转换为展示值；展示层不执行 schema 推断或字符串拼接。
+- 默认最多显示 12 个顶层字段、每个字段最多 120 个显示列、嵌套深度最多 2 层，总展示预算
+  2,048 个 UTF-8 字节。超出部分显示 `… +N more`，并保留原始字段计数。
+- `token`、`secret`、`password`、`authorization`、`api_key`、`access_token`、`private_key`
+  和 `credential` 等键名大小写不敏感匹配，值统一显示 `[redacted]`；嵌套对象和数组同样递归脱敏。
+- 字符串、数字、布尔值和 null 使用稳定的 JSON 表示；换行、控制字符和 ANSI 序列必须转义。
+- 结构化值默认折叠；展开只改变 PresentationView，不改变审批事实、动作指纹或实际参数。
+- 参数无法解析、schema 不匹配或身份不完整时显示降级卡并保持审批阻断，不回退为“看起来像
+  只读”的摘要。
+
+##### 颜色 Token 与状态
+
+颜色是语义角色，不直接散落在各前端。truecolor 的基准值如下；ANSI 256 和 ANSI 16 必须映射
+到同一语义，未知终端能力使用无颜色但保持粗体、前缀和顺序：
+
+| Token | Truecolor | 用途 |
+| --- | --- | --- |
+| `approval-mcp-label` | `#2563EB` | MCP、Server、Tool、Risk 标签；与网络审批主色对齐 |
+| `approval-mcp-value` | `#AAB7C4` | 已校验的字段值 |
+| `approval-mcp-connector` | `#0EA5E9` | connector、account 和来源值；与网络目标值对齐 |
+| `approval-mcp-readonly` | `#16A34A` | 明确只读风险 |
+| `approval-mcp-write` | `#D97706` | 外部写入或 open-world 风险 |
+| `approval-mcp-destructive` | `#DC2626` | destructive 注解或策略判定 |
+| `approval-mcp-unknown` | `#7D8A98` | 注解缺失、来源未验证或降级状态 |
+| `approval-option-selected` | `#5B8DEF` | 当前焦点选项，保持现有审批选中态 |
+| `approval-shortcut-selected` | `#C7F7FF` | 当前焦点快捷键，保持现有审批快捷键态 |
+
+卡片默认不设置背景色，不使用渐变、图标代替风险文字或嵌套卡片。网络审批继续使用
+`approval-network` / `approval-network-host`；MCP 只能复用颜色角色，不能把 MCP tool grant
+显示成网络授权。
+
+状态显示规则：
+
+| 状态 | 展示要求 | 是否可操作 |
+| --- | --- | --- |
+| `requested` | 完整字段、风险颜色、焦点选项 | 是 |
+| `selected` | 仅焦点和快捷键颜色变化，内容不抖动 | 是 |
+| `submitting` | 保留请求摘要，禁用重复提交 | 否 |
+| `accepted` | 显示允许作用域和 terminal 结果 | 否 |
+| `declined` | 显示拒绝原因或下一步提示 | 否 |
+| `cancelled` / `expired` | 显示终止原因，不重新打开卡片 | 否 |
+| `degraded` | 缺失字段以 `unknown` 标识，继续要求明确决定 | 是 |
+
+##### 排版与跨平台要求
+
+- 卡片内容宽度由前端可用区域决定；任何字段都必须按显示列折行，不能横向溢出或覆盖选项。
+- 窄终端优先保留 Question、Server、Tool、Risk 和 Decisions；Description、Arguments 细节可
+  折叠，但不能静默删除风险或身份字段。
+- Windows、macOS、Linux 使用相同的 PresentationView、字段顺序、脱敏和颜色语义；平台差异
+  只能出现在终端能力适配器，不得产生不同的审批决定或不同的默认风险。
+- CLI 和非交互入口不能伪造用户确认；无审批表面时按策略拒绝或返回明确的 pending 状态。
+- 多个 pending 请求必须保持卡片高度稳定，焦点恢复到原请求，迟到 ack 或旧 snapshot 不得
+  重开已收束的卡片。
+
+##### Codex 对齐依据
+
+- `codex-main/codex-rs/core/src/mcp_tool_call.rs`：工具执行前审批、决定和 grant 作用域。
+- `codex-main/codex-rs/core/src/mcp_tool_approval_templates.rs`：MCP 审批提示和结构化元数据。
+- `codex-main/codex-rs/protocol/src/mcp_approval_meta.rs`：MCP request metadata 与 annotations。
+- `codex-main/codex-rs/tui/src/approval_events.rs`：审批事件在 TUI 中的结构化投影。
+- `codex-main/codex-rs/tui/src/styles.md`：Codex TUI 的颜色和终端能力约束。
+- `codex-main/codex-rs/tui/src/auto_review_denials.rs`：MCP 来源和 connector 的失败展示语义。
+
+##### 阶段 3 样式验收
+
+- 为每个字段和每个状态增加结构化快照测试；快照只比较语义片段和样式 Token，不比较终端控制
+  序列的偶然差异。
+- 覆盖 truecolor、ANSI 256、ANSI 16、深色、浅色和无颜色终端；颜色降级后仍能仅凭文本和前缀
+  区分 MCP、网络、写入、破坏性和未知风险。
+- 覆盖参数脱敏、长字符串、嵌套对象、Unicode、控制字符、窄宽度、多 pending、焦点恢复、取消、
+  超时和重复 ack。
+- 样式完成不能替代执行面验收；只有阶段 1 的真实 MCP 审批门和阶段 2 的事实/Effect 闭环
+  通过后，才能将卡片从兼容基线切换为默认表现。
+
 出口测试：
 
 - truecolor、ANSI 256、ANSI 16、深色、浅色和未知能力终端均有稳定快照。
