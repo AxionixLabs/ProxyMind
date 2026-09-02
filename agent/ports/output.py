@@ -1,35 +1,445 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import typing
 from abc import (
     ABC,
     abstractmethod,
 )
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field,
+)
 
-from .content import ContentSink
+from .content import (
+    ContentSink,
+    ResponseIdentity,
+)
 from .presentation import (
     TextSpan,
     TextStyle,
 )
 
 __all__ = (
+    "ApprovalCompleted",
+    "ApprovalStarted",
+    "AssistantBuffered",
+    "AssistantSettled",
+    "AssistantVisible",
     "BLOCK_OUTPUT",
     "ContentSink",
     "IdleStatusPort",
+    "LogicalSettled",
+    "ModelWaitReason",
+    "ModelWaitRequested",
     "OutputControlPort",
+    "OutputActivityEvent",
+    "OutputActivityPort",
     "OutputDisplay",
     "OutputPort",
     "OutputPresentationPort",
     "OutputSession",
     "OutputSessionFactory",
+    "OutputSurfaceContext",
     "OutputStatusPort",
+    "PassiveOutputActivity",
+    "RecoveryActivityMode",
+    "RecoveryChanged",
+    "RetryActivitySource",
+    "RetryActivityState",
+    "RetryChanged",
     "STREAM_OUTPUT",
+    "SurfaceClosed",
+    "SurfaceTurnStarted",
+    "TerminalWaitCompleted",
+    "TerminalWaitStarted",
+    "ToolActivityKind",
+    "ToolBatchCompleted",
+    "ToolBatchStarted",
+    "ToolCompleted",
+    "ToolStarted",
+    "TurnTerminal",
+    "TurnTerminalStatus",
+)
+
+OutputDisplay = typing.Literal[
+    "stream",
+    "block"
+]
+
+ModelWaitReason = typing.Literal[
+    "initial",
+    "server_thinking",
+    "assistant_settled",
+    "tool_result",
+    "lifecycle",
+    "continuation",
+]
+ToolActivityKind = typing.Literal[
+    "client",
+    "builtin",
+    "plan",
+    "nested",
+]
+RetryActivitySource = typing.Literal["transport", "provider"]
+RetryActivityState = typing.Literal["started", "completed"]
+RecoveryActivityMode = typing.Literal[
+    "live",
+    "replaying",
+    "caught_up",
+    "gap",
+]
+TurnTerminalStatus = typing.Literal[
+    "completed",
+    "failed",
+    "interrupted",
+    "cancelled",
+    "reconciliation_required",
+]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OutputSurfaceContext:
+    """标识一个输出会话观察的本地展示表面和正式 Turn。"""
+
+    surface_id: str
+    cid: str
+    sid: str
+    turn_id: str
+    agent_id: str
+
+    def __post_init__(self) -> None:
+        """拒绝无法稳定定位输出会话的身份。"""
+        for field_name in (
+            "surface_id",
+            "cid",
+            "sid",
+            "turn_id",
+            "agent_id",
+        ):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"output surface {field_name} is required")
+            object.__setattr__(self, field_name, value.strip())
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ScopedActivityEvent:
+    """保存所有展示事件共有的输出会话和 Turn 身份。"""
+
+    surface_id: str
+    turn_id: str
+
+    def __post_init__(self) -> None:
+        """校验展示事件的基础身份。"""
+        for field_name in ("surface_id", "turn_id"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"output activity {field_name} is required")
+            object.__setattr__(self, field_name, value.strip())
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SurfaceTurnStarted(_ScopedActivityEvent):
+    """描述输出会话开始观察一个正式 Turn。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ModelWaitRequested(_ScopedActivityEvent):
+    """描述当前 Turn 已进入等待模型继续的展示阶段。"""
+
+    revision: int
+    reason: ModelWaitReason
+
+    def __post_init__(self) -> None:
+        """校验等待请求版本和来源。"""
+        _ScopedActivityEvent.__post_init__(self)
+        if (
+            isinstance(self.revision, bool)
+            or not isinstance(self.revision, int)
+            or self.revision < 1
+        ):
+            raise ValueError("model wait revision must be positive")
+        if self.reason not in {
+            "initial",
+            "server_thinking",
+            "assistant_settled",
+            "tool_result",
+            "lifecycle",
+            "continuation",
+        }:
+            raise ValueError("model wait reason is invalid")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _AssistantActivityEvent(_ScopedActivityEvent):
+    """保存 assistant 展示事实共有的响应和 Item 身份。"""
+
+    identity: ResponseIdentity
+    item_id: str
+
+    def __post_init__(self) -> None:
+        """校验 assistant 展示身份属于当前 Turn。"""
+        _ScopedActivityEvent.__post_init__(self)
+        if not isinstance(self.identity, ResponseIdentity):
+            raise TypeError("assistant activity identity is required")
+        if self.identity.turn_id != self.turn_id:
+            raise ValueError("assistant activity identity does not match turn")
+        if not isinstance(self.item_id, str) or not self.item_id.strip():
+            raise ValueError("assistant activity item_id is required")
+        object.__setattr__(self, "item_id", self.item_id.strip())
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AssistantBuffered(_AssistantActivityEvent):
+    """描述 assistant 正文已接收但尚未实际可见。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AssistantVisible(_AssistantActivityEvent):
+    """描述 assistant 正文已经进入活动画布。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AssistantSettled(_AssistantActivityEvent):
+    """描述 assistant 正文段已经稳定。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _BatchActivityEvent(_ScopedActivityEvent):
+    """保存工具批次展示事实的稳定身份。"""
+
+    batch_id: str
+
+    def __post_init__(self) -> None:
+        """校验批次身份。"""
+        _ScopedActivityEvent.__post_init__(self)
+        if not isinstance(self.batch_id, str) or not self.batch_id.strip():
+            raise ValueError("tool batch_id is required")
+        object.__setattr__(self, "batch_id", self.batch_id.strip())
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ToolBatchStarted(_BatchActivityEvent):
+    """描述工具批次已经登记。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ToolBatchCompleted(_BatchActivityEvent):
+    """描述工具批次事件已经完整。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ToolActivityEvent(_ScopedActivityEvent):
+    """保存单个工具展示事实的类型和稳定身份。"""
+
+    tool_id: str
+    tool_kind: ToolActivityKind
+    name: str = ""
+
+    def __post_init__(self) -> None:
+        """校验工具身份并规范化可选名称。"""
+        _ScopedActivityEvent.__post_init__(self)
+        if not isinstance(self.tool_id, str) or not self.tool_id.strip():
+            raise ValueError("tool activity identity is required")
+        if self.tool_kind not in {"client", "builtin", "plan", "nested"}:
+            raise ValueError("tool activity kind is invalid")
+        object.__setattr__(self, "tool_id", self.tool_id.strip())
+        object.__setattr__(self, "name", str(self.name or "").strip())
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ToolStarted(_ToolActivityEvent):
+    """描述一个工具取得具名活动 lease。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ToolCompleted(_ToolActivityEvent):
+    """描述一个工具释放具名活动 lease。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _TerminalWaitActivityEvent(_ScopedActivityEvent):
+    """保存后台终端等待的调用和进程会话身份。"""
+
+    call_id: str
+    session_id: str
+    command: str = ""
+
+    def __post_init__(self) -> None:
+        """校验终端等待身份。"""
+        _ScopedActivityEvent.__post_init__(self)
+        for field_name in ("call_id", "session_id"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"terminal wait {field_name} is required")
+            object.__setattr__(self, field_name, value.strip())
+        object.__setattr__(self, "command", str(self.command or "").strip())
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TerminalWaitStarted(_TerminalWaitActivityEvent):
+    """描述后台终端开始等待输出。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TerminalWaitCompleted(_TerminalWaitActivityEvent):
+    """描述后台终端结束等待输出。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ApprovalActivityEvent(_ScopedActivityEvent):
+    """保存审批展示事实的审批和调用身份。"""
+
+    approval_id: str
+    call_id: str
+
+    def __post_init__(self) -> None:
+        """校验审批身份。"""
+        _ScopedActivityEvent.__post_init__(self)
+        for field_name in ("approval_id", "call_id"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"approval activity {field_name} is required")
+            object.__setattr__(self, field_name, value.strip())
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ApprovalStarted(_ApprovalActivityEvent):
+    """描述审批表面取得独占交互权。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ApprovalCompleted(_ApprovalActivityEvent):
+    """描述审批表面释放独占交互权。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RetryChanged(_ScopedActivityEvent):
+    """描述一个独立重试来源开始或结束。"""
+
+    source: RetryActivitySource
+    state: RetryActivityState
+    presentation_epoch: int
+    round: int
+    attempt: int
+
+    def __post_init__(self) -> None:
+        """校验 retry Attempt 身份。"""
+        _ScopedActivityEvent.__post_init__(self)
+        if self.source not in {"transport", "provider"}:
+            raise ValueError("retry activity source is invalid")
+        if self.state not in {"started", "completed"}:
+            raise ValueError("retry activity state is invalid")
+        for field_name in ("presentation_epoch", "round", "attempt"):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"retry {field_name} must be positive")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RecoveryChanged(_ScopedActivityEvent):
+    """描述事件流恢复投影模式和当前持久水位。"""
+
+    mode: RecoveryActivityMode
+    event_seq: int
+
+    def __post_init__(self) -> None:
+        """校验恢复水位。"""
+        _ScopedActivityEvent.__post_init__(self)
+        if self.mode not in {"live", "replaying", "caught_up", "gap"}:
+            raise ValueError("recovery activity mode is invalid")
+        if (
+            isinstance(self.event_seq, bool)
+            or not isinstance(self.event_seq, int)
+            or self.event_seq < 0
+        ):
+            raise ValueError("recovery event_seq must be non-negative")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TurnTerminal(_ScopedActivityEvent):
+    """描述当前 Turn 已收到权威或确定的终态。"""
+
+    status: TurnTerminalStatus
+
+    def __post_init__(self) -> None:
+        """校验终态分类属于正式客户端契约。"""
+        _ScopedActivityEvent.__post_init__(self)
+        if self.status not in {
+            "completed",
+            "failed",
+            "interrupted",
+            "cancelled",
+            "reconciliation_required",
+        }:
+            raise ValueError("turn terminal status is invalid")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LogicalSettled(_ScopedActivityEvent):
+    """描述当前 Turn 的逻辑交互已经结算。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SurfaceClosed(_ScopedActivityEvent):
+    """描述输出会话已经关闭。"""
+
+
+OutputActivityEvent: typing.TypeAlias = (
+    SurfaceTurnStarted
+    | ModelWaitRequested
+    | AssistantBuffered
+    | AssistantVisible
+    | AssistantSettled
+    | ToolBatchStarted
+    | ToolBatchCompleted
+    | ToolStarted
+    | ToolCompleted
+    | TerminalWaitStarted
+    | TerminalWaitCompleted
+    | ApprovalStarted
+    | ApprovalCompleted
+    | RetryChanged
+    | RecoveryChanged
+    | TurnTerminal
+    | LogicalSettled
+    | SurfaceClosed
 )
 
 
-OutputDisplay = typing.Literal["stream", "block"]
+class OutputActivityPort(typing.Protocol):
+    """接收单个 OutputSession 的展示事实并拥有其派生资源。"""
+
+    async def open(self) -> None:
+        """启动当前输出表面的展示生命周期。"""
+        ...
+
+    async def emit(self, event: OutputActivityEvent) -> None:
+        """按身份和顺序接收一项展示事实。"""
+        ...
+
+    async def close(self) -> None:
+        """幂等取消当前表面的 timer、lease 和回调。"""
+        ...
+
+
+class PassiveOutputActivity(OutputActivityPort):
+    """为没有活动展示表面的输出模式提供显式空实现。"""
+
+    async def open(self) -> None:
+        """忽略展示生命周期启动。"""
+        return None
+
+    async def emit(self, event: OutputActivityEvent) -> None:
+        """忽略已类型化的展示事实。"""
+        _ = event
+        return None
+
+    async def close(self) -> None:
+        """忽略展示生命周期关闭。"""
+        return None
 
 STREAM_OUTPUT: typing.Final[OutputDisplay] = "stream"
 BLOCK_OUTPUT: typing.Final[OutputDisplay] = "block"
@@ -186,15 +596,69 @@ class OutputPresentationPort(typing.Protocol[PresentationViewT]):
         ...
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OutputSession(typing.Generic[PresentationViewT]):
-    """聚合单轮运行所需的输出控制、内容和展示端口。"""
+    """聚合并关闭单轮输出控制、展示事实和投影端口。"""
 
+    context: OutputSurfaceContext
     control: OutputControlPort
+    activity: OutputActivityPort
     status: OutputStatusPort
     content: ContentSink
     presentation: OutputPresentationPort[PresentationViewT]
     show_hook_lifecycle: bool = False
+    _opened: bool = field(default=False, init=False, repr=False)
+    _closed: bool = field(default=False, init=False, repr=False)
+    _lifecycle_lock: asyncio.Lock = field(
+        default_factory=asyncio.Lock,
+        init=False,
+        repr=False,
+    )
+
+    async def open(self) -> None:
+        """按 activity、输出控制顺序幂等启动会话。"""
+        async with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("output session is closed")
+            if self._opened:
+                return None
+            await self.activity.open()
+            try:
+                await self.control.open()
+            except BaseException as error:
+                try:
+                    await self.activity.close()
+                except BaseException as cleanup_error:
+                    error.add_note(
+                        "output activity close failed after open error: "
+                        f"{type(cleanup_error).__name__}: {cleanup_error}"
+                    )
+                raise
+            self._opened = True
+
+    async def close(self, *, blink: bool = True) -> None:
+        """幂等关闭展示事实和输出控制，且不因前一步失败跳过后一步。"""
+        async with self._lifecycle_lock:
+            if self._closed:
+                return None
+            self._closed = True
+            primary_error: BaseException | None = None
+            try:
+                await self.activity.close()
+            except BaseException as error:
+                primary_error = error
+            try:
+                await self.control.stop(blink=blink)
+            except BaseException as error:
+                if primary_error is None:
+                    primary_error = error
+                else:
+                    primary_error.add_note(
+                        "output control close also failed: "
+                        f"{type(error).__name__}: {error}"
+                    )
+            if primary_error is not None:
+                raise primary_error
 
 
 class OutputSessionFactory(typing.Protocol[PresentationViewT]):
@@ -204,6 +668,7 @@ class OutputSessionFactory(typing.Protocol[PresentationViewT]):
         self,
         log_file: str,
         *,
+        context: OutputSurfaceContext,
         animate: bool = True,
     ) -> OutputSession[PresentationViewT]:
         """创建绑定输出记录和前端展示端口的会话。"""

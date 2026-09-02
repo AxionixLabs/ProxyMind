@@ -28,7 +28,11 @@ from agent.ports import (
     ResponseIdentity,
     SourcesOutput,
 )
-from agent.ports import OutputSession
+from agent.ports import (
+    OutputSession,
+    OutputSurfaceContext,
+    PassiveOutputActivity,
+)
 from agent.application.views import (
     ApprovalView,
     FailureView,
@@ -298,9 +302,15 @@ class _TranscriptStore(object):
         return _TranscriptWriter(self.entries)
 
 
-def _output_session(*, show_hook_lifecycle: bool = False) -> OutputSession:
+def _output_session(
+    context: OutputSurfaceContext,
+    *,
+    show_hook_lifecycle: bool = False,
+) -> OutputSession:
     return OutputSession(
+        context=context,
         control=_OutputControl(),
+        activity=PassiveOutputActivity(),
         status=_OutputStatus(),
         content=_Sink(),
         presentation=_Sink(),
@@ -745,10 +755,6 @@ async def _run_stream(
             return await stream.post_effect_reconciliation(**kwargs)
 
     mind.runtime_services.model_capability = ModelCapabilityStub()
-    output_session = _output_session(
-        show_hook_lifecycle=show_hook_lifecycle
-    )
-    mind.output_session = output_session
     permissions = permissions or preset_permissions("auto")
     root_agent = AgentContext.root("sid_test")
     turn_context = TurnContext.create(
@@ -801,6 +807,21 @@ async def _run_stream(
             extras=extras,
         ),
     )
+    def session_factory(
+        _path: str,
+        *,
+        context: OutputSurfaceContext,
+        animate: bool,
+    ) -> OutputSession:
+        """创建与当前测试 Turn scope 完全匹配的输出会话。"""
+        _ = animate
+        output_session = _output_session(
+            context,
+            show_hook_lifecycle=show_hook_lifecycle,
+        )
+        mind.output_session = output_session
+        return output_session
+
     stream_options = {
         "exec_env": environment_snapshot,
         "skills": (
@@ -809,7 +830,7 @@ async def _run_stream(
             else [{"name": "test"}]
         ),
         "turn_execution": turn_execution,
-        "session_factory": lambda *_args, **_kwargs: output_session,
+        "session_factory": session_factory,
     }
     stream_options["model_capability"] = mind.runtime_services.model_capability
     stream_options["protocol_client"] = mind.runtime_services.model_capability

@@ -9,7 +9,6 @@ from agent.application.turns.transcript import record_turn_finished
 from agent.harness.hooks.turn_lifecycle import TurnHookEvents
 from agent.ports import (
     IdleStatusPort,
-    OutputControlPort,
 )
 from agent.ports.transcript import TranscriptLifecyclePort
 from observability import observe_exception
@@ -28,6 +27,14 @@ class _ModelOutputLifecycle(typing.Protocol):
 
     def flush_pending(self, *, complete_only: bool = False) -> None:
         """提交尚未写入会话记录的模型正文。"""
+        ...
+
+
+class _OutputSessionLifecycle(typing.Protocol):
+    """定义单轮输出会话的幂等关闭边界。"""
+
+    async def close(self, *, blink: bool = True) -> None:
+        """关闭展示事实、计时器和具体输出资源。"""
         ...
 
 
@@ -53,7 +60,7 @@ class StreamTurnFinalizer:
         retry_state_close: typing.Callable[[], None],
         stream_end: typing.Callable[[str], None] | None,
         idle_wait: IdleStatusPort,
-        output_control: OutputControlPort,
+        output_session: _OutputSessionLifecycle,
         await_cleanup: _AwaitCleanup,
         continuation_count: int,
     ) -> None:
@@ -68,7 +75,7 @@ class StreamTurnFinalizer:
         self._retry_state_close = retry_state_close
         self._stream_end = stream_end
         self._idle_wait = idle_wait
-        self._output_control = output_control
+        self._output_session = output_session
         self._await_cleanup = await_cleanup
         self._continuation_count = int(continuation_count)
 
@@ -107,7 +114,7 @@ class StreamTurnFinalizer:
 
         self._transcript.close()
         await self._idle_wait.cancel()
-        await self._await_cleanup(self._output_control.stop(
+        await self._await_cleanup(self._output_session.close(
             blink=not self._outcome.is_interrupted,
         ))
         return stop_decision

@@ -39,7 +39,9 @@ from agent.ports import (
     ResponseIdentity,
     OutputControlPort,
     OutputSession,
+    OutputSurfaceContext,
     OutputStatusPort,
+    PassiveOutputActivity,
     SourcesOutput,
 )
 from .recording import StreamRecordWriter
@@ -654,6 +656,7 @@ class JsonPresentationSink(PresentationSink):
 def create_json_output_session(
     log_file: str,
     *,
+    context: OutputSurfaceContext,
     animate: bool = True
 ) -> OutputSession:
     """创建逐行结构化输出会话。"""
@@ -664,7 +667,9 @@ def create_json_output_session(
     )
     control = JsonOutputControl(state)
     return OutputSession(
+        context=context,
         control=control,
+        activity=PassiveOutputActivity(),
         status=control,
         content=JsonContentSink(state),
         presentation=JsonPresentationSink(state),

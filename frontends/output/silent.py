@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from agent.ports import OutputSession
+from agent.ports import (
+    OutputSession,
+    OutputSurfaceContext,
+    PassiveOutputActivity,
+)
 from .recording import StreamRecordWriter
 from .text import (
     TextContentSink,
@@ -31,6 +35,7 @@ class _DiscardTextStream(TextStream):
 def create_silent_output_session(
     log_file: str,
     *,
+    context: OutputSurfaceContext,
     animate: bool = True,
 ) -> OutputSession:
     """创建只写入记录文件的无终端输出会话。"""
@@ -47,7 +52,9 @@ def create_silent_output_session(
     control = TextOutputControl(state)
 
     return OutputSession(
+        context=context,
         control=control,
+        activity=PassiveOutputActivity(),
         status=control,
         content=TextContentSink(state),
         presentation=TextPresentationSink(state),

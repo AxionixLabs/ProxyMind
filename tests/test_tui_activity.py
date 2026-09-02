@@ -14,6 +14,7 @@ from prompt_toolkit.output import DummyOutput
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.ports.presentation import ApplicationView
+from agent.ports import OutputSurfaceContext
 from frontends.runtime import FrontendActivity
 from frontends.interaction import PromptContext
 from frontends.tui.adapters.output import TuiOutputControl
@@ -689,7 +690,18 @@ async def test_stale_activity_lease_does_not_clear_replacement() -> None:
 
 def test_tui_output_session_separates_content_and_event_status() -> None:
     runtime = TuiRuntime()
-    session = create_tui_output_session("", runtime=runtime, animate=False)
+    session = create_tui_output_session(
+        "",
+        context=OutputSurfaceContext(
+            surface_id="surface_test",
+            cid="cid_test",
+            sid="sid_test",
+            turn_id="turn_test",
+            agent_id="root",
+        ),
+        runtime=runtime,
+        animate=False,
+    )
 
     assert isinstance(session.control, TuiOutputControl)
     assert isinstance(session.status, TuiStreamStatusControl)

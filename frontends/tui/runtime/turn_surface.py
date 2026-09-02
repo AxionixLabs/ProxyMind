@@ -1,0 +1,691 @@
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
+import asyncio
+import typing
+from dataclasses import (
+    dataclass,
+    replace,
+)
+
+from agent.ports import (
+    ApprovalCompleted,
+    ApprovalStarted,
+    AssistantBuffered,
+    AssistantSettled,
+    AssistantVisible,
+    LogicalSettled,
+    ModelWaitReason,
+    ModelWaitRequested,
+    OutputActivityEvent,
+    OutputActivityPort,
+    OutputSurfaceContext,
+    RecoveryActivityMode,
+    RecoveryChanged,
+    ResponseIdentity,
+    RetryActivitySource,
+    RetryChanged,
+    SurfaceClosed,
+    SurfaceTurnStarted,
+    TerminalWaitCompleted,
+    TerminalWaitStarted,
+    ToolActivityKind,
+    ToolBatchCompleted,
+    ToolBatchStarted,
+    ToolCompleted,
+    ToolStarted,
+    TurnTerminal,
+)
+
+SurfaceLifecycle = typing.Literal[
+    "inactive",
+    "active",
+    "terminal",
+    "closed",
+]
+SurfaceContentState = typing.Literal[
+    "none",
+    "buffered",
+    "visible",
+    "settled",
+]
+SurfaceIndicatorKind = typing.Literal[
+    "hidden",
+    "thinking",
+    "retrying",
+    "working",
+    "terminal",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class AssistantActivity:
+    """保存当前表面已知的一项 assistant 正文身份。"""
+
+    identity: ResponseIdentity
+    item_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolActivity:
+    """保存一个活动工具 lease 的类型、身份和名称。"""
+
+    tool_id: str
+    tool_kind: ToolActivityKind
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalWaitActivity:
+    """保存一个后台终端等待 lease。"""
+
+    call_id: str
+    session_id: str
+    command: str
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalActivity:
+    """保存一个独占审批表面的稳定身份。"""
+
+    approval_id: str
+    call_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class RetryActivity:
+    """保存一个重试来源及其所属 provider Attempt。"""
+
+    source: RetryActivitySource
+    presentation_epoch: int
+    round: int
+    attempt: int
+
+
+@dataclass(frozen=True, slots=True)
+class TurnSurfaceState:
+    """保存纯 reducer 使用的正交展示状态。"""
+
+    context: OutputSurfaceContext
+    lifecycle: SurfaceLifecycle = "inactive"
+    content: SurfaceContentState = "none"
+    buffered_items: tuple[AssistantActivity, ...] = ()
+    settled_items: tuple[AssistantActivity, ...] = ()
+    visible_item: AssistantActivity | None = None
+    model_wait_revision: int | None = None
+    model_wait_reason: ModelWaitReason | None = None
+    batches: tuple[str, ...] = ()
+    completed_batches: tuple[str, ...] = ()
+    tools: tuple[ToolActivity, ...] = ()
+    completed_tools: tuple[ToolActivity, ...] = ()
+    terminal_waits: tuple[TerminalWaitActivity, ...] = ()
+    completed_terminal_waits: tuple[TerminalWaitActivity, ...] = ()
+    approvals: tuple[ApprovalActivity, ...] = ()
+    completed_approvals: tuple[ApprovalActivity, ...] = ()
+    retries: tuple[RetryActivity, ...] = ()
+    recovery: RecoveryActivityMode = "live"
+    recovery_event_seq: int = 0
+    logical_settled: bool = False
+    terminal_status: str = ""
+    revision: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class SurfaceProjection:
+    """描述 TUI 活动区域从 reducer 状态派生的唯一投影。"""
+
+    indicator: SurfaceIndicatorKind
+    title: str = ""
+    detail: str = ""
+    revision: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class TurnSurfaceTiming:
+    """定义 TUI 本地等待恢复策略，协议事件不得携带这些时间值。"""
+
+    assistant_settled_sec: float = 0.15
+    tool_result_sec: float = 0.15
+    lifecycle_sec: float = 0.15
+
+    def delay_for(self, reason: ModelWaitReason | None) -> float:
+        """返回指定等待来源的非负本地延时。"""
+        if reason == "assistant_settled":
+            return max(0.0, self.assistant_settled_sec)
+        if reason == "tool_result":
+            return max(0.0, self.tool_result_sec)
+        if reason == "lifecycle":
+            return max(0.0, self.lifecycle_sec)
+        return 0.0
+
+
+def initial_turn_surface_state(
+    context: OutputSurfaceContext,
+) -> TurnSurfaceState:
+    """创建尚未开始观察事件的空展示状态。"""
+    if not isinstance(context, OutputSurfaceContext):
+        raise TypeError("output surface context is required")
+    return TurnSurfaceState(context=context)
+
+
+def reduce_turn_surface(
+    state: TurnSurfaceState,
+    event: OutputActivityEvent,
+) -> TurnSurfaceState:
+    """按稳定身份和顺序把一项展示事实归约为新状态。"""
+    if not isinstance(state, TurnSurfaceState):
+        raise TypeError("turn surface state is required")
+    _require_scope(state.context, event)
+
+    if state.lifecycle == "closed":
+        if isinstance(event, SurfaceClosed):
+            return state
+        raise RuntimeError("turn surface is closed")
+
+    updated = _reduce_active_surface(state, event)
+    if updated == state:
+        return state
+    return replace(updated, revision=state.revision + 1)
+
+
+def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
+    """从正交状态派生单一活动区域投影。"""
+    revision = state.revision
+    if state.lifecycle in {"inactive", "terminal", "closed"}:
+        return SurfaceProjection("hidden", revision=revision)
+    if state.recovery in {"replaying", "gap"}:
+        return SurfaceProjection("hidden", revision=revision)
+    if state.approvals:
+        return SurfaceProjection("hidden", revision=revision)
+    if state.content == "visible":
+        return SurfaceProjection("hidden", revision=revision)
+    if state.retries:
+        source = (
+            "transport"
+            if any(item.source == "transport" for item in state.retries)
+            else "provider"
+        )
+        return SurfaceProjection(
+            "retrying",
+            title="Retrying",
+            detail=source,
+            revision=revision,
+        )
+    if state.terminal_waits:
+        wait = state.terminal_waits[-1]
+        return SurfaceProjection(
+            "terminal",
+            title="Terminal",
+            detail=wait.command,
+            revision=revision,
+        )
+    if state.tools or state.batches:
+        tool = state.tools[-1] if state.tools else None
+        return SurfaceProjection(
+            "working",
+            title="Working",
+            detail=tool.name if tool is not None else "",
+            revision=revision,
+        )
+    if state.model_wait_revision is not None:
+        return SurfaceProjection(
+            "thinking",
+            title="Thinking",
+            revision=revision,
+        )
+    return SurfaceProjection("hidden", revision=revision)
+
+
+ApplySurfaceProjection = typing.Callable[
+    [SurfaceProjection],
+    typing.Awaitable[None],
+]
+
+
+class TuiTurnSurfaceCoordinator(OutputActivityPort):
+    """串行化单个 TUI OutputSession 的 reducer、timer 和视觉投影。"""
+
+    def __init__(
+        self,
+        context: OutputSurfaceContext,
+        apply_projection: ApplySurfaceProjection,
+        *,
+        timing: TurnSurfaceTiming = TurnSurfaceTiming(),
+    ) -> None:
+        """绑定不可变 scope、投影出口和本地时间策略。"""
+        if not callable(apply_projection):
+            raise TypeError("turn surface projection sink is required")
+        self.context = context
+        self.state = initial_turn_surface_state(context)
+        self.apply_projection = apply_projection
+        self.timing = timing
+        self._applied: SurfaceProjection | None = None
+        self._timer: asyncio.Task[None] | None = None
+        self._timer_error: BaseException | None = None
+        self._opened: bool = False
+        self._closed: bool = False
+        self._lock: asyncio.Lock = asyncio.Lock()
+
+    @property
+    def pending_timer(self) -> bool:
+        """返回当前是否存在尚未完成的延迟投影任务。"""
+        return self._timer is not None and not self._timer.done()
+
+    async def open(self) -> None:
+        """启动当前表面但不抢占尚未迁入的既有视觉状态。"""
+        async with self._lock:
+            if self._closed:
+                raise RuntimeError("turn surface coordinator is closed")
+            if self._opened:
+                return None
+            self._opened = True
+            self.state = reduce_turn_surface(
+                self.state,
+                SurfaceTurnStarted(
+                    surface_id=self.context.surface_id,
+                    turn_id=self.context.turn_id,
+                ),
+            )
+
+    async def emit(self, event: OutputActivityEvent) -> None:
+        """取消陈旧 timer、归约事实并提交或调度唯一派生投影。"""
+        async with self._lock:
+            self._raise_timer_error()
+            if not self._opened:
+                raise RuntimeError("turn surface coordinator is not open")
+            if self._closed:
+                raise RuntimeError("turn surface coordinator is closed")
+            self._cancel_timer()
+            self.state = reduce_turn_surface(self.state, event)
+            projection = project_turn_surface(self.state)
+            delay = (
+                self.timing.delay_for(self.state.model_wait_reason)
+                if projection.indicator == "thinking"
+                else 0.0
+            )
+            if delay > 0:
+                self._timer = asyncio.create_task(
+                    self._apply_after(
+                        projection,
+                        expected_revision=self.state.revision,
+                        delay=delay,
+                    ),
+                    name=f"tui surface {self.context.surface_id}",
+                )
+                return None
+            await self._apply(projection)
+
+    async def close(self) -> None:
+        """幂等取消 timer 并使当前表面的全部后续事件失效。"""
+        timer: asyncio.Task[None] | None = None
+        projection_error: BaseException | None = None
+        async with self._lock:
+            if self._closed:
+                self._raise_timer_error()
+                return None
+            self._closed = True
+            timer = self._timer
+            self._cancel_timer()
+            if self._opened:
+                self.state = reduce_turn_surface(
+                    self.state,
+                    SurfaceClosed(
+                        surface_id=self.context.surface_id,
+                        turn_id=self.context.turn_id,
+                    ),
+                )
+                try:
+                    await self._apply(project_turn_surface(self.state))
+                except BaseException as error:
+                    projection_error = error
+        if timer is not None:
+            await asyncio.gather(timer, return_exceptions=True)
+        self._raise_timer_error()
+        if projection_error is not None:
+            raise projection_error
+
+    async def _apply_after(
+        self,
+        projection: SurfaceProjection,
+        *,
+        expected_revision: int,
+        delay: float,
+    ) -> None:
+        """仅在 reducer revision 未变化时提交延迟投影。"""
+        task = asyncio.current_task()
+        try:
+            await asyncio.sleep(delay)
+            async with self._lock:
+                if (
+                    self._closed
+                    or self.state.revision != expected_revision
+                    or project_turn_surface(self.state) != projection
+                ):
+                    return None
+                await self._apply(projection)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as error:
+            self._timer_error = error
+        finally:
+            if self._timer is task:
+                self._timer = None
+
+    async def _apply(self, projection: SurfaceProjection) -> None:
+        """跳过完全相同的派生投影并调用唯一视觉出口。"""
+        if self._applied == projection:
+            return None
+        await self.apply_projection(projection)
+        self._applied = projection
+
+    def _cancel_timer(self) -> None:
+        """同步取消当前 generation timer。"""
+        timer = self._timer
+        self._timer = None
+        if timer is not None and not timer.done():
+            timer.cancel()
+
+    def _raise_timer_error(self) -> None:
+        """把延迟视觉出口的失败交还输出会话生命周期。"""
+        error = self._timer_error
+        self._timer_error = None
+        if error is not None:
+            raise error
+
+
+def _reduce_active_surface(
+    state: TurnSurfaceState,
+    event: OutputActivityEvent,
+) -> TurnSurfaceState:
+    """处理已经通过 scope 校验的一项事件。"""
+    if isinstance(event, SurfaceTurnStarted):
+        if state.lifecycle == "inactive":
+            return replace(state, lifecycle="active")
+        return state
+    if state.lifecycle == "terminal":
+        if isinstance(event, TurnTerminal):
+            if event.status != state.terminal_status:
+                raise ValueError("turn terminal status conflicts with existing state")
+            return state
+        if isinstance(event, LogicalSettled):
+            if state.logical_settled:
+                return state
+            return replace(state, logical_settled=True)
+        if isinstance(event, SurfaceClosed):
+            return replace(state, lifecycle="closed")
+        return state
+    if state.lifecycle != "active" and not isinstance(event, SurfaceClosed):
+        raise RuntimeError("turn surface is not active")
+    if isinstance(event, ModelWaitRequested):
+        if state.model_wait_revision is not None:
+            if event.revision < state.model_wait_revision:
+                return state
+            if event.revision == state.model_wait_revision:
+                if event.reason != state.model_wait_reason:
+                    raise ValueError("model wait revision was reused")
+                return state
+        return replace(
+            state,
+            model_wait_revision=event.revision,
+            model_wait_reason=event.reason,
+        )
+    if isinstance(event, AssistantBuffered):
+        item = _assistant_activity(event.identity, event.item_id)
+        if item in state.buffered_items or item in state.settled_items:
+            return state
+        return replace(
+            state,
+            content="buffered",
+            buffered_items=(*state.buffered_items, item),
+        )
+    if isinstance(event, AssistantVisible):
+        item = _assistant_activity(event.identity, event.item_id)
+        if item in state.settled_items:
+            return state
+        if item not in state.buffered_items:
+            raise ValueError("visible assistant item was not buffered")
+        return replace(
+            state,
+            content="visible",
+            visible_item=item,
+            model_wait_revision=None,
+            model_wait_reason=None,
+        )
+    if isinstance(event, AssistantSettled):
+        item = _assistant_activity(event.identity, event.item_id)
+        if item in state.settled_items:
+            return state
+        if item not in state.buffered_items:
+            raise ValueError("settled assistant item was not buffered")
+        if state.visible_item not in {None, item}:
+            raise ValueError("settled assistant item does not match visible item")
+        return replace(
+            state,
+            content="settled",
+            settled_items=(*state.settled_items, item),
+            visible_item=None,
+        )
+    if isinstance(event, ToolBatchStarted):
+        if (
+            event.batch_id in state.batches
+            or event.batch_id in state.completed_batches
+        ):
+            return state
+        return replace(state, batches=(*state.batches, event.batch_id))
+    if isinstance(event, ToolBatchCompleted):
+        if event.batch_id not in state.batches:
+            if event.batch_id in state.completed_batches:
+                return state
+            raise ValueError("tool batch completion does not match active batch")
+        return replace(
+            state,
+            batches=tuple(
+                batch_id
+                for batch_id in state.batches
+                if batch_id != event.batch_id
+            ),
+            completed_batches=(*state.completed_batches, event.batch_id),
+        )
+    if isinstance(event, ToolStarted):
+        tool = ToolActivity(event.tool_id, event.tool_kind, event.name)
+        existing = _tool_by_id(state.tools, event.tool_id)
+        completed = _tool_by_id(state.completed_tools, event.tool_id)
+        if existing is not None:
+            if existing != tool:
+                raise ValueError("tool activity identity was reused")
+            return state
+        if completed is not None:
+            if completed != tool:
+                raise ValueError("tool activity identity was reused")
+            return state
+        return replace(state, tools=(*state.tools, tool))
+    if isinstance(event, ToolCompleted):
+        tool = _tool_by_id(state.tools, event.tool_id)
+        if tool is None:
+            completed = _tool_by_id(state.completed_tools, event.tool_id)
+            if completed is not None and (
+                completed.tool_kind == event.tool_kind
+                and (not event.name or completed.name == event.name)
+            ):
+                return state
+            raise ValueError("tool completion does not match active tool")
+        if tool.tool_kind != event.tool_kind or (
+            event.name and tool.name != event.name
+        ):
+            raise ValueError("tool completion identity does not match active tool")
+        return replace(
+            state,
+            tools=tuple(item for item in state.tools if item.tool_id != event.tool_id),
+            completed_tools=(*state.completed_tools, tool),
+        )
+    if isinstance(event, TerminalWaitStarted):
+        wait = TerminalWaitActivity(event.call_id, event.session_id, event.command)
+        existing = _terminal_wait_by_identity(
+            state.terminal_waits,
+            event.call_id,
+            event.session_id,
+        )
+        completed = _terminal_wait_by_identity(
+            state.completed_terminal_waits,
+            event.call_id,
+            event.session_id,
+        )
+        if existing is not None:
+            if existing != wait:
+                raise ValueError("terminal wait identity was reused")
+            return state
+        if completed is not None:
+            if completed != wait:
+                raise ValueError("terminal wait identity was reused")
+            return state
+        return replace(state, terminal_waits=(*state.terminal_waits, wait))
+    if isinstance(event, TerminalWaitCompleted):
+        existing = _terminal_wait_by_identity(
+            state.terminal_waits,
+            event.call_id,
+            event.session_id,
+        )
+        if existing is None:
+            completed = _terminal_wait_by_identity(
+                state.completed_terminal_waits,
+                event.call_id,
+                event.session_id,
+            )
+            if completed is not None:
+                return state
+            raise ValueError("terminal wait completion does not match active wait")
+        return replace(
+            state,
+            terminal_waits=tuple(
+                item
+                for item in state.terminal_waits
+                if (item.call_id, item.session_id)
+                != (event.call_id, event.session_id)
+            ),
+            completed_terminal_waits=(
+                *state.completed_terminal_waits,
+                existing,
+            ),
+        )
+    if isinstance(event, ApprovalStarted):
+        approval = ApprovalActivity(event.approval_id, event.call_id)
+        if approval in state.approvals or approval in state.completed_approvals:
+            return state
+        return replace(state, approvals=(*state.approvals, approval))
+    if isinstance(event, ApprovalCompleted):
+        approval = ApprovalActivity(event.approval_id, event.call_id)
+        if approval not in state.approvals:
+            if approval in state.completed_approvals:
+                return state
+            raise ValueError("approval completion does not match active approval")
+        return replace(
+            state,
+            approvals=tuple(item for item in state.approvals if item != approval),
+            completed_approvals=(*state.completed_approvals, approval),
+        )
+    if isinstance(event, RetryChanged):
+        retry = RetryActivity(
+            event.source,
+            event.presentation_epoch,
+            event.round,
+            event.attempt,
+        )
+        if event.state == "started":
+            without_source = tuple(
+                item for item in state.retries if item.source != event.source
+            )
+            return replace(state, retries=(*without_source, retry))
+        matching = tuple(
+            item
+            for item in state.retries
+            if item.source == event.source
+            and item.presentation_epoch == event.presentation_epoch
+            and item.round == event.round
+            and item.attempt == event.attempt
+        )
+        if not matching:
+            return state
+        return replace(
+            state,
+            retries=tuple(item for item in state.retries if item not in matching),
+        )
+    if isinstance(event, RecoveryChanged):
+        if event.event_seq < state.recovery_event_seq:
+            return state
+        return replace(
+            state,
+            recovery=event.mode,
+            recovery_event_seq=event.event_seq,
+        )
+    if isinstance(event, TurnTerminal):
+        return replace(
+            state,
+            lifecycle="terminal",
+            content=("settled" if state.buffered_items else "none"),
+            visible_item=None,
+            model_wait_revision=None,
+            model_wait_reason=None,
+            batches=(),
+            tools=(),
+            terminal_waits=(),
+            approvals=(),
+            retries=(),
+            terminal_status=event.status,
+        )
+    if isinstance(event, LogicalSettled):
+        raise ValueError("logical settlement requires terminal turn")
+    if isinstance(event, SurfaceClosed):
+        return replace(
+            state,
+            lifecycle="closed",
+            model_wait_revision=None,
+            model_wait_reason=None,
+            batches=(),
+            tools=(),
+            terminal_waits=(),
+            approvals=(),
+            retries=(),
+        )
+    raise TypeError(f"unsupported output activity event: {type(event).__name__}")
+
+
+def _require_scope(
+    context: OutputSurfaceContext,
+    event: OutputActivityEvent,
+) -> None:
+    """拒绝不属于当前 OutputSession 的展示事件。"""
+    if event.surface_id != context.surface_id or event.turn_id != context.turn_id:
+        raise ValueError("output activity event does not match surface scope")
+
+
+def _assistant_activity(
+    identity: ResponseIdentity,
+    item_id: str,
+) -> AssistantActivity:
+    """构建已经由端口校验的 assistant 展示身份。"""
+    return AssistantActivity(identity, item_id)
+
+
+def _tool_by_id(
+    tools: tuple[ToolActivity, ...],
+    tool_id: str,
+) -> ToolActivity | None:
+    """读取一个活动工具身份。"""
+    return next((item for item in tools if item.tool_id == tool_id), None)
+
+
+def _terminal_wait_by_identity(
+    waits: tuple[TerminalWaitActivity, ...],
+    call_id: str,
+    session_id: str,
+) -> TerminalWaitActivity | None:
+    """读取一个后台终端等待身份。"""
+    return next((
+        item
+        for item in waits
+        if item.call_id == call_id and item.session_id == session_id
+    ), None)
+
+
+if __name__ == '__main__':
+    pass

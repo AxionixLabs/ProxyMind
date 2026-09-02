@@ -1,8 +1,8 @@
 # TUI Turn 展示实施清单
 
 状态：执行中
-当前阶段：S1 Typed 事件、Reducer 与输出会话生命周期（未开始）
-完成阶段：1 / 6
+当前阶段：S2 正文流与等待状态原子交接（未开始）
+完成阶段：2 / 6
 基线日期：2026-09-02
 Codex 参考版本：`codex-main` revision `0bd2a23916a19e998ed28c0166fbcb405738ed79`
 
@@ -105,7 +105,7 @@ Reducer 使用正交状态，避免把所有组合塞入单一枚举：
 ## 阶段总览
 
 - [x] S0 契约冻结与基线
-- [ ] S1 Typed 事件、Reducer 与输出会话生命周期
+- [x] S1 Typed 事件、Reducer 与输出会话生命周期
 - [ ] S2 正文流与等待状态原子交接
 - [ ] S3 工具、审批与结果回灌闭环
 - [ ] S4 重试、恢复、续跑与终态收束
@@ -185,37 +185,41 @@ Reducer 使用正交状态，避免把所有组合塞入单一枚举：
 - 遗留风险/决策：现有空状态 adapter 和 idle timer 缺口已冻结，必须由 S1-S4 的单一 reducer
   取代，不允许通过恢复旧整轮动画行为规避。
 
-## [ ] S1 Typed 事件、Reducer 与输出会话生命周期
+## [x] S1 Typed 事件、Reducer 与输出会话生命周期
 
 ### 任务
 
-- [ ] 在 `agent/ports/output.py` 建立 UI 无关的 activity 事件和 sink 契约，使用 enum、dataclass
+- [x] 在 `agent/ports/output.py` 建立 UI 无关的 activity 事件和 sink 契约，使用 enum、dataclass
   或判别联合，不使用动态字典和含义不清的布尔位置参数。
-- [ ] 事件覆盖 execution/Turn 开始、模型等待、正文边界、工具/批次开始结束、审批开始结束、
+- [x] 事件覆盖 execution/Turn 开始、模型等待、正文边界、工具/批次开始结束、审批开始结束、
   retry 变化、恢复追平和终态。
-- [ ] 为工具、审批、批次、Attempt 和输出会话定义准确 identity；重复事件幂等，不同语义冲突。
-- [ ] 建立纯 `TuiTurnSurfaceReducer`，输入旧状态和事件后返回新状态及派生投影，不直接执行 IO。
-- [ ] 建立 `TuiTurnSurfaceCoordinator`，作为 timer、lease 和画布提交的唯一 owner。
-- [ ] 为 `OutputSessionFactory` 增加具名上下文，使输出会话获得 execution/Turn scope，而不是从
+- [x] 为工具、审批、批次、Attempt 和输出会话定义准确 identity；重复事件幂等，不同语义冲突。
+- [x] 建立纯 `TuiTurnSurfaceReducer`，输入旧状态和事件后返回新状态及派生投影，不直接执行 IO。
+- [x] 建立 `TuiTurnSurfaceCoordinator`，作为 timer、lease 和画布提交的唯一 owner。
+- [x] 为 `OutputSessionFactory` 增加具名上下文，使输出会话获得 execution/Turn scope，而不是从
   前端全局对象或字符串猜测身份。
-- [ ] 让 `OutputSession` 负责完整 open/close；close 必须幂等取消 timer、清除 scope 并继续关闭
+- [x] 让 `OutputSession` 负责完整 open/close；close 必须幂等取消 timer、清除 scope 并继续关闭
   其他输出资源，即使其中一个清理步骤失败。
-- [ ] 为 text、JSONL、silent 和 TUI 输出提供明确实现，不保留旧端口兼容 facade。
+- [x] 为 text、JSONL、silent 和 TUI 输出提供明确实现，不保留旧端口兼容 facade。
 
 ### 出口
 
-- [ ] Reducer 对合法状态转换、重复事件、过期 generation、陈旧 lease 和非法身份有单元测试。
-- [ ] 一个 OutputSession 关闭后不存在 timer task、活动 lease 或可继续修改画布的回调。
-- [ ] `agent` 契约不导入 TUI 或 Prompt Toolkit，TUI reducer 不导入 protocol transport。
-- [ ] 架构边界审计通过，且旧调用尚未接入前不会形成第二个生产状态所有者。
+- [x] Reducer 对合法状态转换、重复事件、过期 generation、陈旧 lease 和非法身份有单元测试。
+- [x] 一个 OutputSession 关闭后不存在 timer task、活动 lease 或可继续修改画布的回调。
+- [x] `agent` 契约不导入 TUI 或 Prompt Toolkit，TUI reducer 不导入 protocol transport。
+- [x] 架构边界审计通过，且旧调用尚未接入前不会形成第二个生产状态所有者。
 
 ### 记录
 
-- 状态：未开始
-- 完成日期：
-- 提交：
-- 验证：
-- 遗留风险/决策：
+- 状态：已完成
+- 完成日期：2026-09-02
+- 提交：`feat(tui): establish turn surface lifecycle`
+- 验证：输出/流式/TUI/子代理回归 `171 passed in 3.57s`；S1 状态机和生命周期定向测试
+  `15 passed in 0.48s`；输出边界架构守卫 `1 passed in 26.14s`；`py_compile` 与
+  `git diff --check`
+- 遗留风险/决策：S1 只建立 scope、typed 契约、纯 reducer、timer owner 和关闭语义；
+  coordinator 在首个 typed event 前不触碰既有画面，正文、工具、审批和 retry 事件源分别在
+  S2-S4 迁入，以免过渡期形成第二个生产状态 owner。
 
 ## [ ] S2 正文流与等待状态原子交接
 

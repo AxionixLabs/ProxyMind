@@ -52,12 +52,12 @@ class _IdleWait:
         self.operations.append("idle.cancel")
 
 
-class _OutputControl:
+class _OutputSession:
     def __init__(self, operations: list[typing.Any]) -> None:
         self.operations = operations
 
-    async def stop(self, *, blink: bool = True) -> None:
-        self.operations.append(("output.stop", blink))
+    async def close(self, *, blink: bool = True) -> None:
+        self.operations.append(("output.close", blink))
 
 
 class _HookEvents:
@@ -123,7 +123,7 @@ def _finalizer(
             else None
         ),
         idle_wait=_IdleWait(operations),
-        output_control=_OutputControl(operations),
+        output_session=_OutputSession(operations),
         await_cleanup=await_cleanup,
         continuation_count=2,
     )
@@ -160,7 +160,7 @@ async def test_finalizer_closes_completed_turn_in_lifecycle_order() -> None:
         "transcript.close",
         "idle.cancel",
         "cleanup.await",
-        ("output.stop", True),
+        ("output.close", True),
     ]
     assert transcript.entries == [{
         "event": "turn.completed",
@@ -211,7 +211,7 @@ async def test_finalizer_discards_interrupted_stop_hook_decision() -> None:
         "transcript.close",
         "idle.cancel",
         "cleanup.await",
-        ("output.stop", False),
+        ("output.close", False),
     ]
     assert hooks.calls[0]["outcome"] == "interrupted"
 
@@ -242,5 +242,5 @@ async def test_finalizer_isolates_stop_hook_failure_from_resource_cleanup() -> N
         "transcript.close",
         "idle.cancel",
         "cleanup.await",
-        ("output.stop", True),
+        ("output.close", True),
     ]

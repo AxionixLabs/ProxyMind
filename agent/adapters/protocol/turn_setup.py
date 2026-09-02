@@ -14,12 +14,14 @@ from agent.ports import (
     EventReportPort,
     OutputSession,
     OutputSessionFactory,
+    OutputSurfaceContext,
 )
 from agent.ports import (
     RetryStatePort,
     TurnSessionContextPort,
 )
 from protocol.schema.environment import normalize_client_environment_snapshot
+from protocol.schema.identifiers import short_uid
 
 Callback = typing.Callable[..., typing.Any]
 
@@ -192,14 +194,26 @@ def prepare_stream_turn(
     session_factory = _resolve_output_session_factory(session_factory_value)
     continuation_kwargs["session_factory"] = session_factory
 
+    surface_context = OutputSurfaceContext(
+        surface_id=f"surface_{short_uid(20)}",
+        cid=context.cid,
+        sid=context.sid,
+        turn_id=context.turn_id,
+        agent_id=context.agent.agent_id,
+    )
     output_session = session_factory(
         context.output_record_path,
+        context=surface_context,
         animate=(
             session_context.animate
             if isinstance(session_context, TurnSessionContextPort)
             else True
         ),
     )
+    if not isinstance(output_session, OutputSession):
+        raise TypeError("session_factory must return OutputSession")
+    if output_session.context != surface_context:
+        raise ValueError("output session context does not match turn scope")
     if output_session.show_hook_lifecycle:
         hook_scope = hook_scope.with_default_status_port(
             HookPresentationAdapter(output_session.presentation)

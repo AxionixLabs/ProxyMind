@@ -225,7 +225,7 @@ async def stream_turn(
         retry_state_close=retrying_status.close,
         stream_end=callbacks.stream_end,
         idle_wait=idle_wait,
-        output_control=output_control,
+        output_session=output_session,
         await_cleanup=cleanup.await_cleanup,
         continuation_count=turn_continuation_count(turn_execution),
     )
@@ -234,7 +234,7 @@ async def stream_turn(
         transcript.open()
         record_turn_started(transcript, turn_execution)
 
-        await output_control.open()
+        await output_session.open()
 
         observe(
             "stream.start",

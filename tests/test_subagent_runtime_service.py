@@ -30,6 +30,7 @@ from agent.harness.agents.control import (
     AgentStateError,
 )
 from agent.ports.agent_messages import AgentMessageReceipt
+from agent.ports import OutputSurfaceContext
 from agent.harness.agents.runtime import SubagentRuntime
 from agent.harness.execution.turn_runner import execute_turn
 from protocol.client.reports import EventReportRuntimeOwner
@@ -753,7 +754,16 @@ async def test_runtime_forks_recent_parent_turns_into_first_child_turn(tmp_path)
 @pytest.mark.anyio
 async def test_silent_output_session_records_transcript(tmp_path) -> None:
     transcript = tmp_path / "agent.log"
-    session = create_silent_output_session(str(transcript))
+    session = create_silent_output_session(
+        str(transcript),
+        context=OutputSurfaceContext(
+            surface_id="surface_child",
+            cid="cid_child",
+            sid="sid_child",
+            turn_id="turn_child",
+            agent_id="child",
+        ),
+    )
 
     await session.control.open()
     await session.control.record_hidden_output("child result")

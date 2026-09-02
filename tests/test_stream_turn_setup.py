@@ -5,7 +5,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from agent.ports import OutputSession
+from agent.ports import (
+    OutputSession,
+    OutputSurfaceContext,
+    PassiveOutputActivity,
+)
 from agent.application.turns.context import (
     AgentContext,
     TurnContext,
@@ -18,10 +22,12 @@ from agent.adapters.protocol import turn_setup
 from agent.domain.policies import preset_permissions
 
 
-def _output_session() -> OutputSession:
+def _output_session(context: OutputSurfaceContext) -> OutputSession:
     """构造不启用 Hook 展示适配的输出会话。"""
     return OutputSession(
+        context=context,
         control=Mock(),
+        activity=PassiveOutputActivity(),
         status=Mock(),
         content=Mock(),
         presentation=Mock(),
@@ -127,8 +133,9 @@ def _session_context(
 
 
 def test_prepare_stream_turn_separates_request_and_continuation_options() -> None:
-    output_session = _output_session()
-    session_factory = Mock(return_value=output_session)
+    session_factory = Mock(side_effect=lambda _path, *, context, animate: (
+        _output_session(context)
+    ))
     input_context = Mock()
     input_event = Mock()
     retry_state = Mock()
@@ -153,7 +160,11 @@ def test_prepare_stream_turn_separates_request_and_continuation_options() -> Non
     assert options["session_factory"] is session_factory
     assert prepared.context is execution.context
     assert prepared.message == "hello"
-    assert prepared.output_session is output_session
+    assert prepared.output_session.context.cid == "cid_test"
+    assert prepared.output_session.context.sid == "sid_test"
+    assert prepared.output_session.context.turn_id == "turn_test"
+    assert prepared.output_session.context.agent_id == "root"
+    assert prepared.output_session.context.surface_id.startswith("surface_")
     assert prepared.event_report is event_report
     assert prepared.callbacks.retry_state is retry_state
     assert prepared.request_kwargs == {
@@ -174,12 +185,17 @@ def test_prepare_stream_turn_separates_request_and_continuation_options() -> Non
     assert "turn_id" not in prepared.continuation_kwargs
     input_context.assert_called_once_with(execution.context)
     event_report.begin_turn.assert_called_once_with("turn_test")
-    session_factory.assert_called_once_with("output.jsonl", animate=False)
+    session_factory.assert_called_once_with(
+        "output.jsonl",
+        context=prepared.output_session.context,
+        animate=False,
+    )
 
 
 def test_prepare_stream_turn_resolves_missing_request_capabilities() -> None:
-    output_session = _output_session()
-    session_factory = Mock(return_value=output_session)
+    session_factory = Mock(side_effect=lambda _path, *, context, animate: (
+        _output_session(context)
+    ))
     retry_state = Mock()
     retry_state_port = SimpleNamespace(
         set_wait_retry_state=retry_state,
@@ -227,7 +243,7 @@ def test_prepare_stream_turn_rejects_missing_session_factory() -> None:
 
 
 def test_prepare_stream_turn_rejects_non_callable_callback() -> None:
-    session_factory = Mock(return_value=_output_session())
+    session_factory = Mock()
 
     with pytest.raises(
         TypeError,

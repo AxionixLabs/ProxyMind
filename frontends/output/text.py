@@ -37,7 +37,9 @@ from agent.ports import (
     ContentSink,
     OutputControlPort,
     OutputSession,
+    OutputSurfaceContext,
     OutputStatusPort,
+    PassiveOutputActivity,
     SourcesOutput,
 )
 from frontends.terminal.renderers.approval import render_approval_view
@@ -550,6 +552,7 @@ class TextPresentationSink(PresentationSink):
 def create_text_output_session(
     log_file: str,
     *,
+    context: OutputSurfaceContext,
     animate: bool = True
 ) -> OutputSession:
     """创建无动画的人类可读文本输出会话。"""
@@ -564,7 +567,9 @@ def create_text_output_session(
     control = TextOutputControl(state)
 
     return OutputSession(
+        context=context,
         control=control,
+        activity=PassiveOutputActivity(),
         status=control,
         content=TextContentSink(state),
         presentation=TextPresentationSink(state),
