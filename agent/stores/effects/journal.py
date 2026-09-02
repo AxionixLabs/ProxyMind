@@ -358,5 +358,5 @@ def _validate_effect(effect: EffectIntent) -> None:
         raise ValueError("effect replay policy is invalid")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

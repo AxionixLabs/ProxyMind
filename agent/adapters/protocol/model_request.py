@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import Mapping
 
 from agent.application.turns.context import TurnContext
 from agent.protocol import ModelStreamRequest
+
+__all__ = (
+    "build_model_stream_request",
+    "extend_request_context",
+)
 
 
 def extend_request_context(
@@ -104,7 +110,5 @@ def _join_text(*values: str) -> str:
     )
 
 
-__all__ = (
-    "build_model_stream_request",
-    "extend_request_context",
-)
+if __name__ == '__main__':
+    pass

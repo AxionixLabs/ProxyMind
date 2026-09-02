@@ -136,5 +136,6 @@ class InMemoryHelixCapability:
 if not isinstance(InMemoryHelixCapability(), HelixCapability):
     raise TypeError("InMemoryHelixCapability must implement HelixCapability")
 
+
 if __name__ == '__main__':
     pass

@@ -288,5 +288,6 @@ if not isinstance(LocalFilesystemCapability(Path.cwd()), FilesystemCapability):
 if not isinstance(InMemoryFilesystemCapability(), FilesystemCapability):
     raise TypeError("InMemoryFilesystemCapability must implement FilesystemCapability")
 
+
 if __name__ == '__main__':
     pass

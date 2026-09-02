@@ -214,5 +214,5 @@ def _executable_basename(value: str) -> str:
     return PurePath(text).name.casefold().removesuffix(".exe")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

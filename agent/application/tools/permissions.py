@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import json
 import typing
@@ -22,6 +22,14 @@ from agent.domain.permission_profiles import (
 )
 from agent.ports.approvals import ApprovalCoordinatorPort
 from agent.ports.permissions import PermissionGrantPort
+
+__all__ = (
+    "PERMISSION_PROFILE_SCHEMA",
+    "REQUEST_PERMISSIONS_INPUT_SCHEMA",
+    "permission_response_result",
+    "permission_tools",
+)
+
 
 PERMISSION_PROFILE_SCHEMA: dict[str, typing.Any] = {
     "type": "object",
@@ -261,9 +269,5 @@ def permission_tools(
     ]
 
 
-__all__ = (
-    "PERMISSION_PROFILE_SCHEMA",
-    "REQUEST_PERMISSIONS_INPUT_SCHEMA",
-    "permission_response_result",
-    "permission_tools",
-)
+if __name__ == '__main__':
+    pass

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from abc import (
@@ -12,6 +13,21 @@ from .presentation import (
     TextSpan,
     TextStyle,
 )
+
+__all__ = (
+    "BLOCK_OUTPUT",
+    "ContentSink",
+    "IdleStatusPort",
+    "OutputControlPort",
+    "OutputDisplay",
+    "OutputPort",
+    "OutputPresentationPort",
+    "OutputSession",
+    "OutputSessionFactory",
+    "OutputStatusPort",
+    "STREAM_OUTPUT",
+)
+
 
 OutputDisplay = typing.Literal["stream", "block"]
 
@@ -194,16 +210,5 @@ class OutputSessionFactory(typing.Protocol[PresentationViewT]):
         ...
 
 
-__all__ = (
-    "BLOCK_OUTPUT",
-    "ContentSink",
-    "IdleStatusPort",
-    "OutputControlPort",
-    "OutputDisplay",
-    "OutputPort",
-    "OutputPresentationPort",
-    "OutputSession",
-    "OutputSessionFactory",
-    "OutputStatusPort",
-    "STREAM_OUTPUT",
-)
+if __name__ == '__main__':
+    pass

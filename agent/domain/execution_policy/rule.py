@@ -223,5 +223,5 @@ class HostExecutable:
     source: str | None = None
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

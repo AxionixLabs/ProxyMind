@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import math
 import os
@@ -198,3 +199,7 @@ def startup_timeout_sec(server: dict[str, typing.Any]) -> float:
         server.get("startup_timeout_sec"),
         DEFAULT_MCP_START_TIMEOUT_SEC,
     )
+
+
+if __name__ == '__main__':
+    pass

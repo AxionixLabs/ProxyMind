@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import (
@@ -14,6 +15,13 @@ from agent.ports.transcript import TranscriptFactory
 
 if typing.TYPE_CHECKING:
     from agent.application.turns.compact_result import CompactEvent
+
+__all__ = (
+    "CompactProgress",
+    "CompactionClientPort",
+    "CompactionSessionPort",
+)
+
 
 CompactProgress: typing.TypeAlias = typing.Callable[[str], None]
 CleanupValue = typing.TypeVar("CleanupValue")
@@ -76,8 +84,5 @@ class CompactionSessionPort(typing.Protocol):
         ...
 
 
-__all__ = (
-    "CompactProgress",
-    "CompactionClientPort",
-    "CompactionSessionPort",
-)
+if __name__ == '__main__':
+    pass

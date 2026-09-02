@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import (
@@ -30,6 +31,18 @@ if typing.TYPE_CHECKING:
     from agent.application.turns.execution import TurnExecution
     from agent.application.turns.context import TurnContext
     from .hooks import HookScopeProviderPort
+
+__all__ = (
+    "SkillsProvider",
+    "SubagentExecutionPort",
+    "SubagentStreamPort",
+    "SubagentOperation",
+    "SubagentResultValue",
+    "SubagentTurnRunner",
+    "SubagentCleanupPort",
+    "SubagentControlPort",
+    "SubagentRuntimeHostPort",
+)
 
 
 class SubagentExecutionPort(typing.Protocol):
@@ -238,14 +251,5 @@ class SubagentRuntimeHostPort(typing.Protocol):
         ...
 
 
-__all__ = (
-    "SkillsProvider",
-    "SubagentExecutionPort",
-    "SubagentStreamPort",
-    "SubagentOperation",
-    "SubagentResultValue",
-    "SubagentTurnRunner",
-    "SubagentCleanupPort",
-    "SubagentControlPort",
-    "SubagentRuntimeHostPort",
-)
+if __name__ == '__main__':
+    pass

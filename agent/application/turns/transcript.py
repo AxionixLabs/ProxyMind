@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import copy
 import typing
@@ -7,6 +7,12 @@ from collections.abc import Mapping
 
 from agent.application.turns.execution import TurnExecution
 from agent.ports.transcript import TranscriptSink
+
+__all__ = (
+    "build_turn_input_payload",
+    "record_turn_finished",
+    "record_turn_started",
+)
 
 
 def build_turn_input_payload(
@@ -101,11 +107,5 @@ def record_turn_finished(
     transcript.append(event, actor="system", payload=payload)
 
 
-__all__ = (
-    "build_turn_input_payload",
-    "record_turn_finished",
-    "record_turn_started",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

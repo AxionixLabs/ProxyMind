@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import math
 import typing
@@ -9,6 +10,13 @@ from dataclasses import (
 )
 
 from agent.domain.tool_policy import merges_tool_start_event
+
+__all__ = (
+    "TranscriptActor",
+    "TranscriptEntry",
+    "TranscriptReplay",
+)
+
 
 TranscriptActor: typing.TypeAlias = typing.Literal[
     "user",
@@ -297,11 +305,5 @@ def _json_value(value: typing.Any) -> typing.Any:
     return str(value)
 
 
-__all__ = (
-    "TranscriptActor",
-    "TranscriptEntry",
-    "TranscriptReplay",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

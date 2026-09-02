@@ -48,5 +48,5 @@ async def post_effect_reconciliation(
     return body
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

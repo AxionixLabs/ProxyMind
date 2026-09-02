@@ -1,7 +1,13 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
+
+__all__ = (
+    "ExecutionAuthorizationError",
+    "ToolTurnInterrupted",
+    "reject_model_execution",
+)
 
 
 class ExecutionAuthorizationError(ValueError):
@@ -26,8 +32,5 @@ def reject_model_execution(arguments: dict[str, typing.Any]) -> None:
         )
 
 
-__all__ = (
-    "ExecutionAuthorizationError",
-    "ToolTurnInterrupted",
-    "reject_model_execution",
-)
+if __name__ == '__main__':
+    pass

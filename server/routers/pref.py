@@ -108,5 +108,5 @@ def _provider_response(
     return {"ok": True, "data": data}
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

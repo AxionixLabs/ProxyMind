@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import asyncio
 import contextlib
@@ -248,3 +249,7 @@ async def probe_preflight_target(
             writer.close()
             with contextlib.suppress(Exception):
                 await writer.wait_closed()
+
+
+if __name__ == '__main__':
+    pass

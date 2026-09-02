@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 from agent.application.hooks.models import HookRunSummary
 from agent.application.views import (
@@ -7,6 +7,8 @@ from agent.application.views import (
     HookRunView,
     HookViewPhase,
 )
+
+__all__ = ("build_hook_run_view",)
 
 
 def build_hook_run_view(
@@ -30,7 +32,5 @@ def build_hook_run_view(
     )
 
 
-__all__ = ("build_hook_run_view",)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

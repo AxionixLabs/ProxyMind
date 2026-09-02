@@ -38,5 +38,5 @@ async def api_service_config_save(request: Request) -> dict[str, typing.Any]:
     }
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

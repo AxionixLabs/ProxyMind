@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import (
@@ -189,5 +189,5 @@ class HookManager:
         await self._registry.close()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

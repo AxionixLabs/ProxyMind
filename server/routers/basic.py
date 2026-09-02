@@ -42,5 +42,5 @@ async def api_version() -> dict[str, str | bool]:
     }
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

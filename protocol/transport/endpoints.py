@@ -57,5 +57,6 @@ class ServiceEndpoints(object):
 
 service_endpoints = ServiceEndpoints(default_domain=config.DOMAIN)
 
+
 if __name__ == '__main__':
     pass

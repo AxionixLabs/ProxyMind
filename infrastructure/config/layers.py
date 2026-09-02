@@ -542,5 +542,5 @@ def _project_ignored_config_keys_warning(
     )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

@@ -587,5 +587,6 @@ def _matches_single_type(value: typing.Any, expected: str) -> bool:
 
 validate_hook_protocol_catalog()
 
+
 if __name__ == '__main__':
     pass

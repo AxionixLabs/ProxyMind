@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import (
@@ -19,6 +20,27 @@ from .permissions import PermissionGrantReader
 
 if typing.TYPE_CHECKING:
     from agent.application.turns.execution import TurnExecution
+
+__all__ = (
+    "TurnInputEventHandler",
+    "TurnCleanupPort",
+    "TurnEventReportHandle",
+    "TurnEventReportingPort",
+    "TurnExecutionRuntimePort",
+    "TurnStartResultPort",
+    "RootTurnSessionPort",
+    "TurnOperation",
+    "RetryState",
+    "EventReportPort",
+    "EventReportLifetime",
+    "RetryStatePort",
+    "TurnAnimationPort",
+    "TurnSessionContextPort",
+    "TurnSessionStatePort",
+    "TurnResultPort",
+    "TurnResultValue",
+)
+
 
 RetryState: typing.TypeAlias = typing.Literal[
     "idle",
@@ -315,22 +337,5 @@ class TurnSessionStatePort(typing.Protocol):
         ...
 
 
-__all__ = (
-    "TurnInputEventHandler",
-    "TurnCleanupPort",
-    "TurnEventReportHandle",
-    "TurnEventReportingPort",
-    "TurnExecutionRuntimePort",
-    "TurnStartResultPort",
-    "RootTurnSessionPort",
-    "TurnOperation",
-    "RetryState",
-    "EventReportPort",
-    "EventReportLifetime",
-    "RetryStatePort",
-    "TurnAnimationPort",
-    "TurnSessionContextPort",
-    "TurnSessionStatePort",
-    "TurnResultPort",
-    "TurnResultValue",
-)
+if __name__ == '__main__':
+    pass

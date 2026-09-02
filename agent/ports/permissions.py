@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 
@@ -6,6 +7,8 @@ from agent.domain.permission_profiles import (
     PermissionGrantScope,
     PermissionProfile,
 )
+
+__all__ = ("PermissionGrantReader", "PermissionGrantPort")
 
 
 class PermissionGrantReader(typing.Protocol):
@@ -52,8 +55,6 @@ class PermissionGrantPort(PermissionGrantReader, typing.Protocol):
     ) -> None:
         """保存一项经过边界校验的权限授予。"""
 
-
-__all__ = ("PermissionGrantReader", "PermissionGrantPort")
 
 if __name__ == '__main__':
     pass

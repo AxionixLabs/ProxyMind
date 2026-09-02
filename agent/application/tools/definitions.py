@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import (
@@ -13,6 +13,15 @@ from dataclasses import (
 
 from agent.application.tools.context import ToolHandlerContext
 from agent.application.tools.results import LocalToolResult
+
+__all__ = (
+    "BuiltinTool",
+    "ClientTool",
+    "LocalToolDefinition",
+    "ToolDefinition",
+    "ToolHandler",
+)
+
 
 ToolHandler: typing.TypeAlias = Callable[
     [dict[str, typing.Any], ToolHandlerContext],
@@ -43,10 +52,6 @@ class BuiltinTool(ToolDefinition):
 
 LocalToolDefinition: typing.TypeAlias = ClientTool | BuiltinTool
 
-__all__ = (
-    "BuiltinTool",
-    "ClientTool",
-    "LocalToolDefinition",
-    "ToolDefinition",
-    "ToolHandler",
-)
+
+if __name__ == '__main__':
+    pass

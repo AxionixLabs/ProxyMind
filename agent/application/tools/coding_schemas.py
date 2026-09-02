@@ -276,5 +276,6 @@ APPLY_PATCH_INPUT_SCHEMA: dict[str, typing.Any] = {
     "additionalProperties": False,
 }
 
+
 if __name__ == '__main__':
     pass

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import asyncio
 import typing
@@ -7,6 +8,9 @@ from collections.abc import (
     Callable,
 )
 from dataclasses import dataclass
+
+__all__ = ("ProcessResourceOwner",)
+
 
 AsyncClose: typing.TypeAlias = Callable[[], Awaitable[None]]
 SyncClose: typing.TypeAlias = Callable[[], None]
@@ -78,4 +82,5 @@ class ProcessResourceOwner:
                 self._next_step += 1
 
 
-__all__ = ("ProcessResourceOwner",)
+if __name__ == '__main__':
+    pass

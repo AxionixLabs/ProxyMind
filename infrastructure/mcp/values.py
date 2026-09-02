@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import hashlib
 import re
@@ -61,3 +62,7 @@ def tool_name_hook(
     )
     tool_name = _safe_tool_component(name, "tool")
     return _limit_tool_name(f"mcp__{alias}__{tool_name}")
+
+
+if __name__ == '__main__':
+    pass

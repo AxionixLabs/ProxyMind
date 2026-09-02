@@ -24,5 +24,5 @@ def create_app(config_session: ConfigSession) -> FastAPI:
     return app
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

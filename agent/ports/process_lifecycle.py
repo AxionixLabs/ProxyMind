@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import asyncio
 import typing
 from collections.abc import Awaitable
+
+__all__ = ("ProcessLifecyclePort",)
+
 
 CleanupResult = typing.TypeVar("CleanupResult")
 
@@ -37,4 +41,5 @@ class ProcessLifecyclePort(typing.Protocol):
         ...
 
 
-__all__ = ("ProcessLifecyclePort",)
+if __name__ == '__main__':
+    pass

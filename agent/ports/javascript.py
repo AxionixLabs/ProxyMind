@@ -12,6 +12,19 @@ from dataclasses import dataclass
 from agent.ports.capabilities import SandboxMode
 from agent.protocol.json_value import ThawedJsonValue
 
+__all__ = (
+    "JavaScriptExecution",
+    "JavaScriptExecutionError",
+    "JavaScriptExecutionPort",
+    "JavaScriptExecutionRequest",
+    "JavaScriptFailureKind",
+    "JavaScriptResetDisposition",
+    "JavaScriptSessionLifecyclePort",
+    "NestedToolDispatch",
+    "NestedToolOutput",
+)
+
+
 NestedToolOutput: typing.TypeAlias = dict[str, ThawedJsonValue]
 NestedToolDispatch: typing.TypeAlias = Callable[
     [str, dict[str, typing.Any], str],
@@ -103,17 +116,5 @@ class JavaScriptSessionLifecyclePort(typing.Protocol):
         ...
 
 
-__all__ = (
-    "JavaScriptExecution",
-    "JavaScriptExecutionError",
-    "JavaScriptExecutionPort",
-    "JavaScriptExecutionRequest",
-    "JavaScriptFailureKind",
-    "JavaScriptResetDisposition",
-    "JavaScriptSessionLifecyclePort",
-    "NestedToolDispatch",
-    "NestedToolOutput",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

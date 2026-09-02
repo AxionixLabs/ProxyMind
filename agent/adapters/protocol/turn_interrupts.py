@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 from agent.ports import (
     ProtocolCommandClient,
@@ -6,6 +7,11 @@ from agent.ports import (
 )
 from protocol.client.turn_control import TurnControlRequestError
 from protocol.schema.identifiers import stable_request_id
+
+__all__ = (
+    "cancel_reconciliation_turn",
+    "interrupt_approval_cancelled_turn",
+)
 
 
 async def cancel_reconciliation_turn(
@@ -79,7 +85,5 @@ async def _submit_interrupt(
     return False
 
 
-__all__ = (
-    "cancel_reconciliation_turn",
-    "interrupt_approval_cancelled_turn",
-)
+if __name__ == '__main__':
+    pass

@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
+
+__all__ = ("ProcessResourcePort",)
 
 
 @typing.runtime_checkable
@@ -16,4 +19,5 @@ class ProcessResourcePort(typing.Protocol):
         ...
 
 
-__all__ = ("ProcessResourcePort",)
+if __name__ == '__main__':
+    pass

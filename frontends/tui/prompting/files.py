@@ -849,5 +849,5 @@ def _insert_path(relative: str) -> str:
     return relative.replace("/", os.sep)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

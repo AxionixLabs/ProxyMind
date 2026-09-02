@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from abc import (
@@ -9,6 +10,16 @@ from dataclasses import (
     dataclass,
     field,
 )
+
+__all__ = [
+    "ApplicationSink",
+    "TurnForegroundLifecyclePort",
+    "ApplicationView",
+    "StyledBlock",
+    "TextSpan",
+    "TextStyle",
+    "Viewport",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,12 +131,5 @@ class TurnForegroundLifecyclePort(typing.Protocol):
         ...
 
 
-__all__ = [
-    "ApplicationSink",
-    "TurnForegroundLifecyclePort",
-    "ApplicationView",
-    "StyledBlock",
-    "TextSpan",
-    "TextStyle",
-    "Viewport",
-]
+if __name__ == '__main__':
+    pass

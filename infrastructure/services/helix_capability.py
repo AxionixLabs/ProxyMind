@@ -8,6 +8,8 @@ from agent.ports import (
 from infrastructure.platform.ports import terminate_port_process
 from infrastructure.services.server_manager import ServerManage
 
+__all__ = ("ServerManageHelixCapability",)
+
 
 class ServerManageHelixCapability:
     """把本地 ServerManage 生命周期适配到 HelixCapability 端口。"""
@@ -102,4 +104,5 @@ class ServerManageHelixCapability:
         self._state = "closed"
 
 
-__all__ = ("ServerManageHelixCapability",)
+if __name__ == '__main__':
+    pass

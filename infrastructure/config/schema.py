@@ -1078,5 +1078,5 @@ def _normalize_reasoning_effort(value: typing.Any, *, default: str = "") -> str:
     return text if text in SUPPORTED_REASONING_EFFORTS else fallback
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

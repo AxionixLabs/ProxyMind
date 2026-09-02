@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import asyncio
 import time
@@ -11,6 +12,8 @@ from agent.domain.policies import (
 from infrastructure.config.preferences import Preferences
 from infrastructure.config.session import ConfigSession
 from observability import observe_exception
+
+__all__ = ("SettingsSession",)
 
 
 class SettingsSession:
@@ -118,4 +121,5 @@ class SettingsSession:
         return self.preference_config()
 
 
-__all__ = ("SettingsSession",)
+if __name__ == '__main__':
+    pass

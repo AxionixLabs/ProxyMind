@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import (
@@ -25,6 +26,17 @@ from frontends.runtime import Frontend
 from infrastructure.config.session import ConfigSession
 from infrastructure.services.runtime_context import ServiceRuntimeContext
 from infrastructure.services.server_manager import ServerManage
+
+__all__ = (
+    "ExternalMcpOwnerPort",
+    "TuiApplicationHost",
+    "TuiExecutionResourcesPort",
+    "TuiServiceRuntimePort",
+    "TuiSettingsPort",
+    "TuiSubagentPort",
+    "TuiSubscriptionOwnerPort",
+)
+
 
 SessionResult = typing.TypeVar("SessionResult")
 
@@ -244,12 +256,5 @@ class TuiApplicationHost(typing.Protocol):
         ...
 
 
-__all__ = (
-    "ExternalMcpOwnerPort",
-    "TuiApplicationHost",
-    "TuiExecutionResourcesPort",
-    "TuiServiceRuntimePort",
-    "TuiSettingsPort",
-    "TuiSubagentPort",
-    "TuiSubscriptionOwnerPort",
-)
+if __name__ == '__main__':
+    pass

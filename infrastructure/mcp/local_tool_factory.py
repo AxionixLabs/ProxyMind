@@ -23,6 +23,11 @@ from agent.ports.workspace import (
 )
 from infrastructure.mcp.local_tool_registry import ToolRegistry
 
+__all__ = (
+    "build_builtin_tool_registry",
+    "build_client_tool_registry",
+)
+
 
 def build_client_tool_registry(
     coding: WorkspaceCodingPort,
@@ -82,10 +87,5 @@ def build_builtin_tool_registry(
     return ToolRegistry(tools)
 
 
-__all__ = (
-    "build_builtin_tool_registry",
-    "build_client_tool_registry",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

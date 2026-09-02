@@ -678,3 +678,7 @@ class ToolEventHandler:
         if not await self.interrupt_turn(call_id):
             raise TurnControlRequestError(failure_message)
         return ToolCallHandlingResult.interrupted()
+
+
+if __name__ == '__main__':
+    pass

@@ -152,3 +152,7 @@ class PendingSteerLedger(object):
             uncertain=tuple(uncertain_items),
             resolved_ids=resolved_ids,
         )
+
+
+if __name__ == '__main__':
+    pass

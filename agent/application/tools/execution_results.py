@@ -87,5 +87,5 @@ def _result_items(value: typing.Any) -> tuple[typing.Any, ...]:
     return tuple(value)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

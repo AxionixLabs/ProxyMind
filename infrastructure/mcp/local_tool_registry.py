@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import copy
 import typing
@@ -33,6 +33,10 @@ from agent.protocol.json_value import (
     thaw_object,
 )
 from infrastructure.mcp.nested_tool_results import create_nested_tool_dispatch
+
+__all__ = (
+    "ToolRegistry",
+)
 
 
 def _definition_source(definition: LocalToolDefinition) -> LocalToolSource:
@@ -169,6 +173,5 @@ class ToolRegistry:
         return self._to_mcp_result(result)
 
 
-__all__ = (
-    "ToolRegistry",
-)
+if __name__ == '__main__':
+    pass

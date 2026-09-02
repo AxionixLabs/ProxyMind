@@ -57,5 +57,5 @@ def supported_routes_for_kind(kind: object) -> tuple[str, ...]:
     return DEFAULT_ROUTE_NAME, "chat_completions"
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

@@ -769,5 +769,5 @@ def root_command_names(parser: CliArgumentParser) -> frozenset[str]:
     )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

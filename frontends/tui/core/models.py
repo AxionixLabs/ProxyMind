@@ -57,5 +57,6 @@ __all__ = (
     "StaticPagerRequest",
 )
 
+
 if __name__ == '__main__':
     pass

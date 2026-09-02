@@ -148,5 +148,6 @@ class InMemoryMcpCapability:
 if not isinstance(InMemoryMcpCapability([], {}), McpCapability):
     raise TypeError("InMemoryMcpCapability must implement McpCapability")
 
+
 if __name__ == '__main__':
     pass

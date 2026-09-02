@@ -1,10 +1,22 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 
 from .output import OutputSessionFactory
 from .presentation import ApplicationSink
 from .turns import RetryState
+
+__all__ = (
+    "ActivityRuntimePort",
+    "ActivitySnapshot",
+    "ActivityStatusKind",
+    "AttachmentStatePort",
+    "FrontendActivityPort",
+    "FrontendPort",
+    "TurnCompletionPresenterPort",
+)
+
 
 ActivityStatusKind = typing.Literal[
     "wait",
@@ -223,12 +235,5 @@ class TurnCompletionPresenterPort(typing.Protocol):
         ...
 
 
-__all__ = (
-    "ActivityRuntimePort",
-    "ActivitySnapshot",
-    "ActivityStatusKind",
-    "AttachmentStatePort",
-    "FrontendActivityPort",
-    "FrontendPort",
-    "TurnCompletionPresenterPort",
-)
+if __name__ == '__main__':
+    pass

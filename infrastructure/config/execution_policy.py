@@ -151,5 +151,5 @@ class PolicyParser:
         return self.parse()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

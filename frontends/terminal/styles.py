@@ -42,5 +42,6 @@ COMMAND_STRING_STYLE = TextStyle(foreground="#A8D5C2")
 COMMAND_NUMBER_STYLE = TextStyle(foreground="#CFC17A")
 COMMAND_OPERATOR_STYLE = TextStyle(foreground="#7D8A98", bold=True)
 
+
 if __name__ == '__main__':
     pass

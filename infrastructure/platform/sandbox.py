@@ -498,5 +498,5 @@ class SandboxClient(object):
             await asyncio.gather(process.wait(), return_exceptions=True)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

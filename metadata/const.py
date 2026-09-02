@@ -47,5 +47,6 @@ ERR = r"[bold #FFFFFF on #FF6347]"
 
 PRINT_FORMAT = r"<level>{level: <8}</level> | <level>{message}</level>"
 
+
 if __name__ == '__main__':
     pass

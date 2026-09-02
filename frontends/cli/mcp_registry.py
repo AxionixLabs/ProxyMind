@@ -254,5 +254,5 @@ def run_mcp_registry_command(
     typing.assert_never(command)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

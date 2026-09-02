@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import asyncio
 import contextlib
@@ -432,5 +432,5 @@ def _image_attachment(
     }
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 
@@ -15,6 +16,8 @@ from agent.ports import (
     ProtocolCommandClient,
     TurnInputEventHandler,
 )
+
+__all__ = ("ProtocolSubagentStream",)
 
 
 class ProtocolSubagentStream:
@@ -74,4 +77,5 @@ class ProtocolSubagentStream:
         )
 
 
-__all__ = ("ProtocolSubagentStream",)
+if __name__ == '__main__':
+    pass

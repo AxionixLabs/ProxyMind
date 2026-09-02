@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import copy
 import hashlib
@@ -7,6 +7,20 @@ import json
 import os
 import typing
 from pathlib import Path
+
+__all__ = (
+    "PermissionGrantScope",
+    "PermissionProfile",
+    "PermissionValue",
+    "copy_permission_profile",
+    "intersect_permission_profiles",
+    "merge_permission_profiles",
+    "normalize_permission_profile",
+    "normalize_working_directory",
+    "permission_profile_covers",
+    "permission_profile_key",
+)
+
 
 PermissionScalar: typing.TypeAlias = None | bool | int | float | str
 PermissionValue: typing.TypeAlias = (
@@ -293,15 +307,5 @@ def _copy_value(value: object, *, field_name: str) -> PermissionValue:
     raise ValueError(f"{field_name} contains an unsupported value")
 
 
-__all__ = (
-    "PermissionGrantScope",
-    "PermissionProfile",
-    "PermissionValue",
-    "copy_permission_profile",
-    "intersect_permission_profiles",
-    "merge_permission_profiles",
-    "normalize_permission_profile",
-    "normalize_working_directory",
-    "permission_profile_covers",
-    "permission_profile_key",
-)
+if __name__ == '__main__':
+    pass

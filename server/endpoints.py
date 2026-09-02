@@ -43,5 +43,5 @@ def config_service_base_url() -> str:
     return config_service_endpoints.base_url
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

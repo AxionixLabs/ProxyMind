@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import asyncio
 import base64
@@ -10,6 +10,12 @@ from agent.ports.media import (
     ImageAsset,
     ImageReadError,
 )
+
+__all__ = (
+    "FileImageReader",
+    "MAX_IMAGE_BYTES",
+)
+
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
@@ -91,7 +97,5 @@ class FileImageReader:
         )
 
 
-__all__ = (
-    "FileImageReader",
-    "MAX_IMAGE_BYTES",
-)
+if __name__ == '__main__':
+    pass

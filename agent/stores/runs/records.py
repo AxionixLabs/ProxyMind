@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import hashlib
 import json
@@ -143,3 +144,7 @@ def _event_error(event: RunEvent) -> str:
     if isinstance(error, typing.Mapping):
         return str(error.get("message") or "")[:2000]
     return str(error or "")[:2000]
+
+
+if __name__ == '__main__':
+    pass

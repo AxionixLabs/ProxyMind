@@ -1,8 +1,15 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 from dataclasses import dataclass
+
+__all__ = (
+    "ExecutionPolicyAmendment",
+    "ExecutionPolicyRequirement",
+    "ExecutionPolicyState",
+)
+
 
 ExecutionPolicyState: typing.TypeAlias = typing.Literal[
     "forbidden",
@@ -63,11 +70,5 @@ class ExecutionPolicyRequirement:
         return cls(state="forbidden", reason=str(reason or "command forbidden"))
 
 
-__all__ = (
-    "ExecutionPolicyAmendment",
-    "ExecutionPolicyRequirement",
-    "ExecutionPolicyState",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

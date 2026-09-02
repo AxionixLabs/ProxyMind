@@ -937,5 +937,5 @@ def _basename(value: str) -> str:
     return Path(text).name.casefold().removesuffix(".exe")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

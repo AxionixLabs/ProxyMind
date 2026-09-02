@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
 import asyncio
 import json
 import sqlite3
@@ -489,3 +491,7 @@ class SQLiteRunStore:
             )
         finally:
             connection.close()
+
+
+if __name__ == '__main__':
+    pass

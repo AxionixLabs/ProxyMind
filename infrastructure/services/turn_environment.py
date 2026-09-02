@@ -79,3 +79,7 @@ def _observe_capture_failure(error: CapabilityError) -> None:
         error,
         level="WARNING",
     )
+
+
+if __name__ == '__main__':
+    pass

@@ -407,3 +407,7 @@ class ToolResultDelivery:
             first_error.retryable
             or first_error.code in _RETRYABLE_DELIVERY_CODES
         )
+
+
+if __name__ == '__main__':
+    pass

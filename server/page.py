@@ -28,5 +28,5 @@ def render_page(name: str) -> Response:
     return Response(content, media_type="text/html; charset=utf-8")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

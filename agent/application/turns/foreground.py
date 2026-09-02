@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import time
 import typing
@@ -129,5 +129,5 @@ async def run_foreground_turn(
                 lifecycle.end_terminal_progress()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

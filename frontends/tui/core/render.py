@@ -51,5 +51,6 @@ __all__ = (
     "sanitize_fragment_block",
 )
 
+
 if __name__ == '__main__':
     pass

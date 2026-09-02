@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 
@@ -43,3 +44,7 @@ class ApprovalPresenterPort(typing.Protocol):
     async def end_approval_session(self) -> None:
         """结束连续审批批次并恢复原交互表面。"""
         ...
+
+
+if __name__ == '__main__':
+    pass

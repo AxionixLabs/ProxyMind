@@ -85,5 +85,5 @@ def _text(value: typing.Any) -> str:
     return str(value or "").strip()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

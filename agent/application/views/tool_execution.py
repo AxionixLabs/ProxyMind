@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 
@@ -154,3 +154,7 @@ class ToolEnhancementPresenter:
     async def end_status(self) -> None:
         """结束增强过程状态。"""
         await self.status.end_status()
+
+
+if __name__ == '__main__':
+    pass

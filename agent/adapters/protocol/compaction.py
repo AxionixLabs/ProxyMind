@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 
@@ -7,6 +8,8 @@ from protocol.client.compact import (
     build_compact_payload,
     stream_compact_events,
 )
+
+__all__ = ("ProtocolCompactionClient",)
 
 
 class ProtocolCompactionClient:
@@ -60,4 +63,5 @@ def _optional_int(value: typing.Any) -> int | None:
     return value
 
 
-__all__ = ("ProtocolCompactionClient",)
+if __name__ == '__main__':
+    pass

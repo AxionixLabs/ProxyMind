@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import (
@@ -13,6 +13,15 @@ from agent.application.views.contracts import PresentationSink
 from agent.ports.javascript import NestedToolOutput
 from agent.ports.mcp_session import McpSessionPort
 from agent.ports.output import OutputStatusPort
+
+__all__ = (
+    "ClientToolResultEnvelope",
+    "ToolExecutionAdapter",
+    "ToolExecutionResult",
+    "ToolLifecycleStatus",
+    "build_client_tool_result",
+)
+
 
 ToolLifecycleStatus: typing.TypeAlias = typing.Literal[
     "completed",
@@ -137,13 +146,5 @@ def build_client_tool_result(
     )
 
 
-__all__ = (
-    "ClientToolResultEnvelope",
-    "ToolExecutionAdapter",
-    "ToolExecutionResult",
-    "ToolLifecycleStatus",
-    "build_client_tool_result",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

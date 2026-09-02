@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import os
 import typing
@@ -8,6 +8,13 @@ from collections.abc import (
     Mapping,
 )
 from dataclasses import dataclass
+
+__all__ = (
+    "ImageAsset",
+    "ImageReadError",
+    "ImageReaderFactory",
+    "ImageReaderPort",
+)
 
 
 class ImageReadError(ValueError):
@@ -49,9 +56,6 @@ ImageReaderFactory: typing.TypeAlias = Callable[
     ImageReaderPort,
 ]
 
-__all__ = (
-    "ImageAsset",
-    "ImageReadError",
-    "ImageReaderFactory",
-    "ImageReaderPort",
-)
+
+if __name__ == '__main__':
+    pass

@@ -298,5 +298,5 @@ def clean_text(value: typing.Any, default: str = "") -> str:
     return text or default
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

@@ -139,5 +139,6 @@ class ResumePickerRequest(object):
 
 ResumePickerResult: typing.TypeAlias = ResumeRow | None
 
+
 if __name__ == '__main__':
     pass

@@ -6,6 +6,8 @@ from agent.application.tools.patching import patch_tools
 from agent.application.tools.processes import process_tools
 from agent.ports.workspace import WorkspaceCodingPort
 
+__all__ = ("coding_tools",)
+
 
 def coding_tools(
     coding: WorkspaceCodingPort,
@@ -22,7 +24,5 @@ def coding_tools(
     ]
 
 
-__all__ = ("coding_tools",)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

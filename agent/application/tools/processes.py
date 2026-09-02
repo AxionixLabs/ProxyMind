@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 
@@ -21,6 +21,14 @@ from agent.application.tools.execution_results import (
 from agent.application.tools.results import LocalToolResult
 from agent.domain.execution_policy import validate_sandbox_permission_arguments
 from agent.ports.process_tools import WorkspaceProcessPort
+
+__all__ = (
+    "EXEC_COMMAND_TOOL",
+    "SHELL_COMMAND_TOOL",
+    "WRITE_STDIN_TOOL",
+    "process_tools",
+)
+
 
 SHELL_COMMAND_TOOL = "shell_command"
 EXEC_COMMAND_TOOL = "exec_command"
@@ -228,12 +236,5 @@ def _authorization_failure(
     )
 
 
-__all__ = (
-    "EXEC_COMMAND_TOOL",
-    "SHELL_COMMAND_TOOL",
-    "WRITE_STDIN_TOOL",
-    "process_tools",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

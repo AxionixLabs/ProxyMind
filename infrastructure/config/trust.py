@@ -311,5 +311,5 @@ def _path_key(path: Path) -> str:
     return os.path.normcase(str(path.resolve()))
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

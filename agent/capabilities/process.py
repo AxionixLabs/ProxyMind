@@ -326,5 +326,6 @@ if not isinstance(LocalProcessCapability(), ProcessCapability):
 if not isinstance(InMemoryProcessCapability(), ProcessCapability):
     raise TypeError("InMemoryProcessCapability must implement ProcessCapability")
 
+
 if __name__ == '__main__':
     pass

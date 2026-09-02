@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import asyncio
 import contextlib
@@ -346,5 +346,5 @@ def _truncate_utf8(value: str, max_bytes: int) -> str:
     return encoded[:max_bytes].decode(const.CHARSET, errors="ignore")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

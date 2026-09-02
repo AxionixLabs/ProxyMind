@@ -116,5 +116,5 @@ async def get_json_reliably(
     raise RuntimeError("reliable request exhausted without a response")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

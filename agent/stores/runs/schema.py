@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 
@@ -67,3 +68,7 @@ CREATE TABLE IF NOT EXISTS run_facts (
     FOREIGN KEY (run_id) REFERENCES run_snapshots(run_id)
 );
 """
+
+
+if __name__ == '__main__':
+    pass

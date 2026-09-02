@@ -375,3 +375,7 @@ def local_exec_policy_cancelled_result() -> dict[str, typing.Any]:
         "executed": False,
         "status": "cancelled",
     }
+
+
+if __name__ == '__main__':
+    pass

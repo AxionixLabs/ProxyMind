@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 
@@ -13,6 +13,13 @@ from agent.ports.media import (
     ImageReadError,
     ImageReaderPort,
 )
+
+__all__ = (
+    "VIEW_IMAGE_INPUT_SCHEMA",
+    "VIEW_IMAGE_TOOL",
+    "media_tools",
+)
+
 
 VIEW_IMAGE_TOOL = "view_image"
 
@@ -111,8 +118,5 @@ def media_tools(image_reader: ImageReaderPort) -> list[ClientTool]:
     )]
 
 
-__all__ = (
-    "VIEW_IMAGE_INPUT_SCHEMA",
-    "VIEW_IMAGE_TOOL",
-    "media_tools",
-)
+if __name__ == '__main__':
+    pass

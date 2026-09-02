@@ -182,5 +182,6 @@ EffectJournalFactory: typing.TypeAlias = Callable[
     EffectJournal,
 ]
 
+
 if __name__ == '__main__':
     pass

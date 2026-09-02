@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import copy
 import typing
@@ -21,6 +22,9 @@ from agent.ports import (
     TurnEventReportingPort,
 )
 from observability import observe
+
+__all__ = ("ExecutionResources",)
+
 
 SessionResult = typing.TypeVar("SessionResult")
 CleanupResult = typing.TypeVar("CleanupResult")
@@ -216,7 +220,5 @@ class ExecutionResources:
         return runtime.group if runtime is not None else None
 
 
-__all__ = ("ExecutionResources",)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

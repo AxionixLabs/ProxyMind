@@ -1,3 +1,2 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
-
+# Notes: ==== Mind™ ====

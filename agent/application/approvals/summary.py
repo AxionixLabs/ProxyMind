@@ -133,5 +133,5 @@ def _approval_regional_indicator(char: str) -> bool:
     return 0x1F1E6 <= ord(char) <= 0x1F1FF
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

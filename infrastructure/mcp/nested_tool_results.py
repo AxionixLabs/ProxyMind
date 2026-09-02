@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import (
@@ -22,6 +22,11 @@ from agent.protocol.json_value import (
 )
 from infrastructure.mcp.composite_session import CompositeToolSession
 from infrastructure.mcp.tool_results import normalize_call_tool_result
+
+__all__ = (
+    "create_nested_tool_dispatch",
+    "nested_tool_output",
+)
 
 
 def create_nested_tool_dispatch(
@@ -213,10 +218,5 @@ def _validated_output(value: dict[str, typing.Any]) -> NestedToolOutput:
     return thaw_object(frozen, field_name="nested tool output")
 
 
-__all__ = (
-    "create_nested_tool_dispatch",
-    "nested_tool_output",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

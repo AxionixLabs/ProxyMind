@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 from collections.abc import Callable
 
 from agent.ports import RetryState
+
+__all__ = ("RetryStatus",)
 
 
 class RetryStatus:
@@ -50,4 +53,5 @@ class RetryStatus:
             self._sink(state)
 
 
-__all__ = ("RetryStatus",)
+if __name__ == '__main__':
+    pass

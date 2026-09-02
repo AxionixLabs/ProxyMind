@@ -162,5 +162,5 @@ def parse_powershell_invocation(command: typing.Sequence[str]) -> tuple[str, ...
     return tuple(str(value) for value in command)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

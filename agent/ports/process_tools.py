@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import Mapping
@@ -7,6 +7,11 @@ from collections.abc import Mapping
 from agent.domain.execution_policy import SandboxPermission
 from agent.domain.permission_profiles import PermissionProfile
 from agent.ports.capabilities import SandboxMode
+
+__all__ = (
+    "UserShellPort",
+    "WorkspaceProcessPort",
+)
 
 
 class WorkspaceProcessPort(typing.Protocol):
@@ -155,10 +160,5 @@ class UserShellPort(typing.Protocol):
         ...
 
 
-__all__ = (
-    "UserShellPort",
-    "WorkspaceProcessPort",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

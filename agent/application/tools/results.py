@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import enum
 import typing
@@ -15,6 +15,12 @@ from dataclasses import (
 from agent.protocol.json_value import (
     JsonValue,
     freeze_json,
+)
+
+__all__ = (
+    "LocalToolResult",
+    "LocalToolSource",
+    "client_tool_result",
 )
 
 
@@ -124,8 +130,5 @@ def client_tool_result(
     )
 
 
-__all__ = (
-    "LocalToolResult",
-    "LocalToolSource",
-    "client_tool_result",
-)
+if __name__ == '__main__':
+    pass

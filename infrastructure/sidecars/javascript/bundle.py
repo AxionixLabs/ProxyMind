@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import hashlib
 from dataclasses import dataclass
@@ -22,11 +22,6 @@ class JavaScriptBundle:
 
     root: Path
 
-    @classmethod
-    def at(cls, root: str | Path) -> "JavaScriptBundle":
-        """从显式资产根创建不可变 bundle 描述。"""
-        return cls(root=Path(root).expanduser().resolve())
-
     @property
     def kernel_path(self) -> Path:
         """返回不可变 Kernel 入口。"""
@@ -36,6 +31,11 @@ class JavaScriptBundle:
     def parser_path(self) -> Path:
         """返回 Kernel 使用的固定解析器资产。"""
         return self.root / PARSER_RELATIVE_PATH
+
+    @classmethod
+    def at(cls, root: str | Path) -> "JavaScriptBundle":
+        """从显式资产根创建不可变 bundle 描述。"""
+        return cls(root=Path(root).expanduser().resolve())
 
     def verify(self) -> None:
         """验证文件集合和内容散列，不修改资产。"""
@@ -67,5 +67,5 @@ class JavaScriptBundle:
                 )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

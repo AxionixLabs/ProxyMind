@@ -1,8 +1,16 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import Mapping
+
+__all__ = (
+    "SandboxPermission",
+    "effective_sandbox_mode",
+    "normalize_sandbox_permission",
+    "validate_sandbox_permission_arguments",
+)
+
 
 SandboxPermission: typing.TypeAlias = typing.Literal[
     "use_default",
@@ -59,12 +67,5 @@ def effective_sandbox_mode(
     return str(sandbox_mode or "workspace-write")
 
 
-__all__ = (
-    "SandboxPermission",
-    "effective_sandbox_mode",
-    "normalize_sandbox_permission",
-    "validate_sandbox_permission_arguments",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import sqlite3
 import typing
@@ -18,6 +19,12 @@ from protocol.schema.identifiers import (
     short_uid,
     valid_session_ids,
 )
+
+__all__ = (
+    "ConversationForkPersistenceError",
+    "LocalConversationHistory",
+)
+
 
 TranscriptExistingPathProvider: typing.TypeAlias = Callable[[str], str]
 TranscriptEntriesReader: typing.TypeAlias = Callable[
@@ -189,10 +196,5 @@ class LocalConversationHistory:
         return self._store.unarchive_session(cid=cid, sid=sid)
 
 
-__all__ = (
-    "ConversationForkPersistenceError",
-    "LocalConversationHistory",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

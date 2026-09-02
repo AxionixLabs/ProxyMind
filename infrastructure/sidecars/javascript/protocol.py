@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import json
 import typing
@@ -288,5 +288,5 @@ def _protocol_error(detail: str) -> JavaScriptExecutionError:
     )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

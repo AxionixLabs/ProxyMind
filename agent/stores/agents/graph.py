@@ -33,11 +33,6 @@ from .mailbox import (
     AgentMailboxSnapshot,
 )
 
-TABLE_AGENT_GRAPH_CHECKPOINTS = "agent_graph_checkpoints"
-
-DEFAULT_AGENT_GRAPH_TTL_MS = 24 * 60 * 60 * 1000
-DEFAULT_AGENT_GRAPH_LIMIT = 200
-
 __all__ = (
     "AgentGraphCheckpoint",
     "AgentGraphPersistence",
@@ -45,6 +40,13 @@ __all__ = (
     "AgentGraphRecord",
     "AgentGraphStore",
 )
+
+
+TABLE_AGENT_GRAPH_CHECKPOINTS = "agent_graph_checkpoints"
+
+DEFAULT_AGENT_GRAPH_TTL_MS = 24 * 60 * 60 * 1000
+DEFAULT_AGENT_GRAPH_LIMIT = 200
+
 
 SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS {TABLE_AGENT_GRAPH_CHECKPOINTS} (
@@ -911,5 +913,5 @@ def _normalize_now_ms(value: int | None) -> int:
     return value
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

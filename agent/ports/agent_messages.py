@@ -1,9 +1,20 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from dataclasses import dataclass
 
 from protocol.schema.turn_inputs import TurnInput
+
+__all__ = (
+    "AgentMessageDeliveryPort",
+    "AgentMessageContext",
+    "AgentIdentity",
+    "AgentMessageDeliveryStatus",
+    "AgentMessageReceipt",
+    "AgentMessageReceiptStatus",
+)
+
 
 AgentMessageDeliveryStatus = typing.Literal["active_turn", "mailbox"]
 AgentMessageReceiptStatus = typing.Literal["accepted", "duplicate"]
@@ -55,15 +66,6 @@ class AgentMessageDeliveryPort(typing.Protocol):
         """投递输入并返回匹配的远程接收回执。"""
         ...
 
-
-__all__ = (
-    "AgentMessageDeliveryPort",
-    "AgentMessageContext",
-    "AgentIdentity",
-    "AgentMessageDeliveryStatus",
-    "AgentMessageReceipt",
-    "AgentMessageReceiptStatus",
-)
 
 if __name__ == '__main__':
     pass

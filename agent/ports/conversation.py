@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import Collection
@@ -6,6 +7,11 @@ from pathlib import Path
 
 from agent.domain.hooks import SessionEndReason
 from agent.domain.transcripts import TranscriptEntry
+
+__all__ = (
+    "ConversationHistoryPort",
+    "RootConversationPort",
+)
 
 
 class ConversationHistoryPort(typing.Protocol):
@@ -169,10 +175,5 @@ class RootConversationPort(typing.Protocol):
         ...
 
 
-__all__ = (
-    "ConversationHistoryPort",
-    "RootConversationPort",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

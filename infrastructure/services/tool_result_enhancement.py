@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 
@@ -177,3 +177,7 @@ async def _enhance_heal_element(
         "attachments": attachments,
         "data": heal_result_data,
     }
+
+
+if __name__ == '__main__':
+    pass

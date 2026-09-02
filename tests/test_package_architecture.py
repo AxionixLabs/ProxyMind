@@ -7,6 +7,68 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parents[1]
 
 
+def _production_python_sources() -> tuple[Path, ...]:
+    """返回仓库内不属于测试或本地环境的 Python 源码。"""
+    excluded_parts = {
+        ".git",
+        ".venv",
+        "__pycache__",
+        "backend",
+        "build",
+        "codex-main",
+        "schematic",
+        "test",
+        "tests",
+        "venv",
+    }
+    return tuple(
+        path
+        for path in PROJECT_ROOT.rglob("*.py")
+        if not excluded_parts.intersection(
+            path.relative_to(PROJECT_ROOT).parts
+        )
+        and not path.name.startswith("test_")
+        and not path.stem.endswith("_test")
+        and path.name != "conftest.py"
+    )
+
+
+def _is_import_block_node(node: ast.stmt) -> bool:
+    """判断顶层语句是否属于常规或类型检查导入区。"""
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return True
+    if not isinstance(node, ast.If) or node.orelse:
+        return False
+    type_checking_guard = (
+        isinstance(node.test, ast.Name)
+        and node.test.id == "TYPE_CHECKING"
+    ) or (
+        isinstance(node.test, ast.Attribute)
+        and node.test.attr == "TYPE_CHECKING"
+    )
+    return type_checking_guard and all(
+        isinstance(child, (ast.Import, ast.ImportFrom))
+        for child in node.body
+    )
+
+
+def _is_main_guard(node: ast.stmt) -> bool:
+    """判断顶层语句是否为模块直接执行入口。"""
+    if not isinstance(node, ast.If):
+        return False
+    test = node.test
+    return (
+        isinstance(test, ast.Compare)
+        and isinstance(test.left, ast.Name)
+        and test.left.id == "__name__"
+        and len(test.ops) == 1
+        and isinstance(test.ops[0], ast.Eq)
+        and len(test.comparators) == 1
+        and isinstance(test.comparators[0], ast.Constant)
+        and test.comparators[0].value == "__main__"
+    )
+
+
 def _forbidden_imports(
     package: str,
     forbidden_roots: set[str],
@@ -58,6 +120,106 @@ def _forbidden_module_imports(
                     violations.append(f"{relative}:{node.lineno} -> {module}")
 
     return violations
+
+
+def test_python_sources_start_with_canonical_mind_header() -> None:
+    """确保生产源码以统一编码与 Mind 商标注释开头。"""
+    canonical_header = (
+        "# -*- coding: utf-8 -*-",
+        "# Notes: ==== Mind™ ====",
+    )
+    legacy_notes = "# Notes: ==== Mind(TM) ===="
+    violations: list[str] = []
+
+    for path in _production_python_sources():
+        relative = path.relative_to(PROJECT_ROOT)
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+        header_index = int(bool(lines) and lines[0].startswith("#!"))
+        if tuple(lines[header_index:header_index + 2]) != canonical_header:
+            violations.append(str(relative))
+            continue
+        if legacy_notes in lines:
+            violations.append(f"{relative} retains legacy Mind notes")
+
+    assert not violations, "production modules lack the canonical header:\n" + "\n".join(
+        violations
+    )
+
+
+def test_production_exports_follow_complete_import_block() -> None:
+    """确保生产模块的公开声明紧随完整顶层导入区。"""
+    violations: list[str] = []
+
+    for path in _production_python_sources():
+        tree = ast.parse(
+            path.read_text(encoding="utf-8-sig"),
+            filename=str(path),
+        )
+        import_block_indexes = [
+            index
+            for index, node in enumerate(tree.body)
+            if _is_import_block_node(node)
+        ]
+        export_indexes = [
+            index
+            for index, node in enumerate(tree.body)
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "__all__"
+                for target in node.targets
+            )
+        ]
+        if not export_indexes:
+            continue
+
+        relative = path.relative_to(PROJECT_ROOT)
+        if len(export_indexes) != 1:
+            violations.append(f"{relative} declares __all__ more than once")
+            continue
+        first_statement_index = int(
+            bool(tree.body) and ast.get_docstring(tree, clean=False) is not None
+        )
+        expected_index = (
+            import_block_indexes[-1] + 1
+            if import_block_indexes
+            else first_statement_index
+        )
+        if export_indexes[0] != expected_index:
+            violations.append(
+                f"{relative} must declare __all__ after its complete import block"
+            )
+
+    assert not violations, "invalid production __all__ placement:\n" + "\n".join(
+        violations
+    )
+
+
+def test_production_modules_end_with_one_main_guard() -> None:
+    """确保非包生产模块以唯一的直接执行入口收尾。"""
+    expected_suffix = "\n\n\nif __name__ == '__main__':\n    pass\n"
+    violations: list[str] = []
+
+    for path in _production_python_sources():
+        if path.name == "__init__.py":
+            continue
+        source = path.read_text(encoding="utf-8-sig")
+        tree = ast.parse(source, filename=str(path))
+        main_guards = [node for node in tree.body if _is_main_guard(node)]
+        relative = path.relative_to(PROJECT_ROOT)
+        if len(main_guards) != 1 or tree.body[-1] is not main_guards[0]:
+            violations.append(f"{relative} must end with exactly one main guard")
+            continue
+        main_guard = main_guards[0]
+        if (
+            len(main_guard.body) == 1
+            and isinstance(main_guard.body[0], ast.Pass)
+            and not source.endswith(expected_suffix)
+        ):
+            violations.append(f"{relative} has a non-canonical inert main guard")
+
+    assert not violations, "production modules have invalid main guards:\n" + (
+        "\n".join(violations)
+    )
 
 
 def test_transport_protocol_package_is_independent() -> None:

@@ -34,6 +34,14 @@ from agent.ports.javascript import (
 from agent.ports.workspace import ExecutionPolicy
 from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 
+__all__ = (
+    "JS_REPL_RESET_TOOL",
+    "JS_REPL_TOOL",
+    "JS_REPL_TOOL_NAMES",
+    "javascript_tools",
+)
+
+
 JS_REPL_TOOL = "js_repl"
 JS_REPL_RESET_TOOL = "js_repl_reset"
 JS_REPL_TOOL_NAMES = frozenset({JS_REPL_TOOL, JS_REPL_RESET_TOOL})
@@ -568,12 +576,5 @@ def _clip_javascript_output(text: str, *, max_chars: int = 24000) -> str:
     return text[:max_chars] + f"\n...[truncated {len(text) - max_chars} chars]"
 
 
-__all__ = (
-    "JS_REPL_RESET_TOOL",
-    "JS_REPL_TOOL",
-    "JS_REPL_TOOL_NAMES",
-    "javascript_tools",
-)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

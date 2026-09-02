@@ -85,5 +85,6 @@ def validate_hook_event_catalog() -> None:
 
 validate_hook_event_catalog()
 
+
 if __name__ == '__main__':
     pass

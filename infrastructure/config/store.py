@@ -393,5 +393,5 @@ class ConfigStore(object):
                     temporary_path.unlink(missing_ok=True)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

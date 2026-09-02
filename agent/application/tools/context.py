@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import typing
 from collections.abc import (
@@ -15,6 +15,16 @@ from agent.ports.mcp_session import McpSessionPort
 
 if typing.TYPE_CHECKING:
     from agent.application.turns.context import TurnContext
+
+__all__ = (
+    "NESTED_TOOL_DISPATCH_META_KEY",
+    "NestedToolDispatch",
+    "TURN_INTERRUPT_META_KEY",
+    "ToolHandlerContext",
+    "ToolProgressCallback",
+    "TurnInterrupt",
+)
+
 
 ToolProgressCallback: typing.TypeAlias = Callable[
     [float, float | None, str | None],
@@ -45,11 +55,5 @@ class ToolHandlerContext:
     interrupt_turn: TurnInterrupt | None = None
 
 
-__all__ = (
-    "NESTED_TOOL_DISPATCH_META_KEY",
-    "NestedToolDispatch",
-    "TURN_INTERRUPT_META_KEY",
-    "ToolHandlerContext",
-    "ToolProgressCallback",
-    "TurnInterrupt",
-)
+if __name__ == '__main__':
+    pass
