@@ -19,7 +19,7 @@ from ..core.styles import (
     BODY_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
-    fragment_block
+    fragment_block,
 )
 from ..runtime.ports import TurnRuntimePort
 
@@ -144,21 +144,24 @@ async def execute_tui_model_turn(
     fatal_error: BaseException | None = None
 
     def cancel_turn() -> InterruptDisposition:
-        """先取消本地模型任务，再异步同步远端中断。"""
+        """登记中断，并在远端 Turn 就绪后取消本地事件流。"""
         if task.done():
             return InterruptDisposition.IGNORED
 
         interrupt_state.request()
-        task.cancel()
+
+        remote_control_ready = turn_input_control is None
+        if turn_input_control is not None:
+            remote_control_ready = turn_input_control.request_interrupt()
+        if remote_control_ready:
+            task.cancel()
 
         observe(
             "tui.turn.interrupt.local",
             task_name=task.get_name(),
             remote_control=turn_input_control is not None,
+            local_cancelled=remote_control_ready,
         )
-
-        if turn_input_control is not None:
-            turn_input_control.request_interrupt()
 
         return InterruptDisposition.CONSUMED
 

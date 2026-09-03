@@ -343,6 +343,12 @@ provider retry 在登记新 Attempt 的同一次归约中释放旧 Attempt 的�
 同步正文帧可以抢占正在等待的异步投影，Coordinator 必须按 reducer revision 撤销陈旧结果，
 不得以锁冲突使 Turn 失败。
 
+远端 `/turn/interrupt` 的 `accepted` 只确认中断事实已经登记，不代表活动 Turn 已释放。已确认
+`turn.start` 时，TUI 可以在调度远端中断后立即取消本地事件流；尚未确认时必须保留流和中断意图，
+在匹配的 start 到达后优先发送中断。两条路径都必须保留当前 Turn 的输入控制和执行门禁，并通过
+权威 `/turn/status` 等待 terminal 状态后再开放下一次 `/mind-chat`；HTTP 回执、本地任务取消或
+SSE 关闭都不能替代该屏障。
+
 正常模型等待和工具执行统一投影为单行 `Thinking`；工具名只在工具自身的展示单元中出现，
 不得追加到活动提示。后台终端数量由独立进程状态 owner 投影，
 可以在活动提示可见时合并到同一行，但不改变 Turn reducer 的阶段或生命周期。活动 Turn 中

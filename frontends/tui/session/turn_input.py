@@ -17,13 +17,13 @@ from agent.protocol import (
 )
 from observability import (
     observe,
-    observe_exception
+    observe_exception,
 )
 from protocol.schema.identifiers import new_request_id
 from protocol.schema.stream_events import (
     StreamEvent,
     TurnInputAcceptedEvent,
-    TurnLogicalSettledEvent
+    TurnLogicalSettledEvent,
 )
 from protocol.schema.turn_inputs import TurnInput
 from .steer_ledger import PendingSteerLedger
@@ -40,6 +40,7 @@ class TuiTurnInputControl(object):
 
     RECONCILE_DEADLINE_SEC: typing.Final[float] = 2.0
     RECONCILE_RETRY_INTERVAL_SEC: typing.Final[float] = 0.2
+    INTERRUPT_STATUS_RETRY_INTERVAL_SEC: typing.Final[float] = 0.2
 
     def __init__(
         self,
@@ -69,6 +70,7 @@ class TuiTurnInputControl(object):
 
         self._steer_task: asyncio.Task[None] | None = None
         self._interrupt_task: asyncio.Task[None] | None = None
+        self._interrupt_requested = False
 
         self._tasks: set[asyncio.Task[None]] = set()
 
@@ -111,6 +113,9 @@ class TuiTurnInputControl(object):
 
         if event.type == "turn.start":
             self._ready_turn_id = active_turn_id
+            if self._interrupt_requested:
+                self._start_interrupt_worker()
+                return None
             self._start_steer_worker()
             return None
 
@@ -169,21 +174,26 @@ class TuiTurnInputControl(object):
             raise ValueError(f"invalid turn stream end reason: {reason}")
         self._stream_end_reason = reason
 
-    def request_interrupt(self) -> None:
-        """幂等调度远端中断，不阻塞本地轮次关闭。"""
+    def request_interrupt(self) -> bool:
+        """记录中断意图并返回远端控制是否已经开始。"""
+        self._interrupt_requested = True
+        return self._start_interrupt_worker()
+
+    def _start_interrupt_worker(self) -> bool:
+        """在远端 Turn 就绪后启动由当前轮次持有的中断任务。"""
         cid, sid, turn_id = self._target
+        if self._interrupt_task is not None:
+            return True
         if (
             not cid
             or not sid
             or not turn_id
             or self._ready_turn_id != turn_id
-            or self._interrupt_task is not None
         ):
-            return None
+            return False
 
-        self._interrupt_task = self._runtime.start_background_task(
+        self._interrupt_task = self._start(
             self._send_interrupt(cid, sid, turn_id),
-            name="tui remote turn interrupt",
         )
         observe(
             "turn.interrupt.requested",
@@ -191,6 +201,7 @@ class TuiTurnInputControl(object):
             sid=sid,
             turn_id=turn_id,
         )
+        return True
 
     def restore_draft(self, submission: TuiSubmission) -> None:
         """恢复从本地队列取回消息关联的结构化草稿。"""
@@ -213,6 +224,7 @@ class TuiTurnInputControl(object):
             await asyncio.gather(*tasks, return_exceptions=True)
 
         self._steer_task = None
+        self._interrupt_task = None
 
         committed_ids: tuple[str, ...] = ()
         retry_ids: tuple[str, ...] = ()
@@ -442,6 +454,12 @@ class TuiTurnInputControl(object):
                         (time.perf_counter() - started_at) * 1000
                     ),
                 )
+                if response.status in {"accepted", "turn_not_steerable"}:
+                    await self._wait_for_interrupt_settlement(
+                        cid,
+                        sid,
+                        turn_id,
+                    )
                 return None
             except ProtocolCommandError as error:
                 if attempt == 0:
@@ -458,6 +476,48 @@ class TuiTurnInputControl(object):
                         (time.perf_counter() - started_at) * 1000
                     ),
                 )
+
+    async def _wait_for_interrupt_settlement(
+        self,
+        cid: str,
+        sid: str,
+        turn_id: str,
+    ) -> None:
+        """等待远端轮次进入权威终态后再释放下一轮入口。"""
+        started_at = time.perf_counter()
+        while True:
+            try:
+                snapshot = await self._protocol_client.get_turn_status(
+                    cid=cid,
+                    sid=sid,
+                    turn_id=turn_id,
+                )
+            except ProtocolCommandError as error:
+                observe_exception(
+                    "turn.interrupt.status_failed",
+                    error,
+                    level="WARNING",
+                    cid=cid,
+                    sid=sid,
+                    turn_id=turn_id,
+                )
+                if error.status_code == 404 or not error.retryable:
+                    return None
+            else:
+                if snapshot.terminal:
+                    observe(
+                        "turn.interrupt.settled",
+                        cid=cid,
+                        sid=sid,
+                        turn_id=turn_id,
+                        status=snapshot.status,
+                        elapsed_ms=int(
+                            (time.perf_counter() - started_at) * 1000
+                        ),
+                    )
+                    return None
+
+            await asyncio.sleep(self.INTERRUPT_STATUS_RETRY_INTERVAL_SEC)
 
     @staticmethod
     def _input_from_submission(submission: TuiSubmission) -> TurnInput:
