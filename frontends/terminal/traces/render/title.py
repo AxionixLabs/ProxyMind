@@ -20,6 +20,10 @@ from frontends.terminal.styles import (
     PREVIEW_STYLE,
     PREVIEW_TEXT_STYLE,
 )
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from frontends.terminal.text_layout import (
     clip_display_text,
     text_display_width,
@@ -264,7 +268,7 @@ def _diff_marker_style(marker: str) -> TextStyle:
     if marker == "+":
         return DELTA_ADD_STYLE
     if marker == "-":
-        return TextStyle(foreground="#FF8A8A", dim=True)
+        return semantic_text_style(TerminalSemanticRole.FAILURE, dim=True)
 
     return PREVIEW_STYLE
 

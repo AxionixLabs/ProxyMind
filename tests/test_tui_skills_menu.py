@@ -325,7 +325,7 @@ def test_at_query_keeps_the_default_input_style() -> None:
     get_line = lexer.lex_document(Document("@"))
     assert get_line(0) == [("", "@")]
 
-    style = TuiRuntime().input_model.style
+    style = TuiRuntime().screen.application.style
     attrs = style.get_attrs_for_style_str("class:skill-token")
     assert attrs.color == "ansicyan"
     assert attrs.bgcolor == ""
@@ -699,7 +699,7 @@ def test_at_file_search_start_failure_finishes_loading(
         search.close()
 
 
-def test_at_plugin_uses_magenta_and_blue_selection_styles(
+def test_at_plugin_uses_magenta_and_cyan_selection_styles(
     tmp_path: Path,
 ) -> None:
     """验证 `@` Plugin 普通态为洋红色、选中态与 Skill 共用蓝色。"""
@@ -724,19 +724,19 @@ def test_at_plugin_uses_magenta_and_blue_selection_styles(
         for index, item in enumerate(snapshot.items)
         if item.kind == "plugin-mention"
     )
-    plugin_style = runtime.input_model.style.get_attrs_for_style_str(
+    plugin_style = runtime.screen.application.style.get_attrs_for_style_str(
         "class:token-menu.plugin-mention"
     )
-    plugin_current = runtime.input_model.style.get_attrs_for_style_str(
+    plugin_current = runtime.screen.application.style.get_attrs_for_style_str(
         "class:token-menu.plugin-mention.current"
     )
-    skill_current = runtime.input_model.style.get_attrs_for_style_str(
+    skill_current = runtime.screen.application.style.get_attrs_for_style_str(
         "class:token-menu.skill-mention.current"
     )
 
     assert plugin_style.color == "ansimagenta"
     assert plugin_style.bold is False
-    assert plugin_current.color == "ansiblue"
+    assert plugin_current.color == "ansicyan"
     assert plugin_current.bold
     assert plugin_current == skill_current
     assert plugin_index >= 0

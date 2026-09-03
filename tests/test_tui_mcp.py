@@ -522,8 +522,14 @@ def test_external_mcp_status_is_one_compact_block(monkeypatch) -> None:
         "    • Transport: stdio\n"
         "    • Tools: (none)"
     )
-    assert ("dim fg:#5FD7AF", "enabled") in views[0].renderable.fragments
-    assert ("dim fg:#FF6B6B", "disabled") in views[0].renderable.fragments
+    assert (
+        "class:terminal.success dim",
+        "enabled",
+    ) in views[0].renderable.fragments
+    assert (
+        "class:terminal.failure dim",
+        "disabled",
+    ) in views[0].renderable.fragments
 
 
 def test_mcp_status_wraps_long_tool_lists(monkeypatch) -> None:
@@ -595,8 +601,8 @@ def test_mcp_status_wraps_long_tool_lists(monkeypatch) -> None:
     assert all(name in text for name in names)
     assert "    • Tools: browser_click," in text
     assert "      browser_wait_for" in text
-    assert ("fg:#DDE7EF", "    • Tools: ") in views[0].renderable.fragments
+    assert ("", "    • Tools: ") in views[0].renderable.fragments
     assert (
-        "dim fg:#7F8C9A",
+        "dim",
         "browser_click, browser_close,",
     ) in views[0].renderable.fragments

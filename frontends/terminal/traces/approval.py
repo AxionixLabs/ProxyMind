@@ -16,15 +16,22 @@ from frontends.terminal.styles import (
     ERROR_STYLE,
     TITLE_STYLE,
 )
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from metadata import const
 
-APPROVAL_APPROVED_STYLE = TextStyle(foreground="#6EE7A8", bold=True)
+APPROVAL_APPROVED_STYLE = semantic_text_style(
+    TerminalSemanticRole.SUCCESS,
+    bold=True,
+)
 APPROVAL_DENIED_STYLE = ERROR_STYLE
 APPROVAL_COMMAND_STYLE = TITLE_STYLE
-APPROVAL_TOOL_STYLE = TextStyle(foreground="#7DD3FC", bold=True)
-APPROVAL_ARG_STYLE = TextStyle(foreground="#A7F3D0", bold=True)
-APPROVAL_RES_STYLE = TextStyle(foreground="#8FA4B8", dim=True)
-APPROVAL_SCOPE_STYLE = TextStyle(foreground="#A7F3D0", bold=True)
+APPROVAL_TOOL_STYLE = semantic_text_style(TerminalSemanticRole.ACCENT, bold=True)
+APPROVAL_ARG_STYLE = semantic_text_style(TerminalSemanticRole.SUCCESS, bold=True)
+APPROVAL_RES_STYLE = semantic_text_style(TerminalSemanticRole.SECONDARY)
+APPROVAL_SCOPE_STYLE = semantic_text_style(TerminalSemanticRole.SUCCESS, bold=True)
 
 
 def render_approval_approved_trace(

@@ -10,9 +10,12 @@ from agent.application.views import (
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle,
 )
 from frontends.terminal.formatting import format_duration_ms
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from frontends.terminal.styles import (
     ERROR_DOT_STYLE,
     SUCCESS_DOT_STYLE,
@@ -24,8 +27,8 @@ from frontends.terminal.text import (
 )
 from frontends.terminal.text_layout import layout_styled_line
 
-_MUTED_STYLE = TextStyle(foreground="#7F8C9A", dim=True)
-_WARNING_STYLE = TextStyle(foreground="#FFD75F", bold=True)
+_MUTED_STYLE = semantic_text_style(TerminalSemanticRole.SECONDARY)
+_WARNING_STYLE = semantic_text_style(TerminalSemanticRole.ATTENTION, bold=True)
 
 
 def render_hook_run_view(

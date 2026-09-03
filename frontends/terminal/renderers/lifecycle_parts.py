@@ -1,13 +1,20 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from agent.ports.presentation import (
-    TextSpan,
-    TextStyle,
+from agent.ports.presentation import TextSpan
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
 )
 
-LIFECYCLE_DOT_STYLE = TextStyle(foreground="#8A929C", bold=True)
-LIFECYCLE_TITLE_STYLE = TextStyle(foreground="#C9D3DE", bold=True)
+LIFECYCLE_DOT_STYLE = semantic_text_style(
+    TerminalSemanticRole.SECONDARY,
+    bold=True,
+)
+LIFECYCLE_TITLE_STYLE = semantic_text_style(
+    TerminalSemanticRole.PRIMARY,
+    bold=True,
+)
 
 
 def render_lifecycle_display_parts(title: str) -> list[TextSpan]:

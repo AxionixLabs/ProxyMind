@@ -932,7 +932,7 @@ async def test_new_conversation_clears_structured_prompt_draft() -> None:
     assert "".join(
         text for _style, text in result.renderable.fragments
     ) == "• New conversation"
-    assert result.renderable.fragments[0][0] == "fg:#DDE7EF"
+    assert result.renderable.fragments[0][0] == ""
     assert "dim" not in result.renderable.fragments[0][0]
     assert "dim" not in result.renderable.fragments[-1][0]
 

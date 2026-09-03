@@ -5,16 +5,19 @@ import typing
 
 from prompt_toolkit.utils import get_cwidth
 
-from agent.ports.presentation import ApplicationView
 from agent.ports.presentation import (
+    ApplicationView,
     TextSpan,
-    TextStyle,
 )
 from frontends.terminal.mcp_status import (
     McpStatusDetail,
     McpStatusView,
     external_mcp_status_view,
     render_mcp_status_block,
+)
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
 )
 from infrastructure.mcp.settings import normalize_mcp_servers
 from ..core.models import (
@@ -59,8 +62,14 @@ MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
 )
 
 MCP_DEFAULT_TERMINAL_WIDTH = 120
-MCP_ENABLED_STATUS_STYLE = TextStyle(foreground="#5FD7AF", dim=True)
-MCP_DISABLED_STATUS_STYLE = TextStyle(foreground="#FF6B6B", dim=True)
+MCP_ENABLED_STATUS_STYLE = semantic_text_style(
+    TerminalSemanticRole.SUCCESS,
+    dim=True,
+)
+MCP_DISABLED_STATUS_STYLE = semantic_text_style(
+    TerminalSemanticRole.FAILURE,
+    dim=True,
+)
 
 
 def _present(

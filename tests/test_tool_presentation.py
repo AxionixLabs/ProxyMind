@@ -1279,9 +1279,9 @@ def test_width_aware_short_shell_titles_keep_text_and_action_style() -> None:
     assert _shell_display_title(start, preview=False) == "• Running echo ready"
     assert _shell_display_title(ran, preview=True) == "• Ran echo ready"
     assert _shell_display_title(started, preview=True) == "• Running echo ready"
-    assert _span_style(start, "Running") == ACTION_RUN_STYLE
-    assert _span_style(ran, "Ran") == ACTION_RUN_STYLE
-    assert _span_style(started, "Running") == ACTION_RUN_STYLE
+    assert _containing_span_style(start, "Running") == ACTION_RUN_STYLE
+    assert _containing_span_style(ran, "Ran") == ACTION_RUN_STYLE
+    assert _containing_span_style(started, "Running") == ACTION_RUN_STYLE
 
 
 @pytest.mark.parametrize("width", (20, 40, 80, 160))
@@ -1532,7 +1532,7 @@ def test_command_transcript_appends_codex_status_summary(
     icon = next(span for span in transcript.spans if span.text in {"✓", "✗"})
     assert icon.style.bold
     assert icon.style.foreground == (
-        "#6EE7A8" if icon.text == "✓" else "#FF6B6B"
+        "ansigreen" if icon.text == "✓" else "ansired"
     )
     assert "✓ •" not in display
     assert "✗ •" not in display

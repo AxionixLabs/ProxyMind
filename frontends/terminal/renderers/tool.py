@@ -12,7 +12,7 @@ from agent.application.views import (
 from agent.application.views.commands import command_text
 from agent.application.views.tool_display import (
     ToolDisplayKind,
-    tool_display_spec
+    tool_display_spec,
 )
 from agent.ports.presentation import (
     StyledBlock,
@@ -20,6 +20,10 @@ from agent.ports.presentation import (
     TextStyle,
 )
 from frontends.terminal.text import sanitize_terminal_line
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from frontends.terminal.text_layout import (
     clip_display_text,
     text_display_width,
@@ -33,13 +37,19 @@ from frontends.terminal.traces.native import (
     render_tool_result_entries,
     render_tool_start_preview,
     render_tool_start_trace,
-    render_tool_trace
+    render_tool_trace,
 )
 from frontends.terminal.traces.render import render_tool_trace_parts
 from ..formatting import format_duration_ms
 
-TRANSCRIPT_SUCCESS_STYLE = TextStyle(foreground="#6EE7A8", bold=True)
-TRANSCRIPT_FAILURE_STYLE = TextStyle(foreground="#FF6B6B", bold=True)
+TRANSCRIPT_SUCCESS_STYLE = semantic_text_style(
+    TerminalSemanticRole.SUCCESS,
+    bold=True,
+)
+TRANSCRIPT_FAILURE_STYLE = semantic_text_style(
+    TerminalSemanticRole.FAILURE,
+    bold=True,
+)
 TRANSCRIPT_DURATION_STYLE = TextStyle(dim=True)
 
 

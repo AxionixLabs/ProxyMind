@@ -7,7 +7,6 @@ from frontends.terminal.color_support import TerminalColorLevel
 from frontends.tui.core.status_frames import (
     SPINNER_FRAMES,
     SWEEP_PROFILES,
-    _animated_palette,
     _character_cells,
     _display_span,
     _sweep_duration,
@@ -15,6 +14,7 @@ from frontends.tui.core.status_frames import (
     _sweep_intensity,
     render_status_fragments,
     spinner_indicator_fragment,
+    status_indicator_fragment,
     status_interval,
     status_phase_rate,
 )
@@ -27,6 +27,9 @@ from frontends.tui.core.status_frames import (
         ("wait", "Thinking"),
         ("tool", "运行"),
         ("wait", "处理中"),
+        ("retry", "Retrying"),
+        ("provider_retry", "Retrying"),
+        ("wait", "Terminal"),
     ),
 )
 def test_status_sweep_changes_text_colors_through_active_pass(
@@ -49,7 +52,22 @@ def test_status_sweep_changes_text_colors_through_active_pass(
         for frame in frames
     ]
 
-    assert len(set(text_styles)) >= 16
+    assert len(set(text_styles)) >= 2
+    assert {
+        style
+        for frame_styles in text_styles
+        for style in frame_styles
+    } <= {
+        "class:terminal.attention.plain",
+        "class:terminal.attention.plain bold",
+        "class:terminal.attention.plain dim",
+        "class:terminal.accent",
+        "class:terminal.accent bold",
+        "class:terminal.accent dim",
+        "class:terminal.brand",
+        "class:terminal.brand bold",
+        "class:terminal.brand dim",
+    }
     assert {
         "".join(value for _style, value in frame)[1:]
         for frame in frames
@@ -60,7 +78,7 @@ def test_status_sweep_changes_text_colors_through_active_pass(
     } == {"◦", "•"}
     assert all("bg:" not in style for frame in frames for style, _value in frame)
     assert all(
-        "dim" not in style
+        "fg:" not in style
         for frame in frames
         for style, value in frame[2:]
         if value.strip()
@@ -85,12 +103,11 @@ def test_status_sweep_changes_text_colors_through_active_pass(
 def test_status_indicator_breathes_between_hollow_and_solid_glyphs() -> None:
     indicators = {
         family: {
-            render_status_fragments(
-                "working",
+            status_indicator_fragment(
+                index / 30,
                 family=family,
-                phase=index / 30,
                 animated=True,
-            )[0][1]
+            )[1]
             for index in range(60)
         }
         for family in ("tool", "wait")
@@ -157,13 +174,19 @@ def test_provider_retry_palette_keeps_geometry_and_uses_distinct_colors() -> Non
 
 
 def test_explicit_spinner_keeps_one_cell_and_rotates() -> None:
-    indicators = {
-        spinner_indicator_fragment(index / 10)[1]
+    frames = {
+        spinner_indicator_fragment(index / 10)
         for index in range(len(SPINNER_FRAMES))
     }
+    indicators = {glyph for _style, glyph in frames}
 
     assert indicators == set(SPINNER_FRAMES)
     assert all(get_cwidth(glyph) == 1 for glyph in indicators)
+    assert all("bold" not in style and "dim" not in style for style, _glyph in frames)
+    assert spinner_indicator_fragment(
+        0.1,
+        color_level=TerminalColorLevel.NONE,
+    )[0] == ""
 
 
 def test_status_sweep_uses_display_width_and_adaptive_speed() -> None:
@@ -292,11 +315,8 @@ def test_limited_color_status_uses_intensity_modifiers() -> None:
     assert any("dim" not in style and "bold" not in style for style in styles)
 
 
-def test_status_palette_changes_smoothly_over_time() -> None:
-    for family, profile in SWEEP_PROFILES.items():
-        start = _animated_palette(profile, 0.0)
-        middle = _animated_palette(profile, profile.palette_period / 2)
-        next_palette = _animated_palette(profile, profile.palette_period)
+def test_status_semantic_role_is_stable_and_no_color_has_no_color_class() -> None:
+    for family in SWEEP_PROFILES:
         static_start = render_status_fragments(
             "working",
             family=family,
@@ -306,11 +326,17 @@ def test_status_palette_changes_smoothly_over_time() -> None:
         static_later = render_status_fragments(
             "working",
             family=family,
-            phase=profile.palette_period,
+            phase=60.0,
             animated=False,
         )
+        no_color = render_status_fragments(
+            "working",
+            family=family,
+            phase=0.0,
+            animated=True,
+            color_level=TerminalColorLevel.NONE,
+        )
 
-        assert start.color_stops != middle.color_stops
-        assert middle.color_stops != next_palette.color_stops
-        assert next_palette == profile.palettes[1]
         assert static_start == static_later
+        assert all("class:terminal." not in style for style, _text in no_color)
+        assert all("fg:" not in style and "bg:" not in style for style, _text in no_color)

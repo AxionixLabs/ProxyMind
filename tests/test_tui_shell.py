@@ -180,7 +180,7 @@ async def test_streaming_ps_appends_process_summaries_without_menu() -> None:
     assert stream_text.startswith("  • ")
     assert stream_text.endswith("  … and 1 more running")
     assert command_text == ["adb logcat", "npm run dev", "pytest -q"]
-    command_style = TUI_APPLICATION_OVERRIDES.get_attrs_for_style_str(
+    command_style = runtime.screen.application.style.get_attrs_for_style_str(
         "class:ps.stream.command"
     )
     assert command_style.color == "ansicyan"
@@ -1251,7 +1251,7 @@ def test_user_shell_exec_cell_uses_animated_activity_marker() -> None:
         )
 
     marker_style, marker = block.fragments[0]
-    assert marker_style.startswith("fg:#")
+    assert marker_style.startswith("class:terminal.accent")
     assert marker in {"•", "◦"}
 
 

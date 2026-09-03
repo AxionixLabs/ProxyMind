@@ -100,7 +100,6 @@ class Upgrade(object):
         label: str,
         *,
         icon: str,
-        style: str,
         stage: str | None = None
     ) -> None:
         """写入下载流程的最终展示状态。"""
@@ -110,7 +109,6 @@ class Upgrade(object):
         state["speed"] = 0.0
         state["final_icon"] = icon
         state["final_label"] = label
-        state["final_style"] = style
 
     @staticmethod
     def cancel_download(
@@ -514,7 +512,7 @@ class Upgrade(object):
             elapsed = max(0.001, time.perf_counter() - started)
 
             self.mark_final(
-                state, "complete", icon="✓", style="bold #87FFAF", stage="done"
+                state, "complete", icon="✓", stage="done"
             )
             observe(
                 "upgrade.install.complete",

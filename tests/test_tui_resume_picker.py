@@ -414,8 +414,8 @@ def test_resume_picker_all_visible_states_fit_codex_widths(width: int) -> None:
 @pytest.mark.parametrize(
     ("background", "selected_bg", "zebra_bg", "title", "marker"),
     (
-        ((0, 0, 0), "1F1F1F", "0E0E0E", "ansicyan", "ansiyellow"),
-        ((255, 255, 255), "E0E0E0", "F5F5F5", "006400", "ansimagenta"),
+        ((0, 0, 0), "1F1F1F", "0E0E0E", "ansicyan", "ansicyan"),
+        ((255, 255, 255), "E0E0E0", "F5F5F5", "005F87", "005F87"),
     ),
 )
 def test_resume_picker_colors_match_codex_theme_blends(
@@ -458,11 +458,9 @@ def test_resume_picker_colors_match_codex_theme_blends(
     description_style = style.get_attrs_for_style_str(
         "class:resume-picker.help"
     )
-    assert key_style.color == ("DDE7EF" if background == (0, 0, 0) else "20262C")
+    assert key_style.color == "default"
     assert not key_style.dim
-    assert description_style.color == (
-        "87919D" if background == (0, 0, 0) else "68737D"
-    )
+    assert description_style.color == "default"
     assert description_style.dim
 
 

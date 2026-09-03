@@ -22,16 +22,7 @@ from agent.ports.presentation import (
     TextStyle,
 )
 from metadata import const
-from .styles import (
-    PREVIEW_CODE_COMMENT_STYLE,
-    PREVIEW_CODE_KEYWORD_STYLE,
-    PREVIEW_CODE_NAME_STYLE,
-    PREVIEW_CODE_NUMBER_STYLE,
-    PREVIEW_CODE_OPERATOR_STYLE,
-    PREVIEW_CODE_STRING_STYLE,
-    PREVIEW_CODE_TEXT_STYLE,
-    PREVIEW_TEXT_STYLE,
-)
+from .styles import PREVIEW_TEXT_STYLE
 
 MAX_HIGHLIGHT_BYTES = 512 * 1024
 MAX_HIGHLIGHT_LINES = 10_000
@@ -52,6 +43,14 @@ _LIGHT_CODE_STRING_STYLE = TextStyle(foreground="#40A02B")
 _LIGHT_CODE_NUMBER_STYLE = TextStyle(foreground="#FE640B")
 _LIGHT_CODE_COMMENT_STYLE = TextStyle(foreground="#6C6F85", dim=True)
 _LIGHT_CODE_OPERATOR_STYLE = TextStyle(foreground="#179299")
+
+PREVIEW_CODE_TEXT_STYLE = TextStyle(foreground="#BCC9D6")
+PREVIEW_CODE_KEYWORD_STYLE = TextStyle(foreground="#B9A6D8", bold=True)
+PREVIEW_CODE_NAME_STYLE = TextStyle(foreground="#CAD5DF")
+PREVIEW_CODE_STRING_STYLE = TextStyle(foreground="#A9CDBB")
+PREVIEW_CODE_NUMBER_STYLE = TextStyle(foreground="#D3C27C")
+PREVIEW_CODE_COMMENT_STYLE = TextStyle(foreground="#8FA4B8", dim=True)
+PREVIEW_CODE_OPERATOR_STYLE = TextStyle(foreground="#AAB8C6")
 
 
 class StreamingCodeHighlighter(object):

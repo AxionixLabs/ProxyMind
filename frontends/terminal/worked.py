@@ -6,13 +6,16 @@ from agent.ports.presentation import (
     ApplicationView,
     StyledBlock,
     TextSpan,
-    TextStyle,
 )
 from frontends.terminal.formatting import format_elapsed
 from frontends.terminal.layout_rules import full_rule_width
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 
-WORKED_RULE_STYLE = TextStyle(foreground="#414A54")
-WORKED_LABEL_STYLE = TextStyle(foreground="#626D78")
+WORKED_RULE_STYLE = semantic_text_style(TerminalSemanticRole.SECONDARY)
+WORKED_LABEL_STYLE = semantic_text_style(TerminalSemanticRole.SECONDARY)
 WORKED_RULE_CHAR = "─"
 
 

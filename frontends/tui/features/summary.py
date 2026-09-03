@@ -10,7 +10,10 @@ from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )
-from agent.ports.presentation import TextStyle
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from ..core.models import FragmentBlock
 from ..core.styles import prompt_style
 from ..rendering.fragments import clip_text
@@ -18,6 +21,10 @@ from ..rendering.fragments import clip_text
 COMMAND_SUMMARY_DEFAULT_WIDTH: int = 100
 COMMAND_SUMMARY_COMMAND_MAX: int = 72
 COMMAND_SUMMARY_LINE_MAX: int = 120
+
+_SUMMARY_MUTED_STYLE = semantic_text_style(TerminalSemanticRole.SECONDARY)
+_SUMMARY_ACCENT_STYLE = semantic_text_style(TerminalSemanticRole.ACCENT, bold=True)
+_SUMMARY_BODY_STYLE = semantic_text_style(TerminalSemanticRole.PRIMARY)
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,11 +81,11 @@ def command_summary_text(
         fragments.extend([
             ("", "\n"),
             (
-                prompt_style(TextStyle(foreground="#7F8C9A", dim=True)),
+                prompt_style(_SUMMARY_MUTED_STYLE),
                 prefix,
             ),
             (
-                prompt_style(TextStyle(foreground="#A8B1BB", dim=True)),
+                prompt_style(_SUMMARY_MUTED_STYLE),
                 _summary_line_text(
                     line,
                     terminal_width=terminal_width,
@@ -112,14 +119,14 @@ def command_summary_title_parts(
     )
 
     parts = [
-        ("• ", prompt_style(TextStyle(foreground="#7F8C9A", dim=True))),
-        (kind, prompt_style(TextStyle(foreground="#8FC7EA", bold=True))),
-        (" ", prompt_style(TextStyle(foreground="#7F8C9A", dim=True))),
-        (command, prompt_style(TextStyle(foreground="#F4F7FA"))),
+        ("• ", prompt_style(_SUMMARY_MUTED_STYLE)),
+        (kind, prompt_style(_SUMMARY_ACCENT_STYLE)),
+        (" ", prompt_style(_SUMMARY_MUTED_STYLE)),
+        (command, prompt_style(_SUMMARY_BODY_STYLE)),
     ]
 
     if suffix:
-        parts.append((suffix, prompt_style(TextStyle(foreground="#7F8C9A", dim=True))))
+        parts.append((suffix, prompt_style(_SUMMARY_MUTED_STYLE)))
 
     return parts
 

@@ -26,6 +26,10 @@ from frontends.terminal.renderers.upload import (
     upload_progress_block,
     upload_summary_block,
 )
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from .models import FragmentBlock
 from .status_frames import (
     StatusFamily,
@@ -42,9 +46,9 @@ from .styles import (
 )
 from ..rendering.fragments import clip_fragments
 
-STATUS_MUTED = TextStyle(foreground="#7F8C9A", dim=True)
-STATUS_WARNING = TextStyle(foreground="#FFB86B")
-STATUS_FAILURE = TextStyle(foreground="#FF6B6B")
+STATUS_MUTED = semantic_text_style(TerminalSemanticRole.SECONDARY)
+STATUS_WARNING = semantic_text_style(TerminalSemanticRole.ATTENTION)
+STATUS_FAILURE = semantic_text_style(TerminalSemanticRole.FAILURE)
 
 ACTIVITY_SETTLE_SEC: typing.Final[float] = 0.7
 
@@ -880,7 +884,11 @@ def _status_block(
         fragments[1] = static_fragments[1]
 
     if spinner:
-        fragments[0] = spinner_indicator_fragment(phase, family=family)
+        fragments[0] = spinner_indicator_fragment(
+            phase,
+            family=family,
+            color_level=color_level,
+        )
 
     if started_at or elapsed_sec is not None:
         elapsed = (

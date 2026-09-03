@@ -2189,7 +2189,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         return render_footer_fragments(
             mode=mode,
             width=self.terminal_width,
-            brand_color=self.input_model.theme()["brand"],
             mailbox_label=(
                 f"Mailbox {format_mailbox_count(self.mailbox_overlay.pending_count)}"
                 if self.mailbox_overlay.pending_count

@@ -11,11 +11,14 @@ from agent.ports.presentation import (
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle,
 )
 from frontends.terminal.intro import (
     IntroFrame,
     intro_frames,
+)
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
 )
 from metadata import const
 from ..core.document import TuiBlockKind
@@ -27,13 +30,13 @@ from ..core.runtime import TuiRuntime
 from ..core.styles import styled_block_fragments
 from ..core.styles import text_block
 
-MUTED = TextStyle(foreground="#7F8C9A", dim=True)
-ACCENT = TextStyle(foreground="#AFC7D8", bold=True)
-BRIGHT = TextStyle(foreground="#F4F7FA", bold=True)
-SUCCESS = TextStyle(foreground="#5FD7AF", bold=True)
-WARNING = TextStyle(foreground="#FFD75F", bold=True)
-FAILURE = TextStyle(foreground="#FF6B6B", bold=True)
-FAILURE_BODY = TextStyle(foreground="#FF6B6B")
+MUTED = semantic_text_style(TerminalSemanticRole.SECONDARY)
+ACCENT = semantic_text_style(TerminalSemanticRole.ACCENT, bold=True)
+BRIGHT = semantic_text_style(TerminalSemanticRole.PRIMARY, bold=True)
+SUCCESS = semantic_text_style(TerminalSemanticRole.SUCCESS, bold=True)
+WARNING = semantic_text_style(TerminalSemanticRole.ATTENTION, bold=True)
+FAILURE = semantic_text_style(TerminalSemanticRole.FAILURE, bold=True)
+FAILURE_BODY = semantic_text_style(TerminalSemanticRole.FAILURE)
 
 _BACKGROUND_VIEW_TYPES = frozenset({
     "tui.background.error",

@@ -11,6 +11,10 @@ from agent.ports.presentation import (
 )
 from frontends.terminal.text import sanitize_terminal_text
 from frontends.terminal.text_layout import layout_styled_line
+from .semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from .styles import (
     ERROR_DOT_STYLE,
     ERROR_PREVIEW_MESSAGE_STYLE,
@@ -25,8 +29,8 @@ McpStatusLevel = typing.Literal[
     "failed"
 ]
 
-MCP_STATUS_BODY_STYLE = TextStyle(foreground="#DDE7EF")
-MCP_STATUS_WARNING_STYLE = TextStyle(foreground="#F59E0B")
+MCP_STATUS_BODY_STYLE = semantic_text_style(TerminalSemanticRole.PRIMARY)
+MCP_STATUS_WARNING_STYLE = semantic_text_style(TerminalSemanticRole.ATTENTION)
 
 
 @dataclass(frozen=True, slots=True)

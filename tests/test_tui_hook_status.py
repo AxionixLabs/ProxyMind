@@ -64,8 +64,7 @@ async def test_tui_hook_adapter_prints_start_as_stable_operation() -> None:
             "• Running UserPromptSubmit hook: Checking prompt"
         )
         prefix_style = runtime.document.blocks[0].display_block.fragments[0][0]
-        assert prefix_style == "bold fg:#7F8C9A"
-        assert "dim" not in prefix_style
+        assert prefix_style == "bold dim"
     finally:
         await runtime.close()
 
@@ -275,7 +274,7 @@ async def test_tui_hook_adapter_persists_failure_and_full_context() -> None:
         assert "context line 7" not in display
         assert "context line 7" in transcript
         assert "error: review failed" in transcript
-        assert "fg:#FF6B6B" in block.display_block.fragments[0][0]
+        assert block.display_block.fragments[0][0] == "class:terminal.failure bold"
         assert block.raw_text == transcript
     finally:
         await runtime.close()

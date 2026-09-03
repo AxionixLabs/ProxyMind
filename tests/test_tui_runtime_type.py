@@ -46,12 +46,12 @@ def test_exit_summary_renders_as_plain_terminal_text() -> None:
     )
 
 
-def test_exit_summary_command_is_bright_blue_without_bold() -> None:
+def test_exit_summary_command_uses_semantic_accent_without_bold() -> None:
     fragments = exit_summary_fragments("sid_test_1_abcdef")
     command_style, command = fragments[-1]
 
     assert command == "mind resume sid_test_1_abcdef"
-    assert command_style == "fg:#8FB8FF"
+    assert command_style == "class:terminal.accent"
     assert "bold" not in command_style
 
 

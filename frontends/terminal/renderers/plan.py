@@ -13,6 +13,10 @@ from agent.ports.presentation import (
     TextStyle,
 )
 from frontends.terminal.text import sanitize_terminal_text
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from frontends.terminal.text_layout import (
     layout_styled_line,
     text_display_width,
@@ -32,7 +36,10 @@ PLAN_SUMMARY_STYLE = TextStyle(
     italic=True,
 )
 
-PLAN_ACTIVE_BODY_STYLE = TextStyle(foreground="#5EEAD4", bold=True)
+PLAN_ACTIVE_BODY_STYLE = semantic_text_style(
+    TerminalSemanticRole.ACCENT,
+    bold=True,
+)
 
 
 def render_plan_update_view(

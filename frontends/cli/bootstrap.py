@@ -29,6 +29,10 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from frontends.helix.runtime import (
     ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
@@ -239,7 +243,7 @@ def _emit_startup_warnings(
         spans.extend((
             TextSpan(
                 "Warning: ",
-                TextStyle(foreground="#FFD75F", bold=True),
+                semantic_text_style(TerminalSemanticRole.ATTENTION, bold=True),
             ),
             TextSpan(warning),
         ))
@@ -266,11 +270,11 @@ def _emit_helix_skipped(controller: CliApplicationHost) -> None:
             spans=(
                 TextSpan(
                     "Helix ",
-                    TextStyle(foreground="#AFC7D8", bold=True),
+                    semantic_text_style(TerminalSemanticRole.ACCENT, bold=True),
                 ),
                 TextSpan(
                     "· skipped",
-                    TextStyle(foreground="#7F8C9A", dim=True),
+                    semantic_text_style(TerminalSemanticRole.SECONDARY),
                 ),
             ),
         ),

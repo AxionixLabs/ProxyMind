@@ -47,12 +47,12 @@ def _append_query_turn(runtime: TuiRuntime, turn_id: str, prompt: str) -> None:
     runtime.append_block(_block(f"answer for {prompt}"), kind="assistant")
 
 
-def test_transcript_selection_uses_explicit_background() -> None:
+def test_transcript_selection_has_no_static_component_color() -> None:
     selected = TUI_APPLICATION_OVERRIDES.get_attrs_for_style_str(
         "class:transcript.overlay.selection"
     )
 
-    assert selected.bgcolor == "1D3969"
+    assert selected.bgcolor == ""
     assert selected.reverse is False
 
 

@@ -130,7 +130,7 @@ def test_network_approval_card_uses_target_row_and_network_colors() -> None:
     )
     assert TUI_APPROVAL_STYLE.get_attrs_for_style_str(
         "class:approval-network-host"
-    ).color == "0EA5E9"
+    ).color == ""
 
 
 def test_mcp_approval_card_uses_structured_fields_and_semantic_styles() -> None:
@@ -261,8 +261,8 @@ def test_patch_approval_uses_dedicated_fullscreen_title_and_preview() -> None:
     assert header_styles[1] == ("bold", "Edited")
     assert header_styles[2] == ("", " ")
     assert header_styles[3] == ("", "src/app.py")
-    assert header_styles[6] == ("fg:ansigreen", "+1")
-    assert header_styles[8] == ("fg:ansired", "-1")
+    assert header_styles[6] == ("class:terminal.success", "+1")
+    assert header_styles[8] == ("class:terminal.failure", "-1")
 
     card_lines = tui_approval_content_lines(
         ["accept", "decline"],
@@ -592,7 +592,7 @@ def test_approval_question_uses_terminal_default_foreground(
     )
 
     question = style.get_attrs_for_style_str("class:approval-question")
-    assert question.color == ""
+    assert question.color == "default"
     assert question.bold
 
 
@@ -743,7 +743,7 @@ def test_light_terminal_uses_darkened_surface_and_readable_selection() -> None:
     model = style.get_attrs_for_style_str("class:footer.model")
     assert selected.color == "005F87"
     assert selected.bold
-    assert shortcut.color == "26323C"
+    assert shortcut.color == "default"
     assert model.color == "005F87"
     assert style.get_attrs_for_style_str(
         "class:transcript.overlay.selection"
@@ -992,7 +992,7 @@ def test_selected_session_shortcut_uses_118_style() -> None:
     shortcut = TUI_APPROVAL_STYLE.get_attrs_for_style_str(
         "class:approval-shortcut-selected"
     )
-    assert shortcut.color == "C7F7FF"
+    assert shortcut.color == ""
     assert shortcut.bold
 
 
@@ -1001,7 +1001,7 @@ def test_unselected_shortcuts_remain_visible_on_filled_surface() -> None:
         "class:approval-shortcut"
     )
 
-    assert shortcut.color == "C4CED8"
+    assert shortcut.color == ""
     assert shortcut.bold
     assert not shortcut.dim
 

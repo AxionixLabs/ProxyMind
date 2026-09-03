@@ -14,6 +14,10 @@ from agent.ports.presentation import (
     TextStyle,
     ApplicationView,
 )
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from infrastructure.config.paths import (
     ApplicationMode,
     resolve_application_layout,
@@ -447,9 +451,9 @@ def diagnose(context: DoctorContext) -> DoctorReport:
 def render_doctor_report(report: DoctorReport) -> StyledBlock:
     """把诊断报告转换为跨终端文本展示模型。"""
     label_styles: dict[DoctorStatus, TextStyle] = {
-        "pass": TextStyle(foreground="#66C2A5", bold=True),
-        "warn": TextStyle(foreground="#FFD75F", bold=True),
-        "fail": TextStyle(foreground="#FF6B6B", bold=True),
+        "pass": semantic_text_style(TerminalSemanticRole.SUCCESS, bold=True),
+        "warn": semantic_text_style(TerminalSemanticRole.ATTENTION, bold=True),
+        "fail": semantic_text_style(TerminalSemanticRole.FAILURE, bold=True),
     }
 
     title = f"{const.APP_DESC} doctor {report.version}\n"
@@ -459,7 +463,7 @@ def render_doctor_report(report: DoctorReport) -> StyledBlock:
     spans: list[TextSpan] = [
         TextSpan(
             title,
-            TextStyle(foreground="#AFC7D8", bold=True),
+            semantic_text_style(TerminalSemanticRole.ACCENT, bold=True),
         )
     ]
 

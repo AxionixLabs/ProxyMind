@@ -14,10 +14,26 @@ from agent.ports.presentation import (
     TextStyle,
     Viewport,
 )
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from frontends.terminal.text import sanitize_styled_block
 from metadata import const
 
 ANSI_RESET = "\x1b[0m"
+
+_ANSI_FOREGROUND_CODES = {
+    "ansiblack": 30,
+    "ansired": 31,
+    "ansigreen": 32,
+    "ansiyellow": 33,
+    "ansiblue": 34,
+    "ansimagenta": 35,
+    "ansicyan": 36,
+    "ansiwhite": 37,
+    "default": 39,
+}
 
 
 def _stream(value: object | None, fallback: typing.TextIO) -> typing.TextIO:
@@ -65,8 +81,10 @@ def _ansi_style(style: TextStyle) -> str:
 
 
 def _ansi_color(value: str, *, background: bool) -> str | None:
-    """把十六进制颜色转换为 ANSI 真彩色代码。"""
+    """把 ANSI 命名色或十六进制颜色转换为控制代码。"""
     text = str(value or "").strip()
+    if (code := _ANSI_FOREGROUND_CODES.get(text.casefold())) is not None:
+        return str(code + 10 if background else code)
     if len(text) != 7 or not text.startswith("#"):
         return None
     try:
@@ -120,13 +138,12 @@ class ConsoleApplicationSink(ApplicationSink):
             head = f"{const.APP_DESC} ::"
             label = "ERROR"
             if color:
-                head_style = _ansi_style(TextStyle(
-                    foreground="#8B8B8B",
+                head_style = _ansi_style(semantic_text_style(
+                    TerminalSemanticRole.SECONDARY,
                     bold=True,
                 ))
-                label_style = _ansi_style(TextStyle(
-                    foreground="#FFFFFF",
-                    background="#FF6347",
+                label_style = _ansi_style(semantic_text_style(
+                    TerminalSemanticRole.FAILURE,
                     bold=True,
                 ))
                 head = f"{head_style}{head}{ANSI_RESET}"

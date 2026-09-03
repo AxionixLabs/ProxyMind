@@ -4,6 +4,7 @@
 from dataclasses import dataclass
 from enum import Enum
 
+from agent.ports.presentation import TextStyle
 from .color_support import (
     TerminalColorLevel,
     TerminalColorSupport,
@@ -16,6 +17,94 @@ from .palette import (
 from .probe import RgbColor
 
 _LIGHT_ACCENT_RGB: RgbColor = (0, 95, 135)
+
+
+class TerminalSemanticRole(str, Enum):
+    """描述普通终端文本可使用的稳定语义角色。"""
+
+    PRIMARY = "primary"
+    SECONDARY = "secondary"
+    ACCENT = "accent"
+    SELECTED = "selected"
+    SUCCESS = "success"
+    FAILURE = "failure"
+    ATTENTION = "attention"
+    BRAND = "brand"
+
+
+_ANSI_ROLE_COLORS: dict[TerminalSemanticRole, str | None] = {
+    TerminalSemanticRole.PRIMARY: None,
+    TerminalSemanticRole.SECONDARY: None,
+    TerminalSemanticRole.ACCENT: "ansicyan",
+    TerminalSemanticRole.SELECTED: "ansicyan",
+    TerminalSemanticRole.SUCCESS: "ansigreen",
+    TerminalSemanticRole.FAILURE: "ansired",
+    TerminalSemanticRole.ATTENTION: "ansiyellow",
+    TerminalSemanticRole.BRAND: "ansimagenta",
+}
+
+_RICH_ROLE_COLORS: dict[TerminalSemanticRole, str | None] = {
+    TerminalSemanticRole.PRIMARY: None,
+    TerminalSemanticRole.SECONDARY: None,
+    TerminalSemanticRole.ACCENT: "cyan",
+    TerminalSemanticRole.SELECTED: "cyan",
+    TerminalSemanticRole.SUCCESS: "green",
+    TerminalSemanticRole.FAILURE: "red",
+    TerminalSemanticRole.ATTENTION: "yellow",
+    TerminalSemanticRole.BRAND: "magenta",
+}
+
+
+def semantic_text_style(
+    role: TerminalSemanticRole,
+    *,
+    bold: bool | None = None,
+    dim: bool | None = None,
+    italic: bool = False,
+    underline: bool = False,
+) -> TextStyle:
+    """把语义角色转换为跨终端前端共享的 ANSI 文本样式。"""
+
+    default_bold = role is TerminalSemanticRole.SELECTED
+    default_dim = role is TerminalSemanticRole.SECONDARY
+    return TextStyle(
+        foreground=_ANSI_ROLE_COLORS[role],
+        bold=default_bold if bold is None else bold,
+        dim=default_dim if dim is None else dim,
+        italic=italic,
+        underline=underline,
+    )
+
+
+def semantic_role_for_ansi_color(value: str | None) -> TerminalSemanticRole | None:
+    """返回 ANSI 命名色在普通终端文本中的语义角色。"""
+
+    color = str(value or "").strip().casefold()
+    return {
+        "ansicyan": TerminalSemanticRole.ACCENT,
+        "ansigreen": TerminalSemanticRole.SUCCESS,
+        "ansired": TerminalSemanticRole.FAILURE,
+        "ansiyellow": TerminalSemanticRole.ATTENTION,
+        "ansimagenta": TerminalSemanticRole.BRAND,
+    }.get(color)
+
+
+def semantic_rich_style(
+    role: TerminalSemanticRole,
+    *,
+    bold: bool = False,
+    dim: bool = False,
+) -> str:
+    """把语义角色转换为 Rich 使用的命名色样式。"""
+
+    parts = [
+        name
+        for enabled, name in ((bold, "bold"), (dim, "dim"))
+        if enabled
+    ]
+    if color := _RICH_ROLE_COLORS[role]:
+        parts.append(color)
+    return " ".join(parts)
 
 
 class TerminalThemeTone(str, Enum):

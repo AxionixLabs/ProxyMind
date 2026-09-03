@@ -13,6 +13,10 @@ from agent.application.hooks.models import (
 )
 from agent.ports.presentation import TextStyle
 from frontends.terminal.formatting import format_duration_ms
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from ..core.models import (
     FormattedText,
     FragmentBlock,
@@ -35,8 +39,8 @@ from ..rendering.fragments import (
 
 HOOK_CONTEXT_MAX_DISPLAY_ROWS: typing.Final[int] = 3
 
-_NEUTRAL_BULLET = TextStyle(foreground="#7F8C9A", bold=True)
-_FAILURE_BULLET = TextStyle(foreground="#FF6B6B", bold=True)
+_NEUTRAL_BULLET = semantic_text_style(TerminalSemanticRole.SECONDARY, bold=True)
+_FAILURE_BULLET = semantic_text_style(TerminalSemanticRole.FAILURE, bold=True)
 _WARNING_BULLET = TextStyle(bold=True)
 
 

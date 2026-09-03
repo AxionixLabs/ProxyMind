@@ -24,6 +24,10 @@ from frontends.terminal.highlighting import (
     StreamingCodeHighlighter,
     code_token_style,
 )
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 from frontends.terminal.text import sanitize_styled_block
 from ..core.models import FragmentBlock
 from ..core.styles import (
@@ -39,12 +43,21 @@ MARKDOWN_H3_STYLE = TextStyle(bold=True, italic=True)
 MARKDOWN_H4_STYLE = TextStyle(dim=True, italic=True)
 
 MARKDOWN_UNORDERED_MARKER_STYLE = TextStyle(dim=True)
-MARKDOWN_ORDERED_MARKER_STYLE = TextStyle(foreground="ansiblue")
-MARKDOWN_QUOTE_MARKER_STYLE = TextStyle(foreground="ansigreen", dim=True)
+MARKDOWN_ORDERED_MARKER_STYLE = semantic_text_style(TerminalSemanticRole.ACCENT)
+MARKDOWN_QUOTE_MARKER_STYLE = semantic_text_style(
+    TerminalSemanticRole.SUCCESS,
+    dim=True,
+)
 MARKDOWN_QUOTE_STYLE = TextStyle(dim=True)
-MARKDOWN_INLINE_CODE_STYLE = TextStyle(foreground="ansicyan")
-MARKDOWN_LINK_STYLE = TextStyle(foreground="ansicyan", underline=True)
-MARKDOWN_TABLE_HEADER_STYLE = TextStyle(foreground="ansiblue", bold=True)
+MARKDOWN_INLINE_CODE_STYLE = semantic_text_style(TerminalSemanticRole.ACCENT)
+MARKDOWN_LINK_STYLE = semantic_text_style(
+    TerminalSemanticRole.ACCENT,
+    underline=True,
+)
+MARKDOWN_TABLE_HEADER_STYLE = semantic_text_style(
+    TerminalSemanticRole.ACCENT,
+    bold=True,
+)
 MARKDOWN_SEPARATOR_STYLE = TextStyle(dim=True)
 
 TABLE_COLUMN_GAP = 2

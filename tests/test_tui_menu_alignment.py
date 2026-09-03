@@ -250,7 +250,7 @@ def test_menu_style_matches_codex_semantics_without_selected_row_background() ->
     assert status.dim
     assert not label.bold and not label.dim
     assert detail.dim
-    assert selected.bold and selected.color == "ansiblue"
+    assert selected.bold and selected.color == ""
     assert selected.bgcolor == ""
 
 

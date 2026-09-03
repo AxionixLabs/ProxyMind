@@ -11,12 +11,15 @@ from agent.application.views import (
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle,
 )
 from frontends.terminal.text import sanitize_terminal_line
 from frontends.terminal.text_layout import (
     clip_display_text,
     text_display_width,
+)
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
 )
 from ..styles import (
     ACTION_TOOL_STYLE,
@@ -27,7 +30,7 @@ from ..styles import (
     TITLE_STYLE
 )
 
-BATCH_DOT_STYLE = TextStyle(foreground="#F59E0B", bold=True)
+BATCH_DOT_STYLE = semantic_text_style(TerminalSemanticRole.ATTENTION, bold=True)
 
 _BATCH_PREVIEW_CALLS = 4
 _BATCH_PREVIEW_ARGUMENTS = 3

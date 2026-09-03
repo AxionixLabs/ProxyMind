@@ -6,15 +6,18 @@ import typing
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle,
 )
 from frontends.terminal.text import sanitize_terminal_text
 from frontends.terminal.text_layout import wrap_styled_line
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 
-FAILURE_DOT_STYLE = TextStyle(foreground="#FF5F5F")
-FAILURE_TITLE_STYLE = TextStyle(foreground="#FF8A8A")
-FAILURE_BRANCH_STYLE = TextStyle(foreground="#8FA4B8", dim=True)
-FAILURE_MESSAGE_STYLE = TextStyle(foreground="#D98A8A")
+FAILURE_DOT_STYLE = semantic_text_style(TerminalSemanticRole.FAILURE)
+FAILURE_TITLE_STYLE = semantic_text_style(TerminalSemanticRole.FAILURE)
+FAILURE_BRANCH_STYLE = semantic_text_style(TerminalSemanticRole.SECONDARY)
+FAILURE_MESSAGE_STYLE = semantic_text_style(TerminalSemanticRole.FAILURE)
 
 
 def render_failure_title(phase: str) -> str:

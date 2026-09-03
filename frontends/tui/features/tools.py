@@ -17,13 +17,14 @@ from agent.ports.presentation import (
 )
 from metadata import const
 from ..core.styles import (
+    COMMAND_STYLE,
     FAILURE_STYLE,
     fragment_block
 )
 
 GROUP_DISPLAY_LIMIT = 64
 DEFAULT_TERMINAL_WIDTH = 120
-TOOLS_COMMAND_STYLE = TextStyle(foreground="ansimagenta")
+TOOLS_COMMAND_STYLE = COMMAND_STYLE
 TOOLS_HEADING_STYLE = TextStyle(bold=True)
 TOOLS_SECONDARY_STYLE = TextStyle(dim=True)
 TOOLS_TEXT_STYLE = TextStyle()

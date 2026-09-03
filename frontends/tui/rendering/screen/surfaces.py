@@ -43,7 +43,6 @@ def footer_fragments(
     *,
     mode: FooterMode,
     width: int,
-    brand_color: str = "",
     mailbox_label: str = "",
     model_label: str | None = "",
     permissions_label: str = "",
@@ -73,7 +72,7 @@ def footer_fragments(
         if permissions.lower() == "full access"
         else "class:footer.access"
     )
-    parts: FormattedText = [(f"fg:{brand_color}", const.APP_DESC)]
+    parts: FormattedText = [("class:footer.brand", const.APP_DESC)]
     values = (
         ("class:footer.mailbox", mailbox_label),
         ("class:footer.model", model_label or "-"),

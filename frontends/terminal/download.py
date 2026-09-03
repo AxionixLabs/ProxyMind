@@ -9,6 +9,15 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
+from .semantic_styles import (
+    TerminalSemanticRole,
+    semantic_rich_style,
+)
+
+_ACCENT_STYLE = semantic_rich_style(TerminalSemanticRole.ACCENT, bold=True)
+_MUTED_STYLE = semantic_rich_style(TerminalSemanticRole.SECONDARY, bold=True, dim=True)
+_SUCCESS_STYLE = semantic_rich_style(TerminalSemanticRole.SUCCESS, bold=True)
+
 
 async def download_animation(
     *,
@@ -126,18 +135,17 @@ async def download_animation(
         phase = float(state.get("phase") or 0.0)
         final_icon = str(state.get("final_icon") or "✓")
         final_label = str(state.get("final_label") or "complete")
-        final_style = str(state.get("final_style") or "bold #87FFAF")
 
         out = Text()
 
         headline = f"{final_icon} {final_label}"
         detail = f" · {fmt_percent(phase, total)} · {fmt_transfer(done, total, 0.0)}"
 
-        out.append(headline, style=final_style)
-        out.append(detail, style="bold dim #8A8A8A")
+        out.append(headline, style=_SUCCESS_STYLE)
+        out.append(detail, style=_MUTED_STYLE)
 
         if (plain_len := len(out.plain)) < line_width:
-            out.append(" " * (line_width - plain_len), style="bold dim #8A8A8A")
+            out.append(" " * (line_width - plain_len), style=_MUTED_STYLE)
 
         return out
 
@@ -159,10 +167,10 @@ async def download_animation(
             )
 
             out = Text()
-            out.append(line1[:line_width].ljust(line_width), style="bold #AFFFFF")
+            out.append(line1[:line_width].ljust(line_width), style=_ACCENT_STYLE)
             if stage != "connecting":
                 out.append("\n")
-                out.append(line2[:line_width].ljust(line_width), style="bold dim #8A8A8A")
+                out.append(line2[:line_width].ljust(line_width), style=_MUTED_STYLE)
 
             yield out
             await asyncio.sleep(1 / 18)

@@ -6,15 +6,18 @@ import typing
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
-    TextStyle,
+)
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
 )
 
-MUTED = TextStyle(foreground="#7F8C9A")
-ACCENT = TextStyle(foreground="#AFC7D8")
-BRIGHT = TextStyle(foreground="#F4F7FA")
-INDICATOR = TextStyle(foreground="#5FD7AF")
-SUCCESS = TextStyle(foreground="#5FD7AF", bold=True)
-FAILURE = TextStyle(foreground="#FF6B6B")
+MUTED = semantic_text_style(TerminalSemanticRole.SECONDARY)
+ACCENT = semantic_text_style(TerminalSemanticRole.ACCENT)
+BRIGHT = semantic_text_style(TerminalSemanticRole.PRIMARY)
+INDICATOR = semantic_text_style(TerminalSemanticRole.ACCENT)
+SUCCESS = semantic_text_style(TerminalSemanticRole.SUCCESS, bold=True)
+FAILURE = semantic_text_style(TerminalSemanticRole.FAILURE)
 
 
 def format_bytes(value: float) -> str:

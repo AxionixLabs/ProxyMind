@@ -69,7 +69,7 @@ def test_tools_summary_renders_as_one_compact_block() -> None:
         "    • Transport: stdio\n"
         "    • Tools: external_search"
     )
-    assert summary.renderable.fragments[0] == ("fg:ansimagenta", "/tools")
+    assert summary.renderable.fragments[0] == ("class:terminal.brand", "/tools")
     assert ("bold", "🔌  Tools") in summary.renderable.fragments
     assert gap.type == "tui.gap"
 

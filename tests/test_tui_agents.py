@@ -354,7 +354,7 @@ def test_agent_snapshot_block_shows_recent_shell_activity(tmp_path) -> None:
     assert "      $ rg --files -g '!venv/**' -g '!.git/**' | Select-Object -First 200" in text
     assert ("bold", "Sub-agents") in block.fragments
     assert ("dim", "  • ") in block.fragments
-    assert ("fg:ansicyan", "/root/review") in block.fragments
+    assert ("class:terminal.accent", "/root/review") in block.fragments
     assert ("dim", "    ↳ ") in block.fragments
     assert ("dim", "      ") in block.fragments
     assert ("dim", "$ rg -n auth mind_app") in block.fragments

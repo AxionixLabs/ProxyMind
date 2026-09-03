@@ -3095,10 +3095,19 @@ def test_markdown_uses_terminal_native_semantic_hierarchy() -> None:
         for style, value in fragments
     )
     assert any("strike" in style and value == "old" for style, value in fragments)
-    assert any("fg:" in style and value == "code" for style, value in fragments)
+    assert any(
+        style == "class:terminal.accent" and value == "code"
+        for style, value in fragments
+    )
     assert any("dim" in style and value == "- " for style, value in fragments)
-    assert any("fg:" in style and value == "1. " for style, value in fragments)
-    assert any("fg:" in style and value == "▎ " for style, value in fragments)
+    assert any(
+        style == "class:terminal.accent" and value == "1. "
+        for style, value in fragments
+    )
+    assert any(
+        style == "class:terminal.success dim" and value == "▎ "
+        for style, value in fragments
+    )
     assert any("dim" in style and value == "quoted" for style, value in fragments)
     assert "———" in text
     assert any(
@@ -8351,7 +8360,7 @@ async def test_transcript_overlay_styles_command_status_after_full_output() -> N
     text = "".join(value for _style, value in fragments)
 
     assert text.splitlines()[-2:] == ["ready", "✓ • 0ms"]
-    assert ("bold fg:#6EE7A8", "✓") in fragments
+    assert ("class:terminal.success bold", "✓") in fragments
     assert ("dim", " • 0ms") in fragments
 
 
@@ -12096,7 +12105,10 @@ async def test_assistant_commit_renders_markdown_without_final_units_bridge() ->
     fragments = runtime.document.blocks[-1].display_block.fragments
     assert "".join(text for _style, text in fragments) == "• bold and code"
     assert any("bold" in style and text == "bold" for style, text in fragments)
-    assert any("fg:" in style and text == "code" for style, text in fragments)
+    assert any(
+        style == "class:terminal.accent" and text == "code"
+        for style, text in fragments
+    )
 
 
 @pytest.mark.anyio
