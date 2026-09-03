@@ -766,6 +766,14 @@ def test_approval_review_events_are_strictly_typed_and_copy_action() -> None:
     assert completed.action["command"] == ["curl", "https://example.com"]
 
 
+def test_approval_review_requires_target_item_id() -> None:
+    payload = _approval_review_payload("in_progress")
+    del payload["target_item_id"]
+
+    with pytest.raises(ValueError, match="target_item_id"):
+        _parse_stream_event(payload)
+
+
 @pytest.mark.parametrize(
     ("status", "item_status"),
     (

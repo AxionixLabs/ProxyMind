@@ -3354,15 +3354,37 @@ async def test_stream_registers_review_before_approval_core_decides(
     monkeypatch,
 ) -> None:
     approval_posts = []
+    executions = []
+    result_posts = []
     review_action = command_review_action(
-        ["echo", "reviewed"],
+        ["echo reviewed"],
         reason="Run the requested command.",
     )
+
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        executions.append(invocation)
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="done",
+                call_id=invocation.call_id,
+                fields=_client_result_fields(invocation),
+            )
+        )
 
     async def post_tool_approval(*args, **kwargs):
         approval_posts.append((args, kwargs))
 
+    async def post_tool_result(*args, **kwargs):
+        result_posts.append((args, kwargs))
+        return {}
+
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
     monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
     host = _host()
     coordinator = DomainApprovalCoordinator(
         host.approval_coordinator,
@@ -3411,18 +3433,25 @@ async def test_stream_registers_review_before_approval_core_decides(
                 "call_id": "call-stream",
                 "approval_id": "approval-stream",
                 "kind": "command",
-                "command": ["echo", "reviewed"],
+                "command": ["echo reviewed"],
                 "cwd": ".",
                 "reason": "Run the requested command.",
             },
             {
-                "type": "turn.done",
+                "type": "tool.call",
                 "event_seq": 4,
+                "call_id": "call-stream",
+                "name": "exec_command",
+                "arguments": {"command": "echo reviewed"},
+            },
+            {
+                "type": "turn.done",
+                "event_seq": 5,
                 "status": "completed",
             },
             {
                 "type": "turn.logical_settled",
-                "event_seq": 5,
+                "event_seq": 6,
                 "next_input": None,
             },
         ],
@@ -3439,6 +3468,15 @@ async def test_stream_registers_review_before_approval_core_decides(
         "approval-stream",
     )
     assert approval_posts[0][1]["decision"] == "accept"
+    assert len(executions) == 1
+    assert len(result_posts) == 1
+    assert result_posts[0][0][:5] == (
+        "cid_test",
+        "sid_test",
+        "call-stream",
+        "exec_command",
+        True,
+    )
     review_views = [
         item
         for item in host_state.output_session.presentation.items
@@ -3517,13 +3555,24 @@ async def test_stream_preserves_auto_review_failure_status(
                 "cwd": ".",
                 "reason": reason,
             },
-            {"type": "turn.done", "event_seq": 3},
+            {
+                "type": "tool.approval_required",
+                "event_seq": 3,
+                "call_id": f"call-{review_status}",
+                "approval_id": f"approval-{review_status}",
+                "kind": "command",
+                "command": ["echo", "reviewed"],
+                "cwd": ".",
+                "reason": reason,
+            },
+            {"type": "turn.done", "event_seq": 4},
         ],
         host_state=host,
     )
 
     assert result.status == "completed"
     host_state.frontend.interaction.present_approval.assert_not_awaited()
+    assert len(approval_posts) == 1
     assert approval_posts[0][1]["decision"] == "decline"
     review_views = [
         item
@@ -3922,10 +3971,11 @@ async def test_confirmed_approval_skips_duplicate_local_prompt_on_replayed_call(
 
 
 @pytest.mark.anyio
-async def test_confirmed_approval_cannot_override_local_forbidden_rule(
+async def test_reviewer_approval_cannot_override_local_forbidden_rule(
     monkeypatch,
 ) -> None:
     executions = []
+    approval_posts = []
     result_posts = []
     host = _host()
     host.workspace_runtime.execution_policy.policy = Policy.from_parts([
@@ -3957,11 +4007,42 @@ async def test_confirmed_approval_cannot_override_local_forbidden_rule(
         result_posts.append((args, kwargs))
         return {}
 
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+
+    coordinator = DomainApprovalCoordinator(
+        host.approval_coordinator,
+        fact_store=InMemoryApprovalFactStore(),
+        grant_store=InMemorySessionGrantStore(),
+    )
+    host.approval_coordinator = coordinator
     monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
-    monkeypatch.setattr(stream, "post_tool_approval", AsyncMock())
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
 
     result, _ = await _run_stream(monkeypatch, [
+        {
+            "type": "tool.approval_review.completed",
+            "event_seq": 1,
+            "review_id": "review-forbidden-after-remote-approval",
+            "approval_id": "approval-forbidden-after-remote-approval",
+            "call_id": "call-forbidden-after-remote-approval",
+            "target_item_id": "call-forbidden-after-remote-approval",
+            "kind": "command",
+            "action": command_review_action(
+                ["rm -rf build"],
+                reason="模型需要清理构建目录。",
+            ),
+            "started_at_ms": 100,
+            "completed_at_ms": 125,
+            "decision_source": "agent",
+            "review": {
+                "status": "approved",
+                "risk_level": "low",
+                "user_authorization": "high",
+                "rationale": "The command matches the request.",
+            },
+        },
         {
             "type": "tool.approval_required",
             "call_id": "call-forbidden-after-remote-approval",
@@ -3972,20 +4053,18 @@ async def test_confirmed_approval_cannot_override_local_forbidden_rule(
             "reason": "模型需要清理构建目录。",
             "available_decisions": ["accept", "decline"],
         },
-        _durable_tool_call({
-            "type": "tool.call",
-            "call_id": "call-forbidden-after-remote-approval",
-            "name": "shell_command",
-            "arguments": {"command": "rm -rf build"},
-            "reason": "模型需要清理构建目录。",
-        }),
         {"type": "turn.done"},
     ], host_state=host)
 
     assert result.status == "completed"
+    host.frontend.interaction.present_approval.assert_not_awaited()
+    assert len(approval_posts) == 1
+    assert approval_posts[0][1]["decision"] == "decline"
+    assert approval_posts[0][1]["reason"] == "本地规则禁止删除命令。"
     assert executions == []
-    assert len(result_posts) == 1
-    assert result_posts[0][0][4] is False
+    assert result_posts == []
+
+    await coordinator.close()
 
 
 @pytest.mark.anyio

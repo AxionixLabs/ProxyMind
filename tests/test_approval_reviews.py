@@ -72,6 +72,7 @@ def _record(
             review_id="review-1",
             approval_id="approval-1",
             action_id=action_id,
+            target_item_id=action_id,
             action_kind=action_kind,
         ),
         action_fingerprint=approval_action_fingerprint({
@@ -209,6 +210,49 @@ async def test_review_inbox_is_idempotent_and_rejects_terminal_conflict() -> Non
         await inbox.record(_record(
             ApprovalReviewStatus.APPROVED,
             event_seq=3,
+        ))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("review_id", "review-other"),
+        ("approval_id", "approval-other"),
+        ("action_id", "call-other"),
+        ("target_item_id", "item-other"),
+        ("action_kind", ApprovalActionKind.NETWORK),
+    ),
+)
+async def test_review_inbox_rejects_identity_drift_between_events(
+    field: str,
+    value: str | ApprovalActionKind,
+) -> None:
+    inbox = ApprovalReviewInbox()
+    started = _record(ApprovalReviewStatus.IN_PROGRESS, event_seq=1)
+    completed = _record(ApprovalReviewStatus.APPROVED, event_seq=2)
+    changed_identity = dataclasses.replace(
+        completed.identity,
+        **{field: value},
+    )
+    await inbox.record(started)
+
+    with pytest.raises(ApprovalReviewConflict):
+        await inbox.record(dataclasses.replace(
+            completed,
+            identity=changed_identity,
+        ))
+
+
+@pytest.mark.anyio
+async def test_review_inbox_rejects_action_drift_between_events() -> None:
+    inbox = ApprovalReviewInbox()
+    await inbox.record(_record(ApprovalReviewStatus.IN_PROGRESS, event_seq=1))
+
+    with pytest.raises(ApprovalReviewConflict, match="action changed"):
+        await inbox.record(dataclasses.replace(
+            _record(ApprovalReviewStatus.APPROVED, event_seq=2),
+            action_fingerprint=ActionFingerprint("different-action"),
         ))
 
 

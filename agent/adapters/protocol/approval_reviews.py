@@ -142,6 +142,7 @@ def approval_review_record(
             review_id=event.review_id,
             approval_id=event.approval_id,
             action_id=event.call_id,
+            target_item_id=event.target_item_id,
             action_kind=_ACTION_KINDS[event.kind],
         ),
         action_fingerprint=approval_action_fingerprint(

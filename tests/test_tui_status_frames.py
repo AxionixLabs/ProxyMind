@@ -5,11 +5,15 @@ from prompt_toolkit.utils import get_cwidth
 from frontends.terminal.color_support import TerminalColorLevel
 
 from frontends.tui.core.status_frames import (
+    INDICATOR_BLINK_INTERVAL_SECONDS,
     SPINNER_FRAMES,
+    SWEEP_BAND_HALF_WIDTH,
+    SWEEP_FRAME_INTERVAL_SECONDS,
+    SWEEP_PADDING,
+    SWEEP_PERIOD_SECONDS,
     SWEEP_PROFILES,
     _character_cells,
     _display_span,
-    _sweep_duration,
     _sweep_focus,
     _sweep_intensity,
     render_status_fragments,
@@ -29,7 +33,7 @@ from frontends.tui.core.status_frames import (
         ("wait", "处理中"),
         ("retry", "Retrying"),
         ("provider_retry", "Retrying"),
-        ("wait", "Terminal"),
+        ("wait", "Waiting for background terminal"),
     ),
 )
 def test_status_sweep_changes_text_colors_through_active_pass(
@@ -37,6 +41,7 @@ def test_status_sweep_changes_text_colors_through_active_pass(
     text,
 ) -> None:
     interval = status_interval(family)
+    frame_count = int(SWEEP_PERIOD_SECONDS / interval) + 1
     frames = [
         render_status_fragments(
             text,
@@ -45,7 +50,7 @@ def test_status_sweep_changes_text_colors_through_active_pass(
             animated=True,
             color_level=TerminalColorLevel.TRUECOLOR,
         )
-        for index in range(31)
+        for index in range(frame_count)
     ]
     text_styles = [
         tuple(style for style, _value in frame[2:])
@@ -119,6 +124,21 @@ def test_status_indicator_breathes_between_hollow_and_solid_glyphs() -> None:
         for family in indicators.values()
         for glyph in family
     )
+    assert status_indicator_fragment(
+        INDICATOR_BLINK_INTERVAL_SECONDS - 0.001,
+        family="wait",
+        animated=True,
+    )[1] == "•"
+    assert status_indicator_fragment(
+        INDICATOR_BLINK_INTERVAL_SECONDS,
+        family="wait",
+        animated=True,
+    )[1] == "◦"
+    assert status_indicator_fragment(
+        INDICATOR_BLINK_INTERVAL_SECONDS * 2,
+        family="wait",
+        animated=True,
+    )[1] == "•"
 
 
 def test_retry_palette_keeps_wait_sweep_geometry() -> None:
@@ -189,7 +209,7 @@ def test_explicit_spinner_keeps_one_cell_and_rotates() -> None:
     )[0] == ""
 
 
-def test_status_sweep_uses_display_width_and_adaptive_speed() -> None:
+def test_status_sweep_uses_display_width_and_fixed_codex_period() -> None:
     short_span = _display_span(_character_cells("Thinking"))
     long_span = _display_span(_character_cells("waiting for external tool response"))
     wide_span = _display_span(_character_cells("处理中"))
@@ -197,82 +217,50 @@ def test_status_sweep_uses_display_width_and_adaptive_speed() -> None:
     assert short_span == get_cwidth("Thinking")
     assert long_span == get_cwidth("waiting for external tool response")
     assert wide_span == get_cwidth("处理中") == 6
-    assert _sweep_duration(short_span) < _sweep_duration(long_span)
 
-    interval = status_interval("tool")
-    tool_short_step = _sweep_focus(
-        interval,
+    sample_elapsed = SWEEP_PERIOD_SECONDS * 0.25
+    short_step = _sweep_focus(
+        sample_elapsed,
         span=short_span,
-        profile=SWEEP_PROFILES["tool"],
     ) - _sweep_focus(
         0.0,
         span=short_span,
-        profile=SWEEP_PROFILES["tool"],
     )
-    tool_long_step = _sweep_focus(
-        interval,
+    long_step = _sweep_focus(
+        sample_elapsed,
         span=long_span,
-        profile=SWEEP_PROFILES["tool"],
     ) - _sweep_focus(
         0.0,
         span=long_span,
-        profile=SWEEP_PROFILES["tool"],
-    )
-    wait_short_step = _sweep_focus(
-        interval,
-        span=short_span,
-        profile=SWEEP_PROFILES["wait"],
-    ) - _sweep_focus(
-        0.0,
-        span=short_span,
-        profile=SWEEP_PROFILES["wait"],
     )
 
-    assert 0.0 < wait_short_step < tool_short_step < tool_long_step < 1.2
-    assert SWEEP_PROFILES["wait"].glow_span > SWEEP_PROFILES["tool"].glow_span
+    assert 0.0 < short_step < long_step
+    assert status_interval("tool") == SWEEP_FRAME_INTERVAL_SECONDS
     assert status_phase_rate("tool") == status_phase_rate("wait") == 1.0
 
 
-def test_status_sweep_has_a_wide_band_and_quiet_interval() -> None:
-    span = _display_span(_character_cells("Thinking"))
-
-    for family in ("tool", "wait"):
-        profile = SWEEP_PROFILES[family]
-        active_duration = _sweep_duration(span) / profile.speed_factor
-        resting_focus   = _sweep_focus(
-            active_duration + (profile.rest_duration * 0.25),
+def test_status_sweep_uses_codex_padding_and_restarts_after_two_seconds() -> None:
+    for span in (get_cwidth("Thinking"), get_cwidth("处理中")):
+        assert _sweep_focus(0.0, span=span) == -SWEEP_PADDING
+        assert _sweep_focus(SWEEP_PERIOD_SECONDS, span=span) == -SWEEP_PADDING
+        assert _sweep_focus(
+            SWEEP_PERIOD_SECONDS - SWEEP_FRAME_INTERVAL_SECONDS,
             span=span,
-            profile=profile,
-        )
-        late_rest_focus = _sweep_focus(
-            active_duration + (profile.rest_duration * 0.9),
-            span=span,
-            profile=profile,
-        )
-
-        assert profile.peak_radius >= 0.7
-        assert profile.glow_span >= 2.6
-        assert active_duration + profile.rest_duration <= 2.1
-        assert resting_focus == late_rest_focus
+        ) > span
 
 
 def test_status_sweep_keeps_a_local_symmetric_glow_band() -> None:
     cells   = _character_cells("abcdefghijklmnop")
     span    = _display_span(cells)
-    profile = SWEEP_PROFILES["wait"]
 
-    active_duration = _sweep_duration(span) / profile.speed_factor
     focus = _sweep_focus(
-        active_duration * 0.5,
+        SWEEP_PERIOD_SECONDS * 0.5,
         span=span,
-        profile=profile,
     )
     intensities = [
         _sweep_intensity(
             position,
             focus=focus,
-            peak_radius=profile.peak_radius,
-            glow_span=profile.glow_span,
         )
         for position, char in cells
         if not char.isspace()
@@ -285,21 +273,20 @@ def test_status_sweep_keeps_a_local_symmetric_glow_band() -> None:
     assert _sweep_intensity(
         focus - 2.0,
         focus=focus,
-        peak_radius=profile.peak_radius,
-        glow_span=profile.glow_span,
     ) == pytest.approx(_sweep_intensity(
         focus + 2.0,
         focus=focus,
-        peak_radius=profile.peak_radius,
-        glow_span=profile.glow_span,
     ))
+    assert _sweep_intensity(
+        focus + SWEEP_BAND_HALF_WIDTH,
+        focus=focus,
+    ) == 0.0
 
 
 def test_limited_color_status_uses_intensity_modifiers() -> None:
     text    = "abcdefghijklmnop"
     span    = _display_span(_character_cells(text))
-    profile = SWEEP_PROFILES["wait"]
-    phase   = (_sweep_duration(span) / profile.speed_factor) * 0.5
+    phase   = SWEEP_PERIOD_SECONDS * 0.5
 
     frame = render_status_fragments(
         text,

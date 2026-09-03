@@ -82,7 +82,7 @@ _WORK_COMPLETED_VIEWS = (
 
 _NON_WORK_COMPLETED_TOOL_NAMES = frozenset({"view_image"})
 
-_OMITTED_LINES_PATTERN = re.compile(r"(… \+\d+ lines)$")
+_OMITTED_LINES_PATTERN = re.compile(r"(… \+\d+ lines)(?=\n|$)")
 
 
 def _presentation_block_kind(view: PresentationView) -> TuiBlockKind:
@@ -127,8 +127,9 @@ def _with_transcript_hint(
             and block.spans[index - 1].text.isdigit()
             and block.spans[index - 2].text.endswith("… +")
         ):
+            marker_prefix = block.spans[index - 2].text.rsplit("\n", 1)[-1]
             marker = (
-                f"{block.spans[index - 2].text}"
+                f"{marker_prefix.lstrip()}"
                 f"{block.spans[index - 1].text}"
                 f"{span.text}"
             )

@@ -454,7 +454,7 @@ class TuiActivity(object):
         """按当前连接状态生成等待帧。"""
         if self._turn_surface_indicator in {"terminal", "reviewing"}:
             default_title = (
-                "Terminal"
+                "Waiting for background terminal"
                 if self._turn_surface_indicator == "terminal"
                 else "Reviewing approval request"
             )

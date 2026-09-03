@@ -386,7 +386,7 @@ class ToolApprovalReviewEvent(ItemStreamEvent):
     review_id: str = ""
     approval_id: str = ""
     call_id: str = ""
-    target_item_id: str | None = None
+    target_item_id: str = ""
     kind: ToolApprovalKind = "command"
     action: dict[str, typing.Any] = field(default_factory=dict)
     review: ApprovalReview = field(
@@ -966,7 +966,10 @@ def _approval_review_event(
     started_at_ms = _nonnegative_int(payload.get("started_at_ms"))
     if started_at_ms is None:
         raise ValueError(f"{event_type} started_at_ms must be non-negative")
-    target_item_id = _optional_text(payload.get("target_item_id"))
+    target_item_id = _required_text(
+        payload.get("target_item_id"),
+        f"{event_type} target_item_id",
+    )
     review = _approval_review(payload.get("review"), event_type=event_type)
     expected_status = _approval_review_item_status(review.status)
     item_fields = _item_fields(

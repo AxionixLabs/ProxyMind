@@ -22,7 +22,7 @@ class ApprovalReviewInbox:
         self._records: dict[str, ApprovalReviewRecord] = {}
         self._action_reviews: dict[ApprovalIdentity, str] = {}
         self._approval_reviews: dict[tuple[str, str, str], str] = {}
-        self._lock = asyncio.Lock()
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     async def record(self, update: ApprovalReviewRecord) -> None:
         """幂等登记一项评审状态并拒绝身份或终态冲突。"""
@@ -59,6 +59,8 @@ class ApprovalReviewInbox:
             if current is not None:
                 if current.identity != identity:
                     raise ApprovalReviewConflict("approval review identity was reused")
+                if current.action_fingerprint != update.action_fingerprint:
+                    raise ApprovalReviewConflict("approval review action changed")
                 if current == update:
                     return None
                 if current.terminal:

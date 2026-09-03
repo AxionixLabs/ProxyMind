@@ -1065,7 +1065,7 @@ async def test_tui_tool_approval_and_terminal_leases_restore_parent_surface() ->
         "terminal_1",
         command="python -m pytest -q",
     )
-    assert "Terminal" in _activity_text(runtime)
+    assert "Waiting for background terminal" in _activity_text(runtime)
     await activity.terminal_wait_completed(
         "poll_1",
         "terminal_1",

@@ -284,7 +284,7 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
         wait = state.terminal_waits[-1]
         return SurfaceProjection(
             "terminal",
-            title="Terminal",
+            title="Waiting for background terminal",
             detail=wait.command,
             revision=revision,
         )

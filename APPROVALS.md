@@ -1,6 +1,6 @@
 # 自动审批对齐清单
 
-状态：实施中（阶段 1-4 已完成）
+状态：已完成（阶段 1-5 已验收）
 
 本文定义 ProxyMind 自动审批评审与 `codex-main` 的语义和展示对齐范围，并作为本次实现、
 测试和验收清单。线上字段最终以服务端正式协议为准；本文不赋予服务端安全裁决权，也不
@@ -10,8 +10,12 @@
 
 - [x] 已复核 `codex-main` 的 Guardian 审批顺序：Hook 优先，其次按策略选择自动评审或
   用户审批。
-- [x] 已复核自动评审由本地 Core 编排；app-server 只转发 started/completed 通知，不
-  执行工具、不修改审批事实。
+- [x] 已复核自动评审结果由本地 Core 作为 reviewer 输入收口；AppServer 持久发送
+  started/completed 通知，但不执行工具、不修改本地审批事实。
+- [x] 已复核拆分式事件交接与 Codex 同调用栈语义等价：review 与 approval 先按完整动作
+  指纹绑定，本地 allow 事实形成后，服务端才复用原始持久 call 下发 `tool.call`。
+- [x] 已复核远端 review 通知可以先到，但本地裁决仍保持 Hook 优先；Hook 已作出决定时
+  不允许较早到达的 reviewer 结果覆盖。
 - [x] 已复核 `in_progress`、`approved`、`denied`、`timed_out`、`aborted` 五种状态。
 - [x] 已复核进行中 footer、并行评审聚合、通过后静默、拒绝和超时历史记录。
 - [x] 已复核自动评审失败采用 fail-closed，只有本地确定的 allow 事实才能继续执行。
@@ -31,7 +35,8 @@
 - [x] 自动评审作为 `ApprovalReviewerPort` 的一个实现接入，不创建第二套审批状态机。
 - [x] protocol adapter 只校验并转换 wire 事件，不直接批准动作或执行工具。
 - [x] TUI 只消费 application presentation/activity，不读取原始服务端载荷推断许可。
-- [x] 服务端 `approved` 只是 reviewer 输入；本地决定与动作身份、类别不一致时必须拒绝。
+- [x] 服务端 `approved` 只是 reviewer 输入；本地决定与动作身份、类别、内容或当前
+  执行策略不一致时必须拒绝。
 - [x] 没有匹配的自动评审结果时，按既有策略进入用户审批，不把缺失通知解释为允许。
 - [x] `denied`、`timed_out` 和评审异常均阻止当前动作；`aborted` 进入取消路径。
 - [x] 自动评审不得产生永久策略修改或 Session grant；此类授权仍只来自显式用户决定。
@@ -93,7 +98,8 @@
 - [x] 长命令、路径、理由按终端宽度换行，不截断决定语义。
 - [x] 自动通过不显示现有 `Auto review approved ...` 记录。
 - [x] 用户、Hook、静态 policy 的既有批准/拒绝文案不受自动评审样式覆盖。
-- [x] JSONL/text 前端输出稳定的结构化终态；TUI 的静默通过只影响可见历史，不丢审计事实。
+- [x] JSONL 保留结构化终态；TUI 与 text 对 approved/aborted 保持静默，对
+  denied/timed_out 输出不同失败语义，不丢内部审计事实。
 
 ## 实施阶段
 
@@ -112,7 +118,8 @@
 - [x] 在 application approval 边界增加无 IO 的评审收件箱，实现去重、匹配和终态消费。
 - [x] 通过 `ReviewerChain` 注入自动 reviewer；顺序保持 policy、reviewer、user presentation。
 - [x] 将状态映射为 `ALLOW_ONCE`、`DECLINE`、`TIMEOUT`、`CANCEL`。
-- [x] 校验 `turn_id + approval_id + call_id + kind`，并把决定绑定到本地动作指纹。
+- [x] 校验 `turn_id + approval_id + call_id + target_item_id + kind + action`，并把决定
+  绑定到本地动作指纹。
 - [x] 验收：只有 `approved` 能通过 `_allows_effect`，其余状态无法取得 Effect 执行权。
 
 阶段 2 证据：审批核心、评审收件箱、旧入口桥接和权限定向测试共 61 项通过；
@@ -144,20 +151,26 @@
 
 ### 阶段 5：完整验收
 
-- [ ] approved：无审批卡、无成功历史，动作仅在本地 allow 事实后执行。
-- [ ] denied：展示风险与理由，当前动作不执行，Turn 可以按服务端后续语义继续。
-- [ ] timed_out：独立超时文案，当前动作不执行，不回退到用户自动允许。
-- [ ] aborted：清理活动状态，取消路径不残留审批或评审 lease。
-- [ ] 并行：数量、明细、单项完成与最终恢复正确。
-- [ ] 恢复：started/completed 重放幂等，陈旧 epoch 不重新显示。
-- [ ] 运行审批、协议、TUI、text、JSONL 定向测试。
-- [ ] 运行 `python -m compileall agent protocol frontends`。
-- [ ] 运行 `python -m pytest tests/test_package_architecture.py -q`。
-- [ ] 运行 `git diff --check` 并完成最终 code review。
+- [x] approved：无审批卡、无成功历史，动作仅在本地 allow 事实后执行。
+- [x] 本地执行策略为 forbidden 时，即使 reviewer approved 也提交 decline，不产生
+  `tool.call` 或 Effect。
+- [x] denied：展示风险与理由，当前动作不执行，Turn 可以按服务端后续语义继续。
+- [x] timed_out：独立超时文案，当前动作不执行，不回退到用户自动允许。
+- [x] aborted：清理活动状态，取消路径不残留审批或评审 lease。
+- [x] 并行：数量、明细、单项完成与最终恢复正确。
+- [x] 恢复：started/completed 重放幂等，陈旧 epoch 不重新显示。
+- [x] 运行审批、协议、TUI、text、JSONL 定向测试。
+- [x] 运行 `python -m compileall agent protocol frontends infrastructure observability metadata`。
+- [x] 运行 `python -m pytest tests/test_package_architecture.py -q`。
+- [x] 运行 `git diff --check` 并完成最终 code review。
+
+阶段 5 证据：审批与协议组合回归 688 项通过；完整业务测试 3232 项通过、13 项按
+环境条件跳过；架构审计的 120 项均已逐项通过。全模块编译、差异空白检查和最终代码
+审查通过。
 
 ## 完成条件
 
 - [x] 服务端正式协议已包含并测试上述事件，字段与本清单无分歧。
-- [ ] 本清单所有实施项和验收项已标记完成，并记录对应测试证据。
-- [ ] 不存在旧的自动通过可见文案、双重审批状态机或绕过本地 Effect 门禁的路径。
-- [ ] 复核通过后按阶段提交；全部阶段验收完成后再结束本次对齐。
+- [x] 本清单所有实施项和验收项已标记完成，并记录对应测试证据。
+- [x] 不存在旧的自动通过可见文案、双重审批状态机或绕过本地 Effect 门禁的路径。
+- [x] 复核通过后按阶段提交；全部阶段验收完成后再结束本次对齐。

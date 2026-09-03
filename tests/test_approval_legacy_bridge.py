@@ -145,6 +145,7 @@ async def test_protocol_review_result_uses_typed_core_without_showing_card(
             review_id="review-1",
             approval_id="approval-1",
             action_id="call-approval-1",
+            target_item_id="call-approval-1",
             action_kind=ApprovalActionKind.COMMAND,
         ),
         action_fingerprint=approval_action_fingerprint(

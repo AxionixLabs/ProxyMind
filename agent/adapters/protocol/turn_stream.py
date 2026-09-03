@@ -199,7 +199,6 @@ async def stream_turn(
         if isinstance(approval_coordinator, ApprovalReviewFeedPort)
         else None
     )
-
     async def project_terminal_activity() -> None:
         """在稳定终态内容上屏前幂等收敛当前 Turn 的活动展示。"""
         if not output_session.is_open:

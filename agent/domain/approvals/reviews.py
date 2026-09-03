@@ -51,6 +51,7 @@ class ApprovalReviewIdentity:
     review_id: str
     approval_id: str
     action_id: str
+    target_item_id: str
     action_kind: ApprovalActionKind
 
     def __post_init__(self) -> None:
@@ -61,6 +62,7 @@ class ApprovalReviewIdentity:
             "review_id",
             "approval_id",
             "action_id",
+            "target_item_id",
         ):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():

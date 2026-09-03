@@ -2354,7 +2354,7 @@ async def test_foreground_state_defers_scrollback_until_idle() -> None:
                     assert not print_text.called
 
                     runtime.set_foreground_active(False)
-                    await asyncio.sleep(0.02)
+                    await _wait_for_scrollback_advance(runtime)
 
                 assert len(runtime.document.blocks) == 6
                 assert runtime.document.scrollback_line_count > 0
@@ -9361,7 +9361,7 @@ async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
     activity_text = "".join(
         text for _style, text in runtime.screen.activity_block.fragments
     )
-    assert activity_text.startswith("• Terminal · ")
+    assert activity_text.startswith("• Waiting for background terminal · ")
     assert "esc to interrupt" not in activity_text
     assert f"\n  └ {command}" in activity_text
     await presentation.emit(build_native_tool_result_view(

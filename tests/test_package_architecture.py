@@ -5420,6 +5420,8 @@ def test_presentation_output_has_no_legacy_package_or_imports() -> None:
     }
     assert output_definitions == {
         "ApprovalCompleted",
+        "ApprovalReviewCompleted",
+        "ApprovalReviewStarted",
         "ApprovalStarted",
         "AssistantBuffered",
         "AssistantSettled",
@@ -5448,6 +5450,7 @@ def test_presentation_output_has_no_legacy_package_or_imports() -> None:
         "ToolStarted",
         "TurnTerminal",
         "_ApprovalActivityEvent",
+        "_ApprovalReviewActivityEvent",
         "_AssistantActivityEvent",
         "_BatchActivityEvent",
         "_ScopedActivityEvent",

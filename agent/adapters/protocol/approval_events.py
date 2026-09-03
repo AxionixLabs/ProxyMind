@@ -9,7 +9,8 @@ from agent.adapters.protocol.tool_events import tool_invocation_from_event
 from agent.application.approvals.amendments import approval_execpolicy_amendment
 from agent.application.approvals.local_policy import (
     LOCAL_EXEC_POLICY_TOOLS,
-    apply_local_exec_policy_approval
+    apply_local_exec_policy_approval,
+    local_exec_policy_requirement,
 )
 from agent.application.approvals.models import (
     ApprovalDecisionValue,
@@ -93,6 +94,7 @@ def approval_report_kwargs(
     source: ApprovalSource,
     turn_id: str,
     hook_reason: str = "",
+    policy_reason: str = "",
     additional_context: typing.Sequence[str] = ()
 ) -> dict[str, typing.Any]:
     """构造审批决定回传所需的协议字段。"""
@@ -102,7 +104,7 @@ def approval_report_kwargs(
     elif source == "hook":
         reason = hook_reason
     elif source == "policy":
-        reason = "approval policy is never"
+        reason = policy_reason or "approval policy is never"
     elif source == "auto_review":
         reason = "automatic approval review did not allow the action"
     elif decision == "cancel":
@@ -331,6 +333,8 @@ class ApprovalEventHandler:
 
         permission_decision = None
         approval_invocation: ToolInvocation | None = None
+        local_policy_forbidden = False
+        local_policy_reason = ""
         if approval_tool:
             approval_arguments = self._approval_arguments(
                 approval,
@@ -343,23 +347,38 @@ class ApprovalEventHandler:
                 arguments=approval_arguments,
                 name=approval_tool,
             )
-            approval_invocation = prepared_invocation
             permission_decision = await self.coordinator.prepare_permission(
                 prepared_invocation
             )
             effective_arguments = None
             if permission_decision.updated_input is not None:
-                effective_arguments = dict(
-                    self.coordinator.effective_invocation(
-                        prepared_invocation,
-                        permission_decision,
-                    ).arguments
+                prepared_invocation = self.coordinator.effective_invocation(
+                    prepared_invocation,
+                    permission_decision,
                 )
+                effective_arguments = dict(prepared_invocation.arguments)
+            approval_invocation = prepared_invocation
             approval = approval_with_updated_input(
                 approval,
                 approval_tool,
                 effective_arguments,
             )
+            local_requirement = local_exec_policy_requirement(
+                self.execution_policy,
+                turn_context,
+                tool=approval_tool,
+                arguments=dict(prepared_invocation.arguments),
+                call_id=approval_call_id,
+            )
+            local_policy_forbidden = (
+                local_requirement is not None
+                and local_requirement.state == "forbidden"
+            )
+            if local_policy_forbidden and local_requirement is not None:
+                local_policy_reason = (
+                    local_requirement.reason
+                    or "local execution policy denied the action"
+                )
 
         observe(
             "approval.requested",
@@ -370,7 +389,9 @@ class ApprovalEventHandler:
 
         decision: ApprovalDecisionValue
         decision_source: ApprovalSource
-        if permission_decision is not None and permission_decision.action == "deny":
+        if local_policy_forbidden:
+            decision, decision_source = "decline", "policy"
+        elif permission_decision is not None and permission_decision.action == "deny":
             decision, decision_source = "decline", "hook"
         elif permission_decision is not None and permission_decision.action == "allow":
             decision, decision_source = "accept", "hook"
@@ -455,6 +476,7 @@ class ApprovalEventHandler:
                         if permission_decision is not None
                         else ""
                     ),
+                    policy_reason=local_policy_reason,
                     additional_context=(
                         permission_decision.additional_context
                         if permission_decision is not None
@@ -497,7 +519,7 @@ class ApprovalEventHandler:
                 call_id=approval_call_id,
             )
         else:
-            self.ledger.discard(
+            self.ledger.record_terminal(
                 cid=turn_context.cid,
                 sid=turn_context.sid,
                 turn_id=turn_context.turn_id,

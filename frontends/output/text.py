@@ -501,14 +501,8 @@ class TextPresentationSink(PresentationSink):
             return None
         if isinstance(view, ApprovalReviewView):
             blocks = render_approval_review_view(view)
-            if blocks:
-                for block in blocks:
-                    self.state.process(f"{block.plain_text}\n")
-            else:
-                self.state.process(
-                    "approval review "
-                    f"{view.status}: {view.action_summary}\n"
-                )
+            for block in blocks:
+                self.state.process(f"{block.plain_text}\n")
             return None
         if isinstance(view, HookRunView):
             status = (

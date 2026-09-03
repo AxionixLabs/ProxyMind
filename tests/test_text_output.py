@@ -170,7 +170,10 @@ async def test_text_hook_startup_warning_matches_codex_exec_stderr() -> None:
 
 
 @pytest.mark.anyio
-async def test_text_output_emits_stable_approval_review_terminal() -> None:
+@pytest.mark.parametrize("status", ("approved", "aborted"))
+async def test_text_output_keeps_silent_approval_review_terminals(
+    status: str,
+) -> None:
     stderr = io.StringIO()
     record = _RecordWriter()
     state = TextOutputState(
@@ -187,16 +190,55 @@ async def test_text_output_emits_stable_approval_review_terminal() -> None:
         call_id="call-text",
         action_kind="command",
         action_summary="run git status",
-        status="approved",
-        risk_level="low",
-        user_authorization="high",
-        rationale="The command is read-only and explicitly requested.",
+        status=status,
+        risk_level="low" if status == "approved" else None,
+        user_authorization="high" if status == "approved" else None,
+        rationale=(
+            "The command is read-only and explicitly requested."
+            if status == "approved"
+            else None
+        ),
     ))
 
-    assert stderr.getvalue() == "approval review approved: run git status\n"
-    assert "".join(record.parts) == (
-        "approval review approved: run git status\n"
+    assert stderr.getvalue() == ""
+    assert "".join(record.parts) == ""
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    (
+        ("denied", "Automatic approval review denied"),
+        ("timed_out", "Automatic approval review timed out"),
+    ),
+)
+async def test_text_output_distinguishes_review_failures(
+    status: str,
+    expected: str,
+) -> None:
+    stderr = io.StringIO()
+    record = _RecordWriter()
+    state = TextOutputState(
+        record_writer=record,
+        stdout=io.StringIO(),
+        stderr=stderr,
+        color=False,
     )
+
+    await TextPresentationSink(state).emit(ApprovalReviewView(
+        review_id="review-text-failed",
+        approval_id="approval-text-failed",
+        call_id="call-text-failed",
+        action_kind="command",
+        action_summary="run git status",
+        status=status,
+        risk_level="high" if status == "denied" else None,
+        user_authorization="low" if status == "denied" else None,
+        rationale="The action was not authorized.",
+    ))
+
+    assert expected in stderr.getvalue()
+    assert expected in "".join(record.parts)
 
 
 @pytest.mark.anyio

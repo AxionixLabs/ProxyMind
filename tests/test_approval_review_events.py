@@ -157,6 +157,7 @@ def test_wire_review_maps_to_typed_domain_record() -> None:
     assert record.identity.review_id == "review-1"
     assert record.identity.approval_id == "approval-1"
     assert record.identity.action_id == "call-1"
+    assert record.identity.target_item_id == "call-1"
     assert record.identity.action_kind is ApprovalActionKind.COMMAND
     assert record.status is ApprovalReviewStatus.APPROVED
     assert record.risk_level is ApprovalReviewRiskLevel.LOW
