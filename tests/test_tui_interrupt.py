@@ -450,6 +450,7 @@ async def test_external_cancellation_is_not_swallowed() -> None:
 async def test_stream_quit_command_cancels_turn_without_queueing_message() -> None:
     runtime = TuiRuntime()
     application = SimpleNamespace(emit=Mock())
+    interrupt_requested = Mock()
     started = asyncio.Event()
 
     async def turn() -> None:
@@ -465,6 +466,7 @@ async def test_stream_quit_command_cancels_turn_without_queueing_message() -> No
         runtime,
         turn(),
         stream_command_handler=handle,
+        on_interrupt_requested=interrupt_requested,
         show_interrupt_notice=lambda: False,
     ))
     await started.wait()
@@ -477,6 +479,7 @@ async def test_stream_quit_command_cancels_turn_without_queueing_message() -> No
     assert not runtime.submissions.queued_messages.active
     assert runtime.submissions.message_queue.empty()
     assert "/quit" not in _document_text(runtime)
+    interrupt_requested.assert_not_called()
     application.emit.assert_not_called()
 
 

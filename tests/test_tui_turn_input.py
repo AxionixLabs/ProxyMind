@@ -15,6 +15,7 @@ from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.styles import query_block, text_block
+from frontends.tui.session import loop as loop_session
 from frontends.tui.session import turn_input as turn_input_session
 from frontends.tui.session.turn import execute_tui_model_turn
 from frontends.tui.session.turn_input import TuiTurnInputControl
@@ -992,6 +993,7 @@ async def test_local_interrupt_waits_for_remote_turn_settlement(
 
     runtime = TuiRuntime()
     application = SimpleNamespace(emit=Mock())
+    interrupt_notice = loop_session._TurnInterruptNotice(application, runtime)
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         runtime,
@@ -1008,12 +1010,20 @@ async def test_local_interrupt_waits_for_remote_turn_settlement(
         runtime,
         turn(),
         turn_input_control=control,
+        on_interrupt_requested=interrupt_notice.acknowledge,
+        show_interrupt_notice=lambda: not interrupt_notice.shown,
     ))
     await turn_started.wait()
+    await runtime.activity.begin_wait()
 
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.CONSUMED
     )
+    assert interrupt_notice.shown
+    assert runtime.activity.lease("wait") is None
+    assert not runtime.execution_active
+    assert application.emit.call_count == 1
+    assert not execution.done()
     await remote_started.wait()
 
     for _ in range(10):
@@ -1023,16 +1033,12 @@ async def test_local_interrupt_waits_for_remote_turn_settlement(
 
     waited_for_settlement = status_started.is_set()
     execution_was_blocked = not execution.done()
-    execution_was_active = runtime.execution_active
-
     buffer = runtime.screen.input.buffer
     buffer.text = "next turn"
     buffer.cursor_position = len(buffer.text)
     assert runtime.submissions.accept_input(buffer)
-    assert (
-        runtime.submissions.pending_steers.active
-        or runtime.submissions.queued_messages.active
-    )
+    assert not runtime.submissions.message_queue.empty()
+    assert not runtime.submissions.pending_steers.active
 
     release_settlement.set()
     await asyncio.wait_for(execution, timeout=0.1)
@@ -1041,7 +1047,6 @@ async def test_local_interrupt_waits_for_remote_turn_settlement(
     assert turn_cancelled.is_set()
     assert waited_for_settlement
     assert execution_was_blocked
-    assert execution_was_active
     assert protocol_client.get_turn_status.await_count == 2
     assert next_submission.value == "next turn"
     assert application.emit.call_count == 1

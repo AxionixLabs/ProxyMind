@@ -128,6 +128,7 @@ async def execute_tui_model_turn(
                                 [str, typing.Callable[[], InterruptDisposition]],
                                 bool,
                             ] | None = None,
+    on_interrupt_requested: typing.Callable[[], None] | None = None,
     show_interrupt_notice: typing.Callable[[], bool] = lambda: True
 ) -> TurnValue | None:
     """执行可由主输入区定向取消的单个模型轮次。"""
@@ -155,6 +156,8 @@ async def execute_tui_model_turn(
             remote_control_ready = turn_input_control.request_interrupt()
         if remote_control_ready:
             task.cancel()
+        if on_interrupt_requested is not None and show_interrupt_notice():
+            on_interrupt_requested()
 
         observe(
             "tui.turn.interrupt.local",

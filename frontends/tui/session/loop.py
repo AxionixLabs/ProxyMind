@@ -388,6 +388,7 @@ async def _run_tui_loop(
             ),
             turn_input_control=turn_input_control,
             stream_command_handler=dispatcher.handle_stream_command,
+            on_interrupt_requested=interrupt_notice.acknowledge,
             show_interrupt_notice=(
                 lambda: (
                     not interrupt_notice.shown
