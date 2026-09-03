@@ -331,7 +331,9 @@ protocol / harness fact
 状态，也不得通过匿名状态字符串恢复动画。
 
 正文只有在渲染器确认至少一行实际进入活动画布时才产生 `AssistantVisible`。该事件在同一个
-`visual_update()` 中撤下活动提示并提交正文，避免等待动画、空白帧和 assistant 正文同时出现。
+`visual_update()` 中撤下活动提示并提交正文，避免等待动画、空白帧和 assistant 正文同时出现；
+实际撤下活动提示时，在支持的终端上还必须把下一次绘制作为同步输出帧提交，使旧提示清除和
+assistant 正文绘制对终端一次可见。
 传输断线是唯一例外：transport retry 临时在已上屏正文之上恢复 `Retrying` 活动提示，但不释放、
 替换或重新提交正文；进入 replay 后立即静默，追平权威水位后由最新 reducer 快照恢复画面。
 `AssistantSettled` 只允许 Coordinator 按本地策略安排后续等待；Turn 终态会同步清空 timer、

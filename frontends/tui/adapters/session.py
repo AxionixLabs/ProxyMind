@@ -80,7 +80,8 @@ def _apply_immediate_surface_projection(
     """在正文画布事务内同步释放活动区域。"""
     if projection.indicator != "hidden":
         raise ValueError("immediate surface projection must be hidden")
-    runtime.activity.finish_wait()
+    if runtime.activity.finish_wait():
+        runtime.screen.synchronize_next_render()
 
 
 if __name__ == '__main__':

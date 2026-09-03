@@ -44,9 +44,11 @@ from infrastructure.skills import SkillSpec
 from metadata import const
 from frontends.interaction.contracts import PromptContext
 from agent.ports import (
+    AssistantBuffered,
     AssistantOutputBoundary,
     AssistantSegmentCompleted,
     AssistantTextDelta,
+    ModelWaitRequested,
     OutputSurfaceContext,
     ResponseIdentity,
     SourcesOutput,
@@ -4205,6 +4207,76 @@ async def test_resize_reflow_vt_transaction_wraps_erase_and_replay() -> None:
                 < synchronized_end
             )
         finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_single_line_assistant_handoff_uses_synchronized_output() -> None:
+    stream = io.StringIO()
+    terminal_size = Size(rows=16, columns=40)
+    output = Vt100_Output(
+        stream,
+        lambda: terminal_size,
+        term="xterm-256color",
+        enable_cpr=False,
+    )
+
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=output)
+        session = create_tui_output_session(
+            "",
+            context=OUTPUT_SURFACE_CONTEXT,
+            runtime=runtime,
+            animate=True,
+        )
+        await runtime.open()
+        try:
+            runtime.set_execution_active(True)
+            await runtime.begin_wait_status()
+            await session.open()
+            await session.activity.emit(ModelWaitRequested(
+                surface_id=OUTPUT_SURFACE_CONTEXT.surface_id,
+                turn_id=OUTPUT_SURFACE_CONTEXT.turn_id,
+                revision=1,
+                reason="initial",
+            ))
+            await session.activity.emit(AssistantBuffered(
+                surface_id=OUTPUT_SURFACE_CONTEXT.surface_id,
+                turn_id=OUTPUT_SURFACE_CONTEXT.turn_id,
+                identity=RESPONSE_IDENTITY,
+                item_id="item_single_line",
+            ))
+            await _render_next_frame(runtime)
+
+            stream.seek(0)
+            stream.truncate(0)
+            await session.content.emit(AssistantTextDelta(
+                "Done.",
+                RESPONSE_IDENTITY,
+                item_id="item_single_line",
+            ))
+            await session.content.emit(AssistantSegmentCompleted(
+                RESPONSE_IDENTITY,
+                item_id="item_single_line",
+            ))
+            await _render_next_frame(runtime)
+
+            payload = stream.getvalue()
+            synchronized_begin = payload.find("\x1b[?2026h")
+            answer = payload.find("Done.", synchronized_begin)
+            synchronized_end = payload.find("\x1b[?2026l", answer)
+
+            assert -1 not in (
+                synchronized_begin,
+                answer,
+                synchronized_end,
+            )
+            assert synchronized_begin < answer < synchronized_end
+            assert payload.count("\x1b[?2026h") == 1
+            assert payload.count("\x1b[?2026l") == 1
+        finally:
+            runtime.set_execution_active(False)
+            await session.close()
             await runtime.close()
 
 
