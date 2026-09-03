@@ -20,7 +20,10 @@ from agent.application.approvals.factory import build_approval_request
 from agent.application.approvals.core import (
     ApprovalCore,
     PresentationArbiter,
+    ReviewerBinding,
+    ReviewerChain,
 )
+from agent.application.approvals.reviews import ApprovalReviewInbox
 from agent.domain.approvals import (
     ActionFingerprint,
     AmendmentOperation,
@@ -34,6 +37,7 @@ from agent.domain.approvals import (
     ApprovalFactState,
     ApprovalIdentity,
     ApprovalResolutionReason,
+    ApprovalReviewRecord,
     CommandApprovalAction,
     ExecutionIdentity,
     McpApprovalAction,
@@ -125,6 +129,7 @@ class DomainApprovalCoordinator:
     ) -> None:
         """绑定旧展示队列和新核心状态存储。"""
         self._legacy = legacy
+        self._reviews = ApprovalReviewInbox()
         self._presentation = _LegacyPresentation(
             legacy,
             persistent_mcp_approvals,
@@ -132,6 +137,10 @@ class DomainApprovalCoordinator:
         self._core = ApprovalCore(
             fact_store,
             grant_store,
+            reviewer_chain=ReviewerChain((ReviewerBinding(
+                source=ApprovalDecisionSource.AUTO_REVIEW,
+                reviewer=self._reviews,
+            ),)),
             presentation=PresentationArbiter(self._presentation),
         )
         self._restored_tasks: set[asyncio.Task[ApprovalFact]] = set()
@@ -187,6 +196,18 @@ class DomainApprovalCoordinator:
         """把外部旧决定转发给展示队列，交由核心记录事实。"""
         return await self._legacy.resolve(request, decision, source=source)
 
+    async def record_review(self, update: ApprovalReviewRecord) -> None:
+        """登记协议适配器提交的自动评审事实。"""
+        await self._reviews.record(update)
+
+    async def clear_approval_reviews(
+        self,
+        session_id: str,
+        run_id: str,
+    ) -> None:
+        """清理指定 Run 的自动评审镜像。"""
+        await self._reviews.clear_run(session_id, run_id)
+
     async def restore_pending(
         self,
         approval: Mapping[str, typing.Any] | ApprovalRequest,
@@ -220,6 +241,7 @@ class DomainApprovalCoordinator:
     async def close(self) -> None:
         """按先核心后展示顺序关闭审批资源。"""
         await self._core.close()
+        await self._reviews.close()
         await self._legacy.close()
         self._presentation.clear()
 
@@ -381,8 +403,8 @@ def _identity_from_request(
     request_id = request.key.request_id
     return ApprovalIdentity(
         session_id=_text(
-            payload.get("session_id")
-            or payload.get("sid")
+            payload.get("sid")
+            or payload.get("session_id")
             or payload.get("conversation_id")
         ) or "legacy-session",
         run_id=_text(

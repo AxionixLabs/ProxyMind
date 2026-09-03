@@ -17,6 +17,7 @@ from .approvals import (
 )
 from .approval_core import (
     ApprovalActionCoordinatorPort,
+    ApprovalReviewFeedPort,
     McpPersistentApprovalStore,
 )
 from .capabilities import (
@@ -266,6 +267,7 @@ from .workspace import (
 
 __all__ = (
     "ApprovalActionCoordinatorPort",
+    "ApprovalReviewFeedPort",
     "McpPersistentApprovalStore",
     "ApprovalLedger",
     "ApprovalLedgerState",

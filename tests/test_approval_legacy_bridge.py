@@ -9,6 +9,12 @@ from agent.domain.approvals import (
     ActionFingerprint,
     ApprovalFactState,
     ApprovalIdentity,
+    ApprovalActionKind,
+    ApprovalReviewIdentity,
+    ApprovalReviewRecord,
+    ApprovalReviewRiskLevel,
+    ApprovalReviewStatus,
+    ApprovalReviewUserAuthorization,
     ExecutionIdentity,
     McpApprovalAction,
     McpApprovalMode,
@@ -118,6 +124,43 @@ async def test_legacy_session_grant_skips_card_for_later_run(tmp_path) -> None:
     assert second.decision == "acceptForSession"
     assert interaction.calls == ["approval-1"]
 
+    await bridge.close()
+
+
+@pytest.mark.anyio
+async def test_protocol_review_result_uses_typed_core_without_showing_card(
+    tmp_path,
+) -> None:
+    interaction = _Interaction("decline")
+    bridge = DomainApprovalCoordinator(
+        ApprovalCoordinator(interaction),
+        fact_store=SQLiteApprovalFactStore(tmp_path / "approvals.sqlite3"),
+        grant_store=InMemorySessionGrantStore(),
+    )
+    await bridge.record_review(ApprovalReviewRecord(
+        identity=ApprovalReviewIdentity(
+            session_id="session-bridge",
+            run_id="run-1",
+            review_id="review-1",
+            approval_id="approval-1",
+            action_id="call-approval-1",
+            action_kind=ApprovalActionKind.COMMAND,
+        ),
+        status=ApprovalReviewStatus.APPROVED,
+        event_seq=2,
+        presentation_epoch=1,
+        started_at_ms=100,
+        completed_at_ms=150,
+        risk_level=ApprovalReviewRiskLevel.LOW,
+        user_authorization=ApprovalReviewUserAuthorization.HIGH,
+        rationale="The action is limited to a harmless local command.",
+    ))
+
+    outcome = await bridge.request_outcome(_payload("run-1", "approval-1"))
+
+    assert outcome.decision == "accept"
+    assert outcome.source == "auto_review"
+    assert interaction.calls == []
     await bridge.close()
 
 

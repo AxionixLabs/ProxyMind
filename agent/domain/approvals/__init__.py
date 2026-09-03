@@ -44,6 +44,13 @@ from .rules import (
     validate_decision_kind,
     validate_decision,
 )
+from .reviews import (
+    ApprovalReviewIdentity,
+    ApprovalReviewRecord,
+    ApprovalReviewRiskLevel,
+    ApprovalReviewStatus,
+    ApprovalReviewUserAuthorization,
+)
 
 __all__ = (
     "ActionFingerprint",
@@ -61,6 +68,11 @@ __all__ = (
     "ApprovalIdentity",
     "ApprovalOutcome",
     "ApprovalResolutionReason",
+    "ApprovalReviewIdentity",
+    "ApprovalReviewRecord",
+    "ApprovalReviewRiskLevel",
+    "ApprovalReviewStatus",
+    "ApprovalReviewUserAuthorization",
     "CommandApprovalAction",
     "ExecutionIdentity",
     "McpApprovalGrantKey",

@@ -1,6 +1,6 @@
 # 自动审批对齐清单
 
-状态：实施中（阶段 1 已完成）
+状态：实施中（阶段 1-2 已完成）
 
 本文定义 ProxyMind 自动审批评审与 `codex-main` 的语义和展示对齐范围，并作为本次实现、
 测试和验收清单。线上字段最终以服务端正式协议为准；本文不赋予服务端安全裁决权，也不
@@ -109,11 +109,14 @@
 
 ### 阶段 2：审批核心接入
 
-- [ ] 在 application approval 边界增加无 IO 的评审收件箱，实现去重、匹配和终态消费。
-- [ ] 通过 `ReviewerChain` 注入自动 reviewer；顺序保持 policy、reviewer、user presentation。
-- [ ] 将状态映射为 `ALLOW_ONCE`、`DECLINE`、`TIMEOUT`、`CANCEL`。
-- [ ] 校验 `turn_id + approval_id + call_id + kind`，并把决定绑定到本地动作指纹。
-- [ ] 验收：只有 `approved` 能通过 `_allows_effect`，其余状态无法取得 Effect 执行权。
+- [x] 在 application approval 边界增加无 IO 的评审收件箱，实现去重、匹配和终态消费。
+- [x] 通过 `ReviewerChain` 注入自动 reviewer；顺序保持 policy、reviewer、user presentation。
+- [x] 将状态映射为 `ALLOW_ONCE`、`DECLINE`、`TIMEOUT`、`CANCEL`。
+- [x] 校验 `turn_id + approval_id + call_id + kind`，并把决定绑定到本地动作指纹。
+- [x] 验收：只有 `approved` 能通过 `_allows_effect`，其余状态无法取得 Effect 执行权。
+
+阶段 2 证据：审批核心、评审收件箱、旧入口桥接和权限定向测试共 61 项通过；
+相关文件语法检查与 `git diff --check` 通过。
 
 ### 阶段 3：协议编排与恢复
 

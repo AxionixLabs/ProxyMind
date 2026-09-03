@@ -12,6 +12,7 @@ from agent.domain.approvals import (
     ApprovalGrantKeyValue,
     ApprovalIdentity,
     ApprovalResolutionReason,
+    ApprovalReviewRecord,
     McpToolDescriptor,
     SessionGrant,
 )
@@ -22,6 +23,7 @@ __all__ = (
     "ApprovalFactStore",
     "ApprovalPresentationPort",
     "ApprovalReviewerPort",
+    "ApprovalReviewFeedPort",
     "McpPersistentApprovalStore",
     "SessionGrantStore",
 )
@@ -104,6 +106,23 @@ class ApprovalReviewerPort(typing.Protocol):
 
     async def review(self, action: ApprovalAction) -> ApprovalDecision | None:
         """对一个类型化动作返回决定；返回 None 表示该 reviewer 不适用。"""
+        ...
+
+
+@typing.runtime_checkable
+class ApprovalReviewFeedPort(typing.Protocol):
+    """接收已经在外部边界校验的评审事实，不拥有审批或 Effect 状态。"""
+
+    async def record_review(self, update: ApprovalReviewRecord) -> None:
+        """幂等登记评审状态，身份或终态冲突必须拒绝。"""
+        ...
+
+    async def clear_approval_reviews(
+        self,
+        session_id: str,
+        run_id: str,
+    ) -> None:
+        """清理一个 Run 的评审镜像。"""
         ...
 
 
