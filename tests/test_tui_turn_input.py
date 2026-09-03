@@ -946,6 +946,53 @@ async def test_remote_interrupt_retries_with_the_same_turn(
 
 
 @pytest.mark.anyio
+async def test_remote_interrupt_response_loss_still_waits_for_settlement(
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    status_started = asyncio.Event()
+    release_settlement = asyncio.Event()
+    interrupt_error = ProtocolCommandError(
+        "response_lost",
+        "response lost",
+        retryable=True,
+    )
+
+    async def wait_for_status(**_kwargs):
+        status_started.set()
+        await release_settlement.wait()
+        return SimpleNamespace(status="interrupted", terminal=True)
+
+    protocol_client.interrupt_turn = AsyncMock(side_effect=[
+        interrupt_error,
+        interrupt_error,
+    ])
+    protocol_client.get_turn_status = AsyncMock(side_effect=wait_for_status)
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        TuiRuntime(),
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+    _mark_started(control)
+
+    control.request_interrupt()
+    await status_started.wait()
+    closing = asyncio.create_task(control.close())
+    await asyncio.sleep(0)
+
+    assert not closing.done()
+    assert protocol_client.interrupt_turn.await_count == 2
+
+    release_settlement.set()
+    await asyncio.wait_for(closing, timeout=0.1)
+
+    protocol_client.get_turn_status.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_local_interrupt_waits_for_remote_turn_settlement(
     monkeypatch,
     protocol_client: ProtocolCommandClient,
@@ -1021,7 +1068,7 @@ async def test_local_interrupt_waits_for_remote_turn_settlement(
     )
     assert interrupt_notice.shown
     assert runtime.activity.lease("wait") is None
-    assert not runtime.execution_active
+    assert runtime.execution_active
     assert application.emit.call_count == 1
     assert not execution.done()
     await remote_started.wait()
@@ -1033,16 +1080,33 @@ async def test_local_interrupt_waits_for_remote_turn_settlement(
 
     waited_for_settlement = status_started.is_set()
     execution_was_blocked = not execution.done()
+
+    next_turn_started = asyncio.Event()
+
+    async def read_next_turn_after_settlement() -> TuiSubmission:
+        await execution
+        submission = await runtime.submissions.read_submission()
+        next_turn_started.set()
+        return submission
+
+    next_turn = asyncio.create_task(read_next_turn_after_settlement())
     buffer = runtime.screen.input.buffer
     buffer.text = "next turn"
     buffer.cursor_position = len(buffer.text)
     assert runtime.submissions.accept_input(buffer)
-    assert not runtime.submissions.message_queue.empty()
+    assert buffer.text == ""
+    assert runtime.submissions.queued_messages.active
+    assert runtime.submissions.message_queue.empty()
     assert not runtime.submissions.pending_steers.active
+    assert "next turn" in fragments_text(
+        runtime.screen._queued_fragments(width=80)
+    )
+    protocol_client.steer_turn.assert_not_awaited()
+    await asyncio.sleep(0)
+    assert not next_turn_started.is_set()
 
     release_settlement.set()
-    await asyncio.wait_for(execution, timeout=0.1)
-    next_submission = await runtime.submissions.read_submission()
+    next_submission = await asyncio.wait_for(next_turn, timeout=0.1)
 
     assert turn_cancelled.is_set()
     assert waited_for_settlement
@@ -1061,6 +1125,8 @@ async def test_interrupt_before_turn_start_waits_for_remote_control(
     turn_started = asyncio.Event()
     release_turn_start = asyncio.Event()
     remote_started = asyncio.Event()
+    turn_cancelled = asyncio.Event()
+    late_assistant_emitted = asyncio.Event()
 
     async def interrupt_remote(**_kwargs):
         remote_started.set()
@@ -1068,17 +1134,24 @@ async def test_interrupt_before_turn_start_waits_for_remote_control(
 
     async def turn() -> SimpleNamespace:
         turn_started.set()
-        await release_turn_start.wait()
-        control.handle_event(MarkerEvent(
-            type="turn.start",
-            turn_id="turn_001",
-        ))
-        await remote_started.wait()
-        return SimpleNamespace(status="interrupted")
+        try:
+            await release_turn_start.wait()
+            control.handle_event(MarkerEvent(
+                type="turn.start",
+                turn_id="turn_001",
+            ))
+            await asyncio.sleep(0)
+            application.emit(SimpleNamespace(type="assistant"))
+            late_assistant_emitted.set()
+            await remote_started.wait()
+            return SimpleNamespace(status="interrupted")
+        finally:
+            turn_cancelled.set()
 
     protocol_client.interrupt_turn = AsyncMock(side_effect=interrupt_remote)
     runtime = TuiRuntime()
     application = SimpleNamespace(emit=Mock())
+    interrupt_notice = loop_session._TurnInterruptNotice(application, runtime)
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         runtime,
@@ -1093,12 +1166,19 @@ async def test_interrupt_before_turn_start_waits_for_remote_control(
         runtime,
         turn(),
         turn_input_control=control,
+        on_interrupt_requested=interrupt_notice.acknowledge,
+        show_interrupt_notice=lambda: not interrupt_notice.shown,
     ))
     await turn_started.wait()
 
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.CONSUMED
     )
+    assert interrupt_notice.shown
+    assert runtime.execution_active
+    assert application.emit.call_count == 1
+    assert not control.request_interrupt()
+    protocol_client.interrupt_turn.assert_not_awaited()
     for _ in range(10):
         await asyncio.sleep(0)
         if execution.done():
@@ -1109,13 +1189,21 @@ async def test_interrupt_before_turn_start_waits_for_remote_control(
     buffer.text = "next after early interrupt"
     buffer.cursor_position = len(buffer.text)
     assert runtime.submissions.accept_input(buffer)
-    assert runtime.submissions.pending_steers.active
+    assert buffer.text == ""
+    assert runtime.submissions.queued_messages.active
+    assert runtime.submissions.message_queue.empty()
+    assert not runtime.submissions.pending_steers.active
+    assert "next after early interrupt" in fragments_text(
+        runtime.screen._queued_fragments(width=80)
+    )
 
     release_turn_start.set()
     await asyncio.wait_for(execution, timeout=0.1)
     next_submission = await runtime.submissions.read_submission()
 
     assert execution_waited_for_start
+    assert turn_cancelled.is_set()
+    assert not late_assistant_emitted.is_set()
     protocol_client.interrupt_turn.assert_awaited_once()
     protocol_client.steer_turn.assert_not_awaited()
     assert next_submission.value == "next after early interrupt"

@@ -1219,6 +1219,23 @@ async def test_external_mcp_activity_does_not_replace_streaming_content() -> Non
 
 
 @pytest.mark.anyio
+async def test_interrupted_presentation_keeps_turn_lifecycle_active() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    runtime.set_active_renderable(FragmentBlock((("", "partial answer"),)))
+    await runtime.activity.begin_wait()
+
+    runtime.finish_interrupted_presentation()
+
+    assert runtime.execution_active
+    assert runtime.document.active_block is None
+    assert runtime.activity.lease("wait") is None
+
+    runtime.set_execution_active(False)
+    await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_activity_rows_are_clipped_with_ellipsis() -> None:
     rendered = []
     activity = TuiActivity(

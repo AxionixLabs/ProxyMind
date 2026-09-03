@@ -84,8 +84,7 @@ class _TurnInterruptNotice:
         if self.shown:
             return None
         self.shown = True
-        self._runtime.clear_active_renderable()
-        self._runtime.set_execution_active(False)
+        self._runtime.finish_interrupted_presentation()
         emit_tui_interrupt_notice(self._application)
 
 

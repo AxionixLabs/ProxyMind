@@ -144,6 +144,11 @@ async def execute_tui_model_turn(
 
     fatal_error: BaseException | None = None
 
+    def cancel_local_stream() -> None:
+        """取消当前轮次持有的本地事件流。"""
+        if not task.done():
+            task.cancel()
+
     def cancel_turn() -> InterruptDisposition:
         """登记中断，并在远端 Turn 就绪后取消本地事件流。"""
         if task.done():
@@ -151,11 +156,13 @@ async def execute_tui_model_turn(
 
         interrupt_state.request()
 
-        remote_control_ready = turn_input_control is None
-        if turn_input_control is not None:
-            remote_control_ready = turn_input_control.request_interrupt()
-        if remote_control_ready:
-            task.cancel()
+        if turn_input_control is None:
+            remote_control_ready = True
+            cancel_local_stream()
+        else:
+            remote_control_ready = turn_input_control.request_interrupt(
+                on_remote_control_ready=cancel_local_stream,
+            )
         if on_interrupt_requested is not None and show_interrupt_notice():
             on_interrupt_requested()
 

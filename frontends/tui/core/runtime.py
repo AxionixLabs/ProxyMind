@@ -1794,6 +1794,13 @@ class TuiRuntime(object):
         """清空当前流式展示块。"""
         self._transcript.clear_active()
 
+    def finish_interrupted_presentation(self) -> None:
+        """撤下中断前台展示，但不结束仍在远端结算的模型轮次。"""
+        with self.screen.visual_update():
+            self._transcript.clear_active()
+            self.activity.finish_wait()
+            self.invalidate()
+
     def set_execution_active(self, active: bool) -> None:
         """更新模型轮次执行状态并切换输入区布局。"""
         was_active = self.execution_active
