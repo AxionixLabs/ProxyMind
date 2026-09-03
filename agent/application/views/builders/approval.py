@@ -7,7 +7,14 @@ from agent.application.views import (
     ApprovalDecision,
     ApprovalSource,
     ApprovalState,
+    ApprovalReviewActionKind,
     ApprovalView,
+    ApprovalReviewView,
+)
+from agent.application.approvals.summary import approval_review_action_summary
+from agent.domain.approvals import (
+    ApprovalReviewRecord,
+    ApprovalReviewStatus,
 )
 
 _LOCAL_APPROVAL_ACCEPT_DECISIONS = frozenset({
@@ -29,6 +36,8 @@ def build_approval_view(
     source: ApprovalSource = "user"
 ) -> ApprovalView:
     """构建工具审批结果的结构化展示数据。"""
+    if source == "auto_review":
+        raise ValueError("automatic review must use ApprovalReviewView")
     normalized_approval = dict(approval) if isinstance(approval, dict) else {}
     normalized_decision = _approval_decision(decision)
 
@@ -37,6 +46,40 @@ def build_approval_view(
         decision=normalized_decision,
         state=_approval_state(normalized_decision),
         source=source,
+    )
+
+
+def build_approval_review_view(
+    review: ApprovalReviewRecord,
+    *,
+    action_kind: ApprovalReviewActionKind,
+    action: typing.Mapping[str, typing.Any],
+) -> ApprovalReviewView:
+    """构建已完成自动审批评审的跨前端展示数据。"""
+    if not isinstance(review, ApprovalReviewRecord) or not review.terminal:
+        raise ValueError("terminal approval review is required")
+    status = review.status
+    if status is ApprovalReviewStatus.IN_PROGRESS:
+        raise ValueError("terminal approval review is required")
+    identity = review.identity
+    return ApprovalReviewView(
+        review_id=identity.review_id,
+        approval_id=identity.approval_id,
+        call_id=identity.action_id,
+        action_kind=action_kind,
+        action_summary=approval_review_action_summary(action_kind, action),
+        status=status.value,
+        risk_level=(
+            review.risk_level.value
+            if review.risk_level is not None
+            else None
+        ),
+        user_authorization=(
+            review.user_authorization.value
+            if review.user_authorization is not None
+            else None
+        ),
+        rationale=review.rationale,
     )
 
 

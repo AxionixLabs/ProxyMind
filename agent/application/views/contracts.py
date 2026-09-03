@@ -3,7 +3,10 @@
 
 import typing
 
-from .approval import ApprovalView
+from .approval import (
+    ApprovalReviewView,
+    ApprovalView,
+)
 from .hooks import HookRunView
 from .patch import PatchView
 from .plan import (
@@ -31,6 +34,7 @@ PresentationView: typing.TypeAlias = (
     | RunCompletedView
     | RunIncompleteView
     | ApprovalView
+    | ApprovalReviewView
     | HookRunView
     | ToolStartView
     | GenericToolResultView

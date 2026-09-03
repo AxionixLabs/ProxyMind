@@ -6,6 +6,7 @@ import sys
 import typing
 
 from agent.application.views import (
+    ApprovalReviewView,
     ApprovalView,
     BatchCompletedView,
     BatchStartView,
@@ -42,6 +43,7 @@ from agent.ports import (
     SourcesOutput,
 )
 from frontends.terminal.renderers.approval import render_approval_view
+from frontends.terminal.renderers.approval_review import render_approval_review_view
 from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text,
@@ -496,6 +498,17 @@ class TextPresentationSink(PresentationSink):
             return None
         if isinstance(view, ApprovalView):
             self.state.process(f"{render_approval_view(view).plain_text}\n")
+            return None
+        if isinstance(view, ApprovalReviewView):
+            blocks = render_approval_review_view(view)
+            if blocks:
+                for block in blocks:
+                    self.state.process(f"{block.plain_text}\n")
+            else:
+                self.state.process(
+                    "approval review "
+                    f"{view.status}: {view.action_summary}\n"
+                )
             return None
         if isinstance(view, HookRunView):
             status = (

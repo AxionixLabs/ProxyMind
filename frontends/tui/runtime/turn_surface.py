@@ -10,6 +10,8 @@ from dataclasses import (
 
 from agent.ports import (
     ApprovalCompleted,
+    ApprovalReviewCompleted,
+    ApprovalReviewStarted,
     ApprovalStarted,
     AssistantBuffered,
     AssistantSettled,
@@ -54,6 +56,7 @@ SurfaceContentState = typing.Literal[
 
 SurfaceIndicatorKind = typing.Literal[
     "hidden",
+    "reviewing",
     "thinking",
     "retrying",
     "terminal",
@@ -92,6 +95,17 @@ class ApprovalActivity:
 
     approval_id: str
     call_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalReviewActivity:
+    """保存一个自动评审 lease 的身份、代次和动作摘要。"""
+
+    review_id: str
+    approval_id: str
+    call_id: str
+    action_summary: str
+    presentation_epoch: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +148,8 @@ class TurnSurfaceState:
     completed_terminal_waits: tuple[TerminalWaitActivity, ...] = ()
     approvals: tuple[ApprovalActivity, ...] = ()
     completed_approvals: tuple[ApprovalActivity, ...] = ()
+    approval_reviews: tuple[ApprovalReviewActivity, ...] = ()
+    completed_approval_reviews: tuple[ApprovalReviewActivity, ...] = ()
     retries: tuple[RetryActivity, ...] = ()
     completed_retries: tuple[RetryActivity, ...] = ()
     recovery: RecoveryActivityMode = "live"
@@ -242,6 +258,26 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
             "retrying",
             title="Retrying",
             detail="provider",
+            revision=revision,
+        )
+    if state.approval_reviews:
+        review_count = len(state.approval_reviews)
+        title = (
+            "Reviewing approval request"
+            if review_count == 1
+            else f"Reviewing {review_count} approval requests"
+        )
+        details = [
+            review.action_summary
+            for review in state.approval_reviews[:3]
+        ]
+        remaining = review_count - len(details)
+        if remaining > 0:
+            details.append(f"+{remaining} more")
+        return SurfaceProjection(
+            "reviewing",
+            title=title,
+            detail="\n".join(details),
             revision=revision,
         )
     if state.terminal_waits:
@@ -615,6 +651,11 @@ def _reduce_active_surface(
                 for retry in state.retries
                 if retry.presentation_epoch != event.superseded_epoch
             ),
+            approval_reviews=tuple(
+                review
+                for review in state.approval_reviews
+                if review.presentation_epoch > event.superseded_epoch
+            ),
         )
         return _clear_superseded_content(updated)
     if isinstance(event, ToolBatchStarted):
@@ -735,6 +776,69 @@ def _reduce_active_surface(
             approvals=tuple(item for item in state.approvals if item != approval),
             completed_approvals=(*state.completed_approvals, approval),
         )
+    if isinstance(event, ApprovalReviewStarted):
+        review = _approval_review_activity(event)
+        existing = _approval_review_by_id(
+            state.approval_reviews,
+            event.review_id,
+        )
+        completed = _approval_review_by_id(
+            state.completed_approval_reviews,
+            event.review_id,
+        )
+        if existing is not None:
+            if existing != review:
+                raise ValueError("approval review identity was reused")
+            return state
+        if completed is not None:
+            if completed != review:
+                raise ValueError("approval review identity was reused")
+            return state
+        if _presentation_epoch_is_superseded(
+            state,
+            event.presentation_epoch,
+        ):
+            return state
+        return replace(
+            state,
+            approval_reviews=(*state.approval_reviews, review),
+        )
+    if isinstance(event, ApprovalReviewCompleted):
+        review = _approval_review_activity(event)
+        existing = _approval_review_by_id(
+            state.approval_reviews,
+            event.review_id,
+        )
+        if existing is None:
+            completed = _approval_review_by_id(
+                state.completed_approval_reviews,
+                event.review_id,
+            )
+            if completed is not None:
+                if completed != review:
+                    raise ValueError("approval review identity was reused")
+                return state
+            return replace(
+                state,
+                completed_approval_reviews=(
+                    *state.completed_approval_reviews,
+                    review,
+                ),
+            )
+        if existing != review:
+            raise ValueError("approval review completion identity does not match")
+        return replace(
+            state,
+            approval_reviews=tuple(
+                item
+                for item in state.approval_reviews
+                if item.review_id != event.review_id
+            ),
+            completed_approval_reviews=(
+                *state.completed_approval_reviews,
+                review,
+            ),
+        )
     if isinstance(event, RetryChanged):
         retry = RetryActivity(
             event.source,
@@ -843,6 +947,7 @@ def _reduce_active_surface(
             tools=(),
             terminal_waits=(),
             approvals=(),
+            approval_reviews=(),
             retries=(),
             terminal_status=event.status,
         )
@@ -858,6 +963,7 @@ def _reduce_active_surface(
             tools=(),
             terminal_waits=(),
             approvals=(),
+            approval_reviews=(),
             retries=(),
         )
     raise TypeError(f"unsupported output activity event: {type(event).__name__}")
@@ -952,6 +1058,30 @@ def _terminal_wait_by_identity(
         for item in waits
         if item.call_id == call_id and item.session_id == session_id
     ), None)
+
+
+def _approval_review_activity(
+    event: ApprovalReviewStarted | ApprovalReviewCompleted,
+) -> ApprovalReviewActivity:
+    """从已校验的端口事实构建评审活动。"""
+    return ApprovalReviewActivity(
+        event.review_id,
+        event.approval_id,
+        event.call_id,
+        event.action_summary,
+        event.presentation_epoch,
+    )
+
+
+def _approval_review_by_id(
+    reviews: tuple[ApprovalReviewActivity, ...],
+    review_id: str,
+) -> ApprovalReviewActivity | None:
+    """按独立评审身份读取活动记录。"""
+    return next(
+        (item for item in reviews if item.review_id == review_id),
+        None,
+    )
 
 
 if __name__ == '__main__':

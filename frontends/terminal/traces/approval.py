@@ -46,11 +46,6 @@ def render_approval_approved_trace(
         return f"✔ Hook approved {summary}".rstrip()
     if source == "policy":
         return f"✔ Approval policy approved {summary}".rstrip()
-    if source == "auto_review":
-        rationale = _review_rationale(approval)
-        suffix = f" · {rationale}" if rationale else ""
-        return f"✔ Auto review approved {summary}{suffix}".rstrip()
-
     if decision == "acceptWithExecpolicyAmendment":
         amendment = approval_amendment_snippet(approval)
         if amendment:
@@ -80,11 +75,6 @@ def render_approval_denied_trace(
         return f"• Hook denied {summary}".rstrip()
     if source == "policy":
         return f"• Approval policy denied {summary}".rstrip()
-    if source == "auto_review":
-        rationale = _review_rationale(approval)
-        suffix = f" · {rationale}" if rationale else ""
-        return f"• Auto review denied {summary}{suffix}".rstrip()
-
     verb = "call" if _is_mcp_approval(approval) else "run"
     return f"• You denied {const.APP_NAME} to {verb} {summary}".rstrip()
 
@@ -92,13 +82,6 @@ def render_approval_denied_trace(
 def _is_mcp_approval(approval: dict[str, typing.Any]) -> bool:
     """判断审批结果是否属于 MCP 工具调用。"""
     return str(approval.get("kind") or "").strip() == "mcp_tool_call"
-
-
-def _review_rationale(approval: dict[str, typing.Any]) -> str:
-    """读取自动审批解释并压缩为单行展示文本。"""
-    return " ".join(str(
-        approval.get("rationale") or approval.get("failure_reason") or ""
-    ).split())
 
 
 def render_approval_cancelled_trace(approval: dict[str, typing.Any]) -> str:

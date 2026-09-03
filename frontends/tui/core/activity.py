@@ -61,6 +61,7 @@ ActivitySlotKey = typing.Literal[
     "operation",
 ]
 TurnSurfaceIndicator = typing.Literal[
+    "reviewing",
     "thinking",
     "retrying",
     "terminal",
@@ -80,6 +81,16 @@ _SLOT_KEYS: dict[ActivityStatusKind, ActivitySlotKey] = {
 def _no_final_block() -> FragmentBlock | None:
     """返回缺省的空最终帧。"""
     return None
+
+
+def _normalize_status_detail(value: str) -> str:
+    """保留状态明细边界并移除不稳定空白。"""
+    lines: list[str] = []
+    for line in str(value or "").splitlines():
+        normalized = " ".join(line.split())
+        if normalized:
+            lines.append(normalized)
+    return "\n".join(lines)
 
 
 class _ActivitySlot(object):
@@ -154,6 +165,7 @@ class TuiActivity(object):
         self._wait_started_at: float | None = None
         self._wait_phase: float = 0.0
         self._turn_surface_indicator: TurnSurfaceIndicator = "thinking"
+        self._turn_surface_title: str = "Thinking"
         self._turn_surface_detail: str = ""
         self._slots: dict[ActivitySlotKey, _ActivitySlot] = {}
         self._settle_deadlines: dict[ActivitySlotKey, float] = {}
@@ -169,6 +181,7 @@ class TuiActivity(object):
         self._wait_elapsed_sec = 0.0
         self._wait_phase = 0.0
         self._turn_surface_indicator = "thinking"
+        self._turn_surface_title = "Thinking"
         self._turn_surface_detail = ""
         self._wait_started_at = time.perf_counter()
 
@@ -188,10 +201,12 @@ class TuiActivity(object):
         self,
         indicator: TurnSurfaceIndicator,
         *,
+        title: str = "",
         detail: str = "",
     ) -> None:
         """在同一前景槽中投影 Turn 的唯一活动提示。"""
         if indicator not in {
+            "reviewing",
             "thinking",
             "retrying",
             "terminal",
@@ -199,7 +214,8 @@ class TuiActivity(object):
             raise ValueError(f"unsupported turn surface indicator: {indicator}")
         await self.ensure_wait()
         self._turn_surface_indicator = indicator
-        self._turn_surface_detail = " ".join(str(detail or "").split())
+        self._turn_surface_title = " ".join(str(title or "").split())
+        self._turn_surface_detail = _normalize_status_detail(detail)
         slot = self._slots.get("foreground")
         if slot is not None and slot.kind == "wait" and not slot.frozen:
             self._render_slots()
@@ -436,9 +452,14 @@ class TuiActivity(object):
 
     def _wait_block(self, phase: float) -> FragmentBlock:
         """按当前连接状态生成等待帧。"""
-        if self._turn_surface_indicator == "terminal":
+        if self._turn_surface_indicator in {"terminal", "reviewing"}:
+            default_title = (
+                "Terminal"
+                if self._turn_surface_indicator == "terminal"
+                else "Reviewing approval request"
+            )
             block = _status_block(
-                "Terminal",
+                self._turn_surface_title or default_title,
                 family="wait",
                 phase=phase,
                 elapsed_sec=self._wait_elapsed(),
@@ -448,17 +469,18 @@ class TuiActivity(object):
             )
             fragments = list(block.fragments)
             if self._turn_surface_detail:
-                command_display = _truncate_display_text(
-                    self._turn_surface_detail,
-                    limit=max(8, int(self.get_width()) - 4),
-                )
-                fragments.extend([
-                    ("", "\n"),
-                    (
-                        prompt_style(STATUS_MUTED),
-                        f"  └ {command_display}",
-                    ),
-                ])
+                for detail_line in self._turn_surface_detail.splitlines():
+                    display = _truncate_display_text(
+                        detail_line,
+                        limit=max(8, int(self.get_width()) - 4),
+                    )
+                    fragments.extend([
+                        ("", "\n"),
+                        (
+                            prompt_style(STATUS_MUTED),
+                            f"  └ {display}",
+                        ),
+                    ])
             return FragmentBlock(tuple(fragments), preserve_newlines=True)
 
         retrying = self._turn_surface_indicator == "retrying"
@@ -471,7 +493,9 @@ class TuiActivity(object):
             family = "provider_retry"
 
         return _status_block(
-            "Retrying" if retrying else "Thinking",
+            self._turn_surface_title or (
+                "Retrying" if retrying else "Thinking"
+            ),
             family=family,
             phase=phase,
             elapsed_sec=self._wait_elapsed(),
@@ -690,6 +714,7 @@ class TuiActivity(object):
         self._wait_started_at = None
         self._wait_phase = 0.0
         self._turn_surface_indicator = "thinking"
+        self._turn_surface_title = "Thinking"
         self._turn_surface_detail = ""
 
 def _upload_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlock:

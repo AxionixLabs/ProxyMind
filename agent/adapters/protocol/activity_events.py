@@ -3,6 +3,8 @@
 
 from agent.ports import (
     ApprovalCompleted,
+    ApprovalReviewCompleted,
+    ApprovalReviewStarted,
     ApprovalStarted,
     AssistantBuffered,
     AssistantSettled,
@@ -230,6 +232,44 @@ class TurnActivityProjector:
             **self._scope(),
             approval_id=approval_id,
             call_id=call_id,
+        ))
+
+    async def approval_review_started(
+        self,
+        review_id: str,
+        approval_id: str,
+        call_id: str,
+        *,
+        action_summary: str,
+        presentation_epoch: int,
+    ) -> None:
+        """为一项自动评审登记独立活动 lease。"""
+        await self.activity.emit(ApprovalReviewStarted(
+            **self._scope(),
+            review_id=review_id,
+            approval_id=approval_id,
+            call_id=call_id,
+            action_summary=action_summary,
+            presentation_epoch=presentation_epoch,
+        ))
+
+    async def approval_review_completed(
+        self,
+        review_id: str,
+        approval_id: str,
+        call_id: str,
+        *,
+        action_summary: str,
+        presentation_epoch: int,
+    ) -> None:
+        """释放一项自动评审的活动 lease。"""
+        await self.activity.emit(ApprovalReviewCompleted(
+            **self._scope(),
+            review_id=review_id,
+            approval_id=approval_id,
+            call_id=call_id,
+            action_summary=action_summary,
+            presentation_epoch=presentation_epoch,
         ))
 
     async def retry_changed(

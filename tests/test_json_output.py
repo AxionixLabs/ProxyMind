@@ -19,6 +19,7 @@ from frontends.output.jsonl import (
     JsonOutputState,
 )
 from agent.application.views import (
+    ApprovalReviewView,
     ApprovalView,
     FailureView,
     HookOutputView,
@@ -131,6 +132,43 @@ async def test_json_hook_startup_warning_is_codex_error_item() -> None:
         },
         {"type": "turn.started"},
     ]
+
+
+@pytest.mark.anyio
+async def test_json_output_preserves_structured_approval_review_terminal() -> None:
+    stdout = io.StringIO()
+    state = JsonOutputState(_RecordWriter(), stdout)
+    presentation = JsonPresentationSink(state)
+
+    await presentation.emit(ApprovalReviewView(
+        review_id="review-json",
+        approval_id="approval-json",
+        call_id="call-json",
+        action_kind="command",
+        action_summary="run git status",
+        status="approved",
+        risk_level="low",
+        user_authorization="high",
+        rationale="The command is read-only and explicitly requested.",
+    ))
+
+    event = json.loads(stdout.getvalue())
+    assert event["type"] == "item.completed"
+    assert event["item"] == {
+        "id": "review-json",
+        "type": "approval_review",
+        "approval_id": "approval-json",
+        "call_id": "call-json",
+        "action": {
+            "kind": "command",
+            "summary": "run git status",
+        },
+        "status": "approved",
+        "risk_level": "low",
+        "user_authorization": "high",
+        "rationale": "The command is read-only and explicitly requested.",
+        "source": "agent",
+    }
 
 
 @pytest.mark.anyio

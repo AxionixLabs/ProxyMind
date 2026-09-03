@@ -3,6 +3,11 @@
 
 from .approval import (
     ApprovalDecision,
+    ApprovalReviewActionKind,
+    ApprovalReviewRiskLevel,
+    ApprovalReviewTerminalStatus,
+    ApprovalReviewUserAuthorization,
+    ApprovalReviewView,
     ApprovalSource,
     ApprovalState,
     ApprovalView,
@@ -61,6 +66,11 @@ from .tools import (
 
 __all__ = (
     "ApprovalDecision",
+    "ApprovalReviewActionKind",
+    "ApprovalReviewRiskLevel",
+    "ApprovalReviewTerminalStatus",
+    "ApprovalReviewUserAuthorization",
+    "ApprovalReviewView",
     "ApprovalSource",
     "ApprovalState",
     "ApprovalView",

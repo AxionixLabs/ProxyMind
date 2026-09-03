@@ -4,7 +4,14 @@
 import enum
 from dataclasses import dataclass
 
-from .models import ApprovalActionKind
+from .models import (
+    ActionFingerprint,
+    ApprovalActionKind,
+)
+
+
+class ApprovalReviewConflict(ValueError):
+    """表示自动审批评审事实与当前动作或既有事实冲突。"""
 
 
 class ApprovalReviewStatus(enum.StrEnum):
@@ -68,6 +75,7 @@ class ApprovalReviewRecord:
     """保存可幂等归约的一次自动审批评审事实。"""
 
     identity: ApprovalReviewIdentity
+    action_fingerprint: ActionFingerprint
     status: ApprovalReviewStatus
     event_seq: int
     presentation_epoch: int
@@ -81,6 +89,8 @@ class ApprovalReviewRecord:
         """校验状态、时间、决定字段和生命周期组合。"""
         if not isinstance(self.identity, ApprovalReviewIdentity):
             raise TypeError("approval review identity is invalid")
+        if not isinstance(self.action_fingerprint, ActionFingerprint):
+            raise TypeError("approval review action fingerprint is invalid")
         if not isinstance(self.status, ApprovalReviewStatus):
             raise TypeError("approval review status is invalid")
         for name in ("event_seq", "presentation_epoch"):

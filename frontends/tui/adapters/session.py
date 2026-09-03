@@ -68,6 +68,7 @@ async def _apply_surface_projection(
 
     await runtime.activity.show_turn_surface(
         projection.indicator,
+        title=projection.title,
         detail=projection.detail,
     )
 

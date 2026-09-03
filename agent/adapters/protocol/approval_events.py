@@ -27,11 +27,16 @@ from agent.application.turns.context import (
     TurnContext
 )
 from agent.application.views import ApprovalSource
-from agent.application.views.builders.approval import build_approval_view
+from agent.application.views.builders.approval import (
+    build_approval_review_view,
+    build_approval_view,
+)
 from agent.application.views.contracts import PresentationSink
+from agent.domain.approvals import ApprovalIdentity
 from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from agent.ports import (
     ApprovalCoordinatorPort,
+    ApprovalReviewFeedPort,
     ExecutionPolicy,
     PermissionGrantPort,
 )
@@ -98,6 +103,8 @@ def approval_report_kwargs(
         reason = hook_reason
     elif source == "policy":
         reason = "approval policy is never"
+    elif source == "auto_review":
+        reason = "automatic approval review did not allow the action"
     elif decision == "cancel":
         reason = "user cancelled"
     else:
@@ -401,11 +408,33 @@ class ApprovalEventHandler:
             elapsed_ms=int((time.perf_counter() - approval_started_at) * 1000),
         )
 
-        await self.presentation.emit(build_approval_view(
-            approval,
-            decision=decision,
-            source=decision_source,
-        ))
+        if decision_source == "auto_review":
+            if not isinstance(
+                self.approval_coordinator,
+                ApprovalReviewFeedPort,
+            ):
+                raise RuntimeError("approval review feed is unavailable")
+            review = await self.approval_coordinator.completed_approval_review(
+                ApprovalIdentity(
+                    session_id=turn_context.sid,
+                    run_id=turn_context.turn_id,
+                    approval_id=approval_id,
+                    action_id=approval_call_id,
+                )
+            )
+            if review is None:
+                raise RuntimeError("approval review terminal fact is unavailable")
+            await self.presentation.emit(build_approval_review_view(
+                review,
+                action_kind=event.kind,
+                action=approval,
+            ))
+        else:
+            await self.presentation.emit(build_approval_view(
+                approval,
+                decision=decision,
+                source=decision_source,
+            ))
         approval_turn_id = str(
             approval.get("turn_id") or turn_context.turn_id
         ).strip()

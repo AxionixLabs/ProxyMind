@@ -4,6 +4,7 @@
 import typing
 
 from agent.application.views import (
+    ApprovalReviewView,
     ApprovalView,
     BatchCompletedView,
     BatchStartView,
@@ -32,6 +33,7 @@ from frontends.terminal.text import (
     sanitize_terminal_text,
 )
 from .approval import render_approval_view
+from .approval_review import render_approval_review_view
 from .batch import (
     render_batch_completed_transcript_view,
     render_batch_completed_view,
@@ -170,6 +172,8 @@ def _render_presentation_view(
         ),)
     if isinstance(view, ApprovalView):
         return (render_approval_view(view),)
+    if isinstance(view, ApprovalReviewView):
+        return render_approval_review_view(view)
     if isinstance(view, HookRunView):
         return (render_hook_run_view(
             view,

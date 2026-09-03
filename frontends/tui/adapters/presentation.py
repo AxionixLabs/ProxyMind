@@ -8,6 +8,7 @@ from functools import partial
 from prompt_toolkit.utils import get_cwidth
 
 from agent.application.views import (
+    ApprovalReviewView,
     ApprovalView,
     BatchCompletedView,
     BatchStartView,
@@ -86,7 +87,7 @@ _OMITTED_LINES_PATTERN = re.compile(r"(… \+\d+ lines)$")
 
 def _presentation_block_kind(view: PresentationView) -> TuiBlockKind:
     """把共享展示类型映射为 TUI 正文语义。"""
-    if isinstance(view, ApprovalView):
+    if isinstance(view, (ApprovalView, ApprovalReviewView)):
         return "approval"
     if isinstance(view, (PlanUpdateView, PlanStepsStartView)):
         return "plan"

@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from urllib.parse import urlparse
 
 from agent.application.approvals.coordinator import ApprovalCoordinator
+from agent.application.approvals.fingerprints import approval_action_fingerprint
 from agent.application.approvals.models import (
     ApprovalDecisionSource as LegacyDecisionSource,
     ApprovalOutcome as LegacyOutcome,
@@ -200,6 +201,13 @@ class DomainApprovalCoordinator:
         """登记协议适配器提交的自动评审事实。"""
         await self._reviews.record(update)
 
+    async def completed_approval_review(
+        self,
+        identity: ApprovalIdentity,
+    ) -> ApprovalReviewRecord | None:
+        """读取审批核心已经匹配到当前动作的评审终态。"""
+        return await self._reviews.completed_for(identity)
+
     async def clear_approval_reviews(
         self,
         session_id: str,
@@ -258,7 +266,7 @@ def domain_action_from_request(request: ApprovalRequest) -> ApprovalAction:
         or identity.run_id,
         tool_call_id=_text(payload.get("call_id")) or identity.action_id,
     )
-    fingerprint = ActionFingerprint(_fingerprint(payload, request.key.kind))
+    fingerprint = approval_action_fingerprint(payload, request.key.kind)
     kind = request.key.kind
     if kind in {"command", "write_stdin"}:
         command = payload.get("command")
@@ -414,32 +422,6 @@ def _identity_from_request(
         action_id=_text(payload.get("action_id") or payload.get("call_id"))
         or request_id,
     )
-
-
-def _fingerprint(payload: dict[str, typing.Any], kind: str) -> str:
-    """为旧动态载荷生成稳定的动作 SHA-256 指纹。"""
-    fields = {
-        "kind": kind,
-        "command": payload.get("command"),
-        "cwd": payload.get("cwd"),
-        "patch": payload.get("patch"),
-        "files": payload.get("files") or payload.get("patch_scope"),
-        "permissions": payload.get("permissions"),
-        "server": payload.get("server"),
-        "tool_name": payload.get("tool_name"),
-        "arguments": payload.get("arguments"),
-        "host": payload.get("host"),
-        "protocol": payload.get("protocol"),
-        "port": payload.get("port"),
-    }
-    encoded = json.dumps(
-        fields,
-        ensure_ascii=True,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _domain_decision(

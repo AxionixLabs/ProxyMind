@@ -194,6 +194,7 @@ async def stream_turn(
             approval_coordinator,
             session_id=turn_context.sid,
             run_id=turn_context.turn_id,
+            activity=activity_projector,
         )
         if isinstance(approval_coordinator, ApprovalReviewFeedPort)
         else None

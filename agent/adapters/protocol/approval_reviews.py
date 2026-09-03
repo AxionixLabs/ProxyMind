@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+from agent.adapters.protocol.activity_events import TurnActivityProjector
+from agent.application.approvals.fingerprints import approval_action_fingerprint
+from agent.application.approvals.summary import approval_review_action_summary
 from agent.domain.approvals import (
     ApprovalActionKind,
     ApprovalReviewIdentity,
@@ -41,6 +44,7 @@ class ApprovalReviewEventHandler:
         *,
         session_id: str,
         run_id: str,
+        activity: TurnActivityProjector,
     ) -> None:
         """绑定一个 Turn 的评审事实接收端。"""
         if not isinstance(feed, ApprovalReviewFeedPort):
@@ -50,6 +54,7 @@ class ApprovalReviewEventHandler:
         self._feed = feed
         self._session_id = session_id.strip()
         self._run_id = run_id.strip()
+        self._activity = activity
         self._presentation_epoch: int = 0
         self._closed: bool = False
 
@@ -79,6 +84,23 @@ class ApprovalReviewEventHandler:
             return True
         record = approval_review_record(event)
         await self._feed.record_review(record)
+        action_summary = approval_review_action_summary(event.kind, event.action)
+        if isinstance(event, ToolApprovalReviewCompletedEvent):
+            await self._activity.approval_review_completed(
+                event.review_id,
+                event.approval_id,
+                event.call_id,
+                action_summary=action_summary,
+                presentation_epoch=event.presentation_epoch,
+            )
+        else:
+            await self._activity.approval_review_started(
+                event.review_id,
+                event.approval_id,
+                event.call_id,
+                action_summary=action_summary,
+                presentation_epoch=event.presentation_epoch,
+            )
         observe(
             "approval.review.received",
             turn_id=event.turn_id,
@@ -121,6 +143,10 @@ def approval_review_record(
             approval_id=event.approval_id,
             action_id=event.call_id,
             action_kind=_ACTION_KINDS[event.kind],
+        ),
+        action_fingerprint=approval_action_fingerprint(
+            event.action,
+            event.kind,
         ),
         status=ApprovalReviewStatus(review.status),
         event_seq=event_seq,

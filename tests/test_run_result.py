@@ -39,6 +39,7 @@ from agent.ports import (
     OutputSurfaceContext,
 )
 from agent.application.views import (
+    ApprovalReviewView,
     ApprovalView,
     FailureView,
     HookRunView,
@@ -254,6 +255,27 @@ def response_identity(
 ) -> ResponseIdentity:
     """构造流测试使用的稳定响应身份。"""
     return ResponseIdentity("turn_test", presentation_epoch, round_no, attempt)
+
+
+def command_review_action(
+    command: list[str],
+    *,
+    reason: str,
+) -> dict[str, typing.Any]:
+    """构造与正式服务端命令审批信封同构的评审动作。"""
+    return {
+        "type": "command",
+        "environment_id": "workspace-write",
+        "command": list(command),
+        "cwd": ".",
+        "cwd_raw": ".",
+        "reason": reason,
+        "tty": False,
+        "sandbox_permissions": "use_default",
+        "additional_permissions": None,
+        "proposed_execpolicy_amendment": None,
+        "parsed_cmd": [],
+    }
 
 
 class _OutputControl(object):
@@ -3332,6 +3354,10 @@ async def test_stream_registers_review_before_approval_core_decides(
     monkeypatch,
 ) -> None:
     approval_posts = []
+    review_action = command_review_action(
+        ["echo", "reviewed"],
+        reason="Run the requested command.",
+    )
 
     async def post_tool_approval(*args, **kwargs):
         approval_posts.append((args, kwargs))
@@ -3356,10 +3382,7 @@ async def test_stream_registers_review_before_approval_core_decides(
                 "call_id": "call-stream",
                 "target_item_id": "call-stream",
                 "kind": "command",
-                "action": {
-                    "command": ["echo", "reviewed"],
-                    "cwd": ".",
-                },
+                "action": dict(review_action),
                 "started_at_ms": 100,
                 "review": {"status": "in_progress"},
             },
@@ -3371,10 +3394,7 @@ async def test_stream_registers_review_before_approval_core_decides(
                 "call_id": "call-stream",
                 "target_item_id": "call-stream",
                 "kind": "command",
-                "action": {
-                    "command": ["echo", "reviewed"],
-                    "cwd": ".",
-                },
+                "action": dict(review_action),
                 "started_at_ms": 100,
                 "completed_at_ms": 125,
                 "decision_source": "agent",
@@ -3419,6 +3439,257 @@ async def test_stream_registers_review_before_approval_core_decides(
         "approval-stream",
     )
     assert approval_posts[0][1]["decision"] == "accept"
+    review_views = [
+        item
+        for item in host_state.output_session.presentation.items
+        if isinstance(item, ApprovalReviewView)
+    ]
+    assert len(review_views) == 1
+    assert review_views[0].status == "approved"
+
+    await coordinator.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "review_status",
+    ("denied", "timed_out"),
+)
+async def test_stream_preserves_auto_review_failure_status(
+    monkeypatch,
+    review_status: str,
+) -> None:
+    approval_posts = []
+    reason = "Run the requested command."
+
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+    host = _host()
+    coordinator = DomainApprovalCoordinator(
+        host.approval_coordinator,
+        fact_store=InMemoryApprovalFactStore(),
+        grant_store=InMemorySessionGrantStore(),
+    )
+    host.approval_coordinator = coordinator
+    review = (
+        {
+            "status": "denied",
+            "risk_level": "high",
+            "user_authorization": "low",
+            "rationale": "The command exceeds the requested scope.",
+        }
+        if review_status == "denied"
+        else {
+            "status": "timed_out",
+            "rationale": "The automatic review exceeded its budget.",
+        }
+    )
+
+    result, host_state = await _run_stream(
+        monkeypatch,
+        [
+            {
+                "type": "tool.approval_review.completed",
+                "event_seq": 1,
+                "review_id": f"review-{review_status}",
+                "approval_id": f"approval-{review_status}",
+                "call_id": f"call-{review_status}",
+                "target_item_id": f"call-{review_status}",
+                "kind": "command",
+                "action": command_review_action(
+                    ["echo", "reviewed"],
+                    reason=reason,
+                ),
+                "started_at_ms": 100,
+                "completed_at_ms": 125,
+                "decision_source": "agent",
+                "review": review,
+            },
+            {
+                "type": "tool.approval_required",
+                "event_seq": 2,
+                "call_id": f"call-{review_status}",
+                "approval_id": f"approval-{review_status}",
+                "kind": "command",
+                "command": ["echo", "reviewed"],
+                "cwd": ".",
+                "reason": reason,
+            },
+            {"type": "turn.done", "event_seq": 3},
+        ],
+        host_state=host,
+    )
+
+    assert result.status == "completed"
+    host_state.frontend.interaction.present_approval.assert_not_awaited()
+    assert approval_posts[0][1]["decision"] == "decline"
+    review_views = [
+        item
+        for item in host_state.output_session.presentation.items
+        if isinstance(item, ApprovalReviewView)
+    ]
+    assert len(review_views) == 1
+    assert review_views[0].status == review_status
+
+    await coordinator.close()
+
+
+@pytest.mark.anyio
+async def test_permission_hook_precedes_received_auto_review_decision(
+    monkeypatch,
+) -> None:
+    class CommandRunner(object):
+        async def execute(self, _definition, _payload):
+            return HookCommandOutput(data={
+                "hookSpecificOutput": {
+                    "hookEventName": "PermissionRequest",
+                    "decision": {"behavior": "allow"},
+                },
+            })
+
+    reason = "Run the requested command."
+    definitions = resolve_hook_definitions(
+        {
+            "PermissionRequest": [{
+                "hooks": [{"type": "command", "command": "review"}],
+                "matcher": "exec_command",
+            }],
+        },
+        source_scope="user",
+        source_path=Path("config.toml"),
+    )
+    approval_posts = []
+
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+    host = _host()
+    coordinator = DomainApprovalCoordinator(
+        host.approval_coordinator,
+        fact_store=InMemoryApprovalFactStore(),
+        grant_store=InMemorySessionGrantStore(),
+    )
+    host.approval_coordinator = coordinator
+
+    result, host_state = await _run_stream(
+        monkeypatch,
+        [
+            {
+                "type": "tool.approval_review.completed",
+                "event_seq": 1,
+                "review_id": "review-hook-precedence",
+                "approval_id": "approval-hook-precedence",
+                "call_id": "call-hook-precedence",
+                "target_item_id": "call-hook-precedence",
+                "kind": "command",
+                "action": command_review_action(
+                    ["echo", "reviewed"],
+                    reason=reason,
+                ),
+                "started_at_ms": 100,
+                "completed_at_ms": 125,
+                "decision_source": "agent",
+                "review": {
+                    "status": "denied",
+                    "risk_level": "high",
+                    "user_authorization": "low",
+                    "rationale": "The automatic reviewer denied the command.",
+                },
+            },
+            {
+                "type": "tool.approval_required",
+                "event_seq": 2,
+                "call_id": "call-hook-precedence",
+                "approval_id": "approval-hook-precedence",
+                "kind": "command",
+                "command": ["echo", "reviewed"],
+                "cwd": ".",
+                "reason": reason,
+            },
+            {"type": "turn.done", "event_seq": 3},
+        ],
+        host_state=host,
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+    )
+
+    assert result.status == "completed"
+    host_state.frontend.interaction.present_approval.assert_not_awaited()
+    assert approval_posts[0][1]["decision"] == "accept"
+    assert not any(
+        isinstance(item, ApprovalReviewView)
+        for item in host_state.output_session.presentation.items
+    )
+
+    await coordinator.close()
+
+
+@pytest.mark.anyio
+async def test_stream_rejects_review_for_different_approval_action(
+    monkeypatch,
+) -> None:
+    approval_posts = []
+    review_action = command_review_action(
+        ["echo", "reviewed"],
+        reason="Run a different command.",
+    )
+
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+    host = _host()
+    coordinator = DomainApprovalCoordinator(
+        host.approval_coordinator,
+        fact_store=InMemoryApprovalFactStore(),
+        grant_store=InMemorySessionGrantStore(),
+    )
+    host.approval_coordinator = coordinator
+
+    result, host_state = await _run_stream(
+        monkeypatch,
+        [
+            {
+                "type": "tool.approval_review.completed",
+                "event_seq": 1,
+                "review_id": "review-mismatch",
+                "approval_id": "approval-mismatch",
+                "call_id": "call-mismatch",
+                "target_item_id": "call-mismatch",
+                "kind": "command",
+                "action": review_action,
+                "started_at_ms": 100,
+                "completed_at_ms": 125,
+                "decision_source": "agent",
+                "review": {
+                    "status": "approved",
+                    "risk_level": "low",
+                    "user_authorization": "high",
+                    "rationale": "The reviewed command matches the request.",
+                },
+            },
+            {
+                "type": "tool.approval_required",
+                "event_seq": 2,
+                "call_id": "call-mismatch",
+                "approval_id": "approval-mismatch",
+                "kind": "command",
+                "command": ["echo", "changed"],
+                "cwd": ".",
+                "reason": "Run a different command.",
+            },
+        ],
+        host_state=host,
+    )
+
+    assert result.status == "failed"
+    assert result.error == (
+        "ApprovalReviewConflict: approval review action does not match request"
+    )
+    host_state.frontend.interaction.present_approval.assert_not_awaited()
+    assert approval_posts == []
 
     await coordinator.close()
 

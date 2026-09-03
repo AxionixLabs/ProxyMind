@@ -45,6 +45,7 @@ from .rules import (
     validate_decision,
 )
 from .reviews import (
+    ApprovalReviewConflict,
     ApprovalReviewIdentity,
     ApprovalReviewRecord,
     ApprovalReviewRiskLevel,
@@ -68,6 +69,7 @@ __all__ = (
     "ApprovalIdentity",
     "ApprovalOutcome",
     "ApprovalResolutionReason",
+    "ApprovalReviewConflict",
     "ApprovalReviewIdentity",
     "ApprovalReviewRecord",
     "ApprovalReviewRiskLevel",

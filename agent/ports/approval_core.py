@@ -117,6 +117,13 @@ class ApprovalReviewFeedPort(typing.Protocol):
         """幂等登记评审状态，身份或终态冲突必须拒绝。"""
         ...
 
+    async def completed_approval_review(
+        self,
+        identity: ApprovalIdentity,
+    ) -> ApprovalReviewRecord | None:
+        """返回审批核心实际采用的动作所对应的评审终态。"""
+        ...
+
     async def clear_approval_reviews(
         self,
         session_id: str,

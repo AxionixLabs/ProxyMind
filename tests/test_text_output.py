@@ -25,6 +25,7 @@ from agent.ports import (
     ResponseIdentity,
 )
 from agent.application.views import (
+    ApprovalReviewView,
     ApprovalView,
     GenericToolResultView,
     HookOutputView,
@@ -166,6 +167,36 @@ async def test_text_hook_startup_warning_matches_codex_exec_stderr() -> None:
         "in config.toml: MCP invocation is not available yet\n"
     ) in stderr.getvalue()
     assert "warning: skipping MCP tool hook" in "".join(record.parts)
+
+
+@pytest.mark.anyio
+async def test_text_output_emits_stable_approval_review_terminal() -> None:
+    stderr = io.StringIO()
+    record = _RecordWriter()
+    state = TextOutputState(
+        record_writer=record,
+        stdout=io.StringIO(),
+        stderr=stderr,
+        color=False,
+    )
+    sink = TextPresentationSink(state)
+
+    await sink.emit(ApprovalReviewView(
+        review_id="review-text",
+        approval_id="approval-text",
+        call_id="call-text",
+        action_kind="command",
+        action_summary="run git status",
+        status="approved",
+        risk_level="low",
+        user_authorization="high",
+        rationale="The command is read-only and explicitly requested.",
+    ))
+
+    assert stderr.getvalue() == "approval review approved: run git status\n"
+    assert "".join(record.parts) == (
+        "approval review approved: run git status\n"
+    )
 
 
 @pytest.mark.anyio

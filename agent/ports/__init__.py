@@ -127,6 +127,8 @@ from .media import (
 )
 from .output import (
     ApprovalCompleted,
+    ApprovalReviewCompleted,
+    ApprovalReviewStarted,
     ApprovalStarted,
     AssistantBuffered,
     AssistantSettled,
@@ -267,7 +269,9 @@ from .workspace import (
 
 __all__ = (
     "ApprovalActionCoordinatorPort",
+    "ApprovalReviewCompleted",
     "ApprovalReviewFeedPort",
+    "ApprovalReviewStarted",
     "McpPersistentApprovalStore",
     "ApprovalLedger",
     "ApprovalLedgerState",

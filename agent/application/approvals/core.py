@@ -22,6 +22,7 @@ from agent.domain.approvals import (
     ApprovalFactState,
     ApprovalIdentity,
     ApprovalResolutionReason,
+    ApprovalReviewConflict,
     SessionGrant,
     approval_grant_key,
     validate_decision,
@@ -103,6 +104,8 @@ class ReviewerChain:
             try:
                 decision = await binding.reviewer.review(action)
             except asyncio.CancelledError:
+                raise
+            except ApprovalReviewConflict:
                 raise
             except Exception:
                 return ReviewResult(

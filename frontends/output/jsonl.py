@@ -7,6 +7,7 @@ import sys
 import typing
 
 from agent.application.views import (
+    ApprovalReviewView,
     ApprovalView,
     BatchCompletedView,
     BatchStartView,
@@ -574,6 +575,23 @@ class JsonPresentationSink(PresentationSink):
                 "decision": view.decision,
                 "status": view.state,
                 "source": view.source,
+            })
+            return None
+
+        if isinstance(view, ApprovalReviewView):
+            self._item_completed(view.review_id, {
+                "type": "approval_review",
+                "approval_id": view.approval_id,
+                "call_id": view.call_id,
+                "action": {
+                    "kind": view.action_kind,
+                    "summary": view.action_summary,
+                },
+                "status": view.status,
+                "risk_level": view.risk_level,
+                "user_authorization": view.user_authorization,
+                "rationale": view.rationale,
+                "source": "agent",
             })
             return None
 

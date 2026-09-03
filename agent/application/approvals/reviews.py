@@ -8,6 +8,7 @@ from agent.domain.approvals import (
     ApprovalDecision,
     ApprovalDecisionKind,
     ApprovalIdentity,
+    ApprovalReviewConflict,
     ApprovalReviewRecord,
     ApprovalReviewStatus,
 )
@@ -45,29 +46,41 @@ class ApprovalReviewInbox:
                 review_for_approval is not None
                 and review_for_approval != identity.review_id
             ):
-                raise ValueError("approval is already bound to another review")
+                raise ApprovalReviewConflict(
+                    "approval is already bound to another review"
+                )
             review_for_action = self._action_reviews.get(action_identity)
             if review_for_action is not None and review_for_action != identity.review_id:
-                raise ValueError("approval action is already bound to another review")
+                raise ApprovalReviewConflict(
+                    "approval action is already bound to another review"
+                )
 
             current = self._records.get(identity.review_id)
             if current is not None:
                 if current.identity != identity:
-                    raise ValueError("approval review identity was reused")
+                    raise ApprovalReviewConflict("approval review identity was reused")
                 if current == update:
                     return None
                 if current.terminal:
                     if update.event_seq <= current.event_seq:
                         return None
-                    raise ValueError("approval review terminal state cannot change")
+                    raise ApprovalReviewConflict(
+                        "approval review terminal state cannot change"
+                    )
                 if update.status is ApprovalReviewStatus.IN_PROGRESS:
                     if update.event_seq < current.event_seq:
                         return None
-                    raise ValueError("approval review start event conflicts")
+                    raise ApprovalReviewConflict(
+                        "approval review start event conflicts"
+                    )
                 if update.started_at_ms != current.started_at_ms:
-                    raise ValueError("approval review start time changed")
+                    raise ApprovalReviewConflict(
+                        "approval review start time changed"
+                    )
                 if update.event_seq <= current.event_seq:
-                    raise ValueError("approval review completion does not advance")
+                    raise ApprovalReviewConflict(
+                        "approval review completion does not advance"
+                    )
 
             self._records[identity.review_id] = update
             self._action_reviews[action_identity] = identity.review_id
@@ -84,11 +97,19 @@ class ApprovalReviewInbox:
                     action.identity.approval_id,
                 ))
                 if approval_review is not None:
-                    raise ValueError("approval review does not match requested action")
+                    raise ApprovalReviewConflict(
+                        "approval review does not match requested action"
+                    )
                 return None
             record = self._records[review_id]
             if record.identity.action_kind is not action.kind:
-                raise ValueError("approval review action kind does not match request")
+                raise ApprovalReviewConflict(
+                    "approval review action kind does not match request"
+                )
+            if record.action_fingerprint != action.fingerprint:
+                raise ApprovalReviewConflict(
+                    "approval review action does not match request"
+                )
             if not record.terminal:
                 return None
             decision_kind = {

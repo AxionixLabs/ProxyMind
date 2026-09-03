@@ -4,6 +4,7 @@ import pytest
 
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.application.approvals.legacy import DomainApprovalCoordinator
+from agent.application.approvals.fingerprints import approval_action_fingerprint
 from agent.application.approvals.mcp import mcp_approval_payload
 from agent.domain.approvals import (
     ActionFingerprint,
@@ -145,6 +146,10 @@ async def test_protocol_review_result_uses_typed_core_without_showing_card(
             approval_id="approval-1",
             action_id="call-approval-1",
             action_kind=ApprovalActionKind.COMMAND,
+        ),
+        action_fingerprint=approval_action_fingerprint(
+            _payload("run-1", "approval-1"),
+            "command",
         ),
         status=ApprovalReviewStatus.APPROVED,
         event_seq=2,

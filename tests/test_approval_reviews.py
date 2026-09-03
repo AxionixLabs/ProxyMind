@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+import dataclasses
+
 import pytest
 
 from agent.application.approvals.core import (
@@ -9,6 +11,7 @@ from agent.application.approvals.core import (
     ReviewerChain,
 )
 from agent.application.approvals.reviews import ApprovalReviewInbox
+from agent.application.approvals.fingerprints import approval_action_fingerprint
 from agent.domain.approvals import (
     ActionFingerprint,
     ApprovalActionKind,
@@ -16,6 +19,7 @@ from agent.domain.approvals import (
     ApprovalDecisionSource,
     ApprovalIdentity,
     ApprovalReviewIdentity,
+    ApprovalReviewConflict,
     ApprovalReviewRecord,
     ApprovalReviewRiskLevel,
     ApprovalReviewStatus,
@@ -40,7 +44,10 @@ def _action() -> CommandApprovalAction:
             execution_id="turn-1",
             tool_call_id="call-1",
         ),
-        fingerprint=ActionFingerprint("action-fingerprint"),
+        fingerprint=approval_action_fingerprint({
+            "command": ["curl", "https://example.com"],
+            "cwd": "D:/workspace",
+        }, "command"),
         command=("curl", "https://example.com"),
         cwd="D:/workspace",
     )
@@ -67,6 +74,10 @@ def _record(
             action_id=action_id,
             action_kind=action_kind,
         ),
+        action_fingerprint=approval_action_fingerprint({
+            "command": ["curl", "https://example.com"],
+            "cwd": "D:/workspace",
+        }, "command"),
         status=status,
         event_seq=event_seq,
         presentation_epoch=1,
@@ -86,6 +97,80 @@ def _record(
             )
         ),
     )
+
+
+@pytest.mark.parametrize(
+    ("kind", "payload", "changed_field", "changed_value"),
+    (
+        (
+            "command",
+            {
+                "command": ["curl", "https://example.com"],
+                "cwd": ".",
+                "sandbox_permissions": "use_default",
+            },
+            "sandbox_permissions",
+            "with_additional_permissions",
+        ),
+        (
+            "write_stdin",
+            {"session_id": "terminal-1", "input": "yes\n", "control": "none"},
+            "control",
+            "terminate",
+        ),
+        (
+            "apply_patch",
+            {
+                "environment_id": "workspace",
+                "patch": "diff",
+                "files": ["a.py"],
+            },
+            "environment_id",
+            "outside-workspace",
+        ),
+        (
+            "network_access",
+            {
+                "target": "https://example.com",
+                "host": "example.com",
+                "port": 443,
+            },
+            "host",
+            "other.example.com",
+        ),
+        (
+            "request_permissions",
+            {"permissions": {"network": ["example.com"]}},
+            "permissions",
+            {"network": ["other.example.com"]},
+        ),
+        (
+            "mcp_tool_call",
+            {
+                "server": "github",
+                "tool_name": "read_issue",
+                "arguments": {"number": 1},
+                "mcp_request_id": "request-1",
+                "annotations": {"readOnlyHint": True},
+            },
+            "annotations",
+            {"readOnlyHint": False},
+        ),
+    ),
+)
+def test_review_action_fingerprint_covers_security_fields(
+    kind: str,
+    payload: dict[str, object],
+    changed_field: str,
+    changed_value: object,
+) -> None:
+    changed = dict(payload)
+    changed[changed_field] = changed_value
+
+    assert approval_action_fingerprint(
+        payload,
+        kind,
+    ) != approval_action_fingerprint(changed, kind)
 
 
 @pytest.mark.anyio
@@ -147,7 +232,25 @@ async def test_review_inbox_rejects_approval_bound_to_another_action() -> None:
         action_id="call-other",
     ))
 
-    with pytest.raises(ValueError, match="does not match requested action"):
+    with pytest.raises(
+        ApprovalReviewConflict,
+        match="does not match requested action",
+    ):
+        await inbox.review(_action())
+
+
+@pytest.mark.anyio
+async def test_review_inbox_rejects_changed_action_payload() -> None:
+    inbox = ApprovalReviewInbox()
+    await inbox.record(dataclasses.replace(
+        _record(ApprovalReviewStatus.APPROVED),
+        action_fingerprint=ActionFingerprint("different-action"),
+    ))
+
+    with pytest.raises(
+        ApprovalReviewConflict,
+        match="action does not match request",
+    ):
         await inbox.review(_action())
 
 

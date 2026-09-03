@@ -23,6 +23,8 @@ from .presentation import (
 
 __all__ = (
     "ApprovalCompleted",
+    "ApprovalReviewCompleted",
+    "ApprovalReviewStarted",
     "ApprovalStarted",
     "AssistantBuffered",
     "AssistantSettled",
@@ -334,6 +336,47 @@ class ApprovalCompleted(_ApprovalActivityEvent):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class _ApprovalReviewActivityEvent(_ScopedActivityEvent):
+    """保存自动评审活动的独立身份和动作摘要。"""
+
+    review_id: str
+    approval_id: str
+    call_id: str
+    action_summary: str
+    presentation_epoch: int
+
+    def __post_init__(self) -> None:
+        """校验评审 lease 不复用审批卡身份。"""
+        _ScopedActivityEvent.__post_init__(self)
+        for field_name in (
+            "review_id",
+            "approval_id",
+            "call_id",
+            "action_summary",
+        ):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"approval review {field_name} is required")
+            object.__setattr__(self, field_name, value.strip())
+        if (
+            isinstance(self.presentation_epoch, bool)
+            or not isinstance(self.presentation_epoch, int)
+            or self.presentation_epoch < 1
+        ):
+            raise ValueError("approval review presentation_epoch must be positive")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ApprovalReviewStarted(_ApprovalReviewActivityEvent):
+    """描述一项自动审批评审取得活动 lease。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ApprovalReviewCompleted(_ApprovalReviewActivityEvent):
+    """描述一项自动审批评审释放活动 lease。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RetryChanged(_ScopedActivityEvent):
     """描述一个独立重试来源开始或结束。"""
 
@@ -420,6 +463,8 @@ OutputActivityEvent: typing.TypeAlias = (
     | TerminalWaitCompleted
     | ApprovalStarted
     | ApprovalCompleted
+    | ApprovalReviewStarted
+    | ApprovalReviewCompleted
     | RetryChanged
     | RecoveryChanged
     | TurnTerminal

@@ -6,11 +6,17 @@ from agent.adapters.protocol.approval_reviews import (
     ApprovalReviewEventHandler,
     approval_review_record,
 )
+from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.domain.approvals import (
     ApprovalActionKind,
     ApprovalReviewRiskLevel,
     ApprovalReviewStatus,
     ApprovalReviewUserAuthorization,
+)
+from agent.ports import (
+    ApprovalReviewCompleted,
+    ApprovalReviewStarted,
+    OutputSurfaceContext,
 )
 from protocol.schema.stream_events import (
     MarkerEvent,
@@ -30,12 +36,56 @@ class _ReviewFeed:
     async def record_review(self, update) -> None:
         self.records.append(update)
 
+    async def completed_approval_review(self, identity):
+        return next(
+            (
+                item
+                for item in reversed(self.records)
+                if item.identity.approval_id == identity.approval_id
+                and item.identity.action_id == identity.action_id
+                and item.terminal
+            ),
+            None,
+        )
+
     async def clear_approval_reviews(
         self,
         session_id: str,
         run_id: str,
     ) -> None:
         self.cleared.append((session_id, run_id))
+
+
+class _Sink:
+    """记录评审 activity 和 presentation 投影。"""
+
+    def __init__(self) -> None:
+        self.items: list[object] = []
+
+    async def emit(self, item: object) -> None:
+        self.items.append(item)
+
+
+def _handler(
+    feed: _ReviewFeed,
+) -> tuple[ApprovalReviewEventHandler, _Sink]:
+    activity_sink = _Sink()
+    context = OutputSurfaceContext(
+        surface_id="surface-review",
+        cid="cid-review",
+        sid="sid-review",
+        turn_id="turn-review",
+        agent_id="root",
+    )
+    return (
+        ApprovalReviewEventHandler(
+            feed,
+            session_id="sid-review",
+            run_id="turn-review",
+            activity=TurnActivityProjector(context, activity_sink),
+        ),
+        activity_sink,
+    )
 
 
 def _review_event(
@@ -117,11 +167,7 @@ def test_wire_review_maps_to_typed_domain_record() -> None:
 @pytest.mark.anyio
 async def test_review_handler_clears_replaced_epoch_and_ignores_stale_review() -> None:
     feed = _ReviewFeed()
-    handler = ApprovalReviewEventHandler(
-        feed,
-        session_id="sid-review",
-        run_id="turn-review",
-    )
+    handler, activity = _handler(feed)
     started = _review_event(
         "tool.approval_review.started",
         "in_progress",
@@ -155,6 +201,7 @@ async def test_review_handler_clears_replaced_epoch_and_ignores_stale_review() -
     assert [record.status for record in feed.records] == [
         ApprovalReviewStatus.IN_PROGRESS,
     ]
+    assert isinstance(activity.items[0], ApprovalReviewStarted)
     assert feed.cleared == [("sid-review", "turn-review")]
 
     await handler.close()
@@ -168,11 +215,7 @@ async def test_review_handler_clears_replaced_epoch_and_ignores_stale_review() -
 @pytest.mark.anyio
 async def test_review_handler_accepts_self_contained_replayed_completion() -> None:
     feed = _ReviewFeed()
-    handler = ApprovalReviewEventHandler(
-        feed,
-        session_id="sid-review",
-        run_id="turn-review",
-    )
+    handler, activity = _handler(feed)
     completed = _review_event(
         "tool.approval_review.completed",
         "timed_out",
@@ -184,5 +227,6 @@ async def test_review_handler_accepts_self_contained_replayed_completion() -> No
     assert await handler.handle(completed) is True
     assert feed.records[0].status is ApprovalReviewStatus.TIMED_OUT
     assert feed.records[0].presentation_epoch == 3
+    assert isinstance(activity.items[0], ApprovalReviewCompleted)
 
     await handler.close()

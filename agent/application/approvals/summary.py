@@ -3,11 +3,21 @@
 
 import typing
 import unicodedata
+from collections.abc import Mapping
 
 from agent.application.views.commands import command_preview
 from .amendments import approval_execpolicy_amendment
 
 APPROVAL_SNIPPET_MAX_GRAPHEMES = 80
+
+ApprovalReviewActionKind: typing.TypeAlias = typing.Literal[
+    "command",
+    "write_stdin",
+    "apply_patch",
+    "network_access",
+    "request_permissions",
+    "mcp_tool_call",
+]
 
 
 def approval_summary(approval: dict[str, typing.Any]) -> str:
@@ -22,6 +32,49 @@ def approval_summary(approval: dict[str, typing.Any]) -> str:
         command = command_preview(approval.get("command")).title
     tool = str(approval.get("tool") or "").strip()
     return _truncate_approval_snippet(command or tool or "tool call")
+
+
+def approval_review_action_summary(
+    kind: ApprovalReviewActionKind,
+    action: Mapping[str, typing.Any],
+) -> str:
+    """把已校验的自动评审动作转换为稳定动词摘要。"""
+    if not isinstance(action, Mapping):
+        raise TypeError("approval review action must be an object")
+    if kind == "command":
+        command = command_preview(action.get("command")).title
+        return f"run {_truncate_approval_snippet(command or 'the command')}"
+    if kind == "write_stdin":
+        session_id = _summary_text(
+            action.get("session_id") or action.get("process_id")
+        )
+        target = f"terminal {session_id}" if session_id else "the terminal"
+        return f"write to {_truncate_approval_snippet(target)}"
+    if kind == "apply_patch":
+        files = action.get("files")
+        paths = tuple(
+            _summary_text(item)
+            for item in files
+        ) if isinstance(files, (list, tuple)) else ()
+        paths = tuple(path for path in paths if path)
+        if len(paths) == 1:
+            return f"apply a patch to {_truncate_approval_snippet(paths[0])}"
+        if paths:
+            return f"apply a patch to {len(paths)} files"
+        return "apply the requested patch"
+    if kind == "network_access":
+        target = _summary_text(action.get("target") or action.get("host"))
+        return f"access {_truncate_approval_snippet(target or 'the network target')}"
+    if kind == "request_permissions":
+        scope = _summary_text(action.get("scope"))
+        suffix = f" for {_truncate_approval_snippet(scope)}" if scope else ""
+        return f"use the requested permissions{suffix}"
+    if kind == "mcp_tool_call":
+        server = _summary_text(action.get("server"))
+        tool_name = _summary_text(action.get("tool_name"))
+        target = ".".join(item for item in (server, tool_name) if item)
+        return f"call MCP tool {_truncate_approval_snippet(target or 'unknown')}"
+    raise ValueError("approval review action kind is invalid")
 
 
 def approval_shell_commands(approval: dict[str, typing.Any]) -> list[typing.Any]:
@@ -83,6 +136,11 @@ def _approval_arguments(approval: dict[str, typing.Any]) -> dict[str, typing.Any
     """返回审批载荷中的工具参数。"""
     raw = approval.get("arguments", approval.get("args"))
     return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _summary_text(value: typing.Any) -> str:
+    """把动作载荷字段压缩为单行摘要。"""
+    return " ".join(str(value or "").split())
 
 
 def _approval_graphemes(text: str) -> typing.Iterator[str]:

@@ -7,6 +7,8 @@ import pytest
 
 from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.ports import (
+    ApprovalReviewCompleted,
+    ApprovalReviewStarted,
     AssistantBuffered,
     AssistantSegmentCompleted,
     AssistantSettled,
@@ -201,6 +203,67 @@ def test_reducer_preserves_named_tool_leases_and_completion_history() -> None:
             tool_kind="builtin",
             name="web_search",
         ))
+
+
+def test_reducer_projects_parallel_approval_reviews_and_stable_details() -> None:
+    context = _context()
+    state = _active_state(context)
+    reviews = tuple(
+        ApprovalReviewStarted(
+            **_scope(context),
+            review_id=f"review-{index}",
+            approval_id=f"approval-{index}",
+            call_id=f"call-{index}",
+            action_summary=f"run command {index}",
+            presentation_epoch=1,
+        )
+        for index in range(1, 5)
+    )
+    for review in reviews:
+        state = reduce_turn_surface(state, review)
+
+    assert project_turn_surface(state) == SurfaceProjection(
+        "reviewing",
+        title="Reviewing 4 approval requests",
+        detail="run command 1\nrun command 2\nrun command 3\n+1 more",
+        revision=5,
+    )
+
+    completed = ApprovalReviewCompleted(
+        **_scope(context),
+        review_id="review-2",
+        approval_id="approval-2",
+        call_id="call-2",
+        action_summary="run command 2",
+        presentation_epoch=1,
+    )
+    state = reduce_turn_surface(state, completed)
+    projection = project_turn_surface(state)
+    assert projection.title == "Reviewing 3 approval requests"
+    assert projection.detail == "run command 1\nrun command 3\nrun command 4"
+    assert reduce_turn_surface(state, completed) is state
+
+
+def test_reducer_clears_review_lease_on_presentation_supersede() -> None:
+    context = _context()
+    state = _active_state(context)
+    review = ApprovalReviewStarted(
+        **_scope(context),
+        review_id="review-stale",
+        approval_id="approval-stale",
+        call_id="call-stale",
+        action_summary="access https://example.com",
+        presentation_epoch=1,
+    )
+    state = reduce_turn_surface(state, review)
+    state = reduce_turn_surface(state, PresentationSuperseded(
+        **_scope(context),
+        superseded_epoch=1,
+        presentation_epoch=2,
+    ))
+
+    assert state.approval_reviews == ()
+    assert project_turn_surface(state).indicator == "hidden"
 
 
 def test_reducer_suppresses_replay_and_restores_latest_projection() -> None:
@@ -674,6 +737,56 @@ async def test_tui_transport_retry_uses_typed_surface_until_terminal() -> None:
     assert runtime.screen.activity_block is None
     await activity.transport_recovery_changed("caught_up", 5)
     assert "Thinking" in _activity_text(runtime)
+
+    await activity.turn_terminal("interrupted")
+    assert runtime.screen.activity_block is None
+    await session.close()
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_tui_review_activity_uses_wait_family_and_parallel_details() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context(surface_id="surface_review_frame")
+    session = create_tui_output_session(
+        "",
+        context=context,
+        runtime=runtime,
+        animate=False,
+    )
+    await session.open()
+    activity = TurnActivityProjector(context, session.activity)
+
+    await activity.approval_review_started(
+        "review-1",
+        "approval-1",
+        "call-1",
+        action_summary="run git status",
+        presentation_epoch=1,
+    )
+    await activity.approval_review_started(
+        "review-2",
+        "approval-2",
+        "call-2",
+        action_summary="access https://example.com",
+        presentation_epoch=1,
+    )
+
+    visible = _activity_text(runtime)
+    assert "Reviewing 2 approval requests" in visible
+    assert "run git status" in visible
+    assert "access https://example.com" in visible
+    assert "Thinking" not in visible
+
+    await activity.approval_review_completed(
+        "review-1",
+        "approval-1",
+        "call-1",
+        action_summary="run git status",
+        presentation_epoch=1,
+    )
+    assert "Reviewing approval request" in _activity_text(runtime)
 
     await activity.turn_terminal("interrupted")
     assert runtime.screen.activity_block is None
