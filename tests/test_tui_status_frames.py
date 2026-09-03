@@ -2,7 +2,7 @@
 
 import pytest
 from prompt_toolkit.utils import get_cwidth
-from frontends.terminal.capabilities import TerminalColorLevel
+from frontends.terminal.color_support import TerminalColorLevel
 
 from frontends.tui.core.status_frames import (
     SPINNER_FRAMES,

@@ -11,7 +11,7 @@ from prompt_toolkit.utils import get_cwidth
 
 from agent.ports import ActivityStatusKind
 from agent.ports.presentation import TextStyle
-from frontends.terminal.capabilities import TerminalColorLevel
+from frontends.terminal.color_support import TerminalColorLevel
 from frontends.terminal.mcp_status import (
     McpStatusView,
     external_mcp_status_view,

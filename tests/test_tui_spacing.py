@@ -30,10 +30,15 @@ from agent.application.approvals.models import ApprovalDecisionValue
 from agent.ports.presentation import ApplicationView
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
+    TerminalTheme,
+)
+from frontends.terminal.color_support import (
     TerminalColorLevel,
+    TerminalColorSupport,
+)
+from frontends.terminal.identity import (
     TerminalIdentity,
     TerminalKind,
-    TerminalTheme,
 )
 from infrastructure.skills import SkillSpec
 from metadata import const
@@ -8012,7 +8017,7 @@ async def test_transcript_overlay_keeps_stream_source_text_for_raw_mode() -> Non
 async def test_markdown_hyperlink_degrades_safely_in_dynamic_tui() -> None:
     capabilities = TerminalCapabilities(
         TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
-        TerminalColorLevel.TRUECOLOR,
+        TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
     )
     runtime = TuiRuntime(terminal_capabilities=capabilities)
     runtime.screen._output_size = lambda: (20, 10)
@@ -8191,7 +8196,7 @@ async def test_dynamic_tui_hyperlink_cells_are_self_contained() -> None:
     )
     capabilities = TerminalCapabilities(
         TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
-        TerminalColorLevel.TRUECOLOR,
+        TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
     )
 
     with create_pipe_input() as pipe_input:
@@ -9942,7 +9947,7 @@ async def test_tui_patch_reflows_from_structured_view_after_resize() -> None:
 async def test_tui_patch_background_fills_each_wrapped_row_after_resize() -> None:
     capabilities = TerminalCapabilities(
         identity=TerminalIdentity(TerminalKind.UNKNOWN, "test"),
-        color_level=TerminalColorLevel.TRUECOLOR,
+        color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
         theme=TerminalTheme(background=(0, 0, 0)),
     )
     runtime = TuiRuntime(terminal_capabilities=capabilities)

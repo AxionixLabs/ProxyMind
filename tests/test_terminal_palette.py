@@ -1,4 +1,4 @@
-from frontends.terminal.capabilities import TerminalColorLevel
+from frontends.terminal.color_support import TerminalColorLevel
 from frontends.terminal.palette import best_color, blend_color, semantic_color
 
 

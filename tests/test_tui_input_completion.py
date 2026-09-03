@@ -16,10 +16,15 @@ from prompt_toolkit.utils import get_cwidth
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
+    TerminalTheme,
+)
+from frontends.terminal.color_support import (
     TerminalColorLevel,
+    TerminalColorSupport,
+)
+from frontends.terminal.identity import (
     TerminalIdentity,
     TerminalKind,
-    TerminalTheme,
 )
 from infrastructure.skills import SkillSpec
 from frontends.interaction.contracts import PromptContext
@@ -394,7 +399,7 @@ def test_token_menu_highlights_match_indices_in_rendered_rows() -> None:
 def test_light_theme_uses_deep_cyan_for_selected_token_styles() -> None:
     runtime = TuiRuntime(terminal_capabilities=TerminalCapabilities(
         identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
-        color_level=TerminalColorLevel.TRUECOLOR,
+        color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
         theme=TerminalTheme(background=(255, 255, 255)),
     ))
 

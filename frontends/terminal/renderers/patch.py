@@ -18,8 +18,8 @@ from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     RgbColor,
     TerminalCapabilities,
-    TerminalColorLevel
 )
+from frontends.terminal.color_support import TerminalColorLevel
 from frontends.terminal.highlighting import highlight_code_lines
 from frontends.terminal.palette import best_color, is_light_color
 from frontends.terminal.text_layout import (
@@ -312,7 +312,7 @@ def _wrapped_row(
 def _diff_palette(capabilities: TerminalCapabilities) -> _DiffPalette:
     """按终端主题和色深选择补丁调色板。"""
     light = _is_light_color(capabilities.theme.background)
-    level = capabilities.color_level
+    level = capabilities.color_support.effective_level
 
     add_scope = _theme_scope_color(
         capabilities,

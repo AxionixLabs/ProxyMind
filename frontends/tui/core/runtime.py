@@ -321,7 +321,7 @@ class TuiRuntime(object):
             ),
             clear_renderable=self.screen.clear_activity_renderable,
             get_width=lambda: self.terminal_width,
-            color_level=terminal_capabilities.color_level,
+            color_level=terminal_capabilities.color_support.effective_level,
         )
 
         self._application_lifecycle = ApplicationLifecycle(

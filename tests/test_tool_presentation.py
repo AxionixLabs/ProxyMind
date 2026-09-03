@@ -5,10 +5,15 @@ import pytest
 from prompt_toolkit.utils import get_cwidth
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
+    TerminalTheme,
+)
+from frontends.terminal.color_support import (
     TerminalColorLevel,
+    TerminalColorSupport,
+)
+from frontends.terminal.identity import (
     TerminalIdentity,
     TerminalKind,
-    TerminalTheme,
 )
 from frontends.terminal.mcp_status import (
     McpStatusDetail,
@@ -73,7 +78,7 @@ def _terminal_capabilities(
 ) -> TerminalCapabilities:
     return TerminalCapabilities(
         identity=TerminalIdentity(TerminalKind.UNKNOWN, "test"),
-        color_level=color_level,
+        color_support=TerminalColorSupport.fixed(color_level),
         theme=TerminalTheme(background=background),
     )
 
@@ -951,7 +956,7 @@ def test_patch_theme_scope_backgrounds_override_codex_fallbacks() -> None:
     )
     capabilities = TerminalCapabilities(
         identity=TerminalIdentity(TerminalKind.UNKNOWN, "test"),
-        color_level=TerminalColorLevel.TRUECOLOR,
+        color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
         theme=TerminalTheme(
             background=(0, 0, 0),
             scope_backgrounds=(

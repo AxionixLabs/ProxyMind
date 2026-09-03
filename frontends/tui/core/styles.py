@@ -18,8 +18,8 @@ from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     RgbColor,
     TerminalCapabilities,
-    TerminalColorLevel,
 )
+from frontends.terminal.color_support import TerminalColorLevel
 from frontends.terminal.palette import (
     best_color,
     is_light_color,
@@ -266,7 +266,7 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
     if light:
         accent = semantic_color(
             (0, 95, 135),
-            capabilities.color_level,
+            capabilities.color_support.effective_level,
             fallback="ansicyan",
         )
         styles.update({
@@ -392,7 +392,7 @@ def _surface_color(
     capabilities: TerminalCapabilities,
 ) -> str:
     """将表面 RGB 按终端色阶转换为可渲染颜色。"""
-    return best_color(color, capabilities.color_level) or "default"
+    return best_color(color, capabilities.color_support.effective_level) or "default"
 
 
 def _is_light_color(color: RgbColor) -> bool:
@@ -453,7 +453,7 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
     if foreground is not None and background is not None:
         separator = best_color(
             _blend_color(foreground, background, 0.20),
-            capabilities.color_level,
+            capabilities.color_support.effective_level,
         )
 
         separator_style = f"fg:{separator}" if separator else "dim"
@@ -468,7 +468,7 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
 
     light = background is not None and _is_light_color(background)
 
-    if capabilities.color_level is TerminalColorLevel.UNKNOWN:
+    if capabilities.color_support.effective_level is TerminalColorLevel.UNKNOWN:
         styles.update({
             "approval-mcp-label": "fg:default bold",
             "approval-mcp-value": "fg:default",
@@ -519,7 +519,7 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
         for style_class, (rgb, fallback, emphasis) in mcp_palette.items():
             color = semantic_color(
                 rgb,
-                capabilities.color_level,
+                capabilities.color_support.effective_level,
                 fallback=fallback,
             )
             styles[style_class] = " ".join(
@@ -529,7 +529,7 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
     accent = (
         semantic_color(
             (0, 95, 135),
-            capabilities.color_level,
+            capabilities.color_support.effective_level,
             fallback="ansicyan",
         )
         if light
@@ -540,7 +540,7 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
         styles[style_class] = f"fg:{accent} bold"
 
     selection = selection_color(
-        capabilities.color_level,
+        capabilities.color_support.effective_level,
         light=light,
     )
 
@@ -549,7 +549,7 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
 
     selection_background = best_color(
         (207, 225, 246) if light else (29, 57, 105),
-        capabilities.color_level,
+        capabilities.color_support.effective_level,
     ) or "ansiblue"
 
     selection_foreground = "#20262C" if light else "#F4F7FA"

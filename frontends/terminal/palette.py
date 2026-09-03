@@ -3,10 +3,8 @@
 
 import math
 
-from .capabilities import (
-    RgbColor,
-    TerminalColorLevel,
-)
+from .capabilities import RgbColor
+from .color_support import TerminalColorLevel
 
 __all__ = [
     "best_color",

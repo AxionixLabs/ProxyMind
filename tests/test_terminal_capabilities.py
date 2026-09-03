@@ -7,15 +7,23 @@ import pytest
 from frontends.terminal import capabilities as terminal_capabilities
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
-    TerminalColorLevel,
-    TerminalIdentity,
-    TerminalKind,
     TerminalTheme,
     TerminalThemeCache,
     detect_terminal_capabilities,
-    detect_terminal_color_level,
-    detect_terminal_identity,
     parse_terminal_color_responses,
+)
+from frontends.terminal.color_support import (
+    TerminalColorLevel,
+    TerminalColorSource,
+    TerminalColorSupport,
+    detect_terminal_color_level,
+    detect_terminal_color_support,
+)
+from frontends.terminal.identity import (
+    TerminalIdentity,
+    TerminalIdentitySource,
+    TerminalKind,
+    detect_terminal_identity,
 )
 
 
@@ -37,11 +45,11 @@ class _InteractiveStream(object):
         ({"TERM_PROGRAM": "Apple_Terminal"}, TerminalKind.APPLE_TERMINAL),
     ),
 )
-def test_known_high_capability_terminal_identity(environ, expected) -> None:
+def test_known_terminal_identity(environ, expected) -> None:
     identity = detect_terminal_identity(environ)
 
     assert identity.kind == expected
-    assert identity.high_capability
+    assert identity.source is not TerminalIdentitySource.UNKNOWN
 
 
 def test_term_program_prevents_inherited_windows_terminal_false_positive() -> None:
@@ -51,19 +59,54 @@ def test_term_program_prevents_inherited_windows_terminal_false_positive() -> No
     })
 
     assert identity.kind == TerminalKind.VSCODE
-    assert not identity.high_capability
+    assert identity.source_variable == "TERM_PROGRAM"
 
 
 @pytest.mark.parametrize(
-    "environ",
+    ("environ", "expected"),
     (
-        {"TERM": "xterm-foot"},
-        {"TERM_PROGRAM": "Rio"},
-        {"TERM_PROGRAM": "WarpTerminal"},
+        ({"TERM": "xterm-foot"}, TerminalKind.FOOT),
+        ({"TERM_PROGRAM": "Rio"}, TerminalKind.RIO),
+        ({"TERM_PROGRAM": "WarpTerminal"}, TerminalKind.WARP),
     ),
 )
-def test_non_codex_terminal_aliases_remain_unknown(environ) -> None:
-    assert detect_terminal_identity(environ).kind is TerminalKind.UNKNOWN
+def test_declared_terminal_aliases_are_reachable(environ, expected) -> None:
+    assert detect_terminal_identity(environ).kind is expected
+
+
+def test_every_declared_terminal_kind_is_reachable() -> None:
+    identities = (
+        detect_terminal_identity({"WT_SESSION": "session"}),
+        detect_terminal_identity({"TERMINAL_EMULATOR": "JetBrains-JediTerm"}),
+        detect_terminal_identity({"TERM_PROGRAM": "iTerm.app"}),
+        detect_terminal_identity({"TERM_PROGRAM": "WezTerm"}),
+        detect_terminal_identity({"TERM_PROGRAM": "ghostty"}),
+        detect_terminal_identity({"TERM": "xterm-kitty"}),
+        detect_terminal_identity({"TERM": "alacritty"}),
+        detect_terminal_identity({"KONSOLE_VERSION": "240800"}),
+        detect_terminal_identity({"TERM": "xterm-foot"}),
+        detect_terminal_identity({"TERM_PROGRAM": "Rio"}),
+        detect_terminal_identity({"TERM_PROGRAM": "WarpTerminal"}),
+        detect_terminal_identity({"TERM_PROGRAM": "Apple_Terminal"}),
+        detect_terminal_identity({"GNOME_TERMINAL_SCREEN": "screen"}),
+        detect_terminal_identity({"TERM_PROGRAM": "vscode"}),
+        detect_terminal_identity({"VTE_VERSION": "7600"}),
+        detect_terminal_identity(
+            {"TMUX": "/tmp/tmux"},
+            tmux_probe=lambda: None,
+        ),
+        detect_terminal_identity({"ZELLIJ": "session"}),
+        detect_terminal_identity({"TERM": "dumb"}),
+        detect_terminal_identity({}),
+    )
+    reachable = {identity.kind for identity in identities}
+    reachable.update(
+        identity.multiplexer
+        for identity in identities
+        if identity.multiplexer is not None
+    )
+
+    assert reachable == set(TerminalKind)
 
 
 @pytest.mark.parametrize(
@@ -83,7 +126,7 @@ def test_terminal_hyperlinks_use_known_osc8_capabilities(
 ) -> None:
     capabilities = TerminalCapabilities(
         TerminalIdentity(kind, kind.value),
-        TerminalColorLevel.UNKNOWN,
+        TerminalColorSupport.fixed(TerminalColorLevel.UNKNOWN),
     )
 
     assert capabilities.hyperlinks is supported
@@ -97,7 +140,7 @@ def test_tmux_uses_outer_client_terminal_identity() -> None:
 
     assert identity.kind == TerminalKind.KITTY
     assert identity.multiplexer == TerminalKind.TMUX
-    assert identity.high_capability
+    assert identity.source is TerminalIdentitySource.TMUX_CLIENT
 
 
 @pytest.mark.parametrize(
@@ -124,6 +167,44 @@ def test_terminal_color_level_honors_overrides_and_capabilities(
     expected,
 ) -> None:
     assert detect_terminal_color_level(environ) == expected
+
+
+def test_jediterm_identity_prevents_inherited_windows_terminal_promotion() -> None:
+    environ = {
+        "TERMINAL_EMULATOR": "JetBrains-JediTerm",
+        "WT_SESSION": "inherited",
+        "TERM": "xterm-color",
+    }
+    identity = detect_terminal_identity(environ)
+    support = detect_terminal_color_support(environ, identity=identity)
+
+    assert identity.kind is TerminalKind.JETBRAINS_JEDITERM
+    assert identity.source_variable == "TERMINAL_EMULATOR"
+    assert support.raw_level is TerminalColorLevel.ANSI16
+    assert support.effective_level is TerminalColorLevel.ANSI16
+    assert support.effective_source is TerminalColorSource.TERM
+
+
+def test_windows_terminal_promotion_records_raw_and_effective_sources() -> None:
+    environ = {"WT_SESSION": "session", "TERM": "xterm-256color"}
+    identity = detect_terminal_identity(environ)
+    support = detect_terminal_color_support(environ, identity=identity)
+
+    assert support.raw_level is TerminalColorLevel.ANSI256
+    assert support.effective_level is TerminalColorLevel.TRUECOLOR
+    assert support.raw_source is TerminalColorSource.TERM
+    assert support.effective_source is TerminalColorSource.WINDOWS_TERMINAL
+
+
+def test_no_color_is_recorded_as_an_explicit_disable() -> None:
+    support = detect_terminal_color_support({
+        "NO_COLOR": "1",
+        "COLORTERM": "truecolor",
+    })
+
+    assert support.effective_level is TerminalColorLevel.UNKNOWN
+    assert support.explicitly_disabled
+    assert support.effective_source is TerminalColorSource.NO_COLOR
 
 
 @pytest.mark.parametrize(

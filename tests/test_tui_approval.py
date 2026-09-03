@@ -9,10 +9,15 @@ from prompt_toolkit.utils import get_cwidth
 
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
+    TerminalTheme,
+)
+from frontends.terminal.color_support import (
     TerminalColorLevel,
+    TerminalColorSupport,
+)
+from frontends.terminal.identity import (
     TerminalIdentity,
     TerminalKind,
-    TerminalTheme,
 )
 from frontends.tui.core.approval_render import (
     TUI_APPROVAL_STYLE,
@@ -274,7 +279,7 @@ def test_patch_approval_uses_dedicated_fullscreen_title_and_preview() -> None:
 
     rich_capabilities = TerminalCapabilities(
         identity=TerminalIdentity(TerminalKind.WINDOWS_TERMINAL, "Windows Terminal"),
-        color_level=TerminalColorLevel.TRUECOLOR,
+        color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
         theme=TerminalTheme(background=(31, 31, 31)),
     )
     rich_lines = approval_command_pager_lines(
@@ -581,7 +586,7 @@ def test_approval_question_uses_terminal_default_foreground(
         Style.from_dict({}),
         capabilities=TerminalCapabilities(
             identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
-            color_level=TerminalColorLevel.TRUECOLOR,
+            color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
             theme=TerminalTheme(background=background),
         ),
     )
@@ -624,7 +629,7 @@ def test_surface_background_depends_on_terminal_support(
                 kind,
                 name,
             ),
-            color_level=TerminalColorLevel.TRUECOLOR,
+            color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
             theme=TerminalTheme(background=(0, 0, 0)),
         ),
     )
@@ -650,7 +655,7 @@ def test_light_menu_surface_uses_dark_cyan_selection_without_row_background() ->
                 TerminalKind.WINDOWS_TERMINAL,
                 "Windows Terminal",
             ),
-            color_level=TerminalColorLevel.TRUECOLOR,
+            color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
             theme=TerminalTheme(background=(255, 255, 255)),
         ),
     )
@@ -670,12 +675,12 @@ def test_light_menu_surface_uses_dark_cyan_selection_without_row_background() ->
     (
         TerminalCapabilities(
             identity=TerminalIdentity(TerminalKind.UNKNOWN, "unknown"),
-            color_level=TerminalColorLevel.UNKNOWN,
+            color_support=TerminalColorSupport.fixed(TerminalColorLevel.UNKNOWN),
             theme=TerminalTheme(background=(0, 0, 0)),
         ),
         TerminalCapabilities(
             identity=TerminalIdentity(TerminalKind.WEZTERM, "WezTerm"),
-            color_level=TerminalColorLevel.TRUECOLOR,
+            color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
         ),
     ),
 )
@@ -705,7 +710,7 @@ def test_ansi256_surface_uses_quantized_background() -> None:
         Style.from_dict({}),
         capabilities=TerminalCapabilities(
             identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
-            color_level=TerminalColorLevel.ANSI256,
+            color_support=TerminalColorSupport.fixed(TerminalColorLevel.ANSI256),
             theme=TerminalTheme(background=(0, 0, 0)),
         ),
     )
@@ -723,7 +728,7 @@ def test_light_terminal_uses_darkened_surface_and_readable_selection() -> None:
         empty,
         capabilities=TerminalCapabilities(
             identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
-            color_level=TerminalColorLevel.TRUECOLOR,
+            color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
             theme=TerminalTheme(background=(255, 255, 255)),
         ),
     )
@@ -764,7 +769,7 @@ def test_dark_terminal_uses_blue_selection_palette(
         Style.from_dict({}),
         capabilities=TerminalCapabilities(
             identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
-            color_level=level,
+            color_support=TerminalColorSupport.fixed(level),
             theme=TerminalTheme(background=(0, 0, 0)),
         ),
     )
@@ -812,7 +817,7 @@ def test_mcp_semantic_colors_degrade_by_terminal_capability(
         Style.from_dict({}),
         capabilities=TerminalCapabilities(
             identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
-            color_level=level,
+            color_support=TerminalColorSupport.fixed(level),
             theme=TerminalTheme(background=(0, 0, 0)),
         ),
     )
@@ -841,7 +846,7 @@ def test_mcp_semantic_colors_use_readable_light_palette() -> None:
         Style.from_dict({}),
         capabilities=TerminalCapabilities(
             identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
-            color_level=TerminalColorLevel.TRUECOLOR,
+            color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
             theme=TerminalTheme(background=(255, 255, 255)),
         ),
     )
@@ -918,7 +923,7 @@ def test_shell_actions_use_blue_semantics_and_process_footer_is_dim() -> None:
         Style.from_dict({}),
         capabilities=TerminalCapabilities(
             identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
-            color_level=TerminalColorLevel.TRUECOLOR,
+            color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
             theme=TerminalTheme(background=(0, 0, 0)),
         ),
     )
@@ -941,7 +946,7 @@ def test_theme_foreground_drives_separator_contrast() -> None:
         Style.from_dict({}),
         capabilities=TerminalCapabilities(
             identity=TerminalIdentity(TerminalKind.ITERM2, "iTerm2"),
-            color_level=TerminalColorLevel.TRUECOLOR,
+            color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
             theme=TerminalTheme(
                 foreground=(200, 200, 200),
                 background=(0, 0, 0),

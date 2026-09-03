@@ -12,7 +12,12 @@ from agent.ports.presentation import ApplicationView
 from frontends.interaction.contracts import PromptContext
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
+)
+from frontends.terminal.color_support import (
     TerminalColorLevel,
+    TerminalColorSupport,
+)
+from frontends.terminal.identity import (
     TerminalIdentity,
     TerminalKind,
 )
@@ -214,7 +219,7 @@ async def test_rejected_steers_preserve_identity_before_tab_fifo() -> None:
 def test_queue_edit_hint_uses_terminal_fallback(identity) -> None:
     runtime = TuiRuntime(terminal_capabilities=TerminalCapabilities(
         identity=identity,
-        color_level=TerminalColorLevel.UNKNOWN,
+        color_support=TerminalColorSupport.fixed(TerminalColorLevel.UNKNOWN),
     ))
     runtime.defer_submission(_submission("next task"))
 
@@ -233,7 +238,7 @@ def test_queue_edit_hint_uses_terminal_fallback(identity) -> None:
 def test_queue_edit_hint_keeps_codex_default_binding(identity) -> None:
     runtime = TuiRuntime(terminal_capabilities=TerminalCapabilities(
         identity=identity,
-        color_level=TerminalColorLevel.UNKNOWN,
+        color_support=TerminalColorSupport.fixed(TerminalColorLevel.UNKNOWN),
     ))
     runtime.defer_submission(_submission("next task"))
 

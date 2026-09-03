@@ -43,10 +43,15 @@ from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.styles import build_tui_application_style
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
+    TerminalTheme,
+)
+from frontends.terminal.color_support import (
     TerminalColorLevel,
+    TerminalColorSupport,
+)
+from frontends.terminal.identity import (
     TerminalIdentity,
     TerminalKind,
-    TerminalTheme,
 )
 from prompt_toolkit.data_structures import Size
 from prompt_toolkit.input.defaults import create_pipe_input
@@ -430,7 +435,7 @@ def test_resume_picker_colors_match_codex_theme_blends(
                 TerminalKind.WINDOWS_TERMINAL,
                 "Windows Terminal",
             ),
-            color_level=TerminalColorLevel.TRUECOLOR,
+            color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
             theme=TerminalTheme(background=background),
         ),
     )
@@ -472,7 +477,7 @@ def test_resume_picker_backgrounds_follow_probed_apple_terminal_theme() -> None:
                 TerminalKind.APPLE_TERMINAL,
                 "Apple Terminal",
             ),
-            color_level=TerminalColorLevel.TRUECOLOR,
+            color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
             theme=TerminalTheme(background=(0, 0, 0)),
         ),
     )

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from prompt_toolkit.utils import get_cwidth
 
-from frontends.terminal.capabilities import TerminalColorLevel
+from frontends.terminal.color_support import TerminalColorLevel
 from .models import FormattedText
 
 StatusFamily = typing.Literal[
