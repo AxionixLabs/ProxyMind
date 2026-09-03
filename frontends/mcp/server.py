@@ -45,9 +45,9 @@ from infrastructure.config.paths import (
 from infrastructure.config.preferences import Preferences
 from infrastructure.config.runtime_paths import (
     agent_runtime_db_path,
-    ensure_mind_home,
-    mind_config_path,
-    mind_reports_dir,
+    ensure_application_home,
+    application_config_path,
+    reports_dir,
 )
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
@@ -176,7 +176,7 @@ def _require_environment_snapshot(
 
 
 @dataclass(frozen=True, slots=True)
-class MindMcpExecutionResult(object):
+class McpExecutionResult(object):
     """描述一次 MCP 工具调用及其可续接会话。"""
     run: RunResult
     session_id: str | None = None
@@ -200,12 +200,12 @@ class _McpRequestState(object):
         self.session_id: str | None = None
 
 
-class MindMcpRuntime(object):
+class McpServerRuntime(object):
     """管理 stdio MCP 服务持有的长驻应用运行时。"""
 
     def __init__(
         self,
-        mind: McpApplicationHost,
+        host: McpApplicationHost,
         *,
         report: RunReport,
         turn_runner: RootTurnRunner = _require_turn_runner,
@@ -215,8 +215,8 @@ class MindMcpRuntime(object):
         turn_application: TurnApplication[RunResult],
     ) -> None:
         """绑定主控制器、主动 Turn application 和串行调用锁。"""
-        self.mind = mind
-        self.default_workspace = Path(mind.history_workspace).resolve()
+        self.host = host
+        self.default_workspace = Path(host.history_workspace).resolve()
         self._report = report
         self._turn_runner = turn_runner
         self._environment_snapshot_provider = environment_snapshot_provider
@@ -239,14 +239,14 @@ class MindMcpRuntime(object):
         environment_snapshot_provider: EnvironmentSnapshotProvider = (
             _require_environment_snapshot
         ),
-    ) -> "MindMcpRuntime":
+    ) -> "McpServerRuntime":
         """创建并启动 MCP 服务使用的应用运行时。"""
-        ensure_mind_home()
-        report = RunReport(str(mind_reports_dir()), label="mcp_server")
+        ensure_application_home()
+        report = RunReport(str(reports_dir()), label="mcp_server")
 
         try:
             config_session = ConfigSession(
-                ConfigStore(mind_config_path()),
+                ConfigStore(application_config_path()),
                 config_overrides,
                 profile=config_profile,
                 workspace=Path.cwd(),
@@ -271,7 +271,7 @@ class MindMcpRuntime(object):
 
             hook_registry = runtime_services.create_hook_registry()
 
-            mind = application_host_factory(
+            host = application_host_factory(
                 config_session=config_session,
                 preferences=pref,
                 animation_enabled=False,
@@ -298,12 +298,12 @@ class MindMcpRuntime(object):
             service_endpoints.configure(
                 await ServiceConfig(config_session).load_domain()
             )
-            await mind.execution.external_mcp.start()
+            await host.execution.external_mcp.start()
             turn_application = runtime_services.create_turn_application(
                 agent_runtime_db_path()
             )
             return cls(
-                mind,
+                host,
                 report=report,
                 turn_runner=turn_runner,
                 environment_snapshot_provider=environment_snapshot_provider,
@@ -311,7 +311,7 @@ class MindMcpRuntime(object):
             )
         except BaseException:
             try:
-                await mind.resources.close()
+                await host.resources.close()
             finally:
                 report.close()
             raise
@@ -319,13 +319,13 @@ class MindMcpRuntime(object):
     async def close(self) -> None:
         """关闭应用运行时，并最后释放进程报告。"""
         try:
-            await self.mind.conversation.end(reason="exit")
+            await self.host.conversation.end(reason="exit")
         finally:
             try:
                 await self._turn_application.close(cancel_running=True)
             finally:
                 try:
-                    await self.mind.resources.close()
+                    await self.host.resources.close()
                 finally:
                     self._report.close()
 
@@ -338,7 +338,7 @@ class MindMcpRuntime(object):
         working_directory: str | None,
         timeout_sec: float | None = DEFAULT_MCP_EXEC_TIMEOUT_SEC,
         session_id: str | None = None
-    ) -> MindMcpExecutionResult:
+    ) -> McpExecutionResult:
         """串行执行一次支持超时和会话续接的模型请求。"""
         message = str(prompt or "").strip()
         if not message:
@@ -362,7 +362,7 @@ class MindMcpRuntime(object):
 
         request = _McpRequestState()
 
-        current_permissions = self.mind.conversation.permissions
+        current_permissions = self.host.conversation.permissions
         effective_sandbox_mode: SandboxMode = (
             current_permissions.sandbox_mode
             if sandbox_mode is None
@@ -416,17 +416,17 @@ class MindMcpRuntime(object):
         workspace: Path,
         requested_session_id: str | None,
         request: _McpRequestState
-    ) -> MindMcpExecutionResult:
+    ) -> McpExecutionResult:
         """在持有调用锁时选择会话并执行请求。"""
-        self.mind.set_history_workspace(workspace)
+        self.host.set_history_workspace(workspace)
 
         if requested_session_id is None:
-            metadata = await self.mind.conversation.reset(
+            metadata = await self.host.conversation.reset(
                 reason="mcp_tool_call",
                 source="mcp_server",
             )
         else:
-            record = self.mind.conversation.history.find(
+            record = self.host.conversation.history.find(
                 requested_session_id,
                 workspace=workspace,
             )
@@ -434,7 +434,7 @@ class MindMcpRuntime(object):
                 return self._failed(
                     "session_id is unavailable for this working directory"
                 )
-            metadata = await self.mind.conversation.resume(
+            metadata = await self.host.conversation.resume(
                 record,
                 source="mcp_server",
             )
@@ -444,7 +444,7 @@ class MindMcpRuntime(object):
         request.session_id = metadata["sid"]
 
         environment_snapshot = self._environment_snapshot_provider(
-            self.mind,
+            self.host,
             cwd=workspace,
             workspace_root=workspace,
         )
@@ -471,7 +471,7 @@ class MindMcpRuntime(object):
         )
 
         execute_root_turn = RootTurnCommandExecutor(
-            functools.partial(self._turn_runner, self.mind),
+            functools.partial(self._turn_runner, self.host),
             permissions=permissions,
         )
 
@@ -480,7 +480,7 @@ class MindMcpRuntime(object):
             execute_root_turn,
         )
 
-        return MindMcpExecutionResult(
+        return McpExecutionResult(
             run=execution.value,
             session_id=request.session_id,
             projection=execution.projection,
@@ -491,9 +491,9 @@ class MindMcpRuntime(object):
         error: str,
         *,
         session_id: str | None = None
-    ) -> MindMcpExecutionResult:
+    ) -> McpExecutionResult:
         """构造 MCP 工具调用的结构化失败结果。"""
-        return MindMcpExecutionResult(
+        return McpExecutionResult(
             run=RunResult(status="failed", error=error),
             session_id=session_id,
         )
@@ -503,9 +503,9 @@ class MindMcpRuntime(object):
         error: RunRecoveryRequired,
         *,
         session_id: str | None,
-    ) -> MindMcpExecutionResult:
+    ) -> McpExecutionResult:
         """返回需要先完成本地 Run 核对的结构化 MCP 结果。"""
-        return MindMcpExecutionResult(
+        return McpExecutionResult(
             run=RunResult(
                 status="reconciliation_required",
                 error=str(error),
@@ -514,7 +514,7 @@ class MindMcpRuntime(object):
         )
 
 
-def create_mind_mcp_server(
+def create_mcp_server(
     *,
     entry_file: str | None = None,
     layout: ApplicationLayout | None = None,
@@ -528,15 +528,15 @@ def create_mind_mcp_server(
     environment_snapshot_provider: EnvironmentSnapshotProvider = (
         _require_environment_snapshot
     ),
-) -> FastMCP[MindMcpRuntime]:
+) -> FastMCP[McpServerRuntime]:
     """创建提供 agent 工具的 stdio MCP 服务。"""
     resolved_layout = layout or resolve_application_layout(entry_file=entry_file)
 
     @contextlib.asynccontextmanager
     async def lifespan(
-        _: FastMCP[MindMcpRuntime]
-    ) -> typing.AsyncIterator[MindMcpRuntime]:
-        runtime = await MindMcpRuntime.open(
+        _: FastMCP[McpServerRuntime]
+    ) -> typing.AsyncIterator[McpServerRuntime]:
+        runtime = await McpServerRuntime.open(
             resolved_layout,
             config_overrides,
             config_profile,
@@ -550,7 +550,7 @@ def create_mind_mcp_server(
         finally:
             await runtime.close()
 
-    server: FastMCP[MindMcpRuntime] = FastMCP(
+    server: FastMCP[McpServerRuntime] = FastMCP(
         name=const.APP_DESC,
         instructions=(
             f"Use mind_exec to run {const.APP_DESC} agent tasks in the configured "
@@ -572,7 +572,7 @@ def create_mind_mcp_server(
     )
     async def mind_exec(
         prompt: str,
-        context: Context[typing.Any, MindMcpRuntime, typing.Any],
+        context: Context[typing.Any, McpServerRuntime, typing.Any],
         sandbox_mode: SandboxMode | None = None,
         approval_policy: ApprovalPolicy | None = None,
         working_directory: str | None = None,
@@ -595,7 +595,7 @@ def create_mind_mcp_server(
     return server
 
 
-async def run_mind_mcp_server(
+async def run_mcp_server(
     *,
     entry_file: str | None = None,
     config_overrides: tuple[ConfigOverride, ...] = (),
@@ -610,7 +610,7 @@ async def run_mind_mcp_server(
     ),
 ) -> int:
     """通过 stdio 运行 MCP 服务直至客户端断开。"""
-    server = create_mind_mcp_server(
+    server = create_mcp_server(
         entry_file=entry_file,
         config_overrides=config_overrides,
         config_profile=config_profile,

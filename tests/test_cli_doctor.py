@@ -165,8 +165,12 @@ def test_doctor_entry_skips_runtime_bootstrap(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(doctor, "resolve_application_layout", lambda **_kwargs: app_layout)
     monkeypatch.setattr(doctor, "resolve_service_runtime", lambda **_kwargs: runtime_spec)
     monkeypatch.setattr(doctor, "diagnose", diagnose_mock)
-    monkeypatch.setattr(doctor, "mind_home", lambda: tmp_path / ".mind")
-    monkeypatch.setattr(doctor, "mind_config_path", lambda: tmp_path / "config.toml")
+    monkeypatch.setattr(doctor, "application_home", lambda: tmp_path / ".mind")
+    monkeypatch.setattr(
+        doctor,
+        "application_config_path",
+        lambda: tmp_path / "config.toml",
+    )
     result = doctor.run_doctor_command(
         DoctorCommand(),
         entry_file=str(tmp_path / "mind.py"),

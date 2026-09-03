@@ -443,7 +443,7 @@ class TuiActivity(object):
                 phase=phase,
                 elapsed_sec=self._wait_elapsed(),
                 elapsed_min_sec=0.0,
-                animate_text_only=True,
+                sweep=True,
                 color_level=self.color_level,
             )
             fragments = list(block.fragments)
@@ -475,6 +475,7 @@ class TuiActivity(object):
             family=family,
             phase=phase,
             elapsed_sec=self._wait_elapsed(),
+            sweep=True,
             color_level=self.color_level,
         )
 
@@ -769,7 +770,9 @@ def _operation_activity_block(
     width: int
 ) -> FragmentBlock:
     """生成通用前台操作使用的单行状态。"""
-    summary = str(data.get("summary") or "working...").strip()
+    summary = str(data.get("summary") or "").strip()
+    if not summary:
+        raise ValueError("operation activity summary is required")
     summary = _truncate_display_text(summary, limit=max(12, int(width) - 3))
 
     return _status_block(
@@ -859,8 +862,7 @@ def _status_block(
     started_at: float = 0.0,
     elapsed_sec: float | None = None,
     spinner: bool = False,
-    sweep: bool = True,
-    animate_text_only: bool = False,
+    sweep: bool = False,
     elapsed_min_sec: float = 0.65,
     color_level: TerminalColorLevel = TerminalColorLevel.UNKNOWN
 ) -> FragmentBlock:
@@ -872,16 +874,6 @@ def _status_block(
         animated=sweep,
         color_level=color_level,
     )
-
-    if animate_text_only:
-        static_fragments = render_status_fragments(
-            text,
-            family=family,
-            phase=phase,
-            animated=False,
-            color_level=color_level,
-        )
-        fragments[1] = static_fragments[1]
 
     if spinner:
         fragments[0] = spinner_indicator_fragment(

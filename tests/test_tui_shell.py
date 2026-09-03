@@ -83,11 +83,11 @@ async def test_ps_without_sessions_renders_command_and_empty_terminal_state() ->
             "items": [],
         }),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         workspace_runtime=_workspace_runtime(coding=native_coding),
     )
 
-    handled = await manage_exec_sessions(runtime, mind)
+    handled = await manage_exec_sessions(runtime, host)
 
     assert handled
     assert runtime.document.active_block is None
@@ -139,7 +139,7 @@ async def test_streaming_ps_appends_process_summaries_without_menu() -> None:
         }
 
     output_snapshot = AsyncMock(side_effect=snapshot_for_session)
-    mind = SimpleNamespace(workspace_runtime=_workspace_runtime(
+    host = SimpleNamespace(workspace_runtime=_workspace_runtime(
         running_exec_sessions=AsyncMock(return_value={
             "count": len(sessions),
             "items": sessions,
@@ -147,7 +147,7 @@ async def test_streaming_ps_appends_process_summaries_without_menu() -> None:
         exec_session_output_snapshot=output_snapshot,
     ))
 
-    await append_exec_stream_snapshot(runtime, mind)
+    await append_exec_stream_snapshot(runtime, host)
 
     assert output_snapshot.await_count == 3
     for index in range(3):
@@ -228,7 +228,7 @@ async def test_shell_escape_starts_user_shell_watcher() -> None:
             "items": [],
         }),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
         workspace_runtime=_workspace_runtime(user_shell=user_shell),
         conversation=SimpleNamespace(snapshot=lambda: {
@@ -262,7 +262,7 @@ async def test_shell_escape_starts_user_shell_watcher() -> None:
             new=AsyncMock(side_effect=watch_ready),
         ) as watch,
     ):
-        handled = await run_shell_escape(runtime, mind, "!resolved arg")
+        handled = await run_shell_escape(runtime, host, "!resolved arg")
 
     assert handled
     user_shell.start_user_shell_session.assert_awaited_once_with(
@@ -273,7 +273,7 @@ async def test_shell_escape_starts_user_shell_watcher() -> None:
         owner_sid="sid_owner",
     )
     watch.assert_awaited_once()
-    assert watch.call_args.args[:3] == (runtime, mind, "exec_shell")
+    assert watch.call_args.args[:3] == (runtime, host, "exec_shell")
     assert watch.call_args.kwargs["announce_detach"] is True
     assert runtime.started[0] == "shell exec cell exec_shell"
     await runtime.task
@@ -299,7 +299,7 @@ async def test_shell_escape_background_task_keeps_input_visible() -> None:
         exec_session_output_snapshot=AsyncMock(return_value=snapshot),
         wait_exec_session_update=AsyncMock(return_value={"changed": False}),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         conversation=SimpleNamespace(snapshot=lambda: {"cid": "", "sid": ""}),
         frontend=SimpleNamespace(application=application),
         workspace_runtime=_workspace_runtime(user_shell=user_shell),
@@ -312,7 +312,7 @@ async def test_shell_escape_background_task_keeps_input_visible() -> None:
             return_value="shell",
         ),
     ):
-        handled = await run_shell_escape(runtime, mind, "!adb devices")
+        handled = await run_shell_escape(runtime, host, "!adb devices")
 
     assert handled
     assert runtime.inline_process_session_id == "exec_shell"
@@ -368,7 +368,7 @@ async def test_shell_escape_ctrl_c_interrupts_process_session() -> None:
         control_exec_session=AsyncMock(side_effect=control_exec_session),
         wait_exec_session_update=AsyncMock(return_value={"changed": False}),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         conversation=SimpleNamespace(snapshot=lambda: {"cid": "", "sid": ""}),
         frontend=SimpleNamespace(application=_ApplicationStub()),
         workspace_runtime=_workspace_runtime(user_shell=user_shell),
@@ -383,7 +383,7 @@ async def test_shell_escape_ctrl_c_interrupts_process_session() -> None:
     ):
         assert await run_shell_escape(
             runtime,
-            mind,
+            host,
             "!ping -t 8.8.8.8",
         )
 
@@ -493,7 +493,7 @@ async def test_second_shell_shows_first_shell_in_process_status() -> None:
         exec_session_output_snapshot=AsyncMock(return_value=current),
         wait_exec_session_update=wait_for_update,
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         conversation=SimpleNamespace(snapshot=lambda: {"cid": "", "sid": ""}),
         frontend=SimpleNamespace(application=_ApplicationStub()),
         workspace_runtime=_workspace_runtime(user_shell=user_shell),
@@ -506,7 +506,7 @@ async def test_second_shell_shows_first_shell_in_process_status() -> None:
             return_value="shell",
         ),
     ):
-        assert await run_shell_escape(runtime, mind, "!adb devices")
+        assert await run_shell_escape(runtime, host, "!adb devices")
 
     assert runtime.inline_process_session_id == "exec_second"
     assert runtime.screen.process_status.label == ""
@@ -615,7 +615,7 @@ async def test_detached_shell_completion_stays_with_owning_conversation(
             (snapshot, kwargs)
         ),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(application=_ApplicationStub()),
         workspace_runtime=_workspace_runtime(
             exec_session_output_snapshot=AsyncMock(return_value=snapshot),
@@ -628,9 +628,9 @@ async def test_detached_shell_completion_stays_with_owning_conversation(
 
     await _watch_detached_exec_session(
         runtime,
-        mind,
+        host,
         "exec_shell",
-        execution=mind.workspace_runtime.coding,
+        execution=host.workspace_runtime.coding,
     )
 
     assert len(blocks) == expected_blocks
@@ -658,7 +658,7 @@ async def test_detached_shell_completion_waits_for_command_scope_result(
     current = {"cid": "cid_owner", "sid": "sid_owner"}
     runtime = TuiRuntime()
     runtime.begin_command_layout()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(application=_ApplicationStub()),
         workspace_runtime=_workspace_runtime(
             exec_session_output_snapshot=AsyncMock(return_value=snapshot),
@@ -669,9 +669,9 @@ async def test_detached_shell_completion_waits_for_command_scope_result(
     task = asyncio.create_task(
         _watch_detached_exec_session(
             runtime,
-            mind,
+            host,
             "exec_shell",
-            execution=mind.workspace_runtime.coding,
+            execution=host.workspace_runtime.coding,
         )
     )
     await asyncio.sleep(0)
@@ -827,12 +827,12 @@ async def test_stop_all_stops_immediately_and_cancels_background_watchers() -> N
         inline_process_session_ids=(),
         background_process_session_ids=frozenset(),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
         workspace_runtime=_workspace_runtime(coding=native_coding),
     )
 
-    result = await stop_all_exec_sessions(runtime, mind)
+    result = await stop_all_exec_sessions(runtime, host)
 
     assert result is None
     assert cancelled == ["exec_shell", "exec_tool"]
@@ -867,12 +867,12 @@ async def test_stop_all_without_background_terminals_keeps_stopping_message() ->
         inline_process_session_ids=(),
         background_process_session_ids=frozenset(),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
         workspace_runtime=_workspace_runtime(coding=native_coding),
     )
 
-    result = await stop_all_exec_sessions(runtime, mind)
+    result = await stop_all_exec_sessions(runtime, host)
 
     assert result is None
     native_coding.stop_exec_sessions.assert_not_awaited()
@@ -899,7 +899,7 @@ async def test_ps_snapshot_does_not_acknowledge_completed_history() -> None:
         },
         label="long task completed",
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         workspace_runtime=_workspace_runtime(
             running_exec_sessions=AsyncMock(return_value={
                 "count": 0,
@@ -908,7 +908,7 @@ async def test_ps_snapshot_does_not_acknowledge_completed_history() -> None:
         ),
     )
 
-    handled = await manage_exec_sessions(runtime, mind)
+    handled = await manage_exec_sessions(runtime, host)
 
     assert handled
     assert runtime.process_completion_snapshots()
@@ -940,7 +940,7 @@ async def test_ps_appends_snapshot_without_opening_viewer() -> None:
         "status": "running",
         "output_lines": ["line 1", "line 2"],
     })
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         workspace_runtime=_workspace_runtime(
             running_exec_sessions=AsyncMock(return_value={
                 "count": 1,
@@ -950,7 +950,7 @@ async def test_ps_appends_snapshot_without_opening_viewer() -> None:
         ),
     )
 
-    await manage_exec_sessions(runtime, mind)
+    await manage_exec_sessions(runtime, host)
 
     output_snapshot.assert_awaited_once_with(
         session_id="exec_shell",
@@ -992,7 +992,7 @@ async def test_ps_excludes_inline_cell_but_keeps_detached_exec() -> None:
         "status": "running",
         "output_lines": ["detached output"],
     })
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         workspace_runtime=_workspace_runtime(
             running_exec_sessions=AsyncMock(return_value={
                 "count": 2,
@@ -1002,7 +1002,7 @@ async def test_ps_excludes_inline_cell_but_keeps_detached_exec() -> None:
         ),
     )
 
-    await manage_exec_sessions(runtime, mind)
+    await manage_exec_sessions(runtime, host)
 
     output_snapshot.assert_awaited_once_with(
         session_id="exec_detached",
@@ -1084,7 +1084,7 @@ async def test_inline_shell_skips_only_fully_unchanged_render_blocks() -> None:
             },
         ]),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
         workspace_runtime=_workspace_runtime(user_shell=user_shell),
     )
@@ -1112,7 +1112,7 @@ async def test_inline_shell_skips_only_fully_unchanged_render_blocks() -> None:
     ):
         result = await watch_user_shell_session(
             runtime,
-            mind,
+            host,
             "exec_shell",
             initial_snapshot=initial,
         )
@@ -1472,7 +1472,7 @@ async def test_foreground_process_completion_commits_in_place() -> None:
             "snapshot": completed,
         }),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
         workspace_runtime=_workspace_runtime(user_shell=user_shell),
     )
@@ -1480,7 +1480,7 @@ async def test_foreground_process_completion_commits_in_place() -> None:
 
     result = await watch_user_shell_session(
         runtime,
-        mind,
+        host,
         "exec_shell",
         announce_detach=True,
         initial_snapshot=initial,
@@ -1684,7 +1684,7 @@ async def test_inline_process_starts_are_serialized() -> None:
 @pytest.mark.anyio
 async def test_exec_session_update_timeout_does_not_request_snapshot() -> None:
     wait_update = AsyncMock(return_value=False)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         workspace_runtime=_workspace_runtime(
             wait_exec_session_update=wait_update,
         ),
@@ -1693,7 +1693,7 @@ async def test_exec_session_update_timeout_does_not_request_snapshot() -> None:
     update_event = await _wait_for_exec_session_update(
         "exec_shell",
         {"revision": 7},
-        execution=mind.workspace_runtime.coding,
+        execution=host.workspace_runtime.coding,
     )
 
     assert update_event is None
@@ -1813,7 +1813,7 @@ async def test_ps_cross_conversation_completion_does_not_commit_transcript(
         "exit_code": 0,
         "output_lines": ["working", "complete"],
     }
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(application=_ApplicationStub()),
         workspace_runtime=_workspace_runtime(user_shell=SimpleNamespace(
             running_exec_sessions=AsyncMock(return_value={
@@ -1837,7 +1837,7 @@ async def test_ps_cross_conversation_completion_does_not_commit_transcript(
 
     result = await watch_user_shell_session(
         runtime,
-        mind,
+        host,
         "exec_shell",
         initial_snapshot=completed if starts_exited else running,
     )

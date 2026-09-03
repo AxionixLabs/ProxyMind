@@ -86,32 +86,32 @@ if typing.TYPE_CHECKING:
 
 
 def _present(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     renderable: FragmentBlock | StyledBlock | None = None,
     *,
     view_type: str = "tui.command"
 ) -> None:
     """发送一项会话功能展示。"""
-    mind.frontend.application.emit(ApplicationView(
+    host.frontend.application.emit(ApplicationView(
         type=view_type,
         renderable=renderable,
     ))
 
 
-def render_compact_result(mind: "TuiApplicationHost", status: "CompactLiveStatus") -> None:
+def render_compact_result(host: "TuiApplicationHost", status: "CompactLiveStatus") -> None:
     """展示上下文压缩的最终状态。"""
     view = external_mcp_status_view(status.snapshot(), detail_limit=0)
 
     block = render_mcp_status_block(
         view,
-        terminal_width=mind.frontend.application.viewport.width,
+        terminal_width=host.frontend.application.viewport.width,
     )
 
     if not block.plain_text:
         return None
 
-    _present(mind, block, view_type="tui.compact.status")
-    _present(mind, view_type="tui.gap")
+    _present(host, block, view_type="tui.compact.status")
+    _present(host, view_type="tui.gap")
 
 
 async def confirm_archive_session(runtime: "MenuSelectionPort") -> bool:
@@ -267,7 +267,7 @@ class ForkLiveStatus(object):
 
 
 async def _replace_empty_fork_source(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     status: ForkLiveStatus,
     source: dict[str, str],
     *,
@@ -275,7 +275,7 @@ async def _replace_empty_fork_source(
     request_id: str = "",
 ) -> ForkLiveStatus:
     """把没有远端历史的分支请求转换为新会话。"""
-    target = await mind.conversation.reset(
+    target = await host.conversation.reset(
         reason="command:/fork-empty",
         source="tui:fork-empty",
     )
@@ -295,13 +295,13 @@ async def _replace_empty_fork_source(
     return status
 
 
-def compact_animation_enabled(mind: "TuiApplicationHost") -> bool:
+def compact_animation_enabled(host: "TuiApplicationHost") -> bool:
     """返回当前运行是否启用压缩动画。"""
-    return mind.activity.enabled
+    return host.activity.enabled
 
 
 async def compact_current_conversation(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     compactor: ConversationCompactor,
     *,
     pref_config: dict[str, typing.Any],
@@ -309,9 +309,9 @@ async def compact_current_conversation(
     """压缩当前会话上下文。"""
     status = CompactLiveStatus()
 
-    if compact_animation_enabled(mind):
+    if compact_animation_enabled(host):
         observe("compact.animation.start")
-        await mind.activity.start_compact(status.snapshot)
+        await host.activity.start_compact(status.snapshot)
 
     result = await compactor(
         pref_config=pref_config,
@@ -328,7 +328,7 @@ async def compact_current_conversation(
 
 
 async def fork_current_conversation(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     protocol_client: ProtocolCommandClient,
     *,
     before_turn_id: str = "",
@@ -336,23 +336,23 @@ async def fork_current_conversation(
     fallback_prompt: ResubmittablePrompt | None = None,
 ) -> ForkLiveStatus:
     """复制完整或指定轮次之前的上下文并按需切换会话标识。"""
-    source = mind.conversation.snapshot()
+    source = host.conversation.snapshot()
     boundary = str(before_turn_id or "").strip()
     status = ForkLiveStatus()
 
     if (
         bind_target
         and not boundary
-        and not mind.conversation.fork_source_available
+        and not host.conversation.fork_source_available
     ):
         return await _replace_empty_fork_source(
-            mind,
+            host,
             status,
             source,
             event="conversation.fork.skipped",
         )
 
-    request_id = mind.conversation.history.prepare_fork(
+    request_id = host.conversation.history.prepare_fork(
         source["cid"],
         source["sid"],
         boundary,
@@ -370,9 +370,9 @@ async def fork_current_conversation(
     )
 
     try:
-        if compact_animation_enabled(mind):
+        if compact_animation_enabled(host):
             observe("conversation.fork.animation.start")
-            await mind.activity.start_compact(status.snapshot)
+            await host.activity.start_compact(status.snapshot)
 
         receipt = await protocol_client.fork_session(
             cid=source["cid"],
@@ -392,7 +392,7 @@ async def fork_current_conversation(
             prompt = fallback_prompt
 
         if boundary and not isinstance(prompt, ResubmittablePrompt):
-            mind.conversation.history.clear_fork(
+            host.conversation.history.clear_fork(
                 source["cid"],
                 source["sid"],
                 request_id,
@@ -408,7 +408,7 @@ async def fork_current_conversation(
             return status
 
         if not valid_session_ids(target_cid, target_sid):
-            mind.conversation.history.clear_fork(
+            host.conversation.history.clear_fork(
                 source["cid"],
                 source["sid"],
                 request_id,
@@ -429,13 +429,13 @@ async def fork_current_conversation(
         bound_sid = target_sid
 
         if bind_target:
-            bound = await mind.conversation.bind(
+            bound = await host.conversation.bind(
                 target_cid,
                 target_sid,
                 source="tui",
             )
             if bound is None:
-                mind.conversation.history.clear_fork(
+                host.conversation.history.clear_fork(
                     source["cid"],
                     source["sid"],
                     request_id,
@@ -455,7 +455,7 @@ async def fork_current_conversation(
             bound_cid = bound["cid"]
             bound_sid = bound["sid"]
 
-        mind.conversation.history.clear_fork(
+        host.conversation.history.clear_fork(
             source["cid"],
             source["sid"],
             request_id,
@@ -491,14 +491,14 @@ async def fork_current_conversation(
     except ProtocolCommandError as error:
         error_code = error.code
         if bind_target and not boundary and error_code == "source_missing":
-            mind.conversation.history.clear_fork(
+            host.conversation.history.clear_fork(
                 source["cid"],
                 source["sid"],
                 request_id,
                 boundary,
             )
             return await _replace_empty_fork_source(
-                mind,
+                host,
                 status,
                 source,
                 event="conversation.fork.recovered",
@@ -506,7 +506,7 @@ async def fork_current_conversation(
             )
 
         if not error.retryable:
-            mind.conversation.history.clear_fork(
+            host.conversation.history.clear_fork(
                 source["cid"],
                 source["sid"],
                 request_id,
@@ -562,42 +562,42 @@ def _fork_receipt_values(receipt: ConversationForkReceipt) -> dict[str, typing.A
     return values
 
 
-def render_fork_result(mind: "TuiApplicationHost", status: ForkLiveStatus) -> None:
+def render_fork_result(host: "TuiApplicationHost", status: ForkLiveStatus) -> None:
     """展示会话分支操作的最终状态。"""
     view = external_mcp_status_view(status.snapshot(), detail_limit=0)
 
     block = render_mcp_status_block(
         view,
-        terminal_width=mind.frontend.application.viewport.width,
+        terminal_width=host.frontend.application.viewport.width,
     )
     if not block.plain_text:
         return None
 
-    _present(mind, block, view_type="tui.fork.status")
-    _present(mind, view_type="tui.gap")
+    _present(host, block, view_type="tui.fork.status")
+    _present(host, view_type="tui.gap")
 
 
-def render_fork_failure(mind: "TuiApplicationHost", error: BaseException) -> None:
+def render_fork_failure(host: "TuiApplicationHost", error: BaseException) -> None:
     """展示会话分支操作的未处理失败。"""
     message = str(getattr(error, "message", "") or str(error)).strip()
 
     status = ForkLiveStatus()
     status.failed(message or "Conversation fork failed. Try /fork again.")
 
-    render_fork_result(mind, status)
+    render_fork_result(host, status)
 
 
-def render_fork_interrupted(mind: "TuiApplicationHost") -> None:
+def render_fork_interrupted(host: "TuiApplicationHost") -> None:
     """展示会话分支操作被中断的状态。"""
     _present(
-        mind,
+        host,
         interrupted_status_block("Conversation fork"),
         view_type="tui.fork.interrupted",
     )
-    _present(mind, view_type="tui.gap")
+    _present(host, view_type="tui.gap")
 
 
-def render_compact_failure(mind: "TuiApplicationHost", error: BaseException) -> None:
+def render_compact_failure(host: "TuiApplicationHost", error: BaseException) -> None:
     """展示上下文压缩未处理异常的最终状态。"""
     message = str(error).strip()
 
@@ -610,17 +610,17 @@ def render_compact_failure(mind: "TuiApplicationHost", error: BaseException) -> 
     status = CompactLiveStatus()
     status.failed(f"Context compaction failed{detail}")
 
-    render_compact_result(mind, status)
+    render_compact_result(host, status)
 
 
-def render_compact_interrupted(mind: "TuiApplicationHost") -> None:
+def render_compact_interrupted(host: "TuiApplicationHost") -> None:
     """展示上下文压缩被用户中断的状态。"""
     _present(
-        mind,
+        host,
         interrupted_status_block("Context compaction"),
         view_type="tui.compact.interrupted",
     )
-    _present(mind, view_type="tui.gap")
+    _present(host, view_type="tui.gap")
 
 
 def compact_result_detail(result: CompactResult) -> str:
@@ -643,29 +643,29 @@ def _positive_int(value: typing.Any) -> int:
         return 0
 
 
-async def copy_last_assistant_reply(mind: "TuiApplicationHost") -> None:
+async def copy_last_assistant_reply(host: "TuiApplicationHost") -> None:
     """复制最近一次模型回复到剪贴板。"""
-    text = mind.conversation.last_assistant_reply()
+    text = host.conversation.last_assistant_reply()
     if not text:
-        _present(mind, failure_text_block("No agent response to copy"))
-        _present(mind, view_type="tui.gap")
+        _present(host, failure_text_block("No agent response to copy"))
+        _present(host, view_type="tui.gap")
         return None
 
     try:
         await copy_text_to_clipboard(text)
     except ClipboardError as error:
-        _present(mind, command_result_block(
+        _present(host, command_result_block(
             "/copy",
             TextSpan(f"Failed: {error}", FAILURE_STYLE),
         ))
-        _present(mind, view_type="tui.gap")
+        _present(host, view_type="tui.gap")
         return None
 
-    _present(mind, fragment_block(
+    _present(host, fragment_block(
         TextSpan("• ", BODY_STYLE),
         TextSpan("Copied last message to clipboard", BRIGHT_STYLE),
     ))
-    _present(mind, view_type="tui.gap")
+    _present(host, view_type="tui.gap")
 
 
 if __name__ == '__main__':

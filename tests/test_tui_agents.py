@@ -196,7 +196,7 @@ async def test_manage_agents_closes_selected_thread_and_returns_to_input() -> No
         close=AsyncMock(return_value=running),
         get=AsyncMock(return_value=closed),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         conversation=SimpleNamespace(sid="sid_root"),
         subagents=subagents,
         frontend=SimpleNamespace(
@@ -204,7 +204,7 @@ async def test_manage_agents_closes_selected_thread_and_returns_to_input() -> No
         ),
     )
 
-    task = asyncio.create_task(manage_agents(runtime, mind))
+    task = asyncio.create_task(manage_agents(runtime, host))
     await _wait_for_menu(runtime, "Sub-agents")
     runtime.screen.menu._choose_index(1)
     await _wait_for_menu(runtime, "Agent actions")
@@ -231,12 +231,12 @@ async def test_manage_agents_back_returns_to_agent_list() -> None:
     subagents = SimpleNamespace(
         snapshots=AsyncMock(return_value=(running,)),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         conversation=SimpleNamespace(sid="sid_root"),
         subagents=subagents,
     )
 
-    task = asyncio.create_task(manage_agents(runtime, mind))
+    task = asyncio.create_task(manage_agents(runtime, host))
     await _wait_for_menu(runtime, "Sub-agents")
     runtime.screen.menu._choose_index(1)
     await _wait_for_menu(runtime, "Agent actions")
@@ -258,12 +258,12 @@ async def test_manage_agents_show_appends_only_the_refreshed_snapshot() -> None:
         snapshots=AsyncMock(return_value=(listed,)),
         get=AsyncMock(return_value=current),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         conversation=SimpleNamespace(sid="sid_root"),
         subagents=subagents,
     )
 
-    task = asyncio.create_task(manage_agents(runtime, mind))
+    task = asyncio.create_task(manage_agents(runtime, host))
     await _wait_for_menu(runtime, "Sub-agents")
     runtime.screen.menu._choose_index(1)
     await _wait_for_menu(runtime, "Agent actions")
@@ -283,7 +283,7 @@ async def test_manage_agents_show_appends_only_the_refreshed_snapshot() -> None:
 async def test_manage_agents_without_root_session_has_no_side_effects() -> None:
     views = []
     snapshots = AsyncMock()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         conversation=SimpleNamespace(sid=None),
         subagents=SimpleNamespace(snapshots=snapshots),
         frontend=SimpleNamespace(
@@ -292,7 +292,7 @@ async def test_manage_agents_without_root_session_has_no_side_effects() -> None:
     )
 
     runtime = TuiRuntime()
-    task = asyncio.create_task(manage_agents(runtime, mind))
+    task = asyncio.create_task(manage_agents(runtime, host))
     await _wait_for_menu(runtime, "Sub-agents")
 
     snapshots.assert_not_awaited()

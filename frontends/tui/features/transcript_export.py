@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from infrastructure.config.runtime_paths import mind_reports_dir
+from infrastructure.config.runtime_paths import reports_dir
 from metadata import const
 from ..core.document import TranscriptBlock
 from ..core.models import (
@@ -30,7 +30,7 @@ class TranscriptExporter(object):
     """把语义记录以 Markdown 或原始文本原子写入文件。"""
 
     def __init__(self, root: str | Path | None = None) -> None:
-        self.root = Path(root or mind_reports_dir() / "transcripts").expanduser()
+        self.root = Path(root or reports_dir() / "transcripts").expanduser()
 
     def export(
         self,

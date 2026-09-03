@@ -23,8 +23,8 @@ from infrastructure.config.paths import (
     resolve_application_layout,
 )
 from infrastructure.config.runtime_paths import (
-    mind_config_path,
-    mind_home
+    application_config_path,
+    application_home
 )
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
@@ -527,8 +527,8 @@ def run_doctor_command(
         platform=layout.platform,
         entry_mode=layout.mode,
         entry_root=layout.root,
-        home=mind_home(),
-        config_path=mind_config_path(),
+        home=application_home(),
+        config_path=application_config_path(),
         supports=layout.supports,
         packaged=layout.packaged,
         runtime_spec=runtime_spec,

@@ -532,7 +532,7 @@ async def test_backtrack_loop_rolls_back_and_keeps_full_draft_on_false_commit(
         bound.append((cid, sid, source))
         return {"cid": cid, "sid": sid}
 
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         attach=attach,
         conversation=SimpleNamespace(bind=bind),
         frontend=SimpleNamespace(
@@ -576,7 +576,7 @@ async def test_backtrack_loop_rolls_back_and_keeps_full_draft_on_false_commit(
         extras={"selection": {"x": 10, "y": 20}},
     )
     await loop._handle_transcript_backtrack(
-        mind,
+        host,
         runtime,
         state,
         ForegroundStub(),

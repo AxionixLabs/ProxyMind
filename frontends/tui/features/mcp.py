@@ -73,32 +73,32 @@ MCP_DISABLED_STATUS_STYLE = semantic_text_style(
 
 
 def _present(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     renderable: typing.Any = None,
     *,
     view_type: str = "tui.mcp"
 ) -> None:
     """发送一项外部 MCP 展示。"""
-    mind.frontend.application.emit(ApplicationView(
+    host.frontend.application.emit(ApplicationView(
         type=view_type,
         renderable=renderable,
     ))
 
 
 def _present_external_mcp_result(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     view: McpStatusView
 ) -> bool:
     """提交一项外部 MCP 最终状态。"""
     block = render_mcp_status_block(
         view,
-        terminal_width=_mcp_terminal_width(mind),
+        terminal_width=_mcp_terminal_width(host),
     )
     if not block.plain_text:
         return False
 
-    _present(mind, block, view_type="tui.external_mcp.status")
-    _present(mind, view_type="tui.gap")
+    _present(host, block, view_type="tui.external_mcp.status")
+    _present(host, view_type="tui.gap")
     return True
 
 
@@ -129,19 +129,19 @@ def parse_mcp_command(value: str) -> tuple[bool, McpAction | None]:
 
 
 def summarize_external_runtime(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
 ) -> dict[str, typing.Any]:
     """汇总当前外部 MCP 配置与已连接工具状态。"""
     config_error: str = ""
 
     try:
-        config = mind.settings.config.load()
+        config = host.settings.config.load()
         configured = normalize_mcp_servers(config.get("mcp_servers"))
     except (OSError, TypeError, ValueError) as error:
         configured = []
         config_error = str(error)
 
-    runtime = mind.execution.external_mcp.current
+    runtime = host.execution.external_mcp.current
     tool_groups = [
         {
             "server": group.server,
@@ -180,9 +180,9 @@ def _filtered_count(value: typing.Any) -> int:
         return 0
 
 
-def _mcp_terminal_width(mind: "TuiApplicationHost") -> int:
+def _mcp_terminal_width(host: "TuiApplicationHost") -> int:
     """返回 MCP 状态块使用的有效终端宽度。"""
-    width = mind.frontend.application.viewport.width
+    width = host.frontend.application.viewport.width
 
     if isinstance(width, int) and width > 0:
         return width
@@ -320,60 +320,60 @@ def default_mcp_action_index(
 
 
 def render_mcp_action_result(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     action: McpAction,
     was_started: bool
 ) -> None:
     """展示外部 MCP 操作的最终结果。"""
     if action == "stop":
         render_external_mcp_stop_status(
-            mind,
+            host,
             already_stopped=not was_started,
         )
         return None
 
-    if not render_external_mcp_start_status(mind):
-        render_mcp_status(mind, command=None)
+    if not render_external_mcp_start_status(host):
+        render_mcp_status(host, command=None)
 
 
 def render_mcp_action_failure(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     action: McpAction,
     error: BaseException
 ) -> None:
     """展示外部 MCP 操作失败的最终结果。"""
     if action == "stop":
-        render_external_mcp_stop_status(mind, error=error)
+        render_external_mcp_stop_status(host, error=error)
     else:
-        render_external_mcp_start_status(mind, error=error)
+        render_external_mcp_start_status(host, error=error)
 
 
 def render_mcp_action_cancelled(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     action: McpAction,
 ) -> None:
     """展示外部 MCP 操作取消后的最终结果。"""
-    if action == "stop" and mind.execution.external_mcp.current is None:
-        render_external_mcp_stop_status(mind)
+    if action == "stop" and host.execution.external_mcp.current is None:
+        render_external_mcp_stop_status(host)
         return None
-    render_mcp_action_interrupted(mind, action)
+    render_mcp_action_interrupted(host, action)
 
 
 def render_mcp_action_interrupted(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     action: McpAction,
 ) -> None:
     """展示外部 MCP 操作被用户中断的状态。"""
     _present(
-        mind,
+        host,
         interrupted_status_block("External MCP", action=action),
         view_type="tui.external_mcp.interrupted",
     )
-    _present(mind, view_type="tui.gap")
+    _present(host, view_type="tui.gap")
 
 
 def render_external_mcp_start_status(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     *,
     error: BaseException | None = None,
 ) -> bool:
@@ -390,17 +390,17 @@ def render_external_mcp_start_status(
             details=(McpStatusDetail(f"  └ {detail}", "failed"),),
         )
     else:
-        runtime = mind.execution.external_mcp.current
+        runtime = host.execution.external_mcp.current
         snapshot = runtime.last_start_snapshot if runtime is not None else {}
         if not isinstance(snapshot, dict) or not snapshot:
             return False
         view = external_mcp_status_view(snapshot, detail_limit=5)
 
-    return _present_external_mcp_result(mind, view)
+    return _present_external_mcp_result(host, view)
 
 
 def render_external_mcp_stop_status(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     *,
     already_stopped: bool = False,
     error: BaseException | None = None,
@@ -425,19 +425,19 @@ def render_external_mcp_stop_status(
         )
         view = McpStatusView(summary=summary, level="ready", done=True)
 
-    _present_external_mcp_result(mind, view)
+    _present_external_mcp_result(host, view)
 
 
 def render_mcp_status(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     *,
     command: str | None = "/mcp status"
 ) -> None:
     """展示外部 MCP 服务状态。"""
-    summary = summarize_external_runtime(mind)
+    summary = summarize_external_runtime(host)
     configured = summary["configured"]
     tool_groups = summary["tool_groups"]
-    terminal_width = _mcp_terminal_width(mind)
+    terminal_width = _mcp_terminal_width(host)
     display_command = command or "/mcp"
 
     parts = [
@@ -515,17 +515,17 @@ def render_mcp_status(
                     ])
 
     block = fragment_block(*parts)
-    _present(mind, block)
-    _present(mind, view_type="tui.gap")
+    _present(host, block)
+    _present(host, view_type="tui.gap")
 
 
 async def _begin_external_mcp_restart_activity(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
 ) -> None:
     """在断开旧连接前启动外部 MCP 重启活动状态。"""
-    if not mind.activity.enabled:
+    if not host.activity.enabled:
         return None
-    runtime = require_tui_runtime(mind.frontend.runtime)
+    runtime = require_tui_runtime(host.frontend.runtime)
     await runtime.begin_external_mcp_status(
         lambda: {
             "summary": "External MCP restarting",
@@ -537,10 +537,10 @@ async def _begin_external_mcp_restart_activity(
 
 async def choose_mcp_action(
     runtime: "TuiRuntime",
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
 ) -> McpAction | None:
     """在主 TUI 中选择外部 MCP 操作。"""
-    summary = summarize_external_runtime(mind)
+    summary = summarize_external_runtime(host)
     actions = list(MCP_MENU_ACTIONS)
 
     config_error = str(summary.get("config_error") or "")
@@ -562,23 +562,23 @@ async def choose_mcp_action(
 
 
 async def finish_mcp_activity(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     action: McpAction,
 ) -> None:
     """结束外部 MCP 操作对应的活动状态。"""
     if action == "stop":
-        runtime = require_tui_runtime(mind.frontend.runtime)
+        runtime = require_tui_runtime(host.frontend.runtime)
         await runtime.end_activity_status(
             "operation",
             settle=False,
         )
         return None
 
-    await mind.activity.stop("external_mcp", settle=False)
+    await host.activity.stop("external_mcp", settle=False)
 
 
 async def run_mcp_action(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     action: McpAction | None,
 ) -> bool:
     """执行外部 MCP 动作并返回操作前是否已经启动。"""
@@ -588,34 +588,34 @@ async def run_mcp_action(
     if action == "status":
         return False
 
-    external_runtime = mind.execution.external_mcp.current
+    external_runtime = host.execution.external_mcp.current
     was_started = external_runtime.started if external_runtime is not None else False
 
     if action == "stop":
-        runtime = require_tui_runtime(mind.frontend.runtime)
-        if mind.activity.enabled:
+        runtime = require_tui_runtime(host.frontend.runtime)
+        if host.activity.enabled:
             await runtime.begin_operation_status(
                 lambda: {"summary": "External MCP stopping"},
             )
-        await mind.execution.external_mcp.close()
+        await host.execution.external_mcp.close()
     elif action == "force":
-        runtime = mind.execution.external_mcp.current
+        runtime = host.execution.external_mcp.current
         if runtime is not None and runtime.started:
-            await _begin_external_mcp_restart_activity(mind)
-            await mind.execution.external_mcp.restart(
+            await _begin_external_mcp_restart_activity(host)
+            await host.execution.external_mcp.restart(
                 include_disabled=True,
                 defer_activity_stop=True,
             )
         else:
-            await mind.execution.external_mcp.start(
+            await host.execution.external_mcp.start(
                 include_disabled=True,
                 defer_activity_stop=True,
             )
     elif action == "start":
-        await mind.execution.external_mcp.start(defer_activity_stop=True)
+        await host.execution.external_mcp.start(defer_activity_stop=True)
     else:
-        await _begin_external_mcp_restart_activity(mind)
-        await mind.execution.external_mcp.restart(defer_activity_stop=True)
+        await _begin_external_mcp_restart_activity(host)
+        await host.execution.external_mcp.restart(defer_activity_stop=True)
 
     return was_started
 

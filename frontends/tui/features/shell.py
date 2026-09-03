@@ -44,7 +44,7 @@ INTERACTIVE_SHELL_COMMANDS = frozenset({
 
 async def run_shell_escape(
     runtime: "ProcessRuntimePort",
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     value: str
 ) -> bool:
     """执行 TUI Shell escape 并管理正文执行单元。"""
@@ -54,7 +54,7 @@ async def run_shell_escape(
     if not command:
         return True
 
-    application = mind.frontend.application
+    application = host.frontend.application
 
     blocked = blocked_interactive_shell_command(command)
     if blocked:
@@ -75,8 +75,8 @@ async def run_shell_escape(
 
     args = shell_command_args(executable, command)
 
-    owner_cid, owner_sid = _conversation_owner(mind)
-    user_shell = mind.workspace_runtime.user_shell
+    owner_cid, owner_sid = _conversation_owner(host)
+    user_shell = host.workspace_runtime.user_shell
 
     try:
         snapshot = await user_shell.start_user_shell_session(
@@ -104,7 +104,7 @@ async def run_shell_escape(
     runtime.start_background_task(
         watch_user_shell_session(
             runtime,
-            mind,
+            host,
             session_id,
             announce_detach=True,
             initial_snapshot=snapshot,

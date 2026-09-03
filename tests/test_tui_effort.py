@@ -128,7 +128,7 @@ async def test_effort_command_updates_footer_context_immediately(
             "reasoning_effort": "medium",
         },
     }
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         configuration_service_url=None,
         attach=SimpleNamespace(
             has_pending_attachments=lambda: False,
@@ -148,7 +148,7 @@ async def test_effort_command_updates_footer_context_immediately(
         ),
     )
 
-    async def monitor_exec_status(_runtime, _mind) -> None:
+    async def monitor_exec_status(_runtime, _host) -> None:
         return None
 
     def render_status(_application, _effort) -> None:
@@ -172,7 +172,7 @@ async def test_effort_command_updates_footer_context_immediately(
 
     runtime.submissions.message_queue.put_nowait("/effort")
     await loop.run_tui_loop(
-        mind,
+        host,
         protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     )

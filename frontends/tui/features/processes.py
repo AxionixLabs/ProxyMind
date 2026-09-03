@@ -67,15 +67,15 @@ class _ShellOutputPreview(typing.NamedTuple):
 
 async def monitor_exec_status(
     runtime: "ProcessRuntimePort",
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
 ) -> None:
     """同步后台命令会话摘要到 TUI 专属状态行。"""
     revision = -1
     try:
-        while not mind.lifecycle.stop_event.is_set():
+        while not host.lifecycle.stop_event.is_set():
             try:
                 snapshot = await (
-                    mind.workspace_runtime.coding.running_exec_sessions()
+                    host.workspace_runtime.coding.running_exec_sessions()
                 )
                 filtered = _without_running_session(
                     snapshot,
@@ -93,14 +93,14 @@ async def monitor_exec_status(
                 revision = -1
 
             change_task = asyncio.create_task(
-                mind.workspace_runtime.coding.wait_exec_sessions_update(
+                host.workspace_runtime.coding.wait_exec_sessions_update(
                     revision=revision,
                     timeout_sec=PROCESS_STATUS_EVENT_WAIT_SEC,
                 ),
                 name="process status event wait",
             )
             stop_task = asyncio.create_task(
-                mind.lifecycle.stop_event.wait(),
+                host.lifecycle.stop_event.wait(),
                 name="process status stop wait",
             )
             wait_tasks = {change_task, stop_task}
@@ -239,21 +239,21 @@ def _is_background_session_item(
 
 async def manage_exec_sessions(
     runtime: "ProcessRuntimePort",
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
 ) -> bool:
     """在主历史中追加一次后台命令快照，不打开详情面板。"""
-    await append_exec_history_snapshot(runtime, mind)
+    await append_exec_history_snapshot(runtime, host)
     return True
 
 
 async def stop_all_exec_sessions(
     runtime: "ProcessRuntimePort",
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     *,
     sessions: list[dict[str, typing.Any]] | None = None
 ) -> None:
     """停止当前全部后台终端会话。"""
-    application = mind.frontend.application
+    application = host.frontend.application
     application.emit(ApplicationView(
         type="tui.exec.stopping",
         renderable=fragment_block(
@@ -264,7 +264,7 @@ async def stop_all_exec_sessions(
 
     if sessions is None:
         snapshot = await (
-            mind.workspace_runtime.coding.running_exec_sessions()
+            host.workspace_runtime.coding.running_exec_sessions()
         )
         sessions = _without_running_session(
             snapshot,
@@ -280,7 +280,7 @@ async def stop_all_exec_sessions(
         for item in sessions
         if str(item.get("session_id") or "").strip()
     )
-    result = await mind.workspace_runtime.coding.stop_exec_sessions(
+    result = await host.workspace_runtime.coding.stop_exec_sessions(
         session_ids=session_ids,
     )
 
@@ -308,29 +308,29 @@ def render_no_background_terminals(
 
 async def append_exec_stream_snapshot(
     runtime: "ProcessRuntimePort",
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
 ) -> None:
     """在模型流式期间追加后台终端的近期输出摘要。"""
-    await _append_exec_snapshot(runtime, mind, mode="stream")
+    await _append_exec_snapshot(runtime, host, mode="stream")
 
 
 async def append_exec_history_snapshot(
     runtime: "ProcessRuntimePort",
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
 ) -> None:
     """在主历史中追加一次稳定的后台终端快照。"""
-    await _append_exec_snapshot(runtime, mind, mode="history")
+    await _append_exec_snapshot(runtime, host, mode="history")
 
 
 async def _append_exec_snapshot(
     runtime: "ProcessRuntimePort",
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     *,
     mode: ExecSnapshotMode,
 ) -> None:
     """读取后台会话并按指定表面提交一次摘要。"""
     try:
-        listing = await mind.workspace_runtime.coding.running_exec_sessions()
+        listing = await host.workspace_runtime.coding.running_exec_sessions()
         excluded_session_id = runtime.inline_process_session_id
         sessions = _without_running_session(
             listing,
@@ -348,7 +348,7 @@ async def _append_exec_snapshot(
             )
             visible_sessions = sessions[:visible_limit]
             snapshots = await asyncio.gather(*(
-                _load_exec_stream_snapshot(mind, session)
+                _load_exec_stream_snapshot(host, session)
                 for session in visible_sessions
             ))
             block = exec_stream_snapshots_block(
@@ -369,7 +369,7 @@ async def _append_exec_snapshot(
 
 
 async def _load_exec_stream_snapshot(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     session: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
     """读取单个后台终端快照并保留列表中的摘要字段。"""
@@ -377,7 +377,7 @@ async def _load_exec_stream_snapshot(
 
     try:
         snapshot = await (
-            mind.workspace_runtime.coding.exec_session_output_snapshot(
+            host.workspace_runtime.coding.exec_session_output_snapshot(
                 session_id=session_id,
                 max_output_chars=PS_OUTPUT_LIMIT,
             )
@@ -508,7 +508,7 @@ def _exec_stream_snapshot_error_block(
 
 async def watch_user_shell_session(
     runtime: "ProcessRuntimePort",
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     session_id: str | None,
     *,
     announce_detach: bool = False,
@@ -528,9 +528,9 @@ async def watch_user_shell_session(
             ready_event.set()
         return False
 
-    application = mind.frontend.application
+    application = host.frontend.application
     if str(initial.get("status") or "").strip() == "exited":
-        if _belongs_to_current_conversation(mind, initial):
+        if _belongs_to_current_conversation(host, initial):
             final_block = exec_session_user_shell_block(
                 initial,
                 terminal_width=application.viewport.width,
@@ -565,18 +565,18 @@ async def watch_user_shell_session(
         "updated_at": time.time(),
     }
     return await _watch_user_shell_session(
-        mind,
+        host,
         sid,
         state,
         runtime=runtime,
         announce_detach=announce_detach,
         ready_event=ready_event,
-        execution=mind.workspace_runtime.user_shell,
+        execution=host.workspace_runtime.user_shell,
     )
 
 
 async def _watch_user_shell_session(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     session_id: str,
     state: dict[str, typing.Any],
     *,
@@ -586,10 +586,10 @@ async def _watch_user_shell_session(
     execution: UserShellPort,
 ) -> bool | str:
     """按结构化会话事件更新手动 Shell 的正文执行单元。"""
-    application = mind.frontend.application
+    application = host.frontend.application
 
     try:
-        running = await mind.workspace_runtime.coding.running_exec_sessions()
+        running = await host.workspace_runtime.coding.running_exec_sessions()
         filtered = _without_running_session(
             running,
             session_id,
@@ -743,7 +743,7 @@ async def _watch_user_shell_session(
             )
 
         if isinstance(result, dict):
-            if _belongs_to_current_conversation(mind, result):
+            if _belongs_to_current_conversation(host, result):
                 final_block = exec_session_user_shell_block(
                     result,
                     terminal_width=application.viewport.width,
@@ -786,7 +786,7 @@ async def _watch_user_shell_session(
                     session_id,
                     _watch_detached_exec_session(
                         runtime,
-                        mind,
+                        host,
                         session_id,
                         execution=execution,
                     ),
@@ -1123,7 +1123,7 @@ async def _interrupt_exec_session(
 
 async def _watch_detached_exec_session(
     runtime: "ProcessRuntimePort",
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     session_id: str,
     *,
     execution: UserShellPort,
@@ -1141,10 +1141,10 @@ async def _watch_detached_exec_session(
         if str(snapshot.get("status") or "").strip() == "exited":
             await runtime.wait_for_process_routing_boundary()
             try:
-                if _belongs_to_current_conversation(mind, snapshot):
+                if _belongs_to_current_conversation(host, snapshot):
                     final_block = exec_session_summary_block(
                         snapshot,
-                        terminal_width=mind.frontend.application.viewport.width,
+                        terminal_width=host.frontend.application.viewport.width,
                     )
                     runtime.append_history_block(
                         final_block,

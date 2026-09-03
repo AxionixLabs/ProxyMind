@@ -266,7 +266,7 @@ async def test_model_command_reports_model_and_effort(monkeypatch) -> None:
         merge_primary=Mock(),
         apply_prompt_context=Mock(),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -281,7 +281,7 @@ async def test_model_command_reports_model_and_effort(monkeypatch) -> None:
     )
 
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         state,
         SimpleNamespace(),
@@ -304,7 +304,7 @@ async def test_shutdown_command_reports_stopping_runtime_status() -> None:
     views = []
     lifecycle = ProcessLifecycle()
     request_termination = Mock()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -314,7 +314,7 @@ async def test_shutdown_command_reports_stopping_runtime_status() -> None:
         lifecycle=lifecycle,
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         TuiRuntime(),
         SimpleNamespace(),
         SimpleNamespace(),
@@ -345,13 +345,13 @@ async def test_preferences_uses_browser_status_without_command_prefix(
     views = []
     open_url = AsyncMock()
     monkeypatch.setattr(dispatch_module.FileAssist, "open_url", open_url)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         SimpleNamespace(),
         SimpleNamespace(),
         SimpleNamespace(),
@@ -382,13 +382,13 @@ async def test_preferences_browser_failure_uses_failure_status(
         "open_url",
         AsyncMock(side_effect=OSError("browser unavailable")),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         SimpleNamespace(),
         SimpleNamespace(),
         SimpleNamespace(),
@@ -588,7 +588,7 @@ async def test_provider_menu_reports_config_load_failure(monkeypatch) -> None:
     from frontends.tui.session import dispatch as dispatch_module
 
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -600,7 +600,7 @@ async def test_provider_menu_reports_config_load_failure(monkeypatch) -> None:
         AsyncMock(side_effect=ValueError("config is invalid")),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         SimpleNamespace(),
         SimpleNamespace(),
         SimpleNamespace(),
@@ -634,13 +634,13 @@ async def test_dispatcher_handles_invalid_slash_without_model(
     expected,
 ) -> None:
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         SimpleNamespace(),
         SimpleNamespace(),
         SimpleNamespace(),
@@ -664,7 +664,7 @@ async def test_linked_missing_helix_runtime_download_ends_current_command(
 
     context = object()
     linked = Mock(return_value=True)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
@@ -683,7 +683,7 @@ async def test_linked_missing_helix_runtime_download_ends_current_command(
     )
     monkeypatch.setattr(dispatch_module, "confirm_runtime_download", confirm)
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         SimpleNamespace(),
         SimpleNamespace(),
         foreground,
@@ -705,13 +705,13 @@ async def test_helix_link_remains_the_explicit_connection_command() -> None:
         start_helix_link=Mock(),
         wait=AsyncMock(),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         SimpleNamespace(),
         state,
         foreground,
@@ -736,7 +736,7 @@ async def test_unlinked_helix_command_skips_runtime_lookup(
     views = []
     foreground = SimpleNamespace(start=Mock(), wait=AsyncMock())
     runtime_context = Mock(side_effect=AssertionError("must not inspect runtime"))
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -746,7 +746,7 @@ async def test_unlinked_helix_command_skips_runtime_lookup(
     choose = AsyncMock()
     monkeypatch.setattr(dispatch_module, "choose_helix_tool_profile", choose)
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         SimpleNamespace(),
         SimpleNamespace(),
         foreground,
@@ -775,14 +775,14 @@ async def test_unlinked_helix_stop_reports_not_connected() -> None:
     views = []
     state = SimpleNamespace(invalidate_workspace=Mock())
     foreground = SimpleNamespace(start=Mock(), wait=AsyncMock())
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
         execution=SimpleNamespace(is_service_linked=lambda: False),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         SimpleNamespace(),
         state,
         foreground,
@@ -802,7 +802,7 @@ async def test_unlinked_helix_stop_reports_not_connected() -> None:
 
 def test_unlinked_helix_unlink_reports_already_unlinked() -> None:
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -812,9 +812,9 @@ def test_unlinked_helix_unlink_reports_already_unlinked() -> None:
         ),
     )
 
-    helix.unlink_helix_runtime(mind)
+    helix.unlink_helix_runtime(host)
 
-    mind.execution.unlink_service.assert_called_once_with()
+    host.execution.unlink_service.assert_called_once_with()
     status = next(view for view in views if view.type == "tui.helix.status")
     assert "".join(text for _style, text in status.renderable.fragments) == (
         "• Helix MCP already unlinked"
@@ -823,7 +823,7 @@ def test_unlinked_helix_unlink_reports_already_unlinked() -> None:
 
 def test_linked_helix_unlink_reports_unlinked() -> None:
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -833,9 +833,9 @@ def test_linked_helix_unlink_reports_unlinked() -> None:
         ),
     )
 
-    helix.unlink_helix_runtime(mind)
+    helix.unlink_helix_runtime(host)
 
-    mind.execution.unlink_service.assert_called_once_with()
+    host.execution.unlink_service.assert_called_once_with()
     status = next(view for view in views if view.type == "tui.helix.status")
     assert "".join(text for _style, text in status.renderable.fragments) == (
         "• Helix MCP unlinked"
@@ -843,13 +843,13 @@ def test_linked_helix_unlink_reports_unlinked() -> None:
 
 
 def test_helix_home_uses_transport_base_url_when_manager_url_is_empty() -> None:
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         service_runtime=SimpleNamespace(
             manager=SimpleNamespace(url=""),
         ),
     )
 
-    assert helix.helix_runtime_home_url(mind) == transport_config.BASE_URL
+    assert helix.helix_runtime_home_url(host) == transport_config.BASE_URL
 
 
 @pytest.mark.anyio
@@ -861,7 +861,7 @@ async def test_helix_mode_changes_filter_only_for_linked_runtime(
     views = []
     context = object()
     state = SimpleNamespace(invalidate_workspace=Mock())
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -881,7 +881,7 @@ async def test_helix_mode_changes_filter_only_for_linked_runtime(
     monkeypatch.setattr(dispatch_module, "choose_helix_tool_profile", choose)
     runtime = TuiRuntime()
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         state,
         TuiRuntime(),
@@ -891,7 +891,7 @@ async def test_helix_mode_changes_filter_only_for_linked_runtime(
 
     assert action is DispatchAction.HANDLED
     choose.assert_awaited_once_with(runtime, "app")
-    mind.execution.set_service_tool_profile.assert_called_once_with("api")
+    host.execution.set_service_tool_profile.assert_called_once_with("api")
     state.invalidate_workspace.assert_called_once_with()
     result = next(view for view in views if view.type == "tui.helix.status")
     assert "".join(
@@ -904,7 +904,7 @@ async def test_new_conversation_clears_structured_prompt_draft() -> None:
     views = []
     state = SimpleNamespace(clear_pending_prompt_extras=Mock())
     attach = SimpleNamespace(clear_pending_attachments=Mock())
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -917,7 +917,7 @@ async def test_new_conversation_clears_structured_prompt_draft() -> None:
         ),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         TuiRuntime(),
         state,
         SimpleNamespace(),
@@ -965,7 +965,7 @@ async def test_archive_command_cancels_before_mutating_session(monkeypatch) -> N
     from frontends.tui.session import dispatch as dispatch_module
 
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -974,7 +974,7 @@ async def test_archive_command_cancels_before_mutating_session(monkeypatch) -> N
     confirm = AsyncMock(return_value=False)
     monkeypatch.setattr(dispatch_module, "confirm_archive_session", confirm)
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         SimpleNamespace(),
         SimpleNamespace(),
         SimpleNamespace(),
@@ -984,7 +984,7 @@ async def test_archive_command_cancels_before_mutating_session(monkeypatch) -> N
 
     assert action is DispatchAction.HANDLED
     confirm.assert_awaited_once_with(dispatcher.runtime)
-    mind.conversation.archive_current.assert_not_awaited()
+    host.conversation.archive_current.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -1009,7 +1009,7 @@ async def test_archive_command_uses_codex_failure_messages(
     from frontends.tui.session import dispatch as dispatch_module
 
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -1023,7 +1023,7 @@ async def test_archive_command_uses_codex_failure_messages(
         AsyncMock(return_value=True),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         SimpleNamespace(),
         SimpleNamespace(),
         SimpleNamespace(),
@@ -1041,7 +1041,7 @@ async def test_new_conversation_failure_uses_fresh_session_error_notice() -> Non
     views = []
     state = SimpleNamespace(clear_pending_prompt_extras=Mock())
     attach = SimpleNamespace(clear_pending_attachments=Mock())
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -1051,7 +1051,7 @@ async def test_new_conversation_failure_uses_fresh_session_error_notice() -> Non
         ),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         TuiRuntime(),
         state,
         SimpleNamespace(),
@@ -1077,7 +1077,7 @@ async def test_named_new_conversation_persists_title_without_result_copy() -> No
         clear_pending_prompt_extras=Mock(),
     )
     attach = SimpleNamespace(clear_pending_attachments=Mock())
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
@@ -1089,7 +1089,7 @@ async def test_named_new_conversation_persists_title_without_result_copy() -> No
         terminal_width=80,
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         state,
         SimpleNamespace(),
@@ -1098,7 +1098,7 @@ async def test_named_new_conversation_persists_title_without_result_copy() -> No
     action = await dispatcher.dispatch("/new review-auth")
 
     assert action is DispatchAction.HANDLED
-    mind.conversation.reset.assert_awaited_once_with(
+    host.conversation.reset.assert_awaited_once_with(
         reason="command:/new",
         source="tui:new",
         title="review-auth",
@@ -1118,7 +1118,7 @@ async def test_resume_conversation_clears_structured_prompt_draft(
     state = SimpleNamespace(clear_pending_prompt_extras=Mock())
     attach = SimpleNamespace(clear_pending_attachments=Mock())
     read_transcript = Mock(return_value=())
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
@@ -1142,7 +1142,7 @@ async def test_resume_conversation_clears_structured_prompt_draft(
         replace_transcript=Mock(),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         state,
         SimpleNamespace(),
@@ -1169,7 +1169,7 @@ async def test_resume_conversation_opens_picker_for_empty_snapshot(
         terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
     )
     resume = AsyncMock()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
@@ -1181,7 +1181,7 @@ async def test_resume_conversation_opens_picker_for_empty_snapshot(
     )
     monkeypatch.setattr(dispatch_module, "choose_history_session", choose)
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         SimpleNamespace(),
         SimpleNamespace(),
@@ -1213,7 +1213,7 @@ async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
         terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
         replace_transcript=Mock(),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
@@ -1231,7 +1231,7 @@ async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
         AsyncMock(return_value=record),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         SimpleNamespace(clear_pending_prompt_extras=Mock()),
         SimpleNamespace(),
@@ -1298,7 +1298,7 @@ async def test_resumed_transcript_supports_search_export_and_backtrack(
         ),
     )
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -1318,7 +1318,7 @@ async def test_resumed_transcript_supports_search_export_and_backtrack(
         AsyncMock(return_value=record),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         state,
         SimpleNamespace(),
@@ -1369,7 +1369,7 @@ async def test_resumed_transcript_supports_search_export_and_backtrack(
 def test_successful_plain_fork_clears_structured_prompt_draft() -> None:
     state = SimpleNamespace(clear_pending_prompt_extras=Mock())
     attach = SimpleNamespace(clear_pending_attachments=Mock())
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(
                 emit=lambda _view: None,
@@ -1379,7 +1379,7 @@ def test_successful_plain_fork_clears_structured_prompt_draft() -> None:
         attach=attach,
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         SimpleNamespace(),
         state,
         SimpleNamespace(),
@@ -1400,7 +1400,7 @@ async def test_dispatcher_routes_hooks_to_the_management_surface(
     from frontends.tui.session import dispatch as dispatch_module
 
     runtime = SimpleNamespace()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
@@ -1408,7 +1408,7 @@ async def test_dispatcher_routes_hooks_to_the_management_surface(
     manage = AsyncMock()
     monkeypatch.setattr(dispatch_module, "manage_hooks", manage)
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         SimpleNamespace(),
         SimpleNamespace(),
@@ -1417,7 +1417,7 @@ async def test_dispatcher_routes_hooks_to_the_management_surface(
     action = await dispatcher.dispatch("/hooks")
 
     assert action is DispatchAction.HANDLED
-    manage.assert_awaited_once_with(runtime, mind)
+    manage.assert_awaited_once_with(runtime, host)
 
 
 @pytest.mark.anyio
@@ -1427,7 +1427,7 @@ async def test_dispatcher_routes_agent_to_the_management_surface(
     from frontends.tui.session import dispatch as dispatch_module
 
     runtime = SimpleNamespace()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
@@ -1435,7 +1435,7 @@ async def test_dispatcher_routes_agent_to_the_management_surface(
     manage = AsyncMock()
     monkeypatch.setattr(dispatch_module, "manage_agents", manage)
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         SimpleNamespace(),
         SimpleNamespace(),
@@ -1444,7 +1444,7 @@ async def test_dispatcher_routes_agent_to_the_management_surface(
     action = await dispatcher.dispatch("/agent")
 
     assert action is DispatchAction.HANDLED
-    manage.assert_awaited_once_with(runtime, mind)
+    manage.assert_awaited_once_with(runtime, host)
 
 
 @pytest.mark.anyio
@@ -1454,7 +1454,7 @@ async def test_dispatcher_routes_listener_status_to_stable_output(
     from frontends.tui.session import dispatch as dispatch_module
 
     runtime = SimpleNamespace()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=Mock()),
@@ -1471,7 +1471,7 @@ async def test_dispatcher_routes_listener_status_to_stable_output(
         wait=AsyncMock(),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         SimpleNamespace(),
         foreground,
@@ -1480,7 +1480,7 @@ async def test_dispatcher_routes_listener_status_to_stable_output(
     action = await dispatcher.dispatch("/listen status")
 
     assert action is DispatchAction.HANDLED
-    render.assert_called_once_with(mind)
+    render.assert_called_once_with(host)
     foreground.start_listener.assert_not_called()
     foreground.wait.assert_not_awaited()
 
@@ -1492,7 +1492,7 @@ async def test_dispatcher_runs_listener_action_selected_from_bare_menu(
     from frontends.tui.session import dispatch as dispatch_module
 
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=Mock()),
@@ -1509,7 +1509,7 @@ async def test_dispatcher_runs_listener_action_selected_from_bare_menu(
         wait=AsyncMock(),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         SimpleNamespace(),
         foreground,
@@ -1518,7 +1518,7 @@ async def test_dispatcher_runs_listener_action_selected_from_bare_menu(
     action = await dispatcher.dispatch("/listen")
 
     assert action is DispatchAction.HANDLED
-    choose.assert_awaited_once_with(runtime, mind)
+    choose.assert_awaited_once_with(runtime, host)
     foreground.start_listener.assert_called_once_with("start")
     foreground.wait.assert_awaited_once_with()
 
@@ -1529,7 +1529,7 @@ async def test_dispatcher_closes_listener_menu_without_starting_action(
 ) -> None:
     from frontends.tui.session import dispatch as dispatch_module
 
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=Mock()),
         ),
@@ -1545,7 +1545,7 @@ async def test_dispatcher_closes_listener_menu_without_starting_action(
         wait=AsyncMock(),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         TuiRuntime(),
         SimpleNamespace(),
         foreground,
@@ -1560,13 +1560,13 @@ async def test_dispatcher_closes_listener_menu_without_starting_action(
 
 @pytest.mark.anyio
 async def test_dispatcher_routes_mailbox_to_summary_menu() -> None:
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=Mock()),
         ),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         TuiRuntime(),
         SimpleNamespace(),
         SimpleNamespace(),
@@ -1592,14 +1592,14 @@ async def test_dispatcher_runs_listener_transition_as_foreground_task(
         start_listener=Mock(),
         wait=AsyncMock(),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         subscription=SimpleNamespace(current=None),
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=Mock()),
         ),
     )
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         TuiRuntime(),
         SimpleNamespace(),
         foreground,
@@ -1620,15 +1620,15 @@ async def test_dispatcher_opens_agent_panel_without_interrupting(
 
     menu_called = asyncio.Event()
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
     )
 
-    async def open_menu(received_runtime, received_mind):
+    async def open_menu(received_runtime, received_host):
         assert received_runtime is runtime
-        assert received_mind is mind
+        assert received_host is host
         menu_called.set()
 
     monkeypatch.setattr(dispatch_module, "manage_agents", open_menu)
@@ -1641,7 +1641,7 @@ async def test_dispatcher_opens_agent_panel_without_interrupting(
     foreground.start = start
     foreground.handle_stream_command = lambda *_args: False
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         SimpleNamespace(),
         foreground,
@@ -1664,7 +1664,7 @@ async def test_dispatcher_routes_skills_to_the_picker(monkeypatch) -> None:
 
     runtime = SimpleNamespace()
     config_session = SimpleNamespace()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=lambda _view: None),
         ),
@@ -1673,7 +1673,7 @@ async def test_dispatcher_routes_skills_to_the_picker(monkeypatch) -> None:
     choose = AsyncMock()
     monkeypatch.setattr(dispatch_module, "choose_skill", choose)
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         SimpleNamespace(),
         SimpleNamespace(),
@@ -1705,7 +1705,7 @@ async def test_helix_link_result_is_committed_to_tui(
     expected,
 ) -> None:
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         execution=SimpleNamespace(is_service_linked=lambda: False),
         frontend=SimpleNamespace(
             application=SimpleNamespace(
@@ -1722,14 +1722,14 @@ async def test_helix_link_result_is_committed_to_tui(
     monkeypatch.setattr(helix, "prepare_tui_service_runtime", prepare)
 
     try:
-        linked = await helix.link_helix_runtime(mind)
+        linked = await helix.link_helix_runtime(host)
     except (AppError, Exception) as captured:
-        helix.render_helix_link_failure(mind, captured)
+        helix.render_helix_link_failure(host, captured)
     else:
-        helix.render_helix_link_result(mind, linked)
+        helix.render_helix_link_result(host, linked)
 
     prepare.assert_awaited_once_with(
-        mind,
+        host,
         "app",
         download_confirmed=False,
     )
@@ -1741,7 +1741,7 @@ async def test_helix_link_result_is_committed_to_tui(
 async def test_helix_link_switches_profile_without_restarting(
     monkeypatch,
 ) -> None:
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         execution=SimpleNamespace(
             is_service_linked=lambda: True,
             set_service_tool_profile=Mock(),
@@ -1750,16 +1750,16 @@ async def test_helix_link_switches_profile_without_restarting(
     prepare = AsyncMock()
     monkeypatch.setattr(helix, "prepare_tui_service_runtime", prepare)
 
-    linked = await helix.link_helix_runtime(mind, "api")
+    linked = await helix.link_helix_runtime(host, "api")
 
     assert linked is True
-    mind.execution.set_service_tool_profile.assert_called_once_with("api")
+    host.execution.set_service_tool_profile.assert_called_once_with("api")
     prepare.assert_not_awaited()
 
 
 @pytest.mark.anyio
 async def test_helix_home_opens_only_when_already_linked(monkeypatch) -> None:
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         execution=SimpleNamespace(is_service_linked=lambda: True),
         service_runtime=SimpleNamespace(
             manager=SimpleNamespace(url="http://127.0.0.1:9000"),
@@ -1768,7 +1768,7 @@ async def test_helix_home_opens_only_when_already_linked(monkeypatch) -> None:
     open_url = AsyncMock()
     monkeypatch.setattr(helix.FileAssist, "open_url", open_url)
 
-    url = await helix.open_helix_home(mind)
+    url = await helix.open_helix_home(host)
 
     assert url == "http://127.0.0.1:9000"
     open_url.assert_awaited_once_with(url)
@@ -1776,23 +1776,23 @@ async def test_helix_home_opens_only_when_already_linked(monkeypatch) -> None:
 
 @pytest.mark.anyio
 async def test_helix_home_does_not_start_an_unlinked_runtime() -> None:
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         execution=SimpleNamespace(is_service_linked=lambda: False),
     )
 
     with pytest.raises(AppError, match="Helix MCP is not connected"):
-        await helix.open_helix_home(mind)
+        await helix.open_helix_home(host)
 
 
 def test_helix_home_success_uses_browser_status() -> None:
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
     )
 
-    helix.render_helix_home_result(mind, "http://127.0.0.1:9000")
+    helix.render_helix_home_result(host, "http://127.0.0.1:9000")
 
     status = next(view for view in views if view.renderable is not None)
     assert "".join(text for _style, text in status.renderable.fragments) == (
@@ -1804,13 +1804,13 @@ def test_helix_home_success_uses_browser_status() -> None:
 
 def test_helix_link_skip_is_silent() -> None:
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
     )
 
-    helix.render_helix_link_result(mind, False)
+    helix.render_helix_link_result(host, False)
 
     assert views == []
 
@@ -1846,13 +1846,13 @@ async def test_helix_runtime_download_does_not_start_or_link(monkeypatch) -> Non
     runtime = TuiRuntime()
     context = object()
     ensure = AsyncMock(return_value=True)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         execution=SimpleNamespace(link_service=Mock()),
     )
     monkeypatch.setattr(helix, "ensure_service_runtime_asset", ensure)
 
-    downloaded = await helix.download_service_runtime(mind, context)
+    downloaded = await helix.download_service_runtime(host, context)
 
     assert downloaded is True
     ensure.assert_awaited_once()
@@ -1862,7 +1862,7 @@ async def test_helix_runtime_download_does_not_start_or_link(monkeypatch) -> Non
         ensure.await_args.kwargs["progress"],
         helix.TuiUpgradeProgress,
     )
-    mind.execution.link_service.assert_not_called()
+    host.execution.link_service.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -1886,7 +1886,7 @@ async def test_helix_runtime_setup_menu_uses_command_description() -> None:
 
 def test_helix_home_failure_uses_browser_failure_status() -> None:
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
@@ -1895,7 +1895,7 @@ def test_helix_home_failure_uses_browser_failure_status() -> None:
         ),
     )
 
-    helix.render_helix_home_failure(mind, AppError("open failed"))
+    helix.render_helix_home_failure(host, AppError("open failed"))
 
     status = next(view for view in views if view.type == "tui.helix.status")
     text = "".join(text for _style, text in status.renderable.fragments)
@@ -1918,7 +1918,7 @@ def test_helix_home_failure_uses_browser_failure_status() -> None:
 async def test_helix_stop_commits_one_final_status(error, expected) -> None:
     views = []
     stop_runtime = AsyncMock(side_effect=error)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         activity=SimpleNamespace(enabled=False),
         service_runtime=SimpleNamespace(stop=stop_runtime),
         execution=SimpleNamespace(unlink_service=Mock()),
@@ -1932,24 +1932,24 @@ async def test_helix_stop_commits_one_final_status(error, expected) -> None:
     )
 
     try:
-        result = await helix.stop_helix_runtime(mind)
+        result = await helix.stop_helix_runtime(host)
     except (AppError, Exception) as captured:
-        await mind.frontend.runtime.end_activity_status(
+        await host.frontend.runtime.end_activity_status(
             "operation",
             settle=False,
         )
-        helix.render_helix_stop_failure(mind, captured)
+        helix.render_helix_stop_failure(host, captured)
     else:
-        await mind.frontend.runtime.end_activity_status(
+        await host.frontend.runtime.end_activity_status(
             "operation",
             settle=False,
         )
-        helix.render_helix_stop_result(mind, result)
+        helix.render_helix_stop_result(host, result)
 
     statuses = [view for view in views if view.type == "tui.helix.status"]
     assert len(statuses) == 1
     assert statuses[0].renderable.plain_text == expected
-    mind.execution.unlink_service.assert_called_once_with()
+    host.execution.unlink_service.assert_called_once_with()
     stop_runtime.assert_awaited_once_with()
 
 

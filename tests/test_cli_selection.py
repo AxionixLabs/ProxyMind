@@ -578,7 +578,7 @@ async def test_direct_cli_command_forwards_images_to_initial_request(
         consume_pending_attachments=Mock(return_value=attachments),
     )
     root_turn_adapter.return_value = run_result
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         attach=attach,
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
@@ -593,17 +593,17 @@ async def test_direct_cli_command_forwards_images_to_initial_request(
 
     protocol_client = Mock(spec=ProtocolCommandClient)
     result = await run_selected_command(
-        mind,
+        host,
         command,
         protocol_client=protocol_client,
     )
 
     assert result is run_result
-    assert mind.lifecycle.exit_code == 0
+    assert host.lifecycle.exit_code == 0
     attach.add_pending_attachments.assert_called_once_with("screen.png")
     attach.consume_pending_attachments.assert_called_once_with()
     root_turn_adapter.assert_awaited_once_with(
-        mind,
+        host,
         message="hello",
         attachments=attachments,
         exec_env={"snapshot_id": "envsnap_cli"},
@@ -622,7 +622,7 @@ async def test_direct_cli_command_applies_temporary_model_override(
         },
     })
     root_turn_adapter.return_value = run_result
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         conversation=SimpleNamespace(
             fresh_pref_config=fresh_pref_config,
             permissions=preset_permissions("auto"),
@@ -632,7 +632,7 @@ async def test_direct_cli_command_applies_temporary_model_override(
     )
 
     result = await run_selected_command(
-        mind,
+        host,
         ExecCommand(prompt="hello", model="exec-model"),
         protocol_client=Mock(spec=ProtocolCommandClient),
     )
@@ -640,7 +640,7 @@ async def test_direct_cli_command_applies_temporary_model_override(
     assert result is run_result
     fresh_pref_config.assert_awaited_once_with(ttl_sec=0.0)
     root_turn_adapter.assert_awaited_once_with(
-        mind,
+        host,
         pref_config={
             "primary": {
                 "model": "exec-model",
@@ -688,7 +688,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
     )
     attachments = Mock()
     recent = Mock(return_value=[record])
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=object()),
         history_workspace=r"D:\workspace",
         conversation=SimpleNamespace(
@@ -717,7 +717,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
 
     protocol_client = Mock(spec=ProtocolCommandClient)
     result = await run_selected_command(
-        mind,
+        host,
         ResumeCommand(
             prompt="continue",
             images=("screen.png",),
@@ -735,7 +735,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         status="active",
     )
     load_history_transcript.assert_called_once_with(
-        mind,
+        host,
         record["sid"],
         terminal_width=80,
         hyperlinks=True,
@@ -750,7 +750,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
     attachments.assert_called_once_with("screen.png")
     run_tui_loop.assert_awaited_once()
     args, kwargs = run_tui_loop.await_args
-    assert args == (mind,)
+    assert args == (host,)
     assert callable(kwargs.pop("turn_runner"))
     assert kwargs.pop("protocol_client") is protocol_client
     assert kwargs == {
@@ -758,7 +758,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
         "initial_images": ("screen.png",),
         "initial_model": "review-model",
     }
-    mind.subscription.close.assert_awaited_once_with()
+    host.subscription.close.assert_awaited_once_with()
     assert events == ["load", "resume", "replace", "run"]
 
 
@@ -779,7 +779,7 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> Non
     )
     run_tui_loop = AsyncMock()
     resume = AsyncMock(return_value=None)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=object()),
         history_workspace=r"D:\workspace",
         conversation=SimpleNamespace(
@@ -806,7 +806,7 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> Non
 
     with pytest.raises(AppError, match="Session could not be resumed"):
         await run_selected_command(
-            mind,
+            host,
             ResumeCommand(last=True),
             protocol_client=Mock(spec=ProtocolCommandClient),
         )
@@ -828,7 +828,7 @@ async def test_interactive_cli_resume_opens_picker_for_empty_snapshot(
     )
     choose = AsyncMock(return_value=None)
     recent = Mock(return_value=[])
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=object()),
         history_workspace=r"D:\workspace",
         conversation=SimpleNamespace(
@@ -843,7 +843,7 @@ async def test_interactive_cli_resume_opens_picker_for_empty_snapshot(
     monkeypatch.setattr(history_module, "choose_history_session", choose)
 
     selected = await dispatch_module._select_resume_session(
-        mind,
+        host,
         ResumeCommand(),
     )
 
@@ -868,7 +868,7 @@ async def test_resume_last_empty_snapshot_keeps_direct_error() -> None:
     from frontends.cli import dispatch as dispatch_module
 
     recent = Mock(return_value=[])
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace="D:/workspace",
         conversation=SimpleNamespace(
             history=SimpleNamespace(recent=recent),
@@ -877,7 +877,7 @@ async def test_resume_last_empty_snapshot_keeps_direct_error() -> None:
 
     with pytest.raises(AppError, match="No resumable sessions were found"):
         await dispatch_module._select_resume_session(
-            mind,
+            host,
             ResumeCommand(last=True),
         )
 
@@ -890,7 +890,7 @@ async def test_agent_listen_owns_listener_for_tui_session(monkeypatch) -> None:
         start=Mock(return_value=listener),
         close=AsyncMock(),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         attach=SimpleNamespace(add_pending_attachments=Mock()),
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
@@ -904,7 +904,7 @@ async def test_agent_listen_owns_listener_for_tui_session(monkeypatch) -> None:
 
     protocol_client = Mock(spec=ProtocolCommandClient)
     result = await run_selected_command(
-        mind,
+        host,
         AgentListenCommand(),
         protocol_client=protocol_client,
     )
@@ -913,7 +913,7 @@ async def test_agent_listen_owns_listener_for_tui_session(monkeypatch) -> None:
     subscription.start.assert_called_once_with()
     run_tui_loop.assert_awaited_once()
     args, kwargs = run_tui_loop.await_args
-    assert args == (mind,)
+    assert args == (host,)
     assert callable(kwargs.pop("turn_runner"))
     assert kwargs == {
         "initial_prompt": None,
@@ -930,7 +930,7 @@ async def test_agent_listen_stops_listener_when_tui_fails(monkeypatch) -> None:
         start=Mock(),
         close=AsyncMock(),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
         ),
@@ -943,7 +943,7 @@ async def test_agent_listen_stops_listener_when_tui_fails(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="TUI failed"):
         await run_selected_command(
-            mind,
+            host,
             AgentListenCommand(),
             protocol_client=Mock(spec=ProtocolCommandClient),
         )
@@ -955,7 +955,7 @@ async def test_agent_listen_stops_listener_when_tui_fails(monkeypatch) -> None:
 async def test_failed_exec_sets_nonzero_exit_code(root_turn_adapter) -> None:
     run_result = RunResult(status="failed", error="request failed")
     root_turn_adapter.return_value = run_result
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
         ),
@@ -964,13 +964,13 @@ async def test_failed_exec_sets_nonzero_exit_code(root_turn_adapter) -> None:
     )
 
     result = await run_selected_command(
-        mind,
+        host,
         ExecCommand(prompt="hello"),
         protocol_client=Mock(spec=ProtocolCommandClient),
     )
 
     assert result is run_result
-    assert mind.lifecycle.exit_code == 1
+    assert host.lifecycle.exit_code == 1
 
 
 @pytest.mark.anyio
@@ -990,7 +990,7 @@ async def test_exec_exit_code_comes_from_agent_event_projection(
         "TurnApplication",
         Mock(return_value=SimpleNamespace(submit=submit, close=close)),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
         ),
@@ -999,13 +999,13 @@ async def test_exec_exit_code_comes_from_agent_event_projection(
     )
 
     result = await run_selected_command(
-        mind,
+        host,
         ExecCommand(prompt="hello"),
         protocol_client=Mock(spec=ProtocolCommandClient),
     )
 
     assert result is run_result
-    assert mind.lifecycle.exit_code == 7
+    assert host.lifecycle.exit_code == 7
     submit.assert_awaited_once()
     close.assert_awaited_once_with(cancel_running=True)
     assert observe.call_args_list[-1].kwargs["outcome"] == "projected"
@@ -1029,7 +1029,7 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
     coordinates = {"cid": "cid-online", "sid": "sid-online"}
     monkeypatch.setattr(cli_dispatch, "agent_runtime_db_path", lambda: db_path)
     monkeypatch.setattr(cli_dispatch, "derive_local_session_id", derive_session)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         application_layout=object(),
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
@@ -1040,7 +1040,7 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
     )
 
     result = await run_selected_command(
-        mind,
+        host,
         ExecCommand(prompt="hello"),
         protocol_client=Mock(spec=ProtocolCommandClient),
         turn_application_factory=open_application,
@@ -1059,7 +1059,7 @@ async def test_exec_uses_durable_runtime_composition_for_real_layout(
 
 @pytest.mark.anyio
 async def test_exec_requires_explicit_turn_application_factory_for_real_layout() -> None:
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         application_layout=object(),
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
@@ -1073,7 +1073,7 @@ async def test_exec_requires_explicit_turn_application_factory_for_real_layout()
         match="CLI turn application factory is required",
     ):
         await run_selected_command(
-            mind,
+            host,
             ExecCommand(prompt="hello"),
             protocol_client=Mock(spec=ProtocolCommandClient),
         )
@@ -1090,7 +1090,7 @@ async def test_cancelled_exec_closes_agent_session_worker(
         await asyncio.Event().wait()
 
     root_turn_adapter.side_effect = wait_for_cancellation
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         conversation=SimpleNamespace(
             permissions=preset_permissions("auto"),
         ),
@@ -1100,7 +1100,7 @@ async def test_cancelled_exec_closes_agent_session_worker(
 
     task = asyncio.create_task(
         run_selected_command(
-            mind,
+            host,
             ExecCommand(prompt="wait"),
             protocol_client=Mock(spec=ProtocolCommandClient),
         )
@@ -1395,9 +1395,13 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     monkeypatch.setattr(bootstrap, "resolve_cli_frontend", lambda _mode: frontend)
     monkeypatch.setattr(bootstrap, "resolve_cli_design", lambda _frontend, _mode: design)
     monkeypatch.setattr(bootstrap, "resolve_application_layout", lambda **_kwargs: app_layout)
-    monkeypatch.setattr(bootstrap, "ensure_mind_home", lambda: tmp_path)
-    monkeypatch.setattr(bootstrap, "mind_reports_dir", lambda: tmp_path / "reports")
-    monkeypatch.setattr(bootstrap, "mind_config_path", lambda: tmp_path / "config.toml")
+    monkeypatch.setattr(bootstrap, "ensure_application_home", lambda: tmp_path)
+    monkeypatch.setattr(bootstrap, "reports_dir", lambda: tmp_path / "reports")
+    monkeypatch.setattr(
+        bootstrap,
+        "application_config_path",
+        lambda: tmp_path / "config.toml",
+    )
     monkeypatch.setattr(bootstrap, "Preferences", lambda _path: object())
     monkeypatch.setattr(bootstrap, "resolve_service_runtime", lambda **_kwargs: runtime_spec)
     monkeypatch.setattr(bootstrap, "route_shell_tools", lambda _supports: None)
@@ -1433,7 +1437,7 @@ async def test_tui_finalization_prints_summary_after_cleanup(
     runtime.print_exit_summary = Mock(
         side_effect=lambda *_args, **_kwargs: events.append("summary"),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         lifecycle=_lifecycle(exit_code),
         resources=SimpleNamespace(
@@ -1449,13 +1453,13 @@ async def test_tui_finalization_prints_summary_after_cleanup(
     )
 
     await bootstrap.finalize_application(
-        mind,
+        host,
         output_mode="tui",
         completed=True,
     )
 
     assert events == ["session", "runtime", "resources", "summary"]
-    mind.conversation.end.assert_awaited_once_with(reason="exit")
+    host.conversation.end.assert_awaited_once_with(reason="exit")
     runtime.print_exit_summary.assert_called_once_with("sid_test_1_abcdef")
 
 
@@ -1465,7 +1469,7 @@ async def test_tui_finalization_closes_silently_without_a_conversation() -> None
     runtime = TuiRuntime()
     runtime.close = AsyncMock(side_effect=lambda: events.append("runtime"))
     runtime.print_exit_summary = Mock()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         lifecycle=_lifecycle(),
         resources=SimpleNamespace(
@@ -1481,7 +1485,7 @@ async def test_tui_finalization_closes_silently_without_a_conversation() -> None
     )
 
     await bootstrap.finalize_application(
-        mind,
+        host,
         output_mode="tui",
         completed=True,
     )
@@ -1495,7 +1499,7 @@ async def test_tui_finalization_skips_summary_for_incomplete_session() -> None:
     runtime = TuiRuntime()
     runtime.close = AsyncMock()
     runtime.print_exit_summary = Mock()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         lifecycle=_lifecycle(),
         conversation=SimpleNamespace(end=AsyncMock()),
@@ -1503,14 +1507,14 @@ async def test_tui_finalization_skips_summary_for_incomplete_session() -> None:
     )
 
     await bootstrap.finalize_application(
-        mind,
+        host,
         output_mode="tui",
         completed=False,
     )
 
     runtime.close.assert_awaited_once_with()
-    mind.conversation.end.assert_awaited_once_with(reason="error")
-    mind.resources.close.assert_awaited_once_with()
+    host.conversation.end.assert_awaited_once_with(reason="error")
+    host.resources.close.assert_awaited_once_with()
     runtime.print_exit_summary.assert_not_called()
 
 
@@ -1519,7 +1523,7 @@ async def test_tui_finalization_skips_summary_when_cleanup_fails() -> None:
     runtime = TuiRuntime()
     runtime.close = AsyncMock(side_effect=RuntimeError("close failed"))
     runtime.print_exit_summary = Mock()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         lifecycle=_lifecycle(),
         conversation=SimpleNamespace(end=AsyncMock()),
@@ -1528,12 +1532,12 @@ async def test_tui_finalization_skips_summary_when_cleanup_fails() -> None:
 
     with pytest.raises(RuntimeError, match="close failed"):
         await bootstrap.finalize_application(
-            mind,
+            host,
             output_mode="tui",
             completed=True,
         )
 
-    mind.resources.close.assert_awaited_once_with()
+    host.resources.close.assert_awaited_once_with()
     runtime.print_exit_summary.assert_not_called()
 
 
@@ -1541,7 +1545,7 @@ async def test_tui_finalization_skips_summary_when_cleanup_fails() -> None:
 async def test_finalization_closes_resources_when_session_end_fails() -> None:
     runtime = TuiRuntime()
     runtime.close = AsyncMock()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         lifecycle=_lifecycle(1),
         conversation=SimpleNamespace(
@@ -1554,10 +1558,10 @@ async def test_finalization_closes_resources_when_session_end_fails() -> None:
 
     with pytest.raises(RuntimeError, match="session end failed"):
         await bootstrap.finalize_application(
-            mind,
+            host,
             output_mode="text",
             completed=False,
         )
 
     runtime.close.assert_awaited_once_with()
-    mind.resources.close.assert_awaited_once_with()
+    host.resources.close.assert_awaited_once_with()

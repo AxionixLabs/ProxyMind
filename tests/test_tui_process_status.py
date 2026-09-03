@@ -265,7 +265,7 @@ def test_command_summary_uses_actual_tree_prefix_width() -> None:
 @pytest.mark.anyio
 async def test_process_status_monitor_updates_and_clears_runtime() -> None:
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         lifecycle=ProcessLifecycle(),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(
@@ -288,9 +288,9 @@ async def test_process_status_monitor_updates_and_clears_runtime() -> None:
         ) as set_label,
     ):
         with pytest.raises(asyncio.CancelledError):
-            await monitor_exec_status(runtime, mind)
+            await monitor_exec_status(runtime, host)
 
-    coding = mind.workspace_runtime.coding
+    coding = host.workspace_runtime.coding
     coding.running_exec_sessions.assert_awaited_once()
     coding.wait_exec_sessions_update.assert_awaited_once_with(
         revision=-1,
@@ -306,7 +306,7 @@ async def test_process_status_monitor_updates_and_clears_runtime() -> None:
 @pytest.mark.anyio
 async def test_process_status_monitor_splits_model_and_user_shell_sources() -> None:
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         lifecycle=ProcessLifecycle(),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(
@@ -342,7 +342,7 @@ async def test_process_status_monitor_splits_model_and_user_shell_sources() -> N
         ) as set_background_shell,
     ):
         with pytest.raises(asyncio.CancelledError):
-            await monitor_exec_status(runtime, mind)
+            await monitor_exec_status(runtime, host)
 
     assert [call.args[0] for call in set_process.call_args_list] == [
         "1 background terminal running · /ps to view · /stop to close",
@@ -366,7 +366,7 @@ async def test_process_status_excludes_inline_shell_and_shows_background(
         "exec_current",
         FragmentBlock((("", "• Shell current"),)),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         lifecycle=ProcessLifecycle(),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(
@@ -391,7 +391,7 @@ async def test_process_status_excludes_inline_shell_and_shows_background(
     )
 
     with pytest.raises(asyncio.CancelledError):
-        await monitor_exec_status(runtime, mind)
+        await monitor_exec_status(runtime, host)
 
     assert runtime.screen.process_status.label == ""
 

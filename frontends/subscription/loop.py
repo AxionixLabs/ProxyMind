@@ -103,7 +103,7 @@ class AgentConnection(object):
 
     def __init__(
         self,
-        mind: SubscriptionHost,
+        host: SubscriptionHost,
         client: AgentClient,
         config: AgentConfig,
         live_status: AgentLiveStatus,
@@ -115,7 +115,7 @@ class AgentConnection(object):
         on_ack: AckCallback | None = None
     ) -> None:
         """保存连接控制所需依赖。"""
-        self.mind = mind
+        self.host = host
         self.client = client
         self.config = config
         self.live_status = live_status
@@ -223,7 +223,7 @@ class AgentConnection(object):
     async def connect_once(self, runtime: AgentSessionRuntime) -> None:
         """建立一次 WS 连接并处理连接生命周期内的消息。"""
         await connect_once(
-            self.mind,
+            self.host,
             self.client,
             runtime,
             self.live_status,
@@ -240,14 +240,14 @@ class AgentSupervisor(object):
 
     def __init__(
         self,
-        mind: SubscriptionHost,
+        host: SubscriptionHost,
         connection: AgentConnection,
         live_status: AgentLiveStatus,
         *,
         configuration_service_url: Callable[[], str] | None = None,
     ) -> None:
         """保存订阅运行所需依赖。"""
-        self.mind = mind
+        self.host = host
         self.connection = connection
         self.live_status = live_status
         self.configuration_service_url = configuration_service_url
@@ -286,7 +286,7 @@ class AgentSupervisor(object):
                 "Waiting for Server Tasks", "Long link established and listening"
             )
 
-            while not self.mind.lifecycle.stop_event.is_set():
+            while not self.host.lifecycle.stop_event.is_set():
                 try:
                     await self.connection.connect_once(runtime)
                     return None
@@ -366,14 +366,14 @@ class AgentSupervisor(object):
                 self.live_status.update(
                     "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
                 )
-                await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
+                await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
                 return runtime
             except Exception as reopen_exc:
                 observe_exception("agent.reopen.retry", reopen_exc, level="WARNING")
                 self.live_status.update(
                     "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
                 )
-                await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
+                await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
                 return runtime
 
             await publish_external_access(
@@ -383,13 +383,13 @@ class AgentSupervisor(object):
             self.live_status.update(
                 "Reopened and Waiting", "Returning to listening state in 1s"
             )
-            await sleep_or_stop(1.0, self.mind.lifecycle.stop_event)
+            await sleep_or_stop(1.0, self.host.lifecycle.stop_event)
             return runtime
 
         self.live_status.update(
             "Reconnecting", f"{exc.code} · reconnecting in 1s"
         )
-        await sleep_or_stop(1.0, self.mind.lifecycle.stop_event)
+        await sleep_or_stop(1.0, self.host.lifecycle.stop_event)
         return runtime
 
     async def handle_disconnect(
@@ -448,7 +448,7 @@ class AgentSupervisor(object):
             self.live_status.update(
                 "Resume Token Missing", "Retrying session open in 2s"
             )
-            await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
+            await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
             return runtime
 
         return await self.handle_resume(runtime)
@@ -470,7 +470,7 @@ class AgentSupervisor(object):
             self.live_status.update(
                 "Retrying Link", "Handshake not ready yet · retrying WS in 2s"
             )
-            await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
+            await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
             return runtime
 
         self.live_status.update(
@@ -498,14 +498,14 @@ class AgentSupervisor(object):
             self.live_status.update(
                 "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
             )
-            await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
+            await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
             return runtime
         except Exception as reopen_exc:
             observe_exception("agent.pre_ready.reopen_retry", reopen_exc, level="WARNING")
             self.live_status.update(
                 "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
             )
-            await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
+            await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
             return runtime
 
         await publish_external_access(
@@ -515,7 +515,7 @@ class AgentSupervisor(object):
         self.live_status.update(
             "Reopened and Waiting", "Returning to listening state in 1s"
         )
-        await sleep_or_stop(1.0, self.mind.lifecycle.stop_event)
+        await sleep_or_stop(1.0, self.host.lifecycle.stop_event)
 
         return runtime
 
@@ -559,14 +559,14 @@ class AgentSupervisor(object):
             self.live_status.update(
                 "Resume Failed", f"{type(resume_exc).__name__} · retrying in 2s"
             )
-            await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
+            await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
             return runtime
         except Exception as resume_exc:
             observe_exception("agent.resume.retry", resume_exc, level="WARNING")
             self.live_status.update(
                 "Resume Crashed", f"{type(resume_exc).__name__} · retrying in 2s"
             )
-            await sleep_or_stop(2.0, self.mind.lifecycle.stop_event)
+            await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
             return runtime
 
         self.live_status.update(
@@ -576,7 +576,7 @@ class AgentSupervisor(object):
             runtime,
             configuration_service_url=self.configuration_service_url,
         )
-        await sleep_or_stop(1.0, self.mind.lifecycle.stop_event)
+        await sleep_or_stop(1.0, self.host.lifecycle.stop_event)
         return runtime
 
 

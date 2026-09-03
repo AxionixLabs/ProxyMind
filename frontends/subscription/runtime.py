@@ -73,7 +73,7 @@ class AgentRuntime(object):
 
     def __init__(
         self,
-        mind: SubscriptionHost,
+        host: SubscriptionHost,
         *,
         config: AgentConfig | None = None,
         client: AgentClient | None = None,
@@ -87,7 +87,7 @@ class AgentRuntime(object):
         turn_application_factory: TurnApplicationFactory | None = None,
     ) -> None:
         """装配订阅连接、收件箱和执行器。"""
-        self.mind = mind
+        self.host = host
 
         self.config = config or build_default_agent_config()
         self.client = client or AgentClient(base_url=self.config.base_url)
@@ -117,7 +117,7 @@ class AgentRuntime(object):
             self._resolve_receipt_disposition,
         )
         self.connection = AgentConnection(
-            mind,
+            host,
             self.client,
             self.config,
             self.live_status,
@@ -128,7 +128,7 @@ class AgentRuntime(object):
             on_ack=self.status_outbox.acknowledge,
         )
         self.supervisor = supervisor or AgentSupervisor(
-            mind,
+            host,
             self.connection,
             self.live_status,
             configuration_service_url=configuration_service_url,
@@ -337,7 +337,7 @@ class AgentRuntime(object):
             return await self.inbox.accept(
                 item,
                 executor=self.executor,
-                mind=self.mind,
+                host=self.host,
                 client=context.client,
                 connection=context.connection,
                 runtime=context.runtime,

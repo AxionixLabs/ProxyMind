@@ -14,14 +14,14 @@ DATA_OUTPUT_DIR  = r"outputs"
 STORAGE_ENV_NAME = f"{const.APP_NAME.upper()}_STORAGE_ROOT"
 
 
-def mind_home() -> Path:
+def application_home() -> Path:
     """返回应用的用户级统一目录。"""
     return Path(os.environ.get(MD_HOME_ENV) or Path.home() / ".mind").expanduser()
 
 
 def helix_home() -> Path:
     """返回 Helix 在统一目录协议下的数据根。"""
-    return Path(os.environ.get(HX_HOME_ENV) or mind_home() / const.APP_NAME).expanduser()
+    return Path(os.environ.get(HX_HOME_ENV) or application_home() / const.APP_NAME).expanduser()
 
 
 def platform_data_root() -> Path:

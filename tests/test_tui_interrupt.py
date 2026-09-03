@@ -142,7 +142,7 @@ async def test_double_ctrl_c_returns_normally_from_session_loop(
     runtime = TuiRuntime()
     lifecycle = ProcessLifecycle()
     pref_config = {"primary": {"model": "test-model"}}
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         configuration_service_url=None,
         attach=SimpleNamespace(
             has_pending_attachments=lambda: False,
@@ -168,7 +168,7 @@ async def test_double_ctrl_c_returns_normally_from_session_loop(
     )
 
     session_task = asyncio.create_task(loop.run_tui_loop(
-        mind,
+        host,
         protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))

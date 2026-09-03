@@ -82,7 +82,7 @@ async def exchange_pref_value(
 
 
 async def persist_primary_pref(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     *,
     command_name: typing.Literal[
         "model", "apikey", "base-url", "model-effort"
@@ -93,15 +93,15 @@ async def persist_primary_pref(
     field_value: str,
 ) -> typing.Optional[dict[str, typing.Any]]:
     """把 TUI 偏好命令写入 primary slot，并刷新本地缓存。"""
-    application = mind.frontend.application
+    application = host.frontend.application
 
     try:
         saved = await save_primary_pref_field(
-            mind.settings.config,
+            host.settings.config,
             field_name,
             field_value,
         )
-        await mind.settings.refresh_preferences_if_stale(ttl_sec=0.0)
+        await host.settings.refresh_preferences_if_stale(ttl_sec=0.0)
     except (OSError, TypeError, ValueError) as pref_save_error:
         command = "/effort" if command_name == "model-effort" else f"/{command_name}"
         application.emit(ApplicationView(

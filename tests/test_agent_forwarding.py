@@ -74,7 +74,7 @@ def _recording_mock(events: list[str], name: str, result=None) -> AsyncMock:
 
 @pytest.mark.anyio
 async def test_runtime_bind_maps_provider_kind_to_remote_provider() -> None:
-    mind = SimpleNamespace(conversation=SimpleNamespace(
+    host = SimpleNamespace(conversation=SimpleNamespace(
         fresh_pref_config=AsyncMock(return_value={
             "primary": {
                 "provider": "claude-main",
@@ -86,7 +86,7 @@ async def test_runtime_bind_maps_provider_kind_to_remote_provider() -> None:
         }),
     ))
 
-    config = await build_runtime_llm_conf(mind)
+    config = await build_runtime_llm_conf(host)
 
     assert config["primary"] == {
         "provider": "anthropic",
@@ -114,7 +114,7 @@ def test_normalize_forward_request_preserves_message_and_intent() -> None:
 async def test_agent_executor_runs_message_and_sends_completion() -> None:
     result = RunResult(status="completed", assistant_text="done")
     turn_runner = AsyncMock(return_value=result)
-    mind = SimpleNamespace(history_workspace=".")
+    host = SimpleNamespace(history_workspace=".")
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_completed=AsyncMock(),
@@ -136,7 +136,7 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
         turn_runner,
         turn_application=_turn_application(),
     ).execute(
-        mind,
+        host,
         client,
         object(),
         runtime,
@@ -144,7 +144,7 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
     )
 
     turn_runner.assert_awaited_once_with(
-        mind,
+        host,
         message="inspect workspace",
         exec_env={"snapshot_id": "envsnap_subscription"},
         metadata={
@@ -225,7 +225,7 @@ async def test_agent_executor_submits_frozen_forward_command() -> None:
 async def test_agent_executor_propagates_tui_turn_id() -> None:
     result = RunResult(status="completed", assistant_text="done")
     turn_runner = AsyncMock(return_value=result)
-    mind = SimpleNamespace(history_workspace=".")
+    host = SimpleNamespace(history_workspace=".")
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_completed=AsyncMock(),
@@ -242,7 +242,7 @@ async def test_agent_executor_propagates_tui_turn_id() -> None:
         turn_runner,
         turn_application=_turn_application(),
     ).execute(
-        mind,
+        host,
         client,
         object(),
         SimpleNamespace(session_id="agent-session"),
@@ -256,7 +256,7 @@ async def test_agent_executor_propagates_tui_turn_id() -> None:
 @pytest.mark.anyio
 async def test_agent_executor_reports_interrupted_result_as_cancelled() -> None:
     turn_runner = AsyncMock(return_value=RunResult(status="interrupted"))
-    mind = SimpleNamespace(history_workspace=".")
+    host = SimpleNamespace(history_workspace=".")
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_cancelled=AsyncMock(),
@@ -273,7 +273,7 @@ async def test_agent_executor_reports_interrupted_result_as_cancelled() -> None:
         turn_runner,
         turn_application=_turn_application(),
     ).execute(
-        mind,
+        host,
         client,
         object(),
         SimpleNamespace(session_id="agent-session"),
@@ -298,7 +298,7 @@ async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
         started.set()
         await asyncio.Future()
 
-    mind = SimpleNamespace(history_workspace=".")
+    host = SimpleNamespace(history_workspace=".")
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_cancelled=AsyncMock(),
@@ -315,7 +315,7 @@ async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
         run_root_turn,
         turn_application=_turn_application(),
     ).execute(
-        mind,
+        host,
         client,
         object(),
         SimpleNamespace(session_id="agent-session"),
@@ -335,7 +335,7 @@ async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
 async def test_agent_executor_reports_execution_failure() -> None:
     error = RuntimeError("execution failed")
     turn_runner = AsyncMock(side_effect=error)
-    mind = SimpleNamespace(history_workspace=".")
+    host = SimpleNamespace(history_workspace=".")
     client = SimpleNamespace(
         send_mind_started=AsyncMock(),
         send_mind_failed=AsyncMock(),
@@ -353,7 +353,7 @@ async def test_agent_executor_reports_execution_failure() -> None:
             turn_runner,
             turn_application=_turn_application(),
         ).execute(
-            mind,
+            host,
             client,
             object(),
             SimpleNamespace(session_id="agent-session"),
@@ -422,7 +422,7 @@ async def test_terminal_outbox_resends_stable_envelope_until_ack() -> None:
 @pytest.mark.anyio
 async def test_agent_ws_enqueues_message_without_executing_it() -> None:
     events: list[str] = []
-    mind = SimpleNamespace()
+    host = SimpleNamespace()
     client = SimpleNamespace(
         send_mind_received=_recording_mock(events, "received"),
     )
@@ -433,7 +433,7 @@ async def test_agent_ws_enqueues_message_without_executing_it() -> None:
     inbox = AgentInbox()
 
     seq = await handle_server_message(
-        mind,
+        host,
         client,
         object(),
         runtime,
@@ -452,7 +452,7 @@ async def test_agent_ws_enqueues_message_without_executing_it() -> None:
 
 @pytest.mark.anyio
 async def test_agent_ws_replay_acknowledges_without_duplicate_inbox_item() -> None:
-    mind = SimpleNamespace()
+    host = SimpleNamespace()
     client = SimpleNamespace(
         send_mind_received=AsyncMock(),
     )
@@ -467,10 +467,10 @@ async def test_agent_ws_replay_acknowledges_without_duplicate_inbox_item() -> No
     handler = InboxForwardHandler(inbox)
 
     await handle_server_message(
-        mind, client, connection, runtime, message, live_status, handler
+        host, client, connection, runtime, message, live_status, handler
     )
     await handle_server_message(
-        mind, client, connection, runtime, message, live_status, handler
+        host, client, connection, runtime, message, live_status, handler
     )
 
     assert client.send_mind_received.await_count == 2
@@ -718,7 +718,7 @@ def _waiting_ws_client(context: _WsContext, receive_started: asyncio.Event):
     )
 
 
-def _ws_mind() -> SimpleNamespace:
+def _ws_host() -> SimpleNamespace:
     return SimpleNamespace(
         lifecycle=ProcessLifecycle(),
         conversation=SimpleNamespace(
@@ -735,7 +735,7 @@ async def test_agent_ready_timeout_closes_websocket_context() -> None:
 
     with pytest.raises(TimeoutError, match="did not send ready"):
         await connect_once(
-            _ws_mind(),
+            _ws_host(),
             client,
             _ws_runtime(),
             AgentLiveStatus(),
@@ -753,7 +753,7 @@ async def test_agent_listener_cancellation_closes_websocket_context() -> None:
     client = _waiting_ws_client(context, receive_started)
     disconnected = Mock()
     task = asyncio.create_task(connect_once(
-        _ws_mind(),
+        _ws_host(),
         client,
         _ws_runtime(),
         AgentLiveStatus(),

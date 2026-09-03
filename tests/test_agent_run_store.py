@@ -19,7 +19,7 @@ from infrastructure.config.runtime_paths import (
     agent_graph_db_path,
     agent_runtime_db_path,
     effect_journal_db_path,
-    mind_history_db_path,
+    conversation_history_db_path,
 )
 from agent.application.config.session_identity import derive_local_session_id
 
@@ -326,5 +326,5 @@ def test_runtime_identity_and_storage_are_isolated_from_online_and_graph_state()
         agent_runtime_db_path().name,
         agent_graph_db_path().name,
         effect_journal_db_path().name,
-        mind_history_db_path().name,
+        conversation_history_db_path().name,
     } == {"runtime.db", "agents.db", "effects.db", "history.db"}

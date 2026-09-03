@@ -17,7 +17,7 @@ from agent.domain.policies import preset_permissions
 async def test_prompt_context_is_loaded_before_runtime_open() -> None:
     runtime = TuiRuntime()
     workspace_updates = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace=Path("D:/workspace"),
         frontend=SimpleNamespace(runtime=runtime),
         settings=SimpleNamespace(
@@ -47,7 +47,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
         "frontends.tui.session.state.fetch_runtime_workspace_root",
         AsyncMock(return_value=Path("D:/workspace")),
     ):
-        await preload_tui_prompt_context(mind)
+        await preload_tui_prompt_context(host)
 
     assert not runtime.active
     assert runtime.context.model == "gpt-test high"
@@ -59,7 +59,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
         "1 background terminal running · /ps to view · /stop to close"
     )
     assert workspace_updates == [Path("D:/workspace")]
-    mind.settings.fresh_preferences.assert_awaited_once_with(ttl_sec=0.0)
+    host.settings.fresh_preferences.assert_awaited_once_with(ttl_sec=0.0)
 
     preloaded_placeholder = runtime.submissions.placeholder_text
     runtime.submissions.message_queue.put_nowait("hello")
@@ -95,7 +95,7 @@ async def test_first_trust_keeps_input_hidden_until_startup_finishes() -> None:
             assert runtime.directory_trust_active
             assert played == []
 
-            mind = SimpleNamespace(
+            host = SimpleNamespace(
                 history_workspace=workspace,
                 frontend=SimpleNamespace(runtime=runtime),
                 settings=SimpleNamespace(
@@ -122,7 +122,7 @@ async def test_first_trust_keeps_input_hidden_until_startup_finishes() -> None:
                 "frontends.tui.session.state.fetch_runtime_workspace_root",
                 AsyncMock(return_value=workspace),
             ):
-                await preload_tui_prompt_context(mind)
+                await preload_tui_prompt_context(host)
 
             footer = "".join(
                 text for _style, text in runtime.screen._footer_fragments()

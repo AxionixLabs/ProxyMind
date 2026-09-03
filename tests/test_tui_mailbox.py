@@ -446,11 +446,11 @@ async def test_mailbox_run_uses_main_tui_execution_lifecycle() -> None:
         application=SimpleNamespace(emit=Mock()),
         handle_stream_command=lambda *_args: False,
     )
-    mind = SimpleNamespace(lifecycle=ProcessLifecycle())
+    host = SimpleNamespace(lifecycle=ProcessLifecycle())
     request = MailboxRunRequest("message-1", automatic=True)
 
     task = asyncio.create_task(
-        _handle_mailbox_run(mind, runtime, dispatcher, request)
+        _handle_mailbox_run(host, runtime, dispatcher, request)
     )
     await started.wait()
 
@@ -495,7 +495,7 @@ async def test_mailbox_run_failure_is_rendered_and_releases_auto_slot() -> None:
         application=SimpleNamespace(emit=views.append),
         handle_stream_command=lambda *_args: False,
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         lifecycle=ProcessLifecycle(),
         frontend=SimpleNamespace(
             application=SimpleNamespace(
@@ -505,7 +505,7 @@ async def test_mailbox_run_failure_is_rendered_and_releases_auto_slot() -> None:
         ),
     )
 
-    await _handle_mailbox_run(mind, runtime, dispatcher, request)
+    await _handle_mailbox_run(host, runtime, dispatcher, request)
 
     assert views[0].renderable.plain_text == (
         "■ Mailbox run failed\n"
@@ -569,10 +569,10 @@ async def test_mailbox_run_keeps_query_before_approval_tools_and_long_answer() -
         application=SimpleNamespace(emit=Mock()),
         handle_stream_command=lambda *_args: False,
     )
-    mind = SimpleNamespace(lifecycle=ProcessLifecycle())
+    host = SimpleNamespace(lifecycle=ProcessLifecycle())
     request = MailboxRunRequest("message-combined", automatic=False)
 
-    await _handle_mailbox_run(mind, runtime, dispatcher, request)
+    await _handle_mailbox_run(host, runtime, dispatcher, request)
 
     cells = runtime.document.blocks
     assert [cell.kind for cell in cells] == [
@@ -622,11 +622,11 @@ async def test_mailbox_interrupt_keeps_one_query_and_releases_execution() -> Non
         application=SimpleNamespace(emit=emit),
         handle_stream_command=lambda *_args: False,
     )
-    mind = SimpleNamespace(lifecycle=ProcessLifecycle())
+    host = SimpleNamespace(lifecycle=ProcessLifecycle())
     request = MailboxRunRequest("message-interrupt", automatic=True)
 
     task = asyncio.create_task(
-        _handle_mailbox_run(mind, runtime, dispatcher, request)
+        _handle_mailbox_run(host, runtime, dispatcher, request)
     )
     await started.wait()
     runtime.submissions.interrupt_input()

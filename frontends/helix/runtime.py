@@ -147,7 +147,7 @@ async def prepare_service_runtime(
 
 
 async def start_service_runtime(
-    mind: HelixRuntimeHost,
+    host: HelixRuntimeHost,
     *,
     label: str = "Helix MCP",
     defer_activity_stop: bool = False
@@ -159,10 +159,10 @@ async def start_service_runtime(
 
     observe("helix.start", label=label)
 
-    await mind.activity.start_inbuild(lambda: dict(status))
+    await host.activity.start_inbuild(lambda: dict(status))
 
     try:
-        await mind.service_runtime.ensure_ready(wait_sec=10.0)
+        await host.service_runtime.ensure_ready(wait_sec=10.0)
         status["state"] = "ready"
     except Exception as error:
         status["state"] = "failed"
@@ -176,12 +176,12 @@ async def start_service_runtime(
 
     finally:
         if not defer_activity_stop:
-            await mind.lifecycle.await_cleanup(mind.activity.stop(
+            await host.lifecycle.await_cleanup(host.activity.stop(
                 "inbuild",
                 settle=False,
             ))
 
-    mind.service_runtime.start_keepalive()
+    host.service_runtime.start_keepalive()
 
     observe(
         "helix.start.complete",
@@ -190,7 +190,7 @@ async def start_service_runtime(
 
 
 async def prepare_and_start_service_runtime(
-    mind: HelixRuntimeHost,
+    host: HelixRuntimeHost,
     *,
     tool_profile: ToolFilterMode = "app",
     label: str = "Helix MCP",
@@ -212,7 +212,7 @@ async def prepare_and_start_service_runtime(
 
     async def prepare() -> bool:
         """在串行边界内完成本地服务准备和发布。"""
-        context = mind.service_runtime.require_context()
+        context = host.service_runtime.require_context()
 
         if service_runtime_asset_missing(context) and not download_confirmed:
             if confirm_download is None or not await confirm_download(context):
@@ -227,18 +227,18 @@ async def prepare_and_start_service_runtime(
             return False
 
         await start_service_runtime(
-            mind,
+            host,
             label=label,
             defer_activity_stop=defer_activity_stop,
         )
-        mind.execution.link_service(
+        host.execution.link_service(
             await fetch_service_exec_env(),
             tool_profile=tool_profile,
         )
         return True
 
     try:
-        linked = await mind.service_runtime.run_startup(prepare)
+        linked = await host.service_runtime.run_startup(prepare)
     except asyncio.CancelledError:
         observe(
             "helix.prepare.interrupted",

@@ -47,7 +47,7 @@ from agent.ports.network import (
 from composition import ApplicationHost
 from frontends.cli.entry import run
 from frontends.interaction.attachments import Attach
-from frontends.mcp.server import run_mind_mcp_server
+from frontends.mcp.server import run_mcp_server
 from frontends.output.silent import create_silent_output_session
 from frontends.runtime import FrontendActivity
 from frontends.subscription.runtime import AgentRuntime
@@ -392,7 +392,7 @@ if __name__ == "__main__":
         entry_file=__file__,
         runtime_services=process_runtime_services,
         mcp_server_runner=functools.partial(
-            run_mind_mcp_server,
+            run_mcp_server,
             application_host_factory=create_application_host,
             turn_runner=root_turn_runner,
             environment_snapshot_provider=capture_turn_environment,

@@ -9,7 +9,7 @@ AGENTS_DIR = ".agents"
 SKILLS_DIR = "skills"
 
 
-def _mind_work() -> Path:
+def _application_root() -> Path:
     try:
         return resolve_application_layout().root
     except ValueError:
@@ -18,7 +18,7 @@ def _mind_work() -> Path:
 
 def bundled_skills_root() -> Path:
     """返回内置 skills 根目录。"""
-    return _mind_work() / "schematic" / "skills" / "bundled"
+    return _application_root() / "schematic" / "skills" / "bundled"
 
 
 def _repo_root(start: Path) -> Path:

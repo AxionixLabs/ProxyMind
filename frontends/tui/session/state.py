@@ -56,14 +56,14 @@ class TuiSessionState(object):
     @classmethod
     def create(
         cls,
-        mind: "TuiApplicationHost",
+        host: "TuiApplicationHost",
         runtime: TuiRuntime,
         *,
         model_override: str | None = None
     ) -> "TuiSessionState":
         """根据控制器缓存和已预载的运行时上下文创建会话状态。"""
         pref_config = apply_primary_model_override(
-            mind.settings.preference_config(),
+            host.settings.preference_config(),
             model_override,
         )
 
@@ -72,7 +72,7 @@ class TuiSessionState(object):
             model=primary_model_from_config(pref_config),
             model_override=model_override,
             workspace_label=runtime.context.workspace_label,
-            permissions=mind.settings.permissions,
+            permissions=host.settings.permissions,
         )
 
     def prompt_context(self) -> PromptContext:
@@ -87,9 +87,9 @@ class TuiSessionState(object):
         """把当前会话上下文同步到 TUI 运行时。"""
         runtime.set_prompt_context(self.prompt_context())
 
-    async def refresh_for_prompt(self, mind: "TuiApplicationHost") -> None:
+    async def refresh_for_prompt(self, host: "TuiApplicationHost") -> None:
         """在等待用户输入期间刷新偏好和工作区标签。"""
-        await self.refresh_preferences(mind)
+        await self.refresh_preferences(host)
 
         now = time.monotonic()
         if now - self.workspace_refreshed_at < WORKSPACE_LABEL_REFRESH:
@@ -97,8 +97,8 @@ class TuiSessionState(object):
 
         runtime_workspace_root = await fetch_runtime_workspace_root()
         if runtime_workspace_root is not None:
-            mind.set_history_workspace(runtime_workspace_root)
-            runtime = require_tui_runtime(mind.frontend.runtime)
+            host.set_history_workspace(runtime_workspace_root)
+            runtime = require_tui_runtime(host.frontend.runtime)
             runtime.input_model.set_workspace_root(runtime_workspace_root)
 
         self.workspace_label = workspace_display_label(runtime_workspace_root)
@@ -106,15 +106,15 @@ class TuiSessionState(object):
 
     async def refresh_preferences(
         self,
-        mind: "TuiApplicationHost",
+        host: "TuiApplicationHost",
         *,
         ttl_sec: float | None = None,
     ) -> dict[str, typing.Any]:
         """刷新偏好配置并保持模型字段同步。"""
         if ttl_sec is None:
-            pref_config = await mind.settings.fresh_preferences()
+            pref_config = await host.settings.fresh_preferences()
         else:
-            pref_config = await mind.settings.fresh_preferences(
+            pref_config = await host.settings.fresh_preferences(
                 ttl_sec=ttl_sec,
             )
 
@@ -174,19 +174,19 @@ class TuiSessionState(object):
         self._pending_prompt_extras = None
 
 
-async def preload_tui_prompt_context(mind: "TuiApplicationHost") -> None:
+async def preload_tui_prompt_context(host: "TuiApplicationHost") -> None:
     """在主画布显示前加载输入上下文和后台进程状态。"""
-    runtime = require_tui_runtime(mind.frontend.runtime)
+    runtime = require_tui_runtime(host.frontend.runtime)
 
     runtime.input_model.set_skills(configured_skills(
-        mind.settings.config.load()
+        host.settings.config.load()
     ))
-    runtime.input_model.set_workspace_root(mind.history_workspace)
+    runtime.input_model.set_workspace_root(host.history_workspace)
 
     pref_result, workspace_result, exec_result = await asyncio.gather(
-        mind.settings.fresh_preferences(ttl_sec=0.0),
+        host.settings.fresh_preferences(ttl_sec=0.0),
         fetch_runtime_workspace_root(),
-        mind.workspace_runtime.coding.running_exec_sessions(),
+        host.workspace_runtime.coding.running_exec_sessions(),
         return_exceptions=True,
     )
 
@@ -200,13 +200,13 @@ async def preload_tui_prompt_context(mind: "TuiApplicationHost") -> None:
     exec_snapshot = exec_result if isinstance(exec_result, dict) else {}
 
     if runtime_workspace_root is not None:
-        mind.set_history_workspace(runtime_workspace_root)
+        host.set_history_workspace(runtime_workspace_root)
         runtime.input_model.set_workspace_root(runtime_workspace_root)
 
     runtime.set_prompt_context(PromptContext(
         model=primary_model_prompt_label(pref_config),
         workspace_label=workspace_display_label(runtime_workspace_root),
-        permissions_label=permission_label(mind.settings.permissions),
+        permissions_label=permission_label(host.settings.permissions),
     ))
     model_snapshot, user_shell_snapshot = split_exec_snapshot_by_origin(
         exec_snapshot,

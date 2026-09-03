@@ -63,7 +63,7 @@ async def test_mcp_menu_keeps_complete_actions_without_configuration(monkeypatch
     monkeypatch.setattr(
         mcp,
         "summarize_external_runtime",
-        lambda _mind: {
+        lambda _host: {
             "started": False,
             "configured": [],
             "config_error": "",
@@ -106,7 +106,7 @@ async def test_mcp_menu_does_not_duplicate_invalid_config_marker(monkeypatch) ->
     monkeypatch.setattr(
         mcp,
         "summarize_external_runtime",
-        lambda _mind: {
+        lambda _host: {
             "started": False,
             "configured": [],
             "config_error": "invalid config",
@@ -123,7 +123,7 @@ async def test_mcp_menu_does_not_duplicate_invalid_config_marker(monkeypatch) ->
 
 
 def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         src_opera_place=tmp_path,
         settings=SimpleNamespace(
             config=SimpleNamespace(load=lambda: {
@@ -151,7 +151,7 @@ def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
         )),
     )
 
-    summary = mcp.summarize_external_runtime(mind)
+    summary = mcp.summarize_external_runtime(host)
 
     assert summary["tool_count"] == 2
     assert summary["filtered_count"] == 3
@@ -184,10 +184,10 @@ def test_parse_mcp_command(command, expected) -> None:
 @pytest.mark.anyio
 async def test_force_uses_start_when_runtime_is_not_running(monkeypatch) -> None:
     owner = _external_mcp_owner()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         execution=_execution(owner),
     )
-    await mcp.run_mcp_action(mind, "force")
+    await mcp.run_mcp_action(host, "force")
 
     owner.start.assert_awaited_once_with(
         include_disabled=True,
@@ -206,20 +206,20 @@ async def test_mcp_cancellation_is_rendered_as_interrupted() -> None:
         await asyncio.Future()
 
     owner = _external_mcp_owner(start=start_runtime)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         execution=_execution(owner),
         frontend=SimpleNamespace(
             application=_application(views),
         ),
     )
-    task = asyncio.create_task(mcp.run_mcp_action(mind, "start"))
+    task = asyncio.create_task(mcp.run_mcp_action(host, "start"))
     await started.wait()
     task.cancel()
 
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    mcp.render_mcp_action_cancelled(mind, "start")
+    mcp.render_mcp_action_cancelled(host, "start")
 
     status = next(
         view for view in views
@@ -243,7 +243,7 @@ async def test_mcp_stop_commits_compact_final_status(started, expected) -> None:
     owner = _external_mcp_owner(
         SimpleNamespace(started=True) if started else None,
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         activity=_activity(),
         execution=_execution(owner),
         frontend=SimpleNamespace(
@@ -252,9 +252,9 @@ async def test_mcp_stop_commits_compact_final_status(started, expected) -> None:
         ),
     )
 
-    was_started = await mcp.run_mcp_action(mind, "stop")
-    await mcp.finish_mcp_activity(mind, "stop")
-    mcp.render_mcp_action_result(mind, "stop", was_started)
+    was_started = await mcp.run_mcp_action(host, "stop")
+    await mcp.finish_mcp_activity(host, "stop")
+    mcp.render_mcp_action_result(host, "stop", was_started)
 
     status = next(
         view for view in views
@@ -274,7 +274,7 @@ async def test_mcp_stop_failure_has_stop_specific_status() -> None:
         SimpleNamespace(started=True),
         close=AsyncMock(side_effect=AppError("cleanup failed")),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         activity=_activity(),
         execution=_execution(owner),
         frontend=SimpleNamespace(
@@ -284,9 +284,9 @@ async def test_mcp_stop_failure_has_stop_specific_status() -> None:
     )
 
     with pytest.raises(AppError) as captured:
-        await mcp.run_mcp_action(mind, "stop")
-    await mcp.finish_mcp_activity(mind, "stop")
-    mcp.render_mcp_action_failure(mind, "stop", captured.value)
+        await mcp.run_mcp_action(host, "stop")
+    await mcp.finish_mcp_activity(host, "stop")
+    mcp.render_mcp_action_failure(host, "stop", captured.value)
 
     status = next(
         view for view in views
@@ -322,7 +322,7 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
         SimpleNamespace(started=True),
         close=stop_runtime,
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         activity=_activity(),
         execution=_execution(owner),
         frontend=SimpleNamespace(
@@ -330,7 +330,7 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
             application=_application(views),
         ),
     )
-    task = asyncio.create_task(mcp.run_mcp_action(mind, "stop"))
+    task = asyncio.create_task(mcp.run_mcp_action(host, "stop"))
     await cleanup_started.wait()
     task.cancel()
     assert not task.done()
@@ -339,8 +339,8 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    await mcp.finish_mcp_activity(mind, "stop")
-    mcp.render_mcp_action_cancelled(mind, "stop")
+    await mcp.finish_mcp_activity(host, "stop")
+    mcp.render_mcp_action_cancelled(host, "stop")
 
     assert cleanup_finished.is_set()
     status = next(
@@ -393,7 +393,7 @@ def test_external_mcp_start_result_is_committed_to_tui(
     expected,
 ) -> None:
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         execution=_execution(_external_mcp_owner(
             SimpleNamespace(last_start_snapshot=snapshot),
         )),
@@ -402,7 +402,7 @@ def test_external_mcp_start_result_is_committed_to_tui(
         ),
     )
 
-    assert mcp.render_external_mcp_start_status(mind)
+    assert mcp.render_external_mcp_start_status(host)
 
     status = next(
         view for view in views
@@ -425,7 +425,7 @@ def test_partial_external_mcp_failure_is_not_bold() -> None:
         ],
     }
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         execution=_execution(_external_mcp_owner(
             SimpleNamespace(last_start_snapshot=snapshot),
         )),
@@ -434,7 +434,7 @@ def test_partial_external_mcp_failure_is_not_bold() -> None:
         ),
     )
 
-    assert mcp.render_external_mcp_start_status(mind)
+    assert mcp.render_external_mcp_start_status(host)
 
     status = next(
         view for view in views
@@ -449,7 +449,7 @@ def test_partial_external_mcp_failure_is_not_bold() -> None:
 
 def test_mcp_force_result_keeps_activity_prefix() -> None:
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         execution=_execution(_external_mcp_owner(SimpleNamespace(
             last_start_snapshot={
                 "done": True,
@@ -467,7 +467,7 @@ def test_mcp_force_result_keeps_activity_prefix() -> None:
         ),
     )
 
-    mcp.render_mcp_action_result(mind, "force", was_started=False)
+    mcp.render_mcp_action_result(host, "force", was_started=False)
 
     status = next(
         view for view in views
@@ -480,7 +480,7 @@ def test_mcp_force_result_keeps_activity_prefix() -> None:
 
 def test_external_mcp_status_is_one_compact_block(monkeypatch) -> None:
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=_application(views),
         ),
@@ -488,7 +488,7 @@ def test_external_mcp_status_is_one_compact_block(monkeypatch) -> None:
     monkeypatch.setattr(
         mcp,
         "summarize_external_runtime",
-        lambda _mind: {
+        lambda _host: {
             "started": False,
             "configured": [
                 {"name": "playwright", "transport": "stdio", "enabled": False},
@@ -501,7 +501,7 @@ def test_external_mcp_status_is_one_compact_block(monkeypatch) -> None:
         },
     )
 
-    mcp.render_mcp_status(mind)
+    mcp.render_mcp_status(host)
 
     assert [view.type for view in views] == ["tui.mcp", "tui.gap"]
     assert views[0].renderable.fragments
@@ -561,7 +561,7 @@ def test_mcp_status_wraps_long_tool_lists(monkeypatch) -> None:
         "browser_wait_for",
     ]
     width = 60
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(
                 emit=views.append,
@@ -572,7 +572,7 @@ def test_mcp_status_wraps_long_tool_lists(monkeypatch) -> None:
     monkeypatch.setattr(
         mcp,
         "summarize_external_runtime",
-        lambda _mind: {
+        lambda _host: {
             "started": True,
             "configured": [{
                 "name": "playwright",
@@ -592,7 +592,7 @@ def test_mcp_status_wraps_long_tool_lists(monkeypatch) -> None:
         },
     )
 
-    mcp.render_mcp_status(mind)
+    mcp.render_mcp_status(host)
 
     text = "".join(
         value for _style, value in views[0].renderable.fragments

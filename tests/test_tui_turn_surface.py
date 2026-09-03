@@ -242,6 +242,71 @@ def test_reducer_suppresses_replay_and_restores_latest_projection() -> None:
     assert reduce_turn_surface(state, stale) is state
 
 
+def test_transport_retry_overlays_visible_content_without_replacing_it() -> None:
+    """验证断网重连临时恢复活动提示，但不释放当前正文所有权。"""
+    context = _context()
+    state = _active_state(context)
+    identity = _identity()
+    buffered = AssistantBuffered(
+        **_scope(context),
+        identity=identity,
+        item_id="item_answer",
+    )
+    visible = AssistantVisible(
+        **_scope(context),
+        identity=identity,
+        item_id="item_answer",
+    )
+    retry_started = RetryChanged(
+        **_scope(context),
+        source="transport",
+        state="started",
+        presentation_epoch=1,
+        round=1,
+        attempt=1,
+    )
+    retry_completed = RetryChanged(
+        **_scope(context),
+        source="transport",
+        state="completed",
+        presentation_epoch=1,
+        round=1,
+        attempt=1,
+    )
+
+    state = reduce_turn_surface(state, buffered)
+    state = reduce_turn_surface(state, visible)
+    state = reduce_turn_surface(state, retry_started)
+
+    assert state.content == "visible"
+    assert state.visible_item is not None
+    assert state.visible_item.identity == identity
+    assert project_turn_surface(state) == SurfaceProjection(
+        "retrying",
+        title="Retrying",
+        detail="transport",
+        revision=4,
+    )
+
+    state = reduce_turn_surface(state, RecoveryChanged(
+        **_scope(context),
+        mode="replaying",
+        event_seq=8,
+    ))
+    assert project_turn_surface(state).indicator == "hidden"
+    state = reduce_turn_surface(state, retry_completed)
+    state = reduce_turn_surface(state, RecoveryChanged(
+        **_scope(context),
+        mode="caught_up",
+        event_seq=8,
+    ))
+
+    assert state.content == "visible"
+    assert state.visible_item is not None
+    assert state.visible_item.identity == identity
+    assert project_turn_surface(state).indicator == "hidden"
+
+
 def test_provider_retry_atomically_releases_superseded_visible_content() -> None:
     context = _context()
     state = _active_state(context)
@@ -420,13 +485,75 @@ async def test_visible_content_supersedes_an_inflight_async_projection() -> None
 
 
 @pytest.mark.anyio
-async def test_coordinator_suppresses_fast_tool_projection() -> None:
-    """验证快速工具在统一 generation timer 到期前不制造闪烁。"""
-    context = _context(surface_id="surface_fast_tool")
+async def test_transport_retry_restores_indicator_after_content_is_visible() -> None:
+    """验证断网可重新取得活动区，且 replay 不与现有正文争夺画面。"""
+    context = _context(surface_id="surface_visible_transport_retry")
     projections: list[SurfaceProjection] = []
 
     async def apply(projection: SurfaceProjection) -> None:
         projections.append(projection)
+
+    def apply_immediate(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(
+        context,
+        apply,
+        apply_immediate_projection=apply_immediate,
+        timing=TurnSurfaceTiming(transport_retry_min_visible_sec=0.0),
+    )
+    identity = _identity()
+    await coordinator.open()
+    await coordinator.emit(AssistantBuffered(
+        **_scope(context),
+        identity=identity,
+        item_id="item_answer",
+    ))
+    coordinator.emit_assistant_visible(AssistantVisible(
+        **_scope(context),
+        identity=identity,
+        item_id="item_answer",
+    ))
+    assert projections[-1].indicator == "hidden"
+
+    await coordinator.emit(RetryChanged(
+        **_scope(context),
+        source="transport",
+        state="started",
+        presentation_epoch=1,
+        round=1,
+        attempt=1,
+    ))
+
+    assert coordinator.state.content == "visible"
+    assert projections[-1] == SurfaceProjection(
+        "retrying",
+        title="Retrying",
+        detail="transport",
+        revision=4,
+    )
+
+    await coordinator.emit(RecoveryChanged(
+        **_scope(context),
+        mode="replaying",
+        event_seq=8,
+    ))
+    assert coordinator.state.content == "visible"
+    assert projections[-1].indicator == "hidden"
+    await coordinator.close()
+
+
+@pytest.mark.anyio
+async def test_coordinator_suppresses_fast_tool_projection() -> None:
+    """验证快速工具在统一 generation timer 到期前不制造闪烁。"""
+    context = _context(surface_id="surface_fast_tool")
+    projections: list[SurfaceProjection] = []
+    thinking_applied = asyncio.Event()
+
+    async def apply(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+        if projection.indicator == "thinking":
+            thinking_applied.set()
 
     coordinator = TuiTurnSurfaceCoordinator(
         context,
@@ -455,7 +582,7 @@ async def test_coordinator_suppresses_fast_tool_projection() -> None:
         revision=1,
         reason="tool_result",
     ))
-    await asyncio.sleep(0.03)
+    await asyncio.wait_for(thinking_applied.wait(), timeout=1.0)
 
     assert len(projections) == 2
     assert projections[-1].indicator == "thinking"

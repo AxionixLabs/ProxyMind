@@ -51,9 +51,9 @@ from infrastructure.config.paths import (
 )
 from infrastructure.config.preferences import Preferences
 from infrastructure.config.runtime_paths import (
-    ensure_mind_home,
-    mind_config_path,
-    mind_reports_dir,
+    ensure_application_home,
+    application_config_path,
+    reports_dir,
     process_env,
 )
 from infrastructure.config.schema import ConfigOverride
@@ -371,14 +371,14 @@ async def _run_application(
     if runtime_spec is None:
         raise AppError(f"This platform is not supported: {platform}.")
 
-    home = ensure_mind_home()
-    reports = mind_reports_dir()
+    home = ensure_application_home()
+    reports = reports_dir()
 
     try:
         workspace = Path.cwd()
 
         config_session = ConfigSession(
-            ConfigStore(mind_config_path()),
+            ConfigStore(application_config_path()),
             config_overrides,
             profile=config_profile,
             workspace=workspace,

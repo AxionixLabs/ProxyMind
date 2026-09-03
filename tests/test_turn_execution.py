@@ -266,7 +266,7 @@ def test_turn_execution_rejects_hook_scope_from_another_turn() -> None:
 
 @pytest.mark.anyio
 async def test_execute_turn_does_not_require_root_conversation_or_frontend() -> None:
-    mind = _ExecutionController()
+    host = _ExecutionController()
     execution = _root_execution()
     report = _Report()
     received = []
@@ -276,7 +276,7 @@ async def test_execute_turn_does_not_require_root_conversation_or_frontend() -> 
         return RunResult(status="completed", assistant_text="done")
 
     result = await execute_turn(
-        mind,
+        host,
         {"primary": {"model": "test-model"}},
         execution,
         operation,
@@ -284,7 +284,7 @@ async def test_execute_turn_does_not_require_root_conversation_or_frontend() -> 
     )
 
     assert result.status == "completed"
-    assert mind.sessions == [{"primary": {"model": "test-model"}}]
+    assert host.sessions == [{"primary": {"model": "test-model"}}]
     assert received == [(
         execution,
         "session",
@@ -293,13 +293,13 @@ async def test_execute_turn_does_not_require_root_conversation_or_frontend() -> 
     )]
     assert report.opened == 0
     assert report.closed == []
-    assert not hasattr(mind, "conversation")
-    assert not hasattr(mind, "frontend")
+    assert not hasattr(host, "conversation")
+    assert not hasattr(host, "frontend")
 
 
 @pytest.mark.anyio
 async def test_execute_turn_applies_explicit_tool_filter_policy() -> None:
-    mind = _ExecutionController()
+    host = _ExecutionController()
     received = []
 
     async def with_mcp_session(_pref_config, function):
@@ -336,10 +336,10 @@ async def test_execute_turn_applies_explicit_tool_filter_policy() -> None:
         received.extend(tools)
         return RunResult(status="completed")
 
-    mind.with_mcp_session = with_mcp_session
+    host.with_mcp_session = with_mcp_session
 
     await execute_turn(
-        mind,
+        host,
         {},
         _root_execution(),
         operation,
@@ -370,8 +370,8 @@ async def test_execute_turn_applies_explicit_tool_filter_policy() -> None:
 
 @pytest.mark.anyio
 async def test_execute_turn_preserves_explicit_unfiltered_snapshot() -> None:
-    mind = _ExecutionController()
-    mind.tool_profile_for_turn = Mock(return_value="api")
+    host = _ExecutionController()
+    host.tool_profile_for_turn = Mock(return_value="api")
     received = []
     tools = [
         {"name": "device_info", "meta": {"domain": "device"}},
@@ -388,10 +388,10 @@ async def test_execute_turn_preserves_explicit_unfiltered_snapshot() -> None:
         received.extend(visible)
         return RunResult(status="completed")
 
-    mind.with_mcp_session = with_mcp_session
+    host.with_mcp_session = with_mcp_session
 
     await execute_turn(
-        mind,
+        host,
         {},
         _root_execution(),
         operation,
@@ -400,13 +400,13 @@ async def test_execute_turn_preserves_explicit_unfiltered_snapshot() -> None:
     )
 
     assert received == tools
-    mind.tool_profile_for_turn.assert_not_called()
+    host.tool_profile_for_turn.assert_not_called()
 
 
 @pytest.mark.anyio
 async def test_execute_turn_uses_linked_helix_tool_profile() -> None:
-    mind = _ExecutionController()
-    mind.tool_profile_for_turn = Mock(return_value="app")
+    host = _ExecutionController()
+    host.tool_profile_for_turn = Mock(return_value="app")
     received = []
 
     async def with_mcp_session(_pref_config, function):
@@ -430,10 +430,10 @@ async def test_execute_turn_uses_linked_helix_tool_profile() -> None:
         received.extend(tools)
         return RunResult(status="completed")
 
-    mind.with_mcp_session = with_mcp_session
+    host.with_mcp_session = with_mcp_session
 
     await execute_turn(
-        mind,
+        host,
         {},
         _root_execution(),
         operation,
@@ -444,12 +444,12 @@ async def test_execute_turn_uses_linked_helix_tool_profile() -> None:
         "device_info",
         "plan_steps",
     ]
-    mind.tool_profile_for_turn.assert_called_once_with()
+    host.tool_profile_for_turn.assert_called_once_with()
 
 
 @pytest.mark.anyio
 async def test_concurrent_turn_executions_keep_contexts_isolated() -> None:
-    mind = _ExecutionController()
+    host = _ExecutionController()
     first = _child_execution()
     second_context = TurnContext.create(
         agent=AgentContext.root("sid_root").child(
@@ -487,8 +487,8 @@ async def test_concurrent_turn_executions_keep_contexts_isolated() -> None:
         return RunResult(status="completed")
 
     results = await asyncio.gather(
-        execute_turn(mind, {}, first, operation, event_report=_Report()),
-        execute_turn(mind, {}, second, operation, event_report=_Report()),
+        execute_turn(host, {}, first, operation, event_report=_Report()),
+        execute_turn(host, {}, second, operation, event_report=_Report()),
     )
 
     assert [result.status for result in results] == ["completed", "completed"]
@@ -525,7 +525,7 @@ async def test_execute_turn_opens_and_closes_owned_report() -> None:
 async def test_execute_turn_reuses_session_report_without_turn_close() -> None:
     report = _Report()
     pool = _ReportPool(report)
-    mind = _ExecutionController(
+    host = _ExecutionController(
         event_reporting=_event_reporting(report, pool=pool)
     )
 
@@ -533,8 +533,8 @@ async def test_execute_turn_reuses_session_report_without_turn_close() -> None:
         return RunResult(status="completed")
 
     execution = _root_execution()
-    await execute_turn(mind, {}, execution, operation)
-    await execute_turn(mind, {}, execution, operation)
+    await execute_turn(host, {}, execution, operation)
+    await execute_turn(host, {}, execution, operation)
 
     assert pool.acquired == [
         ("cid_child", "sid_child"),
@@ -549,7 +549,7 @@ async def test_execute_turn_reuses_session_report_without_turn_close() -> None:
 async def test_execute_turn_discards_pooled_report_after_cancellation() -> None:
     report = _Report()
     pool = _ReportPool(report)
-    mind = _ExecutionController(
+    host = _ExecutionController(
         event_reporting=_event_reporting(report, pool=pool)
     )
 
@@ -558,7 +558,7 @@ async def test_execute_turn_discards_pooled_report_after_cancellation() -> None:
 
     execution = _root_execution()
     with pytest.raises(asyncio.CancelledError):
-        await execute_turn(mind, {}, execution, operation)
+        await execute_turn(host, {}, execution, operation)
 
     assert pool.closed == [("cid_child", "sid_child", False)]
 
@@ -567,14 +567,14 @@ async def test_execute_turn_discards_pooled_report_after_cancellation() -> None:
 async def test_execute_turn_keeps_child_reports_turn_scoped() -> None:
     report = _Report()
     pool = _ReportPool(_Report())
-    mind = _ExecutionController(
+    host = _ExecutionController(
         event_reporting=_event_reporting(report, pool=pool)
     )
 
     async def operation(*_args):
         return RunResult(status="completed")
 
-    await execute_turn(mind, {}, _child_execution(), operation)
+    await execute_turn(host, {}, _child_execution(), operation)
 
     assert pool.acquired == []
     assert report.opened == 1
@@ -713,7 +713,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         resolved_scopes.append(scope)
         return scope
 
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         permissions=permissions,
         history_workspace="D:/workspace",
         workspace_root="D:/workspace",
@@ -752,15 +752,15 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         stop=AsyncMock(),
     )
     result = await root_turns.run_root_turn(
-        mind,
+        host,
         {"primary": {"model": "test-model"}},
         message="hello",
         metadata={"origin": "test"},
         ev_report=report,
         tool_execution=SimpleNamespace(),
-        execution_runtime=mind,
+        execution_runtime=host,
         lifecycle=ApplicationTurnForegroundLifecycle(
-            mind.frontend,
+            host.frontend,
             activity,
             ProcessLifecycle(),
             Mock(),
@@ -768,7 +768,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
     )
 
     assert result.status == "completed"
-    mind.begin_turn.assert_called_once_with(
+    host.begin_turn.assert_called_once_with(
         cid=None,
         sid=None,
         title="hello",
@@ -781,7 +781,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
     assert context.output_record_path == "D:/logs/output.log"
     assert context.transcript_path == "D:/sessions/session.jsonl"
     assert streamed_execution.hook_scope is resolved_scopes[0]
-    mind.hook_scope_provider.hook_scope.assert_called_once_with(
+    host.hook_scope_provider.hook_scope.assert_called_once_with(
         HookExecutionContext.from_turn(context)
     )
     assert dict(streamed_execution.metadata) == {

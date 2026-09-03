@@ -127,7 +127,7 @@ capture_active_turn_environment: EnvironmentSnapshotProvider = (
 
 
 async def run_selected_command(
-    mind: CliCommandHost,
+    host: CliCommandHost,
     command: RuntimeCommand,
     *,
     protocol_client: ProtocolCommandClient,
@@ -151,8 +151,8 @@ async def run_selected_command(
     observe(
         "command.start",
         command=command_name,
-        sandbox_mode=mind.conversation.permissions.sandbox_mode,
-        approval_policy=mind.conversation.permissions.approval_policy,
+        sandbox_mode=host.conversation.permissions.sandbox_mode,
+        approval_policy=host.conversation.permissions.approval_policy,
     )
 
     run_result: RunResult | None = None
@@ -161,7 +161,7 @@ async def run_selected_command(
     try:
         if isinstance(command, AgentListenCommand):
             await _run_agent_listener_session(
-                mind,
+                host,
                 turn_runner=turn_runner,
                 turn_application_factory=turn_application_factory,
                 conversation_compactor=conversation_compactor,
@@ -171,17 +171,17 @@ async def run_selected_command(
             attachments: list[dict[str, typing.Any]] = []
             if command.images:
                 for image in command.images:
-                    mind.attach.add_pending_attachments(image)
-                attachments = mind.attach.consume_pending_attachments()
+                    host.attach.add_pending_attachments(image)
+                attachments = host.attach.consume_pending_attachments()
 
             calling_kwargs: dict[str, typing.Any] = {}
             if command.model is not None:
                 calling_kwargs["pref_config"] = apply_primary_model_override(
-                    await mind.conversation.fresh_pref_config(ttl_sec=0.0),
+                    await host.conversation.fresh_pref_config(ttl_sec=0.0),
                     command.model,
                 )
 
-            durable_runtime = getattr(mind, "application_layout", None) is not None
+            durable_runtime = getattr(host, "application_layout", None) is not None
             if durable_runtime:
                 if turn_application_factory is None:
                     raise RuntimeError(
@@ -196,17 +196,17 @@ async def run_selected_command(
             if durable_runtime:
                 local_session_id = derive_local_session_id(
                     "cli",
-                    mind.conversation.snapshot(),
+                    host.conversation.snapshot(),
                 )
             environment_snapshot = (
                 capture_active_turn_environment
                 if environment_snapshot_provider is None
                 else environment_snapshot_provider
-            )(mind)
+            )(host)
             command_extras: dict[str, typing.Any] = {}
             trace_context: dict[str, typing.Any] = {}
             if durable_runtime:
-                remote_session = mind.conversation.snapshot()
+                remote_session = host.conversation.snapshot()
                 turn_id = short_uid(12)
                 command_extras["turn_id"] = turn_id
                 trace_context["remote_turn"] = {
@@ -227,7 +227,7 @@ async def run_selected_command(
             execute_root_turn = RootTurnCommandExecutor(
                 functools.partial(
                     run_root_turn if turn_runner is None else turn_runner,
-                    mind,
+                    host,
                 ),
                 include_empty_attachments=True,
             )
@@ -241,10 +241,10 @@ async def run_selected_command(
                 await turn_application.close(cancel_running=True)
             run_result = execution.value
             run_outcome = execution.projection.status
-            mind.lifecycle.set_exit_code(execution.projection.exit_code)
+            host.lifecycle.set_exit_code(execution.projection.exit_code)
         elif isinstance(command, InteractiveCommand):
             await _run_tui_session(
-                mind,
+                host,
                 prompt=command.prompt,
                 images=command.images,
                 model=command.model,
@@ -254,19 +254,19 @@ async def run_selected_command(
                 protocol_client=protocol_client,
             )
         elif isinstance(command, ResumeCommand):
-            record = await _select_resume_session(mind, command)
+            record = await _select_resume_session(host, command)
             if record is None:
-                mind.lifecycle.request_stop()
+                host.lifecycle.request_stop()
             else:
                 from frontends.tui.core.runtime import require_tui_runtime
                 from frontends.tui.features.history import load_history_transcript
 
-                runtime = require_tui_runtime(mind.frontend.runtime)
+                runtime = require_tui_runtime(host.frontend.runtime)
                 session_id = str(record.get("sid") or "").strip()
 
                 replay_blocks = await asyncio.to_thread(
                     load_history_transcript,
-                    mind,
+                    host,
                     session_id,
                     terminal_width=runtime.terminal_width,
                     hyperlinks=runtime.hyperlinks_enabled,
@@ -274,7 +274,7 @@ async def run_selected_command(
                     record=record,
                 )
 
-                resumed = await mind.conversation.resume(
+                resumed = await host.conversation.resume(
                     record,
                     source="tui:resume",
                 )
@@ -283,7 +283,7 @@ async def run_selected_command(
                 runtime.replace_transcript(replay_blocks)
 
                 await _run_tui_session(
-                    mind,
+                    host,
                     prompt=command.prompt,
                     images=command.images,
                     model=command.model,
@@ -323,7 +323,7 @@ async def run_selected_command(
 
 
 async def _run_agent_listener_session(
-    mind: CliCommandHost,
+    host: CliCommandHost,
     *,
     turn_runner: RootTurnRunner | None,
     turn_application_factory: TurnApplicationFactory | None,
@@ -331,9 +331,9 @@ async def _run_agent_listener_session(
     protocol_client: ProtocolCommandClient,
 ) -> None:
     """在普通 TUI 生命周期内运行临时远端请求监听器。"""
-    mind.subscription.start()
+    host.subscription.start()
     await _run_tui_session(
-        mind,
+        host,
         prompt=None,
         images=(),
         model=None,
@@ -345,7 +345,7 @@ async def _run_agent_listener_session(
 
 
 async def _run_tui_session(
-    mind: CliCommandHost,
+    host: CliCommandHost,
     *,
     prompt: str | None,
     images: tuple[str, ...],
@@ -359,7 +359,7 @@ async def _run_tui_session(
     from frontends.tui.session.loop import run_tui_loop
 
     for image in images:
-        mind.attach.add_pending_attachments(image)
+        host.attach.add_pending_attachments(image)
 
     try:
         loop_kwargs: dict[str, typing.Any] = {
@@ -368,7 +368,7 @@ async def _run_tui_session(
             "initial_model": model,
             "turn_runner": functools.partial(
                 run_root_turn if turn_runner is None else turn_runner,
-                mind,
+                host,
             ),
             "protocol_client": protocol_client,
         }
@@ -376,13 +376,13 @@ async def _run_tui_session(
             loop_kwargs["turn_application_factory"] = turn_application_factory
         if conversation_compactor is not None:
             loop_kwargs["conversation_compactor"] = conversation_compactor
-        await run_tui_loop(mind, **loop_kwargs)
+        await run_tui_loop(host, **loop_kwargs)
     finally:
-        await mind.subscription.close()
+        await host.subscription.close()
 
 
 async def _select_resume_session(
-    mind: CliCommandHost,
+    host: CliCommandHost,
     command: ResumeCommand
 ) -> dict[str, typing.Any] | None:
     """按命令条件查找或选择一个可恢复会话。"""
@@ -392,10 +392,10 @@ async def _select_resume_session(
         else INTERACTIVE_HISTORY_SOURCES
     )
 
-    workspace = None if command.all_workspaces else mind.history_workspace
+    workspace = None if command.all_workspaces else host.history_workspace
 
     if command.session_id is not None:
-        record = mind.conversation.history.find(
+        record = host.conversation.history.find(
             command.session_id,
             workspace=workspace,
             sources=sources,
@@ -414,7 +414,7 @@ async def _select_resume_session(
     }
     if command.last:
         history_kwargs["status"] = "active"
-    records = mind.conversation.history.recent(**history_kwargs)
+    records = host.conversation.history.recent(**history_kwargs)
     if command.last:
         if not records:
             raise AppError("No resumable sessions were found.")
@@ -431,26 +431,26 @@ async def _select_resume_session(
 
     async def archive_session(row: ResumeRow) -> None:
         """归档 CLI picker 中的活动会话。"""
-        await mind.conversation.archive(row.cid, row.sid)
+        await host.conversation.archive(row.cid, row.sid)
 
     async def unarchive_session(row: ResumeRow) -> ResumeRow:
         """恢复 CLI picker 中选择的 archived 会话。"""
-        await mind.conversation.history.unarchive(cid=row.cid, sid=row.sid)
+        await host.conversation.history.unarchive(cid=row.cid, sid=row.sid)
         return replace(row, status=ResumeSessionStatus.ACTIVE)
 
-    runtime = require_tui_runtime(mind.frontend.runtime)
+    runtime = require_tui_runtime(host.frontend.runtime)
 
     return await choose_history_session(
         runtime,
         records,
-        filter_workspace=mind.history_workspace,
+        filter_workspace=host.history_workspace,
         show_workspace=command.all_workspaces,
         preview_loader=HistoryResumePreviewLoader(
-            mind,
+            host,
             terminal_capabilities=runtime.terminal_capabilities,
         ),
         transcript_loader=HistoryResumeTranscriptLoader(
-            mind,
+            host,
             terminal_capabilities=runtime.terminal_capabilities,
         ),
         archive_session=archive_session,

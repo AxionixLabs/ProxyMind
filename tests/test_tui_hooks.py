@@ -39,7 +39,7 @@ from frontends.tui.core.menu import TuiMenu
 from prompt_toolkit.utils import get_cwidth
 
 
-class _HookMind(SimpleNamespace):
+class _HookHost(SimpleNamespace):
     """构建同时暴露宿主状态和独立 Hook 管理端口的测试对象。"""
 
     def __init__(self, **kwargs) -> None:
@@ -338,13 +338,13 @@ async def test_startup_hooks_review_trusts_current_hashes_in_one_update(
 ) -> None:
     catalog = _catalog(tmp_path, trust_state="untrusted")
     runtime = TuiRuntime()
-    mind = _HookMind(
+    host = _HookHost(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=catalog),
         trust_hooks=Mock(return_value=catalog),
     )
 
-    task = asyncio.create_task(review_startup_hooks(runtime, mind))
+    task = asyncio.create_task(review_startup_hooks(runtime, host))
     await _wait_for_menu(runtime, "Hooks need review")
     assert runtime.startup_gate_active
     assert (
@@ -355,7 +355,7 @@ async def test_startup_hooks_review_trusts_current_hashes_in_one_update(
     await task
 
     assert not runtime.startup_gate_active
-    mind.trust_hooks.assert_called_once_with(
+    host.trust_hooks.assert_called_once_with(
         ((catalog.hooks[0].key, catalog.hooks[0].content_hash),),
         workspace=tmp_path,
     )
@@ -365,7 +365,7 @@ async def test_startup_hooks_review_trusts_current_hashes_in_one_update(
 async def test_startup_hooks_review_returns_full_browser_catalog(tmp_path) -> None:
     catalog = _catalog(tmp_path, trust_state="untrusted")
     runtime = TuiRuntime()
-    mind = _HookMind(
+    host = _HookHost(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=catalog),
         trust_hook=Mock(),
@@ -375,7 +375,7 @@ async def test_startup_hooks_review_returns_full_browser_catalog(tmp_path) -> No
         ),
     )
 
-    task = asyncio.create_task(review_startup_hooks(runtime, mind))
+    task = asyncio.create_task(review_startup_hooks(runtime, host))
     await _wait_for_menu(runtime, "Hooks need review")
     assert runtime.startup_gate_active
     runtime.screen.menu._choose_index(0)
@@ -516,7 +516,7 @@ async def test_hooks_browser_opens_and_returns_to_review_event(tmp_path) -> None
 async def test_hooks_browser_ctrl_c_closes_all_pages_to_input(tmp_path) -> None:
     catalog = _catalog(tmp_path, trust_state="trusted")
     runtime = TuiRuntime()
-    mind = _HookMind(
+    host = _HookHost(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=catalog),
         frontend=SimpleNamespace(
@@ -524,7 +524,7 @@ async def test_hooks_browser_ctrl_c_closes_all_pages_to_input(tmp_path) -> None:
         ),
     )
 
-    task = asyncio.create_task(manage_hooks(runtime, mind))
+    task = asyncio.create_task(manage_hooks(runtime, host))
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
@@ -544,7 +544,7 @@ async def test_hooks_browser_escape_returns_to_events_before_closing(
 ) -> None:
     catalog = _catalog(tmp_path, trust_state="trusted")
     runtime = TuiRuntime()
-    mind = _HookMind(
+    host = _HookHost(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=catalog),
         frontend=SimpleNamespace(
@@ -552,7 +552,7 @@ async def test_hooks_browser_escape_returns_to_events_before_closing(
         ),
     )
 
-    task = asyncio.create_task(manage_hooks(runtime, mind))
+    task = asyncio.create_task(manage_hooks(runtime, host))
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
@@ -800,7 +800,7 @@ async def test_hooks_menu_trusts_all_review_hooks_from_root(tmp_path) -> None:
         ),
     )
     runtime = TuiRuntime()
-    mind = _HookMind(
+    host = _HookHost(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(side_effect=[initial, updated]),
         trust_hooks=Mock(),
@@ -811,16 +811,16 @@ async def test_hooks_menu_trusts_all_review_hooks_from_root(tmp_path) -> None:
         ),
     )
 
-    task = asyncio.create_task(manage_hooks(runtime, mind))
+    task = asyncio.create_task(manage_hooks(runtime, host))
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu.handle_key_event(SimpleNamespace(key="t", data="t"))
-    await _wait_for_call(mind.trust_hooks)
+    await _wait_for_call(host.trust_hooks)
 
-    mind.trust_hooks.assert_called_once_with(
+    host.trust_hooks.assert_called_once_with(
         tuple((entry.key, entry.content_hash) for entry in initial.hooks),
         workspace=tmp_path,
     )
-    mind.trust_hook.assert_not_called()
+    host.trust_hook.assert_not_called()
     runtime.cancel_menu()
     await task
 
@@ -831,7 +831,7 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
     updated = _catalog(tmp_path, trust_state="trusted")
     runtime = TuiRuntime()
     views = []
-    mind = _HookMind(
+    host = _HookHost(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(side_effect=[initial, updated]),
         trust_hook=Mock(return_value=updated),
@@ -841,14 +841,14 @@ async def test_hooks_menu_trusts_the_inspected_hook_content(tmp_path) -> None:
         ),
     )
 
-    task = asyncio.create_task(manage_hooks(runtime, mind))
+    task = asyncio.create_task(manage_hooks(runtime, host))
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
     runtime.screen.menu.handle_key_event(SimpleNamespace(key="t", data="t"))
-    await _wait_for_call(mind.trust_hook)
+    await _wait_for_call(host.trust_hook)
 
-    mind.trust_hook.assert_called_once_with(
+    host.trust_hook.assert_called_once_with(
         initial.hooks[0].key,
         expected_content_hash="sha256:" + "a" * 64,
         workspace=tmp_path,
@@ -878,7 +878,7 @@ async def test_hooks_menu_refreshes_after_stale_trust_request(tmp_path) -> None:
     initial = _catalog(tmp_path, trust_state="untrusted")
     runtime = TuiRuntime()
     views = []
-    mind = _HookMind(
+    host = _HookHost(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=initial),
         trust_hook=Mock(
@@ -890,14 +890,14 @@ async def test_hooks_menu_refreshes_after_stale_trust_request(tmp_path) -> None:
         ),
     )
 
-    task = asyncio.create_task(manage_hooks(runtime, mind))
+    task = asyncio.create_task(manage_hooks(runtime, host))
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
     runtime.screen.menu.handle_key_event(SimpleNamespace(key="t", data="t"))
     await _wait_for_menu(runtime, "Hook operation")
 
-    assert mind.inspect_hooks.call_count == 1
+    assert host.inspect_hooks.call_count == 1
     assert [view.type for view in views] == []
     state = runtime.screen.menu.state
     assert state is not None
@@ -1078,7 +1078,7 @@ async def test_hook_list_menu_space_or_enter_toggles_trusted_hook(
     initial = _catalog(tmp_path, trust_state="trusted")
     updated = _catalog(tmp_path, trust_state="trusted", enabled=False)
     runtime = TuiRuntime()
-    mind = _HookMind(
+    host = _HookHost(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(side_effect=[initial, updated]),
         trust_hook=Mock(),
@@ -1088,16 +1088,16 @@ async def test_hook_list_menu_space_or_enter_toggles_trusted_hook(
         ),
     )
 
-    task = asyncio.create_task(manage_hooks(runtime, mind))
+    task = asyncio.create_task(manage_hooks(runtime, host))
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
     runtime.screen.menu.handle_key_event(
         SimpleNamespace(key=key, data=" " if key == "space" else "")
     )
-    await _wait_for_menu_action(mind.set_hook_enabled)
+    await _wait_for_menu_action(host.set_hook_enabled)
 
-    mind.set_hook_enabled.assert_called_once_with(
+    host.set_hook_enabled.assert_called_once_with(
         initial.hooks[0].key,
         expected_content_hash=initial.hooks[0].content_hash,
         enabled=False,
@@ -1113,7 +1113,7 @@ async def test_hook_list_menu_t_trusts_review_hook(tmp_path) -> None:
     initial = _catalog(tmp_path, trust_state="untrusted")
     updated = _catalog(tmp_path, trust_state="trusted")
     runtime = TuiRuntime()
-    mind = _HookMind(
+    host = _HookHost(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(side_effect=[initial, updated]),
         trust_hook=Mock(return_value=updated),
@@ -1123,14 +1123,14 @@ async def test_hook_list_menu_t_trusts_review_hook(tmp_path) -> None:
         ),
     )
 
-    task = asyncio.create_task(manage_hooks(runtime, mind))
+    task = asyncio.create_task(manage_hooks(runtime, host))
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
     runtime.screen.menu.handle_key_event(SimpleNamespace(key="t", data="t"))
-    await _wait_for_menu_action(mind.trust_hook)
+    await _wait_for_menu_action(host.trust_hook)
 
-    mind.trust_hook.assert_called_once_with(
+    host.trust_hook.assert_called_once_with(
         initial.hooks[0].key,
         expected_content_hash=initial.hooks[0].content_hash,
         workspace=tmp_path,
@@ -1156,7 +1156,7 @@ async def test_hook_list_menu_t_is_noop_for_trusted_or_managed_hook(
         trust_policy=trust_policy,
     )
     runtime = TuiRuntime()
-    mind = _HookMind(
+    host = _HookHost(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=initial),
         trust_hook=Mock(),
@@ -1166,15 +1166,15 @@ async def test_hook_list_menu_t_is_noop_for_trusted_or_managed_hook(
         ),
     )
 
-    task = asyncio.create_task(manage_hooks(runtime, mind))
+    task = asyncio.create_task(manage_hooks(runtime, host))
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
     runtime.screen.menu.handle_key_event(SimpleNamespace(key="t", data="t"))
     await asyncio.sleep(0)
 
-    mind.trust_hook.assert_not_called()
-    mind.set_hook_enabled.assert_not_called()
+    host.trust_hook.assert_not_called()
+    host.set_hook_enabled.assert_not_called()
     runtime.cancel_menu()
     runtime.cancel_menu()
     await task
@@ -1199,7 +1199,7 @@ async def test_hook_list_enter_and_space_do_not_toggle_read_only_hook(
         trust_policy=trust_policy,
     )
     runtime = TuiRuntime()
-    mind = _HookMind(
+    host = _HookHost(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(return_value=initial),
         trust_hook=Mock(),
@@ -1209,21 +1209,21 @@ async def test_hook_list_enter_and_space_do_not_toggle_read_only_hook(
         ),
     )
 
-    task = asyncio.create_task(manage_hooks(runtime, mind))
+    task = asyncio.create_task(manage_hooks(runtime, host))
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
     runtime.screen.menu.handle_key_event(SimpleNamespace(key="space", data=" "))
     await asyncio.sleep(0)
-    mind.set_hook_enabled.assert_not_called()
+    host.set_hook_enabled.assert_not_called()
 
     runtime.screen.menu.handle_key_event(SimpleNamespace(key="enter", data=""))
     await asyncio.sleep(0)
     state = runtime.screen.menu.state
     assert state is not None
     assert state.request.title == "PreToolUse hooks"
-    mind.set_hook_enabled.assert_not_called()
-    mind.trust_hook.assert_not_called()
+    host.set_hook_enabled.assert_not_called()
+    host.trust_hook.assert_not_called()
 
     runtime.cancel_menu()
     runtime.cancel_menu()
@@ -1252,7 +1252,7 @@ async def test_hook_list_enter_toggles_trusted_hook(
         enabled=expected_enabled,
     )
     runtime = TuiRuntime()
-    mind = _HookMind(
+    host = _HookHost(
         history_workspace=str(tmp_path),
         inspect_hooks=Mock(side_effect=[initial, updated]),
         trust_hook=Mock(),
@@ -1262,14 +1262,14 @@ async def test_hook_list_enter_toggles_trusted_hook(
         ),
     )
 
-    task = asyncio.create_task(manage_hooks(runtime, mind))
+    task = asyncio.create_task(manage_hooks(runtime, host))
     await _wait_for_menu(runtime, "Hooks")
     runtime.screen.menu._choose_index(0)
     await _wait_for_menu(runtime, "PreToolUse hooks")
     runtime.screen.menu._choose_index(0)
-    await _wait_for_call(mind.set_hook_enabled)
+    await _wait_for_call(host.set_hook_enabled)
 
-    mind.set_hook_enabled.assert_called_once_with(
+    host.set_hook_enabled.assert_called_once_with(
         initial.hooks[0].key,
         expected_content_hash=initial.hooks[0].content_hash,
         enabled=expected_enabled,

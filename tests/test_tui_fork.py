@@ -25,7 +25,7 @@ from protocol.client.fork import (
 )
 
 
-class ForkMindStub(object):
+class ForkHostStub(object):
     """提供会话分支功能测试所需的最小控制接口。"""
 
     def __init__(self) -> None:
@@ -158,27 +158,27 @@ def test_fork_payload_requires_prompt_source_matching_boundary() -> None:
 
 @pytest.mark.anyio
 async def test_fork_switches_only_after_remote_copy_succeeds() -> None:
-    mind = ForkMindStub()
+    host = ForkHostStub()
 
     async def request_fork(**kwargs):
         assert kwargs["request_id"] == "fork_request_0001"
         assert kwargs["prompt_source"] == "none"
-        assert mind.bound == []
+        assert host.bound == []
         return _fork_receipt()
 
     protocol_client = _protocol_client()
     protocol_client.fork_session = AsyncMock(side_effect=request_fork)
 
     status = await conversation.fork_current_conversation(
-        mind,
+        host,
         protocol_client,
     )
-    conversation.render_fork_result(mind, status)
+    conversation.render_fork_result(host, status)
 
-    assert mind.bound == [
+    assert host.bound == [
         ("cid_target_87654321", "sid_target_2_fedcba", "tui")
     ]
-    assert mind.cleared == [
+    assert host.cleared == [
         (
             "cid_source_12345678",
             "sid_source_1_abcdef",
@@ -186,9 +186,9 @@ async def test_fork_switches_only_after_remote_copy_succeeds() -> None:
             "",
         )
     ]
-    assert mind.started[0]()["items"][0]["name"] == "Fork"
-    assert mind.stopped is None
-    result = next(view for view in mind.views if view.type == "tui.fork.status")
+    assert host.started[0]()["items"][0]["name"] == "Fork"
+    assert host.stopped is None
+    result = next(view for view in host.views if view.type == "tui.fork.status")
     assert result.renderable.plain_text == (
         "■ Conversation forked. · 24 items"
     )
@@ -196,11 +196,11 @@ async def test_fork_switches_only_after_remote_copy_succeeds() -> None:
 
 @pytest.mark.anyio
 async def test_fork_uses_explicit_protocol_client() -> None:
-    mind = ForkMindStub()
+    host = ForkHostStub()
     protocol_client = _protocol_client(receipt=_fork_receipt())
 
     status = await conversation.fork_current_conversation(
-        mind,
+        host,
         protocol_client,
     )
 
@@ -217,15 +217,15 @@ async def test_fork_uses_explicit_protocol_client() -> None:
 @pytest.mark.anyio
 async def test_empty_conversation_starts_new_session_without_remote_fork(
 ) -> None:
-    mind = ForkMindStub()
-    mind.activity.enabled = False
-    mind.conversation.fork_source_available = False
+    host = ForkHostStub()
+    host.activity.enabled = False
+    host.conversation.fork_source_available = False
     protocol_client = _protocol_client(
         error=AssertionError("empty conversation must not call /fork")
     )
 
     status = await conversation.fork_current_conversation(
-        mind,
+        host,
         protocol_client,
     )
 
@@ -239,17 +239,17 @@ async def test_empty_conversation_starts_new_session_without_remote_fork(
         "sid_target_2_fedcba",
     )
     assert status.snapshot()["summary"] == "New conversation started."
-    assert mind.resets == [("command:/fork-empty", "tui:fork-empty")]
-    assert mind.cleared == []
-    assert mind.started == []
+    assert host.resets == [("command:/fork-empty", "tui:fork-empty")]
+    assert host.cleared == []
+    assert host.started == []
     protocol_client.fork_session.assert_not_awaited()
 
 
 @pytest.mark.anyio
 async def test_source_missing_response_recovers_as_new_empty_session(
 ) -> None:
-    mind = ForkMindStub()
-    mind.activity.enabled = False
+    host = ForkHostStub()
+    host.activity.enabled = False
 
     protocol_client = _protocol_client(
         error=ProtocolCommandError(
@@ -260,25 +260,25 @@ async def test_source_missing_response_recovers_as_new_empty_session(
     )
 
     status = await conversation.fork_current_conversation(
-        mind,
+        host,
         protocol_client,
     )
 
     assert status.succeeded
     assert status.snapshot()["summary"] == "New conversation started."
-    assert mind.cleared == [(
+    assert host.cleared == [(
         "cid_source_12345678",
         "sid_source_1_abcdef",
         "fork_request_0001",
         "",
     )]
-    assert mind.resets == [("command:/fork-empty", "tui:fork-empty")]
+    assert host.resets == [("command:/fork-empty", "tui:fork-empty")]
 
 
 @pytest.mark.anyio
 async def test_retryable_fork_failure_keeps_pending_request() -> None:
-    mind = ForkMindStub()
-    mind.activity.enabled = False
+    host = ForkHostStub()
+    host.activity.enabled = False
 
     protocol_client = _protocol_client(
         error=ProtocolCommandError(
@@ -290,14 +290,14 @@ async def test_retryable_fork_failure_keeps_pending_request() -> None:
     )
 
     status = await conversation.fork_current_conversation(
-        mind,
+        host,
         protocol_client,
     )
-    conversation.render_fork_result(mind, status)
+    conversation.render_fork_result(host, status)
 
-    assert mind.bound == []
-    assert mind.cleared == []
-    result = next(view for view in mind.views if view.type == "tui.fork.status")
+    assert host.bound == []
+    assert host.cleared == []
+    result = next(view for view in host.views if view.type == "tui.fork.status")
     assert result.renderable.plain_text == (
         "■ Conversation is busy. "
         "Try /fork again after the current turn finishes."
@@ -499,8 +499,8 @@ async def test_fork_request_defaults_empty_prompt_fields(monkeypatch) -> None:
 
 @pytest.mark.anyio
 async def test_bounded_fork_accepts_empty_source_prefix() -> None:
-    mind = ForkMindStub()
-    mind.activity.enabled = False
+    host = ForkHostStub()
+    host.activity.enabled = False
 
     async def request_fork(**kwargs):
         assert kwargs["before_turn_id"] == "turn_selected"
@@ -520,7 +520,7 @@ async def test_bounded_fork_accepts_empty_source_prefix() -> None:
     protocol_client.fork_session = AsyncMock(side_effect=request_fork)
 
     status = await conversation.fork_current_conversation(
-        mind,
+        host,
         protocol_client,
         before_turn_id="turn_selected",
     )
@@ -531,10 +531,10 @@ async def test_bounded_fork_accepts_empty_source_prefix() -> None:
         attachments=(),
         extras={},
     )
-    assert mind.bound == [
+    assert host.bound == [
         ("cid_target_87654321", "sid_target_2_fedcba", "tui")
     ]
-    assert mind.cleared == [(
+    assert host.cleared == [(
         "cid_source_12345678",
         "sid_source_1_abcdef",
         "fork_request_0001",
@@ -544,8 +544,8 @@ async def test_bounded_fork_accepts_empty_source_prefix() -> None:
 
 @pytest.mark.anyio
 async def test_bounded_fork_can_defer_target_binding() -> None:
-    mind = ForkMindStub()
-    mind.activity.enabled = False
+    host = ForkHostStub()
+    host.activity.enabled = False
 
     protocol_client = _protocol_client(receipt=_fork_receipt(
         prompt_source="server",
@@ -555,7 +555,7 @@ async def test_bounded_fork_can_defer_target_binding() -> None:
     ))
 
     status = await conversation.fork_current_conversation(
-        mind,
+        host,
         protocol_client,
         before_turn_id="turn_selected",
         bind_target=False,
@@ -570,14 +570,14 @@ async def test_bounded_fork_can_defer_target_binding() -> None:
         "cid_target_87654321",
         "sid_target_2_fedcba",
     )
-    assert mind.bound == []
+    assert host.bound == []
 
 
 @pytest.mark.anyio
 async def test_bounded_fork_uses_fallback_prompt_when_remote_prompt_missing(
 ) -> None:
-    mind = ForkMindStub()
-    mind.activity.enabled = False
+    host = ForkHostStub()
+    host.activity.enabled = False
     fallback = ResubmittablePrompt(
         message="local prompt",
         attachments=({"kind": "file", "file_key": "file_123"},),
@@ -591,7 +591,7 @@ async def test_bounded_fork_uses_fallback_prompt_when_remote_prompt_missing(
     ))
 
     status = await conversation.fork_current_conversation(
-        mind,
+        host,
         protocol_client,
         before_turn_id="turn_selected",
         bind_target=False,
@@ -604,7 +604,7 @@ async def test_bounded_fork_uses_fallback_prompt_when_remote_prompt_missing(
         "cid_target_87654321",
         "sid_target_2_fedcba",
     )
-    assert mind.bound == []
+    assert host.bound == []
 
 
 @pytest.mark.anyio

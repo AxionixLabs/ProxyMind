@@ -16,8 +16,8 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from frontends.mcp.server import (
-    MindMcpRuntime,
-    create_mind_mcp_server,
+    McpServerRuntime,
+    create_mcp_server,
 )
 from frontends.mcp import server as mcp_server
 from agent.application.turns.projections import RunResultProjection
@@ -56,7 +56,7 @@ class _EnvironmentCapability:
 
 
 def _environment_snapshot(
-    _mind: typing.Any,
+    _host: typing.Any,
     *,
     cwd: str | Path,
     workspace_root: str | Path,
@@ -66,15 +66,15 @@ def _environment_snapshot(
     return {"snapshot_id": "envsnap_mcp"}
 
 
-def _runtime(mind: typing.Any, turn_runner: AsyncMock) -> MindMcpRuntime:
+def _runtime(host: typing.Any, turn_runner: AsyncMock) -> McpServerRuntime:
     """使用指定根轮次用例构造 MCP 测试运行时。"""
-    mind.runtime_services = _runtime_services()
-    mind.execution = SimpleNamespace(
+    host.runtime_services = _runtime_services()
+    host.execution = SimpleNamespace(
         is_service_linked=Mock(return_value=False),
         service_exec_env_snapshot=Mock(return_value=None),
     )
-    return MindMcpRuntime(
-        mind,
+    return McpServerRuntime(
+        host,
         report=SimpleNamespace(close=Mock()),
         turn_runner=turn_runner,
         environment_snapshot_provider=_environment_snapshot,
@@ -120,8 +120,8 @@ def _conversation(
     )
 
 
-def test_mind_mcp_server_exposes_one_structured_tool(tmp_path) -> None:
-    server = create_mind_mcp_server(
+def test_mcp_server_exposes_one_structured_tool(tmp_path) -> None:
+    server = create_mcp_server(
         layout=_source_layout(tmp_path),
         runtime_services=_runtime_services(),
     )
@@ -147,11 +147,11 @@ def test_mind_mcp_server_exposes_one_structured_tool(tmp_path) -> None:
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_runtime_closes_report_after_runtime_resources(
+async def test_mcp_server_runtime_closes_report_after_runtime_resources(
     tmp_path,
 ) -> None:
     timeline = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace=str(tmp_path),
         conversation=_conversation(
             end=AsyncMock(
@@ -165,8 +165,8 @@ async def test_mind_mcp_runtime_closes_report_after_runtime_resources(
     report = SimpleNamespace(
         close=Mock(side_effect=lambda: timeline.append("report")),
     )
-    runtime = MindMcpRuntime(
-        mind,
+    runtime = McpServerRuntime(
+        host,
         report=report,
         turn_runner=AsyncMock(),
         turn_application=TurnApplication(runtime_factory=SessionRuntimeOwner),
@@ -178,11 +178,11 @@ async def test_mind_mcp_runtime_closes_report_after_runtime_resources(
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_runtime_releases_resources_when_session_close_fails(
+async def test_mcp_server_runtime_releases_resources_when_session_close_fails(
     tmp_path,
 ) -> None:
     timeline = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace=str(tmp_path),
         conversation=_conversation(
             end=AsyncMock(side_effect=RuntimeError("session failed")),
@@ -194,8 +194,8 @@ async def test_mind_mcp_runtime_releases_resources_when_session_close_fails(
     report = SimpleNamespace(
         close=Mock(side_effect=lambda: timeline.append("report")),
     )
-    runtime = MindMcpRuntime(
-        mind,
+    runtime = McpServerRuntime(
+        host,
         report=report,
         turn_runner=AsyncMock(),
         turn_application=TurnApplication(runtime_factory=SessionRuntimeOwner),
@@ -208,11 +208,11 @@ async def test_mind_mcp_runtime_releases_resources_when_session_close_fails(
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_runtime_closes_report_when_resource_cleanup_fails(
+async def test_mcp_server_runtime_closes_report_when_resource_cleanup_fails(
     tmp_path,
 ) -> None:
     timeline = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace=str(tmp_path),
         conversation=_conversation(),
         resources=SimpleNamespace(
@@ -222,8 +222,8 @@ async def test_mind_mcp_runtime_closes_report_when_resource_cleanup_fails(
     report = SimpleNamespace(
         close=Mock(side_effect=lambda: timeline.append("report")),
     )
-    runtime = MindMcpRuntime(
-        mind,
+    runtime = McpServerRuntime(
+        host,
         report=report,
         turn_runner=AsyncMock(),
         turn_application=TurnApplication(runtime_factory=SessionRuntimeOwner),
@@ -236,7 +236,7 @@ async def test_mind_mcp_runtime_closes_report_when_resource_cleanup_fails(
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_runtime_closes_report_when_configuration_fails(
+async def test_mcp_server_runtime_closes_report_when_configuration_fails(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -249,11 +249,11 @@ async def test_mind_mcp_runtime_closes_report_when_configuration_fails(
         def resolve(self):
             raise RuntimeError("configuration failed")
 
-    monkeypatch.setattr(mcp_server, "ensure_mind_home", lambda: tmp_path)
-    monkeypatch.setattr(mcp_server, "mind_reports_dir", lambda: tmp_path)
+    monkeypatch.setattr(mcp_server, "ensure_application_home", lambda: tmp_path)
+    monkeypatch.setattr(mcp_server, "reports_dir", lambda: tmp_path)
     monkeypatch.setattr(
         mcp_server,
-        "mind_config_path",
+        "application_config_path",
         lambda: tmp_path / "config.toml",
     )
     monkeypatch.setattr(mcp_server, "RunReport", lambda *_args, **_kwargs: report)
@@ -261,7 +261,7 @@ async def test_mind_mcp_runtime_closes_report_when_configuration_fails(
     monkeypatch.setattr(mcp_server, "ConfigSession", FailingConfigSession)
 
     with pytest.raises(RuntimeError, match="configuration failed"):
-        await MindMcpRuntime.open(
+        await McpServerRuntime.open(
             _source_layout(tmp_path),
             runtime_services=_runtime_services(),
         )
@@ -270,7 +270,7 @@ async def test_mind_mcp_runtime_closes_report_when_configuration_fails(
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_runtime_injects_model_capability(
+async def test_mcp_server_runtime_injects_model_capability(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -282,7 +282,7 @@ async def test_mind_mcp_runtime_injects_model_capability(
     model_capability = object()
     runtime_services = _runtime_services(model_capability)
     captured: dict[str, typing.Any] = {}
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace=str(tmp_path),
         execution=SimpleNamespace(
             external_mcp=SimpleNamespace(start=AsyncMock()),
@@ -293,13 +293,13 @@ async def test_mind_mcp_runtime_injects_model_capability(
 
     def build_controller(*_args, **kwargs):
         captured.update(kwargs)
-        return mind
+        return host
 
-    monkeypatch.setattr(mcp_server, "ensure_mind_home", lambda: tmp_path)
-    monkeypatch.setattr(mcp_server, "mind_reports_dir", lambda: tmp_path)
+    monkeypatch.setattr(mcp_server, "ensure_application_home", lambda: tmp_path)
+    monkeypatch.setattr(mcp_server, "reports_dir", lambda: tmp_path)
     monkeypatch.setattr(
         mcp_server,
-        "mind_config_path",
+        "application_config_path",
         lambda: tmp_path / "config.toml",
     )
     monkeypatch.setattr(mcp_server, "RunReport", lambda *_args, **_kwargs: report)
@@ -318,7 +318,7 @@ async def test_mind_mcp_runtime_injects_model_capability(
     )
     monkeypatch.setattr(mcp_server.service_endpoints, "configure", Mock())
 
-    runtime = await MindMcpRuntime.open(
+    runtime = await McpServerRuntime.open(
         _source_layout(tmp_path),
         runtime_services=runtime_services,
         application_host_factory=build_controller,
@@ -330,14 +330,14 @@ async def test_mind_mcp_runtime_injects_model_capability(
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
+async def test_mcp_server_runtime_executes_isolated_call(tmp_path) -> None:
     result = RunResult(status="completed", assistant_text="done")
     metadata = {
         "cid": "cid_test_12345678",
         "sid": "sid_test_1_abcdef",
     }
     turn_runner = AsyncMock(return_value=result)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace=str(tmp_path),
         runtime_services=_runtime_services(),
         execution=SimpleNamespace(
@@ -349,7 +349,7 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
             reset=AsyncMock(return_value=metadata),
         ),
     )
-    runtime = _runtime(mind, turn_runner)
+    runtime = _runtime(host, turn_runner)
 
     actual = await runtime.execute(
         prompt="inspect",
@@ -362,15 +362,15 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
     assert actual.session_id == metadata["sid"]
     assert actual.projection is not None
     assert actual.to_dict()["assistant_text"] == "done"
-    mind.set_history_workspace.assert_called_once_with(tmp_path.resolve())
-    mind.conversation.reset.assert_called_once_with(
+    host.set_history_workspace.assert_called_once_with(tmp_path.resolve())
+    host.conversation.reset.assert_called_once_with(
         reason="mcp_tool_call",
         source="mcp_server",
     )
     turn_id = turn_runner.await_args.kwargs["turn_id"]
     assert isinstance(turn_id, str) and len(turn_id) == 12
     turn_runner.assert_awaited_once_with(
-        mind,
+        host,
         message="inspect",
         exec_env={"snapshot_id": "envsnap_mcp"},
         permissions=PermissionSettings("read-only", "on-request"),
@@ -379,7 +379,7 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_runtime_submits_typed_command_to_application(
+async def test_mcp_server_runtime_submits_typed_command_to_application(
     tmp_path,
 ) -> None:
     result = RunResult(status="completed", assistant_text="done")
@@ -412,7 +412,7 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
             self.closed = cancel_running
 
     application = RecordingApplication()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace=str(tmp_path),
         runtime_services=_runtime_services(),
         execution=SimpleNamespace(
@@ -425,8 +425,8 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
         ),
         resources=SimpleNamespace(close=AsyncMock()),
     )
-    runtime = MindMcpRuntime(
-        mind,
+    runtime = McpServerRuntime(
+        host,
         report=SimpleNamespace(close=Mock()),
         turn_runner=turn_runner,
         environment_snapshot_provider=_environment_snapshot,
@@ -471,13 +471,13 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
+async def test_mcp_server_runtime_uses_default_permissions(tmp_path) -> None:
     metadata = {
         "cid": "cid_test_12345678",
         "sid": "sid_test_1_abcdef",
     }
     turn_runner = AsyncMock(return_value=RunResult(status="completed"))
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         conversation=_conversation(
@@ -488,7 +488,7 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
             ),
         ),
     )
-    runtime = _runtime(mind, turn_runner)
+    runtime = _runtime(host, turn_runner)
 
     await runtime.execute(
         prompt="inspect",
@@ -500,7 +500,7 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
     turn_id = turn_runner.await_args.kwargs["turn_id"]
     assert isinstance(turn_id, str) and len(turn_id) == 12
     turn_runner.assert_awaited_once_with(
-        mind,
+        host,
         message="inspect",
         exec_env={"snapshot_id": "envsnap_mcp"},
         permissions=PermissionSettings("workspace-write", "on-request"),
@@ -509,7 +509,7 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
+async def test_mcp_server_runtime_resumes_workspace_session(tmp_path) -> None:
     result = RunResult(status="completed", assistant_text="continued")
     metadata = {
         "cid": "cid_test_12345678",
@@ -520,7 +520,7 @@ async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
         "workspace": str(tmp_path.resolve()),
     }
     turn_runner = AsyncMock(return_value=result)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         conversation=_conversation(
@@ -528,7 +528,7 @@ async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
             resume=AsyncMock(return_value=metadata),
         ),
     )
-    runtime = _runtime(mind, turn_runner)
+    runtime = _runtime(host, turn_runner)
 
     actual = await runtime.execute(
         prompt="continue",
@@ -540,26 +540,26 @@ async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
 
     assert actual.run is result
     assert actual.session_id == metadata["sid"]
-    mind.conversation.reset.assert_not_called()
-    mind.conversation.history.find.assert_called_once_with(
+    host.conversation.reset.assert_not_called()
+    host.conversation.history.find.assert_called_once_with(
         metadata["sid"],
         workspace=tmp_path.resolve(),
     )
-    mind.conversation.resume.assert_called_once_with(
+    host.conversation.resume.assert_called_once_with(
         record,
         source="mcp_server",
     )
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_runtime_rejects_unknown_session(tmp_path) -> None:
+async def test_mcp_server_runtime_rejects_unknown_session(tmp_path) -> None:
     turn_runner = AsyncMock()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         conversation=_conversation(),
     )
-    runtime = _runtime(mind, turn_runner)
+    runtime = _runtime(host, turn_runner)
 
     actual = await runtime.execute(
         prompt="continue",
@@ -576,7 +576,7 @@ async def test_mind_mcp_runtime_rejects_unknown_session(tmp_path) -> None:
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_runtime_times_out_and_releases_call_lock(tmp_path) -> None:
+async def test_mcp_server_runtime_times_out_and_releases_call_lock(tmp_path) -> None:
     started = asyncio.Event()
     cancelled = asyncio.Event()
     metadata = {
@@ -592,14 +592,14 @@ async def test_mind_mcp_runtime_times_out_and_releases_call_lock(tmp_path) -> No
             cancelled.set()
 
     turn_runner = AsyncMock(side_effect=wait_forever)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         conversation=_conversation(
             reset=AsyncMock(return_value=metadata),
         ),
     )
-    runtime = _runtime(mind, turn_runner)
+    runtime = _runtime(host, turn_runner)
 
     timed_out = await runtime.execute(
         prompt="wait",
@@ -630,7 +630,7 @@ async def test_mind_mcp_runtime_times_out_and_releases_call_lock(tmp_path) -> No
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_runtime_propagates_cancellation(tmp_path) -> None:
+async def test_mcp_server_runtime_propagates_cancellation(tmp_path) -> None:
     started = asyncio.Event()
     cancelled = asyncio.Event()
     metadata = {
@@ -646,14 +646,14 @@ async def test_mind_mcp_runtime_propagates_cancellation(tmp_path) -> None:
             cancelled.set()
 
     turn_runner = AsyncMock(side_effect=wait_forever)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
         conversation=_conversation(
             reset=AsyncMock(return_value=metadata),
         ),
     )
-    runtime = _runtime(mind, turn_runner)
+    runtime = _runtime(host, turn_runner)
 
     task = asyncio.create_task(runtime.execute(
         prompt="wait",
@@ -672,7 +672,7 @@ async def test_mind_mcp_runtime_propagates_cancellation(tmp_path) -> None:
 
 
 @pytest.mark.anyio
-async def test_mind_mcp_stdio_handshake(tmp_path) -> None:
+async def test_mcp_stdio_handshake(tmp_path) -> None:
     repository = Path(__file__).resolve().parents[1]
     environment = dict(os.environ)
     environment["MIND_HOME"] = str(tmp_path / ".mind")

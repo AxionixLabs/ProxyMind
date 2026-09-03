@@ -11,25 +11,25 @@ from infrastructure.errors import AppError
 from infrastructure.services.runtime_setup import service_runtime_asset_missing
 from observability import (
     observe,
-    observe_exception
+    observe_exception,
 )
 from ..core.interrupt import InterruptDisposition
 from ..core.styles import (
     MUTED_STYLE,
-    text_block
+    text_block,
 )
 from ..features.helix import (
     link_helix_runtime,
     render_helix_interrupted,
     render_helix_link_failure,
-    render_helix_link_result
+    render_helix_link_result,
 )
 from ..features.listener import (
     ListenerOperation,
     render_listener_failure,
     render_listener_interrupted,
     render_listener_result,
-    run_listener_action
+    run_listener_action,
 )
 from ..features.mcp import (
     McpAction,
@@ -37,7 +37,7 @@ from ..features.mcp import (
     render_mcp_action_cancelled,
     render_mcp_action_failure,
     render_mcp_action_result,
-    run_mcp_action
+    run_mcp_action,
 )
 from ..prompting.commands import matches_command
 from ..runtime.ports import ForegroundRuntimePort
@@ -53,16 +53,16 @@ SucceededHandler = typing.Callable[
 ]
 
 FailedHandler = typing.Callable[[BaseException], None]
+
 CancelledHandler = typing.Callable[[], None]
 
 
 class TuiForegroundTasks(object):
     """管理可取消前台任务及下一轮模型调用屏障。"""
 
-    def __init__(self, runtime: ForegroundRuntimePort, mind: "TuiApplicationHost") -> None:
+    def __init__(self, runtime: ForegroundRuntimePort, host: "TuiApplicationHost") -> None:
         self.runtime = runtime
-        self.mind = mind
-
+        self.host = host
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
     def start(
@@ -124,18 +124,18 @@ class TuiForegroundTasks(object):
         """按统一生命周期启动 Helix 接入任务。"""
         return self.start(
             "Helix MCP",
-            lambda: link_helix_runtime(self.mind),
-            cancel_cleanup=self.mind.service_runtime.cancel_startup,
+            lambda: link_helix_runtime(self.host),
+            cancel_cleanup=self.host.service_runtime.cancel_startup,
             activity_kind="inbuild",
             on_succeeded=lambda linked: render_helix_link_result(
-                self.mind,
+                self.host,
                 linked,
             ),
             on_failed=lambda error: render_helix_link_failure(
-                self.mind,
+                self.host,
                 error,
             ),
-            on_cancelled=lambda: render_helix_interrupted(self.mind),
+            on_cancelled=lambda: render_helix_interrupted(self.host),
         )
 
     def start_external_mcp(self, action: McpAction) -> bool:
@@ -148,20 +148,20 @@ class TuiForegroundTasks(object):
 
         return self.start(
             "External MCP",
-            lambda: run_mcp_action(self.mind, action),
+            lambda: run_mcp_action(self.host, action),
             activity_kind=activity_kind,
             on_succeeded=lambda was_started: render_mcp_action_result(
-                self.mind,
+                self.host,
                 action,
                 was_started,
             ),
             on_failed=lambda error: render_mcp_action_failure(
-                self.mind,
+                self.host,
                 action,
                 error,
             ),
             on_cancelled=lambda: render_mcp_action_cancelled(
-                self.mind,
+                self.host,
                 action,
             ),
         )
@@ -176,27 +176,27 @@ class TuiForegroundTasks(object):
 
         def finish(outcome: typing.Any) -> None:
             """展示监听器结果并通知会话级依赖刷新绑定。"""
-            render_listener_result(self.mind, outcome)
+            render_listener_result(self.host, outcome)
             if on_succeeded is not None:
                 on_succeeded()
 
         return self.start(
             "Listener",
-            lambda: run_listener_action(self.mind, action),
+            lambda: run_listener_action(self.host, action),
             cancel_cleanup=(
-                self.mind.subscription.pause
+                self.host.subscription.pause
                 if action == "start"
                 else None
             ),
             activity_kind="operation",
             on_succeeded=finish,
             on_failed=lambda error: render_listener_failure(
-                self.mind,
+                self.host,
                 action,
                 error,
             ),
             on_cancelled=lambda: render_listener_interrupted(
-                self.mind,
+                self.host,
                 action,
             ),
         )
@@ -210,22 +210,22 @@ class TuiForegroundTasks(object):
         command = str(value or "").strip().casefold()
 
         if matches_command(command, "quit"):
-            self.mind.lifecycle.request_stop()
+            self.host.lifecycle.request_stop()
             self.cancel()
             cancel_turn()
             return True
         if matches_command(command, "shutdown"):
-            self.mind.service_runtime.request_termination_on_close()
-            self.mind.lifecycle.request_stop()
+            self.host.service_runtime.request_termination_on_close()
+            self.host.lifecycle.request_stop()
             self.cancel()
             cancel_turn()
             return True
         if matches_command(command, "helix_link"):
-            if self.mind.execution.is_service_linked():
+            if self.host.execution.is_service_linked():
                 self._defer_notice("Helix MCP is already linked.")
                 return True
             try:
-                context = self.mind.service_runtime.require_context()
+                context = self.host.service_runtime.require_context()
             except AppError:
                 return False
             if service_runtime_asset_missing(context):
@@ -240,7 +240,7 @@ class TuiForegroundTasks(object):
         if mcp_action not in {"start", "force"}:
             return False
 
-        external_mcp = self.mind.execution.external_mcp.current
+        external_mcp = self.host.execution.external_mcp.current
 
         if external_mcp is not None and external_mcp.started:
             if mcp_action == "start":
@@ -303,7 +303,7 @@ class TuiForegroundTasks(object):
         except asyncio.CancelledError:
             try:
                 if cancel_cleanup is not None:
-                    await self.mind.lifecycle.await_cleanup(cancel_cleanup())
+                    await self.host.lifecycle.await_cleanup(cancel_cleanup())
             finally:
                 with self.runtime.activity_handoff(activity_kind):
                     if on_cancelled is not None:
@@ -364,10 +364,10 @@ class TuiForegroundTasks(object):
         command = str(value or "").strip().casefold()
 
         if matches_command(command, "quit"):
-            self.mind.lifecycle.request_stop()
+            self.host.lifecycle.request_stop()
         elif matches_command(command, "shutdown"):
-            self.mind.service_runtime.request_termination_on_close()
-            self.mind.lifecycle.request_stop()
+            self.host.service_runtime.request_termination_on_close()
+            self.host.lifecycle.request_stop()
         else:
             return False
 

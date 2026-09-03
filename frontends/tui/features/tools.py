@@ -220,7 +220,7 @@ def render_tools_summary(
 
 
 async def print_available_tools(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     *,
     pref_config: dict[str, typing.Any]
 ) -> None:
@@ -231,13 +231,13 @@ async def print_available_tools(
         tools: list[dict[str, typing.Any]]
     ) -> None:
         render_tools_summary(
-            application=mind.frontend.application,
+            application=host.frontend.application,
             tools=_tools_for_display(session, tools),
-            terminal_width=mind.frontend.application.viewport.width,
+            terminal_width=host.frontend.application.viewport.width,
         )
 
     try:
-        await mind.execution.with_mcp_session(
+        await host.execution.with_mcp_session(
             pref_config,
             render_tools_with_session,
         )
@@ -252,7 +252,7 @@ async def print_available_tools(
             else type(tool_error).__name__
         )
 
-        application = mind.frontend.application
+        application = host.frontend.application
 
         application.emit(ApplicationView(
             type="tui.command",

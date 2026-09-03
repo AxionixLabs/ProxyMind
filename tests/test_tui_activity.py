@@ -23,6 +23,7 @@ from agent.ports import (
 from agent.ports.presentation import ApplicationView
 from frontends.runtime import FrontendActivity
 from frontends.interaction import PromptContext
+from frontends.terminal.color_support import TerminalColorLevel
 from frontends.tui.adapters.output import TuiOutputControl
 from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.adapters.session import create_tui_output_session
@@ -32,6 +33,8 @@ from frontends.tui.core.activity import (
     _elapsed_label,
     _mcp_activity_block,
     _mcp_final_block,
+    _operation_activity_block,
+    _status_block,
     _upload_block,
 )
 from frontends.tui.core.models import FragmentBlock
@@ -616,6 +619,24 @@ def test_activity_progress_uses_regular_weight() -> None:
         for style, text in block.fragments
         if text.strip()
     )
+
+
+def test_operation_activity_requires_explicit_summary() -> None:
+    with pytest.raises(ValueError, match="summary is required"):
+        _operation_activity_block({}, phase=0.1, width=80)
+
+
+def test_status_spinner_preserves_no_color_boundary() -> None:
+    block = _status_block(
+        "Thinking",
+        family="wait",
+        phase=0.1,
+        spinner=True,
+        sweep=False,
+        color_level=TerminalColorLevel.NONE,
+    )
+
+    assert block.fragments[0][0] == ""
 
 
 def test_mcp_activity_animates_spinner_without_sweeping_text() -> None:
@@ -1294,12 +1315,12 @@ async def test_foreground_command_keeps_footer_visible_while_running() -> None:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         release = asyncio.Event()
         started = asyncio.Event()
-        mind = SimpleNamespace(
+        host = SimpleNamespace(
             lifecycle=SimpleNamespace(
                 await_cleanup=lambda awaitable: awaitable,
             ),
         )
-        foreground = TuiForegroundTasks(runtime, mind)
+        foreground = TuiForegroundTasks(runtime, host)
 
         async def operation() -> str:
             await runtime.begin_operation_status(

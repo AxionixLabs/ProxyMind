@@ -190,12 +190,12 @@ async def test_print_available_tools_uses_external_original_names() -> None:
     async def with_mcp_session(_pref_config, callback) -> None:
         await callback(session, catalog)
 
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(application=application),
         execution=SimpleNamespace(with_mcp_session=with_mcp_session),
     )
 
-    await print_available_tools(mind, pref_config={})
+    await print_available_tools(host, pref_config={})
 
     summary = application.emit.call_args_list[0].args[0]
     text = "".join(value for _style, value in summary.renderable.fragments)

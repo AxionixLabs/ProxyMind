@@ -101,7 +101,7 @@ async def _compact(host, **kwargs):
     )
 
 
-class _HookedCompactMind(object):
+class _HookedCompactHost(object):
     def __init__(self, tmp_path, runtime) -> None:
         self.history_workspace = str(tmp_path)
         self.permissions = preset_permissions("auto")
@@ -140,7 +140,7 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
         def snapshot(self):
             return {"cid": "cid", "sid": "sid"}
 
-    class MindStub(object):
+    class ApplicationHostStub(object):
         conversation = ConversationStub()
         history_workspace = "."
         permissions = preset_permissions("auto")
@@ -170,19 +170,19 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
 
     monkeypatch.setattr(compact_protocol, "stream_compact_events", empty_stream)
 
-    mind = MindStub()
+    host = ApplicationHostStub()
     status = await conversation.compact_current_conversation(
-        mind,
-        functools.partial(_compact, mind),
+        host,
+        functools.partial(_compact, host),
         pref_config={},
     )
-    conversation.render_compact_result(mind, status)
+    conversation.render_compact_result(host, status)
 
     final = snapshots[0]()
     assert final["done"] is True
     assert final["summary"] == "Context compaction failed. Please try again."
     assert final["detail_limit"] == 0
-    status = next(view for view in mind.views if view.type == "tui.compact.status")
+    status = next(view for view in host.views if view.type == "tui.compact.status")
     assert status.renderable.plain_text == (
         "■ Context compaction failed. Please try again."
     )
@@ -198,7 +198,7 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
             "after_items": 6,
         }
 
-    class MindStub(object):
+    class ApplicationHostStub(object):
         transcripts = _TranscriptStore()
         history_workspace = "."
         permissions = preset_permissions("auto")
@@ -224,15 +224,15 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
 
     monkeypatch.setattr(compact_protocol, "stream_compact_events", completed_stream)
 
-    mind = MindStub()
+    host = ApplicationHostStub()
     result = await conversation.compact_current_conversation(
-        mind,
-        functools.partial(_compact, mind),
+        host,
+        functools.partial(_compact, host),
         pref_config={},
     )
-    conversation.render_compact_result(mind, result)
+    conversation.render_compact_result(host, result)
 
-    status = next(view for view in mind.views if view.type == "tui.compact.status")
+    status = next(view for view in host.views if view.type == "tui.compact.status")
     assert status.renderable.plain_text == (
         "■ Context compacted. · 18 -> 6 items"
     )
@@ -250,7 +250,7 @@ async def test_compact_cancellation_clears_animation_without_failure(
         if False:
             yield {}
 
-    class MindStub(object):
+    class ApplicationHostStub(object):
         transcripts = _TranscriptStore()
         history_workspace = "."
         permissions = preset_permissions("auto")
@@ -283,10 +283,10 @@ async def test_compact_cancellation_clears_animation_without_failure(
 
     monkeypatch.setattr(compact_protocol, "stream_compact_events", pending_stream)
 
-    mind = MindStub()
+    host = ApplicationHostStub()
     task = asyncio.create_task(conversation.compact_current_conversation(
-        mind,
-        functools.partial(_compact, mind),
+        host,
+        functools.partial(_compact, host),
         pref_config={},
     ))
     await started.wait()
@@ -295,23 +295,23 @@ async def test_compact_cancellation_clears_animation_without_failure(
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    conversation.render_compact_interrupted(mind)
+    conversation.render_compact_interrupted(host)
 
-    assert mind.stopped == []
-    assert any(view.type == "tui.compact.interrupted" for view in mind.views)
+    assert host.stopped == []
+    assert any(view.type == "tui.compact.interrupted" for view in host.views)
     interrupted = next(
-        view for view in mind.views
+        view for view in host.views
         if view.type == "tui.compact.interrupted"
     )
     assert "".join(
         text for _style, text in interrupted.renderable.fragments
     ) == "• Context compaction · interrupted"
-    assert not any(view.type == "tui.compact.status" for view in mind.views)
+    assert not any(view.type == "tui.compact.status" for view in host.views)
 
 
 def test_fork_interruption_uses_the_shared_neutral_prefix() -> None:
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(
                 emit=views.append,
@@ -320,7 +320,7 @@ def test_fork_interruption_uses_the_shared_neutral_prefix() -> None:
         ),
     )
 
-    conversation.render_fork_interrupted(mind)
+    conversation.render_fork_interrupted(host)
 
     assert "".join(
         text for _style, text in views[0].renderable.fragments
@@ -356,7 +356,7 @@ async def test_pre_compact_hook_blocks_remote_operation(monkeypatch, tmp_path) -
     runner = Runner()
     runtime = HookRuntime(definitions, command_runner=runner)
 
-    class MindStub(object):
+    class ApplicationHostStub(object):
         transcripts = _TranscriptStore()
         history_workspace = str(tmp_path)
         permissions = preset_permissions("auto")
@@ -373,7 +373,7 @@ async def test_pre_compact_hook_blocks_remote_operation(monkeypatch, tmp_path) -
     monkeypatch.setattr(compact_protocol, "stream_compact_events", remote_stream)
 
     result = await _compact(
-        MindStub(),
+        ApplicationHostStub(),
         pref_config={},
         source="test",
     )
@@ -407,11 +407,11 @@ async def test_pre_compact_hook_failure_does_not_block(monkeypatch, tmp_path) ->
 
     runner = Runner()
     runtime = _compact_hook_runtime(tmp_path, runner)
-    mind = _HookedCompactMind(tmp_path, runtime)
+    host = _HookedCompactHost(tmp_path, runtime)
     monkeypatch.setattr(compact_protocol, "stream_compact_events", remote_stream)
 
     result = await _compact(
-        mind,
+        host,
         pref_config={},
         source="test",
     )
@@ -451,7 +451,7 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
     runner = Runner()
     runtime = HookRuntime(definitions, command_runner=runner)
 
-    class MindStub(object):
+    class ApplicationHostStub(object):
         transcripts = _TranscriptStore()
         history_workspace = str(tmp_path)
         permissions = preset_permissions("auto")
@@ -468,7 +468,7 @@ async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> Non
     monkeypatch.setattr(compact_protocol, "stream_compact_events", remote_stream)
 
     result = await _compact(
-        MindStub(),
+        ApplicationHostStub(),
         pref_config={"primary": {"model": "test-model"}},
         source="test",
     )
@@ -507,14 +507,14 @@ async def test_compact_failure_skips_post_hook(
         }
 
     runner = _RecordingHookRunner()
-    mind = _HookedCompactMind(
+    host = _HookedCompactHost(
         tmp_path,
         _compact_hook_runtime(tmp_path, runner),
     )
     monkeypatch.setattr(compact_protocol, "stream_compact_events", failed_stream)
 
     result = await _compact(
-        mind,
+        host,
         pref_config={},
         source="test",
     )
@@ -538,13 +538,13 @@ async def test_compact_cancellation_skips_post_hook(
             yield {}
 
     runner = _RecordingHookRunner()
-    mind = _HookedCompactMind(
+    host = _HookedCompactHost(
         tmp_path,
         _compact_hook_runtime(tmp_path, runner),
     )
     monkeypatch.setattr(compact_protocol, "stream_compact_events", pending_stream)
     task = asyncio.create_task(_compact(
-        mind,
+        host,
         pref_config={},
         source="test",
     ))
@@ -583,11 +583,11 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
             "hooks": [{"type": "command", "command": "refresh"}],
         }],
     }
-    mind = _HookedCompactMind(
+    host = _HookedCompactHost(
         tmp_path,
         _compact_hook_runtime(tmp_path, runner, hooks),
     )
-    mind.conversation.queue_turn_context = (
+    host.conversation.queue_turn_context = (
         lambda contexts, *, system_message="": queued.append(
             (tuple(contexts), system_message)
         )
@@ -595,7 +595,7 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
     monkeypatch.setattr(compact_protocol, "stream_compact_events", completed_stream)
 
     result = await _compact(
-        mind,
+        host,
         pref_config={},
         source="test",
         trigger_source="server",
@@ -643,18 +643,18 @@ async def test_compact_session_start_queues_next_turn_context(
             },
         },
     })
-    mind = _HookedCompactMind(
+    host = _HookedCompactHost(
         tmp_path,
         _compact_hook_runtime(tmp_path, runner, hooks),
     )
     queued = []
-    mind.conversation.queue_turn_context = (
+    host.conversation.queue_turn_context = (
         lambda contexts: queued.append(tuple(contexts))
     )
     monkeypatch.setattr(compact_protocol, "stream_compact_events", completed_stream)
 
     result = await _compact(
-        mind,
+        host,
         pref_config={},
         source="test",
     )
@@ -693,14 +693,14 @@ async def test_compact_session_start_can_block_continuation(
             "stopReason": "review compacted state",
         },
     })
-    mind = _HookedCompactMind(
+    host = _HookedCompactHost(
         tmp_path,
         _compact_hook_runtime(tmp_path, runner, hooks),
     )
     monkeypatch.setattr(compact_protocol, "stream_compact_events", completed_stream)
 
     result = await _compact(
-        mind,
+        host,
         pref_config={},
         source="test",
     )

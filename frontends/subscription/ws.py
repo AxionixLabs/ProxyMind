@@ -133,9 +133,9 @@ async def sleep_or_stop(delay_sec: float, stop_event: asyncio.Event) -> None:
                     await task
 
 
-async def build_runtime_llm_conf(mind: SubscriptionHost) -> dict[str, typing.Any]:
+async def build_runtime_llm_conf(host: SubscriptionHost) -> dict[str, typing.Any]:
     """基于当前偏好配置生成 `runtime.bind` 所需的 llm_conf。"""
-    payload = await mind.conversation.fresh_pref_config(ttl_sec=0.0)
+    payload = await host.conversation.fresh_pref_config(ttl_sec=0.0)
     primary = request_llm_conf(payload)["primary"]
     return {
         "primary": {
@@ -212,7 +212,7 @@ def parse_forward_request(
 
 
 async def handle_server_message(
-    mind: SubscriptionHost,
+    host: SubscriptionHost,
     client: AgentClient,
     connection: ClientConnection,
     runtime: AgentSessionRuntime,
@@ -266,7 +266,7 @@ async def handle_server_message(
         for replay_message in replayed:
             if isinstance(replay_message, dict):
                 replay_seq = await handle_server_message(
-                    mind,
+                    host,
                     client,
                     connection,
                     runtime,
@@ -309,7 +309,7 @@ async def handle_server_message(
         if forward_handler is None:
             raise RuntimeError("agent forward handler is required")
         await forward_handler.handle(
-            mind,
+            host,
             client,
             connection,
             runtime,
@@ -375,7 +375,7 @@ async def connection_scope(
 
 
 async def connect_once(
-    mind: SubscriptionHost,
+    host: SubscriptionHost,
     client: AgentClient,
     runtime: AgentSessionRuntime,
     live_status: AgentLiveStatus,
@@ -417,7 +417,7 @@ async def connect_once(
         await client.send_runtime_bind(
             connection,
             session_id=runtime.session_id,
-            llm_conf=await build_runtime_llm_conf(mind)
+            llm_conf=await build_runtime_llm_conf(host)
         )
         observe(
             "agent.ws.bound",
@@ -460,7 +460,7 @@ async def connect_once(
                 message = await recv_json_or_stop(
                     client,
                     connection,
-                    mind.lifecycle.stop_event,
+                    host.lifecycle.stop_event,
                 )
             else:
                 ready_remaining = ready_deadline - asyncio.get_running_loop().time()
@@ -473,7 +473,7 @@ async def connect_once(
                         recv_json_or_stop(
                             client,
                             connection,
-                            mind.lifecycle.stop_event,
+                            host.lifecycle.stop_event,
                         ),
                         timeout=ready_remaining,
                     )
@@ -493,7 +493,7 @@ async def connect_once(
             )
 
             handled_seq = await handle_server_message(
-                mind,
+                host,
                 client,
                 connection,
                 runtime,

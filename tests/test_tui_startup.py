@@ -130,14 +130,14 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
     refresh_started = asyncio.Event()
     release_refresh = asyncio.Event()
 
-    async def monitor(_runtime, _mind):
+    async def monitor(_runtime, _host):
         await asyncio.Event().wait()
 
     class ApplicationStub(object):
         def emit(self, _view):
             return None
 
-    class MindStub(object):
+    class ApplicationHostStub(object):
         subscription = SimpleNamespace(current=None)
         frontend = SimpleNamespace(
             runtime=runtime,
@@ -171,7 +171,7 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
     monkeypatch.setattr(loop, "monitor_exec_status", monitor)
 
     run_task = asyncio.create_task(loop.run_tui_loop(
-        MindStub(),
+        ApplicationHostStub(),
         protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
@@ -213,7 +213,7 @@ async def test_tui_starts_external_mcp_before_helix_background(
     views = []
 
     async def prepare_helix(
-        _mind,
+        _host,
         tool_profile="app",
         *,
         download_confirmed=False,
@@ -221,7 +221,7 @@ async def test_tui_starts_external_mcp_before_helix_background(
         calls.append(("helix", tool_profile, download_confirmed))
         return True
 
-    class MindStub(object):
+    class ApplicationHostStub(object):
         frontend = SimpleNamespace(
             application=SimpleNamespace(
                 emit=views.append,
@@ -259,9 +259,9 @@ async def test_tui_starts_external_mcp_before_helix_background(
 
     monkeypatch.setattr(helix, "prepare_tui_service_runtime", prepare_helix)
 
-    mind = MindStub()
-    await bootstrap.start_tui_external_mcp(mind)
-    await bootstrap.start_tui_service_runtime(mind, **startup_options)
+    host = ApplicationHostStub()
+    await bootstrap.start_tui_external_mcp(host)
+    await bootstrap.start_tui_service_runtime(host, **startup_options)
 
     assert calls == [
         ("external", True),
@@ -287,7 +287,7 @@ async def test_service_runtime_activity_clears_without_settling() -> None:
         start_inbuild=AsyncMock(),
         stop=AsyncMock(),
     )
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         activity=activity,
         lifecycle=ProcessLifecycle(),
         service_runtime=SimpleNamespace(
@@ -296,10 +296,10 @@ async def test_service_runtime_activity_clears_without_settling() -> None:
         ),
     )
 
-    await service_runtime.start_service_runtime(mind)
+    await service_runtime.start_service_runtime(host)
 
     activity.stop.assert_awaited_once_with("inbuild", settle=False)
-    mind.service_runtime.start_keepalive.assert_called_once_with()
+    host.service_runtime.start_keepalive.assert_called_once_with()
 
 
 @pytest.mark.anyio
@@ -345,7 +345,7 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
         async def close(self):
             return None
 
-    class MindStub(object):
+    class ApplicationHostStub(object):
         src_opera_place = ""
         stop_calls = []
         config_session = SimpleNamespace(load=lambda: {
@@ -371,8 +371,8 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
 
     monkeypatch.setattr(external, "ExternalMcpGroup", ExternalGroup)
 
-    mind = MindStub()
-    runtime = ExternalMcpRuntime(_mcp_runtime_context(mind))
+    host = ApplicationHostStub()
+    runtime = ExternalMcpRuntime(_mcp_runtime_context(host))
     first = asyncio.create_task(runtime.start())
     second = asyncio.create_task(runtime.start())
     await entered.wait()
@@ -403,7 +403,7 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
         exposed=2,
         filtered=1,
     ),)
-    assert mind.stop_calls == [("external_mcp", False)]
+    assert host.stop_calls == [("external_mcp", False)]
     assert len(activity_snapshots) == 1
     assert isinstance(activity_snapshots[0](), dict)
 
@@ -424,7 +424,7 @@ async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> No
         async def close(self):
             return None
 
-    class MindStub(object):
+    class ApplicationHostStub(object):
         src_opera_place = ""
         config_session = SimpleNamespace(load=lambda: {
             "mcp_servers": {
@@ -452,7 +452,7 @@ async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> No
         ExternalGroup,
     )
 
-    runtime = ExternalMcpRuntime(_mcp_runtime_context(MindStub()))
+    runtime = ExternalMcpRuntime(_mcp_runtime_context(ApplicationHostStub()))
     await runtime.start()
     await runtime.start()
 
@@ -469,15 +469,15 @@ async def test_external_owner_reuses_runtime_for_start_and_restart() -> None:
         stop=AsyncMock(),
     )
     factory = Mock(return_value=runtime)
-    mind = SimpleNamespace()
-    owner = McpRuntimeOwner(runtime_factory=lambda: factory(mind))
+    host = SimpleNamespace()
+    owner = McpRuntimeOwner(runtime_factory=lambda: factory(host))
 
     await owner.start(include_disabled=True)
     await owner.start()
     await owner.restart(defer_activity_stop=True)
 
     assert owner.current is runtime
-    factory.assert_called_once_with(mind)
+    factory.assert_called_once_with(host)
     assert runtime.start.await_args_list == [
         call(include_disabled=True, defer_activity_stop=False),
         call(include_disabled=False, defer_activity_stop=False),
@@ -560,7 +560,7 @@ async def test_model_turn_keeps_external_tool_snapshot_from_session_start(
     release_build = asyncio.Event()
     captured_groups = []
     initial_runtime = SimpleNamespace(group=None)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         external_mcp=SimpleNamespace(current=initial_runtime),
         client_tools=object(),
         is_service_mcp_linked=lambda: False,
@@ -585,10 +585,10 @@ async def test_model_turn_keeps_external_tool_snapshot_from_session_start(
     monkeypatch.setattr(tool_runtime, "build_tool_context", build_context)
 
     runtime = CompositeToolRuntime(ToolRuntimeSources(
-        client_registry=lambda: mind.client_tools,
+        client_registry=lambda: host.client_tools,
         builtin_registry=lambda: None,
         external_group=lambda: initial_runtime.group,
-        service_linked=mind.is_service_mcp_linked,
+        service_linked=host.is_service_mcp_linked,
     ))
     turn = asyncio.create_task(runtime.with_session({}, user_flow))
     await build_started.wait()

@@ -423,7 +423,7 @@ def _open_effect_journal(db_path: Path):
     return open_effect_journal(db_path)
 
 
-def _mind(
+def _host(
     *,
     frontend_active: bool = True,
     effect_journal=None,
@@ -544,7 +544,7 @@ async def _run_stream(
     on_turn_input_event: typing.Callable[[typing.Any], typing.Any] | None = None,
     on_turn_stream_end: typing.Callable[[str], None] | None = None,
     on_turn_interrupted: typing.Callable[[], None] | None = None,
-    mind_state: SimpleNamespace | None = None,
+    host_state: SimpleNamespace | None = None,
     show_hook_lifecycle: bool = False,
     permissions: PermissionSettings | None = None,
     effect_journal=None,
@@ -565,7 +565,7 @@ async def _run_stream(
         AsyncMock(return_value=SimpleNamespace(status="accepted")),
         raising=False,
     )
-    mind = mind_state or _mind(
+    host = host_state or _host(
         frontend_active=frontend_active,
         effect_journal=effect_journal,
     )
@@ -737,7 +737,7 @@ async def _run_stream(
             """把效果核对命令测试替身连接到当前协议请求替身。"""
             return await stream.post_effect_reconciliation(**kwargs)
 
-    mind.runtime_services.model_capability = ModelCapabilityStub()
+    host.runtime_services.model_capability = ModelCapabilityStub()
     permissions = permissions or preset_permissions("auto")
     root_agent = AgentContext.root("sid_test")
     turn_context = TurnContext.create(
@@ -752,18 +752,18 @@ async def _run_stream(
         pref_config={},
         cwd=".",
         permissions=permissions,
-        approval_coordinator=mind.approval_coordinator,
-        execution_policy=mind.workspace_runtime.execution_policy,
+        approval_coordinator=host.approval_coordinator,
+        execution_policy=host.workspace_runtime.execution_policy,
         approval_ledger=ApprovalCallLedger(),
-        transcript_factory=mind.transcripts.writer,
-        cleanup=mind,
+        transcript_factory=host.transcripts.writer,
+        cleanup=host,
         patch_preview=getattr(
-            mind.workspace_runtime.coding,
+            host.workspace_runtime.coding,
             "preview_patch",
             None,
         ),
-        session_context=mind.turn_session_context,
-        session_state=mind.turn_session_state,
+        session_context=host.turn_session_context,
+        session_state=host.turn_session_state,
         turn_id="turn_test",
         session_started=session_started,
         session_start_reason="initial" if session_started else "",
@@ -801,7 +801,7 @@ async def _run_stream(
             show_hook_lifecycle=show_hook_lifecycle,
             control=output_control,
         )
-        mind.output_session = output_session
+        host.output_session = output_session
         return output_session
 
     stream_options = {
@@ -814,10 +814,10 @@ async def _run_stream(
         "turn_execution": turn_execution,
         "session_factory": session_factory,
     }
-    stream_options["model_capability"] = mind.runtime_services.model_capability
-    stream_options["protocol_client"] = mind.runtime_services.model_capability
+    stream_options["model_capability"] = host.runtime_services.model_capability
+    stream_options["protocol_client"] = host.runtime_services.model_capability
     stream_options["effect_journal_factory"] = (
-        mind.runtime_services.create_effect_journal
+        host.runtime_services.create_effect_journal
     )
     stream_options["tool_execution"] = McpToolExecutionAdapter()
     if attachments:
@@ -837,7 +837,7 @@ async def _run_stream(
         [],
         **stream_options,
     )
-    return result, mind
+    return result, host
 
 
 @pytest.mark.anyio
@@ -855,7 +855,7 @@ async def test_stream_passes_environment_as_explicit_model_request_field(
         "workspace": {"root": "D:\\workspace", "source": "client"},
     }
 
-    _result, mind = await _run_stream(
+    _result, host = await _run_stream(
         monkeypatch,
         [
             {"type": "turn.done", "status": "interrupted", "usage": {}},
@@ -864,7 +864,7 @@ async def test_stream_passes_environment_as_explicit_model_request_field(
         environment_snapshot=snapshot,
     )
 
-    request = mind.runtime_services.model_capability.last_request
+    request = host.runtime_services.model_capability.last_request
     assert isinstance(request, ModelStreamRequest)
     assert request.environment_snapshot_value() == {
         **snapshot,
@@ -910,7 +910,7 @@ async def test_interrupted_turn_notifies_before_stream_cleanup(monkeypatch) -> N
 
     runner = CommandRunner()
 
-    result, mind_state = await _run_stream(
+    result, host_state = await _run_stream(
         monkeypatch,
         [
             {
@@ -930,7 +930,7 @@ async def test_interrupted_turn_notifies_before_stream_cleanup(monkeypatch) -> N
     assert result.status == "interrupted"
     assert notifications == ["acknowledged"]
     assert runner.events == ["Interrupt"]
-    assert mind_state.transcripts.entries[-1]["event"] == "turn.interrupted"
+    assert host_state.transcripts.entries[-1]["event"] == "turn.interrupted"
 
 
 def test_run_result_maps_status_to_exit_code() -> None:
@@ -993,7 +993,7 @@ def test_run_result_serializes_named_error_details_without_aliasing() -> None:
 @pytest.mark.anyio
 async def test_tool_runtime_forwards_callback_result(monkeypatch) -> None:
     expected = RunResult(status="completed", assistant_text="done")
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         external_mcp=SimpleNamespace(current=None),
         client_tools=object(),
         is_service_mcp_linked=lambda: False,
@@ -1020,10 +1020,10 @@ async def test_tool_runtime_forwards_callback_result(monkeypatch) -> None:
     monkeypatch.setattr(tool_runtime, "build_tool_context", build_context)
 
     runtime = tool_runtime.CompositeToolRuntime(ToolRuntimeSources(
-        client_registry=lambda: mind.client_tools,
+        client_registry=lambda: host.client_tools,
         builtin_registry=lambda: None,
         external_group=lambda: None,
-        service_linked=mind.is_service_mcp_linked,
+        service_linked=host.is_service_mcp_linked,
     ))
     result = await runtime.with_session({}, user_flow)
 
@@ -1032,7 +1032,7 @@ async def test_tool_runtime_forwards_callback_result(monkeypatch) -> None:
 
 @pytest.mark.anyio
 async def test_stream_returns_completed_result(monkeypatch) -> None:
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {"type": "text.delta", "text": "answer"},
         {"type": "text.done"},
         {"type": "turn.done", "usage": {"output_tokens": 3}},
@@ -1043,23 +1043,23 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         assistant_text="answer",
         usage={"output_tokens": 3},
     )
-    assert mind.remembered == ["answer"]
-    assert mind.runtime_services.model_capability.last_stream.closed is True
-    assert mind.output_session.content.items == [
+    assert host.remembered == ["answer"]
+    assert host.runtime_services.model_capability.last_stream.closed is True
+    assert host.output_session.content.items == [
         AssistantTextDelta("answer", response_identity()),
         AssistantSegmentCompleted(response_identity()),
         SourcesOutput(()),
     ]
     assert [
-        entry["event"] for entry in mind.transcripts.entries
+        entry["event"] for entry in host.transcripts.entries
     ] == [
         "turn.started",
         "message.created",
         "message.created",
         "turn.completed",
     ]
-    assert mind.transcripts.entries[1]["actor"] == "user"
-    assert mind.transcripts.entries[2] == {
+    assert host.transcripts.entries[1]["actor"] == "user"
+    assert host.transcripts.entries[2] == {
         "event": "message.created",
         "actor": "assistant",
         "payload": {
@@ -1070,12 +1070,12 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
             "attempt": 1,
         },
     }
-    assert not hasattr(mind, "hook_scope")
+    assert not hasattr(host, "hook_scope")
 
 
 @pytest.mark.anyio
 async def test_stream_projects_deduplicated_canonical_sources(monkeypatch) -> None:
-    _result, mind = await _run_stream(monkeypatch, [
+    _result, host = await _run_stream(monkeypatch, [
         {
             "type": "tool.builtin.done",
             "builtin_call_id": "builtin-source",
@@ -1102,7 +1102,7 @@ async def test_stream_projects_deduplicated_canonical_sources(monkeypatch) -> No
         {"type": "turn.done"},
     ])
 
-    assert mind.output_session.content.items[-1] == SourcesOutput((
+    assert host.output_session.content.items[-1] == SourcesOutput((
         {"url": "https://example.com/tool"},
         {"url": "https://example.com/text"},
     ))
@@ -1120,7 +1120,7 @@ async def test_stream_persists_named_model_capability_failure(monkeypatch) -> No
             details={"exception_type": "TimeoutError"},
         )
 
-    result, _mind = await _run_stream(
+    result, _host = await _run_stream(
         monkeypatch,
         [],
         stream_factory=failed_stream,
@@ -1138,7 +1138,7 @@ async def test_stream_persists_named_model_capability_failure(monkeypatch) -> No
 async def test_output_open_failure_does_not_enter_closed_activity_surface(
     monkeypatch,
 ) -> None:
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [],
         output_control=_OutputControl(
@@ -1148,15 +1148,15 @@ async def test_output_open_failure_does_not_enter_closed_activity_surface(
 
     assert result.status == "failed"
     assert result.error == "RuntimeError: output control open failed"
-    assert not mind.output_session.is_open
-    assert mind.output_session.activity.items == []
-    assert mind.output_session.presentation.items == []
+    assert not host.output_session.is_open
+    assert host.output_session.activity.items == []
+    assert host.output_session.presentation.items == []
 
 
 @pytest.mark.anyio
 async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) -> None:
     """验证 provider 断流后只保留新 attempt 正文并切换重试状态。"""
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {
             "type": "text.delta",
             "turn_id": "turn_test",
@@ -1194,7 +1194,7 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
 
     assert result.status == "completed"
     assert result.assistant_text == "new answer"
-    assert mind.output_session.content.items == [
+    assert host.output_session.content.items == [
         AssistantTextDelta("old partial", response_identity()),
         AssistantResponseSuperseded(
             turn_id="turn_test",
@@ -1206,10 +1206,10 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
         AssistantSegmentCompleted(response_identity(attempt=2)),
         SourcesOutput(()),
     ]
-    surface_id = mind.output_session.context.surface_id
+    surface_id = host.output_session.context.surface_id
     assert [
         item
-        for item in mind.output_session.activity.items
+        for item in host.output_session.activity.items
         if isinstance(item, RetryChanged)
     ] == [
         RetryChanged(
@@ -1233,14 +1233,14 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
     ]
     assert [
         entry["event"]
-        for entry in mind.transcripts.entries
+        for entry in host.transcripts.entries
         if entry["actor"] == "assistant"
     ] == ["message.created", "message.superseded", "message.created"]
 
 
 @pytest.mark.anyio
 async def test_provider_retry_ignores_late_old_item_events(monkeypatch) -> None:
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {
             "type": "text.delta",
             "segment_id": "item-old",
@@ -1270,7 +1270,7 @@ async def test_provider_retry_ignores_late_old_item_events(monkeypatch) -> None:
 
     assert [
         item
-        for item in mind.output_session.content.items
+        for item in host.output_session.content.items
         if isinstance(item, AssistantTextDelta)
     ] == [
         AssistantTextDelta("old", response_identity()),
@@ -1284,7 +1284,7 @@ async def test_provider_retry_preserves_completed_previous_model_round(
     monkeypatch,
 ) -> None:
     """验证跨模型 round 重试只替换当前 response 的正文与记录。"""
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {
             "type": "text.delta",
             "round": 1,
@@ -1334,7 +1334,7 @@ async def test_provider_retry_preserves_completed_previous_model_round(
     assert result.assistant_text == "round one\nround two final"
     assistant_entries = [
         entry
-        for entry in mind.transcripts.entries
+        for entry in host.transcripts.entries
         if entry["actor"] == "assistant"
     ]
     assert [entry["event"] for entry in assistant_entries] == [
@@ -1364,7 +1364,7 @@ async def test_provider_retry_without_partial_answer_adds_no_output_block(
     monkeypatch,
 ) -> None:
     """验证首字节前重试不会制造空正文或额外 attempt 提示。"""
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {
             "type": "turn.retrying",
             "turn_id": "turn_test",
@@ -1381,7 +1381,7 @@ async def test_provider_retry_without_partial_answer_adds_no_output_block(
     assert result.assistant_text == "answer"
     assert not any(
         isinstance(item, AssistantResponseSuperseded)
-        for item in mind.output_session.content.items
+        for item in host.output_session.content.items
     )
 
 
@@ -1417,7 +1417,7 @@ async def test_provider_and_transport_retry_statuses_do_not_clear_each_other(
             "turn_id": "turn_test",
         })
 
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [],
         stream_factory=overlapping_retry_stream,
@@ -1425,10 +1425,10 @@ async def test_provider_and_transport_retry_statuses_do_not_clear_each_other(
 
     assert result.status == "completed"
     assert result.assistant_text == "answer"
-    surface_id = mind.output_session.context.surface_id
+    surface_id = host.output_session.context.surface_id
     assert [
         item
-        for item in mind.output_session.activity.items
+        for item in host.output_session.activity.items
         if isinstance(item, RetryChanged)
     ] == [
         RetryChanged(
@@ -1474,7 +1474,7 @@ async def test_provider_and_transport_retry_statuses_do_not_clear_each_other(
 async def test_stream_preserves_reconciliation_required_without_normal_failure(
     monkeypatch,
 ) -> None:
-    result, mind = await _run_stream(monkeypatch, [{
+    result, host = await _run_stream(monkeypatch, [{
         "proto": "mind.chat",
         "type": "turn.reconciliation_required",
         "turn_id": "turn_test",
@@ -1486,8 +1486,8 @@ async def test_stream_preserves_reconciliation_required_without_normal_failure(
 
     assert result.status == "reconciliation_required"
     assert result.error == "provider succeeded but commit failed"
-    assert mind.remembered == []
-    assert mind.transcripts.entries[-1] == {
+    assert host.remembered == []
+    assert host.transcripts.entries[-1] == {
         "event": "turn.reconciliation_required",
         "actor": "system",
         "payload": {
@@ -1498,7 +1498,7 @@ async def test_stream_preserves_reconciliation_required_without_normal_failure(
     }
     failure_views = [
         item
-        for item in mind.output_session.presentation.items
+        for item in host.output_session.presentation.items
         if isinstance(item, FailureView)
     ]
     assert failure_views
@@ -1522,7 +1522,7 @@ async def test_stream_auto_reconciles_known_effect_and_completes_new_attempt(
         reconcile_known_effect,
     )
 
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {
             "proto": "mind.chat",
             "type": "turn.reconciliation_required",
@@ -1581,20 +1581,20 @@ async def test_stream_auto_reconciles_known_effect_and_completes_new_attempt(
     assert not any(
         isinstance(item, FailureView)
         and item.phase == "turn.reconciliation_required"
-        for item in mind.output_session.presentation.items
+        for item in host.output_session.presentation.items
     )
     assert PresentationSuperseded(
-        surface_id=mind.output_session.context.surface_id,
+        surface_id=host.output_session.context.surface_id,
         turn_id="turn_test",
         superseded_epoch=1,
         presentation_epoch=2,
-    ) in mind.output_session.activity.items
+    ) in host.output_session.activity.items
 
 
 @pytest.mark.anyio
 async def test_done_projects_terminal_before_logical_settlement(monkeypatch) -> None:
     stream_advanced = asyncio.Event()
-    mind = _mind()
+    host = _host()
 
     async def pending_stream(*_args, **_kwargs):
         yield parse_stream_event({"type": "turn.done"})
@@ -1605,15 +1605,15 @@ async def test_done_projects_terminal_before_logical_settlement(monkeypatch) -> 
         monkeypatch,
         [],
         stream_factory=pending_stream,
-        mind_state=mind,
+        host_state=host,
     ))
     await stream_advanced.wait()
 
     assert TurnTerminal(
-        surface_id=mind.output_session.context.surface_id,
+        surface_id=host.output_session.context.surface_id,
         turn_id="turn_test",
         status="completed",
-    ) in mind.output_session.activity.items
+    ) in host.output_session.activity.items
 
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -1626,7 +1626,7 @@ async def test_stream_drains_logical_settlement_after_interrupted_done(
 ) -> None:
     input_events = []
 
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [
             {
@@ -1651,7 +1651,7 @@ async def test_stream_drains_logical_settlement_after_interrupted_done(
     assert result.status == "interrupted"
     assert len(input_events) == 1
     assert input_events[0].next_input.text == "continue next"
-    assert mind.transcripts.entries[-1]["event"] == "turn.interrupted"
+    assert host.transcripts.entries[-1]["event"] == "turn.interrupted"
 
 
 @pytest.mark.anyio
@@ -1683,7 +1683,7 @@ async def test_stream_reports_transport_end_after_processing_settlement(
     def open_stream(*_args, **_kwargs):
         return SettledStream()
 
-    result, _mind = await _run_stream(
+    result, _host = await _run_stream(
         monkeypatch,
         [],
         stream_factory=open_stream,
@@ -1701,7 +1701,7 @@ async def test_stream_projects_terminal_before_logical_settlement(
     monkeypatch,
 ) -> None:
     """验证权威终态、逻辑结算和 OutputSession 关闭保持独立顺序。"""
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {
             "type": "turn.done",
             "turn_id": "turn_test",
@@ -1714,10 +1714,10 @@ async def test_stream_projects_terminal_before_logical_settlement(
         },
     ])
 
-    surface_id = mind.output_session.context.surface_id
+    surface_id = host.output_session.context.surface_id
     terminal_events = [
         item
-        for item in mind.output_session.activity.items
+        for item in host.output_session.activity.items
         if isinstance(item, (TurnTerminal, LogicalSettled))
     ]
     assert result.status == "completed"
@@ -1739,7 +1739,7 @@ async def test_internal_stream_gap_projects_recovery_before_failure(
     monkeypatch,
 ) -> None:
     """验证权威内部缺口不会恢复动画或伪装成普通流结束。"""
-    result, mind = await _run_stream(monkeypatch, [{
+    result, host = await _run_stream(monkeypatch, [{
         "type": "stream.gap",
         "gap_kind": "internal",
         "requested_after_seq": 3,
@@ -1748,10 +1748,10 @@ async def test_internal_stream_gap_projects_recovery_before_failure(
         "retryable": True,
     }])
 
-    surface_id = mind.output_session.context.surface_id
+    surface_id = host.output_session.context.surface_id
     scoped_events = [
         item
-        for item in mind.output_session.activity.items
+        for item in host.output_session.activity.items
         if isinstance(item, (RecoveryChanged, TurnTerminal))
     ]
     assert result.status == "failed"
@@ -1775,7 +1775,7 @@ async def test_internal_stream_gap_projects_recovery_before_failure(
 async def test_turn_start_opens_the_control_event_boundary(monkeypatch) -> None:
     input_events = []
 
-    result, _mind = await _run_stream(
+    result, _host = await _run_stream(
         monkeypatch,
         [
             {"type": "turn.start", "turn_id": "turn_test"},
@@ -1804,7 +1804,7 @@ async def test_sampling_accepted_input_preserves_local_transcript_order(
             return accepted
         return None
 
-    _result, mind = await _run_stream(
+    _result, host = await _run_stream(
         monkeypatch,
         [
             {
@@ -1830,7 +1830,7 @@ async def test_sampling_accepted_input_preserves_local_transcript_order(
 
     messages = [
         (entry["actor"], entry["payload"])
-        for entry in mind.transcripts.entries
+        for entry in host.transcripts.entries
         if entry["event"] == "message.created"
     ]
     assert messages == [
@@ -1868,7 +1868,7 @@ async def test_sampling_accepted_input_preserves_local_transcript_order(
 
 @pytest.mark.anyio
 async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> None:
-    _result, mind = await _run_stream(monkeypatch, [
+    _result, host = await _run_stream(monkeypatch, [
         {
             "type": "text.delta",
             "segment_id": "before-item",
@@ -1895,7 +1895,7 @@ async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> 
 
     ordered = [
         (entry["event"], entry["actor"], entry["payload"])
-        for entry in mind.transcripts.entries
+        for entry in host.transcripts.entries
         if entry["actor"] in {"assistant", "tool"}
     ]
 
@@ -1927,7 +1927,7 @@ async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> 
 
 @pytest.mark.anyio
 async def test_transcript_records_user_replay_payload(monkeypatch) -> None:
-    _result, mind = await _run_stream(
+    _result, host = await _run_stream(
         monkeypatch,
         [{"type": "turn.done", "usage": {}}],
         attachments=({"filename": "screen.png"},),
@@ -1936,7 +1936,7 @@ async def test_transcript_records_user_replay_payload(monkeypatch) -> None:
 
     user_entry = next(
         entry
-        for entry in mind.transcripts.entries
+        for entry in host.transcripts.entries
         if entry["actor"] == "user"
     )
     assert user_entry["payload"] == {
@@ -1948,7 +1948,7 @@ async def test_transcript_records_user_replay_payload(monkeypatch) -> None:
 
 @pytest.mark.anyio
 async def test_child_stream_does_not_mutate_root_frontend_state(monkeypatch) -> None:
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [
             {"type": "text.delta", "text": "child answer"},
@@ -1960,7 +1960,7 @@ async def test_child_stream_does_not_mutate_root_frontend_state(monkeypatch) -> 
 
     assert result.status == "completed"
     assert result.assistant_text == "child answer"
-    assert mind.remembered == []
+    assert host.remembered == []
 
 
 @pytest.mark.anyio
@@ -1970,7 +1970,7 @@ async def test_child_stream_failure_does_not_stop_root_animation(monkeypatch) ->
         if False:
             yield None
 
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [],
         child_agent=True,
@@ -1987,7 +1987,7 @@ async def test_stream_preserves_explicit_empty_skills(monkeypatch) -> None:
         assert kwargs["skills"] == []
         yield parse_stream_event({"type": "turn.done"})
 
-    result, _mind_state = await _run_stream(
+    result, _host_state = await _run_stream(
         monkeypatch,
         [],
         request_skills=(),
@@ -2006,7 +2006,7 @@ async def test_stream_forwards_turn_additional_context(monkeypatch) -> None:
         ]
         yield parse_stream_event({"type": "turn.done"})
 
-    result, _mind_state = await _run_stream(
+    result, _host_state = await _run_stream(
         monkeypatch,
         [],
         additional_context=(
@@ -2056,7 +2056,7 @@ async def test_stream_forwards_turn_hook_context(monkeypatch) -> None:
         assert "system_message" not in kwargs
         yield parse_stream_event({"type": "turn.done"})
 
-    result, _mind_state = await _run_stream(
+    result, _host_state = await _run_stream(
         monkeypatch,
         [],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
@@ -2085,7 +2085,7 @@ async def test_exec_output_session_receives_hook_lifecycle_views(
         source_path=Path("config.toml"),
     )
 
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [{"type": "turn.done"}],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
@@ -2096,7 +2096,7 @@ async def test_exec_output_session_receives_hook_lifecycle_views(
     assert result.status == "completed"
     hook_views = [
         item
-        for item in mind.output_session.presentation.items
+        for item in host.output_session.presentation.items
         if isinstance(item, HookRunView)
     ]
     assert [(view.event, view.phase, view.status) for view in hook_views] == [
@@ -2128,7 +2128,7 @@ async def test_session_start_stop_queues_context_for_next_turn(monkeypatch) -> N
         source_path=Path("config.toml"),
     )
 
-    result, mind_state = await _run_stream(
+    result, host_state = await _run_stream(
         monkeypatch,
         [],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
@@ -2137,7 +2137,7 @@ async def test_session_start_stop_queues_context_for_next_turn(monkeypatch) -> N
 
     assert result.status == "failed"
     assert result.error == "configure first"
-    assert mind_state.queued_context == [("Python 3.13 is required",)]
+    assert host_state.queued_context == [("Python 3.13 is required",)]
 
 
 @pytest.mark.anyio
@@ -2161,7 +2161,7 @@ async def test_prompt_stop_queues_context_for_next_turn(monkeypatch) -> None:
         source_path=Path("config.toml"),
     )
 
-    result, mind_state = await _run_stream(
+    result, host_state = await _run_stream(
         monkeypatch,
         [],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
@@ -2169,7 +2169,7 @@ async def test_prompt_stop_queues_context_for_next_turn(monkeypatch) -> None:
 
     assert result.status == "failed"
     assert result.error == "Select a project first."
-    assert mind_state.queued_context == [(
+    assert host_state.queued_context == [(
         "Available projects: web, app, service.",
     )]
 
@@ -2197,7 +2197,7 @@ async def test_child_prompt_stop_returns_context_without_queuing_root(
         source_path=Path("config.toml"),
     )
 
-    result, mind_state = await _run_stream(
+    result, host_state = await _run_stream(
         monkeypatch,
         [],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
@@ -2208,7 +2208,7 @@ async def test_child_prompt_stop_returns_context_without_queuing_root(
     assert result.additional_context == (
         "Available projects: web, app, service.",
     )
-    assert mind_state.queued_context == []
+    assert host_state.queued_context == []
 
 
 @pytest.mark.anyio
@@ -2232,7 +2232,7 @@ async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
         source_path=Path("config.toml"),
     )
 
-    result, mind_state = await _run_stream(
+    result, host_state = await _run_stream(
         monkeypatch,
         [{"type": "turn.done", "usage": {"output_tokens": 2}}],
         hooks=HookRuntime(definitions, command_runner=runner),
@@ -2249,7 +2249,7 @@ async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
     assert runner.calls[1][1]["prompt"] == "hello"
     assert runner.calls[2][1]["stop_hook_active"] is False
     assert runner.calls[2][1]["last_assistant_message"] is None
-    assert mind_state.transcripts.entries[0] == {
+    assert host_state.transcripts.entries[0] == {
         "event": "session.started",
         "actor": "system",
         "payload": {
@@ -2294,7 +2294,7 @@ async def test_child_stream_skips_root_session_and_stop_lifecycle_hooks(
         source_path=Path("config.toml"),
     )
 
-    result, _mind_state = await _run_stream(
+    result, _host_state = await _run_stream(
         monkeypatch,
         [{"type": "turn.done"}],
         hooks=HookRuntime(definitions, command_runner=runner),
@@ -2343,7 +2343,7 @@ async def test_stream_reuses_injected_hook_scope_snapshot(monkeypatch) -> None:
         command_runner=resolved_runner,
     )
 
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [{"type": "turn.done"}],
         hooks=resolved_runtime,
@@ -2356,7 +2356,7 @@ async def test_stream_reuses_injected_hook_scope_snapshot(monkeypatch) -> None:
     assert result.status == "completed"
     assert injected_runner.events == ["UserPromptSubmit", "Stop"]
     assert resolved_runner.events == []
-    assert not hasattr(mind, "hook_scope")
+    assert not hasattr(host, "hook_scope")
 
 
 @pytest.mark.anyio
@@ -2387,7 +2387,7 @@ async def test_prompt_hook_denial_skips_stop_and_continuation(monkeypatch) -> No
         source_path=Path("config.toml"),
     )
 
-    result, _mind_state = await _run_stream(
+    result, _host_state = await _run_stream(
         monkeypatch,
         [{"type": "turn.done"}],
         hooks=HookRuntime(definitions, command_runner=runner),
@@ -2414,7 +2414,7 @@ async def test_stop_hook_failure_does_not_replace_completed_result(
         source_path=Path("config.toml"),
     )
 
-    result, _mind_state = await _run_stream(
+    result, _host_state = await _run_stream(
         monkeypatch,
         [{"type": "turn.done", "usage": {"output_tokens": 2}}],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
@@ -2509,7 +2509,7 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
             "turn_id": kwargs["turn_id"],
         })
 
-    result, _mind_state = await _run_stream(
+    result, _host_state = await _run_stream(
         monkeypatch,
         [],
         hooks=HookRuntime(definitions, command_runner=runner),
@@ -2584,7 +2584,7 @@ async def test_incomplete_turn_gates_stop_hook_continuation(
             "status": "completed",
         })
 
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
@@ -2599,13 +2599,13 @@ async def test_incomplete_turn_gates_stop_hook_continuation(
     assert result.can_continue is False
     assert result.stop_reason == "max_tokens"
     assert result.usage == {"output_tokens": 7}
-    assert mind.transcripts.entries[-1]["event"] == "turn.incomplete"
-    assert mind.transcripts.entries[-1]["payload"]["stop_reason"] == (
+    assert host.transcripts.entries[-1]["event"] == "turn.incomplete"
+    assert host.transcripts.entries[-1]["payload"]["stop_reason"] == (
         "max_tokens"
     )
-    assert mind.transcripts.entries[-1]["payload"]["can_continue"] is False
+    assert host.transcripts.entries[-1]["payload"]["can_continue"] is False
     assert isinstance(
-        mind.output_session.presentation.items[-1],
+        host.output_session.presentation.items[-1],
         RunIncompleteView,
     )
 
@@ -2639,7 +2639,7 @@ async def test_pause_turn_failure_does_not_run_stop_hook_continuation(
             "stop_reason": "pause_turn",
         })
 
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
@@ -2651,10 +2651,10 @@ async def test_pause_turn_failure_does_not_run_stop_hook_continuation(
     assert result.stop_reason == "pause_turn"
     assert result.usage == {"output_tokens": 2}
     assert messages == ["hello"]
-    assert mind.transcripts.entries[-1]["payload"]["stop_reason"] == (
+    assert host.transcripts.entries[-1]["payload"]["stop_reason"] == (
         "pause_turn"
     )
-    failure_view = mind.output_session.presentation.items[-1]
+    failure_view = host.output_session.presentation.items[-1]
     assert isinstance(failure_view, FailureView)
     assert failure_view.error == "pause_turn is not supported"
     assert failure_view.stop_reason == "pause_turn"
@@ -2663,7 +2663,7 @@ async def test_pause_turn_failure_does_not_run_stop_hook_continuation(
 
 @pytest.mark.anyio
 async def test_stream_returns_failed_result(monkeypatch) -> None:
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {"type": "turn.failed", "error": "request failed"},
     ])
 
@@ -2671,28 +2671,28 @@ async def test_stream_returns_failed_result(monkeypatch) -> None:
     assert result.error == "request failed"
     assert result.exit_code == 1
     assert TurnTerminal(
-        surface_id=mind.output_session.context.surface_id,
+        surface_id=host.output_session.context.surface_id,
         turn_id="turn_test",
         status="failed",
-    ) in mind.output_session.activity.items
+    ) in host.output_session.activity.items
 
 
 @pytest.mark.anyio
 async def test_stream_without_terminal_event_is_incomplete(monkeypatch) -> None:
-    result, mind = await _run_stream(monkeypatch, [])
+    result, host = await _run_stream(monkeypatch, [])
 
     assert result.status == "incomplete"
     assert result.error == "stream ended before turn completion"
     assert TurnTerminal(
-        surface_id=mind.output_session.context.surface_id,
+        surface_id=host.output_session.context.surface_id,
         turn_id="turn_test",
         status="failed",
-    ) in mind.output_session.activity.items
+    ) in host.output_session.activity.items
 
 
 @pytest.mark.anyio
 async def test_stream_emits_assistant_boundary_before_structured_output(monkeypatch) -> None:
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {
             "type": "text.delta",
             "segment_id": "first-item",
@@ -2719,7 +2719,7 @@ async def test_stream_emits_assistant_boundary_before_structured_output(monkeypa
     ])
 
     assert result.status == "completed"
-    assert mind.output_session.content.items == [
+    assert host.output_session.content.items == [
         AssistantTextDelta("first", response_identity()),
         AssistantSegmentCompleted(response_identity()),
         AssistantOutputBoundary(),
@@ -2733,7 +2733,7 @@ async def test_stream_emits_assistant_boundary_before_structured_output(monkeypa
 async def test_stream_commits_output_before_tool_round_transition(
     monkeypatch,
 ) -> None:
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {
             "type": "text.delta",
             "round": 1,
@@ -2767,7 +2767,7 @@ async def test_stream_commits_output_before_tool_round_transition(
         status="completed",
         assistant_text="first\nsecond",
     )
-    assert mind.output_session.content.items == [
+    assert host.output_session.content.items == [
         AssistantTextDelta("first", response_identity(round_no=1)),
         AssistantOutputBoundary(),
         AssistantTextDelta("second", response_identity(round_no=2)),
@@ -2776,7 +2776,7 @@ async def test_stream_commits_output_before_tool_round_transition(
     ]
     assert [
         entry["payload"]
-        for entry in mind.transcripts.entries
+        for entry in host.transcripts.entries
         if entry["actor"] == "assistant"
     ] == [
         {
@@ -2800,7 +2800,7 @@ async def test_stream_commits_output_before_tool_round_transition(
 async def test_stream_commits_multiple_item_identities_without_boundary(
     monkeypatch,
 ) -> None:
-    _result, mind = await _run_stream(monkeypatch, [
+    _result, host = await _run_stream(monkeypatch, [
         {
             "type": "text.delta",
             "round": 1,
@@ -2823,11 +2823,11 @@ async def test_stream_commits_multiple_item_identities_without_boundary(
 
     messages = [
         entry["payload"]["content"]
-        for entry in mind.transcripts.entries
+        for entry in host.transcripts.entries
         if entry["event"] == "message.created" and entry["actor"] == "assistant"
     ]
     assert messages == ["first", "second"]
-    assert mind.output_session.content.items == [
+    assert host.output_session.content.items == [
         AssistantTextDelta("first", response_identity(round_no=1)),
         AssistantOutputBoundary(),
         AssistantTextDelta("second", response_identity(round_no=2)),
@@ -2840,7 +2840,7 @@ async def test_stream_commits_multiple_item_identities_without_boundary(
 async def test_stream_updates_transcript_when_final_text_arrives_after_boundary(
     monkeypatch,
 ) -> None:
-    _result, mind = await _run_stream(monkeypatch, [
+    _result, host = await _run_stream(monkeypatch, [
         {
             "type": "text.delta",
             "segment_id": "item-1",
@@ -2863,7 +2863,7 @@ async def test_stream_updates_transcript_when_final_text_arrives_after_boundary(
 
     assistant_entries = [
         entry
-        for entry in mind.transcripts.entries
+        for entry in host.transcripts.entries
         if entry["actor"] == "assistant"
     ]
     assert [entry["event"] for entry in assistant_entries] == [
@@ -2899,7 +2899,7 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
     monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
 
-    result, _mind_state = await _run_stream(monkeypatch, [
+    result, _host_state = await _run_stream(monkeypatch, [
         _durable_tool_call({
             "type": "tool.call",
             "cid": "cid_test",
@@ -3000,7 +3000,7 @@ async def test_stream_reconciles_uncertain_tool_result_before_failing(
     )
     monkeypatch.setattr(stream, "post_effect_reconciliation", post_effect_reconciliation)
 
-    result, _mind_state = await _run_stream(monkeypatch, [
+    result, _host_state = await _run_stream(monkeypatch, [
         _durable_tool_call({
             "type": "tool.call",
             "call_id": "call-reconcile",
@@ -3066,7 +3066,7 @@ async def test_stream_retries_unknown_ack_with_same_request_id(monkeypatch) -> N
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
     monkeypatch.setattr(stream, "get_tool_result_status", get_status)
 
-    result, _mind_state = await _run_stream(monkeypatch, [
+    result, _host_state = await _run_stream(monkeypatch, [
         _durable_tool_call({
             "type": "tool.call",
             "call_id": "call-ack",
@@ -3110,7 +3110,7 @@ async def test_stream_stops_deterministic_tool_result_terminal_without_failure(
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
     monkeypatch.setattr(stream, "get_tool_result_status", status_query)
 
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         _durable_tool_call({
             "type": "tool.call",
             "call_id": "call-closed",
@@ -3127,7 +3127,7 @@ async def test_stream_stops_deterministic_tool_result_terminal_without_failure(
     status_query.assert_not_awaited()
     failure_views = [
         item
-        for item in mind.output_session.presentation.items
+        for item in host.output_session.presentation.items
         if isinstance(item, FailureView)
     ]
     assert failure_views[-1].phase == "turn.tool_result_delivery_stopped"
@@ -3160,7 +3160,7 @@ async def test_stream_reports_plan_result_after_local_execution(
     monkeypatch.setattr(stream.PlanToolCallRunner, "handle", handle)
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
 
-    result, _mind_state = await _run_stream(
+    result, _host_state = await _run_stream(
         monkeypatch,
         [
             _durable_tool_call({
@@ -3220,7 +3220,7 @@ async def test_stream_queues_pre_tool_context_after_operation_error(
 
     monkeypatch.setattr(stream.PlanToolCallRunner, "handle", fail)
 
-    result, mind_state = await _run_stream(
+    result, host_state = await _run_stream(
         monkeypatch,
         [_durable_tool_call({
             "type": "tool.call",
@@ -3234,7 +3234,7 @@ async def test_stream_queues_pre_tool_context_after_operation_error(
 
     assert result.status == "failed"
     assert result.additional_context == ("inspect protected paths",)
-    assert mind_state.queued_context == [("inspect protected paths",)]
+    assert host_state.queued_context == [("inspect protected paths",)]
 
 
 @pytest.mark.anyio
@@ -3278,7 +3278,7 @@ async def test_post_tool_hook_cannot_replace_plan_result_for_model(
     monkeypatch.setattr(stream.PlanToolCallRunner, "handle", handle)
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
 
-    result, _mind_state = await _run_stream(
+    result, _host_state = await _run_stream(
         monkeypatch,
         [
             _durable_tool_call({
@@ -3315,7 +3315,7 @@ async def test_child_approval_uses_local_agent_identity(monkeypatch) -> None:
 
     monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
 
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [
             {
@@ -3333,7 +3333,7 @@ async def test_child_approval_uses_local_agent_identity(monkeypatch) -> None:
     )
 
     assert result.status == "completed"
-    request = mind.frontend.interaction.present_approval.await_args.args[0]
+    request = host.frontend.interaction.present_approval.await_args.args[0]
     presentation = request.presentation
     assert presentation.context.agent_id == "agent_child"
     assert presentation.context.agent_type == "worker"
@@ -3378,7 +3378,7 @@ async def test_approval_request_event_is_presented_without_nested_metadata(
 
     monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
 
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [{
             "type": "tool.approval_required",
@@ -3393,7 +3393,7 @@ async def test_approval_request_event_is_presented_without_nested_metadata(
     )
 
     assert result.status == "completed"
-    mind.frontend.interaction.present_approval.assert_awaited_once()
+    host.frontend.interaction.present_approval.assert_awaited_once()
     approval_kwargs = dict(approval_posts[0][1])
     assert approval_kwargs.pop("turn_id")
     assert approval_kwargs.pop("kind") == "command"
@@ -3433,7 +3433,7 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
     monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
 
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {
             "type": "tool.approval_required",
             "call_id": "call-approved",
@@ -3453,7 +3453,7 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
     ])
 
     assert result.status == "completed"
-    mind.frontend.interaction.present_approval.assert_awaited_once()
+    host.frontend.interaction.present_approval.assert_awaited_once()
     assert approval_posts[0][0] == (
         "cid_test",
         "sid_test",
@@ -3506,7 +3506,7 @@ async def test_confirmed_approval_skips_duplicate_local_prompt_on_replayed_call(
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
     monkeypatch.setattr(stream, "post_tool_approval", AsyncMock())
 
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {
             "type": "tool.approval_required",
             "call_id": "call-shell-approved",
@@ -3530,7 +3530,7 @@ async def test_confirmed_approval_skips_duplicate_local_prompt_on_replayed_call(
     assert result.status == "completed"
     assert len(executions) == 1
     assert len(result_posts) == 1
-    mind.frontend.interaction.present_approval.assert_awaited_once()
+    host.frontend.interaction.present_approval.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -3539,8 +3539,8 @@ async def test_confirmed_approval_cannot_override_local_forbidden_rule(
 ) -> None:
     executions = []
     result_posts = []
-    mind = _mind()
-    mind.workspace_runtime.execution_policy.policy = Policy.from_parts([
+    host = _host()
+    host.workspace_runtime.execution_policy.policy = Policy.from_parts([
         PrefixRule(
             PrefixPattern.from_values(["rm"]),
             decision=Decision.Forbidden,
@@ -3592,7 +3592,7 @@ async def test_confirmed_approval_cannot_override_local_forbidden_rule(
             "reason": "模型需要清理构建目录。",
         }),
         {"type": "turn.done"},
-    ], mind_state=mind)
+    ], host_state=host)
 
     assert result.status == "completed"
     assert executions == []
@@ -3618,7 +3618,7 @@ async def test_local_policy_cancel_interrupts_turn(monkeypatch) -> None:
     monkeypatch.setattr(ApprovalCoordinator, "request_outcome", request_outcome)
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
 
-    result, _mind_state = await _run_stream(monkeypatch, [
+    result, _host_state = await _run_stream(monkeypatch, [
         _durable_tool_call({
             "type": "tool.call",
             "call_id": "call-local-cancel",
@@ -3686,7 +3686,7 @@ async def test_stream_persists_local_shell_rule_from_approval(
     monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
 
-    result, _mind_state = await _run_stream(monkeypatch, [
+    result, _host_state = await _run_stream(monkeypatch, [
         _durable_tool_call({
             "type": "tool.call",
             "call_id": "call-amendment",
@@ -3744,7 +3744,7 @@ async def test_stream_allows_local_shell_approval_without_tool_reason(
     monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
     monkeypatch.setattr(stream, "post_tool_result", AsyncMock(return_value={}))
 
-    result, _mind_state = await _run_stream(monkeypatch, [
+    result, _host_state = await _run_stream(monkeypatch, [
         _durable_tool_call({
             "type": "tool.call",
             "call_id": "call-without-reason",
@@ -3797,8 +3797,8 @@ async def test_local_patch_session_approval_skips_next_matching_patch(
     monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
     monkeypatch.setattr(stream, "post_tool_result", AsyncMock(return_value={}))
 
-    mind = _mind()
-    mind.workspace_runtime.coding = SimpleNamespace(
+    host = _host()
+    host.workspace_runtime.coding = SimpleNamespace(
         preview_patch=lambda **_kwargs: {
             "ok": True,
             "data": {"files": [{"path": "src/app.py"}]},
@@ -3815,13 +3815,13 @@ async def test_local_patch_session_approval_skips_next_matching_patch(
     first, _ = await _run_stream(
         monkeypatch,
         [patch_event, {"type": "turn.done"}],
-        mind_state=mind,
+        host_state=host,
         permissions=untrusted,
     )
     second, _ = await _run_stream(
         monkeypatch,
         [patch_event, {"type": "turn.done"}],
-        mind_state=mind,
+        host_state=host,
         permissions=untrusted,
     )
 
@@ -3852,7 +3852,7 @@ async def test_declined_tool_closes_without_interrupting_turn(monkeypatch) -> No
     )
     monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
 
-    result, mind = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         {
             "type": "tool.approval_required",
             "call_id": "call-declined",
@@ -3880,17 +3880,17 @@ async def test_declined_tool_closes_without_interrupting_turn(monkeypatch) -> No
     assert approval_posts[0][1]["decision"] == "decline"
     tool_entry = next(
         entry
-        for entry in mind.transcripts.entries
+        for entry in host.transcripts.entries
         if entry["event"] == "tool.completed"
     )
     assert tool_entry["payload"]["status"] == "declined"
     approval_views = [
         item
-        for item in mind.output_session.presentation.items
+        for item in host.output_session.presentation.items
         if isinstance(item, ApprovalView)
     ]
     assert [view.decision for view in approval_views] == ["decline"]
-    assert len(mind.output_session.presentation.items) == 3
+    assert len(host.output_session.presentation.items) == 3
 
 
 @pytest.mark.anyio
@@ -3898,12 +3898,12 @@ async def test_noninteractive_approval_decline_is_attributed_to_policy(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(stream, "post_tool_approval", AsyncMock())
-    mind_state = _mind(frontend_active=False)
-    mind_state.approval_coordinator = ApprovalCoordinator(
+    host_state = _host(frontend_active=False)
+    host_state.approval_coordinator = ApprovalCoordinator(
         NonInteractiveInteraction()
     )
 
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [
             _durable_tool_call({
@@ -3918,13 +3918,13 @@ async def test_noninteractive_approval_decline_is_attributed_to_policy(
             {"type": "turn.done", "status": "completed"},
         ],
         frontend_active=False,
-        mind_state=mind_state,
+        host_state=host_state,
     )
 
     assert result.status == "completed"
     approval_view = next(
         item
-        for item in mind.output_session.presentation.items
+        for item in host.output_session.presentation.items
         if isinstance(item, ApprovalView)
     )
     assert approval_view.decision == "decline"
@@ -3955,7 +3955,7 @@ async def test_cancelled_approval_drains_interrupted_turn_settlement(
     )
     monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
 
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [
             {
@@ -4001,17 +4001,17 @@ async def test_cancelled_approval_drains_interrupted_turn_settlement(
     }
     tool_entry = next(
         entry
-        for entry in mind.transcripts.entries
+        for entry in host.transcripts.entries
         if entry["event"] == "tool.completed"
     )
     assert tool_entry["payload"]["status"] == "cancelled"
     approval_views = [
         item
-        for item in mind.output_session.presentation.items
+        for item in host.output_session.presentation.items
         if isinstance(item, ApprovalView)
     ]
     assert [view.decision for view in approval_views] == ["cancel"]
-    assert len(mind.output_session.presentation.items) == 2
+    assert len(host.output_session.presentation.items) == 2
     assert len(input_events) == 1
     assert input_events[0].type == "turn.logical_settled"
 
@@ -4052,7 +4052,7 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
 
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
 
-    result, _mind_state = await _run_stream(
+    result, _host_state = await _run_stream(
         monkeypatch,
         [
             _durable_tool_call({
@@ -4196,7 +4196,7 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     }
     call_event = _durable_tool_call(call_event)
 
-    result, mind = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [
             approval_event,
@@ -4207,7 +4207,7 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     )
 
     assert result.status == "completed"
-    request = mind.frontend.interaction.present_approval.await_args.args[0]
+    request = host.frontend.interaction.present_approval.await_args.args[0]
     presentation = request.presentation
     assert presentation.commands == (("pytest -q",),)
     assert presentation.context.kind == "command"

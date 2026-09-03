@@ -1225,9 +1225,9 @@ def test_mcp_stdio_adapter_is_owned_by_frontends() -> None:
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
     }
     assert {
-        "MindMcpRuntime",
-        "create_mind_mcp_server",
-        "run_mind_mcp_server",
+        "McpServerRuntime",
+        "create_mcp_server",
+        "run_mcp_server",
     } <= definitions
 
     target_modules: list[str] = []
@@ -4237,10 +4237,31 @@ def test_tui_turn_loop_consumes_injected_root_turn_use_case() -> None:
         for node in ast.walk(tree)
         if isinstance(node, ast.Attribute)
         and isinstance(node.value, ast.Name)
-        and node.value.id == "mind"
+        and node.value.id == "host"
         and node.attr in {"turn_execution_runtime", "root_turn_session"}
     }
     assert not forbidden_attributes
+
+
+def test_frontend_host_names_are_not_brand_bound() -> None:
+    """确保前端组合对象不再使用产品名作为通用变量或成员名。"""
+    violations: list[str] = []
+    for module_path in (PROJECT_ROOT / "frontends").rglob("*.py"):
+        tree = ast.parse(
+            module_path.read_text(encoding="utf-8-sig"),
+            filename=str(module_path),
+        )
+        for node in ast.walk(tree):
+            if isinstance(node, ast.arg) and node.arg == "mind":
+                violations.append(f"{module_path.relative_to(PROJECT_ROOT)}: argument")
+            elif isinstance(node, ast.Name) and node.id == "mind":
+                violations.append(f"{module_path.relative_to(PROJECT_ROOT)}: name")
+            elif isinstance(node, ast.Attribute) and node.attr == "mind":
+                violations.append(f"{module_path.relative_to(PROJECT_ROOT)}: attribute")
+
+    assert not violations, "brand-bound frontend host names remain:\n" + "\n".join(
+        sorted(set(violations))
+    )
 
 
 def test_application_presentation_ports_are_owned_by_agent() -> None:
@@ -5056,7 +5077,7 @@ def test_tui_runtime_exposes_only_explicit_control_and_lifecycle_ports() -> None
         and node.name == "fork_current_conversation"
     )
     assert [argument.arg for argument in fork_function.args.args[:2]] == [
-        "mind",
+        "host",
         "protocol_client",
     ]
     assert not fork_function.args.defaults
@@ -5154,9 +5175,9 @@ def test_tui_runtime_exposes_only_explicit_control_and_lifecycle_ports() -> None
         ).read_text(encoding="utf-8-sig")
         assert "mind: typing.Any" not in feature_source
         assert 'getattr(controller, "conversation"' not in feature_source
-        assert 'getattr(mind, "animate"' not in feature_source
-        assert 'getattr(mind.workspace_runtime, "coding"' not in feature_source
-        assert 'getattr(mind.frontend.application, "viewport"' not in feature_source
+        assert 'getattr(host, "animate"' not in feature_source
+        assert 'getattr(host.workspace_runtime, "coding"' not in feature_source
+        assert 'getattr(host.frontend.application, "viewport"' not in feature_source
         assert (
             'getattr(controller.frontend.application, "viewport"'
             not in feature_source

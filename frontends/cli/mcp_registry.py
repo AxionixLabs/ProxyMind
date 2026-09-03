@@ -20,7 +20,7 @@ from frontends.cli.commands import (
     McpRemoveCommand,
     McpSetEnabledCommand
 )
-from infrastructure.config.runtime_paths import mind_config_path
+from infrastructure.config.runtime_paths import application_config_path
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
@@ -195,7 +195,7 @@ def run_mcp_registry_command(
     stream = sys.stdout if output_stream is None else output_stream
 
     registry = McpServerRegistry(ConfigSession(
-        ConfigStore(mind_config_path()),
+        ConfigStore(application_config_path()),
         config_overrides,
         profile=config_profile,
         workspace=Path.cwd(),

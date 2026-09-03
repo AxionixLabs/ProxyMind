@@ -653,9 +653,9 @@ class ExecPolicyManager:
                 seen_directories.add(target)
                 directories.append(target)
 
-        mind_home = os.environ.get("MIND_HOME")
-        if mind_home:
-            add_directory(Path(mind_home) / "rules")
+        application_home = os.environ.get("MIND_HOME")
+        if application_home:
+            add_directory(Path(application_home) / "rules")
         add_directory(default_application_home() / "rules")
 
         ancestors = [self.workspace_root, *self.workspace_root.parents]

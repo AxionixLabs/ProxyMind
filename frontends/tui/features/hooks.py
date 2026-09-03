@@ -58,7 +58,7 @@ _STARTUP_CONTINUE = "continue"
 
 def _trust_startup_hooks(
     runtime: "TuiRuntime",
-    mind: HookUiHostPort,
+    host: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot
 ) -> None:
@@ -69,7 +69,7 @@ def _trust_startup_hooks(
 
     runtime.update_menu(_startup_hooks_review_request(
         runtime,
-        mind,
+        host,
         workspace,
         catalog,
         trusting_all=True,
@@ -77,7 +77,7 @@ def _trust_startup_hooks(
     runtime.start_background_task(
         _run_startup_hook_trust(
             runtime,
-            mind,
+            host,
             workspace,
             catalog,
             session_id=session_id,
@@ -88,7 +88,7 @@ def _trust_startup_hooks(
 
 def _startup_hooks_review_request(
     runtime: "TuiRuntime",
-    mind: HookUiHostPort,
+    host: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot,
     *,
@@ -102,7 +102,7 @@ def _startup_hooks_review_request(
         trusting_all=trusting_all,
         on_trust=lambda: _trust_startup_hooks(
             runtime,
-            mind,
+            host,
             workspace,
             catalog,
         ),
@@ -111,7 +111,7 @@ def _startup_hooks_review_request(
 
 def _queue_batch_trust(
     runtime: "TuiRuntime",
-    mind: HookUiHostPort,
+    host: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot
 ) -> None:
@@ -120,7 +120,7 @@ def _queue_batch_trust(
     runtime.start_background_task(
         _run_batch_trust(
             runtime,
-            mind,
+            host,
             workspace,
             catalog,
             session_id=session_id,
@@ -130,7 +130,7 @@ def _queue_batch_trust(
 
 
 def _refresh_catalog(
-    mind: HookUiHostPort,
+    host: HookUiHostPort,
     workspace: Path,
     fallback: HookCatalogSnapshot,
     *,
@@ -139,16 +139,16 @@ def _refresh_catalog(
 ) -> HookCatalogSnapshot:
     """重新读取 Hook 清单，失败时保留已有快照。"""
     try:
-        return mind.hooks.inspect(workspace=workspace)
+        return host.hooks.inspect(workspace=workspace)
     except (ConfigStoreError, ConfigValidationError) as error:
         if runtime.menu_session_is_active(session_id):
-            render_hooks_failure(mind.frontend.application, error)
+            render_hooks_failure(host.frontend.application, error)
         return fallback
 
 
 def _push_hook_list(
     runtime: "TuiRuntime",
-    mind: HookUiHostPort,
+    host: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot,
     event: str
@@ -157,7 +157,7 @@ def _push_hook_list(
     runtime.emit_menu_action(
         lambda: runtime.push_menu(_hook_list_request(
             runtime,
-            mind,
+            host,
             workspace,
             catalog,
             event,
@@ -215,7 +215,7 @@ def _handler_summary(entry: HookCatalogEntry) -> str:
 
 def _hook_list_request(
     runtime: "TuiRuntime",
-    mind: HookUiHostPort,
+    host: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot,
     event: str
@@ -234,7 +234,7 @@ def _hook_list_request(
             runtime.start_background_task(
                 _run_hook_action(
                     runtime,
-                    mind,
+                    host,
                     workspace,
                     catalog,
                     entry,
@@ -412,7 +412,7 @@ def _hook_trust_label(entry: HookCatalogEntry) -> str:
 
 def _hook_root_request(
     runtime: "TuiRuntime",
-    mind: HookUiHostPort,
+    host: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot
 ) -> MenuRequest:
@@ -421,14 +421,14 @@ def _hook_root_request(
         catalog,
         on_event=lambda event: _push_hook_list(
             runtime,
-            mind,
+            host,
             workspace,
             catalog,
             event,
         ),
         on_trust=lambda: _queue_batch_trust(
             runtime,
-            mind,
+            host,
             workspace,
             catalog,
         ),
@@ -717,7 +717,7 @@ def render_hooks_failure(
 
 async def _run_hook_action(
     runtime: "TuiRuntime",
-    mind: HookUiHostPort,
+    host: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot,
     entry: HookCatalogEntry,
@@ -735,20 +735,20 @@ async def _run_hook_action(
 
     try:
         if action == _TRUST_ACTION:
-            mind.hooks.trust(
+            host.hooks.trust(
                 entry.key,
                 expected_content_hash=entry.content_hash,
                 workspace=workspace,
             )
         else:
-            mind.hooks.set_enabled(
+            host.hooks.set_enabled(
                 entry.key,
                 expected_content_hash=entry.content_hash,
                 enabled=action == _ENABLE_ACTION,
                 workspace=workspace,
             )
         refreshed = _refresh_catalog(
-            mind,
+            host,
             workspace,
             catalog,
             runtime=runtime,
@@ -757,14 +757,14 @@ async def _run_hook_action(
         if runtime.menu_session_is_active(session_id):
             runtime.replace_present_menu_if_id(
                 "hooks:events",
-                _hook_root_request(runtime, mind, workspace, refreshed),
+                _hook_root_request(runtime, host, workspace, refreshed),
                 session_id=session_id,
             )
             runtime.replace_present_menu_if_id(
                 f"hooks:list:{event}",
                 _hook_list_request(
                     runtime,
-                    mind,
+                    host,
                     workspace,
                     refreshed,
                     event,
@@ -782,7 +782,7 @@ async def _run_hook_action(
 
 async def _run_batch_trust(
     runtime: "TuiRuntime",
-    mind: HookUiHostPort,
+    host: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot,
     *,
@@ -798,14 +798,14 @@ async def _run_batch_trust(
     pending = tuple(item for item in catalog.hooks if item.needs_review)
 
     try:
-        mind.hooks.trust_many(
+        host.hooks.trust_many(
             tuple((entry.key, entry.content_hash) for entry in pending),
             workspace=workspace,
         )
     except ValueError as error:
         if runtime.menu_session_is_active(session_id):
             refreshed = _refresh_catalog(
-                mind,
+                host,
                 workspace,
                 catalog,
                 runtime=runtime,
@@ -813,7 +813,7 @@ async def _run_batch_trust(
             )
             runtime.replace_present_menu_if_id(
                 "hooks:events",
-                _hook_root_request(runtime, mind, workspace, refreshed),
+                _hook_root_request(runtime, host, workspace, refreshed),
                 session_id=session_id,
             )
             runtime.push_menu(hook_failure_panel(
@@ -824,7 +824,7 @@ async def _run_batch_trust(
         return None
 
     refreshed = _refresh_catalog(
-        mind,
+        host,
         workspace,
         catalog,
         runtime=runtime,
@@ -833,34 +833,34 @@ async def _run_batch_trust(
     if runtime.menu_session_is_active(session_id):
         runtime.replace_present_menu_if_id(
             "hooks:events",
-            _hook_root_request(runtime, mind, workspace, refreshed),
+            _hook_root_request(runtime, host, workspace, refreshed),
             session_id=session_id,
         )
 
 
 async def manage_hooks(
     runtime: "TuiRuntime",
-    mind: HookUiHostPort,
+    host: HookUiHostPort,
     *,
     catalog: HookCatalogSnapshot | None = None
 ) -> None:
     """在主 TUI 中查看 Hook 并管理显式信任。"""
-    workspace = Path(mind.history_workspace)
+    workspace = Path(host.history_workspace)
     if catalog is None:
         try:
-            catalog = mind.hooks.inspect(workspace=workspace)
+            catalog = host.hooks.inspect(workspace=workspace)
         except (ConfigStoreError, ConfigValidationError) as error:
-            render_hooks_failure(mind.frontend.application, error)
+            render_hooks_failure(host.frontend.application, error)
             return None
 
     await runtime.select_menu(
-        _hook_root_request(runtime, mind, workspace, catalog)
+        _hook_root_request(runtime, host, workspace, catalog)
     )
 
 
 async def review_startup_hooks(
     runtime: "TuiRuntime",
-    mind: HookUiHostPort
+    host: HookUiHostPort
 ) -> HookCatalogSnapshot | None:
     """在交互会话启动前选择是否打开 Hook 审核浏览器。"""
     owns_startup_gate = not runtime.startup_gate_active
@@ -868,9 +868,9 @@ async def review_startup_hooks(
         runtime.begin_startup_gate()
 
     try:
-        workspace = Path(mind.history_workspace)
+        workspace = Path(host.history_workspace)
         try:
-            catalog = mind.hooks.inspect(workspace=workspace)
+            catalog = host.hooks.inspect(workspace=workspace)
         except (ConfigStoreError, ConfigValidationError):
             return None
 
@@ -878,7 +878,7 @@ async def review_startup_hooks(
             return None
 
         selection = await runtime.select_menu(
-            _startup_hooks_review_request(runtime, mind, workspace, catalog)
+            _startup_hooks_review_request(runtime, host, workspace, catalog)
         )
         return catalog if selection == _STARTUP_REVIEW else None
     finally:
@@ -888,7 +888,7 @@ async def review_startup_hooks(
 
 async def _run_startup_hook_trust(
     runtime: "TuiRuntime",
-    mind: HookUiHostPort,
+    host: HookUiHostPort,
     workspace: Path,
     catalog: HookCatalogSnapshot,
     *,
@@ -899,7 +899,7 @@ async def _run_startup_hook_trust(
     try:
         if not runtime.menu_session_is_active(session_id):
             return None
-        mind.hooks.trust_many(
+        host.hooks.trust_many(
             tuple(
                 (entry.key, entry.content_hash)
                 for entry in catalog.hooks
@@ -912,7 +912,7 @@ async def _run_startup_hook_trust(
             return None
 
         try:
-            refreshed = mind.hooks.inspect(workspace=workspace)
+            refreshed = host.hooks.inspect(workspace=workspace)
         except (ConfigStoreError, ConfigValidationError):
             refreshed = catalog
 
@@ -920,7 +920,7 @@ async def _run_startup_hook_trust(
             "hooks:startup-review",
             _startup_hooks_review_request(
                 runtime,
-                mind,
+                host,
                 workspace,
                 refreshed,
                 error=f"Failed to trust hooks: {trust_error}",

@@ -75,7 +75,7 @@ class AgentForwardHandler(typing.Protocol):
 
     async def handle(
         self,
-        mind: SubscriptionHost,
+        host: SubscriptionHost,
         client: AgentClient,
         connection: typing.Any,
         runtime: AgentSessionRuntime,
@@ -168,7 +168,7 @@ class AgentExecutor(object):
 
     async def execute(
         self,
-        mind: SubscriptionHost,
+        host: SubscriptionHost,
         client: AgentClient,
         connection: typing.Any,
         runtime: AgentSessionRuntime,
@@ -216,7 +216,7 @@ class AgentExecutor(object):
                 call_id=request.call_id
             )
 
-            environment_snapshot = self._environment_snapshot_provider(mind)
+            environment_snapshot = self._environment_snapshot_provider(host)
             command = self._build_command(
                 request,
                 message=message,
@@ -227,7 +227,7 @@ class AgentExecutor(object):
             )
 
             execute_root_turn = RootTurnCommandExecutor(
-                functools.partial(self._turn_runner, mind),
+                functools.partial(self._turn_runner, host),
             )
 
             execution: SubmitTurnResult[RunResult]
@@ -447,7 +447,7 @@ class AgentInbox(object):
         item: AgentInboxItem,
         *,
         executor: AgentExecutor,
-        mind: SubscriptionHost,
+        host: SubscriptionHost,
         client: AgentClient,
         connection: typing.Any,
         runtime: AgentSessionRuntime,
@@ -465,7 +465,7 @@ class AgentInbox(object):
             status_changed()
         try:
             await executor.execute(
-                mind,
+                host,
                 client,
                 connection,
                 runtime,
@@ -497,7 +497,7 @@ class AgentInbox(object):
         self,
         *,
         executor: AgentExecutor,
-        mind: SubscriptionHost,
+        host: SubscriptionHost,
         client: AgentClient,
         connection: typing.Any,
         runtime: AgentSessionRuntime,
@@ -511,7 +511,7 @@ class AgentInbox(object):
         return await self.accept(
             item,
             executor=executor,
-            mind=mind,
+            host=host,
             client=client,
             connection=connection,
             runtime=runtime,
@@ -562,7 +562,7 @@ class InboxForwardHandler(object):
 
     async def handle(
         self,
-        mind: SubscriptionHost,
+        host: SubscriptionHost,
         client: AgentClient,
         connection: typing.Any,
         runtime: AgentSessionRuntime,
@@ -570,7 +570,7 @@ class InboxForwardHandler(object):
         live_status: AgentLiveStatus
     ) -> None:
         """确认收到请求并放入本地收件箱。"""
-        _ = mind
+        _ = host
         live_status.update(
             "Task Received", f"Queued {request.call_id}"
         )

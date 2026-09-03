@@ -202,6 +202,10 @@ stores / capabilities / adapters / infrastructure / frontends
 5. `ProcessResourceOwner` 按确定顺序关闭前台 Turn、后台任务、MCP、Sidecar、服务、
    Sandbox、Store 和观测资源；清理失败必须可观测且不得跳过后续资源。
 
+跨前端传递的完整组合对象统一命名为 `host`，不得以产品名命名参数或成员；进入 feature
+或 application 用例后继续收窄为实际消费的具名 port，不把 `ApplicationHost` 当作通用
+服务定位器。`Mind`/`mind` 只保留在品牌、稳定入口和正式 wire/MCP 标识中。
+
 业务模块不得从 `Mind`、Controller、frontend 或全局变量反射发现能力。需要的新能力应先
 形成最小端口，再由组合边界注入完整调用链。
 
@@ -328,6 +332,8 @@ protocol / harness fact
 
 正文只有在渲染器确认至少一行实际进入活动画布时才产生 `AssistantVisible`。该事件在同一个
 `visual_update()` 中撤下活动提示并提交正文，避免等待动画、空白帧和 assistant 正文同时出现。
+传输断线是唯一例外：transport retry 临时在已上屏正文之上恢复 `Retrying` 活动提示，但不释放、
+替换或重新提交正文；进入 replay 后立即静默，追平权威水位后由最新 reducer 快照恢复画面。
 `AssistantSettled` 只允许 Coordinator 按本地策略安排后续等待；Turn 终态会同步清空 timer、
 retry、工具和审批 lease，`turn.logical_settled` 只结束逻辑输入边界，不重新解释视觉终态。
 provider retry 在登记新 Attempt 的同一次归约中释放旧 Attempt 的正文所有权；

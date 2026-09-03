@@ -228,18 +228,20 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
         return SurfaceProjection("hidden", revision=revision)
     if state.approvals:
         return SurfaceProjection("hidden", revision=revision)
-    if state.content == "visible":
-        return SurfaceProjection("hidden", revision=revision)
-    if state.retries:
-        source = (
-            "transport"
-            if any(item.source == "transport" for item in state.retries)
-            else "provider"
-        )
+    if any(item.source == "transport" for item in state.retries):
         return SurfaceProjection(
             "retrying",
             title="Retrying",
-            detail=source,
+            detail="transport",
+            revision=revision,
+        )
+    if state.content == "visible":
+        return SurfaceProjection("hidden", revision=revision)
+    if state.retries:
+        return SurfaceProjection(
+            "retrying",
+            title="Retrying",
+            detail="provider",
             revision=revision,
         )
     if state.terminal_waits:

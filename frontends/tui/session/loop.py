@@ -100,7 +100,7 @@ def _pending_attachment_snapshot(
 
 
 async def run_tui_loop(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     *,
     protocol_client: ProtocolCommandClient,
     turn_runner: TuiRootTurnRunner | None = None,
@@ -111,7 +111,7 @@ async def run_tui_loop(
     turn_application_factory: TurnApplicationFactory | None = None,
 ) -> None:
     """运行 TUI 会话，并统一关闭其主动 Turn application。"""
-    durable_runtime = getattr(mind, "application_layout", None) is not None
+    durable_runtime = getattr(host, "application_layout", None) is not None
     if durable_runtime:
         if turn_application_factory is None:
             raise RuntimeError("TUI turn application factory is required")
@@ -122,7 +122,7 @@ async def run_tui_loop(
         if turn_runner is None:
             raise RuntimeError("TUI root turn runner is required")
         await _run_tui_loop(
-            mind,
+            host,
             turn_application=turn_application,
             turn_runner=turn_runner,
             conversation_compactor=conversation_compactor,
@@ -141,7 +141,7 @@ async def run_tui_loop(
 
 
 async def _run_tui_loop(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     *,
     turn_application: TurnApplication["RunResult"],
     turn_runner: TuiRootTurnRunner,
@@ -153,42 +153,42 @@ async def _run_tui_loop(
     initial_model: str | None,
 ) -> None:
     """处理 TUI 输入、命令分派和模型轮次。"""
-    application = mind.frontend.application
-    runtime = require_tui_runtime(mind.frontend.runtime)
+    application = host.frontend.application
+    runtime = require_tui_runtime(host.frontend.runtime)
 
-    attachment_state = mind.attach
+    attachment_state = host.attach
     runtime.bind_pending_attachment_check(
         attachment_state.has_pending_attachments,
     )
     runtime.start_background_task(
-        monitor_exec_status(runtime, mind),
+        monitor_exec_status(runtime, host),
         name="process status",
     )
 
     state = TuiSessionState.create(
-        mind,
+        host,
         runtime,
         model_override=initial_model,
     )
-    foreground_tasks = TuiForegroundTasks(runtime, mind)
+    foreground_tasks = TuiForegroundTasks(runtime, host)
 
     dispatcher = TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         state,
         foreground_tasks,
         protocol_client=protocol_client,
         conversation_compactor=conversation_compactor,
-        configuration_service_url=mind.configuration_service_url,
+        configuration_service_url=host.configuration_service_url,
     )
     dispatcher.mailbox.bind_listener()
     if initial_prompt is not None:
         runtime.submissions.enqueue_message(initial_prompt)
     attachment_start_pending = initial_prompt is None and bool(initial_images)
 
-    while not mind.lifecycle.stop_event.is_set():
+    while not host.lifecycle.stop_event.is_set():
         await foreground_tasks.wait()
-        if mind.lifecycle.stop_event.is_set():
+        if host.lifecycle.stop_event.is_set():
             break
 
         if attachment_start_pending:
@@ -197,32 +197,32 @@ async def _run_tui_loop(
             action = DispatchAction.MODEL_TURN
             runtime.set_turn_start_pending(True)
             try:
-                await state.refresh_for_prompt(mind)
+                await state.refresh_for_prompt(host)
                 state.apply_prompt_context(runtime)
             except BaseException:
                 runtime.set_turn_start_pending(False)
                 raise
         else:
             prompt_task = asyncio.create_task(
-                mind.frontend.interaction.read_message(state.prompt_context()),
+                host.frontend.interaction.read_message(state.prompt_context()),
                 name="tui read message",
             )
             try:
-                await state.refresh_for_prompt(mind)
+                await state.refresh_for_prompt(host)
                 state.apply_prompt_context(runtime)
                 await prompt_task
             except TuiInterruptRequested:
-                mind.lifecycle.request_stop(exit_code=130)
+                host.lifecycle.request_stop(exit_code=130)
                 break
             except EOFError:
-                mind.lifecycle.request_stop()
+                host.lifecycle.request_stop()
                 break
             except UnicodeDecodeError:
                 runtime.set_turn_start_pending(False)
                 continue
             except TuiTranscriptBacktrackRequested as requested:
                 await _handle_transcript_backtrack(
-                    mind,
+                    host,
                     runtime,
                     state,
                     foreground_tasks,
@@ -232,7 +232,7 @@ async def _run_tui_loop(
                 continue
             except TuiMailboxRunRequested as requested:
                 await _handle_mailbox_run(
-                    mind,
+                    host,
                     runtime,
                     dispatcher,
                     requested.request,
@@ -250,7 +250,7 @@ async def _run_tui_loop(
 
             submission = runtime.consume_submission_payload()
             if submission is not None and submission.payload_bound:
-                mind.attach.replace_pending_attachments(
+                host.attach.replace_pending_attachments(
                     submission.attachments
                 )
                 state.replace_pending_prompt_extras(submission.extras)
@@ -282,18 +282,18 @@ async def _run_tui_loop(
         runtime.set_turn_start_pending(True)
 
         try:
-            await state.refresh_preferences(mind, ttl_sec=0.0)
+            await state.refresh_preferences(host, ttl_sec=0.0)
         except BaseException:
             runtime.set_turn_start_pending(False)
             raise
         application.emit(ApplicationView(type="tui.gap"))
 
-        mind.workspace_runtime.coding.reset_patch_diff()
+        host.workspace_runtime.coding.reset_patch_diff()
 
         turn_id = short_uid(12)
 
         turn_input_control = TuiTurnInputControl(
-            mind,
+            host,
             runtime,
             state,
             cid="",
@@ -335,12 +335,12 @@ async def _run_tui_loop(
         resolved_local_session_id = local_session_id
         remote_session: dict[str, str] | None = None
         if resolved_local_session_id is None:
-            remote_session = mind.conversation.snapshot()
+            remote_session = host.conversation.snapshot()
             resolved_local_session_id = derive_local_session_id(
                 "tui",
                 remote_session,
             )
-        environment_snapshot = capture_active_turn_environment(mind)
+        environment_snapshot = capture_active_turn_environment(host)
         submit_command = SubmitTurnCommand.create(
             session_id=resolved_local_session_id,
             message=prompt_text,
@@ -391,7 +391,7 @@ async def _run_tui_loop(
             show_interrupt_notice=(
                 lambda: (
                     not interrupt_notice.shown
-                    and not mind.lifecycle.stop_event.is_set()
+                    and not host.lifecycle.stop_event.is_set()
                 )
             ),
         )
@@ -399,14 +399,14 @@ async def _run_tui_loop(
         exit_reason = runtime.consume_exit_request()
         if exit_reason is not None:
             if exit_reason == "interrupt":
-                mind.lifecycle.request_stop(exit_code=130)
+                host.lifecycle.request_stop(exit_code=130)
             else:
-                mind.lifecycle.request_stop()
+                host.lifecycle.request_stop()
             break
 
 
 async def _handle_mailbox_run(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     runtime: TuiRuntime,
     dispatcher: TuiCommandDispatcher,
     request: MailboxRunRequest
@@ -429,12 +429,12 @@ async def _handle_mailbox_run(
                 ),
                 stream_command_handler=dispatcher.handle_stream_command,
                 show_interrupt_notice=(
-                    lambda: not mind.lifecycle.stop_event.is_set()
+                    lambda: not host.lifecycle.stop_event.is_set()
                 ),
             )
         except Exception as error:
             render_mailbox_failure(
-                mind,
+                host,
                 "Mailbox run failed",
                 error,
             )
@@ -444,7 +444,7 @@ async def _handle_mailbox_run(
 
 
 async def _handle_transcript_backtrack(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     runtime: TuiRuntime,
     state: TuiSessionState,
     foreground_tasks: TuiForegroundTasks,
@@ -454,13 +454,13 @@ async def _handle_transcript_backtrack(
 ) -> None:
     """通过前台屏障执行历史分支并恢复选中的输入。"""
     runtime.replace_input_text(request.prompt)
-    mind.attach.replace_pending_attachments(request.attachments)
+    host.attach.replace_pending_attachments(request.attachments)
     state.replace_pending_prompt_extras(request.extras)
 
     foreground_tasks.start(
         "Conversation backtrack",
         lambda: fork_current_conversation(
-            mind,
+            host,
             protocol_client,
             before_turn_id=request.turn_id,
             bind_target=False,
@@ -472,20 +472,20 @@ async def _handle_transcript_backtrack(
         ),
         activity_kind="compact",
         on_succeeded=lambda status: _finish_transcript_backtrack(
-            mind,
+            host,
             runtime,
             state,
             request,
             status,
         ),
-        on_failed=lambda error: render_fork_failure(mind, error),
-        on_cancelled=lambda: render_fork_interrupted(mind),
+        on_failed=lambda error: render_fork_failure(host, error),
+        on_cancelled=lambda: render_fork_interrupted(host),
     )
     await foreground_tasks.wait()
 
 
 async def _finish_transcript_backtrack(
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     runtime: TuiRuntime,
     state: TuiSessionState,
     request: TranscriptBacktrackRequest,
@@ -504,7 +504,7 @@ async def _finish_transcript_backtrack(
             or target_session is None
         ):
             render_fork_failure(
-                mind,
+                host,
                 RuntimeError("Conversation fork did not return commit metadata."),
             )
             return None
@@ -518,13 +518,13 @@ async def _finish_transcript_backtrack(
 
         if not runtime.can_apply_transcript_backtrack(canonical_request):
             render_fork_failure(
-                mind,
+                host,
                 RuntimeError("Selected transcript turn is no longer available."),
             )
             return None
 
         try:
-            bound = await mind.conversation.bind(
+            bound = await host.conversation.bind(
                 target_session[0],
                 target_session[1],
                 source="tui",
@@ -539,11 +539,11 @@ async def _finish_transcript_backtrack(
                     "Conversation backtrack could not be committed."
                 )
 
-            mind.attach.replace_pending_attachments(prompt.attachments)
+            host.attach.replace_pending_attachments(prompt.attachments)
             state.replace_pending_prompt_extras(prompt.extras)
         except Exception as error:
             try:
-                await mind.conversation.bind(
+                await host.conversation.bind(
                     source_session[0],
                     source_session[1],
                     source="tui:backtrack-rollback",
@@ -552,13 +552,13 @@ async def _finish_transcript_backtrack(
                 error = RuntimeError(
                     f"{error}; rollback failed: {rollback_error}"
                 )
-            render_fork_failure(mind, error)
+            render_fork_failure(host, error)
             return None
 
-        render_fork_result(mind, status)
+        render_fork_result(host, status)
         return None
 
-    render_fork_result(mind, status)
+    render_fork_result(host, status)
 
 
 if __name__ == '__main__':

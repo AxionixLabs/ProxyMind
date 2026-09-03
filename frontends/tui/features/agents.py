@@ -52,11 +52,11 @@ _ACTIVE_STATUSES = frozenset({
 
 async def manage_agents(
     runtime: "TuiRuntime",
-    mind: "TuiApplicationHost"
+    host: "TuiApplicationHost"
 ) -> None:
     """在主 TUI 中查看并管理当前根会话的子执行线程。"""
-    root_session_id = current_agent_root_session_id(mind)
-    snapshots = await _agent_snapshots(mind, root_session_id)
+    root_session_id = current_agent_root_session_id(host)
+    snapshots = await _agent_snapshots(host, root_session_id)
 
     def root_menu(items: tuple[AgentSnapshot, ...]) -> MenuRequest:
         return agent_list_menu(
@@ -71,7 +71,7 @@ async def manage_agents(
             runtime.start_background_task(
                 _run_agent_action(
                     runtime,
-                    mind,
+                    host,
                     root_session_id,
                     snapshot,
                     action,
@@ -106,7 +106,7 @@ async def manage_agents(
 
 async def _run_agent_action(
     runtime: "TuiRuntime",
-    mind: "TuiApplicationHost",
+    host: "TuiApplicationHost",
     root_session_id: str,
     snapshot: AgentSnapshot,
     action: typing.Any,
@@ -118,7 +118,7 @@ async def _run_agent_action(
 
     try:
         if action is _SHOW_ACTION:
-            current = await mind.subagents.get(
+            current = await host.subagents.get(
                 root_session_id,
                 snapshot.agent_id,
             )
@@ -137,11 +137,11 @@ async def _run_agent_action(
             )
             return None
         if action is _INTERRUPT_ACTION:
-            await mind.subagents.interrupt(root_session_id, snapshot.agent_id)
+            await host.subagents.interrupt(root_session_id, snapshot.agent_id)
         elif action is _RESUME_ACTION:
-            await mind.subagents.resume(root_session_id, snapshot.agent_id)
+            await host.subagents.resume(root_session_id, snapshot.agent_id)
         elif action is _CLOSE_ACTION:
-            await mind.subagents.close(root_session_id, snapshot.agent_id)
+            await host.subagents.close(root_session_id, snapshot.agent_id)
         else:
             return None
 
@@ -155,20 +155,20 @@ async def _run_agent_action(
             runtime.push_menu(agent_failure_panel(snapshot, error))
 
 
-async def _agent_snapshots(mind: "TuiApplicationHost", root_session_id: str) -> tuple[AgentSnapshot, ...]:
+async def _agent_snapshots(host: "TuiApplicationHost", root_session_id: str) -> tuple[AgentSnapshot, ...]:
     """读取当前根会话快照，不存在运行树时返回空集合。"""
     if not root_session_id:
         return ()
 
     try:
-        return await mind.subagents.snapshots(root_session_id)
+        return await host.subagents.snapshots(root_session_id)
     except AgentNotFoundError:
         return ()
 
 
-def current_agent_root_session_id(mind: "TuiApplicationHost") -> str:
+def current_agent_root_session_id(host: "TuiApplicationHost") -> str:
     """返回当前对话已经建立的根会话标识。"""
-    return str(mind.conversation.sid or "").strip()
+    return str(host.conversation.sid or "").strip()
 
 
 def agent_list_menu(

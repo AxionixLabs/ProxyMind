@@ -106,9 +106,13 @@ def _patch_application_bootstrap(
         lambda **_kwargs: app_layout,
     )
     monkeypatch.setattr(bootstrap, "resolve_service_runtime", lambda **_kwargs: runtime_spec)
-    monkeypatch.setattr(bootstrap, "ensure_mind_home", lambda: tmp_path / "home")
-    monkeypatch.setattr(bootstrap, "mind_reports_dir", lambda: tmp_path / "reports")
-    monkeypatch.setattr(bootstrap, "mind_config_path", lambda: config_path)
+    monkeypatch.setattr(
+        bootstrap,
+        "ensure_application_home",
+        lambda: tmp_path / "home",
+    )
+    monkeypatch.setattr(bootstrap, "reports_dir", lambda: tmp_path / "reports")
+    monkeypatch.setattr(bootstrap, "application_config_path", lambda: config_path)
     monkeypatch.setattr(bootstrap, "RunReport", lambda _path: report)
     monkeypatch.setattr(bootstrap, "Preferences", lambda _session: object())
     monkeypatch.setattr(bootstrap, "route_shell_tools", lambda _supports: None)

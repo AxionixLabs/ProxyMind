@@ -2,7 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass, replace
+from dataclasses import (
+    dataclass,
+    replace,
+)
 
 from agent.application.views import (
     PatchFileView,
@@ -17,11 +20,14 @@ from agent.ports.presentation import (
 from frontends.terminal.capabilities import TerminalCapabilities
 from frontends.terminal.color_support import TerminalColorLevel
 from frontends.terminal.highlighting import highlight_code_lines
-from frontends.terminal.palette import best_color, is_light_color
+from frontends.terminal.palette import (
+    best_color,
+    is_light_color,
+)
 from frontends.terminal.probe import RgbColor
 from frontends.terminal.text_layout import (
     wrap_styled_line,
-    wrap_styled_lines
+    wrap_styled_lines,
 )
 
 PATCH_TITLE_STYLE = TextStyle(bold=True)

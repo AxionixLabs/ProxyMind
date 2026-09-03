@@ -62,7 +62,7 @@ from infrastructure.config.preferences import Preferences
 from infrastructure.config.runtime_paths import (
     agent_graph_db_path,
     approval_fact_db_path,
-    mind_history_db_path,
+    conversation_history_db_path,
 )
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.settings_session import SettingsSession
@@ -223,7 +223,7 @@ class ApplicationHost:
             turn_completion_presenter,
         )
 
-        history_store = ConversationHistoryStore(mind_history_db_path())
+        history_store = ConversationHistoryStore(conversation_history_db_path())
         transcripts = ConversationTranscriptStore()
         event_reporting = EventReportRuntimeOwner()
 

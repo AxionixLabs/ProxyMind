@@ -107,10 +107,10 @@ def injected_turn_application(monkeypatch) -> None:
 async def test_foreground_result_is_rendered_before_barrier_release() -> None:
     runtime = TuiRuntime()
     events = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         lifecycle=_lifecycle(),
     )
-    foreground = barriers.TuiForegroundTasks(runtime, mind)
+    foreground = barriers.TuiForegroundTasks(runtime, host)
     await runtime.begin_operation_status(
         lambda: {"summary": "Operation running"},
     )
@@ -146,10 +146,10 @@ async def test_foreground_wait_drains_tasks_started_by_tracked_operation() -> No
     runtime = TuiRuntime()
     inner_started = asyncio.Event()
     release_inner = asyncio.Event()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         lifecycle=_lifecycle(),
     )
-    foreground = barriers.TuiForegroundTasks(runtime, mind)
+    foreground = barriers.TuiForegroundTasks(runtime, host)
 
     async def inner() -> None:
         inner_started.set()
@@ -203,10 +203,10 @@ async def test_existing_background_task_cannot_consume_command_layout() -> None:
 async def test_stream_foreground_result_replaces_frozen_activity_at_flush(
 ) -> None:
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         lifecycle=_lifecycle(),
     )
-    foreground = barriers.TuiForegroundTasks(runtime, mind)
+    foreground = barriers.TuiForegroundTasks(runtime, host)
     snapshot = {
         "done": False,
         "items": [{"name": "docs", "state": "linking", "tools": 0}],
@@ -255,10 +255,10 @@ async def test_stream_foreground_terminal_outcome_keeps_activity_until_flush(
     outcome: str,
 ) -> None:
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         lifecycle=_lifecycle(),
     )
-    foreground = barriers.TuiForegroundTasks(runtime, mind)
+    foreground = barriers.TuiForegroundTasks(runtime, host)
     started = asyncio.Event()
 
     runtime.set_execution_active(True)
@@ -374,15 +374,15 @@ async def test_long_tool_keeps_ps_and_stop_available_during_turn() -> None:
         stop_exec_sessions=AsyncMock(return_value=stopped),
     )
     views = []
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
         ),
         workspace_runtime=SimpleNamespace(coding=coding),
     )
-    foreground = barriers.TuiForegroundTasks(runtime, mind)
+    foreground = barriers.TuiForegroundTasks(runtime, host)
     dispatcher = dispatch.TuiCommandDispatcher(
-        mind,
+        host,
         runtime,
         SimpleNamespace(),
         foreground,
@@ -420,10 +420,10 @@ async def test_long_tool_keeps_ps_and_stop_available_during_turn() -> None:
 @pytest.mark.anyio
 async def test_cancel_cleanup_failure_still_releases_activity_handoff() -> None:
     runtime = TuiRuntime()
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         lifecycle=_lifecycle(),
     )
-    foreground = barriers.TuiForegroundTasks(runtime, mind)
+    foreground = barriers.TuiForegroundTasks(runtime, host)
     started = asyncio.Event()
     cancelled = Mock()
 
@@ -473,7 +473,7 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
     turn_messages: list[str] = []
     pref_config = {"primary": {"model": "test-model"}}
 
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         configuration_service_url=_configuration_service_url,
         subscription=SimpleNamespace(current=None),
         settings=_settings(pref_config),
@@ -499,14 +499,14 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
         ),
     )
 
-    async def monitor_exec_status(_runtime, _mind) -> None:
+    async def monitor_exec_status(_runtime, _host) -> None:
         return None
 
-    async def link_helix_runtime(_mind) -> None:
+    async def link_helix_runtime(_host) -> None:
         link_started.set()
         await release_link.wait()
 
-    def run_model_turn(_mind, *_ports, message_text, **_kwargs):
+    def run_model_turn(_host, *_ports, message_text, **_kwargs):
         async def execute() -> RunResult:
             turn_messages.append(message_text)
             if len(turn_messages) == 1:
@@ -530,7 +530,7 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
 
     runtime.submissions.message_queue.put_nowait("first")
     run_task = asyncio.create_task(loop.run_tui_loop(
-        mind,
+        host,
         protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
@@ -575,7 +575,7 @@ async def test_stream_settings_settle_before_queued_model_turn(
     turn_permissions = []
     pref_config = {"primary": {"model": "test-model"}}
 
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         configuration_service_url=_configuration_service_url,
         subscription=SimpleNamespace(current=None),
         settings=_settings(
@@ -608,7 +608,7 @@ async def test_stream_settings_settle_before_queued_model_turn(
         await release_settings.wait()
         return updated_permissions
 
-    def run_model_turn(_mind, *_ports, permissions, **_kwargs):
+    def run_model_turn(_host, *_ports, permissions, **_kwargs):
         async def execute() -> RunResult:
             turn_permissions.append(permissions)
             if len(turn_permissions) == 1:
@@ -631,7 +631,7 @@ async def test_stream_settings_settle_before_queued_model_turn(
 
     runtime.submissions.message_queue.put_nowait("first")
     run_task = asyncio.create_task(loop.run_tui_loop(
-        mind,
+        host,
         protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
@@ -658,7 +658,7 @@ async def test_stream_settings_settle_before_queued_model_turn(
 
     assert second_turn_started.is_set()
     assert turn_permissions == [initial_permissions, updated_permissions]
-    mind.settings.apply_permissions.assert_called_once_with(updated_permissions)
+    host.settings.apply_permissions.assert_called_once_with(updated_permissions)
 
 
 @pytest.mark.anyio
@@ -675,7 +675,7 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
     pref_config = {"primary": {"model": "test-model"}}
     turn_messages = []
 
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         configuration_service_url=_configuration_service_url,
         subscription=SimpleNamespace(current=None),
         settings=_settings(pref_config),
@@ -698,11 +698,11 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
         ),
     )
 
-    async def manage_agents(_runtime, _mind) -> None:
+    async def manage_agents(_runtime, _host) -> None:
         panel_started.set()
         await release_panel.wait()
 
-    def run_model_turn(_mind, *_ports, message_text, **_kwargs):
+    def run_model_turn(_host, *_ports, message_text, **_kwargs):
         async def execute() -> RunResult:
             turn_messages.append(message_text)
             if len(turn_messages) == 1:
@@ -725,7 +725,7 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
 
     runtime.submissions.message_queue.put_nowait("first")
     run_task = asyncio.create_task(loop.run_tui_loop(
-        mind,
+        host,
         protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
@@ -765,7 +765,7 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
     link_started = asyncio.Event()
     link_cancelled = asyncio.Event()
     pref_config = {"primary": {"model": "test-model"}}
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         configuration_service_url=_configuration_service_url,
         attach=_attachments(),
         subscription=SimpleNamespace(current=None),
@@ -791,14 +791,14 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
         ),
     )
 
-    async def link_helix_runtime(_mind) -> None:
+    async def link_helix_runtime(_host) -> None:
         link_started.set()
         try:
             await asyncio.Future()
         finally:
             link_cancelled.set()
 
-    def run_model_turn(_mind, *_ports, **_kwargs):
+    def run_model_turn(_host, *_ports, **_kwargs):
         async def execute() -> RunResult:
             turn_started.set()
             await release_turn.wait()
@@ -821,7 +821,7 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
 
     runtime.submissions.message_queue.put_nowait("first")
     run_task = asyncio.create_task(loop.run_tui_loop(
-        mind,
+        host,
         protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
@@ -861,7 +861,7 @@ async def test_idle_mcp_start_commits_result_before_next_query(
     release_mcp = asyncio.Event()
     model_started = asyncio.Event()
     pref_config = {"primary": {"model": "test-model"}}
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         configuration_service_url=_configuration_service_url,
         attach=_attachments(),
         subscription=SimpleNamespace(current=None),
@@ -884,13 +884,13 @@ async def test_idle_mcp_start_commits_result_before_next_query(
         ),
     )
 
-    async def run_mcp_action(_mind, action) -> None:
+    async def run_mcp_action(_host, action) -> None:
         assert action == command.split()[1]
         mcp_started.set()
         await release_mcp.wait()
         runtime.queue_background_block(text_block("External MCP ready"))
 
-    def run_model_turn(_mind, *_ports, message_text, **_kwargs):
+    def run_model_turn(_host, *_ports, message_text, **_kwargs):
         async def execute() -> RunResult:
             assert message_text == "hi"
             model_started.set()
@@ -909,7 +909,7 @@ async def test_idle_mcp_start_commits_result_before_next_query(
 
     runtime.submissions.message_queue.put_nowait(command)
     run_task = asyncio.create_task(loop.run_tui_loop(
-        mind,
+        host,
         protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))
@@ -945,7 +945,7 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
     views = []
     pref_config = {"primary": {"model": "test-model"}}
 
-    async def link_helix_runtime(_mind) -> None:
+    async def link_helix_runtime(_host) -> None:
         link_started.set()
         try:
             await asyncio.Future()
@@ -957,7 +957,7 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
         await release_cleanup.wait()
 
     cancel_startup = AsyncMock(side_effect=cancel_startup_cleanup)
-    mind = SimpleNamespace(
+    host = SimpleNamespace(
         configuration_service_url=_configuration_service_url,
         attach=_attachments(),
         subscription=SimpleNamespace(current=None),
@@ -992,7 +992,7 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
 
     runtime.submissions.message_queue.put_nowait("/helix-link")
     run_task = asyncio.create_task(loop.run_tui_loop(
-        mind,
+        host,
         protocol_client=Mock(spec=ProtocolCommandClient),
         turn_runner=AsyncMock(),
     ))

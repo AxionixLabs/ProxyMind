@@ -188,7 +188,7 @@ class TuiCommandDispatcher(object):
 
     def __init__(
         self,
-        mind: "TuiApplicationHost",
+        host: "TuiApplicationHost",
         runtime: TuiRuntime,
         state: TuiSessionState,
         foreground_tasks: TuiForegroundTasks,
@@ -197,15 +197,15 @@ class TuiCommandDispatcher(object):
         conversation_compactor: ConversationCompactor | None = None,
         configuration_service_url: typing.Callable[[], str] | None = None,
     ) -> None:
-        self.mind = mind
+        self.host = host
         self.runtime = runtime
         self.state = state
         self.foreground_tasks = foreground_tasks
         self.protocol_client = protocol_client
         self.conversation_compactor = conversation_compactor
         self.configuration_service_url = configuration_service_url
-        self.application = mind.frontend.application
-        self.mailbox = TuiMailboxFeature(runtime, mind)
+        self.application = host.frontend.application
+        self.mailbox = TuiMailboxFeature(runtime, host)
         self._local_tasks: dict[str, asyncio.Task[None]] = {}
         self._stream_action_resolvers = self._build_stream_action_resolvers()
         self._validate_stream_action_resolvers()
@@ -256,13 +256,13 @@ class TuiCommandDispatcher(object):
             "hooks": lambda _request: StreamBarrierAction(
                 lambda: self.foreground_tasks.start(
                     "Hooks menu",
-                    lambda: manage_hooks(self.runtime, self.mind),
+                    lambda: manage_hooks(self.runtime, self.host),
                 )
             ),
             "agent": lambda _request: StreamBarrierAction(
                 lambda: self.foreground_tasks.start(
                     "Agents menu",
-                    lambda: manage_agents(self.runtime, self.mind),
+                    lambda: manage_agents(self.runtime, self.host),
                 )
             ),
             "listen": lambda request: self._resolve_stream_listener_action(
@@ -278,14 +278,14 @@ class TuiCommandDispatcher(object):
             "copy": lambda _request: StreamLocalAction(
                 key="copy",
                 name="tui copy assistant response",
-                factory=lambda: copy_last_assistant_reply(self.mind),
+                factory=lambda: copy_last_assistant_reply(self.host),
             ),
             "ps": lambda _request: StreamLocalAction(
                 key="ps",
                 name="tui background terminals snapshot",
                 factory=lambda: append_exec_stream_snapshot(
                     self.runtime,
-                    self.mind,
+                    self.host,
                 ),
             ),
             "stop": lambda _request: StreamBarrierAction(
@@ -293,7 +293,7 @@ class TuiCommandDispatcher(object):
                     "Stop background terminals",
                     lambda: stop_all_exec_sessions(
                         self.runtime,
-                        self.mind,
+                        self.host,
                     ),
                 )
             ),
@@ -409,12 +409,12 @@ class TuiCommandDispatcher(object):
         """在普通会话分支成功后清理旧草稿并展示结果。"""
         if status.succeeded:
             self._clear_prompt_draft()
-        render_fork_result(self.mind, status)
+        render_fork_result(self.host, status)
 
     def _clear_prompt_draft(self) -> None:
         """清除当前会话尚未提交的结构化草稿。"""
         self.state.clear_pending_prompt_extras()
-        self.mind.attach.clear_pending_attachments()
+        self.host.attach.clear_pending_attachments()
 
     def _start_local_action(
         self,
@@ -450,10 +450,10 @@ class TuiCommandDispatcher(object):
         self,
     ) -> typing.Coroutine[typing.Any, typing.Any, None]:
         """在创建后台任务前固定工作目录并返回差异查询协程。"""
-        cwd = Path(self.mind.history_workspace).resolve()
+        cwd = Path(self.host.history_workspace).resolve()
         return show_workspace_diff(
             self.runtime,
-            self.mind,
+            self.host,
             cwd=cwd,
         )
 
@@ -527,7 +527,7 @@ class TuiCommandDispatcher(object):
 
     async def _choose_effort(self, *, present_on_cancel: bool = True) -> None:
         """选择并持久化模型推理强度。"""
-        await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
+        await self.state.refresh_preferences(self.host, ttl_sec=0.0)
         primary = self.state.pref_config.get("primary")
         current = primary if isinstance(primary, dict) else {}
 
@@ -542,7 +542,7 @@ class TuiCommandDispatcher(object):
             return None
 
         saved = await persist_primary_pref(
-            self.mind,
+            self.host,
             command_name="model-effort",
             field_name="reasoning_effort",
             field_value=selected,
@@ -559,7 +559,7 @@ class TuiCommandDispatcher(object):
     async def _save_model(self, matcher: re.Match[str]) -> None:
         """解析并持久化模型命令。"""
         if not matcher.group(1):
-            await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
+            await self.state.refresh_preferences(self.host, ttl_sec=0.0)
             primary = self.state.pref_config.get("primary")
             current = primary if isinstance(primary, dict) else {}
             self._present(command_result_block(
@@ -578,7 +578,7 @@ class TuiCommandDispatcher(object):
             return None
 
         saved = await persist_primary_pref(
-            self.mind,
+            self.host,
             command_name="model",
             field_name="model",
             field_value=model_value,
@@ -601,17 +601,17 @@ class TuiCommandDispatcher(object):
         try:
             selected = await choose_provider(
                 self.runtime,
-                self.mind.settings.config,
+                self.host.settings.config,
             )
             if selected is None:
                 if present_on_cancel:
                     self._present()
                 return None
             saved = await save_active_provider(
-                self.mind.settings.config,
+                self.host.settings.config,
                 selected,
             )
-            await self.mind.settings.refresh_preferences_if_stale(
+            await self.host.settings.refresh_preferences_if_stale(
                 ttl_sec=0.0,
             )
         except (OSError, TypeError, ValueError) as error:
@@ -651,7 +651,7 @@ class TuiCommandDispatcher(object):
             return None
 
         try:
-            effective = self.mind.settings.apply_permissions(selected)
+            effective = self.host.settings.apply_permissions(selected)
         except (ConfigStoreError, TypeError, ValueError) as failure:
             self._present(failure_text_block(
                 f"Failed to update permissions: {failure}",
@@ -665,9 +665,9 @@ class TuiCommandDispatcher(object):
 
     async def _show_tools(self) -> None:
         """刷新偏好快照并展示当前可用工具。"""
-        await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
+        await self.state.refresh_preferences(self.host, ttl_sec=0.0)
         await print_available_tools(
-            self.mind,
+            self.host,
             pref_config=self.state.pref_config,
         )
 
@@ -695,7 +695,7 @@ class TuiCommandDispatcher(object):
 
     async def _choose_skill(self) -> None:
         """打开当前运行时可用的 skill 选择面板。"""
-        await choose_skill(self.runtime, self.mind.settings.config)
+        await choose_skill(self.runtime, self.host.settings.config)
 
     def _resolve_stream_listener_action(
         self,
@@ -717,7 +717,7 @@ class TuiCommandDispatcher(object):
                 key="listen",
                 name="tui listener status",
                 factory=lambda: _run_immediate_stream_action(
-                    lambda: render_listener_status(self.mind)
+                    lambda: render_listener_status(self.host)
                 ),
             )
         return StreamBarrierAction(
@@ -729,7 +729,7 @@ class TuiCommandDispatcher(object):
 
     async def _choose_stream_listener_action(self) -> None:
         """选择并启动不会中断当前模型轮次的监听器操作。"""
-        action = await choose_listener_action(self.runtime, self.mind)
+        action = await choose_listener_action(self.runtime, self.host)
         if action is None:
             return None
         self.foreground_tasks.start_listener(
@@ -750,7 +750,7 @@ class TuiCommandDispatcher(object):
                 key="mcp",
                 name="tui external mcp status",
                 factory=lambda: _run_immediate_stream_action(
-                    lambda: render_mcp_status(self.mind)
+                    lambda: render_mcp_status(self.host)
                 ),
             )
         return StreamBarrierAction(
@@ -764,14 +764,14 @@ class TuiCommandDispatcher(object):
         """执行即时 MCP 操作或建立可取消前台任务。"""
         action = mcp_action
         if action is None:
-            action = await choose_mcp_action(self.runtime, self.mind)
+            action = await choose_mcp_action(self.runtime, self.host)
 
         if action is None:
             self._present()
             return None
 
         if action == "status":
-            render_mcp_status(self.mind)
+            render_mcp_status(self.host)
             return None
 
         self.foreground_tasks.start_external_mcp(action)
@@ -779,20 +779,20 @@ class TuiCommandDispatcher(object):
 
     async def _resume_conversation(self) -> None:
         """选择并恢复最近的会话。"""
-        records = self.mind.conversation.history.recent(
-            workspace=self.mind.history_workspace,
+        records = self.host.conversation.history.recent(
+            workspace=self.host.history_workspace,
             sources=INTERACTIVE_HISTORY_SOURCES,
         )
         selected = await choose_history_session(
             self.runtime,
             records,
-            filter_workspace=self.mind.history_workspace,
+            filter_workspace=self.host.history_workspace,
             preview_loader=HistoryResumePreviewLoader(
-                self.mind,
+                self.host,
                 terminal_capabilities=self.runtime.terminal_capabilities,
             ),
             transcript_loader=HistoryResumeTranscriptLoader(
-                self.mind,
+                self.host,
                 terminal_capabilities=self.runtime.terminal_capabilities,
             ),
             archive_session=self._archive_resume_row,
@@ -806,7 +806,7 @@ class TuiCommandDispatcher(object):
 
         replay_blocks = await asyncio.to_thread(
             load_history_transcript,
-            self.mind,
+            self.host,
             session_id,
             terminal_width=self.runtime.terminal_width,
             hyperlinks=self.runtime.hyperlinks_enabled,
@@ -816,7 +816,7 @@ class TuiCommandDispatcher(object):
 
         resume_error: str | None = None
         try:
-            resumed = await self.mind.conversation.resume(
+            resumed = await self.host.conversation.resume(
                 selected,
                 source="tui:resume",
             )
@@ -838,14 +838,14 @@ class TuiCommandDispatcher(object):
 
     async def _archive_resume_row(self, row: "ResumeRow") -> None:
         """归档 Resume picker 中的非当前会话。"""
-        current = (self.mind.conversation.cid, self.mind.conversation.sid)
+        current = (self.host.conversation.cid, self.host.conversation.sid)
         if row.key == current:
             raise ValueError("Use /archive to archive the current session and exit.")
-        await self.mind.conversation.archive(row.cid, row.sid)
+        await self.host.conversation.archive(row.cid, row.sid)
 
     async def _unarchive_resume_row(self, row: "ResumeRow") -> "ResumeRow":
         """恢复 Resume picker 中的 archived 会话。"""
-        await self.mind.conversation.history.unarchive(
+        await self.host.conversation.history.unarchive(
             cid=row.cid,
             sid=row.sid,
         )
@@ -859,7 +859,7 @@ class TuiCommandDispatcher(object):
         present_on_cancel: bool = True,
     ) -> bool:
         """发现缺失运行时时完成下载并结束当前命令。"""
-        context = self.mind.service_runtime.require_context()
+        context = self.host.service_runtime.require_context()
         if not service_runtime_asset_missing(context):
             return False
 
@@ -870,19 +870,19 @@ class TuiCommandDispatcher(object):
 
         self.foreground_tasks.start(
             "Helix runtime download",
-            lambda: download_service_runtime(self.mind, context),
+            lambda: download_service_runtime(self.host, context),
             activity_kind="download",
             on_succeeded=lambda _downloaded: render_helix_download_result(
-                self.mind,
+                self.host,
                 command,
             ),
             on_failed=lambda error: render_helix_command_failure(
-                self.mind,
+                self.host,
                 command,
                 error,
             ),
             on_cancelled=lambda: render_helix_interrupted(
-                self.mind,
+                self.host,
                 label="Helix download",
             ),
         )
@@ -897,9 +897,9 @@ class TuiCommandDispatcher(object):
         wait_for_download: bool = True,
     ) -> None:
         """选择并应用后续模型轮次使用的 Helix 工具过滤模式。"""
-        if not self.mind.execution.is_service_linked():
+        if not self.host.execution.is_service_linked():
             render_helix_notice(
-                self.mind,
+                self.host,
                 "Helix MCP is not connected",
             )
             return None
@@ -910,10 +910,10 @@ class TuiCommandDispatcher(object):
         ):
             return None
 
-        current = self.mind.execution.tool_profile_for_turn()
+        current = self.host.execution.tool_profile_for_turn()
         if current is None:
             render_helix_notice(
-                self.mind,
+                self.host,
                 "Helix tool mode is unavailable",
             )
             return None
@@ -924,13 +924,13 @@ class TuiCommandDispatcher(object):
                 self._present()
             return None
 
-        self.mind.execution.set_service_tool_profile(selected)
-        render_helix_mode_result(self.mind, selected)
+        self.host.execution.set_service_tool_profile(selected)
+        render_helix_mode_result(self.host, selected)
         self.state.invalidate_workspace()
 
     def _finish_helix_home(self, home_url: str) -> None:
         """展示 Helix 首页打开结果并刷新工作区关联状态。"""
-        render_helix_home_result(self.mind, home_url)
+        render_helix_home_result(self.host, home_url)
         self.state.invalidate_workspace()
 
     async def _open_helix_home(
@@ -939,9 +939,9 @@ class TuiCommandDispatcher(object):
         wait_for_completion: bool = True,
     ) -> None:
         """准备运行时并打开当前已连接的 Helix 首页。"""
-        if not self.mind.execution.is_service_linked():
+        if not self.host.execution.is_service_linked():
             render_helix_notice(
-                self.mind,
+                self.host,
                 "Helix MCP is not connected",
             )
             return None
@@ -954,14 +954,14 @@ class TuiCommandDispatcher(object):
 
         self.foreground_tasks.start(
             "Helix Home",
-            lambda: open_helix_home(self.mind),
+            lambda: open_helix_home(self.host),
             on_succeeded=self._finish_helix_home,
             on_failed=lambda error: render_helix_home_failure(
-                self.mind,
+                self.host,
                 error,
             ),
             on_cancelled=lambda: render_helix_interrupted(
-                self.mind,
+                self.host,
                 label="Helix Home",
             ),
         )
@@ -980,7 +980,7 @@ class TuiCommandDispatcher(object):
 
         if prompt_text.startswith("!"):
             self._present()
-            if await run_shell_escape(self.runtime, self.mind, prompt_text):
+            if await run_shell_escape(self.runtime, self.host, prompt_text):
                 self._present()
                 return DispatchAction.HANDLED
 
@@ -990,14 +990,14 @@ class TuiCommandDispatcher(object):
             self._present()
 
         if matches_command(command, "quit"):
-            self.mind.lifecycle.request_stop()
+            self.host.lifecycle.request_stop()
             return DispatchAction.EXIT
 
         if matches_command(command, "archive"):
             try:
                 if not await confirm_archive_session(self.runtime):
                     return DispatchAction.HANDLED
-                await self.mind.conversation.archive_current()
+                await self.host.conversation.archive_current()
             except Exception as failure:
                 message = str(failure).strip()
                 if message == "conversation session is not started":
@@ -1012,7 +1012,7 @@ class TuiCommandDispatcher(object):
                 ))
                 self._present()
                 return DispatchAction.HANDLED
-            self.mind.lifecycle.request_stop()
+            self.host.lifecycle.request_stop()
             return DispatchAction.EXIT
 
         new_command = resolve_tui_command(command)
@@ -1026,7 +1026,7 @@ class TuiCommandDispatcher(object):
             if title:
                 reset_kwargs["title"] = title
             try:
-                await self.mind.conversation.reset(**reset_kwargs)
+                await self.host.conversation.reset(**reset_kwargs)
             except Exception as failure:
                 self._present(failure_text_block(
                     f"Failed to start a fresh session: {failure}",
@@ -1042,8 +1042,8 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "shutdown"):
-            self.mind.service_runtime.request_termination_on_close()
-            self.mind.lifecycle.request_stop()
+            self.host.service_runtime.request_termination_on_close()
+            self.host.lifecycle.request_stop()
             self._present(fragment_block(
                 TextSpan("• ", BODY_STYLE),
                 TextSpan("Stopping backend runtime.", BRIGHT_STYLE),
@@ -1060,11 +1060,11 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "hooks"):
-            await manage_hooks(self.runtime, self.mind)
+            await manage_hooks(self.runtime, self.host)
             return DispatchAction.HANDLED
 
         if matches_command(command, "agent"):
-            await manage_agents(self.runtime, self.mind)
+            await manage_agents(self.runtime, self.host)
             return DispatchAction.HANDLED
 
         is_listener_command, listener_action = parse_listener_command(command)
@@ -1073,12 +1073,12 @@ class TuiCommandDispatcher(object):
             if listener_action is None:
                 listener_action = await choose_listener_action(
                     self.runtime,
-                    self.mind,
+                    self.host,
                 )
                 if listener_action is None:
                     return DispatchAction.HANDLED
             if listener_action == "status":
-                render_listener_status(self.mind)
+                render_listener_status(self.host)
             else:
                 self.foreground_tasks.start_listener(listener_action)
                 await self.foreground_tasks.wait()
@@ -1094,7 +1094,7 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "copy"):
-            await copy_last_assistant_reply(self.mind)
+            await copy_last_assistant_reply(self.host)
             return DispatchAction.HANDLED
 
         if matches_command(command, "skills"):
@@ -1112,7 +1112,7 @@ class TuiCommandDispatcher(object):
         if matches_command(command, "ps"):
             if await manage_exec_sessions(
                 self.runtime,
-                self.mind,
+                self.host,
             ):
                 self._present()
             return DispatchAction.HANDLED
@@ -1120,7 +1120,7 @@ class TuiCommandDispatcher(object):
         if matches_command(command, "stop"):
             await stop_all_exec_sessions(
                 self.runtime,
-                self.mind,
+                self.host,
             )
             self._present()
             return DispatchAction.HANDLED
@@ -1136,24 +1136,24 @@ class TuiCommandDispatcher(object):
         if matches_command(command, "compact"):
             if self.conversation_compactor is None:
                 raise RuntimeError("TUI conversation compactor is required")
-            await self.state.refresh_preferences(self.mind, ttl_sec=0.0)
+            await self.state.refresh_preferences(self.host, ttl_sec=0.0)
             self.foreground_tasks.start(
                 "Context compaction",
                 lambda: compact_current_conversation(
-                    self.mind,
+                    self.host,
                     self.conversation_compactor,
                     pref_config=self.state.pref_config,
                 ),
                 activity_kind="compact",
                 on_succeeded=lambda status: render_compact_result(
-                    self.mind,
+                    self.host,
                     status,
                 ),
                 on_failed=lambda error: render_compact_failure(
-                    self.mind,
+                    self.host,
                     error,
                 ),
-                on_cancelled=lambda: render_compact_interrupted(self.mind),
+                on_cancelled=lambda: render_compact_interrupted(self.host),
             )
             await self.foreground_tasks.wait()
             return DispatchAction.HANDLED
@@ -1162,16 +1162,16 @@ class TuiCommandDispatcher(object):
             self.foreground_tasks.start(
                 "Conversation fork",
                 lambda: fork_current_conversation(
-                    self.mind,
+                    self.host,
                     self.protocol_client,
                 ),
                 activity_kind="compact",
                 on_succeeded=self._finish_conversation_fork,
                 on_failed=lambda error: render_fork_failure(
-                    self.mind,
+                    self.host,
                     error,
                 ),
-                on_cancelled=lambda: render_fork_interrupted(self.mind),
+                on_cancelled=lambda: render_fork_interrupted(self.host),
             )
             await self.foreground_tasks.wait()
             return DispatchAction.HANDLED
@@ -1187,7 +1187,7 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "helix_unlink"):
-            unlink_helix_runtime(self.mind)
+            unlink_helix_runtime(self.host)
             self.state.invalidate_workspace()
             return DispatchAction.HANDLED
 
@@ -1196,27 +1196,27 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "helix_stop"):
-            if not self.mind.execution.is_service_linked():
+            if not self.host.execution.is_service_linked():
                 render_helix_notice(
-                    self.mind,
+                    self.host,
                     "Helix MCP is not connected",
                 )
                 return DispatchAction.HANDLED
 
             self.foreground_tasks.start(
                 "Helix MCP stop",
-                lambda: stop_helix_runtime(self.mind),
+                lambda: stop_helix_runtime(self.host),
                 activity_kind="operation",
                 on_succeeded=lambda result: render_helix_stop_result(
-                    self.mind,
+                    self.host,
                     result,
                 ),
                 on_failed=lambda error: render_helix_stop_failure(
-                    self.mind,
+                    self.host,
                     error,
                 ),
                 on_cancelled=lambda: render_helix_interrupted(
-                    self.mind,
+                    self.host,
                     label="Helix MCP stop",
                 ),
             )

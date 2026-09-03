@@ -7,14 +7,14 @@ from agent.stores.sessions import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
 )
-from infrastructure.config.runtime_paths import mind_history_db_path
+from infrastructure.config.runtime_paths import conversation_history_db_path
 from infrastructure.errors import AppError
 from .commands import SessionArchiveCommand
 
 
 def run_session_archive_command(command: SessionArchiveCommand) -> int:
     """执行本地会话归档或恢复命令。"""
-    store = ConversationHistoryStore(mind_history_db_path())
+    store = ConversationHistoryStore(conversation_history_db_path())
 
     record = _find_target(
         store,

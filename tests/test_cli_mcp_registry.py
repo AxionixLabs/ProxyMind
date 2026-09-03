@@ -53,7 +53,7 @@ def test_mcp_output_redacts_inline_credentials(monkeypatch, tmp_path) -> None:
     })
     monkeypatch.setattr(
         mcp_registry,
-        "mind_config_path",
+        "application_config_path",
         lambda: config_path,
     )
     output = StringIO()
