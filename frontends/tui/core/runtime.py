@@ -256,6 +256,7 @@ class TuiRuntime(object):
             input_model=self.input_model,
             document=self.document,
             pending_steers=self.submissions.pending_steers,
+            rejected_steers=self.submissions.rejected_steers,
             queued_messages=self.submissions.queued_messages,
             interrupt_state=self.submissions.interrupt_state,
             get_context=lambda: self.context,

@@ -140,6 +140,57 @@ class TuiQueuedMessages(object):
         return _join_lines(lines, width=width)
 
 
+class TuiRejectedSteers(object):
+    """保存当前轮次未消费、将在轮末优先重投的输入。"""
+
+    def __init__(self) -> None:
+        self._items: collections.deque[TuiSubmission] = collections.deque()
+
+    @property
+    def active(self) -> bool:
+        """返回当前是否存在等待轮末重投的输入。"""
+        return bool(self._items)
+
+    def append(self, item: TuiSubmission) -> None:
+        """在队尾追加一条等待轮末重投的输入。"""
+        self._items.append(item)
+
+    def pop_next(self) -> TuiSubmission | None:
+        """取出下一条应当优先重投的输入。"""
+        if not self._items:
+            return None
+        return self._items.popleft()
+
+    def pop_last(self) -> TuiSubmission | None:
+        """撤回最近一条等待轮末重投的输入。"""
+        if not self._items:
+            return None
+        return self._items.pop()
+
+    def remove(self, client_message_id: str) -> TuiSubmission | None:
+        """按稳定消息标识移除一条轮末重投输入。"""
+        for item in self._items:
+            if item.client_message_id != client_message_id:
+                continue
+            self._items.remove(item)
+            return item
+        return None
+
+    def fragments(self, *, width: int, max_rows: int = 6) -> FormattedText:
+        """生成等待轮末重投的消息列表。"""
+        if not self._items:
+            return []
+
+        row_limit = max(1, int(max_rows))
+        lines: list[FormattedText] = [_rejected_steer_title(width)]
+        lines.extend(_submission_lines(
+            self._items,
+            available=max(0, row_limit - 1),
+            width=width,
+        ))
+        return _join_lines(lines, width=width)
+
+
 class TuiPendingSteers(object):
     """保存等待写入当前执行轮次的输入。"""
 
@@ -250,6 +301,25 @@ def _pending_steer_title(width: int) -> FormattedText:
             return fragments
 
     return [("class:queue.label", titles[-1][0])]
+
+
+def _rejected_steer_title(width: int) -> FormattedText:
+    """返回适合当前终端宽度的轮末重投标题。"""
+    titles = (
+        "Messages to be submitted at end of turn",
+        "Submit at end of turn",
+    )
+    limit = max(1, int(width))
+    for title in titles:
+        if get_cwidth(f"• {title}") <= limit:
+            return [
+                ("class:queue.marker", "• "),
+                ("class:queue.label", title),
+            ]
+    return [
+        ("class:queue.marker", "• "),
+        ("class:queue.label", titles[-1]),
+    ]
 
 
 def _submission_lines(

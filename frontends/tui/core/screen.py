@@ -114,6 +114,7 @@ from .process_status import TuiProcessStatus
 from .queued import (
     TuiPendingSteers,
     TuiQueuedMessages,
+    TuiRejectedSteers,
 )
 from .resume_picker import TuiResumePicker
 from .static_pager import TuiStaticPager
@@ -211,6 +212,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         input_model: TuiInputModel,
         document: TuiDocument,
         pending_steers: TuiPendingSteers,
+        rejected_steers: TuiRejectedSteers,
         queued_messages: TuiQueuedMessages,
         interrupt_state: TuiInterruptState,
         get_context: typing.Callable[[], PromptContext],
@@ -253,6 +255,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self.input_model = input_model
         self.document = document
         self.pending_steers = pending_steers
+        self.rejected_steers = rejected_steers
         self.queued_messages = queued_messages
         self.interrupt_state = interrupt_state
 
@@ -2138,11 +2141,13 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     def _queued_fragments(self, *, width: int | None = None) -> FormattedText:
         """生成动画区域下方的待提交消息。"""
         pending_active = self.pending_steers.active
+        rejected_active = self.rejected_steers.active
         queued_active = self.queued_messages.active
         render_width = self.terminal_width if width is None else max(1, width)
 
-        pending_rows, queued_rows = queued_row_budget(
+        pending_rows, rejected_rows, queued_rows = queued_row_budget(
             pending_active=pending_active,
+            rejected_active=rejected_active,
             queued_active=queued_active,
             max_height=self.QUEUED_MAX_HEIGHT,
         )
@@ -2151,14 +2156,23 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             width=render_width,
             max_rows=pending_rows,
         )
+        rejected = self.rejected_steers.fragments(
+            width=render_width,
+            max_rows=rejected_rows,
+        )
         queued = self.queued_messages.fragments(
             width=render_width,
             max_rows=queued_rows,
-            edit_binding=self._queued_message_edit_binding,
+            edit_binding=(
+                self._queued_message_edit_binding
+                if queued_rows >= 3
+                else ""
+            ),
         )
 
         return join_queued_fragments(
             pending,
+            rejected,
             queued,
             show_leading_gap=self._activity_queue_gap_visible(
                 width=render_width,
@@ -3177,6 +3191,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         """判断待提交区域是否存在消息。"""
         return bool(
             self.pending_steers.active
+            or self.rejected_steers.active
             or self.queued_messages.active
         )
 

@@ -25,6 +25,7 @@ from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.core.queued import (
     TuiPendingSteers,
     TuiQueuedMessages,
+    TuiRejectedSteers,
     TuiSubmission,
 )
 from frontends.tui.core.runtime import TuiRuntime
@@ -89,6 +90,39 @@ def test_pending_steer_lists_each_enter_submission() -> None:
         "  ↳ first",
         "  ↳ second",
         "  ↳ third",
+    ]
+
+
+def test_rejected_steer_uses_end_of_turn_title() -> None:
+    rejected = TuiRejectedSteers()
+    rejected.append(_submission("continue next"))
+
+    text = _fragments_text(rejected.fragments(width=100))
+
+    assert text.splitlines() == [
+        "• Messages to be submitted at end of turn",
+        "  ↳ continue next",
+    ]
+
+
+def test_screen_renders_all_input_queue_categories_within_budget() -> None:
+    runtime = TuiRuntime()
+    runtime.track_pending_steer(_submission("pending current turn"))
+    runtime.defer_rejected_steer(_submission("retry at end of turn"))
+    runtime.defer_submission(_submission("tab follow up"))
+
+    text = _fragments_text(runtime.screen._queued_fragments(width=100))
+
+    assert text.splitlines() == [
+        (
+            "• Messages to be submitted after next tool call "
+            "(press ctrl + c to interrupt and send immediately)"
+        ),
+        "  ↳ pending current turn",
+        "• Messages to be submitted at end of turn",
+        "  ↳ retry at end of turn",
+        "• Queued follow-up inputs",
+        "  ↳ tab follow up",
     ]
 
 

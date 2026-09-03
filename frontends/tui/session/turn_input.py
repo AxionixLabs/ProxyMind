@@ -145,7 +145,6 @@ class TuiTurnInputControl(object):
             return None
 
         pending = self._ledger.release(next_input.client_message_id)
-        self._runtime.resolve_pending_steer(next_input.client_message_id)
 
         submission = (
             pending
@@ -232,7 +231,13 @@ class TuiTurnInputControl(object):
             retry_ids=retry_ids,
         )
 
+        retry_client_message_ids = {
+            submission.client_message_id
+            for submission in resolution.retry
+        }
         for client_message_id in resolution.resolved_ids:
+            if client_message_id in retry_client_message_ids:
+                continue
             self._runtime.resolve_pending_steer(client_message_id)
         for submission in resolution.retry:
             self._runtime.defer_rejected_steer(submission)
@@ -403,7 +408,6 @@ class TuiTurnInputControl(object):
             "turn_mismatch",
         }:
             pending = self._ledger.release(submission.client_message_id)
-            self._runtime.resolve_pending_steer(submission.client_message_id)
             if pending is not None:
                 self._runtime.defer_rejected_steer(pending)
 

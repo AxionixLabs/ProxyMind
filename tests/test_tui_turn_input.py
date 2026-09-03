@@ -254,6 +254,10 @@ async def test_immediate_input_is_sent_and_late_settlement_precedes_tab_queue(
     ))
 
     assert not runtime.submissions.pending_steers.active
+    assert runtime.submissions.rejected_steers.active
+    assert "steer now" in "".join(
+        text for _style, text in runtime.screen._queued_fragments(width=80)
+    )
     await control.close()
 
     first = await runtime.submissions.read_submission()
@@ -297,8 +301,15 @@ async def test_settled_enter_can_be_restored_after_server_rejection(
 
     assert not runtime.submissions.pending_steers.active
     assert not runtime.submissions.queued_messages.active
+    assert runtime.submissions.rejected_steers.active
+    queue_text = "".join(
+        text for _style, text in runtime.screen._queued_fragments(width=80)
+    )
+    assert "Messages to be submitted at end of turn" in queue_text
+    assert submission.visible_text in queue_text
     assert runtime.submissions.rollback_queued_input()
     assert runtime.screen.input.buffer.text == submission.editable_text
+    assert not runtime.submissions.rejected_steers.active
 
     await control.close()
 
@@ -457,6 +468,10 @@ async def test_not_steerable_input_falls_back_to_local_next_turn(
 
     assert not runtime.submissions.pending_steers.active
     assert not runtime.submissions.queued_messages.active
+    assert runtime.submissions.rejected_steers.active
+    assert submission.visible_text in "".join(
+        text for _style, text in runtime.screen._queued_fragments(width=80)
+    )
     assert runtime.submissions.can_rollback_queued_input
 
     queued = await runtime.submissions.read_submission()
@@ -736,6 +751,13 @@ async def test_multiple_retry_ids_restore_separately_in_fifo(
     while protocol_client.steer_turn.await_count < 2:
         await asyncio.sleep(0)
     await control.close()
+
+    assert runtime.submissions.rejected_steers.active
+    queue_text = "".join(
+        text for _style, text in runtime.screen._queued_fragments(width=80)
+    )
+    assert "first retry" in queue_text
+    assert "second retry" in queue_text
 
     first = await runtime.submissions.read_submission()
     second = await runtime.submissions.read_submission()

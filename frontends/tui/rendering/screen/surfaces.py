@@ -92,28 +92,51 @@ def footer_fragments(
 def queued_row_budget(
     *,
     pending_active: bool,
+    rejected_active: bool,
     queued_active: bool,
     max_height: int,
-) -> tuple[int, int]:
-    """返回 steer 和普通排队消息各自的最大行数。"""
+) -> tuple[int, int, int]:
+    """返回三类待提交消息各自的最大行数。"""
     limit = max(0, int(max_height))
-    if pending_active and queued_active:
-        pending_rows = min(3, limit)
-        return pending_rows, max(0, limit - pending_rows)
-    return limit, limit
+    active = (pending_active, rejected_active, queued_active)
+    active_count = sum(active)
+    if active_count <= 1:
+        return (
+            limit if pending_active else 0,
+            limit if rejected_active else 0,
+            limit if queued_active else 0,
+        )
+
+    rows = [0, 0, 0]
+    base, remainder = divmod(limit, active_count)
+    for index, item in enumerate(active):
+        if not item:
+            continue
+        rows[index] = base
+        if remainder:
+            rows[index] += 1
+            remainder -= 1
+    return rows[0], rows[1], rows[2]
 
 
 def join_queued_fragments(
     pending: FormattedText,
+    rejected: FormattedText,
     queued: FormattedText,
     *,
     show_leading_gap: bool,
 ) -> FormattedText:
-    """合并两类排队消息并按需加入活动区间距。"""
-    if pending and queued:
-        fragments = [*pending, ("", "\n"), *queued]
-    else:
-        fragments = pending or queued
+    """合并三类待提交消息并按需加入活动区间距。"""
+    sections = tuple(
+        section
+        for section in (pending, rejected, queued)
+        if section
+    )
+    fragments: FormattedText = []
+    for index, section in enumerate(sections):
+        if index:
+            fragments.append(("", "\n"))
+        fragments.extend(section)
     if fragments and show_leading_gap:
         return [("", "\n"), *fragments]
     return fragments

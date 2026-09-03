@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
-import collections
 import typing
 
 from prompt_toolkit.buffer import Buffer
@@ -21,6 +20,7 @@ from .models import (
 from .queued import (
     TuiPendingSteers,
     TuiQueuedMessages,
+    TuiRejectedSteers,
     TuiSubmission
 )
 from ..prompting.commands import (
@@ -100,9 +100,7 @@ class TuiSubmissionFlow(object):
         self.message_queue: asyncio.Queue[typing.Any] = asyncio.Queue()
         self.queued_messages = TuiQueuedMessages()
         self.pending_steers = TuiPendingSteers()
-        self._rejected_steers: collections.deque[TuiSubmission] = (
-            collections.deque()
-        )
+        self.rejected_steers = TuiRejectedSteers()
         self.interrupt_state = TuiInterruptState(
             timeout_sec=self.EXIT_CONFIRM_TIMEOUT_SEC
         )
@@ -167,7 +165,7 @@ class TuiSubmissionFlow(object):
         """返回是否存在可取回的 Tab 输入或被退回即时输入。"""
         return bool(
             self.queued_messages.can_rollback
-            or self._rejected_steers
+            or self.rejected_steers.active
             or self.pending_steers.uncertain_active
         )
 
@@ -260,9 +258,10 @@ class TuiSubmissionFlow(object):
 
     def defer_rejected_steer(self, submission: TuiSubmission) -> None:
         """把未被当前轮次消费的即时输入保留到优先重试队列。"""
+        self.pending_steers.remove(submission.client_message_id)
         self.queued_messages.remove(submission.client_message_id)
-        self.discard_rejected_steer(submission.client_message_id)
-        self._rejected_steers.append(submission)
+        self.rejected_steers.remove(submission.client_message_id)
+        self.rejected_steers.append(submission)
         self._invalidate()
 
     def discard_rejected_steer(
@@ -270,10 +269,8 @@ class TuiSubmissionFlow(object):
         client_message_id: str
     ) -> TuiSubmission | None:
         """移除已经由当前轮次确认消费的即时输入重试项。"""
-        for submission in self._rejected_steers:
-            if submission.client_message_id != client_message_id:
-                continue
-            self._rejected_steers.remove(submission)
+        submission = self.rejected_steers.remove(client_message_id)
+        if submission is not None:
             self._invalidate()
             return submission
         return None
@@ -320,8 +317,8 @@ class TuiSubmissionFlow(object):
     def rollback_queued_input(self) -> bool:
         """撤回最近一条待提交消息并恢复到主输入框。"""
         item = self.queued_messages.pop_last()
-        if item is None and self._rejected_steers:
-            item = self._rejected_steers.pop()
+        if item is None:
+            item = self.rejected_steers.pop_last()
         if item is None:
             item = self.pending_steers.pop_last_uncertain()
         if item is None:
@@ -596,11 +593,7 @@ class TuiSubmissionFlow(object):
         """按提交顺序读取下一项输入，并优先传播退出请求。"""
         self._raise_requested_exit()
 
-        retried = (
-            self._rejected_steers.popleft()
-            if self._rejected_steers
-            else None
-        )
+        retried = self.rejected_steers.pop_next()
         queued = self.queued_messages.pop_next() if retried is None else None
 
         submission = (
