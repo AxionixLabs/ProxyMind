@@ -33,9 +33,8 @@ from frontends.terminal.renderers.hook import render_hook_run_view
 from agent.ports.presentation import TextStyle
 from agent.application.views import HookOutputView, HookRunView
 from frontends.terminal.renderers.patch import (
-    PATCH_ADD_STYLE,
-    PATCH_ERROR_STYLE,
-    PATCH_REMOVE_STYLE,
+    create_diff_render_style_context,
+    render_patch_view,
 )
 from agent.application.views.builders.batch import (
     build_batch_completed_view,
@@ -868,10 +867,10 @@ def test_patch_failure_matches_codex_title_and_diagnostics() -> None:
     assert "reason: patch_context_mismatch" in block.plain_text
     assert "file: sample.py" in block.plain_text
     assert "actual: other" in block.plain_text
-    assert _containing_span_style(block, "✘ ") == PATCH_ERROR_STYLE
+    assert _containing_span_style(block, "✘ ") == TextStyle(bold=True)
 
 
-def test_patch_uses_ansi_semantic_styles() -> None:
+def test_patch_degraded_context_does_not_emit_colors() -> None:
     patch = "*** Begin Patch\n*** Update File: file.txt\n@@\n-old\n+new\n*** End Patch"
     start = render_presentation_view(build_tool_start_view(
         "apply_patch",
@@ -900,8 +899,10 @@ def test_patch_uses_ansi_semantic_styles() -> None:
     ))[0]
 
     assert "• Edited file.txt" in start.plain_text
-    assert _span_style(result, "+1") == PATCH_ADD_STYLE
-    assert _span_style(result, "-1") == PATCH_REMOVE_STYLE
+    assert all(
+        span.style.foreground is None and span.style.background is None
+        for span in result.spans
+    )
 
 
 def test_patch_dark_truecolor_uses_full_line_backgrounds() -> None:
@@ -954,22 +955,22 @@ def test_patch_theme_scope_backgrounds_override_codex_fallbacks() -> None:
         }),
         call_id="patch-scope",
     )
-    capabilities = TerminalCapabilities(
-        identity=TerminalIdentity(TerminalKind.UNKNOWN, "test"),
-        color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
-        theme=TerminalTheme(
-            background=(0, 0, 0),
-            scope_backgrounds=(
-                ("markup.inserted", (12, 34, 56)),
-                ("markup.deleted", (74, 34, 29)),
-            ),
+    capabilities = _terminal_capabilities(
+        TerminalColorLevel.TRUECOLOR,
+        background=(0, 0, 0),
+    )
+    context = create_diff_render_style_context(
+        capabilities,
+        scope_backgrounds=(
+            ("markup.inserted", (12, 34, 56)),
+            ("markup.deleted", (74, 34, 29)),
         ),
     )
 
-    block = render_presentation_view(
+    block = render_patch_view(
         view,
-        terminal_capabilities=capabilities,
-    )[0]
+        style_context=context,
+    )
 
     assert {span.style.background for span in _patch_line(block, "+")} == {"#0C2238"}
     assert {span.style.background for span in _patch_line(block, "-")} == {"#4A221D"}
@@ -1046,7 +1047,7 @@ def test_patch_ansi16_uses_foregrounds_without_backgrounds() -> None:
         {"patch": "patch"},
         ok=True,
         data=_patch_delta({
-            "path": "sample.unknownxyz",
+            "path": "sample.py",
             "action": "modify",
             "old_content": "before\n",
             "new_content": "after\n",
@@ -1068,6 +1069,45 @@ def test_patch_ansi16_uses_foregrounds_without_backgrounds() -> None:
     assert all(span.style.background is None for span in (*remove_line, *add_line))
     assert next(span for span in remove_line if span.text.startswith("-")).style.foreground == "ansired"
     assert next(span for span in add_line if span.text.startswith("+")).style.foreground == "ansigreen"
+    assert all(style is None for style in block.line_fill_styles)
+    assert {
+        span.style.foreground
+        for span in block.spans
+    } <= {None, "ansigreen", "ansired"}
+
+
+@pytest.mark.parametrize(
+    "level",
+    (TerminalColorLevel.NONE, TerminalColorLevel.UNKNOWN),
+)
+def test_patch_no_color_levels_suppress_diff_and_syntax_colors(
+    level: TerminalColorLevel,
+) -> None:
+    view = build_native_tool_result_view(
+        "apply_patch",
+        {"patch": "patch"},
+        ok=True,
+        data=_patch_delta({
+            "path": "sample.py",
+            "action": "modify",
+            "old_content": "def before():\n    return 1\n",
+            "new_content": "def after():\n    return 2\n",
+            "source_path": None,
+        }),
+        call_id="patch-no-color",
+    )
+    block = render_presentation_view(
+        view,
+        terminal_capabilities=_terminal_capabilities(
+            level,
+            background=(255, 255, 255),
+        ),
+    )[0]
+
+    assert all(
+        span.style.foreground is None and span.style.background is None
+        for span in block.spans
+    )
     assert all(style is None for style in block.line_fill_styles)
 
 
@@ -1164,7 +1204,13 @@ def test_patch_failure_title_matches_codex_magenta() -> None:
         call_id="patch-magenta",
     )
 
-    block = render_presentation_view(view)[0]
+    block = render_presentation_view(
+        view,
+        terminal_capabilities=_terminal_capabilities(
+            TerminalColorLevel.ANSI16,
+            background=(0, 0, 0),
+        ),
+    )[0]
 
     assert _containing_span_style(block, "Failed to apply patch").foreground == "ansimagenta"
 

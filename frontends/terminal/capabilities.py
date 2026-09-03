@@ -28,27 +28,12 @@ from .probe import (
     query_terminal_default_colors,
 )
 
-HYPERLINK_TERMINALS = frozenset({
-    TerminalKind.VSCODE,
-    TerminalKind.VTE,
-    TerminalKind.ZELLIJ,
-    TerminalKind.GHOSTTY,
-    TerminalKind.KITTY,
-    TerminalKind.ITERM2,
-    TerminalKind.WEZTERM,
-    TerminalKind.ALACRITTY,
-    TerminalKind.KONSOLE,
-    TerminalKind.WINDOWS_TERMINAL,
-})
-
-
 @dataclass(frozen=True)
 class TerminalTheme:
-    """保存终端报告的默认颜色及暂存的语法作用域表面。"""
+    """保存终端报告的默认颜色及其探测事实。"""
 
     foreground: RgbColor | None = None
     background: RgbColor | None = None
-    scope_backgrounds: tuple[tuple[str, RgbColor], ...] = ()
     probe_attempted: bool = False
     probe_method: TerminalProbeMethod = TerminalProbeMethod.NOT_ATTEMPTED
 
@@ -71,12 +56,6 @@ class TerminalCapabilities:
     identity: TerminalIdentity
     color_support: TerminalColorSupport
     theme: TerminalTheme = TerminalTheme()
-
-    @property
-    def hyperlinks(self) -> bool:
-        """判断终端是否可以安全处理 OSC 8 链接。"""
-
-        return self.identity.kind in HYPERLINK_TERMINALS
 
 
 DEGRADED_TERMINAL_CAPABILITIES = TerminalCapabilities(

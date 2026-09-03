@@ -14,10 +14,7 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
-from frontends.terminal.capabilities import (
-    DEGRADED_TERMINAL_CAPABILITIES,
-    TerminalCapabilities,
-)
+from frontends.terminal.capabilities import TerminalCapabilities
 from frontends.terminal.color_support import TerminalColorLevel
 from frontends.terminal.highlighting import highlight_code_lines
 from frontends.terminal.palette import best_color, is_light_color
@@ -29,17 +26,6 @@ from frontends.terminal.text_layout import (
 
 PATCH_TITLE_STYLE = TextStyle(bold=True)
 PATCH_MUTED_STYLE = TextStyle(dim=True)
-PATCH_ADD_STYLE = TextStyle(foreground="ansigreen")
-PATCH_REMOVE_STYLE = TextStyle(foreground="ansired")
-PATCH_ERROR_STYLE = TextStyle(foreground="ansimagenta", bold=True)
-
-_DARK_TRUECOLOR_ADD_BG = "#213A2B"
-_DARK_TRUECOLOR_REMOVE_BG = "#4A221D"
-_LIGHT_TRUECOLOR_ADD_BG = "#DAFBE1"
-_LIGHT_TRUECOLOR_REMOVE_BG = "#FFEBE9"
-_LIGHT_TRUECOLOR_ADD_GUTTER_BG = "#ACEEBB"
-_LIGHT_TRUECOLOR_REMOVE_GUTTER_BG = "#FFCECB"
-_LIGHT_TRUECOLOR_GUTTER_FG = "#1F2328"
 
 # prompt_toolkit 将这些 RGB 值在 ANSI-256 输出下精确量化。
 _DARK_ANSI256_ADD_BG = "#005F00"  # 22
@@ -52,10 +38,14 @@ _LIGHT_ANSI256_GUTTER_FG = "#303030"  # 236
 
 
 @dataclass(frozen=True, slots=True)
-class _DiffPalette(object):
-    """保存一次 patch 渲染使用的终端主题调色板。"""
+class DiffRenderStyleContext(object):
+    """保存一次 patch 渲染所需的全部已解析样式。"""
+
     light: bool
     rich: bool
+    add_foreground: str | None
+    remove_foreground: str | None
+    failure_foreground: str | None
     add_background: str | None
     remove_background: str | None
     add_gutter_background: str | None
@@ -66,22 +56,22 @@ class _DiffPalette(object):
 def render_patch_view(
     view: PatchView,
     *,
+    style_context: DiffRenderStyleContext,
     terminal_width: int | None = None,
     measure_width: typing.Callable[[str], int] | None = None,
-    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
 ) -> StyledBlock:
     """把结构化补丁视图转换为终端展示块。"""
-    palette = _diff_palette(terminal_capabilities)
     if view.phase == "failed":
         spans = _failure_spans(
             view,
+            context=style_context,
             terminal_width=terminal_width,
             measure_width=measure_width,
         )
     else:
         spans = _success_spans(
             view,
-            palette=palette,
+            context=style_context,
             terminal_width=terminal_width,
             measure_width=measure_width,
         )
@@ -97,7 +87,7 @@ def render_patch_view(
 def _success_spans(
     view: PatchView,
     *,
-    palette: _DiffPalette,
+    context: DiffRenderStyleContext,
     terminal_width: int | None,
     measure_width: typing.Callable[[str], int] | None
 ) -> list[TextSpan]:
@@ -116,14 +106,14 @@ def _success_spans(
             TextSpan(" "),
             *_path_spans(file),
             TextSpan(" "),
-            *_count_spans(file.added, file.removed),
+            *_count_spans(file.added, file.removed, context=context),
         ]
     else:
         title = [
             TextSpan("• ", bullet_style),
             TextSpan("Edited", PATCH_TITLE_STYLE),
             TextSpan(f" {len(files)} files "),
-            *_count_spans(added, removed),
+            *_count_spans(added, removed, context=context),
         ]
 
     spans = _wrapped_row(
@@ -142,7 +132,7 @@ def _success_spans(
                     TextSpan("  └ ", PATCH_MUTED_STYLE),
                     *_path_spans(file),
                     TextSpan(" "),
-                    *_count_spans(file.added, file.removed),
+                    *_count_spans(file.added, file.removed, context=context),
                 ],
                 terminal_width=terminal_width,
                 continuation_prefix="    ",
@@ -150,7 +140,7 @@ def _success_spans(
             ))
         spans.extend(_file_line_spans(
             file,
-            palette=palette,
+            context=context,
             terminal_width=terminal_width,
             measure_width=measure_width,
         ))
@@ -160,7 +150,7 @@ def _success_spans(
 def _file_line_spans(
     file: PatchFileView,
     *,
-    palette: _DiffPalette,
+    context: DiffRenderStyleContext,
     terminal_width: int | None,
     measure_width: typing.Callable[[str], int] | None
 ) -> list[TextSpan]:
@@ -179,10 +169,14 @@ def _file_line_spans(
     spans: list[TextSpan] = []
 
     for hunk_index, hunk in enumerate(file.hunks):
-        syntax_lines = highlight_code_lines(
-            "\n".join(line.text for line in hunk.lines),
-            path=syntax_path,
-            light_theme=palette.light,
+        syntax_lines = (
+            highlight_code_lines(
+                "\n".join(line.text for line in hunk.lines),
+                path=syntax_path,
+                light_theme=context.light,
+            )
+            if context.rich
+            else None
         )
         if hunk_index:
             spans.extend((
@@ -199,7 +193,7 @@ def _file_line_spans(
                     if syntax_lines is not None
                     else None
                 ),
-                palette=palette,
+                context=context,
                 number_width=number_width,
                 terminal_width=terminal_width,
                 measure_width=measure_width,
@@ -211,7 +205,7 @@ def _diff_line_spans(
     line: PatchLineView,
     *,
     syntax_spans: list[TextSpan] | None,
-    palette: _DiffPalette,
+    context: DiffRenderStyleContext,
     number_width: int,
     terminal_width: int | None,
     measure_width: typing.Callable[[str], int] | None
@@ -220,10 +214,18 @@ def _diff_line_spans(
     number = line.old_line if line.kind == "remove" else line.new_line
     marker = "-" if line.kind == "remove" else "+" if line.kind == "add" else " "
 
-    line_background = _line_background(line, palette)
-    gutter_style = _gutter_style(line, palette, line_background=line_background)
-    sign_style = _sign_style(line, line_background=line_background)
-    content_style = _content_style(line, palette, line_background=line_background)
+    line_background = _line_background(line, context)
+    gutter_style = _gutter_style(line, context, line_background=line_background)
+    sign_style = _sign_style(
+        line,
+        context=context,
+        line_background=line_background,
+    )
+    content_style = _content_style(
+        line,
+        context,
+        line_background=line_background,
+    )
     content = str(line.text or "").replace("\t", "    ")
 
     content_spans = (
@@ -261,14 +263,19 @@ def _diff_line_spans(
 def _failure_spans(
     view: PatchView,
     *,
+    context: DiffRenderStyleContext,
     terminal_width: int | None,
     measure_width: typing.Callable[[str], int] | None
 ) -> list[TextSpan]:
     """生成补丁失败标题及执行层诊断。"""
+    failure_style = TextStyle(
+        foreground=context.failure_foreground,
+        bold=True,
+    )
     spans = _wrapped_row(
         [
-            TextSpan("✘ ", PATCH_ERROR_STYLE),
-            TextSpan("Failed to apply patch", PATCH_ERROR_STYLE),
+            TextSpan("✘ ", failure_style),
+            TextSpan("Failed to apply patch", failure_style),
         ],
         terminal_width=terminal_width,
         continuation_prefix="  ",
@@ -309,39 +316,70 @@ def _wrapped_row(
     )
 
 
-def _diff_palette(capabilities: TerminalCapabilities) -> _DiffPalette:
-    """按终端主题和色深选择补丁调色板。"""
+def create_diff_render_style_context(
+    capabilities: TerminalCapabilities,
+    *,
+    scope_backgrounds: tuple[tuple[str, RgbColor], ...] = (),
+) -> DiffRenderStyleContext:
+    """为一次 patch 渲染解析终端能力和可选 syntax scope。"""
+
     light = _is_light_color(capabilities.theme.background)
     level = capabilities.color_support.effective_level
+    colors_enabled = level in {
+        TerminalColorLevel.TRUECOLOR,
+        TerminalColorLevel.ANSI256,
+        TerminalColorLevel.ANSI16,
+    }
+    add_foreground = "ansigreen" if colors_enabled else None
+    remove_foreground = "ansired" if colors_enabled else None
+    failure_foreground = "ansimagenta" if colors_enabled else None
 
-    add_scope = _theme_scope_color(
-        capabilities,
+    add_scope = _scope_background_color(
+        scope_backgrounds,
         "markup.inserted",
         "diff.inserted",
         "diff.added",
     )
 
-    remove_scope = _theme_scope_color(
-        capabilities,
+    remove_scope = _scope_background_color(
+        scope_backgrounds,
         "markup.deleted",
         "diff.deleted",
         "diff.removed",
     )
 
-    if level == TerminalColorLevel.TRUECOLOR:
-        return _DiffPalette(
+    if level is TerminalColorLevel.TRUECOLOR:
+        return DiffRenderStyleContext(
             light=light,
             rich=True,
-            add_background=_palette_rgb(add_scope or ((218, 251, 225) if light else (33, 58, 43)), level),
-            remove_background=_palette_rgb(remove_scope or ((255, 235, 233) if light else (74, 34, 29)), level),
-            add_gutter_background=_palette_rgb((172, 238, 187), level) if light else None,
-            remove_gutter_background=_palette_rgb((255, 206, 203), level) if light else None,
-            gutter_foreground=_palette_rgb((31, 35, 40), level) if light else None,
+            add_foreground=add_foreground,
+            remove_foreground=remove_foreground,
+            failure_foreground=failure_foreground,
+            add_background=_palette_rgb(
+                add_scope or ((218, 251, 225) if light else (33, 58, 43)),
+                level,
+            ),
+            remove_background=_palette_rgb(
+                remove_scope or ((255, 235, 233) if light else (74, 34, 29)),
+                level,
+            ),
+            add_gutter_background=(
+                _palette_rgb((172, 238, 187), level) if light else None
+            ),
+            remove_gutter_background=(
+                _palette_rgb((255, 206, 203), level) if light else None
+            ),
+            gutter_foreground=(
+                _palette_rgb((31, 35, 40), level) if light else None
+            ),
         )
-    if level == TerminalColorLevel.ANSI256:
-        return _DiffPalette(
+    if level is TerminalColorLevel.ANSI256:
+        return DiffRenderStyleContext(
             light=light,
             rich=True,
+            add_foreground=add_foreground,
+            remove_foreground=remove_foreground,
+            failure_foreground=failure_foreground,
             add_background=(
                 _palette_rgb(add_scope, level)
                 if add_scope is not None
@@ -352,18 +390,25 @@ def _diff_palette(capabilities: TerminalCapabilities) -> _DiffPalette:
                 if remove_scope is not None
                 else _LIGHT_ANSI256_REMOVE_BG if light else _DARK_ANSI256_REMOVE_BG
             ),
-            add_gutter_background=_LIGHT_ANSI256_ADD_GUTTER_BG if light else None,
-            remove_gutter_background=_LIGHT_ANSI256_REMOVE_GUTTER_BG if light else None,
+            add_gutter_background=(
+                _LIGHT_ANSI256_ADD_GUTTER_BG if light else None
+            ),
+            remove_gutter_background=(
+                _LIGHT_ANSI256_REMOVE_GUTTER_BG if light else None
+            ),
             gutter_foreground=_LIGHT_ANSI256_GUTTER_FG if light else None,
         )
-    return _DiffPalette(
+    return DiffRenderStyleContext(
         light=light,
         rich=False,
+        add_foreground=add_foreground,
+        remove_foreground=remove_foreground,
+        failure_foreground=failure_foreground,
         add_background=None,
         remove_background=None,
         add_gutter_background=None,
         remove_gutter_background=None,
-        gutter_foreground="ansiblack" if light else None,
+        gutter_foreground=None,
     )
 
 
@@ -372,48 +417,54 @@ def _palette_rgb(color: RgbColor, level: TerminalColorLevel) -> str:
     return best_color(color, level) or "ansidefault"
 
 
-def _theme_scope_color(
-    capabilities: TerminalCapabilities,
+def _scope_background_color(
+    scope_backgrounds: tuple[tuple[str, RgbColor], ...],
     *scope_names: str
 ) -> RgbColor | None:
     """按作用域优先级读取补丁背景颜色。"""
-    values = dict(capabilities.theme.scope_backgrounds)
+    values = dict(scope_backgrounds)
     for name in scope_names:
         value = values.get(name)
         if (
             isinstance(value, tuple)
             and len(value) == 3
-            and all(isinstance(component, int) for component in value)
+            and all(
+                isinstance(component, int) and 0 <= component <= 255
+                for component in value
+            )
         ):
             return value
     return None
 
 
-def _line_background(line: PatchLineView, palette: _DiffPalette) -> str | None:
+def _line_background(
+    line: PatchLineView,
+    context: DiffRenderStyleContext,
+) -> str | None:
     """返回新增或删除视觉行的整行背景。"""
     if line.kind == "add":
-        return palette.add_background
+        return context.add_background
     if line.kind == "remove":
-        return palette.remove_background
+        return context.remove_background
     return None
 
 
 def _gutter_style(
     line: PatchLineView,
-    palette: _DiffPalette,
+    context: DiffRenderStyleContext,
     *,
     line_background: str | None
 ) -> TextStyle:
     """返回行号区域在当前主题下的样式。"""
-    if line.kind == "context" or not palette.light:
+    if line.kind == "context" or not context.light:
         return TextStyle(background=line_background, dim=True)
     gutter_background = (
-        palette.add_gutter_background
+        context.add_gutter_background
         if line.kind == "add"
-        else palette.remove_gutter_background
+        else context.remove_gutter_background
     )
     return TextStyle(
-        foreground=palette.gutter_foreground,
+        foreground=context.gutter_foreground,
         background=gutter_background,
     )
 
@@ -421,18 +472,23 @@ def _gutter_style(
 def _sign_style(
     line: PatchLineView,
     *,
+    context: DiffRenderStyleContext,
     line_background: str | None
 ) -> TextStyle:
     """返回 diff 正负号在当前主题下的样式。"""
     if line.kind == "context":
         return TextStyle()
-    foreground = "ansigreen" if line.kind == "add" else "ansired"
+    foreground = (
+        context.add_foreground
+        if line.kind == "add"
+        else context.remove_foreground
+    )
     return TextStyle(foreground=foreground, background=line_background)
 
 
 def _content_style(
     line: PatchLineView,
-    palette: _DiffPalette,
+    context: DiffRenderStyleContext,
     *,
     line_background: str | None
 ) -> TextStyle:
@@ -440,8 +496,12 @@ def _content_style(
     if line.kind == "context":
         return TextStyle()
     foreground = None
-    if not palette.light or not palette.rich:
-        foreground = "ansigreen" if line.kind == "add" else "ansired"
+    if not context.light or not context.rich:
+        foreground = (
+            context.add_foreground
+            if line.kind == "add"
+            else context.remove_foreground
+        )
     return TextStyle(foreground=foreground, background=line_background)
 
 
@@ -488,13 +548,24 @@ def _is_light_color(color: RgbColor | None) -> bool:
     return is_light_color(color)
 
 
-def _count_spans(added: int, removed: int) -> tuple[TextSpan, ...]:
+def _count_spans(
+    added: int,
+    removed: int,
+    *,
+    context: DiffRenderStyleContext,
+) -> tuple[TextSpan, ...]:
     """生成分别表达增删语义的统计片段。"""
     return (
         TextSpan("("),
-        TextSpan(f"+{added}", PATCH_ADD_STYLE),
+        TextSpan(
+            f"+{added}",
+            TextStyle(foreground=context.add_foreground),
+        ),
         TextSpan(" "),
-        TextSpan(f"-{removed}", PATCH_REMOVE_STYLE),
+        TextSpan(
+            f"-{removed}",
+            TextStyle(foreground=context.remove_foreground),
+        ),
         TextSpan(")"),
     )
 

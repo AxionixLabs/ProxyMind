@@ -44,7 +44,10 @@ from .lifecycle import (
     render_incomplete_view,
     render_lifecycle_view
 )
-from .patch import render_patch_view
+from .patch import (
+    create_diff_render_style_context,
+    render_patch_view,
+)
 from .plan import (
     render_plan_steps_start_view,
     render_plan_update_view
@@ -102,7 +105,9 @@ def render_presentation_transcript_view(
             view,
             terminal_width=terminal_width,
             measure_width=measure_width,
-            terminal_capabilities=terminal_capabilities,
+            style_context=create_diff_render_style_context(
+                terminal_capabilities
+            ),
         ),)
     elif isinstance(view, BatchStartView):
         blocks = (render_batch_start_transcript_view(view),)
@@ -194,7 +199,9 @@ def _render_presentation_view(
             view,
             terminal_width=terminal_width,
             measure_width=measure_width,
-            terminal_capabilities=terminal_capabilities,
+            style_context=create_diff_render_style_context(
+                terminal_capabilities
+            ),
         ),)
     if isinstance(view, PlanUpdateView):
         return (render_plan_update_view(

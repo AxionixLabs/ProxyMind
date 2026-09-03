@@ -187,6 +187,7 @@ from ..rendering.screen.terminal import (
     queued_message_edit_binding as _queued_message_edit_binding,
     set_alternate_scroll_mode as _set_alternate_scroll_mode,
     set_synchronized_output as _set_synchronized_output,
+    supports_terminal_hyperlinks as _supports_terminal_hyperlinks,
     supports_vt_control as _supports_vt_control
 )
 
@@ -256,7 +257,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self.interrupt_state = interrupt_state
 
         self._queued_message_edit_binding = _queued_message_edit_binding(
-            terminal_capabilities
+            terminal_capabilities.identity
         )
 
         self._get_context = get_context
@@ -1163,7 +1164,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         )
 
         self.hyperlinks_enabled = bool(
-            terminal_capabilities.hyperlinks
+            _supports_terminal_hyperlinks(terminal_capabilities.identity)
             and _supports_vt_control(self.application.output)
         )
         if self.hyperlinks_enabled:

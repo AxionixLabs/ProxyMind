@@ -8,23 +8,43 @@ from prompt_toolkit.output.base import Output
 from prompt_toolkit.output.plain_text import PlainTextOutput
 from prompt_toolkit.output.vt100 import Vt100_Output
 
-from frontends.terminal.capabilities import TerminalCapabilities
-from frontends.terminal.identity import TerminalKind
+from frontends.terminal.identity import (
+    TerminalIdentity,
+    TerminalKind,
+)
+
+_OSC8_TERMINALS = frozenset({
+    TerminalKind.VSCODE,
+    TerminalKind.VTE,
+    TerminalKind.ZELLIJ,
+    TerminalKind.GHOSTTY,
+    TerminalKind.KITTY,
+    TerminalKind.ITERM2,
+    TerminalKind.WEZTERM,
+    TerminalKind.ALACRITTY,
+    TerminalKind.KONSOLE,
+    TerminalKind.WINDOWS_TERMINAL,
+})
 
 
-def queued_message_edit_binding(capabilities: TerminalCapabilities) -> str:
+def queued_message_edit_binding(identity: TerminalIdentity) -> str:
     """返回当前终端适合展示的队尾编辑按键。"""
-    identity = capabilities.identity
     if (
         identity.multiplexer == TerminalKind.TMUX
         or identity.kind in {
-        TerminalKind.APPLE_TERMINAL,
-        TerminalKind.VSCODE,
-        TerminalKind.WARP,
-    }
+            TerminalKind.APPLE_TERMINAL,
+            TerminalKind.VSCODE,
+            TerminalKind.WARP,
+        }
     ):
         return "shift + ←"
     return "alt + ↑"
+
+
+def supports_terminal_hyperlinks(identity: TerminalIdentity) -> bool:
+    """判断终端身份是否属于已验证的 OSC 8 实现。"""
+
+    return identity.kind in _OSC8_TERMINALS
 
 
 def supports_vt_control(output: Output) -> bool:

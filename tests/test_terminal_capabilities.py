@@ -30,6 +30,7 @@ from frontends.terminal.probe import (
     parse_terminal_color_responses,
 )
 from frontends.terminal.probe_windows import query_windows_default_colors
+from frontends.tui.rendering.screen.terminal import supports_terminal_hyperlinks
 
 
 class _InteractiveStream(object):
@@ -129,12 +130,9 @@ def test_terminal_hyperlinks_use_known_osc8_capabilities(
     kind: TerminalKind,
     supported: bool,
 ) -> None:
-    capabilities = TerminalCapabilities(
-        TerminalIdentity(kind, kind.value),
-        TerminalColorSupport.fixed(TerminalColorLevel.UNKNOWN),
-    )
+    identity = TerminalIdentity(kind, kind.value)
 
-    assert capabilities.hyperlinks is supported
+    assert supports_terminal_hyperlinks(identity) is supported
 
 
 def test_tmux_uses_outer_client_terminal_identity() -> None:

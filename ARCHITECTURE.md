@@ -281,6 +281,27 @@ SessionLoop、RunActor、工具执行器或前端生命周期。
 Application 产出与 UI 工具包无关的 PresentationView。Terminal/TUI/未来桌面端只负责布局、
 交互和渲染，不从异常文本或原始 provider payload 重建业务语义。
 
+### 前端终端能力与样式
+
+CLI 组合根必须在 TUI 开始读取输入前创建一次不可变 `TerminalCapabilities` 快照，并在该会话内
+复用。终端身份、颜色支持的来源与有效等级、默认前景/背景及探测结果是彼此独立的事实；环境、
+平台 API、控制序列和终端 IO 只允许在对应检测或探测 adapter 中读取，renderer 不得重新读取
+环境、操作系统状态或进程级缓存。
+
+常规 Terminal/TUI 组件只消费语义样式角色；prompt_toolkit style 是语义结果的投影，不是第二套
+palette。组件不得按审批类型、终端品牌或局部状态选择具体 RGB、blue 或 yellow。TrueColor 与
+ANSI 256 由唯一 resolver 解析和量化，ANSI 16 只使用命名色，显式无色或未知能力不得输出自定义
+前景和背景。选中、强调、成功、失败、警告、品牌及用户/审批 surface 在所有组件中共享同一语义。
+
+Patch/diff 是富渲染边界：每次渲染由调用方创建一个不可变 `DiffRenderStyleContext`，syntax scope
+背景只属于该上下文，不属于终端默认主题快照。TrueColor 与 ANSI 256 可以使用整行背景和 scope
+覆盖；ANSI 16 只使用语义前景或修饰符；显式无色和未知能力只保留修饰符及终端默认颜色。语法
+高亮不得绕过该上下文向低色深或无色输出泄漏 RGB。
+
+终端身份消费者必须按最小事实设计。OSC 8 和键盘映射只读取 `TerminalIdentity`；scrollback、
+resize 和同步输出只读取实际 `Output` 支持。任何消费者不得把颜色能力、终端身份或 VT 输出能力
+复用为总能力开关。
+
 ### TUI Turn Presentation
 
 每次 Turn 创建一个具有不可变 `surface_id + cid + sid + turn_id + agent_id` scope 的

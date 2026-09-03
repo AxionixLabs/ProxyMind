@@ -26,7 +26,10 @@ from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
 )
-from frontends.terminal.renderers.patch import render_patch_view
+from frontends.terminal.renderers.patch import (
+    create_diff_render_style_context,
+    render_patch_view,
+)
 from frontends.terminal.styles import (
     COMMAND_STYLE,
     COMMAND_FLAG_STYLE,
@@ -621,7 +624,9 @@ def approval_patch_pager_lines(
     block = render_patch_view(
         view,
         terminal_width=None,
-        terminal_capabilities=terminal_capabilities,
+        style_context=create_diff_render_style_context(
+            terminal_capabilities
+        ),
     )
     lines = _styled_block_lines(block)
     return lines or _raw_patch_pager_lines(approval)

@@ -253,7 +253,15 @@ def test_patch_approval_uses_dedicated_fullscreen_title_and_preview() -> None:
     }
 
     assert approval_pager_title(approval) == "P A T C H"
-    lines = approval_command_pager_lines(approval)
+    lines = approval_command_pager_lines(
+        approval,
+        terminal_capabilities=TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.UNKNOWN, "test"),
+            color_support=TerminalColorSupport.fixed(
+                TerminalColorLevel.ANSI16
+            ),
+        ),
+    )
     text = ["".join(value for _style, value in line) for line in lines]
     assert text == ["• Edited src/app.py (+1 -1)", "    1 -old", "    1 +new"]
     header_styles = lines[0]
