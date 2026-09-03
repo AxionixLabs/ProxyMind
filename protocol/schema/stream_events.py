@@ -38,6 +38,30 @@ EffectReplay: typing.TypeAlias = typing.Literal[
     "manual"
 ]
 
+ApprovalReviewStatus: typing.TypeAlias = typing.Literal[
+    "in_progress",
+    "approved",
+    "denied",
+    "timed_out",
+    "aborted",
+]
+
+ApprovalReviewRiskLevel: typing.TypeAlias = typing.Literal[
+    "low",
+    "medium",
+    "high",
+    "critical",
+]
+
+ApprovalReviewUserAuthorization: typing.TypeAlias = typing.Literal[
+    "unknown",
+    "low",
+    "medium",
+    "high",
+]
+
+ApprovalReviewDecisionSource: typing.TypeAlias = typing.Literal["agent"]
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionEffect:
@@ -347,6 +371,52 @@ class ToolApprovalRequiredEvent(ItemStreamEvent):
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ApprovalReview:
+    """描述自动审批 reviewer 的结构化状态与解释。"""
+    status: ApprovalReviewStatus
+    risk_level: ApprovalReviewRiskLevel | None = None
+    user_authorization: ApprovalReviewUserAuthorization | None = None
+    rationale: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ToolApprovalReviewEvent(ItemStreamEvent):
+    """描述与本地审批事实分离的自动评审生命周期。"""
+    review_id: str = ""
+    approval_id: str = ""
+    call_id: str = ""
+    target_item_id: str | None = None
+    kind: ToolApprovalKind = "command"
+    action: dict[str, typing.Any] = field(default_factory=dict)
+    review: ApprovalReview = field(
+        default_factory=lambda: ApprovalReview(status="in_progress")
+    )
+    started_at_ms: int = 0
+
+    def __post_init__(self) -> None:
+        """补齐评审 Item 投影并隔离外部动作载荷。"""
+        _default_item_projection(
+            self,
+            item_id=self.review_id,
+            item_kind="approval",
+            item_status=_approval_review_item_status(self.review.status),
+        )
+        object.__setattr__(self, "action", copy.deepcopy(dict(self.action)))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ToolApprovalReviewStartedEvent(ToolApprovalReviewEvent):
+    """描述自动审批评审已经开始。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ToolApprovalReviewCompletedEvent(ToolApprovalReviewEvent):
+    """描述自动审批评审已经形成确定终态。"""
+    completed_at_ms: int = 0
+    decision_source: ApprovalReviewDecisionSource = "agent"
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ToolCallEvent(ToolEvent):
     """描述服务端下发的原始客户端工具调用。"""
@@ -407,6 +477,8 @@ ChatStreamEvent: typing.TypeAlias = (
     | ToolBuiltinCallEvent
     | ToolBuiltinDoneEvent
     | ToolApprovalRequiredEvent
+    | ToolApprovalReviewStartedEvent
+    | ToolApprovalReviewCompletedEvent
     | ToolCallEvent
     | ToolCallsStartEvent
     | ToolCallsDoneEvent
@@ -427,6 +499,8 @@ _ITEM_EVENT_TYPES = frozenset({
     "tool.call",
     "tool.output",
     "tool.approval_required",
+    "tool.approval_review.started",
+    "tool.approval_review.completed",
     "tool.builtin.call",
     "tool.builtin.done",
 })
@@ -633,6 +707,11 @@ def parse_stream_event(
             sources=_tuple_or_none(raw.get("sources")),
             source_count=_nonnegative_int(raw.get("source_count")),
         )
+    if event_type in {
+        "tool.approval_review.started",
+        "tool.approval_review.completed",
+    }:
+        return _approval_review_event(raw, common, event_type=event_type)
     if event_type == "tool.approval_required":
         raw_decisions = raw.get("available_decisions")
         if not isinstance(raw_decisions, list) or not raw_decisions:
@@ -831,6 +910,189 @@ def parse_stream_event(
 
     _reject_item_projection(raw, event_type=event_type)
     return UnknownStreamEvent(**common, payload=raw)
+
+
+def _approval_review_event(
+    payload: dict[str, typing.Any],
+    common: dict[str, typing.Any],
+    *,
+    event_type: str,
+) -> ToolApprovalReviewStartedEvent | ToolApprovalReviewCompletedEvent:
+    """校验自动审批评审事件及其状态组合。"""
+    allowed_fields = {
+        "type",
+        "proto",
+        "cid",
+        "sid",
+        "turn_id",
+        "event_seq",
+        "presentation_epoch",
+        "round",
+        "display",
+        "item_id",
+        "item_kind",
+        "item_status",
+        "review_id",
+        "approval_id",
+        "call_id",
+        "target_item_id",
+        "kind",
+        "action",
+        "review",
+        "started_at_ms",
+        "completed_at_ms",
+        "decision_source",
+    }
+    unknown_fields = sorted(set(payload) - allowed_fields)
+    if unknown_fields:
+        raise ValueError(
+            f"{event_type} contains unknown fields: "
+            + ", ".join(unknown_fields)
+        )
+
+    review_id = _required_text(payload.get("review_id"), f"{event_type} review_id")
+    approval_id = _required_text(
+        payload.get("approval_id"),
+        f"{event_type} approval_id",
+    )
+    call_id = _required_text(payload.get("call_id"), f"{event_type} call_id")
+    kind = _approval_kind(payload.get("kind"))
+    action = payload.get("action")
+    if not isinstance(action, dict) or not action:
+        raise ValueError(f"{event_type} action must be a non-empty object")
+    if not _is_json_value(action):
+        raise ValueError(f"{event_type} action must contain only JSON values")
+
+    started_at_ms = _nonnegative_int(payload.get("started_at_ms"))
+    if started_at_ms is None:
+        raise ValueError(f"{event_type} started_at_ms must be non-negative")
+    target_item_id = _optional_text(payload.get("target_item_id"))
+    review = _approval_review(payload.get("review"), event_type=event_type)
+    expected_status = _approval_review_item_status(review.status)
+    item_fields = _item_fields(
+        payload,
+        event_type=event_type,
+        source_id=review_id,
+        expected_kind="approval",
+        expected_status=expected_status,
+    )
+    shared = {
+        **common,
+        **item_fields,
+        "review_id": review_id,
+        "approval_id": approval_id,
+        "call_id": call_id,
+        "target_item_id": target_item_id,
+        "kind": kind,
+        "action": action,
+        "review": review,
+        "started_at_ms": started_at_ms,
+    }
+
+    if event_type == "tool.approval_review.started":
+        if review.status != "in_progress":
+            raise ValueError("started approval review must be in_progress")
+        if "completed_at_ms" in payload or "decision_source" in payload:
+            raise ValueError("started approval review contains terminal fields")
+        return ToolApprovalReviewStartedEvent(**shared)
+
+    if review.status == "in_progress":
+        raise ValueError("completed approval review must be terminal")
+    completed_at_ms = _nonnegative_int(payload.get("completed_at_ms"))
+    if completed_at_ms is None:
+        raise ValueError(f"{event_type} completed_at_ms must be non-negative")
+    if completed_at_ms < started_at_ms:
+        raise ValueError("approval review completed_at_ms precedes started_at_ms")
+    if payload.get("decision_source") != "agent":
+        raise ValueError("completed approval review decision_source must be agent")
+    return ToolApprovalReviewCompletedEvent(
+        **shared,
+        completed_at_ms=completed_at_ms,
+        decision_source="agent",
+    )
+
+
+def _approval_review(
+    value: typing.Any,
+    *,
+    event_type: str,
+) -> ApprovalReview:
+    """校验自动审批 reviewer 的状态载荷。"""
+    if not isinstance(value, dict):
+        raise ValueError(f"{event_type} review must be an object")
+    unknown_fields = sorted(
+        set(value) - {"status", "risk_level", "user_authorization", "rationale"}
+    )
+    if unknown_fields:
+        raise ValueError(
+            f"{event_type} review contains unknown fields: "
+            + ", ".join(unknown_fields)
+        )
+    raw_status = _required_text(value.get("status"), f"{event_type} review status")
+    if raw_status not in {
+        "in_progress",
+        "approved",
+        "denied",
+        "timed_out",
+        "aborted",
+    }:
+        raise ValueError(f"{event_type} review status is invalid")
+    status: ApprovalReviewStatus = raw_status
+
+    raw_risk = value.get("risk_level")
+    risk_level: ApprovalReviewRiskLevel | None = None
+    if raw_risk is not None:
+        if raw_risk not in {"low", "medium", "high", "critical"}:
+            raise ValueError(f"{event_type} review risk_level is invalid")
+        risk_level = raw_risk
+
+    raw_authorization = value.get("user_authorization")
+    user_authorization: ApprovalReviewUserAuthorization | None = None
+    if raw_authorization is not None:
+        if raw_authorization not in {"unknown", "low", "medium", "high"}:
+            raise ValueError(f"{event_type} review user_authorization is invalid")
+        user_authorization = raw_authorization
+
+    raw_rationale = value.get("rationale")
+    if raw_rationale is not None and not isinstance(raw_rationale, str):
+        raise ValueError(f"{event_type} review rationale must be text or null")
+    rationale = raw_rationale.strip() if isinstance(raw_rationale, str) else None
+    if rationale == "":
+        rationale = None
+
+    if status == "in_progress":
+        if any(item is not None for item in (risk_level, user_authorization, rationale)):
+            raise ValueError("in_progress approval review cannot contain a decision")
+    elif status in {"approved", "denied"}:
+        if risk_level is None or user_authorization is None or rationale is None:
+            raise ValueError(
+                f"{status} approval review requires risk, authorization and rationale"
+            )
+    elif status == "timed_out":
+        if risk_level is not None or user_authorization is not None or rationale is None:
+            raise ValueError(
+                "timed_out approval review requires only a rationale"
+            )
+    elif risk_level is not None or user_authorization is not None:
+        raise ValueError("aborted approval review cannot contain a risk decision")
+
+    return ApprovalReview(
+        status=status,
+        risk_level=risk_level,
+        user_authorization=user_authorization,
+        rationale=rationale,
+    )
+
+
+def _approval_review_item_status(status: ApprovalReviewStatus) -> ItemStatus:
+    """把自动评审状态映射为 Canonical Item 生命周期。"""
+    if status == "in_progress":
+        return "in_progress"
+    if status == "timed_out":
+        return "failed"
+    if status == "aborted":
+        return "cancelled"
+    return "completed"
 
 
 def _common_fields(

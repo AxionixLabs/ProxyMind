@@ -7,6 +7,8 @@ from protocol.schema.stream_events import (
     StreamGapEvent,
     TextMetaEvent,
     ToolApprovalRequiredEvent,
+    ToolApprovalReviewCompletedEvent,
+    ToolApprovalReviewStartedEvent,
     ToolCallEvent,
     ToolCallsDoneEvent,
     ToolCallsStartEvent,
@@ -110,6 +112,18 @@ def _complete_item_projection(payload) -> None:
             payload.get("approval_id") or "approval_test",
             "approval",
             "waiting_approval",
+        )
+    elif event_type.startswith("tool.approval_review."):
+        review_status = str(payload.get("review", {}).get("status") or "")
+        item_status = {
+            "in_progress": "in_progress",
+            "timed_out": "failed",
+            "aborted": "cancelled",
+        }.get(review_status, "completed")
+        projection = (
+            payload.get("review_id") or "review_test",
+            "approval",
+            item_status,
         )
     elif event_type.startswith("tool.builtin."):
         status = "in_progress" if event_type.endswith("call") else "completed"
@@ -680,6 +694,132 @@ def test_tool_approval_and_output_events_copy_payloads() -> None:
     assert isinstance(output, ToolOutputEvent)
     assert output.payload["status"] == "completed"
     assert output.payload["result"] == {"ok": True, "text": "done"}
+
+
+def _approval_review_payload(status: str, *, event_seq: int = 1) -> dict:
+    """构造自动审批评审协议事件。"""
+    payload = {
+        "type": (
+            "tool.approval_review.started"
+            if status == "in_progress"
+            else "tool.approval_review.completed"
+        ),
+        "proto": "mind.chat",
+        "cid": "conversation-1",
+        "sid": "session-1",
+        "turn_id": "turn-1",
+        "event_seq": event_seq,
+        "presentation_epoch": 1,
+        "review_id": "review-1",
+        "approval_id": "approval-1",
+        "call_id": "call-1",
+        "target_item_id": "call-1",
+        "kind": "command",
+        "action": {"command": ["curl", "https://example.com"], "cwd": "."},
+        "started_at_ms": 100,
+        "review": {
+            "status": status,
+            "risk_level": None,
+            "user_authorization": None,
+            "rationale": None,
+        },
+        "item_id": "review-1",
+        "item_kind": "approval",
+        "item_status": "in_progress",
+    }
+    if status != "in_progress":
+        payload["completed_at_ms"] = 150
+        payload["decision_source"] = "agent"
+        if status in {"approved", "denied"}:
+            payload["review"].update({
+                "risk_level": "high",
+                "user_authorization": "low",
+                "rationale": "The action sends workspace data externally.",
+            })
+            payload["item_status"] = "completed"
+        elif status == "timed_out":
+            payload["review"]["rationale"] = (
+                "Automatic approval review timed out while evaluating "
+                "the requested approval."
+            )
+            payload["item_status"] = "failed"
+        else:
+            payload["item_status"] = "cancelled"
+    return payload
+
+
+def test_approval_review_events_are_strictly_typed_and_copy_action() -> None:
+    started_payload = _approval_review_payload("in_progress")
+    completed_payload = _approval_review_payload("denied", event_seq=2)
+
+    started = _parse_stream_event(started_payload)
+    completed = _parse_stream_event(completed_payload)
+    completed_payload["action"]["command"].append("changed")
+
+    assert isinstance(started, ToolApprovalReviewStartedEvent)
+    assert started.review.status == "in_progress"
+    assert started.item_status == "in_progress"
+    assert isinstance(completed, ToolApprovalReviewCompletedEvent)
+    assert completed.review.status == "denied"
+    assert completed.review.risk_level == "high"
+    assert completed.item_status == "completed"
+    assert completed.action["command"] == ["curl", "https://example.com"]
+
+
+@pytest.mark.parametrize(
+    ("status", "item_status"),
+    (
+        ("approved", "completed"),
+        ("denied", "completed"),
+        ("timed_out", "failed"),
+        ("aborted", "cancelled"),
+    ),
+)
+def test_approval_review_terminal_status_maps_to_item_lifecycle(
+    status: str,
+    item_status: str,
+) -> None:
+    event = _parse_stream_event(_approval_review_payload(status))
+
+    assert isinstance(event, ToolApprovalReviewCompletedEvent)
+    assert event.review.status == status
+    assert event.item_status == item_status
+
+
+@pytest.mark.parametrize(
+    "mutation, message",
+    (
+        ({"decision_source": "user"}, "decision_source"),
+        ({"completed_at_ms": 99}, "precedes"),
+        ({"unexpected": True}, "unknown fields"),
+    ),
+)
+def test_approval_review_rejects_invalid_terminal_envelope(
+    mutation: dict,
+    message: str,
+) -> None:
+    payload = _approval_review_payload("denied")
+    payload.update(mutation)
+
+    with pytest.raises(ValueError, match=message):
+        _parse_stream_event(payload)
+
+
+def test_approval_review_rejects_invalid_state_payloads() -> None:
+    started = _approval_review_payload("in_progress")
+    started["review"]["rationale"] = "premature"
+    with pytest.raises(ValueError, match="cannot contain a decision"):
+        _parse_stream_event(started)
+
+    timed_out = _approval_review_payload("timed_out")
+    timed_out["review"]["risk_level"] = "high"
+    with pytest.raises(ValueError, match="requires only a rationale"):
+        _parse_stream_event(timed_out)
+
+    completed = _approval_review_payload("approved")
+    completed["item_status"] = "failed"
+    with pytest.raises(ValueError, match="does not match event lifecycle"):
+        _parse_stream_event(completed)
 
 
 def test_tool_call_batch_buffer_ignores_completed_batch_replay() -> None:
