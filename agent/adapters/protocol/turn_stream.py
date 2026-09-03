@@ -10,6 +10,7 @@ from agent.adapters.protocol.activity_events import (
     normalize_turn_terminal_status,
 )
 from agent.adapters.protocol.approval_events import ApprovalEventHandler
+from agent.adapters.protocol.approval_reviews import ApprovalReviewEventHandler
 from agent.adapters.protocol.model_events import ModelStreamEventHandler
 from agent.adapters.protocol.model_request import (
     build_model_stream_request,
@@ -24,7 +25,6 @@ from agent.adapters.protocol.turn_interrupts import (
     interrupt_approval_cancelled_turn,
 )
 from agent.adapters.protocol.turn_setup import prepare_stream_turn
-from agent.application.hooks.models import StopHookDecision
 from agent.application.tools.execution import ToolExecutionAdapter
 from agent.application.turns.exception_text import friendly_exception_text
 from agent.application.turns.execution import (
@@ -54,6 +54,7 @@ from agent.harness.tools.plan_calls import PlanToolCallRunner
 from agent.ports import (
     ApprovalCoordinatorPort,
     ApprovalLedger,
+    ApprovalReviewFeedPort,
     EffectJournalFactory,
     ExecutionPolicy,
     LocalEffectReconciliationRequired,
@@ -77,6 +78,7 @@ from protocol.client.tools import ToolResultRequestError
 from protocol.schema.stream_events import (
     StreamGapEvent,
     ToolApprovalRequiredEvent,
+    ToolApprovalReviewEvent,
     TurnDoneEvent,
     TurnFailedEvent,
     TurnInputAcceptedEvent,
@@ -171,9 +173,8 @@ async def stream_turn(
 
     turn_hook_events: TurnHookEvents | None = None
 
-    stop_decision = StopHookDecision.stop()
     event_stream = None
-    assistant_text = ""
+    assistant_text: str = ""
 
     transcript_factory = turn_context.transcript_factory
     if not callable(transcript_factory):
@@ -187,6 +188,15 @@ async def stream_turn(
     activity_projector = TurnActivityProjector(
         output_session.context,
         output_session.activity,
+    )
+    approval_review_handler = (
+        ApprovalReviewEventHandler(
+            approval_coordinator,
+            session_id=turn_context.sid,
+            run_id=turn_context.turn_id,
+        )
+        if isinstance(approval_coordinator, ApprovalReviewFeedPort)
+        else None
     )
 
     async def project_terminal_activity() -> None:
@@ -382,6 +392,12 @@ async def stream_turn(
         async for event in event_stream:
             event_count += 1
 
+            review_event_is_current = True
+            if approval_review_handler is not None:
+                review_event_is_current = (
+                    await approval_review_handler.observe_presentation(event)
+                )
+
             if ev_report:
                 ev_report.bind_event(event)
 
@@ -396,6 +412,15 @@ async def stream_turn(
             event_type = event.type
 
             if await model_events.handle(event, projection=event_stream):
+                continue
+
+            if isinstance(event, ToolApprovalReviewEvent):
+                if approval_review_handler is None:
+                    raise RuntimeError(
+                        "approval review feed is required for review events"
+                    )
+                if review_event_is_current:
+                    await approval_review_handler.handle(event)
                 continue
 
             if isinstance(event, StreamGapEvent):
@@ -540,6 +565,8 @@ async def stream_turn(
                 continue
 
             if isinstance(event, ToolApprovalRequiredEvent):
+                if not review_event_is_current:
+                    continue
                 await approval_handler.handle(event)
                 continue
 
@@ -696,6 +723,13 @@ async def stream_turn(
         )
 
     finally:
+        if approval_review_handler is not None:
+            try:
+                await cleanup.await_cleanup(approval_review_handler.close())
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                observe_exception("stream.approval_review_close_failed", error)
         if event_stream is not None:
             try:
                 await cleanup.await_cleanup(event_stream.aclose())

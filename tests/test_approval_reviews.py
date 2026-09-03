@@ -51,6 +51,7 @@ def _record(
     *,
     event_seq: int = 2,
     action_kind: ApprovalActionKind = ApprovalActionKind.COMMAND,
+    action_id: str = "call-1",
 ) -> ApprovalReviewRecord:
     terminal = status is not ApprovalReviewStatus.IN_PROGRESS
     decided = status in {
@@ -63,7 +64,7 @@ def _record(
             run_id="turn-1",
             review_id="review-1",
             approval_id="approval-1",
-            action_id="call-1",
+            action_id=action_id,
             action_kind=action_kind,
         ),
         status=status,
@@ -135,6 +136,18 @@ async def test_review_inbox_requires_matching_action_kind() -> None:
     ))
 
     with pytest.raises(ValueError, match="action kind"):
+        await inbox.review(_action())
+
+
+@pytest.mark.anyio
+async def test_review_inbox_rejects_approval_bound_to_another_action() -> None:
+    inbox = ApprovalReviewInbox()
+    await inbox.record(_record(
+        ApprovalReviewStatus.APPROVED,
+        action_id="call-other",
+    ))
+
+    with pytest.raises(ValueError, match="does not match requested action"):
         await inbox.review(_action())
 
 

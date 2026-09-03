@@ -1,6 +1,6 @@
 # 自动审批对齐清单
 
-状态：实施中（阶段 1-2 已完成）
+状态：实施中（阶段 1-3 已完成）
 
 本文定义 ProxyMind 自动审批评审与 `codex-main` 的语义和展示对齐范围，并作为本次实现、
 测试和验收清单。线上字段最终以服务端正式协议为准；本文不赋予服务端安全裁决权，也不
@@ -27,37 +27,37 @@
 
 ## 稳定边界
 
-- [ ] `ApprovalCore` 继续拥有审批事实、决定校验、Session grant 和 Effect 执行门禁。
-- [ ] 自动评审作为 `ApprovalReviewerPort` 的一个实现接入，不创建第二套审批状态机。
-- [ ] protocol adapter 只校验并转换 wire 事件，不直接批准动作或执行工具。
+- [x] `ApprovalCore` 继续拥有审批事实、决定校验、Session grant 和 Effect 执行门禁。
+- [x] 自动评审作为 `ApprovalReviewerPort` 的一个实现接入，不创建第二套审批状态机。
+- [x] protocol adapter 只校验并转换 wire 事件，不直接批准动作或执行工具。
 - [ ] TUI 只消费 application presentation/activity，不读取原始服务端载荷推断许可。
-- [ ] 服务端 `approved` 只是 reviewer 输入；本地决定与动作身份、类别不一致时必须拒绝。
-- [ ] 没有匹配的自动评审结果时，按既有策略进入用户审批，不把缺失通知解释为允许。
-- [ ] `denied`、`timed_out` 和评审异常均阻止当前动作；`aborted` 进入取消路径。
-- [ ] 自动评审不得产生永久策略修改或 Session grant；此类授权仍只来自显式用户决定。
+- [x] 服务端 `approved` 只是 reviewer 输入；本地决定与动作身份、类别不一致时必须拒绝。
+- [x] 没有匹配的自动评审结果时，按既有策略进入用户审批，不把缺失通知解释为允许。
+- [x] `denied`、`timed_out` 和评审异常均阻止当前动作；`aborted` 进入取消路径。
+- [x] 自动评审不得产生永久策略修改或 Session grant；此类授权仍只来自显式用户决定。
 
 ## 事件清单
 
-- [ ] 新增 `tool.approval_review.started`。
-- [ ] 新增 `tool.approval_review.completed`。
-- [ ] 两类事件共同携带 `cid`、`sid`、`turn_id`、`event_seq`、
+- [x] 新增 `tool.approval_review.started`。
+- [x] 新增 `tool.approval_review.completed`。
+- [x] 两类事件共同携带 `cid`、`sid`、`turn_id`、`event_seq`、
   `presentation_epoch`、`review_id`、`approval_id`、`call_id`、`target_item_id`、
   `kind`、`action` 和 `started_at_ms`。
-- [ ] started 只允许 `review.status=in_progress`，不得携带决定来源或完成时间。
-- [ ] completed 必须携带 `completed_at_ms` 和 `decision_source=agent`；状态只允许
+- [x] started 只允许 `review.status=in_progress`，不得携带决定来源或完成时间。
+- [x] completed 必须携带 `completed_at_ms` 和 `decision_source=agent`；状态只允许
   `approved`、`denied`、`timed_out`、`aborted`。
-- [ ] `approved`、`denied` 必须携带 `risk_level`、`user_authorization` 和非空
+- [x] `approved`、`denied` 必须携带 `risk_level`、`user_authorization` 和非空
   `rationale`；`timed_out` 必须携带非空 `rationale`；`aborted` 不伪造风险结论。
-- [ ] `review_id` 是独立评审生命周期身份，不复用 `approval_id`、`call_id` 或
+- [x] `review_id` 是独立评审生命周期身份，不复用 `approval_id`、`call_id` 或
   `target_item_id`。
-- [ ] 事件使用 `item_id=review_id`、`item_kind=approval`；started 为 `in_progress`，
+- [x] 事件使用 `item_id=review_id`、`item_kind=approval`；started 为 `in_progress`，
   approved/denied 为 `completed`，timed_out 为 `failed`，aborted 为 `cancelled`。
-- [ ] 同一 `review_id` 的重复事件幂等；字段或终态冲突作为协议错误处理。
+- [x] 同一 `review_id` 的重复事件幂等；字段或终态冲突作为协议错误处理。
 - [ ] 服务端权威事件顺序中 completed 不得先于 matching started，完成时间不得早于开始时间。
   客户端允许因保留窗口裁剪而只收到自包含的 completed，并直接归约该终态。
 - [ ] 对应 `tool.approval_required` 必须在 completed 之后发布，使客户端可在不阻塞
   事件读取的情况下消费 reviewer 结果。
-- [ ] attach/replay 保持原 `event_seq` 顺序；重放不得重新打开已完成评审或重复展示历史。
+- [x] attach/replay 保持原 `event_seq` 顺序；重放不得重新打开已完成评审或重复展示历史。
 
 ## 活动状态样式
 
@@ -120,11 +120,14 @@
 
 ### 阶段 3：协议编排与恢复
 
-- [ ] stream adapter 先登记评审事件，再处理后续 `tool.approval_required`。
-- [ ] duplicate/replay 不重复决定、不重复发 `/tool-approval`、不重复创建历史记录。
-- [ ] completed 缺失或与审批动作不匹配时不自动批准，并产生可观测协议错误。
-- [ ] Turn 终态、替代 epoch、取消和关闭清理未完成评审。
-- [ ] 验收：断线重连、重复事件和并行评审均保持相同本地审批结果。
+- [x] stream adapter 先登记评审事件，再处理后续 `tool.approval_required`。
+- [x] duplicate/replay 不重复决定、不重复发 `/tool-approval`、不重复创建历史记录。
+- [x] completed 缺失时安全回退到用户审批；已登记评审与审批动作不匹配时拒绝并记录协议错误。
+- [x] Turn 终态、替代 epoch、取消和关闭清理未完成评审。
+- [x] 验收：断线重连、重复事件和并行评审均保持相同本地审批结果。
+
+阶段 3 证据：事件编排、评审核心、Canonical Item、主流与传输恢复
+定向测试共 208 项通过；相关文件语法检查与 `git diff --check` 通过。
 
 ### 阶段 4：前端展示
 

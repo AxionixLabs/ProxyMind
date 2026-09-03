@@ -15,6 +15,7 @@ import pytest
 
 from agent.application.tools.planning import PLAN_STEPS_TOOL
 from agent.application.approvals.coordinator import ApprovalCoordinator
+from agent.application.approvals.legacy import DomainApprovalCoordinator
 from agent.application.approvals.models import ApprovalOutcome
 from frontends.interaction.noninteractive import NonInteractiveInteraction
 from agent.adapters.protocol import turn_stream as stream
@@ -57,6 +58,8 @@ from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
 from agent.harness.hooks.scope import HookExecutionScope
 from agent.stores.approvals.ledger import ApprovalCallLedger
+from agent.stores.approvals.facts import InMemoryApprovalFactStore
+from agent.stores.approvals.grants import InMemorySessionGrantStore
 from agent.application.turns.transcript import build_turn_input_payload
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.domain.execution_policy import (
@@ -203,6 +206,24 @@ def _complete_item_projection(payload) -> None:
             f"{payload.get('call_id')}:output",
             "tool_output",
             output_status,
+        )
+    elif event_type.startswith("tool.approval_review."):
+        review = payload.get("review")
+        review_status = (
+            review.get("status")
+            if isinstance(review, dict)
+            else "in_progress"
+        )
+        projection = (
+            payload.get("review_id") or "review_test",
+            "approval",
+            {
+                "in_progress": "in_progress",
+                "approved": "completed",
+                "denied": "completed",
+                "timed_out": "failed",
+                "aborted": "cancelled",
+            }.get(review_status, "registered"),
         )
     elif event_type == "tool.approval_required":
         projection = (
@@ -3304,6 +3325,102 @@ async def test_post_tool_hook_cannot_replace_plan_result_for_model(
     assert posted[0][0][5]["data"] == {"steps": 1}
     assert posted[0][1]["additional_context"] == ("explain replacement",)
     assert "system_message" not in posted[0][1]
+
+
+@pytest.mark.anyio
+async def test_stream_registers_review_before_approval_core_decides(
+    monkeypatch,
+) -> None:
+    approval_posts = []
+
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+    host = _host()
+    coordinator = DomainApprovalCoordinator(
+        host.approval_coordinator,
+        fact_store=InMemoryApprovalFactStore(),
+        grant_store=InMemorySessionGrantStore(),
+    )
+    host.approval_coordinator = coordinator
+
+    result, host_state = await _run_stream(
+        monkeypatch,
+        [
+            {
+                "type": "tool.approval_review.started",
+                "event_seq": 1,
+                "review_id": "review-stream",
+                "approval_id": "approval-stream",
+                "call_id": "call-stream",
+                "target_item_id": "call-stream",
+                "kind": "command",
+                "action": {
+                    "command": ["echo", "reviewed"],
+                    "cwd": ".",
+                },
+                "started_at_ms": 100,
+                "review": {"status": "in_progress"},
+            },
+            {
+                "type": "tool.approval_review.completed",
+                "event_seq": 2,
+                "review_id": "review-stream",
+                "approval_id": "approval-stream",
+                "call_id": "call-stream",
+                "target_item_id": "call-stream",
+                "kind": "command",
+                "action": {
+                    "command": ["echo", "reviewed"],
+                    "cwd": ".",
+                },
+                "started_at_ms": 100,
+                "completed_at_ms": 125,
+                "decision_source": "agent",
+                "review": {
+                    "status": "approved",
+                    "risk_level": "low",
+                    "user_authorization": "high",
+                    "rationale": "The command matches the request.",
+                },
+            },
+            {
+                "type": "tool.approval_required",
+                "event_seq": 3,
+                "call_id": "call-stream",
+                "approval_id": "approval-stream",
+                "kind": "command",
+                "command": ["echo", "reviewed"],
+                "cwd": ".",
+                "reason": "Run the requested command.",
+            },
+            {
+                "type": "turn.done",
+                "event_seq": 4,
+                "status": "completed",
+            },
+            {
+                "type": "turn.logical_settled",
+                "event_seq": 5,
+                "next_input": None,
+            },
+        ],
+        host_state=host,
+    )
+
+    assert result.status == "completed"
+    host_state.frontend.interaction.present_approval.assert_not_awaited()
+    assert len(approval_posts) == 1
+    assert approval_posts[0][0][:4] == (
+        "cid_test",
+        "sid_test",
+        "call-stream",
+        "approval-stream",
+    )
+    assert approval_posts[0][1]["decision"] == "accept"
+
+    await coordinator.close()
 
 
 @pytest.mark.anyio

@@ -20,6 +20,7 @@ class ApprovalReviewInbox:
         """创建空收件箱，生命周期由审批协调器管理。"""
         self._records: dict[str, ApprovalReviewRecord] = {}
         self._action_reviews: dict[ApprovalIdentity, str] = {}
+        self._approval_reviews: dict[tuple[str, str, str], str] = {}
         self._lock = asyncio.Lock()
 
     async def record(self, update: ApprovalReviewRecord) -> None:
@@ -33,7 +34,18 @@ class ApprovalReviewInbox:
             approval_id=identity.approval_id,
             action_id=identity.action_id,
         )
+        approval_identity = (
+            identity.session_id,
+            identity.run_id,
+            identity.approval_id,
+        )
         async with self._lock:
+            review_for_approval = self._approval_reviews.get(approval_identity)
+            if (
+                review_for_approval is not None
+                and review_for_approval != identity.review_id
+            ):
+                raise ValueError("approval is already bound to another review")
             review_for_action = self._action_reviews.get(action_identity)
             if review_for_action is not None and review_for_action != identity.review_id:
                 raise ValueError("approval action is already bound to another review")
@@ -59,12 +71,20 @@ class ApprovalReviewInbox:
 
             self._records[identity.review_id] = update
             self._action_reviews[action_identity] = identity.review_id
+            self._approval_reviews[approval_identity] = identity.review_id
 
     async def review(self, action: ApprovalAction) -> ApprovalDecision | None:
         """返回与完整动作身份匹配的终态决定。"""
         async with self._lock:
             review_id = self._action_reviews.get(action.identity)
             if review_id is None:
+                approval_review = self._approval_reviews.get((
+                    action.identity.session_id,
+                    action.identity.run_id,
+                    action.identity.approval_id,
+                ))
+                if approval_review is not None:
+                    raise ValueError("approval review does not match requested action")
                 return None
             record = self._records[review_id]
             if record.identity.action_kind is not action.kind:
@@ -107,13 +127,21 @@ class ApprovalReviewInbox:
             )
             for identity in identities:
                 review_id = self._action_reviews.pop(identity)
-                self._records.pop(review_id, None)
+                record = self._records.pop(review_id, None)
+                if record is not None:
+                    review_identity = record.identity
+                    self._approval_reviews.pop((
+                        review_identity.session_id,
+                        review_identity.run_id,
+                        review_identity.approval_id,
+                    ), None)
 
     async def close(self) -> None:
         """清除进程级评审镜像并结束生命周期。"""
         async with self._lock:
             self._records.clear()
             self._action_reviews.clear()
+            self._approval_reviews.clear()
 
 
 if __name__ == '__main__':

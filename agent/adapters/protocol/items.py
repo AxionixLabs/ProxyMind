@@ -596,10 +596,7 @@ def _event_payload(event: ModelEvent) -> dict[str, typing.Any]:
             if key not in _COMMON_EVENT_FIELDS
         }
     if dataclasses.is_dataclass(event):
-        values = {
-            value.name: getattr(event, value.name)
-            for value in dataclasses.fields(event)
-        }
+        values = dataclasses.asdict(event)
     else:
         values = dict(vars(event)) if hasattr(event, "__dict__") else {}
     return {
