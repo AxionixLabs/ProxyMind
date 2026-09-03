@@ -280,6 +280,11 @@ class TuiSubmissionFlow(object):
         self.pending_steers.add(submission)
         self._invalidate()
 
+    def mark_pending_steers_interrupt_settling(self) -> None:
+        """立即展示等待中断结算的即时输入。"""
+        if self.pending_steers.mark_interrupt_settling():
+            self._invalidate()
+
     def resolve_pending_steer(self, client_message_id: str) -> None:
         """停止展示一条已经确认或转入下一轮的输入。"""
         if self.pending_steers.remove(client_message_id) is not None:

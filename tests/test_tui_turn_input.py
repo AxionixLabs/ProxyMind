@@ -1035,6 +1035,92 @@ async def test_remote_interrupt_response_loss_still_waits_for_settlement(
 
 
 @pytest.mark.anyio
+async def test_interrupt_immediately_projects_pending_steers_as_queued(
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    status_started = asyncio.Event()
+    release_settlement = asyncio.Event()
+    turn_started = asyncio.Event()
+
+    async def wait_for_status(**_kwargs):
+        status_started.set()
+        await release_settlement.wait()
+        return SimpleNamespace(status="interrupted", terminal=True)
+
+    async def retry_pending(**kwargs):
+        return SimpleNamespace(
+            committed_ids=(),
+            pending_ids=(),
+            retry_ids=tuple(kwargs["client_message_ids"]),
+            unknown_ids=(),
+        )
+
+    async def turn() -> None:
+        turn_started.set()
+        await asyncio.Future()
+
+    protocol_client.get_turn_status = AsyncMock(side_effect=wait_for_status)
+    protocol_client.reconcile_turn_inputs = AsyncMock(
+        side_effect=retry_pending,
+    )
+    runtime = TuiRuntime()
+    application = SimpleNamespace(emit=Mock())
+    interrupt_notice = loop_session._TurnInterruptNotice(application, runtime)
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+    _mark_started(control)
+    execution = asyncio.create_task(execute_tui_model_turn(
+        application,
+        runtime,
+        turn(),
+        turn_input_control=control,
+        on_interrupt_requested=interrupt_notice.acknowledge,
+        show_interrupt_notice=lambda: not interrupt_notice.shown,
+    ))
+    await turn_started.wait()
+
+    buffer = runtime.screen.input.buffer
+    for value in ("second query", "third query"):
+        buffer.text = value
+        buffer.cursor_position = len(value)
+        assert runtime.submissions.accept_input(buffer)
+    while protocol_client.steer_turn.await_count < 2:
+        await asyncio.sleep(0)
+
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.CONSUMED
+    )
+    immediate_preview = fragments_text(
+        runtime.screen._queued_fragments(width=100)
+    )
+
+    assert "Queued while interrupted turn settles" in immediate_preview
+    assert "second query" in immediate_preview
+    assert "third query" in immediate_preview
+    assert not execution.done()
+
+    await status_started.wait()
+    assert not execution.done()
+
+    release_settlement.set()
+    await asyncio.wait_for(execution, timeout=0.1)
+
+    second = await runtime.submissions.read_submission()
+    third = await runtime.submissions.read_submission()
+    assert second.value == "second query"
+    assert third.value == "third query"
+
+    await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_local_interrupt_waits_for_remote_turn_settlement(
     monkeypatch,
     protocol_client: ProtocolCommandClient,

@@ -1799,6 +1799,7 @@ class TuiRuntime(object):
         with self.screen.visual_update():
             self._transcript.clear_active()
             self.activity.finish_wait()
+            self.submissions.mark_pending_steers_interrupt_settling()
             self.invalidate()
 
     def set_execution_active(self, active: bool) -> None:

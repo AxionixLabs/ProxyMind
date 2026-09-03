@@ -38,6 +38,8 @@ from frontends.tui.core.activity import (
     _upload_block,
 )
 from frontends.tui.core.models import FragmentBlock
+from frontends.tui.core.queued import TuiSubmission
+from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.status_frames import SPINNER_FRAMES
 from frontends.tui.core.styles import text_block
@@ -1222,6 +1224,11 @@ async def test_external_mcp_activity_does_not_replace_streaming_content() -> Non
 async def test_interrupted_presentation_keeps_turn_lifecycle_active() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
+    runtime.track_pending_steer(TuiSubmission(
+        value="next query",
+        editable_text="next query",
+        paste_store={},
+    ))
     runtime.set_active_renderable(FragmentBlock((("", "partial answer"),)))
     await runtime.activity.begin_wait()
 
@@ -1230,6 +1237,9 @@ async def test_interrupted_presentation_keeps_turn_lifecycle_active() -> None:
     assert runtime.execution_active
     assert runtime.document.active_block is None
     assert runtime.activity.lease("wait") is None
+    assert "Queued while interrupted turn settles" in fragments_text(
+        runtime.screen._queued_fragments(width=80)
+    )
 
     runtime.set_execution_active(False)
     await runtime.close()

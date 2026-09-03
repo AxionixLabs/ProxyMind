@@ -93,6 +93,32 @@ def test_pending_steer_lists_each_enter_submission() -> None:
     ]
 
 
+def test_pending_steers_show_interrupt_settlement_immediately() -> None:
+    pending = TuiPendingSteers()
+    second = _submission("second query")
+    third = _submission("third query")
+    pending.add(second)
+    pending.add(third)
+
+    assert pending.mark_interrupt_settling()
+    assert not pending.mark_interrupt_settling()
+
+    text = _fragments_text(pending.fragments(width=100))
+    assert text.splitlines() == [
+        "• Queued while interrupted turn settles",
+        "  ↳ second query",
+        "  ↳ third query",
+    ]
+
+    pending.remove(second.client_message_id)
+    pending.remove(third.client_message_id)
+    pending.add(_submission("new turn steer"))
+
+    assert "Messages to be submitted after next tool call" in (
+        _fragments_text(pending.fragments(width=100))
+    )
+
+
 def test_rejected_steer_uses_end_of_turn_title() -> None:
     rejected = TuiRejectedSteers()
     rejected.append(_submission("continue next"))
