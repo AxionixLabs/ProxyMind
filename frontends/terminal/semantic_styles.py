@@ -17,6 +17,8 @@ from .palette import (
 from .probe import RgbColor
 
 _LIGHT_ACCENT_RGB: RgbColor = (0, 95, 135)
+_DARK_BRAND_RGB: RgbColor = (45, 212, 191)
+_LIGHT_BRAND_RGB: RgbColor = (0, 105, 92)
 
 
 class TerminalSemanticRole(str, Enum):
@@ -40,7 +42,7 @@ _ANSI_ROLE_COLORS: dict[TerminalSemanticRole, str | None] = {
     TerminalSemanticRole.SUCCESS: "ansigreen",
     TerminalSemanticRole.FAILURE: "ansired",
     TerminalSemanticRole.ATTENTION: "ansiyellow",
-    TerminalSemanticRole.BRAND: "ansimagenta",
+    TerminalSemanticRole.BRAND: "ansibrightcyan",
 }
 
 _RICH_ROLE_COLORS: dict[TerminalSemanticRole, str | None] = {
@@ -51,7 +53,7 @@ _RICH_ROLE_COLORS: dict[TerminalSemanticRole, str | None] = {
     TerminalSemanticRole.SUCCESS: "green",
     TerminalSemanticRole.FAILURE: "red",
     TerminalSemanticRole.ATTENTION: "yellow",
-    TerminalSemanticRole.BRAND: "magenta",
+    TerminalSemanticRole.BRAND: "bright_cyan",
 }
 
 
@@ -85,7 +87,7 @@ def semantic_role_for_ansi_color(value: str | None) -> TerminalSemanticRole | No
         "ansigreen": TerminalSemanticRole.SUCCESS,
         "ansired": TerminalSemanticRole.FAILURE,
         "ansiyellow": TerminalSemanticRole.ATTENTION,
-        "ansimagenta": TerminalSemanticRole.BRAND,
+        "ansibrightcyan": TerminalSemanticRole.BRAND,
     }.get(color)
 
 
@@ -172,7 +174,20 @@ def resolve_terminal_semantic_styles(
         )
         success_color = "ansigreen"
         failure_color = "ansired"
-        brand_color = "ansimagenta"
+        brand_color = "ansibrightcyan"
+        if (
+            level in {
+                TerminalColorLevel.TRUECOLOR,
+                TerminalColorLevel.ANSI256,
+            }
+            and tone is not TerminalThemeTone.UNKNOWN
+        ):
+            brand_rgb = (
+                _LIGHT_BRAND_RGB
+                if tone is TerminalThemeTone.LIGHT
+                else _DARK_BRAND_RGB
+            )
+            brand_color = best_color(brand_rgb, level) or "ansibrightcyan"
         if tone is TerminalThemeTone.DARK:
             attention_color = "ansiyellow"
 

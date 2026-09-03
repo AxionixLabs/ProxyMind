@@ -7,22 +7,27 @@ from frontends.terminal.color_support import (
     TerminalColorSupport,
 )
 from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
     TerminalThemeTone,
     resolve_terminal_semantic_styles,
+    semantic_role_for_ansi_color,
+    semantic_rich_style,
+    semantic_text_style,
 )
 
 
 @pytest.mark.parametrize(
-    ("level", "expected"),
+    ("level", "expected_accent", "expected_brand"),
     (
-        (TerminalColorLevel.TRUECOLOR, "#005F87"),
-        (TerminalColorLevel.ANSI256, "#005F87"),
-        (TerminalColorLevel.ANSI16, "ansicyan"),
+        (TerminalColorLevel.TRUECOLOR, "#005F87", "#00695C"),
+        (TerminalColorLevel.ANSI256, "#005F87", "#005F5F"),
+        (TerminalColorLevel.ANSI16, "ansicyan", "ansibrightcyan"),
     ),
 )
 def test_light_theme_uses_deep_cyan_accent(
     level: TerminalColorLevel,
-    expected: str,
+    expected_accent: str,
+    expected_brand: str,
 ) -> None:
     styles = resolve_terminal_semantic_styles(
         TerminalColorSupport.fixed(level),
@@ -31,15 +36,23 @@ def test_light_theme_uses_deep_cyan_accent(
     )
 
     assert styles.tone is TerminalThemeTone.LIGHT
-    assert styles.accent.foreground == expected
-    assert styles.selected.foreground == expected
+    assert styles.accent.foreground == expected_accent
+    assert styles.selected.foreground == expected_accent
+    assert styles.brand.foreground == expected_brand
 
 
 @pytest.mark.parametrize(
-    "level",
-    (TerminalColorLevel.TRUECOLOR, TerminalColorLevel.ANSI256, TerminalColorLevel.ANSI16),
+    ("level", "expected_brand"),
+    (
+        (TerminalColorLevel.TRUECOLOR, "#2DD4BF"),
+        (TerminalColorLevel.ANSI256, "#5FD7AF"),
+        (TerminalColorLevel.ANSI16, "ansibrightcyan"),
+    ),
 )
-def test_dark_theme_uses_terminal_ansi_semantics(level: TerminalColorLevel) -> None:
+def test_dark_theme_uses_terminal_ansi_semantics(
+    level: TerminalColorLevel,
+    expected_brand: str,
+) -> None:
     styles = resolve_terminal_semantic_styles(
         TerminalColorSupport.fixed(level),
         foreground=(255, 255, 255),
@@ -51,7 +64,7 @@ def test_dark_theme_uses_terminal_ansi_semantics(level: TerminalColorLevel) -> N
     assert styles.success.foreground == "ansigreen"
     assert styles.failure.foreground == "ansired"
     assert styles.attention.foreground == "ansiyellow"
-    assert styles.brand.foreground == "ansimagenta"
+    assert styles.brand.foreground == expected_brand
 
 
 def test_disabled_color_never_uses_fallback_color() -> None:
@@ -82,8 +95,19 @@ def test_unknown_color_level_uses_only_basic_ansi_semantics() -> None:
     assert styles.success.foreground == "ansigreen"
     assert styles.failure.foreground == "ansired"
     assert styles.attention.foreground == "ansiyellow"
+    assert styles.brand.foreground == "ansibrightcyan"
     assert styles.user_surface.background is None
     assert styles.selected_surface.background is None
+
+
+def test_brand_helpers_use_bright_cyan_semantics() -> None:
+    assert semantic_text_style(
+        TerminalSemanticRole.BRAND
+    ).foreground == "ansibrightcyan"
+    assert semantic_role_for_ansi_color(
+        "ansibrightcyan"
+    ) is TerminalSemanticRole.BRAND
+    assert semantic_rich_style(TerminalSemanticRole.BRAND) == "bright_cyan"
 
 
 def test_rich_dark_theme_resolves_surfaces_and_separator_once() -> None:

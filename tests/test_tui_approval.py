@@ -749,26 +749,29 @@ def test_light_terminal_uses_darkened_surface_and_readable_selection() -> None:
     )
     shortcut = style.get_attrs_for_style_str("class:approval-shortcut")
     model = style.get_attrs_for_style_str("class:footer.model")
+    brand = style.get_attrs_for_style_str("class:footer.brand")
     assert selected.color == "005F87"
     assert selected.bold
     assert shortcut.color == "default"
     assert model.color == "005F87"
+    assert brand.color == "00695C"
     assert style.get_attrs_for_style_str(
         "class:transcript.overlay.selection"
     ).color == "default"
 
 
 @pytest.mark.parametrize(
-    ("level", "selection_background", "reverse"),
+    ("level", "selection_background", "brand_color", "reverse"),
     (
-        (TerminalColorLevel.TRUECOLOR, "1F1F1F", False),
-        (TerminalColorLevel.ANSI256, "1C1C1C", False),
-        (TerminalColorLevel.ANSI16, "default", True),
+        (TerminalColorLevel.TRUECOLOR, "1F1F1F", "2DD4BF", False),
+        (TerminalColorLevel.ANSI256, "1C1C1C", "5FD7AF", False),
+        (TerminalColorLevel.ANSI16, "default", "ansibrightcyan", True),
     ),
 )
 def test_dark_terminal_uses_cyan_selection_semantics(
     level: TerminalColorLevel,
     selection_background: str,
+    brand_color: str,
     reverse: bool,
 ) -> None:
     style = build_tui_application_style(
@@ -788,9 +791,11 @@ def test_dark_terminal_uses_cyan_selection_semantics(
     transcript = style.get_attrs_for_style_str(
         "class:transcript.overlay.selection"
     )
+    brand = style.get_attrs_for_style_str("class:footer.brand")
 
     assert selected.color == "ansicyan"
     assert selected.bold
+    assert brand.color == brand_color
     assert transcript.bgcolor == selection_background
     assert transcript.color == "default"
     assert transcript.reverse is reverse
