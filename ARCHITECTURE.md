@@ -350,7 +350,8 @@ provider retry 在登记新 Attempt 的同一次归约中释放旧 Attempt 的�
 Turn 已结束，不得提前清除 `execution_active` 或触发 turn-finished 回调。结算期间的新输入必须进入
 可见的下一轮队列，不得作为 steer 发送，也不得进入尚无消费者的普通消息 handoff。两条路径都必须
 保留当前 Turn 的输入控制和执行门禁，并通过权威 `/turn/status` 等待 terminal 状态后再开放下一次
-`/mind-chat`；HTTP 回执、本地展示结束、任务取消或 SSE 关闭都不能替代该屏障。
+`/mind-chat`；terminal 状态快照携带的 `last_event_seq` 必须同步到 Protocol Client 持有的 Session
+水位，供下一 Turn 连续接流。HTTP 回执、本地展示结束、任务取消或 SSE 关闭都不能替代该屏障。
 
 正常模型等待和工具执行统一投影为单行 `Thinking`；工具名只在工具自身的展示单元中出现，
 不得追加到活动提示。后台终端数量由独立进程状态 owner 投影，

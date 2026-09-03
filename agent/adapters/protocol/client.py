@@ -424,7 +424,7 @@ class MindChatProtocolClient:
         sid: str,
         turn_id: str,
     ) -> TurnStatusSnapshot:
-        """读取服务端持久化 Turn 的权威状态快照。"""
+        """读取权威 Turn 状态，并用终态快照收敛 Session 事件水位。"""
         try:
             response = await _get_turn_status(
                 cid=cid,
@@ -450,7 +450,7 @@ class MindChatProtocolClient:
                 "protocol_command_validation_error",
                 str(error) or "turn status request is invalid",
             ) from error
-        return TurnStatusSnapshot(
+        snapshot = TurnStatusSnapshot(
             cid=response.cid,
             sid=response.sid,
             turn_id=response.turn_id,
@@ -464,6 +464,13 @@ class MindChatProtocolClient:
             updated_at=response.updated_at,
             error=response.error,
         )
+        if snapshot.terminal:
+            self._event_cursors.advance(
+                cid=snapshot.cid,
+                sid=snapshot.sid,
+                event_seq=snapshot.last_event_seq,
+            )
+        return snapshot
 
     async def fork_session(
         self,

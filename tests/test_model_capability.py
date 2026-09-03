@@ -597,6 +597,59 @@ async def test_protocol_client_reuses_settled_session_cursor(monkeypatch) -> Non
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("terminal", "expected_cursor"),
+    ((False, 0), (True, 8)),
+)
+async def test_protocol_client_reconciles_terminal_status_cursor(
+    monkeypatch,
+    terminal: bool,
+    expected_cursor: int,
+) -> None:
+    class RawStream:
+        end_reason = "cancelled"
+        last_event_seq = expected_cursor
+
+        def __aiter__(self):
+            return self._iterate()
+
+        async def _iterate(self):
+            if False:
+                yield None
+
+        async def aclose(self) -> None:
+            return None
+
+    get_turn_status = AsyncMock(return_value=SimpleNamespace(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_interrupted",
+        run_id="run_interrupted",
+        status="interrupted" if terminal else "running",
+        terminal=terminal,
+        attempt=1,
+        version=2,
+        last_event_seq=8,
+        created_at=1.0,
+        updated_at=2.0,
+        error="",
+    ))
+    stream_chat = Mock(return_value=RawStream())
+    monkeypatch.setattr(model_adapter, "_get_turn_status", get_turn_status)
+    monkeypatch.setattr(model_adapter, "stream_chat", stream_chat)
+    client = model_adapter.MindChatProtocolClient()
+
+    await client.get_turn_status(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_interrupted",
+    )
+    await client.stream(_request(turn_id="turn_next")).aclose()
+
+    assert stream_chat.call_args.kwargs["initial_event_seq"] == expected_cursor
+
+
+@pytest.mark.anyio
 async def test_protocol_stream_exposes_canonical_item_projection(monkeypatch) -> None:
     class RawStream:
         end_reason = None

@@ -770,6 +770,48 @@ async def test_multiple_retry_ids_restore_separately_in_fifo(
 
 
 @pytest.mark.anyio
+async def test_interrupt_reconciles_multiple_pending_steers_in_fifo(
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    async def retry(**kwargs):
+        return SimpleNamespace(
+            committed_ids=(),
+            pending_ids=(),
+            retry_ids=tuple(kwargs["client_message_ids"]),
+            unknown_ids=(),
+        )
+
+    protocol_client.reconcile_turn_inputs = AsyncMock(side_effect=retry)
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+    _mark_started(control)
+
+    assert control.submit(_submission("second query"), False)
+    assert control.submit(_submission("third query"), False)
+    while protocol_client.steer_turn.await_count < 2:
+        await asyncio.sleep(0)
+
+    control.request_interrupt()
+    await control.close()
+
+    second = await runtime.submissions.read_submission()
+    third = await runtime.submissions.read_submission()
+
+    assert second.client_message_id == "message_second_query"
+    assert third.client_message_id == "message_third_query"
+    protocol_client.interrupt_turn.assert_awaited_once()
+    protocol_client.get_turn_status.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_unknown_sent_steer_requires_manual_restore(
     protocol_client: ProtocolCommandClient,
 ) -> None:
