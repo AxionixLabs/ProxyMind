@@ -40,6 +40,84 @@ def _doctor_context(tmp_path, *, packaged: bool = False) -> DoctorContext:
     )
 
 
+def _darwin_doctor_context(tmp_path) -> DoctorContext:
+    """返回用于检查 macOS 内置工具的诊断上下文。"""
+    context = _doctor_context(tmp_path)
+    return DoctorContext(
+        platform="darwin",
+        entry_mode=context.entry_mode,
+        entry_root=context.entry_root,
+        home=context.home,
+        config_path=context.config_path,
+        supports=context.supports,
+        packaged=context.packaged,
+        runtime_spec=context.runtime_spec,
+    )
+
+
+def test_doctor_tools_cover_complete_shell_tool_layout() -> None:
+    assert doctor.DOCTOR_TOOLS == tuple(doctor.SHELL_TOOL_LAYOUT)
+
+
+@pytest.mark.parametrize("tool", doctor.DOCTOR_TOOLS)
+def test_tool_check_accepts_each_clean_bundled_tool(
+    monkeypatch,
+    tmp_path,
+    tool,
+) -> None:
+    context = _darwin_doctor_context(tmp_path)
+    folder_name, command_name = doctor.SHELL_TOOL_LAYOUT[tool]
+    executable = context.supports / folder_name / command_name
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"binary")
+    executable.chmod(0o755)
+    monkeypatch.setattr(
+        doctor,
+        "macos_path_has_quarantine",
+        lambda _path: False,
+    )
+
+    check = doctor._tool_check(context, tool)
+
+    assert check.key == f"tool.{tool}"
+    assert check.status == "pass"
+    assert check.summary == "bundled"
+
+
+def test_tool_check_rejects_quarantined_macos_binary(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    context = _darwin_doctor_context(tmp_path)
+    executable = context.supports / "jq" / "jq"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"binary")
+    executable.chmod(0o755)
+    monkeypatch.setattr(
+        doctor,
+        "macos_path_has_quarantine",
+        lambda _path: True,
+    )
+
+    check = doctor._tool_check(context, "jq")
+
+    assert check.status == "fail"
+    assert check.summary == "bundled executable is quarantined"
+
+
+def test_tool_check_rejects_non_executable_bundled_tool(tmp_path) -> None:
+    context = _darwin_doctor_context(tmp_path)
+    executable = context.supports / "yq" / "yq"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"binary")
+    executable.chmod(0o644)
+
+    check = doctor._tool_check(context, "yq")
+
+    assert check.status == "fail"
+    assert check.summary == "bundled executable is not executable"
+
+
 def test_doctor_does_not_create_missing_home(tmp_path) -> None:
     context = _doctor_context(tmp_path)
 

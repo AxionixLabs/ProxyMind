@@ -24,6 +24,8 @@ from rich.progress import (
 from rich.text import Text
 
 from infrastructure.errors import AppError
+from infrastructure.platform.macos_security import remove_macos_quarantine_tree
+from infrastructure.platform.shell_tools import SHELL_TOOL_LAYOUT
 from infrastructure.platform.terminal import Terminal
 from metadata import const
 
@@ -275,23 +277,41 @@ async def rename_so_files(ops: str, target: Path) -> None:
             compile_log(f"[✓] Renamed {file.name} → {new_name}")
 
 
-async def authorized_tools(ops: str, *args: Path, **__) -> None:
-    """
-    检查目录下的所有文件是否具备执行权限，如果文件没有执行权限，则自动添加 +x 权限。
-    """
+async def prepare_macos_bundle_assets(
+    ops: str,
+    bundle: Path,
+    executables: tuple[Path, ...],
+) -> None:
+    """清理 macOS 构建产物的隔离属性并规范化入口权限。"""
     if ops != "darwin":
         return None
 
-    for resp in (ensure := [
-        ["chmod", "-R", "+x", arg.as_posix()] if arg.is_dir() else [
-            "chmod", "+x", arg.as_posix()] for arg in args
-    ]):
-        compile_log(f"[!] Authorizing {resp}")
+    if not bundle.is_dir():
+        raise AppError(f"macOS 应用目录不存在: {bundle}")
 
-    for resp in await asyncio.gather(
-        *(Terminal.cmd_line(kit) for kit in ensure)
-    ):
-        compile_log(f"[!] Authorize resp={resp}")
+    missing = tuple(path for path in executables if not path.is_file())
+    if missing:
+        detail = ", ".join(str(path) for path in missing)
+        raise AppError(f"macOS 可执行文件缺失: {detail}")
+
+    try:
+        await asyncio.to_thread(
+            remove_macos_quarantine_tree,
+            bundle,
+        )
+        await asyncio.gather(*(
+            asyncio.to_thread(path.chmod, 0o755)
+            for path in executables
+        ))
+    except OSError as error:
+        raise AppError(
+            f"无法规范化 macOS 应用资源 {bundle}: {error}"
+        ) from error
+
+    compile_log(
+        f"[✓] macOS assets normalized: quarantine=removed, "
+        f"executables={len(executables)}"
+    )
 
 
 async def edit_plist_fields(ops: str, app: Path, updates: dict[str, str]) -> None:
@@ -337,11 +357,33 @@ async def report_binary_info(command: list[str]) -> None:
 SANDBOX_RUNTIME_ASSETS = {
     "win32": (
         "mind_sandbox_server.exe",
-        "codex-command-runner.exe",
-        "codex-windows-sandbox-setup.exe",
+        "mind-command-runner.exe",
+        "mind-windows-sandbox-setup.exe",
     ),
     "darwin": ("mind_sandbox_server",),
 }
+
+
+def macos_bundle_executables(
+    target: Path,
+    launcher: Path,
+) -> tuple[Path, ...]:
+    """返回 macOS 应用中必须具备执行权限的固定入口。"""
+    supports = target / const.SCHEMATIC / const.SUPPORTS / "macos"
+    sandbox = target / const.SCHEMATIC / "sandbox" / "macos" / "bin"
+    shell_tools = tuple(
+        supports / folder_name / command_name
+        for folder_name, command_name in SHELL_TOOL_LAYOUT.values()
+    )
+
+    return (
+        target / const.APP_NAME,
+        target / launcher.name,
+        *shell_tools,
+        supports / "ast-grep" / "sg",
+        supports / "helix.app" / "Contents" / "MacOS" / "helix",
+        sandbox / SANDBOX_RUNTIME_ASSETS["darwin"][0],
+    )
 
 
 def validate_sidecar_assets(ops: str, sandbox: Path) -> tuple[Path, ...]:
@@ -513,16 +555,11 @@ async def post_build() -> None:
                     src, dst, dirs_exist_ok=True) if src.is_dir() else shutil.copy2(src, dst)
                 progress.advance(task)
 
-        # Notes: ==== macOS Only ====
-        authorization_targets = [
-            target / schematic.name / kit,
-            target / const.APP_NAME,
-            target / launch[0].name,
-        ]
-        sandbox_target = target / schematic.name / "sandbox" / support
-        if sandbox_target.is_dir():
-            authorization_targets.append(sandbox_target)
-        await authorized_tools(ops, *authorization_targets)
+        await prepare_macos_bundle_assets(
+            ops,
+            target.parent.parent,
+            macos_bundle_executables(target, launch[0]),
+        )
 
         await rename_sensitive(*rename)
 

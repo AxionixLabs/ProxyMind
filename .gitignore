@@ -45,7 +45,6 @@ htmlcov/
 Thumbs.db
 
 # 项目本地生成内容
-.playwright-mcp/
 applications/
 backend/requires/
 backend/data/
@@ -54,8 +53,7 @@ schematic/supports/
 Structure/
 website/mind/site/
 website/mind/pages/generated/*.md
-/.mind/hook-events.jsonl
 
-# 沙箱发布产物按平台生成，源码仍位于 codex-main/codex-rs
+# 沙箱发布产物
 /schematic/sandbox
-codex-main/
+/codex-main/

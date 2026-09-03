@@ -26,8 +26,8 @@ _PLATFORM_DIRECTORIES = {
 }
 
 _EXECUTABLE_NAMES = {
-    "win32": ("mind_sandbox_server.exe", "mind-sandbox-server.exe"),
-    "darwin": ("mind_sandbox_server", "mind-sandbox-server"),
+    "win32": ("mind_sandbox_server.exe",),
+    "darwin": ("mind_sandbox_server",),
 }
 
 

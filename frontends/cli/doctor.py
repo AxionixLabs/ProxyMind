@@ -24,16 +24,17 @@ from infrastructure.config.paths import (
 )
 from infrastructure.config.runtime_paths import (
     application_config_path,
-    application_home
+    application_home,
 )
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from infrastructure.errors import AppError
 from infrastructure.mcp.settings import normalize_mcp_servers
+from infrastructure.platform.macos_security import macos_path_has_quarantine
 from infrastructure.platform.shell_tools import (
     SHELL_TOOL_LAYOUT,
-    executable_name
+    executable_name,
 )
 from infrastructure.services.runtime_context import ServiceRuntimeSpec
 from infrastructure.services.runtime_setup import resolve_service_runtime
@@ -44,7 +45,7 @@ from .selection import resolve_cli_output_mode
 
 DoctorStatus = typing.Literal["pass", "warn", "fail"]
 MINIMUM_PYTHON = (3, 11)
-DOCTOR_TOOLS = ("rg", "jq", "ast-grep")
+DOCTOR_TOOLS = tuple(SHELL_TOOL_LAYOUT)
 
 
 @dataclass(frozen=True, slots=True)
@@ -407,6 +408,33 @@ def _tool_check(context: DoctorContext, tool: str) -> DoctorCheck:
 
     bundled = context.supports / folder_name / executable_name(command_name)
     if bundled.is_file():
+        if not os.access(bundled, os.X_OK):
+            return DoctorCheck(
+                f"tool.{tool}",
+                tool,
+                "fail",
+                "bundled executable is not executable",
+                str(bundled),
+            )
+        if context.platform == "darwin":
+            try:
+                quarantined = macos_path_has_quarantine(bundled)
+            except OSError as error:
+                return DoctorCheck(
+                    f"tool.{tool}",
+                    tool,
+                    "warn",
+                    "unable to inspect macOS quarantine",
+                    f"{bundled}: {error}",
+                )
+            if quarantined:
+                return DoctorCheck(
+                    f"tool.{tool}",
+                    tool,
+                    "fail",
+                    "bundled executable is quarantined",
+                    str(bundled),
+                )
         return DoctorCheck(
             f"tool.{tool}",
             tool,
