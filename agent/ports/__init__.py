@@ -144,6 +144,7 @@ from .output import (
     OutputSessionFactory,
     OutputSurfaceContext,
     PassiveOutputActivity,
+    PresentationSuperseded,
     RecoveryActivityMode,
     RecoveryChanged,
     RetryActivitySource,
@@ -412,6 +413,7 @@ __all__ = (
     "OutputSessionFactory",
     "OutputSurfaceContext",
     "PassiveOutputActivity",
+    "PresentationSuperseded",
     "RecoveryActivityMode",
     "RecoveryChanged",
     "ResponseIdentity",
@@ -477,7 +479,3 @@ __all__ = (
     "HookStatusPort",
     "HookSessionCleanup",
 )
-
-
-if __name__ == '__main__':
-    pass

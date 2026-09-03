@@ -12,6 +12,3 @@ __all__ = (
     "TranscriptReader",
     "TranscriptWriter",
 )
-
-if __name__ == '__main__':
-    pass

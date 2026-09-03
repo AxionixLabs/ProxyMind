@@ -11,6 +11,7 @@ from agent.ports import (
     ModelWaitRequested,
     OutputActivityPort,
     OutputSurfaceContext,
+    PresentationSuperseded,
     RecoveryActivityMode,
     RecoveryChanged,
     ResponseIdentity,
@@ -126,6 +127,19 @@ class TurnActivityProjector:
             **self._scope(),
             identity=identity,
             item_id=item_id,
+        ))
+
+    async def presentation_superseded(
+        self,
+        *,
+        superseded_epoch: int,
+        presentation_epoch: int,
+    ) -> None:
+        """登记 Worker 展示代次的确定替换边界。"""
+        await self.activity.emit(PresentationSuperseded(
+            **self._scope(),
+            superseded_epoch=superseded_epoch,
+            presentation_epoch=presentation_epoch,
         ))
 
     async def tool_batch_started(self, batch_id: str) -> None:
@@ -358,11 +372,11 @@ class TurnActivityProjector:
             if self._terminal_status != status:
                 raise ValueError("turn terminal status conflicts with existing state")
             return None
-        self._terminal_status = status
         await self.activity.emit(TurnTerminal(
             **self._scope(),
             status=status,
         ))
+        self._terminal_status = status
 
     async def logical_settled(self) -> None:
         """登记 Turn 的逻辑交互已完成结算。"""

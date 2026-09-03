@@ -299,7 +299,7 @@ protocol / harness fact
   -> one TUI foreground projection
 ```
 
-`OutputActivityEvent` 使用正式身份表达 model wait、assistant 可见性、工具批次和调用、后台
+`OutputActivityEvent` 使用正式身份表达 model wait、assistant 可见性、展示代次替换、工具批次和调用、后台
 终端、审批、provider/transport retry、恢复水位、Turn 终态与逻辑结算。Reducer 是无 IO 的
 纯状态转换；Coordinator 是 generation timer、tool/approval lease、replay 抑制和画面投影的
 唯一 owner。协议 adapter、工具执行器、审批协调器和终结器不得直接开始、结束或延迟 TUI
@@ -309,6 +309,10 @@ protocol / harness fact
 `visual_update()` 中撤下活动提示并提交正文，避免等待动画、空白帧和 assistant 正文同时出现。
 `AssistantSettled` 只允许 Coordinator 按本地策略安排后续等待；Turn 终态会同步清空 timer、
 retry、工具和审批 lease，`turn.logical_settled` 只结束逻辑输入边界，不重新解释视觉终态。
+provider retry 在登记新 Attempt 的同一次归约中释放旧 Attempt 的正文所有权；
+`PresentationSuperseded` 使旧 epoch 的正文、等待和 retry 失效，迟到旧事件不得重新取得画面。
+同步正文帧可以抢占正在等待的异步投影，Coordinator 必须按 reducer revision 撤销陈旧结果，
+不得以锁冲突使 Turn 失败。
 
 审批卡、菜单和其他独占交互表面只拥有焦点、选择和布局遮挡。它们可以暂时隐藏活动区域，
 但不修改 reducer 状态；交互结束后由后续 typed fact 或现有 projection 决定可见内容。后台终端
@@ -316,7 +320,9 @@ retry、工具和审批 lease，`turn.logical_settled` 只结束逻辑输入边�
 TUI terminal wait 控制面。
 
 attach/replay 期间，历史事件只归约状态，不启动瞬时 timer。追平权威水位后 Coordinator 只
-投影一次最终快照；内部 gap 进入对账展示，不能降级为普通 Thinking。`OutputSession.close()`
+投影一次最终快照；内部 gap 进入对账展示，不能降级为普通 Thinking。`OutputSession` 只有在
+activity 和输出控制均成功打开后才可接收终态或失败投影；打开失败先收束已经取得的资源。
+`OutputSession.close()`
 先停止输出资源，再关闭 activity scope；两步均幂等，任一步失败都必须继续清理另一项。text、
 JSONL、silent、stdio MCP 和 Subagent 使用相同会话契约，并以 `PassiveOutputActivity` 明确表示
 没有活动画面，而不是实现空状态 facade。

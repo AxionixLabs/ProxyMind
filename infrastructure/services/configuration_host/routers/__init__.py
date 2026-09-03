@@ -15,7 +15,3 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(agent_router)
     app.include_router(pref_router)
     app.include_router(service_router)
-
-
-if __name__ == "__main__":
-    pass

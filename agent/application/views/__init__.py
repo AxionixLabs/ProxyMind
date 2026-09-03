@@ -102,6 +102,3 @@ __all__ = (
     "tool_display_spec",
     "uses_native_tool_view",
 )
-
-if __name__ == '__main__':
-    pass

@@ -191,6 +191,8 @@ async def stream_turn(
 
     async def project_terminal_activity() -> None:
         """在稳定终态内容上屏前幂等收敛当前 Turn 的活动展示。"""
+        if not output_session.is_open:
+            return None
         if activity_projector.terminal_status is not None:
             return None
         await activity_projector.turn_terminal(
@@ -634,8 +636,9 @@ async def stream_turn(
             details=error.details,
         )
 
-        await project_terminal_activity()
-        await run_presentation.emit_failure("turn.failed")
+        if output_session.is_open:
+            await project_terminal_activity()
+            await run_presentation.emit_failure("turn.failed")
 
     except asyncio.CancelledError:
         outcome.interrupt()
@@ -664,8 +667,9 @@ async def stream_turn(
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
 
-        await project_terminal_activity()
-        await run_presentation.emit_failure("turn.failed")
+        if output_session.is_open:
+            await project_terminal_activity()
+            await run_presentation.emit_failure("turn.failed")
 
     else:
         outcome.settle_stream()

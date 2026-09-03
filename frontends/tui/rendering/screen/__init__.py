@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .geometry import AuxiliaryPaneLayout, OverlayLayout
+from .geometry import (
+    AuxiliaryPaneLayout,
+    OverlayLayout,
+)
 from .layout import (
     allocate_approval_view_layout,
     allocate_auxiliary_pane_layout,
@@ -19,6 +22,3 @@ __all__ = [
     "measure_composer_layout",
     "measure_overlay_layout",
 ]
-
-if __name__ == '__main__':
-    pass

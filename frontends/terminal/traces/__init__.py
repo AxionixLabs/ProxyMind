@@ -84,6 +84,3 @@ __all__ = [
     "render_tool_trace",
     "render_tool_trace_parts"
 ]
-
-if __name__ == '__main__':
-    pass

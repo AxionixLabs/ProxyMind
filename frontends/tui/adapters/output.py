@@ -32,7 +32,7 @@ from ..core.assistant import TuiAssistantStream
 from ..core.document import (
     TranscriptCellSource,
     TuiBlockKind,
-    WidthBlockRenderer
+    WidthBlockRenderer,
 )
 from ..core.models import (
     FormattedText,

@@ -16,6 +16,3 @@ __all__ = (
     "SteeringMessageDelivery",
     "StreamSubagentExecution",
 )
-
-if __name__ == '__main__':
-    pass

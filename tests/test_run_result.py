@@ -26,6 +26,7 @@ from agent.ports import (
     AssistantSegmentCompleted,
     AssistantTextDelta,
     LogicalSettled,
+    PresentationSuperseded,
     RecoveryChanged,
     RetryChanged,
     ResponseIdentity,
@@ -235,8 +236,12 @@ def response_identity(
 
 
 class _OutputControl(object):
+    def __init__(self, *, open_error: Exception | None = None) -> None:
+        self.open_error = open_error
+
     async def open(self) -> None:
-        return None
+        if self.open_error is not None:
+            raise self.open_error
 
     async def stop(self, *, blink: bool = True) -> None:
         _ = blink
@@ -296,10 +301,11 @@ def _output_session(
     context: OutputSurfaceContext,
     *,
     show_hook_lifecycle: bool = False,
+    control: _OutputControl | None = None,
 ) -> OutputSession:
     return OutputSession(
         context=context,
-        control=_OutputControl(),
+        control=control or _OutputControl(),
         activity=_ActivitySink(),
         content=_Sink(),
         presentation=_Sink(),
@@ -543,6 +549,7 @@ async def _run_stream(
     permissions: PermissionSettings | None = None,
     effect_journal=None,
     environment_snapshot: dict[str, typing.Any] | None = None,
+    output_control: _OutputControl | None = None,
 ) -> tuple[RunResult, SimpleNamespace]:
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
@@ -792,6 +799,7 @@ async def _run_stream(
         output_session = _output_session(
             context,
             show_hook_lifecycle=show_hook_lifecycle,
+            control=output_control,
         )
         mind.output_session = output_session
         return output_session
@@ -1124,6 +1132,25 @@ async def test_stream_persists_named_model_capability_failure(monkeypatch) -> No
         error_code="model_transport_timeout",
         error_details={"exception_type": "TimeoutError"},
     )
+
+
+@pytest.mark.anyio
+async def test_output_open_failure_does_not_enter_closed_activity_surface(
+    monkeypatch,
+) -> None:
+    result, mind = await _run_stream(
+        monkeypatch,
+        [],
+        output_control=_OutputControl(
+            open_error=RuntimeError("output control open failed")
+        ),
+    )
+
+    assert result.status == "failed"
+    assert result.error == "RuntimeError: output control open failed"
+    assert not mind.output_session.is_open
+    assert mind.output_session.activity.items == []
+    assert mind.output_session.presentation.items == []
 
 
 @pytest.mark.anyio
@@ -1556,6 +1583,12 @@ async def test_stream_auto_reconciles_known_effect_and_completes_new_attempt(
         and item.phase == "turn.reconciliation_required"
         for item in mind.output_session.presentation.items
     )
+    assert PresentationSuperseded(
+        surface_id=mind.output_session.context.surface_id,
+        turn_id="turn_test",
+        superseded_epoch=1,
+        presentation_epoch=2,
+    ) in mind.output_session.activity.items
 
 
 @pytest.mark.anyio

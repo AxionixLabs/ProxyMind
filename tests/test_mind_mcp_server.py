@@ -367,11 +367,14 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
         reason="mcp_tool_call",
         source="mcp_server",
     )
+    turn_id = turn_runner.await_args.kwargs["turn_id"]
+    assert isinstance(turn_id, str) and len(turn_id) == 12
     turn_runner.assert_awaited_once_with(
         mind,
         message="inspect",
         exec_env={"snapshot_id": "envsnap_mcp"},
         permissions=PermissionSettings("read-only", "on-request"),
+        turn_id=turn_id,
     )
 
 
@@ -443,13 +446,24 @@ async def test_mind_mcp_runtime_submits_typed_command_to_application(
     assert application.command.environment_snapshot_value() == {
         "snapshot_id": "envsnap_mcp",
     }
-    assert application.command.extras_value() == {
+    extras = application.command.extras_value()
+    assert extras is not None
+    turn_id = extras.pop("turn_id")
+    assert isinstance(turn_id, str) and len(turn_id) == 12
+    assert extras == {
         "working_directory": str(tmp_path.resolve()),
         "sandbox_mode": "read-only",
-            "approval_policy": "on-request",
-            "approvals_reviewer": "user",
-            "network_access": "restricted",
-        }
+        "approval_policy": "on-request",
+        "approvals_reviewer": "user",
+        "network_access": "restricted",
+    }
+    assert application.command.to_dict()["trace_context"] == {
+        "remote_turn": {
+            "cid": metadata["cid"],
+            "sid": metadata["sid"],
+            "turn_id": turn_id,
+        },
+    }
     assert actual.run.assistant_text == "done"
     assert actual.to_dict()["assistant_text"] == "projected"
     await runtime.close()
@@ -483,11 +497,14 @@ async def test_mind_mcp_runtime_uses_default_permissions(tmp_path) -> None:
         working_directory=str(tmp_path),
     )
 
+    turn_id = turn_runner.await_args.kwargs["turn_id"]
+    assert isinstance(turn_id, str) and len(turn_id) == 12
     turn_runner.assert_awaited_once_with(
         mind,
         message="inspect",
         exec_env={"snapshot_id": "envsnap_mcp"},
         permissions=PermissionSettings("workspace-write", "on-request"),
+        turn_id=turn_id,
     )
 
 

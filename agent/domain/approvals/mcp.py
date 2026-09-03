@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 from .models import (
     McpApprovalMode,
@@ -13,11 +13,11 @@ def mcp_approval_risk(
     annotations: McpToolAnnotations,
 ) -> McpApprovalRisk:
     """按保守优先级把 MCP 注解归约为单一展示风险。"""
-    if annotations.destructive_hint is True:
+    if annotations.destructive_hint:
         return McpApprovalRisk.DESTRUCTIVE
-    if annotations.open_world_hint is True:
+    if annotations.open_world_hint:
         return McpApprovalRisk.OPEN_WORLD
-    if annotations.read_only_hint is True:
+    if annotations.read_only_hint:
         return McpApprovalRisk.READ_ONLY
     if (
         annotations.destructive_hint is False
@@ -38,7 +38,7 @@ def mcp_requires_approval(descriptor: McpToolDescriptor) -> bool:
         return descriptor.annotations.read_only_hint is not True
 
     annotations = descriptor.annotations
-    if annotations.read_only_hint is True:
+    if annotations.read_only_hint:
         return False
     return (
         annotations.destructive_hint is not False

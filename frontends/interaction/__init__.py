@@ -14,6 +14,3 @@ __all__ = (
     "NonInteractiveInteraction",
     "PromptContext",
 )
-
-if __name__ == '__main__':
-    pass

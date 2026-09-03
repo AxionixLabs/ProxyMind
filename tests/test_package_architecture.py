@@ -1428,6 +1428,8 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         for path in target_root.glob("*.py")
     } == {
         "__init__.py",
+        "approval.py",
+        "approval_policy.py",
         "composite_session.py",
         "errors.py",
         "external_group.py",
@@ -5411,6 +5413,7 @@ def test_presentation_output_has_no_legacy_package_or_imports() -> None:
         "OutputSessionFactory",
         "OutputSurfaceContext",
         "PassiveOutputActivity",
+        "PresentationSuperseded",
         "RecoveryChanged",
         "RetryChanged",
         "SurfaceClosed",

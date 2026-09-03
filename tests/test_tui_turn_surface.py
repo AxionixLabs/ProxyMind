@@ -17,6 +17,7 @@ from agent.ports import (
     OutputSession,
     OutputSurfaceContext,
     PassiveOutputActivity,
+    PresentationSuperseded,
     RecoveryChanged,
     ResponseIdentity,
     RetryChanged,
@@ -211,14 +212,15 @@ def test_reducer_suppresses_replay_and_restores_latest_projection() -> None:
         mode="replaying",
         event_seq=8,
     ))
-    state = reduce_turn_surface(state, RetryChanged(
+    retry_started = RetryChanged(
         **_scope(context),
         source="provider",
         state="started",
         presentation_epoch=1,
         round=1,
         attempt=2,
-    ))
+    )
+    state = reduce_turn_surface(state, retry_started)
 
     assert project_turn_surface(state).indicator == "hidden"
 
@@ -234,6 +236,91 @@ def test_reducer_suppresses_replay_and_restores_latest_projection() -> None:
         event_seq=7,
     )
     assert reduce_turn_surface(state, stale) is state
+
+
+def test_provider_retry_atomically_releases_superseded_visible_content() -> None:
+    context = _context()
+    state = _active_state(context)
+    identity = _identity()
+    buffered = AssistantBuffered(
+        **_scope(context),
+        identity=identity,
+        item_id="item_attempt_1",
+    )
+    visible = AssistantVisible(
+        **_scope(context),
+        identity=identity,
+        item_id="item_attempt_1",
+    )
+    state = reduce_turn_surface(state, buffered)
+    state = reduce_turn_surface(state, visible)
+
+    retry_started = RetryChanged(
+        **_scope(context),
+        source="provider",
+        state="started",
+        presentation_epoch=1,
+        round=1,
+        attempt=2,
+    )
+    state = reduce_turn_surface(state, retry_started)
+
+    assert state.content == "none"
+    assert state.visible_item is None
+    assert project_turn_surface(state).indicator == "retrying"
+    assert reduce_turn_surface(state, visible) is state
+    state = reduce_turn_surface(state, RetryChanged(
+        **_scope(context),
+        source="provider",
+        state="completed",
+        presentation_epoch=1,
+        round=1,
+        attempt=2,
+    ))
+    assert reduce_turn_surface(state, retry_started) is state
+
+
+def test_presentation_supersede_rejects_late_old_epoch_content() -> None:
+    context = _context()
+    state = _active_state(context)
+    identity = _identity()
+    buffered = AssistantBuffered(
+        **_scope(context),
+        identity=identity,
+        item_id="item_epoch_1",
+    )
+    visible = AssistantVisible(
+        **_scope(context),
+        identity=identity,
+        item_id="item_epoch_1",
+    )
+    state = reduce_turn_surface(state, buffered)
+    state = reduce_turn_surface(state, visible)
+    replacement = PresentationSuperseded(
+        **_scope(context),
+        superseded_epoch=1,
+        presentation_epoch=2,
+    )
+    state = reduce_turn_surface(state, replacement)
+
+    assert state.content == "none"
+    assert project_turn_surface(state).indicator == "hidden"
+    assert reduce_turn_surface(state, visible) is state
+    assert reduce_turn_surface(state, replacement) is state
+
+    with pytest.raises(ValueError, match="identity was reused"):
+        reduce_turn_surface(state, PresentationSuperseded(
+            **_scope(context),
+            superseded_epoch=1,
+            presentation_epoch=3,
+        ))
+
+    state = reduce_turn_surface(state, ModelWaitRequested(
+        **_scope(context),
+        revision=1,
+        reason="server_thinking",
+    ))
+    assert project_turn_surface(state).indicator == "thinking"
 
 
 @pytest.mark.anyio
@@ -276,6 +363,56 @@ async def test_coordinator_cancels_stale_generation_and_closes_scope() -> None:
             revision=2,
             reason="initial",
         ))
+
+
+@pytest.mark.anyio
+async def test_visible_content_supersedes_an_inflight_async_projection() -> None:
+    context = _context(surface_id="surface_projection_race")
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    block_thinking = asyncio.Event()
+    projections: list[SurfaceProjection] = []
+
+    async def apply(projection: SurfaceProjection) -> None:
+        if block_thinking.is_set() and projection.indicator == "thinking":
+            entered.set()
+            await release.wait()
+        projections.append(projection)
+
+    def apply_immediate(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(
+        context,
+        apply,
+        apply_immediate_projection=apply_immediate,
+    )
+    identity = _identity()
+    await coordinator.open()
+    await coordinator.emit(AssistantBuffered(
+        **_scope(context),
+        identity=identity,
+        item_id="item_answer",
+    ))
+    block_thinking.set()
+    pending = asyncio.create_task(coordinator.emit(ModelWaitRequested(
+        **_scope(context),
+        revision=1,
+        reason="initial",
+    )))
+    await entered.wait()
+
+    coordinator.emit_assistant_visible(AssistantVisible(
+        **_scope(context),
+        identity=identity,
+        item_id="item_answer",
+    ))
+    release.set()
+    await pending
+
+    assert coordinator.state.content == "visible"
+    assert projections[-1].indicator == "hidden"
+    await coordinator.close()
 
 
 @pytest.mark.anyio
@@ -448,16 +585,20 @@ class _LifecyclePort:
         operations: list[str],
         name: str,
         *,
+        open_error: Exception | None = None,
         close_error: Exception | None = None,
         stop_error: Exception | None = None,
     ) -> None:
         self.operations = operations
         self.name = name
+        self.open_error = open_error
         self.close_error = close_error
         self.stop_error = stop_error
 
     async def open(self) -> None:
         self.operations.append(f"{self.name}.open")
+        if self.open_error is not None:
+            raise self.open_error
 
     async def close(self) -> None:
         self.operations.append(f"{self.name}.close")
@@ -494,6 +635,59 @@ async def test_output_session_owns_idempotent_resource_lifecycle() -> None:
         "control.stop:False",
         "activity.close",
     ]
+
+
+@pytest.mark.anyio
+async def test_output_session_open_failure_closes_activity_and_stays_unavailable() -> None:
+    operations: list[str] = []
+    activity = _LifecyclePort(operations, "activity")
+    control = _LifecyclePort(
+        operations,
+        "control",
+        open_error=RuntimeError("control open failed"),
+    )
+    session = OutputSession(
+        context=_context(),
+        activity=activity,
+        control=control,
+        content=PassiveOutputActivity(),
+        presentation=PassiveOutputActivity(),
+    )
+
+    with pytest.raises(RuntimeError, match="control open failed"):
+        await session.open()
+
+    assert not session.is_open
+    assert operations == [
+        "activity.open",
+        "control.open",
+        "activity.close",
+    ]
+
+
+@pytest.mark.anyio
+async def test_terminal_projection_is_recorded_only_after_activity_accepts_it() -> None:
+    context = _context(surface_id="surface_terminal_retry")
+
+    class Activity(_LifecyclePort):
+        def __init__(self) -> None:
+            super().__init__([], "activity")
+            self.fail = True
+
+        async def emit(self, event) -> None:
+            if self.fail:
+                self.fail = False
+                raise RuntimeError("terminal projection failed")
+
+    activity = Activity()
+    projector = TurnActivityProjector(context, activity)
+
+    with pytest.raises(RuntimeError, match="terminal projection failed"):
+        await projector.turn_terminal("failed")
+    assert projector.terminal_status is None
+
+    await projector.turn_terminal("failed")
+    assert projector.terminal_status == "failed"
 
 
 @pytest.mark.anyio

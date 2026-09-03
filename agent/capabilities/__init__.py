@@ -24,6 +24,3 @@ __all__ = (
     "LocalFilesystemCapability",
     "LocalProcessCapability",
 )
-
-if __name__ == '__main__':
-    pass

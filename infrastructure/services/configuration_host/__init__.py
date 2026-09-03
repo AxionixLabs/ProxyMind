@@ -8,6 +8,3 @@ __all__ = [
     "ConfigServiceAddress",
     "ConfigServiceRuntime",
 ]
-
-if __name__ == "__main__":
-    pass

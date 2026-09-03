@@ -48,6 +48,3 @@ __all__ = (
     "normalize_sandbox_permission",
     "validate_sandbox_permission_arguments",
 )
-
-if __name__ == '__main__':
-    pass

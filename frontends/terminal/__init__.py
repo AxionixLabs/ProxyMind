@@ -12,6 +12,3 @@ __all__ = [
     "TerminalDownloadProgress",
     "TerminalDownloadRenderer",
 ]
-
-if __name__ == '__main__':
-    pass

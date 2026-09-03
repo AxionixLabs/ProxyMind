@@ -20,6 +20,3 @@ __all__ = (
     "TITLE_MAX_CHARS",
     "normalize_workspace",
 )
-
-if __name__ == '__main__':
-    pass

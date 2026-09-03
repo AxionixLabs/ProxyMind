@@ -12,6 +12,3 @@ __all__ = (
     "McpRuntimeFactory",
     "McpRuntimeOwner",
 )
-
-if __name__ == '__main__':
-    pass

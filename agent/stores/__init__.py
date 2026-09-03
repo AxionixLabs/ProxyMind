@@ -46,6 +46,3 @@ __all__ = (
     "SQLiteRunStore",
     "format_mailbox_context",
 )
-
-if __name__ == '__main__':
-    pass

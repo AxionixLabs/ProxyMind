@@ -84,7 +84,3 @@ __all__ = (
     "validate_decision_kind",
     "validate_decision",
 )
-
-
-if __name__ == '__main__':
-    pass

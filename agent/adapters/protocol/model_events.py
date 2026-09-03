@@ -193,6 +193,10 @@ class ModelStreamEventHandler:
             superseded_epoch=event.superseded_epoch,
             presentation_epoch=event.presentation_epoch,
         ))
+        await self.activity.presentation_superseded(
+            superseded_epoch=event.superseded_epoch,
+            presentation_epoch=event.presentation_epoch,
+        )
 
     async def _handle_text_done(
         self,

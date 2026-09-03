@@ -32,6 +32,3 @@ __all__ = (
     "FINAL_AGENT_STATUSES",
     "RESTART_INTERRUPTION_ERROR",
 )
-
-if __name__ == '__main__':
-    pass

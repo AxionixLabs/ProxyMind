@@ -42,6 +42,7 @@ __all__ = (
     "OutputSessionFactory",
     "OutputSurfaceContext",
     "PassiveOutputActivity",
+    "PresentationSuperseded",
     "RecoveryActivityMode",
     "RecoveryChanged",
     "RetryActivitySource",
@@ -203,6 +204,24 @@ class AssistantVisible(_AssistantActivityEvent):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AssistantSettled(_AssistantActivityEvent):
     """描述 assistant 正文段已经稳定。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PresentationSuperseded(_ScopedActivityEvent):
+    """描述旧展示代次已被新的 Worker 展示代次替代。"""
+
+    superseded_epoch: int
+    presentation_epoch: int
+
+    def __post_init__(self) -> None:
+        """校验展示代次只能单调替代。"""
+        _ScopedActivityEvent.__post_init__(self)
+        for field_name in ("superseded_epoch", "presentation_epoch"):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"presentation {field_name} must be positive")
+        if self.presentation_epoch <= self.superseded_epoch:
+            raise ValueError("presentation epoch must advance")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -392,6 +411,7 @@ OutputActivityEvent: typing.TypeAlias = (
     | AssistantBuffered
     | AssistantVisible
     | AssistantSettled
+    | PresentationSuperseded
     | ToolBatchStarted
     | ToolBatchCompleted
     | ToolStarted
@@ -618,6 +638,11 @@ class OutputSession(typing.Generic[PresentationViewT]):
                     )
                 raise
             self._opened = True
+
+    @property
+    def is_open(self) -> bool:
+        """返回输出控制和活动表面是否已经完整打开且仍可接收投影。"""
+        return self._opened and not self._closed
 
     async def close(self, *, blink: bool = True) -> None:
         """幂等关闭展示事实和输出控制，且不因前一步失败跳过后一步。"""

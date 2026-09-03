@@ -42,6 +42,3 @@ __all__ = (
     "McpToolDefinition",
     "McpToolResult",
 )
-
-if __name__ == '__main__':
-    pass

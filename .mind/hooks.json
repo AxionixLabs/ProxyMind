@@ -1,0 +1,170 @@
+{
+  "description": "End-to-end coverage for all supported hook events",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; json.load(sys.stdin); print('{}')\"",
+            "statusMessage": "E2E PreToolUse",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; json.load(sys.stdin); print('{}')\"",
+            "statusMessage": "E2E PermissionRequest",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; json.load(sys.stdin); print('{}')\"",
+            "statusMessage": "E2E PostToolUse",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; json.load(sys.stdin); print('{}')\"",
+            "statusMessage": "E2E PreCompact",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; json.load(sys.stdin); print('{}')\"",
+            "statusMessage": "E2E PostCompact",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; json.load(sys.stdin); print('{}')\"",
+            "statusMessage": "E2E SessionStart",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; json.load(sys.stdin); print('{}')\"",
+            "statusMessage": "E2E SessionEnd",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; json.load(sys.stdin); print('{}')\"",
+            "statusMessage": "E2E UserPromptSubmit",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; json.load(sys.stdin); print('{}')\"",
+            "statusMessage": "E2E SubagentStart",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; json.load(sys.stdin); print('{}')\"",
+            "statusMessage": "E2E SubagentStop",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; json.load(sys.stdin); print('{}')\"",
+            "statusMessage": "E2E Stop",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; json.load(sys.stdin); print('{}')\"",
+            "statusMessage": "E2E Interrupt",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      }
+    ]
+  }
+}

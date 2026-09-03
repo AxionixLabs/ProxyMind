@@ -4,7 +4,9 @@
 from .models import SkillSpec
 from .payload import skills_payload
 from .registry import (
-    available_skills, bundled_skills, configured_skills
+    available_skills,
+    bundled_skills,
+    configured_skills,
 )
 
 __all__ = [
@@ -14,6 +16,3 @@ __all__ = [
     "configured_skills",
     "skills_payload"
 ]
-
-if __name__ == '__main__':
-    pass

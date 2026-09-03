@@ -20,6 +20,7 @@ from agent.ports import (
     OutputActivityEvent,
     OutputActivityPort,
     OutputSurfaceContext,
+    PresentationSuperseded,
     RecoveryActivityMode,
     RecoveryChanged,
     ResponseIdentity,
@@ -103,6 +104,14 @@ class RetryActivity:
 
 
 @dataclass(frozen=True, slots=True)
+class PresentationReplacement:
+    """保存一个已经确认的 Worker 展示代次替换边界。"""
+
+    superseded_epoch: int
+    presentation_epoch: int
+
+
+@dataclass(frozen=True, slots=True)
 class TurnSurfaceState:
     """保存纯 reducer 使用的正交展示状态。"""
 
@@ -111,6 +120,8 @@ class TurnSurfaceState:
     content: SurfaceContentState = "none"
     buffered_items: tuple[AssistantActivity, ...] = ()
     settled_items: tuple[AssistantActivity, ...] = ()
+    presentation_replacements: tuple[PresentationReplacement, ...] = ()
+    provider_retry_boundaries: tuple[RetryActivity, ...] = ()
     visible_item: AssistantActivity | None = None
     model_wait_revision: int | None = None
     model_wait_reason: ModelWaitReason | None = None
@@ -123,6 +134,7 @@ class TurnSurfaceState:
     approvals: tuple[ApprovalActivity, ...] = ()
     completed_approvals: tuple[ApprovalActivity, ...] = ()
     retries: tuple[RetryActivity, ...] = ()
+    completed_retries: tuple[RetryActivity, ...] = ()
     recovery: RecoveryActivityMode = "live"
     recovery_event_seq: int = 0
     logical_settled: bool = False
@@ -363,8 +375,8 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             raise RuntimeError("turn surface coordinator is not open")
         if self._closed:
             raise RuntimeError("turn surface coordinator is closed")
-        if self._lock.locked():
-            raise RuntimeError("turn surface coordinator is applying a projection")
+        if self.apply_immediate_projection is None:
+            raise RuntimeError("immediate turn surface projection sink is required")
 
         self._cancel_timer()
         self._transport_retry_visible_until = 0.0
@@ -376,8 +388,6 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         projection = project_turn_surface(self.state)
         if projection.indicator != "hidden":
             raise RuntimeError("visible assistant must own the activity surface")
-        if self.apply_immediate_projection is None:
-            raise RuntimeError("immediate turn surface projection sink is required")
         self.apply_immediate_projection(projection)
         self._applied = projection
 
@@ -438,25 +448,36 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
                 self._timer = None
 
     async def _apply(self, projection: SurfaceProjection) -> None:
-        """跳过完全相同的派生投影并调用唯一视觉出口。"""
-        if self._applied == projection:
-            return None
-        previous = self._applied
-        await self.apply_projection(projection)
-        self._applied = projection
-        if (
-            projection.indicator == "retrying"
-            and projection.detail == "transport"
-            and not (
-                previous is not None
-                and previous.indicator == "retrying"
-                and previous.detail == "transport"
-            )
-        ):
-            self._transport_retry_visible_until = (
-                asyncio.get_running_loop().time()
-                + max(0.0, self.timing.transport_retry_min_visible_sec)
-            )
+        """提交投影，并在同步正文交接抢占后恢复最新 reducer 结果。"""
+        candidate = projection
+        while self._applied != candidate:
+            previous = self._applied
+            await self.apply_projection(candidate)
+            current = project_turn_surface(self.state)
+            if current != candidate:
+                if (
+                    current.indicator == "hidden"
+                    and self.apply_immediate_projection is not None
+                ):
+                    self.apply_immediate_projection(current)
+                    self._applied = current
+                    return None
+                candidate = current
+                continue
+            self._applied = candidate
+            if (
+                candidate.indicator == "retrying"
+                and candidate.detail == "transport"
+                and not (
+                    previous is not None
+                    and previous.indicator == "retrying"
+                    and previous.detail == "transport"
+                )
+            ):
+                self._transport_retry_visible_until = (
+                    asyncio.get_running_loop().time()
+                    + max(0.0, self.timing.transport_retry_min_visible_sec)
+                )
 
     def _transport_retry_remaining(self) -> float:
         """返回 transport retry 已展示帧的剩余最短可见时间。"""
@@ -519,6 +540,8 @@ def _reduce_active_surface(
         )
     if isinstance(event, AssistantBuffered):
         item = _assistant_activity(event.identity, event.item_id)
+        if _assistant_is_superseded(state, item):
+            return state
         if item in state.buffered_items or item in state.settled_items:
             return state
         return replace(
@@ -528,6 +551,8 @@ def _reduce_active_surface(
         )
     if isinstance(event, AssistantVisible):
         item = _assistant_activity(event.identity, event.item_id)
+        if _assistant_is_superseded(state, item):
+            return state
         if item in state.settled_items:
             return state
         if item not in state.buffered_items:
@@ -541,6 +566,8 @@ def _reduce_active_surface(
         )
     if isinstance(event, AssistantSettled):
         item = _assistant_activity(event.identity, event.item_id)
+        if _assistant_is_superseded(state, item):
+            return state
         if item in state.settled_items:
             return state
         if item not in state.buffered_items:
@@ -553,6 +580,38 @@ def _reduce_active_surface(
             settled_items=(*state.settled_items, item),
             visible_item=None,
         )
+    if isinstance(event, PresentationSuperseded):
+        replacement = PresentationReplacement(
+            event.superseded_epoch,
+            event.presentation_epoch,
+        )
+        existing = next(
+            (
+                item
+                for item in state.presentation_replacements
+                if item.superseded_epoch == event.superseded_epoch
+            ),
+            None,
+        )
+        if existing is not None:
+            if existing != replacement:
+                raise ValueError("presentation supersede identity was reused")
+            return state
+        updated = replace(
+            state,
+            presentation_replacements=(
+                *state.presentation_replacements,
+                replacement,
+            ),
+            model_wait_revision=None,
+            model_wait_reason=None,
+            retries=tuple(
+                retry
+                for retry in state.retries
+                if retry.presentation_epoch != event.superseded_epoch
+            ),
+        )
+        return _clear_superseded_content(updated)
     if isinstance(event, ToolBatchStarted):
         if (
             event.batch_id in state.batches
@@ -679,10 +738,71 @@ def _reduce_active_surface(
             event.attempt,
         )
         if event.state == "started":
+            if _presentation_epoch_is_superseded(
+                state,
+                event.presentation_epoch,
+            ):
+                return state
+            if retry in state.completed_retries:
+                return state
+            provider_boundary = next(
+                (
+                    item
+                    for item in state.provider_retry_boundaries
+                    if item.presentation_epoch == event.presentation_epoch
+                    and item.round == event.round
+                ),
+                None,
+            )
+            if (
+                event.source == "provider"
+                and provider_boundary is not None
+                and provider_boundary.attempt > event.attempt
+            ):
+                return state
+            active = next(
+                (
+                    item
+                    for item in state.retries
+                    if item.source == event.source
+                ),
+                None,
+            )
+            if active is not None and _retry_order(active) > _retry_order(retry):
+                return state
             without_source = tuple(
                 item for item in state.retries if item.source != event.source
             )
-            return replace(state, retries=(*without_source, retry))
+            updated = replace(state, retries=(*without_source, retry))
+            if event.source != "provider":
+                return updated
+            existing_boundaries = tuple(
+                item
+                for item in state.provider_retry_boundaries
+                if (
+                    item.presentation_epoch == event.presentation_epoch
+                    and item.round == event.round
+                )
+            )
+            if not existing_boundaries or all(
+                item.attempt < event.attempt
+                for item in existing_boundaries
+            ):
+                updated = replace(
+                    updated,
+                    provider_retry_boundaries=(
+                        *(
+                            item
+                            for item in state.provider_retry_boundaries
+                            if not (
+                                item.presentation_epoch == event.presentation_epoch
+                                and item.round == event.round
+                            )
+                        ),
+                        retry,
+                    ),
+                )
+            return _clear_superseded_content(updated)
         matching = tuple(
             item
             for item in state.retries
@@ -696,6 +816,7 @@ def _reduce_active_surface(
         return replace(
             state,
             retries=tuple(item for item in state.retries if item not in matching),
+            completed_retries=(*state.completed_retries, retry),
         )
     if isinstance(event, RecoveryChanged):
         if event.event_seq < state.recovery_event_seq:
@@ -752,6 +873,59 @@ def _assistant_activity(
 ) -> AssistantActivity:
     """构建已经由端口校验的 assistant 展示身份。"""
     return AssistantActivity(identity, item_id)
+
+
+def _assistant_is_superseded(
+    state: TurnSurfaceState,
+    item: AssistantActivity,
+) -> bool:
+    """判断一项正文是否属于已经失效的展示代次或 provider Attempt。"""
+    identity = item.identity
+    if _presentation_epoch_is_superseded(state, identity.presentation_epoch):
+        return True
+    return any(
+        boundary.presentation_epoch == identity.presentation_epoch
+        and boundary.round == identity.round
+        and identity.attempt < boundary.attempt
+        for boundary in state.provider_retry_boundaries
+    )
+
+
+def _presentation_epoch_is_superseded(
+    state: TurnSurfaceState,
+    presentation_epoch: int,
+) -> bool:
+    """判断展示代次是否已经被一项确定替换事实关闭。"""
+    return any(
+        replacement.superseded_epoch == presentation_epoch
+        for replacement in state.presentation_replacements
+    )
+
+
+def _clear_superseded_content(state: TurnSurfaceState) -> TurnSurfaceState:
+    """在替换事实与正文状态的同一次归约中释放旧正文所有权。"""
+    current = state.visible_item
+    if current is None and state.content == "buffered":
+        current = next(
+            (
+                item
+                for item in reversed(state.buffered_items)
+                if item not in state.settled_items
+            ),
+            None,
+        )
+    if current is None or not _assistant_is_superseded(state, current):
+        return state
+    return replace(
+        state,
+        content="none",
+        visible_item=None,
+    )
+
+
+def _retry_order(retry: RetryActivity) -> tuple[int, int, int]:
+    """返回同一重试来源用于拒绝陈旧开始事件的稳定顺序。"""
+    return (retry.presentation_epoch, retry.round, retry.attempt)
 
 
 def _tool_by_id(
