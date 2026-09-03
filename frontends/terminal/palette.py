@@ -3,8 +3,8 @@
 
 import math
 
-from .capabilities import RgbColor
 from .color_support import TerminalColorLevel
+from .probe import RgbColor
 
 __all__ = [
     "best_color",

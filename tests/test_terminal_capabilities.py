@@ -4,13 +4,10 @@ import types
 
 import pytest
 
-from frontends.terminal import capabilities as terminal_capabilities
+from frontends.terminal import probe_windows as terminal_probe_windows
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
-    TerminalTheme,
-    TerminalThemeCache,
     detect_terminal_capabilities,
-    parse_terminal_color_responses,
 )
 from frontends.terminal.color_support import (
     TerminalColorLevel,
@@ -25,6 +22,14 @@ from frontends.terminal.identity import (
     TerminalKind,
     detect_terminal_identity,
 )
+from frontends.terminal.probe import (
+    TerminalDefaultColors,
+    TerminalDefaultColorsCache,
+    TerminalProbeMethod,
+    filter_terminal_color_responses,
+    parse_terminal_color_responses,
+)
+from frontends.terminal.probe_windows import query_windows_default_colors
 
 
 class _InteractiveStream(object):
@@ -218,11 +223,13 @@ def test_dynamic_surface_probe_depends_on_terminal_support(
     stream = _InteractiveStream()
     calls: list[float] = []
 
-    def probe(_input, _output, timeout) -> TerminalTheme:
+    def probe(_input, _output, timeout) -> TerminalDefaultColors:
         calls.append(timeout)
-        return TerminalTheme(
+        return TerminalDefaultColors(
             foreground=(230, 230, 230),
             background=(12, 18, 24),
+            attempted=True,
+            method=TerminalProbeMethod.CUSTOM,
         )
 
     capabilities = detect_terminal_capabilities(
@@ -234,6 +241,8 @@ def test_dynamic_surface_probe_depends_on_terminal_support(
 
     assert capabilities.dynamic_surfaces is supported
     assert capabilities.theme.background == (12, 18, 24)
+    assert capabilities.theme.probe_attempted
+    assert capabilities.theme.probe_method is TerminalProbeMethod.CUSTOM
     assert calls == [0.1]
 
 
@@ -241,9 +250,14 @@ def test_unknown_terminal_can_use_active_color_probe_on_a_tty() -> None:
     stream = _InteractiveStream()
     calls: list[bool] = []
 
-    def probe(_input, _output, _timeout) -> TerminalTheme:
+    def probe(_input, _output, _timeout) -> TerminalDefaultColors:
         calls.append(True)
-        return TerminalTheme(background=(0, 0, 0))
+        return TerminalDefaultColors(
+            foreground=(255, 255, 255),
+            background=(0, 0, 0),
+            attempted=True,
+            method=TerminalProbeMethod.CUSTOM,
+        )
 
     capabilities = detect_terminal_capabilities(
         input_stream=stream,
@@ -256,18 +270,28 @@ def test_unknown_terminal_can_use_active_color_probe_on_a_tty() -> None:
     assert calls == [True]
 
 
-def test_terminal_theme_cache_probes_only_once() -> None:
-    cache = TerminalThemeCache()
+def test_terminal_default_colors_cache_probes_only_once() -> None:
+    cache = TerminalDefaultColorsCache()
     calls: list[int] = []
 
-    def probe(_input, _output, _timeout) -> TerminalTheme:
+    def probe(_input, _output, _timeout) -> TerminalDefaultColors:
         calls.append(1)
-        return TerminalTheme(background=(1, 2, 3))
+        return TerminalDefaultColors(
+            foreground=(240, 240, 240),
+            background=(1, 2, 3),
+            attempted=True,
+            method=TerminalProbeMethod.CUSTOM,
+        )
 
     first = cache.get_or_probe(object(), object(), 0.1, probe)
     second = cache.get_or_probe(object(), object(), 0.1, probe)
 
-    assert first == second == TerminalTheme(background=(1, 2, 3))
+    assert first == second == TerminalDefaultColors(
+        foreground=(240, 240, 240),
+        background=(1, 2, 3),
+        attempted=True,
+        method=TerminalProbeMethod.CUSTOM,
+    )
     assert calls == [1]
 
 
@@ -315,21 +339,23 @@ def test_non_tty_output_does_not_claim_color_without_force() -> None:
 
 
 def test_unix_probe_replay_separates_osc_responses_from_input() -> None:
-    replayed: list[bytes] = []
-
-    terminal_capabilities._replay_non_color_input(
+    replayed = filter_terminal_color_responses(
         b"a\x1b]10;#010203\x07b\x1b]11;#040506\x07c",
-        replayed.append,
     )
 
-    assert replayed == [b"a", b"b", b"c"]
+    assert replayed == b"abc"
 
 
 def test_windows_probe_does_not_read_input_stream(monkeypatch) -> None:
-    expected = TerminalTheme(foreground=(1, 2, 3), background=(4, 5, 6))
+    expected = TerminalDefaultColors(
+        foreground=(1, 2, 3),
+        background=(4, 5, 6),
+        attempted=True,
+        method=TerminalProbeMethod.WINDOWS_CONSOLE,
+    )
     monkeypatch.setattr(
-        terminal_capabilities,
-        "_windows_palette_theme",
+        terminal_probe_windows,
+        "_windows_palette_colors",
         lambda _output: expected,
     )
 
@@ -337,7 +363,7 @@ def test_windows_probe_does_not_read_input_stream(monkeypatch) -> None:
         def fileno(self):
             raise AssertionError("Windows probe must not inspect stdin")
 
-    assert terminal_capabilities._query_windows_theme(
+    assert query_windows_default_colors(
         InputStream(),
         object(),
         0.1,

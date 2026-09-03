@@ -16,7 +16,6 @@ from agent.ports.presentation import (
 )
 from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
-    RgbColor,
     TerminalCapabilities,
 )
 from frontends.terminal.color_support import TerminalColorLevel
@@ -26,6 +25,7 @@ from frontends.terminal.palette import (
     selection_color,
     semantic_color,
 )
+from frontends.terminal.probe import RgbColor
 from metadata import const
 from .hyperlinks import terminal_hyperlink_style
 from .models import (
