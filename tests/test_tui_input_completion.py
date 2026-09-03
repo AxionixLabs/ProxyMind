@@ -454,14 +454,14 @@ def test_command_menu_matches_codex_default_and_selected_styles() -> None:
     assert command.color == "default"
     assert command.bgcolor == ""
     assert not command.bold
-    assert command_selected.color == "ansiblue"
+    assert command_selected.color == "ansicyan"
     assert command_selected.bgcolor == ""
     assert command_selected.bold
     assert not command_selected.dim
     assert command_meta.color == "default"
     assert command_meta.bgcolor == ""
     assert command_meta.dim
-    assert command_meta_selected.color == "ansiblue"
+    assert command_meta_selected.color == "ansicyan"
     assert command_meta_selected.bgcolor == ""
     assert command_meta_selected.bold
     assert not command_meta_selected.dim

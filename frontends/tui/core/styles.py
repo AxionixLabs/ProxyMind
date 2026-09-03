@@ -18,14 +18,12 @@ from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
 )
-from frontends.terminal.color_support import TerminalColorLevel
-from frontends.terminal.palette import (
-    best_color,
-    is_light_color,
-    selection_color,
-    semantic_color,
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticStyles,
+    TerminalStyle,
+    TerminalThemeTone,
+    resolve_terminal_semantic_styles,
 )
-from frontends.terminal.probe import RgbColor
 from metadata import const
 from .hyperlinks import terminal_hyperlink_style
 from .models import (
@@ -229,46 +227,33 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
 })
 
 
-def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
-    """根据终端主题创建动态表面和前景样式。"""
-    terminal_background = capabilities.theme.background
-    if not capabilities.dynamic_surfaces or terminal_background is None:
+def _surface_style(semantics: TerminalSemanticStyles) -> BaseStyle:
+    """根据已解析语义 token 创建动态表面和浅色主题覆盖。"""
+
+    surface_background = semantics.user_surface.background
+    approval_background = semantics.approval_surface.background
+    selected_background = semantics.selected_surface.background
+    zebra_background = semantics.zebra_surface.background
+    if (
+        surface_background is None
+        or approval_background is None
+        or selected_background is None
+        or zebra_background is None
+    ):
         return Style.from_dict({})
 
-    light = _is_light_color(terminal_background)
-    overlay = (0, 0, 0) if light else (255, 255, 255)
-
-    surface_background = (
-        _blend_color(overlay, terminal_background, 0.04)
-        if light
-        else _blend_color(overlay, terminal_background, 0.12)
-    )
-    selected_background = _surface_color(
-        _blend_color(overlay, terminal_background, 0.12),
-        capabilities,
-    )
-    zebra_background = _surface_color(_blend_color(
-        overlay,
-        terminal_background,
-        0.04 if light else 0.055,
-    ), capabilities)
-
-    background = f"bg:{_surface_color(surface_background, capabilities)}"
+    background = f"bg:{surface_background}"
 
     styles = {
         "input-surface": background,
-        "approval-card": background,
+        "approval-card": f"bg:{approval_background}",
         "menu-card": background,
         "resume-picker.row.selected": f"bg:{selected_background}",
         "resume-picker.row.zebra": f"bg:{zebra_background}",
     }
 
-    if light:
-        accent = semantic_color(
-            (0, 95, 135),
-            capabilities.color_support.effective_level,
-            fallback="ansicyan",
-        )
+    if semantics.tone is TerminalThemeTone.LIGHT:
+        accent = semantics.accent.foreground or "default"
         styles.update({
             "prompt": "#20262C",
             "prompt.kicker": "bold #596570",
@@ -373,33 +358,6 @@ def _surface_style(capabilities: TerminalCapabilities) -> BaseStyle:
     return Style.from_dict(styles)
 
 
-def _blend_color(
-    foreground: RgbColor,
-    background: RgbColor,
-    ratio: float
-) -> RgbColor:
-    """按给定比例把前景 RGB 混入背景 RGB。"""
-    weight = max(0.0, min(1.0, ratio))
-    return (
-        round(foreground[0] * weight + background[0] * (1.0 - weight)),
-        round(foreground[1] * weight + background[1] * (1.0 - weight)),
-        round(foreground[2] * weight + background[2] * (1.0 - weight)),
-    )
-
-
-def _surface_color(
-    color: RgbColor,
-    capabilities: TerminalCapabilities,
-) -> str:
-    """将表面 RGB 按终端色阶转换为可渲染颜色。"""
-    return best_color(color, capabilities.color_support.effective_level) or "default"
-
-
-def _is_light_color(color: RgbColor) -> bool:
-    """根据相对亮度判断 RGB 是否属于亮色主题。"""
-    return is_light_color(color)
-
-
 def prompt_style(style: TextStyle) -> str:
     """把中立文本样式转换为 prompt_toolkit 样式字符串。"""
     parts = [
@@ -431,131 +389,54 @@ def build_tui_application_style(
     capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
 ) -> BaseStyle:
     """组合 TUI 输入、审批、菜单和主画布样式。"""
+
+    semantics = resolve_terminal_semantic_styles(
+        capabilities.color_support,
+        foreground=capabilities.theme.foreground,
+        background=capabilities.theme.background,
+    )
     return merge_styles([
         input_style,
         approval_style,
         menu_style,
         TUI_APPLICATION_OVERRIDES,
-        _surface_style(capabilities),
-        _terminal_semantic_style(capabilities),
+        _surface_style(semantics),
+        _terminal_semantic_style(semantics),
     ])
 
 
-def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
-    """根据终端前景/背景和色阶覆盖高频语义颜色。"""
+def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
+    """把共享语义 token 投影到高频 TUI 样式类。"""
+
+    separator_style = _terminal_text_style(semantics.separator)
     styles: dict[str, str] = {
-        # 信息栏分隔符使用终端默认前景，避免把表格的低对比度 RGB 带入 footer。
-        "footer.separator": "fg:default dim",
+        "footer.separator": separator_style,
+        "footer.model": _terminal_text_style(semantics.accent),
+        "approval-network": _terminal_text_style(semantics.accent),
+        "approval-network-host": _terminal_text_style(semantics.accent_plain),
+        "approval-mcp-label": _terminal_text_style(semantics.accent),
+        "approval-mcp-value": _terminal_text_style(semantics.primary),
+        "approval-mcp-connector": _terminal_text_style(semantics.accent_plain),
+        "approval-mcp-readonly": _terminal_text_style(semantics.success, "bold"),
+        "approval-mcp-write": _terminal_text_style(semantics.attention),
+        "approval-mcp-destructive": _terminal_text_style(semantics.failure, "bold"),
+        "approval-mcp-unknown": _terminal_text_style(semantics.secondary),
+        "approval-command-head": _terminal_text_style(semantics.accent),
+        "shell.title.action": _terminal_text_style(semantics.selected),
+        "process-status.action": _terminal_text_style(semantics.selected, "nodim"),
     }
-    foreground = capabilities.theme.foreground
-    background = capabilities.theme.background
 
-    if foreground is not None and background is not None:
-        separator = best_color(
-            _blend_color(foreground, background, 0.20),
-            capabilities.color_support.effective_level,
-        )
-
-        separator_style = f"fg:{separator}" if separator else "dim"
-
-        for style_class in (
-                "ps.separator",
-                "transcript.overlay.rule",
-                "mailbox.rule",
-                "resume-picker.rule",
-        ):
-            styles[style_class] = separator_style
-
-    light = background is not None and _is_light_color(background)
-
-    if capabilities.color_support.effective_level is TerminalColorLevel.UNKNOWN:
-        styles.update({
-            "approval-mcp-label": "fg:default bold",
-            "approval-mcp-value": "fg:default",
-            "approval-mcp-connector": "fg:default",
-            "approval-mcp-readonly": "fg:default bold",
-            "approval-mcp-write": "fg:default bold",
-            "approval-mcp-destructive": "fg:default bold",
-            "approval-mcp-unknown": "fg:default dim",
-        })
-    else:
-        mcp_palette = {
-            "approval-mcp-label": (
-                (0, 95, 135) if light else (37, 99, 235),
-                "ansiblue",
-                "bold",
-            ),
-            "approval-mcp-value": (
-                (67, 80, 92) if light else (170, 183, 196),
-                "default",
-                "",
-            ),
-            "approval-mcp-connector": (
-                (14, 116, 144) if light else (14, 165, 233),
-                "ansicyan",
-                "",
-            ),
-            "approval-mcp-readonly": (
-                (22, 101, 52) if light else (22, 163, 74),
-                "ansigreen",
-                "bold",
-            ),
-            "approval-mcp-write": (
-                (146, 64, 14) if light else (217, 119, 6),
-                "ansiyellow",
-                "bold",
-            ),
-            "approval-mcp-destructive": (
-                (185, 28, 28) if light else (220, 38, 38),
-                "ansired",
-                "bold",
-            ),
-            "approval-mcp-unknown": (
-                (104, 116, 128) if light else (125, 138, 152),
-                "default",
-                "dim",
-            ),
-        }
-        for style_class, (rgb, fallback, emphasis) in mcp_palette.items():
-            color = semantic_color(
-                rgb,
-                capabilities.color_support.effective_level,
-                fallback=fallback,
-            )
-            styles[style_class] = " ".join(
-                part for part in (f"fg:{color}", emphasis) if part
-            )
-
-    accent = (
-        semantic_color(
-            (0, 95, 135),
-            capabilities.color_support.effective_level,
-            fallback="ansicyan",
-        )
-        if light
-        else "ansicyan"
-    )
-
-    for style_class in ("footer.model",):
-        styles[style_class] = f"fg:{accent} bold"
-
-    selection = selection_color(
-        capabilities.color_support.effective_level,
-        light=light,
-    )
-
-    styles["shell.title.action"] = f"fg:{selection} bold"
-    styles["process-status.action"] = f"fg:{selection} nodim"
-
-    selection_background = best_color(
-        (207, 225, 246) if light else (29, 57, 105),
-        capabilities.color_support.effective_level,
-    ) or "ansiblue"
-
-    selection_foreground = "#20262C" if light else "#F4F7FA"
+    for style_class in (
+        "ps.separator",
+        "transcript.overlay.rule",
+        "mailbox.rule",
+        "resume-picker.rule",
+    ):
+        styles[style_class] = separator_style
 
     for style_class in (
             "approval-option-selected",
+            "approval-shortcut-selected",
             "tui-menu.index.active",
             "tui-menu.label.active",
             "tui-menu.detail-selected",
@@ -581,16 +462,39 @@ def _terminal_semantic_style(capabilities: TerminalCapabilities) -> BaseStyle:
             "token-menu.meta.completion.current",
             "directory-trust.option.selected",
     ):
-        styles[style_class] = f"fg:{selection} bold"
+        styles[style_class] = _terminal_text_style(semantics.selected)
     for style_class in (
             "transcript.overlay.selection",
             "transcript.overlay.search-match",
     ):
-        styles[style_class] = (
-            f"bg:{selection_background} fg:{selection_foreground}"
-        )
+        styles[style_class] = _terminal_surface_style(semantics.selected_surface)
 
     return Style.from_dict(styles)
+
+
+def _terminal_text_style(style: TerminalStyle, *modifiers: str) -> str:
+    """把终端文本 token 转换为 prompt_toolkit 样式。"""
+
+    parts = [f"fg:{style.foreground or 'default'}"]
+    parts.extend(
+        name
+        for enabled, name in (
+            (style.bold, "bold"),
+            (style.dim, "dim"),
+            (style.reverse, "reverse"),
+        )
+        if enabled
+    )
+    parts.extend(modifiers)
+    return " ".join(parts)
+
+
+def _terminal_surface_style(style: TerminalStyle) -> str:
+    """把终端表面 token 转换为 prompt_toolkit 样式。"""
+
+    if style.background is not None:
+        return f"bg:{style.background} fg:default"
+    return "bg:default fg:default reverse" if style.reverse else "bg:default fg:default"
 
 
 def exit_summary_fragments(session_id: str) -> tuple[tuple[str, str], ...]:

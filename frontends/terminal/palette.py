@@ -10,12 +10,7 @@ __all__ = [
     "best_color",
     "blend_color",
     "is_light_color",
-    "selection_color",
-    "semantic_color",
 ]
-
-_DARK_SELECTION_RGB: RgbColor = (91, 141, 239)
-_LIGHT_SELECTION_RGB: RgbColor = (0, 95, 135)
 
 
 def best_color(
@@ -28,29 +23,6 @@ def best_color(
     if level == TerminalColorLevel.ANSI256:
         return _hex(_xterm_palette()[_nearest_xterm_index(color)])
     return None
-
-
-def semantic_color(
-    color: RgbColor,
-    level: TerminalColorLevel,
-    *,
-    fallback: str
-) -> str:
-    """返回可直接用于 prompt_toolkit 的语义颜色。"""
-    return best_color(color, level) or fallback
-
-
-def selection_color(
-    level: TerminalColorLevel,
-    *,
-    light: bool
-) -> str:
-    """返回终端选中态使用的蓝色语义颜色。"""
-    return semantic_color(
-        _LIGHT_SELECTION_RGB if light else _DARK_SELECTION_RGB,
-        level,
-        fallback="ansiblue",
-    )
 
 
 def blend_color(

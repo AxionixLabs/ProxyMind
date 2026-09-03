@@ -747,21 +747,21 @@ def test_light_terminal_uses_darkened_surface_and_readable_selection() -> None:
     assert model.color == "005F87"
     assert style.get_attrs_for_style_str(
         "class:transcript.overlay.selection"
-    ).color == "20262C"
+    ).color == "default"
 
 
 @pytest.mark.parametrize(
-    ("level", "selection", "selection_background"),
+    ("level", "selection_background", "reverse"),
     (
-        (TerminalColorLevel.TRUECOLOR, "5B8DEF", "1D3969"),
-        (TerminalColorLevel.ANSI256, "5F87D7", "5F5F87"),
-        (TerminalColorLevel.ANSI16, "ansiblue", "ansiblue"),
+        (TerminalColorLevel.TRUECOLOR, "1F1F1F", False),
+        (TerminalColorLevel.ANSI256, "1C1C1C", False),
+        (TerminalColorLevel.ANSI16, "default", True),
     ),
 )
-def test_dark_terminal_uses_blue_selection_palette(
+def test_dark_terminal_uses_cyan_selection_semantics(
     level: TerminalColorLevel,
-    selection: str,
     selection_background: str,
+    reverse: bool,
 ) -> None:
     style = build_tui_application_style(
         Style.from_dict({}),
@@ -781,9 +781,11 @@ def test_dark_terminal_uses_blue_selection_palette(
         "class:transcript.overlay.selection"
     )
 
-    assert selected.color == selection
+    assert selected.color == "ansicyan"
     assert selected.bold
     assert transcript.bgcolor == selection_background
+    assert transcript.color == "default"
+    assert transcript.reverse is reverse
 
 
 @pytest.mark.parametrize(
@@ -791,18 +793,22 @@ def test_dark_terminal_uses_blue_selection_palette(
     (
         (
             TerminalColorLevel.TRUECOLOR,
-            ("2563EB", "AAB7C4", "0EA5E9", "16A34A", "D97706", "DC2626", "7D8A98"),
+            ("ansicyan", "default", "ansicyan", "ansigreen", "ansiyellow", "ansired", "default"),
         ),
         (
             TerminalColorLevel.ANSI256,
-            ("005FD7", "B2B2B2", "00AFFF", "00AF5F", "D78700", "D70000", "878787"),
+            ("ansicyan", "default", "ansicyan", "ansigreen", "ansiyellow", "ansired", "default"),
         ),
         (
             TerminalColorLevel.ANSI16,
-            ("ansiblue", "default", "ansicyan", "ansigreen", "ansiyellow", "ansired", "default"),
+            ("ansicyan", "default", "ansicyan", "ansigreen", "ansiyellow", "ansired", "default"),
         ),
         (
             TerminalColorLevel.UNKNOWN,
+            ("ansicyan", "default", "ansicyan", "ansigreen", "ansiyellow", "ansired", "default"),
+        ),
+        (
+            TerminalColorLevel.NONE,
             ("default", "default", "default", "default", "default", "default", "default"),
         ),
     ),
@@ -856,10 +862,10 @@ def test_mcp_semantic_colors_use_readable_light_palette() -> None:
     ).color == "005F87"
     assert style.get_attrs_for_style_str(
         "class:approval-mcp-value"
-    ).color == "43505C"
+    ).color == "default"
     assert style.get_attrs_for_style_str(
         "class:approval-mcp-destructive"
-    ).color == "B91C1C"
+    ).color == "ansired"
 
 
 @pytest.mark.anyio
@@ -916,7 +922,7 @@ async def test_mcp_pending_card_accepts_only_the_first_submission() -> None:
     assert approval.state is None
 
 
-def test_shell_actions_use_blue_semantics_and_process_footer_is_dim() -> None:
+def test_shell_actions_use_cyan_semantics_and_process_footer_is_dim() -> None:
     style = build_tui_application_style(
         Style.from_dict({}),
         TUI_APPROVAL_STYLE,
@@ -934,7 +940,7 @@ def test_shell_actions_use_blue_semantics_and_process_footer_is_dim() -> None:
     assert process_footer.dim
 
     shell_action = style.get_attrs_for_style_str("class:shell.title.action")
-    assert shell_action.color == "5B8DEF"
+    assert shell_action.color == "ansicyan"
     assert shell_action.bold
     assert not shell_action.dim
 
@@ -956,8 +962,8 @@ def test_theme_foreground_drives_separator_contrast() -> None:
 
     separator = style.get_attrs_for_style_str("class:footer.separator")
 
-    assert separator.color == "default"
-    assert separator.dim
+    assert separator.color == "282828"
+    assert not separator.dim
 
 
 def test_selected_session_shortcut_uses_118_style() -> None:

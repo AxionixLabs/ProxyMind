@@ -151,10 +151,10 @@ def test_tmux_uses_outer_client_terminal_identity() -> None:
 @pytest.mark.parametrize(
     ("environ", "expected"),
     (
-        ({"FORCE_COLOR": "0", "WT_SESSION": "1"}, TerminalColorLevel.UNKNOWN),
+        ({"FORCE_COLOR": "0", "WT_SESSION": "1"}, TerminalColorLevel.NONE),
         ({"FORCE_COLOR": "2"}, TerminalColorLevel.ANSI256),
         ({"FORCE_COLOR": "3"}, TerminalColorLevel.TRUECOLOR),
-        ({"NO_COLOR": "1", "COLORTERM": "truecolor"}, TerminalColorLevel.UNKNOWN),
+        ({"NO_COLOR": "1", "COLORTERM": "truecolor"}, TerminalColorLevel.NONE),
         ({"WT_SESSION": "1"}, TerminalColorLevel.TRUECOLOR),
         (
             {"TERM_PROGRAM": "WindowsTerminal", "TERM": "xterm-color"},
@@ -207,7 +207,7 @@ def test_no_color_is_recorded_as_an_explicit_disable() -> None:
         "COLORTERM": "truecolor",
     })
 
-    assert support.effective_level is TerminalColorLevel.UNKNOWN
+    assert support.effective_level is TerminalColorLevel.NONE
     assert support.explicitly_disabled
     assert support.effective_source is TerminalColorSource.NO_COLOR
 
@@ -239,7 +239,7 @@ def test_dynamic_surface_probe_depends_on_terminal_support(
         color_probe=probe,
     )
 
-    assert capabilities.dynamic_surfaces is supported
+    assert bool(capabilities.theme.background) is supported
     assert capabilities.theme.background == (12, 18, 24)
     assert capabilities.theme.probe_attempted
     assert capabilities.theme.probe_method is TerminalProbeMethod.CUSTOM
@@ -266,7 +266,7 @@ def test_unknown_terminal_can_use_active_color_probe_on_a_tty() -> None:
         color_probe=probe,
     )
 
-    assert capabilities.dynamic_surfaces
+    assert capabilities.theme.background == (0, 0, 0)
     assert calls == [True]
 
 
@@ -335,7 +335,7 @@ def test_non_tty_output_does_not_claim_color_without_force() -> None:
     assert detect_terminal_color_level(
         {"TERM": "xterm-256color"},
         output_stream=stream,
-    ) is TerminalColorLevel.UNKNOWN
+    ) is TerminalColorLevel.NONE
 
 
 def test_unix_probe_replay_separates_osc_responses_from_input() -> None:

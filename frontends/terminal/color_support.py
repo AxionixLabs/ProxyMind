@@ -19,6 +19,7 @@ class TerminalColorLevel(str, Enum):
     TRUECOLOR = "truecolor"
     ANSI256 = "ansi256"
     ANSI16 = "ansi16"
+    NONE = "none"
     UNKNOWN = "unknown"
 
 
@@ -55,6 +56,7 @@ class TerminalColorSupport:
             raw_source=TerminalColorSource.UNKNOWN,
             effective_source=TerminalColorSource.UNKNOWN,
             output_is_tty=None,
+            explicitly_disabled=level is TerminalColorLevel.NONE,
         )
 
 
@@ -80,12 +82,12 @@ def detect_terminal_color_support(
             raw_source=TerminalColorSource.FORCE_COLOR,
             effective_source=TerminalColorSource.FORCE_COLOR,
             output_is_tty=output_is_tty,
-            explicitly_disabled=forced is TerminalColorLevel.UNKNOWN,
+            explicitly_disabled=forced is TerminalColorLevel.NONE,
         )
     if "NO_COLOR" in env:
         return TerminalColorSupport(
-            raw_level=TerminalColorLevel.UNKNOWN,
-            effective_level=TerminalColorLevel.UNKNOWN,
+            raw_level=TerminalColorLevel.NONE,
+            effective_level=TerminalColorLevel.NONE,
             raw_source=TerminalColorSource.NO_COLOR,
             effective_source=TerminalColorSource.NO_COLOR,
             output_is_tty=output_is_tty,
@@ -97,7 +99,7 @@ def detect_terminal_color_support(
     effective_source = raw_source
 
     if output_is_tty is False:
-        effective_level = TerminalColorLevel.UNKNOWN
+        effective_level = TerminalColorLevel.NONE
         effective_source = TerminalColorSource.NON_TTY
     elif not terminal_is_dumb:
         terminal_identity = identity or detect_terminal_identity(env)
@@ -177,7 +179,7 @@ def _forced_color_level(value: str) -> TerminalColorLevel:
 
     normalized = value.strip().casefold()
     if normalized == "0":
-        return TerminalColorLevel.UNKNOWN
+        return TerminalColorLevel.NONE
     if normalized in {"3", "truecolor", "24bit"}:
         return TerminalColorLevel.TRUECOLOR
     if normalized == "2":

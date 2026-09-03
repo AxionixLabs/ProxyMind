@@ -8,7 +8,6 @@ from dataclasses import dataclass
 
 from .color_support import (
     DEGRADED_COLOR_SUPPORT,
-    TerminalColorLevel,
     TerminalColorSupport,
     detect_terminal_color_support,
     stream_is_tty,
@@ -72,18 +71,6 @@ class TerminalCapabilities:
     identity: TerminalIdentity
     color_support: TerminalColorSupport
     theme: TerminalTheme = TerminalTheme()
-
-    @property
-    def dynamic_surfaces(self) -> bool:
-        """判断是否可以安全生成动态 RGB 表面。"""
-
-        return bool(
-            self.color_support.effective_level in {
-                TerminalColorLevel.TRUECOLOR,
-                TerminalColorLevel.ANSI256,
-            }
-            and self.theme.background is not None
-        )
 
     @property
     def hyperlinks(self) -> bool:

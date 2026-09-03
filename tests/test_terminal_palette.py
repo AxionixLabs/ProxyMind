@@ -1,5 +1,5 @@
 from frontends.terminal.color_support import TerminalColorLevel
-from frontends.terminal.palette import best_color, blend_color, semantic_color
+from frontends.terminal.palette import best_color, blend_color
 
 
 def test_best_color_matches_codex_diff_xterm_targets() -> None:
@@ -8,13 +8,10 @@ def test_best_color_matches_codex_diff_xterm_targets() -> None:
     assert best_color((175, 255, 175), TerminalColorLevel.ANSI256) == "#AFFFAF"
 
 
-def test_ansi16_uses_named_fallback() -> None:
+def test_non_rich_color_levels_do_not_emit_rgb() -> None:
     assert best_color((0, 95, 135), TerminalColorLevel.ANSI16) is None
-    assert semantic_color(
-        (0, 95, 135),
-        TerminalColorLevel.ANSI16,
-        fallback="ansicyan",
-    ) == "ansicyan"
+    assert best_color((0, 95, 135), TerminalColorLevel.NONE) is None
+    assert best_color((0, 95, 135), TerminalColorLevel.UNKNOWN) is None
 
 
 def test_blend_color_clamps_ratio() -> None:
