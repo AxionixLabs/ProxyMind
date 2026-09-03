@@ -314,6 +314,12 @@ provider retry 在登记新 Attempt 的同一次归约中释放旧 Attempt 的�
 同步正文帧可以抢占正在等待的异步投影，Coordinator 必须按 reducer revision 撤销陈旧结果，
 不得以锁冲突使 Turn 失败。
 
+正常模型等待和工具执行统一投影为单行 `Thinking`；`Working` 不是本产品的活动状态，工具名只在
+工具自身的展示单元中出现，不得追加到活动提示。后台终端数量由独立进程状态 owner 投影，
+可以在活动提示可见时合并到同一行，但不改变 Turn reducer 的阶段或生命周期。活动 Turn 中
+`/ps` 只读取并展示持久终端快照；`/stop` 只停止快照中的终端会话并清除其状态，不得解释为
+Turn interrupt 或逻辑结算。
+
 审批卡、菜单和其他独占交互表面只拥有焦点、选择和布局遮挡。它们可以暂时隐藏活动区域，
 但不修改 reducer 状态；交互结束后由后续 typed fact 或现有 projection 决定可见内容。后台终端
 同样通过 `call_id + session_id` 的 `TerminalWaitStarted/Completed` 进入 reducer，不存在独立的

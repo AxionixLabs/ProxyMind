@@ -44,17 +44,18 @@ SurfaceLifecycle = typing.Literal[
     "terminal",
     "closed",
 ]
+
 SurfaceContentState = typing.Literal[
     "none",
     "buffered",
     "visible",
     "settled",
 ]
+
 SurfaceIndicatorKind = typing.Literal[
     "hidden",
     "thinking",
     "retrying",
-    "working",
     "terminal",
 ]
 
@@ -176,13 +177,16 @@ class TurnSurfaceTiming:
         self,
         projection: SurfaceProjection,
         *,
-        model_wait_reason: ModelWaitReason | None,
+        state: TurnSurfaceState,
     ) -> float:
         """返回一项派生表面投影的本地抑制时间。"""
-        if projection.indicator == "working":
+        if (
+            projection.indicator == "thinking"
+            and (state.tools or state.batches)
+        ):
             return max(0.0, self.tool_started_sec)
         if projection.indicator == "thinking":
-            return self.delay_for(model_wait_reason)
+            return self.delay_for(state.model_wait_reason)
         return 0.0
 
 
@@ -247,11 +251,9 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
             revision=revision,
         )
     if state.tools or state.batches:
-        tool = state.tools[-1] if state.tools else None
         return SurfaceProjection(
-            "working",
-            title="Working",
-            detail=tool.name if tool is not None else "",
+            "thinking",
+            title="Thinking",
             revision=revision,
         )
     if state.model_wait_revision is not None:
@@ -333,7 +335,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             projection = project_turn_surface(self.state)
             delay = self.timing.delay_for_projection(
                 projection,
-                model_wait_reason=self.state.model_wait_reason,
+                state=self.state,
             )
             if (
                 isinstance(event, (ApprovalStarted, TurnTerminal, SurfaceClosed))
@@ -349,7 +351,8 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             ):
                 delay = max(delay, self._transport_retry_remaining())
             if (
-                projection.indicator == "working"
+                projection.indicator == "thinking"
+                and (self.state.tools or self.state.batches)
                 and isinstance(
                     event,
                     (ApprovalCompleted, TerminalWaitCompleted, ToolCompleted),

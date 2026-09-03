@@ -59,7 +59,6 @@ ActivitySlotKey = typing.Literal[
 TurnSurfaceIndicator = typing.Literal[
     "thinking",
     "retrying",
-    "working",
     "terminal",
 ]
 
@@ -191,7 +190,6 @@ class TuiActivity(object):
         if indicator not in {
             "thinking",
             "retrying",
-            "working",
             "terminal",
         }:
             raise ValueError(f"unsupported turn surface indicator: {indicator}")
@@ -434,14 +432,9 @@ class TuiActivity(object):
 
     def _wait_block(self, phase: float) -> FragmentBlock:
         """按当前连接状态生成等待帧。"""
-        if self._turn_surface_indicator in {"working", "terminal"}:
-            title = (
-                "Terminal"
-                if self._turn_surface_indicator == "terminal"
-                else "Working"
-            )
+        if self._turn_surface_indicator == "terminal":
             block = _status_block(
-                title,
+                "Terminal",
                 family="wait",
                 phase=phase,
                 elapsed_sec=self._wait_elapsed(),

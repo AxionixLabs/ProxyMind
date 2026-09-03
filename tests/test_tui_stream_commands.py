@@ -6,18 +6,23 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from infrastructure.errors import AppError
+from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.application.turns.run_result import RunResult
+from agent.ports import (
+    OutputSurfaceContext,
+    ProtocolCommandClient,
+)
+from agent.domain.policies import preset_permissions
+from agent.application import TurnApplication
+from agent.harness.sessions.owner import SessionRuntimeOwner
+from frontends.tui.adapters.session import create_tui_output_session
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.styles import text_block
 from frontends.tui.session import barriers
 from frontends.tui.session import dispatch
 from frontends.tui.session import loop
-from agent.domain.policies import preset_permissions
-from agent.application import TurnApplication
-from agent.harness.sessions.owner import SessionRuntimeOwner
-from agent.ports import ProtocolCommandClient
+from infrastructure.errors import AppError
 
 
 def _settings(
@@ -313,6 +318,103 @@ async def test_replace_transcript_releases_deferred_activity_handoff() -> None:
     assert runtime.screen.activity_block is None
     assert not runtime._background_blocks
     await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+async def test_long_tool_keeps_ps_and_stop_available_during_turn() -> None:
+    """验证长工具活动期间可以查看并停止持久后台终端。"""
+    runtime = TuiRuntime()
+    runtime.screen._output_size = lambda: (100, 24)
+    runtime.set_execution_active(True)
+    context = OutputSurfaceContext(
+        surface_id="surface_long_tool_commands",
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        agent_id="root",
+    )
+    session = create_tui_output_session(
+        "",
+        context=context,
+        runtime=runtime,
+        animate=False,
+    )
+    await session.open()
+    activity = TurnActivityProjector(context, session.activity)
+    await activity.tool_started(
+        "exec_long",
+        "client",
+        name="exec_command",
+    )
+    assert runtime.screen.activity_block is None
+    await asyncio.sleep(0.13)
+
+    process = {
+        "session_id": "exec_long",
+        "command": "python -m pytest",
+        "origin": "tool",
+        "status": "running",
+    }
+    listing = {"count": 1, "items": [process]}
+    stopped = {
+        "ok": True,
+        "requested": 1,
+        "stopped": 1,
+        "failed": 0,
+        "items": [process],
+        "failures": [],
+    }
+    coding = SimpleNamespace(
+        running_exec_sessions=AsyncMock(return_value=listing),
+        exec_session_output_snapshot=AsyncMock(return_value={
+            **process,
+            "ok": True,
+            "output_lines": ["collecting tests"],
+        }),
+        stop_exec_sessions=AsyncMock(return_value=stopped),
+    )
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        workspace_runtime=SimpleNamespace(coding=coding),
+    )
+    foreground = barriers.TuiForegroundTasks(runtime, mind)
+    dispatcher = dispatch.TuiCommandDispatcher(
+        mind,
+        runtime,
+        SimpleNamespace(),
+        foreground,
+        protocol_client=Mock(spec=ProtocolCommandClient),
+    )
+    runtime.set_process_status_label(
+        "1 background terminal running · /ps to view · /stop to close"
+    )
+
+    status = fragments_text(runtime.screen._status_fragments())
+    assert "Thinking · 1 background terminal running" in status
+    assert "exec_command" not in status
+
+    assert dispatcher.handle_stream_command("/ps", Mock(return_value=None))
+    ps_task = dispatcher._local_tasks["ps"]
+    await ps_task
+    transcript = fragments_text(runtime.document.fragments(width=100))
+    assert "/ps\n\nBackground terminals" in transcript
+    assert "python -m pytest\n    ↳ collecting tests" in transcript
+
+    assert dispatcher.handle_stream_command("/stop", Mock(return_value=None))
+    await foreground.wait()
+
+    coding.stop_exec_sessions.assert_awaited_once_with(
+        session_ids=("exec_long",),
+    )
+    assert runtime.screen.process_status.label == ""
+    assert "Thinking" in fragments_text(runtime.screen._status_fragments())
+    assert any(view.type == "tui.exec.stopping" for view in views)
+
+    await session.close()
+    runtime.set_execution_active(False)
 
 
 @pytest.mark.anyio

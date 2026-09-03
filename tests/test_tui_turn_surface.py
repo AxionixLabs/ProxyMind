@@ -186,7 +186,11 @@ def test_reducer_preserves_named_tool_leases_and_completion_history() -> None:
     state = reduce_turn_surface(state, first_done)
 
     assert tuple(tool.tool_id for tool in state.tools) == ("call_second",)
-    assert project_turn_surface(state).indicator == "working"
+    assert project_turn_surface(state) == SurfaceProjection(
+        "thinking",
+        title="Thinking",
+        revision=4,
+    )
     assert reduce_turn_surface(state, first_done) is state
     assert reduce_turn_surface(state, first) is state
 
@@ -453,7 +457,7 @@ async def test_coordinator_suppresses_fast_tool_projection() -> None:
     ))
     await asyncio.sleep(0.03)
 
-    assert all(item.indicator != "working" for item in projections)
+    assert len(projections) == 2
     assert projections[-1].indicator == "thinking"
     await coordinator.close()
 
@@ -805,16 +809,16 @@ async def test_tui_tool_approval_and_terminal_leases_restore_parent_surface() ->
     await activity.tool_started("call_2", "nested", name="shell_command")
     await activity.tool_batch_completed("batch_1")
     await asyncio.sleep(0.13)
-    assert "Working" in _activity_text(runtime)
-    assert "shell_command" in _activity_text(runtime)
+    assert "Thinking" in _activity_text(runtime)
+    assert "shell_command" not in _activity_text(runtime)
 
     await activity.tool_completed("call_1", "client", name="read_file")
-    assert "Working" in _activity_text(runtime)
+    assert "Thinking" in _activity_text(runtime)
 
     await activity.approval_started("approval_2", "call_2")
     assert runtime.screen.activity_block is None
     await activity.approval_completed("approval_2", "call_2")
-    assert "Working" in _activity_text(runtime)
+    assert "Thinking" in _activity_text(runtime)
 
     await activity.terminal_wait_started(
         "poll_1",
@@ -827,7 +831,7 @@ async def test_tui_tool_approval_and_terminal_leases_restore_parent_surface() ->
         "terminal_1",
         command="python -m pytest -q",
     )
-    assert "Working" in _activity_text(runtime)
+    assert "Thinking" in _activity_text(runtime)
 
     await activity.tool_completed("call_2", "nested", name="shell_command")
     await activity.request_model_wait("tool_result")
