@@ -8,11 +8,14 @@ import pytest
 
 from agent.ports import (
     ProtocolCommandError,
+    RunPersistence,
     RunPersistenceConflict,
     RunRecoveryRequired,
+    RunSnapshot,
 )
 from agent.composition import open_turn_application
 from agent.domain import RecoveryAction
+from agent.harness.sessions.loop import SessionLoop
 from agent.protocol import (
     RunEvent,
     SubmitTurnCommand,
@@ -273,6 +276,148 @@ async def test_timeout_enters_reconciliation_instead_of_failed(tmp_path: Path) -
     assert events[-1].kind == "run_reconciliation_required"
     assert recoveries[0].recovery_action is RecoveryAction.RECONCILE
     assert recoveries[0].effect_status == "reconciliation_required"
+
+
+@pytest.mark.runtime_p0
+@pytest.mark.runtime_fault
+@pytest.mark.anyio
+async def test_queued_run_waits_when_previous_run_requires_reconciliation(
+    tmp_path: Path,
+) -> None:
+    application = open_turn_application(tmp_path / "runtime.db")
+    first = _command(run_id="run-first", command_id="command-first")
+    second = _command(run_id="run-second", command_id="command-second")
+    third = _command(run_id="run-third", command_id="command-third")
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    queued_calls: list[str] = []
+
+    async def execute_first(_request: SubmitTurnCommand) -> _Result:
+        first_started.set()
+        await release_first.wait()
+        raise TimeoutError("turn outcome is unknown")
+
+    async def execute_queued(request: SubmitTurnCommand) -> _Result:
+        queued_calls.append(request.run_id)
+        return _Result()
+
+    first_task = asyncio.create_task(application.submit(first, execute_first))
+    await first_started.wait()
+    second_task = asyncio.create_task(application.submit(second, execute_queued))
+    third_task = asyncio.create_task(application.submit(third, execute_queued))
+    try:
+        async with asyncio.timeout(1.0):
+            while not (
+                await application.events(second.run_id)
+                and await application.events(third.run_id)
+            ):
+                await asyncio.sleep(0)
+
+        release_first.set()
+        with pytest.raises(TimeoutError, match="outcome is unknown"):
+            await first_task
+        with pytest.raises(RunRecoveryRequired):
+            await second_task
+        with pytest.raises(RunRecoveryRequired):
+            await third_task
+
+        assert queued_calls == []
+
+        await application.resolve_recovery(
+            first.run_id,
+            request_id="resolve-first",
+            resolution="failed",
+            error="remote turn failed",
+        )
+        recoveries = await application.recover_session(first.session_id)
+        assert [item.command.run_id for item in recoveries] == [
+            second.run_id,
+            third.run_id,
+        ]
+
+        with pytest.raises(RunRecoveryRequired):
+            await application.submit(third, execute_queued)
+        assert queued_calls == []
+
+        second_result = await application.submit(second, execute_queued)
+        third_result = await application.submit(third, execute_queued)
+        assert second_result.projection.status == "completed"
+        assert third_result.projection.status == "completed"
+        assert queued_calls == [second.run_id, third.run_id]
+    finally:
+        release_first.set()
+        await application.close(cancel_running=True)
+
+
+@pytest.mark.runtime_p0
+@pytest.mark.runtime_fault
+@pytest.mark.anyio
+async def test_recovery_read_failure_keeps_persisted_queue_closed(
+    tmp_path: Path,
+) -> None:
+    store = SQLiteRunStore(tmp_path / "runtime.db")
+    persistence = AsyncMock(spec=RunPersistence)
+    persistence.append_event.side_effect = store.append_event
+    persistence.find_run.side_effect = store.find_run
+    persistence.load_events.side_effect = store.load_events
+    persistence.load_facts.side_effect = store.load_facts
+    persistence.resolve_recovery.side_effect = store.resolve_recovery
+    recovery_failures: list[bool] = [False]
+
+    async def recover_session(session_id: str) -> tuple[RunSnapshot, ...]:
+        should_fail = bool(recovery_failures and recovery_failures.pop(0))
+        if should_fail:
+            raise RuntimeError("recovery read failed")
+        return await store.recover_session(session_id)
+
+    persistence.recover_session.side_effect = recover_session
+    first = _command(run_id="run-first", command_id="command-first")
+    second = _command(run_id="run-second", command_id="command-second")
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    second_calls: list[str] = []
+
+    async def execute_first(_request: SubmitTurnCommand) -> _Result:
+        first_started.set()
+        await release_first.wait()
+        return _Result()
+
+    async def execute_second(request: SubmitTurnCommand) -> _Result:
+        second_calls.append(request.run_id)
+        return _Result()
+
+    session = SessionLoop[_Result](
+        first.session_id,
+        persistence=persistence,
+    )
+    first_task = asyncio.create_task(session.execute(first, execute_first))
+    await first_started.wait()
+    second_task = asyncio.create_task(session.execute(second, execute_second))
+    try:
+        async with asyncio.timeout(1.0):
+            while not await store.load_events(second.run_id):
+                await asyncio.sleep(0)
+
+        recovery_failures.append(True)
+        release_first.set()
+        with pytest.raises(RuntimeError, match="recovery read failed"):
+            await first_task
+        with pytest.raises(
+            RunPersistenceConflict,
+            match="recovery snapshot is unavailable",
+        ):
+            await second_task
+        assert second_calls == []
+
+        recoveries = await session.refresh_recoveries()
+        assert [item.command.run_id for item in recoveries] == [second.run_id]
+
+        result = await session.execute(second, execute_second)
+        assert result.value.status == "completed"
+        assert second_calls == [second.run_id]
+    finally:
+        release_first.set()
+        await session.close(cancel_running=True)
 
 
 @pytest.mark.anyio

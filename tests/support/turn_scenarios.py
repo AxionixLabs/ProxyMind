@@ -216,9 +216,12 @@ class FrameTrace:
                 terminal_turns.add(frame.turn_id)
             elif frame.turn_id in terminal_turns and (
                 frame.indicator is not FrameIndicator.HIDDEN
+                or has_assistant
+                or frame.tool_leases > 0
+                or frame.approval_leases > 0
             ):
                 raise RuntimeInvariantError(
-                    f"frame {index}: activity returned after terminal"
+                    f"frame {index}: content or activity returned after terminal"
                 )
             if frame.kind is FrameKind.APPROVAL_COMPLETED and (
                 frame.tool_leases <= 0

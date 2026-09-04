@@ -9,6 +9,7 @@ from agent.application.turns.run_result import RunResult
 from agent.composition import open_turn_application
 from agent.ports import (
     ProtocolCommandClient,
+    ProtocolCommandError,
     RunRecoveryRequired,
 )
 from agent.protocol import SubmitTurnCommand
@@ -30,9 +31,14 @@ from tests.support.fake_mind_chat_server import (
     SteerBehavior,
 )
 from tests.support.turn_scenarios import (
+    InterruptInputCase,
+    InterruptPhase,
+    InterruptScenario,
+    InterruptTransport,
     ServerResult,
     TurnPhase,
     TurnScenarioHarness,
+    interrupt_scenarios,
 )
 
 
@@ -97,6 +103,32 @@ async def _never_finishes(started: asyncio.Event) -> None:
     await asyncio.Future()
 
 
+_INTERRUPT_PHASE_STATUS = {
+    InterruptPhase.BEFORE_START: "queued",
+    InterruptPhase.THINKING: "running",
+    InterruptPhase.ASSISTANT_STREAMING: "running",
+    InterruptPhase.TOOL: "waiting_tool",
+    InterruptPhase.APPROVAL: "waiting_approval",
+    InterruptPhase.PROVIDER_RETRY: "running",
+    InterruptPhase.TRANSPORT_RETRY: "running",
+    InterruptPhase.REPLAY: "running",
+}
+
+_INTERRUPT_FAULT = {
+    InterruptTransport.SUCCESS: CommandFault.NORMAL,
+    InterruptTransport.RESPONSE_LOST: CommandFault.RESPONSE_LOST,
+    InterruptTransport.TIMEOUT: CommandFault.TIMEOUT,
+    InterruptTransport.RETRYABLE_ERROR: CommandFault.RETRYABLE_ERROR,
+}
+
+_INTERRUPT_INPUTS = {
+    InterruptInputCase.ZERO: (),
+    InterruptInputCase.ONE_STEER: ("second query",),
+    InterruptInputCase.MANY_STEERS: ("second query", "third query"),
+    InterruptInputCase.NEXT_TURN_INPUT: ("queued follow up",),
+}
+
+
 def _control(
     server: FakeMindChatServer,
     runtime: TuiRuntime,
@@ -135,6 +167,111 @@ def _durable_command(
             },
         },
     )
+
+
+@pytest.mark.runtime_p0
+@pytest.mark.runtime_fault
+@pytest.mark.parametrize(
+    "scenario",
+    interrupt_scenarios(),
+    ids=lambda scenario: scenario.identifier,
+)
+@pytest.mark.anyio
+async def test_production_interrupt_matrix_preserves_gate_and_input_ownership(
+    scenario: InterruptScenario,
+) -> None:
+    """以生产输入控制器覆盖完整中断时机、输入和传输矩阵。"""
+    server = FakeMindChatServer(
+        interrupt_fault=_INTERRUPT_FAULT[scenario.transport],
+    )
+    await server.post_mind_chat(
+        turn_id="turn-1",
+        initial_event_seq=0,
+        status=_INTERRUPT_PHASE_STATUS[scenario.phase],
+    )
+    runtime = TuiRuntime()
+    control = _control(server, runtime)
+    started = scenario.phase is not InterruptPhase.BEFORE_START
+    if started:
+        control.handle_event(MarkerEvent(
+            type="turn.started",
+            turn_id="turn-1",
+        ))
+
+    values = _INTERRUPT_INPUTS[scenario.inputs]
+    queue_only = scenario.inputs is InterruptInputCase.NEXT_TURN_INPUT
+    submissions = tuple(
+        TuiSubmission(
+            value=value,
+            editable_text=value,
+            paste_store={},
+            client_message_id=f"message-{index}",
+        )
+        for index, value in enumerate(values, start=1)
+    )
+    for submission in submissions:
+        assert control.submit(submission, queue_only)
+
+    if started and not queue_only:
+        await _wait_for_steer_count(server, len(submissions))
+
+    assert control.request_interrupt() is started
+    runtime.finish_interrupted_presentation()
+    if not started:
+        control.handle_event(MarkerEvent(
+            type="turn.started",
+            turn_id="turn-1",
+        ))
+
+    expected_interrupt_requests = (
+        1
+        if scenario.transport is InterruptTransport.SUCCESS
+        else 2
+    )
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1.0
+    while len(server.interrupt_requests) < expected_interrupt_requests:
+        if loop.time() >= deadline:
+            raise AssertionError("interrupt request did not finish")
+        await asyncio.sleep(0)
+
+    assert server.terminal is None
+    with pytest.raises(ProtocolCommandError, match="still active"):
+        await server.post_mind_chat(turn_id="turn-2", initial_event_seq=0)
+    assert server.accepted_interrupt_count == 1
+    assert len(set(server.interrupt_requests)) == 1
+
+    server.settle("interrupted", last_event_seq=18)
+    control.handle_event(TurnCompletedEvent(
+        type="turn.completed",
+        turn_id="turn-1",
+        event_seq=18,
+        status="interrupted",
+        last_event_seq=18,
+        completed_at=1.0,
+    ))
+    await control.close()
+    restored = runtime.restore_interrupted_submissions()
+
+    assert restored is bool(submissions)
+    assert not runtime.submissions.pending_steers.active
+    if scenario.inputs in {
+        InterruptInputCase.ONE_STEER,
+        InterruptInputCase.MANY_STEERS,
+    }:
+        immediate = await runtime.submissions.read_submission()
+        assert immediate.value == "\n".join(values)
+        assert runtime.screen.input.buffer.text == ""
+    elif scenario.inputs is InterruptInputCase.NEXT_TURN_INPUT:
+        assert runtime.screen.input.buffer.text == "queued follow up"
+        assert runtime.submissions.message_queue.empty()
+    else:
+        assert runtime.screen.input.buffer.text == ""
+        assert runtime.submissions.message_queue.empty()
+
+    await server.post_mind_chat(turn_id="turn-2", initial_event_seq=18)
+    assert server.mind_chat_requests[-1].initial_event_seq == 18
+    await runtime.close()
 
 
 @pytest.mark.runtime_p0

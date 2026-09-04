@@ -76,6 +76,7 @@ class SessionLoop(typing.Generic[ResultValue]):
         self._submit_lock: asyncio.Lock = asyncio.Lock()
         self._initialize_lock: asyncio.Lock = asyncio.Lock()
         self._recoveries: tuple[RunSnapshot, ...] = ()
+        self._recovery_refresh_failed: bool = False
         self._initialized: bool = False
         self._closing: bool = False
         self._closed: bool = False
@@ -217,6 +218,13 @@ class SessionLoop(typing.Generic[ResultValue]):
             command = actor.command
             future = submission.future
 
+            gate_error = self._execution_gate_error(command)
+            if gate_error is not None:
+                self._release_blocked_future(command, future)
+                if not future.done():
+                    future.set_exception(gate_error)
+                continue
+
             try:
                 value = await actor.run()
             except asyncio.CancelledError:
@@ -253,9 +261,7 @@ class SessionLoop(typing.Generic[ResultValue]):
             if self._initialized:
                 return None
             if self._persistence is not None:
-                self._recoveries = await self._persistence.recover_session(
-                    self.session_id
-                )
+                await self._refresh_recoveries()
                 if self._recoveries:
                     observe(
                         "run.recovery_required",
@@ -293,29 +299,12 @@ class SessionLoop(typing.Generic[ResultValue]):
         if persisted is not None:
             if persisted.recovery_action is not RecoveryAction.REDISPATCH:
                 raise RunPersistenceConflict("persisted run cannot be redispatched")
-            blockers = tuple(
-                item
-                for item in self._recoveries
-                if item.recovery_action is not RecoveryAction.REDISPATCH
-            )
-            queued = tuple(
-                item
-                for item in self._recoveries
-                if item.recovery_action is RecoveryAction.REDISPATCH
-            )
-            if blockers or (
-                queued
-                and queued[0].command.run_id != persisted.command.run_id
-            ):
-                raise RunRecoveryRequired(self._recoveries)
+            gate_error = self._execution_gate_error(persisted.command)
+            if gate_error is not None:
+                raise gate_error
             persisted_command = persisted.command
             events = await self._persistence.load_events(persisted_command.run_id)
             self._events_by_run[persisted_command.run_id] = list(events)
-            self._recoveries = tuple(
-                item
-                for item in self._recoveries
-                if item.command.run_id != persisted_command.run_id
-            )
             return RunActor(
                 persisted_command,
                 executor,
@@ -327,19 +316,72 @@ class SessionLoop(typing.Generic[ResultValue]):
                     sequence=persisted.sequence,
                 ),
             )
-        if self._recoveries:
-            raise RunRecoveryRequired(self._recoveries)
+        gate_error = self._execution_gate_error(command)
+        if gate_error is not None:
+            raise gate_error
 
         actor = RunActor(command, executor, self._event_sink_for(command))
         await actor.enqueue()
         return actor
 
+    def _recovery_blocks(self, command: SubmitTurnCommand) -> bool:
+        """判断最新恢复快照是否禁止指定 queued Run 开始执行。"""
+        blockers = tuple(
+            item
+            for item in self._recoveries
+            if item.recovery_action is not RecoveryAction.REDISPATCH
+        )
+        queued = tuple(
+            item
+            for item in self._recoveries
+            if item.recovery_action is RecoveryAction.REDISPATCH
+        )
+        return bool(
+            blockers
+            or (
+                queued
+                and queued[0].command.run_id != command.run_id
+            )
+        )
+
+    def _execution_gate_error(
+        self,
+        command: SubmitTurnCommand,
+    ) -> RunPersistenceConflict | RunRecoveryRequired | None:
+        """返回阻止命令执行的恢复门禁错误。"""
+        if self._recovery_refresh_failed:
+            return RunPersistenceConflict(
+                "session recovery snapshot is unavailable"
+            )
+        if self._recovery_blocks(command):
+            return RunRecoveryRequired(self._recoveries)
+        return None
+
+    def _release_blocked_future(
+        self,
+        command: SubmitTurnCommand,
+        future: asyncio.Future[RunExecution[ResultValue]],
+    ) -> None:
+        """释放未执行命令的易失去重引用，保留持久 queued 事实。"""
+        if self._futures_by_command.get(command.command_id) is future:
+            del self._futures_by_command[command.command_id]
+        if self._futures_by_idempotency.get(command.idempotency_key) is future:
+            del self._futures_by_idempotency[command.idempotency_key]
+
     async def _refresh_recoveries(self) -> None:
         """在 Run 收束后刷新阻止后续盲目派发的恢复门禁。"""
-        if self._persistence is not None:
-            self._recoveries = await self._persistence.recover_session(
+        if self._persistence is None:
+            self._recovery_refresh_failed = False
+            return None
+        try:
+            recoveries = await self._persistence.recover_session(
                 self.session_id
             )
+        except BaseException:
+            self._recovery_refresh_failed = True
+            raise
+        self._recoveries = recoveries
+        self._recovery_refresh_failed = False
 
     async def refresh_recoveries(self) -> tuple[RunSnapshot, ...]:
         """刷新并返回当前 Session 单写者使用的恢复门禁快照。"""

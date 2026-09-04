@@ -194,3 +194,66 @@ def test_frame_contract_rejects_old_turn_revival() -> None:
             indicator=FrameIndicator.HIDDEN,
         ))
 
+
+@pytest.mark.runtime_p0
+@pytest.mark.runtime_frame
+def test_terminal_surface_ignores_late_content_and_activity() -> None:
+    """验证终态后的迟到正文、工具和审批不能复活生产 Surface。"""
+    state = initial_turn_surface_state(CONTEXT)
+    state = reduce_turn_surface(state, SurfaceTurnStarted(**_scope()))
+    state = reduce_turn_surface(state, TurnTerminal(
+        **_scope(),
+        status="interrupted",
+    ))
+    terminal_state = state
+
+    late_events = (
+        AssistantBuffered(
+            **_scope(),
+            identity=IDENTITY,
+            item_id="late-answer",
+        ),
+        AssistantVisible(
+            **_scope(),
+            identity=IDENTITY,
+            item_id="late-answer",
+        ),
+        ToolStarted(
+            **_scope(),
+            tool_id="late-tool",
+            tool_kind="client",
+            name="network",
+        ),
+        ApprovalStarted(
+            **_scope(),
+            approval_id="late-approval",
+            call_id="late-tool",
+        ),
+        ModelWaitRequested(**_scope(), revision=99, reason="lifecycle"),
+    )
+    for event in late_events:
+        state = reduce_turn_surface(state, event)
+        assert state is terminal_state
+
+    projection = project_turn_surface(state)
+    assert projection.indicator == "hidden"
+    assert state.tools == ()
+    assert state.approvals == ()
+
+
+@pytest.mark.runtime_frame
+def test_frame_contract_rejects_hidden_content_after_terminal() -> None:
+    """验证逻辑帧门禁不会遗漏无动画的终态后正文复活。"""
+    trace = FrameTrace()
+    trace.append(LogicalFrame(
+        turn_id="turn-1",
+        indicator=FrameIndicator.HIDDEN,
+        kind=FrameKind.TERMINAL,
+    ))
+
+    with pytest.raises(RuntimeInvariantError, match="after terminal"):
+        trace.append(LogicalFrame(
+            turn_id="turn-1",
+            indicator=FrameIndicator.HIDDEN,
+            assistant_text="late answer",
+        ))

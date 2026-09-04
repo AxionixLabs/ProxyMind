@@ -86,7 +86,6 @@ class _TurnInterruptNotice:
     ) -> None:
         self._application = application
         self._runtime = runtime
-
         self.shown: bool = False
 
     def acknowledge(self) -> None:

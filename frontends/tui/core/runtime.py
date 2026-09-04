@@ -187,8 +187,8 @@ class TuiRuntime(object):
         self._process_completions = ProcessCompletionStore()
         self._process_routing_settled: asyncio.Event = asyncio.Event()
         self._process_routing_settled.set()
-        self._activity_handoff = ActivityHandoffState()
-        self._command_layout = CommandLayoutState()
+        self._activity_handoff: ActivityHandoffState = ActivityHandoffState()
+        self._command_layout: CommandLayoutState = CommandLayoutState()
         self._open_callbacks: list[typing.Callable[[], None]] = []
         self._turn_finished_callbacks: list[typing.Callable[[], None]] = []
         self._startup_presentations = StartupPresentationQueue()
@@ -487,6 +487,18 @@ class TuiRuntime(object):
         """更新模型轮次运行状态。"""
         self.task_state.set_turn_running(active)
 
+    @staticmethod
+    def _is_literal_bang_paste(
+        submission: TuiSubmission | object,
+        value: str,
+    ) -> bool:
+        """判断展开后的感叹号文本是否仍属于普通粘贴输入。"""
+        return bool(
+            isinstance(submission, TuiSubmission)
+            and submission.literal_bang_paste
+            and str(value or "").strip() == submission.value.strip()
+        )
+
     def _terminal_geometry(self) -> tuple[int, int]:
         """通过单次尺寸快照返回物理终端宽高。"""
         return self.screen.output_geometry()
@@ -750,6 +762,74 @@ class TuiRuntime(object):
             self._complete_command_layout()
             self.screen.transcript_overlay.content_changed()
             self.viewport.content_appended()
+
+    def _handoff_inline_process(self) -> None:
+        """把当前活动 Shell 固定为稳定块并让下一个 Shell 接管活动位。"""
+        session_id = self._inline_process_session_id
+        state = self._inline_process_states.get(session_id)
+        active_block = self.document.active_block
+
+        if state is not None and active_block is not None:
+            state.target = self.commit_active_renderable(
+                active_block,
+                transcript_block=(
+                    self.document.active_transcript_block
+                    or active_block
+                ),
+                stable_id=state.stable_id,
+            )
+
+        self._clear_active_inline_process()
+
+    def update_inline_process(
+        self,
+        block: FragmentBlock,
+        *,
+        session_id: str | None = None,
+        transcript_block: FragmentBlock | None = None,
+        gap_before: int | None = None,
+    ) -> None:
+        """更新正文中的 Shell 执行单元。"""
+        normalized = str(
+            session_id or self._inline_process_session_id or ""
+        ).strip()
+        state = self._inline_process_states.get(normalized)
+        if state is None:
+            return None
+
+        if (
+            normalized == self._inline_process_session_id
+            and self._inline_process_future is state.future
+        ):
+            self.set_active_renderable(
+                block,
+                kind="operation",
+                transcript_block=transcript_block,
+                gap_before=gap_before,
+            )
+            return None
+
+        if state.target is not None:
+            self._replace_stable_inline_process(
+                state.target,
+                block,
+                transcript_block=transcript_block,
+            )
+
+    def resolve_inline_process(
+        self,
+        value: typing.Any = None,
+        *,
+        session_id: str | None = None,
+    ) -> None:
+        """提交 Shell 执行单元的动作结果。"""
+        normalized = str(
+            session_id or self._inline_process_session_id or ""
+        ).strip()
+        state = self._inline_process_states.get(normalized)
+        future = state.future if state is not None else None
+        if future is not None and not future.done():
+            future.set_result(value)
 
     def configure_keymap(self, keymap: TuiRuntimeKeymap) -> None:
         """在 Application 启动前替换运行时按键映射。"""
@@ -1047,74 +1127,6 @@ class TuiRuntime(object):
                 gap_before=gap_before,
             )
 
-    def _handoff_inline_process(self) -> None:
-        """把当前活动 Shell 固定为稳定块并让下一个 Shell 接管活动位。"""
-        session_id = self._inline_process_session_id
-        state = self._inline_process_states.get(session_id)
-        active_block = self.document.active_block
-
-        if state is not None and active_block is not None:
-            state.target = self.commit_active_renderable(
-                active_block,
-                transcript_block=(
-                    self.document.active_transcript_block
-                    or active_block
-                ),
-                stable_id=state.stable_id,
-            )
-
-        self._clear_active_inline_process()
-
-    def update_inline_process(
-        self,
-        block: FragmentBlock,
-        *,
-        session_id: str | None = None,
-        transcript_block: FragmentBlock | None = None,
-        gap_before: int | None = None,
-    ) -> None:
-        """更新正文中的 Shell 执行单元。"""
-        normalized = str(
-            session_id or self._inline_process_session_id or ""
-        ).strip()
-        state = self._inline_process_states.get(normalized)
-        if state is None:
-            return None
-
-        if (
-            normalized == self._inline_process_session_id
-            and self._inline_process_future is state.future
-        ):
-            self.set_active_renderable(
-                block,
-                kind="operation",
-                transcript_block=transcript_block,
-                gap_before=gap_before,
-            )
-            return None
-
-        if state.target is not None:
-            self._replace_stable_inline_process(
-                state.target,
-                block,
-                transcript_block=transcript_block,
-            )
-
-    def resolve_inline_process(
-        self,
-        value: typing.Any = None,
-        *,
-        session_id: str | None = None,
-    ) -> None:
-        """提交 Shell 执行单元的动作结果。"""
-        normalized = str(
-            session_id or self._inline_process_session_id or ""
-        ).strip()
-        state = self._inline_process_states.get(normalized)
-        future = state.future if state is not None else None
-        if future is not None and not future.done():
-            future.set_result(value)
-
     async def wait_inline_process_settled(
         self,
         session_id: str | None = None,
@@ -1193,6 +1205,30 @@ class TuiRuntime(object):
                 self.screen.transcript_overlay.content_changed()
                 self.viewport.stable_content_changed()
         return replaced
+
+    def _is_model_submission(
+        self,
+        value: str,
+        *,
+        literal_bang_paste: bool = False,
+    ) -> bool:
+        """判断提交是否应进入模型轮次等待交接。"""
+        normalized = str(value or "").strip()
+        if not normalized:
+            return self.has_pending_attachments
+        if literal_bang_paste:
+            return True
+        return not normalized.startswith(("/", "!")) and normalized not in {
+            "$",
+            "\\",
+        }
+
+    def approval_snapshot_changed(
+        self,
+        snapshot: ApprovalQueueSnapshot,
+    ) -> None:
+        """把应用层审批快照投影到当前 TUI 表面。"""
+        self.screen.approval.snapshot_changed(snapshot)
 
     def mark_inline_process_background(self, session_id: str) -> None:
         """把已切后台的 UserShell 标记为后台终端。"""
@@ -2011,6 +2047,92 @@ class TuiRuntime(object):
         else:
             self.terminal_progress.clear()
 
+    async def read_message(
+        self,
+        context: PromptContext
+    ) -> str:
+        """更新输入上下文并按提交顺序读取下一条消息。"""
+        self.set_prompt_context(context)
+
+        try:
+            submission = await self.submissions.read_submission()
+        except TuiInputClosed:
+            application_error = self._application_lifecycle.exception()
+            if application_error is not None:
+                if isinstance(application_error, KeyboardInterrupt):
+                    raise TuiInterruptRequested from application_error
+                raise application_error
+            raise EOFError
+
+        if isinstance(submission, TranscriptBacktrackRequest):
+            raise TuiTranscriptBacktrackRequested(submission)
+
+        if isinstance(submission, MailboxRunRequest):
+            raise TuiMailboxRunRequested(submission)
+
+        if isinstance(submission, TuiSubmission):
+            self._consumed_submission = submission
+            value = submission.value
+            visible = submission.visible_text.strip() or value
+        else:
+            self._consumed_submission = None
+            value = str(submission)
+            visible = value
+
+        literal_bang_paste = self._is_literal_bang_paste(submission, value)
+        model_submission = self._is_model_submission(
+            value,
+            literal_bang_paste=literal_bang_paste,
+        )
+        if model_submission:
+            self.set_turn_start_pending(True)
+
+        try:
+            await self.detach_inline_process()
+        except BaseException:
+            if model_submission:
+                self.set_turn_start_pending(False)
+            raise
+
+        self.viewport.reset_view()
+
+        if (
+            visible
+            and not (
+            submission_replaces_query(value)
+            and not literal_bang_paste
+        )
+            and not slash_command_notice_message(value)
+        ):
+            display_text = (
+                value.strip()
+                if isinstance(submission, TuiSubmission)
+                   and not submission.shell_mode
+                else visible
+            )
+            transcript = query_block(display_text, command_aware=False)
+            renderer = partial(query_display_block, display_text)
+            width = self.terminal_width
+            self.document.stage_submission(
+                renderer(width),
+                transcript_block=transcript,
+                raw_text=display_text,
+                display_renderer=renderer,
+                display_render_width=width,
+            )
+            if resolve_tui_command(value) is not None:
+                self.invalidate()
+            else:
+                committed = self.document.commit_submission()
+                if committed is not None:
+                    self.screen.synchronize_next_render()
+                    self.screen.transcript_overlay.content_changed()
+                    self.viewport.content_appended()
+
+        self.submissions.clear_surface_submission_pending()
+
+        return value
+
     async def open(self) -> None:
         """启动持久 inline 输入应用并等待首帧完成。"""
         if self.active:
@@ -2218,121 +2340,6 @@ class TuiRuntime(object):
             self._directory_trust_preserved_startup_gate = False
             raise
 
-    async def read_message(
-        self,
-        context: PromptContext
-    ) -> str:
-        """更新输入上下文并按提交顺序读取下一条消息。"""
-        self.set_prompt_context(context)
-
-        try:
-            submission = await self.submissions.read_submission()
-        except TuiInputClosed:
-            application_error = self._application_lifecycle.exception()
-            if application_error is not None:
-                if isinstance(application_error, KeyboardInterrupt):
-                    raise TuiInterruptRequested from application_error
-                raise application_error
-            raise EOFError
-
-        if isinstance(submission, TranscriptBacktrackRequest):
-            raise TuiTranscriptBacktrackRequested(submission)
-
-        if isinstance(submission, MailboxRunRequest):
-            raise TuiMailboxRunRequested(submission)
-
-        if isinstance(submission, TuiSubmission):
-            self._consumed_submission = submission
-            value = submission.value
-            visible = submission.visible_text.strip() or value
-        else:
-            self._consumed_submission = None
-            value = str(submission)
-            visible = value
-
-        literal_bang_paste = self._is_literal_bang_paste(submission, value)
-        model_submission = self._is_model_submission(
-            value,
-            literal_bang_paste=literal_bang_paste,
-        )
-        if model_submission:
-            self.set_turn_start_pending(True)
-
-        try:
-            await self.detach_inline_process()
-        except BaseException:
-            if model_submission:
-                self.set_turn_start_pending(False)
-            raise
-
-        self.viewport.reset_view()
-
-        if (
-            visible
-            and not (
-            submission_replaces_query(value)
-            and not literal_bang_paste
-        )
-            and not slash_command_notice_message(value)
-        ):
-            display_text = (
-                value.strip()
-                if isinstance(submission, TuiSubmission)
-                   and not submission.shell_mode
-                else visible
-            )
-            transcript = query_block(display_text, command_aware=False)
-            renderer = partial(query_display_block, display_text)
-            width = self.terminal_width
-            self.document.stage_submission(
-                renderer(width),
-                transcript_block=transcript,
-                raw_text=display_text,
-                display_renderer=renderer,
-                display_render_width=width,
-            )
-            if resolve_tui_command(value) is not None:
-                self.invalidate()
-            else:
-                committed = self.document.commit_submission()
-                if committed is not None:
-                    self.screen.synchronize_next_render()
-                    self.screen.transcript_overlay.content_changed()
-                    self.viewport.content_appended()
-
-        self.submissions.clear_surface_submission_pending()
-
-        return value
-
-    @staticmethod
-    def _is_literal_bang_paste(
-        submission: TuiSubmission | object,
-        value: str,
-    ) -> bool:
-        """判断展开后的感叹号文本是否仍属于普通粘贴输入。"""
-        return bool(
-            isinstance(submission, TuiSubmission)
-            and submission.literal_bang_paste
-            and str(value or "").strip() == submission.value.strip()
-        )
-
-    def _is_model_submission(
-        self,
-        value: str,
-        *,
-        literal_bang_paste: bool = False,
-    ) -> bool:
-        """判断提交是否应进入模型轮次等待交接。"""
-        normalized = str(value or "").strip()
-        if not normalized:
-            return self.has_pending_attachments
-        if literal_bang_paste:
-            return True
-        return not normalized.startswith(("/", "!")) and normalized not in {
-            "$",
-            "\\",
-        }
-
     async def select_menu(
         self,
         request: MenuRequest
@@ -2380,13 +2387,6 @@ class TuiRuntime(object):
                 await self.screen.approval.end_session()
                 await self._finish_approval_session()
                 raise
-
-    def approval_snapshot_changed(
-        self,
-        snapshot: ApprovalQueueSnapshot,
-    ) -> None:
-        """把应用层审批快照投影到当前 TUI 表面。"""
-        self.screen.approval.snapshot_changed(snapshot)
 
     async def end_approval_session(self) -> None:
         """关闭连续审批表面并恢复整批 activity。"""

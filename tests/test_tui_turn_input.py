@@ -605,6 +605,39 @@ async def test_model_turn_keeps_restore_handler_for_uncertain_payload() -> None:
 
 
 @pytest.mark.anyio
+async def test_application_failure_with_input_control_preserves_original_error(
+) -> None:
+    runtime = TuiRuntime()
+    error = RuntimeError("application output failed")
+    runtime.wait_for_application_failure = AsyncMock(return_value=error)
+    cancelled = asyncio.Event()
+
+    async def turn() -> None:
+        try:
+            await asyncio.Future()
+        finally:
+            cancelled.set()
+
+    control = SimpleNamespace(
+        submit=Mock(return_value=True),
+        restore_draft=Mock(),
+        close=AsyncMock(),
+    )
+
+    with pytest.raises(RuntimeError, match="application output failed"):
+        await execute_tui_model_turn(
+            SimpleNamespace(emit=Mock()),
+            runtime,
+            turn(),
+            turn_input_control=control,
+        )
+
+    assert cancelled.is_set()
+    control.close.assert_awaited_once()
+    assert not runtime.execution_active
+
+
+@pytest.mark.anyio
 async def test_not_steerable_input_falls_back_to_local_next_turn(
     protocol_client: ProtocolCommandClient,
 ) -> None:
