@@ -3,6 +3,7 @@
 
 import collections
 import copy
+import enum
 import typing
 from dataclasses import (
     dataclass,
@@ -20,6 +21,23 @@ from ..rendering.fragments import (
 )
 
 PREVIEW_LINE_LIMIT = 3
+
+
+class SteerDeliveryState(enum.Enum):
+    """描述一条当前轮次输入的客户端交付状态。"""
+
+    LOCAL = "local"
+    SENT = "sent"
+    UNCERTAIN = "uncertain"
+
+
+@dataclass(frozen=True, slots=True)
+class SteerResolution(object):
+    """描述远端轮次边界对本地输入产生的恢复决议。"""
+
+    retry: tuple["TuiSubmission", ...]
+    uncertain: tuple["TuiSubmission", ...]
+    resolved_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +105,13 @@ class TuiQueuedMessages(object):
     def append(self, item: TuiSubmission) -> None:
         """在队尾追加一条待提交消息。"""
         self._items.append(item)
+
+    def contains(self, client_message_id: str) -> bool:
+        """返回稳定消息标识是否已存在于队列。"""
+        return any(
+            item.client_message_id == client_message_id
+            for item in self._items
+        )
 
     def pop_next(self) -> TuiSubmission | None:
         """取出下一条应交给会话循环的消息。"""
@@ -161,6 +186,13 @@ class TuiRejectedSteers(object):
         """在队尾追加一条等待轮末重投的输入。"""
         self._items.append(item)
 
+    def contains(self, client_message_id: str) -> bool:
+        """返回稳定消息标识是否已存在于重投队列。"""
+        return any(
+            item.client_message_id == client_message_id
+            for item in self._items
+        )
+
     def prepend(self, item: TuiSubmission) -> None:
         """把显式中断后应立即提交的输入放到重投队首。"""
         self._items.appendleft(item)
@@ -208,74 +240,196 @@ class TuiRejectedSteers(object):
 
 
 class TuiPendingSteers(object):
-    """保存等待写入当前执行轮次的输入。"""
+    """保存当前轮次输入及其唯一客户端交付状态。"""
 
     def __init__(self) -> None:
-        self._items: dict[str, TuiSubmission] = {}
-        self._uncertain: dict[str, TuiSubmission] = {}
+        self._items: dict[
+            str,
+            tuple[TuiSubmission, SteerDeliveryState],
+        ] = {}
         self._interrupt_settling = False
 
     @property
     def active(self) -> bool:
         """返回当前是否存在等待提交的输入。"""
-        return bool(self._items or self._uncertain)
+        return bool(self._items)
 
     @property
     def uncertain_active(self) -> bool:
         """返回当前是否存在归属未确认的输入。"""
-        return bool(self._uncertain)
+        return any(
+            state is SteerDeliveryState.UNCERTAIN
+            for _, state in self._items.values()
+        )
 
     @property
     def active_ids(self) -> tuple[str, ...]:
         """返回尚未收到权威归属的当前轮次输入标识。"""
-        return tuple(self._items)
+        return tuple(
+            client_message_id
+            for client_message_id, (_, state) in self._items.items()
+            if state is not SteerDeliveryState.UNCERTAIN
+        )
+
+    def contains(self, client_message_id: str) -> bool:
+        """返回稳定消息标识是否存在于当前轮次账本。"""
+        return client_message_id in self._items
 
     def add(self, item: TuiSubmission) -> None:
         """记录一条等待当前轮次接收的输入。"""
-        if not self._items:
+        if not self.active_ids:
             self._interrupt_settling = False
-        self._uncertain.pop(item.client_message_id, None)
-        self._items[item.client_message_id] = item
+        self._items.setdefault(
+            item.client_message_id,
+            (item, SteerDeliveryState.LOCAL),
+        )
+
+    def next_local(
+        self,
+        client_message_ids: tuple[str, ...],
+    ) -> TuiSubmission | None:
+        """返回指定轮次最早一条尚未发送的输入。"""
+        for client_message_id in client_message_ids:
+            item = self._items.get(client_message_id)
+            if item is None:
+                continue
+            submission, state = item
+            if state is SteerDeliveryState.LOCAL:
+                return submission
+        return None
+
+    def mark_sent(self, client_message_id: str) -> None:
+        """把本地输入原子转换为已发送待确认状态。"""
+        item = self._items.get(client_message_id)
+        if item is None:
+            return None
+        submission, state = item
+        if state is SteerDeliveryState.LOCAL:
+            self._items[client_message_id] = (
+                submission,
+                SteerDeliveryState.SENT,
+            )
+
+    def sent_ids(
+        self,
+        client_message_ids: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """返回指定轮次需要远端对账的已发送输入标识。"""
+        return tuple(
+            client_message_id
+            for client_message_id in client_message_ids
+            if (
+                (item := self._items.get(client_message_id)) is not None
+                and item[1] is SteerDeliveryState.SENT
+            )
+        )
 
     def remove(self, client_message_id: str) -> TuiSubmission | None:
         """移除一条已经确认或转入下一轮的输入。"""
-        item = (
-            self._items.pop(client_message_id, None)
-            or self._uncertain.pop(client_message_id, None)
-        )
-        if not self._items:
+        item = self._items.pop(client_message_id, None)
+        if not self.active_ids:
             self._interrupt_settling = False
-        return item
+        return item[0] if item is not None else None
 
     def retain_uncertain(self, item: TuiSubmission) -> None:
         """保留一条不得自动重试的未确认输入。"""
-        self._items.pop(item.client_message_id, None)
-        self._uncertain[item.client_message_id] = item
-        if not self._items:
-            self._interrupt_settling = False
+        self._items[item.client_message_id] = (
+            item,
+            SteerDeliveryState.UNCERTAIN,
+        )
+        self._interrupt_settling = False
 
     def mark_interrupt_settling(self) -> bool:
         """把未确认即时输入投影为等待中断结算的下一轮候选。"""
-        if not self._items or self._interrupt_settling:
+        if not self.active_ids or self._interrupt_settling:
             return False
         self._interrupt_settling = True
         return True
 
     def pop_last_uncertain(self) -> TuiSubmission | None:
         """取回最近一条归属未确认的输入。"""
-        if not self._uncertain:
-            return None
-        client_message_id = next(reversed(self._uncertain))
-        return self._uncertain.pop(client_message_id)
+        for client_message_id in reversed(self._items):
+            submission, state = self._items[client_message_id]
+            if state is SteerDeliveryState.UNCERTAIN:
+                self._items.pop(client_message_id)
+                return submission
+        return None
 
     def drain(self) -> tuple[TuiSubmission, ...]:
         """按登记顺序取出全部未确认输入。"""
-        items_by_id = dict(self._items)
-        items_by_id.update(self._uncertain)
+        items = tuple(submission for submission, _ in self._items.values())
         self._items.clear()
-        self._uncertain.clear()
         self._interrupt_settling = False
-        return tuple(items_by_id.values())
+        return items
+
+    def advance(
+        self,
+        client_message_ids: tuple[str, ...],
+        *,
+        settled: bool,
+    ) -> SteerResolution:
+        """进入 continuation，并裁决上一远端 Turn 的已发送输入。"""
+        uncertain: list[TuiSubmission] = []
+        resolved_ids: list[str] = []
+        for client_message_id in client_message_ids:
+            item = self._items.get(client_message_id)
+            if item is None:
+                resolved_ids.append(client_message_id)
+                continue
+            submission, state = item
+            if state is SteerDeliveryState.LOCAL:
+                continue
+            self._items.pop(client_message_id)
+            resolved_ids.append(client_message_id)
+            if not settled and state is SteerDeliveryState.SENT:
+                uncertain.append(submission)
+        if not self.active_ids:
+            self._interrupt_settling = False
+        return SteerResolution(
+            retry=(),
+            uncertain=tuple(uncertain),
+            resolved_ids=tuple(resolved_ids),
+        )
+
+    def close(
+        self,
+        client_message_ids: tuple[str, ...],
+        *,
+        settled: bool,
+        committed_ids: tuple[str, ...] = (),
+        retry_ids: tuple[str, ...] = (),
+    ) -> SteerResolution:
+        """关闭当前轮次账本并返回输入恢复决议。"""
+        committed = set(committed_ids)
+        retry = set(retry_ids)
+        retry_items: list[TuiSubmission] = []
+        uncertain_items: list[TuiSubmission] = []
+        resolved_ids: list[str] = []
+
+        for client_message_id in client_message_ids:
+            item = self._items.pop(client_message_id, None)
+            if item is None:
+                continue
+            submission, state = item
+            resolved_ids.append(client_message_id)
+            if client_message_id in committed:
+                continue
+            if (
+                state is SteerDeliveryState.LOCAL
+                or client_message_id in retry
+                or settled
+            ):
+                retry_items.append(submission)
+            else:
+                uncertain_items.append(submission)
+
+        if not self.active_ids:
+            self._interrupt_settling = False
+        return SteerResolution(
+            retry=tuple(retry_items),
+            uncertain=tuple(uncertain_items),
+            resolved_ids=tuple(resolved_ids),
+        )
 
     def fragments(self, *, width: int, max_rows: int = 6) -> FormattedText:
         """生成等待当前轮次接收的消息列表。"""
@@ -286,22 +440,33 @@ class TuiPendingSteers(object):
 
         lines: list[FormattedText] = []
 
-        if self._items:
+        pending_items = tuple(
+            submission
+            for submission, state in self._items.values()
+            if state is not SteerDeliveryState.UNCERTAIN
+        )
+        uncertain_items = tuple(
+            submission
+            for submission, state in self._items.values()
+            if state is SteerDeliveryState.UNCERTAIN
+        )
+
+        if pending_items:
             lines.append(
                 _interrupt_settling_title(width)
                 if self._interrupt_settling
                 else _pending_steer_title(width)
             )
             lines.extend(_submission_lines(
-                self._items.values(),
+                pending_items,
                 available=max(0, row_limit - len(lines)),
                 width=width,
             ))
 
-        if self._uncertain and len(lines) < row_limit:
+        if uncertain_items and len(lines) < row_limit:
             lines.append([("class:queue.label", "• Delivery unconfirmed")])
             lines.extend(_submission_lines(
-                self._uncertain.values(),
+                uncertain_items,
                 available=max(0, row_limit - len(lines)),
                 width=width,
             ))

@@ -71,7 +71,10 @@ from .models import (
     TranscriptExportFormat,
     TranscriptExportResult
 )
-from .queued import TuiSubmission
+from .queued import (
+    SteerResolution,
+    TuiSubmission,
+)
 from .screen import TuiScreen
 from .styles import (
     failure_text_block,
@@ -1902,9 +1905,58 @@ class TuiRuntime(object):
         """展示一条等待当前轮次接收的输入。"""
         self.submissions.track_pending_steer(submission)
 
-    def resolve_pending_steer(self, client_message_id: str) -> None:
+    def next_local_steer(
+        self,
+        client_message_ids: tuple[str, ...],
+    ) -> TuiSubmission | None:
+        """返回指定远端轮次最早一条尚未发送的输入。"""
+        return self.submissions.next_local_steer(client_message_ids)
+
+    def mark_pending_steer_sent(self, client_message_id: str) -> None:
+        """把一条本地 steer 标记为已发送待确认。"""
+        self.submissions.mark_pending_steer_sent(client_message_id)
+
+    def pending_steer_sent_ids(
+        self,
+        client_message_ids: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """返回指定远端轮次需要对账的已发送输入标识。"""
+        return self.submissions.pending_steer_sent_ids(client_message_ids)
+
+    def advance_pending_steers(
+        self,
+        client_message_ids: tuple[str, ...],
+        *,
+        settled: bool,
+    ) -> SteerResolution:
+        """进入 continuation 并裁决上一远端 Turn 的输入。"""
+        return self.submissions.advance_pending_steers(
+            client_message_ids,
+            settled=settled,
+        )
+
+    def close_pending_steers(
+        self,
+        client_message_ids: tuple[str, ...],
+        *,
+        settled: bool,
+        committed_ids: tuple[str, ...] = (),
+        retry_ids: tuple[str, ...] = (),
+    ) -> SteerResolution:
+        """关闭指定远端轮次的输入账本并返回恢复决议。"""
+        return self.submissions.close_pending_steers(
+            client_message_ids,
+            settled=settled,
+            committed_ids=committed_ids,
+            retry_ids=retry_ids,
+        )
+
+    def resolve_pending_steer(
+        self,
+        client_message_id: str,
+    ) -> TuiSubmission | None:
         """停止展示一条已经完成归属转换的输入。"""
-        self.submissions.resolve_pending_steer(client_message_id)
+        return self.submissions.resolve_pending_steer(client_message_id)
 
     def retain_uncertain_steer(self, submission: TuiSubmission) -> None:
         """保留一条不得自动重试的未确认输入。"""

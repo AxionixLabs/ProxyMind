@@ -27,7 +27,6 @@ from protocol.schema.stream_events import (
     TurnInputAcceptedEvent,
 )
 from protocol.schema.turn_inputs import TurnInput
-from .steer_ledger import PendingSteerLedger
 from ..core.queued import TuiSubmission
 from ..runtime.ports import TurnInputRuntimePort
 
@@ -196,7 +195,7 @@ class TuiTurnInputControl(object):
         self._protocol_client = protocol_client
         self._lifecycle = _TurnInputLifecycle()
         self._stream_end_reason: ModelStreamEndReason = "cancelled"
-        self._ledger: PendingSteerLedger = PendingSteerLedger()
+        self._steer_ids: list[str] = []
         self._steer_task: asyncio.Task[None] | None = None
         self._interrupt_task: asyncio.Task[None] | None = None
         self._interrupt_target: tuple[str, str, str] | None = None
@@ -209,11 +208,21 @@ class TuiTurnInputControl(object):
 
     def activate(self, context: TurnContext) -> None:
         """更新等待服务端启动确认的远端轮次。"""
+        previous_settled = self._lifecycle.settled
+        resolution = self._runtime.advance_pending_steers(
+            tuple(self._steer_ids),
+            settled=previous_settled,
+        )
+        resolved_ids = set(resolution.resolved_ids)
+        self._steer_ids = [
+            client_message_id
+            for client_message_id in self._steer_ids
+            if client_message_id not in resolved_ids
+        ]
         self._lifecycle.activate()
         self._target = (context.cid, context.sid, context.turn_id)
         self._stream_end_reason = "cancelled"
 
-        resolution = self._ledger.advance()
         for client_message_id in resolution.resolved_ids:
             self._runtime.resolve_pending_steer(client_message_id)
         for submission in resolution.uncertain:
@@ -230,8 +239,9 @@ class TuiTurnInputControl(object):
             self._runtime.defer_submission(captured)
             return True
 
-        self._ledger.add(captured)
         self._runtime.track_pending_steer(captured)
+        if captured.client_message_id not in self._steer_ids:
+            self._steer_ids.append(captured.client_message_id)
         self._start_steer_worker()
         return True
 
@@ -259,11 +269,9 @@ class TuiTurnInputControl(object):
             )
 
             pending = (
-                self._ledger.commit(event.client_message_id)
+                self._runtime.resolve_pending_steer(event.client_message_id)
                 or deferred
             )
-
-            self._runtime.resolve_pending_steer(event.client_message_id)
 
             if pending is None:
                 return None
@@ -276,8 +284,7 @@ class TuiTurnInputControl(object):
         if not isinstance(event, TurnCompletedEvent):
             return None
 
-        if self._lifecycle.settle():
-            self._ledger.settle()
+        self._lifecycle.settle()
         return None
 
     def handle_stream_end(self, reason: ModelStreamEndReason) -> None:
@@ -364,7 +371,9 @@ class TuiTurnInputControl(object):
         committed_ids: tuple[str, ...] = ()
         retry_ids: tuple[str, ...] = ()
 
-        sent_ids = self._ledger.sent_ids()
+        sent_ids = self._runtime.pending_steer_sent_ids(
+            tuple(self._steer_ids),
+        )
 
         if (
             not self._lifecycle.detached
@@ -374,10 +383,13 @@ class TuiTurnInputControl(object):
         ):
             committed_ids, retry_ids = await self._reconcile(sent_ids)
 
-        resolution = self._ledger.close(
+        resolution = self._runtime.close_pending_steers(
+            tuple(self._steer_ids),
+            settled=self._lifecycle.settled,
             committed_ids=committed_ids,
             retry_ids=retry_ids,
         )
+        self._steer_ids.clear()
 
         retry_client_message_ids = {
             submission.client_message_id
@@ -480,7 +492,7 @@ class TuiTurnInputControl(object):
             or not sid
             or not turn_id
             or not self._lifecycle.can_send_steer
-            or self._ledger.next_local() is None
+            or self._runtime.next_local_steer(tuple(self._steer_ids)) is None
         ):
             return None
         if self._steer_task is not None and not self._steer_task.done():
@@ -497,11 +509,15 @@ class TuiTurnInputControl(object):
     ) -> None:
         """依次发送当前采样阶段已经暂存的即时输入。"""
         while self._lifecycle.can_send_steer and self._target[2] == turn_id:
-            submission = self._ledger.next_local()
+            submission = self._runtime.next_local_steer(
+                tuple(self._steer_ids),
+            )
             if submission is None:
                 return None
 
-            self._ledger.mark_sent(submission.client_message_id)
+            self._runtime.mark_pending_steer_sent(
+                submission.client_message_id,
+            )
 
             confirmed = await self._send_steer(
                 cid,
@@ -554,7 +570,9 @@ class TuiTurnInputControl(object):
             "turn_not_steerable",
             "turn_mismatch",
         }:
-            pending = self._ledger.release(submission.client_message_id)
+            pending = self._runtime.resolve_pending_steer(
+                submission.client_message_id,
+            )
             if pending is not None:
                 self._runtime.defer_rejected_steer(pending)
 

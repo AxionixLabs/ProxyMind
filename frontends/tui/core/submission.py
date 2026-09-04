@@ -18,6 +18,7 @@ from .models import (
     TranscriptBacktrackRequest
 )
 from .queued import (
+    SteerResolution,
     TuiPendingSteers,
     TuiQueuedMessages,
     TuiRejectedSteers,
@@ -259,6 +260,10 @@ class TuiSubmissionFlow(object):
         submission: TuiSubmission
     ) -> None:
         """把用户主动排队的输入保留到后续轮次。"""
+        self._require_submission_owner(
+            submission.client_message_id,
+            expected=None,
+        )
         self.queued_messages.append(submission)
         self._invalidate()
 
@@ -283,8 +288,63 @@ class TuiSubmissionFlow(object):
 
     def track_pending_steer(self, submission: TuiSubmission) -> None:
         """展示一条等待写入当前轮次的输入。"""
+        self._require_submission_owner(
+            submission.client_message_id,
+            expected="pending",
+        )
         self.pending_steers.add(submission)
         self._invalidate()
+
+    def next_local_steer(
+        self,
+        client_message_ids: tuple[str, ...],
+    ) -> TuiSubmission | None:
+        """返回指定远端轮次最早一条尚未发送的输入。"""
+        return self.pending_steers.next_local(client_message_ids)
+
+    def mark_pending_steer_sent(self, client_message_id: str) -> None:
+        """把一条本地 steer 标记为已发送待确认。"""
+        self.pending_steers.mark_sent(client_message_id)
+        self._invalidate()
+
+    def pending_steer_sent_ids(
+        self,
+        client_message_ids: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """返回指定远端轮次需要对账的已发送输入标识。"""
+        return self.pending_steers.sent_ids(client_message_ids)
+
+    def advance_pending_steers(
+        self,
+        client_message_ids: tuple[str, ...],
+        *,
+        settled: bool,
+    ) -> SteerResolution:
+        """进入 continuation 并裁决上一远端 Turn 的输入。"""
+        resolution = self.pending_steers.advance(
+            client_message_ids,
+            settled=settled,
+        )
+        self._invalidate()
+        return resolution
+
+    def close_pending_steers(
+        self,
+        client_message_ids: tuple[str, ...],
+        *,
+        settled: bool,
+        committed_ids: tuple[str, ...] = (),
+        retry_ids: tuple[str, ...] = (),
+    ) -> SteerResolution:
+        """关闭指定远端轮次的输入账本并返回恢复决议。"""
+        resolution = self.pending_steers.close(
+            client_message_ids,
+            settled=settled,
+            committed_ids=committed_ids,
+            retry_ids=retry_ids,
+        )
+        self._invalidate()
+        return resolution
 
     def mark_pending_steers_interrupt_settling(self) -> None:
         """立即展示等待中断结算的即时输入。"""
@@ -294,15 +354,44 @@ class TuiSubmissionFlow(object):
         if self.pending_steers.mark_interrupt_settling():
             self._invalidate()
 
-    def resolve_pending_steer(self, client_message_id: str) -> None:
+    def resolve_pending_steer(
+        self,
+        client_message_id: str,
+    ) -> TuiSubmission | None:
         """停止展示一条已经确认或转入下一轮的输入。"""
-        if self.pending_steers.remove(client_message_id) is not None:
+        submission = self.pending_steers.remove(client_message_id)
+        if submission is not None:
             self._invalidate()
+        return submission
 
     def retain_uncertain_steer(self, submission: TuiSubmission) -> None:
         """保留一条需要用户决定是否重试的即时输入。"""
+        self.queued_messages.remove(submission.client_message_id)
+        self.rejected_steers.remove(submission.client_message_id)
         self.pending_steers.retain_uncertain(submission)
         self._invalidate()
+
+    def _require_submission_owner(
+        self,
+        client_message_id: str,
+        *,
+        expected: str | None,
+    ) -> None:
+        """拒绝同一输入同时进入两个有效客户端容器。"""
+        owners = tuple(
+            owner
+            for owner, contains in (
+                ("pending", self.pending_steers.contains(client_message_id)),
+                ("rejected", self.rejected_steers.contains(client_message_id)),
+                ("queued", self.queued_messages.contains(client_message_id)),
+            )
+            if contains
+        )
+        if not owners or owners == (expected,):
+            return None
+        raise RuntimeError(
+            "submission already belongs to " + ", ".join(owners)
+        )
 
     def queue_input(self, buffer: Buffer) -> None:
         """使用下一轮意图提交当前输入内容。"""

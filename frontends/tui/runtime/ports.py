@@ -16,7 +16,10 @@ from frontends.tui.contracts.text import FragmentBlock
 from infrastructure.skills import SkillSpec
 from ..core.document import TuiBlockKind
 from ..core.interrupt import InterruptDisposition
-from ..core.queued import TuiSubmission
+from ..core.queued import (
+    SteerResolution,
+    TuiSubmission,
+)
 
 
 class MenuSelectionPort(typing.Protocol):
@@ -159,7 +162,10 @@ class TurnInputRuntimePort(typing.Protocol):
         """托管不阻塞当前轮次关闭的远端控制请求。"""
         ...
 
-    def resolve_pending_steer(self, client_message_id: str) -> None:
+    def resolve_pending_steer(
+        self,
+        client_message_id: str,
+    ) -> TuiSubmission | None:
         """停止展示一条已经完成归属转换的输入。"""
         ...
 
@@ -173,6 +179,44 @@ class TurnInputRuntimePort(typing.Protocol):
 
     def track_pending_steer(self, submission: TuiSubmission) -> None:
         """展示一条等待当前轮次接收的输入。"""
+        ...
+
+    def next_local_steer(
+        self,
+        client_message_ids: tuple[str, ...],
+    ) -> TuiSubmission | None:
+        """返回指定远端轮次最早一条尚未发送的输入。"""
+        ...
+
+    def mark_pending_steer_sent(self, client_message_id: str) -> None:
+        """把一条本地 steer 标记为已发送待确认。"""
+        ...
+
+    def pending_steer_sent_ids(
+        self,
+        client_message_ids: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """返回指定远端轮次需要对账的已发送输入标识。"""
+        ...
+
+    def advance_pending_steers(
+        self,
+        client_message_ids: tuple[str, ...],
+        *,
+        settled: bool,
+    ) -> SteerResolution:
+        """进入 continuation 并裁决上一远端 Turn 的输入。"""
+        ...
+
+    def close_pending_steers(
+        self,
+        client_message_ids: tuple[str, ...],
+        *,
+        settled: bool,
+        committed_ids: tuple[str, ...] = (),
+        retry_ids: tuple[str, ...] = (),
+    ) -> SteerResolution:
+        """关闭指定远端轮次的输入账本并返回恢复决议。"""
         ...
 
     def discard_rejected_steer(self, client_message_id: str) -> TuiSubmission | None:

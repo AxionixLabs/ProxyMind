@@ -119,6 +119,39 @@ def test_pending_steers_show_interrupt_settlement_immediately() -> None:
     )
 
 
+def test_submission_identity_cannot_enter_two_runtime_queues() -> None:
+    runtime = TuiRuntime()
+    submission = _submission("one owner")
+
+    runtime.track_pending_steer(submission)
+
+    with pytest.raises(
+        RuntimeError,
+        match="submission already belongs to pending",
+    ):
+        runtime.defer_submission(submission)
+
+    assert runtime.submissions.pending_steers.active
+    assert not runtime.submissions.queued_messages.active
+
+
+def test_uncertain_only_projection_is_not_interrupt_settling() -> None:
+    pending = TuiPendingSteers()
+    submission = _submission("uncertain")
+    pending.add(submission)
+    assert pending.mark_interrupt_settling()
+
+    pending.retain_uncertain(submission)
+
+    assert not pending.mark_interrupt_settling()
+    assert "Delivery unconfirmed" in _fragments_text(
+        pending.fragments(width=100)
+    )
+    assert "interrupted turn settles" not in _fragments_text(
+        pending.fragments(width=100)
+    )
+
+
 @pytest.mark.anyio
 async def test_interrupt_with_pending_steers_submits_only_those_immediately() -> None:
     runtime = TuiRuntime()
