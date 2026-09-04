@@ -21,6 +21,7 @@ from agent.capabilities import (
 )
 from agent.harness.sessions.owner import SessionRuntimeOwner
 from agent.ports import (
+    DurableQueueClient,
     EffectJournal,
     ProtocolCommandClient,
     SkillsProvider,
@@ -121,9 +122,12 @@ def create_runtime_services(
     model_capability = open_model_capability()
     if not isinstance(model_capability, ProtocolCommandClient):
         raise TypeError("model capability does not implement ProtocolCommandClient")
+    if not isinstance(model_capability, DurableQueueClient):
+        raise TypeError("model capability does not implement DurableQueueClient")
     return RuntimeServices(
         model_capability=model_capability,
         protocol_client=model_capability,
+        durable_queue_client=model_capability,
         environment_capability=open_environment_capability(),
         create_turn_application=open_turn_application,
         create_effect_journal=functools.partial(

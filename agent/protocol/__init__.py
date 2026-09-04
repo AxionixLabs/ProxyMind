@@ -15,6 +15,14 @@ from .commands import (
     ConversationForkReceipt,
     ForkPrompt,
 )
+from .durable_queue import (
+    DurableQueueInput,
+    DurableQueueItem,
+    DurableQueueMutationReceipt,
+    DurableQueueReorderReceipt,
+    DurableQueueSnapshot,
+    DurableQueueStartReceipt,
+)
 from .events import (
     ModelEvent,
     RunEvent,
@@ -41,6 +49,12 @@ __all__ = (
     "TurnStatusSnapshot",
     "ConversationForkReceipt",
     "ForkPrompt",
+    "DurableQueueInput",
+    "DurableQueueItem",
+    "DurableQueueMutationReceipt",
+    "DurableQueueReorderReceipt",
+    "DurableQueueSnapshot",
+    "DurableQueueStartReceipt",
     "McpToolDefinition",
     "McpToolResult",
 )

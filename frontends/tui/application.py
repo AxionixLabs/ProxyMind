@@ -14,6 +14,7 @@ from agent.domain.tool_policy import ToolFilterMode
 from agent.ports import (
     AttachmentStatePort,
     BeforeToolSession,
+    DurableQueueClient,
     FrontendActivityPort,
     McpRuntime,
     McpSessionPort,
@@ -241,6 +242,7 @@ class TuiApplicationHost(typing.Protocol):
     activity: FrontendActivityPort
     attach: AttachmentStatePort
     conversation: RootConversationPort
+    durable_queue: DurableQueueClient
     execution: TuiExecutionResourcesPort
     frontend: Frontend
     history_workspace: str

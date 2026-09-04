@@ -74,6 +74,12 @@ def new_request_id(prefix: str = "request") -> str:
     return normalize_request_id(request_id)
 
 
+def new_submission_id(prefix: str = "submission") -> str:
+    """生成新的持久队列提交标识。"""
+    normalized_prefix = str(prefix or "submission").strip("_-") or "submission"
+    return normalize_submission_id(f"{normalized_prefix}_{short_uid(24)}")
+
+
 def normalize_turn_id(value: str) -> str:
     """校验并返回客户端生成的逻辑轮次标识。"""
     turn_id = str(value or "").strip()
@@ -92,6 +98,17 @@ def normalize_request_id(value: str) -> str:
             "request_id must be 8-160 ASCII letters, digits, underscores or hyphens"
         )
     return request_id
+
+
+def normalize_submission_id(value: str) -> str:
+    """校验并返回持久队列提交标识。"""
+    submission_id = str(value or "").strip()
+    if not REQUEST_ID_PATTERN.fullmatch(submission_id):
+        raise ValueError(
+            "submission_id must be 8-160 ASCII letters, digits, underscores "
+            "or hyphens"
+        )
+    return submission_id
 
 
 def resolve_request_id(

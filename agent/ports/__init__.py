@@ -23,6 +23,7 @@ from .approval_core import (
 from .capabilities import (
     ApprovalSnapshotCallback,
     CapabilityError,
+    DurableQueueClient,
     EnvironmentSnapshotCapability,
     FilesystemCapability,
     HelixCapability,
@@ -288,6 +289,7 @@ __all__ = (
     "ApprovalSnapshotCallback",
     "ConversationHistoryPort",
     "CapabilityError",
+    "DurableQueueClient",
     "EnvironmentSnapshotCapability",
     "FilesystemCapability",
     "HelixCapability",

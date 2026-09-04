@@ -1308,59 +1308,41 @@ async def test_completed_event_alone_closes_recovery_stream(monkeypatch) -> None
 
 
 @pytest.mark.anyio
-async def test_sequence_gap_attaches_from_last_confirmed_event(monkeypatch) -> None:
+async def test_filtered_session_sequence_advances_without_false_gap(monkeypatch) -> None:
     calls = []
 
     async def streaming(url, _headers, _payload, _timeout):
         calls.append(url)
-        if url.endswith("/mind-chat"):
-            yield {
-                "type": "text.delta",
-                "turn_id": "turn_001",
-                "event_seq": 1,
-                "segment_id": "segment_1",
-                "text": "one",
-            }
-            yield {
-                "type": "text.delta",
-                "turn_id": "turn_001",
-                "event_seq": 3,
-                "segment_id": "segment_1",
-                "text": "must not leak",
-            }
-        else:
-            yield {
-                "type": "text.delta",
-                "turn_id": "turn_001",
-                "event_seq": 2,
-                "segment_id": "segment_1",
-                "text": "two",
-            }
-            yield {
-                "type": "text.delta",
-                "turn_id": "turn_001",
-                "event_seq": 3,
-                "segment_id": "segment_1",
-                "text": "three",
-            }
-            yield {
-                "type": "turn.completed",
-                "turn_id": "turn_001",
-                "event_seq": 4,
-            }
+        yield {
+            "type": "text.delta",
+            "turn_id": "turn_001",
+            "event_seq": 1,
+            "segment_id": "segment_1",
+            "text": "one",
+        }
+        # event_seq=2 belongs to a filtered Session-level queue.changed event.
+        yield {
+            "type": "text.delta",
+            "turn_id": "turn_001",
+            "event_seq": 3,
+            "segment_id": "segment_1",
+            "text": "three",
+        }
+        yield {
+            "type": "turn.completed",
+            "turn_id": "turn_001",
+            "event_seq": 4,
+        }
 
     _install_reconnect_stream(monkeypatch, streaming)
 
     events = [event async for event in chat.stream_chat({}, "hello", [])]
 
-    assert [event.event_seq for event in events] == [1, 2, 3, 4]
+    assert [event.event_seq for event in events] == [1, 3, 4]
     assert [
         event.text for event in events if isinstance(event, TextDeltaEvent)
-    ] == ["one", "two", "three"]
-    assert calls == [
-        "https://example.com/mind-chat",
-        "https://example.com/mind-attach",
-    ]
+    ] == ["one", "three"]
+    assert calls == ["https://example.com/mind-chat"]
 
 
 @pytest.mark.anyio

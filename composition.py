@@ -186,6 +186,7 @@ class ApplicationHost:
         self.history_workspace = normalize_workspace(workspace_root or Path.cwd())
         self.application_layout = application_layout
         self.runtime_services = runtime_services
+        self.durable_queue = runtime_services.durable_queue_client
         self.javascript_execution = javascript_execution
         self.javascript_lifecycle = javascript_lifecycle
         self.frontend = frontend

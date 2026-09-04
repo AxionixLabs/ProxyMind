@@ -1,0 +1,29 @@
+{
+  "operations": {
+    "add": ["POST", "/queue"],
+    "list": ["GET", "/queue"],
+    "update": ["PATCH", "/queue/{submission_id}"],
+    "delete": ["DELETE", "/queue/{submission_id}"],
+    "reorder": ["POST", "/queue/reorder"],
+    "start": ["POST", "/queue/start"]
+  },
+  "item": {
+    "queue_seq": 1,
+    "cid": "cid_queue",
+    "sid": "sid_queue",
+    "submission_id": "submission_queue_0001",
+    "client_message_id": "message_queue_0001",
+    "turn_id": "turn_queue_0001",
+    "position": 1,
+    "status": "queued",
+    "input": {
+      "text": "queued input",
+      "attachments": [],
+      "extras": {}
+    },
+    "created_at": 1.0,
+    "updated_at": 1.0,
+    "started_at": null,
+    "deleted_at": null
+  }
+}

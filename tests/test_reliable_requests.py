@@ -33,6 +33,13 @@ class _ClientFactory(object):
                     raise outcome
                 return outcome
 
+            async def request(self, method, url, **kwargs):
+                factory.calls.append((timeout, method, url, kwargs))
+                outcome = factory.outcomes.pop(0)
+                if isinstance(outcome, BaseException):
+                    raise outcome
+                return outcome
+
         return ClientStub()
 
 
@@ -92,6 +99,36 @@ async def test_reliable_post_does_not_retry_permanent_client_error(
     assert response.status_code == 422
     assert len(factory.calls) == 1
     sleep.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_reliable_json_mutation_reuses_method_payload_and_identity(
+    monkeypatch,
+) -> None:
+    payload = {"request_id": "request_1"}
+    factory = _ClientFactory([
+        httpx.ConnectError("response lost"),
+        _response(503),
+        _response(200),
+    ])
+    sleep = AsyncMock()
+    monkeypatch.setattr(reliable.asyncio, "sleep", sleep)
+
+    response = await reliable.send_json_reliably(
+        "DELETE",
+        "https://example.test/queue/submission_1",
+        headers={"authorization": "test"},
+        payload=payload,
+        timeout=3.0,
+        client_factory=factory,
+        retry_delays=(0.0, 0.2, 0.5),
+    )
+
+    assert response.status_code == 200
+    assert len(factory.calls) == 3
+    assert all(call[1] == "DELETE" for call in factory.calls)
+    assert all(call[3]["json"] is payload for call in factory.calls)
+    sleep.assert_has_awaits([call(0.2), call(0.5)])
 
 
 @pytest.mark.anyio

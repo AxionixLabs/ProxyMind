@@ -212,15 +212,6 @@ class TurnEventStream(object):
         if event.requested_after_seq != self.last_event_seq:
             raise ValueError("stream gap does not match the confirmed event cursor")
 
-    def _has_sequence_gap(self, event: ChatStreamEvent) -> bool:
-        """判断已建立水位后的事件序号是否出现缺口。"""
-        event_seq = event.event_seq
-        return (
-            event_seq is not None
-            and self.last_event_seq > 0
-            and event_seq > self.last_event_seq + 1
-        )
-
     def _event_progress_timeout(self) -> float:
         """返回距离下一次权威事件活性检查的剩余时间。"""
         timeout = max(
@@ -466,21 +457,6 @@ class TurnEventStream(object):
                 and parsed_event.event_seq <= self.last_event_seq
             ):
                 continue
-            if (
-                self._has_sequence_gap(parsed_event)
-                and not (
-                    self._internal_gap_detected
-                    and isinstance(parsed_event, TurnCompletedEvent)
-                )
-                and not (
-                    self._control_settlement_probe_active
-                    and isinstance(parsed_event, TurnCompletedEvent)
-                )
-            ):
-                if await self._resume_stream():
-                    continue
-                await self._finish("protocol_error")
-                raise RuntimeError("turn event sequence is not continuous")
             if parsed_event.event_seq is not None:
                 await self._prepare_recovery_delivery(parsed_event.event_seq)
                 self.last_event_seq = parsed_event.event_seq
