@@ -115,18 +115,6 @@ class SteerTurnInput:
 
 
 @dataclass(frozen=True, slots=True)
-class TurnReconcileReceipt:
-    """描述未确认引导输入在服务端的权威归属。"""
-
-    turn_id: str
-    turn_status: str
-    committed_ids: tuple[str, ...] = ()
-    pending_ids: tuple[str, ...] = ()
-    retry_ids: tuple[str, ...] = ()
-    unknown_ids: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
 class TurnCompletedSnapshot:
     """描述与服务端唯一终态事件同构的稳定快照。"""
 
@@ -135,6 +123,19 @@ class TurnCompletedSnapshot:
     error: str | None
     last_event_seq: int
     completed_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class TurnReconcileReceipt:
+    """描述未确认引导输入在服务端的权威归属。"""
+
+    turn_id: str
+    turn_exists: bool
+    terminal: TurnCompletedSnapshot | None
+    committed_ids: tuple[str, ...] = ()
+    pending_ids: tuple[str, ...] = ()
+    retry_ids: tuple[str, ...] = ()
+    unknown_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

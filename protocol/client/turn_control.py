@@ -157,17 +157,6 @@ class TurnControlResponse(object):
 
 
 @dataclass(frozen=True, slots=True)
-class TurnReconcileResponse(object):
-    """描述服务端对未确认轮次输入的归属快照。"""
-    turn_id: str
-    turn_status: str
-    committed_ids: tuple[str, ...]
-    pending_ids: tuple[str, ...]
-    retry_ids: tuple[str, ...]
-    unknown_ids: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class TurnCompletedSnapshot(object):
     """描述与唯一终态事件同构的持久化快照。"""
     type: typing.Literal["turn.completed"]
@@ -176,6 +165,18 @@ class TurnCompletedSnapshot(object):
     error: str | None
     last_event_seq: int
     completed_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class TurnReconcileResponse(object):
+    """描述服务端对未确认轮次输入的归属快照。"""
+    turn_id: str
+    turn_exists: bool
+    terminal: TurnCompletedSnapshot | None
+    committed_ids: tuple[str, ...]
+    pending_ids: tuple[str, ...]
+    retry_ids: tuple[str, ...]
+    unknown_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,7 +297,7 @@ async def interrupt_turn(
         prefix="interrupt",
     )
 
-    return await _post_control(
+    await _post_empty_ack(
         "/turn/interrupt",
         cid=cid,
         sid=sid,
@@ -304,10 +305,13 @@ async def interrupt_turn(
             "request_id": normalized_request_id,
             "turn_id": normalized_turn_id,
         },
-        expected_request_id=normalized_request_id,
-        expected_turn_id=normalized_turn_id,
-        expected_message_id=None,
         timeout=timeout,
+    )
+    return TurnControlResponse(
+        status="accepted",
+        request_id=normalized_request_id,
+        turn_id=normalized_turn_id,
+        client_message_id=None,
     )
 
 
@@ -346,7 +350,8 @@ async def reconcile_turn_inputs(
     )
 
     response_turn_id = str(body.get("turn_id") or "").strip()
-    turn_status = str(body.get("turn_status") or "").strip()
+    turn_exists = body.get("turn_exists")
+    terminal_value = body.get("terminal")
 
     classifications = {
         field: _response_ids(body, field)
@@ -366,10 +371,55 @@ async def reconcile_turn_inputs(
 
     if (
         response_turn_id != normalized_turn_id
-        or not turn_status
+        or not isinstance(turn_exists, bool)
         or len(classified_ids) != len(set(classified_ids))
         or set(classified_ids) != set(requested_ids)
-        or (turn_status == "settled" and classifications["pending_ids"])
+    ):
+        raise TurnControlRequestError(
+            "turn reconciliation response does not match request"
+        )
+
+    terminal: TurnCompletedSnapshot | None = None
+    if terminal_value is not None:
+        if not isinstance(terminal_value, dict):
+            raise TurnControlRequestError(
+                "turn reconciliation returned an invalid response"
+            )
+        terminal_status_value = terminal_value.get("status")
+        terminal_event_seq = terminal_value.get("last_event_seq")
+        if (
+            not isinstance(terminal_status_value, str)
+            or isinstance(terminal_event_seq, bool)
+            or not isinstance(terminal_event_seq, int)
+        ):
+            raise TurnControlRequestError(
+                "turn reconciliation returned an invalid response"
+            )
+        try:
+            terminal = _completed_snapshot(
+                terminal_value,
+                expected_turn_id=normalized_turn_id,
+                expected_status=terminal_status_value,
+                expected_event_seq=terminal_event_seq,
+            )
+        except TurnStatusRequestError as error:
+            raise TurnControlRequestError(
+                "turn reconciliation returned an invalid response"
+            ) from error
+    if (
+        (
+            not turn_exists
+            and (
+                terminal is not None
+                or classifications["committed_ids"]
+                or classifications["pending_ids"]
+                or classifications["retry_ids"]
+            )
+        )
+        or (
+            terminal is not None
+            and bool(classifications["pending_ids"])
+        )
     ):
         raise TurnControlRequestError(
             "turn reconciliation response does not match request"
@@ -377,7 +427,8 @@ async def reconcile_turn_inputs(
 
     return TurnReconcileResponse(
         turn_id=response_turn_id,
-        turn_status=turn_status,
+        turn_exists=turn_exists,
+        terminal=terminal,
         committed_ids=classifications["committed_ids"],
         pending_ids=classifications["pending_ids"],
         retry_ids=classifications["retry_ids"],
@@ -459,6 +510,42 @@ async def _post_control(
         turn_id=response_turn_id,
         client_message_id=response_message_id,
     )
+
+
+async def _post_empty_ack(
+    path: str,
+    *,
+    cid: str,
+    sid: str,
+    payload: dict[str, typing.Any],
+    timeout: float,
+) -> None:
+    """发送只以 204 表示命令已接受的控制请求。"""
+    normalized_cid = str(cid or "").strip()
+    normalized_sid = str(sid or "").strip()
+    if not normalized_cid:
+        raise TurnControlRequestError("turn control requires cid")
+    if not normalized_sid:
+        raise TurnControlRequestError("turn control requires sid")
+
+    try:
+        response = await post_json_reliably(
+            service_endpoints.endpoint(path),
+            params={"cid": normalized_cid, "sid": normalized_sid},
+            headers=build_service_headers(),
+            payload=payload,
+            timeout=timeout,
+            client_factory=httpx.AsyncClient,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as error:
+        raise TurnControlRequestError(
+            f"turn control request failed: {path}"
+        ) from error
+    if response.status_code != 204 or response.content:
+        raise TurnControlRequestError(
+            "turn control returned an invalid empty acknowledgement"
+        )
 
 
 async def _post_json(

@@ -15,10 +15,14 @@ from frontends.tui.features.model import choose_model_effort
 from frontends.tui.session import dispatch
 from frontends.tui.session import loop
 from agent.domain.policies import preset_permissions
-from agent.application.turns.commands import TurnApplication
+from agent.application.turns.commands import (
+    SessionRecoveryResult,
+    TurnApplication,
+)
 from agent.harness.sessions.owner import SessionRuntimeOwner
 from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.ports import ProtocolCommandClient
+from agent.protocol import SubmitTurnCommand
 
 
 @pytest.fixture(autouse=True)
@@ -84,6 +88,63 @@ async def test_tui_requires_explicit_root_turn_runner() -> None:
             SimpleNamespace(),
             protocol_client=Mock(spec=ProtocolCommandClient),
         )
+
+
+@pytest.mark.anyio
+async def test_durable_queued_recovery_returns_input_to_composer() -> None:
+    runtime = TuiRuntime()
+    runtime.screen.input.buffer.text = "current draft"
+    attachment_state = SimpleNamespace(
+        pending_attachments_snapshot=Mock(return_value=[{
+            "filename": "current.txt",
+        }]),
+        replace_pending_attachments=Mock(),
+    )
+    state = SimpleNamespace(
+        consume_pending_prompt_extras=Mock(return_value={"current": True}),
+        replace_pending_prompt_extras=Mock(),
+    )
+    command = SubmitTurnCommand.create(
+        session_id="session_test",
+        message="queued before restart",
+        attachments=({"filename": "queued.txt"},),
+        extras={"queued": True},
+    )
+    turn_application = AsyncMock()
+    turn_application.reconcile_remote_session.return_value = (
+        SessionRecoveryResult(
+            pending=(),
+            restore_commands=(command,),
+            resolved_run_ids=(command.run_id,),
+        )
+    )
+    host = SimpleNamespace(
+        attach=attachment_state,
+        lifecycle=ProcessLifecycle(),
+    )
+
+    ready = await loop._await_durable_session_recovery(
+        host,
+        runtime,
+        state,
+        SimpleNamespace(emit=Mock()),
+        turn_application,
+        Mock(spec=ProtocolCommandClient),
+        session_id="session_test",
+    )
+
+    assert ready is True
+    assert runtime.screen.input.buffer.text == (
+        "queued before restart\ncurrent draft"
+    )
+    attachment_state.replace_pending_attachments.assert_called_once_with((
+        {"filename": "queued.txt"},
+        {"filename": "current.txt"},
+    ))
+    state.replace_pending_prompt_extras.assert_called_once_with({
+        "queued": True,
+        "current": True,
+    })
 
 
 @pytest.mark.anyio

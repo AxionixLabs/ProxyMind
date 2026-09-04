@@ -59,6 +59,7 @@ class StreamTurnOutcome:
     error_code: str | None = None
     error_details: dict[str, typing.Any] = field(default_factory=dict)
     interrupt_confirmed: bool = False
+    _delivery_incomplete: bool = field(default=False, init=False, repr=False)
     _terminal_statuses: set[RunStatus] = field(
         default_factory=set,
         init=False,
@@ -120,7 +121,15 @@ class StreamTurnOutcome:
 
     def record_completed_event(self, event: _CompletedEvent) -> None:
         """合并服务端唯一权威终态及其响应元数据。"""
-        self._terminal_statuses.add(event.status)
+        resolved_status: RunStatus = (
+            "incomplete"
+            if event.status == "completed" and self._delivery_incomplete
+            else event.status
+        )
+        self._terminal_statuses.add(resolved_status)
+        if resolved_status == "incomplete":
+            self._record_terminal(event)
+            return None
         self.error = event.error or None
         self.error_code = event.error_type or None
         self.error_details = {
@@ -133,6 +142,17 @@ class StreamTurnOutcome:
             if value not in {None, ""}
         }
         self._record_terminal(event)
+
+    def mark_delivery_incomplete(
+        self,
+        error: str,
+        *,
+        error_code: str,
+    ) -> None:
+        """记录事件缺失，但继续等待远端权威终态以释放执行门。"""
+        self._delivery_incomplete = True
+        self.error = str(error)
+        self.error_code = str(error_code)
 
     def interrupt(self, error: str | None = None) -> None:
         """记录本地取消或工具处理产生的中断。"""
@@ -148,10 +168,26 @@ class StreamTurnOutcome:
         self._terminal_statuses.add(status)
         self.interrupt_confirmed = True
 
-    def require_reconciliation(self, error: str) -> None:
+    def require_reconciliation(
+        self,
+        error: str,
+        *,
+        error_code: str | None = None,
+        error_details: typing.Mapping[str, typing.Any] | None = None,
+        additional_context: typing.Iterable[str] = (),
+    ) -> None:
         """记录无法确定或无法提交的持久效果结果。"""
         self._terminal_statuses.add("reconciliation_required")
         self.error = str(error)
+        if error_code not in {None, ""}:
+            self.error_code = str(error_code)
+        if error_details is not None:
+            self.error_details = dict(error_details)
+        self.additional_context = (
+            (additional_context,)
+            if isinstance(additional_context, str)
+            else tuple(additional_context)
+        )
 
     def fail(
         self,

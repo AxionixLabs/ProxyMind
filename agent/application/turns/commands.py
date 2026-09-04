@@ -5,7 +5,10 @@ import asyncio
 import typing
 from dataclasses import dataclass
 
+from agent.domain import RecoveryAction
 from agent.ports import (
+    ProtocolCommandClient,
+    ProtocolCommandError,
     RecoveryResolution,
     RunFact,
     RunPersistence,
@@ -14,6 +17,7 @@ from agent.ports import (
     SessionRuntimeFactory,
     TurnExecutor,
     TurnExecutorResult,
+    remote_turn_binding,
 )
 from agent.protocol import (
     RunEvent,
@@ -35,6 +39,15 @@ class SubmitTurnResult(typing.Generic[ResultValue]):
     value: ResultValue
     events: tuple[RunEvent, ...]
     projection: RunResultProjection
+
+
+@dataclass(frozen=True, slots=True)
+class SessionRecoveryResult:
+    """描述一次 Session 恢复探测后仍待处理和可恢复编辑的命令。"""
+
+    pending: tuple[RunSnapshot, ...]
+    restore_commands: tuple[SubmitTurnCommand, ...]
+    resolved_run_ids: tuple[str, ...]
 
 
 class TurnApplication(typing.Generic[ResultValue]):
@@ -107,6 +120,84 @@ class TurnApplication(typing.Generic[ResultValue]):
             resolution=resolution,
             result_payload=result_payload,
             error=error,
+        )
+
+    async def reconcile_remote_session(
+        self,
+        session_id: str,
+        protocol_client: ProtocolCommandClient,
+    ) -> SessionRecoveryResult:
+        """使用远端权威终态解除门禁，并交回确定未执行的排队输入。"""
+        recoveries = await self.recover_session(session_id)
+        if not recoveries:
+            return SessionRecoveryResult((), (), ())
+        if self._persistence is None:
+            return SessionRecoveryResult(recoveries, (), ())
+
+        restore_commands: list[SubmitTurnCommand] = []
+        resolved_run_ids: list[str] = []
+        for snapshot in recoveries:
+            if snapshot.recovery_action is RecoveryAction.REDISPATCH:
+                await self.resolve_recovery(
+                    snapshot.command.run_id,
+                    request_id=(
+                        f"recover_not_executed_{snapshot.command.run_id}"
+                    ),
+                    resolution="not_executed",
+                    error="queued run was not executed",
+                )
+                restore_commands.append(snapshot.command)
+                resolved_run_ids.append(snapshot.command.run_id)
+                continue
+
+            binding = remote_turn_binding(snapshot.command)
+            if binding is None:
+                continue
+            try:
+                status = await protocol_client.get_turn_status(
+                    cid=binding.cid,
+                    sid=binding.sid,
+                    turn_id=binding.turn_id,
+                )
+            except ProtocolCommandError:
+                continue
+            terminal = status.terminal
+            if terminal is None:
+                continue
+
+            result_payload: dict[str, ThawedJsonValue] = {
+                "type": "turn.completed",
+                "turn_id": terminal.turn_id,
+                "status": terminal.status,
+                "error": terminal.error,
+                "last_event_seq": terminal.last_event_seq,
+                "completed_at": terminal.completed_at,
+            }
+            resolution: RecoveryResolution = (
+                "committed" if terminal.status == "completed" else "failed"
+            )
+            await self.resolve_recovery(
+                snapshot.command.run_id,
+                request_id=(
+                    "recover_remote_"
+                    f"{snapshot.command.run_id}_{terminal.last_event_seq}"
+                ),
+                resolution=resolution,
+                result_payload=result_payload,
+                error=(
+                    terminal.error or ""
+                    if resolution == "committed"
+                    else terminal.error
+                    or f"remote turn completed with status {terminal.status}"
+                ),
+            )
+            resolved_run_ids.append(snapshot.command.run_id)
+
+        pending = await self.recover_session(session_id)
+        return SessionRecoveryResult(
+            pending=pending,
+            restore_commands=tuple(restore_commands),
+            resolved_run_ids=tuple(resolved_run_ids),
         )
 
     async def events(

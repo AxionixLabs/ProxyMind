@@ -42,6 +42,7 @@ ATTACH_BACKOFF_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
 ATTACH_BACKOFF_JITTER_RATIO: typing.Final[float] = 0.2
 ATTACH_RETRY_MAX_ELAPSED_SEC: typing.Final[float] = 60.0
 STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC: typing.Final[float] = 25.0
+CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC: typing.Final[float] = 0.5
 
 TurnStreamEndReason: typing.TypeAlias = typing.Literal[
     "settled",
@@ -90,7 +91,7 @@ class TurnEventStream(object):
         """保存请求参数并初始化逻辑轮次观察状态。"""
         self._request = (pref_config, message, tools, attachments, kwargs)
         self._timeout = timeout
-        self._closed = False
+        self._closed: bool = False
         self._payload_stream: typing.AsyncGenerator[dict, None] | None = None
         self._chat_payload: dict[str, typing.Any] | None = None
         self._attach_target: dict[str, str] | None = None
@@ -101,6 +102,9 @@ class TurnEventStream(object):
         self._replay_target_seq: int | None = None
         self._recovery_catch_up_pending: bool = False
         self._terminal_snapshot_payload: dict[str, typing.Any] | None = None
+        self._internal_gap_detected: bool = False
+        self._control_settlement_probe_active: bool = False
+        self._recovery_probe_requested: asyncio.Event = asyncio.Event()
         self._reconnect_started_at: float | None = None
         self._last_event_progress_at: float = time.monotonic()
         self._on_recovery_status = on_recovery_status
@@ -134,6 +138,30 @@ class TurnEventStream(object):
             return True
         status_code = error.response.status_code
         return status_code >= 500 or status_code in {408, 425, 429}
+
+    @staticmethod
+    def _terminal_payload(
+        status: TurnStatusSnapshot,
+        *,
+        attach_target: dict[str, str],
+    ) -> dict[str, typing.Any]:
+        """把同构终态快照转换为统一事件 reducer 的输入。"""
+        terminal = status.terminal
+        if terminal is None:
+            raise ValueError("turn status is missing terminal snapshot")
+        return {
+            "type": terminal.type,
+            "proto": "mind.chat",
+            "cid": attach_target["cid"],
+            "sid": attach_target["sid"],
+            "turn_id": terminal.turn_id,
+            "event_seq": terminal.last_event_seq,
+            "presentation_epoch": 1,
+            "status": terminal.status,
+            "error": terminal.error,
+            "last_event_seq": terminal.last_event_seq,
+            "completed_at": terminal.completed_at,
+        }
 
     def _attach_delay(self) -> float:
         """计算当前连续失败次数对应的封顶抖动退避。"""
@@ -184,6 +212,57 @@ class TurnEventStream(object):
             and self.last_event_seq > 0
             and event_seq > self.last_event_seq + 1
         )
+
+    def _event_progress_timeout(self) -> float:
+        """返回距离下一次权威事件活性检查的剩余时间。"""
+        timeout = max(
+            0.01,
+            min(float(self._timeout), STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC),
+        )
+        if self._control_settlement_probe_active:
+            timeout = min(
+                timeout,
+                CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC,
+            )
+        elapsed = time.monotonic() - self._last_event_progress_at
+        return max(0.0, timeout - elapsed)
+
+    def _reset_event_progress_deadline(self) -> None:
+        """为新建立的传输连接开启一个完整的事件推进窗口。"""
+        self._last_event_progress_at = time.monotonic()
+
+    def _open_chat_stream(self) -> typing.AsyncGenerator[dict, None]:
+        """使用缓存的原始请求创建对话事件传输。"""
+        payload = self._chat_payload
+        if payload is None:
+            raise RuntimeError("chat payload is unavailable")
+
+        return streaming(
+            service_endpoints.endpoint("/mind-chat"),
+            build_service_headers(),
+            payload,
+            self._timeout,
+        )
+
+    def _required_attach_target(self) -> dict[str, str]:
+        """返回已经建立的恢复坐标。"""
+        attach_target = self._attach_target
+        if attach_target is None:
+            raise RuntimeError("turn stream is missing recovery coordinates")
+        return attach_target
+
+    def request_recovery_probe(self) -> None:
+        """请求当前事件观察立即通过 attach/status 核对权威 Turn。"""
+        if not self._closed:
+            self._control_settlement_probe_active = True
+            self._recovery_probe_requested.set()
+
+    @staticmethod
+    async def _wait_before_attach(delay: float) -> None:
+        """等待下一次重新接入且保持任务可取消。"""
+        if delay <= 0:
+            return
+        await asyncio.sleep(delay)
 
     async def _notify_recovery(
         self,
@@ -237,38 +316,34 @@ class TurnEventStream(object):
         self._last_event_progress_at = time.monotonic()
         await self._mark_transport_healthy()
 
-    def _event_progress_timeout(self) -> float:
-        """返回距离下一次权威事件活性检查的剩余时间。"""
-        timeout = max(
-            0.01,
-            min(float(self._timeout), STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC),
-        )
-        elapsed = time.monotonic() - self._last_event_progress_at
-        return max(0.0, timeout - elapsed)
-
-    def _reset_event_progress_deadline(self) -> None:
-        """为新建立的传输连接开启一个完整的事件推进窗口。"""
-        self._last_event_progress_at = time.monotonic()
-
-    def _open_chat_stream(self) -> typing.AsyncGenerator[dict, None]:
-        """使用缓存的原始请求创建对话事件传输。"""
-        payload = self._chat_payload
-        if payload is None:
-            raise RuntimeError("chat payload is unavailable")
-
-        return streaming(
-            service_endpoints.endpoint("/mind-chat"),
-            build_service_headers(),
-            payload,
-            self._timeout,
-        )
-
-    @staticmethod
-    async def _wait_before_attach(delay: float) -> None:
-        """等待下一次重新接入且保持任务可取消。"""
-        if delay <= 0:
-            return
-        await asyncio.sleep(delay)
+    async def _read_payload_or_recovery_probe(
+        self,
+        payload_stream: typing.AsyncGenerator[dict, None],
+        *,
+        timeout: float,
+    ) -> dict | None:
+        """读取下一项载荷，或被控制命令唤醒以立即恢复观察。"""
+        payload_task = asyncio.create_task(anext(payload_stream))
+        probe_task = asyncio.create_task(self._recovery_probe_requested.wait())
+        tasks = (payload_task, probe_task)
+        try:
+            completed, _pending = await asyncio.wait(
+                tasks,
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not completed:
+                raise TimeoutError
+            if payload_task in completed:
+                return payload_task.result()
+            self._recovery_probe_requested.clear()
+            return None
+        finally:
+            pending = [task for task in tasks if not task.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
 
     async def _close_payload_stream(self) -> None:
         """关闭当前底层事件传输。"""
@@ -349,8 +424,10 @@ class TurnEventStream(object):
             if isinstance(parsed_event, StreamGapEvent):
                 self._validate_gap_identity(parsed_event)
                 if parsed_event.gap_kind == "internal":
-                    await self._finish("protocol_error")
-                    event = parsed_event
+                    first_observation = not self._internal_gap_detected
+                    self._internal_gap_detected = True
+                    if first_observation:
+                        event = parsed_event
                     continue
                 if parsed_event.next_seq is None:
                     await self._finish("protocol_error")
@@ -376,11 +453,22 @@ class TurnEventStream(object):
             self._validate_turn_identity(parsed_event)
             self._response_observed = True
             if (
+                self._internal_gap_detected
+                and not isinstance(parsed_event, TurnCompletedEvent)
+            ):
+                continue
+            if (
                 parsed_event.event_seq is not None
                 and parsed_event.event_seq <= self.last_event_seq
             ):
                 continue
-            if self._has_sequence_gap(parsed_event):
+            if (
+                self._has_sequence_gap(parsed_event)
+                and not (
+                    self._internal_gap_detected
+                    and isinstance(parsed_event, TurnCompletedEvent)
+                )
+            ):
                 if await self._resume_stream():
                     continue
                 await self._finish("protocol_error")
@@ -403,11 +491,34 @@ class TurnEventStream(object):
             if terminal_payload is not None:
                 self._terminal_snapshot_payload = None
                 return terminal_payload
+            if (
+                self._control_settlement_probe_active
+                and self._payload_stream is None
+                and self._attach_target is not None
+            ):
+                await asyncio.sleep(CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC)
+                if await self._resume_stream():
+                    continue
+                await self._finish("fatal")
+                raise RuntimeError(
+                    "turn settlement status probe could not resume observation"
+                )
             payload_stream = await self._ensure_open()
 
             try:
-                async with asyncio.timeout(self._event_progress_timeout()):
-                    payload: typing.Any = await anext(payload_stream)
+                payload = await self._read_payload_or_recovery_probe(
+                    payload_stream,
+                    timeout=self._event_progress_timeout(),
+                )
+                if payload is None:
+                    self._reconnect_failures = 0
+                    self._reconnect_started_at = None
+                    if await self._resume_stream():
+                        continue
+                    await self._finish("fatal")
+                    raise RuntimeError(
+                        "turn recovery probe could not resume observation"
+                    )
                 if not isinstance(payload, dict):
                     await self._finish("protocol_error")
                     raise TypeError("stream payload must be an object")
@@ -481,13 +592,18 @@ class TurnEventStream(object):
             return False
 
         now = time.monotonic()
-        if self._reconnect_started_at is None:
-            self._reconnect_started_at = now
-        elif now - self._reconnect_started_at >= ATTACH_RETRY_MAX_ELAPSED_SEC:
-            return False
+        control_settlement = self._control_settlement_probe_active
+        if control_settlement:
+            delay = 0.0
+        else:
+            if self._reconnect_started_at is None:
+                self._reconnect_started_at = now
+            elif now - self._reconnect_started_at >= ATTACH_RETRY_MAX_ELAPSED_SEC:
+                self._reconnect_started_at = now
+                self._reconnect_failures = 0
 
-        delay = self._attach_delay()
-        self._reconnect_failures += 1
+            delay = self._attach_delay()
+            self._reconnect_failures += 1
         await self._notify_recovery(
             "reconnecting",
             event_seq=self.last_event_seq,
@@ -501,7 +617,8 @@ class TurnEventStream(object):
             and time.monotonic() - self._reconnect_started_at
             >= ATTACH_RETRY_MAX_ELAPSED_SEC
         ):
-            return False
+            self._reconnect_started_at = time.monotonic()
+            self._reconnect_failures = 0
 
         status = await self._turn_status_for_recovery(attach_target)
         if not self._response_observed and status is None:
@@ -513,13 +630,26 @@ class TurnEventStream(object):
         if (
             status is not None
             and status.terminal is not None
-            and status.last_event_seq == self.last_event_seq + 1
+            and (
+                status.last_event_seq == self.last_event_seq + 1
+                or control_settlement
+                or (
+                    self._internal_gap_detected
+                    and status.last_event_seq > self.last_event_seq
+                )
+            )
         ):
             await self._begin_replay(status.last_event_seq)
             self._terminal_snapshot_payload = self._terminal_payload(
                 status,
                 attach_target=attach_target,
             )
+            self._reset_event_progress_deadline()
+            return True
+
+        if control_settlement:
+            self._replay_target_seq = None
+            self._recovery_catch_up_pending = False
             self._reset_event_progress_deadline()
             return True
 
@@ -548,30 +678,6 @@ class TurnEventStream(object):
         )
         self._reset_event_progress_deadline()
         return True
-
-    @staticmethod
-    def _terminal_payload(
-        status: TurnStatusSnapshot,
-        *,
-        attach_target: dict[str, str],
-    ) -> dict[str, typing.Any]:
-        """把同构终态快照转换为统一事件 reducer 的输入。"""
-        terminal = status.terminal
-        if terminal is None:
-            raise ValueError("turn status is missing terminal snapshot")
-        return {
-            "type": terminal.type,
-            "proto": "mind.chat",
-            "cid": attach_target["cid"],
-            "sid": attach_target["sid"],
-            "turn_id": terminal.turn_id,
-            "event_seq": terminal.last_event_seq,
-            "presentation_epoch": 1,
-            "status": terminal.status,
-            "error": terminal.error,
-            "last_event_seq": terminal.last_event_seq,
-            "completed_at": terminal.completed_at,
-        }
 
     async def _restore_approval_snapshot(
         self,
@@ -603,13 +709,6 @@ class TurnEventStream(object):
             if self._status_probe_allows_resubmit(error):
                 return None
             raise
-
-    def _required_attach_target(self) -> dict[str, str]:
-        """返回已经建立的恢复坐标。"""
-        attach_target = self._attach_target
-        if attach_target is None:
-            raise RuntimeError("turn stream is missing recovery coordinates")
-        return attach_target
 
     async def aclose(self) -> None:
         """关闭底层事件传输并固定结束原因。"""

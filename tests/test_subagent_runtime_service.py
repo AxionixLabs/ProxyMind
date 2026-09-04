@@ -645,7 +645,7 @@ async def test_runtime_steers_active_turn_without_reinjecting_message() -> None:
         execution = kwargs["turn_execution"]
         if execution.metadata["turn_index"] == 1:
             kwargs["on_turn_input_event"](MarkerEvent(
-                type="turn.start",
+                type="turn.started",
                 turn_id=execution.context.turn_id,
             ))
             started.set()

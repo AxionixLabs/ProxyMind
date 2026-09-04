@@ -55,6 +55,7 @@ from protocol.schema.turn_inputs import TurnInput as _WireTurnInput
 from .items import CanonicalItemReducer
 
 SessionIdentity: typing.TypeAlias = tuple[str, str]
+SessionTurnIdentity: typing.TypeAlias = tuple[str, str, str]
 
 
 class _WireEventStream(typing.Protocol):
@@ -69,6 +70,10 @@ class _WireEventStream(typing.Protocol):
 
     async def aclose(self) -> None:
         """关闭底层传输与恢复任务。"""
+        ...
+
+    def request_recovery_probe(self) -> None:
+        """请求底层传输立即核对当前 Turn 的权威状态。"""
         ...
 
 
@@ -120,6 +125,7 @@ class ProtocolModelEventStream:
         turn_id: str,
         event_cursors: ProtocolEventCursorStore,
         item_reducer: CanonicalItemReducer | None = None,
+        on_close: typing.Callable[[], None] | None = None,
     ) -> None:
         """绑定单 Turn 传输及其 Protocol Client 状态所有者。"""
         self._stream = stream
@@ -134,6 +140,7 @@ class ProtocolModelEventStream:
         )
         self._current_item: CanonicalItem | None = None
         self._closed = False
+        self._on_close = on_close
 
     @property
     def end_reason(self) -> ModelStreamEndReason | None:
@@ -185,6 +192,10 @@ class ProtocolModelEventStream:
         """返回捕获并归一化协议失败的异步事件迭代器。"""
         return self._iterate()
 
+    def request_recovery_probe(self) -> None:
+        """请求活动 wire stream 立即进入状态核对或重连。"""
+        self._stream.request_recovery_probe()
+
     async def _iterate(self) -> typing.AsyncIterator[ModelEvent]:
         """校验事件坐标，并确保迭代结束时关闭远端资源。"""
         try:
@@ -221,6 +232,9 @@ class ProtocolModelEventStream:
             raise
         except Exception as error:
             raise _classify_model_error(error) from error
+        finally:
+            if self._on_close is not None:
+                self._on_close()
 
     def _validate_identity(self, event: ModelEvent) -> None:
         """拒绝跨 Session 或跨 Turn 的传输事件。"""
@@ -249,6 +263,10 @@ class MindChatProtocolClient:
             if event_cursors is not None
             else ProtocolEventCursorStore()
         )
+        self._active_streams: dict[
+            SessionTurnIdentity,
+            ProtocolModelEventStream,
+        ] = {}
 
     def stream(
         self,
@@ -302,14 +320,18 @@ class MindChatProtocolClient:
             raise
         except Exception as error:
             raise _classify_model_error(error) from error
-        return ProtocolModelEventStream(
+        identity = (request.cid, request.sid, request.turn_id)
+        model_stream = ProtocolModelEventStream(
             stream,
             cid=request.cid,
             sid=request.sid,
             turn_id=request.turn_id,
             event_cursors=self._event_cursors,
             item_reducer=item_reducer,
+            on_close=lambda: self._active_streams.pop(identity, None),
         )
+        self._active_streams[identity] = model_stream
+        return model_stream
 
     async def interrupt_turn(
         self,
@@ -320,6 +342,10 @@ class MindChatProtocolClient:
         request_id: str | None = None,
     ) -> TurnControlReceipt:
         """提交匹配活动轮次的中断命令并隐藏 wire 回执类型。"""
+        identity = (cid, sid, turn_id)
+        active_stream = self._active_streams.get(identity)
+        if active_stream is not None:
+            active_stream.request_recovery_probe()
         try:
             response = await _interrupt_turn(
                 cid=cid,
@@ -338,6 +364,10 @@ class MindChatProtocolClient:
                 "protocol_command_validation_error",
                 str(error) or "turn control request is invalid",
             ) from error
+        finally:
+            active_stream = self._active_streams.get(identity)
+            if active_stream is not None:
+                active_stream.request_recovery_probe()
         return _control_receipt(response)
 
     async def steer_turn(
@@ -409,14 +439,32 @@ class MindChatProtocolClient:
                 "protocol_command_validation_error",
                 str(error) or "turn reconciliation request is invalid",
             ) from error
-        return TurnReconcileReceipt(
+        receipt = TurnReconcileReceipt(
             turn_id=response.turn_id,
-            turn_status=response.turn_status,
+            turn_exists=response.turn_exists,
+            terminal=(
+                TurnCompletedSnapshot(
+                    turn_id=response.terminal.turn_id,
+                    status=response.terminal.status,
+                    error=response.terminal.error,
+                    last_event_seq=response.terminal.last_event_seq,
+                    completed_at=response.terminal.completed_at,
+                )
+                if response.terminal is not None
+                else None
+            ),
             committed_ids=tuple(response.committed_ids),
             pending_ids=tuple(response.pending_ids),
             retry_ids=tuple(response.retry_ids),
             unknown_ids=tuple(response.unknown_ids),
         )
+        if receipt.terminal is not None:
+            self._event_cursors.advance(
+                cid=cid,
+                sid=sid,
+                event_seq=receipt.terminal.last_event_seq,
+            )
+        return receipt
 
     async def get_turn_status(
         self,
@@ -474,6 +522,12 @@ class MindChatProtocolClient:
             created_at=response.created_at,
             updated_at=response.updated_at,
         )
+        if snapshot.terminal is not None:
+            self._event_cursors.advance(
+                cid=snapshot.cid,
+                sid=snapshot.sid,
+                event_seq=snapshot.terminal.last_event_seq,
+            )
         return snapshot
 
     async def fork_session(
@@ -766,12 +820,43 @@ def _classify_model_error(error: BaseException) -> ModelCapabilityError:
         "exception_type": type(error).__name__,
     }
     if isinstance(error, httpx.HTTPStatusError):
-        status_code = error.response.status_code if error.response else None
+        response = error.response
+        status_code = response.status_code if response is not None else None
         if status_code is not None:
             details["status_code"] = status_code
+        error_code = "model_transport_http_error"
+        message = str(error).strip() or f"HTTP {status_code or 0}"
+        if response is not None:
+            try:
+                body = response.json()
+            except (TypeError, ValueError):
+                body = None
+            body_details = body.get("details") if isinstance(body, dict) else None
+            if not isinstance(body_details, dict) and isinstance(body, dict):
+                body_details = body.get("detail")
+            if isinstance(body_details, dict):
+                for field_name in (
+                    "code",
+                    "message",
+                    "active_turn_id",
+                    "active_status",
+                ):
+                    value = body_details.get(field_name)
+                    if isinstance(value, str) and value.strip():
+                        details[field_name] = value.strip()
+                error_code = str(
+                    details.get("code") or error_code
+                )
+                message = str(
+                    details.get("message") or message
+                )
+            if isinstance(body, dict):
+                trace_id = body.get("trace_id")
+                if isinstance(trace_id, str) and trace_id.strip():
+                    details["trace_id"] = trace_id.strip()
         return ModelCapabilityError(
-            "model_transport_http_error",
-            str(error).strip() or f"HTTP {status_code or 0}",
+            error_code,
+            message,
             retryable=bool(status_code is not None and (
                 status_code >= 500 or status_code in {408, 425, 429}
             )),

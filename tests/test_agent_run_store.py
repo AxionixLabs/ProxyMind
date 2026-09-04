@@ -1,6 +1,7 @@
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -13,6 +14,8 @@ from agent.domain import RecoveryAction
 from agent.protocol import (
     RunEvent,
     SubmitTurnCommand,
+    TurnCompletedSnapshot,
+    TurnStatusSnapshot,
 )
 from agent.stores import SQLiteRunStore
 from infrastructure.config.runtime_paths import (
@@ -47,6 +50,7 @@ def _command(
     run_id: str = "run-durable",
     command_id: str = "command-durable",
     environment_snapshot: dict[str, object] | None = None,
+    trace_context: dict[str, object] | None = None,
 ) -> SubmitTurnCommand:
     return SubmitTurnCommand.create(
         session_id=session_id,
@@ -55,6 +59,7 @@ def _command(
         idempotency_key=f"intent-{run_id}",
         message="inspect",
         environment_snapshot=environment_snapshot,
+        trace_context=trace_context,
     )
 
 
@@ -227,6 +232,94 @@ async def test_timeout_enters_reconciliation_instead_of_failed(tmp_path: Path) -
     assert events[-1].kind == "run_reconciliation_required"
     assert recoveries[0].recovery_action is RecoveryAction.RECONCILE
     assert recoveries[0].effect_status == "reconciliation_required"
+
+
+@pytest.mark.anyio
+async def test_remote_terminal_clears_persisted_and_cached_recovery_gate(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "runtime.db"
+    store = SQLiteRunStore(db_path)
+    command = _command(trace_context={
+        "remote_turn": {
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_remote",
+        },
+    })
+    await _append_started(store, command)
+    application = open_turn_application(db_path)
+    blocked = _command(run_id="run-blocked", command_id="command-blocked")
+
+    async def execute(_request: SubmitTurnCommand) -> _Result:
+        return _Result()
+
+    with pytest.raises(RunRecoveryRequired):
+        await application.submit(blocked, execute)
+
+    protocol_client = AsyncMock()
+    protocol_client.get_turn_status.return_value = TurnStatusSnapshot(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_remote",
+        run_id="run_remote",
+        status="interrupted",
+        terminal=TurnCompletedSnapshot(
+            turn_id="turn_remote",
+            status="interrupted",
+            error=None,
+            last_event_seq=8,
+            completed_at=2.0,
+        ),
+        attempt=1,
+        version=3,
+        last_event_seq=8,
+        created_at=1.0,
+        updated_at=2.0,
+    )
+
+    recovery = await application.reconcile_remote_session(
+        command.session_id,
+        protocol_client,
+    )
+    completed = await application.submit(blocked, execute)
+    await application.close()
+
+    assert recovery.pending == ()
+    assert recovery.restore_commands == ()
+    assert recovery.resolved_run_ids == (command.run_id,)
+    assert completed.projection.status == "completed"
+    protocol_client.get_turn_status.assert_awaited_once_with(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_remote",
+    )
+
+
+@pytest.mark.anyio
+async def test_queued_recovery_is_returned_for_editor_restore(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "runtime.db"
+    store = SQLiteRunStore(db_path)
+    command = _command()
+    await store.append_event(
+        command,
+        _event(command, 1, "run_queued", "queued"),
+    )
+    application = open_turn_application(db_path)
+    protocol_client = AsyncMock()
+
+    recovery = await application.reconcile_remote_session(
+        command.session_id,
+        protocol_client,
+    )
+    await application.close()
+
+    assert recovery.pending == ()
+    assert recovery.restore_commands == (command,)
+    assert recovery.resolved_run_ids == (command.run_id,)
+    protocol_client.get_turn_status.assert_not_awaited()
 
 
 @pytest.mark.anyio

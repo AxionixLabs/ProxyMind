@@ -14,6 +14,7 @@ from agent.ports import ProtocolCommandError
 from agent.protocol import (
     ConversationForkReceipt,
     SteerTurnInput,
+    TurnCompletedSnapshot,
     TurnControlReceipt,
     TurnReconcileReceipt,
     TurnStatusSnapshot,
@@ -46,9 +47,9 @@ class FakeInputState(enum.Enum):
 
 
 class FakeEventKind(enum.Enum):
-    TURN_START = "turn.start"
+    TURN_STARTED = "turn.started"
     ASSISTANT_DELTA = "assistant.delta"
-    LOGICAL_SETTLED = "turn.logical_settled"
+    TURN_COMPLETED = "turn.completed"
     STREAM_CLOSED = "stream.closed"
 
 
@@ -85,7 +86,7 @@ class FakeMindChatServer:
         self.sid = "sid-test"
         self.turn_id = ""
         self.status: TurnRuntimeStatus = "completed"
-        self.terminal = True
+        self.terminal: TurnCompletedSnapshot | None = None
         self.last_event_seq = 0
         self.client_cursor = 0
         self.mind_chat_requests: list[FakeMindChatRequest] = []
@@ -111,7 +112,7 @@ class FakeMindChatServer:
         status: TurnRuntimeStatus = "running",
     ) -> None:
         """模拟 `/mind-chat`，并拒绝权威终态前的下一 Turn。"""
-        if self.turn_id and not self.terminal:
+        if self.turn_id and self.terminal is None:
             raise ProtocolCommandError(
                 "turn_conflict",
                 "a turn is still active",
@@ -119,12 +120,12 @@ class FakeMindChatServer:
             )
         self.turn_id = turn_id
         self.status = status
-        self.terminal = False
+        self.terminal = None
         self.mind_chat_requests.append(FakeMindChatRequest(
             turn_id,
             initial_event_seq,
         ))
-        await self.emit_event(FakeEventKind.TURN_START)
+        await self.emit_event(FakeEventKind.TURN_STARTED)
 
     async def emit_event(
         self,
@@ -169,8 +170,22 @@ class FakeMindChatServer:
         if status not in {"completed", "failed", "interrupted", "cancelled"}:
             raise ValueError("fake terminal status is invalid")
         self.status = status
-        self.terminal = True
         self.last_event_seq = max(self.last_event_seq, last_event_seq)
+        if status == "completed":
+            completed_status = "completed"
+        elif status == "failed":
+            completed_status = "failed"
+        elif status == "interrupted":
+            completed_status = "interrupted"
+        else:
+            completed_status = "cancelled"
+        self.terminal = TurnCompletedSnapshot(
+            turn_id=self.turn_id,
+            status=completed_status,
+            error=None,
+            last_event_seq=self.last_event_seq,
+            completed_at=1.0,
+        )
 
     async def interrupt_turn(
         self,
@@ -286,7 +301,8 @@ class FakeMindChatServer:
                 unknown.append(client_message_id)
         return TurnReconcileReceipt(
             turn_id=turn_id,
-            turn_status=self.status,
+            turn_exists=True,
+            terminal=self.terminal,
             committed_ids=tuple(committed),
             pending_ids=tuple(pending),
             retry_ids=tuple(retry),
@@ -315,12 +331,11 @@ class FakeMindChatServer:
             last_event_seq=self.last_event_seq,
             created_at=0.0,
             updated_at=0.0,
-            error="",
         )
-        if snapshot.terminal:
+        if snapshot.terminal is not None:
             self.client_cursor = max(
                 self.client_cursor,
-                snapshot.last_event_seq,
+                snapshot.terminal.last_event_seq,
             )
         return snapshot
 

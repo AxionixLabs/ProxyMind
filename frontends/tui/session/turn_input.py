@@ -475,5 +475,6 @@ class TuiTurnInputControl(object):
             extras=submission.extras,
         )
 
+
 if __name__ == '__main__':
     pass

@@ -31,16 +31,15 @@ async def handle_stream_gap(
     )
     if event.gap_kind == "internal":
         await activity.recovery_changed("gap", event_seq=recovery_seq)
-        outcome.fail(
+        outcome.mark_delivery_incomplete(
             "authoritative turn event sequence contains an internal gap",
             error_code="stream_gap_internal",
         )
-        await activity.turn_terminal("failed")
         await presentation.emit_failure(
             "turn.stream_gap",
-            mode=FailureProjectionMode.TERMINAL,
+            mode=FailureProjectionMode.PROJECTION_ONLY,
         )
-        return "stop"
+        return "continue"
 
     await activity.recovery_changed(
         "replaying",

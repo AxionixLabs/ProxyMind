@@ -26,7 +26,6 @@ from agent.ports import (
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
-    LogicalSettled,
     PresentationSuperseded,
     RecoveryChanged,
     RetryChanged,
@@ -43,7 +42,6 @@ from agent.application.views import (
     ApprovalView,
     FailureView,
     HookRunView,
-    RunIncompleteView,
 )
 from infrastructure.mcp import tool_runtime
 from infrastructure.mcp.tool_execution import McpToolExecutionAdapter
@@ -138,6 +136,10 @@ def parse_stream_event(payload):
         current.setdefault("turn_id", "turn_test")
         current.setdefault("event_seq", 1)
         current.setdefault("presentation_epoch", 1)
+        if str(current.get("type") or "") == "turn.completed":
+            current.setdefault("status", "completed")
+            current.setdefault("last_event_seq", current["event_seq"])
+            current.setdefault("completed_at", 1.0)
         if str(current.get("type") or "").startswith("text."):
             current.setdefault("segment_id", "segment_test")
         _complete_item_projection(current)
@@ -720,7 +722,8 @@ async def _run_stream(
             del kwargs
             return SimpleNamespace(
                 turn_id="turn_test",
-                turn_status="running",
+                turn_exists=True,
+                terminal=None,
                 committed_ids=(),
                 pending_ids=(),
                 retry_ids=(),
@@ -736,7 +739,7 @@ async def _run_stream(
                 turn_id="turn_test",
                 run_id="run_test",
                 status="running",
-                terminal=False,
+                terminal=None,
                 attempt=1,
                 version=1,
                 last_event_seq=0,
@@ -901,8 +904,7 @@ async def test_stream_passes_environment_as_explicit_model_request_field(
     _result, host = await _run_stream(
         monkeypatch,
         [
-            {"type": "turn.done", "status": "interrupted", "usage": {}},
-            {"type": "turn.logical_settled", "next_input": None},
+            {"type": "turn.completed", "status": "interrupted", "usage": {}},
         ],
         environment_snapshot=snapshot,
     )
@@ -957,13 +959,9 @@ async def test_interrupted_turn_notifies_before_stream_cleanup(monkeypatch) -> N
         monkeypatch,
         [
             {
-                "type": "turn.done",
+                "type": "turn.completed",
                 "status": "interrupted",
                 "usage": {},
-            },
-            {
-                "type": "turn.logical_settled",
-                "next_input": None,
             },
         ],
         hooks=HookRuntime(definitions, command_runner=runner),
@@ -1078,7 +1076,7 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
     result, host = await _run_stream(monkeypatch, [
         {"type": "text.delta", "text": "answer"},
         {"type": "text.done"},
-        {"type": "turn.done", "usage": {"output_tokens": 3}},
+        {"type": "turn.completed", "usage": {"output_tokens": 3}},
     ])
 
     assert result == RunResult(
@@ -1142,7 +1140,7 @@ async def test_stream_projects_deduplicated_canonical_sources(monkeypatch) -> No
             "source_count": 2,
         },
         {"type": "text.done", "segment_id": "answer-item"},
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ])
 
     assert host.output_session.content.items[-1] == SourcesOutput((
@@ -1152,7 +1150,9 @@ async def test_stream_projects_deduplicated_canonical_sources(monkeypatch) -> No
 
 
 @pytest.mark.anyio
-async def test_stream_persists_named_model_capability_failure(monkeypatch) -> None:
+async def test_stream_requires_reconciliation_after_uncertain_transport(
+    monkeypatch,
+) -> None:
     async def failed_stream(*_args, **_kwargs):
         if False:
             yield None
@@ -1170,10 +1170,45 @@ async def test_stream_persists_named_model_capability_failure(monkeypatch) -> No
     )
 
     assert result == RunResult(
-        status="failed",
+        status="reconciliation_required",
         error="model transport timed out",
         error_code="model_transport_timeout",
         error_details={"exception_type": "TimeoutError"},
+    )
+
+
+@pytest.mark.anyio
+async def test_stream_treats_rejected_start_as_deterministic_failure(
+    monkeypatch,
+) -> None:
+    async def failed_stream(*_args, **_kwargs):
+        if False:
+            yield None
+        raise ModelCapabilityError(
+            "turn_already_active",
+            "another logical turn is active",
+            details={
+                "status_code": 409,
+                "active_turn_id": "turn_active",
+                "active_status": "running",
+            },
+        )
+
+    result, _host = await _run_stream(
+        monkeypatch,
+        [],
+        stream_factory=failed_stream,
+    )
+
+    assert result == RunResult(
+        status="failed",
+        error="another logical turn is active",
+        error_code="turn_already_active",
+        error_details={
+            "status_code": 409,
+            "active_turn_id": "turn_active",
+            "active_status": "running",
+        },
     )
 
 
@@ -1232,7 +1267,7 @@ async def test_provider_retry_replaces_partial_answer_in_same_turn(monkeypatch) 
             "presentation_epoch": 1,
             "segment_id": "attempt-2",
         },
-        {"type": "turn.done", "turn_id": "turn_test"},
+        {"type": "turn.completed", "turn_id": "turn_test"},
     ])
 
     assert result.status == "completed"
@@ -1308,7 +1343,7 @@ async def test_provider_retry_ignores_late_old_item_events(monkeypatch) -> None:
             "text": "new",
         },
         {"type": "text.done", "segment_id": "item-new"},
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ])
 
     assert [
@@ -1371,7 +1406,7 @@ async def test_provider_retry_preserves_completed_previous_model_round(
             "round": 2,
             "segment_id": "round-2-attempt-2",
         },
-        {"type": "turn.done", "round": 2},
+        {"type": "turn.completed", "round": 2},
     ])
 
     assert result.assistant_text == "round one\nround two final"
@@ -1418,7 +1453,7 @@ async def test_provider_retry_without_partial_answer_adds_no_output_block(
         },
         {"type": "text.delta", "turn_id": "turn_test", "text": "answer"},
         {"type": "text.done", "turn_id": "turn_test"},
-        {"type": "turn.done", "turn_id": "turn_test"},
+        {"type": "turn.completed", "turn_id": "turn_test"},
     ])
 
     assert result.assistant_text == "answer"
@@ -1456,7 +1491,7 @@ async def test_provider_and_transport_retry_statuses_do_not_clear_each_other(
             "turn_id": "turn_test",
         })
         yield parse_stream_event({
-            "type": "turn.done",
+            "type": "turn.completed",
             "turn_id": "turn_test",
         })
 
@@ -1583,7 +1618,7 @@ async def test_stream_auto_reconciles_known_effect_and_completes_new_attempt(
         },
         {
             "proto": "mind.chat",
-            "type": "turn.start",
+            "type": "turn.started",
             "turn_id": "turn_test",
             "presentation_epoch": 2,
         },
@@ -1604,16 +1639,10 @@ async def test_stream_auto_reconciles_known_effect_and_completes_new_attempt(
         },
         {
             "proto": "mind.chat",
-            "type": "turn.done",
+            "type": "turn.completed",
             "turn_id": "turn_test",
             "presentation_epoch": 2,
             "status": "completed",
-        },
-        {
-            "proto": "mind.chat",
-            "type": "turn.logical_settled",
-            "turn_id": "turn_test",
-            "presentation_epoch": 2,
         },
     ])
 
@@ -1640,7 +1669,7 @@ async def test_done_projects_terminal_before_logical_settlement(monkeypatch) -> 
     host = _host()
 
     async def pending_stream(*_args, **_kwargs):
-        yield parse_stream_event({"type": "turn.done"})
+        yield parse_stream_event({"type": "turn.completed"})
         stream_advanced.set()
         await asyncio.Future()
 
@@ -1664,7 +1693,7 @@ async def test_done_projects_terminal_before_logical_settlement(monkeypatch) -> 
 
 
 @pytest.mark.anyio
-async def test_stream_drains_logical_settlement_after_interrupted_done(
+async def test_stream_forwards_interrupted_completion(
     monkeypatch,
 ) -> None:
     input_events = []
@@ -1673,19 +1702,9 @@ async def test_stream_drains_logical_settlement_after_interrupted_done(
         monkeypatch,
         [
             {
-                "type": "turn.done",
+                "type": "turn.completed",
                 "turn_id": "turn_test",
                 "status": "interrupted",
-            },
-            {
-                "type": "turn.logical_settled",
-                "turn_id": "turn_test",
-                "next_input": {
-                    "client_message_id": "message_1",
-                    "text": "continue next",
-                    "attachments": [],
-                    "extras": {},
-                },
             },
         ],
         on_turn_input_event=input_events.append,
@@ -1693,22 +1712,18 @@ async def test_stream_drains_logical_settlement_after_interrupted_done(
 
     assert result.status == "interrupted"
     assert len(input_events) == 1
-    assert input_events[0].next_input.text == "continue next"
+    assert input_events[0].type == "turn.completed"
+    assert input_events[0].status == "interrupted"
     assert host.transcripts.entries[-1]["event"] == "turn.interrupted"
 
 
 @pytest.mark.anyio
-async def test_stream_reports_transport_end_after_processing_settlement(
+async def test_stream_reports_transport_end_after_processing_completion(
     monkeypatch,
 ) -> None:
-    done = parse_stream_event({
-        "type": "turn.done",
+    completed = parse_stream_event({
+        "type": "turn.completed",
         "turn_id": "turn_test",
-    })
-    settled = parse_stream_event({
-        "type": "turn.logical_settled",
-        "turn_id": "turn_test",
-        "next_input": None,
     })
     processed = []
     stream_ends = []
@@ -1717,8 +1732,7 @@ async def test_stream_reports_transport_end_after_processing_settlement(
         end_reason = "settled"
 
         async def _events(self):
-            yield done
-            yield settled
+            yield completed
 
         def __aiter__(self):
             return self._events()
@@ -1735,25 +1749,20 @@ async def test_stream_reports_transport_end_after_processing_settlement(
     )
 
     assert result.status == "completed"
-    assert processed == ["turn.logical_settled"]
+    assert processed == ["turn.completed"]
     assert stream_ends == ["settled"]
 
 
 @pytest.mark.anyio
-async def test_stream_projects_terminal_before_logical_settlement(
+async def test_stream_projects_one_terminal_activity(
     monkeypatch,
 ) -> None:
-    """验证权威终态、逻辑结算和 OutputSession 关闭保持独立顺序。"""
+    """验证单一权威终态只投影一个 TurnTerminal 活动事实。"""
     result, host = await _run_stream(monkeypatch, [
         {
-            "type": "turn.done",
+            "type": "turn.completed",
             "turn_id": "turn_test",
             "status": "completed",
-        },
-        {
-            "type": "turn.logical_settled",
-            "turn_id": "turn_test",
-            "next_input": None,
         },
     ])
 
@@ -1761,7 +1770,7 @@ async def test_stream_projects_terminal_before_logical_settlement(
     terminal_events = [
         item
         for item in host.output_session.activity.items
-        if isinstance(item, (TurnTerminal, LogicalSettled))
+        if isinstance(item, TurnTerminal)
     ]
     assert result.status == "completed"
     assert terminal_events == [
@@ -1770,26 +1779,29 @@ async def test_stream_projects_terminal_before_logical_settlement(
             turn_id="turn_test",
             status="completed",
         ),
-        LogicalSettled(
-            surface_id=surface_id,
-            turn_id="turn_test",
-        ),
     ]
 
 
 @pytest.mark.anyio
-async def test_internal_stream_gap_projects_recovery_before_failure(
+async def test_internal_stream_gap_waits_for_terminal_without_blocking_next_turn(
     monkeypatch,
 ) -> None:
-    """验证权威内部缺口不会恢复动画或伪装成普通流结束。"""
-    result, host = await _run_stream(monkeypatch, [{
-        "type": "stream.gap",
-        "gap_kind": "internal",
-        "requested_after_seq": 3,
-        "expected_event_seq": 4,
-        "observed_event_seq": 6,
-        "retryable": True,
-    }])
+    """验证权威内部缺口保留失败事实，并等待真正终态释放执行门。"""
+    result, host = await _run_stream(monkeypatch, [
+        {
+            "type": "stream.gap",
+            "gap_kind": "internal",
+            "requested_after_seq": 3,
+            "expected_event_seq": 4,
+            "observed_event_seq": 6,
+            "retryable": True,
+        },
+        {
+            "type": "turn.completed",
+            "turn_id": "turn_test",
+            "status": "completed",
+        },
+    ])
 
     surface_id = host.output_session.context.surface_id
     scoped_events = [
@@ -1797,7 +1809,7 @@ async def test_internal_stream_gap_projects_recovery_before_failure(
         for item in host.output_session.activity.items
         if isinstance(item, (RecoveryChanged, TurnTerminal))
     ]
-    assert result.status == "failed"
+    assert result.status == "incomplete"
     assert result.error_code == "stream_gap_internal"
     assert scoped_events == [
         RecoveryChanged(
@@ -1821,14 +1833,17 @@ async def test_turn_start_opens_the_control_event_boundary(monkeypatch) -> None:
     result, _host = await _run_stream(
         monkeypatch,
         [
-            {"type": "turn.start", "turn_id": "turn_test"},
-            {"type": "turn.done", "turn_id": "turn_test"},
+            {"type": "turn.started", "turn_id": "turn_test"},
+            {"type": "turn.completed", "turn_id": "turn_test"},
         ],
         on_turn_input_event=input_events.append,
     )
 
     assert result.status == "completed"
-    assert [event.type for event in input_events] == ["turn.start"]
+    assert [event.type for event in input_events] == [
+        "turn.started",
+        "turn.completed",
+    ]
 
 
 @pytest.mark.anyio
@@ -1866,7 +1881,7 @@ async def test_sampling_accepted_input_preserves_local_transcript_order(
                 "text": "after",
             },
             {"type": "text.done", "segment_id": "after-item"},
-            {"type": "turn.done", "turn_id": "turn_test"},
+            {"type": "turn.completed", "turn_id": "turn_test"},
         ],
         on_turn_input_event=handle_input,
     )
@@ -1933,7 +1948,7 @@ async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> 
             "text": "after",
         },
         {"type": "text.done", "segment_id": "after-item"},
-        {"type": "turn.done", "usage": {}},
+        {"type": "turn.completed", "usage": {}},
     ])
 
     ordered = [
@@ -1972,7 +1987,7 @@ async def test_transcript_preserves_assistant_tool_output_order(monkeypatch) -> 
 async def test_transcript_records_user_replay_payload(monkeypatch) -> None:
     _result, host = await _run_stream(
         monkeypatch,
-        [{"type": "turn.done", "usage": {}}],
+        [{"type": "turn.completed", "usage": {}}],
         attachments=({"filename": "screen.png"},),
         extras={"selection": "src/app.py"},
     )
@@ -1995,7 +2010,7 @@ async def test_child_stream_does_not_mutate_root_frontend_state(monkeypatch) -> 
         monkeypatch,
         [
             {"type": "text.delta", "text": "child answer"},
-            {"type": "turn.done"},
+            {"type": "turn.completed"},
         ],
         child_agent=True,
         frontend_active=False,
@@ -2028,7 +2043,7 @@ async def test_child_stream_failure_does_not_stop_root_animation(monkeypatch) ->
 async def test_stream_preserves_explicit_empty_skills(monkeypatch) -> None:
     async def stream_with_no_skills(*_args, **kwargs):
         assert kwargs["skills"] == []
-        yield parse_stream_event({"type": "turn.done"})
+        yield parse_stream_event({"type": "turn.completed"})
 
     result, _host_state = await _run_stream(
         monkeypatch,
@@ -2047,7 +2062,7 @@ async def test_stream_forwards_turn_additional_context(monkeypatch) -> None:
             "inspect security boundaries",
             "check cancellation paths",
         ]
-        yield parse_stream_event({"type": "turn.done"})
+        yield parse_stream_event({"type": "turn.completed"})
 
     result, _host_state = await _run_stream(
         monkeypatch,
@@ -2097,7 +2112,7 @@ async def test_stream_forwards_turn_hook_context(monkeypatch) -> None:
             "prompt context",
         ]
         assert "system_message" not in kwargs
-        yield parse_stream_event({"type": "turn.done"})
+        yield parse_stream_event({"type": "turn.completed"})
 
     result, _host_state = await _run_stream(
         monkeypatch,
@@ -2130,7 +2145,7 @@ async def test_exec_output_session_receives_hook_lifecycle_views(
 
     result, host = await _run_stream(
         monkeypatch,
-        [{"type": "turn.done"}],
+        [{"type": "turn.completed"}],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
         session_started=True,
         show_hook_lifecycle=True,
@@ -2277,7 +2292,7 @@ async def test_stream_runs_turn_hooks_from_one_scope(monkeypatch) -> None:
 
     result, host_state = await _run_stream(
         monkeypatch,
-        [{"type": "turn.done", "usage": {"output_tokens": 2}}],
+        [{"type": "turn.completed", "usage": {"output_tokens": 2}}],
         hooks=HookRuntime(definitions, command_runner=runner),
         session_started=True,
     )
@@ -2339,7 +2354,7 @@ async def test_child_stream_skips_root_session_and_stop_lifecycle_hooks(
 
     result, _host_state = await _run_stream(
         monkeypatch,
-        [{"type": "turn.done"}],
+        [{"type": "turn.completed"}],
         hooks=HookRuntime(definitions, command_runner=runner),
         session_started=True,
         child_agent=True,
@@ -2388,7 +2403,7 @@ async def test_stream_reuses_injected_hook_scope_snapshot(monkeypatch) -> None:
 
     result, host = await _run_stream(
         monkeypatch,
-        [{"type": "turn.done"}],
+        [{"type": "turn.completed"}],
         hooks=resolved_runtime,
         hook_scope_factory=lambda context: HookExecutionScope(
             context=context,
@@ -2432,7 +2447,7 @@ async def test_prompt_hook_denial_skips_stop_and_continuation(monkeypatch) -> No
 
     result, _host_state = await _run_stream(
         monkeypatch,
-        [{"type": "turn.done"}],
+        [{"type": "turn.completed"}],
         hooks=HookRuntime(definitions, command_runner=runner),
     )
 
@@ -2459,7 +2474,7 @@ async def test_stop_hook_failure_does_not_replace_completed_result(
 
     result, _host_state = await _run_stream(
         monkeypatch,
-        [{"type": "turn.done", "usage": {"output_tokens": 2}}],
+        [{"type": "turn.completed", "usage": {"output_tokens": 2}}],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
     )
 
@@ -2548,7 +2563,7 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
             "text": f"reply {len(messages)}",
         })
         yield parse_stream_event({
-            "type": "turn.done",
+            "type": "turn.completed",
             "turn_id": kwargs["turn_id"],
         })
 
@@ -2572,18 +2587,8 @@ async def test_stop_hook_continuation_runs_another_turn(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("can_continue", "expected_status", "expected_messages"),
-    (
-        (False, "incomplete", ["hello"]),
-        (True, "completed", ["hello", "continue once"]),
-    ),
-)
-async def test_incomplete_turn_gates_stop_hook_continuation(
+async def test_completed_turn_allows_stop_hook_continuation(
     monkeypatch,
-    can_continue: bool,
-    expected_status: str,
-    expected_messages: list[str],
 ) -> None:
     class CommandRunner(object):
         async def execute(self, _definition, payload):
@@ -2610,11 +2615,9 @@ async def test_incomplete_turn_gates_stop_hook_continuation(
                 "text": "partial answer",
             })
             yield parse_stream_event({
-                "type": "turn.done",
+                "type": "turn.completed",
                 "turn_id": kwargs["turn_id"],
-                "status": "incomplete",
-                "reason": "max_output_tokens",
-                "can_continue": can_continue,
+                "status": "completed",
                 "response_id": "msg_1",
                 "route": "messages",
                 "usage": {"output_tokens": 7},
@@ -2622,7 +2625,7 @@ async def test_incomplete_turn_gates_stop_hook_continuation(
             })
             return
         yield parse_stream_event({
-            "type": "turn.done",
+            "type": "turn.completed",
             "turn_id": kwargs["turn_id"],
             "status": "completed",
         })
@@ -2634,23 +2637,9 @@ async def test_incomplete_turn_gates_stop_hook_continuation(
         stream_factory=terminal_stream,
     )
 
-    assert result.status == expected_status
-    assert messages == expected_messages
-    if can_continue:
-        return
-    assert result.reason == "max_output_tokens"
-    assert result.can_continue is False
-    assert result.stop_reason == "max_tokens"
-    assert result.usage == {"output_tokens": 7}
-    assert host.transcripts.entries[-1]["event"] == "turn.incomplete"
-    assert host.transcripts.entries[-1]["payload"]["stop_reason"] == (
-        "max_tokens"
-    )
-    assert host.transcripts.entries[-1]["payload"]["can_continue"] is False
-    assert isinstance(
-        host.output_session.presentation.items[-1],
-        RunIncompleteView,
-    )
+    assert result.status == "completed"
+    assert messages == ["hello", "continue once"]
+    assert host.transcripts.entries[-1]["event"] == "turn.completed"
 
 
 @pytest.mark.anyio
@@ -2674,7 +2663,7 @@ async def test_pause_turn_failure_does_not_run_stop_hook_continuation(
     async def failed_stream(_pref, message, _tools, **_kwargs):
         messages.append(message)
         yield parse_stream_event({
-            "type": "turn.failed",
+            "type": "turn.completed",
             "status": "failed",
             "error": "pause_turn is not supported",
             "route": "messages",
@@ -2707,7 +2696,11 @@ async def test_pause_turn_failure_does_not_run_stop_hook_continuation(
 @pytest.mark.anyio
 async def test_stream_returns_failed_result(monkeypatch) -> None:
     result, host = await _run_stream(monkeypatch, [
-        {"type": "turn.failed", "error": "request failed"},
+        {
+            "type": "turn.completed",
+            "status": "failed",
+            "error": "request failed",
+        },
     ])
 
     assert result.status == "failed"
@@ -2758,7 +2751,7 @@ async def test_stream_emits_assistant_boundary_before_structured_output(monkeypa
             "text": "second",
         },
         {"type": "text.done", "segment_id": "second-item"},
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ])
 
     assert result.status == "completed"
@@ -2801,7 +2794,7 @@ async def test_stream_commits_output_before_tool_round_transition(
             "segment_id": "round-two-item",
         },
         {
-            "type": "turn.done",
+            "type": "turn.completed",
             "round": 2,
         },
     ])
@@ -2861,7 +2854,7 @@ async def test_stream_commits_multiple_item_identities_without_boundary(
             "round": 2,
             "segment_id": "item-two",
         },
-        {"type": "turn.done", "round": 2},
+        {"type": "turn.completed", "round": 2},
     ])
 
     messages = [
@@ -2901,7 +2894,7 @@ async def test_stream_updates_transcript_when_final_text_arrives_after_boundary(
             "segment_id": "item-1",
             "final_text": "complete",
         },
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ])
 
     assistant_entries = [
@@ -2952,7 +2945,7 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
             "arguments": {"value": 1},
             "reason": "模型需要调用客户端工具。",
         }),
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ])
 
     assert result.status == "completed"
@@ -3050,7 +3043,7 @@ async def test_stream_reconciles_uncertain_tool_result_before_failing(
             "name": "test_tool",
             "arguments": {"value": 1},
         }),
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ])
 
     assert result.status == "completed"
@@ -3116,7 +3109,7 @@ async def test_stream_retries_unknown_ack_with_same_request_id(monkeypatch) -> N
             "name": "test_tool",
             "arguments": {},
         }),
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ])
 
     assert result.status == "completed"
@@ -3160,7 +3153,7 @@ async def test_stream_stops_deterministic_tool_result_terminal_without_failure(
             "name": "test_tool",
             "arguments": {},
         }),
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ])
 
     assert result.status == "interrupted"
@@ -3214,7 +3207,7 @@ async def test_stream_reports_plan_result_after_local_execution(
                 "name": PLAN_STEPS_TOOL,
                 "arguments": {"steps": []},
             }),
-            {"type": "turn.done"},
+            {"type": "turn.completed"},
         ],
         effect_journal=effect_journal,
     )
@@ -3330,7 +3323,7 @@ async def test_post_tool_hook_cannot_replace_plan_result_for_model(
                 "name": PLAN_STEPS_TOOL,
                 "arguments": {"steps": []},
             }),
-            {"type": "turn.done"},
+            {"type": "turn.completed"},
         ],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
         effect_journal=effect_journal,
@@ -3445,14 +3438,9 @@ async def test_stream_registers_review_before_approval_core_decides(
                 "arguments": {"command": "echo reviewed"},
             },
             {
-                "type": "turn.done",
+                "type": "turn.completed",
                 "event_seq": 5,
                 "status": "completed",
-            },
-            {
-                "type": "turn.logical_settled",
-                "event_seq": 6,
-                "next_input": None,
             },
         ],
         host_state=host,
@@ -3565,7 +3553,7 @@ async def test_stream_preserves_auto_review_failure_status(
                 "cwd": ".",
                 "reason": reason,
             },
-            {"type": "turn.done", "event_seq": 4},
+            {"type": "turn.completed", "event_seq": 4},
         ],
         host_state=host,
     )
@@ -3658,7 +3646,7 @@ async def test_permission_hook_precedes_received_auto_review_decision(
                 "cwd": ".",
                 "reason": reason,
             },
-            {"type": "turn.done", "event_seq": 3},
+            {"type": "turn.completed", "event_seq": 3},
         ],
         host_state=host,
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
@@ -3764,7 +3752,7 @@ async def test_child_approval_uses_local_agent_identity(monkeypatch) -> None:
                 "cwd": ".",
                 "reason": "模型需要运行测试。",
             },
-            {"type": "turn.done"},
+            {"type": "turn.completed"},
         ],
         child_agent=True,
     )
@@ -3825,7 +3813,7 @@ async def test_approval_request_event_is_presented_without_nested_metadata(
             "command": "pytest -q",
             "cwd": ".",
             "reason": "模型需要运行测试。",
-        }, {"type": "turn.done"}],
+        }, {"type": "turn.completed"}],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
     )
 
@@ -3886,7 +3874,7 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
             "name": "test_tool",
             "arguments": {"value": 1},
         }),
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ])
 
     assert result.status == "completed"
@@ -3961,7 +3949,7 @@ async def test_confirmed_approval_skips_duplicate_local_prompt_on_replayed_call(
             "arguments": {"command": "rm -rf build"},
             "reason": "模型需要清理构建目录。",
         }),
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ])
 
     assert result.status == "completed"
@@ -4053,7 +4041,7 @@ async def test_reviewer_approval_cannot_override_local_forbidden_rule(
             "reason": "模型需要清理构建目录。",
             "available_decisions": ["accept", "decline"],
         },
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ], host_state=host)
 
     assert result.status == "completed"
@@ -4161,7 +4149,7 @@ async def test_stream_persists_local_shell_rule_from_approval(
             "arguments": {"command": "rm -rf build"},
             "reason": "清理临时构建目录。",
         }),
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ])
 
     assert result.status == "completed"
@@ -4218,7 +4206,7 @@ async def test_stream_allows_local_shell_approval_without_tool_reason(
             "name": "shell_command",
             "arguments": {"command": "rm -rf build"},
         }),
-        {"type": "turn.done"},
+        {"type": "turn.completed"},
     ])
 
     assert result.status == "completed"
@@ -4281,13 +4269,13 @@ async def test_local_patch_session_approval_skips_next_matching_patch(
 
     first, _ = await _run_stream(
         monkeypatch,
-        [patch_event, {"type": "turn.done"}],
+        [patch_event, {"type": "turn.completed"}],
         host_state=host,
         permissions=untrusted,
     )
     second, _ = await _run_stream(
         monkeypatch,
-        [patch_event, {"type": "turn.done"}],
+        [patch_event, {"type": "turn.completed"}],
         host_state=host,
         permissions=untrusted,
     )
@@ -4339,7 +4327,7 @@ async def test_declined_tool_closes_without_interrupting_turn(monkeypatch) -> No
         },
         {"type": "text.delta", "text": "我会换一种方式。"},
         {"type": "text.done"},
-        {"type": "turn.done", "status": "completed"},
+        {"type": "turn.completed", "status": "completed"},
     ])
 
     assert result.status == "completed"
@@ -4382,7 +4370,7 @@ async def test_noninteractive_approval_decline_is_attributed_to_policy(
                 "cwd": ".",
                 "reason": "模型需要运行测试。",
             }),
-            {"type": "turn.done", "status": "completed"},
+            {"type": "turn.completed", "status": "completed"},
         ],
         frontend_active=False,
         host_state=host_state,
@@ -4445,13 +4433,9 @@ async def test_cancelled_approval_drains_interrupted_turn_settlement(
                 "result": {"ok": False, "text": "user cancelled"},
             },
             {
-                "type": "turn.done",
+                "type": "turn.completed",
                 "turn_id": "turn_test",
                 "status": "interrupted",
-            },
-            {
-                "type": "turn.logical_settled",
-                "turn_id": "turn_test",
             },
         ],
         on_turn_input_event=input_events.append,
@@ -4480,7 +4464,8 @@ async def test_cancelled_approval_drains_interrupted_turn_settlement(
     assert [view.decision for view in approval_views] == ["cancel"]
     assert len(host.output_session.presentation.items) == 2
     assert len(input_events) == 1
-    assert input_events[0].type == "turn.logical_settled"
+    assert input_events[0].type == "turn.completed"
+    assert input_events[0].status == "interrupted"
 
 
 @pytest.mark.anyio
@@ -4530,7 +4515,7 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
                 "name": "test_tool",
                 "arguments": {"value": 1},
             }),
-            {"type": "turn.done"},
+            {"type": "turn.completed"},
         ],
         hooks=HookRuntime(definitions, command_runner=runner),
     )
@@ -4668,7 +4653,7 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
         [
             approval_event,
             call_event,
-            {"type": "turn.done"},
+            {"type": "turn.completed"},
         ],
         hooks=HookRuntime(definitions, command_runner=runner),
     )

@@ -341,6 +341,13 @@ class SessionLoop(typing.Generic[ResultValue]):
                 self.session_id
             )
 
+    async def refresh_recoveries(self) -> tuple[RunSnapshot, ...]:
+        """刷新并返回当前 Session 单写者使用的恢复门禁快照。"""
+        await self._initialize()
+        async with self._submit_lock:
+            await self._refresh_recoveries()
+            return self._recoveries
+
     def _event_sink_for(
         self,
         command: SubmitTurnCommand,

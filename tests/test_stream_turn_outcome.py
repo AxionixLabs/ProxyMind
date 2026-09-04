@@ -97,6 +97,32 @@ def test_outcome_marks_stream_without_terminal_as_incomplete() -> None:
     )
 
 
+def test_outcome_preserves_delivery_gap_after_remote_completion() -> None:
+    outcome = StreamTurnOutcome()
+    outcome.mark_delivery_incomplete(
+        "authoritative events are missing",
+        error_code="stream_gap_internal",
+    )
+
+    outcome.record_completed_event(TurnCompletedEvent(
+        type="turn.completed",
+        status="completed",
+        last_event_seq=9,
+        completed_at=1.0,
+        usage={"output_tokens": 2},
+    ))
+
+    assert outcome.build_result("partial") == RunResult(
+        status="incomplete",
+        assistant_text="partial",
+        usage={"output_tokens": 2},
+        error="authoritative events are missing",
+        error_code="stream_gap_internal",
+    )
+    assert outcome.has_terminal_status is True
+    assert outcome.continuation_allowed is False
+
+
 def test_outcome_preserves_named_capability_error() -> None:
     outcome = StreamTurnOutcome()
     outcome.fail(

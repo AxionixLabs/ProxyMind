@@ -180,7 +180,7 @@ async def test_review_handler_clears_replaced_epoch_and_ignores_stale_review() -
     assert await handler.handle(started) is True
 
     replacement = MarkerEvent(
-        type="turn.start",
+        type="turn.started",
         proto="mind.chat",
         cid="cid-review",
         sid="sid-review",

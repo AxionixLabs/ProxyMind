@@ -61,12 +61,16 @@ class SessionRuntimeOwner(typing.Generic[ResultValue]):
         self,
         session_id: str,
     ) -> tuple[RunSnapshot, ...]:
-        """读取指定 Session 的未终结 Run，不触发外部能力重放。"""
+        """刷新并读取指定 Session 的未终结 Run，不触发外部能力重放。"""
         normalized_session_id = str(session_id or "").strip()
         if not normalized_session_id:
             raise ValueError("session_id is required")
         if self._persistence is None:
             return ()
+        async with self._lock:
+            session = self._sessions.get(normalized_session_id)
+        if session is not None:
+            return await session.refresh_recoveries()
         return await self._persistence.recover_session(normalized_session_id)
 
     async def close(self, *, cancel_running: bool = False) -> None:

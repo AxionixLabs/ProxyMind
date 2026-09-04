@@ -14,7 +14,7 @@ class TurnPhase(enum.Enum):
     APPROVAL = "approval"
     RETRY = "retry"
     REPLAY = "replay"
-    LOGICAL_SETTLED = "logical_settled"
+    COMPLETED = "completed"
 
 
 class UserAction(enum.Enum):
@@ -233,7 +233,7 @@ class TurnScenarioHarness:
 
     def __init__(self) -> None:
         self.turn_id = ""
-        self.phase = TurnPhase.LOGICAL_SETTLED
+        self.phase = TurnPhase.COMPLETED
         self.epoch = 0
         self.terminal = True
         self.interrupt_accepted = False
@@ -406,7 +406,7 @@ class TurnScenarioHarness:
             self.assert_invariants()
             return None
         self.terminal = True
-        self.phase = TurnPhase.LOGICAL_SETTLED
+        self.phase = TurnPhase.COMPLETED
         self.execution_gate_open = True
         self.terminal_snapshot_seq = last_event_seq
         self.cursor = max(self.cursor, last_event_seq)

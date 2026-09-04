@@ -7,6 +7,7 @@ import typing
 from agent.application.config.session_identity import derive_local_session_id
 from agent.application.services import TurnApplicationFactory
 from agent.application.turns.commands import (
+    SessionRecoveryResult,
     SubmitTurnCommand,
     TurnApplication,
 )
@@ -14,6 +15,7 @@ from agent.application.turns.run_result import RunResult
 from agent.ports import (
     AttachmentStatePort,
     ProtocolCommandClient,
+    RunRecoveryRequired,
 )
 from agent.ports.presentation import (
     ApplicationSink,
@@ -46,6 +48,7 @@ from ..core.runtime import (
     TuiRuntime,
     require_tui_runtime
 )
+from ..core.queued import TuiSubmission
 from ..core.submission import (
     TuiInterruptRequested,
     TuiMailboxRunRequested,
@@ -64,6 +67,8 @@ from ..features.processes import monitor_exec_status
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
+
+RECOVERY_POLL_INTERVAL_SEC: typing.Final[float] = 0.2
 
 
 class _TurnInterruptNotice:
@@ -86,6 +91,77 @@ class _TurnInterruptNotice:
         self.shown = True
         self._runtime.finish_interrupted_presentation()
         emit_tui_interrupt_notice(self._application)
+
+
+def _restore_recovery_commands(
+    host: "TuiApplicationHost",
+    runtime: TuiRuntime,
+    state: TuiSessionState,
+    recovery: SessionRecoveryResult,
+) -> None:
+    """把确定未执行的持久化命令按普通中断策略恢复到编辑框。"""
+    commands = recovery.restore_commands
+    if not commands:
+        return None
+
+    restored_attachments: list[dict[str, typing.Any]] = []
+    restored_extras: dict[str, typing.Any] = {}
+    for command in commands:
+        restored_attachments.extend(command.attachment_values())
+        extras = command.extras_value()
+        if extras is not None:
+            restored_extras.update(extras)
+        runtime.defer_submission(TuiSubmission(
+            value=command.message,
+            editable_text=command.message,
+            paste_store={},
+        ))
+
+    current_attachments = tuple(host.attach.pending_attachments_snapshot())
+    host.attach.replace_pending_attachments(
+        tuple(restored_attachments) + current_attachments
+    )
+    current_extras = state.consume_pending_prompt_extras()
+    restored_extras.update(current_extras)
+    if restored_extras:
+        state.replace_pending_prompt_extras(restored_extras)
+    runtime.restore_interrupted_submissions()
+
+
+async def _await_durable_session_recovery(
+    host: "TuiApplicationHost",
+    runtime: TuiRuntime,
+    state: TuiSessionState,
+    application: ApplicationSink,
+    turn_application: TurnApplication["RunResult"],
+    protocol_client: ProtocolCommandClient,
+    *,
+    session_id: str,
+) -> bool:
+    """等待既有 Durable Turn 权威结算，同时保持输入画布可编辑。"""
+    notice_shown = False
+    while not host.lifecycle.stop_event.is_set():
+        recovery = await turn_application.reconcile_remote_session(
+            session_id,
+            protocol_client,
+        )
+        _restore_recovery_commands(host, runtime, state, recovery)
+        if not recovery.pending:
+            return True
+        if not notice_shown:
+            emit_tui_recovery_notice(
+                application,
+                RunRecoveryRequired(recovery.pending),
+            )
+            notice_shown = True
+        try:
+            await asyncio.wait_for(
+                host.lifecycle.stop_event.wait(),
+                timeout=RECOVERY_POLL_INTERVAL_SEC,
+            )
+        except TimeoutError:
+            continue
+    return False
 
 
 def _pending_attachment_snapshot(
@@ -189,6 +265,23 @@ async def _run_tui_loop(
         await foreground_tasks.wait()
         if host.lifecycle.stop_event.is_set():
             break
+
+        if local_session_id is None:
+            recovery_session = host.conversation.snapshot()
+            recovery_ready = await _await_durable_session_recovery(
+                host,
+                runtime,
+                state,
+                application,
+                turn_application,
+                protocol_client,
+                session_id=derive_local_session_id(
+                    "tui",
+                    recovery_session,
+                ),
+            )
+            if not recovery_ready:
+                break
 
         if attachment_start_pending:
             attachment_start_pending = False

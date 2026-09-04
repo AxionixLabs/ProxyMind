@@ -510,7 +510,7 @@ async def stream_turn(
 
                 outcome.record_completed_event(event)
                 await activity_projector.turn_terminal(
-                    normalize_turn_terminal_status(event.status)
+                    normalize_turn_terminal_status(outcome.status)
                 )
 
                 if callbacks.input_event is not None:
@@ -635,12 +635,26 @@ async def stream_turn(
         )
 
     except ModelCapabilityError as error:
-        outcome.fail(
-            error.message,
-            error_code=error.code,
-            error_details=error.details,
-            additional_context=failed_tool_context,
+        outcome_uncertain = bool(
+            error.retryable
+            or event_count > 0
         )
+        if outcome_uncertain:
+            outcome.require_reconciliation(
+                error.message,
+                error_code=error.code,
+                error_details=error.details,
+                additional_context=failed_tool_context,
+            )
+            failure_phase = "turn.reconciliation_required"
+        else:
+            outcome.fail(
+                error.message,
+                error_code=error.code,
+                error_details=error.details,
+                additional_context=failed_tool_context,
+            )
+            failure_phase = "turn.failed"
         if outcome.additional_context and turn_context.agent.depth == 0:
             session_state.queue_turn_context(outcome.additional_context)
         observe(
@@ -654,7 +668,7 @@ async def stream_turn(
 
         if output_session.is_open:
             await project_terminal_activity()
-            await run_presentation.emit_failure("turn.failed")
+            await run_presentation.emit_failure(failure_phase)
 
     except asyncio.CancelledError:
         outcome.interrupt()

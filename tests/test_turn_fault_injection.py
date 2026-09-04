@@ -1,18 +1,27 @@
 """使用有状态 Fake Server 验证跨协议、输入控制与 TUI 的故障窗口。"""
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
-from agent.ports import ProtocolCommandClient
+from agent.application.turns.run_result import RunResult
+from agent.composition import open_turn_application
+from agent.ports import (
+    ProtocolCommandClient,
+    RunRecoveryRequired,
+)
+from agent.protocol import SubmitTurnCommand
 from frontends.output.application import NullApplicationSink
 from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.runtime import TuiRuntime
-from frontends.tui.session import turn_input as turn_input_session
 from frontends.tui.session.turn import execute_tui_model_turn
 from frontends.tui.session.turn_input import TuiTurnInputControl
-from protocol.schema.stream_events import MarkerEvent
+from protocol.schema.stream_events import (
+    MarkerEvent,
+    TurnCompletedEvent,
+)
 from tests.support.fake_mind_chat_server import (
     CommandFault,
     FakeEventKind,
@@ -41,6 +50,9 @@ class _Attachments:
         items: tuple[dict[str, str], ...],
     ) -> None:
         return None
+
+    def pending_attachments_snapshot(self) -> tuple[dict[str, str], ...]:
+        return ()
 
 
 class _SessionState:
@@ -102,11 +114,33 @@ def _control(
     )
 
 
+def _durable_command(
+    *,
+    session_id: str,
+    run_id: str,
+    turn_id: str,
+) -> SubmitTurnCommand:
+    """构造带远端 Turn 绑定的持久化测试命令。"""
+    return SubmitTurnCommand.create(
+        session_id=session_id,
+        run_id=run_id,
+        command_id=f"command-{run_id}",
+        idempotency_key=f"intent-{run_id}",
+        message=run_id,
+        trace_context={
+            "remote_turn": {
+                "cid": "cid-test",
+                "sid": "sid-test",
+                "turn_id": turn_id,
+            },
+        },
+    )
+
+
 @pytest.mark.runtime_p0
 @pytest.mark.runtime_fault
 @pytest.mark.anyio
 async def test_approval_rejection_interrupt_loss_preserves_gate_and_fifo(
-    monkeypatch,
 ) -> None:
     """复现审批拒绝、回执丢失、排队输入和延迟终态的组合。"""
     server = FakeMindChatServer(
@@ -118,19 +152,30 @@ async def test_approval_rejection_interrupt_loss_preserves_gate_and_fifo(
         initial_event_seq=0,
         status="waiting_approval",
     )
-    monkeypatch.setattr(
-        turn_input_session.TuiTurnInputControl,
-        "INTERRUPT_STATUS_RETRY_INTERVAL_SEC",
-        0.001,
-    )
     runtime = TuiRuntime()
     control = _control(server, runtime)
-    control.handle_event(MarkerEvent(type="turn.start", turn_id="turn-1"))
+    control.handle_event(MarkerEvent(type="turn.started", turn_id="turn-1"))
     turn_started = asyncio.Event()
+
+    release_terminal = asyncio.Event()
+
+    async def turn() -> SimpleNamespace:
+        turn_started.set()
+        await release_terminal.wait()
+        control.handle_event(TurnCompletedEvent(
+            type="turn.completed",
+            turn_id="turn-1",
+            event_seq=18,
+            status="interrupted",
+            last_event_seq=18,
+            completed_at=1.0,
+        ))
+        return SimpleNamespace(status="interrupted")
+
     execution = asyncio.create_task(execute_tui_model_turn(
         NullApplicationSink(),
         runtime,
-        _never_finishes(turn_started),
+        turn(),
         turn_input_control=control,
         on_interrupt_requested=runtime.finish_interrupted_presentation,
     ))
@@ -147,40 +192,146 @@ async def test_approval_rejection_interrupt_loss_preserves_gate_and_fifo(
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.CONSUMED
     )
-    await asyncio.wait_for(server.status_read.wait(), timeout=0.2)
-
-    async def begin_next_turn() -> TuiSubmission:
-        await execution
-        submission = await runtime.submissions.read_submission()
-        await server.post_mind_chat(
-            turn_id="turn-2",
-            initial_event_seq=server.client_cursor,
-        )
-        return submission
-
-    next_turn = asyncio.create_task(begin_next_turn())
-    await asyncio.sleep(0.01)
+    while len(server.interrupt_requests) < 2:
+        await asyncio.sleep(0)
 
     assert runtime.execution_active
     assert not execution.done()
-    assert not next_turn.done()
     assert server.accepted_interrupt_count == 1
     assert len(server.interrupt_requests) == 2
     assert len(set(server.interrupt_requests)) == 1
+    assert not server.status_read.is_set()
 
     server.settle("interrupted", last_event_seq=18)
-    second = await asyncio.wait_for(next_turn, timeout=0.2)
-    third = await runtime.submissions.read_submission()
+    release_terminal.set()
+    await asyncio.wait_for(execution, timeout=0.2)
 
-    assert second.value == "second query"
-    assert third.value == "third query"
+    assert runtime.screen.input.buffer.text == "second query\nthird query"
+    assert runtime.submissions.message_queue.empty()
+    assert not runtime.submissions.rejected_steers.active
+    assert not runtime.submissions.queued_messages.active
+
+    snapshot = await server.get_turn_status(
+        cid=server.cid,
+        sid=server.sid,
+        turn_id="turn-1",
+    )
+    assert snapshot.terminal is not None
+    assert snapshot.terminal.status == "interrupted"
+    assert snapshot.terminal.last_event_seq == 18
+
+    buffer.validate_and_handle()
+    next_submission = await runtime.submissions.read_submission()
+    await server.post_mind_chat(
+        turn_id="turn-2",
+        initial_event_seq=server.client_cursor,
+    )
+
+    assert next_submission.value == "second query\nthird query"
     assert server.client_cursor == 18
     assert server.mind_chat_requests[-1].turn_id == "turn-2"
     assert server.mind_chat_requests[-1].initial_event_seq == 18
     assert not runtime.execution_active
-    assert not runtime.submissions.rejected_steers.active
 
     await runtime.close()
+
+
+@pytest.mark.runtime_p0
+@pytest.mark.runtime_fault
+@pytest.mark.anyio
+async def test_durable_gate_waits_for_terminal_then_dispatches_fifo(
+    tmp_path,
+) -> None:
+    """验证响应丢失后终态快照是下一轮派发的唯一开门事实。"""
+    server = FakeMindChatServer()
+    application = open_turn_application(tmp_path / "runtime.db")
+    session_id = "session-durable-fault"
+    first = _durable_command(
+        session_id=session_id,
+        run_id="run-first",
+        turn_id="turn-1",
+    )
+    second = _durable_command(
+        session_id=session_id,
+        run_id="run-second",
+        turn_id="turn-2",
+    )
+    third = _durable_command(
+        session_id=session_id,
+        run_id="run-third",
+        turn_id="turn-3",
+    )
+
+    async def response_lost(_command: SubmitTurnCommand) -> RunResult:
+        await server.post_mind_chat(
+            turn_id="turn-1",
+            initial_event_seq=server.client_cursor,
+        )
+        raise TimeoutError("mind-chat response was lost after acceptance")
+
+    with pytest.raises(TimeoutError):
+        await application.submit(first, response_lost)
+
+    dispatched: list[str] = []
+
+    async def complete_remote(command: SubmitTurnCommand) -> RunResult:
+        turn_id = (
+            "turn-2" if command.run_id == "run-second" else "turn-3"
+        )
+        dispatched.append(command.run_id)
+        await server.post_mind_chat(
+            turn_id=turn_id,
+            initial_event_seq=server.client_cursor,
+        )
+        server.settle(
+            "completed",
+            last_event_seq=server.last_event_seq + 1,
+        )
+        await server.get_turn_status(
+            cid=server.cid,
+            sid=server.sid,
+            turn_id=turn_id,
+        )
+        return RunResult(status="completed", assistant_text=turn_id)
+
+    with pytest.raises(RunRecoveryRequired):
+        await application.submit(second, complete_remote)
+    with pytest.raises(RunRecoveryRequired):
+        await application.submit(third, complete_remote)
+    assert dispatched == []
+    assert [request.turn_id for request in server.mind_chat_requests] == [
+        "turn-1",
+    ]
+
+    pending = await application.reconcile_remote_session(
+        session_id,
+        server,
+    )
+    assert [snapshot.command.run_id for snapshot in pending.pending] == [
+        "run-first",
+    ]
+    assert dispatched == []
+
+    server.settle("interrupted", last_event_seq=18)
+    settled = await application.reconcile_remote_session(
+        session_id,
+        server,
+    )
+    assert settled.pending == ()
+
+    await application.submit(second, complete_remote)
+    await application.submit(third, complete_remote)
+    await application.close()
+
+    assert dispatched == ["run-second", "run-third"]
+    assert [
+        (request.turn_id, request.initial_event_seq)
+        for request in server.mind_chat_requests
+    ] == [
+        ("turn-1", 0),
+        ("turn-2", 18),
+        ("turn-3", 20),
+    ]
 
 
 @pytest.mark.runtime_p0
@@ -194,7 +345,7 @@ async def test_committed_steer_response_loss_reconciles_without_resubmit() -> No
     await server.post_mind_chat(turn_id="turn-1", initial_event_seq=0)
     runtime = TuiRuntime()
     control = _control(server, runtime)
-    control.handle_event(MarkerEvent(type="turn.start", turn_id="turn-1"))
+    control.handle_event(MarkerEvent(type="turn.started", turn_id="turn-1"))
     submission = TuiSubmission(
         value="follow up",
         editable_text="follow up",

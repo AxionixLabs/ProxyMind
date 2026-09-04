@@ -241,13 +241,16 @@ async def test_retained_prefix_gap_advances_replay_floor(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_internal_gap_stops_delivery(monkeypatch) -> None:
-    async def payloads():
+async def test_internal_gap_waits_for_terminal_snapshot(monkeypatch) -> None:
+    calls = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
         yield {
             "type": "stream.gap",
             "cid": "cid_1",
             "sid": "sid_1",
-            "turn_id": "turn_1",
+            "turn_id": "turn_001",
             "gap_kind": "internal",
             "requested_after_seq": 1,
             "expected_event_seq": 2,
@@ -255,7 +258,18 @@ async def test_internal_gap_stops_delivery(monkeypatch) -> None:
             "retryable": True,
         }
 
-    _install_stream(monkeypatch, payloads())
+    _install_reconnect_stream(monkeypatch, streaming, replay_target_seq=4)
+    monkeypatch.setattr(chat, "get_turn_status", AsyncMock(return_value=SimpleNamespace(
+        last_event_seq=4,
+        terminal=SimpleNamespace(
+            type="turn.completed",
+            turn_id="turn_001",
+            status="completed",
+            error="",
+            last_event_seq=4,
+            completed_at=1.0,
+        ),
+    )))
     event_stream = chat.stream_chat(
         {},
         "hello",
@@ -265,11 +279,13 @@ async def test_internal_gap_stops_delivery(monkeypatch) -> None:
 
     events = await _collect(event_stream)
 
-    assert len(events) == 1
+    assert len(events) == 2
     assert isinstance(events[0], StreamGapEvent)
     assert events[0].gap_kind == "internal"
-    assert event_stream.last_event_seq == 1
-    assert event_stream.end_reason == "protocol_error"
+    assert isinstance(events[1], TurnCompletedEvent)
+    assert event_stream.last_event_seq == 4
+    assert event_stream.end_reason == "settled"
+    assert calls == ["https://example.com/mind-chat"]
 
 
 @pytest.mark.anyio
@@ -427,7 +443,156 @@ async def test_recovery_callback_failure_still_closes_payload_stream() -> None:
 
 
 @pytest.mark.anyio
-async def test_consecutive_attach_failures_stop_after_retry_budget(monkeypatch) -> None:
+async def test_recovery_probe_observes_terminal_without_silence_timeout(
+    monkeypatch,
+) -> None:
+    first_event_sent = asyncio.Event()
+    calls: list[str] = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        yield {
+            "type": "turn.started",
+            "turn_id": "turn_001",
+            "event_seq": 1,
+        }
+        first_event_sent.set()
+        await asyncio.Event().wait()
+
+    terminal = SimpleNamespace(
+        type="turn.completed",
+        turn_id="turn_001",
+        status="interrupted",
+        error=None,
+        last_event_seq=2,
+        completed_at=10.0,
+    )
+    _install_reconnect_stream(monkeypatch, streaming)
+    status_probe = AsyncMock(return_value=SimpleNamespace(
+        last_event_seq=2,
+        terminal=terminal,
+    ))
+    monkeypatch.setattr(chat, "get_turn_status", status_probe)
+    event_stream = chat.stream_chat({}, "hello", [], timeout=60.0)
+
+    collecting = asyncio.create_task(_collect(event_stream))
+    await first_event_sent.wait()
+    event_stream.request_recovery_probe()
+    events = await asyncio.wait_for(collecting, timeout=0.2)
+
+    assert [event.type for event in events] == [
+        "turn.started",
+        "turn.completed",
+    ]
+    assert events[-1].status == "interrupted"
+    assert calls == ["https://example.com/mind-chat"]
+    status_probe.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_control_probe_rechecks_status_without_reopening_attach(
+    monkeypatch,
+) -> None:
+    first_event_sent = asyncio.Event()
+    calls: list[str] = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        if url.endswith("/mind-chat"):
+            yield {
+                "type": "turn.started",
+                "turn_id": "turn_001",
+                "event_seq": 1,
+            }
+            first_event_sent.set()
+        await asyncio.Event().wait()
+        yield {}
+
+    active = SimpleNamespace(last_event_seq=1, terminal=None)
+    terminal = SimpleNamespace(
+        type="turn.completed",
+        turn_id="turn_001",
+        status="interrupted",
+        error=None,
+        last_event_seq=2,
+        completed_at=10.0,
+    )
+    settled = SimpleNamespace(last_event_seq=2, terminal=terminal)
+    _install_reconnect_stream(monkeypatch, streaming)
+    status_probe = AsyncMock(side_effect=(active, settled))
+    monkeypatch.setattr(chat, "get_turn_status", status_probe)
+    monkeypatch.setattr(
+        chat,
+        "CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC",
+        0.01,
+    )
+    event_stream = chat.stream_chat({}, "hello", [], timeout=60.0)
+
+    collecting = asyncio.create_task(_collect(event_stream))
+    await first_event_sent.wait()
+    event_stream.request_recovery_probe()
+    events = await asyncio.wait_for(collecting, timeout=0.2)
+
+    assert [event.type for event in events] == [
+        "turn.started",
+        "turn.completed",
+    ]
+    assert events[-1].status == "interrupted"
+    assert calls == ["https://example.com/mind-chat"]
+    assert status_probe.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_control_probe_accepts_terminal_snapshot_past_suppressed_events(
+    monkeypatch,
+) -> None:
+    first_event_sent = asyncio.Event()
+    calls: list[str] = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        yield {
+            "type": "turn.started",
+            "turn_id": "turn_001",
+            "event_seq": 1,
+        }
+        first_event_sent.set()
+        await asyncio.Event().wait()
+
+    terminal = SimpleNamespace(
+        type="turn.completed",
+        turn_id="turn_001",
+        status="interrupted",
+        error=None,
+        last_event_seq=7,
+        completed_at=10.0,
+    )
+    _install_reconnect_stream(monkeypatch, streaming)
+    status_probe = AsyncMock(return_value=SimpleNamespace(
+        last_event_seq=7,
+        terminal=terminal,
+    ))
+    monkeypatch.setattr(chat, "get_turn_status", status_probe)
+    event_stream = chat.stream_chat({}, "hello", [], timeout=60.0)
+
+    collecting = asyncio.create_task(_collect(event_stream))
+    await first_event_sent.wait()
+    event_stream.request_recovery_probe()
+    events = await asyncio.wait_for(collecting, timeout=0.2)
+
+    assert [event.type for event in events] == [
+        "turn.started",
+        "turn.completed",
+    ]
+    assert events[-1].last_event_seq == 7
+    assert event_stream.last_event_seq == 7
+    assert calls == ["https://example.com/mind-chat"]
+
+
+@pytest.mark.anyio
+async def test_attach_budget_rolls_over_without_releasing_active_turn(
+    monkeypatch,
+) -> None:
     event_stream = chat.stream_chat({}, "hello", [])
     event_stream._attach_target = {
         "cid": "cid_1",
@@ -437,11 +602,21 @@ async def test_consecutive_attach_failures_stop_after_retry_budget(monkeypatch) 
     event_stream._reconnect_started_at = 100.0
 
     monkeypatch.setattr(chat.time, "monotonic", lambda: 161.0)
-    transport = Mock()
+    transport = Mock(return_value=SimpleNamespace())
     monkeypatch.setattr(chat, "streaming", transport)
+    monkeypatch.setattr(
+        chat,
+        "get_turn_status",
+        AsyncMock(return_value=SimpleNamespace(
+            last_event_seq=0,
+            terminal=None,
+        )),
+    )
 
-    assert await event_stream._resume_stream(OSError("still offline")) is False
-    transport.assert_not_called()
+    assert await event_stream._resume_stream(OSError("still offline")) is True
+    assert event_stream._reconnect_started_at == 161.0
+    assert event_stream._reconnect_failures == 1
+    transport.assert_called_once()
 
 
 @pytest.mark.anyio

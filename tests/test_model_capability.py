@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock, Mock
 
+import httpx
 import pytest
 
 from agent.ports import (
@@ -27,7 +28,7 @@ from protocol.client.fork import ResubmittablePrompt
 from protocol.client.turn_control import TurnControlRequestError
 
 
-def _model_event(event_type: str = "turn.start") -> SimpleNamespace:
+def _model_event(event_type: str = "turn.started") -> SimpleNamespace:
     return SimpleNamespace(
         type=event_type,
         proto="mind.chat",
@@ -247,7 +248,8 @@ async def test_protocol_client_owns_command_transport_boundary(monkeypatch) -> N
     ))
     reconcile_inputs = AsyncMock(return_value=SimpleNamespace(
         turn_id="turn_test",
-        turn_status="running",
+        turn_exists=True,
+        terminal=None,
         committed_ids=("message_test",),
         pending_ids=(),
         retry_ids=(),
@@ -259,7 +261,7 @@ async def test_protocol_client_owns_command_transport_boundary(monkeypatch) -> N
         turn_id="turn_test",
         run_id="run_test",
         status="running",
-        terminal=False,
+        terminal=None,
         attempt=1,
         version=2,
         last_event_seq=4,
@@ -373,6 +375,8 @@ async def test_protocol_client_owns_command_transport_boundary(monkeypatch) -> N
 
     assert receipt.status == "accepted"
     assert steer_receipt.status == "accepted"
+    assert reconcile_receipt.turn_exists is True
+    assert reconcile_receipt.terminal is None
     assert reconcile_receipt.committed_ids == ("message_test",)
     assert status_receipt.status == "running"
     assert fork_receipt.cid == "cid_target"
@@ -554,7 +558,7 @@ async def test_protocol_client_normalizes_command_errors(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_protocol_client_reuses_settled_session_cursor(monkeypatch) -> None:
+async def test_protocol_client_reuses_completed_session_cursor(monkeypatch) -> None:
     class RawStream:
         def __init__(self, *, turn_id: str, last_event_seq: int) -> None:
             self.turn_id = turn_id
@@ -567,13 +571,16 @@ async def test_protocol_client_reuses_settled_session_cursor(monkeypatch) -> Non
 
         async def _iterate(self):
             yield SimpleNamespace(
-                type="turn.logical_settled",
+                type="turn.completed",
                 proto="mind.chat",
                 cid="cid_test",
                 sid="sid_test",
                 turn_id=self.turn_id,
                 event_seq=self.last_event_seq,
                 presentation_epoch=1,
+                status="completed",
+                last_event_seq=self.last_event_seq,
+                completed_at=1.0,
             )
             self.end_reason = "settled"
 
@@ -620,13 +627,25 @@ async def test_protocol_client_reconciles_terminal_status_cursor(
         async def aclose(self) -> None:
             return None
 
+    completed = (
+        SimpleNamespace(
+            type="turn.completed",
+            turn_id="turn_interrupted",
+            status="interrupted",
+            error=None,
+            last_event_seq=8,
+            completed_at=2.0,
+        )
+        if terminal
+        else None
+    )
     get_turn_status = AsyncMock(return_value=SimpleNamespace(
         cid="cid_test",
         sid="sid_test",
         turn_id="turn_interrupted",
         run_id="run_interrupted",
         status="interrupted" if terminal else "running",
-        terminal=terminal,
+        terminal=completed,
         attempt=1,
         version=2,
         last_event_seq=8,
@@ -650,6 +669,56 @@ async def test_protocol_client_reconciles_terminal_status_cursor(
 
 
 @pytest.mark.anyio
+async def test_protocol_client_reconciles_terminal_input_cursor(monkeypatch) -> None:
+    class RawStream:
+        end_reason = "cancelled"
+        last_event_seq = 11
+
+        def __aiter__(self):
+            return self._iterate()
+
+        async def _iterate(self):
+            if False:
+                yield None
+
+        async def aclose(self) -> None:
+            return None
+
+    reconcile_inputs = AsyncMock(return_value=SimpleNamespace(
+        turn_id="turn_interrupted",
+        turn_exists=True,
+        terminal=SimpleNamespace(
+            type="turn.completed",
+            turn_id="turn_interrupted",
+            status="interrupted",
+            error=None,
+            last_event_seq=11,
+            completed_at=2.0,
+        ),
+        committed_ids=(),
+        pending_ids=(),
+        retry_ids=("message_test",),
+        unknown_ids=(),
+    ))
+    stream_chat = Mock(return_value=RawStream())
+    monkeypatch.setattr(model_adapter, "_reconcile_turn_inputs", reconcile_inputs)
+    monkeypatch.setattr(model_adapter, "stream_chat", stream_chat)
+    client = model_adapter.MindChatProtocolClient()
+
+    receipt = await client.reconcile_turn_inputs(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_interrupted",
+        client_message_ids=("message_test",),
+    )
+    await client.stream(_request(turn_id="turn_next")).aclose()
+
+    assert receipt.terminal is not None
+    assert receipt.terminal.status == "interrupted"
+    assert stream_chat.call_args.kwargs["initial_event_seq"] == 11
+
+
+@pytest.mark.anyio
 async def test_protocol_stream_exposes_canonical_item_projection(monkeypatch) -> None:
     class RawStream:
         end_reason = None
@@ -662,7 +731,15 @@ async def test_protocol_stream_exposes_canonical_item_projection(monkeypatch) ->
             for event_type, event_seq, values in (
                 ("text.delta", 1, {"text": "partial"}),
                 ("text.done", 2, {"final_text": "complete"}),
-                ("turn.logical_settled", 3, {}),
+                (
+                    "turn.completed",
+                    3,
+                    {
+                        "status": "completed",
+                        "last_event_seq": 3,
+                        "completed_at": 1.0,
+                    },
+                ),
             ):
                 projection = (
                     {
@@ -854,6 +931,62 @@ async def test_protocol_client_does_not_commit_fatal_stream_cursor(monkeypatch) 
 
 
 @pytest.mark.anyio
+async def test_interrupt_wakes_and_releases_registered_turn_observer(
+    monkeypatch,
+) -> None:
+    class RawStream:
+        end_reason = None
+        last_event_seq = 0
+
+        def __init__(self) -> None:
+            self.probes = 0
+
+        def __aiter__(self):
+            return self._iterate()
+
+        async def _iterate(self):
+            if False:
+                yield None
+
+        async def aclose(self) -> None:
+            return None
+
+        def request_recovery_probe(self) -> None:
+            self.probes += 1
+
+    raw_stream = RawStream()
+    interrupt = AsyncMock(return_value=SimpleNamespace(
+        status="accepted",
+        request_id="interrupt_test",
+        turn_id="turn_test",
+        client_message_id=None,
+    ))
+    monkeypatch.setattr(model_adapter, "stream_chat", Mock(return_value=raw_stream))
+    monkeypatch.setattr(model_adapter, "_interrupt_turn", interrupt)
+    client = model_adapter.MindChatProtocolClient()
+    model_stream = client.stream(_request())
+
+    await client.interrupt_turn(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        request_id="interrupt_test",
+    )
+
+    assert raw_stream.probes == 2
+
+    await model_stream.aclose()
+    await client.interrupt_turn(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        request_id="interrupt_test_2",
+    )
+
+    assert raw_stream.probes == 2
+
+
+@pytest.mark.anyio
 async def test_protocol_model_event_stream_normalizes_iteration_failure_and_closes() -> None:
     class RawStream:
         end_reason = "fatal"
@@ -906,7 +1039,7 @@ async def test_protocol_model_event_stream_rejects_invalid_event_and_closes() ->
             return self._iterate()
 
         async def _iterate(self):
-            yield {"type": "turn.start"}
+            yield {"type": "turn.started"}
 
         async def aclose(self) -> None:
             self.closed = True
@@ -945,7 +1078,7 @@ async def test_protocol_model_event_stream_rejects_invalid_event_coordinates() -
 
         async def _iterate(self):
             yield SimpleNamespace(
-                type="turn.start",
+                type="turn.started",
                 proto="mind.chat",
                 cid="cid_test",
                 sid="sid_test",
@@ -992,4 +1125,43 @@ def test_model_capability_error_freezes_details() -> None:
         "message": "service unavailable",
         "retryable": True,
         "details": {"status_code": 503, "nested": {"attempt": 1}},
+    }
+
+
+def test_model_http_conflict_preserves_server_runtime_details() -> None:
+    request = httpx.Request("POST", "https://example.com/mind-chat")
+    response = httpx.Response(
+        409,
+        request=request,
+        json={
+            "error": "Conflict",
+            "details": {
+                "code": "turn_already_active",
+                "message": "another logical turn is active",
+                "active_turn_id": "turn_active",
+                "active_status": "running",
+            },
+            "type": "runtime_error",
+            "trace_id": "trace_test",
+        },
+    )
+    source = httpx.HTTPStatusError(
+        "conflict",
+        request=request,
+        response=response,
+    )
+
+    error = model_adapter._classify_model_error(source)
+
+    assert error.code == "turn_already_active"
+    assert error.message == "another logical turn is active"
+    assert error.retryable is False
+    assert error.details == {
+        "exception_type": "HTTPStatusError",
+        "status_code": 409,
+        "code": "turn_already_active",
+        "message": "another logical turn is active",
+        "active_turn_id": "turn_active",
+        "active_status": "running",
+        "trace_id": "trace_test",
     }

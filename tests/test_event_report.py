@@ -15,7 +15,7 @@ from protocol.schema.stream_events import parse_stream_event
 def test_report_binds_typed_stream_metadata() -> None:
     report = EventReport("cid", "sid")
     event = parse_stream_event({
-        "type": "turn.start",
+        "type": "turn.started",
         "proto": "mind.chat",
         "cid": "cid",
         "sid": "sid",

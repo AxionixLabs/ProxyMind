@@ -40,7 +40,7 @@ def _fixture_events() -> tuple[object, ...]:
         "round": 1,
     }
     return (
-        SimpleNamespace(type="turn.start", event_seq=1, **common),
+        SimpleNamespace(type="turn.started", event_seq=1, **common),
         SimpleNamespace(
             type="text.delta",
             event_seq=2,
@@ -135,10 +135,11 @@ def _fixture_events() -> tuple[object, ...]:
             **common,
         ),
         SimpleNamespace(
-            type="turn.logical_settled",
+            type="turn.completed",
             event_seq=10,
             status="completed",
-            next_input=None,
+            last_event_seq=10,
+            completed_at=1.0,
             **common,
         ),
     )

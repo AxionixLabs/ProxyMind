@@ -247,7 +247,15 @@ async def test_reconcile_request_validates_complete_classification(
         json={
             "ok": True,
             "turn_id": "turn_001",
-            "turn_status": "settled",
+            "turn_exists": True,
+            "terminal": {
+                "type": "turn.completed",
+                "turn_id": "turn_001",
+                "status": "interrupted",
+                "error": None,
+                "last_event_seq": 18,
+                "completed_at": 12.5,
+            },
             "committed_ids": ["message_1"],
             "pending_ids": [],
             "retry_ids": ["message_2"],
@@ -293,6 +301,10 @@ async def test_reconcile_request_validates_complete_classification(
 
     assert result.committed_ids == ("message_1",)
     assert result.retry_ids == ("message_2",)
+    assert result.turn_exists is True
+    assert result.terminal is not None
+    assert result.terminal.status == "interrupted"
+    assert result.terminal.last_event_seq == 18
     assert captured["url"] == "https://example.com/turn/reconcile"
     assert captured["params"] == {"cid": "cid_1", "sid": "sid_1"}
     assert captured["headers"] == {"authorization": "test"}
@@ -303,7 +315,204 @@ async def test_reconcile_request_validates_complete_classification(
 
 
 @pytest.mark.anyio
-async def test_interrupt_rejects_response_for_another_turn(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("turn_exists", "classification", "expected_field"),
+    (
+        (True, "pending_ids", "pending_ids"),
+        (False, "unknown_ids", "unknown_ids"),
+    ),
+)
+async def test_reconcile_accepts_active_or_missing_turn_without_terminal(
+    monkeypatch,
+    turn_exists,
+    classification,
+    expected_field,
+) -> None:
+    body = {
+        "ok": True,
+        "turn_id": "turn_001",
+        "turn_exists": turn_exists,
+        "terminal": None,
+        "committed_ids": [],
+        "pending_ids": [],
+        "retry_ids": [],
+        "unknown_ids": [],
+    }
+    body[classification] = ["message_1"]
+
+    async def post_json(*_args, **_kwargs):
+        return body
+
+    monkeypatch.setattr(turn_control, "_post_json", post_json)
+
+    result = await turn_control.reconcile_turn_inputs(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        client_message_ids=("message_1",),
+    )
+
+    assert result.turn_exists is turn_exists
+    assert result.terminal is None
+    assert getattr(result, expected_field) == ("message_1",)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "terminal",
+    (
+        "turn.completed",
+        {
+            "turn_id": "turn_001",
+            "status": "interrupted",
+            "error": None,
+            "last_event_seq": 18,
+            "completed_at": 12.5,
+        },
+        {
+            "type": "turn.completed",
+            "turn_id": "turn_001",
+            "status": "interrupted",
+            "error": None,
+            "last_event_seq": "18",
+            "completed_at": 12.5,
+        },
+        {
+            "type": "turn.completed",
+            "turn_id": "turn_other",
+            "status": "interrupted",
+            "error": None,
+            "last_event_seq": 18,
+            "completed_at": 12.5,
+        },
+        {
+            "type": "turn.completed",
+            "turn_id": "turn_001",
+            "status": "running",
+            "error": None,
+            "last_event_seq": 18,
+            "completed_at": 12.5,
+        },
+        {
+            "type": "turn.completed",
+            "turn_id": "turn_001",
+            "status": "failed",
+            "error": 500,
+            "last_event_seq": 18,
+            "completed_at": 12.5,
+        },
+        {
+            "type": "turn.completed",
+            "turn_id": "turn_001",
+            "status": "interrupted",
+            "error": None,
+            "last_event_seq": 18,
+            "completed_at": True,
+        },
+    ),
+)
+async def test_reconcile_rejects_invalid_terminal_snapshot_as_control_error(
+    monkeypatch,
+    terminal,
+) -> None:
+    async def post_json(*_args, **_kwargs):
+        return {
+            "ok": True,
+            "turn_id": "turn_001",
+            "turn_exists": True,
+            "terminal": terminal,
+            "committed_ids": ["message_1"],
+            "pending_ids": [],
+            "retry_ids": [],
+            "unknown_ids": [],
+        }
+
+    monkeypatch.setattr(turn_control, "_post_json", post_json)
+
+    with pytest.raises(
+        turn_control.TurnControlRequestError,
+        match="invalid response",
+    ):
+        await turn_control.reconcile_turn_inputs(
+            cid="cid_1",
+            sid="sid_1",
+            turn_id="turn_001",
+            client_message_ids=("message_1",),
+        )
+
+
+@pytest.mark.anyio
+async def test_reconcile_rejects_pending_input_after_terminal(monkeypatch) -> None:
+    async def post_json(*_args, **_kwargs):
+        return {
+            "ok": True,
+            "turn_id": "turn_001",
+            "turn_exists": True,
+            "terminal": {
+                "type": "turn.completed",
+                "turn_id": "turn_001",
+                "status": "interrupted",
+                "error": None,
+                "last_event_seq": 18,
+                "completed_at": 12.5,
+            },
+            "committed_ids": [],
+            "pending_ids": ["message_1"],
+            "retry_ids": [],
+            "unknown_ids": [],
+        }
+
+    monkeypatch.setattr(turn_control, "_post_json", post_json)
+
+    with pytest.raises(
+        turn_control.TurnControlRequestError,
+        match="does not match request",
+    ):
+        await turn_control.reconcile_turn_inputs(
+            cid="cid_1",
+            sid="sid_1",
+            turn_id="turn_001",
+            client_message_ids=("message_1",),
+        )
+
+
+@pytest.mark.anyio
+async def test_reconcile_rejects_terminal_for_missing_turn(monkeypatch) -> None:
+    async def post_json(*_args, **_kwargs):
+        return {
+            "ok": True,
+            "turn_id": "turn_001",
+            "turn_exists": False,
+            "terminal": {
+                "type": "turn.completed",
+                "turn_id": "turn_001",
+                "status": "interrupted",
+                "error": None,
+                "last_event_seq": 18,
+                "completed_at": 12.5,
+            },
+            "committed_ids": [],
+            "pending_ids": [],
+            "retry_ids": [],
+            "unknown_ids": ["message_1"],
+        }
+
+    monkeypatch.setattr(turn_control, "_post_json", post_json)
+
+    with pytest.raises(
+        turn_control.TurnControlRequestError,
+        match="does not match request",
+    ):
+        await turn_control.reconcile_turn_inputs(
+            cid="cid_1",
+            sid="sid_1",
+            turn_id="turn_001",
+            client_message_ids=("message_1",),
+        )
+
+
+@pytest.mark.anyio
+async def test_interrupt_requires_empty_204_acknowledgement(monkeypatch) -> None:
     response = httpx.Response(
         200,
         json={
@@ -333,7 +542,7 @@ async def test_interrupt_rejects_response_for_another_turn(monkeypatch) -> None:
 
     with pytest.raises(
         turn_control.TurnControlRequestError,
-        match="does not match",
+        match="invalid empty acknowledgement",
     ):
         await turn_control.interrupt_turn(
             cid="cid_1",
@@ -341,6 +550,41 @@ async def test_interrupt_rejects_response_for_another_turn(monkeypatch) -> None:
             turn_id="turn_001",
             request_id="interrupt_request_1",
         )
+
+
+@pytest.mark.anyio
+async def test_interrupt_synthesizes_receipt_from_empty_ack(monkeypatch) -> None:
+    response = httpx.Response(
+        204,
+        request=httpx.Request("POST", "https://example.com/turn/interrupt"),
+    )
+
+    class ClientStub:
+        def __init__(self, *, timeout) -> None:
+            _ = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return response
+
+    monkeypatch.setattr(turn_control.httpx, "AsyncClient", ClientStub)
+
+    receipt = await turn_control.interrupt_turn(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        request_id="interrupt_request_1",
+    )
+
+    assert receipt.status == "accepted"
+    assert receipt.request_id == "interrupt_request_1"
+    assert receipt.turn_id == "turn_001"
+    assert receipt.client_message_id is None
 
 
 @pytest.mark.anyio
