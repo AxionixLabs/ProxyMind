@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
+import enum
 import time
 import typing
 from dataclasses import replace
@@ -35,6 +36,138 @@ if typing.TYPE_CHECKING:
     from .state import TuiSessionState
 
 
+class TurnInputPhase(enum.Enum):
+    """描述单个 TUI 控制器当前绑定的远端 Turn 生命周期。"""
+
+    WAITING_START = "waiting_start"
+    ACTIVE = "active"
+    INTERRUPT_PENDING = "interrupt_pending"
+    INTERRUPTING = "interrupting"
+    SETTLED = "settled"
+    INTERRUPTED_SETTLED = "interrupted_settled"
+    DETACHED = "detached"
+    CLOSED = "closed"
+
+
+class _TurnInputLifecycle(object):
+    """集中裁决远端 Turn 输入和中断任务可以运行的阶段。"""
+
+    def __init__(self) -> None:
+        self.phase = TurnInputPhase.WAITING_START
+
+    @property
+    def interrupt_requested(self) -> bool:
+        """返回用户中断意图是否仍约束当前控制器。"""
+        return self.phase in {
+            TurnInputPhase.INTERRUPT_PENDING,
+            TurnInputPhase.INTERRUPTING,
+            TurnInputPhase.INTERRUPTED_SETTLED,
+            TurnInputPhase.DETACHED,
+        }
+
+    @property
+    def accepts_steer(self) -> bool:
+        """返回新输入是否还能归属当前远端 Turn。"""
+        return self.phase in {
+            TurnInputPhase.WAITING_START,
+            TurnInputPhase.ACTIVE,
+        }
+
+    @property
+    def can_send_steer(self) -> bool:
+        """返回后台任务是否可以发送下一条 steer。"""
+        return self.phase is TurnInputPhase.ACTIVE
+
+    @property
+    def can_send_interrupt(self) -> bool:
+        """返回远端 Turn 是否已经就绪且等待中断命令。"""
+        return self.phase is TurnInputPhase.INTERRUPTING
+
+    @property
+    def settled(self) -> bool:
+        """返回当前绑定的远端 Turn 是否已收到权威终态。"""
+        return self.phase in {
+            TurnInputPhase.SETTLED,
+            TurnInputPhase.INTERRUPTED_SETTLED,
+        }
+
+    @property
+    def detached(self) -> bool:
+        """返回客户端是否已放弃继续观察远端终态。"""
+        return self.phase is TurnInputPhase.DETACHED
+
+    def activate(self) -> None:
+        """进入下一次远端 Turn 启动等待并保留中断意图。"""
+        if self.phase is TurnInputPhase.CLOSED:
+            raise RuntimeError("cannot activate a closed turn input lifecycle")
+        if self.phase is TurnInputPhase.DETACHED:
+            raise RuntimeError("cannot activate a detached turn input lifecycle")
+        self.phase = (
+            TurnInputPhase.INTERRUPT_PENDING
+            if self.interrupt_requested
+            else TurnInputPhase.WAITING_START
+        )
+
+    def mark_started(self) -> bool:
+        """登记匹配的远端启动事件并返回是否接受该事件。"""
+        if self.phase in {
+            TurnInputPhase.SETTLED,
+            TurnInputPhase.INTERRUPTED_SETTLED,
+            TurnInputPhase.DETACHED,
+            TurnInputPhase.CLOSED,
+        }:
+            return False
+        if self.phase is TurnInputPhase.INTERRUPT_PENDING:
+            self.phase = TurnInputPhase.INTERRUPTING
+        elif self.phase is TurnInputPhase.WAITING_START:
+            self.phase = TurnInputPhase.ACTIVE
+        return True
+
+    def request_interrupt(self) -> bool:
+        """登记中断意图并返回是否可以立即发送远端命令。"""
+        if self.phase in {
+            TurnInputPhase.SETTLED,
+            TurnInputPhase.DETACHED,
+            TurnInputPhase.CLOSED,
+        }:
+            return False
+        if self.phase in {
+            TurnInputPhase.WAITING_START,
+            TurnInputPhase.INTERRUPTED_SETTLED,
+        }:
+            self.phase = TurnInputPhase.INTERRUPT_PENDING
+        elif self.phase is TurnInputPhase.ACTIVE:
+            self.phase = TurnInputPhase.INTERRUPTING
+        return self.can_send_interrupt
+
+    def settle(self) -> bool:
+        """登记权威终态并返回是否首次完成该转换。"""
+        if self.phase in {
+            TurnInputPhase.SETTLED,
+            TurnInputPhase.INTERRUPTED_SETTLED,
+            TurnInputPhase.DETACHED,
+            TurnInputPhase.CLOSED,
+        }:
+            return False
+        self.phase = (
+            TurnInputPhase.INTERRUPTED_SETTLED
+            if self.interrupt_requested
+            else TurnInputPhase.SETTLED
+        )
+        return True
+
+    def detach(self) -> bool:
+        """停止本地观察，但不改变远端 Turn 的权威状态。"""
+        if self.phase in {TurnInputPhase.DETACHED, TurnInputPhase.CLOSED}:
+            return False
+        self.phase = TurnInputPhase.DETACHED
+        return True
+
+    def close(self) -> None:
+        """关闭控制器并禁止后续生命周期转换。"""
+        self.phase = TurnInputPhase.CLOSED
+
+
 class TuiTurnInputControl(object):
     """协调活动轮次的即时输入、下一轮输入和远端中断。"""
 
@@ -61,19 +194,23 @@ class TuiTurnInputControl(object):
             raise TypeError("TUI turn input requires ProtocolCommandClient")
 
         self._protocol_client = protocol_client
-        self._ready_turn_id: str = ""
+        self._lifecycle = _TurnInputLifecycle()
         self._stream_end_reason: ModelStreamEndReason = "cancelled"
         self._ledger: PendingSteerLedger = PendingSteerLedger()
         self._steer_task: asyncio.Task[None] | None = None
         self._interrupt_task: asyncio.Task[None] | None = None
-        self._interrupt_requested: bool = False
-        self._abandoned: bool = False
+        self._interrupt_target: tuple[str, str, str] | None = None
         self._tasks: set[asyncio.Task[None]] = set()
+
+    @property
+    def phase(self) -> TurnInputPhase:
+        """返回当前远端 Turn 输入控制阶段。"""
+        return self._lifecycle.phase
 
     def activate(self, context: TurnContext) -> None:
         """更新等待服务端启动确认的远端轮次。"""
+        self._lifecycle.activate()
         self._target = (context.cid, context.sid, context.turn_id)
-        self._ready_turn_id = ""
         self._stream_end_reason = "cancelled"
 
         resolution = self._ledger.advance()
@@ -85,7 +222,7 @@ class TuiTurnInputControl(object):
     def submit(self, submission: TuiSubmission, queue_only: bool) -> bool:
         """按按键意图接管执行期间提交的输入。"""
         captured = self._capture_payload(submission)
-        if queue_only or self._interrupt_requested:
+        if queue_only or not self._lifecycle.accepts_steer:
             self._runtime.defer_submission(captured)
             return True
 
@@ -108,8 +245,9 @@ class TuiTurnInputControl(object):
             return None
 
         if event.type == "turn.started":
-            self._ready_turn_id = active_turn_id
-            if self._interrupt_requested:
+            if not self._lifecycle.mark_started():
+                return None
+            if self._lifecycle.interrupt_requested:
                 self._start_interrupt_worker()
                 return None
             self._start_steer_worker()
@@ -138,8 +276,8 @@ class TuiTurnInputControl(object):
         if not isinstance(event, TurnCompletedEvent):
             return None
 
-        self._ledger.settle()
-        self._ready_turn_id = ""
+        if self._lifecycle.settle():
+            self._ledger.settle()
         return None
 
     def handle_stream_end(self, reason: ModelStreamEndReason) -> None:
@@ -155,22 +293,26 @@ class TuiTurnInputControl(object):
 
     def request_interrupt(self) -> bool:
         """记录中断意图，并在远端轮次就绪后发送中断请求。"""
-        self._interrupt_requested = True
+        self._lifecycle.request_interrupt()
+        steer_task = self._steer_task
+        if steer_task is not None and not steer_task.done():
+            steer_task.cancel()
         return self._start_interrupt_worker()
 
     def _start_interrupt_worker(self) -> bool:
         """在远端 Turn 就绪后启动由当前轮次持有的中断任务。"""
         cid, sid, turn_id = self._target
-        if self._interrupt_task is not None:
-            return True
         if (
             not cid
             or not sid
             or not turn_id
-            or self._ready_turn_id != turn_id
+            or not self._lifecycle.can_send_interrupt
         ):
             return False
+        if self._interrupt_target == self._target:
+            return True
 
+        self._interrupt_target = self._target
         self._interrupt_task = self._start(
             self._send_interrupt(cid, sid, turn_id),
         )
@@ -184,9 +326,8 @@ class TuiTurnInputControl(object):
 
     def abandon(self) -> None:
         """在用户强制退出时停止等待远端控制与输入对账。"""
-        if self._abandoned:
+        if not self._lifecycle.detach():
             return None
-        self._abandoned = True
         for task in tuple(self._tasks):
             if not task.done():
                 task.cancel()
@@ -218,6 +359,7 @@ class TuiTurnInputControl(object):
 
         self._steer_task = None
         self._interrupt_task = None
+        self._interrupt_target = None
 
         committed_ids: tuple[str, ...] = ()
         retry_ids: tuple[str, ...] = ()
@@ -225,8 +367,8 @@ class TuiTurnInputControl(object):
         sent_ids = self._ledger.sent_ids()
 
         if (
-            not self._abandoned
-            and not self._ledger.settled
+            not self._lifecycle.detached
+            and not self._lifecycle.settled
             and sent_ids
             and self._stream_end_reason != "settled"
         ):
@@ -249,6 +391,7 @@ class TuiTurnInputControl(object):
             self._runtime.defer_rejected_steer(submission)
         for submission in resolution.uncertain:
             self._runtime.retain_uncertain_steer(submission)
+        self._lifecycle.close()
 
     async def _reconcile(
         self,
@@ -336,7 +479,7 @@ class TuiTurnInputControl(object):
             not cid
             or not sid
             or not turn_id
-            or self._ready_turn_id != turn_id
+            or not self._lifecycle.can_send_steer
             or self._ledger.next_local() is None
         ):
             return None
@@ -353,9 +496,7 @@ class TuiTurnInputControl(object):
         turn_id: str,
     ) -> None:
         """依次发送当前采样阶段已经暂存的即时输入。"""
-        while (
-            self._ready_turn_id == turn_id
-        ):
+        while self._lifecycle.can_send_steer and self._target[2] == turn_id:
             submission = self._ledger.next_local()
             if submission is None:
                 return None

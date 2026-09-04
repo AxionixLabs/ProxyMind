@@ -19,7 +19,10 @@ from frontends.tui.core.styles import query_block, text_block
 from frontends.tui.session import loop as loop_session
 from frontends.tui.session import turn_input as turn_input_session
 from frontends.tui.session.turn import execute_tui_model_turn
-from frontends.tui.session.turn_input import TuiTurnInputControl
+from frontends.tui.session.turn_input import (
+    TuiTurnInputControl,
+    TurnInputPhase,
+)
 from protocol.schema.stream_events import (
     MarkerEvent,
     TurnCompletedEvent,
@@ -118,6 +121,50 @@ def _completed(
         last_event_seq=event_seq,
         completed_at=1.0,
     )
+
+
+@pytest.mark.anyio
+async def test_interrupt_phase_stops_queued_steers_before_terminal(
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    first_steer_started = asyncio.Event()
+
+    async def wait_for_cancel(**_kwargs):
+        first_steer_started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    protocol_client.steer_turn = AsyncMock(side_effect=wait_for_cancel)
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+
+    assert control.phase is TurnInputPhase.WAITING_START
+    _mark_started(control)
+    assert control.phase is TurnInputPhase.ACTIVE
+    assert control.submit(_submission("first"), False)
+    assert control.submit(_submission("second"), False)
+    await first_steer_started.wait()
+
+    assert control.request_interrupt()
+    assert control.phase is TurnInputPhase.INTERRUPTING
+    await asyncio.sleep(0)
+    assert protocol_client.steer_turn.await_count == 1
+
+    control.handle_event(_completed(status="interrupted", event_seq=2))
+    assert control.phase is TurnInputPhase.INTERRUPTED_SETTLED
+    await control.close()
+
+    assert control.phase is TurnInputPhase.CLOSED
+    assert protocol_client.steer_turn.await_count == 1
+    await runtime.close()
 
 
 @pytest.mark.anyio
@@ -932,6 +979,45 @@ async def test_remote_interrupt_uses_bound_turn_once(
         turn_id="turn_001",
         request_id="interrupt_request_1",
     )
+
+
+@pytest.mark.anyio
+async def test_interrupted_continuation_targets_each_remote_turn_once(
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    interrupt = AsyncMock(return_value=SimpleNamespace(status="accepted"))
+    protocol_client.interrupt_turn = interrupt
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        TuiRuntime(),
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+    _mark_started(control)
+
+    assert control.request_interrupt()
+    while interrupt.await_count < 1:
+        await asyncio.sleep(0)
+    control.handle_event(_completed(status="interrupted", event_seq=2))
+    control.activate(SimpleNamespace(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_002",
+    ))
+    _mark_started(control, "turn_002")
+    while interrupt.await_count < 2:
+        await asyncio.sleep(0)
+    await control.close()
+
+    assert [
+        call.kwargs["turn_id"]
+        for call in interrupt.await_args_list
+    ] == ["turn_001", "turn_002"]
+
+
 @pytest.mark.anyio
 async def test_late_remote_interrupt_accepts_turn_not_steerable(
     protocol_client: ProtocolCommandClient,
