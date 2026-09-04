@@ -18,6 +18,7 @@ from agent.application.config.settings import (
 from agent.application.turns.foreground import (
     ApplicationTurnForegroundLifecycle,
 )
+from agent.application.turns.durable_queue import DurableQueueApplication
 from agent.domain.policies import PermissionSettings
 from agent.harness.agents.runtime import SubagentRuntime
 from agent.harness.execution.resources import ExecutionResources
@@ -47,7 +48,10 @@ from agent.ports import (
     SubscriptionRuntime,
     TurnCompletionPresenterPort,
 )
-from agent.stores import AgentGraphStore
+from agent.stores import (
+    AgentGraphStore,
+    SQLiteDurableQueueStore,
+)
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.stores.approvals.facts import SQLiteApprovalFactStore
 from agent.stores.approvals.grants import InMemorySessionGrantStore
@@ -63,6 +67,7 @@ from infrastructure.config.runtime_paths import (
     agent_graph_db_path,
     approval_fact_db_path,
     conversation_history_db_path,
+    durable_queue_db_path,
 )
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.settings_session import SettingsSession
@@ -186,7 +191,11 @@ class ApplicationHost:
         self.history_workspace = normalize_workspace(workspace_root or Path.cwd())
         self.application_layout = application_layout
         self.runtime_services = runtime_services
-        self.durable_queue = runtime_services.durable_queue_client
+        self.durable_queue = DurableQueueApplication(
+            runtime_services.durable_queue_client,
+            runtime_services.protocol_client,
+            SQLiteDurableQueueStore(durable_queue_db_path()),
+        )
         self.turn_observer = runtime_services.turn_observer
         self.javascript_execution = javascript_execution
         self.javascript_lifecycle = javascript_lifecycle

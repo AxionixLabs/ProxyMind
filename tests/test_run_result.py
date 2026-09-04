@@ -18,6 +18,7 @@ from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.application.approvals.legacy import DomainApprovalCoordinator
 from agent.application.approvals.models import ApprovalOutcome
 from frontends.interaction.noninteractive import NonInteractiveInteraction
+from agent.adapters.protocol import turn_observation as observation
 from agent.adapters.protocol import turn_stream as stream
 from agent.application.turns.run_result import RunResult
 from agent.ports import (
@@ -73,6 +74,7 @@ from agent.harness.tools.client_calls import (
 )
 from agent.ports import ModelCapabilityError
 from agent.protocol import ModelStreamRequest
+from agent.protocol import TurnObservationRequest
 from agent.adapters.protocol.items import CanonicalItemReducer
 from agent.composition import open_effect_journal
 from agent.harness.tools.plan_execution import PlanExecutionReport
@@ -595,6 +597,7 @@ async def _run_stream(
     effect_journal=None,
     environment_snapshot: dict[str, typing.Any] | None = None,
     output_control: _OutputControl | None = None,
+    observe_only: bool = False,
 ) -> tuple[RunResult, SimpleNamespace]:
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
@@ -621,6 +624,9 @@ async def _run_stream(
         def __init__(self) -> None:
             self.last_stream = None
             self.last_request: ModelStreamRequest | None = None
+            self.last_observation: TurnObservationRequest | None = None
+            self.stream_calls = 0
+            self.observe_calls = 0
 
         class _EventStream(object):
             """为测试迭代器补齐模型流关闭端口。"""
@@ -688,6 +694,7 @@ async def _run_stream(
             on_approval_snapshot=None,
         ):
             """按旧测试工厂签名展开冻结请求。"""
+            self.stream_calls += 1
             self.last_request = request
             request_options = request.option_values()
             metadata = request.metadata_value()
@@ -704,6 +711,23 @@ async def _run_stream(
                 on_recovery_status=on_recovery_status,
                 on_approval_snapshot=on_approval_snapshot,
                 **request_options,
+            )
+            self.last_stream = self._EventStream(iterator, request)
+            return self.last_stream
+
+        def observe(
+            self,
+            request: TurnObservationRequest,
+            *,
+            on_recovery_status=None,
+            on_approval_snapshot=None,
+        ):
+            """只创建测试事件观察流，不调用模型提交入口。"""
+            self.observe_calls += 1
+            self.last_observation = request
+            iterator = stream_chat(
+                on_recovery_status=on_recovery_status,
+                on_approval_snapshot=on_approval_snapshot,
             )
             self.last_stream = self._EventStream(iterator, request)
             return self.last_stream
@@ -861,6 +885,8 @@ async def _run_stream(
         "session_factory": session_factory,
     }
     stream_options["model_capability"] = host.runtime_services.model_capability
+    if observe_only:
+        stream_options["turn_observer"] = host.runtime_services.model_capability
     stream_options["protocol_client"] = host.runtime_services.model_capability
     stream_options["effect_journal_factory"] = (
         host.runtime_services.create_effect_journal
@@ -877,13 +903,126 @@ async def _run_stream(
     if on_turn_interrupted is not None:
         stream_options["on_turn_interrupted"] = on_turn_interrupted
 
-    result = await stream.stream_turn(
+    run_stream = (
+        observation.observe_stream_turn
+        if observe_only
+        else stream.stream_turn
+    )
+    result = await run_stream(
         SimpleNamespace(),
         {},
         [],
         **stream_options,
     )
     return result, host
+
+
+@pytest.mark.anyio
+async def test_observed_turn_attaches_without_replaying_submit_hooks(
+    monkeypatch,
+) -> None:
+    class CommandRunner(object):
+        def __init__(self) -> None:
+            self.events: list[str] = []
+
+        async def execute(self, definition, _payload):
+            self.events.append(definition.event)
+            return HookCommandOutput(data={})
+
+    runner = CommandRunner()
+    definitions = resolve_hook_definitions(
+        {
+            "SessionStart": [_hook("start", matcher="startup")],
+            "UserPromptSubmit": [_hook("prompt")],
+            "Stop": [_hook("stop")],
+        },
+        source_scope="user",
+        source_path=Path("config.toml"),
+    )
+
+    result, host = await _run_stream(
+        monkeypatch,
+        [
+            {"type": "text.delta", "text": "observed"},
+            {"type": "text.done"},
+            {"type": "turn.completed"},
+        ],
+        hooks=HookRuntime(definitions, command_runner=runner),
+        session_started=True,
+        observe_only=True,
+    )
+
+    capability = host.runtime_services.model_capability
+    assert result.status == "completed"
+    assert result.assistant_text == "observed"
+    assert capability.stream_calls == 0
+    assert capability.observe_calls == 1
+    assert capability.last_request is None
+    assert capability.last_observation == TurnObservationRequest(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        timeout=60.0,
+    )
+    assert runner.events == ["Stop"]
+
+
+@pytest.mark.anyio
+async def test_observed_turn_submits_only_a_stop_hook_continuation(
+    monkeypatch,
+) -> None:
+    class CommandRunner(object):
+        def __init__(self) -> None:
+            self.stop_count = 0
+
+        async def execute(self, _definition, _payload):
+            self.stop_count += 1
+            if self.stop_count == 1:
+                return HookCommandOutput(data={
+                    "decision": "block",
+                    "reason": "continue queued turn once",
+                })
+            return HookCommandOutput(data={})
+
+    definitions = resolve_hook_definitions(
+        {"Stop": [_hook("stop")]},
+        source_scope="user",
+        source_path=Path("config.toml"),
+    )
+    submitted_messages: list[str] = []
+
+    async def stream_with_continuation(*args, **kwargs):
+        if args:
+            submitted_messages.append(args[1])
+            turn_id = kwargs["turn_id"]
+            text = "continued"
+        else:
+            turn_id = "turn_test"
+            text = "queued"
+        yield parse_stream_event({
+            "type": "text.delta",
+            "turn_id": turn_id,
+            "text": text,
+        })
+        yield parse_stream_event({
+            "type": "turn.completed",
+            "turn_id": turn_id,
+        })
+
+    result, host = await _run_stream(
+        monkeypatch,
+        [],
+        hooks=HookRuntime(definitions, command_runner=CommandRunner()),
+        stream_factory=stream_with_continuation,
+        observe_only=True,
+    )
+
+    capability = host.runtime_services.model_capability
+    assert result.status == "completed"
+    assert result.assistant_text == "continued"
+    assert capability.observe_calls == 1
+    assert capability.stream_calls == 1
+    assert submitted_messages == ["continue queued turn once"]
 
 
 @pytest.mark.anyio

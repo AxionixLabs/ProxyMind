@@ -12,9 +12,9 @@ from agent.adapters.protocol.activity_events import (
 from agent.adapters.protocol.approval_events import ApprovalEventHandler
 from agent.adapters.protocol.approval_reviews import ApprovalReviewEventHandler
 from agent.adapters.protocol.model_events import ModelStreamEventHandler
-from agent.adapters.protocol.model_request import (
-    build_model_stream_request,
-    extend_request_context,
+from agent.adapters.protocol.turn_source import (
+    SubmittingTurnStreamSource,
+    TurnStreamSource,
 )
 from agent.adapters.protocol.recovery_events import handle_stream_gap
 from agent.adapters.protocol.tool_dispatch import StreamToolDispatcher
@@ -95,6 +95,7 @@ async def stream_turn(
     *_,
     turn_execution: TurnExecution,
     model_capability: ModelCapability | None = None,
+    turn_source: TurnStreamSource | None = None,
     protocol_client: ProtocolCommandClient | None = None,
     effect_journal_factory: EffectJournalFactory | None = None,
     tool_execution: ToolExecutionAdapter | None = None,
@@ -108,8 +109,9 @@ async def stream_turn(
         session_factory=session_factory,
     )
 
-    if not isinstance(model_capability, ModelCapability):
-        raise RuntimeError("model capability is required")
+    source = turn_source or SubmittingTurnStreamSource(model_capability)
+    if not isinstance(source, TurnStreamSource):
+        raise RuntimeError("turn stream source is required")
     if not isinstance(protocol_client, ProtocolCommandClient):
         raise RuntimeError("protocol command client is required")
     if not callable(effect_journal_factory):
@@ -295,19 +297,11 @@ async def stream_turn(
         active_turn_hook_events = TurnHookEvents(hook_scope)
         turn_hook_events = active_turn_hook_events
 
-        begin_result = await active_turn_hook_events.begin(message)
-        if begin_result.message != message:
-            transcript.append(
-                "message.updated",
-                actor="user",
-                payload={"content": begin_result.message, "source": "hook"},
-            )
-
-        message = begin_result.message
-
-        extend_request_context(
+        message = await source.prepare(
+            active_turn_hook_events,
+            transcript,
+            message,
             kwargs,
-            additional_context=begin_result.additional_context,
         )
 
         async def interrupt_nested_turn(call_id: str) -> bool:
@@ -372,15 +366,12 @@ async def stream_turn(
             activity=activity_projector,
         )
 
-        model_request = build_model_stream_request(
+        event_stream = source.open(
             turn_context,
             pref_config=pref_config,
             message=message,
             tools=tools,
             options=kwargs,
-        )
-        event_stream = model_capability.stream(
-            model_request,
             on_recovery_status=activity_projector.transport_recovery_changed,
             on_approval_snapshot=approval_handler.restore_snapshot,
         )
@@ -775,7 +766,7 @@ async def stream_turn(
                 stop_decision.continuation_prompt,
                 additional_context=stop_decision.additional_context,
             ),
-            model_capability=model_capability,
+            model_capability=source.continuation_capability,
             protocol_client=protocol_client,
             effect_journal_factory=effect_journal_factory,
             tool_execution=tool_execution,

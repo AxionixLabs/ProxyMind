@@ -9,12 +9,12 @@ from collections.abc import (
 from pathlib import Path
 
 from agent.application.agents.views import AgentSnapshot
+from agent.application.turns.durable_queue import DurableQueueApplication
 from agent.domain.policies import PermissionSettings
 from agent.domain.tool_policy import ToolFilterMode
 from agent.ports import (
     AttachmentStatePort,
     BeforeToolSession,
-    DurableQueueClient,
     FrontendActivityPort,
     McpRuntime,
     McpSessionPort,
@@ -243,7 +243,7 @@ class TuiApplicationHost(typing.Protocol):
     activity: FrontendActivityPort
     attach: AttachmentStatePort
     conversation: RootConversationPort
-    durable_queue: DurableQueueClient
+    durable_queue: DurableQueueApplication
     turn_observer: TurnObservationCapability
     execution: TuiExecutionResourcesPort
     frontend: Frontend
