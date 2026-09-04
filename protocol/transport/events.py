@@ -12,7 +12,6 @@ from observability import (
 )
 from protocol.schema.identifiers import short_uid
 from protocol.schema.stream_events import StreamEvent
-from protocol.transport import config
 from protocol.transport.reports import post_stream_event
 
 
@@ -23,13 +22,10 @@ class EventReport(object):
         self,
         cid: str,
         sid: str,
-        proto: typing.Optional[str] = None
     ):
         self.cid = cid
         self.sid = sid
-        self.proto = proto.strip() if isinstance(
-            proto, str
-        ) and proto.strip() else self.default_proto()
+        self.proto = self.default_proto()
         self.turn_id: str = short_uid(12)
         self.presentation_epoch: int = 1
         self.round: int = 1
@@ -58,7 +54,7 @@ class EventReport(object):
     @staticmethod
     def default_proto() -> str:
         """返回默认事件协议名。"""
-        return f"{config.CLIENT_NAME}.stream"
+        return "mind.chat"
 
     def begin_turn(
         self,

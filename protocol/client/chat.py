@@ -468,6 +468,10 @@ class TurnEventStream(object):
                     self._internal_gap_detected
                     and isinstance(parsed_event, TurnCompletedEvent)
                 )
+                and not (
+                    self._control_settlement_probe_active
+                    and isinstance(parsed_event, TurnCompletedEvent)
+                )
             ):
                 if await self._resume_stream():
                     continue

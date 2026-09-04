@@ -635,11 +635,7 @@ async def stream_turn(
         )
 
     except ModelCapabilityError as error:
-        outcome_uncertain = bool(
-            error.retryable
-            or event_count > 0
-        )
-        if outcome_uncertain:
+        if error.retryable or event_count > 0:
             outcome.require_reconciliation(
                 error.message,
                 error_code=error.code,

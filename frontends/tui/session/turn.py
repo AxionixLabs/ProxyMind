@@ -155,7 +155,7 @@ async def execute_tui_model_turn(
             if turn_input_control is not None:
                 turn_input_control.abandon()
             cancel_local_stream()
-            return InterruptDisposition.CONSUMED
+            return InterruptDisposition.EXIT_REQUESTED
         if task.done():
             return InterruptDisposition.IGNORED
 

@@ -223,9 +223,12 @@ async def _wait_for_input_text(runtime: TuiRuntime, text: str) -> None:
             return None
         await asyncio.sleep(0.001)
 
+    actual = runtime.screen.input.buffer.text
+    if actual == text:
+        return None
     raise AssertionError(
         "input text did not become "
-        f"{text!r}: {runtime.screen.input.buffer.text!r}"
+        f"{text!r}: {actual!r}"
     )
 
 

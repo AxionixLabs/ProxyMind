@@ -55,6 +55,17 @@ def _darwin_doctor_context(tmp_path) -> DoctorContext:
     )
 
 
+def _isolate_darwin_tool_check(monkeypatch, *, executable: bool) -> None:
+    """隔离 macOS 文件名、执行权限和系统 PATH 的宿主平台差异。"""
+    monkeypatch.setattr(doctor, "executable_name", lambda command: command)
+    monkeypatch.setattr(
+        doctor.os,
+        "access",
+        lambda _path, _mode: executable,
+    )
+    monkeypatch.setattr(doctor.shutil, "which", lambda _command: None)
+
+
 def test_doctor_tools_cover_complete_shell_tool_layout() -> None:
     assert doctor.DOCTOR_TOOLS == tuple(doctor.SHELL_TOOL_LAYOUT)
 
@@ -70,7 +81,7 @@ def test_tool_check_accepts_each_clean_bundled_tool(
     executable = context.supports / folder_name / command_name
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"binary")
-    executable.chmod(0o755)
+    _isolate_darwin_tool_check(monkeypatch, executable=True)
     monkeypatch.setattr(
         doctor,
         "macos_path_has_quarantine",
@@ -92,7 +103,7 @@ def test_tool_check_rejects_quarantined_macos_binary(
     executable = context.supports / "jq" / "jq"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"binary")
-    executable.chmod(0o755)
+    _isolate_darwin_tool_check(monkeypatch, executable=True)
     monkeypatch.setattr(
         doctor,
         "macos_path_has_quarantine",
@@ -105,12 +116,15 @@ def test_tool_check_rejects_quarantined_macos_binary(
     assert check.summary == "bundled executable is quarantined"
 
 
-def test_tool_check_rejects_non_executable_bundled_tool(tmp_path) -> None:
+def test_tool_check_rejects_non_executable_bundled_tool(
+    monkeypatch,
+    tmp_path,
+) -> None:
     context = _darwin_doctor_context(tmp_path)
     executable = context.supports / "yq" / "yq"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"binary")
-    executable.chmod(0o644)
+    _isolate_darwin_tool_check(monkeypatch, executable=False)
 
     check = doctor._tool_check(context, "yq")
 

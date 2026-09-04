@@ -1034,6 +1034,7 @@ async def test_second_ctrl_c_abandons_remote_settlement_and_exits(
             turn_cancelled.set()
 
     runtime = TuiRuntime()
+    runtime.submissions.interrupt_state.timeout_sec = 0.01
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         runtime,
@@ -1059,6 +1060,9 @@ async def test_second_ctrl_c_abandons_remote_settlement_and_exits(
         await asyncio.sleep(0)
     assert runtime.execution_active
     assert not execution.done()
+
+    await asyncio.sleep(0.02)
+    assert not runtime.submissions.interrupt_state.exit_armed
 
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.EXIT_REQUESTED

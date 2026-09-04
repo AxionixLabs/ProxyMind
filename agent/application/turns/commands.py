@@ -159,7 +159,19 @@ class TurnApplication(typing.Generic[ResultValue]):
                     sid=binding.sid,
                     turn_id=binding.turn_id,
                 )
-            except ProtocolCommandError:
+            except ProtocolCommandError as error:
+                if error.status_code != 404:
+                    continue
+                await self.resolve_recovery(
+                    snapshot.command.run_id,
+                    request_id=(
+                        f"recover_not_executed_{snapshot.command.run_id}"
+                    ),
+                    resolution="not_executed",
+                    error="remote turn does not exist",
+                )
+                restore_commands.append(snapshot.command)
+                resolved_run_ids.append(snapshot.command.run_id)
                 continue
             terminal = status.terminal
             if terminal is None:

@@ -1,3 +1,4 @@
+import asyncio
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from agent.ports import (
+    ProtocolCommandError,
     RunPersistenceConflict,
     RunRecoveryRequired,
 )
@@ -211,6 +213,45 @@ async def test_running_run_requires_reconciliation_and_is_not_redispatched(
 
 
 @pytest.mark.anyio
+async def test_closing_remote_run_preserves_recovery_gate(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.db"
+    application = open_turn_application(db_path)
+    started = asyncio.Event()
+    command = _command(trace_context={
+        "remote_turn": {
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_test",
+        },
+    })
+
+    async def execute(_request: SubmitTurnCommand) -> _Result:
+        started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    submission = asyncio.create_task(application.submit(command, execute))
+    await started.wait()
+    await application.close(cancel_running=True)
+
+    with pytest.raises(asyncio.CancelledError):
+        await submission
+
+    reopened = open_turn_application(db_path)
+    recoveries = await reopened.recover_session(command.session_id)
+    events = await reopened.events(command.run_id)
+    await reopened.close()
+
+    assert [event.kind for event in events] == [
+        "run_queued",
+        "run_started",
+        "run_reconciliation_required",
+    ]
+    assert len(recoveries) == 1
+    assert recoveries[0].recovery_action is RecoveryAction.RECONCILE
+
+
+@pytest.mark.anyio
 async def test_timeout_enters_reconciliation_instead_of_failed(tmp_path: Path) -> None:
     application = open_turn_application(tmp_path / "runtime.db")
     command = _command()
@@ -294,6 +335,41 @@ async def test_remote_terminal_clears_persisted_and_cached_recovery_gate(
         sid="sid_test",
         turn_id="turn_remote",
     )
+
+
+@pytest.mark.anyio
+async def test_missing_remote_turn_restores_input_and_clears_recovery_gate(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "runtime.db"
+    store = SQLiteRunStore(db_path)
+    command = _command(trace_context={
+        "remote_turn": {
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_missing",
+        },
+    })
+    await _append_started(store, command)
+    application = open_turn_application(db_path)
+    protocol_client = AsyncMock()
+    protocol_client.get_turn_status.side_effect = ProtocolCommandError(
+        "turn_status_request_failed",
+        "turn status request failed",
+        details={"status_code": 404},
+    )
+
+    recovery = await application.reconcile_remote_session(
+        command.session_id,
+        protocol_client,
+    )
+    remaining = await application.recover_session(command.session_id)
+    await application.close()
+
+    assert recovery.pending == ()
+    assert recovery.restore_commands == (command,)
+    assert recovery.resolved_run_ids == (command.run_id,)
+    assert remaining == ()
 
 
 @pytest.mark.anyio

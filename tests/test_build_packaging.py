@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -34,19 +35,22 @@ async def test_macos_bundle_assets_remove_quarantine_and_limit_chmod(
     document.parent.mkdir(parents=True)
     executable.write_bytes(b"binary")
     document.write_text("documentation", encoding="utf-8")
-    executable.chmod(0o644)
-    document.chmod(0o644)
 
     removed_roots = []
+    permission_updates: list[tuple[Path, int]] = []
 
     def remove_quarantine(root) -> None:
         removed_roots.append(root)
+
+    def record_chmod(path: Path, mode: int) -> None:
+        permission_updates.append((path, mode))
 
     monkeypatch.setattr(
         build,
         "remove_macos_quarantine_tree",
         remove_quarantine,
     )
+    monkeypatch.setattr(Path, "chmod", record_chmod)
 
     await build.prepare_macos_bundle_assets(
         "darwin",
@@ -55,8 +59,7 @@ async def test_macos_bundle_assets_remove_quarantine_and_limit_chmod(
     )
 
     assert removed_roots == [bundle]
-    assert executable.stat().st_mode & 0o777 == 0o755
-    assert document.stat().st_mode & 0o777 == 0o644
+    assert permission_updates == [(executable, 0o755)]
 
 
 @pytest.mark.anyio

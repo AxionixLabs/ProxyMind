@@ -16,7 +16,8 @@ from agent.domain import (
 from agent.ports import (
     ModelCapabilityError,
     TurnExecutor,
-    TurnExecutorResult
+    TurnExecutorResult,
+    remote_turn_binding,
 )
 from agent.protocol import (
     RunEvent,
@@ -79,6 +80,23 @@ class RunActor(typing.Generic[ResultValue]):
             result = await self.executor(self.command)
             state, event_kind, payload = self._terminal_result(result)
         except asyncio.CancelledError:
+            remote_binding = remote_turn_binding(self.command)
+            if remote_binding is not None:
+                await self._transition(
+                    RunStatus.RECONCILIATION_REQUIRED,
+                    "run_reconciliation_required",
+                    payload={
+                        "status": "reconciliation_required",
+                        "error": {
+                            "type": "CancelledError",
+                            "message": (
+                                "remote turn observation ended before authoritative "
+                                "terminal settlement"
+                            ),
+                        },
+                    },
+                )
+                raise
             await self._transition(
                 RunStatus.CANCELLED,
                 "run_cancelled",

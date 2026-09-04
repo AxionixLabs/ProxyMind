@@ -496,6 +496,14 @@ class TuiSubmissionFlow(object):
 
         return True
 
+    def _request_interrupt_exit(self) -> InterruptDisposition:
+        """提交不等待远端结算的中断退出请求。"""
+        self.interrupt_state.request_exit()
+        self._cancel_exit_expiry()
+        self._exit_event.set()
+        self._invalidate()
+        return InterruptDisposition.EXIT_REQUESTED
+
     def interrupt_input(self) -> InterruptDisposition:
         """按输入、活动和退出确认的优先级处理中断请求。"""
         if self.discard_input_draft():
@@ -504,15 +512,14 @@ class TuiSubmissionFlow(object):
         self.input_model.cancel_history_backtrack()
         if self.interrupt_state.exit_armed:
             self._interrupt_handler()
-            self.interrupt_state.request_exit()
-            self._cancel_exit_expiry()
-            self._exit_event.set()
-            self._invalidate()
-            return InterruptDisposition.EXIT_REQUESTED
+            return self._request_interrupt_exit()
 
         self.interrupt_state.arm_exit()
         self._schedule_exit_expiry()
         disposition = self._interrupt_handler()
+
+        if disposition is InterruptDisposition.EXIT_REQUESTED:
+            return self._request_interrupt_exit()
 
         self._invalidate()
 

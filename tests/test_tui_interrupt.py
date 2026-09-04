@@ -281,6 +281,42 @@ async def test_ctrl_c_clears_multiline_input_without_top_canvas_spacer() -> None
                 await runtime.close()
 
 
+@pytest.mark.anyio
+async def test_real_input_double_ctrl_c_exits_active_turn_observer() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        interrupt = Mock(return_value=InterruptDisposition.CONSUMED)
+        runtime.set_execution_active(True)
+        runtime.bind_interrupt_handler(interrupt)
+
+        await runtime.open()
+        reader = asyncio.create_task(
+            runtime.read_message(PromptContext(model="test"))
+        )
+        try:
+            pipe_input.send_text("\x03")
+            for _ in range(100):
+                if interrupt.call_count == 1:
+                    break
+                await asyncio.sleep(0.001)
+
+            assert interrupt.call_count == 1
+            assert runtime.submissions.interrupt_state.exit_armed
+            assert not reader.done()
+
+            pipe_input.send_text("\x03")
+            with pytest.raises(TuiInterruptRequested):
+                await asyncio.wait_for(reader, timeout=1.0)
+
+            assert interrupt.call_count == 2
+            assert not runtime.submissions.interrupt_state.exit_armed
+        finally:
+            if not reader.done():
+                reader.cancel()
+                await asyncio.gather(reader, return_exceptions=True)
+            await runtime.close()
+
+
 def test_ignored_turn_interrupt_only_arms_exit() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)

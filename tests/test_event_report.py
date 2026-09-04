@@ -42,7 +42,7 @@ def test_report_resets_turn_round_and_keeps_default_proto() -> None:
 
     report.begin_turn("next")
 
-    assert report.proto == report.default_proto()
+    assert report.proto == report.default_proto() == "mind.chat"
     assert report.presentation_epoch == 1
     assert report.round == 1
 
