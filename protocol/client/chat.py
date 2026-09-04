@@ -6,6 +6,7 @@ import contextlib
 import random
 import time
 import typing
+from dataclasses import dataclass
 
 import httpx
 
@@ -72,6 +73,14 @@ class _TurnStreamEnded(Exception):
     """表示事件传输已经按预期完成收尾。"""
 
 
+@dataclass(frozen=True, slots=True)
+class _TurnRecoveryStatus:
+    """区分权威未创建与暂时无法读取的 Turn 状态。"""
+
+    snapshot: TurnStatusSnapshot | None
+    turn_missing: bool
+
+
 class TurnEventStream(object):
     """管理单个模型轮次的事件读取与传输终止。"""
 
@@ -123,10 +132,10 @@ class TurnEventStream(object):
         return self._iterate()
 
     @staticmethod
-    def _status_probe_allows_resubmit(error: TurnStatusRequestError) -> bool:
-        """判断状态查询失败后能否安全重提幂等对话请求。"""
+    def _status_probe_is_transient(error: TurnStatusRequestError) -> bool:
+        """判断状态查询失败后能否继续观察既有 Turn。"""
         status_code = error.status_code
-        if status_code is None or status_code == 404:
+        if status_code is None:
             return True
         return status_code >= 500 or status_code in {408, 425, 429}
 
@@ -431,9 +440,10 @@ class TurnEventStream(object):
                     parsed_event.next_seq,
                 )
                 if self._replay_target_seq is None:
-                    status = await self._turn_status_for_recovery(
+                    recovery_status = await self._turn_status_for_recovery(
                         self._required_attach_target()
                     )
+                    status = recovery_status.snapshot
                     await self._begin_replay(
                         status.last_event_seq
                         if status is not None
@@ -606,8 +616,9 @@ class TurnEventStream(object):
             self._reconnect_started_at = time.monotonic()
             self._reconnect_failures = 0
 
-        status = await self._turn_status_for_recovery(attach_target)
-        if not self._response_observed and status is None:
+        recovery_status = await self._turn_status_for_recovery(attach_target)
+        status = recovery_status.snapshot
+        if not self._response_observed and recovery_status.turn_missing:
             self._control_settlement_probe_active = False
             self._replay_target_seq = self.last_event_seq
             self._payload_stream = self._open_chat_stream()
@@ -683,14 +694,17 @@ class TurnEventStream(object):
     async def _turn_status_for_recovery(
         self,
         attach_target: dict[str, str],
-    ) -> TurnStatusSnapshot | None:
-        """查询恢复开始时的权威 Turn 水位；可安全重提时返回空。"""
+    ) -> _TurnRecoveryStatus:
+        """读取恢复水位，并区分权威不存在与暂时不可查询。"""
         try:
-            return await get_turn_status(**attach_target)
+            snapshot = await get_turn_status(**attach_target)
         except TurnStatusRequestError as error:
-            if self._status_probe_allows_resubmit(error):
-                return None
+            if error.status_code == 404:
+                return _TurnRecoveryStatus(None, turn_missing=True)
+            if self._status_probe_is_transient(error):
+                return _TurnRecoveryStatus(None, turn_missing=False)
             raise
+        return _TurnRecoveryStatus(snapshot, turn_missing=False)
 
     async def aclose(self) -> None:
         """关闭底层事件传输并固定结束原因。"""

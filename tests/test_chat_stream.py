@@ -943,6 +943,53 @@ async def test_disconnect_before_first_event_resubmits_same_chat_when_missing(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [None, 429, 503])
+async def test_disconnect_before_first_event_attaches_when_status_unavailable(
+    monkeypatch,
+    status_code,
+) -> None:
+    calls = []
+    status_probe = AsyncMock(side_effect=chat.TurnStatusRequestError(
+        "turn status unavailable",
+        status_code=status_code,
+    ))
+
+    async def streaming(url, _headers, payload, _timeout):
+        calls.append((url, payload))
+        if url.endswith("/mind-chat"):
+            raise OSError("response headers were lost")
+        yield {
+            "type": "turn.completed",
+            "turn_id": "turn_001",
+            "event_seq": 1,
+        }
+
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(chat, "get_turn_status", status_probe)
+
+    event_stream = chat.stream_chat({}, "hello", [])
+    events = [event async for event in event_stream]
+
+    assert len(events) == 1
+    assert isinstance(events[0], TurnCompletedEvent)
+    assert [url for url, _payload in calls] == [
+        "https://example.com/mind-chat",
+        "https://example.com/mind-attach",
+    ]
+    assert calls[1][1] == {
+        "cid": "cid_1",
+        "sid": "sid_1",
+        "turn_id": "turn_001",
+        "after_seq": 0,
+    }
+    status_probe.assert_awaited_once_with(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+
+
+@pytest.mark.anyio
 async def test_ping_before_first_event_still_probes_before_resubmit(
     monkeypatch,
 ) -> None:
