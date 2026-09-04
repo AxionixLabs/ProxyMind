@@ -187,6 +187,7 @@ class ApplicationHost:
         self.application_layout = application_layout
         self.runtime_services = runtime_services
         self.durable_queue = runtime_services.durable_queue_client
+        self.turn_observer = runtime_services.turn_observer
         self.javascript_execution = javascript_execution
         self.javascript_lifecycle = javascript_lifecycle
         self.frontend = frontend

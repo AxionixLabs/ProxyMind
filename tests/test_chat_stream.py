@@ -205,6 +205,54 @@ async def test_stream_chat_continues_from_session_event_watermark(monkeypatch) -
 
 
 @pytest.mark.anyio
+async def test_observe_turn_attaches_without_submitting_chat(monkeypatch) -> None:
+    calls = []
+
+    async def streaming(url, _headers, payload, _timeout):
+        calls.append((url, payload))
+        yield {
+            "type": "turn.started",
+            "turn_id": "turn_existing",
+            "event_seq": 3,
+        }
+        yield {
+            "type": "turn.completed",
+            "turn_id": "turn_existing",
+            "event_seq": 4,
+        }
+
+    build_payload = AsyncMock(side_effect=AssertionError("must not submit"))
+    monkeypatch.setattr(chat, "build_chat_payload", build_payload)
+    monkeypatch.setattr(chat, "build_service_headers", Mock(return_value={}))
+    monkeypatch.setattr(
+        chat.service_endpoints,
+        "endpoint",
+        lambda path: f"https://example.com{path}",
+    )
+    monkeypatch.setattr(chat, "streaming", streaming)
+
+    event_stream = chat.observe_turn(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_existing",
+        initial_event_seq=1,
+    )
+    events = await _collect(event_stream)
+
+    assert [event.event_seq for event in events] == [3, 4]
+    assert calls == [(
+        "https://example.com/mind-attach",
+        {
+            "cid": "cid_1",
+            "sid": "sid_1",
+            "turn_id": "turn_existing",
+            "after_seq": 1,
+        },
+    )]
+    build_payload.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_retained_prefix_gap_advances_replay_floor(monkeypatch) -> None:
     async def payloads():
         yield {

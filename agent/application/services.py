@@ -25,6 +25,7 @@ from agent.ports import (
     SubscriptionRuntime,
     ToolRegistryPort,
     ToolRuntimeBuilder,
+    TurnObservationCapability,
 )
 from agent.ports.media import ImageReaderPort
 from agent.ports.workspace import (
@@ -103,6 +104,7 @@ class RuntimeServices:
     """
 
     model_capability: ModelCapability
+    turn_observer: TurnObservationCapability
     protocol_client: ProtocolCommandClient
     durable_queue_client: DurableQueueClient
     environment_capability: EnvironmentSnapshotCapability
@@ -124,6 +126,10 @@ class RuntimeServices:
         """拒绝缺失能力，确保组合错误在启动边界暴露。"""
         if not isinstance(self.model_capability, ModelCapability):
             raise TypeError("model capability does not implement ModelCapability")
+        if not isinstance(self.turn_observer, TurnObservationCapability):
+            raise TypeError(
+                "turn observer does not implement TurnObservationCapability"
+            )
         if not isinstance(self.protocol_client, ProtocolCommandClient):
             raise TypeError("protocol client does not implement ProtocolCommandClient")
         if not isinstance(self.durable_queue_client, DurableQueueClient):

@@ -21,6 +21,7 @@ from agent.ports import (
     ProcessLifecyclePort,
     RootConversationPort,
     SubscriptionRuntime,
+    TurnObservationCapability,
     WorkspaceRuntime,
 )
 from frontends.runtime import Frontend
@@ -243,6 +244,7 @@ class TuiApplicationHost(typing.Protocol):
     attach: AttachmentStatePort
     conversation: RootConversationPort
     durable_queue: DurableQueueClient
+    turn_observer: TurnObservationCapability
     execution: TuiExecutionResourcesPort
     frontend: Frontend
     history_workspace: str

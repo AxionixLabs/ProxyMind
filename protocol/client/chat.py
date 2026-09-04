@@ -26,6 +26,8 @@ from protocol.schema.stream_events import (
     TurnCompletedEvent,
     parse_stream_event
 )
+from protocol.schema.identifiers import normalize_turn_id
+from protocol.schema.json_value import JsonObject
 from protocol.schema.tool_approval import ToolApprovalSnapshot
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
@@ -81,29 +83,41 @@ class _TurnRecoveryStatus:
     turn_missing: bool
 
 
+@dataclass(frozen=True, slots=True)
+class _TurnSubmission:
+    """保存首次提交新 Turn 所需的冻结 wire builder 参数。"""
+
+    pref_config: JsonObject
+    message: str
+    tools: list[JsonObject]
+    attachments: list[JsonObject] | None
+    kwargs: JsonObject
+
+
 class TurnEventStream(object):
     """管理单个模型轮次的事件读取与传输终止。"""
 
     def __init__(
         self,
-        pref_config: dict[str, typing.Any],
-        message: str,
-        tools: list[dict],
-        attachments: typing.Optional[list[dict[str, typing.Any]]],
+        submission: _TurnSubmission | None,
         timeout: float,
-        kwargs: dict[str, typing.Any],
         on_recovery_status: RecoveryStatusCallback | None = None,
         on_approval_snapshot: ApprovalSnapshotCallback | None = None,
         initial_event_seq: int = 0,
+        attach_target: dict[str, str] | None = None,
     ) -> None:
         """保存请求参数并初始化逻辑轮次观察状态。"""
-        self._request = (pref_config, message, tools, attachments, kwargs)
+        if submission is None and attach_target is None:
+            raise ValueError("turn stream requires submission or attach target")
+        if submission is not None and attach_target is not None:
+            raise ValueError("turn stream cannot submit and observe simultaneously")
+        self._submission = submission
         self._timeout = timeout
         self._closed: bool = False
         self._payload_stream: typing.AsyncGenerator[dict, None] | None = None
         self._chat_payload: dict[str, typing.Any] | None = None
-        self._attach_target: dict[str, str] | None = None
-        self._response_observed: bool = False
+        self._attach_target = attach_target
+        self._response_observed: bool = attach_target is not None
         self._close_after_yield: bool = False
         self._reconnect_failures: int = 0
         self._recovery_phase: TransportRecoveryPhase | None = None
@@ -233,6 +247,17 @@ class TurnEventStream(object):
 
         return streaming(
             service_endpoints.endpoint("/mind-chat"),
+            build_service_headers(),
+            payload,
+            self._timeout,
+        )
+
+    def _open_attach_stream(self) -> typing.AsyncGenerator[dict, None]:
+        """从当前确认水位观察已经提交的远端 Turn。"""
+        payload: JsonObject = dict(self._required_attach_target())
+        payload["after_seq"] = self.last_event_seq
+        return streaming(
+            service_endpoints.endpoint("/mind-attach"),
             build_service_headers(),
             payload,
             self._timeout,
@@ -523,16 +548,19 @@ class TurnEventStream(object):
         if self._payload_stream is not None:
             return self._payload_stream
 
-        pref_config, message, tools, attachments, kwargs = self._request
+        submission = self._submission
+        if submission is None:
+            self._payload_stream = self._open_attach_stream()
+            return self._payload_stream
 
         payload = self._chat_payload
         if payload is None:
             payload = await build_chat_payload(
-                pref_config,
-                message,
-                tools,
-                attachments,
-                **kwargs,
+                submission.pref_config,
+                submission.message,
+                submission.tools,
+                submission.attachments,
+                **submission.kwargs,
             )
             self._chat_payload = payload
 
@@ -636,15 +664,7 @@ class TurnEventStream(object):
         if self.last_event_seq >= (self._replay_target_seq or 0):
             self._recovery_catch_up_pending = True
 
-        payload: dict[str, typing.Any] = dict(attach_target)
-        payload["after_seq"] = self.last_event_seq
-
-        self._payload_stream = streaming(
-            service_endpoints.endpoint("/mind-attach"),
-            build_service_headers(),
-            payload,
-            self._timeout,
-        )
+        self._payload_stream = self._open_attach_stream()
         self._reset_event_progress_deadline()
         return True
 
@@ -708,15 +728,46 @@ def stream_chat(
 ) -> TurnEventStream:
     """流式获取对话事件。"""
     return TurnEventStream(
-        pref_config,
-        message,
-        tools,
-        attachments,
+        _TurnSubmission(
+            pref_config=pref_config,
+            message=message,
+            tools=tools,
+            attachments=attachments,
+            kwargs=kwargs,
+        ),
         timeout,
-        kwargs,
         on_recovery_status,
         on_approval_snapshot,
         initial_event_seq,
+    )
+
+
+def observe_turn(
+    *,
+    cid: str,
+    sid: str,
+    turn_id: str,
+    timeout: float = 60.0,
+    on_recovery_status: RecoveryStatusCallback | None = None,
+    on_approval_snapshot: ApprovalSnapshotCallback | None = None,
+    initial_event_seq: int = 0,
+) -> TurnEventStream:
+    """从现有 Session 水位 attach 并观察已提交 Turn。"""
+    normalized_cid = str(cid or "").strip()
+    normalized_sid = str(sid or "").strip()
+    if not normalized_cid or not normalized_sid:
+        raise ValueError("turn observation requires cid and sid")
+    return TurnEventStream(
+        None,
+        timeout,
+        on_recovery_status,
+        on_approval_snapshot,
+        initial_event_seq,
+        attach_target={
+            "cid": normalized_cid,
+            "sid": normalized_sid,
+            "turn_id": normalize_turn_id(turn_id),
+        },
     )
 
 

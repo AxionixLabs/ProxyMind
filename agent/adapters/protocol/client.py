@@ -31,12 +31,14 @@ from agent.protocol import (
     TurnCompletedSnapshot,
     TurnReconcileReceipt,
     TurnStatusSnapshot,
+    TurnObservationRequest,
     validate_model_event,
 )
 from agent.protocol.json_value import (
     JsonValue,
     ThawedJsonValue,
 )
+from protocol.client.chat import observe_turn as _observe_turn
 from protocol.client.chat import stream_chat
 from protocol.client.effects import post_effect_reconciliation as _post_effect_reconciliation
 from protocol.client.fork import (
@@ -71,6 +73,7 @@ from protocol.client.turn_control import (
 )
 from protocol.schema.turn_inputs import TurnInput as _WireTurnInput
 from protocol.schema.durable_queue import DurableQueueItem as _WireQueueItem
+from protocol.schema.tool_approval import ToolApprovalSnapshot as _WireApprovalSnapshot
 from .items import CanonicalItemReducer
 
 SessionIdentity: typing.TypeAlias = tuple[str, str]
@@ -317,7 +320,9 @@ class MindChatProtocolClient:
                 turn_id=request.turn_id,
             )
 
-            async def restore_approval_snapshot(snapshot: object) -> None:
+            async def restore_approval_snapshot(
+                snapshot: _WireApprovalSnapshot,
+            ) -> None:
                 """先提交快照权威状态，再通知调用方执行本地审批恢复。"""
                 item_reducer.apply_approval_snapshot(snapshot)
                 if on_approval_snapshot is None:
@@ -347,6 +352,63 @@ class MindChatProtocolClient:
                     sid=request.sid,
                 ),
                 **request_options,
+            )
+        except asyncio.CancelledError:
+            raise
+        except ModelCapabilityError:
+            raise
+        except Exception as error:
+            raise _classify_model_error(error) from error
+        identity = (request.cid, request.sid, request.turn_id)
+        model_stream = ProtocolModelEventStream(
+            stream,
+            cid=request.cid,
+            sid=request.sid,
+            turn_id=request.turn_id,
+            event_cursors=self._event_cursors,
+            item_reducer=item_reducer,
+            on_close=lambda: self._active_streams.pop(identity, None),
+        )
+        self._active_streams[identity] = model_stream
+        return model_stream
+
+    def observe(
+        self,
+        request: TurnObservationRequest,
+        *,
+        on_recovery_status: RecoveryStatusCallback | None = None,
+        on_approval_snapshot: ApprovalSnapshotCallback | None = None,
+    ) -> ModelEventStream:
+        """只通过 attach 观察已经由独立命令提交的 Turn。"""
+        try:
+            item_reducer = CanonicalItemReducer(
+                cid=request.cid,
+                sid=request.sid,
+                turn_id=request.turn_id,
+            )
+
+            async def restore_approval_snapshot(
+                snapshot: _WireApprovalSnapshot,
+            ) -> None:
+                """先提交快照权威状态，再通知调用方执行本地审批恢复。"""
+                item_reducer.apply_approval_snapshot(snapshot)
+                if on_approval_snapshot is None:
+                    return
+                callback_result = on_approval_snapshot(snapshot)
+                if callback_result is not None:
+                    await callback_result
+
+            stream = _observe_turn(
+                cid=request.cid,
+                sid=request.sid,
+                turn_id=request.turn_id,
+                timeout=request.timeout,
+                on_recovery_status=on_recovery_status,
+                on_approval_snapshot=restore_approval_snapshot,
+                initial_event_seq=self._event_cursors.current(
+                    cid=request.cid,
+                    sid=request.sid,
+                ),
             )
         except asyncio.CancelledError:
             raise

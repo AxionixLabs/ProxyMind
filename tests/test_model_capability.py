@@ -9,10 +9,12 @@ import pytest
 from agent.ports import (
     ModelCapabilityError,
     ProtocolCommandError,
+    TurnObservationCapability,
 )
 from agent.protocol import (
     ModelStreamRequest,
     SteerTurnInput,
+    TurnObservationRequest,
 )
 from agent.adapters.protocol import client as model_adapter
 from agent.composition import open_model_capability
@@ -215,6 +217,43 @@ def test_protocol_client_translates_frozen_request(monkeypatch) -> None:
     snapshot_callback = stream_chat.call_args.kwargs["on_approval_snapshot"]
     assert callable(snapshot_callback)
     assert snapshot_callback is not approval
+
+
+def test_protocol_client_observes_existing_turn_without_stream_submission(
+    monkeypatch,
+) -> None:
+    event_stream = object()
+    observe_turn = Mock(return_value=event_stream)
+    stream_chat = Mock(side_effect=AssertionError("must not submit"))
+    reconnect = AsyncMock()
+    approval = Mock()
+    monkeypatch.setattr(model_adapter, "_observe_turn", observe_turn)
+    monkeypatch.setattr(model_adapter, "stream_chat", stream_chat)
+    capability = open_model_capability()
+
+    assert isinstance(capability, TurnObservationCapability)
+    result = capability.observe(
+        TurnObservationRequest(
+            cid="cid_test",
+            sid="sid_test",
+            turn_id="turn_existing",
+            timeout=9.0,
+        ),
+        on_recovery_status=reconnect,
+        on_approval_snapshot=approval,
+    )
+
+    assert isinstance(result, model_adapter.ProtocolModelEventStream)
+    observe_turn.assert_called_once_with(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_existing",
+        timeout=9.0,
+        on_recovery_status=reconnect,
+        on_approval_snapshot=ANY,
+        initial_event_seq=0,
+    )
+    stream_chat.assert_not_called()
 
 
 @pytest.mark.anyio

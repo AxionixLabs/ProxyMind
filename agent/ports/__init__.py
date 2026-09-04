@@ -43,6 +43,7 @@ from .capabilities import (
     TransportRecoveryPhase,
     TurnExecutor,
     TurnExecutorResult,
+    TurnObservationCapability,
 )
 from .compaction import (
     CompactProgress,
@@ -467,6 +468,7 @@ __all__ = (
     "SessionRuntimeFactory",
     "TurnExecutor",
     "TurnExecutorResult",
+    "TurnObservationCapability",
     "TransportRecoveryPhase",
     "HookCommandResult",
     "HookCommandRunner",

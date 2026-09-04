@@ -30,6 +30,7 @@ from agent.protocol import (
     TurnControlReceipt,
     TurnReconcileReceipt,
     TurnStatusSnapshot,
+    TurnObservationRequest,
 )
 from agent.protocol.json_value import (
     JsonValue,
@@ -441,6 +442,25 @@ class ModelCapability(typing.Protocol):
         on_approval_snapshot: ApprovalSnapshotCallback | None = None,
     ) -> ModelEventStream:
         """创建可取消、可关闭且可报告服务端事件游标的流。"""
+        ...
+
+
+@typing.runtime_checkable
+class TurnObservationCapability(typing.Protocol):
+    """观察已经由独立命令提交的远端 Turn。
+
+    实现方首个网络操作必须是 attach/replay，不得重新提交 AgentRequest；调用方
+    只有在持有服务端确认的 Turn identity 时才可创建观察流。
+    """
+
+    def observe(
+        self,
+        request: TurnObservationRequest,
+        *,
+        on_recovery_status: RecoveryStatusCallback | None = None,
+        on_approval_snapshot: ApprovalSnapshotCallback | None = None,
+    ) -> ModelEventStream:
+        """创建只观察既有 Turn 的可关闭事件流。"""
         ...
 
 

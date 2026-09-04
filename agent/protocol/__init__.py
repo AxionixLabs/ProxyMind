@@ -31,7 +31,8 @@ from .events import (
 from .items import CanonicalItem
 from .model import (
     ModelStreamEndReason,
-    ModelStreamRequest
+    ModelStreamRequest,
+    TurnObservationRequest,
 )
 
 __all__ = (
@@ -39,6 +40,7 @@ __all__ = (
     "ModelEvent",
     "validate_model_event",
     "ModelStreamRequest",
+    "TurnObservationRequest",
     "ModelStreamEndReason",
     "CanonicalItem",
     "SubmitTurnCommand",

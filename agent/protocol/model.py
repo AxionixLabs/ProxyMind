@@ -187,6 +187,34 @@ class ModelStreamRequest:
         return thaw_object(self.metadata, field_name="model metadata")
 
 
+@dataclass(frozen=True, slots=True)
+class TurnObservationRequest:
+    """描述只观察已提交远端 Turn 的稳定坐标与超时。"""
+
+    cid: str
+    sid: str
+    turn_id: str
+    timeout: float = 60.0
+
+    def __post_init__(self) -> None:
+        """校验观察坐标和有限超时。"""
+        for field_name in ("cid", "sid", "turn_id"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"turn observation {field_name} is required")
+            object.__setattr__(self, field_name, value.strip())
+        if (
+            isinstance(self.timeout, bool)
+            or not isinstance(self.timeout, (int, float))
+            or not math.isfinite(float(self.timeout))
+            or float(self.timeout) <= 0
+        ):
+            raise ValueError(
+                "turn observation timeout must be a positive finite number"
+            )
+        object.__setattr__(self, "timeout", float(self.timeout))
+
+
 def _freeze_objects(
     values: typing.Iterable[Mapping[str, typing.Any]],
     *,

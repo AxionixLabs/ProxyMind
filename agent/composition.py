@@ -25,6 +25,7 @@ from agent.ports import (
     EffectJournal,
     ProtocolCommandClient,
     SkillsProvider,
+    TurnObservationCapability,
     TurnExecutorResult,
 )
 from agent.ports import EnvironmentSnapshotCapability, ModelCapability
@@ -124,8 +125,13 @@ def create_runtime_services(
         raise TypeError("model capability does not implement ProtocolCommandClient")
     if not isinstance(model_capability, DurableQueueClient):
         raise TypeError("model capability does not implement DurableQueueClient")
+    if not isinstance(model_capability, TurnObservationCapability):
+        raise TypeError(
+            "model capability does not implement TurnObservationCapability"
+        )
     return RuntimeServices(
         model_capability=model_capability,
+        turn_observer=model_capability,
         protocol_client=model_capability,
         durable_queue_client=model_capability,
         environment_capability=open_environment_capability(),
