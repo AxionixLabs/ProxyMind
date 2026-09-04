@@ -3,6 +3,7 @@
 
 import asyncio
 import contextlib
+import os
 import typing
 from dataclasses import dataclass
 from datetime import timedelta
@@ -46,7 +47,10 @@ from infrastructure.mcp.values import (
     tool_name_hook,
 )
 from observability import observe
-from observability.third_party import route_session_termination_warnings
+from observability.third_party import (
+    route_session_termination_warnings,
+    route_stdio_client_logs,
+)
 
 EXTERNAL_MCP_CONNECT_CONCURRENCY = 2
 EXTERNAL_MCP_STDIO_CONCURRENCY = 1
@@ -97,8 +101,15 @@ class ExternalMcpGroup(object):
         try:
             # 各传输入口不同，但最终都产出 MCP read/write 流。
             if isinstance(server_params, StdioServerParameters):
+                session_stack.enter_context(route_stdio_client_logs())
+                stderr_sink = session_stack.enter_context(open(
+                    os.devnull,
+                    mode="w",
+                    encoding=server_params.encoding,
+                    errors=server_params.encoding_error_handler,
+                ))
                 read, write = await session_stack.enter_async_context(
-                    stdio_client(server_params)
+                    stdio_client(server_params, errlog=stderr_sink)
                 )
             elif isinstance(server_params, SseServerParameters):
                 client = sse_client(

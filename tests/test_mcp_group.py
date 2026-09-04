@@ -508,6 +508,50 @@ async def test_external_mcp_disconnect_is_not_replayed() -> None:
 
 
 @pytest.mark.anyio
+async def test_external_mcp_failed_stdio_does_not_leak_child_output(
+    tmp_path,
+    capfd,
+    caplog,
+) -> None:
+    server_script = tmp_path / "failed_mcp_stdio_fixture.py"
+    server_script.write_text(
+        "import sys\n"
+        "print('MCP_STDOUT_MARKER', flush=True)\n"
+        "print('MCP_STDERR_MARKER', file=sys.stderr, flush=True)\n"
+        "raise SystemExit(1)\n",
+        encoding="utf-8",
+    )
+    server = {
+        "name": "failed-stdio",
+        "transport": "stdio",
+        "command": sys.executable,
+        "args": [str(server_script)],
+        "cwd": str(tmp_path),
+        "startup_timeout_sec": 10.0,
+        "timeout_sec": 10.0,
+    }
+    status = ExternalMcpStatus([server])
+    group = ExternalMcpGroup()
+
+    with caplog.at_level(logging.ERROR, logger="mcp.client.stdio"):
+        connected = await group.start([server], status=status)
+    await group.close()
+
+    captured = capfd.readouterr()
+    visible = f"{captured.out}\n{captured.err}"
+    assert "MCP_STDOUT_MARKER" not in visible
+    assert "MCP_STDERR_MARKER" not in visible
+    assert "Failed to parse JSONRPC message from server" not in visible
+    assert not [
+        record
+        for record in caplog.records
+        if record.name == "mcp.client.stdio"
+    ]
+    assert connected == 0
+    assert status.snapshot()["items"][0]["state"] == "failed"
+
+
+@pytest.mark.anyio
 async def test_external_mcp_real_stdio_round_trip_and_repeated_close(
     tmp_path,
 ) -> None:
