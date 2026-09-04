@@ -22,8 +22,8 @@ from observability import (
 from protocol.schema.identifiers import new_request_id
 from protocol.schema.stream_events import (
     StreamEvent,
+    TurnCompletedEvent,
     TurnInputAcceptedEvent,
-    TurnLogicalSettledEvent,
 )
 from protocol.schema.turn_inputs import TurnInput
 from .steer_ledger import PendingSteerLedger
@@ -40,8 +40,6 @@ class TuiTurnInputControl(object):
 
     RECONCILE_DEADLINE_SEC: typing.Final[float] = 2.0
     RECONCILE_RETRY_INTERVAL_SEC: typing.Final[float] = 0.2
-    INTERRUPT_STATUS_RETRY_INTERVAL_SEC: typing.Final[float] = 0.2
-
     def __init__(
         self,
         controller: "TuiApplicationHost",
@@ -69,7 +67,6 @@ class TuiTurnInputControl(object):
         self._steer_task: asyncio.Task[None] | None = None
         self._interrupt_task: asyncio.Task[None] | None = None
         self._interrupt_requested: bool = False
-        self._interrupt_ready_callback: typing.Callable[[], None] | None = None
         self._abandoned: bool = False
         self._tasks: set[asyncio.Task[None]] = set()
 
@@ -110,7 +107,7 @@ class TuiTurnInputControl(object):
         if event.turn_id != active_turn_id:
             return None
 
-        if event.type == "turn.start":
+        if event.type == "turn.started":
             self._ready_turn_id = active_turn_id
             if self._interrupt_requested:
                 self._start_interrupt_worker()
@@ -138,28 +135,11 @@ class TuiTurnInputControl(object):
             self._runtime.append_turn_input(active_turn_id, pending)
             return turn_input
 
-        if not isinstance(event, TurnLogicalSettledEvent):
+        if not isinstance(event, TurnCompletedEvent):
             return None
 
         self._ledger.settle()
         self._ready_turn_id = ""
-
-        next_input = event.next_input
-        if next_input is None:
-            return None
-
-        pending = self._ledger.release(next_input.client_message_id)
-
-        submission = (
-            pending
-            or self._runtime.discard_rejected_steer(
-            next_input.client_message_id
-        )
-            or self._submission_from_input(next_input)
-        )
-
-        self._runtime.defer_rejected_steer(submission)
-
         return None
 
     def handle_stream_end(self, reason: ModelStreamEndReason) -> None:
@@ -173,22 +153,15 @@ class TuiTurnInputControl(object):
             raise ValueError(f"invalid turn stream end reason: {reason}")
         self._stream_end_reason = reason
 
-    def request_interrupt(
-        self,
-        *,
-        on_remote_control_ready: typing.Callable[[], None] | None = None,
-    ) -> bool:
-        """记录中断意图，并在远端控制就绪时同步通知本地流。"""
+    def request_interrupt(self) -> bool:
+        """记录中断意图，并在远端轮次就绪后发送中断请求。"""
         self._interrupt_requested = True
-        if on_remote_control_ready is not None:
-            self._interrupt_ready_callback = on_remote_control_ready
         return self._start_interrupt_worker()
 
     def _start_interrupt_worker(self) -> bool:
         """在远端 Turn 就绪后启动由当前轮次持有的中断任务。"""
         cid, sid, turn_id = self._target
         if self._interrupt_task is not None:
-            self._notify_interrupt_ready()
             return True
         if (
             not cid
@@ -201,7 +174,6 @@ class TuiTurnInputControl(object):
         self._interrupt_task = self._start(
             self._send_interrupt(cid, sid, turn_id),
         )
-        self._notify_interrupt_ready()
         observe(
             "turn.interrupt.requested",
             cid=cid,
@@ -210,46 +182,42 @@ class TuiTurnInputControl(object):
         )
         return True
 
-    def _notify_interrupt_ready(self) -> None:
-        """一次性通知调用方远端中断控制已经可以调度。"""
-        callback = self._interrupt_ready_callback
-        self._interrupt_ready_callback = None
-        if callback is not None:
-            callback()
-
     def abandon(self) -> None:
         """在用户强制退出时停止等待远端控制与输入对账。"""
         if self._abandoned:
             return None
         self._abandoned = True
-        self._interrupt_ready_callback = None
         for task in tuple(self._tasks):
             if not task.done():
                 task.cancel()
 
     def restore_draft(self, submission: TuiSubmission) -> None:
-        """恢复从本地队列取回消息关联的结构化草稿。"""
+        """把取回消息的结构化载荷合并到当前草稿。"""
         if not submission.payload_bound:
             return None
-        self._controller.attach.replace_pending_attachments(
-            submission.attachments
+        current_attachments = tuple(
+            self._controller.attach.pending_attachments_snapshot()
         )
-        self._state.replace_pending_prompt_extras(submission.extras)
+        self._controller.attach.replace_pending_attachments(
+            submission.attachments + current_attachments
+        )
+        current_extras = self._state.consume_pending_prompt_extras()
+        restored_extras = dict(submission.extras)
+        restored_extras.update(current_extras)
+        self._state.replace_pending_prompt_extras(restored_extras)
 
     async def close(self) -> None:
         """停止控制请求并对账未确认的活动轮次输入。"""
-        steer_task = self._steer_task
-        if steer_task is not None and not steer_task.done():
-            steer_task.cancel()
-
         tasks = tuple(self._tasks)
         self._tasks.clear()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
         self._steer_task = None
         self._interrupt_task = None
-        self._interrupt_ready_callback = None
 
         committed_ids: tuple[str, ...] = ()
         retry_ids: tuple[str, ...] = ()
@@ -497,54 +465,6 @@ class TuiTurnInputControl(object):
                     ),
                 )
 
-        await self._wait_for_interrupt_settlement(
-            cid,
-            sid,
-            turn_id,
-        )
-
-    async def _wait_for_interrupt_settlement(
-        self,
-        cid: str,
-        sid: str,
-        turn_id: str,
-    ) -> None:
-        """等待远端轮次进入权威终态后再释放下一轮入口。"""
-        started_at = time.perf_counter()
-        while True:
-            try:
-                snapshot = await self._protocol_client.get_turn_status(
-                    cid=cid,
-                    sid=sid,
-                    turn_id=turn_id,
-                )
-            except ProtocolCommandError as error:
-                observe_exception(
-                    "turn.interrupt.status_failed",
-                    error,
-                    level="WARNING",
-                    cid=cid,
-                    sid=sid,
-                    turn_id=turn_id,
-                )
-                if error.status_code == 404 or not error.retryable:
-                    return None
-            else:
-                if snapshot.terminal:
-                    observe(
-                        "turn.interrupt.settled",
-                        cid=cid,
-                        sid=sid,
-                        turn_id=turn_id,
-                        status=snapshot.status,
-                        elapsed_ms=int(
-                            (time.perf_counter() - started_at) * 1000
-                        ),
-                    )
-                    return None
-
-            await asyncio.sleep(self.INTERRUPT_STATUS_RETRY_INTERVAL_SEC)
-
     @staticmethod
     def _input_from_submission(submission: TuiSubmission) -> TurnInput:
         """把本地提交转换为远端轮次输入。"""
@@ -554,20 +474,6 @@ class TuiTurnInputControl(object):
             attachments=submission.attachments,
             extras=submission.extras,
         )
-
-    @staticmethod
-    def _submission_from_input(turn_input: TurnInput) -> TuiSubmission:
-        """把服务端结算输入转换为本地下一轮提交。"""
-        return TuiSubmission(
-            value=turn_input.text,
-            editable_text=turn_input.text,
-            paste_store={},
-            client_message_id=turn_input.client_message_id,
-            attachments=turn_input.attachments,
-            extras=turn_input.extras,
-            payload_bound=True,
-        )
-
 
 if __name__ == '__main__':
     pass

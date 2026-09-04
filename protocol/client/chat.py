@@ -3,7 +3,6 @@
 
 import asyncio
 import contextlib
-import enum
 import random
 import time
 import typing
@@ -23,9 +22,7 @@ from protocol.client.turn_control import (
 from protocol.schema.stream_events import (
     ChatStreamEvent,
     StreamGapEvent,
-    TurnDoneEvent,
-    TurnFailedEvent,
-    TurnLogicalSettledEvent,
+    TurnCompletedEvent,
     parse_stream_event
 )
 from protocol.schema.tool_approval import ToolApprovalSnapshot
@@ -71,12 +68,6 @@ ApprovalSnapshotCallback: typing.TypeAlias = typing.Callable[
 ]
 
 
-class _TurnStreamState(enum.Enum):
-    RUNNING = "running"
-    OUTCOME_SEEN = "outcome_seen"
-    CLOSED = "closed"
-
-
 class _TurnStreamEnded(Exception):
     """表示事件传输已经按预期完成收尾。"""
 
@@ -99,7 +90,7 @@ class TurnEventStream(object):
         """保存请求参数并初始化逻辑轮次观察状态。"""
         self._request = (pref_config, message, tools, attachments, kwargs)
         self._timeout = timeout
-        self._state = _TurnStreamState.RUNNING
+        self._closed = False
         self._payload_stream: typing.AsyncGenerator[dict, None] | None = None
         self._chat_payload: dict[str, typing.Any] | None = None
         self._attach_target: dict[str, str] | None = None
@@ -109,7 +100,9 @@ class TurnEventStream(object):
         self._recovery_phase: TransportRecoveryPhase | None = None
         self._replay_target_seq: int | None = None
         self._recovery_catch_up_pending: bool = False
+        self._terminal_snapshot_payload: dict[str, typing.Any] | None = None
         self._reconnect_started_at: float | None = None
+        self._last_event_progress_at: float = time.monotonic()
         self._on_recovery_status = on_recovery_status
         self._on_approval_snapshot = on_approval_snapshot
         self.end_reason: TurnStreamEndReason | None = None
@@ -239,12 +232,23 @@ class TurnEventStream(object):
         self._reconnect_failures = 0
         self._reconnect_started_at = None
 
-    def _payload_silence_timeout(self) -> float:
-        """返回不超过传输超时的 SSE 静默检测窗口。"""
-        return max(
+    async def _mark_event_progress(self) -> None:
+        """在权威事件水位推进后刷新活性截止时间。"""
+        self._last_event_progress_at = time.monotonic()
+        await self._mark_transport_healthy()
+
+    def _event_progress_timeout(self) -> float:
+        """返回距离下一次权威事件活性检查的剩余时间。"""
+        timeout = max(
             0.01,
             min(float(self._timeout), STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC),
         )
+        elapsed = time.monotonic() - self._last_event_progress_at
+        return max(0.0, timeout - elapsed)
+
+    def _reset_event_progress_deadline(self) -> None:
+        """为新建立的传输连接开启一个完整的事件推进窗口。"""
+        self._last_event_progress_at = time.monotonic()
 
     def _open_chat_stream(self) -> typing.AsyncGenerator[dict, None]:
         """使用缓存的原始请求创建对话事件传输。"""
@@ -279,10 +283,10 @@ class TurnEventStream(object):
 
     async def _finish(self, reason: TurnStreamEndReason) -> None:
         """只执行一次底层传输关闭。"""
-        if self._state is _TurnStreamState.CLOSED:
+        if self._closed:
             return
 
-        self._state = _TurnStreamState.CLOSED
+        self._closed = True
         self.end_reason = reason
 
         self._reconnect_started_at = None
@@ -318,7 +322,7 @@ class TurnEventStream(object):
 
     async def _next_event(self) -> ChatStreamEvent:
         """读取并解析下一项可交付事件。"""
-        if self._state is _TurnStreamState.CLOSED:
+        if self._closed:
             raise _TurnStreamEnded
         if self._recovery_catch_up_pending:
             await self._complete_replay()
@@ -366,7 +370,7 @@ class TurnEventStream(object):
                     )
                 if self.last_event_seq >= (self._replay_target_seq or 0):
                     self._recovery_catch_up_pending = True
-                await self._mark_transport_healthy()
+                await self._mark_event_progress()
                 event = parsed_event
                 continue
             self._validate_turn_identity(parsed_event)
@@ -384,26 +388,25 @@ class TurnEventStream(object):
             if parsed_event.event_seq is not None:
                 await self._prepare_recovery_delivery(parsed_event.event_seq)
                 self.last_event_seq = parsed_event.event_seq
-            await self._mark_transport_healthy()
+            await self._mark_event_progress()
             event = parsed_event
 
-        if isinstance(event, TurnLogicalSettledEvent):
+        if isinstance(event, TurnCompletedEvent):
             self._close_after_yield = True
-        elif (
-            isinstance(event, (TurnDoneEvent, TurnFailedEvent))
-            and self._state is _TurnStreamState.RUNNING
-        ):
-            self._state = _TurnStreamState.OUTCOME_SEEN
 
         return event
 
     async def _next_payload(self) -> dict:
         """读取下一项载荷或以内部结束信号完成当前流。"""
         while True:
+            terminal_payload = self._terminal_snapshot_payload
+            if terminal_payload is not None:
+                self._terminal_snapshot_payload = None
+                return terminal_payload
             payload_stream = await self._ensure_open()
 
             try:
-                async with asyncio.timeout(self._payload_silence_timeout()):
+                async with asyncio.timeout(self._event_progress_timeout()):
                     payload: typing.Any = await anext(payload_stream)
                 if not isinstance(payload, dict):
                     await self._finish("protocol_error")
@@ -504,6 +507,20 @@ class TurnEventStream(object):
         if not self._response_observed and status is None:
             self._replay_target_seq = self.last_event_seq
             self._payload_stream = self._open_chat_stream()
+            self._reset_event_progress_deadline()
+            return True
+
+        if (
+            status is not None
+            and status.terminal is not None
+            and status.last_event_seq == self.last_event_seq + 1
+        ):
+            await self._begin_replay(status.last_event_seq)
+            self._terminal_snapshot_payload = self._terminal_payload(
+                status,
+                attach_target=attach_target,
+            )
+            self._reset_event_progress_deadline()
             return True
 
         await self._begin_replay(
@@ -529,7 +546,32 @@ class TurnEventStream(object):
             payload,
             self._timeout,
         )
+        self._reset_event_progress_deadline()
         return True
+
+    @staticmethod
+    def _terminal_payload(
+        status: TurnStatusSnapshot,
+        *,
+        attach_target: dict[str, str],
+    ) -> dict[str, typing.Any]:
+        """把同构终态快照转换为统一事件 reducer 的输入。"""
+        terminal = status.terminal
+        if terminal is None:
+            raise ValueError("turn status is missing terminal snapshot")
+        return {
+            "type": terminal.type,
+            "proto": "mind.chat",
+            "cid": attach_target["cid"],
+            "sid": attach_target["sid"],
+            "turn_id": terminal.turn_id,
+            "event_seq": terminal.last_event_seq,
+            "presentation_epoch": 1,
+            "status": terminal.status,
+            "error": terminal.error,
+            "last_event_seq": terminal.last_event_seq,
+            "completed_at": terminal.completed_at,
+        }
 
     async def _restore_approval_snapshot(
         self,

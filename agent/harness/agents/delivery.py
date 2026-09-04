@@ -11,8 +11,8 @@ from agent.ports.agent_messages import (
 from agent.stores.agents.mailbox import AgentMailboxEvent
 from protocol.schema.stream_events import (
     StreamEvent,
+    TurnCompletedEvent,
     TurnInputAcceptedEvent,
-    TurnLogicalSettledEvent
 )
 from protocol.schema.turn_inputs import TurnInput
 
@@ -54,7 +54,7 @@ class AgentActiveTurn:
         if event.turn_id != self._context.turn_id:
             return None
 
-        if event.type == "turn.start":
+        if event.type == "turn.started":
             if not self._unavailable.is_set():
                 self._ready.set()
             return None
@@ -62,7 +62,7 @@ class AgentActiveTurn:
         if isinstance(event, TurnInputAcceptedEvent):
             return self._pending.pop(event.client_message_id, None)
 
-        if isinstance(event, TurnLogicalSettledEvent):
+        if isinstance(event, TurnCompletedEvent):
             self._ready.clear()
             self._unavailable.set()
 

@@ -2,45 +2,40 @@
 
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.stream_outcome import StreamTurnOutcome
-from protocol.schema.stream_events import (
-    TurnDoneEvent,
-    TurnFailedEvent,
-)
+from protocol.schema.stream_events import TurnCompletedEvent
 
 
-def test_outcome_builds_incomplete_result_and_allows_continuation() -> None:
+def test_outcome_builds_completed_result_from_single_terminal() -> None:
     outcome = StreamTurnOutcome()
-    outcome.record_done_event(TurnDoneEvent(
-        type="turn.done",
-        status="incomplete",
-        reason="max_output_tokens",
-        can_continue=True,
+    outcome.record_completed_event(TurnCompletedEvent(
+        type="turn.completed",
+        status="completed",
+        last_event_seq=7,
+        completed_at=1.0,
         usage={"output_tokens": 7},
         response_id="msg_1",
         route="messages",
-        stop_reason="max_tokens",
     ))
 
-    assert outcome.build_result("partial") == RunResult(
-        status="incomplete",
-        assistant_text="partial",
+    assert outcome.build_result("answer") == RunResult(
+        status="completed",
+        assistant_text="answer",
         usage={"output_tokens": 7},
-        error="max_output_tokens",
         response_id="msg_1",
         route="messages",
-        stop_reason="max_tokens",
-        reason="max_output_tokens",
-        can_continue=True,
     )
     assert outcome.has_terminal_status is True
     assert outcome.continuation_allowed is True
-    assert outcome.observation_outcome == "incomplete"
+    assert outcome.observation_outcome == "complete"
 
 
 def test_outcome_prioritizes_reconciliation_over_failed_terminal() -> None:
     outcome = StreamTurnOutcome()
-    outcome.record_failed_event(TurnFailedEvent(
-        type="turn.failed",
+    outcome.record_completed_event(TurnCompletedEvent(
+        type="turn.completed",
+        status="failed",
+        last_event_seq=3,
+        completed_at=1.0,
         error="provider failed",
         usage={"output_tokens": 2},
         stop_reason="provider_error",
@@ -63,8 +58,11 @@ def test_outcome_prioritizes_reconciliation_over_failed_terminal() -> None:
 
 def test_outcome_preserves_server_failure_metadata() -> None:
     outcome = StreamTurnOutcome()
-    outcome.record_failed_event(TurnFailedEvent(
-        type="turn.failed",
+    outcome.record_completed_event(TurnCompletedEvent(
+        type="turn.completed",
+        status="failed",
+        last_event_seq=4,
+        completed_at=1.0,
         error="content rejected",
         error_type="provider_error",
         error_source="provider",

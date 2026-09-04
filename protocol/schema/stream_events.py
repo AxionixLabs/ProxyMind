@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import copy
+import math
 import typing
 from collections.abc import Mapping
 from dataclasses import (
@@ -25,12 +26,12 @@ from protocol.schema.tool_approval import (
     ToolApprovalKind,
     ToolApprovalSnapshotStatus
 )
-from protocol.schema.turn_inputs import TurnInput
 
-TurnDoneStatus: typing.TypeAlias = typing.Literal[
+TurnCompletedStatus: typing.TypeAlias = typing.Literal[
     "completed",
-    "incomplete",
     "interrupted",
+    "failed",
+    "cancelled",
 ]
 
 EffectReplay: typing.TypeAlias = typing.Literal[
@@ -129,22 +130,16 @@ class TurnTerminalEvent(StreamEvent):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class TurnFailedEvent(TurnTerminalEvent):
-    """描述失败的模型轮次。"""
-    status: typing.Literal["failed"] = "failed"
-    error: str = "unknown error"
+class TurnCompletedEvent(TurnTerminalEvent):
+    """描述已与 Durable Turn 同事务提交的唯一权威终态。"""
+    status: TurnCompletedStatus
+    last_event_seq: int
+    completed_at: float
+    error: str = ""
     error_type: str = ""
     error_source: str = ""
     status_code: int | None = None
     retryable: bool | None = None
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class TurnDoneEvent(TurnTerminalEvent):
-    """描述正常、未完整或中断的模型轮次。"""
-    status: TurnDoneStatus = "completed"
-    reason: str = ""
-    can_continue: bool | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -165,12 +160,6 @@ class TurnRetryingEvent(StreamEvent):
 class TurnInputAcceptedEvent(StreamEvent):
     """描述已写入当前逻辑轮次的引导输入。"""
     client_message_id: str = ""
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class TurnLogicalSettledEvent(StreamEvent):
-    """描述逻辑轮次结算后选出的下一轮输入。"""
-    next_input: TurnInput | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -464,11 +453,9 @@ class UnknownStreamEvent(StreamEvent):
 ChatStreamEvent: typing.TypeAlias = (
     MarkerEvent
     | StreamGapEvent
-    | TurnFailedEvent
-    | TurnDoneEvent
+    | TurnCompletedEvent
     | TurnRetryingEvent
     | TurnInputAcceptedEvent
-    | TurnLogicalSettledEvent
     | TurnReconciliationRequiredEvent
     | PresentationSupersededEvent
     | TextDeltaEvent
@@ -488,9 +475,16 @@ ChatStreamEvent: typing.TypeAlias = (
 
 _MARKER_EVENT_TYPES = {
     "ping",
-    "turn.start",
+    "turn.started",
     "turn.thinking",
 }
+
+_REMOVED_EVENT_TYPES = frozenset({
+    "turn.start",
+    "turn.done",
+    "turn.failed",
+    "turn.logical_settled",
+})
 
 _ITEM_EVENT_TYPES = frozenset({
     "text.delta",
@@ -518,6 +512,8 @@ def parse_stream_event(
     event_type = str(raw.get("type") or "").strip()
     if not event_type:
         raise ValueError("stream event type is required")
+    if event_type in _REMOVED_EVENT_TYPES:
+        raise ValueError(f"stream event type was removed: {event_type}")
 
     if event_type != "ping" and (
         "seq" in raw or "replace_current_response" in raw
@@ -542,20 +538,14 @@ def parse_stream_event(
 
     if event_type in _MARKER_EVENT_TYPES:
         return MarkerEvent(**common)
-    if event_type == "turn.failed":
-        return TurnFailedEvent(
+    if event_type == "turn.completed":
+        event_seq = common["event_seq"]
+        if not isinstance(event_seq, int):
+            raise ValueError("turn.completed requires event_seq")
+        return TurnCompletedEvent(
             **common,
             **_terminal_fields(raw),
-            **_failure_fields(raw),
-            error=_error_text(raw.get("error")),
-        )
-    if event_type == "turn.done":
-        return TurnDoneEvent(
-            **common,
-            **_terminal_fields(raw),
-            status=_turn_done_status(raw.get("status")),
-            reason=_text(raw.get("reason")),
-            can_continue=_optional_bool(raw.get("can_continue")),
+            **_turn_completed_fields(raw, event_seq=event_seq),
         )
     if event_type == "turn.retrying":
         retry_round = _required_positive_int(
@@ -592,11 +582,6 @@ def parse_stream_event(
         return TurnInputAcceptedEvent(
             **common,
             client_message_id=_text(raw.get("client_message_id")),
-        )
-    if event_type == "turn.logical_settled":
-        return TurnLogicalSettledEvent(
-            **common,
-            next_input=_turn_input_or_none(raw.get("next_input")),
         )
     if event_type == "turn.reconciliation_required":
         return TurnReconciliationRequiredEvent(
@@ -1336,11 +1321,6 @@ def _retry_failure_fields(payload: dict[str, typing.Any]) -> dict[str, typing.An
     }
 
 
-def _optional_bool(value: typing.Any) -> bool | None:
-    """读取可选布尔协议值。"""
-    return value if isinstance(value, bool) else None
-
-
 def _required_bool(value: typing.Any, field_name: str) -> bool:
     """读取必填布尔协议值。"""
     if not isinstance(value, bool):
@@ -1348,17 +1328,56 @@ def _required_bool(value: typing.Any, field_name: str) -> bool:
     return value
 
 
-def _turn_done_status(value: typing.Any) -> TurnDoneStatus:
-    """读取轮次完成事件的受支持状态。"""
-    status = _text(value) or "completed"
+def _turn_completed_status(value: typing.Any) -> TurnCompletedStatus:
+    """读取唯一 Turn 终态事件的受支持状态。"""
+    status = _required_text(value, "turn.completed status")
     if status == "completed":
         return "completed"
-    if status == "incomplete":
-        return "incomplete"
     if status == "interrupted":
         return "interrupted"
+    if status == "failed":
+        return "failed"
+    if status == "cancelled":
+        return "cancelled"
 
-    raise ValueError(f"unsupported turn.done status: {status}")
+    raise ValueError(f"unsupported turn.completed status: {status}")
+
+
+def _turn_completed_fields(
+    payload: dict[str, typing.Any],
+    *,
+    event_seq: int,
+) -> dict[str, typing.Any]:
+    """校验唯一终态的状态、水位、时间和错误信封。"""
+    last_event_seq = _required_positive_int(
+        payload.get("last_event_seq"),
+        "turn.completed last_event_seq",
+    )
+    if last_event_seq != event_seq:
+        raise ValueError("turn.completed last_event_seq must match event_seq")
+
+    completed_at = payload.get("completed_at")
+    if (
+        isinstance(completed_at, bool)
+        or not isinstance(completed_at, (int, float))
+        or not math.isfinite(float(completed_at))
+        or float(completed_at) <= 0
+    ):
+        raise ValueError("turn.completed completed_at must be positive")
+
+    status = _turn_completed_status(payload.get("status"))
+    error_value = payload.get("error")
+    error = "" if error_value is None else _error_text(error_value)
+    if status == "failed" and not error:
+        raise ValueError("turn.completed failed status requires error")
+
+    return {
+        "status": status,
+        "last_event_seq": last_event_seq,
+        "completed_at": float(completed_at),
+        "error": error,
+        **_failure_fields(payload),
+    }
 
 
 def _error_text(value: typing.Any) -> str:
@@ -1405,16 +1424,6 @@ def _bool_value(value: typing.Any) -> bool:
     if isinstance(value, str):
         return value.strip().casefold() in {"1", "true", "yes", "on"}
     return bool(value)
-
-
-def _turn_input_or_none(value: typing.Any) -> TurnInput | None:
-    """读取可选的下一逻辑轮次输入。"""
-    if not isinstance(value, Mapping):
-        return None
-    try:
-        return TurnInput.from_mapping(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _tuple_or_none(value: typing.Any) -> tuple[typing.Any, ...] | None:

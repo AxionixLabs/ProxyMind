@@ -14,9 +14,7 @@ from protocol.client import chat
 from protocol.schema.stream_events import (
     StreamGapEvent,
     TextDeltaEvent,
-    TurnDoneEvent,
-    TurnFailedEvent,
-    TurnLogicalSettledEvent,
+    TurnCompletedEvent,
 )
 from protocol.schema.tool_approval import ToolApprovalSnapshot
 
@@ -41,6 +39,10 @@ def current_wire_envelope(monkeypatch) -> None:
             current.setdefault("cid", "cid_1")
             current.setdefault("sid", "sid_1")
             current.setdefault("presentation_epoch", 1)
+        if str(current.get("type") or "") == "turn.completed":
+            current.setdefault("status", "completed")
+            current.setdefault("last_event_seq", current.get("event_seq"))
+            current.setdefault("completed_at", 1.0)
         if str(current.get("type") or "").startswith("text."):
             current.setdefault("segment_id", "segment_test")
             current.setdefault("item_id", current["segment_id"])
@@ -115,6 +117,7 @@ def _install_reconnect_stream(
         "get_turn_status",
         AsyncMock(return_value=SimpleNamespace(
             last_event_seq=replay_target_seq,
+            terminal=None,
         )),
     )
 
@@ -135,10 +138,9 @@ async def test_stream_chat_parses_events_and_filters_ping(monkeypatch) -> None:
             "text": "answer",
         }
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 2,
-            "next_input": None,
         }
 
     build_payload = AsyncMock(return_value={
@@ -166,7 +168,7 @@ async def test_stream_chat_parses_events_and_filters_ping(monkeypatch) -> None:
     assert isinstance(events[0], TextDeltaEvent)
     assert events[0].segment_id == "segment-1"
     assert events[0].text == "answer"
-    assert isinstance(events[1], TurnLogicalSettledEvent)
+    assert isinstance(events[1], TurnCompletedEvent)
     assert events[1].turn_id == "turn_001"
     build_payload.assert_awaited_once()
     endpoint.assert_called_once_with("/mind-chat")
@@ -183,10 +185,9 @@ async def test_stream_chat_continues_from_session_event_watermark(monkeypatch) -
             "text": "next turn",
         }
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_1",
             "event_seq": 12,
-            "next_input": None,
         }
 
     _install_stream(monkeypatch, payloads())
@@ -217,10 +218,9 @@ async def test_retained_prefix_gap_advances_replay_floor(monkeypatch) -> None:
             "next_seq": 4,
         }
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_1",
             "event_seq": 5,
-            "next_input": None,
         }
 
     _install_stream(monkeypatch, payloads())
@@ -235,7 +235,7 @@ async def test_retained_prefix_gap_advances_replay_floor(monkeypatch) -> None:
 
     assert [event.type for event in events] == [
         "stream.gap",
-        "turn.logical_settled",
+        "turn.completed",
     ]
     assert event_stream.last_event_seq == 5
 
@@ -273,72 +273,48 @@ async def test_internal_gap_stops_delivery(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_failed_waits_for_logical_settlement_without_timeout(monkeypatch) -> None:
-    release = asyncio.Event()
-
+async def test_failed_completion_closes_without_waiting_for_eof(monkeypatch) -> None:
     async def payloads():
         yield {
-            "type": "turn.failed",
+            "type": "turn.completed",
+            "status": "failed",
             "turn_id": "turn_1",
             "event_seq": 1,
             "error": "timeout",
         }
-        await release.wait()
-        yield {
-            "type": "turn.logical_settled",
-            "turn_id": "turn_1",
-            "event_seq": 2,
-            "next_input": None,
-        }
+        await asyncio.Event().wait()
 
     payload_stream = _install_stream(monkeypatch, payloads())
     event_stream = chat.stream_chat({}, "hello", [])
-    consuming = asyncio.create_task(_collect(event_stream))
+    events = await asyncio.wait_for(_collect(event_stream), timeout=1.0)
 
-    await asyncio.sleep(0.03)
-    assert not consuming.done()
-
-    release.set()
-    events = await asyncio.wait_for(consuming, timeout=1.0)
-
-    assert len(events) == 2
-    assert isinstance(events[0], TurnFailedEvent)
-    assert isinstance(events[1], TurnLogicalSettledEvent)
+    assert len(events) == 1
+    assert isinstance(events[0], TurnCompletedEvent)
+    assert events[0].status == "failed"
     assert event_stream.end_reason == "settled"
     assert payload_stream.closed is True
 
 
 @pytest.mark.anyio
-async def test_done_without_settlement_stays_observed_until_cancelled(monkeypatch) -> None:
+async def test_completed_terminal_closes_stream_immediately(monkeypatch) -> None:
     async def payloads():
-        yield {"type": "turn.done", "turn_id": "turn_1", "event_seq": 1}
+        yield {"type": "turn.completed", "turn_id": "turn_1", "event_seq": 1}
         await asyncio.Event().wait()
 
     payload_stream = _install_stream(monkeypatch, payloads())
     event_stream = chat.stream_chat({}, "hello", [])
-    consuming = asyncio.create_task(_collect(event_stream))
+    events = await asyncio.wait_for(_collect(event_stream), timeout=1.0)
 
-    await asyncio.sleep(0.03)
-    assert not consuming.done()
-
-    consuming.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await consuming
-
-    assert event_stream.end_reason == "cancelled"
+    assert len(events) == 1
+    assert isinstance(events[0], TurnCompletedEvent)
+    assert event_stream.end_reason == "settled"
     assert payload_stream.closed is True
 
 
 @pytest.mark.anyio
-async def test_settlement_closes_stream_without_waiting_for_eof(monkeypatch) -> None:
+async def test_single_terminal_closes_stream_without_waiting_for_eof(monkeypatch) -> None:
     async def payloads():
-        yield {"type": "turn.done", "turn_id": "turn_1", "event_seq": 1}
-        yield {
-            "type": "turn.logical_settled",
-            "turn_id": "turn_1",
-            "event_seq": 2,
-            "next_input": None,
-        }
+        yield {"type": "turn.completed", "turn_id": "turn_1", "event_seq": 1}
         await asyncio.Event().wait()
 
     payload_stream = _install_stream(monkeypatch, payloads())
@@ -346,16 +322,13 @@ async def test_settlement_closes_stream_without_waiting_for_eof(monkeypatch) -> 
 
     events = [event async for event in event_stream]
 
-    assert [type(event) for event in events] == [
-        TurnDoneEvent,
-        TurnLogicalSettledEvent,
-    ]
+    assert [type(event) for event in events] == [TurnCompletedEvent]
     assert event_stream.end_reason == "settled"
     assert payload_stream.closed is True
 
 
 @pytest.mark.anyio
-async def test_disconnect_after_outcome_recovers_until_settlement(monkeypatch) -> None:
+async def test_terminal_prevents_late_transport_failure_from_reopening_turn(monkeypatch) -> None:
     calls = []
     reconnecting = []
 
@@ -363,18 +336,13 @@ async def test_disconnect_after_outcome_recovers_until_settlement(monkeypatch) -
         calls.append(url)
         if url.endswith("/mind-chat"):
             yield {
-                "type": "turn.failed",
+                "type": "turn.completed",
+                "status": "failed",
                 "turn_id": "turn_001",
                 "event_seq": 1,
                 "error": "upstream",
             }
             raise OSError("connection lost")
-        yield {
-            "type": "turn.logical_settled",
-            "turn_id": "turn_001",
-            "event_seq": 2,
-            "next_input": None,
-        }
 
     _install_reconnect_stream(monkeypatch, streaming)
     event_stream = chat.stream_chat(
@@ -386,16 +354,11 @@ async def test_disconnect_after_outcome_recovers_until_settlement(monkeypatch) -
 
     events = [event async for event in event_stream]
 
-    assert len(events) == 2
-    assert isinstance(events[0], TurnFailedEvent)
-    assert isinstance(events[1], TurnLogicalSettledEvent)
+    assert len(events) == 1
+    assert isinstance(events[0], TurnCompletedEvent)
     assert event_stream.end_reason == "settled"
-    assert len(calls) == 2
-    assert reconnecting == [
-        ("reconnecting", 1),
-        ("replaying", 1),
-        ("caught_up", 2),
-    ]
+    assert calls == ["https://example.com/mind-chat"]
+    assert reconnecting == []
 
 
 @pytest.mark.anyio
@@ -513,10 +476,9 @@ async def test_silent_stream_timeout_attaches_and_reports_reconnecting(
             await asyncio.Event().wait()
 
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 2,
-            "next_input": None,
         }
 
     _install_reconnect_stream(monkeypatch, streaming)
@@ -533,7 +495,7 @@ async def test_silent_stream_timeout_attaches_and_reports_reconnecting(
 
     assert [type(event) for event in events] == [
         TextDeltaEvent,
-        TurnLogicalSettledEvent,
+        TurnCompletedEvent,
     ]
     assert calls == [
         "https://example.com/mind-chat",
@@ -543,6 +505,56 @@ async def test_silent_stream_timeout_attaches_and_reports_reconnecting(
         ("reconnecting", 1),
         ("replaying", 1),
         ("caught_up", 2),
+    ]
+
+
+@pytest.mark.anyio
+async def test_ping_cannot_mask_a_missing_terminal_event(monkeypatch) -> None:
+    calls = []
+    recovery = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        while True:
+            yield {"type": "ping"}
+            await asyncio.sleep(0.001)
+
+    terminal = SimpleNamespace(
+        type="turn.completed",
+        turn_id="turn_001",
+        status="interrupted",
+        error=None,
+        last_event_seq=1,
+        completed_at=10.0,
+    )
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(chat, "STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC", 0.01)
+    monkeypatch.setattr(
+        chat,
+        "get_turn_status",
+        AsyncMock(return_value=SimpleNamespace(
+            last_event_seq=1,
+            terminal=terminal,
+        )),
+    )
+
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        timeout=1.0,
+        on_recovery_status=_recovery_recorder(recovery),
+    )
+    events = await asyncio.wait_for(_collect(event_stream), timeout=1.0)
+
+    assert len(events) == 1
+    assert isinstance(events[0], TurnCompletedEvent)
+    assert events[0].status == "interrupted"
+    assert calls == ["https://example.com/mind-chat"]
+    assert recovery == [
+        ("reconnecting", 0),
+        ("replaying", 0),
+        ("caught_up", 1),
     ]
 
 
@@ -586,16 +598,10 @@ async def test_disconnect_attaches_after_last_sequence_and_deduplicates_replay(
             "text": "third",
         }
         yield {
-            "type": "turn.done",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 4,
             "status": "completed",
-        }
-        yield {
-            "type": "turn.logical_settled",
-            "turn_id": "turn_001",
-            "event_seq": 5,
-            "next_input": None,
         }
 
     _install_reconnect_stream(monkeypatch, streaming)
@@ -603,13 +609,13 @@ async def test_disconnect_attaches_after_last_sequence_and_deduplicates_replay(
     event_stream = chat.stream_chat({}, "hello", [], timeout=12.0)
     events = [event async for event in event_stream]
 
-    assert [event.event_seq for event in events] == [1, 2, 3, 4, 5]
+    assert [event.event_seq for event in events] == [1, 2, 3, 4]
     assert [event.text for event in events if isinstance(event, TextDeltaEvent)] == [
         "first",
         "second",
         "third",
     ]
-    assert event_stream.last_event_seq == 5
+    assert event_stream.last_event_seq == 4
     assert event_stream.end_reason == "settled"
     assert [call[0] for call in calls] == [
         "https://example.com/mind-chat",
@@ -649,10 +655,9 @@ async def test_replay_reports_caught_up_after_last_historical_event(
                 "text": str(event_seq),
             }
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 5,
-            "next_input": None,
         }
 
     _install_reconnect_stream(
@@ -695,10 +700,9 @@ async def test_chat_conflict_does_not_attach_reused_turn(monkeypatch) -> None:
             )
             response.raise_for_status()
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 1,
-            "next_input": None,
         }
 
     _install_reconnect_stream(monkeypatch, streaming)
@@ -734,10 +738,9 @@ async def test_disconnect_before_first_event_resubmits_same_chat_when_missing(
         if len(calls) == 1:
             raise OSError("connection lost before first event")
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 1,
-            "next_input": None,
         }
 
     _install_reconnect_stream(monkeypatch, streaming)
@@ -753,7 +756,7 @@ async def test_disconnect_before_first_event_resubmits_same_chat_when_missing(
     events = [event async for event in event_stream]
 
     assert len(events) == 1
-    assert isinstance(events[0], TurnLogicalSettledEvent)
+    assert isinstance(events[0], TurnCompletedEvent)
     assert [url for url, _payload in calls] == [
         "https://example.com/mind-chat",
         "https://example.com/mind-chat",
@@ -789,10 +792,9 @@ async def test_ping_before_first_event_still_probes_before_resubmit(
             yield {"type": "ping"}
             raise OSError("connection lost before first business event")
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 1,
-            "next_input": None,
         }
 
     _install_reconnect_stream(monkeypatch, streaming)
@@ -802,7 +804,7 @@ async def test_ping_before_first_event_still_probes_before_resubmit(
     events = [event async for event in event_stream]
 
     assert len(events) == 1
-    assert isinstance(events[0], TurnLogicalSettledEvent)
+    assert isinstance(events[0], TurnCompletedEvent)
     assert [url for url, _payload in calls] == [
         "https://example.com/mind-chat",
         "https://example.com/mind-chat",
@@ -819,17 +821,19 @@ async def test_disconnect_before_first_event_attaches_when_turn_exists(
     monkeypatch,
 ) -> None:
     calls = []
-    status_probe = AsyncMock(return_value=SimpleNamespace(last_event_seq=3))
+    status_probe = AsyncMock(return_value=SimpleNamespace(
+        last_event_seq=3,
+        terminal=None,
+    ))
 
     async def streaming(url, _headers, payload, _timeout):
         calls.append((url, payload))
         if url.endswith("/mind-chat"):
             raise OSError("response headers were lost")
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 3,
-            "next_input": None,
         }
 
     _install_reconnect_stream(monkeypatch, streaming)
@@ -839,7 +843,7 @@ async def test_disconnect_before_first_event_attaches_when_turn_exists(
     events = [event async for event in event_stream]
 
     assert len(events) == 1
-    assert isinstance(events[0], TurnLogicalSettledEvent)
+    assert isinstance(events[0], TurnCompletedEvent)
     assert [url for url, _payload in calls] == [
         "https://example.com/mind-chat",
         "https://example.com/mind-attach",
@@ -947,10 +951,9 @@ async def test_ping_resets_attach_backoff(monkeypatch) -> None:
             yield {"type": "ping"}
             raise OSError("connection lost")
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 2,
-            "next_input": None,
         }
 
     monkeypatch.setattr(
@@ -969,7 +972,7 @@ async def test_ping_resets_attach_backoff(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_attach_retries_beyond_previous_budget_until_settled(
+async def test_attach_retries_beyond_previous_budget_until_completed(
     monkeypatch,
 ) -> None:
     calls = []
@@ -978,20 +981,20 @@ async def test_attach_retries_beyond_previous_budget_until_settled(
         calls.append(url)
         if url.endswith("/mind-chat"):
             yield {
-                "type": "turn.done",
+                "type": "text.delta",
                 "turn_id": "turn_001",
                 "event_seq": 1,
-                "status": "completed",
+                "segment_id": "segment_1",
+                "text": "partial",
             }
             raise OSError("connection lost")
 
         if len(calls) < 7:
             raise OSError("connection lost")
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 2,
-            "next_input": None,
         }
 
     monkeypatch.setattr(
@@ -1039,10 +1042,9 @@ async def test_duplicate_replay_keeps_backoff_and_caps_delay(
             }
             raise OSError("connection lost")
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 2,
-            "next_input": None,
         }
 
     async def record_wait(delay):
@@ -1067,13 +1069,12 @@ async def test_duplicate_replay_keeps_backoff_and_caps_delay(
 
 
 @pytest.mark.anyio
-async def test_logical_settlement_alone_closes_recovery_stream(monkeypatch) -> None:
+async def test_completed_event_alone_closes_recovery_stream(monkeypatch) -> None:
     async def payloads():
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 7,
-            "next_input": None,
         }
         await asyncio.Event().wait()
 
@@ -1087,7 +1088,7 @@ async def test_logical_settlement_alone_closes_recovery_stream(monkeypatch) -> N
     events = [event async for event in event_stream]
 
     assert len(events) == 1
-    assert isinstance(events[0], TurnLogicalSettledEvent)
+    assert isinstance(events[0], TurnCompletedEvent)
     assert event_stream.end_reason == "settled"
     assert payload_stream.closed is True
 
@@ -1129,10 +1130,9 @@ async def test_sequence_gap_attaches_from_last_confirmed_event(monkeypatch) -> N
                 "text": "three",
             }
             yield {
-                "type": "turn.logical_settled",
+                "type": "turn.completed",
                 "turn_id": "turn_001",
                 "event_seq": 4,
-                "next_input": None,
             }
 
     _install_reconnect_stream(monkeypatch, streaming)
@@ -1178,10 +1178,9 @@ async def test_attach_restores_approval_snapshot_before_replay(monkeypatch) -> N
             }
             raise OSError("connection lost")
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 2,
-            "next_input": None,
         }
 
     _install_reconnect_stream(monkeypatch, streaming)
@@ -1229,10 +1228,9 @@ async def test_snapshot_failure_does_not_block_event_attach(monkeypatch) -> None
             }
             raise OSError("connection lost")
         yield {
-            "type": "turn.logical_settled",
+            "type": "turn.completed",
             "turn_id": "turn_001",
             "event_seq": 2,
-            "next_input": None,
         }
 
     _install_reconnect_stream(monkeypatch, streaming)

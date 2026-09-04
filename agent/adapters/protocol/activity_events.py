@@ -8,7 +8,6 @@ from agent.ports import (
     ApprovalStarted,
     AssistantBuffered,
     AssistantSettled,
-    LogicalSettled,
     ModelWaitReason,
     ModelWaitRequested,
     OutputActivityPort,
@@ -39,6 +38,8 @@ def normalize_turn_terminal_status(status: str) -> TurnTerminalStatus:
         return "completed"
     if status == "interrupted":
         return "interrupted"
+    if status == "cancelled":
+        return "cancelled"
     if status == "reconciliation_required":
         return "reconciliation_required"
     return "failed"
@@ -417,10 +418,6 @@ class TurnActivityProjector:
             status=status,
         ))
         self._terminal_status = status
-
-    async def logical_settled(self) -> None:
-        """登记 Turn 的逻辑交互已完成结算。"""
-        await self.activity.emit(LogicalSettled(**self._scope()))
 
     @property
     def terminal_status(self) -> TurnTerminalStatus | None:

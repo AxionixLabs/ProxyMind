@@ -268,8 +268,9 @@ TUI、桌面端和 Web 可以复用同一线上协议，但不要求共享 Pytho
 SessionLoop、RunActor、工具执行器或前端生命周期。
 
 线上 `event_seq` 在 `cid + sid` 范围内跨 Turn 单调。Protocol Client 只在完整处理后推进
-确认游标，并以 `turn.logical_settled` 结束逻辑轮次。`turn.done`、`turn.failed`、SSE 关闭
-或前端退出不能替代结算。
+确认游标，并以唯一权威事件 `turn.completed` 结束逻辑轮次。该事件的 `status` 区分
+`completed`、`interrupted`、`failed` 与 `cancelled`；正文或单项完成、interrupt HTTP 回执、
+SSE 关闭和前端退出都不能替代它。服务端内部 settled 存储标志不得暴露为第二个公开终态。
 
 ## Canonical Item 与展示
 
@@ -325,7 +326,7 @@ protocol / harness fact
 ```
 
 `OutputActivityEvent` 使用正式身份表达 model wait、assistant 可见性、展示代次替换、工具批次和调用、后台
-终端、审批、provider/transport retry、恢复水位、Turn 终态与逻辑结算。Reducer 是无 IO 的
+终端、审批、provider/transport retry、恢复水位与唯一 Turn 终态。Reducer 是无 IO 的
 纯状态转换；Coordinator 是 generation timer、tool/approval lease、replay 抑制和画面投影的
 唯一 owner。协议 adapter、工具执行器、审批协调器和终结器不得直接开始、结束或延迟 TUI
 状态，也不得通过匿名状态字符串恢复动画。
@@ -336,24 +337,27 @@ protocol / harness fact
 assistant 正文绘制对终端一次可见。
 传输断线是唯一例外：transport retry 临时在已上屏正文之上恢复 `Retrying` 活动提示，但不释放、
 替换或重新提交正文；进入 replay 后立即静默，追平权威水位后由最新 reducer 快照恢复画面。
-`AssistantSettled` 只允许 Coordinator 按本地策略安排后续等待；Turn 终态会同步清空 timer、
-retry、工具和审批 lease，`turn.logical_settled` 只结束逻辑输入边界，不重新解释视觉终态。
+`AssistantSettled` 只允许 Coordinator 按本地策略安排后续等待；`turn.completed` 在同一次归约中结束
+逻辑输入边界并同步清空 timer、retry、工具和审批 lease，不再等待第二个结算事件。
 provider retry 在登记新 Attempt 的同一次归约中释放旧 Attempt 的正文所有权；
 `PresentationSuperseded` 使旧 epoch 的正文、等待和 retry 失效，迟到旧事件不得重新取得画面。
 同步正文帧可以抢占正在等待的异步投影，Coordinator 必须按 reducer revision 撤销陈旧结果，
 不得以锁冲突使 Turn 失败。
 
 远端 `/turn/interrupt` 的 `accepted` 只确认中断事实已经登记，不代表活动 Turn 已释放。已确认
-`turn.start` 时，TUI 可以在调度远端中断后立即取消本地事件流；尚未确认时必须保留流和中断意图，
-在匹配的 start 到达后优先发送中断并同步取消本地事件流。同一 Turn 的重复中断请求必须合并。
+`turn.started` 时，TUI 异步调度远端中断但继续观察 Session 事件流；尚未确认时必须保留事件观察和中断
+意图，在匹配的 start 到达后优先发送中断。同一 Turn 的重复中断请求必须合并。
 中断意图登记后，TUI 立即撤下本地活动画面并幂等提交一次中断提示；这只是展示收敛，不代表远端
 Turn 已结束，不得提前清除 `execution_active` 或触发 turn-finished 回调。结算期间的新输入必须进入
 可见的下一轮队列，不得作为 steer 发送，也不得进入尚无消费者的普通消息 handoff。两条路径都必须
-保留当前 Turn 的输入控制和执行门禁，并通过权威 `/turn/status` 等待 terminal 状态后再开放下一次
-`/mind-chat`；terminal 状态快照携带的 `last_event_seq` 必须同步到 Protocol Client 持有的 Session
+保留当前 Turn 的输入控制和执行门禁，并以 `turn.completed` 或权威 `/turn/status` 的同构终态快照
+开放下一次 `/mind-chat`；终态快照携带的 `last_event_seq` 必须同步到 Protocol Client 持有的 Session
 水位，供下一 Turn 连续接流。中断前尚未确认的 steer 必须在按键当帧切换为等待结算的队列预览，
 其展示不得依赖远端状态查询完成；消息归属仍由轮末对账决定。HTTP 回执、本地展示结束、任务取消或
 SSE 关闭都不能替代该屏障。
+第一次 `Ctrl+C` 必须保留上述权威终态屏障；退出确认窗口内的第二次 `Ctrl+C` 表示用户明确结束
+客户端进程，可以取消本地 status/reconcile 等待并退出，但不得因此启动下一 Turn、重复提交输入或
+把未知归属输入自动重投。远端 Turn 仍由服务端自身生命周期最终收束。
 
 正常模型等待和工具执行统一投影为单行 `Thinking`；工具名只在工具自身的展示单元中出现，
 不得追加到活动提示。后台终端数量由独立进程状态 owner 投影，

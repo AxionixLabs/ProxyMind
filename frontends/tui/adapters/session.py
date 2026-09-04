@@ -62,7 +62,7 @@ async def _apply_surface_projection(
     projection: SurfaceProjection,
 ) -> None:
     """把单一 Turn 表面投影提交给现有前景活动槽。"""
-    if projection.indicator == "hidden":
+    if runtime.turn_output_suppressed or projection.indicator == "hidden":
         runtime.activity.finish_wait()
         return None
 

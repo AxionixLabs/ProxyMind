@@ -14,7 +14,6 @@ from agent.ports import (
     AssistantSettled,
     AssistantTextDelta,
     AssistantVisible,
-    LogicalSettled,
     ModelWaitRequested,
     OutputSession,
     OutputSurfaceContext,
@@ -131,12 +130,6 @@ def test_reducer_tracks_content_wait_and_terminal_idempotently() -> None:
     assert reduce_turn_surface(state, terminal) is state
     assert reduce_turn_surface(state, wait) is state
 
-    state = reduce_turn_surface(state, LogicalSettled(**_scope(context)))
-    assert state.logical_settled
-    assert reduce_turn_surface(
-        state,
-        LogicalSettled(**_scope(context)),
-    ) is state
     state = reduce_turn_surface(state, SurfaceClosed(**_scope(context)))
     assert state.lifecycle == "closed"
 

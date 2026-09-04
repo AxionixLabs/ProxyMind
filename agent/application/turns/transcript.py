@@ -86,7 +86,7 @@ def record_turn_finished(
 
     event = (
         "turn.interrupted"
-        if normalized_status == "interrupted"
+        if normalized_status in {"interrupted", "cancelled"}
         else "turn.completed"
         if normalized_status == "completed"
         else "turn.incomplete"

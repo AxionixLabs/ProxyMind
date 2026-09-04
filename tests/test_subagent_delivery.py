@@ -22,8 +22,8 @@ from protocol.client.turn_control import (
 )
 from protocol.schema.stream_events import (
     MarkerEvent,
+    TurnCompletedEvent,
     TurnInputAcceptedEvent,
-    TurnLogicalSettledEvent,
 )
 from protocol.schema.turn_inputs import TurnInput
 
@@ -93,7 +93,7 @@ async def test_active_turn_delivers_and_correlates_accepted_input() -> None:
     event = _message()
 
     active.handle_event(MarkerEvent(
-        type="turn.start",
+        type="turn.started",
         turn_id=context.turn_id,
     ))
     receipt = await active.deliver(event)
@@ -132,7 +132,7 @@ async def test_active_turn_settles_duplicate_receipt_without_stream_event() -> N
     active = AgentActiveTurn(context, _Delivery("duplicate"))
     event = _message()
     active.handle_event(MarkerEvent(
-        type="turn.start",
+        type="turn.started",
         turn_id=context.turn_id,
     ))
 
@@ -165,7 +165,7 @@ async def test_active_turn_rejects_mismatched_delivery_receipt() -> None:
     active = AgentActiveTurn(context, MismatchedDelivery())
     event = _message()
     active.handle_event(MarkerEvent(
-        type="turn.start",
+        type="turn.started",
         turn_id=context.turn_id,
     ))
 
@@ -190,12 +190,15 @@ async def test_active_turn_refuses_unready_settled_and_closed_delivery() -> None
 
     settled = AgentActiveTurn(context, port)
     settled.handle_event(MarkerEvent(
-        type="turn.start",
+        type="turn.started",
         turn_id=context.turn_id,
     ))
-    settled.handle_event(TurnLogicalSettledEvent(
-        type="turn.logical_settled",
+    settled.handle_event(TurnCompletedEvent(
+        type="turn.completed",
         turn_id=context.turn_id,
+        status="completed",
+        last_event_seq=2,
+        completed_at=1.0,
     ))
     assert await settled.deliver(event) is None
 

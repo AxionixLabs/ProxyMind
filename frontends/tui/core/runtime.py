@@ -193,6 +193,7 @@ class TuiRuntime(object):
         self._directory_trust_preserved_startup_gate: bool = False
         self._modal_depth: int = 0
         self._turn_progress_active: bool = False
+        self._turn_output_suppressed: bool = False
         self._approval_session_lock: asyncio.Lock = asyncio.Lock()
         self._approval_session_active: bool = False
         self.terminal_progress = (
@@ -424,6 +425,11 @@ class TuiRuntime(object):
     def uncertain_steers_active(self) -> bool:
         """返回当前是否存在归属未确认的输入。"""
         return self.submissions.pending_steers.uncertain_active
+
+    @property
+    def turn_output_suppressed(self) -> bool:
+        """返回当前轮次是否只消费事件而不再更新可见输出。"""
+        return self._turn_output_suppressed
 
     @property
     def has_pending_attachments(self) -> bool:
@@ -1797,6 +1803,7 @@ class TuiRuntime(object):
     def finish_interrupted_presentation(self) -> None:
         """撤下中断前台展示，但不结束仍在远端结算的模型轮次。"""
         with self.screen.visual_update():
+            self._turn_output_suppressed = True
             self._transcript.clear_active()
             self.activity.finish_wait()
             self.submissions.mark_pending_steers_interrupt_settling()
@@ -1809,6 +1816,8 @@ class TuiRuntime(object):
         active = bool(active)
 
         with self.screen.visual_update():
+            if active and not was_active:
+                self._turn_output_suppressed = False
             if not active:
                 self.activity.finish_wait()
             self.execution_active = active
@@ -1866,6 +1875,10 @@ class TuiRuntime(object):
     ) -> None:
         """绑定或清除取回队列消息时的结构化草稿恢复。"""
         self.submissions.bind_queued_restore_handler(handler)
+
+    def restore_interrupted_submissions(self) -> bool:
+        """把中断轮次遗留输入恢复到编辑框且不触发提交。"""
+        return self.submissions.restore_interrupted_submissions()
 
     def defer_submission(
         self,

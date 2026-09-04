@@ -37,6 +37,13 @@ TurnRuntimeStatus = typing.Literal[
     "cancelled",
 ]
 
+TurnCompletedStatus = typing.Literal[
+    "completed",
+    "failed",
+    "interrupted",
+    "cancelled",
+]
+
 _CONTROL_STATUSES: typing.Final[set[str]] = {
     "accepted",
     "turn_not_active",
@@ -109,6 +116,19 @@ def _runtime_status(value: str) -> TurnRuntimeStatus | None:
     return None
 
 
+def _completed_status(value: str) -> TurnCompletedStatus | None:
+    """把服务端轮次终态收窄为协议字面量。"""
+    if value == "completed":
+        return value
+    if value == "failed":
+        return value
+    if value == "interrupted":
+        return value
+    if value == "cancelled":
+        return value
+    return None
+
+
 class TurnControlRequestError(Exception):
     """描述轮次控制请求未得到有效响应。"""
 
@@ -148,6 +168,17 @@ class TurnReconcileResponse(object):
 
 
 @dataclass(frozen=True, slots=True)
+class TurnCompletedSnapshot(object):
+    """描述与唯一终态事件同构的持久化快照。"""
+    type: typing.Literal["turn.completed"]
+    turn_id: str
+    status: TurnCompletedStatus
+    error: str | None
+    last_event_seq: int
+    completed_at: float
+
+
+@dataclass(frozen=True, slots=True)
 class TurnStatusSnapshot(object):
     """描述服务端持久化逻辑轮次的权威状态。"""
     cid: str
@@ -155,13 +186,12 @@ class TurnStatusSnapshot(object):
     turn_id: str
     run_id: str
     status: TurnRuntimeStatus
-    terminal: bool
+    terminal: TurnCompletedSnapshot | None
     attempt: int
     version: int
     last_event_seq: int
     created_at: float
     updated_at: float
-    error: str
 
 
 async def get_turn_status(
@@ -488,8 +518,7 @@ def _status_snapshot(
 
     run_id = body.get("run_id")
     status = body.get("status")
-    terminal = body.get("terminal")
-    error = body.get("error")
+    terminal_value = body.get("terminal")
     attempt = body.get("attempt")
     version = body.get("version")
     event_seq = body.get("last_event_seq")
@@ -504,9 +533,6 @@ def _status_snapshot(
         or not isinstance(run_id, str)
         or not isinstance(status, str)
         or status not in _TURN_RUNTIME_STATUSES
-        or not isinstance(terminal, bool)
-        or terminal != (status in _TERMINAL_TURN_STATUSES)
-        or not isinstance(error, str)
         or any(
         isinstance(value, bool) or not isinstance(value, (int, float))
         for value in numeric_values
@@ -524,6 +550,15 @@ def _status_snapshot(
     if typed_status is None:
         raise TurnStatusRequestError(invalid_message)
 
+    terminal = _completed_snapshot(
+        terminal_value,
+        expected_turn_id=expected_turn_id,
+        expected_status=status,
+        expected_event_seq=event_seq,
+    )
+    if (terminal is not None) != (status in _TERMINAL_TURN_STATUSES):
+        raise TurnStatusRequestError(invalid_message)
+
     return TurnStatusSnapshot(
         cid=expected_cid,
         sid=expected_sid,
@@ -536,7 +571,49 @@ def _status_snapshot(
         last_event_seq=event_seq,
         created_at=float(created),
         updated_at=float(updated),
+    )
+
+
+def _completed_snapshot(
+    value: typing.Any,
+    *,
+    expected_turn_id: str,
+    expected_status: str,
+    expected_event_seq: int,
+) -> TurnCompletedSnapshot | None:
+    """校验并构建与 `turn.completed` 同构的终态快照。"""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise TurnStatusRequestError("turn status returned an invalid response")
+
+    status = value.get("status")
+    error = value.get("error")
+    event_seq = value.get("last_event_seq")
+    completed_at = value.get("completed_at")
+    if (
+        value.get("type") != "turn.completed"
+        or value.get("turn_id") != expected_turn_id
+        or status != expected_status
+        or not isinstance(status, str)
+        or (typed_status := _completed_status(status)) is None
+        or error is not None and not isinstance(error, str)
+        or isinstance(event_seq, bool)
+        or not isinstance(event_seq, int)
+        or event_seq < 1
+        or event_seq != expected_event_seq
+        or isinstance(completed_at, bool)
+        or not isinstance(completed_at, (int, float))
+        or float(completed_at) <= 0
+    ):
+        raise TurnStatusRequestError("turn status returned an invalid response")
+    return TurnCompletedSnapshot(
+        type="turn.completed",
+        turn_id=expected_turn_id,
+        status=typed_status,
         error=error,
+        last_event_seq=event_seq,
+        completed_at=float(completed_at),
     )
 
 

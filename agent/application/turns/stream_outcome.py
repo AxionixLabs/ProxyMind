@@ -15,6 +15,7 @@ from .run_result import (
 
 _STATUS_PRIORITY: tuple[RunStatus, ...] = (
     "interrupted",
+    "cancelled",
     "reconciliation_required",
     "failed",
     "completed",
@@ -35,22 +36,15 @@ class _TerminalEvent(typing.Protocol):
     stop_sequence: str | None
 
 
-class _FailedEvent(_TerminalEvent, typing.Protocol):
-    """定义失败终态事件的错误字段。"""
+class _CompletedEvent(_TerminalEvent, typing.Protocol):
+    """定义唯一权威终态事件的结果字段。"""
 
+    status: RunStatus
     error: str
     error_type: str
     error_source: str
     status_code: int | None
     retryable: bool | None
-
-
-class _DoneEvent(_TerminalEvent, typing.Protocol):
-    """定义正常终态事件的续跑字段。"""
-
-    status: RunStatus
-    reason: str
-    can_continue: bool | None
 
 
 @dataclass(slots=True)
@@ -82,7 +76,10 @@ class StreamTurnOutcome:
     @property
     def is_interrupted(self) -> bool:
         """返回执行是否收到本地或远端中断。"""
-        return "interrupted" in self._terminal_statuses
+        return bool(
+            "interrupted" in self._terminal_statuses
+            or "cancelled" in self._terminal_statuses
+        )
 
     @property
     def is_completed(self) -> bool:
@@ -121,10 +118,10 @@ class StreamTurnOutcome:
         """返回兼容现有观测事件的终态名称。"""
         return "complete" if self.status == "completed" else self.status
 
-    def record_failed_event(self, event: _FailedEvent) -> None:
-        """合并服务端失败终态及其用量和响应元数据。"""
-        self._terminal_statuses.add("failed")
-        self.error = event.error
+    def record_completed_event(self, event: _CompletedEvent) -> None:
+        """合并服务端唯一权威终态及其响应元数据。"""
+        self._terminal_statuses.add(event.status)
+        self.error = event.error or None
         self.error_code = event.error_type or None
         self.error_details = {
             key: value
@@ -137,27 +134,18 @@ class StreamTurnOutcome:
         }
         self._record_terminal(event)
 
-    def record_done_event(self, event: _DoneEvent) -> None:
-        """合并服务端正常、未完整或中断终态。"""
-        self._terminal_statuses.add(event.status)
-        self.can_continue = event.can_continue is True
-        if event.status == "incomplete":
-            self.error = event.reason or None
-        self._record_terminal(
-            event,
-            reason=event.reason,
-            can_continue=event.can_continue,
-        )
-
     def interrupt(self, error: str | None = None) -> None:
         """记录本地取消或工具处理产生的中断。"""
         self._terminal_statuses.add("interrupted")
         if error is not None:
             self.error = error
 
-    def confirm_interrupt(self) -> None:
+    def confirm_interrupt(
+        self,
+        status: typing.Literal["interrupted", "cancelled"] = "interrupted",
+    ) -> None:
         """标记服务端或远端控制已经确认当前轮次中断。"""
-        self._terminal_statuses.add("interrupted")
+        self._terminal_statuses.add(status)
         self.interrupt_confirmed = True
 
     def require_reconciliation(self, error: str) -> None:
@@ -207,24 +195,16 @@ class StreamTurnOutcome:
     def _record_terminal(
         self,
         event: _TerminalEvent,
-        *,
-        reason: str = "",
-        can_continue: bool | None = None,
     ) -> None:
         """替换最近一次协议终态携带的用量和响应元数据。"""
         self.usage = dict(event.usage)
         self.terminal_meta = _terminal_metadata(
             event,
-            reason=reason,
-            can_continue=can_continue,
         )
 
 
 def _terminal_metadata(
     event: _TerminalEvent,
-    *,
-    reason: str = "",
-    can_continue: bool | None = None,
 ) -> dict[str, typing.Any]:
     """提取需要保留到运行结果和会话记录的终态字段。"""
     fields: dict[str, typing.Any] = {}
@@ -239,10 +219,6 @@ def _terminal_metadata(
     ):
         if value not in {None, ""}:
             fields[field_name] = value
-    if reason:
-        fields["reason"] = reason
-    if can_continue is not None:
-        fields["can_continue"] = can_continue
     return fields
 
 

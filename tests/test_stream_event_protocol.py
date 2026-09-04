@@ -13,11 +13,9 @@ from protocol.schema.stream_events import (
     ToolCallsDoneEvent,
     ToolCallsStartEvent,
     ToolOutputEvent,
-    TurnDoneEvent,
-    TurnFailedEvent,
+    TurnCompletedEvent,
     TurnRetryingEvent,
     TurnInputAcceptedEvent,
-    TurnLogicalSettledEvent,
     TurnReconciliationRequiredEvent,
     UnknownStreamEvent,
     parse_stream_event as _parse_stream_event,
@@ -250,7 +248,7 @@ def test_formal_item_projection_is_required_only_for_display_events() -> None:
         _parse_stream_event(display_event)
 
     control_event = {
-        "type": "turn.start",
+        "type": "turn.started",
         "proto": "mind.chat",
         "cid": "cid_test",
         "sid": "sid_test",
@@ -1091,31 +1089,20 @@ def test_turn_control_events_preserve_stable_input_identity() -> None:
         "turn_id": "turn_1",
         "client_message_id": "message_1",
     })
-    settled = parse_stream_event({
-        "type": "turn.logical_settled",
-        "turn_id": "turn_1",
-        "next_input": {
-            "client_message_id": "message_2",
-            "text": "continue with this",
-            "attachments": [{"kind": "image"}],
-            "extras": {"source": "steer"},
-        },
-    })
-    done = parse_stream_event({
-        "type": "turn.done",
+    completed = parse_stream_event({
+        "type": "turn.completed",
         "turn_id": "turn_1",
         "status": "interrupted",
+        "last_event_seq": 1,
+        "completed_at": 10.0,
     })
 
     assert isinstance(accepted, TurnInputAcceptedEvent)
     assert accepted.turn_id == "turn_1"
     assert accepted.client_message_id == "message_1"
-    assert isinstance(settled, TurnLogicalSettledEvent)
-    assert settled.next_input is not None
-    assert settled.next_input.client_message_id == "message_2"
-    assert settled.next_input.attachments == ({"kind": "image"},)
-    assert isinstance(done, TurnDoneEvent)
-    assert done.status == "interrupted"
+    assert isinstance(completed, TurnCompletedEvent)
+    assert completed.status == "interrupted"
+    assert completed.last_event_seq == 1
 
 
 def test_turn_terminal_events_preserve_response_metadata() -> None:
@@ -1124,11 +1111,11 @@ def test_turn_terminal_events_preserve_response_metadata() -> None:
         "output_tokens": 7,
         "cache": {"read_tokens": 3},
     }
-    done = parse_stream_event({
-        "type": "turn.done",
-        "status": "incomplete",
-        "reason": "max_output_tokens",
-        "can_continue": True,
+    completed = parse_stream_event({
+        "type": "turn.completed",
+        "status": "completed",
+        "last_event_seq": 1,
+        "completed_at": 10.0,
         "response_id": "msg_1",
         "model": "claude-test",
         "route": "messages",
@@ -1139,8 +1126,10 @@ def test_turn_terminal_events_preserve_response_metadata() -> None:
         "stop_sequence": None,
     })
     failed = parse_stream_event({
-        "type": "turn.failed",
+        "type": "turn.completed",
         "status": "failed",
+        "last_event_seq": 1,
+        "completed_at": 11.0,
         "error": {"message": "pause_turn is not supported"},
         "route": "messages",
         "usage": {"output_tokens": 2},
@@ -1148,19 +1137,17 @@ def test_turn_terminal_events_preserve_response_metadata() -> None:
     })
     usage["cache"]["read_tokens"] = 99
 
-    assert isinstance(done, TurnDoneEvent)
-    assert done.status == "incomplete"
-    assert done.reason == "max_output_tokens"
-    assert done.can_continue is True
-    assert done.response_id == "msg_1"
-    assert done.model == "claude-test"
-    assert done.route == "messages"
-    assert done.request_id == "req_1"
-    assert done.service_tier == "standard"
-    assert done.usage["cache"] == {"read_tokens": 3}
-    assert done.stop_reason == "max_tokens"
-    assert done.stop_sequence is None
-    assert isinstance(failed, TurnFailedEvent)
+    assert isinstance(completed, TurnCompletedEvent)
+    assert completed.status == "completed"
+    assert completed.response_id == "msg_1"
+    assert completed.model == "claude-test"
+    assert completed.route == "messages"
+    assert completed.request_id == "req_1"
+    assert completed.service_tier == "standard"
+    assert completed.usage["cache"] == {"read_tokens": 3}
+    assert completed.stop_reason == "max_tokens"
+    assert completed.stop_sequence is None
+    assert isinstance(failed, TurnCompletedEvent)
     assert failed.status == "failed"
     assert failed.error == "pause_turn is not supported"
     assert failed.error_type == ""
@@ -1168,10 +1155,12 @@ def test_turn_terminal_events_preserve_response_metadata() -> None:
     assert failed.usage == {"output_tokens": 2}
 
 
-def test_failed_event_preserves_provider_error_metadata() -> None:
+def test_failed_completion_preserves_provider_error_metadata() -> None:
     failed = parse_stream_event({
-        "type": "turn.failed",
+        "type": "turn.completed",
         "status": "failed",
+        "last_event_seq": 1,
+        "completed_at": 10.0,
         "error_type": "provider_error",
         "error": {
             "type": "provider_error",
@@ -1182,7 +1171,7 @@ def test_failed_event_preserves_provider_error_metadata() -> None:
         "status_code": 422,
     })
 
-    assert isinstance(failed, TurnFailedEvent)
+    assert isinstance(failed, TurnCompletedEvent)
     assert failed.error == "content rejected"
     assert failed.error_type == "provider_error"
     assert failed.error_source == "provider"
@@ -1190,15 +1179,13 @@ def test_failed_event_preserves_provider_error_metadata() -> None:
     assert failed.retryable is False
 
 
-def test_logical_settlement_accepts_null_next_input() -> None:
-    settled = parse_stream_event({
-        "type": "turn.logical_settled",
-        "turn_id": "turn_1",
-        "next_input": None,
-    })
-
-    assert isinstance(settled, TurnLogicalSettledEvent)
-    assert settled.next_input is None
+@pytest.mark.parametrize(
+    "event_type",
+    ("turn.start", "turn.done", "turn.failed", "turn.logical_settled"),
+)
+def test_removed_turn_lifecycle_events_are_rejected(event_type) -> None:
+    with pytest.raises(ValueError, match="event type was removed"):
+        parse_stream_event({"type": event_type})
 
 
 @pytest.mark.parametrize("payload", ({}, {"type": ""}))

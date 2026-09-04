@@ -8,7 +8,6 @@ from agent.ports import SourcesOutput
 from agent.application.views import (
     FailureView,
     RunCompletedView,
-    RunIncompleteView,
     RunStartedView,
 )
 from agent.application.turns.stream_outcome import StreamTurnOutcome
@@ -17,10 +16,7 @@ from agent.application.turns.presentation import (
     StreamTurnPresentation,
 )
 from agent.domain.policies import preset_permissions
-from protocol.schema.stream_events import (
-    TurnDoneEvent,
-    TurnFailedEvent,
-)
+from protocol.schema.stream_events import TurnCompletedEvent
 
 
 class _Sink:
@@ -173,9 +169,12 @@ async def test_presentation_projects_protocol_failure_without_reporting(
     expected_stop_reason: str | None,
 ) -> None:
     outcome = StreamTurnOutcome()
-    outcome.record_failed_event(TurnFailedEvent(
-        type="turn.failed",
+    outcome.record_completed_event(TurnCompletedEvent(
+        type="turn.completed",
         turn_id="turn-test",
+        status="failed",
+        last_event_seq=4,
+        completed_at=1.0,
         error="protocol failure",
         usage={"output_tokens": 4},
         stop_reason="pause_turn",
@@ -195,46 +194,18 @@ async def test_presentation_projects_protocol_failure_without_reporting(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("event", "expected_view"),
-    (
-        (
-            TurnDoneEvent(
-                type="turn.done",
-                turn_id="turn-test",
-                usage={"output_tokens": 3},
-                response_id="response-test",
-            ),
-            RunCompletedView(
-                usage={"output_tokens": 3},
-                response_id="response-test",
-            ),
-        ),
-        (
-            TurnDoneEvent(
-                type="turn.done",
-                turn_id="turn-test",
-                status="incomplete",
-                reason="max_output_tokens",
-                can_continue=True,
-                usage={"output_tokens": 5},
-                stop_reason="max_tokens",
-            ),
-            RunIncompleteView(
-                usage={"output_tokens": 5},
-                reason="max_output_tokens",
-                can_continue=True,
-                stop_reason="max_tokens",
-            ),
-        ),
-    ),
-)
 async def test_presentation_projects_sources_and_normal_terminal_view(
-    event: TurnDoneEvent,
-    expected_view: RunCompletedView | RunIncompleteView,
 ) -> None:
     outcome = StreamTurnOutcome()
-    outcome.record_done_event(event)
+    outcome.record_completed_event(TurnCompletedEvent(
+        type="turn.completed",
+        turn_id="turn-test",
+        status="completed",
+        last_event_seq=3,
+        completed_at=1.0,
+        usage={"output_tokens": 3},
+        response_id="response-test",
+    ))
     projection, content, views, report = _presentation(outcome)
 
     await projection.emit_result(({"url": "https://example.test"},))
@@ -242,5 +213,8 @@ async def test_presentation_projects_sources_and_normal_terminal_view(
     assert content.items == [SourcesOutput(({
         "url": "https://example.test",
     },))]
-    assert views.items == [expected_view]
+    assert views.items == [RunCompletedView(
+        usage={"output_tokens": 3},
+        response_id="response-test",
+    )]
     assert report.events == []

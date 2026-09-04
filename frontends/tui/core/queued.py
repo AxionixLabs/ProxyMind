@@ -100,6 +100,12 @@ class TuiQueuedMessages(object):
             return None
         return self._items.pop()
 
+    def drain(self) -> tuple[TuiSubmission, ...]:
+        """按提交顺序取出全部待提交消息。"""
+        items = tuple(self._items)
+        self._items.clear()
+        return items
+
     def remove(self, client_message_id: str) -> TuiSubmission | None:
         """按稳定消息标识移除一条待提交消息。"""
         for item in self._items:
@@ -155,6 +161,10 @@ class TuiRejectedSteers(object):
         """在队尾追加一条等待轮末重投的输入。"""
         self._items.append(item)
 
+    def prepend(self, item: TuiSubmission) -> None:
+        """把显式中断后应立即提交的输入放到重投队首。"""
+        self._items.appendleft(item)
+
     def pop_next(self) -> TuiSubmission | None:
         """取出下一条应当优先重投的输入。"""
         if not self._items:
@@ -166,6 +176,12 @@ class TuiRejectedSteers(object):
         if not self._items:
             return None
         return self._items.pop()
+
+    def drain(self) -> tuple[TuiSubmission, ...]:
+        """按提交顺序取出全部被拒绝的即时输入。"""
+        items = tuple(self._items)
+        self._items.clear()
+        return items
 
     def remove(self, client_message_id: str) -> TuiSubmission | None:
         """按稳定消息标识移除一条轮末重投输入。"""
@@ -209,6 +225,11 @@ class TuiPendingSteers(object):
         """返回当前是否存在归属未确认的输入。"""
         return bool(self._uncertain)
 
+    @property
+    def active_ids(self) -> tuple[str, ...]:
+        """返回尚未收到权威归属的当前轮次输入标识。"""
+        return tuple(self._items)
+
     def add(self, item: TuiSubmission) -> None:
         """记录一条等待当前轮次接收的输入。"""
         if not self._items:
@@ -246,6 +267,15 @@ class TuiPendingSteers(object):
             return None
         client_message_id = next(reversed(self._uncertain))
         return self._uncertain.pop(client_message_id)
+
+    def drain(self) -> tuple[TuiSubmission, ...]:
+        """按登记顺序取出全部未确认输入。"""
+        items_by_id = dict(self._items)
+        items_by_id.update(self._uncertain)
+        self._items.clear()
+        self._uncertain.clear()
+        self._interrupt_settling = False
+        return tuple(items_by_id.values())
 
     def fragments(self, *, width: int, max_rows: int = 6) -> FormattedText:
         """生成等待当前轮次接收的消息列表。"""

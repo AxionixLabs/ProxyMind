@@ -41,8 +41,8 @@ class PendingSteerLedger(object):
 
     def add(self, submission: TuiSubmission) -> None:
         """记录一条尚未发送的本地输入。"""
-        if self._state is LedgerState.CLOSED:
-            raise RuntimeError("cannot add input to a closed ledger")
+        if self._state is not LedgerState.ACTIVE:
+            raise RuntimeError("cannot add input to an inactive ledger")
         self._items.setdefault(
             submission.client_message_id,
             (submission, SteerState.LOCAL),
@@ -136,7 +136,15 @@ class PendingSteerLedger(object):
         resolved_ids = tuple(self._items)
 
         for client_message_id, (submission, state) in self._items.items():
-            if state is SteerState.LOCAL or client_message_id in retry:
+            if (
+                state is SteerState.LOCAL
+                or client_message_id in retry
+                or (
+                    self.settled
+                    and state is not SteerState.COMMITTED
+                    and client_message_id not in committed
+                )
+            ):
                 retry_items.append(submission)
             elif (
                 state is not SteerState.COMMITTED

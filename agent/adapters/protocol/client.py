@@ -22,6 +22,7 @@ from agent.protocol import (
     ModelStreamRequest,
     SteerTurnInput,
     TurnControlReceipt,
+    TurnCompletedSnapshot,
     TurnReconcileReceipt,
     TurnStatusSnapshot,
     validate_model_event,
@@ -456,20 +457,23 @@ class MindChatProtocolClient:
             turn_id=response.turn_id,
             run_id=response.run_id,
             status=response.status,
-            terminal=response.terminal,
+            terminal=(
+                TurnCompletedSnapshot(
+                    turn_id=response.terminal.turn_id,
+                    status=response.terminal.status,
+                    error=response.terminal.error,
+                    last_event_seq=response.terminal.last_event_seq,
+                    completed_at=response.terminal.completed_at,
+                )
+                if response.terminal is not None
+                else None
+            ),
             attempt=response.attempt,
             version=response.version,
             last_event_seq=response.last_event_seq,
             created_at=response.created_at,
             updated_at=response.updated_at,
-            error=response.error,
         )
-        if snapshot.terminal:
-            self._event_cursors.advance(
-                cid=snapshot.cid,
-                sid=snapshot.sid,
-                event_seq=snapshot.last_event_seq,
-            )
         return snapshot
 
     async def fork_session(

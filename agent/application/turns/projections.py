@@ -16,6 +16,7 @@ _TERMINAL_EVENT_STATUS: dict[str, str] = {
     "run_failed": "failed",
     "run_incomplete": "incomplete",
     "run_interrupted": "interrupted",
+    "run_cancelled": "cancelled",
     "run_reconciliation_required": "reconciliation_required",
 }
 

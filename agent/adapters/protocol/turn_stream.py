@@ -79,10 +79,8 @@ from protocol.schema.stream_events import (
     StreamGapEvent,
     ToolApprovalRequiredEvent,
     ToolApprovalReviewEvent,
-    TurnDoneEvent,
-    TurnFailedEvent,
+    TurnCompletedEvent,
     TurnInputAcceptedEvent,
-    TurnLogicalSettledEvent,
     TurnReconciliationRequiredEvent,
 )
 from protocol.schema.turn_inputs import TurnInput
@@ -434,36 +432,13 @@ async def stream_turn(
                     break
                 continue
 
-            if event_type == "turn.start":
+            if event_type == "turn.started":
                 if callbacks.input_event is not None:
                     callbacks.input_event(event)
                 continue
 
             if event_type == "turn.thinking":
                 await activity_projector.request_model_wait("server_thinking")
-                continue
-
-            if isinstance(event, TurnFailedEvent):
-
-                if tool_dispatcher.batch_active:
-                    raise ValueError("turn.failed arrived before tool.calls.done")
-
-                outcome.record_failed_event(event)
-                await activity_projector.turn_terminal("failed")
-
-                observe(
-                    "stream.turn_failed",
-                    level="ERROR",
-                    error=outcome.error,
-                    error_type=event.error_type or None,
-                    error_source=event.error_source or None,
-                    retryable=event.retryable,
-                    stop_reason=event.stop_reason,
-                )
-                await run_presentation.emit_failure(
-                    "turn.failed",
-                    mode=FailureProjectionMode.TERMINAL,
-                )
                 continue
 
             if isinstance(event, TurnReconciliationRequiredEvent):
@@ -527,30 +502,46 @@ async def stream_turn(
                 )
                 break
 
-            if isinstance(event, TurnDoneEvent):
-
+            if isinstance(event, TurnCompletedEvent):
                 if tool_dispatcher.batch_active:
-                    raise ValueError("turn.done arrived before tool.calls.done")
+                    raise ValueError(
+                        "turn.completed arrived before tool.calls.done"
+                    )
 
-                outcome.record_done_event(event)
+                outcome.record_completed_event(event)
                 await activity_projector.turn_terminal(
                     normalize_turn_terminal_status(event.status)
                 )
 
-                if event.status == "interrupted":
-                    outcome.confirm_interrupt()
+                if callbacks.input_event is not None:
+                    callbacks.input_event(event)
+
+                if event.status in {"interrupted", "cancelled"}:
+                    outcome.confirm_interrupt(event.status)
                     if callbacks.interrupted is not None:
                         callbacks.interrupted()
+                elif event.status == "failed":
+                    observe(
+                        "stream.turn_completed",
+                        level="ERROR",
+                        status=event.status,
+                        error=outcome.error,
+                        error_type=event.error_type or None,
+                        error_source=event.error_source or None,
+                        retryable=event.retryable,
+                        stop_reason=event.stop_reason,
+                    )
+                    await run_presentation.emit_failure(
+                        "turn.completed",
+                        mode=FailureProjectionMode.TERMINAL,
+                    )
 
                 continue
 
-            if isinstance(event, (TurnInputAcceptedEvent, TurnLogicalSettledEvent)):
+            if isinstance(event, TurnInputAcceptedEvent):
                 if callbacks.input_event is not None:
                     accepted_input = callbacks.input_event(event)
-                    if (
-                        isinstance(event, TurnInputAcceptedEvent)
-                        and isinstance(accepted_input, TurnInput)
-                    ):
+                    if isinstance(accepted_input, TurnInput):
                         transcript.append(
                             "message.created",
                             actor="user",
@@ -560,8 +551,6 @@ async def stream_turn(
                                 extras=accepted_input.extras,
                             ),
                         )
-                if isinstance(event, TurnLogicalSettledEvent):
-                    await activity_projector.logical_settled()
                 continue
 
             if isinstance(event, ToolApprovalRequiredEvent):

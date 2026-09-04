@@ -33,6 +33,7 @@ _RESULT_STATES: dict[str, tuple[RunStatus, RunEventKind]] = {
     "failed": (RunStatus.FAILED, "run_failed"),
     "incomplete": (RunStatus.INCOMPLETE, "run_incomplete"),
     "interrupted": (RunStatus.INTERRUPTED, "run_interrupted"),
+    "cancelled": (RunStatus.CANCELLED, "run_cancelled"),
     "reconciliation_required": (
         RunStatus.RECONCILIATION_REQUIRED,
         "run_reconciliation_required",

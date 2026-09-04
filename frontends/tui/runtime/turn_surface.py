@@ -16,7 +16,6 @@ from agent.ports import (
     AssistantBuffered,
     AssistantSettled,
     AssistantVisible,
-    LogicalSettled,
     ModelWaitReason,
     ModelWaitRequested,
     OutputActivityEvent,
@@ -154,7 +153,6 @@ class TurnSurfaceState:
     completed_retries: tuple[RetryActivity, ...] = ()
     recovery: RecoveryActivityMode = "live"
     recovery_event_seq: int = 0
-    logical_settled: bool = False
     terminal_status: str = ""
     revision: int = 0
 
@@ -557,10 +555,6 @@ def _reduce_active_surface(
             if event.status != state.terminal_status:
                 raise ValueError("turn terminal status conflicts with existing state")
             return state
-        if isinstance(event, LogicalSettled):
-            if state.logical_settled:
-                return state
-            return replace(state, logical_settled=True)
         if isinstance(event, SurfaceClosed):
             return replace(state, lifecycle="closed")
         return state
@@ -951,8 +945,6 @@ def _reduce_active_surface(
             retries=(),
             terminal_status=event.status,
         )
-    if isinstance(event, LogicalSettled):
-        raise ValueError("logical settlement requires terminal turn")
     if isinstance(event, SurfaceClosed):
         return replace(
             state,

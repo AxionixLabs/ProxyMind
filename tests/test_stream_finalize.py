@@ -7,7 +7,7 @@ import pytest
 from agent.application.hooks.models import StopHookDecision
 from agent.harness.execution.turn_finalizer import StreamTurnFinalizer
 from agent.application.turns.stream_outcome import StreamTurnOutcome
-from protocol.schema.stream_events import TurnDoneEvent
+from protocol.schema.stream_events import TurnCompletedEvent
 
 
 class _TurnStateStore:
@@ -76,9 +76,12 @@ class _HookEvents:
 def _completed_outcome() -> StreamTurnOutcome:
     """构造携带用量的已完成终态。"""
     outcome = StreamTurnOutcome()
-    outcome.record_done_event(TurnDoneEvent(
-        type="turn.done",
+    outcome.record_completed_event(TurnCompletedEvent(
+        type="turn.completed",
         turn_id="turn-test",
+        status="completed",
+        last_event_seq=3,
+        completed_at=1.0,
         usage={"output_tokens": 3},
     ))
     return outcome

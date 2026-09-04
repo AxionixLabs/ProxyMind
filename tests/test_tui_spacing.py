@@ -4211,6 +4211,8 @@ async def test_resize_reflow_vt_transaction_wraps_erase_and_replay() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.runtime_p0
+@pytest.mark.runtime_frame
 async def test_single_line_assistant_handoff_uses_synchronized_output() -> None:
     stream = io.StringIO()
     terminal_size = Size(rows=16, columns=40)

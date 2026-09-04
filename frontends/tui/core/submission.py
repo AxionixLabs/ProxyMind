@@ -30,6 +30,11 @@ from ..prompting.commands import (
     stream_command_label,
     stream_command_policy
 )
+from ..prompting.paste import (
+    format_paste_placeholder,
+    iter_paste_placeholders,
+    parse_paste_placeholder,
+)
 
 _INPUT_CLOSED = object()
 
@@ -109,6 +114,7 @@ class TuiSubmissionFlow(object):
         self.surface_submission_pending: bool = False
         self._queue_submission_requested: bool = False
         self._input_handoff_pending: bool = False
+        self._submit_after_interrupt_ids: tuple[str, ...] = ()
         self._is_submission_deferred = is_submission_deferred
         self._get_input_buffer = get_input_buffer
         self._append_notice = append_notice
@@ -282,6 +288,9 @@ class TuiSubmissionFlow(object):
 
     def mark_pending_steers_interrupt_settling(self) -> None:
         """立即展示等待中断结算的即时输入。"""
+        active_ids = self.pending_steers.active_ids
+        if active_ids:
+            self._submit_after_interrupt_ids = active_ids
         if self.pending_steers.mark_interrupt_settling():
             self._invalidate()
 
@@ -348,6 +357,67 @@ class TuiSubmissionFlow(object):
         self.input_model.notify_input_layout()
         self._invalidate()
 
+        return True
+
+    def restore_interrupted_submissions(self) -> bool:
+        """按中断意图立即提交 steer，或把普通遗留输入恢复到编辑框。"""
+        submit_ids = self._submit_after_interrupt_ids
+        self._submit_after_interrupt_ids = ()
+        if submit_ids:
+            immediate: list[TuiSubmission] = []
+            for client_message_id in submit_ids:
+                submission = self.rejected_steers.remove(client_message_id)
+                if submission is None:
+                    submission = self.pending_steers.remove(client_message_id)
+                if submission is not None:
+                    immediate.append(submission)
+            if immediate:
+                merged = _merge_interrupted_submissions(
+                    tuple(immediate),
+                    current_text="",
+                    current_pastes={},
+                    current_shell_mode=False,
+                )
+                self.rejected_steers.prepend(merged)
+                self.clear_exit_confirmation()
+                self._invalidate()
+                return True
+
+        pending = (
+            self.rejected_steers.drain()
+            + self.pending_steers.drain()
+            + self.queued_messages.drain()
+        )
+        if not pending:
+            return False
+
+        buffer = self._get_input_buffer()
+        current_text = buffer.text
+        current_pastes = self.input_model.submission_state(current_text)
+        merged = _merge_interrupted_submissions(
+            pending,
+            current_text=current_text,
+            current_pastes=current_pastes,
+            current_shell_mode=self.input_model.shell_mode,
+        )
+
+        for submission in reversed(pending):
+            if submission.history_recorded:
+                self.input_model.rollback_submission_history(
+                    submission.value,
+                    alternate_text=submission.visible_text,
+                )
+
+        self._queued_restore_handler(merged)
+        self.clear_exit_confirmation()
+        self.queued_submission_text = None
+        buffer.cancel_completion()
+        buffer.text = merged.editable_text
+        buffer.cursor_position = len(merged.editable_text)
+        self.input_model.restore_submission_state(merged.paste_store)
+        self.input_model.set_shell_mode(merged.shell_mode)
+        self.input_model.notify_input_layout()
+        self._invalidate()
         return True
 
     def on_input_text_changed(self, buffer: Buffer) -> None:
@@ -652,6 +722,90 @@ class TuiSubmissionFlow(object):
         self._turn_input_handler = _ignore_turn_input
         self._queued_restore_handler = _ignore_queued_restore
         self._has_pending_attachments = _no_pending_attachments
+
+
+def _merge_interrupted_submissions(
+    submissions: tuple[TuiSubmission, ...],
+    *,
+    current_text: str,
+    current_pastes: dict[str, str],
+    current_shell_mode: bool,
+) -> TuiSubmission:
+    """合并待恢复输入并为折叠粘贴生成无冲突占位符。"""
+    chunks = [
+        (submission.visible_text, submission.paste_store)
+        for submission in submissions
+    ]
+    if current_text or current_pastes:
+        visible_current = (
+            f"! {current_text.strip()}"
+            if current_shell_mode and current_text.strip()
+            else "!"
+            if current_shell_mode
+            else current_text
+        )
+        chunks.append((visible_current, current_pastes))
+
+    reserved_placeholders = {
+        placeholder
+        for text, _paste_store in chunks
+        for _start, _end, placeholder in iter_paste_placeholders(text)
+    }
+    highest_index = max(
+        (
+            parsed.index
+            for placeholder in reserved_placeholders
+            if (parsed := parse_paste_placeholder(placeholder)) is not None
+        ),
+        default=0,
+    )
+    next_index = highest_index + 1
+    merged_texts: list[str] = []
+    merged_pastes: dict[str, str] = {}
+
+    for text, paste_store in chunks:
+        remapped_text = text
+        for _start, _end, placeholder in tuple(iter_paste_placeholders(text)):
+            original = paste_store.get(placeholder)
+            if original is None:
+                continue
+            replacement = format_paste_placeholder(original, next_index)
+            while replacement in reserved_placeholders or replacement in merged_pastes:
+                next_index += 1
+                replacement = format_paste_placeholder(original, next_index)
+            next_index += 1
+            remapped_text = remapped_text.replace(placeholder, replacement, 1)
+            merged_pastes[replacement] = original
+        if remapped_text:
+            merged_texts.append(remapped_text)
+
+    attachments = tuple(
+        attachment
+        for submission in submissions
+        for attachment in submission.attachments
+    )
+    extras: dict[str, typing.Any] = {}
+    for submission in submissions:
+        extras.update(submission.extras)
+
+    merged_text = "\n".join(merged_texts)
+    single_shell = (
+        len(submissions) == 1
+        and not current_text
+        and not current_pastes
+        and submissions[0].shell_mode
+    )
+    editable_text = submissions[0].editable_text if single_shell else merged_text
+    value = submissions[0].value if single_shell else merged_text
+    return TuiSubmission(
+        value=value,
+        editable_text=editable_text,
+        paste_store=merged_pastes,
+        shell_mode=single_shell,
+        attachments=attachments,
+        extras=extras,
+        payload_bound=any(submission.payload_bound for submission in submissions),
+    )
 
 
 if __name__ == '__main__':

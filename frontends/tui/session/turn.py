@@ -150,7 +150,7 @@ async def execute_tui_model_turn(
             task.cancel()
 
     def cancel_turn() -> InterruptDisposition:
-        """登记中断，并在远端 Turn 就绪后取消本地事件流。"""
+        """登记中断，并继续观察远端权威终态。"""
         if interrupt_state.requested:
             if turn_input_control is not None:
                 turn_input_control.abandon()
@@ -162,12 +162,10 @@ async def execute_tui_model_turn(
         interrupt_state.request()
 
         if turn_input_control is None:
-            remote_control_ready = True
+            interrupt_dispatched = False
             cancel_local_stream()
         else:
-            remote_control_ready = turn_input_control.request_interrupt(
-                on_remote_control_ready=cancel_local_stream,
-            )
+            interrupt_dispatched = turn_input_control.request_interrupt()
         if on_interrupt_requested is not None and show_interrupt_notice():
             on_interrupt_requested()
 
@@ -175,7 +173,8 @@ async def execute_tui_model_turn(
             "tui.turn.interrupt.local",
             task_name=task.get_name(),
             remote_control=turn_input_control is not None,
-            local_cancelled=remote_control_ready,
+            interrupt_dispatched=interrupt_dispatched,
+            local_cancelled=turn_input_control is None,
         )
 
         return InterruptDisposition.CONSUMED
@@ -219,9 +218,10 @@ async def execute_tui_model_turn(
         result = None
 
     else:
+        terminal_status = _turn_result_status(result)
         interrupted = bool(
-            interrupt_state.requested
-            or _turn_result_status(result) == "interrupted"
+            terminal_status in {"interrupted", "cancelled"}
+            or (interrupt_state.requested and not terminal_status)
         )
 
     finally:
@@ -241,6 +241,8 @@ async def execute_tui_model_turn(
         try:
             if turn_input_control is not None:
                 await turn_input_control.close()
+                if interrupted:
+                    runtime.restore_interrupted_submissions()
         finally:
             runtime.bind_interrupt_handler(None)
 

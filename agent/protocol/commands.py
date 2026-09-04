@@ -127,6 +127,17 @@ class TurnReconcileReceipt:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnCompletedSnapshot:
+    """描述与服务端唯一终态事件同构的稳定快照。"""
+
+    turn_id: str
+    status: typing.Literal["completed", "failed", "interrupted", "cancelled"]
+    error: str | None
+    last_event_seq: int
+    completed_at: float
+
+
+@dataclass(frozen=True, slots=True)
 class TurnStatusSnapshot:
     """描述服务端持久化 Turn 的稳定状态快照。"""
 
@@ -135,13 +146,12 @@ class TurnStatusSnapshot:
     turn_id: str
     run_id: str
     status: TurnRuntimeStatus
-    terminal: bool
+    terminal: TurnCompletedSnapshot | None
     attempt: int
     version: int
     last_event_seq: int
     created_at: float
     updated_at: float
-    error: str
 
 
 @dataclass(frozen=True, slots=True)

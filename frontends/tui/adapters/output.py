@@ -261,6 +261,10 @@ class TuiOutputControl(OutputControlPort):
         """展示帧预算内合并的最新流式正文。"""
         self._stream_render_handle = None
 
+        if self.runtime.turn_output_suppressed:
+            self._discard_visible_output_state()
+            return None
+
         if not self.assistant.active:
             self._stream_rendered_at = 0.0
             return None
@@ -481,7 +485,7 @@ class TuiOutputControl(OutputControlPort):
 
     def _sync_stream_width(self, _application: typing.Any) -> None:
         """在布局计算前记录稳定后的活动正文目标宽度。"""
-        if self._final_render_active:
+        if self._final_render_active or self.runtime.turn_output_suppressed:
             self._cancel_stream_resize()
             return None
 
@@ -741,6 +745,9 @@ class TuiOutputControl(OutputControlPort):
         await self.record_writer.open()
 
     async def complete_turn(self) -> None:
+        if self.runtime.turn_output_suppressed:
+            self._discard_visible_output_state()
+            return None
         elapsed_sec = (
             max(0.0, time.perf_counter() - self._turn_started_at)
             if self._turn_started_at is not None
@@ -764,6 +771,11 @@ class TuiOutputControl(OutputControlPort):
     ) -> None:
         """向当前 TUI assistant 正文追加一段原始增量。"""
         if not chunk:
+            return None
+
+        if self.runtime.turn_output_suppressed:
+            self._discard_visible_output_state()
+            self.record_writer.write(sanitize_terminal_text(str(chunk)))
             return None
 
         raw_text = self.assistant.prepare_delta(str(chunk))
@@ -792,6 +804,9 @@ class TuiOutputControl(OutputControlPort):
 
     async def supersede_assistant_presentation(self) -> None:
         """原子提交旧正文、追加审计提示并为新 Attempt 开启独立助手块。"""
+        if self.runtime.turn_output_suppressed:
+            self._discard_visible_output_state()
+            return None
         notice = FragmentBlock((
             ("class:notice", "↻ Previous attempt interrupted; retrying"),
         ))
@@ -807,6 +822,9 @@ class TuiOutputControl(OutputControlPort):
 
     async def settle_stream(self) -> None:
         """渲染当前未换行尾部并立即揭示全部完整显示行。"""
+        if self.runtime.turn_output_suppressed:
+            self._discard_visible_output_state()
+            return None
         self._cancel_stream_render()
         self._finish_assistant_filter(render=False)
 
@@ -816,6 +834,11 @@ class TuiOutputControl(OutputControlPort):
 
     async def replace_assistant_stream(self, text: str) -> None:
         """用 provider 最终正文替换尚未提交的当前流式正文。"""
+        if self.runtime.turn_output_suppressed:
+            self._discard_visible_output_state()
+            if text:
+                self.record_writer.write(sanitize_terminal_text(str(text)))
+            return None
         self._cancel_stream_render()
         self._cancel_stream_resize()
         self._finish_assistant_filter(render=False)
@@ -846,6 +869,9 @@ class TuiOutputControl(OutputControlPort):
         """提交正文后追加一项 assistant 元数据块。"""
         if not text:
             return None
+        if self.runtime.turn_output_suppressed:
+            self.record_writer.write(sanitize_terminal_text(text), block=True)
+            return None
         self.assistant.discard_boundary()
         await self._commit_current()
 
@@ -875,6 +901,11 @@ class TuiOutputControl(OutputControlPort):
         transcript_block = sanitize_styled_block(transcript_block or block)
 
         if not block.plain_text:
+            return None
+
+        if self.runtime.turn_output_suppressed:
+            self._discard_visible_output_state()
+            self.record_writer.write(block.plain_text, block=True)
             return None
 
         self.assistant.discard_boundary()
@@ -917,6 +948,9 @@ class TuiOutputControl(OutputControlPort):
 
     async def _commit_current(self) -> bool:
         """把当前动态内容提交为稳定 TUI 内容块并返回提交状态。"""
+        if self.runtime.turn_output_suppressed:
+            self._discard_visible_output_state()
+            return False
         self._finish_assistant_filter(render=False)
         self._cancel_stream_render()
         self._cancel_stream_resize()
@@ -970,6 +1004,17 @@ class TuiOutputControl(OutputControlPort):
         self._assistant_visible_event = None
 
         return True
+
+    def _discard_visible_output_state(self) -> None:
+        """丢弃用户中断后不得重新上屏的本轮可变输出。"""
+        self._cancel_stream_render()
+        self._cancel_stream_resize()
+        self.assistant.clear()
+        self._assistant_filter.reset()
+        self._reset_stream_state()
+        self._assistant_visible_event = None
+        if self.runtime.document.active_kind == "assistant":
+            self.runtime.clear_active_renderable()
 
     async def _render_final_snapshot(
         self,

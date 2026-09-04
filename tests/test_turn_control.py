@@ -23,13 +23,12 @@ async def test_turn_status_returns_validated_authoritative_snapshot(
             "turn_id": "turn_001",
             "run_id": "run_001",
             "status": "running",
-            "terminal": False,
+            "terminal": None,
             "attempt": 2,
             "version": 3,
             "last_event_seq": 17,
             "created_at": 10.0,
             "updated_at": 12.5,
-            "error": "",
         },
         request=httpx.Request("GET", "https://example.com/turn/status"),
     )
@@ -69,7 +68,7 @@ async def test_turn_status_returns_validated_authoritative_snapshot(
     )
 
     assert snapshot.status == "running"
-    assert snapshot.terminal is False
+    assert snapshot.terminal is None
     assert snapshot.last_event_seq == 17
     assert captured == {
         "timeout": 4.0,
@@ -116,7 +115,7 @@ async def test_turn_status_preserves_http_status_code(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_turn_status_rejects_inconsistent_terminal_flag(monkeypatch) -> None:
+async def test_turn_status_rejects_missing_terminal_snapshot(monkeypatch) -> None:
     response = httpx.Response(
         200,
         json={
@@ -126,13 +125,12 @@ async def test_turn_status_rejects_inconsistent_terminal_flag(monkeypatch) -> No
             "turn_id": "turn_001",
             "run_id": "run_001",
             "status": "failed",
-            "terminal": False,
+            "terminal": None,
             "attempt": 1,
             "version": 1,
             "last_event_seq": 3,
             "created_at": 10.0,
             "updated_at": 12.5,
-            "error": "provider failed",
         },
         request=httpx.Request("GET", "https://example.com/turn/status"),
     )

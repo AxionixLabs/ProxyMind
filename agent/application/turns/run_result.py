@@ -13,6 +13,7 @@ RunStatus = typing.Literal[
     "failed",
     "incomplete",
     "interrupted",
+    "cancelled",
     "reconciliation_required",
 ]
 

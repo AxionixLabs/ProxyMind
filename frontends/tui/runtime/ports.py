@@ -138,6 +138,10 @@ class TurnRuntimePort(typing.Protocol):
         """绑定或清除取回队列消息时的结构化草稿恢复。"""
         ...
 
+    def restore_interrupted_submissions(self) -> bool:
+        """把中断轮次遗留输入恢复到编辑框且不触发提交。"""
+        ...
+
     async def wait_for_application_failure(self) -> BaseException:
         """等待输入应用异常停止并返回原始错误。"""
         ...

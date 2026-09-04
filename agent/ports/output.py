@@ -31,7 +31,6 @@ __all__ = (
     "AssistantVisible",
     "BLOCK_OUTPUT",
     "ContentSink",
-    "LogicalSettled",
     "ModelWaitReason",
     "ModelWaitRequested",
     "OutputControlPort",
@@ -439,11 +438,6 @@ class TurnTerminal(_ScopedActivityEvent):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class LogicalSettled(_ScopedActivityEvent):
-    """描述当前 Turn 的逻辑交互已经结算。"""
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class SurfaceClosed(_ScopedActivityEvent):
     """描述输出会话已经关闭。"""
 
@@ -468,7 +462,6 @@ OutputActivityEvent: typing.TypeAlias = (
     | RetryChanged
     | RecoveryChanged
     | TurnTerminal
-    | LogicalSettled
     | SurfaceClosed
 )
 

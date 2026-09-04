@@ -119,6 +119,47 @@ def test_pending_steers_show_interrupt_settlement_immediately() -> None:
     )
 
 
+@pytest.mark.anyio
+async def test_interrupt_with_pending_steers_submits_only_those_immediately() -> None:
+    runtime = TuiRuntime()
+    first = _submission("second query")
+    second = _submission("third query")
+    queued = _submission("tab follow up")
+    runtime.track_pending_steer(first)
+    runtime.track_pending_steer(second)
+    runtime.defer_submission(queued)
+    runtime.screen.input.buffer.text = "draft remains editable"
+
+    runtime.finish_interrupted_presentation()
+    runtime.defer_rejected_steer(first)
+    runtime.defer_rejected_steer(second)
+
+    assert runtime.restore_interrupted_submissions()
+
+    immediate = await runtime.submissions.read_submission()
+    follow_up = await runtime.submissions.read_submission()
+    assert immediate.value == "second query\nthird query"
+    assert follow_up.client_message_id == queued.client_message_id
+    assert runtime.screen.input.buffer.text == "draft remains editable"
+
+
+def test_ordinary_interrupted_queue_restores_everything_to_composer() -> None:
+    runtime = TuiRuntime()
+    runtime.track_pending_steer(_submission("pending steer"))
+    runtime.defer_rejected_steer(_submission("rejected steer"))
+    runtime.defer_submission(_submission("tab follow up"))
+    runtime.screen.input.buffer.text = "current draft"
+
+    assert runtime.restore_interrupted_submissions()
+
+    assert runtime.screen.input.buffer.text == (
+        "rejected steer\npending steer\ntab follow up\ncurrent draft"
+    )
+    assert not runtime.submissions.pending_steers.active
+    assert not runtime.submissions.rejected_steers.active
+    assert not runtime.submissions.queued_messages.active
+
+
 def test_rejected_steer_uses_end_of_turn_title() -> None:
     rejected = TuiRejectedSteers()
     rejected.append(_submission("continue next"))
