@@ -58,21 +58,19 @@ class TuiTurnInputControl(object):
         self._runtime = runtime
         self._state = state
         self._target = (cid, sid, turn_id)
+
         if not isinstance(protocol_client, ProtocolCommandClient):
             raise TypeError("TUI turn input requires ProtocolCommandClient")
+
         self._protocol_client = protocol_client
-
         self._ready_turn_id: str = ""
-
         self._stream_end_reason: ModelStreamEndReason = "cancelled"
-
         self._ledger: PendingSteerLedger = PendingSteerLedger()
-
         self._steer_task: asyncio.Task[None] | None = None
         self._interrupt_task: asyncio.Task[None] | None = None
-        self._interrupt_requested = False
+        self._interrupt_requested: bool = False
         self._interrupt_ready_callback: typing.Callable[[], None] | None = None
-
+        self._abandoned: bool = False
         self._tasks: set[asyncio.Task[None]] = set()
 
     def activate(self, context: TurnContext) -> None:
@@ -219,6 +217,16 @@ class TuiTurnInputControl(object):
         if callback is not None:
             callback()
 
+    def abandon(self) -> None:
+        """在用户强制退出时停止等待远端控制与输入对账。"""
+        if self._abandoned:
+            return None
+        self._abandoned = True
+        self._interrupt_ready_callback = None
+        for task in tuple(self._tasks):
+            if not task.done():
+                task.cancel()
+
     def restore_draft(self, submission: TuiSubmission) -> None:
         """恢复从本地队列取回消息关联的结构化草稿。"""
         if not submission.payload_bound:
@@ -249,7 +257,8 @@ class TuiTurnInputControl(object):
         sent_ids = self._ledger.sent_ids()
 
         if (
-            not self._ledger.settled
+            not self._abandoned
+            and not self._ledger.settled
             and sent_ids
             and self._stream_end_reason != "settled"
         ):

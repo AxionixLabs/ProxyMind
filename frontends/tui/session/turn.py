@@ -151,6 +151,11 @@ async def execute_tui_model_turn(
 
     def cancel_turn() -> InterruptDisposition:
         """登记中断，并在远端 Turn 就绪后取消本地事件流。"""
+        if interrupt_state.requested:
+            if turn_input_control is not None:
+                turn_input_control.abandon()
+            cancel_local_stream()
+            return InterruptDisposition.CONSUMED
         if task.done():
             return InterruptDisposition.IGNORED
 
@@ -233,16 +238,17 @@ async def execute_tui_model_turn(
 
         runtime.bind_stream_command_handler(None)
         runtime.bind_turn_input_handler(None)
-        runtime.bind_interrupt_handler(None)
+        try:
+            if turn_input_control is not None:
+                await turn_input_control.close()
+        finally:
+            runtime.bind_interrupt_handler(None)
 
-        if turn_input_control is not None:
-            await turn_input_control.close()
+            if not runtime.uncertain_steers_active:
+                runtime.bind_queued_restore_handler(None)
 
-        if not runtime.uncertain_steers_active:
-            runtime.bind_queued_restore_handler(None)
-
-        runtime.set_execution_active(False)
-        runtime.set_turn_start_pending(False)
+            runtime.set_execution_active(False)
+            runtime.set_turn_start_pending(False)
 
     if fatal_error is not None:
         raise fatal_error

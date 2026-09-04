@@ -14,6 +14,7 @@ from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.interrupt import InterruptDisposition
+from frontends.tui.core.submission import TuiInterruptRequested
 from frontends.tui.core.styles import query_block, text_block
 from frontends.tui.session import loop as loop_session
 from frontends.tui.session import turn_input as turn_input_session
@@ -1032,6 +1033,65 @@ async def test_remote_interrupt_response_loss_still_waits_for_settlement(
     await asyncio.wait_for(closing, timeout=0.1)
 
     protocol_client.get_turn_status.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_second_ctrl_c_abandons_remote_settlement_and_exits(
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    status_started = asyncio.Event()
+    status_cancelled = asyncio.Event()
+    turn_started = asyncio.Event()
+
+    async def wait_for_status(**_kwargs):
+        status_started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            status_cancelled.set()
+
+    async def turn() -> None:
+        turn_started.set()
+        await asyncio.Future()
+
+    protocol_client.get_turn_status = AsyncMock(side_effect=wait_for_status)
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+    _mark_started(control)
+    execution = asyncio.create_task(execute_tui_model_turn(
+        SimpleNamespace(emit=Mock()),
+        runtime,
+        turn(),
+        turn_input_control=control,
+    ))
+    await turn_started.wait()
+
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.CONSUMED
+    )
+    await status_started.wait()
+    assert runtime.execution_active
+    assert not execution.done()
+
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.EXIT_REQUESTED
+    )
+    await asyncio.wait_for(execution, timeout=0.1)
+
+    assert status_cancelled.is_set()
+    assert not runtime.execution_active
+    with pytest.raises(TuiInterruptRequested):
+        await runtime.submissions.read_submission()
+
+    await runtime.close()
 
 
 @pytest.mark.anyio

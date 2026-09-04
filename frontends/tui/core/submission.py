@@ -433,6 +433,7 @@ class TuiSubmissionFlow(object):
 
         self.input_model.cancel_history_backtrack()
         if self.interrupt_state.exit_armed:
+            self._interrupt_handler()
             self.interrupt_state.request_exit()
             self._cancel_exit_expiry()
             self._exit_event.set()
