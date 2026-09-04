@@ -13,6 +13,7 @@ from .json_value import (
     JsonValue,
     ThawedJsonValue,
     freeze_json,
+    thaw_json,
     thaw_object,
 )
 
@@ -186,6 +187,104 @@ class ModelStreamRequest:
         """返回不包含协议坐标的独立请求元数据。"""
         return thaw_object(self.metadata, field_name="model metadata")
 
+    def to_dict(self) -> dict[str, ThawedJsonValue]:
+        """返回可由本地恢复账本持久化的完整冻结请求。"""
+        return {
+            "cid": self.cid,
+            "sid": self.sid,
+            "turn_id": self.turn_id,
+            "pref_config": thaw_json(self.pref_config),
+            "message": self.message,
+            "tools": thaw_json(self.tools),
+            "attachments": thaw_json(self.attachments),
+            "environment_snapshot": (
+                thaw_json(self.environment_snapshot)
+                if self.environment_snapshot is not None
+                else None
+            ),
+            "metadata": thaw_json(self.metadata),
+            "options": thaw_json(self.options),
+            "timeout": self.timeout,
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        value: Mapping[str, ThawedJsonValue],
+    ) -> "ModelStreamRequest":
+        """从本地恢复账本还原并重新校验完整模型请求。"""
+        expected = {
+            "cid",
+            "sid",
+            "turn_id",
+            "pref_config",
+            "message",
+            "tools",
+            "attachments",
+            "environment_snapshot",
+            "metadata",
+            "options",
+            "timeout",
+        }
+        if set(value) != expected:
+            raise ValueError("persisted model request fields are invalid")
+
+        pref_config = value.get("pref_config")
+        tools = value.get("tools")
+        attachments = value.get("attachments")
+        environment_snapshot = value.get("environment_snapshot")
+        metadata = value.get("metadata")
+        options = value.get("options")
+        if not isinstance(pref_config, dict):
+            raise TypeError("persisted model pref_config must be an object")
+        if not isinstance(tools, list):
+            raise TypeError("persisted model tools must be a sequence")
+        if not isinstance(attachments, list):
+            raise TypeError("persisted model attachments must be a sequence")
+        if environment_snapshot is not None and not isinstance(
+            environment_snapshot,
+            dict,
+        ):
+            raise TypeError(
+                "persisted model environment snapshot must be an object"
+            )
+        if not isinstance(metadata, dict):
+            raise TypeError("persisted model metadata must be an object")
+        if not isinstance(options, dict):
+            raise TypeError("persisted model options must be an object")
+
+        cid = value.get("cid")
+        sid = value.get("sid")
+        turn_id = value.get("turn_id")
+        message = value.get("message")
+        timeout = value.get("timeout")
+        if not isinstance(cid, str):
+            raise TypeError("persisted model cid must be a string")
+        if not isinstance(sid, str):
+            raise TypeError("persisted model sid must be a string")
+        if not isinstance(turn_id, str):
+            raise TypeError("persisted model turn_id must be a string")
+        if not isinstance(message, str):
+            raise TypeError("persisted model message must be a string")
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+            raise TypeError("persisted model timeout must be a number")
+
+        return cls(
+            cid=cid,
+            sid=sid,
+            turn_id=turn_id,
+            pref_config=pref_config,
+            message=message,
+            tools=tuple(_object_sequence(tools, field_name="tools")),
+            attachments=tuple(
+                _object_sequence(attachments, field_name="attachments")
+            ),
+            environment_snapshot=environment_snapshot,
+            metadata=metadata,
+            options=options,
+            timeout=float(timeout),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class TurnObservationRequest:
@@ -230,6 +329,20 @@ def _freeze_objects(
             raise TypeError(f"model {field_name} entries must be objects")
         frozen_values.append(frozen)
     return tuple(frozen_values)
+
+
+def _object_sequence(
+    values: typing.Iterable[ThawedJsonValue],
+    *,
+    field_name: str,
+) -> tuple[dict[str, ThawedJsonValue], ...]:
+    """校验恢复载荷中的对象序列。"""
+    objects: list[dict[str, ThawedJsonValue]] = []
+    for value in values:
+        if not isinstance(value, dict):
+            raise TypeError(f"persisted model {field_name} entries must be objects")
+        objects.append(dict(value))
+    return tuple(objects)
 
 
 if __name__ == '__main__':

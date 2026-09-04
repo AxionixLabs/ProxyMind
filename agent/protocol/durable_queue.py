@@ -8,6 +8,9 @@ from dataclasses import (
     field,
 )
 
+from .commands import SubmitTurnCommand
+from .model import ModelStreamRequest
+
 from .json_value import (
     JsonValue,
     ThawedJsonValue,
@@ -17,6 +20,14 @@ from .json_value import (
 
 DurableQueueItemStatus: typing.TypeAlias = typing.Literal[
     "queued",
+    "started",
+    "deleted",
+]
+
+LocalDurableQueueStatus: typing.TypeAlias = typing.Literal[
+    "adding",
+    "queued",
+    "starting",
     "started",
     "deleted",
 ]
@@ -124,6 +135,88 @@ class DurableQueueStartReceipt:
     submission_id: str
     turn_id: str
     status: typing.Literal["started"] = "started"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalDurableQueueSnapshot:
+    """保存服务端队列命令恢复所需的本地冻结执行事实。
+
+    服务端仍拥有队列顺序和远端状态。本快照只保证响应丢失或进程重启后能够复用
+    原幂等身份，并在 queue.start 成功后按入队时权限、环境和输入观察既有 Turn。
+    """
+
+    submission_id: str
+    client_message_id: str
+    add_request_id: str
+    command: SubmitTurnCommand
+    request: ModelStreamRequest
+    status: LocalDurableQueueStatus
+    revision: int
+    queue_version: int
+    start_request_id: str | None
+    created_at: str
+    updated_at: str
+
+    def __post_init__(self) -> None:
+        """校验本地身份与冻结请求坐标完全一致。"""
+        for field_name in (
+            "submission_id",
+            "client_message_id",
+            "add_request_id",
+            "created_at",
+            "updated_at",
+        ):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"local durable queue {field_name} is required")
+            object.__setattr__(self, field_name, value.strip())
+        if self.status not in {
+            "adding",
+            "queued",
+            "starting",
+            "started",
+            "deleted",
+        }:
+            raise ValueError("local durable queue status is invalid")
+        if (
+            isinstance(self.revision, bool)
+            or not isinstance(self.revision, int)
+            or self.revision < 1
+        ):
+            raise ValueError("local durable queue revision must be positive")
+        if (
+            isinstance(self.queue_version, bool)
+            or not isinstance(self.queue_version, int)
+            or self.queue_version < 0
+        ):
+            raise ValueError(
+                "local durable queue version must be non-negative"
+            )
+        start_request_id = str(self.start_request_id or "").strip() or None
+        if self.status in {"starting", "started"} and start_request_id is None:
+            raise ValueError("started local durable queue item requires request id")
+        object.__setattr__(self, "start_request_id", start_request_id)
+        if (
+            self.request.cid != _remote_coordinate(self.command, "cid")
+            or self.request.sid != _remote_coordinate(self.command, "sid")
+            or self.request.turn_id != _remote_coordinate(self.command, "turn_id")
+        ):
+            raise ValueError(
+                "local durable queue command and request coordinates differ"
+            )
+
+
+def _remote_coordinate(command: SubmitTurnCommand, field_name: str) -> str:
+    """从本地 Command 读取一个严格远端坐标。"""
+    remote_turn = command.trace_context.get("remote_turn")
+    if not isinstance(remote_turn, Mapping):
+        raise ValueError("local durable queue command requires remote turn")
+    value = remote_turn.get(field_name)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(
+            f"local durable queue command requires remote {field_name}"
+        )
+    return value.strip()
 
 
 if __name__ == '__main__':

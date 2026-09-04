@@ -22,6 +22,8 @@ from .durable_queue import (
     DurableQueueReorderReceipt,
     DurableQueueSnapshot,
     DurableQueueStartReceipt,
+    LocalDurableQueueSnapshot,
+    LocalDurableQueueStatus,
 )
 from .events import (
     ModelEvent,
@@ -57,6 +59,8 @@ __all__ = (
     "DurableQueueReorderReceipt",
     "DurableQueueSnapshot",
     "DurableQueueStartReceipt",
+    "LocalDurableQueueSnapshot",
+    "LocalDurableQueueStatus",
     "McpToolDefinition",
     "McpToolResult",
 )

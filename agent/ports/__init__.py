@@ -65,6 +65,10 @@ from .conversation import (
     ConversationHistoryPort,
     RootConversationPort,
 )
+from .durable_queue import (
+    DurableQueuePersistence,
+    DurableQueuePersistenceConflict,
+)
 from .frontend import (
     ActivityRuntimePort,
     ActivitySnapshot,

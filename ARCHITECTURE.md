@@ -248,6 +248,22 @@ Command 必须在入队前冻结完整语义与 `exec_env` 快照；重试和安
 Run 的状态转移由领域规则和 actor 共同约束。终态不可离开；连接关闭、局部展示完成或
 异常文本不能代替逻辑结算事实。
 
+### Durable Queue
+
+显式 Durable Queue 与 TUI 当前 Turn 内的普通 pending input 是两个不同入口。普通 pending
+input 由 TUI Session actor 持有，中断后恢复编辑器；只有用户显式选择持久排队时才能调用
+服务端 Queue 命令，二者不得自动互相转换。
+
+服务端 Queue snapshot/receipt 是队列成员、顺序、版本和 Queue 到 Turn 转换的唯一真相。
+客户端不得维护第二套权威队列；但必须在外部命令发送前，把入队时完整模型请求、本地 Run
+Command、`submission_id`、`client_message_id` 及 add/start `request_id` 写入独立本地恢复账本。
+该账本只拥有客户端工具、权限、环境和输入的冻结执行语义，以及不确定命令的幂等恢复身份。
+
+add/start 响应丢失时复用已持久化的原 request id；服务端明确拒绝 start 后才允许下一次显式
+尝试生成新 request id。`queue.start` 成功只绑定一个已经由服务端创建的 Turn，后续客户端必须
+通过 attach/replay 观察它，不得再调用 `/mind-chat`。本地执行快照缺失时仍可展示服务端 Queue
+item，但不得用当前配置猜测并执行。
+
 ## 线上协议边界
 
 `protocol/` 是独立 wire SDK：
