@@ -379,6 +379,12 @@ class TuiPendingSteers(object):
             submission, state = item
             if state is SteerDeliveryState.LOCAL:
                 continue
+            if settled and state is SteerDeliveryState.SENT:
+                self._items[client_message_id] = (
+                    submission,
+                    SteerDeliveryState.LOCAL,
+                )
+                continue
             self._items.pop(client_message_id)
             resolved_ids.append(client_message_id)
             if not settled and state is SteerDeliveryState.SENT:

@@ -209,6 +209,8 @@ class TuiTurnInputControl(object):
     def activate(self, context: TurnContext) -> None:
         """更新等待服务端启动确认的远端轮次。"""
         previous_settled = self._lifecycle.settled
+        if context.turn_id != self._target[2]:
+            self._retire_target_workers()
         resolution = self._runtime.advance_pending_steers(
             tuple(self._steer_ids),
             settled=previous_settled,
@@ -227,6 +229,15 @@ class TuiTurnInputControl(object):
             self._runtime.resolve_pending_steer(client_message_id)
         for submission in resolution.uncertain:
             self._runtime.retain_uncertain_steer(submission)
+
+    def _retire_target_workers(self) -> None:
+        """停止只对上一远端 Turn 有效的控制请求。"""
+        for task in (self._steer_task, self._interrupt_task):
+            if task is not None and not task.done():
+                task.cancel()
+        self._steer_task = None
+        self._interrupt_task = None
+        self._interrupt_target = None
 
     def submit(self, submission: TuiSubmission, queue_only: bool) -> bool:
         """按按键意图接管执行期间提交的输入。"""

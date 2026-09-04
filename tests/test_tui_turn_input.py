@@ -282,6 +282,118 @@ async def test_unsettled_continuation_retains_sent_steer_as_uncertain(
 
 
 @pytest.mark.anyio
+async def test_settled_continuation_retries_unaccepted_steer_with_same_identity(
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    steer = AsyncMock(return_value=SimpleNamespace(status="accepted"))
+    protocol_client.steer_turn = steer
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+    _mark_started(control)
+    submission = _submission("retry in continuation")
+
+    assert control.submit(submission, False)
+    while steer.await_count < 1:
+        await asyncio.sleep(0)
+    control.handle_event(_completed())
+    control.activate(SimpleNamespace(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_002",
+    ))
+    _mark_started(control, "turn_002")
+
+    async with asyncio.timeout(1.0):
+        while steer.await_count < 2:
+            await asyncio.sleep(0)
+
+    assert [
+        call.kwargs["turn_id"]
+        for call in steer.await_args_list
+    ] == ["turn_001", "turn_002"]
+    assert [
+        call.kwargs["turn_input"].client_message_id
+        for call in steer.await_args_list
+    ] == [submission.client_message_id, submission.client_message_id]
+
+    accepted = control.handle_event(TurnInputAcceptedEvent(
+        type="turn.input.accepted",
+        turn_id="turn_002",
+        client_message_id=submission.client_message_id,
+    ))
+    assert accepted is not None
+    await control.close()
+    assert not runtime.submissions.pending_steers.active
+    assert not runtime.submissions.rejected_steers.active
+
+
+@pytest.mark.anyio
+async def test_continuation_retires_hanging_previous_turn_steer_worker(
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    first_started = asyncio.Event()
+    first_cancelled = asyncio.Event()
+
+    async def steer_request(**kwargs):
+        if kwargs["turn_id"] == "turn_001":
+            first_started.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                first_cancelled.set()
+                raise
+        return SimpleNamespace(status="accepted")
+
+    steer = AsyncMock(side_effect=steer_request)
+    protocol_client.steer_turn = steer
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+    _mark_started(control)
+    submission = _submission("retry after hanging request")
+
+    assert control.submit(submission, False)
+    await first_started.wait()
+    control.handle_event(_completed())
+    control.activate(SimpleNamespace(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_002",
+    ))
+    _mark_started(control, "turn_002")
+
+    async with asyncio.timeout(1.0):
+        await first_cancelled.wait()
+        while steer.await_count < 2:
+            await asyncio.sleep(0)
+
+    assert [
+        call.kwargs["turn_id"]
+        for call in steer.await_args_list
+    ] == ["turn_001", "turn_002"]
+    assert [
+        call.kwargs["turn_input"].client_message_id
+        for call in steer.await_args_list
+    ] == [submission.client_message_id, submission.client_message_id]
+    await control.close()
+
+
+@pytest.mark.anyio
 async def test_uncommitted_input_retries_before_tab_queue_after_completion(
     protocol_client: ProtocolCommandClient,
 ) -> None:
