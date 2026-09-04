@@ -38,7 +38,7 @@ from .token_menu import (
     TokenMenuSnapshot,
     TokenMenuState,
     prefix_match_indices,
-    subsequence_match_indices
+    subsequence_match_indices,
 )
 from ..prompting.commands import (
     SlashCommandCompleter,
@@ -46,7 +46,7 @@ from ..prompting.commands import (
     is_first_input_line,
     parameterized_command_texts,
     slash_command_dismissal_token,
-    slash_command_query
+    slash_command_query,
 )
 from ..prompting.files import (
     FileSearchManager,
@@ -56,13 +56,13 @@ from ..prompting.paste import (
     format_paste_placeholder,
     iter_paste_placeholders,
     parse_paste_placeholder,
-    paste_line_count
+    paste_line_count,
 )
 from ..prompting.skills import (
     SKILL_SIGILS,
     SkillTokenLexer,
     iter_known_skill_tokens,
-    skill_query_token
+    skill_query_token,
 )
 
 INPUT_BUFFER_NAME = "prompt-input"
@@ -137,6 +137,15 @@ class TuiInputHistory(InMemoryHistory):
             )
         return TuiInputHistoryEntry(editable_text=value)
 
+    def _suppress_next_automatic_append(self, text: str) -> None:
+        """抑制 prompt-toolkit 随提交自动重复写入的编辑文本。"""
+        self._pending_auto_text = str(text or "")
+
+    def _append_entry(self, entry: TuiInputHistoryEntry) -> None:
+        """同步追加结构化状态和终端历史字符串。"""
+        super().append_string(entry.visible_text)
+        self._entries.append(entry)
+
     def append_string(self, string: str) -> None:
         """追加一条不带粘贴映射的普通历史。"""
         value = str(string or "")
@@ -146,10 +155,6 @@ class TuiInputHistory(InMemoryHistory):
             if value == expected:
                 return None
         self._append_entry(self._plain_entry(value))
-
-    def _suppress_next_automatic_append(self, text: str) -> None:
-        """抑制 prompt-toolkit 随提交自动重复写入的编辑文本。"""
-        self._pending_auto_text = str(text or "")
 
     def append_submission(
         self,
@@ -176,11 +181,6 @@ class TuiInputHistory(InMemoryHistory):
     def entries(self) -> tuple[TuiInputHistoryEntry, ...]:
         """返回按提交顺序排列的结构化历史。"""
         return tuple(self._entries)
-
-    def _append_entry(self, entry: TuiInputHistoryEntry) -> None:
-        """同步追加结构化状态和终端历史字符串。"""
-        super().append_string(entry.visible_text)
-        self._entries.append(entry)
 
     def rollback_latest(
         self,
@@ -1074,23 +1074,25 @@ class TuiInputModel(object):
 
         @bindings.add("left", eager=True, filter=has_focus(INPUT_BUFFER_NAME))
         def _(event) -> None:
-            if self._skill_mention_popup_open(event.app.current_buffer):
+            buffer = event.app.current_buffer
+            if self._skill_mention_popup_open(buffer):
                 self.cycle_skill_search_mode(-1)
                 return None
             self._move_cursor_with_completion_menu(
-                event.app.current_buffer,
-                step=-1,
+                buffer,
+                move_cursor=buffer.cursor_left,
                 count=max(1, event.arg),
             )
 
         @bindings.add("right", eager=True, filter=has_focus(INPUT_BUFFER_NAME))
         def _(event) -> None:
-            if self._skill_mention_popup_open(event.app.current_buffer):
+            buffer = event.app.current_buffer
+            if self._skill_mention_popup_open(buffer):
                 self.cycle_skill_search_mode(1)
                 return None
             self._move_cursor_with_completion_menu(
-                event.app.current_buffer,
-                step=1,
+                buffer,
+                move_cursor=buffer.cursor_right,
                 count=max(1, event.arg),
             )
 
@@ -1275,7 +1277,11 @@ class TuiInputModel(object):
             elif buffer.complete_state:
                 self._select_completion(buffer, -max(1, event.arg))
             elif buffer.document.cursor_position_row > 0:
-                buffer.cursor_up(count=max(1, event.arg))
+                self._move_cursor_with_completion_menu(
+                    buffer,
+                    move_cursor=buffer.cursor_up,
+                    count=max(1, event.arg),
+                )
             elif (
                 not buffer.selection_state
                 and self._history_navigation_allowed(buffer)
@@ -1294,7 +1300,11 @@ class TuiInputModel(object):
             elif buffer.complete_state:
                 self._select_completion(buffer, max(1, event.arg))
             elif buffer.document.cursor_position_row < buffer.document.line_count - 1:
-                buffer.cursor_down(count=max(1, event.arg))
+                self._move_cursor_with_completion_menu(
+                    buffer,
+                    move_cursor=buffer.cursor_down,
+                    count=max(1, event.arg),
+                )
             elif (
                 not buffer.selection_state
                 and self._history_navigation_allowed(buffer)
@@ -1353,15 +1363,12 @@ class TuiInputModel(object):
         self,
         buffer,
         *,
-        step: int,
+        move_cursor: typing.Callable[[int], None],
         count: int
     ) -> None:
         """移动光标并同步补全菜单。"""
         previous_position = buffer.cursor_position
-        if step < 0:
-            buffer.cursor_left(count=count)
-        else:
-            buffer.cursor_right(count=count)
+        move_cursor(count)
 
         if buffer.cursor_position != previous_position:
             if (

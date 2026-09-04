@@ -2096,6 +2096,37 @@ async def test_skill_menu_survives_left_and_right_cursor_motion() -> None:
 
 
 @pytest.mark.anyio
+async def test_skill_menu_reopens_on_bare_token_after_cursor_up() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((skill_spec("browser"),))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("\x1b[200~$\n$\n$\x1b[201~")
+            await wait_for_input_text(runtime, "$\n$\n$")
+            await wait_for_completion(runtime)
+
+            pipe_input.send_text("\r")
+            await wait_for_input_text(runtime, "$\n$\n$browser ")
+            await wait_for_no_completion(runtime)
+
+            pipe_input.send_text("\x1b[A")
+            await wait_for_cursor_position(runtime, 3)
+            await wait_for_completion(runtime)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.document.text_before_cursor == "$\n$"
+            assert buffer.complete_state is not None
+            assert [
+                completion.text
+                for completion in buffer.complete_state.completions
+            ] == ["$browser "]
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_skill_menu_closes_when_cursor_leaves_token_left_edge() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
