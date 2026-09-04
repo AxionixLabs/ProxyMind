@@ -1883,6 +1883,18 @@ class TuiRuntime(object):
         """把中断轮次遗留输入恢复到编辑框且不触发提交。"""
         return self.submissions.restore_interrupted_submissions()
 
+    def begin_recovery_gate(self) -> None:
+        """阻止草稿在远端恢复门解除前进入执行队列。"""
+        self.submissions.begin_recovery_gate()
+
+    def finish_recovery_gate(self, *, submit_draft: bool) -> None:
+        """解除恢复门并提交已获准继续的当前草稿。"""
+        self.submissions.finish_recovery_gate(submit_draft=submit_draft)
+
+    async def wait_for_recovery_submit(self) -> None:
+        """等待恢复期间的提交重试或会话退出。"""
+        await self.submissions.wait_for_recovery_submit()
+
     def defer_submission(
         self,
         submission: TuiSubmission

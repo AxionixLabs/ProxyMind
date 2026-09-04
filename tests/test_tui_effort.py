@@ -6,23 +6,32 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from frontends.tui.core.runtime import TuiRuntime
-from frontends.tui.core.models import (
-    MenuDescriptionLayout,
-    STANDARD_MENU_FOOTER_HINT,
-)
-from frontends.tui.features.model import choose_model_effort
-from frontends.tui.session import dispatch
-from frontends.tui.session import loop
-from agent.domain.policies import preset_permissions
 from agent.application.turns.commands import (
     SessionRecoveryResult,
     TurnApplication,
 )
-from agent.harness.sessions.owner import SessionRuntimeOwner
+from agent.domain import (
+    RecoveryAction,
+    RunStatus,
+)
+from agent.domain.policies import preset_permissions
 from agent.harness.process_lifecycle import ProcessLifecycle
-from agent.ports import ProtocolCommandClient
+from agent.harness.sessions.owner import SessionRuntimeOwner
+from agent.ports import (
+    ProtocolCommandClient,
+    RunSnapshot,
+)
 from agent.protocol import SubmitTurnCommand
+from frontends.tui.core.interrupt import InterruptDisposition
+from frontends.tui.core.models import (
+    MenuDescriptionLayout,
+    STANDARD_MENU_FOOTER_HINT,
+)
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.submission import TuiInterruptRequested
+from frontends.tui.features.model import choose_model_effort
+from frontends.tui.session import dispatch
+from frontends.tui.session import loop
 
 
 @pytest.fixture(autouse=True)
@@ -37,6 +46,20 @@ def frozen_environment_snapshot(monkeypatch) -> None:
         loop,
         "TurnApplication",
         lambda: TurnApplication(runtime_factory=SessionRuntimeOwner),
+    )
+
+
+def _pending_recovery(command: SubmitTurnCommand) -> RunSnapshot:
+    """构造一项仍需远端权威终态裁决的本地 Run。"""
+    return RunSnapshot(
+        command=command,
+        status=RunStatus.RECONCILIATION_REQUIRED,
+        sequence=3,
+        snapshot_version=1,
+        effect_id="",
+        effect_status="reconciliation_required",
+        recovery_action=RecoveryAction.RECONCILE,
+        updated_at="2026-09-04T00:00:00Z",
     )
 
 
@@ -145,6 +168,254 @@ async def test_durable_queued_recovery_returns_input_to_composer() -> None:
         "queued": True,
         "current": True,
     })
+
+
+@pytest.mark.anyio
+async def test_durable_recovery_stops_automatic_polling_and_observes_exit(
+    monkeypatch,
+) -> None:
+    command = SubmitTurnCommand.create(
+        session_id="session_test",
+        message="active turn",
+    )
+    pending = _pending_recovery(command)
+    turn_application = AsyncMock()
+    probes_complete = asyncio.Event()
+
+    async def pending_response(*_args) -> SessionRecoveryResult:
+        if turn_application.reconcile_remote_session.await_count >= 3:
+            probes_complete.set()
+        return SessionRecoveryResult((pending,), (), ())
+
+    turn_application.reconcile_remote_session.side_effect = pending_response
+    monkeypatch.setattr(loop, "RECOVERY_RETRY_DELAYS_SEC", (0.001, 0.001))
+    runtime = TuiRuntime()
+    host = SimpleNamespace(
+        attach=SimpleNamespace(
+            pending_attachments_snapshot=Mock(return_value=[]),
+            replace_pending_attachments=Mock(),
+        ),
+        lifecycle=ProcessLifecycle(),
+    )
+    state = SimpleNamespace(
+        consume_pending_prompt_extras=Mock(return_value={}),
+        replace_pending_prompt_extras=Mock(),
+    )
+
+    recovery = asyncio.create_task(loop._await_durable_session_recovery(
+        host,
+        runtime,
+        state,
+        SimpleNamespace(emit=Mock()),
+        turn_application,
+        Mock(spec=ProtocolCommandClient),
+        session_id="session_test",
+    ))
+    await asyncio.wait_for(probes_complete.wait(), timeout=0.2)
+    await asyncio.sleep(0.02)
+
+    assert turn_application.reconcile_remote_session.await_count == 3
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.EXIT_ARMED
+    )
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.EXIT_REQUESTED
+    )
+    with pytest.raises(TuiInterruptRequested):
+        await asyncio.wait_for(recovery, timeout=0.1)
+
+    await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_durable_recovery_keeps_submit_draft_until_gate_opens(
+    monkeypatch,
+) -> None:
+    command = SubmitTurnCommand.create(
+        session_id="session_test",
+        message="active turn",
+    )
+    pending = _pending_recovery(command)
+    turn_application = AsyncMock()
+    turn_application.reconcile_remote_session.side_effect = (
+        SessionRecoveryResult((pending,), (), ()),
+        SessionRecoveryResult((), (), (command.run_id,)),
+    )
+    monkeypatch.setattr(loop, "RECOVERY_RETRY_DELAYS_SEC", ())
+    runtime = TuiRuntime()
+    host = SimpleNamespace(
+        attach=SimpleNamespace(
+            pending_attachments_snapshot=Mock(return_value=[]),
+            replace_pending_attachments=Mock(),
+        ),
+        lifecycle=ProcessLifecycle(),
+    )
+    state = SimpleNamespace(
+        consume_pending_prompt_extras=Mock(return_value={}),
+        replace_pending_prompt_extras=Mock(),
+    )
+
+    recovery = asyncio.create_task(loop._await_durable_session_recovery(
+        host,
+        runtime,
+        state,
+        SimpleNamespace(emit=Mock()),
+        turn_application,
+        Mock(spec=ProtocolCommandClient),
+        session_id="session_test",
+    ))
+    while turn_application.reconcile_remote_session.await_count < 1:
+        await asyncio.sleep(0)
+
+    buffer = runtime.screen.input.buffer
+    buffer.text = "next turn"
+    buffer.cursor_position = len(buffer.text)
+    assert runtime.submissions.accept_input(buffer)
+    assert buffer.text == "next turn"
+    assert runtime.submissions.message_queue.empty()
+    assert runtime.input_model.history.get_strings() == []
+
+    assert await asyncio.wait_for(recovery, timeout=0.1)
+    submission = await runtime.submissions.read_submission()
+
+    assert submission.value == "next turn"
+    assert buffer.text == ""
+    assert turn_application.reconcile_remote_session.await_count == 2
+
+    await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_durable_recovery_keeps_draft_when_manual_probe_is_pending(
+    monkeypatch,
+) -> None:
+    command = SubmitTurnCommand.create(
+        session_id="session_test",
+        message="active turn",
+    )
+    pending = _pending_recovery(command)
+    turn_application = AsyncMock()
+    manual_probe_complete = asyncio.Event()
+
+    async def pending_response(*_args) -> SessionRecoveryResult:
+        if turn_application.reconcile_remote_session.await_count >= 2:
+            manual_probe_complete.set()
+        return SessionRecoveryResult((pending,), (), ())
+
+    turn_application.reconcile_remote_session.side_effect = pending_response
+    monkeypatch.setattr(loop, "RECOVERY_RETRY_DELAYS_SEC", ())
+    runtime = TuiRuntime()
+    host = SimpleNamespace(
+        attach=SimpleNamespace(
+            pending_attachments_snapshot=Mock(return_value=[]),
+            replace_pending_attachments=Mock(),
+        ),
+        lifecycle=ProcessLifecycle(),
+    )
+    state = SimpleNamespace(
+        consume_pending_prompt_extras=Mock(return_value={}),
+        replace_pending_prompt_extras=Mock(),
+    )
+
+    recovery = asyncio.create_task(loop._await_durable_session_recovery(
+        host,
+        runtime,
+        state,
+        SimpleNamespace(emit=Mock()),
+        turn_application,
+        Mock(spec=ProtocolCommandClient),
+        session_id="session_test",
+    ))
+    while turn_application.reconcile_remote_session.await_count < 1:
+        await asyncio.sleep(0)
+
+    buffer = runtime.screen.input.buffer
+    buffer.text = "keep editing"
+    buffer.cursor_position = len(buffer.text)
+    assert runtime.submissions.accept_input(buffer)
+    await asyncio.wait_for(manual_probe_complete.wait(), timeout=0.1)
+    await asyncio.sleep(0.02)
+
+    assert turn_application.reconcile_remote_session.await_count == 2
+    assert buffer.text == "keep editing"
+    assert runtime.submissions.message_queue.empty()
+    assert runtime.input_model.history.get_strings() == []
+
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.DRAFT_DISCARDED
+    )
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.EXIT_ARMED
+    )
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.EXIT_REQUESTED
+    )
+    with pytest.raises(TuiInterruptRequested):
+        await asyncio.wait_for(recovery, timeout=0.1)
+
+    await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_durable_recovery_preserves_submit_during_terminal_probe(
+    monkeypatch,
+) -> None:
+    command = SubmitTurnCommand.create(
+        session_id="session_test",
+        message="active turn",
+    )
+    pending = _pending_recovery(command)
+    terminal_probe_started = asyncio.Event()
+    release_terminal_probe = asyncio.Event()
+    turn_application = AsyncMock()
+
+    async def recovery_response(*_args) -> SessionRecoveryResult:
+        if turn_application.reconcile_remote_session.await_count == 1:
+            return SessionRecoveryResult((pending,), (), ())
+        terminal_probe_started.set()
+        await release_terminal_probe.wait()
+        return SessionRecoveryResult((), (), (command.run_id,))
+
+    turn_application.reconcile_remote_session.side_effect = recovery_response
+    monkeypatch.setattr(loop, "RECOVERY_RETRY_DELAYS_SEC", (0.001,))
+    runtime = TuiRuntime()
+    host = SimpleNamespace(
+        attach=SimpleNamespace(
+            pending_attachments_snapshot=Mock(return_value=[]),
+            replace_pending_attachments=Mock(),
+        ),
+        lifecycle=ProcessLifecycle(),
+    )
+    state = SimpleNamespace(
+        consume_pending_prompt_extras=Mock(return_value={}),
+        replace_pending_prompt_extras=Mock(),
+    )
+
+    recovery = asyncio.create_task(loop._await_durable_session_recovery(
+        host,
+        runtime,
+        state,
+        SimpleNamespace(emit=Mock()),
+        turn_application,
+        Mock(spec=ProtocolCommandClient),
+        session_id="session_test",
+    ))
+    await asyncio.wait_for(terminal_probe_started.wait(), timeout=0.1)
+
+    buffer = runtime.screen.input.buffer
+    buffer.text = "next turn"
+    buffer.cursor_position = len(buffer.text)
+    assert runtime.submissions.accept_input(buffer)
+    release_terminal_probe.set()
+
+    assert await asyncio.wait_for(recovery, timeout=0.1)
+    submission = await runtime.submissions.read_submission()
+
+    assert submission.value == "next turn"
+    assert buffer.text == ""
+    assert turn_application.reconcile_remote_session.await_count == 2
+
+    await runtime.close()
 
 
 @pytest.mark.anyio

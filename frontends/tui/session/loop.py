@@ -36,6 +36,7 @@ from .state import TuiSessionState
 from .turn import (
     TuiRootTurnRunner,
     emit_tui_interrupt_notice,
+    emit_tui_recovery_notice,
     execute_tui_model_turn,
     run_tui_model_turn
 )
@@ -68,7 +69,11 @@ from ..features.processes import monitor_exec_status
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
 
-RECOVERY_POLL_INTERVAL_SEC: typing.Final[float] = 0.2
+RECOVERY_RETRY_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
+    0.25,
+    0.75,
+    2.0,
+)
 
 
 class _TurnInterruptNotice:
@@ -138,30 +143,75 @@ async def _await_durable_session_recovery(
     *,
     session_id: str,
 ) -> bool:
-    """等待既有 Durable Turn 权威结算，同时保持输入画布可编辑。"""
-    notice_shown = False
-    while not host.lifecycle.stop_event.is_set():
-        recovery = await turn_application.reconcile_remote_session(
-            session_id,
-            protocol_client,
+    """以有限自动探测等待 Durable Turn，并响应提交或退出意图。"""
+    notice_shown: bool = False
+    retry_delays: typing.Iterator[float | int] = iter(RECOVERY_RETRY_DELAYS_SEC)
+    submit_draft: bool = False
+    recovery_ready: bool = False
+    runtime.begin_recovery_gate()
+    try:
+        while not host.lifecycle.stop_event.is_set():
+            recovery = await turn_application.reconcile_remote_session(
+                session_id,
+                protocol_client,
+            )
+            _restore_recovery_commands(host, runtime, state, recovery)
+            if not recovery.pending:
+                recovery_ready = True
+                return True
+            submit_draft = False
+            if not notice_shown:
+                emit_tui_recovery_notice(
+                    application,
+                    RunRecoveryRequired(recovery.pending),
+                )
+                notice_shown = True
+
+            delay = next(retry_delays, None)
+            action = await _wait_for_recovery_action(
+                host.lifecycle.stop_event,
+                runtime,
+                timeout=delay,
+            )
+            if action == "stop":
+                return False
+            submit_draft = action == "submit"
+        return False
+    finally:
+        runtime.finish_recovery_gate(
+            submit_draft=recovery_ready and submit_draft,
         )
-        _restore_recovery_commands(host, runtime, state, recovery)
-        if not recovery.pending:
-            return True
-        if not notice_shown:
-            emit_tui_recovery_notice(
-                application,
-                RunRecoveryRequired(recovery.pending),
-            )
-            notice_shown = True
-        try:
-            await asyncio.wait_for(
-                host.lifecycle.stop_event.wait(),
-                timeout=RECOVERY_POLL_INTERVAL_SEC,
-            )
-        except TimeoutError:
-            continue
-    return False
+
+
+async def _wait_for_recovery_action(
+    stop_event: asyncio.Event,
+    runtime: TuiRuntime,
+    *,
+    timeout: float | None,
+) -> typing.Literal["submit", "retry", "stop"]:
+    """等待用户提交、自动重试期限或进程停止中的最早一项。"""
+    submit_task = asyncio.create_task(runtime.wait_for_recovery_submit())
+    stop_task = asyncio.create_task(stop_event.wait())
+    tasks = (submit_task, stop_task)
+    try:
+        finished, _ = await asyncio.wait(
+            tasks,
+            timeout=timeout,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    finally:
+        pending = [task for task in tasks if not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    if stop_task in finished:
+        return "stop"
+    if submit_task in finished:
+        await submit_task
+        return "submit"
+    return "retry"
 
 
 def _pending_attachment_snapshot(
@@ -268,18 +318,25 @@ async def _run_tui_loop(
 
         if local_session_id is None:
             recovery_session = host.conversation.snapshot()
-            recovery_ready = await _await_durable_session_recovery(
-                host,
-                runtime,
-                state,
-                application,
-                turn_application,
-                protocol_client,
-                session_id=derive_local_session_id(
-                    "tui",
-                    recovery_session,
-                ),
-            )
+            try:
+                recovery_ready = await _await_durable_session_recovery(
+                    host,
+                    runtime,
+                    state,
+                    application,
+                    turn_application,
+                    protocol_client,
+                    session_id=derive_local_session_id(
+                        "tui",
+                        recovery_session,
+                    ),
+                )
+            except TuiInterruptRequested:
+                host.lifecycle.request_stop(exit_code=130)
+                break
+            except EOFError:
+                host.lifecycle.request_stop()
+                break
             if not recovery_ready:
                 break
 

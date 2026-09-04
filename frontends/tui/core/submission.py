@@ -115,6 +115,8 @@ class TuiSubmissionFlow(object):
         self.surface_submission_pending: bool = False
         self._queue_submission_requested: bool = False
         self._input_handoff_pending: bool = False
+        self._recovery_gate_active: bool = False
+        self._recovery_submit_event: asyncio.Event = asyncio.Event()
         self._submit_after_interrupt_ids: tuple[str, ...] = ()
         self._is_submission_deferred = is_submission_deferred
         self._get_input_buffer = get_input_buffer
@@ -631,6 +633,42 @@ class TuiSubmissionFlow(object):
         self._cancel_exit_expiry()
         self._invalidate()
 
+    def begin_recovery_gate(self) -> None:
+        """阻止草稿在远端恢复门解除前进入执行队列。"""
+        self._recovery_gate_active = True
+        self._recovery_submit_event.clear()
+
+    def finish_recovery_gate(self, *, submit_draft: bool) -> None:
+        """解除恢复门，并按已确认的提交意图交付当前草稿。"""
+        was_active = self._recovery_gate_active
+        should_submit = submit_draft or self._recovery_submit_event.is_set()
+        self._recovery_gate_active = False
+        self._recovery_submit_event.clear()
+        if was_active and should_submit:
+            self._get_input_buffer().validate_and_handle()
+
+    async def wait_for_recovery_submit(self) -> None:
+        """等待用户重试提交，并优先传播会话退出请求。"""
+        self._raise_requested_exit()
+        submit_task = asyncio.create_task(self._recovery_submit_event.wait())
+        exit_task = asyncio.create_task(self._exit_event.wait())
+        tasks = (submit_task, exit_task)
+        try:
+            finished, _ = await asyncio.wait(
+                tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            pending = [task for task in tasks if not task.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+
+        if exit_task in finished:
+            self._raise_requested_exit()
+        self._recovery_submit_event.clear()
+
     def accept_input(self, buffer: Buffer) -> bool:
         """恢复折叠粘贴内容并按当前运行状态提交输入。"""
         if self._input_handoff_pending:
@@ -653,6 +691,12 @@ class TuiSubmissionFlow(object):
 
         if shell_mode:
             value = f"! {value}" if value else "!"
+
+        if self._recovery_gate_active:
+            self.clear_exit_confirmation()
+            self._recovery_submit_event.set()
+            self._invalidate()
+            return True
 
         history_recorded = self.input_model.record_submission_history(
             editable_text,
@@ -810,6 +854,8 @@ class TuiSubmissionFlow(object):
 
         self.interrupt_state.clear()
         self._exit_event.clear()
+        self._recovery_gate_active = False
+        self._recovery_submit_event.clear()
 
         self._input_handoff_pending = False
 
