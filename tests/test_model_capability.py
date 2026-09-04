@@ -931,7 +931,7 @@ async def test_protocol_client_does_not_commit_fatal_stream_cursor(monkeypatch) 
 
 
 @pytest.mark.anyio
-async def test_interrupt_wakes_and_releases_registered_turn_observer(
+async def test_interrupt_wakes_registered_turn_observer_once(
     monkeypatch,
 ) -> None:
     class RawStream:
@@ -973,7 +973,7 @@ async def test_interrupt_wakes_and_releases_registered_turn_observer(
         request_id="interrupt_test",
     )
 
-    assert raw_stream.probes == 2
+    assert raw_stream.probes == 1
 
     await model_stream.aclose()
     await client.interrupt_turn(
@@ -983,7 +983,7 @@ async def test_interrupt_wakes_and_releases_registered_turn_observer(
         request_id="interrupt_test_2",
     )
 
-    assert raw_stream.probes == 2
+    assert raw_stream.probes == 1
 
 
 @pytest.mark.anyio

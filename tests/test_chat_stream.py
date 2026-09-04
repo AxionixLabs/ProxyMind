@@ -490,7 +490,7 @@ async def test_recovery_probe_observes_terminal_without_silence_timeout(
 
 
 @pytest.mark.anyio
-async def test_control_probe_rechecks_status_without_reopening_attach(
+async def test_control_probe_rejoins_event_stream_after_active_snapshot(
     monkeypatch,
 ) -> None:
     first_event_sent = asyncio.Event()
@@ -505,27 +505,17 @@ async def test_control_probe_rechecks_status_without_reopening_attach(
                 "event_seq": 1,
             }
             first_event_sent.set()
-        await asyncio.Event().wait()
-        yield {}
+            await asyncio.Event().wait()
+        yield {
+            "type": "turn.completed",
+            "turn_id": "turn_001",
+            "event_seq": 2,
+        }
 
     active = SimpleNamespace(last_event_seq=1, terminal=None)
-    terminal = SimpleNamespace(
-        type="turn.completed",
-        turn_id="turn_001",
-        status="interrupted",
-        error=None,
-        last_event_seq=2,
-        completed_at=10.0,
-    )
-    settled = SimpleNamespace(last_event_seq=2, terminal=terminal)
     _install_reconnect_stream(monkeypatch, streaming)
-    status_probe = AsyncMock(side_effect=(active, settled))
+    status_probe = AsyncMock(return_value=active)
     monkeypatch.setattr(chat, "get_turn_status", status_probe)
-    monkeypatch.setattr(
-        chat,
-        "CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC",
-        0.01,
-    )
     event_stream = chat.stream_chat({}, "hello", [], timeout=60.0)
 
     collecting = asyncio.create_task(_collect(event_stream))
@@ -537,9 +527,11 @@ async def test_control_probe_rechecks_status_without_reopening_attach(
         "turn.started",
         "turn.completed",
     ]
-    assert events[-1].status == "interrupted"
-    assert calls == ["https://example.com/mind-chat"]
-    assert status_probe.await_count == 2
+    assert calls == [
+        "https://example.com/mind-chat",
+        "https://example.com/mind-attach",
+    ]
+    status_probe.assert_awaited_once()
 
 
 @pytest.mark.anyio

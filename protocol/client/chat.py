@@ -42,7 +42,6 @@ ATTACH_BACKOFF_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
 ATTACH_BACKOFF_JITTER_RATIO: typing.Final[float] = 0.2
 ATTACH_RETRY_MAX_ELAPSED_SEC: typing.Final[float] = 60.0
 STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC: typing.Final[float] = 25.0
-CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC: typing.Final[float] = 0.5
 
 TurnStreamEndReason: typing.TypeAlias = typing.Literal[
     "settled",
@@ -219,11 +218,6 @@ class TurnEventStream(object):
             0.01,
             min(float(self._timeout), STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC),
         )
-        if self._control_settlement_probe_active:
-            timeout = min(
-                timeout,
-                CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC,
-            )
         elapsed = time.monotonic() - self._last_event_progress_at
         return max(0.0, timeout - elapsed)
 
@@ -495,18 +489,6 @@ class TurnEventStream(object):
             if terminal_payload is not None:
                 self._terminal_snapshot_payload = None
                 return terminal_payload
-            if (
-                self._control_settlement_probe_active
-                and self._payload_stream is None
-                and self._attach_target is not None
-            ):
-                await asyncio.sleep(CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC)
-                if await self._resume_stream():
-                    continue
-                await self._finish("fatal")
-                raise RuntimeError(
-                    "turn settlement status probe could not resume observation"
-                )
             payload_stream = await self._ensure_open()
 
             try:
@@ -626,6 +608,7 @@ class TurnEventStream(object):
 
         status = await self._turn_status_for_recovery(attach_target)
         if not self._response_observed and status is None:
+            self._control_settlement_probe_active = False
             self._replay_target_seq = self.last_event_seq
             self._payload_stream = self._open_chat_stream()
             self._reset_event_progress_deadline()
@@ -651,12 +634,7 @@ class TurnEventStream(object):
             self._reset_event_progress_deadline()
             return True
 
-        if control_settlement:
-            self._replay_target_seq = None
-            self._recovery_catch_up_pending = False
-            self._reset_event_progress_deadline()
-            return True
-
+        self._control_settlement_probe_active = False
         await self._begin_replay(
             status.last_event_seq
             if status is not None
