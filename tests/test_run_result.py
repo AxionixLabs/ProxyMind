@@ -441,10 +441,30 @@ def _batched_stream_payloads(
         "call_ids": [call_id],
         "count": 1,
     }
+    event_seq = payload.get("event_seq")
+    start_seq = (
+        event_seq - 1
+        if isinstance(event_seq, int) and not isinstance(event_seq, bool)
+        else None
+    )
+    done_seq = (
+        event_seq + 1
+        if isinstance(event_seq, int) and not isinstance(event_seq, bool)
+        else None
+    )
     return (
-        {"type": "tool.calls.start", **identity, "ready": True},
+        {
+            "type": "tool.calls.start",
+            **identity,
+            "ready": True,
+            **({"event_seq": start_seq} if start_seq is not None else {}),
+        },
         payload,
-        {"type": "tool.calls.done", **identity},
+        {
+            "type": "tool.calls.done",
+            **identity,
+            **({"event_seq": done_seq} if done_seq is not None else {}),
+        },
     )
 
 
@@ -598,6 +618,7 @@ async def _run_stream(
     environment_snapshot: dict[str, typing.Any] | None = None,
     output_control: _OutputControl | None = None,
     observe_only: bool = False,
+    observation_replay_target_seq: int | None = None,
 ) -> tuple[RunResult, SimpleNamespace]:
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
@@ -631,7 +652,13 @@ async def _run_stream(
         class _EventStream(object):
             """为测试迭代器补齐模型流关闭端口。"""
 
-            def __init__(self, iterator, request: ModelStreamRequest) -> None:
+            def __init__(
+                self,
+                iterator,
+                request: ModelStreamRequest | TurnObservationRequest,
+                *,
+                on_recovery_status=None,
+            ) -> None:
                 self._iterator = iterator
                 self._reducer = CanonicalItemReducer(
                     cid=request.cid,
@@ -642,6 +669,12 @@ async def _run_stream(
                 self.last_event_seq = getattr(iterator, "last_event_seq", 0)
                 self.current_item = None
                 self.closed = False
+                self._on_recovery_status = on_recovery_status
+                self._replay_target_seq = (
+                    request.replay_target_seq
+                    if isinstance(request, TurnObservationRequest)
+                    else None
+                )
 
             @property
             def canonical_items(self):
@@ -668,6 +701,11 @@ async def _run_stream(
 
             async def _events(self):
                 projected_event_seq = 0
+                if (
+                    self._replay_target_seq is not None
+                    and self._on_recovery_status is not None
+                ):
+                    await self._on_recovery_status("replaying", 0)
                 async for event in self._iterator:
                     if event.type not in {"ping", "stream.gap"}:
                         projected_event_seq += 1
@@ -679,6 +717,17 @@ async def _run_stream(
                         projected_event = event
                     self.current_item = self._reducer.apply(projected_event)
                     yield event
+                    if (
+                        self._replay_target_seq is not None
+                        and event.event_seq is not None
+                        and event.event_seq >= self._replay_target_seq
+                        and self._on_recovery_status is not None
+                    ):
+                        await self._on_recovery_status(
+                            "caught_up",
+                            event.event_seq,
+                        )
+                        self._replay_target_seq = None
 
             async def aclose(self) -> None:
                 self.closed = True
@@ -729,7 +778,11 @@ async def _run_stream(
                 on_recovery_status=on_recovery_status,
                 on_approval_snapshot=on_approval_snapshot,
             )
-            self.last_stream = self._EventStream(iterator, request)
+            self.last_stream = self._EventStream(
+                iterator,
+                request,
+                on_recovery_status=on_recovery_status,
+            )
             return self.last_stream
 
         async def interrupt_turn(self, **kwargs):
@@ -887,6 +940,10 @@ async def _run_stream(
     stream_options["model_capability"] = host.runtime_services.model_capability
     if observe_only:
         stream_options["turn_observer"] = host.runtime_services.model_capability
+        if observation_replay_target_seq is not None:
+            stream_options["observation_replay_target_seq"] = (
+                observation_replay_target_seq
+            )
     stream_options["protocol_client"] = host.runtime_services.model_capability
     stream_options["effect_journal_factory"] = (
         host.runtime_services.create_effect_journal
@@ -965,6 +1022,120 @@ async def test_observed_turn_attaches_without_replaying_submit_hooks(
         timeout=60.0,
     )
     assert runner.events == ["Stop"]
+
+
+@pytest.mark.anyio
+async def test_observed_replay_does_not_repeat_completed_client_tool(
+    monkeypatch,
+) -> None:
+    execute = AsyncMock()
+    post_result = AsyncMock(return_value={})
+    get_status = AsyncMock(return_value={
+        "name": "test_tool",
+        "tool_status": "result_received",
+        "result_received": True,
+        "reconciliation_required": False,
+    })
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", post_result)
+    monkeypatch.setattr(stream, "get_tool_result_status", get_status)
+
+    result, host = await _run_stream(
+        monkeypatch,
+        [
+            _durable_tool_call({
+                "type": "tool.call",
+                "event_seq": 2,
+                "call_id": "call-replayed",
+                "name": "test_tool",
+                "arguments": {"value": 1},
+            }),
+            {
+                "type": "turn.completed",
+                "event_seq": 4,
+                "last_event_seq": 4,
+            },
+        ],
+        observe_only=True,
+        observation_replay_target_seq=4,
+    )
+
+    assert result.status == "completed"
+    execute.assert_not_awaited()
+    post_result.assert_not_awaited()
+    get_status.assert_awaited_once_with(
+        cid="cid_test",
+        sid="sid_test",
+        call_id="call-replayed",
+    )
+    assert not any(
+        entry["event"] in {"tool.started", "tool.completed"}
+        for entry in host.transcripts.entries
+    )
+
+
+@pytest.mark.anyio
+async def test_observed_replay_takes_over_unresolved_client_tool_after_catch_up(
+    monkeypatch,
+) -> None:
+    execution_started = asyncio.Event()
+
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        execution_started.set()
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="recovered",
+                call_id=invocation.call_id,
+                fields=_client_result_fields(invocation, text="recovered"),
+            )
+        )
+
+    post_result = AsyncMock(return_value={})
+    get_status = AsyncMock(return_value={
+        "name": "test_tool",
+        "tool_status": "waiting_result",
+        "result_received": False,
+        "reconciliation_required": False,
+    })
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", post_result)
+    monkeypatch.setattr(stream, "get_tool_result_status", get_status)
+
+    result, _host = await _run_stream(
+        monkeypatch,
+        [
+            _durable_tool_call({
+                "type": "tool.call",
+                "event_seq": 2,
+                "call_id": "call-unresolved",
+                "name": "test_tool",
+                "arguments": {"value": 1},
+            }),
+            {"type": "text.delta", "event_seq": 4, "text": "continued"},
+            {"type": "text.done", "event_seq": 5},
+            {
+                "type": "turn.completed",
+                "event_seq": 6,
+                "last_event_seq": 6,
+            },
+        ],
+        observe_only=True,
+        observation_replay_target_seq=3,
+    )
+
+    assert result.status == "completed"
+    assert result.assistant_text == "continued"
+    assert execution_started.is_set()
+    post_result.assert_awaited_once()
+    get_status.assert_awaited_once_with(
+        cid="cid_test",
+        sid="sid_test",
+        call_id="call-unresolved",
+    )
 
 
 @pytest.mark.anyio

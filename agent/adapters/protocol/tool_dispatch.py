@@ -10,6 +10,7 @@ from agent.adapters.protocol.tool_events import (
     ToolEventHandler,
     tool_activity_kind,
 )
+from agent.ports import TransportRecoveryPhase
 from protocol.schema.stream_events import (
     StreamEvent,
     ToolBuiltinCallEvent,
@@ -49,16 +50,40 @@ class StreamToolDispatcher:
         *,
         handler: ToolEventHandler,
         activity: TurnActivityProjector,
+        record_recovery_interrupt: typing.Callable[[str | None], None],
+        replay_target_seq: int | None = None,
     ) -> None:
         """绑定工具处理器、活动投影器和输出状态端口。"""
+        if not callable(record_recovery_interrupt):
+            raise TypeError("tool recovery interrupt recorder must be callable")
+        if replay_target_seq is not None and (
+            not isinstance(replay_target_seq, int)
+            or isinstance(replay_target_seq, bool)
+            or replay_target_seq < 0
+        ):
+            raise ValueError("tool replay target must be non-negative")
         self.handler = handler
         self.activity = activity
-        self.batch = ToolCallBatchBuffer()
+        self._record_recovery_interrupt = record_recovery_interrupt
+        self.batch: ToolCallBatchBuffer = ToolCallBatchBuffer()
+        self._replay_target_seq = replay_target_seq
+        self._replayed_calls: list[ToolCallEvent] = []
+        self._recovery_calls: list[ToolCallEvent] = []
 
     @property
     def batch_active(self) -> bool:
         """返回当前是否存在未完整接收的工具批次。"""
         return self.batch.active
+
+    def _is_historical(self, event: StreamEvent) -> bool:
+        """返回事件是否属于 attach 建立时冻结的历史前缀。"""
+        target = self._replay_target_seq
+        event_seq = event.event_seq
+        return (
+            target is not None
+            and event_seq is not None
+            and event_seq <= target
+        )
 
     async def dispatch(self, event: StreamEvent) -> ToolDispatchResult:
         """按事件类型维护工具 lease 并执行已完整的客户端调用。"""
@@ -93,6 +118,9 @@ class StreamToolDispatcher:
                     name=ready_call.name,
                 )
             await self.activity.tool_batch_completed(event.batch_id)
+            if self._is_historical(event):
+                self._replayed_calls.extend(ready_calls)
+                return ToolDispatchResult("handled")
             return await self._execute_calls(ready_calls)
 
         if isinstance(event, ToolCallEvent):
@@ -103,6 +131,41 @@ class StreamToolDispatcher:
             return ToolDispatchResult("handled")
 
         return ToolDispatchResult("unhandled")
+
+    async def prepare_replay_completion(self) -> None:
+        """追平前对历史调用执行权威状态裁决，不触发未决副作用。"""
+        replayed_calls = tuple(self._replayed_calls)
+        recovery_calls: list[ToolCallEvent] = []
+        for event in replayed_calls:
+            action = await self.handler.classify_replayed_call(event)
+            if action == "skip":
+                await self.handler.complete_replayed_call(event)
+            else:
+                recovery_calls.append(event)
+        self._replayed_calls.clear()
+        self._recovery_calls.extend(recovery_calls)
+        self._replay_target_seq = None
+
+    async def execute_recovery_calls(self) -> ToolDispatchResult:
+        """追平权威水位后接管仍等待结果的工具调用。"""
+        recovery_calls = tuple(self._recovery_calls)
+        self._recovery_calls.clear()
+        return await self._execute_calls(recovery_calls)
+
+    async def transport_recovery_changed(
+        self,
+        phase: TransportRecoveryPhase,
+        event_seq: int,
+    ) -> None:
+        """按传输恢复阶段裁决历史调用并恢复实时活动投影。"""
+        if phase == "caught_up":
+            await self.prepare_replay_completion()
+        await self.activity.transport_recovery_changed(phase, event_seq)
+        if phase != "caught_up":
+            return
+        recovery_result = await self.execute_recovery_calls()
+        if recovery_result.status == "interrupted":
+            self._record_recovery_interrupt(recovery_result.error)
 
     async def _execute_calls(
         self,

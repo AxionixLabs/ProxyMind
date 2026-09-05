@@ -44,6 +44,11 @@ class TurnStreamSource(typing.Protocol):
         """返回事件读取前是否应显示新 Turn 的模型等待。"""
         ...
 
+    @property
+    def historical_replay_target_seq(self) -> int | None:
+        """返回只允许归约、不得直接执行副作用的历史水位。"""
+        ...
+
     async def prepare(
         self,
         hook_events: TurnHookEvents,
@@ -98,6 +103,11 @@ class SubmittingTurnStreamSource:
     def initial_wait_visible(self) -> bool:
         """新提交 Turn 在首个事件前显示模型等待。"""
         return True
+
+    @property
+    def historical_replay_target_seq(self) -> int | None:
+        """新提交 Turn 不包含历史重放前缀。"""
+        return None
 
     async def prepare(
         self,
@@ -204,6 +214,11 @@ class ObservingTurnStreamSource:
         replay_target = self._replay_target_seq
         replay_start = self._after_event_seq or 0
         return replay_target is None or replay_target <= replay_start
+
+    @property
+    def historical_replay_target_seq(self) -> int | None:
+        """返回 attach 建立时冻结的权威历史事件水位。"""
+        return self._replay_target_seq
 
     async def prepare(
         self,

@@ -364,11 +364,14 @@ async def stream_turn(
             presentation=presentation,
             transcript=transcript,
             post_result=tool_result_delivery.deliver,
+            resolve_replayed_call=tool_result_delivery.resolve_replayed_call,
             interrupt_turn=interrupt_nested_turn,
         )
         tool_dispatcher = StreamToolDispatcher(
             handler=tool_event_handler,
             activity=activity_projector,
+            record_recovery_interrupt=outcome.interrupt,
+            replay_target_seq=source.historical_replay_target_seq,
         )
 
         event_stream = await source.open(
@@ -377,7 +380,7 @@ async def stream_turn(
             message=message,
             tools=tools,
             options=kwargs,
-            on_recovery_status=activity_projector.transport_recovery_changed,
+            on_recovery_status=tool_dispatcher.transport_recovery_changed,
             on_approval_snapshot=approval_handler.restore_snapshot,
         )
         if not isinstance(event_stream, ModelEventStream):

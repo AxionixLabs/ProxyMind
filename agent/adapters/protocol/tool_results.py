@@ -19,6 +19,11 @@ from protocol.schema.identifiers import stable_request_id
 _AsyncCall = typing.Callable[..., typing.Awaitable[typing.Any]]
 _CommandError = ToolResultRequestError | ProtocolCommandError
 
+ToolReplayAction = typing.Literal[
+    "execute",
+    "skip",
+]
+
 _RETRYABLE_DELIVERY_CODES = frozenset({
     "tool_call_missing",
     "tool_call_not_ready",
@@ -128,6 +133,111 @@ class ToolResultDelivery:
             tuple[str, str, str],
             dict[str, typing.Any],
         ] = {}
+
+    @staticmethod
+    def _can_retry_delivery(first_error: _CommandError) -> bool:
+        """返回首次交付错误是否允许使用原请求再次提交。"""
+        return (
+            first_error.retryable
+            or first_error.code in _RETRYABLE_DELIVERY_CODES
+        )
+
+    async def resolve_replayed_call(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        call_id: str,
+        tool_name: str,
+    ) -> ToolReplayAction:
+        """根据权威工具状态决定历史调用是恢复投影还是接管执行。"""
+        status = await self._get_status(
+            cid=cid,
+            sid=sid,
+            call_id=call_id,
+        )
+        if not isinstance(status, typing.Mapping):
+            raise ToolResultRequestError(
+                "tool_result_status_invalid",
+                "replayed tool result status is invalid",
+                retryable=True,
+                details={"call_id": call_id},
+            )
+
+        status_name = status.get("name")
+        if not isinstance(status_name, str) or status_name != tool_name:
+            raise ToolResultRequestError(
+                "tool_result_status_mismatch",
+                "replayed tool result status does not match the tool call",
+                details={"call_id": call_id},
+            )
+
+        tool_status = status.get("tool_status")
+        result_received = status.get("result_received")
+        if not isinstance(result_received, bool):
+            raise ToolResultRequestError(
+                "tool_result_status_invalid",
+                "replayed tool result status has no result decision",
+                retryable=True,
+                details={"call_id": call_id},
+            )
+        if result_received or tool_status in {
+            "result_received",
+            "execution_timed_out",
+            "cancelled",
+            "turn_closed",
+        }:
+            return "skip"
+
+        if status.get("reconciliation_required") is True:
+            effect_id = status.get("effect_id")
+            if not isinstance(effect_id, str) or not effect_id.strip():
+                raise ToolResultRequestError(
+                    "tool_result_reconciliation_required",
+                    "replayed tool call requires effect reconciliation",
+                    details={"call_id": call_id},
+                )
+            try:
+                if await self._reconcile_known_effect(effect_id.strip()):
+                    return "skip"
+            except asyncio.CancelledError:
+                raise
+            except ProtocolCommandError:
+                raise
+            except (OSError, RuntimeError, TypeError, ValueError) as error:
+                raise ToolResultRequestError(
+                    "tool_result_reconciliation_failed",
+                    "replayed tool effect reconciliation failed",
+                    retryable=True,
+                    details={
+                        "call_id": call_id,
+                        "effect_id": effect_id.strip(),
+                    },
+                ) from error
+            raise ToolResultRequestError(
+                "tool_result_reconciliation_required",
+                "replayed tool call has no committed local effect result",
+                details={
+                    "call_id": call_id,
+                    "effect_id": effect_id.strip(),
+                },
+            )
+
+        if tool_status == "waiting_result":
+            return "execute"
+        if tool_status in {"missing", "not_ready"}:
+            raise ToolResultRequestError(
+                f"tool_call_{tool_status}",
+                "replayed tool call is not ready for recovery",
+                retryable=True,
+                details={"call_id": call_id},
+            )
+        raise ToolResultRequestError(
+            "tool_result_status_invalid",
+            "replayed tool result status has an unsupported state",
+            retryable=True,
+            details={"call_id": call_id},
+        )
 
     async def deliver(
         self,
@@ -399,14 +509,6 @@ class ToolResultDelivery:
             metadata={"source": "client_tool_result_delivery"},
         )
         return True
-
-    @staticmethod
-    def _can_retry_delivery(first_error: _CommandError) -> bool:
-        """返回首次交付错误是否允许使用原请求再次提交。"""
-        return (
-            first_error.retryable
-            or first_error.code in _RETRYABLE_DELIVERY_CODES
-        )
 
 
 if __name__ == '__main__':

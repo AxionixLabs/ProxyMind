@@ -403,6 +403,11 @@ TUI terminal wait 控制面。
 attach/replay 期间，历史事件只归约状态，不启动瞬时 timer。追平权威水位后 Coordinator 只
 投影一次最终快照；内部 gap 进入对账展示，不能降级为普通 Thinking。`OutputSession` 只有在
 activity 和输出控制均成功打开后才可接收终态或失败投影；打开失败先收束已经取得的资源。
+replay 中的客户端工具批次只登记为待核对状态；退出 replay 抑制前必须通过
+`/tool-result/status` 裁决每个 `call_id`。已 `result_received` 或已关闭的调用只收束本地投影，
+不得重新执行 Hook、审批、工具或 `/tool-result` 投递；仅仍为 `waiting_result` 的调用可在
+追平水位后由当前进程接管。缺失、未就绪或需要对账且无本地确定结果时必须保持
+recovery gate，不得把不确定性降级为副作用重放。
 `OutputSession.close()`
 先停止输出资源，再关闭 activity scope；两步均幂等，任一步失败都必须继续清理另一项。text、
 JSONL、silent、stdio MCP 和 Subagent 使用相同会话契约，并以 `PassiveOutputActivity` 明确表示

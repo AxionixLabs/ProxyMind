@@ -68,6 +68,7 @@ async def test_tool_batch_starts_every_lease_before_execution() -> None:
     dispatcher = StreamToolDispatcher(
         handler=_Handler(events),
         activity=_Activity(events),
+        record_recovery_interrupt=lambda _error: None,
     )
     start = ToolCallsStartEvent(
         type="tool.calls.start",

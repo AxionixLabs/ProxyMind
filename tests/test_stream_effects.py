@@ -62,6 +62,110 @@ async def _deliver(
 
 
 @pytest.mark.anyio
+async def test_replayed_call_skips_when_authoritative_result_exists() -> None:
+    get_status = AsyncMock(return_value={
+        "name": "test_tool",
+        "tool_status": "result_received",
+        "result_received": True,
+        "reconciliation_required": False,
+    })
+    reconcile_known_effect = AsyncMock()
+    delivery = _delivery(
+        post_result=AsyncMock(),
+        get_status=get_status,
+        reconcile_known_effect=reconcile_known_effect,
+    )
+
+    action = await delivery.resolve_replayed_call(
+        cid="cid-test",
+        sid="sid-test",
+        call_id="call-test",
+        tool_name="test_tool",
+    )
+
+    assert action == "skip"
+    get_status.assert_awaited_once_with(
+        cid="cid-test",
+        sid="sid-test",
+        call_id="call-test",
+    )
+    reconcile_known_effect.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_replayed_call_executes_only_while_result_is_waiting() -> None:
+    delivery = _delivery(
+        post_result=AsyncMock(),
+        get_status=AsyncMock(return_value={
+            "name": "test_tool",
+            "tool_status": "waiting_result",
+            "result_received": False,
+            "reconciliation_required": False,
+        }),
+    )
+
+    action = await delivery.resolve_replayed_call(
+        cid="cid-test",
+        sid="sid-test",
+        call_id="call-test",
+        tool_name="test_tool",
+    )
+
+    assert action == "execute"
+
+
+@pytest.mark.anyio
+async def test_replayed_call_reconciles_known_effect_without_execution() -> None:
+    reconcile_known_effect = AsyncMock(return_value=True)
+    delivery = _delivery(
+        post_result=AsyncMock(),
+        get_status=AsyncMock(return_value={
+            "name": "test_tool",
+            "tool_status": "waiting_result",
+            "result_received": False,
+            "reconciliation_required": True,
+            "effect_id": "effect-test",
+        }),
+        reconcile_known_effect=reconcile_known_effect,
+    )
+
+    action = await delivery.resolve_replayed_call(
+        cid="cid-test",
+        sid="sid-test",
+        call_id="call-test",
+        tool_name="test_tool",
+    )
+
+    assert action == "skip"
+    reconcile_known_effect.assert_awaited_once_with("effect-test")
+
+
+@pytest.mark.anyio
+async def test_replayed_call_does_not_execute_unknown_effect() -> None:
+    delivery = _delivery(
+        post_result=AsyncMock(),
+        get_status=AsyncMock(return_value={
+            "name": "test_tool",
+            "tool_status": "waiting_result",
+            "result_received": False,
+            "reconciliation_required": True,
+            "effect_id": "effect-test",
+        }),
+        reconcile_known_effect=AsyncMock(return_value=False),
+    )
+
+    with pytest.raises(ToolResultRequestError) as caught:
+        await delivery.resolve_replayed_call(
+            cid="cid-test",
+            sid="sid-test",
+            call_id="call-test",
+            tool_name="test_tool",
+        )
+
+    assert caught.value.code == "tool_result_reconciliation_required"
+
+
+@pytest.mark.anyio
 async def test_delivery_deduplicates_concurrent_identical_results() -> None:
     started = asyncio.Event()
     release = asyncio.Event()

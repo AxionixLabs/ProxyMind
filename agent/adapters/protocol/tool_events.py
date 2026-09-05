@@ -5,6 +5,7 @@ import typing
 from dataclasses import dataclass
 
 from agent.adapters.protocol.activity_events import TurnActivityProjector
+from agent.adapters.protocol.tool_results import ToolReplayAction
 from agent.application.approvals.local_policy import (
     apply_local_exec_policy_approval,
     apply_local_patch_approval,
@@ -211,6 +212,10 @@ class ToolEventHandler:
         presentation: PresentationSink,
         transcript: TranscriptSink,
         post_result: typing.Callable[..., typing.Awaitable[None]],
+        resolve_replayed_call: typing.Callable[
+            ...,
+            typing.Awaitable[ToolReplayAction],
+        ],
         interrupt_turn: typing.Callable[[str], typing.Awaitable[bool]],
     ) -> None:
         """绑定当前轮次拥有的工具执行依赖。"""
@@ -228,7 +233,36 @@ class ToolEventHandler:
         self.presentation = presentation
         self.transcript = transcript
         self.post_result = post_result
+        self.resolve_replayed_call = resolve_replayed_call
         self.interrupt_turn = interrupt_turn
+
+    async def classify_replayed_call(
+        self,
+        event: ToolCallEvent,
+    ) -> ToolReplayAction:
+        """使用服务端持久状态裁决历史调用，不根据本地展示猜测。"""
+        action = await self.resolve_replayed_call(
+            cid=self.turn_context.cid,
+            sid=self.turn_context.sid,
+            call_id=event.call_id,
+            tool_name=event.name,
+        )
+        observe(
+            "tool.call.replay_resolved",
+            call_id=event.call_id,
+            turn_id=self.turn_context.turn_id,
+            action=action,
+        )
+        return action
+
+    async def complete_replayed_call(self, event: ToolCallEvent) -> None:
+        """对已有权威结果的历史调用只收束本地活动投影。"""
+        await self.activity.tool_completed(
+            event.call_id,
+            tool_activity_kind(event.name),
+            name=event.name,
+        )
+        await self.activity.request_model_wait("tool_result")
 
     async def handle_call(
         self,
