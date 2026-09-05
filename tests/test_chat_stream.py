@@ -498,6 +498,34 @@ async def test_cancellation_clears_reconnecting_status(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_control_probe_wakes_recovery_backoff(monkeypatch) -> None:
+    wait_started = asyncio.Event()
+    wait_cancelled = asyncio.Event()
+
+    async def wait_before_attach(_delay):
+        wait_started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            wait_cancelled.set()
+
+    monkeypatch.setattr(
+        chat.TurnEventStream,
+        "_wait_before_attach",
+        staticmethod(wait_before_attach),
+    )
+    event_stream = chat.stream_chat({}, "hello", [])
+    waiting = asyncio.create_task(event_stream._wait_for_recovery_delay(5.0))
+    await wait_started.wait()
+
+    event_stream.request_recovery_probe()
+    await asyncio.wait_for(waiting, timeout=0.1)
+
+    assert wait_cancelled.is_set()
+    assert event_stream._control_settlement_probe_active is True
+
+
+@pytest.mark.anyio
 async def test_recovery_callback_failure_still_closes_payload_stream() -> None:
     """验证展示回调失败不能泄漏底层 HTTP 流。"""
     async def payloads():
@@ -1500,7 +1528,7 @@ async def test_attach_restores_approval_snapshot_before_replay(monkeypatch) -> N
         sid="sid_1",
         turn_id="turn_001",
         turn_status="waiting_approval",
-        turn_settled=False,
+        terminal=None,
         last_event_seq=4,
         approvals=(),
     )
@@ -1555,8 +1583,20 @@ async def test_attach_restores_approval_snapshot_before_replay(monkeypatch) -> N
 
 
 @pytest.mark.anyio
-async def test_snapshot_failure_does_not_block_event_attach(monkeypatch) -> None:
+async def test_snapshot_transient_failure_retries_before_event_attach(
+    monkeypatch,
+) -> None:
     calls = []
+    restored = []
+    snapshot = ToolApprovalSnapshot(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        turn_status="waiting_approval",
+        terminal=None,
+        last_event_seq=1,
+        approvals=(),
+    )
 
     async def streaming(url, _headers, _payload, _timeout):
         calls.append(url)
@@ -1579,26 +1619,163 @@ async def test_snapshot_failure_does_not_block_event_attach(monkeypatch) -> None
     monkeypatch.setattr(
         chat,
         "reconcile_tool_approval_snapshot",
-        AsyncMock(side_effect=chat.ToolApprovalSnapshotRequestError(
-            "snapshot unavailable",
-            status_code=503,
+        AsyncMock(side_effect=(
+            chat.ToolApprovalSnapshotRequestError(
+                "snapshot unavailable",
+                status_code=503,
+                retryable=True,
+            ),
+            snapshot,
         )),
     )
+    wait_before_attach = AsyncMock()
+    monkeypatch.setattr(chat.TurnEventStream, "_wait_before_attach", wait_before_attach)
+
+    async def restore(value):
+        restored.append(value)
 
     events = [
         event async for event in chat.stream_chat(
             {},
             "hello",
             [],
-            on_approval_snapshot=AsyncMock(),
+            on_approval_snapshot=restore,
         )
     ]
 
     assert [event.event_seq for event in events] == [1, 2]
+    assert restored == [snapshot]
+    assert chat.reconcile_tool_approval_snapshot.await_count == 2
+    assert chat.get_turn_status.await_count == 2
     assert calls == [
         "https://example.com/mind-chat",
         "https://example.com/mind-attach",
     ]
+
+
+@pytest.mark.anyio
+async def test_snapshot_contract_failure_prevents_event_attach(monkeypatch) -> None:
+    calls = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        yield {
+            "type": "text.delta",
+            "turn_id": "turn_001",
+            "event_seq": 1,
+            "segment_id": "segment_1",
+            "text": "first",
+        }
+        raise OSError("connection lost")
+
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(
+        chat,
+        "reconcile_tool_approval_snapshot",
+        AsyncMock(side_effect=chat.ToolApprovalSnapshotRequestError(
+            "snapshot contract is invalid",
+            status_code=200,
+            retryable=False,
+        )),
+    )
+    monkeypatch.setattr(
+        chat.TurnEventStream,
+        "_wait_before_attach",
+        AsyncMock(),
+    )
+    stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        on_approval_snapshot=AsyncMock(),
+    )
+
+    with pytest.raises(
+        chat.ToolApprovalSnapshotRequestError,
+        match="contract is invalid",
+    ):
+        _ = [event async for event in stream]
+
+    assert stream.end_reason == "fatal"
+    assert calls == ["https://example.com/mind-chat"]
+
+
+@pytest.mark.anyio
+async def test_control_probe_interrupts_snapshot_retry_backoff(monkeypatch) -> None:
+    calls = []
+    authority_retry_started = asyncio.Event()
+    waits = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        yield {
+            "type": "text.delta",
+            "turn_id": "turn_001",
+            "event_seq": 1,
+            "segment_id": "segment_1",
+            "text": "first",
+        }
+        raise OSError("connection lost")
+
+    async def wait_before_attach(_delay):
+        waits.append(_delay)
+        if len(waits) == 1:
+            return
+        authority_retry_started.set()
+        await asyncio.Future()
+
+    active_status = SimpleNamespace(last_event_seq=1, terminal=None)
+    terminal_status = SimpleNamespace(
+        last_event_seq=2,
+        terminal=SimpleNamespace(
+            type="turn.completed",
+            turn_id="turn_001",
+            status="interrupted",
+            error=None,
+            last_event_seq=2,
+            completed_at=12.5,
+        ),
+    )
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(
+        chat,
+        "get_turn_status",
+        AsyncMock(side_effect=(active_status, terminal_status)),
+    )
+    monkeypatch.setattr(
+        chat,
+        "reconcile_tool_approval_snapshot",
+        AsyncMock(side_effect=chat.ToolApprovalSnapshotRequestError(
+            "snapshot unavailable",
+            status_code=503,
+            retryable=True,
+        )),
+    )
+    monkeypatch.setattr(
+        chat.TurnEventStream,
+        "_wait_before_attach",
+        staticmethod(wait_before_attach),
+    )
+    stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        on_approval_snapshot=AsyncMock(),
+    )
+    events = stream.__aiter__()
+
+    first = await anext(events)
+    terminal_task = asyncio.create_task(anext(events))
+    await authority_retry_started.wait()
+    stream.request_recovery_probe()
+    terminal = await asyncio.wait_for(terminal_task, timeout=1.0)
+
+    assert isinstance(first, TextDeltaEvent)
+    assert isinstance(terminal, TurnCompletedEvent)
+    assert terminal.status == "interrupted"
+    assert chat.get_turn_status.await_count == 2
+    assert chat.reconcile_tool_approval_snapshot.await_count == 1
+    assert calls == ["https://example.com/mind-chat"]
 
 
 @pytest.mark.anyio

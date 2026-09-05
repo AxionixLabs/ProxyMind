@@ -124,7 +124,7 @@ async def test_approval_snapshot_request_parses_pending_record(monkeypatch) -> N
                 "sid": "sid_1",
                 "turn_id": "turn_001",
                 "turn_status": "waiting_approval",
-                "turn_settled": False,
+                "terminal": None,
                 "last_event_seq": 8,
                 "approvals": [{
                     "type": "tool.approval_required",
@@ -160,6 +160,7 @@ async def test_approval_snapshot_request_parses_pending_record(monkeypatch) -> N
     )
 
     assert snapshot.cid == "cid_1"
+    assert snapshot.terminal is None
     assert snapshot.last_event_seq == 8
     assert snapshot.approvals[0].status == "pending"
     assert snapshot.approvals[0].approval_id == "approval_1"
@@ -170,6 +171,145 @@ async def test_approval_snapshot_request_parses_pending_record(monkeypatch) -> N
         "turn_id": "turn_001",
     }
     assert captured["timeout"] == 3.0
+
+
+@pytest.mark.anyio
+async def test_approval_snapshot_accepts_matching_terminal(monkeypatch) -> None:
+    captured = {}
+    _install_snapshot_client(monkeypatch, httpx.Response(
+        200,
+        json={
+            "ok": True,
+            "data": {
+                "cid": "cid_1",
+                "sid": "sid_1",
+                "turn_id": "turn_001",
+                "turn_status": "interrupted",
+                "terminal": {
+                    "type": "turn.completed",
+                    "turn_id": "turn_001",
+                    "status": "interrupted",
+                    "error": None,
+                    "last_event_seq": 8,
+                    "completed_at": 12.5,
+                },
+                "last_event_seq": 8,
+                "approvals": [],
+            },
+        },
+        request=httpx.Request(
+            "POST",
+            "https://example.test/turn/approval-snapshot",
+        ),
+    ), captured)
+
+    snapshot = await tools.reconcile_tool_approval_snapshot(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+    )
+
+    assert snapshot.turn_status == "interrupted"
+    assert snapshot.terminal is not None
+    assert snapshot.terminal.status == "interrupted"
+    assert snapshot.terminal.last_event_seq == 8
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("turn_status", "terminal"),
+    (
+        ("completed", None),
+        (
+            "waiting_approval",
+            {
+                "type": "turn.completed",
+                "turn_id": "turn_001",
+                "status": "completed",
+                "error": None,
+                "last_event_seq": 8,
+                "completed_at": 12.5,
+            },
+        ),
+    ),
+)
+async def test_approval_snapshot_rejects_terminal_state_mismatch(
+    monkeypatch,
+    turn_status,
+    terminal,
+) -> None:
+    captured = {}
+    _install_snapshot_client(monkeypatch, httpx.Response(
+        200,
+        json={
+            "ok": True,
+            "data": {
+                "cid": "cid_1",
+                "sid": "sid_1",
+                "turn_id": "turn_001",
+                "turn_status": turn_status,
+                "terminal": terminal,
+                "last_event_seq": 8,
+                "approvals": [],
+            },
+        },
+        request=httpx.Request(
+            "POST",
+            "https://example.test/turn/approval-snapshot",
+        ),
+    ), captured)
+
+    with pytest.raises(
+        tools.ToolApprovalSnapshotRequestError,
+        match="terminal",
+    ) as raised:
+        await tools.reconcile_tool_approval_snapshot(
+            cid="cid_1",
+            sid="sid_1",
+            turn_id="turn_001",
+        )
+
+    assert raised.value.status_code == 200
+    assert raised.value.retryable is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status_code", "retryable"),
+    (
+        (400, False),
+        (429, True),
+        (503, True),
+    ),
+)
+async def test_approval_snapshot_classifies_http_failure(
+    monkeypatch,
+    status_code,
+    retryable,
+) -> None:
+    captured = {}
+    _install_snapshot_client(
+        monkeypatch,
+        httpx.Response(
+            status_code,
+            json={"detail": "unavailable"},
+            request=httpx.Request(
+                "POST",
+                "https://example.test/turn/approval-snapshot",
+            ),
+        ),
+        captured,
+    )
+
+    with pytest.raises(tools.ToolApprovalSnapshotRequestError) as raised:
+        await tools.reconcile_tool_approval_snapshot(
+            cid="cid_1",
+            sid="sid_1",
+            turn_id="turn_001",
+        )
+
+    assert raised.value.status_code == status_code
+    assert raised.value.retryable is retryable
 
 
 @pytest.mark.anyio
@@ -881,10 +1021,13 @@ async def test_decline_request_allows_reason(monkeypatch) -> None:
 async def test_not_pending_response_raises_request_error(monkeypatch) -> None:
     captured = {}
     _install_client(monkeypatch, _response(404, {
-        "detail": {
+        "error": "FATAL",
+        "details": {
             "code": "approval_not_pending",
             "message": "approval expired",
         },
+        "type": "BizError",
+        "trace_id": "trace_approval_not_pending",
     }), captured)
 
     with pytest.raises(tools.ToolApprovalRequestError, match="^approval expired$"):
@@ -899,13 +1042,27 @@ async def test_not_pending_response_raises_request_error(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_conflict_response_preserves_stable_error_code(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("code", "message"),
+    (
+        ("request_id_conflict", "request identity was reused"),
+        ("approval_decision_conflict", "decision conflicts with prior response"),
+    ),
+)
+async def test_conflict_response_preserves_stable_error_code(
+    monkeypatch,
+    code: str,
+    message: str,
+) -> None:
     captured = {}
     _install_client(monkeypatch, _response(409, {
-        "detail": {
-            "code": "approval_decision_conflict",
-            "message": "decision conflicts with prior response",
+        "error": "FATAL",
+        "details": {
+            "code": code,
+            "message": message,
         },
+        "type": "BizError",
+        "trace_id": "trace_approval_conflict",
     }), captured)
 
     with pytest.raises(tools.ToolApprovalRequestError) as caught:
@@ -918,8 +1075,9 @@ async def test_conflict_response_preserves_stable_error_code(monkeypatch) -> Non
             turn_id="turn_001",
         )
 
-    assert caught.value.code == "approval_decision_conflict"
+    assert caught.value.code == code
     assert caught.value.status_code == 409
+    assert str(caught.value) == message
 
 
 @pytest.mark.anyio

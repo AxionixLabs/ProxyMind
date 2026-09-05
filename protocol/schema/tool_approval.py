@@ -4,6 +4,11 @@
 import typing
 from dataclasses import dataclass
 
+from protocol.schema.turn_lifecycle import (
+    TurnCompletedSnapshot,
+    TurnRuntimeStatus,
+)
+
 ToolApprovalKind: typing.TypeAlias = typing.Literal[
     "command",
     "write_stdin",
@@ -229,8 +234,8 @@ class ToolApprovalSnapshot(object):
     cid: str
     sid: str
     turn_id: str
-    turn_status: str
-    turn_settled: bool
+    turn_status: TurnRuntimeStatus
+    terminal: TurnCompletedSnapshot | None
     last_event_seq: int
     approvals: tuple[ToolApprovalSnapshotItem, ...]
 

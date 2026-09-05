@@ -70,7 +70,7 @@ def _approval_snapshot(
         sid="sid_test",
         turn_id="turn_test",
         turn_status="waiting_approval",
-        turn_settled=False,
+        terminal=None,
         last_event_seq=last_event_seq,
         approvals=(ToolApprovalSnapshotItem(
             approval_id="approval_test",

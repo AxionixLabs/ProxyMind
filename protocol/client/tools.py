@@ -23,6 +23,11 @@ from protocol.schema.tool_approval import (
     ToolApprovalSnapshotItem,
     ToolApprovalTurnStatus,
 )
+from protocol.schema.turn_lifecycle import (
+    is_terminal_turn_status,
+    parse_turn_completed_snapshot,
+    parse_turn_runtime_status,
+)
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
 from protocol.transport.reliable import (
@@ -273,10 +278,12 @@ class ToolApprovalSnapshotRequestError(Exception):
         message: str,
         *,
         status_code: int | None = None,
+        retryable: bool = False,
     ) -> None:
-        """保存快照请求失败对应的 HTTP 状态码。"""
+        """保存快照请求失败对应的 HTTP 状态码和重试分类。"""
         super().__init__(message)
         self.status_code = status_code
+        self.retryable = retryable
 
 
 async def reconcile_tool_approval_snapshot(
@@ -316,10 +323,12 @@ async def reconcile_tool_approval_snapshot(
         raise ToolApprovalSnapshotRequestError(
             "approval snapshot request failed",
             status_code=error.response.status_code,
+            retryable=is_retryable_status(error.response.status_code),
         ) from error
     except httpx.HTTPError as error:
         raise ToolApprovalSnapshotRequestError(
-            "approval snapshot request failed"
+            "approval snapshot request failed",
+            retryable=True,
         ) from error
 
     try:
@@ -337,7 +346,16 @@ async def reconcile_tool_approval_snapshot(
         )
 
     data = body.get("data")
-    if not isinstance(data, dict):
+    expected_data_fields = {
+        "cid",
+        "sid",
+        "turn_id",
+        "turn_status",
+        "terminal",
+        "last_event_seq",
+        "approvals",
+    }
+    if not isinstance(data, dict) or set(data) != expected_data_fields:
         raise ToolApprovalSnapshotRequestError(
             "approval snapshot data is invalid",
             status_code=response.status_code,
@@ -364,16 +382,24 @@ async def reconcile_tool_approval_snapshot(
             status_code=response.status_code,
         )
 
-    approvals = tuple(
-        _approval_snapshot_item(item, expected_turn_id=normalized_turn_id)
-        for item in raw_approvals
-    )
-    turn_status = str(data.get("turn_status") or "").strip()
-    if not turn_status:
+    try:
+        approvals = tuple(
+            _approval_snapshot_item(item, expected_turn_id=normalized_turn_id)
+            for item in raw_approvals
+        )
+    except ToolApprovalSnapshotRequestError as error:
+        raise ToolApprovalSnapshotRequestError(
+            str(error),
+            status_code=response.status_code,
+        ) from error
+
+    try:
+        turn_status = parse_turn_runtime_status(data.get("turn_status"))
+    except ValueError as error:
         raise ToolApprovalSnapshotRequestError(
             "approval snapshot turn_status is invalid",
             status_code=response.status_code,
-        )
+        ) from error
     last_event_seq = data.get("last_event_seq")
     if (
         isinstance(last_event_seq, bool)
@@ -384,10 +410,21 @@ async def reconcile_tool_approval_snapshot(
             "approval snapshot last_event_seq is invalid",
             status_code=response.status_code,
         )
-    turn_settled = data.get("turn_settled")
-    if not isinstance(turn_settled, bool):
+    try:
+        terminal = parse_turn_completed_snapshot(
+            data.get("terminal"),
+            expected_turn_id=normalized_turn_id,
+            expected_status=turn_status,
+            expected_event_seq=last_event_seq,
+        )
+    except ValueError as error:
         raise ToolApprovalSnapshotRequestError(
-            "approval snapshot turn_settled is invalid",
+            "approval snapshot terminal is invalid",
+            status_code=response.status_code,
+        ) from error
+    if (terminal is not None) != is_terminal_turn_status(turn_status):
+        raise ToolApprovalSnapshotRequestError(
+            "approval snapshot terminal does not match turn_status",
             status_code=response.status_code,
         )
 
@@ -396,7 +433,7 @@ async def reconcile_tool_approval_snapshot(
         sid=normalized_sid,
         turn_id=normalized_turn_id,
         turn_status=turn_status,
-        turn_settled=turn_settled,
+        terminal=terminal,
         last_event_seq=last_event_seq,
         approvals=approvals,
     )
@@ -1578,11 +1615,11 @@ def _tool_approval_error(response: httpx.Response) -> tuple[str, str]:
     except (TypeError, ValueError):
         body = None
 
-    detail = body.get("detail") if isinstance(body, dict) else None
+    details = body.get("details") if isinstance(body, dict) else None
 
-    if isinstance(detail, dict):
-        code = str(detail.get("code") or "").strip()
-        message = str(detail.get("message") or detail.get("detail") or "").strip()
+    if isinstance(details, dict):
+        code = str(details.get("code") or "").strip()
+        message = str(details.get("message") or "").strip()
 
         if code:
             return code, message or code

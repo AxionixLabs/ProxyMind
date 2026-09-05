@@ -26,13 +26,10 @@ from protocol.schema.tool_approval import (
     ToolApprovalKind,
     ToolApprovalSnapshotStatus
 )
-
-TurnCompletedStatus: typing.TypeAlias = typing.Literal[
-    "completed",
-    "interrupted",
-    "failed",
-    "cancelled",
-]
+from protocol.schema.turn_lifecycle import (
+    TurnCompletedStatus,
+    parse_turn_completed_status,
+)
 
 EffectReplay: typing.TypeAlias = typing.Literal[
     "safe",
@@ -1331,16 +1328,10 @@ def _required_bool(value: typing.Any, field_name: str) -> bool:
 def _turn_completed_status(value: typing.Any) -> TurnCompletedStatus:
     """读取唯一 Turn 终态事件的受支持状态。"""
     status = _required_text(value, "turn.completed status")
-    if status == "completed":
-        return "completed"
-    if status == "interrupted":
-        return "interrupted"
-    if status == "failed":
-        return "failed"
-    if status == "cancelled":
-        return "cancelled"
-
-    raise ValueError(f"unsupported turn.completed status: {status}")
+    try:
+        return parse_turn_completed_status(status)
+    except ValueError as error:
+        raise ValueError(f"unsupported turn.completed status: {status}") from error
 
 
 def _turn_completed_fields(

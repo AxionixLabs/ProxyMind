@@ -10,6 +10,13 @@ from protocol.schema.identifiers import (
     normalize_turn_id,
     resolve_request_id,
 )
+from protocol.schema.turn_lifecycle import (
+    TurnCompletedSnapshot,
+    TurnRuntimeStatus,
+    is_terminal_turn_status,
+    parse_turn_completed_snapshot,
+    parse_turn_runtime_status,
+)
 from protocol.schema.turn_inputs import TurnInput
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
@@ -26,27 +33,6 @@ TurnControlStatus = typing.Literal[
     "duplicate",
 ]
 
-TurnRuntimeStatus = typing.Literal[
-    "queued",
-    "running",
-    "waiting_tool",
-    "waiting_approval",
-    "waiting_user",
-    "reconciliation_required",
-    "finalizing",
-    "completed",
-    "failed",
-    "interrupted",
-    "cancelled",
-]
-
-TurnCompletedStatus = typing.Literal[
-    "completed",
-    "failed",
-    "interrupted",
-    "cancelled",
-]
-
 _CONTROL_STATUSES: typing.Final[set[str]] = {
     "accepted",
     "turn_not_active",
@@ -54,28 +40,6 @@ _CONTROL_STATUSES: typing.Final[set[str]] = {
     "turn_mismatch",
     "duplicate",
 }
-
-_TURN_RUNTIME_STATUSES: typing.Final[set[str]] = {
-    "queued",
-    "running",
-    "waiting_tool",
-    "waiting_approval",
-    "waiting_user",
-    "reconciliation_required",
-    "finalizing",
-    "completed",
-    "failed",
-    "interrupted",
-    "cancelled",
-}
-
-_TERMINAL_TURN_STATUSES: typing.Final[set[str]] = {
-    "completed",
-    "failed",
-    "interrupted",
-    "cancelled",
-}
-
 
 def _control_status(value: str) -> TurnControlStatus | None:
     """把服务端控制状态收窄为协议字面量。"""
@@ -88,46 +52,6 @@ def _control_status(value: str) -> TurnControlStatus | None:
     if value == "turn_mismatch":
         return value
     if value == "duplicate":
-        return value
-    return None
-
-
-def _runtime_status(value: str) -> TurnRuntimeStatus | None:
-    """把服务端轮次状态收窄为协议字面量。"""
-    if value == "queued":
-        return value
-    if value == "running":
-        return value
-    if value == "waiting_tool":
-        return value
-    if value == "waiting_approval":
-        return value
-    if value == "waiting_user":
-        return value
-    if value == "reconciliation_required":
-        return value
-    if value == "finalizing":
-        return value
-    if value == "completed":
-        return value
-    if value == "failed":
-        return value
-    if value == "interrupted":
-        return value
-    if value == "cancelled":
-        return value
-    return None
-
-
-def _completed_status(value: str) -> TurnCompletedStatus | None:
-    """把服务端轮次终态收窄为协议字面量。"""
-    if value == "completed":
-        return value
-    if value == "failed":
-        return value
-    if value == "interrupted":
-        return value
-    if value == "cancelled":
         return value
     return None
 
@@ -171,17 +95,6 @@ class TurnControlResponse(object):
     request_id: str
     turn_id: str
     client_message_id: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class TurnCompletedSnapshot(object):
-    """描述与唯一终态事件同构的持久化快照。"""
-    type: typing.Literal["turn.completed"]
-    turn_id: str
-    status: TurnCompletedStatus
-    error: str | None
-    last_event_seq: int
-    completed_at: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,33 +309,19 @@ async def reconcile_turn_inputs(
             "turn reconciliation response does not match request"
         )
 
-    terminal: TurnCompletedSnapshot | None = None
-    if terminal_value is not None:
-        if not isinstance(terminal_value, dict):
-            raise TurnControlRequestError(
-                "turn reconciliation returned an invalid response"
-            )
-        terminal_status_value = terminal_value.get("status")
-        terminal_event_seq = terminal_value.get("last_event_seq")
-        if (
-            not isinstance(terminal_status_value, str)
-            or isinstance(terminal_event_seq, bool)
-            or not isinstance(terminal_event_seq, int)
-        ):
-            raise TurnControlRequestError(
-                "turn reconciliation returned an invalid response"
-            )
-        try:
-            terminal = _completed_snapshot(
-                terminal_value,
-                expected_turn_id=normalized_turn_id,
-                expected_status=terminal_status_value,
-                expected_event_seq=terminal_event_seq,
-            )
-        except TurnStatusRequestError as error:
-            raise TurnControlRequestError(
-                "turn reconciliation returned an invalid response"
-            ) from error
+    if "terminal" not in body:
+        raise TurnControlRequestError(
+            "turn reconciliation returned an invalid response"
+        )
+    try:
+        terminal = parse_turn_completed_snapshot(
+            terminal_value,
+            expected_turn_id=normalized_turn_id,
+        )
+    except ValueError as error:
+        raise TurnControlRequestError(
+            "turn reconciliation returned an invalid response"
+        ) from error
     if (
         (
             not turn_exists
@@ -685,11 +584,11 @@ def _status_snapshot(
         or body.get("turn_id") != expected_turn_id
         or not isinstance(run_id, str)
         or not isinstance(status, str)
-        or status not in _TURN_RUNTIME_STATUSES
+        or "terminal" not in body
         or any(
-        isinstance(value, bool) or not isinstance(value, (int, float))
-        for value in numeric_values
-    )
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in numeric_values
+        )
         or not isinstance(attempt, int)
         or attempt < 1
         or not isinstance(version, int)
@@ -699,17 +598,21 @@ def _status_snapshot(
     ):
         raise TurnStatusRequestError(invalid_message)
 
-    typed_status = _runtime_status(status)
-    if typed_status is None:
-        raise TurnStatusRequestError(invalid_message)
+    try:
+        typed_status = parse_turn_runtime_status(status)
+    except ValueError as error:
+        raise TurnStatusRequestError(invalid_message) from error
 
-    terminal = _completed_snapshot(
-        terminal_value,
-        expected_turn_id=expected_turn_id,
-        expected_status=status,
-        expected_event_seq=event_seq,
-    )
-    if (terminal is not None) != (status in _TERMINAL_TURN_STATUSES):
+    try:
+        terminal = parse_turn_completed_snapshot(
+            terminal_value,
+            expected_turn_id=expected_turn_id,
+            expected_status=typed_status,
+            expected_event_seq=event_seq,
+        )
+    except ValueError as error:
+        raise TurnStatusRequestError(invalid_message) from error
+    if (terminal is not None) != is_terminal_turn_status(typed_status):
         raise TurnStatusRequestError(invalid_message)
 
     return TurnStatusSnapshot(
@@ -724,49 +627,6 @@ def _status_snapshot(
         last_event_seq=event_seq,
         created_at=float(created),
         updated_at=float(updated),
-    )
-
-
-def _completed_snapshot(
-    value: typing.Any,
-    *,
-    expected_turn_id: str,
-    expected_status: str,
-    expected_event_seq: int,
-) -> TurnCompletedSnapshot | None:
-    """校验并构建与 `turn.completed` 同构的终态快照。"""
-    if value is None:
-        return None
-    if not isinstance(value, dict):
-        raise TurnStatusRequestError("turn status returned an invalid response")
-
-    status = value.get("status")
-    error = value.get("error")
-    event_seq = value.get("last_event_seq")
-    completed_at = value.get("completed_at")
-    if (
-        value.get("type") != "turn.completed"
-        or value.get("turn_id") != expected_turn_id
-        or status != expected_status
-        or not isinstance(status, str)
-        or (typed_status := _completed_status(status)) is None
-        or error is not None and not isinstance(error, str)
-        or isinstance(event_seq, bool)
-        or not isinstance(event_seq, int)
-        or event_seq < 1
-        or event_seq != expected_event_seq
-        or isinstance(completed_at, bool)
-        or not isinstance(completed_at, (int, float))
-        or float(completed_at) <= 0
-    ):
-        raise TurnStatusRequestError("turn status returned an invalid response")
-    return TurnCompletedSnapshot(
-        type="turn.completed",
-        turn_id=expected_turn_id,
-        status=typed_status,
-        error=error,
-        last_event_seq=event_seq,
-        completed_at=float(completed_at),
     )
 
 

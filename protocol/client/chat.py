@@ -301,6 +301,43 @@ class TurnEventStream(object):
             return
         await asyncio.sleep(delay)
 
+    async def _wait_for_recovery_delay(self, delay: float) -> None:
+        """等待重连退避或由控制命令提前唤醒。"""
+        delay_task = asyncio.create_task(self._wait_before_attach(delay))
+        probe_task = asyncio.create_task(self._recovery_probe_requested.wait())
+        tasks = (delay_task, probe_task)
+        try:
+            completed, _pending = await asyncio.wait(
+                tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if delay_task in completed:
+                await delay_task
+        finally:
+            pending = [task for task in tasks if not task.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            self._recovery_probe_requested.clear()
+
+    async def _wait_for_recovery_authority(self) -> None:
+        """在权威恢复请求暂时失败后执行同一重连预算内的退避。"""
+        now = time.monotonic()
+        if (
+            self._reconnect_started_at is None
+            or now - self._reconnect_started_at >= ATTACH_RETRY_MAX_ELAPSED_SEC
+        ):
+            self._reconnect_started_at = now
+            self._reconnect_failures = 0
+        delay = self._attach_delay()
+        self._reconnect_failures += 1
+        await self._notify_recovery(
+            "reconnecting",
+            event_seq=self.last_event_seq,
+        )
+        await self._wait_for_recovery_delay(delay)
+
     async def _wait_for_control_settlement_probe(self) -> None:
         """等待下一次控制终态查询或显式唤醒。"""
         due_at = self._control_settlement_probe_due_at
@@ -680,7 +717,7 @@ class TurnEventStream(object):
         )
 
         await self._close_payload_stream()
-        await self._wait_before_attach(delay)
+        await self._wait_for_recovery_delay(delay)
 
         if (
             self._reconnect_started_at is not None
@@ -690,63 +727,76 @@ class TurnEventStream(object):
             self._reconnect_started_at = time.monotonic()
             self._reconnect_failures = 0
 
-        recovery_status = await self._turn_status_for_recovery(attach_target)
-        status = recovery_status.snapshot
-        if not self._response_observed and recovery_status.turn_missing:
-            self._control_settlement_probe_active = False
-            self._control_settlement_probe_due_at = None
-            self._replay_target_seq = self.last_event_seq
-            self._payload_stream = self._open_chat_stream()
-            self._reset_event_progress_deadline()
-            return True
+        while True:
+            control_settlement = self._control_settlement_probe_active
+            recovery_status = await self._turn_status_for_recovery(attach_target)
+            status = recovery_status.snapshot
+            if not self._response_observed and recovery_status.turn_missing:
+                self._control_settlement_probe_active = False
+                self._control_settlement_probe_due_at = None
+                self._replay_target_seq = self.last_event_seq
+                self._payload_stream = self._open_chat_stream()
+                self._reset_event_progress_deadline()
+                return True
 
-        if (
-            status is not None
-            and status.terminal is not None
-            and (
-                status.last_event_seq == self.last_event_seq + 1
-                or control_settlement
-                or (
-                    self._internal_gap_detected
-                    and status.last_event_seq > self.last_event_seq
+            if (
+                status is not None
+                and status.terminal is not None
+                and (
+                    status.last_event_seq == self.last_event_seq + 1
+                    or control_settlement
+                    or (
+                        self._internal_gap_detected
+                        and status.last_event_seq > self.last_event_seq
+                    )
                 )
-            )
-        ):
+            ):
+                self._control_settlement_probe_active = False
+                self._control_settlement_probe_due_at = None
+                await self._begin_replay(status.last_event_seq)
+                self._terminal_snapshot_payload = self._terminal_payload(
+                    status,
+                    attach_target=attach_target,
+                )
+                self._reset_event_progress_deadline()
+                return True
+
+            if control_settlement:
+                self._control_settlement_probe_due_at = (
+                    time.monotonic() + CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC
+                )
+                self._reset_event_progress_deadline()
+                return True
+
+            try:
+                snapshot_event_seq = await self._restore_approval_snapshot(
+                    attach_target
+                )
+            except ToolApprovalSnapshotRequestError as snapshot_error:
+                if not snapshot_error.retryable:
+                    raise
+                await self._wait_for_recovery_authority()
+                continue
+
             self._control_settlement_probe_active = False
             self._control_settlement_probe_due_at = None
-            await self._begin_replay(status.last_event_seq)
-            self._terminal_snapshot_payload = self._terminal_payload(
-                status,
-                attach_target=attach_target,
+            replay_target_seq = (
+                status.last_event_seq
+                if status is not None
+                else self.last_event_seq
             )
+            if snapshot_event_seq is not None:
+                replay_target_seq = max(
+                    replay_target_seq,
+                    snapshot_event_seq,
+                )
+            await self._begin_replay(replay_target_seq)
+            if self.last_event_seq >= replay_target_seq:
+                self._recovery_catch_up_pending = True
+
+            self._payload_stream = self._open_attach_stream()
             self._reset_event_progress_deadline()
             return True
-
-        if control_settlement:
-            self._control_settlement_probe_due_at = (
-                time.monotonic() + CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC
-            )
-            self._reset_event_progress_deadline()
-            return True
-        self._control_settlement_probe_active = False
-        self._control_settlement_probe_due_at = None
-        await self._begin_replay(
-            status.last_event_seq
-            if status is not None
-            else self.last_event_seq
-        )
-        snapshot_event_seq = await self._restore_approval_snapshot(attach_target)
-        if snapshot_event_seq is not None:
-            self._replay_target_seq = max(
-                self._replay_target_seq or 0,
-                snapshot_event_seq,
-            )
-        if self.last_event_seq >= (self._replay_target_seq or 0):
-            self._recovery_catch_up_pending = True
-
-        self._payload_stream = self._open_attach_stream()
-        self._reset_event_progress_deadline()
-        return True
 
     async def _restore_approval_snapshot(
         self,
@@ -757,10 +807,7 @@ class TurnEventStream(object):
         if callback is None:
             return None
 
-        try:
-            snapshot = await reconcile_tool_approval_snapshot(**attach_target)
-        except ToolApprovalSnapshotRequestError:
-            return None
+        snapshot = await reconcile_tool_approval_snapshot(**attach_target)
 
         result = callback(snapshot)
         if result is not None:
