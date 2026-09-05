@@ -1296,7 +1296,12 @@ async def test_resumed_transcript_supports_search_export_and_backtrack(
             "tool",
             {
                 "call_id": "call_1",
-                "result": {"output": "needle workspace"},
+                "result": {
+                    "ok": True,
+                    "text": "needle workspace",
+                    "attachments": [],
+                    "data": {"output": "needle workspace"},
+                },
             },
         ),
         entry(

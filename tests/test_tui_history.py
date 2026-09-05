@@ -219,7 +219,12 @@ def test_history_transcript_replays_messages_and_tool_result() -> None:
             payload={
                 "call_id": "call_1",
                 "duration_ms": 120,
-                "result": {"output": "D:/workspace"},
+                "result": {
+                    "ok": True,
+                    "text": "D:/workspace",
+                    "attachments": [],
+                    "data": {"output": "D:/workspace"},
+                },
             },
         ),
         entry(
@@ -267,6 +272,9 @@ def test_history_transcript_replays_messages_and_tool_result() -> None:
         text for _style, text in blocks[1].transcript_block.fragments
     )
     assert "D:/workspace" in "".join(
+        text for _style, text in blocks[1].transcript_block.fragments
+    )
+    assert "(no output)" not in "".join(
         text for _style, text in blocks[1].transcript_block.fragments
     )
     assert "✓ • 120ms" in "".join(
@@ -338,6 +346,8 @@ def test_history_transcript_merges_patch_lifecycle_into_one_cell() -> None:
             "duration_ms": 14,
             "result": {
                 "ok": True,
+                "text": "",
+                "attachments": [],
                 "data": {
                     "files": [{
                         "path": "sample.py",
@@ -403,6 +413,8 @@ def test_history_patch_failure_reads_current_result_envelope() -> None:
             "ok": False,
             "result": {
                 "ok": False,
+                "text": "patch context mismatch",
+                "attachments": [],
                 "data": {"reason": "patch_context_mismatch"},
             },
         },
@@ -512,6 +524,8 @@ def test_history_patch_failure_keeps_persisted_preview_cell() -> None:
                 "ok": False,
                 "result": {
                     "ok": False,
+                    "text": "patch context mismatch",
+                    "attachments": [],
                     "data": {"reason": "patch_context_mismatch"},
                 },
             },
@@ -534,10 +548,11 @@ def test_history_patch_failure_keeps_persisted_preview_cell() -> None:
     )
 
 
-def test_history_patch_result_rejects_unwrapped_payload() -> None:
-    with pytest.raises(ValueError, match="result requires data"):
-        history._patch_result_data(
+def test_history_tool_result_rejects_unwrapped_payload() -> None:
+    with pytest.raises(TypeError, match="result ok must be a boolean"):
+        history._transcript_tool_result(
             {"reason": "patch_context_mismatch"},
+            expected_ok=False,
             error=None,
         )
 
@@ -566,7 +581,12 @@ def test_history_transcript_keeps_javascript_source_out_of_result_block() -> Non
             payload={
                 "call_id": "call_js",
                 "ok": True,
-                "result": {"output": "done"},
+                "result": {
+                    "ok": True,
+                    "text": "done",
+                    "attachments": [],
+                    "data": {"output": "done"},
+                },
             },
         ),
     )
@@ -589,6 +609,37 @@ def test_history_transcript_keeps_javascript_source_out_of_result_block() -> Non
     assert source in first_transcript
     assert source not in second_transcript
     assert "done" in second_transcript
+
+
+def test_history_generic_tool_reads_current_result_envelope_text() -> None:
+    entry = TranscriptEntry(
+        timestamp="2026-09-05T00:00:00.000Z",
+        event="tool.completed",
+        session_id="session_generic",
+        turn_id="turn_generic",
+        actor="tool",
+        payload={
+            "call_id": "call_generic",
+            "name": "external_lookup",
+            "arguments": {"query": "current contract"},
+            "ok": True,
+            "result": {
+                "ok": True,
+                "text": "lookup complete",
+                "attachments": [],
+                "data": {"items": [{"title": "result"}]},
+            },
+        },
+    )
+
+    blocks = history._render_replay_blocks((entry,), terminal_width=80)
+    display = "".join(
+        text for _style, text in blocks[0].display_block.fragments
+    )
+
+    assert "lookup complete" in display
+    assert '"attachments"' not in display
+    assert '"data"' not in display
 
 
 def test_history_transcript_falls_back_to_legacy_cursor_title() -> None:
@@ -746,8 +797,13 @@ def test_history_shell_display_reflows_without_changing_transcript() -> None:
         entry("tool.completed", {
             "call_id": "call_shell_resize",
             "result": {
-                "command": command,
-                "output_lines": output_lines,
+                "ok": True,
+                "text": "\n".join(output_lines),
+                "attachments": [],
+                "data": {
+                    "command": command,
+                    "output_lines": output_lines,
+                },
             },
         }),
     )

@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
-import json
 import typing
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
@@ -19,6 +19,7 @@ from agent.domain.transcripts import (
     TranscriptEntry,
     TranscriptReplay,
 )
+from agent.protocol.json_value import ThawedJsonValue
 from agent.stores.sessions import normalize_workspace
 from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
@@ -61,6 +62,15 @@ from ..core.styles import (
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
     from ..runtime.ports import ResumePickerPort
+
+
+@dataclass(frozen=True, slots=True)
+class _TranscriptToolResult:
+    """描述历史记录中已经校验的工具结果投影。"""
+
+    ok: bool
+    text: str
+    data: dict[str, ThawedJsonValue]
 
 
 class HistoryResumePreviewLoader(ResumePreviewLoader):
@@ -481,29 +491,29 @@ def _tool_blocks(
         else:
             view = build_tool_start_view(name, arguments, call_id=call_id)
     elif uses_native_tool_view(name):
-        result_data = payload.get("result")
-        if name == "apply_patch":
-            result_data = _patch_result_data(
-                result_data,
-                error=payload.get("error"),
-            )
+        result = _transcript_tool_result(
+            payload.get("result"),
+            expected_ok=_tool_succeeded(entry),
+            error=payload.get("error"),
+        )
         view = build_native_tool_result_view(
             name,
             arguments,
-            ok=_tool_succeeded(entry),
-            data=result_data,
+            ok=result.ok,
+            data=result.data,
             cost_ms=_duration_ms(payload),
             call_id=call_id,
         )
     else:
-        result = payload.get("result")
-        if result is None:
-            result = payload.get("error")
-
+        result = _transcript_tool_result(
+            payload.get("result"),
+            expected_ok=_tool_succeeded(entry),
+            error=payload.get("error"),
+        )
         view = build_generic_tool_result_view(
             name,
-            _stable_text(result),
-            ok=_tool_succeeded(entry),
+            result.text,
+            ok=result.ok,
             call_id=call_id,
         )
 
@@ -556,22 +566,6 @@ def _tool_blocks(
     )
 
 
-def _stable_text(value: typing.Any) -> str:
-    """把工具结果转换为稳定文本。"""
-    if isinstance(value, str):
-        return value
-    if value is None:
-        return ""
-
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        indent=2,
-        sort_keys=True,
-        default=str,
-    )
-
-
 def _duration_ms(payload: dict[str, typing.Any]) -> int | None:
     """读取工具记录中的非负毫秒耗时。"""
     value = payload.get("duration_ms")
@@ -580,21 +574,49 @@ def _duration_ms(payload: dict[str, typing.Any]) -> int | None:
     return max(0, value)
 
 
-def _patch_result_data(
-    value: typing.Any,
+def _transcript_tool_result(
+    value: ThawedJsonValue,
     *,
-    error: typing.Any
-) -> dict[str, typing.Any]:
-    """从当前 transcript 工具结果信封读取 patch 数据。"""
+    expected_ok: bool,
+    error: ThawedJsonValue,
+) -> _TranscriptToolResult:
+    """校验并投影当前 transcript 工具结果信封。"""
     if value is None:
-        text = str(error or "").strip()
-        return {"error": text} if text else {}
+        text = error.strip() if isinstance(error, str) else ""
+        data: dict[str, ThawedJsonValue] = (
+            {"error": text} if text else {}
+        )
+        return _TranscriptToolResult(
+            ok=expected_ok,
+            text=text,
+            data=data,
+        )
     if not isinstance(value, dict):
-        raise TypeError("apply_patch transcript result must be an object")
+        raise TypeError("transcript tool result must be an object")
+
+    result_ok = value.get("ok")
+    if not isinstance(result_ok, bool):
+        raise TypeError("transcript tool result ok must be a boolean")
+    if result_ok != expected_ok:
+        raise ValueError("transcript tool result ok does not match event status")
+
+    text = value.get("text")
+    if not isinstance(text, str):
+        raise TypeError("transcript tool result text must be a string")
+
+    attachments = value.get("attachments")
+    if not isinstance(attachments, list):
+        raise TypeError("transcript tool result attachments must be a list")
+
     data = value.get("data")
-    if isinstance(data, dict):
-        return data
-    raise ValueError("apply_patch transcript result requires data")
+    if not isinstance(data, dict):
+        raise TypeError("transcript tool result data must be an object")
+
+    return _TranscriptToolResult(
+        ok=result_ok,
+        text=text,
+        data=dict(data),
+    )
 
 
 def _tool_succeeded(entry: TranscriptEntry) -> bool:
