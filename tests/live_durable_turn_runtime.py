@@ -315,6 +315,37 @@ async def _verify(config: LiveVerificationConfig) -> None:
         client_message_id=client_message_id,
         request_id=add_request_id,
     )
+
+    active_status = await client.get_turn_status(
+        cid=cid,
+        sid=sid,
+        turn_id=active_turn_id,
+    )
+    if active_status.terminal is not None:
+        raise AssertionError(
+            "active Turn completed before the Queue execution gate check"
+        )
+
+    rejected_start_request_id = new_request_id("queue_start_busy_live")
+    try:
+        await client.start_queue_submission(
+            cid=cid,
+            sid=sid,
+            submission_id=submission_id,
+            request_id=rejected_start_request_id,
+        )
+    except ProtocolCommandError as error:
+        if error.status_code != 409 or error.retryable:
+            raise AssertionError(
+                "active Turn queue start did not return a deterministic 409"
+            ) from error
+    else:
+        raise AssertionError("queue start succeeded while another Turn was active")
+    print(
+        "PASS Queue execution gate: start rejected while Turn "
+        f"status={active_status.status}"
+    )
+
     duplicate_add_receipt = await client.add_queue_submission(
         queued_request,
         submission_id=submission_id,
@@ -332,23 +363,6 @@ async def _verify(config: LiveVerificationConfig) -> None:
     ):
         raise AssertionError("active Turn queue add did not preserve FIFO identity")
     print("PASS active Queue add: one durable item and stable duplicate receipt")
-
-    rejected_start_request_id = new_request_id("queue_start_busy_live")
-    try:
-        await client.start_queue_submission(
-            cid=cid,
-            sid=sid,
-            submission_id=submission_id,
-            request_id=rejected_start_request_id,
-        )
-    except ProtocolCommandError as error:
-        if error.status_code != 409 or error.retryable:
-            raise AssertionError(
-                "active Turn queue start did not return a deterministic 409"
-            ) from error
-    else:
-        raise AssertionError("queue start succeeded while another Turn was active")
-    print("PASS Queue execution gate: start rejected while Turn active")
 
     conflict_request = _request(
         config,
@@ -507,11 +521,16 @@ async def _main() -> int:
         config = await _load_config(args)
         print(f"CONFIG service.domain={config.domain} model_credentials=ready")
         await _verify(config)
+    except ProtocolCommandError as error:
+        print(
+            f"FAIL {type(error).__name__}: {error}; code={error.code}; "
+            f"retryable={error.retryable}; details={error.details}"
+        )
+        return 1
     except (
         AssertionError,
         ModelCapabilityError,
         OSError,
-        ProtocolCommandError,
         RuntimeError,
         TypeError,
         ValueError,

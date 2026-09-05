@@ -1217,6 +1217,41 @@ async def test_remote_interrupt_retries_with_the_same_turn(
 
 
 @pytest.mark.anyio
+async def test_turn_commands_do_not_retry_deterministic_errors(
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    error = ProtocolCommandError(
+        "turn_not_active",
+        "turn is no longer active",
+        retryable=False,
+        details={"status_code": 409},
+    )
+    protocol_client.steer_turn = AsyncMock(side_effect=error)
+    protocol_client.interrupt_turn = AsyncMock(side_effect=error)
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        TuiRuntime(),
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+
+    assert not await control._send_steer(
+        "cid_1",
+        "sid_1",
+        "turn_001",
+        _submission("deterministic failure"),
+    )
+    await control._send_interrupt("cid_1", "sid_1", "turn_001")
+
+    protocol_client.steer_turn.assert_awaited_once()
+    protocol_client.interrupt_turn.assert_awaited_once()
+    await control.close()
+
+
+@pytest.mark.anyio
 async def test_remote_interrupt_response_loss_does_not_create_status_owner(
     protocol_client: ProtocolCommandClient,
 ) -> None:

@@ -200,6 +200,13 @@ async def test_exit_confirmation_task_expires_footer() -> None:
         runtime.screen._footer_fragments()
     )
 
+    disposition = runtime.submissions.interrupt_input()
+
+    assert disposition is InterruptDisposition.EXIT_ARMED
+    assert runtime.submissions.interrupt_state.exit_armed
+    assert not runtime.submissions.interrupt_state.exit_requested
+    await runtime.submissions.close()
+
 
 @pytest.mark.anyio
 async def test_ctrl_d_requests_clean_exit_before_queued_message() -> None:

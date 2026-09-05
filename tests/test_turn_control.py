@@ -588,6 +588,48 @@ async def test_interrupt_synthesizes_receipt_from_empty_ack(monkeypatch) -> None
 
 
 @pytest.mark.anyio
+async def test_interrupt_preserves_structured_server_error(monkeypatch) -> None:
+    response = httpx.Response(
+        409,
+        json={
+            "detail": {
+                "code": "turn_not_active",
+                "message": "turn cannot accept the interrupt command",
+            },
+        },
+        request=httpx.Request("POST", "https://example.com/turn/interrupt"),
+    )
+
+    class ClientStub:
+        def __init__(self, *, timeout) -> None:
+            _ = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return response
+
+    monkeypatch.setattr(turn_control.httpx, "AsyncClient", ClientStub)
+
+    with pytest.raises(turn_control.TurnControlRequestError) as caught:
+        await turn_control.interrupt_turn(
+            cid="cid_1",
+            sid="sid_1",
+            turn_id="turn_001",
+            request_id="interrupt_request_1",
+        )
+
+    assert str(caught.value) == "turn cannot accept the interrupt command"
+    assert caught.value.code == "turn_not_active"
+    assert caught.value.status_code == 409
+    assert caught.value.retryable is False
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("field", "values"),
     [

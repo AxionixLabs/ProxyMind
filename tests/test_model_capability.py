@@ -525,7 +525,19 @@ async def test_protocol_client_normalizes_command_errors(monkeypatch) -> None:
         )
 
     async def fail_interrupt(**_kwargs):
-        raise TurnControlRequestError("turn control unavailable")
+        raise TurnControlRequestError(
+            "turn control unavailable",
+            status_code=409,
+            code="turn_not_active",
+        )
+
+    async def fail_turn_input_reconcile(**_kwargs):
+        raise TurnControlRequestError(
+            "turn reconciliation is unavailable",
+            status_code=503,
+            code="turn_state_unavailable",
+            retryable=True,
+        )
 
     async def fail_reconcile(**_kwargs):
         raise OSError("effect service unavailable")
@@ -534,6 +546,11 @@ async def test_protocol_client_normalizes_command_errors(monkeypatch) -> None:
     monkeypatch.setattr(model_adapter, "_get_tool_result_status", fail_status)
     monkeypatch.setattr(model_adapter, "_post_tool_approval", fail_approval)
     monkeypatch.setattr(model_adapter, "_interrupt_turn", fail_interrupt)
+    monkeypatch.setattr(
+        model_adapter,
+        "_reconcile_turn_inputs",
+        fail_turn_input_reconcile,
+    )
     monkeypatch.setattr(
         model_adapter,
         "_post_effect_reconciliation",
@@ -581,8 +598,24 @@ async def test_protocol_client_normalizes_command_errors(monkeypatch) -> None:
             sid="sid_test",
             turn_id="turn_test",
         )
-    assert interrupt_error.value.code == "turn_control_request_failed"
-    assert interrupt_error.value.retryable is True
+    assert interrupt_error.value.code == "turn_not_active"
+    assert interrupt_error.value.status_code == 409
+    assert interrupt_error.value.details["server_code"] == "turn_not_active"
+    assert interrupt_error.value.retryable is False
+
+    with pytest.raises(ProtocolCommandError) as turn_reconcile_error:
+        await client.reconcile_turn_inputs(
+            cid="cid_test",
+            sid="sid_test",
+            turn_id="turn_test",
+            client_message_ids=("message_test",),
+        )
+    assert turn_reconcile_error.value.code == "turn_state_unavailable"
+    assert turn_reconcile_error.value.status_code == 503
+    assert turn_reconcile_error.value.details["server_code"] == (
+        "turn_state_unavailable"
+    )
+    assert turn_reconcile_error.value.retryable is True
 
     with pytest.raises(ProtocolCommandError) as reconcile_error:
         await client.post_effect_reconciliation(

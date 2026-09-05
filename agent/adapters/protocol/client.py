@@ -450,10 +450,9 @@ class MindChatProtocolClient:
                 request_id=request_id,
             )
         except TurnControlRequestError as error:
-            raise ProtocolCommandError(
-                "turn_control_request_failed",
-                str(error) or "turn control request failed",
-                retryable=True,
+            raise _turn_control_command_error(
+                error,
+                fallback_message="turn control request failed",
             ) from error
         except (TypeError, ValueError) as error:
             raise ProtocolCommandError(
@@ -492,10 +491,9 @@ class MindChatProtocolClient:
                 request_id=request_id,
             )
         except TurnControlRequestError as error:
-            raise ProtocolCommandError(
-                "turn_control_request_failed",
-                str(error) or "turn steer request failed",
-                retryable=True,
+            raise _turn_control_command_error(
+                error,
+                fallback_message="turn steer request failed",
             ) from error
         except (TypeError, ValueError) as error:
             raise ProtocolCommandError(
@@ -521,10 +519,10 @@ class MindChatProtocolClient:
                 client_message_ids=client_message_ids,
             )
         except TurnControlRequestError as error:
-            raise ProtocolCommandError(
-                "turn_reconciliation_failed",
-                str(error) or "turn reconciliation request failed",
-                retryable=True,
+            raise _turn_control_command_error(
+                error,
+                fallback_code="turn_reconciliation_failed",
+                fallback_message="turn reconciliation request failed",
             ) from error
         except (TypeError, ValueError) as error:
             raise ProtocolCommandError(
@@ -1122,6 +1120,26 @@ def _queue_command_error(error: DurableQueueRequestError) -> ProtocolCommandErro
     return ProtocolCommandError(
         error.code or "durable_queue_request_failed",
         str(error) or "durable queue request failed",
+        retryable=error.retryable,
+        details=details,
+    )
+
+
+def _turn_control_command_error(
+    error: TurnControlRequestError,
+    *,
+    fallback_code: str = "turn_control_request_failed",
+    fallback_message: str,
+) -> ProtocolCommandError:
+    """把 Turn 控制 wire 错误映射为稳定协议能力错误。"""
+    details: dict[str, JsonValue] = {}
+    if error.status_code is not None:
+        details["status_code"] = error.status_code
+    if error.code:
+        details["server_code"] = error.code
+    return ProtocolCommandError(
+        error.code or fallback_code,
+        str(error) or fallback_message,
         retryable=error.retryable,
         details=details,
     )

@@ -569,9 +569,10 @@ class TuiTurnInputControl(object):
                 )
                 break
             except ProtocolCommandError as error:
-                if attempt == 0:
+                if attempt == 0 and error.retryable:
                     continue
                 observe_exception("turn.steer.failed", error, level="WARNING")
+                break
 
         if response is None:
             return False
@@ -620,7 +621,7 @@ class TuiTurnInputControl(object):
                 )
                 break
             except ProtocolCommandError as error:
-                if attempt == 0:
+                if attempt == 0 and error.retryable:
                     continue
                 observe_exception(
                     "turn.interrupt.failed",
@@ -634,6 +635,7 @@ class TuiTurnInputControl(object):
                         (time.perf_counter() - started_at) * 1000
                     ),
                 )
+                break
 
     @staticmethod
     def _input_from_submission(submission: TuiSubmission) -> TurnInput:

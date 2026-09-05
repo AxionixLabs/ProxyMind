@@ -43,7 +43,7 @@ class SteeringMessageDelivery:
                 )
                 break
             except TurnControlRequestError as error:
-                if attempt + 1 < STEERING_ATTEMPTS:
+                if error.retryable and attempt + 1 < STEERING_ATTEMPTS:
                     continue
                 observe_exception(
                     "subagent.message.steer_failed",
@@ -52,6 +52,7 @@ class SteeringMessageDelivery:
                     agent_id=context.agent.agent_id,
                     turn_id=context.turn_id,
                 )
+                break
 
         if response is None:
             return None

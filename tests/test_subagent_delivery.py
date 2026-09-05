@@ -256,7 +256,7 @@ async def test_steering_delivery_retries_request_errors(monkeypatch) -> None:
 
     async def fail(**_kwargs):
         calls.append(True)
-        raise TurnControlRequestError("offline")
+        raise TurnControlRequestError("offline", retryable=True)
 
     monkeypatch.setattr(delivery_module, "steer_turn", fail)
     event = _message()
@@ -266,6 +266,30 @@ async def test_steering_delivery_retries_request_errors(monkeypatch) -> None:
         _turn_input(event),
     ) is None
     assert len(calls) == 2
+
+
+@pytest.mark.anyio
+async def test_steering_delivery_does_not_retry_deterministic_errors(
+    monkeypatch,
+) -> None:
+    calls = []
+
+    async def fail(**_kwargs):
+        calls.append(True)
+        raise TurnControlRequestError(
+            "turn is no longer active",
+            status_code=409,
+            code="turn_not_active",
+        )
+
+    monkeypatch.setattr(delivery_module, "steer_turn", fail)
+    event = _message()
+
+    assert await SteeringMessageDelivery().deliver(
+        _context(),
+        _turn_input(event),
+    ) is None
+    assert len(calls) == 1
 
 
 @pytest.mark.anyio
@@ -280,7 +304,10 @@ async def test_steering_delivery_recovers_ambiguous_acceptance_as_duplicate(
             kwargs["request_id"],
         ))
         if len(calls) == 1:
-            raise TurnControlRequestError("response lost after acceptance")
+            raise TurnControlRequestError(
+                "response lost after acceptance",
+                retryable=True,
+            )
         return TurnControlResponse(
             status="duplicate",
             request_id=kwargs["request_id"],

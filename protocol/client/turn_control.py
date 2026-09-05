@@ -13,7 +13,10 @@ from protocol.schema.identifiers import (
 from protocol.schema.turn_inputs import TurnInput
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
-from protocol.transport.reliable import post_json_reliably
+from protocol.transport.reliable import (
+    is_retryable_status,
+    post_json_reliably,
+)
 
 TurnControlStatus = typing.Literal[
     "accepted",
@@ -131,6 +134,20 @@ def _completed_status(value: str) -> TurnCompletedStatus | None:
 
 class TurnControlRequestError(Exception):
     """描述轮次控制请求未得到有效响应。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        code: str = "",
+        retryable: bool = False,
+    ) -> None:
+        """保存服务端错误代码、HTTP 状态和提交不确定性。"""
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = str(code or "").strip()
+        self.retryable = bool(retryable)
 
 
 class TurnStatusRequestError(Exception):
@@ -538,9 +555,17 @@ async def _post_empty_ack(
             client_factory=httpx.AsyncClient,
         )
         response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        raise _control_response_error(error.response, path=path) from error
+    except (httpx.TransportError, OSError) as error:
+        raise TurnControlRequestError(
+            f"turn control request failed: {path}",
+            retryable=True,
+        ) from error
     except httpx.HTTPError as error:
         raise TurnControlRequestError(
-            f"turn control request failed: {path}"
+            f"turn control request failed: {path}",
+            retryable=True,
         ) from error
     if response.status_code != 204 or response.content:
         raise TurnControlRequestError(
@@ -575,9 +600,17 @@ async def _post_json(
             client_factory=httpx.AsyncClient,
         )
         response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        raise _control_response_error(error.response, path=path) from error
+    except (httpx.TransportError, OSError) as error:
+        raise TurnControlRequestError(
+            f"turn control request failed: {path}",
+            retryable=True,
+        ) from error
     except httpx.HTTPError as error:
         raise TurnControlRequestError(
-            f"turn control request failed: {path}"
+            f"turn control request failed: {path}",
+            retryable=True,
         ) from error
 
     try:
@@ -589,6 +622,39 @@ async def _post_json(
     if not isinstance(body, dict) or body.get("ok") is not True:
         raise TurnControlRequestError("turn control returned an invalid response")
     return body
+
+
+def _control_response_error(
+    response: httpx.Response,
+    *,
+    path: str,
+) -> TurnControlRequestError:
+    """把统一服务端错误 envelope 转换为稳定控制命令错误。"""
+    code = ""
+    message = ""
+    try:
+        body = response.json()
+    except (TypeError, ValueError):
+        body = None
+    if isinstance(body, dict):
+        detail = body.get("detail")
+        if not isinstance(detail, dict):
+            detail = body.get("details")
+        if isinstance(detail, dict):
+            raw_code = detail.get("code")
+            raw_message = detail.get("message")
+            if isinstance(raw_code, str):
+                code = raw_code.strip()
+            if isinstance(raw_message, str):
+                message = raw_message.strip()
+        elif isinstance(detail, str):
+            message = detail.strip()
+    return TurnControlRequestError(
+        message or f"turn control request failed: {path}",
+        status_code=response.status_code,
+        code=code,
+        retryable=is_retryable_status(response.status_code),
+    )
 
 
 def _status_snapshot(

@@ -78,8 +78,10 @@ async def _submit_interrupt(
                 request_id=request_id,
             )
             return response.status in {"accepted", "turn_not_active"}
-        except (TurnControlRequestError, ProtocolCommandError):
-            if attempt == 0:
+        except (TurnControlRequestError, ProtocolCommandError) as error:
+            if error.code == "turn_not_active":
+                return True
+            if error.retryable and attempt == 0:
                 continue
             return False
     return False
