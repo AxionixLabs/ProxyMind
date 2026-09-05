@@ -4,11 +4,13 @@
 import typing
 from dataclasses import dataclass
 
+from agent.application.turns.context import TurnContext
 from agent.ports import (
     DurableQueueClient,
     DurableQueuePersistence,
     ProtocolCommandClient,
     ProtocolCommandError,
+    TurnInputEventHandler,
 )
 from agent.protocol import (
     DurableQueueItem,
@@ -19,6 +21,7 @@ from agent.protocol import (
     ModelStreamRequest,
     SubmitTurnCommand,
 )
+from agent.protocol import ModelStreamEndReason
 from protocol.schema.identifiers import (
     new_request_id,
     new_submission_id,
@@ -69,6 +72,16 @@ class DurableQueueStartResult:
     receipt: DurableQueueStartReceipt | None
 
 
+@dataclass(frozen=True, slots=True)
+class DurableQueueTurnCallbacks:
+    """保存 Queue Turn 观察期间由前端提供的生命周期回调。"""
+
+    input_context: typing.Callable[[TurnContext], None] | None = None
+    input_event: TurnInputEventHandler | None = None
+    stream_end: typing.Callable[[ModelStreamEndReason], None] | None = None
+    interrupted: typing.Callable[[], None] | None = None
+
+
 class DurableQueueApplication:
     """协调显式 Durable Queue 命令与客户端冻结执行账本。
 
@@ -116,12 +129,20 @@ class DurableQueueApplication:
             client_message_id=resolved_client_message_id,
             add_request_id=resolved_request_id,
         )
-        receipt = await self._client.add_queue_submission(
-            local.request,
-            submission_id=local.submission_id,
-            client_message_id=local.client_message_id,
-            request_id=local.add_request_id,
-        )
+        try:
+            receipt = await self._client.add_queue_submission(
+                local.request,
+                submission_id=local.submission_id,
+                client_message_id=local.client_message_id,
+                request_id=local.add_request_id,
+            )
+        except ProtocolCommandError as error:
+            if _definitely_not_committed(error):
+                await self._persistence.mark_deleted(
+                    local.submission_id,
+                    queue_version=0,
+                )
+            raise
         _validate_add_receipt(local, receipt)
         queued = await self._persistence.mark_queued(
             local.submission_id,
@@ -180,7 +201,8 @@ class DurableQueueApplication:
         local_only = tuple(
             item
             for item in local_items
-            if item.submission_id not in remote_ids and item.status != "deleted"
+            if item.submission_id not in remote_ids
+            and item.status not in {"deleted", "settled"}
         )
         return DurableQueueSessionSnapshot(
             cid=remote.cid,
@@ -324,6 +346,20 @@ class DurableQueueApplication:
         )
         return DurableQueueStartResult(local=started, receipt=receipt)
 
+    async def settle(
+        self,
+        submission_id: str,
+    ) -> LocalDurableQueueSnapshot:
+        """记录 Queue Turn 已观察到权威终态，禁止冷恢复重复 attach。"""
+        return await self._persistence.mark_settled(submission_id)
+
+    async def local_snapshot(
+        self,
+        submission_id: str,
+    ) -> LocalDurableQueueSnapshot | None:
+        """读取单项本地执行事实，不把它提升为远端 Queue 真相。"""
+        return await self._persistence.find(submission_id)
+
     async def _require_local(
         self,
         submission_id: str,
@@ -346,6 +382,16 @@ def _validate_add_receipt(
     _validate_remote_item(local, item)
     if receipt.request_id != local.add_request_id or item.status != "queued":
         raise RuntimeError("durable queue add receipt identity is invalid")
+
+
+def _definitely_not_committed(error: ProtocolCommandError) -> bool:
+    """仅把具有明确 4xx 响应的 add 判为未提交。"""
+    status_code = error.status_code
+    return bool(
+        status_code is not None
+        and 400 <= status_code < 500
+        and not error.retryable
+    )
 
 
 def _validate_remote_item(

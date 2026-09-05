@@ -17,6 +17,7 @@ from agent.application.turns.context import (
 from agent.application.turns.durable_queue import (
     DurableQueueApplication,
     DurableQueueSubmissionResult,
+    DurableQueueTurnCallbacks,
 )
 from agent.application.turns.execution import TurnExecution
 from agent.application.turns.foreground import run_foreground_turn
@@ -27,7 +28,6 @@ from agent.domain.policies import (
     resolve_permissions,
 )
 from agent.domain.tool_policy import filter_mode_tools
-from agent.harness.execution.root_runner import prepare_root_turn
 from agent.harness.execution.turn_runner import execute_turn
 from agent.harness.hooks.scope import resolve_hook_scope
 from agent.harness.hooks.turn_lifecycle import TurnHookEvents
@@ -72,8 +72,6 @@ async def enqueue_durable_root_turn(
     patch_preview: PatchPreviewPort | None = None,
     session_context: TurnSessionContextPort | None = None,
     session_state: TurnSessionStatePort | None = None,
-    title: str = "",
-    source: str = "queue",
     submission_id: str | None = None,
     client_message_id: str | None = None,
     request_id: str | None = None,
@@ -85,18 +83,14 @@ async def enqueue_durable_root_turn(
     if pref_config is None:
         raise ValueError("durable queue command requires frozen preferences")
     binding = _command_binding(command)
-    execution = await prepare_root_turn(
+    _require_current_session(session, binding[0], binding[1])
+    execution = _queued_execution(
         session,
+        command,
+        binding,
         message=command.message,
-        title=title or command.message,
-        source=source,
         pref_config=pref_config,
         permissions=permissions,
-        metadata={"cid": binding[0], "sid": binding[1]},
-        attachments=command.attachment_values(),
-        extras=command.extras_value(),
-        turn_id=binding[2],
-        approval_ledger=session.approval_ledger,
         approval_coordinator=approval_coordinator,
         execution_policy=execution_policy,
         transcript_factory=transcript_factory,
@@ -167,7 +161,7 @@ async def observe_durable_root_turn(
     patch_preview: PatchPreviewPort | None = None,
     session_context: TurnSessionContextPort | None = None,
     session_state: TurnSessionStatePort | None = None,
-    **kwargs: typing.Any,
+    callbacks: DurableQueueTurnCallbacks | None = None,
 ) -> RunResult:
     """使用本地冻结语义 attach 并执行已由 queue.start 创建的远端 Turn。"""
     if local.status != "started":
@@ -175,6 +169,12 @@ async def observe_durable_root_turn(
     request = local.request
     _require_current_session(session, request.cid, request.sid)
     permissions = _request_permissions(request.option_values())
+    conversation_turn = await session.begin_turn(
+        cid=request.cid,
+        sid=request.sid,
+        title=request.message,
+        source="queue:start",
+    )
     execution = _observed_execution(
         session,
         local,
@@ -186,8 +186,10 @@ async def observe_durable_root_turn(
         patch_preview=patch_preview,
         session_context=session_context,
         session_state=session_state,
+        additional_context=conversation_turn.additional_context,
+        system_message=conversation_turn.system_message,
     )
-    event_report = kwargs.pop("ev_report", None)
+    resolved_callbacks = callbacks or DurableQueueTurnCallbacks()
 
     async def execute_observed_turn(
         prepared: TurnExecution,
@@ -207,14 +209,24 @@ async def observe_durable_root_turn(
             for tool in tools
             if str(tool.get("name") or "") in frozen_names
         ]
-        stream_kwargs = dict(kwargs)
-        stream_kwargs.update({
+        stream_kwargs: dict[str, typing.Any] = {
             "model_capability": model_capability,
             "turn_observer": turn_observer,
             "protocol_client": protocol_client,
             "effect_journal_factory": effect_journal_factory,
             "tool_execution": tool_execution,
             "timeout": request.timeout,
+        }
+        callback_values = {
+            "on_turn_input_context": resolved_callbacks.input_context,
+            "on_turn_input_event": resolved_callbacks.input_event,
+            "on_turn_stream_end": resolved_callbacks.stream_end,
+            "on_turn_interrupted": resolved_callbacks.interrupted,
+        }
+        stream_kwargs.update({
+            name: callback
+            for name, callback in callback_values.items()
+            if callback is not None
         })
         if session_factory is not None:
             stream_kwargs["session_factory"] = session_factory
@@ -234,7 +246,60 @@ async def observe_durable_root_turn(
         request.pref_config_value(),
         execution,
         execute_observed_turn,
-        event_report=event_report,
+    )
+
+
+def _queued_execution(
+    session: RootTurnSessionPort,
+    command: SubmitTurnCommand,
+    binding: tuple[str, str, str],
+    *,
+    message: str,
+    pref_config: dict[str, typing.Any],
+    permissions: PermissionSettings,
+    approval_coordinator: ApprovalCoordinatorPort | None,
+    execution_policy: ExecutionPolicy | None,
+    transcript_factory: TranscriptFactory | None,
+    cleanup: TurnCleanupPort | None,
+    patch_preview: PatchPreviewPort | None,
+    session_context: TurnSessionContextPort | None,
+    session_state: TurnSessionStatePort | None,
+) -> TurnExecution:
+    """构造尚未启动的 Queue 请求，不推进本地根会话轮次。"""
+    cid, sid, turn_id = binding
+    context = TurnContext.create(
+        agent=AgentContext.root(sid),
+        cid=cid,
+        sid=sid,
+        source="queue:add",
+        pref_config=pref_config,
+        cwd=session.workspace_root,
+        permissions=permissions,
+        permission_grants=session.permission_grants,
+        approval_coordinator=approval_coordinator,
+        execution_policy=execution_policy,
+        approval_ledger=session.approval_ledger,
+        transcript_factory=transcript_factory,
+        cleanup=cleanup,
+        patch_preview=patch_preview,
+        session_context=session_context,
+        session_state=session_state,
+        output_record_path=session.output_record_path,
+        transcript_path=session.transcript_path_for_session(sid),
+        turn_id=turn_id,
+        session_started=False,
+    )
+    extras = command.extras_value()
+    return TurnExecution(
+        context=context,
+        message=message,
+        hook_scope=resolve_hook_scope(session.hook_scope_provider, context),
+        metadata={"cid": cid, "sid": sid},
+        input_payload=build_turn_input_payload(
+            message,
+            attachments=command.attachment_values(),
+            extras=extras,
+        ),
     )
 
 
@@ -276,6 +341,8 @@ def _observed_execution(
     patch_preview: PatchPreviewPort | None,
     session_context: TurnSessionContextPort | None,
     session_state: TurnSessionStatePort | None,
+    additional_context: typing.Iterable[str],
+    system_message: str,
 ) -> TurnExecution:
     """重建只用于本地观察和工具执行的根 Turn 上下文。"""
     request = local.request
@@ -312,6 +379,8 @@ def _observed_execution(
             "cid": request.cid,
             "sid": request.sid,
         },
+        additional_context=tuple(additional_context),
+        system_message=system_message,
         input_payload=build_turn_input_payload(
             request.message,
             attachments=request.attachment_values(),

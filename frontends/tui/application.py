@@ -9,8 +9,17 @@ from collections.abc import (
 from pathlib import Path
 
 from agent.application.agents.views import AgentSnapshot
-from agent.application.turns.durable_queue import DurableQueueApplication
+from agent.application.turns.durable_queue import (
+    DurableQueueApplication,
+    DurableQueueSubmissionResult,
+    DurableQueueTurnCallbacks,
+)
+from agent.application.turns.run_result import RunResult
 from agent.domain.policies import PermissionSettings
+from agent.protocol import (
+    LocalDurableQueueSnapshot,
+    SubmitTurnCommand,
+)
 from agent.domain.tool_policy import ToolFilterMode
 from agent.ports import (
     AttachmentStatePort,
@@ -249,6 +258,27 @@ class TuiApplicationHost(typing.Protocol):
     frontend: Frontend
     history_workspace: str
     lifecycle: ProcessLifecyclePort
+
+    async def enqueue_durable_turn(
+        self,
+        command: SubmitTurnCommand,
+        *,
+        permissions: PermissionSettings,
+        submission_id: str,
+        client_message_id: str,
+        request_id: str,
+    ) -> DurableQueueSubmissionResult:
+        """冻结并提交显式持久 Queue 输入。"""
+        ...
+
+    async def observe_durable_turn(
+        self,
+        local: LocalDurableQueueSnapshot,
+        *,
+        callbacks: DurableQueueTurnCallbacks,
+    ) -> RunResult:
+        """观察 Queue start 已创建的远端 Turn。"""
+        ...
 
     def configuration_service_url(self) -> str:
         """返回进程内配置服务地址。"""

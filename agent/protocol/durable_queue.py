@@ -29,6 +29,7 @@ LocalDurableQueueStatus: typing.TypeAlias = typing.Literal[
     "queued",
     "starting",
     "started",
+    "settled",
     "deleted",
 ]
 
@@ -175,6 +176,7 @@ class LocalDurableQueueSnapshot:
             "queued",
             "starting",
             "started",
+            "settled",
             "deleted",
         }:
             raise ValueError("local durable queue status is invalid")

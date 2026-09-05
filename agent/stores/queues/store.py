@@ -163,6 +163,17 @@ class SQLiteDurableQueueStore:
             queue_version,
         )
 
+    async def mark_settled(
+        self,
+        submission_id: str,
+    ) -> LocalDurableQueueSnapshot:
+        """提交 Queue Turn 已收到权威终态的本地恢复事实。"""
+        normalized_submission_id = normalize_submission_id(submission_id)
+        return await asyncio.to_thread(
+            self._mark_settled,
+            normalized_submission_id,
+        )
+
     def _connect(self) -> sqlite3.Connection:
         """建立启用 WAL 和 FULL 同步的独立 Queue 数据库连接。"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -419,6 +430,36 @@ class SQLiteDurableQueueStore:
                     submission_id,
                     status="started",
                     queue_version=queue_version,
+                )
+            result = _require_row(connection, submission_id)
+            connection.commit()
+            return _snapshot_from_row(result)
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def _mark_settled(
+        self,
+        submission_id: str,
+    ) -> LocalDurableQueueSnapshot:
+        """同步提交 Queue Turn 已完成观察的恢复状态。"""
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = _require_row(connection, submission_id)
+            status = str(row["status"])
+            if status not in {"started", "settled"}:
+                raise DurableQueuePersistenceConflict(
+                    "only a started durable queue item can settle"
+                )
+            if status == "started":
+                _update_state(
+                    connection,
+                    submission_id,
+                    status="settled",
+                    queue_version=int(row["queue_version"]),
                 )
             result = _require_row(connection, submission_id)
             connection.commit()

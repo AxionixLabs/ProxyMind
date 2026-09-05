@@ -18,10 +18,19 @@ from agent.application.config.settings import (
 from agent.application.turns.foreground import (
     ApplicationTurnForegroundLifecycle,
 )
-from agent.application.turns.durable_queue import DurableQueueApplication
+from agent.application.turns.durable_queue import (
+    DurableQueueApplication,
+    DurableQueueSubmissionResult,
+    DurableQueueTurnCallbacks,
+)
+from agent.application.turns.run_result import RunResult
 from agent.domain.policies import PermissionSettings
 from agent.harness.agents.runtime import SubagentRuntime
 from agent.harness.execution.resources import ExecutionResources
+from agent.harness.execution.durable_queue import (
+    enqueue_durable_root_turn,
+    observe_durable_root_turn,
+)
 from agent.harness.execution.turn_runner import TurnRunner
 from agent.harness.hooks.session_lifecycle import SessionLifecycleGateway
 from agent.harness.hooks.tool_lifecycle import CommandHookSessionStore
@@ -47,6 +56,10 @@ from agent.ports import (
     SubscriptionHost,
     SubscriptionRuntime,
     TurnCompletionPresenterPort,
+)
+from agent.protocol import (
+    LocalDurableQueueSnapshot,
+    SubmitTurnCommand,
 )
 from agent.stores import (
     AgentGraphStore,
@@ -453,6 +466,63 @@ class ApplicationHost:
                 await configuration_service.stop()
         finally:
             await self.service_runtime.close()
+
+    async def enqueue_durable_turn(
+        self,
+        command: SubmitTurnCommand,
+        *,
+        permissions: PermissionSettings,
+        submission_id: str,
+        client_message_id: str,
+        request_id: str,
+    ) -> DurableQueueSubmissionResult:
+        """使用当前组合能力冻结并提交一项显式持久 Queue 输入。"""
+        return await enqueue_durable_root_turn(
+            self.conversation,
+            self.durable_queue,
+            command,
+            permissions=permissions,
+            execution_runtime=self.execution,
+            approval_coordinator=self.approval_coordinator,
+            execution_policy=self.workspace_runtime.execution_policy,
+            transcript_factory=self.conversation.transcript_factory,
+            cleanup=self.conversation,
+            patch_preview=self.workspace_runtime.coding.preview_patch,
+            session_context=self,
+            session_state=self.conversation,
+            submission_id=submission_id,
+            client_message_id=client_message_id,
+            request_id=request_id,
+        )
+
+    async def observe_durable_turn(
+        self,
+        local: LocalDurableQueueSnapshot,
+        *,
+        callbacks: DurableQueueTurnCallbacks,
+    ) -> RunResult:
+        """只观察 Queue start 已创建的远端 Turn 并执行客户端工具。"""
+        services = self.runtime_services
+        return await observe_durable_root_turn(
+            self.conversation,
+            local,
+            model_capability=services.model_capability,
+            turn_observer=services.turn_observer,
+            protocol_client=services.protocol_client,
+            effect_journal_factory=services.create_effect_journal,
+            tool_execution=services.tool_execution,
+            approval_coordinator=self.approval_coordinator,
+            execution_policy=self.workspace_runtime.execution_policy,
+            execution_runtime=self.execution,
+            lifecycle=self.turn_foreground_lifecycle,
+            session_factory=self.frontend.session_factory,
+            transcript_factory=self.conversation.transcript_factory,
+            cleanup=self.conversation,
+            patch_preview=self.workspace_runtime.coding.preview_patch,
+            session_context=self,
+            session_state=self.conversation,
+            callbacks=callbacks,
+        )
 
     def configuration_service_url(self) -> str:
         """返回已启动的内置配置服务地址。"""

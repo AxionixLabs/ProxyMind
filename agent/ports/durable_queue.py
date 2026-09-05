@@ -98,6 +98,13 @@ class DurableQueuePersistence(typing.Protocol):
         """在权威快照或 delete receipt 确认后标记已删除。"""
         ...
 
+    async def mark_settled(
+        self,
+        submission_id: str,
+    ) -> LocalDurableQueueSnapshot:
+        """在观察到权威 Turn 终态后停止后续冷恢复 attach。"""
+        ...
+
 
 if __name__ == '__main__':
     pass
