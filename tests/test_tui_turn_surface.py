@@ -7,8 +7,10 @@ import pytest
 
 from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.ports import (
+    ApprovalCompleted,
     ApprovalReviewCompleted,
     ApprovalReviewStarted,
+    ApprovalStarted,
     AssistantBuffered,
     AssistantSegmentCompleted,
     AssistantSettled,
@@ -152,6 +154,106 @@ def test_reducer_rejects_wrong_scope_and_invalid_content_order() -> None:
             identity=_identity(),
             item_id="item_missing",
         ))
+
+
+def test_turn_running_and_status_visibility_are_independent() -> None:
+    """验证 Turn running、状态请求和临时可见性互不替代。"""
+    context = _context(surface_id="surface_visibility")
+    state = _active_state(context)
+    assert state.lifecycle == "active"
+    assert not state.status_requested
+    assert not project_turn_surface(state).visible
+
+    state = reduce_turn_surface(state, ModelWaitRequested(
+        **_scope(context),
+        revision=1,
+        reason="initial",
+    ))
+    assert state.status_requested
+    assert project_turn_surface(state).visible
+
+    identity = _identity()
+    state = reduce_turn_surface(state, AssistantBuffered(
+        **_scope(context),
+        identity=identity,
+        item_id="item_answer",
+    ))
+    state = reduce_turn_surface(state, AssistantVisible(
+        **_scope(context),
+        identity=identity,
+        item_id="item_answer",
+    ))
+    assert state.lifecycle == "active"
+    assert not state.status_requested
+    assert not project_turn_surface(state).visible
+
+    state = reduce_turn_surface(state, AssistantSettled(
+        **_scope(context),
+        identity=identity,
+        item_id="item_answer",
+    ))
+    state = reduce_turn_surface(state, ToolStarted(
+        **_scope(context),
+        tool_id="call_1",
+        tool_kind="nested",
+        name="shell_command",
+    ))
+    assert state.status_requested
+    assert project_turn_surface(state).visible
+
+    state = reduce_turn_surface(state, ToolCompleted(
+        **_scope(context),
+        tool_id="call_1",
+        tool_kind="nested",
+        name="shell_command",
+    ))
+    assert state.lifecycle == "active"
+    assert state.status_requested
+    assert project_turn_surface(state).visible
+
+    state = reduce_turn_surface(state, ApprovalStarted(
+        **_scope(context),
+        approval_id="approval_1",
+        call_id="call_approval",
+    ))
+    assert state.lifecycle == "active"
+    assert state.status_requested
+    assert not project_turn_surface(state).visible
+    state = reduce_turn_surface(state, ApprovalCompleted(
+        **_scope(context),
+        approval_id="approval_1",
+        call_id="call_approval",
+    ))
+    assert project_turn_surface(state).visible
+
+    state = reduce_turn_surface(state, RecoveryChanged(
+        **_scope(context),
+        mode="replaying",
+        event_seq=8,
+    ))
+    assert state.lifecycle == "active"
+    assert state.status_requested
+    assert not project_turn_surface(state).visible
+    state = reduce_turn_surface(state, RecoveryChanged(
+        **_scope(context),
+        mode="caught_up",
+        event_seq=9,
+    ))
+    assert project_turn_surface(state).visible
+
+    state = reduce_turn_surface(state, TurnTerminal(
+        **_scope(context),
+        status="completed",
+    ))
+    assert state.lifecycle == "terminal"
+    assert not state.status_requested
+    assert not project_turn_surface(state).visible
+    assert reduce_turn_surface(state, ToolStarted(
+        **_scope(context),
+        tool_id="call_late",
+        tool_kind="nested",
+        name="shell_command",
+    )) is state
 
 
 def test_reducer_preserves_named_tool_leases_and_completion_history() -> None:
@@ -600,24 +702,17 @@ async def test_transport_retry_restores_indicator_after_content_is_visible() -> 
 
 
 @pytest.mark.anyio
-async def test_coordinator_suppresses_fast_tool_projection() -> None:
-    """验证快速工具在统一 generation timer 到期前不制造闪烁。"""
+async def test_tool_status_is_immediate_and_survives_bare_completion() -> None:
+    """验证工具开始立即显示状态且裸完成不撤销 Turn 状态行。"""
     context = _context(surface_id="surface_fast_tool")
     projections: list[SurfaceProjection] = []
-    thinking_applied = asyncio.Event()
 
     async def apply(projection: SurfaceProjection) -> None:
         projections.append(projection)
-        if projection.indicator == "thinking":
-            thinking_applied.set()
 
     coordinator = TuiTurnSurfaceCoordinator(
         context,
         apply,
-        timing=TurnSurfaceTiming(
-            tool_started_sec=0.02,
-            tool_result_sec=0.02,
-        ),
     )
     await coordinator.open()
     await coordinator.emit(ToolStarted(
@@ -626,22 +721,20 @@ async def test_coordinator_suppresses_fast_tool_projection() -> None:
         tool_kind="client",
         name="read_file",
     ))
-    assert coordinator.pending_timer
+    assert not coordinator.pending_timer
+    assert [projection.indicator for projection in projections] == ["thinking"]
+
     await coordinator.emit(ToolCompleted(
         **_scope(context),
         tool_id="call_fast",
         tool_kind="client",
         name="read_file",
     ))
-    await coordinator.emit(ModelWaitRequested(
-        **_scope(context),
-        revision=1,
-        reason="tool_result",
-    ))
-    await asyncio.wait_for(thinking_applied.wait(), timeout=1.0)
 
-    assert len(projections) == 2
-    assert projections[-1].indicator == "thinking"
+    assert [projection.indicator for projection in projections] == ["thinking"]
+    assert project_turn_surface(coordinator.state).indicator == "thinking"
+    assert coordinator.state.lifecycle == "active"
+    assert coordinator.state.status_requested
     await coordinator.close()
 
 
@@ -1090,7 +1183,6 @@ async def test_tool_completion_atomically_hands_surface_to_model_wait() -> None:
         timing=TurnSurfaceTiming(
             tool_result_sec=0.0,
             lifecycle_sec=0.0,
-            tool_started_sec=0.0,
         ),
     )
     await coordinator.open()
@@ -1106,7 +1198,8 @@ async def test_tool_completion_atomically_hands_surface_to_model_wait() -> None:
         name="shell_command",
     )
 
-    assert [projection.indicator for projection in projections] == ["thinking"]
+    assert projections == []
+    assert project_turn_surface(coordinator.state).indicator == "thinking"
     assert coordinator.state.tools == ()
     assert coordinator.state.model_wait_reason == "tool_result"
 
@@ -1129,21 +1222,32 @@ async def test_tool_handoff_preserves_real_tui_activity_lease() -> None:
     session.activity.timing = TurnSurfaceTiming(
         tool_result_sec=0.0,
         lifecycle_sec=0.0,
-        tool_started_sec=0.0,
     )
     await session.open()
     activity = TurnActivityProjector(context, session.activity)
     await activity.tool_started("call_1", "nested", name="shell_command")
     lease_before = runtime.activity.lease("wait")
+    started_at_before = runtime.activity._wait_started_at
     assert lease_before is not None
+    assert started_at_before is not None
 
-    await activity.tool_completed_and_wait(
+    await activity.tool_completed(
         "call_1",
+        "nested",
+        name="shell_command",
+    )
+    assert runtime.activity.lease("wait") == lease_before
+    assert runtime.activity._wait_started_at == started_at_before
+
+    await activity.tool_started("call_2", "nested", name="shell_command")
+    await activity.tool_completed_and_wait(
+        "call_2",
         "nested",
         name="shell_command",
     )
 
     assert runtime.activity.lease("wait") == lease_before
+    assert runtime.activity._wait_started_at == started_at_before
     assert "Thinking" in _activity_text(runtime)
 
     await session.close()
@@ -1165,7 +1269,6 @@ async def test_tool_handoff_batch_rolls_back_when_second_fact_is_invalid() -> No
         timing=TurnSurfaceTiming(
             tool_result_sec=0.0,
             lifecycle_sec=0.0,
-            tool_started_sec=0.0,
         ),
     )
     await coordinator.open()
@@ -1214,7 +1317,6 @@ async def test_tool_handoff_batch_is_idempotent_for_duplicate_completion() -> No
         timing=TurnSurfaceTiming(
             tool_result_sec=0.0,
             lifecycle_sec=0.0,
-            tool_started_sec=0.0,
         ),
     )
     await coordinator.open()
@@ -1242,7 +1344,8 @@ async def test_tool_handoff_batch_is_idempotent_for_duplicate_completion() -> No
         ),
     ))
 
-    assert [projection.indicator for projection in projections] == ["thinking"]
+    assert projections == []
+    assert project_turn_surface(coordinator.state).indicator == "thinking"
     assert len(coordinator.state.completed_tools) == 1
 
     await coordinator.close()

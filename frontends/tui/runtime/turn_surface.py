@@ -131,6 +131,7 @@ class TurnSurfaceState:
 
     context: OutputSurfaceContext
     lifecycle: SurfaceLifecycle = "inactive"
+    status_requested: bool = False
     content: SurfaceContentState = "none"
     buffered_items: tuple[AssistantActivity, ...] = ()
     settled_items: tuple[AssistantActivity, ...] = ()
@@ -166,6 +167,26 @@ class SurfaceProjection:
     detail: str = ""
     revision: int = 0
 
+    @property
+    def visible(self) -> bool:
+        """返回当前派生投影是否占用状态行。"""
+        return self.indicator != "hidden"
+
+    def visually_matches(
+        self,
+        other: "SurfaceProjection | None",
+    ) -> bool:
+        """忽略 reducer revision 比较终端可见内容。"""
+        return other is not None and (
+            self.indicator,
+            self.title,
+            self.detail,
+        ) == (
+            other.indicator,
+            other.title,
+            other.detail,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class TurnSurfaceTiming:
@@ -173,7 +194,6 @@ class TurnSurfaceTiming:
 
     tool_result_sec: float = 0.15
     lifecycle_sec: float = 0.15
-    tool_started_sec: float = 0.12
     transport_retry_min_visible_sec: float = 0.8
 
     def delay_for(self, reason: ModelWaitReason | None) -> float:
@@ -191,11 +211,6 @@ class TurnSurfaceTiming:
         state: TurnSurfaceState,
     ) -> float:
         """返回一项派生表面投影的本地抑制时间。"""
-        if (
-            projection.indicator == "thinking"
-            and (state.tools or state.batches)
-        ):
-            return max(0.0, self.tool_started_sec)
         if projection.indicator == "thinking":
             return self.delay_for(state.model_wait_reason)
         return 0.0
@@ -233,7 +248,7 @@ def reduce_turn_surface(
 def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
     """从正交状态派生单一活动区域投影。"""
     revision = state.revision
-    if state.lifecycle in {"inactive", "terminal", "closed"}:
+    if state.lifecycle != "active":
         return SurfaceProjection("hidden", revision=revision)
     if state.recovery in {"replaying", "gap"}:
         return SurfaceProjection("hidden", revision=revision)
@@ -289,7 +304,7 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
             title="Thinking",
             revision=revision,
         )
-    if state.model_wait_revision is not None:
+    if state.status_requested:
         return SurfaceProjection(
             "thinking",
             title="Thinking",
@@ -392,6 +407,9 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
                 for event in events
             ):
                 self._transport_retry_visible_until = 0.0
+            if projection.visually_matches(self._applied):
+                self._applied = projection
+                return None
             elif not (
                 projection.indicator == "retrying"
                 and projection.detail == "transport"
@@ -584,6 +602,7 @@ def _reduce_active_surface(
                 return state
         return replace(
             state,
+            status_requested=True,
             model_wait_revision=event.revision,
             model_wait_reason=event.reason,
         )
@@ -608,6 +627,7 @@ def _reduce_active_surface(
             raise ValueError("visible assistant item was not buffered")
         return replace(
             state,
+            status_requested=False,
             content="visible",
             visible_item=item,
             model_wait_revision=None,
@@ -665,14 +685,22 @@ def _reduce_active_surface(
                 if review.presentation_epoch > event.superseded_epoch
             ),
         )
-        return _clear_superseded_content(updated)
+        updated = _clear_superseded_content(updated)
+        return replace(
+            updated,
+            status_requested=_status_sources_active(updated),
+        )
     if isinstance(event, ToolBatchStarted):
         if (
             event.batch_id in state.batches
             or event.batch_id in state.completed_batches
         ):
             return state
-        return replace(state, batches=(*state.batches, event.batch_id))
+        return replace(
+            state,
+            status_requested=True,
+            batches=(*state.batches, event.batch_id),
+        )
     if isinstance(event, ToolBatchCompleted):
         if event.batch_id not in state.batches:
             if event.batch_id in state.completed_batches:
@@ -699,7 +727,11 @@ def _reduce_active_surface(
             if completed != tool:
                 raise ValueError("tool activity identity was reused")
             return state
-        return replace(state, tools=(*state.tools, tool))
+        return replace(
+            state,
+            status_requested=True,
+            tools=(*state.tools, tool),
+        )
     if isinstance(event, ToolCompleted):
         tool = _tool_by_id(state.tools, event.tool_id)
         if tool is None:
@@ -739,7 +771,11 @@ def _reduce_active_surface(
             if completed != wait:
                 raise ValueError("terminal wait identity was reused")
             return state
-        return replace(state, terminal_waits=(*state.terminal_waits, wait))
+        return replace(
+            state,
+            status_requested=True,
+            terminal_waits=(*state.terminal_waits, wait),
+        )
     if isinstance(event, TerminalWaitCompleted):
         existing = _terminal_wait_by_identity(
             state.terminal_waits,
@@ -772,7 +808,11 @@ def _reduce_active_surface(
         approval = ApprovalActivity(event.approval_id, event.call_id)
         if approval in state.approvals or approval in state.completed_approvals:
             return state
-        return replace(state, approvals=(*state.approvals, approval))
+        return replace(
+            state,
+            status_requested=True,
+            approvals=(*state.approvals, approval),
+        )
     if isinstance(event, ApprovalCompleted):
         approval = ApprovalActivity(event.approval_id, event.call_id)
         if approval not in state.approvals:
@@ -809,6 +849,7 @@ def _reduce_active_surface(
             return state
         return replace(
             state,
+            status_requested=True,
             approval_reviews=(*state.approval_reviews, review),
         )
     if isinstance(event, ApprovalReviewCompleted):
@@ -890,7 +931,11 @@ def _reduce_active_surface(
             without_source = tuple(
                 item for item in state.retries if item.source != event.source
             )
-            updated = replace(state, retries=(*without_source, retry))
+            updated = replace(
+                state,
+                status_requested=True,
+                retries=(*without_source, retry),
+            )
             if event.source != "provider":
                 return updated
             existing_boundaries = tuple(
@@ -947,6 +992,7 @@ def _reduce_active_surface(
         return replace(
             state,
             lifecycle="terminal",
+            status_requested=False,
             content=("settled" if state.buffered_items else "none"),
             visible_item=None,
             model_wait_revision=None,
@@ -963,6 +1009,7 @@ def _reduce_active_surface(
         return replace(
             state,
             lifecycle="closed",
+            status_requested=False,
             model_wait_revision=None,
             model_wait_reason=None,
             batches=(),
@@ -973,6 +1020,19 @@ def _reduce_active_surface(
             retries=(),
         )
     raise TypeError(f"unsupported output activity event: {type(event).__name__}")
+
+
+def _status_sources_active(state: TurnSurfaceState) -> bool:
+    """返回当前代次是否仍有明确事实请求状态行。"""
+    return bool(
+        state.model_wait_revision is not None
+        or state.batches
+        or state.tools
+        or state.terminal_waits
+        or state.approvals
+        or state.approval_reviews
+        or state.retries
+    )
 
 
 def _require_scope(

@@ -346,8 +346,7 @@ async def test_long_tool_keeps_ps_and_stop_available_during_turn() -> None:
         "client",
         name="exec_command",
     )
-    assert runtime.screen.activity_block is None
-    await asyncio.sleep(0.13)
+    assert "Thinking" in fragments_text(runtime.screen._status_fragments())
 
     process = {
         "session_id": "exec_long",
