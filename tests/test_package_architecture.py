@@ -2,16 +2,50 @@
 
 import ast
 import functools
+import os
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).parents[1]
+NON_REPOSITORY_DIRECTORY_NAMES = frozenset({
+    ".git",
+    ".mypy_cache",
+    ".nox",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "env",
+    "htmlcov",
+    "pip-wheel-metadata",
+    "venv",
+})
 
 
 @functools.lru_cache(maxsize=1)
 def _all_python_sources() -> tuple[Path, ...]:
-    """返回仓库内的 Python 源码清单，并在本次测试进程中复用。"""
-    return tuple(PROJECT_ROOT.rglob("*.py"))
+    """返回仓库拥有的 Python 源码，不遍历本地环境和生成目录。"""
+    sources: list[Path] = []
+    for directory, directory_names, filenames in os.walk(
+        PROJECT_ROOT,
+        topdown=True,
+    ):
+        directory_names[:] = sorted(
+            name
+            for name in directory_names
+            if name not in NON_REPOSITORY_DIRECTORY_NAMES
+            and not name.endswith(".egg-info")
+        )
+        directory_path = Path(directory)
+        sources.extend(
+            directory_path / filename
+            for filename in sorted(filenames)
+            if filename.endswith(".py")
+        )
+    return tuple(sources)
 
 
 @functools.lru_cache(maxsize=None)
@@ -47,6 +81,23 @@ def _production_python_sources() -> tuple[Path, ...]:
         and not path.name.startswith("test_")
         and not path.stem.endswith("_test")
         and path.name != "conftest.py"
+    )
+
+
+def test_python_source_inventory_excludes_non_repository_directories() -> None:
+    """确保架构审计不会读取虚拟环境、缓存或生成目录。"""
+    violations: list[str] = []
+    for path in _all_python_sources():
+        relative = path.relative_to(PROJECT_ROOT)
+        if NON_REPOSITORY_DIRECTORY_NAMES.intersection(relative.parts) or any(
+            part.endswith(".egg-info")
+            for part in relative.parts
+        ):
+            violations.append(str(relative))
+
+    assert not violations, (
+        "architecture inventory includes non-repository sources:\n"
+        + "\n".join(violations)
     )
 
 
@@ -1242,10 +1293,7 @@ def test_mcp_stdio_adapter_is_owned_by_frontends() -> None:
     violations: list[str] = []
     legacy_module = "mind_app.runtime.mcp.server"
     for path in _all_python_sources():
-        source_tree = ast.parse(
-            path.read_text(encoding="utf-8-sig"),
-            filename=str(path),
-        )
+        source_tree = _parsed_source(path)
         for node in ast.walk(source_tree):
             modules: tuple[str, ...] = ()
             if isinstance(node, ast.Import):
@@ -1277,10 +1325,7 @@ def test_mcp_lifecycle_owner_is_harness_owned() -> None:
     violations: list[str] = []
     legacy_module = "mind_app.runtime.mcp." + "lifecycle"
     for path in _all_python_sources():
-        source_tree = ast.parse(
-            path.read_text(encoding="utf-8-sig"),
-            filename=str(path),
-        )
+        source_tree = _parsed_source(path)
         for node in ast.walk(source_tree):
             imported_module = ""
             if isinstance(node, ast.ImportFrom) and node.level == 0:
