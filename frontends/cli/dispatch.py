@@ -230,6 +230,9 @@ async def run_selected_command(
                     host,
                 ),
                 include_empty_attachments=True,
+                request_recorder=(
+                    turn_application if durable_runtime else None
+                ),
             )
 
             try:

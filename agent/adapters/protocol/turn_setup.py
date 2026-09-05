@@ -12,6 +12,7 @@ from agent.harness.hooks.presentation import HookPresentationAdapter
 from agent.harness.hooks.scope import HookExecutionScope
 from agent.ports import (
     EventReportPort,
+    ModelRequestFrozenCallback,
     OutputSession,
     OutputSessionFactory,
     OutputSurfaceContext,
@@ -31,6 +32,7 @@ class StreamTurnCallbacks:
     input_event: Callback | None = None
     stream_end: Callback | None = None
     interrupted: Callback | None = None
+    request_frozen: ModelRequestFrozenCallback | None = None
 
     @classmethod
     def take_from(
@@ -55,6 +57,10 @@ class StreamTurnCallbacks:
                 options.pop("on_turn_interrupted", None),
                 name="on_turn_interrupted",
             ),
+            request_frozen=_optional_callback(
+                options.pop("on_model_request_frozen", None),
+                name="on_model_request_frozen",
+            ),
         )
 
     def continuation_kwargs(
@@ -68,6 +74,7 @@ class StreamTurnCallbacks:
             "on_turn_input_event": self.input_event,
             "on_turn_stream_end": self.stream_end,
             "on_turn_interrupted": self.interrupted,
+            "on_model_request_frozen": self.request_frozen,
         }
         continuation.update({
             name: callback

@@ -228,6 +228,7 @@ class AgentExecutor(object):
 
             execute_root_turn = RootTurnCommandExecutor(
                 functools.partial(self._turn_runner, host),
+                request_recorder=self._turn_application,
             )
 
             execution: SubmitTurnResult[RunResult]

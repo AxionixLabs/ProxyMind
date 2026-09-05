@@ -9,12 +9,16 @@ import pytest
 
 from agent.application.turns.durable_queue import (
     DurableQueueSubmissionResult,
-    DurableQueueTurnCallbacks,
 )
+from agent.application.turns.commands import RemoteTurnRecovery
+from agent.application.turns.observation import TurnObservationCallbacks
 from agent.application.turns.run_result import RunResult
+from agent.domain import RecoveryAction
+from agent.domain import RunStatus
 from agent.domain.policies import preset_permissions
 from agent.ports import ProtocolCommandClient
 from agent.ports import ProtocolCommandError
+from agent.ports import RunSnapshot
 from agent.protocol import (
     DurableQueueInput,
     DurableQueueItem,
@@ -347,7 +351,7 @@ async def test_queue_turn_uses_observer_and_releases_only_on_terminal(
     assert outcome.settled is should_settle
     observe_turn_mock.assert_awaited_once()
     callbacks = observe_turn_mock.await_args.kwargs["callbacks"]
-    assert isinstance(callbacks, DurableQueueTurnCallbacks)
+    assert isinstance(callbacks, TurnObservationCallbacks)
     if should_settle:
         settle.assert_awaited_once_with(local.submission_id)
     else:
@@ -358,6 +362,81 @@ async def test_queue_turn_uses_observer_and_releases_only_on_terminal(
         attachments=local.command.attachment_values(),
         extras=local.command.extras_value(),
     )
+
+
+@pytest.mark.anyio
+async def test_cold_run_recovery_replays_without_resubmitting_user_message(
+    monkeypatch,
+) -> None:
+    """确保进程恢复只 attach 原 Turn，消费终态后才解除本地 Run 门禁。"""
+    local = _local()
+    snapshot = RunSnapshot(
+        command=local.command,
+        status=RunStatus.RECONCILIATION_REQUIRED,
+        sequence=3,
+        snapshot_version=1,
+        effect_id="",
+        effect_status="reconciliation_required",
+        recovery_action=RecoveryAction.RECONCILE,
+        updated_at="2026-09-05T00:00:00Z",
+    )
+    recovery = RemoteTurnRecovery(
+        snapshot=snapshot,
+        request=local.request,
+        replay_target_seq=9,
+    )
+    runtime = _QueueTurnRuntime()
+    result = RunResult(status="completed", assistant_text="offline answer")
+
+    async def observe_turn(_recovery, *, callbacks):
+        callbacks.input_event(TurnCompletedEvent(
+            type="turn.completed",
+            cid=local.request.cid,
+            sid=local.request.sid,
+            turn_id=local.request.turn_id,
+            event_seq=9,
+            status="completed",
+            last_event_seq=9,
+            completed_at=1.0,
+        ))
+        return result
+
+    observe_turn_mock = AsyncMock(side_effect=observe_turn)
+    resolve_recovery = AsyncMock()
+    host = SimpleNamespace(
+        frontend=SimpleNamespace(application=SimpleNamespace(emit=Mock())),
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(reset_patch_diff=Mock()),
+        ),
+        lifecycle=SimpleNamespace(
+            stop_event=asyncio.Event(),
+            request_stop=Mock(),
+        ),
+        observe_recovered_turn=observe_turn_mock,
+    )
+    turn_application = SimpleNamespace(
+        resolve_observed_recovery=resolve_recovery,
+    )
+
+    async def execute_observer(_application, _runtime, turn, **_kwargs):
+        return await turn
+
+    monkeypatch.setattr(session_loop, "execute_tui_model_turn", execute_observer)
+
+    outcome = await session_loop._execute_tui_recovered_turn(
+        host,
+        runtime,
+        SimpleNamespace(),
+        turn_application,
+        AsyncMock(spec=ProtocolCommandClient),
+        recovery,
+        dispatcher=None,
+    )
+
+    assert outcome.settled is True
+    observe_turn_mock.assert_awaited_once()
+    resolve_recovery.assert_awaited_once_with(recovery, result)
+    runtime.append_submitted_query.assert_not_called()
 
 
 @pytest.mark.anyio

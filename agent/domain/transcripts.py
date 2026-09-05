@@ -148,6 +148,31 @@ class TranscriptReplay:
                     continue
                 if not isinstance(content, str) or not content:
                     continue
+                if entry.actor == "assistant":
+                    item_id = _payload_text(entry.payload, "item_id")
+                    target = next(
+                        (
+                            index
+                            for index in range(len(replay) - 1, -1, -1)
+                            if (
+                                item_id
+                                and replay[index].actor == "assistant"
+                                and replay[index].turn_id == entry.turn_id
+                                and _payload_text(
+                                    replay[index].payload,
+                                    "item_id",
+                                ) == item_id
+                            )
+                        ),
+                        None,
+                    )
+                    if target is not None:
+                        previous = replay[target]
+                        replay[target] = replace(
+                            entry,
+                            payload={**previous.payload, **entry.payload},
+                        )
+                        continue
                 replay.append(entry)
                 if entry.actor == "user":
                     last_user_index = len(replay) - 1
@@ -166,6 +191,10 @@ class TranscriptReplay:
                         for index in range(len(replay) - 1, -1, -1)
                         if (
                         replay[index].actor == "assistant"
+                        and (
+                            not entry.turn_id
+                            or replay[index].turn_id == entry.turn_id
+                        )
                         and _payload_text(
                         replay[index].payload,
                         "item_id",

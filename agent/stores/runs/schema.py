@@ -3,7 +3,7 @@
 
 import typing
 
-RUN_STORE_SCHEMA_VERSION: typing.Final = 1
+RUN_STORE_SCHEMA_VERSION: typing.Final = 2
 RUN_SNAPSHOT_VERSION: typing.Final = 1
 
 RUN_STORE_SCHEMA_SQL: typing.Final = """
@@ -39,6 +39,22 @@ CREATE TABLE IF NOT EXISTS run_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_run_snapshots_recovery
     ON run_snapshots (session_id, status, updated_at);
+
+CREATE TABLE IF NOT EXISTS run_remote_requests (
+    run_id TEXT PRIMARY KEY,
+    cid TEXT NOT NULL,
+    sid TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES run_snapshots(run_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_run_remote_requests_turn
+    ON run_remote_requests (cid, sid, turn_id);
 
 CREATE TABLE IF NOT EXISTS run_outbox (
     effect_id TEXT PRIMARY KEY,

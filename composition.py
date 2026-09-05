@@ -21,8 +21,9 @@ from agent.application.turns.foreground import (
 from agent.application.turns.durable_queue import (
     DurableQueueApplication,
     DurableQueueSubmissionResult,
-    DurableQueueTurnCallbacks,
 )
+from agent.application.turns.commands import RemoteTurnRecovery
+from agent.application.turns.observation import TurnObservationCallbacks
 from agent.application.turns.run_result import RunResult
 from agent.domain.policies import PermissionSettings
 from agent.harness.agents.runtime import SubagentRuntime
@@ -31,6 +32,7 @@ from agent.harness.execution.durable_queue import (
     enqueue_durable_root_turn,
     observe_durable_root_turn,
 )
+from agent.harness.execution.observed_turn import observe_frozen_root_turn
 from agent.harness.execution.turn_runner import TurnRunner
 from agent.harness.hooks.session_lifecycle import SessionLifecycleGateway
 from agent.harness.hooks.tool_lifecycle import CommandHookSessionStore
@@ -499,7 +501,7 @@ class ApplicationHost:
         self,
         local: LocalDurableQueueSnapshot,
         *,
-        callbacks: DurableQueueTurnCallbacks,
+        callbacks: TurnObservationCallbacks,
     ) -> RunResult:
         """只观察 Queue start 已创建的远端 Turn 并执行客户端工具。"""
         services = self.runtime_services
@@ -522,6 +524,40 @@ class ApplicationHost:
             session_context=self,
             session_state=self.conversation,
             callbacks=callbacks,
+        )
+
+    async def observe_recovered_turn(
+        self,
+        recovery: RemoteTurnRecovery,
+        *,
+        callbacks: TurnObservationCallbacks,
+    ) -> RunResult:
+        """重放进程中断前已提交的 Turn，并恢复正文与本地工具生命周期。"""
+        services = self.runtime_services
+        return await observe_frozen_root_turn(
+            self.conversation,
+            recovery.snapshot.command,
+            recovery.request,
+            source="recovery",
+            model_capability=services.model_capability,
+            turn_observer=services.turn_observer,
+            protocol_client=services.protocol_client,
+            effect_journal_factory=services.create_effect_journal,
+            tool_execution=services.tool_execution,
+            approval_coordinator=self.approval_coordinator,
+            execution_policy=self.workspace_runtime.execution_policy,
+            execution_runtime=self.execution,
+            lifecycle=self.turn_foreground_lifecycle,
+            session_factory=self.frontend.session_factory,
+            transcript_factory=self.conversation.transcript_factory,
+            cleanup=self.conversation,
+            patch_preview=self.workspace_runtime.coding.preview_patch,
+            session_context=self,
+            session_state=self.conversation,
+            callbacks=callbacks,
+            after_event_seq=0,
+            replay_target_seq=recovery.replay_target_seq,
+            records_local_start=False,
         )
 
     def configuration_service_url(self) -> str:

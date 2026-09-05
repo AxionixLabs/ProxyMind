@@ -20,6 +20,7 @@ from agent.ports import (
     remote_turn_binding,
 )
 from agent.protocol import (
+    ModelStreamRequest,
     RunEvent,
     SubmitTurnCommand
 )
@@ -42,12 +43,22 @@ class SubmitTurnResult(typing.Generic[ResultValue]):
 
 
 @dataclass(frozen=True, slots=True)
+class RemoteTurnRecovery:
+    """描述必须通过原 Turn attach/replay 完成的本地 Run 恢复项。"""
+
+    snapshot: RunSnapshot
+    request: ModelStreamRequest
+    replay_target_seq: int
+
+
+@dataclass(frozen=True, slots=True)
 class SessionRecoveryResult:
     """描述一次 Session 恢复探测后仍待处理和可恢复编辑的命令。"""
 
     pending: tuple[RunSnapshot, ...]
     restore_commands: tuple[SubmitTurnCommand, ...]
     resolved_run_ids: tuple[str, ...]
+    observe_turns: tuple[RemoteTurnRecovery, ...] = ()
 
 
 class TurnApplication(typing.Generic[ResultValue]):
@@ -122,6 +133,16 @@ class TurnApplication(typing.Generic[ResultValue]):
             error=error,
         )
 
+    async def record_remote_request(
+        self,
+        command: SubmitTurnCommand,
+        request: ModelStreamRequest,
+    ) -> None:
+        """在远端提交前持久化当前 Run 的完整冻结请求。"""
+        if self._persistence is None:
+            raise RuntimeError("run persistence is unavailable")
+        await self._persistence.save_remote_request(command, request)
+
     async def reconcile_remote_session(
         self,
         session_id: str,
@@ -136,6 +157,7 @@ class TurnApplication(typing.Generic[ResultValue]):
 
         restore_commands: list[SubmitTurnCommand] = []
         resolved_run_ids: list[str] = []
+        observe_turns: list[RemoteTurnRecovery] = []
         for snapshot in recoveries:
             if snapshot.recovery_action is RecoveryAction.REDISPATCH:
                 await self.resolve_recovery(
@@ -150,17 +172,39 @@ class TurnApplication(typing.Generic[ResultValue]):
                 resolved_run_ids.append(snapshot.command.run_id)
                 continue
 
+            frozen = await self._persistence.load_remote_request(
+                snapshot.command.run_id
+            )
             binding = remote_turn_binding(snapshot.command)
-            if binding is None:
+            if frozen is None and binding is None:
                 continue
+            cid = frozen.request.cid if frozen is not None else binding.cid
+            sid = frozen.request.sid if frozen is not None else binding.sid
+            turn_id = (
+                frozen.request.turn_id
+                if frozen is not None
+                else binding.turn_id
+            )
             try:
                 status = await protocol_client.get_turn_status(
-                    cid=binding.cid,
-                    sid=binding.sid,
-                    turn_id=binding.turn_id,
+                    cid=cid,
+                    sid=sid,
+                    turn_id=turn_id,
                 )
             except ProtocolCommandError as error:
                 if error.status_code != 404:
+                    continue
+                if frozen is not None and frozen.revision > 1:
+                    await self.resolve_recovery(
+                        snapshot.command.run_id,
+                        request_id=(
+                            f"recover_continuation_missing_"
+                            f"{snapshot.command.run_id}"
+                        ),
+                        resolution="failed",
+                        error="remote continuation was not created",
+                    )
+                    resolved_run_ids.append(snapshot.command.run_id)
                     continue
                 await self.resolve_recovery(
                     snapshot.command.run_id,
@@ -172,6 +216,13 @@ class TurnApplication(typing.Generic[ResultValue]):
                 )
                 restore_commands.append(snapshot.command)
                 resolved_run_ids.append(snapshot.command.run_id)
+                continue
+            if frozen is not None:
+                observe_turns.append(RemoteTurnRecovery(
+                    snapshot=snapshot,
+                    request=frozen.request,
+                    replay_target_seq=status.last_event_seq,
+                ))
                 continue
             terminal = status.terminal
             if terminal is None:
@@ -210,6 +261,37 @@ class TurnApplication(typing.Generic[ResultValue]):
             pending=pending,
             restore_commands=tuple(restore_commands),
             resolved_run_ids=tuple(resolved_run_ids),
+            observe_turns=tuple(observe_turns),
+        )
+
+    async def resolve_observed_recovery(
+        self,
+        recovery: RemoteTurnRecovery,
+        result: ResultValue,
+    ) -> RunRecoveryResolutionRecord:
+        """以 attach 已消费的权威终态解除对应本地 Run 门禁。"""
+        status = str(result.status or "").strip()
+        if status not in {"completed", "failed", "interrupted", "cancelled"}:
+            raise ValueError("observed recovery result is not terminal")
+        result_payload = result.to_dict()
+        if not isinstance(result_payload, dict):
+            raise TypeError("observed recovery result payload must be an object")
+        resolution: RecoveryResolution = (
+            "committed" if status == "completed" else "failed"
+        )
+        error_value = result_payload.get("error")
+        error = str(error_value or "").strip()
+        if resolution == "failed" and not error:
+            error = f"remote turn completed with status {status}"
+        return await self.resolve_recovery(
+            recovery.snapshot.command.run_id,
+            request_id=(
+                f"recover_observed_{recovery.snapshot.command.run_id}_"
+                f"{recovery.request.turn_id}"
+            ),
+            resolution=resolution,
+            result_payload=result_payload,
+            error=error,
         )
 
     async def events(

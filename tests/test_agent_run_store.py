@@ -17,6 +17,7 @@ from agent.composition import open_turn_application
 from agent.domain import RecoveryAction
 from agent.harness.sessions.loop import SessionLoop
 from agent.protocol import (
+    ModelStreamRequest,
     RunEvent,
     SubmitTurnCommand,
     TurnCompletedSnapshot,
@@ -94,6 +95,30 @@ async def _append_started(
     await store.append_event(command, _event(command, 2, "run_started", "running"))
 
 
+def _model_request(
+    *,
+    turn_id: str = "turn_remote",
+    message: str = "inspect",
+) -> ModelStreamRequest:
+    """创建可在进程重启后重新观察的完整冻结请求。"""
+    return ModelStreamRequest(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id=turn_id,
+        pref_config={"primary": {"model": "gpt-test"}},
+        message=message,
+        tools=({"name": "read_file", "type": "function"},),
+        options={
+            "permissions": {
+                "sandbox_mode": "workspace-write",
+                "approval_policy": "on-request",
+                "approvals_reviewer": "user",
+                "network_access": "restricted",
+            },
+        },
+    )
+
+
 @pytest.mark.anyio
 async def test_run_store_commits_event_snapshot_outbox_and_final_facts(
     tmp_path: Path,
@@ -136,7 +161,93 @@ async def test_run_store_commits_event_snapshot_outbox_and_final_facts(
     assert outbox[0:2] == ("committed", 1)
     assert len(outbox[2]) == 64
     assert outbox[3] == "manual"
-    assert schema_version == 1
+    assert schema_version == 2
+
+
+@pytest.mark.anyio
+async def test_run_store_persists_latest_frozen_remote_request(
+    tmp_path: Path,
+) -> None:
+    """确保恢复快照幂等保存首个请求并推进到最新 continuation。"""
+    store = SQLiteRunStore(tmp_path / "runtime.db")
+    command = _command(trace_context={
+        "remote_turn": {
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_remote",
+        },
+    })
+    await _append_started(store, command)
+    first = await store.save_remote_request(command, _model_request())
+    duplicate = await store.save_remote_request(command, _model_request())
+    continuation = await store.save_remote_request(
+        command,
+        _model_request(turn_id="turn_continuation"),
+    )
+    loaded = await store.load_remote_request(command.run_id)
+
+    assert first.revision == 1
+    assert duplicate.revision == 1
+    assert continuation.revision == 2
+    assert loaded == continuation
+    assert continuation.request.turn_id == "turn_continuation"
+
+
+@pytest.mark.anyio
+async def test_run_store_upgrades_v1_database_with_remote_request_table(
+    tmp_path: Path,
+) -> None:
+    """确保已有用户的 runtime.db 可原位增加冻结请求恢复事实。"""
+    db_path = tmp_path / "runtime.db"
+    store = SQLiteRunStore(db_path)
+    command = _command(trace_context={
+        "remote_turn": {
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_remote",
+        },
+    })
+    await _append_started(store, command)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("DROP TABLE run_remote_requests")
+        connection.execute("PRAGMA user_version=1")
+
+    snapshot = await store.save_remote_request(command, _model_request())
+
+    assert snapshot.revision == 1
+    with sqlite3.connect(db_path) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        table = connection.execute(
+            "SELECT name FROM sqlite_master WHERE name='run_remote_requests'"
+        ).fetchone()
+    assert version == 2
+    assert table == ("run_remote_requests",)
+
+
+@pytest.mark.anyio
+async def test_run_store_rejects_conflicting_frozen_remote_request(
+    tmp_path: Path,
+) -> None:
+    """确保同一远端 Turn 不能被另一份请求语义覆盖。"""
+    store = SQLiteRunStore(tmp_path / "runtime.db")
+    command = _command(trace_context={
+        "remote_turn": {
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_remote",
+        },
+    })
+    await _append_started(store, command)
+    await store.save_remote_request(command, _model_request())
+
+    with pytest.raises(
+        RunPersistenceConflict,
+        match="conflicts with persisted snapshot",
+    ):
+        await store.save_remote_request(
+            command,
+            _model_request(message="changed after freeze"),
+        )
 
 
 @pytest.mark.anyio
@@ -483,6 +594,62 @@ async def test_remote_terminal_clears_persisted_and_cached_recovery_gate(
 
 
 @pytest.mark.anyio
+async def test_frozen_remote_turn_requires_attach_before_recovery_gate_opens(
+    tmp_path: Path,
+) -> None:
+    """确保终态 status 不能绕过原 Turn replay 直接解除本地门禁。"""
+    db_path = tmp_path / "runtime.db"
+    store = SQLiteRunStore(db_path)
+    command = _command(trace_context={
+        "remote_turn": {
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_remote",
+        },
+    })
+    await _append_started(store, command)
+    await store.save_remote_request(command, _model_request())
+    application = open_turn_application(db_path)
+    protocol_client = AsyncMock()
+    protocol_client.get_turn_status.return_value = TurnStatusSnapshot(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_remote",
+        run_id="run_remote",
+        status="completed",
+        terminal=TurnCompletedSnapshot(
+            turn_id="turn_remote",
+            status="completed",
+            error=None,
+            last_event_seq=12,
+            completed_at=2.0,
+        ),
+        attempt=1,
+        version=3,
+        last_event_seq=12,
+        created_at=1.0,
+        updated_at=2.0,
+    )
+
+    recovery = await application.reconcile_remote_session(
+        command.session_id,
+        protocol_client,
+    )
+
+    assert len(recovery.pending) == 1
+    assert recovery.resolved_run_ids == ()
+    assert len(recovery.observe_turns) == 1
+    observed = recovery.observe_turns[0]
+    assert observed.snapshot.command == command
+    assert observed.request == _model_request()
+    assert observed.replay_target_seq == 12
+
+    await application.resolve_observed_recovery(observed, _Result())
+    assert await application.recover_session(command.session_id) == ()
+    await application.close()
+
+
+@pytest.mark.anyio
 async def test_missing_remote_turn_restores_input_and_clears_recovery_gate(
     tmp_path: Path,
 ) -> None:
@@ -496,6 +663,10 @@ async def test_missing_remote_turn_restores_input_and_clears_recovery_gate(
         },
     })
     await _append_started(store, command)
+    await store.save_remote_request(
+        command,
+        _model_request(turn_id="turn_missing"),
+    )
     application = open_turn_application(db_path)
     protocol_client = AsyncMock()
     protocol_client.get_turn_status.side_effect = ProtocolCommandError(
@@ -515,6 +686,45 @@ async def test_missing_remote_turn_restores_input_and_clears_recovery_gate(
     assert recovery.restore_commands == (command,)
     assert recovery.resolved_run_ids == (command.run_id,)
     assert remaining == ()
+
+
+@pytest.mark.anyio
+async def test_missing_continuation_fails_without_redispatching_original_input(
+    tmp_path: Path,
+) -> None:
+    """确保 Stop continuation 的 404 不会重复提交已经执行过的首轮输入。"""
+    db_path = tmp_path / "runtime.db"
+    store = SQLiteRunStore(db_path)
+    command = _command(trace_context={
+        "remote_turn": {
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_remote",
+        },
+    })
+    await _append_started(store, command)
+    await store.save_remote_request(command, _model_request())
+    await store.save_remote_request(
+        command,
+        _model_request(turn_id="turn_missing_continuation"),
+    )
+    application = open_turn_application(db_path)
+    protocol_client = AsyncMock()
+    protocol_client.get_turn_status.side_effect = ProtocolCommandError(
+        "turn_status_request_failed",
+        "turn status request failed",
+        details={"status_code": 404},
+    )
+
+    recovery = await application.reconcile_remote_session(
+        command.session_id,
+        protocol_client,
+    )
+
+    assert recovery.pending == ()
+    assert recovery.restore_commands == ()
+    assert recovery.resolved_run_ids == (command.run_id,)
+    await application.close()
 
 
 @pytest.mark.anyio

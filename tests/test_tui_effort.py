@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from agent.application.turns.commands import (
+    RemoteTurnRecovery,
     SessionRecoveryResult,
     TurnApplication,
 )
@@ -168,6 +169,64 @@ async def test_durable_queued_recovery_returns_input_to_composer() -> None:
         "queued": True,
         "current": True,
     })
+
+
+@pytest.mark.anyio
+async def test_durable_recovery_observes_remote_turn_before_opening_gate(
+    monkeypatch,
+) -> None:
+    command = SubmitTurnCommand.create(
+        session_id="session_test",
+        message="active turn",
+    )
+    pending = _pending_recovery(command)
+    observed = RemoteTurnRecovery(
+        snapshot=pending,
+        request=Mock(),
+        replay_target_seq=8,
+    )
+    turn_application = AsyncMock()
+    turn_application.reconcile_remote_session.side_effect = (
+        SessionRecoveryResult(
+            pending=(pending,),
+            restore_commands=(),
+            resolved_run_ids=(),
+            observe_turns=(observed,),
+        ),
+        SessionRecoveryResult((), (), (command.run_id,)),
+    )
+    execute_recovery = AsyncMock(return_value=loop._QueueTurnExecutionOutcome(
+        settled=True,
+        exit_requested=False,
+    ))
+    monkeypatch.setattr(loop, "_execute_tui_recovered_turn", execute_recovery)
+    runtime = TuiRuntime()
+    host = SimpleNamespace(
+        attach=SimpleNamespace(
+            pending_attachments_snapshot=Mock(return_value=[]),
+            replace_pending_attachments=Mock(),
+        ),
+        lifecycle=ProcessLifecycle(),
+    )
+    state = SimpleNamespace(
+        consume_pending_prompt_extras=Mock(return_value={}),
+        replace_pending_prompt_extras=Mock(),
+    )
+
+    ready = await loop._await_durable_session_recovery(
+        host,
+        runtime,
+        state,
+        SimpleNamespace(emit=Mock()),
+        turn_application,
+        Mock(spec=ProtocolCommandClient),
+        session_id="session_test",
+    )
+
+    assert ready is True
+    execute_recovery.assert_awaited_once()
+    assert turn_application.reconcile_remote_session.await_count == 2
+    await runtime.close()
 
 
 @pytest.mark.anyio

@@ -473,6 +473,7 @@ class McpServerRuntime(object):
         execute_root_turn = RootTurnCommandExecutor(
             functools.partial(self._turn_runner, self.host),
             permissions=permissions,
+            request_recorder=self._turn_application,
         )
 
         execution = await self._turn_application.submit(

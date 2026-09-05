@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from unittest.mock import Mock
 
 import pytest
@@ -19,6 +20,8 @@ from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.execution import TurnExecution
 from agent.harness.hooks.scope import HookExecutionScope
 from agent.adapters.protocol import turn_setup
+from agent.adapters.protocol.turn_source import ObservingTurnStreamSource
+from agent.adapters.protocol.turn_source import SubmittingTurnStreamSource
 from agent.domain.policies import preset_permissions
 
 
@@ -213,6 +216,49 @@ def test_prepare_stream_turn_resolves_missing_request_capabilities() -> None:
         workspace_root=".",
     )
     assert session_context.skills_mock.call_count == 1
+
+
+@pytest.mark.anyio
+async def test_submitting_source_persists_frozen_request_before_network() -> None:
+    """确保进程可在任何远端响应前恢复完全相同的 Turn 请求。"""
+    call_order: list[str] = []
+    persisted = AsyncMock(side_effect=lambda _request: call_order.append("persist"))
+
+    def stream(_request, **_kwargs):
+        call_order.append("network")
+        return SimpleNamespace()
+
+    source = SubmittingTurnStreamSource(
+        SimpleNamespace(stream=stream),
+        persisted,
+    )
+
+    await source.open(
+        _execution().context,
+        pref_config={"primary": {"model": "test-model"}},
+        message="hello",
+        tools=[],
+        options={},
+        on_recovery_status=AsyncMock(),
+        on_approval_snapshot=AsyncMock(),
+    )
+
+    assert call_order == ["persist", "network"]
+    persisted.assert_awaited_once()
+
+
+def test_cold_observing_source_suppresses_initial_model_wait() -> None:
+    """确保 replay 第一帧不会先闪现新 Turn 的 Thinking。"""
+    source = ObservingTurnStreamSource(
+        SimpleNamespace(observe=Mock()),
+        SimpleNamespace(stream=Mock()),
+        after_event_seq=0,
+        replay_target_seq=8,
+        records_local_start=False,
+    )
+
+    assert source.records_local_start is False
+    assert source.initial_wait_visible is False
 
 
 def test_prepare_stream_turn_rejects_missing_session_factory() -> None:

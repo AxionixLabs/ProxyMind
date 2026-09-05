@@ -264,6 +264,33 @@ def test_replay_updates_assistant_item_by_stable_item_id() -> None:
     assert replay[0].payload["content"] == "complete"
 
 
+def test_replay_merges_cold_attach_duplicate_assistant_item() -> None:
+    """确保从零重放同一远端 Item 时只保留最新的完整正文。"""
+    def entry(content: str) -> TranscriptEntry:
+        return TranscriptEntry(
+            timestamp="2026-09-05T00:00:00.000Z",
+            event="message.created",
+            session_id="session_test",
+            turn_id="turn_test",
+            actor="assistant",
+            payload={
+                "content": content,
+                "item_id": "item-stable",
+                "presentation_epoch": 1,
+                "round": 1,
+                "attempt": 1,
+            },
+        )
+
+    replay = TranscriptReplay((
+        entry("partial before disconnect"),
+        entry("complete after attach replay"),
+    )).build()
+
+    assert len(replay) == 1
+    assert replay[0].payload["content"] == "complete after attach replay"
+
+
 def test_replay_supersedes_only_named_assistant_item() -> None:
     def entry(event: str, payload: dict) -> TranscriptEntry:
         return TranscriptEntry(

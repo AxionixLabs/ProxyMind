@@ -33,7 +33,31 @@ async def observe_stream_turn(
     **kwargs: typing.Any,
 ) -> RunResult:
     """只 attach 已提交 Turn，并复用共享工具、展示和终态生命周期。"""
-    source = ObservingTurnStreamSource(turn_observer, model_capability)
+    after_event_seq = kwargs.pop("observation_after_event_seq", None)
+    replay_target_seq = kwargs.pop("observation_replay_target_seq", None)
+    records_local_start = kwargs.pop("observation_records_local_start", True)
+    if (
+        after_event_seq is not None
+        and (not isinstance(after_event_seq, int) or isinstance(after_event_seq, bool))
+    ):
+        raise TypeError("observation after_event_seq must be an integer")
+    if (
+        replay_target_seq is not None
+        and (
+            not isinstance(replay_target_seq, int)
+            or isinstance(replay_target_seq, bool)
+        )
+    ):
+        raise TypeError("observation replay_target_seq must be an integer")
+    if not isinstance(records_local_start, bool):
+        raise TypeError("observation records_local_start must be boolean")
+    source = ObservingTurnStreamSource(
+        turn_observer,
+        model_capability,
+        after_event_seq=after_event_seq,
+        replay_target_seq=replay_target_seq,
+        records_local_start=records_local_start,
+    )
     return await stream_turn(
         session,
         pref_config,

@@ -253,6 +253,39 @@ async def test_observe_turn_attaches_without_submitting_chat(monkeypatch) -> Non
 
 
 @pytest.mark.anyio
+async def test_cold_observe_reports_replay_until_terminal_target(monkeypatch) -> None:
+    recovery = []
+
+    async def payloads():
+        yield {
+            "type": "turn.started",
+            "turn_id": "turn_existing",
+            "event_seq": 1,
+        }
+        yield {
+            "type": "turn.completed",
+            "turn_id": "turn_existing",
+            "event_seq": 2,
+        }
+
+    _install_stream(monkeypatch, payloads())
+    event_stream = chat.observe_turn(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_existing",
+        initial_event_seq=0,
+        replay_target_seq=2,
+        on_recovery_status=_recovery_recorder(recovery),
+    )
+
+    assert [event.event_seq for event in await _collect(event_stream)] == [1, 2]
+    assert recovery == [
+        ("replaying", 0),
+        ("caught_up", 2),
+    ]
+
+
+@pytest.mark.anyio
 async def test_retained_prefix_gap_advances_replay_floor(monkeypatch) -> None:
     async def payloads():
         yield {

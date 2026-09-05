@@ -5,6 +5,7 @@ import asyncio
 import typing
 
 from agent.domain.policies import PermissionSettings
+from agent.ports import ModelRequestFrozenCallback
 from agent.ports import RunRecoveryRequired
 from agent.ports.presentation import (
     ApplicationSink,
@@ -306,6 +307,7 @@ async def run_tui_model_turn(
                             None,
                         ] | None = None,
     turn_input_control: TuiTurnInputControl | None = None,
+    on_model_request_frozen: ModelRequestFrozenCallback | None = None,
 ) -> "RunResult":
     """冻结 TUI 输入并提交给组合根绑定的根轮次用例。"""
     attachment_values = [dict(item) for item in attachments]
@@ -344,6 +346,8 @@ async def run_tui_model_turn(
         prompt_kwargs["on_turn_input_context"] = turn_input_control.activate
         prompt_kwargs["on_turn_input_event"] = turn_input_control.handle_event
         prompt_kwargs["on_turn_stream_end"] = turn_input_control.handle_stream_end
+    if on_model_request_frozen is not None:
+        prompt_kwargs["on_model_request_frozen"] = on_model_request_frozen
     return await turn_runner(
         pref_config,
         message=message_text,

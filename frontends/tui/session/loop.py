@@ -7,12 +7,13 @@ from dataclasses import dataclass
 
 from agent.application.config.session_identity import derive_local_session_id
 from agent.application.services import TurnApplicationFactory
-from agent.application.turns.durable_queue import DurableQueueTurnCallbacks
 from agent.application.turns.commands import (
+    RemoteTurnRecovery,
     SessionRecoveryResult,
     SubmitTurnCommand,
     TurnApplication,
 )
+from agent.application.turns.observation import TurnObservationCallbacks
 from agent.application.turns.run_result import RunResult
 from agent.ports import (
     AttachmentStatePort,
@@ -92,8 +93,8 @@ class _QueueTurnExecutionOutcome:
 
 
 @dataclass(slots=True)
-class _QueueTurnAuthority:
-    """仅以服务端权威终态事件记录 Queue Turn 已完成结算。"""
+class _ObservedTurnAuthority:
+    """仅以服务端权威终态事件记录既有 Turn 已完成结算。"""
 
     control: TuiTurnInputControl
     terminal_received: bool = False
@@ -150,6 +151,7 @@ async def _await_durable_session_recovery(
     protocol_client: ProtocolCommandClient,
     *,
     session_id: str,
+    dispatcher: TuiCommandDispatcher | None = None,
 ) -> bool:
     """以有限自动探测等待 Durable Turn，并响应提交或退出意图。"""
     notice_shown: bool = False
@@ -164,6 +166,43 @@ async def _await_durable_session_recovery(
                 protocol_client,
             )
             _restore_recovery_commands(host, runtime, state, recovery)
+            if recovery.observe_turns:
+                observations_settled = True
+                for observed in recovery.observe_turns:
+                    try:
+                        outcome = await _execute_tui_recovered_turn(
+                            host,
+                            runtime,
+                            state,
+                            turn_application,
+                            protocol_client,
+                            observed,
+                            dispatcher=dispatcher,
+                        )
+                    except (
+                        LookupError,
+                        OSError,
+                        ProtocolCommandError,
+                        RuntimeError,
+                        TypeError,
+                        ValueError,
+                    ) as error:
+                        if not notice_shown:
+                            runtime.queue_background_block(failure_text_block(
+                                "Previous turn replay is required before the "
+                                "next turn: "
+                                f"{str(error).strip() or type(error).__name__}",
+                            ))
+                            notice_shown = True
+                        observations_settled = False
+                        break
+                    if outcome.exit_requested:
+                        return False
+                    if not outcome.settled:
+                        observations_settled = False
+                        break
+                if observations_settled:
+                    continue
             if not recovery.pending:
                 recovery_ready = True
                 return True
@@ -311,8 +350,8 @@ async def _execute_tui_durable_queue_turn(
         turn_id=request.turn_id,
         protocol_client=protocol_client,
     )
-    terminal_authority = _QueueTurnAuthority(turn_input_control)
-    callbacks = DurableQueueTurnCallbacks(
+    terminal_authority = _ObservedTurnAuthority(turn_input_control)
+    callbacks = TurnObservationCallbacks(
         input_context=turn_input_control.activate,
         input_event=terminal_authority.handle_event,
         stream_end=turn_input_control.handle_stream_end,
@@ -329,6 +368,65 @@ async def _execute_tui_durable_queue_turn(
         settled = terminal_authority.terminal_received
         if settled:
             await host.durable_queue.settle(local.submission_id)
+    finally:
+        runtime.set_turn_start_pending(False)
+
+    return _QueueTurnExecutionOutcome(
+        settled=settled,
+        exit_requested=_apply_turn_exit_request(host, runtime),
+    )
+
+
+async def _execute_tui_recovered_turn(
+    host: "TuiApplicationHost",
+    runtime: TuiRuntime,
+    state: TuiSessionState,
+    turn_application: TurnApplication["RunResult"],
+    protocol_client: ProtocolCommandClient,
+    recovery: RemoteTurnRecovery,
+    *,
+    dispatcher: TuiCommandDispatcher | None,
+) -> _QueueTurnExecutionOutcome:
+    """以前台生命周期从头重放进程中断前已提交的远端 Turn。"""
+    application = host.frontend.application
+    request = recovery.request
+    runtime.set_turn_start_pending(True)
+    application.emit(ApplicationView(type="tui.gap"))
+    host.workspace_runtime.coding.reset_patch_diff()
+    turn_input_control = TuiTurnInputControl(
+        host,
+        runtime,
+        state,
+        cid=request.cid,
+        sid=request.sid,
+        turn_id=request.turn_id,
+        protocol_client=protocol_client,
+    )
+    terminal_authority = _ObservedTurnAuthority(turn_input_control)
+    callbacks = TurnObservationCallbacks(
+        input_context=turn_input_control.activate,
+        input_event=terminal_authority.handle_event,
+        stream_end=turn_input_control.handle_stream_end,
+    )
+    settled = False
+    try:
+        result = await execute_tui_model_turn(
+            application,
+            runtime,
+            host.observe_recovered_turn(recovery, callbacks=callbacks),
+            turn_input_control=turn_input_control,
+            stream_command_handler=(
+                dispatcher.handle_stream_command
+                if dispatcher is not None
+                else None
+            ),
+            show_interrupt_notice=(
+                lambda: not host.lifecycle.stop_event.is_set()
+            ),
+        )
+        settled = terminal_authority.terminal_received and result is not None
+        if settled:
+            await turn_application.resolve_observed_recovery(recovery, result)
     finally:
         runtime.set_turn_start_pending(False)
 
@@ -460,6 +558,7 @@ async def _run_tui_loop(
                         "tui",
                         recovery_session,
                     ),
+                    dispatcher=dispatcher,
                 )
             except TuiInterruptRequested:
                 host.lifecycle.request_stop(exit_code=130)
@@ -711,6 +810,16 @@ async def _run_tui_loop(
                 prompt_extras=command.extras_value(),
                 on_prompt_prepared=bind_prompt_attachments,
                 turn_input_control=turn_input_control,
+                on_model_request_frozen=(
+                    (
+                        lambda request: turn_application.record_remote_request(
+                            command,
+                            request,
+                        )
+                    )
+                    if local_session_id is None
+                    else None
+                ),
             )
 
         await execute_tui_model_turn(

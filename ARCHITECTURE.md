@@ -264,6 +264,11 @@ add/start 响应丢失时复用已持久化的原 request id；服务端明确�
 通过 attach/replay 观察它，不得再调用 `/mind-chat`。本地执行快照缺失时仍可展示服务端 Queue
 item，但不得用当前配置猜测并执行。
 
+直接提交的 Durable Run 同样必须在提交 Hook 和工具目录冻结完成后、首次 `/mind-chat` 网络操作前，
+持久化完整 `ModelStreamRequest`。进程恢复时 `/turn/status` 只确定应观察的最新 Turn 及 replay
+目标水位；只要本地 Run 持有冻结请求，就必须通过 `/mind-attach` 消费缺失正文和唯一终态后才能
+解除本地执行门。内存 Session cursor 或终态 status 不证明 Transcript 已持久化，不能据此跳过重放。
+
 ## 线上协议边界
 
 `protocol/` 是独立 wire SDK：
@@ -367,10 +372,11 @@ provider retry 在登记新 Attempt 的同一次归约中释放旧 Attempt 的�
 请求必须合并，steer 仍必须等待 `turn.started`。
 中断请求发出后，TUI 保留当前 Thinking/Working 和执行门，尚未确认的 steer 可以立即切换为等待结算
 的队列预览，但不得提前写入最终中断文案。结算期间的新输入必须进入可见的下一轮队列，不得作为
-steer 发送，也不得进入尚无消费者的普通消息 handoff。只有 `turn.completed` 或权威 `/turn/status`
-的同构终态快照可以在同一次展示交接中撤下活动画面、提交一次中断文案、恢复普通输入并开放下一次
-`/mind-chat`；终态快照携带的 `last_event_seq` 必须同步到 Protocol Client 持有的 Session 水位，供
-下一 Turn 连续接流。HTTP 回执、本地 observer 结束、任务取消或 SSE 关闭都不能替代该屏障。
+steer 发送，也不得进入尚无消费者的普通消息 handoff。只有已经完整消费的 `turn.completed`，或无需
+恢复本地正文时的权威 `/turn/status` 同构终态快照，可以在同一次展示交接中撤下活动画面、提交一次
+中断文案、恢复普通输入并开放下一次 `/mind-chat`。冷恢复若存在冻结请求，终态快照只提供 attach 的
+目标 `last_event_seq`，不得直接解除本地 Run 门禁；HTTP 回执、本地 observer 结束、任务取消或 SSE
+关闭都不能替代该屏障。
 第一次 `Ctrl+C` 必须保留上述权威终态屏障；退出确认窗口内的第二次 `Ctrl+C` 表示用户明确结束
 客户端进程，可以取消本地 status/reconcile 等待并退出，但不得因此启动下一 Turn、重复提交输入或
 把未知归属输入自动重投。远端 Turn 仍由服务端自身生命周期最终收束。
@@ -448,6 +454,7 @@ model intent
 | 事实 | 所有者 | 恢复原则 |
 | --- | --- | --- |
 | Run/Command/Event | `agent.stores.runs` | 幂等写入、单调事件、终态不可离开 |
+| Remote Turn request | `agent.stores.runs` | 网络提交前冻结；按原坐标 attach/replay，不重新提交 |
 | Agent graph/mailbox | `agent.stores.agents` | 活动投递可恢复，消息身份稳定 |
 | Session cursor | `agent.stores.sessions` | 只保存本地会话索引和分支事实 |
 | Transcript | `agent.stores.transcripts` + persistence adapter | 规范记录与 IO 分离，损坏可观测 |

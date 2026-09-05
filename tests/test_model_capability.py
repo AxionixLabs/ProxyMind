@@ -256,6 +256,30 @@ def test_protocol_client_observes_existing_turn_without_stream_submission(
     stream_chat.assert_not_called()
 
 
+def test_cold_observer_uses_explicit_zero_cursor_after_status_advanced_session(
+    monkeypatch,
+) -> None:
+    """确保 status 水位不会跳过进程离线期间尚未写入 Transcript 的事件。"""
+    event_stream = object()
+    observe_turn = Mock(return_value=event_stream)
+    monkeypatch.setattr(model_adapter, "_observe_turn", observe_turn)
+    event_cursors = model_adapter.ProtocolEventCursorStore()
+    event_cursors.advance(cid="cid_test", sid="sid_test", event_seq=12)
+    capability = model_adapter.MindChatProtocolClient(event_cursors)
+
+    capability.observe(TurnObservationRequest(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_existing",
+        timeout=9.0,
+        after_event_seq=0,
+        replay_target_seq=12,
+    ))
+
+    assert observe_turn.call_args.kwargs["initial_event_seq"] == 0
+    assert observe_turn.call_args.kwargs["replay_target_seq"] == 12
+
+
 @pytest.mark.anyio
 async def test_protocol_client_owns_command_transport_boundary(monkeypatch) -> None:
     interrupt = AsyncMock(return_value=SimpleNamespace(

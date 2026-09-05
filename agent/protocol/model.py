@@ -294,6 +294,8 @@ class TurnObservationRequest:
     sid: str
     turn_id: str
     timeout: float = 60.0
+    after_event_seq: int | None = None
+    replay_target_seq: int | None = None
 
     def __post_init__(self) -> None:
         """校验观察坐标和有限超时。"""
@@ -310,6 +312,24 @@ class TurnObservationRequest:
         ):
             raise ValueError(
                 "turn observation timeout must be a positive finite number"
+            )
+        for field_name in ("after_event_seq", "replay_target_seq"):
+            value = getattr(self, field_name)
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+            ):
+                raise ValueError(
+                    f"turn observation {field_name} must be non-negative"
+                )
+        if (
+            self.after_event_seq is not None
+            and self.replay_target_seq is not None
+            and self.replay_target_seq < self.after_event_seq
+        ):
+            raise ValueError(
+                "turn observation replay target precedes its event cursor"
             )
         object.__setattr__(self, "timeout", float(self.timeout))
 

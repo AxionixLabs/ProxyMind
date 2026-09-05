@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
+import hashlib
 import json
 import sqlite3
 import typing
@@ -18,12 +19,15 @@ from agent.domain import (
 )
 from agent.ports import (
     RecoveryResolution,
+    RemoteTurnExecutionSnapshot,
     RunFact,
     RunPersistenceConflict,
     RunRecoveryResolutionRecord,
     RunSnapshot,
+    remote_turn_binding,
 )
 from agent.protocol import (
+    ModelStreamRequest,
     RunEvent,
     SubmitTurnCommand,
 )
@@ -119,6 +123,32 @@ class SQLiteRunStore:
             normalized_result,
             normalized_error,
         )
+
+    async def save_remote_request(
+        self,
+        command: SubmitTurnCommand,
+        request: ModelStreamRequest,
+    ) -> RemoteTurnExecutionSnapshot:
+        """在线程内保存或推进 Run 最新的冻结远端请求。"""
+        if not isinstance(command, SubmitTurnCommand):
+            raise TypeError("remote request command is invalid")
+        if not isinstance(request, ModelStreamRequest):
+            raise TypeError("remote model request is invalid")
+        return await asyncio.to_thread(
+            self._save_remote_request,
+            command,
+            request,
+        )
+
+    async def load_remote_request(
+        self,
+        run_id: str,
+    ) -> RemoteTurnExecutionSnapshot | None:
+        """在线程内读取 Run 最新的冻结远端请求。"""
+        normalized = str(run_id or "").strip()
+        if not normalized:
+            raise ValueError("run_id is required")
+        return await asyncio.to_thread(self._load_remote_request, normalized)
 
     async def load_events(
         self,
@@ -250,6 +280,125 @@ class SQLiteRunStore:
         except BaseException:
             connection.rollback()
             raise
+        finally:
+            connection.close()
+
+    def _save_remote_request(
+        self,
+        command: SubmitTurnCommand,
+        request: ModelStreamRequest,
+    ) -> RemoteTurnExecutionSnapshot:
+        """在一个立即事务中保存首个请求或推进 continuation 请求。"""
+        binding = remote_turn_binding(command)
+        if binding is None:
+            raise RunPersistenceConflict(
+                "remote request command has no turn binding"
+            )
+        if request.cid != binding.cid or request.sid != binding.sid:
+            raise RunPersistenceConflict(
+                "remote request session does not match command binding"
+            )
+
+        encoded_request = encode_json(request.to_dict())
+        fingerprint = hashlib.sha256(
+            encoded_request.encode("utf-8")
+        ).hexdigest()
+        now = datetime.now(timezone.utc).isoformat()
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            run_row = connection.execute(
+                "SELECT command_json FROM run_snapshots WHERE run_id = ?",
+                (command.run_id,),
+            ).fetchone()
+            if run_row is None:
+                raise RunPersistenceConflict(
+                    "remote request run has not been persisted"
+                )
+            if str(run_row["command_json"]) != encode_json(command.to_dict()):
+                raise RunPersistenceConflict(
+                    "remote request command conflicts with persisted run"
+                )
+
+            row = connection.execute(
+                "SELECT * FROM run_remote_requests WHERE run_id = ?",
+                (command.run_id,),
+            ).fetchone()
+            if row is None:
+                if request.turn_id != binding.turn_id:
+                    raise RunPersistenceConflict(
+                        "initial remote request turn does not match command binding"
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO run_remote_requests (
+                        run_id, cid, sid, turn_id, request_json, fingerprint,
+                        revision, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+                    """,
+                    (
+                        command.run_id,
+                        request.cid,
+                        request.sid,
+                        request.turn_id,
+                        encoded_request,
+                        fingerprint,
+                        now,
+                        now,
+                    ),
+                )
+            elif str(row["turn_id"]) == request.turn_id:
+                if str(row["fingerprint"]) != fingerprint:
+                    raise RunPersistenceConflict(
+                        "remote request turn conflicts with persisted snapshot"
+                    )
+            else:
+                connection.execute(
+                    """
+                    UPDATE run_remote_requests
+                       SET turn_id = ?, request_json = ?, fingerprint = ?,
+                           revision = revision + 1, updated_at = ?
+                     WHERE run_id = ?
+                    """,
+                    (
+                        request.turn_id,
+                        encoded_request,
+                        fingerprint,
+                        now,
+                        command.run_id,
+                    ),
+                )
+            persisted = connection.execute(
+                "SELECT * FROM run_remote_requests WHERE run_id = ?",
+                (command.run_id,),
+            ).fetchone()
+            connection.commit()
+            if persisted is None:
+                raise RuntimeError("remote request snapshot was not persisted")
+            return _remote_request_snapshot(persisted)
+        except sqlite3.IntegrityError as error:
+            connection.rollback()
+            raise RunPersistenceConflict(
+                "remote request identity conflicts with persisted snapshot"
+            ) from error
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def _load_remote_request(
+        self,
+        run_id: str,
+    ) -> RemoteTurnExecutionSnapshot | None:
+        """同步读取并重新校验 Run 的最新冻结请求。"""
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT * FROM run_remote_requests WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            return _remote_request_snapshot(row) if row is not None else None
         finally:
             connection.close()
 
@@ -713,6 +862,33 @@ class SQLiteRunStore:
             )
         finally:
             connection.close()
+
+
+def _remote_request_snapshot(
+    row: sqlite3.Row,
+) -> RemoteTurnExecutionSnapshot:
+    """把数据库行还原为经过完整校验的冻结远端请求。"""
+    request_value = json.loads(str(row["request_json"]))
+    if not isinstance(request_value, dict):
+        raise RunPersistenceConflict(
+            "persisted remote request snapshot is malformed"
+        )
+    request = ModelStreamRequest.from_dict(request_value)
+    if (
+        request.cid != str(row["cid"])
+        or request.sid != str(row["sid"])
+        or request.turn_id != str(row["turn_id"])
+    ):
+        raise RunPersistenceConflict(
+            "persisted remote request coordinates are inconsistent"
+        )
+    return RemoteTurnExecutionSnapshot(
+        run_id=str(row["run_id"]),
+        request=request,
+        revision=int(row["revision"]),
+        created_at=str(row["created_at"]),
+        updated_at=str(row["updated_at"]),
+    )
 
 
 if __name__ == '__main__':

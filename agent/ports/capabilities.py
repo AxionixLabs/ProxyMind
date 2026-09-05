@@ -49,6 +49,10 @@ RecoveryStatusCallback: typing.TypeAlias = Callable[
     [TransportRecoveryPhase, int],
     Awaitable[None],
 ]
+ModelRequestFrozenCallback: typing.TypeAlias = Callable[
+    [ModelStreamRequest],
+    Awaitable[None],
+]
 
 HelixState: typing.TypeAlias = typing.Literal[
     "stopped",

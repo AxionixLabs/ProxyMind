@@ -4,13 +4,11 @@
 import typing
 from dataclasses import dataclass
 
-from agent.application.turns.context import TurnContext
 from agent.ports import (
     DurableQueueClient,
     DurableQueuePersistence,
     ProtocolCommandClient,
     ProtocolCommandError,
-    TurnInputEventHandler,
 )
 from agent.protocol import (
     DurableQueueItem,
@@ -21,7 +19,6 @@ from agent.protocol import (
     ModelStreamRequest,
     SubmitTurnCommand,
 )
-from agent.protocol import ModelStreamEndReason
 from protocol.schema.identifiers import (
     new_request_id,
     new_submission_id,
@@ -70,16 +67,6 @@ class DurableQueueStartResult:
 
     local: LocalDurableQueueSnapshot
     receipt: DurableQueueStartReceipt | None
-
-
-@dataclass(frozen=True, slots=True)
-class DurableQueueTurnCallbacks:
-    """保存 Queue Turn 观察期间由前端提供的生命周期回调。"""
-
-    input_context: typing.Callable[[TurnContext], None] | None = None
-    input_event: TurnInputEventHandler | None = None
-    stream_end: typing.Callable[[ModelStreamEndReason], None] | None = None
-    interrupted: typing.Callable[[], None] | None = None
 
 
 class DurableQueueApplication:

@@ -106,6 +106,7 @@ class TurnEventStream(object):
         on_approval_snapshot: ApprovalSnapshotCallback | None = None,
         initial_event_seq: int = 0,
         attach_target: dict[str, str] | None = None,
+        replay_target_seq: int | None = None,
     ) -> None:
         """保存请求参数并初始化逻辑轮次观察状态。"""
         if submission is None and attach_target is None:
@@ -123,6 +124,7 @@ class TurnEventStream(object):
         self._reconnect_failures: int = 0
         self._recovery_phase: TransportRecoveryPhase | None = None
         self._replay_target_seq: int | None = None
+        self._initial_replay_target_seq = replay_target_seq
         self._recovery_catch_up_pending: bool = False
         self._terminal_snapshot_payload: dict[str, typing.Any] | None = None
         self._internal_gap_detected: bool = False
@@ -142,6 +144,14 @@ class TurnEventStream(object):
         ):
             raise ValueError("initial_event_seq must be a non-negative integer")
         self.last_event_seq = initial_event_seq
+        if replay_target_seq is not None and (
+            isinstance(replay_target_seq, bool)
+            or not isinstance(replay_target_seq, int)
+            or replay_target_seq < initial_event_seq
+        ):
+            raise ValueError(
+                "replay_target_seq must not precede initial_event_seq"
+            )
 
     def __aiter__(self) -> typing.AsyncIterator[ChatStreamEvent]:
         """返回当前逻辑轮次的异步事件迭代器。"""
@@ -603,6 +613,11 @@ class TurnEventStream(object):
         if self._payload_stream is not None:
             return self._payload_stream
 
+        initial_replay_target = self._initial_replay_target_seq
+        if initial_replay_target is not None:
+            self._initial_replay_target_seq = None
+            await self._begin_replay(initial_replay_target)
+
         submission = self._submission
         if submission is None:
             self._payload_stream = self._open_attach_stream()
@@ -816,6 +831,7 @@ def observe_turn(
     on_recovery_status: RecoveryStatusCallback | None = None,
     on_approval_snapshot: ApprovalSnapshotCallback | None = None,
     initial_event_seq: int = 0,
+    replay_target_seq: int | None = None,
 ) -> TurnEventStream:
     """从现有 Session 水位 attach 并观察已提交 Turn。"""
     normalized_cid = str(cid or "").strip()
@@ -833,6 +849,7 @@ def observe_turn(
             "sid": normalized_sid,
             "turn_id": normalize_turn_id(turn_id),
         },
+        replay_target_seq=replay_target_seq,
     )
 
 

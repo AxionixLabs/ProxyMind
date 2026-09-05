@@ -13,6 +13,7 @@ from agent.domain import (
     RunStatus,
 )
 from agent.protocol import (
+    ModelStreamRequest,
     RunEvent,
     SubmitTurnCommand,
 )
@@ -64,6 +65,17 @@ class RunRecoveryResolutionRecord:
     result_payload: Mapping[str, ThawedJsonValue] | None
     error: str
     resolved_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteTurnExecutionSnapshot:
+    """描述一个本地 Run 最新一次可安全恢复的冻结远端请求。"""
+
+    run_id: str
+    request: ModelStreamRequest
+    revision: int
+    created_at: str
+    updated_at: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +193,21 @@ class RunPersistence(typing.Protocol):
         """幂等记录权威恢复决议并解除对应 Run 的恢复门禁。"""
         ...
 
+    async def save_remote_request(
+        self,
+        command: SubmitTurnCommand,
+        request: ModelStreamRequest,
+    ) -> RemoteTurnExecutionSnapshot:
+        """在首次网络提交前保存 Run 当前使用的完整冻结请求。"""
+        ...
+
+    async def load_remote_request(
+        self,
+        run_id: str,
+    ) -> RemoteTurnExecutionSnapshot | None:
+        """读取 Run 最新一次已经持久化的冻结远端请求。"""
+        ...
+
     async def load_events(
         self,
         run_id: str,
@@ -197,6 +224,18 @@ class RunPersistence(typing.Protocol):
         kind: str | None = None,
     ) -> tuple[RunFact, ...]:
         """读取最终消息、工具结果、审批决定和证据引用。"""
+        ...
+
+
+class RemoteTurnRequestRecorder(typing.Protocol):
+    """接收已经冻结且即将首次提交网络的远端 Turn 请求。"""
+
+    async def record_remote_request(
+        self,
+        command: SubmitTurnCommand,
+        request: ModelStreamRequest,
+    ) -> None:
+        """在网络提交前把请求绑定到对应本地 Run。"""
         ...
 
 

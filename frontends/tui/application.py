@@ -12,8 +12,9 @@ from agent.application.agents.views import AgentSnapshot
 from agent.application.turns.durable_queue import (
     DurableQueueApplication,
     DurableQueueSubmissionResult,
-    DurableQueueTurnCallbacks,
 )
+from agent.application.turns.commands import RemoteTurnRecovery
+from agent.application.turns.observation import TurnObservationCallbacks
 from agent.application.turns.run_result import RunResult
 from agent.domain.policies import PermissionSettings
 from agent.protocol import (
@@ -275,9 +276,18 @@ class TuiApplicationHost(typing.Protocol):
         self,
         local: LocalDurableQueueSnapshot,
         *,
-        callbacks: DurableQueueTurnCallbacks,
+        callbacks: TurnObservationCallbacks,
     ) -> RunResult:
         """观察 Queue start 已创建的远端 Turn。"""
+        ...
+
+    async def observe_recovered_turn(
+        self,
+        recovery: RemoteTurnRecovery,
+        *,
+        callbacks: TurnObservationCallbacks,
+    ) -> RunResult:
+        """从头重放进程中断前已提交的远端 Turn。"""
         ...
 
     def configuration_service_url(self) -> str:

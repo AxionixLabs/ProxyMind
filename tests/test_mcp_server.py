@@ -369,13 +369,16 @@ async def test_mcp_server_runtime_executes_isolated_call(tmp_path) -> None:
     )
     turn_id = turn_runner.await_args.kwargs["turn_id"]
     assert isinstance(turn_id, str) and len(turn_id) == 12
-    turn_runner.assert_awaited_once_with(
-        host,
-        message="inspect",
-        exec_env={"snapshot_id": "envsnap_mcp"},
-        permissions=PermissionSettings("read-only", "on-request"),
-        turn_id=turn_id,
-    )
+    call_kwargs = dict(turn_runner.await_args.kwargs)
+    request_frozen = call_kwargs.pop("on_model_request_frozen")
+    assert callable(request_frozen)
+    assert turn_runner.await_args.args == (host,)
+    assert call_kwargs == {
+        "message": "inspect",
+        "exec_env": {"snapshot_id": "envsnap_mcp"},
+        "permissions": PermissionSettings("read-only", "on-request"),
+        "turn_id": turn_id,
+    }
 
 
 @pytest.mark.anyio
@@ -393,6 +396,9 @@ async def test_mcp_server_runtime_submits_typed_command_to_application(
         def __init__(self) -> None:
             self.command = None
             self.closed = False
+
+        async def record_remote_request(self, _command, _request) -> None:
+            return None
 
         async def submit(self, command, executor):
             self.command = command
@@ -499,13 +505,16 @@ async def test_mcp_server_runtime_uses_default_permissions(tmp_path) -> None:
 
     turn_id = turn_runner.await_args.kwargs["turn_id"]
     assert isinstance(turn_id, str) and len(turn_id) == 12
-    turn_runner.assert_awaited_once_with(
-        host,
-        message="inspect",
-        exec_env={"snapshot_id": "envsnap_mcp"},
-        permissions=PermissionSettings("workspace-write", "on-request"),
-        turn_id=turn_id,
-    )
+    call_kwargs = dict(turn_runner.await_args.kwargs)
+    request_frozen = call_kwargs.pop("on_model_request_frozen")
+    assert callable(request_frozen)
+    assert turn_runner.await_args.args == (host,)
+    assert call_kwargs == {
+        "message": "inspect",
+        "exec_env": {"snapshot_id": "envsnap_mcp"},
+        "permissions": PermissionSettings("workspace-write", "on-request"),
+        "turn_id": turn_id,
+    }
 
 
 @pytest.mark.anyio

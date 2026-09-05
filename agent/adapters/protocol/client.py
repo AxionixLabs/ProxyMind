@@ -398,18 +398,35 @@ class MindChatProtocolClient:
                 if callback_result is not None:
                     await callback_result
 
-            stream = _observe_turn(
-                cid=request.cid,
-                sid=request.sid,
-                turn_id=request.turn_id,
-                timeout=request.timeout,
-                on_recovery_status=on_recovery_status,
-                on_approval_snapshot=restore_approval_snapshot,
-                initial_event_seq=self._event_cursors.current(
+            initial_event_seq = (
+                request.after_event_seq
+                if request.after_event_seq is not None
+                else self._event_cursors.current(
                     cid=request.cid,
                     sid=request.sid,
-                ),
+                )
             )
+            if request.replay_target_seq is None:
+                stream = _observe_turn(
+                    cid=request.cid,
+                    sid=request.sid,
+                    turn_id=request.turn_id,
+                    timeout=request.timeout,
+                    on_recovery_status=on_recovery_status,
+                    on_approval_snapshot=restore_approval_snapshot,
+                    initial_event_seq=initial_event_seq,
+                )
+            else:
+                stream = _observe_turn(
+                    cid=request.cid,
+                    sid=request.sid,
+                    turn_id=request.turn_id,
+                    timeout=request.timeout,
+                    on_recovery_status=on_recovery_status,
+                    on_approval_snapshot=restore_approval_snapshot,
+                    initial_event_seq=initial_event_seq,
+                    replay_target_seq=request.replay_target_seq,
+                )
         except asyncio.CancelledError:
             raise
         except ModelCapabilityError:

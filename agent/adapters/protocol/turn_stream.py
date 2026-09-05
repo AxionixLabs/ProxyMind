@@ -109,7 +109,11 @@ async def stream_turn(
         session_factory=session_factory,
     )
 
-    source = turn_source or SubmittingTurnStreamSource(model_capability)
+    callbacks = prepared.callbacks
+    source = turn_source or SubmittingTurnStreamSource(
+        model_capability,
+        callbacks.request_frozen,
+    )
     if not isinstance(source, TurnStreamSource):
         raise RuntimeError("turn stream source is required")
     if not isinstance(protocol_client, ProtocolCommandClient):
@@ -119,7 +123,6 @@ async def stream_turn(
     if not isinstance(tool_execution, ToolExecutionAdapter):
         raise RuntimeError("tool execution adapter is required")
 
-    callbacks = prepared.callbacks
     reentry_kwargs = prepared.continuation_kwargs
     ev_report = prepared.event_report
     turn_context = prepared.context
@@ -235,10 +238,12 @@ async def stream_turn(
 
     try:
         transcript.open()
-        record_turn_started(transcript, turn_execution)
+        if source.records_local_start:
+            record_turn_started(transcript, turn_execution)
 
         await output_session.open()
-        await activity_projector.request_model_wait("initial")
+        if source.initial_wait_visible:
+            await activity_projector.request_model_wait("initial")
 
         observe(
             "stream.start",
@@ -366,7 +371,7 @@ async def stream_turn(
             activity=activity_projector,
         )
 
-        event_stream = source.open(
+        event_stream = await source.open(
             turn_context,
             pref_config=pref_config,
             message=message,

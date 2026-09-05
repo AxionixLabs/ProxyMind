@@ -13,6 +13,7 @@ from agent.ports import (
     ApprovalSnapshotCallback,
     ModelCapability,
     ModelEventStream,
+    ModelRequestFrozenCallback,
     RecoveryStatusCallback,
     TranscriptSink,
     TurnObservationCapability,
@@ -33,6 +34,16 @@ class TurnStreamSource(typing.Protocol):
         """返回 Stop continuation 创建新 Turn 使用的模型能力。"""
         ...
 
+    @property
+    def records_local_start(self) -> bool:
+        """返回共享流是否应写入新的本地 Turn 起始记录。"""
+        ...
+
+    @property
+    def initial_wait_visible(self) -> bool:
+        """返回事件读取前是否应显示新 Turn 的模型等待。"""
+        ...
+
     async def prepare(
         self,
         hook_events: TurnHookEvents,
@@ -43,7 +54,7 @@ class TurnStreamSource(typing.Protocol):
         """在事件流创建前完成来源拥有的提交准备。"""
         ...
 
-    def open(
+    async def open(
         self,
         context: TurnContext,
         *,
@@ -61,15 +72,32 @@ class TurnStreamSource(typing.Protocol):
 class SubmittingTurnStreamSource:
     """运行提交 Hook 并为一条新 Turn 创建模型事件流。"""
 
-    def __init__(self, capability: ModelCapability) -> None:
+    def __init__(
+        self,
+        capability: ModelCapability,
+        request_frozen: ModelRequestFrozenCallback | None = None,
+    ) -> None:
         if not isinstance(capability, ModelCapability):
             raise RuntimeError("model capability is required")
+        if request_frozen is not None and not callable(request_frozen):
+            raise TypeError("model request frozen callback must be callable")
         self._capability = capability
+        self._request_frozen = request_frozen
 
     @property
     def continuation_capability(self) -> ModelCapability:
         """返回当前新 Turn 提交能力。"""
         return self._capability
+
+    @property
+    def records_local_start(self) -> bool:
+        """新提交 Turn 必须写入本地起始记录。"""
+        return True
+
+    @property
+    def initial_wait_visible(self) -> bool:
+        """新提交 Turn 在首个事件前显示模型等待。"""
+        return True
 
     async def prepare(
         self,
@@ -92,7 +120,7 @@ class SubmittingTurnStreamSource:
         )
         return result.message
 
-    def open(
+    async def open(
         self,
         context: TurnContext,
         *,
@@ -111,6 +139,8 @@ class SubmittingTurnStreamSource:
             tools=tools,
             options=options,
         )
+        if self._request_frozen is not None:
+            await self._request_frozen(request)
         return self._capability.stream(
             request,
             on_recovery_status=on_recovery_status,
@@ -119,24 +149,61 @@ class SubmittingTurnStreamSource:
 
 
 class ObservingTurnStreamSource:
-    """只 attach 已由 Queue 命令创建的远端 Turn。"""
+    """只 attach 已由其他提交路径创建的既有远端 Turn。"""
 
     def __init__(
         self,
         observer: TurnObservationCapability,
         continuation_capability: ModelCapability,
+        *,
+        after_event_seq: int | None = None,
+        replay_target_seq: int | None = None,
+        records_local_start: bool = True,
     ) -> None:
         if not isinstance(observer, TurnObservationCapability):
             raise RuntimeError("turn observer is required")
         if not isinstance(continuation_capability, ModelCapability):
             raise RuntimeError("model capability is required")
+        for field_name, value in (
+            ("after_event_seq", after_event_seq),
+            ("replay_target_seq", replay_target_seq),
+        ):
+            if value is not None and (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value < 0
+            ):
+                raise ValueError(f"{field_name} must be non-negative")
+        if (
+            after_event_seq is not None
+            and replay_target_seq is not None
+            and replay_target_seq < after_event_seq
+        ):
+            raise ValueError("replay target precedes observation cursor")
+        if not isinstance(records_local_start, bool):
+            raise TypeError("records_local_start must be boolean")
         self._observer = observer
         self._continuation_capability = continuation_capability
+        self._after_event_seq = after_event_seq
+        self._replay_target_seq = replay_target_seq
+        self._records_local_start = records_local_start
 
     @property
     def continuation_capability(self) -> ModelCapability:
         """返回观察结束后 Stop continuation 使用的提交能力。"""
         return self._continuation_capability
+
+    @property
+    def records_local_start(self) -> bool:
+        """返回该 observer 是否代表尚未写入本地记录的新 Turn。"""
+        return self._records_local_start
+
+    @property
+    def initial_wait_visible(self) -> bool:
+        """已有明确 replay 目标时从首帧起静默归约历史事件。"""
+        replay_target = self._replay_target_seq
+        replay_start = self._after_event_seq or 0
+        return replay_target is None or replay_target <= replay_start
 
     async def prepare(
         self,
@@ -149,7 +216,7 @@ class ObservingTurnStreamSource:
         del hook_events, transcript, options
         return message
 
-    def open(
+    async def open(
         self,
         context: TurnContext,
         *,
@@ -169,6 +236,8 @@ class ObservingTurnStreamSource:
                 sid=context.sid,
                 turn_id=context.turn_id,
                 timeout=timeout,
+                after_event_seq=self._after_event_seq,
+                replay_target_seq=self._replay_target_seq,
             ),
             on_recovery_status=on_recovery_status,
             on_approval_snapshot=on_approval_snapshot,

@@ -10,6 +10,7 @@ from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.run_result import RunResult
 from agent.domain.policies import preset_permissions
 from agent.harness.execution import durable_queue as queue_execution
+from agent.harness.execution import observed_turn as observed_execution
 from agent.harness.hooks.scope import HookExecutionScope
 from agent.harness.hooks.runtime import HookRuntime
 from agent.protocol import (
@@ -253,9 +254,9 @@ async def test_observe_started_queue_turn_uses_frozen_tool_names(
         captured["operation"] = operation
         return RunResult(status="completed", assistant_text="observed")
 
-    monkeypatch.setattr(queue_execution, "execute_turn", execute_turn)
+    monkeypatch.setattr(observed_execution, "execute_turn", execute_turn)
     monkeypatch.setattr(
-        queue_execution,
+        observed_execution,
         "run_foreground_turn",
         run_foreground_turn,
     )
@@ -276,7 +277,7 @@ async def test_observe_started_queue_turn_uses_frozen_tool_names(
 
     assert result == RunResult(status="completed", assistant_text="observed")
     session.begin_turn.assert_not_awaited()
-    assert captured["operation"] is queue_execution.observe_stream_turn
+    assert captured["operation"] is observed_execution.observe_stream_turn
     assert captured["tools"] == [
         {"name": "read_file", "type": "function"},
     ]
@@ -346,5 +347,5 @@ async def test_observe_queue_turn_rejects_unstarted_or_foreign_session() -> None
 )
 def test_observe_queue_turn_rejects_invalid_frozen_context(options) -> None:
     """确保 observer 不以当前 Session 状态修补损坏的冻结上下文。"""
-    with pytest.raises(ValueError, match="durable queue"):
-        queue_execution._request_turn_context(options)
+    with pytest.raises(ValueError, match="observed turn"):
+        observed_execution._request_turn_context(options)
