@@ -650,6 +650,63 @@ async def test_frozen_remote_turn_requires_attach_before_recovery_gate_opens(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("remote_status", "last_event_seq"),
+    (
+        pytest.param("running", 7, id="interrupting"),
+        pytest.param("finalizing", 11, id="finalizing"),
+    ),
+)
+async def test_nonterminal_remote_phase_requires_attach_after_restart(
+    tmp_path: Path,
+    remote_status: str,
+    last_event_seq: int,
+) -> None:
+    """确保中断结算和最终化期间重启仍从权威水位 attach。"""
+    db_path = tmp_path / f"{remote_status}.db"
+    store = SQLiteRunStore(db_path)
+    command = _command(trace_context={
+        "remote_turn": {
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_remote",
+        },
+    })
+    await _append_started(store, command)
+    await store.save_remote_request(command, _model_request())
+    application = open_turn_application(db_path)
+    protocol_client = AsyncMock()
+    protocol_client.get_turn_status.return_value = TurnStatusSnapshot(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_remote",
+        run_id="run_remote",
+        status=remote_status,
+        terminal=None,
+        attempt=1,
+        version=3,
+        last_event_seq=last_event_seq,
+        created_at=1.0,
+        updated_at=2.0,
+    )
+
+    recovery = await application.reconcile_remote_session(
+        command.session_id,
+        protocol_client,
+    )
+    pending = await application.recover_session(command.session_id)
+    await application.close()
+
+    assert len(recovery.observe_turns) == 1
+    assert recovery.observe_turns[0].snapshot.command == command
+    assert recovery.observe_turns[0].request == _model_request()
+    assert recovery.observe_turns[0].replay_target_seq == last_event_seq
+    assert recovery.resolved_run_ids == ()
+    assert len(pending) == 1
+    assert pending[0].status.value == "running"
+
+
+@pytest.mark.anyio
 async def test_missing_remote_turn_restores_input_and_clears_recovery_gate(
     tmp_path: Path,
 ) -> None:
