@@ -20,6 +20,10 @@ from agent.adapters.protocol.recovery_events import handle_stream_gap
 from agent.adapters.protocol.tool_dispatch import StreamToolDispatcher
 from agent.adapters.protocol.tool_events import ToolEventHandler
 from agent.adapters.protocol.tool_results import ToolResultDelivery
+from agent.adapters.protocol.tool_turn_boundary import (
+    ToolTurnBoundary,
+    record_unhandled_tool_error,
+)
 from agent.adapters.protocol.turn_interrupts import (
     cancel_reconciliation_turn,
     interrupt_approval_cancelled_turn,
@@ -373,6 +377,7 @@ async def stream_turn(
             record_recovery_interrupt=outcome.interrupt,
             replay_target_seq=source.historical_replay_target_seq,
         )
+        tool_turn_boundary = ToolTurnBoundary(turn_context, outcome, approval_handler, tool_dispatcher)
 
         event_stream = await source.open(
             turn_context,
@@ -380,8 +385,8 @@ async def stream_turn(
             message=message,
             tools=tools,
             options=kwargs,
-            on_recovery_status=tool_dispatcher.transport_recovery_changed,
-            on_approval_snapshot=approval_handler.restore_snapshot,
+            on_recovery_status=tool_turn_boundary.transport_recovery_changed,
+            on_approval_snapshot=tool_turn_boundary.restore_approval_snapshot,
         )
         if not isinstance(event_stream, ModelEventStream):
             raise TypeError("model capability returned an invalid event stream")
@@ -555,10 +560,10 @@ async def stream_turn(
             if isinstance(event, ToolApprovalRequiredEvent):
                 if not review_event_is_current:
                     continue
-                await approval_handler.handle(event)
+                await tool_turn_boundary.handle_approval(event)
                 continue
 
-            tool_dispatch = await tool_dispatcher.dispatch(event)
+            tool_dispatch = await tool_turn_boundary.dispatch(event)
             if tool_dispatch.status == "interrupted":
                 outcome.interrupt(tool_dispatch.error)
                 outcome.confirm_interrupt()
@@ -576,12 +581,7 @@ async def stream_turn(
             continue
 
     except (ToolResultRequestError, ProtocolCommandError) as error:
-        if error.is_deterministic_terminal:
-            outcome.interrupt(f"{error.code}: {error}")
-            failure_phase = "turn.tool_result_delivery_stopped"
-        else:
-            outcome.require_reconciliation(f"{error.code}: {error}")
-            failure_phase = "turn.tool_result_delivery_failed"
+        failure_phase = record_unhandled_tool_error(outcome, error)
         observe(
             "stream.tool_result_delivery_failed",
             level="ERROR",

@@ -123,6 +123,22 @@ def test_outcome_preserves_delivery_gap_after_remote_completion() -> None:
     assert outcome.continuation_allowed is False
 
 
+def test_outcome_preserves_delivery_error_when_stream_ends_without_terminal() -> None:
+    outcome = StreamTurnOutcome()
+    outcome.mark_delivery_incomplete(
+        "tool result was not accepted",
+        error_code="tool_call_turn_closed",
+    )
+
+    outcome.settle_stream()
+
+    assert outcome.build_result("") == RunResult(
+        status="incomplete",
+        error="tool result was not accepted",
+        error_code="tool_call_turn_closed",
+    )
+
+
 def test_outcome_preserves_named_capability_error() -> None:
     outcome = StreamTurnOutcome()
     outcome.fail(

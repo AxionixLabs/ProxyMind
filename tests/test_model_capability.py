@@ -615,6 +615,10 @@ async def test_protocol_client_normalizes_command_errors(monkeypatch) -> None:
         )
     assert approval_error.value.code == "approval_not_pending"
     assert approval_error.value.retryable is False
+    assert approval_error.value.details == {
+        "call_id": "call_test",
+        "approval_id": "approval_test",
+    }
 
     with pytest.raises(ProtocolCommandError) as interrupt_error:
         await client.interrupt_turn(

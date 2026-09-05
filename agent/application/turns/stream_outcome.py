@@ -212,7 +212,7 @@ class StreamTurnOutcome:
 
     def settle_stream(self) -> None:
         """在事件流正常结束但没有终态时固定未完整原因。"""
-        if not self.has_terminal_status:
+        if not self.has_terminal_status and self.error is None:
             self.error = "stream ended before turn completion"
 
     def build_result(self, assistant_text: str) -> RunResult:

@@ -1040,7 +1040,10 @@ class MindChatProtocolClient:
                 additional_context=additional_context,
             )
         except ToolApprovalRequestError as error:
-            details: dict[str, typing.Any] = {}
+            details: dict[str, typing.Any] = {
+                "call_id": call_id,
+                "approval_id": approval_id,
+            }
             if error.status_code:
                 details["status_code"] = error.status_code
             raise ProtocolCommandError(

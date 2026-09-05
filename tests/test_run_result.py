@@ -29,6 +29,7 @@ from agent.ports import (
     AssistantTextDelta,
     ModelWaitRequested,
     PresentationSuperseded,
+    ProtocolCommandError,
     RecoveryChanged,
     RetryChanged,
     ResponseIdentity,
@@ -93,6 +94,10 @@ from protocol.schema.stream_events import (
     parse_stream_event as _parse_stream_event,
 )
 from protocol.client.tools import ToolResultRequestError
+from protocol.schema.tool_approval import (
+    ToolApprovalSnapshot,
+    ToolApprovalSnapshotItem,
+)
 from protocol.schema.turn_inputs import TurnInput
 
 
@@ -3458,7 +3463,7 @@ async def test_stream_retries_unknown_ack_with_same_request_id(monkeypatch) -> N
 
 
 @pytest.mark.anyio
-async def test_stream_stops_deterministic_tool_result_terminal_without_failure(
+async def test_stream_waits_for_interrupted_terminal_after_tool_result_closes(
     monkeypatch,
 ) -> None:
     async def execute(_runner, invocation, *, use_coding_trace, display=True):
@@ -3492,20 +3497,222 @@ async def test_stream_stops_deterministic_tool_result_terminal_without_failure(
             "name": "test_tool",
             "arguments": {},
         }),
-        {"type": "turn.completed"},
+        {"type": "turn.completed", "status": "interrupted"},
     ])
 
     assert result.status == "interrupted"
-    assert result.error == (
-        "tool_call_turn_closed: turn no longer accepts tool results"
-    )
+    assert result.error is None
     status_query.assert_not_awaited()
     failure_views = [
         item
         for item in host.output_session.presentation.items
         if isinstance(item, FailureView)
     ]
-    assert failure_views[-1].phase == "turn.tool_result_delivery_stopped"
+    assert failure_views == []
+
+
+@pytest.mark.anyio
+async def test_stream_does_not_accept_completed_after_tool_result_closes(
+    monkeypatch,
+) -> None:
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        _ = use_coding_trace, display
+        return ClientToolCallOutcome(
+            result=ClientToolCallResult(
+                name=invocation.name,
+                arguments=dict(invocation.arguments),
+                ok=True,
+                text="done",
+                call_id=invocation.call_id,
+                fields=_client_result_fields(invocation),
+            )
+        )
+
+    async def post_tool_result(*_args, **_kwargs):
+        raise ToolResultRequestError(
+            "tool_call_turn_closed",
+            "turn no longer accepts tool results",
+        )
+
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+
+    result, host = await _run_stream(monkeypatch, [
+        _durable_tool_call({
+            "type": "tool.call",
+            "call_id": "call-closed-completed",
+            "name": "test_tool",
+            "arguments": {},
+        }),
+        {"type": "turn.completed", "status": "completed"},
+    ])
+
+    assert result.status == "incomplete"
+    assert result.error == (
+        "tool_call_turn_closed: turn no longer accepts tool results"
+    )
+    assert result.error_code == "tool_call_turn_closed"
+    assert not any(
+        isinstance(item, FailureView)
+        for item in host.output_session.presentation.items
+    )
+
+
+@pytest.mark.anyio
+async def test_stream_does_not_synthesize_interrupt_from_escaped_tool_error(
+    monkeypatch,
+) -> None:
+    async def dispatch(_boundary, _event):
+        raise ProtocolCommandError(
+            "tool_call_turn_closed",
+            "turn no longer accepts tool results",
+        )
+
+    monkeypatch.setattr(stream.ToolTurnBoundary, "dispatch", dispatch)
+
+    result, host = await _run_stream(monkeypatch, [
+        _durable_tool_call({
+            "type": "tool.call",
+            "call_id": "call-escaped-closure",
+            "name": "test_tool",
+            "arguments": {},
+        }),
+    ])
+
+    assert result.status == "incomplete"
+    assert result.error_code == "tool_call_turn_closed"
+    failure_views = [
+        item
+        for item in host.output_session.presentation.items
+        if isinstance(item, FailureView)
+    ]
+    assert failure_views[-1].phase == "turn.incomplete"
+
+
+@pytest.mark.anyio
+async def test_stream_does_not_reopen_approval_after_turn_closes(
+    monkeypatch,
+) -> None:
+    approval_posts = []
+
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+        raise ProtocolCommandError(
+            "approval_not_pending",
+            "tool approval is not pending",
+            details={
+                "call_id": "call-approval-closed",
+                "approval_id": "approval-closed",
+            },
+        )
+
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+    host = _host()
+    approval_event = _durable_tool_call({
+        "type": "tool.approval_required",
+        "call_id": "call-approval-closed",
+        "approval_id": "approval-closed",
+        "kind": "command",
+        "command": ["echo", "ready"],
+        "cwd": ".",
+        "reason": "Run the requested command.",
+    })
+
+    result, host_state = await _run_stream(
+        monkeypatch,
+        [
+            {**approval_event, "event_seq": 1},
+            {**approval_event, "event_seq": 2},
+            {
+                "type": "turn.completed",
+                "event_seq": 3,
+                "status": "interrupted",
+            },
+        ],
+        host_state=host,
+    )
+
+    assert result.status == "interrupted"
+    assert result.error is None
+    assert len(approval_posts) == 1
+    host_state.frontend.interaction.present_approval.assert_awaited_once()
+    assert not any(
+        isinstance(item, FailureView)
+        for item in host_state.output_session.presentation.items
+    )
+
+
+@pytest.mark.anyio
+async def test_stream_restores_approvals_after_closed_snapshot_entry(
+    monkeypatch,
+) -> None:
+    approval_posts = []
+
+    async def post_tool_approval(*args, **kwargs):
+        approval_posts.append((args, kwargs))
+        if len(approval_posts) == 1:
+            raise ProtocolCommandError(
+                "approval_decision_conflict",
+                "first approval has a different decision",
+                details={
+                    "call_id": "call-snapshot-closed",
+                    "approval_id": "approval-snapshot-closed",
+                },
+            )
+
+    snapshot = ToolApprovalSnapshot(
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        turn_status="waiting_approval",
+        terminal=None,
+        last_event_seq=2,
+        approvals=tuple(
+            ToolApprovalSnapshotItem(
+                approval_id=f"approval-snapshot-{suffix}",
+                turn_id="turn_test",
+                call_id=f"call-snapshot-{suffix}",
+                kind="command",
+                approval={
+                    "approval_id": f"approval-snapshot-{suffix}",
+                    "call_id": f"call-snapshot-{suffix}",
+                    "turn_id": "turn_test",
+                    "kind": "command",
+                    "command": f"echo {suffix}",
+                    "cwd": ".",
+                },
+                status="pending",
+                ack=None,
+            )
+            for suffix in ("closed", "pending")
+        ),
+    )
+
+    async def stream_chat(*_args, on_approval_snapshot=None, **_kwargs):
+        assert on_approval_snapshot is not None
+        await on_approval_snapshot(snapshot)
+        yield parse_stream_event({
+            "type": "turn.completed",
+            "status": "interrupted",
+        })
+
+    monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
+    host = _host()
+    host.frontend.interaction.present_approval = AsyncMock(
+        side_effect=("decline", "decline"),
+    )
+
+    result, host_state = await _run_stream(
+        monkeypatch,
+        (),
+        stream_factory=stream_chat,
+        host_state=host,
+    )
+
+    assert result.status == "interrupted"
+    assert result.error is None
+    assert len(approval_posts) == 2
+    assert host_state.frontend.interaction.present_approval.await_count == 2
 
 
 @pytest.mark.anyio
