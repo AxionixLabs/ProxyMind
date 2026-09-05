@@ -1045,7 +1045,7 @@ async def test_interrupt_wakes_registered_turn_observer_once(
         request_id="interrupt_test",
     )
 
-    assert raw_stream.probes == 1
+    assert raw_stream.probes == 2
 
     await model_stream.aclose()
     await client.interrupt_turn(
@@ -1055,7 +1055,7 @@ async def test_interrupt_wakes_registered_turn_observer_once(
         request_id="interrupt_test_2",
     )
 
-    assert raw_stream.probes == 1
+    assert raw_stream.probes == 2
 
 
 @pytest.mark.anyio

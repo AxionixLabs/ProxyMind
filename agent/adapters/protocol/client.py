@@ -459,6 +459,9 @@ class MindChatProtocolClient:
                 "protocol_command_validation_error",
                 str(error) or "turn control request is invalid",
             ) from error
+        active_stream = self._active_streams.get(identity)
+        if active_stream is not None:
+            active_stream.request_recovery_probe()
         return _control_receipt(response)
 
     async def steer_turn(

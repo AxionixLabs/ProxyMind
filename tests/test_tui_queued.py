@@ -589,16 +589,21 @@ def test_running_enter_steers_and_tab_explicitly_queues() -> None:
 
 
 @pytest.mark.parametrize(
-    ("terminal_input", "expected"),
+    ("terminal_input", "draft_text", "expected", "wait_for_menu"),
     (
-        ("/mcp start ", "/mcp start"),
-        ("!echo hello", "! echo hello"),
+        ("/compact", "/compact", "/compact", True),
+        ("/model", "/model", "/model", True),
+        ("/queue", "/queue", "/queue", True),
+        ("/mcp start ", "/mcp start ", "/mcp start", False),
+        ("!echo hello", "echo hello", "! echo hello", False),
     ),
 )
 @pytest.mark.anyio
 async def test_real_running_tab_defers_slash_and_shell_parsing(
     terminal_input: str,
+    draft_text: str,
     expected: str,
+    wait_for_menu: bool,
 ) -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -615,14 +620,133 @@ async def test_real_running_tab_defers_slash_and_shell_parsing(
 
         await runtime.open()
         try:
-            pipe_input.send_text(terminal_input + "\t")
+            pipe_input.send_text(terminal_input)
+            for _ in range(1000):
+                if runtime.screen.input.buffer.text == draft_text:
+                    break
+                await asyncio.sleep(0.001)
+            assert runtime.screen.input.buffer.text == draft_text
+
+            if wait_for_menu:
+                for _ in range(1000):
+                    if (
+                        runtime.screen.input.buffer.complete_state is not None
+                        and runtime.input_model.completion_menu_completions(
+                            runtime.screen.input.buffer.document
+                        )
+                    ):
+                        break
+                    await asyncio.sleep(0.001)
+                assert runtime.screen.input.buffer.complete_state is not None
+                assert runtime.input_model.completion_menu_completions(
+                    runtime.screen.input.buffer.document
+                )
+
+            pipe_input.send_text("\t")
             for _ in range(1000):
                 if intents:
                     break
                 await asyncio.sleep(0.001)
 
             assert intents == [(expected, True)]
+            assert runtime.screen.input.buffer.text == ""
             stream_command.assert_not_called()
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_real_running_tab_completes_slash_prefix_before_queueing() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        intents = []
+        runtime.set_execution_active(True)
+        runtime.bind_turn_input_handler(
+            lambda submission, queue_only: intents.append((
+                submission.value,
+                queue_only,
+            )) or True
+        )
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("/mo")
+            for _ in range(1000):
+                state = runtime.screen.input.buffer.complete_state
+                if state is not None and state.current_completion is not None:
+                    break
+                await asyncio.sleep(0.001)
+            assert runtime.screen.input.buffer.complete_state is not None
+
+            pipe_input.send_text("\t")
+            for _ in range(1000):
+                if runtime.screen.input.buffer.text == "/model ":
+                    break
+                await asyncio.sleep(0.001)
+
+            assert runtime.screen.input.buffer.text == "/model "
+            assert intents == []
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_real_enter_tab_ctrl_c_restores_pending_and_queue_fifo() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        interrupt = Mock(return_value=InterruptDisposition.CONSUMED)
+
+        def handle_turn_input(submission, queue_only) -> bool:
+            if queue_only:
+                runtime.defer_submission(submission)
+            else:
+                runtime.track_pending_steer(submission)
+            return True
+
+        async def wait_until(predicate) -> None:
+            for _ in range(1000):
+                if predicate():
+                    return None
+                await asyncio.sleep(0.001)
+            assert predicate()
+
+        runtime.set_execution_active(True)
+        runtime.bind_turn_input_handler(handle_turn_input)
+        runtime.bind_interrupt_handler(interrupt)
+
+        await runtime.open()
+        try:
+            for value in ("second query", "third query"):
+                pipe_input.send_text(value)
+                await wait_until(
+                    lambda value=value: runtime.screen.input.buffer.text == value
+                )
+                pipe_input.send_text("\r")
+                await wait_until(lambda: runtime.screen.input.buffer.text == "")
+
+            pipe_input.send_text("tab follow up")
+            await wait_until(
+                lambda: runtime.screen.input.buffer.text == "tab follow up"
+            )
+            pipe_input.send_text("\t")
+            await wait_until(lambda: runtime.screen.input.buffer.text == "")
+
+            assert runtime.submissions.pending_steers.active
+            assert runtime.submissions.queued_messages.active
+            assert runtime.submissions.message_queue.empty()
+
+            pipe_input.send_text("\x03")
+            await wait_until(lambda: interrupt.call_count == 1)
+
+            assert not runtime.submit_pending_steers_after_interrupt
+            assert runtime.restore_interrupted_submissions()
+            assert runtime.screen.input.buffer.text == (
+                "second query\nthird query\ntab follow up"
+            )
+            assert runtime.submissions.message_queue.empty()
+            assert not runtime.submissions.pending_steers.active
+            assert not runtime.submissions.rejected_steers.active
+            assert not runtime.submissions.queued_messages.active
         finally:
             await runtime.close()
 

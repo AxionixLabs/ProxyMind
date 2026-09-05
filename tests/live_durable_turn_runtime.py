@@ -289,7 +289,7 @@ async def _verify(config: LiveVerificationConfig) -> None:
         turn_id=active_turn_id,
         message=(
             "Before answering, silently inspect this request in detail and "
-            "then write a long numbered analysis with at least 100 items."
+            "then write a long numbered analysis with at least 300 items."
         ),
     )
     started = asyncio.Event()
@@ -298,6 +298,26 @@ async def _verify(config: LiveVerificationConfig) -> None:
         name="live durable active turn",
     )
     await asyncio.wait_for(started.wait(), timeout=config.timeout)
+
+    conflict_request = _request(
+        config,
+        cid=cid,
+        sid=sid,
+        turn_id=f"turn_{short_uid(20)}",
+        message="This conflicting turn must never start.",
+    )
+    try:
+        await _consume_turn(client, conflict_request)
+    except ModelCapabilityError as error:
+        status_code = error.details.get("status_code")
+        if status_code != 409 or error.code != "turn_already_active":
+            raise AssertionError(
+                "active Turn conflict did not preserve the service error "
+                f"contract: code={error.code!r}, status={status_code!r}"
+            ) from error
+    else:
+        raise AssertionError("a second /mind-chat started before terminal")
+    print("PASS execution gate: active Turn rejected the second /mind-chat")
 
     queued_request = _request(
         config,
@@ -363,26 +383,6 @@ async def _verify(config: LiveVerificationConfig) -> None:
     ):
         raise AssertionError("active Turn queue add did not preserve FIFO identity")
     print("PASS active Queue add: one durable item and stable duplicate receipt")
-
-    conflict_request = _request(
-        config,
-        cid=cid,
-        sid=sid,
-        turn_id=f"turn_{short_uid(20)}",
-        message="This conflicting turn must never start.",
-    )
-    try:
-        await _consume_turn(client, conflict_request)
-    except ModelCapabilityError as error:
-        status_code = error.details.get("status_code")
-        if status_code != 409 or error.code != "turn_already_active":
-            raise AssertionError(
-                "active Turn conflict did not preserve the service error "
-                f"contract: code={error.code!r}, status={status_code!r}"
-            ) from error
-    else:
-        raise AssertionError("a second /mind-chat started before terminal")
-    print("PASS execution gate: active Turn rejected the second /mind-chat")
 
     ack_started = time.perf_counter()
     receipt = await client.interrupt_turn(

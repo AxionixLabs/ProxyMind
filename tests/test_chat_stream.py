@@ -538,7 +538,7 @@ async def test_recovery_probe_observes_terminal_without_silence_timeout(
 
 
 @pytest.mark.anyio
-async def test_control_probe_rejoins_event_stream_after_active_snapshot(
+async def test_control_probe_waits_for_terminal_after_active_snapshot(
     monkeypatch,
 ) -> None:
     first_event_sent = asyncio.Event()
@@ -554,15 +554,25 @@ async def test_control_probe_rejoins_event_stream_after_active_snapshot(
             }
             first_event_sent.set()
             await asyncio.Event().wait()
-        yield {
-            "type": "turn.completed",
-            "turn_id": "turn_001",
-            "event_seq": 2,
-        }
+        raise AssertionError("control settlement must not open an attach stream")
 
     active = SimpleNamespace(last_event_seq=1, terminal=None)
+    terminal = SimpleNamespace(
+        type="turn.completed",
+        turn_id="turn_001",
+        status="interrupted",
+        error=None,
+        last_event_seq=2,
+        completed_at=10.0,
+    )
+    settled = SimpleNamespace(last_event_seq=2, terminal=terminal)
     _install_reconnect_stream(monkeypatch, streaming)
-    status_probe = AsyncMock(return_value=active)
+    monkeypatch.setattr(
+        chat,
+        "CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC",
+        0.01,
+    )
+    status_probe = AsyncMock(side_effect=(active, settled))
     monkeypatch.setattr(chat, "get_turn_status", status_probe)
     event_stream = chat.stream_chat({}, "hello", [], timeout=60.0)
 
@@ -575,11 +585,66 @@ async def test_control_probe_rejoins_event_stream_after_active_snapshot(
         "turn.started",
         "turn.completed",
     ]
-    assert calls == [
-        "https://example.com/mind-chat",
-        "https://example.com/mind-attach",
+    assert calls == ["https://example.com/mind-chat"]
+    assert status_probe.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_control_settlement_reprobes_while_source_events_continue(
+    monkeypatch,
+) -> None:
+    first_event_sent = asyncio.Event()
+    calls: list[str] = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        if not url.endswith("/mind-chat"):
+            raise AssertionError(
+                "control settlement must not open an attach stream"
+            )
+        yield {
+            "type": "turn.started",
+            "turn_id": "turn_001",
+            "event_seq": 1,
+        }
+        first_event_sent.set()
+        while True:
+            await asyncio.sleep(0.001)
+            yield {"type": "ping"}
+
+    terminal = SimpleNamespace(
+        type="turn.completed",
+        turn_id="turn_001",
+        status="interrupted",
+        error=None,
+        last_event_seq=9,
+        completed_at=10.0,
+    )
+    active = SimpleNamespace(last_event_seq=1, terminal=None)
+    settled = SimpleNamespace(last_event_seq=9, terminal=terminal)
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(
+        chat,
+        "CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC",
+        0.01,
+    )
+    status_probe = AsyncMock(side_effect=(active, settled))
+    monkeypatch.setattr(chat, "get_turn_status", status_probe)
+    event_stream = chat.stream_chat({}, "hello", [], timeout=60.0)
+
+    collecting = asyncio.create_task(_collect(event_stream))
+    await first_event_sent.wait()
+    event_stream.request_recovery_probe()
+    events = await asyncio.wait_for(collecting, timeout=0.2)
+
+    assert [event.type for event in events] == [
+        "turn.started",
+        "turn.completed",
     ]
-    status_probe.assert_awaited_once()
+    assert events[-1].last_event_seq == 9
+    assert event_stream.last_event_seq == 9
+    assert calls == ["https://example.com/mind-chat"]
+    assert status_probe.await_count == 2
 
 
 @pytest.mark.anyio

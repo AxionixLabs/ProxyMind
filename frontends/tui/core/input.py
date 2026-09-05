@@ -1218,6 +1218,21 @@ class TuiInputModel(object):
             )
 
             if menu_completion is not None:
+                slash_query = slash_command_query(buffer.document)
+                slash_command_complete = (
+                    slash_query is not None
+                    and slash_query.token.casefold()
+                    == menu_completion.display_text.casefold()
+                )
+                if (
+                    slash_command_complete
+                    and menu_completion.text not in self.TAB_DISPATCH_COMMANDS
+                    and self.can_submit_queue()
+                    and buffer.text.strip()
+                ):
+                    buffer.cancel_completion()
+                    self.queue_submission_handler(buffer)
+                    return None
                 self._apply_menu_completion(buffer, menu_completion)
                 if menu_completion.text in self.TAB_DISPATCH_COMMANDS:
                     buffer.validate_and_handle()

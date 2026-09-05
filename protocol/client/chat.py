@@ -45,6 +45,7 @@ ATTACH_BACKOFF_DELAYS_SEC: typing.Final[tuple[float, ...]] = (
 ATTACH_BACKOFF_JITTER_RATIO: typing.Final[float] = 0.2
 ATTACH_RETRY_MAX_ELAPSED_SEC: typing.Final[float] = 60.0
 STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC: typing.Final[float] = 25.0
+CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC: typing.Final[float] = 0.5
 
 TurnStreamEndReason: typing.TypeAlias = typing.Literal[
     "settled",
@@ -126,6 +127,7 @@ class TurnEventStream(object):
         self._terminal_snapshot_payload: dict[str, typing.Any] | None = None
         self._internal_gap_detected: bool = False
         self._control_settlement_probe_active: bool = False
+        self._control_settlement_probe_due_at: float | None = None
         self._recovery_probe_requested: asyncio.Event = asyncio.Event()
         self._reconnect_started_at: float | None = None
         self._last_event_progress_at: float = time.monotonic()
@@ -228,12 +230,17 @@ class TurnEventStream(object):
 
     def _event_progress_timeout(self) -> float:
         """返回距离下一次权威事件活性检查的剩余时间。"""
+        now = time.monotonic()
         timeout = max(
             0.01,
             min(float(self._timeout), STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC),
         )
-        elapsed = time.monotonic() - self._last_event_progress_at
-        return max(0.0, timeout - elapsed)
+        elapsed = now - self._last_event_progress_at
+        remaining = max(0.0, timeout - elapsed)
+        control_due_at = self._control_settlement_probe_due_at
+        if self._control_settlement_probe_active and control_due_at is not None:
+            remaining = min(remaining, max(0.0, control_due_at - now))
+        return remaining
 
     def _reset_event_progress_deadline(self) -> None:
         """为新建立的传输连接开启一个完整的事件推进窗口。"""
@@ -274,6 +281,7 @@ class TurnEventStream(object):
         """请求当前事件观察立即通过 attach/status 核对权威 Turn。"""
         if not self._closed:
             self._control_settlement_probe_active = True
+            self._control_settlement_probe_due_at = time.monotonic()
             self._recovery_probe_requested.set()
 
     @staticmethod
@@ -282,6 +290,27 @@ class TurnEventStream(object):
         if delay <= 0:
             return
         await asyncio.sleep(delay)
+
+    async def _wait_for_control_settlement_probe(self) -> None:
+        """等待下一次控制终态查询或显式唤醒。"""
+        due_at = self._control_settlement_probe_due_at
+        delay = max(
+            0.0,
+            (due_at if due_at is not None else time.monotonic())
+            - time.monotonic(),
+        )
+        if delay <= 0:
+            self._recovery_probe_requested.clear()
+            return
+        try:
+            await asyncio.wait_for(
+                self._recovery_probe_requested.wait(),
+                timeout=delay,
+            )
+        except TimeoutError:
+            pass
+        finally:
+            self._recovery_probe_requested.clear()
 
     async def _notify_recovery(
         self,
@@ -384,6 +413,8 @@ class TurnEventStream(object):
         self.end_reason = reason
 
         self._reconnect_started_at = None
+        self._control_settlement_probe_active = False
+        self._control_settlement_probe_due_at = None
         try:
             if self._recovery_phase in {"reconnecting", "replaying"}:
                 await self._notify_recovery(
@@ -500,6 +531,30 @@ class TurnEventStream(object):
             if terminal_payload is not None:
                 self._terminal_snapshot_payload = None
                 return terminal_payload
+            if (
+                self._control_settlement_probe_active
+                and self._recovery_probe_requested.is_set()
+                and self._attach_target is not None
+            ):
+                self._recovery_probe_requested.clear()
+                if await self._resume_stream():
+                    continue
+                await self._finish("fatal")
+                raise RuntimeError(
+                    "turn control settlement probe could not resume observation"
+                )
+            if (
+                self._control_settlement_probe_active
+                and self._payload_stream is None
+                and self._attach_target is not None
+            ):
+                await self._wait_for_control_settlement_probe()
+                if await self._resume_stream():
+                    continue
+                await self._finish("fatal")
+                raise RuntimeError(
+                    "turn control settlement probe could not resume observation"
+                )
             payload_stream = await self._ensure_open()
 
             try:
@@ -624,6 +679,7 @@ class TurnEventStream(object):
         status = recovery_status.snapshot
         if not self._response_observed and recovery_status.turn_missing:
             self._control_settlement_probe_active = False
+            self._control_settlement_probe_due_at = None
             self._replay_target_seq = self.last_event_seq
             self._payload_stream = self._open_chat_stream()
             self._reset_event_progress_deadline()
@@ -641,6 +697,8 @@ class TurnEventStream(object):
                 )
             )
         ):
+            self._control_settlement_probe_active = False
+            self._control_settlement_probe_due_at = None
             await self._begin_replay(status.last_event_seq)
             self._terminal_snapshot_payload = self._terminal_payload(
                 status,
@@ -649,7 +707,14 @@ class TurnEventStream(object):
             self._reset_event_progress_deadline()
             return True
 
+        if control_settlement:
+            self._control_settlement_probe_due_at = (
+                time.monotonic() + CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC
+            )
+            self._reset_event_progress_deadline()
+            return True
         self._control_settlement_probe_active = False
+        self._control_settlement_probe_due_at = None
         await self._begin_replay(
             status.last_event_seq
             if status is not None
