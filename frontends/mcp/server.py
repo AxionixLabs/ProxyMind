@@ -45,8 +45,8 @@ from infrastructure.config.paths import (
 from infrastructure.config.preferences import Preferences
 from infrastructure.config.runtime_paths import (
     agent_runtime_db_path,
-    ensure_application_home,
-    application_config_path,
+    ensure_config_readable,
+    ensure_state_home,
     reports_dir,
 )
 from infrastructure.config.schema import ConfigOverride
@@ -241,12 +241,13 @@ class McpServerRuntime(object):
         ),
     ) -> "McpServerRuntime":
         """创建并启动 MCP 服务使用的应用运行时。"""
-        ensure_application_home()
+        config_path = ensure_config_readable()
+        ensure_state_home()
         report = RunReport(str(reports_dir()), label="mcp_server")
 
         try:
             config_session = ConfigSession(
-                ConfigStore(application_config_path()),
+                ConfigStore(config_path),
                 config_overrides,
                 profile=config_profile,
                 workspace=Path.cwd(),

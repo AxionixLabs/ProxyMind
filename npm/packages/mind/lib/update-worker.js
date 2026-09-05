@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { mindHome, versionPath } from "./paths.js";
+import { mindStateHome, versionPath } from "./paths.js";
 
 const updateCheckTimeoutMs = 15000;
 
@@ -14,7 +14,7 @@ function loadUpdateState() {
 
 function saveUpdateState(state) {
   try {
-    mkdirSync(mindHome(), { recursive: true });
+    mkdirSync(mindStateHome(), { recursive: true });
     writeFileSync(versionPath(), JSON.stringify(state, null, 2), "utf8");
   } catch {
     // Update state is best-effort and should never block application startup.

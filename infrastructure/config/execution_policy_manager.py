@@ -30,7 +30,7 @@ from agent.domain.execution_policy import (
 )
 from agent.ports.network import NetworkRulePort
 from infrastructure.config.execution_policy import PolicyParser
-from infrastructure.config.paths import default_application_home
+from infrastructure.config.paths import default_config_home
 from infrastructure.platform.command_safety.is_dangerous_command import (
     DangerousCommandMatch,
     dangerous_command_match as _dangerous_command_match,
@@ -140,7 +140,7 @@ class ExecPolicyManager:
 
         self.writable_rules_path = Path(
             writable_rules_path
-            or default_application_home() / "rules" / "default.rules"
+            or default_config_home() / "rules" / "default.rules"
         ).expanduser().resolve()
 
         self._session_approvals: set[ExecApprovalCacheKey] = set()
@@ -653,10 +653,7 @@ class ExecPolicyManager:
                 seen_directories.add(target)
                 directories.append(target)
 
-        application_home = os.environ.get("MIND_HOME")
-        if application_home:
-            add_directory(Path(application_home) / "rules")
-        add_directory(default_application_home() / "rules")
+        add_directory(default_config_home() / "rules")
 
         ancestors = [self.workspace_root, *self.workspace_root.parents]
         for ancestor in reversed(ancestors):

@@ -69,7 +69,10 @@ mind agent listen
 <a id="model-config"></a>
 ## ⭐️ 模型配置
 
-用户配置默认位于 `~/.mind/config.toml`。下面是一个最小 Provider Profile：
+用户配置默认位于 `~/.mind/config.toml`。`MIND_HOME` 可以覆盖配置根；运行状态默认仍写入
+同一目录，也可以通过 `MIND_STATE_HOME` 单独指定 history、sessions、reports、Helix 和
+本地 SQLite 的可写根目录。显式状态根不可用时启动会直接失败，不会静默回退。
+下面是一个最小 Provider Profile：
 
 ```toml
 model_provider = "openai-main"

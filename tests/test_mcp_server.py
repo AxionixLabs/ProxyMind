@@ -249,13 +249,13 @@ async def test_mcp_server_runtime_closes_report_when_configuration_fails(
         def resolve(self):
             raise RuntimeError("configuration failed")
 
-    monkeypatch.setattr(mcp_server, "ensure_application_home", lambda: tmp_path)
-    monkeypatch.setattr(mcp_server, "reports_dir", lambda: tmp_path)
     monkeypatch.setattr(
         mcp_server,
-        "application_config_path",
+        "ensure_config_readable",
         lambda: tmp_path / "config.toml",
     )
+    monkeypatch.setattr(mcp_server, "ensure_state_home", lambda: tmp_path)
+    monkeypatch.setattr(mcp_server, "reports_dir", lambda: tmp_path)
     monkeypatch.setattr(mcp_server, "RunReport", lambda *_args, **_kwargs: report)
     monkeypatch.setattr(mcp_server, "ConfigStore", lambda _path: object())
     monkeypatch.setattr(mcp_server, "ConfigSession", FailingConfigSession)
@@ -295,13 +295,13 @@ async def test_mcp_server_runtime_injects_model_capability(
         captured.update(kwargs)
         return host
 
-    monkeypatch.setattr(mcp_server, "ensure_application_home", lambda: tmp_path)
-    monkeypatch.setattr(mcp_server, "reports_dir", lambda: tmp_path)
     monkeypatch.setattr(
         mcp_server,
-        "application_config_path",
+        "ensure_config_readable",
         lambda: tmp_path / "config.toml",
     )
+    monkeypatch.setattr(mcp_server, "ensure_state_home", lambda: tmp_path)
+    monkeypatch.setattr(mcp_server, "reports_dir", lambda: tmp_path)
     monkeypatch.setattr(mcp_server, "RunReport", lambda *_args, **_kwargs: report)
     monkeypatch.setattr(mcp_server, "ConfigStore", lambda _path: object())
     monkeypatch.setattr(

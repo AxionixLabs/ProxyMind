@@ -3,9 +3,55 @@
 import pytest
 
 from infrastructure.config.paths import (
+    CONFIG_HOME_ENV,
+    STATE_HOME_ENV,
+    default_config_home,
+    default_state_home,
     is_packaged_executable,
     resolve_application_layout,
 )
+
+
+def test_config_and_state_home_share_default_directory(tmp_path) -> None:
+    environment = {}
+    expected = tmp_path / ".mind"
+
+    assert default_config_home(
+        environment=environment,
+        user_home=tmp_path,
+    ) == expected
+    assert default_state_home(
+        environment=environment,
+        user_home=tmp_path,
+    ) == expected
+
+
+def test_state_home_can_be_overridden_without_moving_config(tmp_path) -> None:
+    config_root = tmp_path / "config"
+    state_root = tmp_path / "state"
+    environment = {
+        CONFIG_HOME_ENV: str(config_root),
+        STATE_HOME_ENV: str(state_root),
+    }
+
+    assert default_config_home(
+        environment=environment,
+        user_home=tmp_path,
+    ) == config_root
+    assert default_state_home(
+        environment=environment,
+        user_home=tmp_path,
+    ) == state_root
+
+
+def test_state_home_follows_explicit_config_home_by_default(tmp_path) -> None:
+    config_root = tmp_path / "config"
+    environment = {CONFIG_HOME_ENV: str(config_root)}
+
+    assert default_state_home(
+        environment=environment,
+        user_home=tmp_path,
+    ) == config_root
 
 
 def test_packaged_executable_is_judged_by_path_name(tmp_path) -> None:

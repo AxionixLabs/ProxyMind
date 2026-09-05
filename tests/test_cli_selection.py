@@ -1395,13 +1395,13 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     monkeypatch.setattr(bootstrap, "resolve_cli_frontend", lambda _mode: frontend)
     monkeypatch.setattr(bootstrap, "resolve_cli_design", lambda _frontend, _mode: design)
     monkeypatch.setattr(bootstrap, "resolve_application_layout", lambda **_kwargs: app_layout)
-    monkeypatch.setattr(bootstrap, "ensure_application_home", lambda: tmp_path)
-    monkeypatch.setattr(bootstrap, "reports_dir", lambda: tmp_path / "reports")
     monkeypatch.setattr(
         bootstrap,
-        "application_config_path",
+        "ensure_config_readable",
         lambda: tmp_path / "config.toml",
     )
+    monkeypatch.setattr(bootstrap, "ensure_state_home", lambda: tmp_path)
+    monkeypatch.setattr(bootstrap, "reports_dir", lambda: tmp_path / "reports")
     monkeypatch.setattr(bootstrap, "Preferences", lambda _path: object())
     monkeypatch.setattr(bootstrap, "resolve_service_runtime", lambda **_kwargs: runtime_spec)
     monkeypatch.setattr(bootstrap, "route_shell_tools", lambda _supports: None)

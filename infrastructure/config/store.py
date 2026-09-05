@@ -20,7 +20,7 @@ from tomlkit.items import (
 )
 from tomlkit.toml_document import TOMLDocument
 
-from infrastructure.config.paths import default_application_home
+from infrastructure.config.paths import default_config_home
 from infrastructure.config.providers import (
     DEFAULT_PROVIDER_ID,
     DEFAULT_PROVIDER_KIND,
@@ -84,7 +84,7 @@ class ConfigStoreError(ValueError):
 
 def default_config_path() -> Path:
     """返回默认配置文件路径。"""
-    return default_application_home() / "config.toml"
+    return default_config_home() / "config.toml"
 
 
 class ConfigStore(object):

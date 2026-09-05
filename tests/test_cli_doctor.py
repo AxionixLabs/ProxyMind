@@ -21,7 +21,8 @@ from infrastructure.config.layers import PROJECT_CONFIG_DIR
 
 
 def _doctor_context(tmp_path, *, packaged: bool = False) -> DoctorContext:
-    home = tmp_path / ".mind"
+    config_home = tmp_path / "config"
+    state_home = tmp_path / "state"
     runtime_spec = ServiceRuntimeSpec(
         supports=str(tmp_path / "supports"),
         executable=str(tmp_path / "supports" / "helix.exe"),
@@ -32,8 +33,8 @@ def _doctor_context(tmp_path, *, packaged: bool = False) -> DoctorContext:
         platform="win32",
         entry_mode="source",
         entry_root=tmp_path,
-        home=home,
-        config_path=home / "config.toml",
+        state_home=state_home,
+        config_path=config_home / "config.toml",
         supports=tmp_path / "supports",
         packaged=packaged,
         runtime_spec=runtime_spec,
@@ -47,7 +48,7 @@ def _darwin_doctor_context(tmp_path) -> DoctorContext:
         platform="darwin",
         entry_mode=context.entry_mode,
         entry_root=context.entry_root,
-        home=context.home,
+        state_home=context.state_home,
         config_path=context.config_path,
         supports=context.supports,
         packaged=context.packaged,
@@ -132,22 +133,22 @@ def test_tool_check_rejects_non_executable_bundled_tool(
     assert check.summary == "bundled executable is not executable"
 
 
-def test_doctor_does_not_create_missing_home(tmp_path) -> None:
+def test_doctor_does_not_create_missing_state_home(tmp_path) -> None:
     context = _doctor_context(tmp_path)
 
     report = diagnose(context)
 
     assert report.exit_code == 0
-    assert not context.home.exists()
+    assert not context.state_home.exists()
     checks = {check.key: check for check in report.checks}
-    assert checks["mind_home"].status == "warn"
+    assert checks["state_home"].status == "warn"
     assert checks["config"].status == "warn"
     assert checks["external_mcp"].status == "warn"
 
 
 def test_doctor_fails_for_invalid_mcp_config(tmp_path) -> None:
     context = _doctor_context(tmp_path)
-    context.home.mkdir()
+    context.config_path.parent.mkdir()
     context.config_path.write_text(
         "[mcp_servers.remote]\nenabled = true\n",
         encoding="utf-8",
@@ -217,7 +218,7 @@ def test_doctor_does_not_report_hook_warning_as_project_config_issue(
         ("model_provider",): "openai-main",
         ("model_providers", "openai-main", "model"): "test-model",
     })
-    (context.home / HOOKS_FILE_NAME).write_text(
+    (context.config_path.parent / HOOKS_FILE_NAME).write_text(
         "{broken",
         encoding="utf-8",
     )
@@ -257,7 +258,7 @@ def test_doctor_entry_skips_runtime_bootstrap(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(doctor, "resolve_application_layout", lambda **_kwargs: app_layout)
     monkeypatch.setattr(doctor, "resolve_service_runtime", lambda **_kwargs: runtime_spec)
     monkeypatch.setattr(doctor, "diagnose", diagnose_mock)
-    monkeypatch.setattr(doctor, "application_home", lambda: tmp_path / ".mind")
+    monkeypatch.setattr(doctor, "state_home", lambda: tmp_path / "state")
     monkeypatch.setattr(
         doctor,
         "application_config_path",

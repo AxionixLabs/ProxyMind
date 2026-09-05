@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 
-import { mindHome, versionPath } from "./paths.js";
+import { mindStateHome, versionPath } from "./paths.js";
 import { isVersionGreater } from "./version.js";
 
 const updateCheckIntervalMs = 24 * 60 * 60 * 1000;
@@ -28,7 +28,7 @@ function loadUpdateState() {
 
 function saveUpdateState(state) {
   try {
-    mkdirSync(mindHome(), { recursive: true });
+    mkdirSync(mindStateHome(), { recursive: true });
     writeFileSync(versionPath(), JSON.stringify(state, null, 2), "utf8");
   } catch {
     // Update state is best-effort and should never block application startup.

@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import os
 import contextlib
+import os
+import typing
 from pathlib import Path
+
 from backend.utilities import const
 
-MD_HOME_ENV = "MIND_HOME"
+CONFIG_HOME_ENV = "MIND_HOME"
+STATE_HOME_ENV = "MIND_STATE_HOME"
 HX_HOME_ENV = "HELIX_HOME"
 
 DATA_STORAGE_DIR = r"storage"
@@ -14,14 +17,32 @@ DATA_OUTPUT_DIR  = r"outputs"
 STORAGE_ENV_NAME = f"{const.APP_NAME.upper()}_STORAGE_ROOT"
 
 
-def application_home() -> Path:
-    """返回应用的用户级统一目录。"""
-    return Path(os.environ.get(MD_HOME_ENV) or Path.home() / ".mind").expanduser()
+def state_home(
+    *,
+    environment: typing.Mapping[str, str] | None = None,
+    user_home: Path | None = None,
+) -> Path:
+    """返回 Helix 使用的运行状态根目录。"""
+    source = os.environ if environment is None else environment
+    fallback_home = Path.home() if user_home is None else user_home
+    return Path(
+        source.get(STATE_HOME_ENV)
+        or source.get(CONFIG_HOME_ENV)
+        or fallback_home / ".mind"
+    ).expanduser()
 
 
-def helix_home() -> Path:
-    """返回 Helix 在统一目录协议下的数据根。"""
-    return Path(os.environ.get(HX_HOME_ENV) or application_home() / const.APP_NAME).expanduser()
+def helix_home(
+    *,
+    environment: typing.Mapping[str, str] | None = None,
+    user_home: Path | None = None,
+) -> Path:
+    """返回 Helix 数据根，显式覆盖优先于状态根默认值。"""
+    source = os.environ if environment is None else environment
+    return Path(
+        source.get(HX_HOME_ENV)
+        or state_home(environment=source, user_home=user_home) / const.APP_NAME
+    ).expanduser()
 
 
 def platform_data_root() -> Path:

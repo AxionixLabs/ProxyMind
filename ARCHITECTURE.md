@@ -484,6 +484,11 @@ model intent
 - `sidecars/`：私有子进程协议、进程托管、会话连接和资源关闭；
 - `update/`：升级资产和运行流程。
 
+用户配置根和可写运行状态根是两个独立路径契约。`MIND_HOME` 只拥有 `config.toml`、
+用户规则和 Hook 配置；`MIND_STATE_HOME` 拥有 history、sessions、reports、Helix 及本地
+SQLite，未设置时才使用 `MIND_HOME` 作为默认值。配置文件只要求可读；状态根必须可创建、
+可写并支持 SQLite 文件锁。任何显式状态根失败都必须中止启动，不得回退到其他账本。
+
 Infrastructure 不得读取 TUI 控件、构造前端文案或修改 Harness 内部状态；它通过 ports、
 具名 application 契约和返回值交互。
 

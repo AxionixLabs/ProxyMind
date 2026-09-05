@@ -12,15 +12,39 @@ from metadata import const
 ApplicationMode = typing.Literal["source", "packaged"]
 PACKAGED_ENTRY_NAMES = {const.APP_NAME, f"{const.APP_NAME}.exe"}
 SOURCE_ENTRY_NAME = f"{const.APP_NAME}.py"
-APP_HOME_ENV = f"{const.APP_NAME.upper()}_HOME"
+CONFIG_HOME_ENV = f"{const.APP_NAME.upper()}_HOME"
+STATE_HOME_ENV = f"{const.APP_NAME.upper()}_STATE_HOME"
 
 
-def default_application_home() -> Path:
-    """返回默认应用数据目录。"""
-    configured = os.environ.get(APP_HOME_ENV)
+def default_config_home(
+    *,
+    environment: typing.Mapping[str, str] | None = None,
+    user_home: Path | None = None,
+) -> Path:
+    """返回用户配置根目录。"""
+    source = os.environ if environment is None else environment
+    configured = source.get(CONFIG_HOME_ENV)
+    fallback_home = Path.home() if user_home is None else user_home
 
     return Path(
-        configured or Path.home() / f".{const.APP_NAME}"
+        configured or fallback_home / f".{const.APP_NAME}"
+    ).expanduser()
+
+
+def default_state_home(
+    *,
+    environment: typing.Mapping[str, str] | None = None,
+    user_home: Path | None = None,
+) -> Path:
+    """返回可写运行状态根目录，未覆盖时复用配置根。"""
+    source = os.environ if environment is None else environment
+    configured = source.get(STATE_HOME_ENV)
+
+    return Path(
+        configured or default_config_home(
+            environment=source,
+            user_home=user_home,
+        )
     ).expanduser()
 
 

@@ -51,8 +51,8 @@ from infrastructure.config.paths import (
 )
 from infrastructure.config.preferences import Preferences
 from infrastructure.config.runtime_paths import (
-    ensure_application_home,
-    application_config_path,
+    ensure_config_readable,
+    ensure_state_home,
     reports_dir,
     process_env,
 )
@@ -371,14 +371,15 @@ async def _run_application(
     if runtime_spec is None:
         raise AppError(f"This platform is not supported: {platform}.")
 
-    home = ensure_application_home()
+    config_path = ensure_config_readable()
+    ensure_state_home()
     reports = reports_dir()
 
     try:
         workspace = Path.cwd()
 
         config_session = ConfigSession(
-            ConfigStore(application_config_path()),
+            ConfigStore(config_path),
             config_overrides,
             profile=config_profile,
             workspace=workspace,

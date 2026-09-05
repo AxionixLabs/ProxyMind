@@ -24,7 +24,7 @@ from infrastructure.config.paths import (
 )
 from infrastructure.config.runtime_paths import (
     application_config_path,
-    application_home,
+    state_home,
 )
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
@@ -54,7 +54,7 @@ class DoctorContext(object):
     platform: str
     entry_mode: ApplicationMode
     entry_root: Path
-    home: Path
+    state_home: Path
     config_path: Path
     supports: Path
     packaged: bool
@@ -187,14 +187,14 @@ def _entry_layout_check(context: DoctorContext) -> DoctorCheck:
     )
 
 
-def _home_check(context: DoctorContext) -> DoctorCheck:
-    """检查应用用户目录是否存在且可读写。"""
-    home = context.home
-    label = f"{const.APP_DESC} home"
+def _state_home_check(context: DoctorContext) -> DoctorCheck:
+    """只读检查运行状态根是否存在且可读写。"""
+    home = context.state_home
+    label = f"{const.APP_DESC} state home"
 
     if not home.exists():
         return DoctorCheck(
-            "mind_home",
+            "state_home",
             label,
             "warn",
             "not created yet",
@@ -203,7 +203,7 @@ def _home_check(context: DoctorContext) -> DoctorCheck:
 
     if not home.is_dir():
         return DoctorCheck(
-            "mind_home",
+            "state_home",
             label,
             "fail",
             "path is not a directory",
@@ -212,14 +212,14 @@ def _home_check(context: DoctorContext) -> DoctorCheck:
 
     if not os.access(home, os.R_OK | os.W_OK):
         return DoctorCheck(
-            "mind_home",
+            "state_home",
             label,
             "fail",
             "directory is not readable and writable",
             str(home),
         )
 
-    return DoctorCheck("mind_home", label, "pass", str(home))
+    return DoctorCheck("state_home", label, "pass", str(home))
 
 
 def _config_check(context: DoctorContext) -> DoctorCheck:
@@ -467,7 +467,7 @@ def diagnose(context: DoctorContext) -> DoctorReport:
         _platform_check(context),
         _python_check(),
         _entry_layout_check(context),
-        _home_check(context),
+        _state_home_check(context),
         _config_check(context),
         _mcp_config_check(context),
         _helix_check(context),
@@ -555,7 +555,7 @@ def run_doctor_command(
         platform=layout.platform,
         entry_mode=layout.mode,
         entry_root=layout.root,
-        home=application_home(),
+        state_home=state_home(),
         config_path=application_config_path(),
         supports=layout.supports,
         packaged=layout.packaged,
