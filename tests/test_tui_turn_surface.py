@@ -256,6 +256,50 @@ def test_turn_running_and_status_visibility_are_independent() -> None:
     )) is state
 
 
+@pytest.mark.parametrize(
+    ("phase", "restores_status"),
+    (("commentary", True), ("final_answer", False), (None, False)),
+)
+def test_assistant_phase_controls_status_restore_after_stream_idle(
+    phase,
+    restores_status,
+) -> None:
+    """验证只有 commentary 完成能恢复仍运行 Turn 的状态行。"""
+    context = _context(surface_id=f"surface_phase_{phase or 'unknown'}")
+    state = _active_state(context)
+    state = reduce_turn_surface(state, ModelWaitRequested(
+        **_scope(context),
+        revision=1,
+        reason="initial",
+    ))
+    identity = _identity()
+    state = reduce_turn_surface(state, AssistantBuffered(
+        **_scope(context),
+        identity=identity,
+        item_id="item_phase",
+        phase=phase,
+    ))
+    state = reduce_turn_surface(state, AssistantVisible(
+        **_scope(context),
+        identity=identity,
+        item_id="item_phase",
+        phase=phase,
+    ))
+
+    assert state.lifecycle == "active"
+    assert not project_turn_surface(state).visible
+
+    state = reduce_turn_surface(state, AssistantSettled(
+        **_scope(context),
+        identity=identity,
+        item_id="item_phase",
+        phase=phase,
+    ))
+
+    assert state.status_requested is restores_status
+    assert project_turn_surface(state).visible is restores_status
+
+
 def test_reducer_preserves_named_tool_leases_and_completion_history() -> None:
     context = _context()
     state = _active_state(context)
@@ -1107,6 +1151,96 @@ async def test_tui_visible_content_atomically_replaces_activity_surface() -> Non
     assert coordinator.state.content == "visible"
     assert runtime.activity.lease("wait") is None
     assert runtime.document.active_kind == "assistant"
+
+    await session.close()
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_tui_restores_status_after_commentary_but_not_final_answer() -> None:
+    """验证真实 TUI 只在 commentary 流已收束后恢复状态组件。"""
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context(surface_id="surface_assistant_phase")
+    session = create_tui_output_session(
+        "",
+        context=context,
+        runtime=runtime,
+        animate=False,
+    )
+    await session.open()
+    activity = TurnActivityProjector(context, session.activity)
+    identity = _identity()
+
+    await activity.request_model_wait("initial")
+    await activity.assistant_buffered(
+        identity,
+        "item_commentary",
+        phase="commentary",
+    )
+    await session.content.emit(AssistantTextDelta(
+        "I will inspect it.\n",
+        identity,
+        item_id="item_commentary",
+        phase="commentary",
+    ))
+    assert runtime.activity.lease("wait") is None
+
+    await session.content.emit(AssistantSegmentCompleted(
+        identity,
+        item_id="item_commentary",
+        phase="commentary",
+    ))
+    assert runtime.activity.lease("wait") is None
+    await activity.assistant_settled(
+        identity,
+        "item_commentary",
+        phase="commentary",
+    )
+    assert "Thinking" in _activity_text(runtime)
+    commentary_lease = runtime.activity.lease("wait")
+    assert commentary_lease is not None
+
+    await activity.tool_started(
+        "call_after_commentary",
+        "nested",
+        name="shell_command",
+    )
+    assert runtime.activity.lease("wait") == commentary_lease
+    await activity.tool_completed_and_wait(
+        "call_after_commentary",
+        "nested",
+        name="shell_command",
+    )
+    assert runtime.activity.lease("wait") == commentary_lease
+
+    await activity.assistant_buffered(
+        identity,
+        "item_final",
+        phase="final_answer",
+    )
+    await session.content.emit(AssistantTextDelta(
+        "Done.\n",
+        identity,
+        item_id="item_final",
+        phase="final_answer",
+    ))
+    assert runtime.activity.lease("wait") is None
+    await session.content.emit(AssistantSegmentCompleted(
+        identity,
+        item_id="item_final",
+        phase="final_answer",
+    ))
+    await activity.assistant_settled(
+        identity,
+        "item_final",
+        phase="final_answer",
+    )
+
+    assert runtime.activity.lease("wait") is None
+    assert session.activity.state.lifecycle == "active"
+    await activity.turn_terminal("completed")
+    assert runtime.activity.lease("wait") is None
 
     await session.close()
     runtime.set_execution_active(False)

@@ -124,28 +124,73 @@ def test_reducer_merges_early_metadata_and_final_text() -> None:
         event_seq=1,
         sources=[{"url": "https://example.com"}],
         source_count=1,
+        phase="commentary",
     ))) is None
     reducer.apply(parse_stream_event(_payload(
         "text.delta",
         event_seq=2,
         text="partial",
+        phase="commentary",
     )))
     completed = reducer.apply(parse_stream_event(_payload(
         "text.done",
         event_seq=3,
         final_text="complete",
+        phase="commentary",
     )))
 
     assert completed is not None
     assert completed.item_status == "completed"
     assert completed.first_event_seq == 1
     assert completed.last_event_seq == 3
+    assert completed.phase == "commentary"
     assert completed.payload_value() == {
         "sources": [{"url": "https://example.com"}],
         "source_count": 1,
         "text": "complete",
     }
     assert reducer.assistant_text == "complete"
+
+
+def test_reducer_rejects_assistant_text_phase_changes() -> None:
+    """验证 phase 在早到 metadata 和后续正文之间必须保持不变。"""
+    reducer = _reducer()
+    reducer.apply(parse_stream_event(_payload(
+        "text.meta",
+        event_seq=1,
+        phase="commentary",
+    )))
+
+    with pytest.raises(ValueError, match="phase cannot change"):
+        reducer.apply(parse_stream_event(_payload(
+            "text.delta",
+            event_seq=2,
+            text="answer",
+            phase="final_answer",
+        )))
+    recovered = reducer.apply(parse_stream_event(_payload(
+        "text.delta",
+        event_seq=2,
+        text="answer",
+        phase="commentary",
+    )))
+    assert recovered is not None
+    assert recovered.phase == "commentary"
+
+    reducer = _reducer()
+    reducer.apply(parse_stream_event(_payload(
+        "text.delta",
+        event_seq=1,
+        text="answer",
+        phase="final_answer",
+    )))
+    with pytest.raises(ValueError, match="phase cannot change"):
+        reducer.apply(parse_stream_event(_payload(
+            "text.done",
+            event_seq=2,
+            final_text="answer",
+            phase=None,
+        )))
 
 
 def test_reducer_rejects_item_status_regression() -> None:

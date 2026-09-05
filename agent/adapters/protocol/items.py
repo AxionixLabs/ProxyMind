@@ -11,6 +11,7 @@ from dataclasses import (
 )
 
 from agent.protocol import (
+    AssistantTextPhase,
     CanonicalItem,
     ModelEvent,
 )
@@ -66,6 +67,7 @@ _COMMON_EVENT_FIELDS = frozenset({
     "item_id",
     "item_kind",
     "item_status",
+    "phase",
 })
 
 _TEXT_META_FIELDS = (
@@ -93,6 +95,7 @@ class _CanonicalItemState:
     first_event_seq: int
     last_event_seq: int
     last_event_type: str
+    phase: AssistantTextPhase | None = None
     payload: dict[str, typing.Any] = field(default_factory=dict)
     superseded: bool = False
     superseded_by_epoch: int | None = None
@@ -113,11 +116,22 @@ class _CanonicalItemState:
             first_event_seq=self.first_event_seq,
             last_event_seq=self.last_event_seq,
             last_event_type=self.last_event_type,
+            phase=self.phase,
             payload=self.payload,
             superseded=self.superseded,
             superseded_by_epoch=self.superseded_by_epoch,
             superseded_by_attempt=self.superseded_by_attempt,
         )
+
+
+@dataclass(slots=True)
+class _PendingTextMetadata:
+    """保存先于正文到达的 text.meta 事实。"""
+
+    first_event_seq: int
+    last_event_seq: int
+    phase: AssistantTextPhase | None
+    payload: dict[str, typing.Any] = field(default_factory=dict)
 
 
 class CanonicalItemReducer:
@@ -132,7 +146,7 @@ class CanonicalItemReducer:
         self._active_attempts: dict[tuple[int, int], int] = {}
         self._pending_text_meta: dict[
             _ItemKey,
-            tuple[int, int, dict[str, typing.Any]],
+            _PendingTextMetadata,
         ] = {}
         self._retired_response_items: set[tuple[str, int, int]] = set()
         self._approval_snapshot_watermark = 0
@@ -455,6 +469,7 @@ class CanonicalItemReducer:
             getattr(event, "item_status", None),
             f"{event.type} item_status",
         )
+        phase = _event_text_phase(event, item_kind=item_kind)
         event_seq = _positive_int(event.event_seq, f"{event.type} event_seq")
         if event.type == "tool.approval_required":
             snapshot_status = self._approval_snapshot_statuses.get(item_id)
@@ -479,35 +494,40 @@ class CanonicalItemReducer:
             raise ValueError("canonical item status is invalid")
 
         if event.type == "text.meta" and key not in self._items:
-            pending_first_seq, pending_last_seq, pending_payload = (
-                self._pending_text_meta.get(
-                    key,
-                    (event_seq, 0, {}),
+            pending = self._pending_text_meta.get(key)
+            if pending is None:
+                pending = _PendingTextMetadata(
+                    first_event_seq=event_seq,
+                    last_event_seq=0,
+                    phase=phase,
                 )
-            )
-            if event_seq <= pending_last_seq:
+            elif pending.phase != phase:
+                raise ValueError("canonical assistant text phase cannot change")
+            if event_seq <= pending.last_event_seq:
                 raise ValueError("canonical item event sequence must increase")
-            pending_payload.update(_text_meta_payload(event))
-            self._pending_text_meta[key] = (
-                pending_first_seq,
-                event_seq,
-                pending_payload,
-            )
+            pending.last_event_seq = event_seq
+            pending.payload.update(_text_meta_payload(event))
+            self._pending_text_meta[key] = pending
             return None
 
         state = self._items.get(key)
         if state is None:
             self._reject_parallel_item_revision(item_id=item_id, key=key)
-            pending = self._pending_text_meta.pop(key, None)
+            pending = self._pending_text_meta.get(key)
             if pending is None:
                 pending_first_seq = event_seq
                 pending_payload = {}
             else:
-                pending_first_seq, pending_last_seq, pending_payload = pending
+                pending_first_seq = pending.first_event_seq
+                pending_last_seq = pending.last_event_seq
+                pending_payload = pending.payload
                 if item_kind != "text":
                     raise ValueError("text metadata cannot attach to another item kind")
                 if event_seq <= pending_last_seq:
                     raise ValueError("canonical item event sequence must increase")
+                if pending.phase != phase:
+                    raise ValueError("canonical assistant text phase cannot change")
+                self._pending_text_meta.pop(key)
             state = _CanonicalItemState(
                 cid=self._cid,
                 sid=self._sid,
@@ -521,6 +541,7 @@ class CanonicalItemReducer:
                 first_event_seq=pending_first_seq,
                 last_event_seq=event_seq,
                 last_event_type=event.type,
+                phase=phase,
                 payload=pending_payload,
             )
             self._items[key] = state
@@ -529,6 +550,8 @@ class CanonicalItemReducer:
                 raise ValueError("superseded canonical item cannot receive new events")
             if state.item_kind != item_kind:
                 raise ValueError("canonical item kind cannot change")
+            if state.phase != phase:
+                raise ValueError("canonical assistant text phase cannot change")
             _validate_status_transition(state.item_status, item_status)
             if event_seq <= state.last_event_seq:
                 raise ValueError("canonical item event sequence must increase")
@@ -584,6 +607,26 @@ def _validate_status_transition(previous: str, current: str) -> None:
         raise ValueError(
             f"canonical item status cannot transition from {previous} to {current}"
         )
+
+
+def _event_text_phase(
+    event: ModelEvent,
+    *,
+    item_kind: str,
+) -> AssistantTextPhase | None:
+    """从已解析协议事件提取严格的 assistant text phase。"""
+    value = getattr(event, "phase", None)
+    if item_kind != "text":
+        if value is not None:
+            raise ValueError("non-text canonical item cannot carry assistant phase")
+        return None
+    if value is None:
+        return None
+    if value == "commentary":
+        return "commentary"
+    if value == "final_answer":
+        return "final_answer"
+    raise ValueError("canonical assistant text phase is invalid")
 
 
 def _event_payload(event: ModelEvent) -> dict[str, typing.Any]:

@@ -8,6 +8,7 @@ from agent.ports import (
     AssistantPresentationSuperseded,
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,
+    AssistantTextPhase,
     AssistantTextDelta,
     AssistantVisible,
     ContentOutput,
@@ -49,7 +50,11 @@ class TuiContentSink(ContentSink):
             item_key = (output.identity.turn_id, output.item_id)
             if output.item_id and item_key in self._completed_item_ids:
                 return None
-            self._bind_visibility(output.identity, output.item_id)
+            self._bind_visibility(
+                output.identity,
+                output.item_id,
+                phase=output.phase,
+            )
             await self._flush_before_assistant_output()
             await self.output.append_assistant_delta(output.text)
             return None
@@ -59,7 +64,11 @@ class TuiContentSink(ContentSink):
                 return None
             if output.item_id:
                 self._completed_item_ids.add(item_key)
-            self._bind_visibility(output.identity, output.item_id)
+            self._bind_visibility(
+                output.identity,
+                output.item_id,
+                phase=output.phase,
+            )
             if output.final_text is not None:
                 replace = getattr(self.output, "replace_assistant_stream", None)
                 if callable(replace):
@@ -90,6 +99,8 @@ class TuiContentSink(ContentSink):
         self,
         identity: ResponseIdentity,
         item_id: str,
+        *,
+        phase: AssistantTextPhase | None,
     ) -> None:
         """把正式 Item 身份绑定到下一次真实正文上屏。"""
         context = self._surface_context
@@ -100,6 +111,7 @@ class TuiContentSink(ContentSink):
             turn_id=context.turn_id,
             identity=identity,
             item_id=item_id,
+            phase=phase,
         ))
 
 

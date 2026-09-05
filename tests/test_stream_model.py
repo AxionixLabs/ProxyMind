@@ -2,7 +2,10 @@
 
 import pytest
 
-from agent.protocol import CanonicalItem
+from agent.protocol import (
+    AssistantTextPhase,
+    CanonicalItem,
+)
 from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.ports import (
     AssistantOutputBoundary,
@@ -119,6 +122,7 @@ def _item(
     status: str = "in_progress",
     attempt: int = 1,
     last_event_seq: int = 1,
+    phase: AssistantTextPhase | None = None,
     superseded: bool = False,
     superseded_by_attempt: int | None = None,
 ) -> CanonicalItem:
@@ -138,6 +142,7 @@ def _item(
         last_event_type=(
             "text.done" if status == "completed" else "text.delta"
         ),
+        phase=phase,
         payload={"text": text},
         superseded=superseded,
         superseded_by_attempt=superseded_by_attempt,
@@ -163,7 +168,7 @@ async def test_model_handler_projects_text_and_commits_transcript() -> None:
         content,
         activity,
     ) = _handler()
-    partial = _item("item-1", "answer")
+    partial = _item("item-1", "answer", phase="commentary")
     projection.update(partial, partial)
 
     delta_handled = await handler.handle(TextDeltaEvent(
@@ -171,26 +176,38 @@ async def test_model_handler_projects_text_and_commits_transcript() -> None:
         turn_id="turn_test",
         segment_id="item-1",
         text="answer",
+        phase="commentary",
     ), projection=projection)
     completed = _item(
         "item-1",
         "answer",
         status="completed",
         last_event_seq=2,
+        phase="commentary",
     )
     projection.update(completed, completed)
     done_handled = await handler.handle(TextDoneEvent(
         type="text.done",
         turn_id="turn_test",
         segment_id="item-1",
+        phase="commentary",
     ), projection=projection)
     handler.flush_pending()
 
     assert delta_handled is True
     assert done_handled is True
     assert content.items == [
-        AssistantTextDelta("answer", _identity(), item_id="item-1"),
-        AssistantSegmentCompleted(_identity(), item_id="item-1"),
+        AssistantTextDelta(
+            "answer",
+            _identity(),
+            item_id="item-1",
+            phase="commentary",
+        ),
+        AssistantSegmentCompleted(
+            _identity(),
+            item_id="item-1",
+            phase="commentary",
+        ),
     ]
     assert transcript.entries == [{
         "event": "message.created",
@@ -201,6 +218,7 @@ async def test_model_handler_projects_text_and_commits_transcript() -> None:
             "presentation_epoch": 1,
             "round": 1,
             "attempt": 1,
+            "phase": "commentary",
         },
     }]
     assert activity.items == [
@@ -209,12 +227,14 @@ async def test_model_handler_projects_text_and_commits_transcript() -> None:
             turn_id="turn_test",
             identity=_identity(),
             item_id="item-1",
+            phase="commentary",
         ),
         AssistantSettled(
             surface_id="surface_test",
             turn_id="turn_test",
             identity=_identity(),
             item_id="item-1",
+            phase="commentary",
         ),
     ]
 
@@ -228,19 +248,29 @@ async def test_model_handler_completes_each_item_revision_once() -> None:
         content,
         _activity,
     ) = _handler()
-    completed = _item("item-1", "answer", status="completed")
+    completed = _item(
+        "item-1",
+        "answer",
+        status="completed",
+        phase="final_answer",
+    )
     projection.update(completed, completed)
     event = TextDoneEvent(
         type="text.done",
         turn_id="turn_test",
         segment_id="item-1",
+        phase="final_answer",
     )
 
     await handler.handle(event, projection=projection)
     await handler.handle(event, projection=projection)
 
     assert content.items == [
-        AssistantSegmentCompleted(_identity(), item_id="item-1"),
+        AssistantSegmentCompleted(
+            _identity(),
+            item_id="item-1",
+            phase="final_answer",
+        ),
     ]
 
 

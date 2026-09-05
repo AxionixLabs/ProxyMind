@@ -15,6 +15,7 @@ from agent.ports import (
     ApprovalStarted,
     AssistantBuffered,
     AssistantSettled,
+    AssistantTextPhase,
     AssistantVisible,
     ModelWaitReason,
     ModelWaitRequested,
@@ -68,6 +69,7 @@ class AssistantActivity:
 
     identity: ResponseIdentity
     item_id: str
+    phase: AssistantTextPhase | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -607,7 +609,7 @@ def _reduce_active_surface(
             model_wait_reason=event.reason,
         )
     if isinstance(event, AssistantBuffered):
-        item = _assistant_activity(event.identity, event.item_id)
+        item = _assistant_activity(event.identity, event.item_id, event.phase)
         if _assistant_is_superseded(state, item):
             return state
         if item in state.buffered_items or item in state.settled_items:
@@ -618,23 +620,29 @@ def _reduce_active_surface(
             buffered_items=(*state.buffered_items, item),
         )
     if isinstance(event, AssistantVisible):
-        item = _assistant_activity(event.identity, event.item_id)
+        item = _assistant_activity(event.identity, event.item_id, event.phase)
         if _assistant_is_superseded(state, item):
             return state
         if item in state.settled_items:
             return state
         if item not in state.buffered_items:
             raise ValueError("visible assistant item was not buffered")
-        return replace(
+        updated = replace(
             state,
-            status_requested=False,
             content="visible",
             visible_item=item,
             model_wait_revision=None,
             model_wait_reason=None,
         )
+        return replace(
+            updated,
+            status_requested=(
+                event.phase == "commentary"
+                or _status_sources_active(updated)
+            ),
+        )
     if isinstance(event, AssistantSettled):
-        item = _assistant_activity(event.identity, event.item_id)
+        item = _assistant_activity(event.identity, event.item_id, event.phase)
         if _assistant_is_superseded(state, item):
             return state
         if item in state.settled_items:
@@ -645,6 +653,9 @@ def _reduce_active_surface(
             raise ValueError("settled assistant item does not match visible item")
         return replace(
             state,
+            status_requested=(
+                state.status_requested or event.phase == "commentary"
+            ),
             content="settled",
             settled_items=(*state.settled_items, item),
             visible_item=None,
@@ -1047,9 +1058,10 @@ def _require_scope(
 def _assistant_activity(
     identity: ResponseIdentity,
     item_id: str,
+    phase: AssistantTextPhase | None,
 ) -> AssistantActivity:
     """构建已经由端口校验的 assistant 展示身份。"""
-    return AssistantActivity(identity, item_id)
+    return AssistantActivity(identity, item_id, phase)
 
 
 def _assistant_is_superseded(

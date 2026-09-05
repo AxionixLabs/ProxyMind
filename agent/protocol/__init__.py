@@ -30,7 +30,10 @@ from .events import (
     RunEvent,
     validate_model_event,
 )
-from .items import CanonicalItem
+from .items import (
+    AssistantTextPhase,
+    CanonicalItem,
+)
 from .model import (
     ModelStreamEndReason,
     ModelStreamRequest,
@@ -45,6 +48,7 @@ __all__ = (
     "TurnObservationRequest",
     "ModelStreamEndReason",
     "CanonicalItem",
+    "AssistantTextPhase",
     "SubmitTurnCommand",
     "SteerTurnInput",
     "TurnControlReceipt",

@@ -13,6 +13,7 @@ from dataclasses import (
 )
 
 from .content import (
+    AssistantTextPhase,
     ContentSink,
     ResponseIdentity,
 )
@@ -177,6 +178,7 @@ class _AssistantActivityEvent(_ScopedActivityEvent):
 
     identity: ResponseIdentity
     item_id: str
+    phase: AssistantTextPhase | None = None
 
     def __post_init__(self) -> None:
         """校验 assistant 展示身份属于当前 Turn。"""
@@ -187,6 +189,8 @@ class _AssistantActivityEvent(_ScopedActivityEvent):
             raise ValueError("assistant activity identity does not match turn")
         if not isinstance(self.item_id, str) or not self.item_id.strip():
             raise ValueError("assistant activity item_id is required")
+        if self.phase not in {None, "commentary", "final_answer"}:
+            raise ValueError("assistant activity phase is invalid")
         object.__setattr__(self, "item_id", self.item_id.strip())
 
 

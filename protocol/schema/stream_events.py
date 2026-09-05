@@ -36,6 +36,11 @@ EffectReplay: typing.TypeAlias = typing.Literal[
     "manual"
 ]
 
+AssistantTextPhase: typing.TypeAlias = typing.Literal[
+    "commentary",
+    "final_answer",
+]
+
 ApprovalReviewStatus: typing.TypeAlias = typing.Literal[
     "in_progress",
     "approved",
@@ -179,9 +184,11 @@ class TextDeltaEvent(ItemStreamEvent):
     """描述 assistant 正文增量。"""
     text: str = ""
     segment_id: str = ""
+    phase: AssistantTextPhase | None = None
 
     def __post_init__(self) -> None:
         """补齐正文增量的稳定 Item 投影。"""
+        object.__setattr__(self, "phase", _assistant_text_phase(self.phase))
         _default_item_projection(
             self,
             item_id=self.segment_id,
@@ -195,9 +202,11 @@ class TextDoneEvent(ItemStreamEvent):
     """描述 assistant 正文段完成事件。"""
     segment_id: str = ""
     final_text: str | None = None
+    phase: AssistantTextPhase | None = None
 
     def __post_init__(self) -> None:
         """补齐正文完成事件的稳定 Item 投影。"""
+        object.__setattr__(self, "phase", _assistant_text_phase(self.phase))
         _default_item_projection(
             self,
             item_id=self.segment_id,
@@ -210,6 +219,7 @@ class TextDoneEvent(ItemStreamEvent):
 class TextMetaEvent(ItemStreamEvent):
     """描述 assistant 正文段的来源与标注元数据。"""
     segment_id: str = ""
+    phase: AssistantTextPhase | None = None
     annotations: tuple[typing.Any, ...] | None = None
     citations: tuple[typing.Any, ...] | None = None
     sources: tuple[typing.Any, ...] | None = None
@@ -218,6 +228,7 @@ class TextMetaEvent(ItemStreamEvent):
 
     def __post_init__(self) -> None:
         """补齐正文元数据事件的稳定 Item 投影。"""
+        object.__setattr__(self, "phase", _assistant_text_phase(self.phase))
         _default_item_projection(
             self,
             item_id=self.segment_id,
@@ -619,6 +630,7 @@ def parse_stream_event(
             ),
             text=str(raw.get("text") or ""),
             segment_id=segment_id,
+            phase=_assistant_text_phase(raw.get("phase")),
         )
     if event_type == "text.done":
         segment_id = _required_text(
@@ -636,6 +648,7 @@ def parse_stream_event(
             ),
             segment_id=segment_id,
             final_text=_optional_content_text(raw.get("final_text")),
+            phase=_assistant_text_phase(raw.get("phase")),
         )
     if event_type == "text.meta":
         segment_id = _required_text(
@@ -652,6 +665,7 @@ def parse_stream_event(
                 expected_status="completed",
             ),
             segment_id=segment_id,
+            phase=_assistant_text_phase(raw.get("phase")),
             annotations=_tuple_or_none(raw.get("annotations")),
             citations=_tuple_or_none(raw.get("citations")),
             sources=_tuple_or_none(raw.get("sources")),
@@ -1376,6 +1390,17 @@ def _error_text(value: typing.Any) -> str:
     if isinstance(value, Mapping):
         return _text(value.get("message")) or "unknown error"
     return _text(value) or "unknown error"
+
+
+def _assistant_text_phase(value: str | None) -> AssistantTextPhase | None:
+    """严格解析服务端声明的 assistant text phase。"""
+    if value is None:
+        return None
+    if value == "commentary":
+        return "commentary"
+    if value == "final_answer":
+        return "final_answer"
+    raise ValueError("assistant text phase is invalid")
 
 
 def _text(value: typing.Any) -> str:

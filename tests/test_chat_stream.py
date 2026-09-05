@@ -970,6 +970,7 @@ async def test_disconnect_attaches_after_last_sequence_and_deduplicates_replay(
                 "event_seq": 1,
                 "segment_id": "segment_1",
                 "text": "first",
+                "phase": "commentary",
             }
             yield {
                 "type": "text.delta",
@@ -977,6 +978,7 @@ async def test_disconnect_attaches_after_last_sequence_and_deduplicates_replay(
                 "event_seq": 2,
                 "segment_id": "segment_1",
                 "text": "second",
+                "phase": "commentary",
             }
             raise OSError("connection lost")
 
@@ -986,6 +988,7 @@ async def test_disconnect_attaches_after_last_sequence_and_deduplicates_replay(
             "event_seq": 2,
             "segment_id": "segment_1",
             "text": "duplicate",
+            "phase": "commentary",
         }
         yield {
             "type": "text.delta",
@@ -993,6 +996,7 @@ async def test_disconnect_attaches_after_last_sequence_and_deduplicates_replay(
             "event_seq": 3,
             "segment_id": "segment_1",
             "text": "third",
+            "phase": "commentary",
         }
         yield {
             "type": "turn.completed",
@@ -1012,6 +1016,11 @@ async def test_disconnect_attaches_after_last_sequence_and_deduplicates_replay(
         "second",
         "third",
     ]
+    assert [
+        event.phase
+        for event in events
+        if isinstance(event, TextDeltaEvent)
+    ] == ["commentary", "commentary", "commentary"]
     assert event_stream.last_event_seq == 4
     assert event_stream.end_reason == "settled"
     assert [call[0] for call in calls] == [

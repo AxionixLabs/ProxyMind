@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import typing
 from collections.abc import Mapping
 from dataclasses import (
     dataclass,
@@ -13,6 +14,12 @@ from .json_value import (
     freeze_json,
     thaw_object,
 )
+
+
+AssistantTextPhase: typing.TypeAlias = typing.Literal[
+    "commentary",
+    "final_answer",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +42,7 @@ class CanonicalItem:
     first_event_seq: int
     last_event_seq: int
     last_event_type: str
+    phase: AssistantTextPhase | None = None
     payload: Mapping[str, JsonValue] = field(default_factory=dict)
     superseded: bool = False
     superseded_by_epoch: int | None = None
@@ -67,6 +75,11 @@ class CanonicalItem:
                 raise ValueError(f"canonical item {field_name} must be positive")
         if self.last_event_seq < self.first_event_seq:
             raise ValueError("canonical item event sequence cannot move backwards")
+        if self.phase is not None and (
+            self.item_kind != "text"
+            or self.phase not in {"commentary", "final_answer"}
+        ):
+            raise ValueError("canonical assistant text phase is invalid")
         if not isinstance(self.payload, Mapping):
             raise TypeError("canonical item payload must be an object")
         if not isinstance(self.superseded, bool):

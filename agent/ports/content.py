@@ -7,6 +7,8 @@ from dataclasses import (
     field
 )
 
+from agent.protocol.items import AssistantTextPhase
+
 
 @dataclass(frozen=True, slots=True)
 class ResponseIdentity(object):
@@ -41,6 +43,7 @@ class AssistantTextDelta(object):
     text: str
     identity: ResponseIdentity
     item_id: str = field(default="", compare=False)
+    phase: AssistantTextPhase | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +52,7 @@ class AssistantSegmentCompleted(object):
     identity: ResponseIdentity
     final_text: str | None = field(default=None, compare=False)
     item_id: str = field(default="", compare=False)
+    phase: AssistantTextPhase | None = None
 
 
 @dataclass(frozen=True, slots=True)

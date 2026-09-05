@@ -8,6 +8,7 @@ from agent.ports import (
     ApprovalStarted,
     AssistantBuffered,
     AssistantSettled,
+    AssistantTextPhase,
     ModelWaitReason,
     ModelWaitRequested,
     OutputActivityPort,
@@ -112,24 +113,30 @@ class TurnActivityProjector:
         self,
         identity: ResponseIdentity,
         item_id: str,
+        *,
+        phase: AssistantTextPhase | None = None,
     ) -> None:
         """登记尚未实际可见的 assistant 正文。"""
         await self.activity.emit(AssistantBuffered(
             **self._scope(),
             identity=identity,
             item_id=item_id,
+            phase=phase,
         ))
 
     async def assistant_settled(
         self,
         identity: ResponseIdentity,
         item_id: str,
+        *,
+        phase: AssistantTextPhase | None = None,
     ) -> None:
         """登记已稳定的 assistant 正文段。"""
         await self.activity.emit(AssistantSettled(
             **self._scope(),
             identity=identity,
             item_id=item_id,
+            phase=phase,
         ))
 
     async def presentation_superseded(

@@ -169,6 +169,7 @@ class ModelStreamEventHandler:
             event.text,
             _response_identity(item),
             item_id=item.item_id,
+            phase=item.phase,
         ))
 
     async def _handle_presentation_superseded(
@@ -221,12 +222,14 @@ class ModelStreamEventHandler:
             _response_identity(item),
             final_text=event.final_text,
             item_id=item.item_id,
+            phase=item.phase,
         ))
         await self.activity.provider_retry_completed()
         if revision in self._buffered_activity_items:
             await self.activity.assistant_settled(
                 _response_identity(item),
                 item.item_id,
+                phase=item.phase,
             )
 
     async def _buffer_assistant_activity(self, item: CanonicalItem) -> None:
@@ -237,6 +240,7 @@ class ModelStreamEventHandler:
         await self.activity.assistant_buffered(
             _response_identity(item),
             item.item_id,
+            phase=item.phase,
         )
         self._buffered_activity_items.add(revision)
 
@@ -249,16 +253,19 @@ class ModelStreamEventHandler:
         previous = self._delivered_text.get(revision)
         if previous == text:
             return
+        payload: dict[str, typing.Any] = {
+            "content": text,
+            "item_id": item.item_id,
+            "presentation_epoch": item.presentation_epoch,
+            "round": item.round_no,
+            "attempt": item.attempt,
+        }
+        if item.phase is not None:
+            payload["phase"] = item.phase
         self.transcript.append(
             "message.created" if previous is None else "message.updated",
             actor="assistant",
-            payload={
-                "content": text,
-                "item_id": item.item_id,
-                "presentation_epoch": item.presentation_epoch,
-                "round": item.round_no,
-                "attempt": item.attempt,
-            },
+            payload=payload,
         )
         self._delivered_text[revision] = text
 
@@ -272,6 +279,8 @@ def _matching_text_item(
         return None
     if item.item_kind != "text" or item.item_id != event.item_id:
         raise ValueError("canonical text projection does not match event")
+    if item.phase != event.phase:
+        raise ValueError("canonical text phase does not match event")
     return item
 
 

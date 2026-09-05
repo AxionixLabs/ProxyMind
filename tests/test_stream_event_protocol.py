@@ -5,6 +5,8 @@ import pytest
 from protocol.schema.stream_events import (
     PresentationSupersededEvent,
     StreamGapEvent,
+    TextDeltaEvent,
+    TextDoneEvent,
     TextMetaEvent,
     ToolApprovalRequiredEvent,
     ToolApprovalReviewCompletedEvent,
@@ -229,6 +231,46 @@ def test_formal_item_projection_requires_matching_domain_identity() -> None:
     payload["item_id"] = "another-segment"
     with pytest.raises(ValueError, match="domain identity"):
         _parse_stream_event(payload)
+
+
+@pytest.mark.parametrize("phase", ("commentary", "final_answer", None))
+def test_assistant_text_phase_is_strict_and_consistent_across_event_types(
+    phase,
+) -> None:
+    """验证正文 phase 只接受正式值并投影到所有正文事件。"""
+    delta = parse_stream_event({
+        "type": "text.delta",
+        "event_seq": 1,
+        "segment_id": "phase-item",
+        "text": "hello",
+        "phase": phase,
+    })
+    done = parse_stream_event({
+        "type": "text.done",
+        "event_seq": 2,
+        "segment_id": "phase-item",
+        "final_text": "hello",
+        "phase": phase,
+    })
+    meta = parse_stream_event({
+        "type": "text.meta",
+        "event_seq": 3,
+        "segment_id": "phase-item",
+        "phase": phase,
+    })
+
+    assert isinstance(delta, TextDeltaEvent)
+    assert isinstance(done, TextDoneEvent)
+    assert isinstance(meta, TextMetaEvent)
+    assert (delta.phase, done.phase, meta.phase) == (phase, phase, phase)
+
+    with pytest.raises(ValueError, match="assistant text phase is invalid"):
+        parse_stream_event({
+            "type": "text.delta",
+            "segment_id": "phase-invalid",
+            "text": "hello",
+            "phase": "analysis",
+        })
 
 
 def test_formal_item_projection_is_required_only_for_display_events() -> None:
