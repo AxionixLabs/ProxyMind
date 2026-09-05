@@ -142,7 +142,11 @@ class TurnRuntimePort(typing.Protocol):
         ...
 
     def restore_interrupted_submissions(self) -> bool:
-        """把中断轮次遗留输入恢复到编辑框且不触发提交。"""
+        """按中断按键意图提交即时输入或恢复普通遗留输入。"""
+        ...
+
+    def clear_pending_steer_interrupt_intent(self) -> None:
+        """清除未形成中断终态的 Esc 即时提交意图。"""
         ...
 
     async def wait_for_application_failure(self) -> BaseException:

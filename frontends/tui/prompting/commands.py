@@ -174,6 +174,22 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
+        "queue", "/queue", "Manage durable queue",
+        completion_text="/queue ",
+        parameterized=True,
+        accepts_arguments=True,
+        subcommands=("list", "add", "retry", "delete", "move", "start"),
+        stream_policy="local_snapshot",
+        stream_subcommand_policies=(
+            ("list", "local_snapshot"),
+            ("add", "background_barrier"),
+            ("retry", "background_barrier"),
+            ("delete", "background_barrier"),
+            ("move", "background_barrier"),
+            ("start", "reject"),
+        ),
+    ),
+    TuiCommandSpec(
         "diff", "/diff", "View Git changes",
         stream_policy="local_snapshot",
     ),
@@ -483,11 +499,13 @@ def stream_command_policy(value: str) -> StreamCommandPolicy | None:
     if len(parts) == 1:
         return command.policy_during_task()
 
-    argument = " ".join(parts[1:])
     if command.subcommands:
-        if argument not in command.subcommands:
+        subcommand = parts[1]
+        if subcommand not in command.subcommands:
             return "reject"
-        return command.policy_during_task(argument)
+        if len(parts) > 2 and not command.accepts_arguments:
+            return "reject"
+        return command.policy_during_task(subcommand)
     if command.parameterized or command.accepts_arguments:
         return command.policy_during_task()
 

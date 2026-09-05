@@ -20,6 +20,7 @@ from agent.application.approvals.models import (
     ApprovalQueueSnapshot,
     ApprovalRequest,
 )
+from agent.protocol.json_value import ThawedJsonValue
 from agent.ports import (
     ActivityRuntimePort,
     ActivityStatusKind,
@@ -428,6 +429,11 @@ class TuiRuntime(object):
     def uncertain_steers_active(self) -> bool:
         """返回当前是否存在归属未确认的输入。"""
         return self.submissions.pending_steers.uncertain_active
+
+    @property
+    def submit_pending_steers_after_interrupt(self) -> bool:
+        """返回当前中断是否会立即提交已有即时输入。"""
+        return self.submissions.submit_pending_steers_after_interrupt
 
     @property
     def turn_output_suppressed(self) -> bool:
@@ -1530,9 +1536,13 @@ class TuiRuntime(object):
         prompt: str,
         turn_id: str,
         *,
-        max_display_rows: int = 8
+        max_display_rows: int = 8,
+        attachments: typing.Iterable[
+            typing.Mapping[str, ThawedJsonValue]
+        ] | None = None,
+        extras: typing.Mapping[str, ThawedJsonValue] | None = None,
     ) -> bool:
-        """把已通过命令分派的用户输入作为单次视觉事务提交。"""
+        """把已通过命令分派的用户输入和载荷作为单次视觉事务提交。"""
         value = str(prompt)
         if not value.strip():
             return False
@@ -1560,6 +1570,15 @@ class TuiRuntime(object):
             )
             if not self.document.bind_latest_user_turn(turn_id, value):
                 raise RuntimeError("submitted query could not be bound")
+            if (
+                attachments is not None
+                or extras is not None
+            ) and not self.document.bind_turn_payload(
+                turn_id,
+                attachments=attachments,
+                extras=extras,
+            ):
+                raise RuntimeError("submitted query payload could not be bound")
             self.screen.synchronize_next_render()
             self.screen.transcript_overlay.content_changed()
 
@@ -1916,8 +1935,12 @@ class TuiRuntime(object):
         self.submissions.bind_queued_restore_handler(handler)
 
     def restore_interrupted_submissions(self) -> bool:
-        """把中断轮次遗留输入恢复到编辑框且不触发提交。"""
+        """按中断按键意图提交即时输入或恢复普通遗留输入。"""
         return self.submissions.restore_interrupted_submissions()
+
+    def clear_pending_steer_interrupt_intent(self) -> None:
+        """清除未形成中断终态的 Esc 即时提交意图。"""
+        self.submissions.clear_pending_steer_interrupt_intent()
 
     def begin_recovery_gate(self) -> None:
         """阻止草稿在远端恢复门解除前进入执行队列。"""

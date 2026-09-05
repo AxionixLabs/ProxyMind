@@ -155,6 +155,8 @@ def _started_local() -> LocalDurableQueueSnapshot:
                 "network_access": "restricted",
             },
             "extras": command.extras_value(),
+            "additional_context": ["frozen session context"],
+            "system_message": "frozen queue system",
         },
     )
     return LocalDurableQueueSnapshot(
@@ -192,12 +194,7 @@ async def test_enqueue_freezes_session_hooks_tools_and_request_before_add() -> N
     )
 
     assert result is expected
-    session.begin_turn.assert_awaited_once_with(
-        cid="cid_queue_execution",
-        sid="sid_queue_execution",
-        title="queued input",
-        source="queue",
-    )
+    session.begin_turn.assert_not_awaited()
     call = queue_application.enqueue.await_args
     frozen = call.args[1]
     assert isinstance(frozen, ModelStreamRequest)
@@ -210,8 +207,6 @@ async def test_enqueue_freezes_session_hooks_tools_and_request_before_add() -> N
     ]
     assert frozen.option_values() == {
         "extras": {"priority": "normal"},
-        "additional_context": ["session context"],
-        "system_message": "queue system",
         "skills": [{"name": "queue-skill"}],
         "permissions": {
             "sandbox_mode": "workspace-write",
@@ -267,8 +262,9 @@ async def test_observe_started_queue_turn_uses_frozen_tool_names(
     model_capability = SimpleNamespace(stream=Mock())
     turn_observer = SimpleNamespace(observe=Mock())
 
+    session = _RootSession()
     result = await queue_execution.observe_durable_root_turn(
-        _RootSession(),
+        session,
         _started_local(),
         model_capability=model_capability,
         turn_observer=turn_observer,
@@ -279,6 +275,7 @@ async def test_observe_started_queue_turn_uses_frozen_tool_names(
     )
 
     assert result == RunResult(status="completed", assistant_text="observed")
+    session.begin_turn.assert_not_awaited()
     assert captured["operation"] is queue_execution.observe_stream_turn
     assert captured["tools"] == [
         {"name": "read_file", "type": "function"},
@@ -289,6 +286,8 @@ async def test_observe_started_queue_turn_uses_frozen_tool_names(
     assert execution.context.turn_id == "turn_queue_execution_0001"
     assert execution.context.session_started is False
     assert execution.context.permissions == preset_permissions("auto")
+    assert execution.additional_context == ("frozen session context",)
+    assert execution.system_message == "frozen queue system"
 
 
 @pytest.mark.anyio
@@ -335,3 +334,17 @@ async def test_observe_queue_turn_rejects_unstarted_or_foreign_session() -> None
             local,
             **arguments,
         )
+
+
+@pytest.mark.parametrize(
+    "options",
+    (
+        {"additional_context": [1]},
+        {"additional_context": "not-a-list"},
+        {"system_message": ["not-a-string"]},
+    ),
+)
+def test_observe_queue_turn_rejects_invalid_frozen_context(options) -> None:
+    """确保 observer 不以当前 Session 状态修补损坏的冻结上下文。"""
+    with pytest.raises(ValueError, match="durable queue"):
+        queue_execution._request_turn_context(options)

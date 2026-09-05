@@ -155,6 +155,34 @@ async def test_enqueue_persists_before_network_and_retries_same_identity(
 
 
 @pytest.mark.anyio
+async def test_enqueue_releases_local_ownership_after_definite_rejection(
+    tmp_path: Path,
+) -> None:
+    """确保明确 4xx 未提交结果允许 TUI 恢复原结构化草稿。"""
+    application, queue_client, _protocol_client, store = _application(tmp_path)
+    request = _request()
+    command = _command(request)
+    queue_client.add_queue_submission.side_effect = ProtocolCommandError(
+        "queue_request_invalid",
+        "queue request rejected",
+        details={"status_code": 422},
+    )
+
+    with pytest.raises(ProtocolCommandError, match="rejected"):
+        await application.enqueue(
+            command,
+            request,
+            submission_id="submission_queue_application_0001",
+            client_message_id="message_queue_application_0001",
+            request_id="request_queue_add_application_0001",
+        )
+
+    local = await store.find("submission_queue_application_0001")
+    assert local is not None
+    assert local.status == "deleted"
+
+
+@pytest.mark.anyio
 async def test_snapshot_confirms_response_lost_add_without_resubmission(
     tmp_path: Path,
 ) -> None:

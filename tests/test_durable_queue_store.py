@@ -248,6 +248,54 @@ async def test_queue_store_started_transition_is_monotonic_and_idempotent(
 
 
 @pytest.mark.anyio
+async def test_queue_store_settles_started_turn_once(tmp_path: Path) -> None:
+    """确保只有已经启动的 Queue Turn 能关闭本地观察恢复入口。"""
+    store = SQLiteDurableQueueStore(tmp_path / "durable_queue.db")
+    request = _request()
+    created = await store.create(
+        _command(request),
+        request,
+        submission_id="submission_queue_store_0001",
+        client_message_id="message_queue_store_0001",
+        add_request_id="request_queue_add_store_0001",
+    )
+    queued = await store.mark_queued(
+        created.submission_id,
+        add_request_id=created.add_request_id,
+        queue_version=1,
+    )
+    starting = await store.begin_start(
+        queued.submission_id,
+        request_id="request_queue_start_store_0001",
+    )
+    started = await store.mark_started(
+        starting.submission_id,
+        request_id="request_queue_start_store_0001",
+        turn_id=request.turn_id,
+        queue_version=2,
+    )
+
+    settled = await store.mark_settled(started.submission_id)
+    repeated = await store.mark_settled(started.submission_id)
+
+    assert settled.status == "settled"
+    assert repeated == settled
+
+    unstarted = await store.create(
+        _command(_request(turn_id="turn_queue_store_0002")),
+        _request(turn_id="turn_queue_store_0002"),
+        submission_id="submission_queue_store_0002",
+        client_message_id="message_queue_store_0002",
+        add_request_id="request_queue_add_store_0002",
+    )
+    with pytest.raises(
+        DurableQueuePersistenceConflict,
+        match="can settle",
+    ):
+        await store.mark_settled(unstarted.submission_id)
+
+
+@pytest.mark.anyio
 async def test_queue_store_rejects_command_request_coordinate_mismatch(
     tmp_path: Path,
 ) -> None:

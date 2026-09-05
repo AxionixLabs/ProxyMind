@@ -29,6 +29,7 @@ from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.adapters.session import create_tui_output_session
 from frontends.tui.core.activity import (
     TuiActivity,
+    _compact_elapsed_label,
     _download_block,
     _elapsed_label,
     _mcp_activity_block,
@@ -173,6 +174,26 @@ def test_elapsed_label_keeps_seconds_bucket_width_stable() -> None:
     assert _elapsed_label(10.0) == " 10s"
     assert _elapsed_label(59.9) == " 59s"
     assert _elapsed_label(60.0) == "1m 00s"
+
+
+def test_codex_elapsed_label_formats_seconds_minutes_and_hours() -> None:
+    assert _compact_elapsed_label(0.9) == "0s"
+    assert _compact_elapsed_label(59.9) == "59s"
+    assert _compact_elapsed_label(60.0) == "1m 00s"
+    assert _compact_elapsed_label(3_661.0) == "1h 01m 01s"
+
+
+@pytest.mark.anyio
+async def test_turn_wait_uses_codex_interrupt_status_copy() -> None:
+    runtime = TuiRuntime()
+
+    await runtime.begin_wait_status()
+
+    assert runtime.screen.activity_block is not None
+    status = _block_text(runtime.screen.activity_block)
+    assert status.startswith("• Thinking (0s • esc to interrupt)")
+
+    await runtime.activity.clear()
 
 
 @pytest.mark.anyio

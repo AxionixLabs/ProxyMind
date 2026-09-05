@@ -9,7 +9,10 @@ from pathlib import Path
 
 from agent.adapters.protocol.client import MindChatProtocolClient
 from agent.ports import ModelCapabilityError
+from agent.ports import ModelEventStream
+from agent.ports import ProtocolCommandError
 from agent.protocol import ModelStreamRequest
+from agent.protocol import TurnObservationRequest
 from agent.protocol.json_value import (
     JsonValue,
     freeze_json,
@@ -24,6 +27,7 @@ from protocol.schema.identifiers import (
     new_cid,
     new_request_id,
     new_sid,
+    new_submission_id,
     short_uid,
 )
 from protocol.schema.stream_events import TurnCompletedEvent
@@ -167,7 +171,36 @@ async def _consume_turn(
     started: asyncio.Event | None = None,
 ) -> TurnObservation:
     """消费生产事件流并验证唯一终态和严格递增的事件序号。"""
-    stream = client.stream(request)
+    return await _consume_stream(
+        request.turn_id,
+        client.stream(request),
+        started=started,
+    )
+
+
+async def _consume_observed_turn(
+    client: MindChatProtocolClient,
+    request: ModelStreamRequest,
+) -> TurnObservation:
+    """仅通过 attach 消费一个已由 Queue start 创建的 Turn。"""
+    return await _consume_stream(
+        request.turn_id,
+        client.observe(TurnObservationRequest(
+            cid=request.cid,
+            sid=request.sid,
+            turn_id=request.turn_id,
+            timeout=request.timeout,
+        )),
+    )
+
+
+async def _consume_stream(
+    turn_id: str,
+    stream: ModelEventStream,
+    *,
+    started: asyncio.Event | None = None,
+) -> TurnObservation:
+    """验证提交流或 attach 流共享的终态、序号和游标契约。"""
     event_types: list[str] = []
     event_sequences: list[int] = []
     terminal_events: list[TurnCompletedEvent] = []
@@ -182,28 +215,28 @@ async def _consume_turn(
 
     if len(terminal_events) != 1:
         raise AssertionError(
-            f"{request.turn_id}: expected one turn.completed, "
+            f"{turn_id}: expected one turn.completed, "
             f"observed {len(terminal_events)}"
         )
     if event_sequences != sorted(set(event_sequences)):
         raise AssertionError(
-            f"{request.turn_id}: event sequence is not strictly increasing"
+            f"{turn_id}: event sequence is not strictly increasing"
         )
     terminal = terminal_events[0]
     if event_sequences[-1] != terminal.last_event_seq:
         raise AssertionError(
-            f"{request.turn_id}: terminal cursor does not close the stream"
+            f"{turn_id}: terminal cursor does not close the stream"
         )
     if stream.end_reason != "settled":
         raise AssertionError(
-            f"{request.turn_id}: stream ended as {stream.end_reason!r}"
+            f"{turn_id}: stream ended as {stream.end_reason!r}"
         )
     if stream.last_event_seq != terminal.last_event_seq:
         raise AssertionError(
-            f"{request.turn_id}: protocol cursor did not reach terminal"
+            f"{turn_id}: protocol cursor did not reach terminal"
         )
     return TurnObservation(
-        turn_id=request.turn_id,
+        turn_id=turn_id,
         event_types=tuple(event_types),
         event_sequences=tuple(event_sequences),
         terminal_status=terminal.status,
@@ -265,6 +298,57 @@ async def _verify(config: LiveVerificationConfig) -> None:
         name="live durable active turn",
     )
     await asyncio.wait_for(started.wait(), timeout=config.timeout)
+
+    queued_request = _request(
+        config,
+        cid=cid,
+        sid=sid,
+        turn_id=f"turn_{short_uid(20)}",
+        message="Reply with only QUEUED.",
+    )
+    submission_id = new_submission_id("submission_live")
+    client_message_id = f"message_{short_uid(20)}"
+    add_request_id = new_request_id("queue_add_live")
+    add_receipt = await client.add_queue_submission(
+        queued_request,
+        submission_id=submission_id,
+        client_message_id=client_message_id,
+        request_id=add_request_id,
+    )
+    duplicate_add_receipt = await client.add_queue_submission(
+        queued_request,
+        submission_id=submission_id,
+        client_message_id=client_message_id,
+        request_id=add_request_id,
+    )
+    if duplicate_add_receipt != add_receipt:
+        raise AssertionError("idempotent queue add returned another receipt")
+    queue_snapshot = await client.list_queue_submissions(cid=cid, sid=sid)
+    if (
+        tuple(item.submission_id for item in queue_snapshot.items)
+        != (submission_id,)
+        or add_receipt.item.position != 1
+        or add_receipt.item.turn_id != queued_request.turn_id
+    ):
+        raise AssertionError("active Turn queue add did not preserve FIFO identity")
+    print("PASS active Queue add: one durable item and stable duplicate receipt")
+
+    rejected_start_request_id = new_request_id("queue_start_busy_live")
+    try:
+        await client.start_queue_submission(
+            cid=cid,
+            sid=sid,
+            submission_id=submission_id,
+            request_id=rejected_start_request_id,
+        )
+    except ProtocolCommandError as error:
+        if error.status_code != 409 or error.retryable:
+            raise AssertionError(
+                "active Turn queue start did not return a deterministic 409"
+            ) from error
+    else:
+        raise AssertionError("queue start succeeded while another Turn was active")
+    print("PASS Queue execution gate: start rejected while Turn active")
 
     conflict_request = _request(
         config,
@@ -357,6 +441,40 @@ async def _verify(config: LiveVerificationConfig) -> None:
         raise AssertionError("reconciliation terminal snapshot is inconsistent")
     print("PASS input reconciliation: exactly-one classification with terminal")
 
+    start_request_id = new_request_id("queue_start_live")
+    start_receipt = await client.start_queue_submission(
+        cid=cid,
+        sid=sid,
+        submission_id=submission_id,
+        request_id=start_request_id,
+    )
+    duplicate_start_receipt = await client.start_queue_submission(
+        cid=cid,
+        sid=sid,
+        submission_id=submission_id,
+        request_id=start_request_id,
+    )
+    if (
+        duplicate_start_receipt != start_receipt
+        or start_receipt.turn_id != queued_request.turn_id
+    ):
+        raise AssertionError("idempotent queue start returned another Turn")
+    started_snapshot = await client.list_queue_submissions(cid=cid, sid=sid)
+    if started_snapshot.items:
+        raise AssertionError("started Queue item remained in the pending snapshot")
+    queued_turn = await asyncio.wait_for(
+        _consume_observed_turn(client, queued_request),
+        timeout=config.timeout + config.terminal_deadline,
+    )
+    if queued_turn.terminal_status != "completed":
+        raise AssertionError(
+            f"queued turn ended as {queued_turn.terminal_status}: "
+            f"{queued_turn.terminal_error or 'no error'}"
+        )
+    if queued_turn.event_sequences[0] <= interrupted.terminal_sequence:
+        raise AssertionError("Queue attach did not advance the Session cursor")
+    _print_observation("Queue start and attach-only observation", queued_turn)
+
     next_turn = await asyncio.wait_for(
         _consume_turn(
             client,
@@ -375,9 +493,9 @@ async def _verify(config: LiveVerificationConfig) -> None:
             f"next turn ended as {next_turn.terminal_status}: "
             f"{next_turn.terminal_error or 'no error'}"
         )
-    if next_turn.event_sequences[0] != interrupted.terminal_sequence + 1:
+    if next_turn.event_sequences[0] <= queued_turn.terminal_sequence:
         raise AssertionError(
-            "next Turn did not start at the terminal Session cursor"
+            "next Turn did not advance past the Queue terminal cursor"
         )
     _print_observation("next Turn cursor continuity", next_turn)
 
@@ -389,7 +507,15 @@ async def _main() -> int:
         config = await _load_config(args)
         print(f"CONFIG service.domain={config.domain} model_credentials=ready")
         await _verify(config)
-    except (AssertionError, OSError, RuntimeError, TypeError, ValueError) as error:
+    except (
+        AssertionError,
+        ModelCapabilityError,
+        OSError,
+        ProtocolCommandError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    ) as error:
         print(f"FAIL {type(error).__name__}: {error}")
         return 1
     print("PASS durable Turn live verification completed")

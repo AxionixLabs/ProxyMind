@@ -15,6 +15,7 @@ from agent.protocol import (
     LocalDurableQueueSnapshot,
     SubmitTurnCommand,
 )
+from agent.protocol.json_value import ThawedJsonValue
 from infrastructure.services.turn_environment import (
     capture_active_turn_environment,
 )
@@ -313,8 +314,8 @@ class TuiDurableQueueFeature:
 
     def _restore_input(
         self,
-        attachments: tuple[dict[str, typing.Any], ...],
-        extras: dict[str, typing.Any],
+        attachments: tuple[dict[str, ThawedJsonValue], ...],
+        extras: dict[str, ThawedJsonValue],
     ) -> None:
         """在 Queue 未取得本地所有权时恢复结构化草稿。"""
         current_attachments = tuple(

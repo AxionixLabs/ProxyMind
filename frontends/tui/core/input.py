@@ -278,6 +278,12 @@ class TuiInputModel(object):
         self.interrupt_handler: typing.Callable[[], InterruptDisposition] = (
             _ignore_interrupt
         )
+        self.can_interrupt_turn: typing.Callable[[], bool] = (
+            _deny_action
+        )
+        self.turn_interrupt_handler: typing.Callable[
+            [], InterruptDisposition
+        ] = _ignore_interrupt
         self.exit_handler: typing.Callable[[], None] = _ignore_action
         self._input_layout_handler: typing.Callable[[], None] = (
             _ignore_input_layout
@@ -991,6 +997,26 @@ class TuiInputModel(object):
             self.dismiss_completion_menu(event.app.current_buffer)
             event.app.invalidate()
 
+        turn_interrupt = has_focus(INPUT_BUFFER_NAME) & Condition(
+            lambda: bool(
+                self.can_interrupt_turn()
+                and get_app().current_buffer.complete_state is None
+                and self.completion_menu_completions(
+                    get_app().current_buffer.document
+                ) is None
+                and not (
+                    self.shell_mode
+                    and not get_app().current_buffer.text
+                )
+            )
+        )
+
+        @bindings.add(Keys.Escape, filter=turn_interrupt)
+        def _(event) -> None:
+            _ = event
+            self.turn_interrupt_handler()
+            self.notify_input_layout()
+
         edit_backspace = has_focus(INPUT_BUFFER_NAME) & ~shell_mode_empty
 
         @bindings.add("backspace", eager=True, filter=edit_backspace)
@@ -1209,6 +1235,9 @@ class TuiInputModel(object):
                 buffer.insert_text(buffer.suggestion.text)
             elif buffer.complete_state:
                 self._select_completion(buffer, max(1, event.arg))
+            elif buffer.text.strip():
+                buffer.cancel_completion()
+                buffer.validate_and_handle()
             else:
                 buffer.start_completion(
                     select_first=True,
@@ -1488,6 +1517,15 @@ class TuiInputModel(object):
     ) -> None:
         """绑定主运行时提供的输入中断处理函数。"""
         self.interrupt_handler = handler
+
+    def bind_turn_interrupt(
+        self,
+        can_interrupt: typing.Callable[[], bool],
+        handler: typing.Callable[[], InterruptDisposition],
+    ) -> None:
+        """绑定 Esc 中断当前轮次的独立按键动作。"""
+        self.can_interrupt_turn = can_interrupt
+        self.turn_interrupt_handler = handler
 
     def bind_input_layout(self, handler: typing.Callable[[], None]) -> None:
         """绑定输入内容变化后的当前帧布局刷新动作。"""

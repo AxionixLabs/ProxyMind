@@ -114,6 +114,7 @@ def test_root_command_completion_order_is_stable() -> None:
         "/agent",
         "/listen",
         "/mailbox",
+        "/queue",
         "/diff",
         "/copy",
         "/ps",
@@ -438,7 +439,7 @@ def test_complete_command_remains_available_to_the_menu() -> None:
 def test_command_matching_prioritizes_exact_alias() -> None:
     assert [
         item.display_text for item in _slash_completions("/q")
-    ] == ["/q", "/quit"]
+    ] == ["/q", "/queue", "/quit"]
 
 
 def test_command_matching_distinguishes_empty_and_argument_states() -> None:
@@ -474,7 +475,7 @@ def test_non_surface_inputs_commit_directly(value) -> None:
 
 def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     assert command_names("quit") == frozenset({"/quit", "/q", "quit", "exit"})
-    assert parameterized_command_texts() == ("/model ",)
+    assert parameterized_command_texts() == ("/model ", "/queue ")
     assert stream_command_policy("hello") is None
     assert stream_command_policy("$review") is None
     assert stream_command_label("/mcp restart now") == "/mcp restart"
@@ -499,6 +500,13 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
         ("/agent", "interactive_panel"),
         ("/listen", "interactive_panel"),
         ("/mailbox", "interactive_panel"),
+        ("/queue", "local_snapshot"),
+        ("/queue list", "local_snapshot"),
+        ("/queue add next request", "background_barrier"),
+        ("/queue retry submission_1", "background_barrier"),
+        ("/queue delete submission_1", "background_barrier"),
+        ("/queue move submission_1 2", "background_barrier"),
+        ("/queue start", "reject"),
         ("/mcp", "reject"),
         ("/skills", "interactive_panel"),
         ("/listen start", "background_barrier"),

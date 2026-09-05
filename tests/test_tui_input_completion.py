@@ -2756,7 +2756,7 @@ def test_dismissed_slash_menu_reopens_after_editing() -> None:
 
 
 @pytest.mark.anyio
-async def test_plain_query_tab_does_not_expand_text() -> None:
+async def test_idle_plain_query_tab_submits_like_enter() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -2767,20 +2767,30 @@ async def test_plain_query_tab_does_not_expand_text() -> None:
             await wait_for_input_text(runtime, "h")
             assert buffer.suggestion is None
 
-            with patch.object(
-                buffer,
-                "start_completion",
-                wraps=buffer.start_completion,
-            ) as start_completion:
-                pipe_input.send_text("\t")
-                for _ in range(100):
-                    if start_completion.called:
-                        break
-                    await asyncio.sleep(0.001)
+            pipe_input.send_text("\t")
+            submission = await asyncio.wait_for(
+                runtime.submissions.message_queue.get(),
+                timeout=1,
+            )
 
-            start_completion.assert_called_once()
-            assert buffer.text == "h"
-            assert buffer.suggestion is None
+            assert submission.value == "h"
+            assert runtime.submissions.surface_submission_pending is False
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_idle_shell_tab_keeps_editing_draft() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("!echo hello\t")
+            await wait_for_input_text(runtime, "echo hello    ")
+
+            assert runtime.input_model.shell_mode
+            assert runtime.submissions.message_queue.empty()
         finally:
             await runtime.close()
 

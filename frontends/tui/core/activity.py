@@ -463,7 +463,7 @@ class TuiActivity(object):
                 family="wait",
                 phase=phase,
                 elapsed_sec=self._wait_elapsed(),
-                elapsed_min_sec=0.0,
+                interrupt_binding="esc",
                 sweep=True,
                 color_level=self.color_level,
             )
@@ -499,6 +499,7 @@ class TuiActivity(object):
             family=family,
             phase=phase,
             elapsed_sec=self._wait_elapsed(),
+            interrupt_binding="esc",
             sweep=True,
             color_level=self.color_level,
         )
@@ -886,6 +887,7 @@ def _status_block(
     phase: float,
     started_at: float = 0.0,
     elapsed_sec: float | None = None,
+    interrupt_binding: str | None = None,
     spinner: bool = False,
     sweep: bool = False,
     elapsed_min_sec: float = 0.65,
@@ -913,7 +915,16 @@ def _status_block(
             if elapsed_sec is not None
             else max(0.0, time.perf_counter() - started_at)
         )
-        if elapsed >= max(0.0, float(elapsed_min_sec)):
+        if interrupt_binding is not None:
+            fragments.extend((
+                (
+                    prompt_style(STATUS_MUTED),
+                    f" ({_compact_elapsed_label(elapsed)} • ",
+                ),
+                (prompt_style(BODY_STYLE), interrupt_binding),
+                (prompt_style(STATUS_MUTED), " to interrupt)"),
+            ))
+        elif elapsed >= max(0.0, float(elapsed_min_sec)):
             fragments.append((prompt_style(STATUS_MUTED), f" · {_elapsed_label(elapsed)}"))
 
     return FragmentBlock(tuple(fragments))
@@ -932,6 +943,20 @@ def _elapsed_label(elapsed: float) -> str:
 
     minutes, remaining = divmod(int(seconds), 60)
     return f"{minutes}m {remaining:02d}s"
+
+
+def _compact_elapsed_label(elapsed: float) -> str:
+    """按 Codex 活动状态格式显示整数秒、分钟和小时。"""
+    elapsed_seconds = max(0, int(float(elapsed)))
+    if elapsed_seconds < 60:
+        return f"{elapsed_seconds}s"
+    if elapsed_seconds < 3_600:
+        minutes, seconds = divmod(elapsed_seconds, 60)
+        return f"{minutes}m {seconds:02d}s"
+
+    hours, remainder = divmod(elapsed_seconds, 3_600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours}h {minutes:02d}m {seconds:02d}s"
 
 
 def _truncate_display_text(text: str, *, limit: int) -> str:

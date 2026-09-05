@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
+
 import pytest
 from types import SimpleNamespace
 from prompt_toolkit.application.current import set_app
+from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.key_binding.key_processor import KeyPress
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.utils import get_cwidth
 from unittest.mock import Mock
 
@@ -22,6 +26,7 @@ from frontends.terminal.identity import (
     TerminalKind,
 )
 from frontends.tui.adapters.application import TuiApplicationSink
+from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.queued import (
     TuiPendingSteers,
     TuiQueuedMessages,
@@ -56,7 +61,7 @@ def test_pending_steer_uses_current_turn_title() -> None:
 
     assert (
         "• Messages to be submitted after next tool call "
-        "(press ctrl + c to interrupt and send immediately)"
+        "(press esc to interrupt and send immediately)"
     ) in text
     assert "  ↳ adjust current task" in text
     assert "Queued follow-up inputs" not in text
@@ -69,7 +74,7 @@ def test_pending_steer_uses_current_turn_title() -> None:
         ),
         (
             "class:queue.hint",
-            " (press ctrl + c to interrupt and send immediately)",
+            " (press esc to interrupt and send immediately)",
         ),
     ]
 
@@ -85,7 +90,7 @@ def test_pending_steer_lists_each_enter_submission() -> None:
     assert text.splitlines() == [
         (
             "• Messages to be submitted after next tool call "
-            "(press ctrl + c to interrupt and send immediately)"
+            "(press esc to interrupt and send immediately)"
         ),
         "  ↳ first",
         "  ↳ second",
@@ -153,7 +158,7 @@ def test_uncertain_only_projection_is_not_interrupt_settling() -> None:
 
 
 @pytest.mark.anyio
-async def test_interrupt_with_pending_steers_submits_only_those_immediately() -> None:
+async def test_escape_interrupt_submits_only_pending_steers_immediately() -> None:
     runtime = TuiRuntime()
     first = _submission("second query")
     second = _submission("third query")
@@ -162,7 +167,14 @@ async def test_interrupt_with_pending_steers_submits_only_those_immediately() ->
     runtime.track_pending_steer(second)
     runtime.defer_submission(queued)
     runtime.screen.input.buffer.text = "draft remains editable"
+    runtime.set_execution_active(True)
+    runtime.bind_interrupt_handler(
+        lambda: InterruptDisposition.CONSUMED
+    )
 
+    assert runtime.submissions.interrupt_turn() is (
+        InterruptDisposition.CONSUMED
+    )
     runtime.finish_interrupted_presentation()
     runtime.defer_rejected_steer(first)
     runtime.defer_rejected_steer(second)
@@ -176,12 +188,31 @@ async def test_interrupt_with_pending_steers_submits_only_those_immediately() ->
     assert runtime.screen.input.buffer.text == "draft remains editable"
 
 
+def test_escape_interrupt_handler_failure_clears_submit_intent() -> None:
+    runtime = TuiRuntime()
+    runtime.track_pending_steer(_submission("must remain pending"))
+    runtime.set_execution_active(True)
+
+    def fail_interrupt() -> InterruptDisposition:
+        raise RuntimeError("interrupt failed")
+
+    runtime.bind_interrupt_handler(fail_interrupt)
+
+    with pytest.raises(RuntimeError, match="interrupt failed"):
+        runtime.submissions.interrupt_turn()
+
+    assert runtime.submissions.can_interrupt_turn
+    assert not runtime.submit_pending_steers_after_interrupt
+    assert runtime.submissions.pending_steers.active
+
+
 def test_ordinary_interrupted_queue_restores_everything_to_composer() -> None:
     runtime = TuiRuntime()
     runtime.track_pending_steer(_submission("pending steer"))
     runtime.defer_rejected_steer(_submission("rejected steer"))
     runtime.defer_submission(_submission("tab follow up"))
     runtime.screen.input.buffer.text = "current draft"
+    runtime.finish_interrupted_presentation()
 
     assert runtime.restore_interrupted_submissions()
 
@@ -216,7 +247,7 @@ def test_screen_renders_all_input_queue_categories_within_budget() -> None:
     assert text.splitlines() == [
         (
             "• Messages to be submitted after next tool call "
-            "(press ctrl + c to interrupt and send immediately)"
+            "(press esc to interrupt and send immediately)"
         ),
         "  ↳ pending current turn",
         "• Messages to be submitted at end of turn",
@@ -555,6 +586,45 @@ def test_running_enter_steers_and_tab_explicitly_queues() -> None:
         ("wait for next turn", True),
     ]
     assert not runtime.submissions.queued_messages.active
+
+
+@pytest.mark.parametrize(
+    ("terminal_input", "expected"),
+    (
+        ("/mcp start ", "/mcp start"),
+        ("!echo hello", "! echo hello"),
+    ),
+)
+@pytest.mark.anyio
+async def test_real_running_tab_defers_slash_and_shell_parsing(
+    terminal_input: str,
+    expected: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        intents = []
+        stream_command = Mock(return_value=True)
+        runtime.set_execution_active(True)
+        runtime.bind_stream_command_handler(stream_command)
+        runtime.bind_turn_input_handler(
+            lambda submission, queue_only: intents.append((
+                submission.value,
+                queue_only,
+            )) or True
+        )
+
+        await runtime.open()
+        try:
+            pipe_input.send_text(terminal_input + "\t")
+            for _ in range(1000):
+                if intents:
+                    break
+                await asyncio.sleep(0.001)
+
+            assert intents == [(expected, True)]
+            stream_command.assert_not_called()
+        finally:
+            await runtime.close()
 
 
 @pytest.mark.anyio

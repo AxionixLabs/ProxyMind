@@ -374,9 +374,17 @@ SSE 关闭都不能替代该屏障。
 第一次 `Ctrl+C` 必须保留上述权威终态屏障；退出确认窗口内的第二次 `Ctrl+C` 表示用户明确结束
 客户端进程，可以取消本地 status/reconcile 等待并退出，但不得因此启动下一 Turn、重复提交输入或
 把未知归属输入自动重投。远端 Turn 仍由服务端自身生命周期最终收束。
+活动 Turn 已存在普通 pending steer 时，`Esc` 是独立的“中断并提交即时输入”意图：仅冻结按键当时
+的 pending steer 身份，在权威中断终态到达后按 FIFO 合并成一条新 Turn 输入并自动提交；Tab 队列
+和当前编辑草稿保持原位。该路径展示 `Model interrupted to submit steer instructions.`。`Ctrl+C` 不得
+设置这一意图，其终态恢复仍把普通 pending、Tab 队列和当前草稿合并回编辑器。
+输入提交按键在解析命令前确定产品意图：空闲普通文本的 `Tab` 与 `Enter` 都提交新 Turn，空闲
+Shell 草稿的 `Tab` 只编辑草稿；活动 Turn 的 `Enter` 尝试 steer，`Tab` 一律形成普通下一轮输入。
+因此活动 Turn 中通过 `Tab` 排入的 slash 或 Shell 文本只能在出队后解析，不得在按键当下执行。
 
-正常模型等待和工具执行统一投影为单行 `Thinking`；工具名只在工具自身的展示单元中出现，
-不得追加到活动提示。后台终端数量由独立进程状态 owner 投影，
+正常模型等待和工具执行统一投影为单行 `Thinking`；活动 Turn 的状态行统一显示
+`(<elapsed> • esc to interrupt)`，其中经过时间按整数秒及紧凑的分钟/小时格式展示。工具名只在
+工具自身的展示单元中出现，不得追加到活动提示。后台终端数量由独立进程状态 owner 投影，
 可以在活动提示可见时合并到同一行，但不改变 Turn reducer 的阶段或生命周期。活动 Turn 中
 `/ps` 只读取并展示持久终端快照；`/stop` 只停止快照中的终端会话并清除其状态，不得解释为
 Turn interrupt 或逻辑结算。

@@ -117,6 +117,7 @@ class TuiSubmissionFlow(object):
         self._input_handoff_pending: bool = False
         self._recovery_gate_active: bool = False
         self._recovery_submit_event: asyncio.Event = asyncio.Event()
+        self._turn_interrupt_requested: bool = False
         self._submit_after_interrupt_ids: tuple[str, ...] = ()
         self._is_submission_deferred = is_submission_deferred
         self._get_input_buffer = get_input_buffer
@@ -140,6 +141,10 @@ class TuiSubmissionFlow(object):
             _no_pending_attachments
         )
         self.input_model.bind_interrupt(self.interrupt_input)
+        self.input_model.bind_turn_interrupt(
+            lambda: self.can_interrupt_turn,
+            self.interrupt_turn,
+        )
         self.input_model.bind_exit(
             lambda: not self._is_submission_deferred(),
             self.exit_input,
@@ -177,6 +182,19 @@ class TuiSubmissionFlow(object):
             or self.rejected_steers.active
             or self.pending_steers.uncertain_active
         )
+
+    @property
+    def can_interrupt_turn(self) -> bool:
+        """返回 Esc 是否可以中断当前活动轮次。"""
+        return bool(
+            self._is_submission_deferred()
+            and not self._turn_interrupt_requested
+        )
+
+    @property
+    def submit_pending_steers_after_interrupt(self) -> bool:
+        """返回当前中断是否由 Esc 的即时提交意图发起。"""
+        return bool(self._submit_after_interrupt_ids)
 
     def _schedule_exit_expiry(self) -> None:
         """安排退出确认窗口到期后的界面恢复。"""
@@ -350,11 +368,29 @@ class TuiSubmissionFlow(object):
 
     def mark_pending_steers_interrupt_settling(self) -> None:
         """立即展示等待中断结算的即时输入。"""
-        active_ids = self.pending_steers.active_ids
-        if active_ids:
-            self._submit_after_interrupt_ids = active_ids
+        self._turn_interrupt_requested = True
         if self.pending_steers.mark_interrupt_settling():
             self._invalidate()
+
+    def interrupt_turn(self) -> InterruptDisposition:
+        """按 Esc 中断轮次，并为已有即时输入记录自动提交意图。"""
+        if not self.can_interrupt_turn:
+            return InterruptDisposition.IGNORED
+
+        self._turn_interrupt_requested = True
+        self._submit_after_interrupt_ids = self.pending_steers.active_ids
+        try:
+            disposition = self._interrupt_handler()
+        except BaseException:
+            self._turn_interrupt_requested = False
+            self._submit_after_interrupt_ids = ()
+            self._invalidate()
+            raise
+        if disposition is not InterruptDisposition.CONSUMED:
+            self._turn_interrupt_requested = False
+            self._submit_after_interrupt_ids = ()
+        self._invalidate()
+        return disposition
 
     def resolve_pending_steer(
         self,
@@ -452,6 +488,7 @@ class TuiSubmissionFlow(object):
 
     def restore_interrupted_submissions(self) -> bool:
         """按中断意图立即提交 steer，或把普通遗留输入恢复到编辑框。"""
+        self._turn_interrupt_requested = False
         submit_ids = self._submit_after_interrupt_ids
         self._submit_after_interrupt_ids = ()
         if submit_ids:
@@ -510,6 +547,11 @@ class TuiSubmissionFlow(object):
         self.input_model.notify_input_layout()
         self._invalidate()
         return True
+
+    def clear_pending_steer_interrupt_intent(self) -> None:
+        """清除未形成中断终态的 Esc 即时提交意图。"""
+        self._turn_interrupt_requested = False
+        self._submit_after_interrupt_ids = ()
 
     def on_input_text_changed(self, buffer: Buffer) -> None:
         """在用户继续编辑时恢复执行期排队提示。"""
@@ -602,11 +644,13 @@ class TuiSubmissionFlow(object):
 
         self.input_model.cancel_history_backtrack()
         if self.interrupt_state.exit_armed:
+            self._submit_after_interrupt_ids = ()
             self._interrupt_handler()
             return self._request_interrupt_exit()
 
         self.interrupt_state.arm_exit()
         self._schedule_exit_expiry()
+        self._submit_after_interrupt_ids = ()
         disposition = self._interrupt_handler()
 
         if disposition is InterruptDisposition.EXIT_REQUESTED:
@@ -718,7 +762,10 @@ class TuiSubmissionFlow(object):
         if submission_deferred:
             policy = (
                 None
-                if submission.literal_bang_paste
+                if (
+                    self._queue_submission_requested
+                    or submission.literal_bang_paste
+                )
                 else stream_command_policy(value)
             )
             if policy is not None:
@@ -858,6 +905,8 @@ class TuiSubmissionFlow(object):
         self._recovery_submit_event.clear()
 
         self._input_handoff_pending = False
+        self._turn_interrupt_requested = False
+        self._submit_after_interrupt_ids = ()
 
         self._interrupt_handler = _ignore_interrupt
         self._stream_command_handler = _ignore_stream_command

@@ -259,15 +259,97 @@ async def test_production_interrupt_matrix_preserves_gate_and_input_ownership(
         InterruptInputCase.ONE_STEER,
         InterruptInputCase.MANY_STEERS,
     }:
-        immediate = await runtime.submissions.read_submission()
-        assert immediate.value == "\n".join(values)
-        assert runtime.screen.input.buffer.text == ""
+        assert runtime.screen.input.buffer.text == "\n".join(values)
+        assert runtime.submissions.message_queue.empty()
     elif scenario.inputs is InterruptInputCase.NEXT_TURN_INPUT:
         assert runtime.screen.input.buffer.text == "queued follow up"
         assert runtime.submissions.message_queue.empty()
     else:
         assert runtime.screen.input.buffer.text == ""
         assert runtime.submissions.message_queue.empty()
+
+    await server.post_mind_chat(turn_id="turn-2", initial_event_seq=18)
+    assert server.mind_chat_requests[-1].initial_event_seq == 18
+    await runtime.close()
+
+
+@pytest.mark.runtime_p0
+@pytest.mark.runtime_fault
+@pytest.mark.anyio
+async def test_escape_interrupt_response_loss_submits_only_sampled_steers(
+) -> None:
+    """验证 Esc 在中断回执丢失时仍只提交按键时的 pending steer。"""
+    server = FakeMindChatServer(
+        interrupt_fault=CommandFault.RESPONSE_LOST,
+    )
+    await server.post_mind_chat(
+        turn_id="turn-1",
+        initial_event_seq=0,
+        status="running",
+    )
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    control = _control(server, runtime)
+    control.handle_event(MarkerEvent(type="turn.started", turn_id="turn-1"))
+
+    pending = tuple(
+        TuiSubmission(
+            value=value,
+            editable_text=value,
+            paste_store={},
+            client_message_id=f"message-{index}",
+        )
+        for index, value in enumerate(("second query", "third query"), start=1)
+    )
+    for submission in pending:
+        assert control.submit(submission, False)
+    await _wait_for_steer_count(server, len(pending))
+
+    queued = TuiSubmission(
+        value="tab follow up",
+        editable_text="tab follow up",
+        paste_store={},
+        client_message_id="message-tab",
+    )
+    assert control.submit(queued, True)
+    runtime.screen.input.buffer.text = "draft remains editable"
+
+    def interrupt_turn() -> InterruptDisposition:
+        assert control.request_interrupt()
+        runtime.finish_interrupted_presentation()
+        return InterruptDisposition.CONSUMED
+
+    runtime.bind_interrupt_handler(interrupt_turn)
+    assert runtime.submissions.interrupt_turn() is InterruptDisposition.CONSUMED
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1.0
+    while len(server.interrupt_requests) < 2:
+        if loop.time() >= deadline:
+            raise AssertionError("interrupt response-loss retry did not finish")
+        await asyncio.sleep(0)
+
+    assert server.accepted_interrupt_count == 1
+    assert len(set(server.interrupt_requests)) == 1
+    with pytest.raises(ProtocolCommandError, match="still active"):
+        await server.post_mind_chat(turn_id="turn-2", initial_event_seq=0)
+
+    server.settle("interrupted", last_event_seq=18)
+    control.handle_event(TurnCompletedEvent(
+        type="turn.completed",
+        turn_id="turn-1",
+        event_seq=18,
+        status="interrupted",
+        last_event_seq=18,
+        completed_at=1.0,
+    ))
+    await control.close()
+    assert runtime.restore_interrupted_submissions()
+
+    immediate = await runtime.submissions.read_submission()
+    assert immediate.value == "second query\nthird query"
+    assert runtime.submissions.queued_messages.active
+    assert runtime.screen.input.buffer.text == "draft remains editable"
 
     await server.post_mind_chat(turn_id="turn-2", initial_event_seq=18)
     assert server.mind_chat_requests[-1].initial_event_seq == 18

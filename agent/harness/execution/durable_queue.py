@@ -53,6 +53,7 @@ from agent.protocol import (
     LocalDurableQueueSnapshot,
     SubmitTurnCommand,
 )
+from agent.protocol.json_value import ThawedJsonValue
 
 if typing.TYPE_CHECKING:
     from agent.ports import McpSessionPort
@@ -168,13 +169,9 @@ async def observe_durable_root_turn(
         raise ValueError("durable queue item has not started")
     request = local.request
     _require_current_session(session, request.cid, request.sid)
-    permissions = _request_permissions(request.option_values())
-    conversation_turn = await session.begin_turn(
-        cid=request.cid,
-        sid=request.sid,
-        title=request.message,
-        source="queue:start",
-    )
+    options = request.option_values()
+    permissions = _request_permissions(options)
+    additional_context, system_message = _request_turn_context(options)
     execution = _observed_execution(
         session,
         local,
@@ -186,8 +183,8 @@ async def observe_durable_root_turn(
         patch_preview=patch_preview,
         session_context=session_context,
         session_state=session_state,
-        additional_context=conversation_turn.additional_context,
-        system_message=conversation_turn.system_message,
+        additional_context=additional_context,
+        system_message=system_message,
     )
     resolved_callbacks = callbacks or DurableQueueTurnCallbacks()
 
@@ -390,13 +387,28 @@ def _observed_execution(
 
 
 def _request_permissions(
-    options: Mapping[str, typing.Any],
+    options: Mapping[str, ThawedJsonValue],
 ) -> PermissionSettings:
     """从冻结 AgentRequest 还原客户端本地执行权限。"""
     permissions = options.get("permissions")
     if not isinstance(permissions, Mapping):
         raise ValueError("durable queue request has no frozen permissions")
     return resolve_permissions(dict(permissions), interactive=True)
+
+
+def _request_turn_context(
+    options: Mapping[str, ThawedJsonValue],
+) -> tuple[tuple[str, ...], str]:
+    """从冻结请求还原本地工具执行使用的单轮上下文。"""
+    raw_context = options.get("additional_context", [])
+    if not isinstance(raw_context, list) or any(
+        not isinstance(value, str) for value in raw_context
+    ):
+        raise ValueError("durable queue additional_context is invalid")
+    raw_system_message = options.get("system_message", "")
+    if not isinstance(raw_system_message, str):
+        raise ValueError("durable queue system_message is invalid")
+    return tuple(raw_context), raw_system_message
 
 
 def _command_binding(command: SubmitTurnCommand) -> tuple[str, str, str]:

@@ -317,6 +317,57 @@ async def test_real_input_double_ctrl_c_exits_active_turn_observer() -> None:
             await runtime.close()
 
 
+@pytest.mark.anyio
+async def test_real_escape_requests_pending_steer_interrupt() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        interrupt = Mock(return_value=InterruptDisposition.CONSUMED)
+        runtime.set_execution_active(True)
+        runtime.bind_interrupt_handler(interrupt)
+        runtime.track_pending_steer(TuiSubmission(
+            value="next instruction",
+            editable_text="next instruction",
+            paste_store={},
+        ))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("\x1b")
+            for _ in range(200):
+                if interrupt.call_count == 1:
+                    break
+                await asyncio.sleep(0.001)
+
+            interrupt.assert_called_once_with()
+            assert runtime.submit_pending_steers_after_interrupt
+            assert not runtime.submissions.interrupt_state.exit_armed
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_real_escape_interrupts_active_turn_without_pending_steer() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        interrupt = Mock(return_value=InterruptDisposition.CONSUMED)
+        runtime.set_execution_active(True)
+        runtime.bind_interrupt_handler(interrupt)
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("\x1b")
+            for _ in range(200):
+                if interrupt.call_count == 1:
+                    break
+                await asyncio.sleep(0.001)
+
+            interrupt.assert_called_once_with()
+            assert not runtime.submit_pending_steers_after_interrupt
+            assert not runtime.submissions.interrupt_state.exit_armed
+        finally:
+            await runtime.close()
+
+
 def test_ignored_turn_interrupt_only_arms_exit() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)

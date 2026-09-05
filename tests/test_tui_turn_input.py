@@ -1310,7 +1310,7 @@ async def test_second_ctrl_c_abandons_remote_settlement_and_exits(
 
 
 @pytest.mark.anyio
-async def test_interrupt_immediately_projects_pending_steers_as_queued(
+async def test_escape_interrupt_submits_pending_steers_after_terminal(
     protocol_client: ProtocolCommandClient,
 ) -> None:
     release_terminal = asyncio.Event()
@@ -1364,7 +1364,11 @@ async def test_interrupt_immediately_projects_pending_steers_as_queued(
     while protocol_client.steer_turn.await_count < 2:
         await asyncio.sleep(0)
 
-    assert runtime.submissions.interrupt_input() is (
+    runtime.defer_submission(_submission("tab follow up"))
+    buffer.text = "draft remains editable"
+    buffer.cursor_position = len(buffer.text)
+
+    assert runtime.submissions.interrupt_turn() is (
         InterruptDisposition.CONSUMED
     )
     immediate_preview = fragments_text(
@@ -1375,12 +1379,104 @@ async def test_interrupt_immediately_projects_pending_steers_as_queued(
     assert "second query" in immediate_preview
     assert "third query" in immediate_preview
     assert not execution.done()
+    notice = application.emit.call_args.args[0]
+    assert fragments_text(notice.renderable.fragments) == (
+        "• Model interrupted to submit steer instructions."
+    )
 
     release_terminal.set()
     await asyncio.wait_for(execution, timeout=0.1)
 
     immediate = await runtime.submissions.read_submission()
     assert immediate.value == "second query\nthird query"
+    assert runtime.submissions.queued_messages.active
+    assert runtime.screen.input.buffer.text == "draft remains editable"
+    protocol_client.get_turn_status.assert_not_awaited()
+
+    await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("terminal_status", ("interrupted", "cancelled"))
+async def test_ctrl_c_restores_pending_steers_and_tab_queue_after_terminal(
+    protocol_client: ProtocolCommandClient,
+    terminal_status: str,
+) -> None:
+    release_terminal = asyncio.Event()
+    turn_started = asyncio.Event()
+
+    async def retry_pending(**kwargs):
+        return SimpleNamespace(
+            committed_ids=(),
+            pending_ids=(),
+            retry_ids=tuple(kwargs["client_message_ids"]),
+            unknown_ids=(),
+        )
+
+    async def turn() -> SimpleNamespace:
+        turn_started.set()
+        await release_terminal.wait()
+        control.handle_event(_completed(status=terminal_status, event_seq=3))
+        return SimpleNamespace(status=terminal_status)
+
+    protocol_client.reconcile_turn_inputs = AsyncMock(
+        side_effect=retry_pending,
+    )
+    runtime = TuiRuntime()
+    application = SimpleNamespace(emit=Mock())
+    interrupt_notice = loop_session._TurnInterruptNotice(application, runtime)
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+    _mark_started(control)
+    execution = asyncio.create_task(execute_tui_model_turn(
+        application,
+        runtime,
+        turn(),
+        turn_input_control=control,
+        on_interrupt_requested=interrupt_notice.acknowledge,
+        show_interrupt_notice=lambda: not interrupt_notice.shown,
+    ))
+    await turn_started.wait()
+
+    buffer = runtime.screen.input.buffer
+    for value in ("second query", "third query"):
+        buffer.text = value
+        buffer.cursor_position = len(value)
+        assert runtime.submissions.accept_input(buffer)
+    while protocol_client.steer_turn.await_count < 2:
+        await asyncio.sleep(0)
+
+    buffer.text = "tab follow up"
+    buffer.cursor_position = len(buffer.text)
+    runtime.submissions.queue_input(buffer)
+    assert buffer.text == ""
+
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.CONSUMED
+    )
+    notice = application.emit.call_args.args[0]
+    assert fragments_text(notice.renderable.fragments).startswith(
+        "■ Conversation interrupted"
+    )
+    assert not runtime.submit_pending_steers_after_interrupt
+
+    release_terminal.set()
+    await asyncio.wait_for(execution, timeout=0.1)
+
+    assert runtime.screen.input.buffer.text == (
+        "second query\nthird query\ntab follow up"
+    )
+    assert runtime.submissions.message_queue.empty()
+    assert not runtime.submissions.pending_steers.active
+    assert not runtime.submissions.rejected_steers.active
+    assert not runtime.submissions.queued_messages.active
     protocol_client.get_turn_status.assert_not_awaited()
 
     await runtime.close()

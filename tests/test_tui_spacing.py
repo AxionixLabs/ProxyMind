@@ -9438,8 +9438,9 @@ async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
     activity_text = "".join(
         text for _style, text in runtime.screen.activity_block.fragments
     )
-    assert activity_text.startswith("• Waiting for background terminal · ")
-    assert "esc to interrupt" not in activity_text
+    assert activity_text.startswith(
+        "• Waiting for background terminal (0s • esc to interrupt)"
+    )
     assert f"\n  └ {command}" in activity_text
     await presentation.emit(build_native_tool_result_view(
         "write_stdin",

@@ -263,6 +263,11 @@ class TuiPendingSteers(object):
         )
 
     @property
+    def interrupt_settling(self) -> bool:
+        """返回当前即时输入是否正在等待中断终态。"""
+        return self._interrupt_settling
+
+    @property
     def active_ids(self) -> tuple[str, ...]:
         """返回尚未收到权威归属的当前轮次输入标识。"""
         return tuple(
@@ -507,7 +512,7 @@ def _pending_steer_title(width: int) -> FormattedText:
     titles = (
         (
             "• Messages to be submitted after next tool call",
-            " (press ctrl + c to interrupt and send immediately)",
+            " (press esc to interrupt and send immediately)",
         ),
         ("• Messages to be submitted after next tool call", ""),
         ("• Submit after next tool call", ""),

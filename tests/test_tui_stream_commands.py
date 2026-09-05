@@ -393,7 +393,10 @@ async def test_long_tool_keeps_ps_and_stop_available_during_turn() -> None:
     )
 
     status = fragments_text(runtime.screen._status_fragments())
-    assert "Thinking · 1 background terminal running" in status
+    assert (
+        "Thinking (0s • esc to interrupt)"
+        " · 1 background terminal running"
+    ) in status
     assert "exec_command" not in status
 
     assert dispatcher.handle_stream_command("/ps", Mock(return_value=None))

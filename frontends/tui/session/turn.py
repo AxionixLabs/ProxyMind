@@ -58,8 +58,25 @@ class _TurnInterruptState(object):
         self.requested = True
 
 
-def emit_tui_interrupt_notice(application: ApplicationSink) -> None:
+def emit_tui_interrupt_notice(
+    application: ApplicationSink,
+    *,
+    submit_pending_steers: bool = False,
+) -> None:
     """提交一条与终端交互约定一致的会话中断提示。"""
+    if submit_pending_steers:
+        application.emit(ApplicationView(
+            type="tui.interrupted",
+            renderable=fragment_block(
+                TextSpan("• ", BODY_STYLE),
+                TextSpan(
+                    "Model interrupted to submit steer instructions.",
+                    BODY_STYLE,
+                ),
+            ),
+        ))
+        return None
+
     application.emit(ApplicationView(
         type="tui.interrupted",
         renderable=fragment_block(
@@ -243,6 +260,10 @@ async def execute_tui_model_turn(
                 await turn_input_control.close()
                 if interrupted:
                     runtime.restore_interrupted_submissions()
+                else:
+                    runtime.clear_pending_steer_interrupt_intent()
+            else:
+                runtime.clear_pending_steer_interrupt_intent()
         finally:
             runtime.bind_interrupt_handler(None)
 
