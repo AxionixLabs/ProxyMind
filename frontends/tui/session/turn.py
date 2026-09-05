@@ -145,7 +145,6 @@ async def execute_tui_model_turn(
                                 [str, typing.Callable[[], InterruptDisposition]],
                                 bool,
                             ] | None = None,
-    on_interrupt_requested: typing.Callable[[], None] | None = None,
     show_interrupt_notice: typing.Callable[[], bool] = lambda: True
 ) -> TurnValue | None:
     """执行可由主输入区定向取消的单个模型轮次。"""
@@ -160,6 +159,8 @@ async def execute_tui_model_turn(
     interrupt_state = _TurnInterruptState()
 
     fatal_error: BaseException | None = None
+    interrupted: bool = False
+    submit_pending_steers: bool = False
 
     def cancel_local_stream() -> None:
         """取消当前轮次持有的本地事件流。"""
@@ -183,8 +184,7 @@ async def execute_tui_model_turn(
             cancel_local_stream()
         else:
             interrupt_dispatched = turn_input_control.request_interrupt()
-        if on_interrupt_requested is not None and show_interrupt_notice():
-            on_interrupt_requested()
+        runtime.begin_interrupt_settlement()
 
         observe(
             "tui.turn.interrupt.local",
@@ -242,6 +242,10 @@ async def execute_tui_model_turn(
         )
 
     finally:
+        if interrupted:
+            submit_pending_steers = (
+                runtime.submit_pending_steers_after_interrupt
+            )
         if not task.done():
             task.cancel()
         if not application_failure.done():
@@ -265,6 +269,8 @@ async def execute_tui_model_turn(
             else:
                 runtime.clear_pending_steer_interrupt_intent()
         finally:
+            if interrupted:
+                runtime.finish_interrupted_presentation()
             runtime.bind_interrupt_handler(None)
 
             if not runtime.uncertain_steers_active:
@@ -277,7 +283,10 @@ async def execute_tui_model_turn(
         raise fatal_error
 
     if interrupted and show_interrupt_notice():
-        emit_tui_interrupt_notice(application)
+        emit_tui_interrupt_notice(
+            application,
+            submit_pending_steers=submit_pending_steers,
+        )
 
     return result
 
@@ -297,7 +306,6 @@ async def run_tui_model_turn(
                             None,
                         ] | None = None,
     turn_input_control: TuiTurnInputControl | None = None,
-    on_interrupt_acknowledged: typing.Callable[[], None] | None = None,
 ) -> "RunResult":
     """冻结 TUI 输入并提交给组合根绑定的根轮次用例。"""
     attachment_values = [dict(item) for item in attachments]
@@ -336,9 +344,6 @@ async def run_tui_model_turn(
         prompt_kwargs["on_turn_input_context"] = turn_input_control.activate
         prompt_kwargs["on_turn_input_event"] = turn_input_control.handle_event
         prompt_kwargs["on_turn_stream_end"] = turn_input_control.handle_stream_end
-    if on_interrupt_acknowledged is not None:
-        prompt_kwargs["on_turn_interrupted"] = on_interrupt_acknowledged
-
     return await turn_runner(
         pref_config,
         message=message_text,

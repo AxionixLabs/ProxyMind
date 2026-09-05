@@ -97,6 +97,11 @@ class TurnRuntimePort(typing.Protocol):
     """描述单轮模型执行所需的最小运行时能力。"""
 
     @property
+    def submit_pending_steers_after_interrupt(self) -> bool:
+        """返回当前中断是否应在终态后提交已采样的即时输入。"""
+        ...
+
+    @property
     def uncertain_steers_active(self) -> bool:
         """返回当前是否存在归属未确认的输入。"""
         ...
@@ -107,6 +112,14 @@ class TurnRuntimePort(typing.Protocol):
 
     def clear_active_renderable(self) -> None:
         """清除已经停止的流式展示尾部。"""
+        ...
+
+    def begin_interrupt_settlement(self) -> None:
+        """登记本地中断反馈，但不结束权威 Turn 展示。"""
+        ...
+
+    def finish_interrupted_presentation(self) -> None:
+        """在权威中断终态后收束当前 Turn 展示。"""
         ...
 
     def set_turn_start_pending(self, pending: bool) -> None:

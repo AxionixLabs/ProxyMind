@@ -42,7 +42,6 @@ from .dispatch import (
 from .state import TuiSessionState
 from .turn import (
     TuiRootTurnRunner,
-    emit_tui_interrupt_notice,
     emit_tui_recovery_notice,
     execute_tui_model_turn,
     run_tui_model_turn
@@ -105,32 +104,6 @@ class _QueueTurnAuthority:
         if isinstance(event, TurnCompletedEvent):
             self.terminal_received = True
         return result
-
-
-class _TurnInterruptNotice:
-    """管理单轮中断提示的展示状态。"""
-
-    def __init__(
-        self,
-        application: ApplicationSink,
-        runtime: TuiRuntime,
-    ) -> None:
-        self._application = application
-        self._runtime = runtime
-        self.shown: bool = False
-
-    def acknowledge(self) -> None:
-        """立即结束 TUI 展示等待，同时保留后台轮次清理屏障。"""
-        if self.shown:
-            return None
-        self.shown = True
-        self._runtime.finish_interrupted_presentation()
-        emit_tui_interrupt_notice(
-            self._application,
-            submit_pending_steers=(
-                self._runtime.submit_pending_steers_after_interrupt
-            ),
-        )
 
 
 def _restore_recovery_commands(
@@ -339,12 +312,10 @@ async def _execute_tui_durable_queue_turn(
         protocol_client=protocol_client,
     )
     terminal_authority = _QueueTurnAuthority(turn_input_control)
-    interrupt_notice = _TurnInterruptNotice(application, runtime)
     callbacks = DurableQueueTurnCallbacks(
         input_context=turn_input_control.activate,
         input_event=terminal_authority.handle_event,
         stream_end=turn_input_control.handle_stream_end,
-        interrupted=interrupt_notice.acknowledge,
     )
     try:
         await execute_tui_model_turn(
@@ -353,13 +324,7 @@ async def _execute_tui_durable_queue_turn(
             host.observe_durable_turn(local, callbacks=callbacks),
             turn_input_control=turn_input_control,
             stream_command_handler=dispatcher.handle_stream_command,
-            on_interrupt_requested=interrupt_notice.acknowledge,
-            show_interrupt_notice=(
-                lambda: (
-                    not interrupt_notice.shown
-                    and not host.lifecycle.stop_event.is_set()
-                )
-            ),
+            show_interrupt_notice=lambda: not host.lifecycle.stop_event.is_set(),
         )
         settled = terminal_authority.terminal_received
         if settled:
@@ -702,8 +667,6 @@ async def _run_tui_loop(
                 attachments=attachments,
             )
 
-        interrupt_notice = _TurnInterruptNotice(application, runtime)
-
         resolved_local_session_id = local_session_id
         remote_session: dict[str, str] | None = None
         if resolved_local_session_id is None:
@@ -748,7 +711,6 @@ async def _run_tui_loop(
                 prompt_extras=command.extras_value(),
                 on_prompt_prepared=bind_prompt_attachments,
                 turn_input_control=turn_input_control,
-                on_interrupt_acknowledged=interrupt_notice.acknowledge,
             )
 
         await execute_tui_model_turn(
@@ -760,13 +722,7 @@ async def _run_tui_loop(
             ),
             turn_input_control=turn_input_control,
             stream_command_handler=dispatcher.handle_stream_command,
-            on_interrupt_requested=interrupt_notice.acknowledge,
-            show_interrupt_notice=(
-                lambda: (
-                    not interrupt_notice.shown
-                    and not host.lifecycle.stop_event.is_set()
-                )
-            ),
+            show_interrupt_notice=lambda: not host.lifecycle.stop_event.is_set(),
         )
         runtime.set_turn_start_pending(False)
         if _apply_turn_exit_request(host, runtime):

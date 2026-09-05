@@ -1858,13 +1858,18 @@ class TuiRuntime(object):
         """清空当前流式展示块。"""
         self._transcript.clear_active()
 
+    def begin_interrupt_settlement(self) -> None:
+        """投影中断意图下的输入归属，但保留活动 Turn 展示。"""
+        with self.screen.visual_update():
+            self.submissions.mark_pending_steers_interrupt_settling()
+            self.invalidate()
+
     def finish_interrupted_presentation(self) -> None:
-        """撤下中断前台展示，但不结束仍在远端结算的模型轮次。"""
+        """在权威中断终态后撤下当前 Turn 的前台展示。"""
         with self.screen.visual_update():
             self._turn_output_suppressed = True
             self._transcript.clear_active()
             self.activity.finish_wait()
-            self.submissions.mark_pending_steers_interrupt_settling()
             self.invalidate()
 
     def set_execution_active(self, active: bool) -> None:

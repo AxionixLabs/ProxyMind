@@ -215,8 +215,7 @@ async def test_production_interrupt_matrix_preserves_gate_and_input_ownership(
     if started and not queue_only:
         await _wait_for_steer_count(server, len(submissions))
 
-    assert control.request_interrupt() is started
-    runtime.finish_interrupted_presentation()
+    assert control.request_interrupt()
     if not started:
         control.handle_event(MarkerEvent(
             type="turn.started",
@@ -251,6 +250,7 @@ async def test_production_interrupt_matrix_preserves_gate_and_input_ownership(
         completed_at=1.0,
     ))
     await control.close()
+    runtime.finish_interrupted_presentation()
     restored = runtime.restore_interrupted_submissions()
 
     assert restored is bool(submissions)
@@ -316,7 +316,7 @@ async def test_escape_interrupt_response_loss_submits_only_sampled_steers(
 
     def interrupt_turn() -> InterruptDisposition:
         assert control.request_interrupt()
-        runtime.finish_interrupted_presentation()
+        runtime.begin_interrupt_settlement()
         return InterruptDisposition.CONSUMED
 
     runtime.bind_interrupt_handler(interrupt_turn)
@@ -344,6 +344,7 @@ async def test_escape_interrupt_response_loss_submits_only_sampled_steers(
         completed_at=1.0,
     ))
     await control.close()
+    runtime.finish_interrupted_presentation()
     assert runtime.restore_interrupted_submissions()
 
     immediate = await runtime.submissions.read_submission()
@@ -396,7 +397,6 @@ async def test_approval_rejection_interrupt_loss_preserves_gate_and_fifo(
         runtime,
         turn(),
         turn_input_control=control,
-        on_interrupt_requested=runtime.finish_interrupted_presentation,
     ))
     await turn_started.wait()
 

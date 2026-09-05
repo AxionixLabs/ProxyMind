@@ -1242,7 +1242,7 @@ async def test_external_mcp_activity_does_not_replace_streaming_content() -> Non
 
 
 @pytest.mark.anyio
-async def test_interrupted_presentation_keeps_turn_lifecycle_active() -> None:
+async def test_interrupt_request_keeps_activity_until_terminal_presentation() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
     runtime.track_pending_steer(TuiSubmission(
@@ -1253,14 +1253,19 @@ async def test_interrupted_presentation_keeps_turn_lifecycle_active() -> None:
     runtime.set_active_renderable(FragmentBlock((("", "partial answer"),)))
     await runtime.activity.begin_wait()
 
-    runtime.finish_interrupted_presentation()
+    runtime.begin_interrupt_settlement()
 
     assert runtime.execution_active
-    assert runtime.document.active_block is None
-    assert runtime.activity.lease("wait") is None
+    assert runtime.document.active_block is not None
+    assert runtime.activity.lease("wait") is not None
     assert "Queued while interrupted turn settles" in fragments_text(
         runtime.screen._queued_fragments(width=80)
     )
+
+    runtime.finish_interrupted_presentation()
+
+    assert runtime.document.active_block is None
+    assert runtime.activity.lease("wait") is None
 
     runtime.set_execution_active(False)
     await runtime.close()

@@ -175,6 +175,7 @@ async def test_escape_interrupt_submits_only_pending_steers_immediately() -> Non
     assert runtime.submissions.interrupt_turn() is (
         InterruptDisposition.CONSUMED
     )
+    runtime.begin_interrupt_settlement()
     runtime.finish_interrupted_presentation()
     runtime.defer_rejected_steer(first)
     runtime.defer_rejected_steer(second)
@@ -212,6 +213,7 @@ def test_ordinary_interrupted_queue_restores_everything_to_composer() -> None:
     runtime.defer_rejected_steer(_submission("rejected steer"))
     runtime.defer_submission(_submission("tab follow up"))
     runtime.screen.input.buffer.text = "current draft"
+    runtime.begin_interrupt_settlement()
     runtime.finish_interrupted_presentation()
 
     assert runtime.restore_interrupted_submissions()

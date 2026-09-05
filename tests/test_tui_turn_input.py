@@ -16,7 +16,6 @@ from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.submission import TuiInterruptRequested
 from frontends.tui.core.styles import query_block, text_block
-from frontends.tui.session import loop as loop_session
 from frontends.tui.session import turn_input as turn_input_session
 from frontends.tui.session.turn import execute_tui_model_turn
 from frontends.tui.session.turn_input import (
@@ -1244,7 +1243,10 @@ async def test_turn_commands_do_not_retry_deterministic_errors(
         "turn_001",
         _submission("deterministic failure"),
     )
-    await control._send_interrupt("cid_1", "sid_1", "turn_001")
+    _mark_started(control)
+    assert control.request_interrupt()
+    while protocol_client.interrupt_turn.await_count < 1:
+        await asyncio.sleep(0)
 
     protocol_client.steer_turn.assert_awaited_once()
     protocol_client.interrupt_turn.assert_awaited_once()
@@ -1370,7 +1372,6 @@ async def test_escape_interrupt_submits_pending_steers_after_terminal(
     )
     runtime = TuiRuntime()
     application = SimpleNamespace(emit=Mock())
-    interrupt_notice = loop_session._TurnInterruptNotice(application, runtime)
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         runtime,
@@ -1386,8 +1387,6 @@ async def test_escape_interrupt_submits_pending_steers_after_terminal(
         runtime,
         turn(),
         turn_input_control=control,
-        on_interrupt_requested=interrupt_notice.acknowledge,
-        show_interrupt_notice=lambda: not interrupt_notice.shown,
     ))
     await turn_started.wait()
 
@@ -1414,14 +1413,15 @@ async def test_escape_interrupt_submits_pending_steers_after_terminal(
     assert "second query" in immediate_preview
     assert "third query" in immediate_preview
     assert not execution.done()
-    notice = application.emit.call_args.args[0]
-    assert fragments_text(notice.renderable.fragments) == (
-        "• Model interrupted to submit steer instructions."
-    )
+    application.emit.assert_not_called()
 
     release_terminal.set()
     await asyncio.wait_for(execution, timeout=0.1)
 
+    notice = application.emit.call_args.args[0]
+    assert fragments_text(notice.renderable.fragments) == (
+        "• Model interrupted to submit steer instructions."
+    )
     immediate = await runtime.submissions.read_submission()
     assert immediate.value == "second query\nthird query"
     assert runtime.submissions.queued_messages.active
@@ -1459,7 +1459,6 @@ async def test_ctrl_c_restores_pending_steers_and_tab_queue_after_terminal(
     )
     runtime = TuiRuntime()
     application = SimpleNamespace(emit=Mock())
-    interrupt_notice = loop_session._TurnInterruptNotice(application, runtime)
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         runtime,
@@ -1475,8 +1474,6 @@ async def test_ctrl_c_restores_pending_steers_and_tab_queue_after_terminal(
         runtime,
         turn(),
         turn_input_control=control,
-        on_interrupt_requested=interrupt_notice.acknowledge,
-        show_interrupt_notice=lambda: not interrupt_notice.shown,
     ))
     await turn_started.wait()
 
@@ -1496,15 +1493,16 @@ async def test_ctrl_c_restores_pending_steers_and_tab_queue_after_terminal(
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.CONSUMED
     )
-    notice = application.emit.call_args.args[0]
-    assert fragments_text(notice.renderable.fragments).startswith(
-        "■ Conversation interrupted"
-    )
+    application.emit.assert_not_called()
     assert not runtime.submit_pending_steers_after_interrupt
 
     release_terminal.set()
     await asyncio.wait_for(execution, timeout=0.1)
 
+    notice = application.emit.call_args.args[0]
+    assert fragments_text(notice.renderable.fragments).startswith(
+        "■ Conversation interrupted"
+    )
     assert runtime.screen.input.buffer.text == (
         "second query\nthird query\ntab follow up"
     )
@@ -1545,7 +1543,6 @@ async def test_local_interrupt_waits_for_remote_turn_settlement(
     )
     runtime = TuiRuntime()
     application = SimpleNamespace(emit=Mock())
-    interrupt_notice = loop_session._TurnInterruptNotice(application, runtime)
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         runtime,
@@ -1562,8 +1559,6 @@ async def test_local_interrupt_waits_for_remote_turn_settlement(
         runtime,
         turn(),
         turn_input_control=control,
-        on_interrupt_requested=interrupt_notice.acknowledge,
-        show_interrupt_notice=lambda: not interrupt_notice.shown,
     ))
     await turn_started.wait()
     await runtime.activity.begin_wait()
@@ -1571,10 +1566,9 @@ async def test_local_interrupt_waits_for_remote_turn_settlement(
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.CONSUMED
     )
-    assert interrupt_notice.shown
-    assert runtime.activity.lease("wait") is None
+    assert runtime.activity.lease("wait") is not None
     assert runtime.execution_active
-    assert application.emit.call_count == 1
+    application.emit.assert_not_called()
     assert not execution.done()
     await remote_started.wait()
 
@@ -1608,7 +1602,7 @@ async def test_local_interrupt_waits_for_remote_turn_settlement(
 
 
 @pytest.mark.anyio
-async def test_interrupt_before_turn_start_waits_for_remote_control(
+async def test_interrupt_before_turn_start_dispatches_remote_control_immediately(
     protocol_client: ProtocolCommandClient,
 ) -> None:
     turn_started = asyncio.Event()
@@ -1637,7 +1631,6 @@ async def test_interrupt_before_turn_start_waits_for_remote_control(
     protocol_client.interrupt_turn = AsyncMock(side_effect=interrupt_remote)
     runtime = TuiRuntime()
     application = SimpleNamespace(emit=Mock())
-    interrupt_notice = loop_session._TurnInterruptNotice(application, runtime)
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         runtime,
@@ -1652,19 +1645,17 @@ async def test_interrupt_before_turn_start_waits_for_remote_control(
         runtime,
         turn(),
         turn_input_control=control,
-        on_interrupt_requested=interrupt_notice.acknowledge,
-        show_interrupt_notice=lambda: not interrupt_notice.shown,
     ))
     await turn_started.wait()
 
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.CONSUMED
     )
-    assert interrupt_notice.shown
     assert runtime.execution_active
-    assert application.emit.call_count == 1
-    assert not control.request_interrupt()
-    protocol_client.interrupt_turn.assert_not_awaited()
+    application.emit.assert_not_called()
+    await remote_started.wait()
+    assert control.request_interrupt()
+    protocol_client.interrupt_turn.assert_awaited_once()
     for _ in range(10):
         await asyncio.sleep(0)
         if execution.done():
@@ -1695,3 +1686,154 @@ async def test_interrupt_before_turn_start_waits_for_remote_control(
     assert application.emit.call_count == 1
 
     await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_interrupt_before_turn_persistence_retries_same_command_identity(
+    monkeypatch,
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    interrupt = AsyncMock(side_effect=[
+        ProtocolCommandError(
+            "turn_not_found",
+            "turn is not persisted yet",
+            retryable=False,
+            details={"status_code": 404},
+        ),
+        SimpleNamespace(status="accepted"),
+    ])
+    protocol_client.interrupt_turn = interrupt
+    monkeypatch.setattr(
+        TuiTurnInputControl,
+        "INTERRUPT_PERSISTENCE_RETRY_INTERVAL_SEC",
+        0.001,
+    )
+    monkeypatch.setattr(
+        turn_input_session,
+        "new_request_id",
+        lambda _prefix: "interrupt_request_early",
+    )
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        TuiRuntime(),
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+
+    assert control.request_interrupt()
+    while interrupt.await_count < 2:
+        await asyncio.sleep(0)
+    await control.close()
+
+    assert interrupt.await_count == 2
+    assert interrupt.await_args_list[0] == interrupt.await_args_list[1]
+    assert interrupt.await_args_list[0].kwargs["request_id"] == (
+        "interrupt_request_early"
+    )
+
+
+@pytest.mark.anyio
+async def test_interrupt_persistence_window_waits_for_start_before_retrying(
+    monkeypatch,
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    interrupt = AsyncMock(side_effect=[
+        ProtocolCommandError(
+            "turn_not_found",
+            "turn is not persisted yet",
+            retryable=False,
+            details={"status_code": 404},
+        ),
+        SimpleNamespace(status="accepted"),
+    ])
+    protocol_client.interrupt_turn = interrupt
+    monkeypatch.setattr(
+        TuiTurnInputControl,
+        "INTERRUPT_PERSISTENCE_DEADLINE_SEC",
+        0.0,
+    )
+    monkeypatch.setattr(
+        turn_input_session,
+        "new_request_id",
+        lambda _prefix: "interrupt_request_wait_start",
+    )
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        TuiRuntime(),
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+
+    assert control.request_interrupt()
+    while interrupt.await_count < 1:
+        await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert interrupt.await_count == 1
+
+    _mark_started(control)
+    while interrupt.await_count < 2:
+        await asyncio.sleep(0)
+    await control.close()
+
+    assert interrupt.await_count == 2
+    assert interrupt.await_args_list[0] == interrupt.await_args_list[1]
+
+
+@pytest.mark.anyio
+async def test_turn_start_during_404_response_wakes_same_interrupt_command(
+    monkeypatch,
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    request_started = asyncio.Event()
+    release_not_found = asyncio.Event()
+
+    async def interrupt_remote(**_kwargs):
+        if not request_started.is_set():
+            request_started.set()
+            await release_not_found.wait()
+            raise ProtocolCommandError(
+                "turn_not_found",
+                "turn was not visible when request started",
+                retryable=False,
+                details={"status_code": 404},
+            )
+        return SimpleNamespace(status="accepted")
+
+    interrupt = AsyncMock(side_effect=interrupt_remote)
+    protocol_client.interrupt_turn = interrupt
+    monkeypatch.setattr(
+        TuiTurnInputControl,
+        "INTERRUPT_PERSISTENCE_DEADLINE_SEC",
+        0.0,
+    )
+    monkeypatch.setattr(
+        turn_input_session,
+        "new_request_id",
+        lambda _prefix: "interrupt_request_crossed_start",
+    )
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        TuiRuntime(),
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+
+    assert control.request_interrupt()
+    await request_started.wait()
+    _mark_started(control)
+    release_not_found.set()
+    while interrupt.await_count < 2:
+        await asyncio.sleep(0)
+    await control.close()
+
+    assert interrupt.await_count == 2
+    assert interrupt.await_args_list[0] == interrupt.await_args_list[1]
