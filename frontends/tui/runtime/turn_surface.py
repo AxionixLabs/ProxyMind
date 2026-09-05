@@ -171,7 +171,6 @@ class SurfaceProjection:
 class TurnSurfaceTiming:
     """定义 TUI 本地等待恢复策略，协议事件不得携带这些时间值。"""
 
-    assistant_settled_sec: float = 0.15
     tool_result_sec: float = 0.15
     lifecycle_sec: float = 0.15
     tool_started_sec: float = 0.12
@@ -179,8 +178,6 @@ class TurnSurfaceTiming:
 
     def delay_for(self, reason: ModelWaitReason | None) -> float:
         """返回指定等待来源的非负本地延时。"""
-        if reason == "assistant_settled":
-            return max(0.0, self.assistant_settled_sec)
         if reason == "tool_result":
             return max(0.0, self.tool_result_sec)
         if reason == "lifecycle":

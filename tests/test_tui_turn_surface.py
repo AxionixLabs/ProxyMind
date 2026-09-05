@@ -459,14 +459,14 @@ async def test_coordinator_cancels_stale_generation_and_closes_scope() -> None:
     coordinator = TuiTurnSurfaceCoordinator(
         context,
         apply,
-        timing=TurnSurfaceTiming(assistant_settled_sec=0.02),
+        timing=TurnSurfaceTiming(lifecycle_sec=0.02),
     )
     await coordinator.open()
     assert projections == []
     await coordinator.emit(ModelWaitRequested(
         **_scope(context),
         revision=1,
-        reason="assistant_settled",
+        reason="lifecycle",
     ))
     assert coordinator.pending_timer
 
@@ -798,13 +798,13 @@ async def test_coordinator_joins_timer_when_close_projection_fails() -> None:
     coordinator = TuiTurnSurfaceCoordinator(
         context,
         apply,
-        timing=TurnSurfaceTiming(assistant_settled_sec=1.0),
+        timing=TurnSurfaceTiming(lifecycle_sec=1.0),
     )
     await coordinator.open()
     await coordinator.emit(ModelWaitRequested(
         **_scope(context),
         revision=1,
-        reason="assistant_settled",
+        reason="lifecycle",
     ))
     assert coordinator.pending_timer
 
@@ -1076,7 +1076,7 @@ async def test_tui_tool_approval_and_terminal_leases_restore_parent_surface() ->
 
 
 @pytest.mark.anyio
-async def test_tui_unterminated_tail_keeps_wait_until_text_done() -> None:
+async def test_tui_unterminated_tail_hides_wait_after_text_done() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
     context = _context(surface_id="surface_tail")
@@ -1120,15 +1120,10 @@ async def test_tui_unterminated_tail_keeps_wait_until_text_done() -> None:
         identity=identity,
         item_id="item_tail",
     ))
-    await coordinator.emit(ModelWaitRequested(
-        **_scope(context),
-        revision=2,
-        reason="assistant_settled",
-    ))
 
     assert runtime.activity.lease("wait") is None
     assert runtime.document.active_kind == "assistant"
-    assert coordinator.pending_timer
+    assert not coordinator.pending_timer
 
     await session.close()
     assert not coordinator.pending_timer

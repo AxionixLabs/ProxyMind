@@ -72,7 +72,6 @@ OutputDisplay = typing.Literal[
 ModelWaitReason = typing.Literal[
     "initial",
     "server_thinking",
-    "assistant_settled",
     "tool_result",
     "lifecycle",
     "continuation",
@@ -165,7 +164,6 @@ class ModelWaitRequested(_ScopedActivityEvent):
         if self.reason not in {
             "initial",
             "server_thinking",
-            "assistant_settled",
             "tool_result",
             "lifecycle",
             "continuation",

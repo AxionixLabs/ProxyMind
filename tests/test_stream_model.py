@@ -216,12 +216,6 @@ async def test_model_handler_projects_text_and_commits_transcript() -> None:
             identity=_identity(),
             item_id="item-1",
         ),
-        ModelWaitRequested(
-            surface_id="surface_test",
-            turn_id="turn_test",
-            revision=1,
-            reason="assistant_settled",
-        ),
     ]
 
 

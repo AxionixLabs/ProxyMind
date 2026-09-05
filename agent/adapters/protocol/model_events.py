@@ -228,7 +228,6 @@ class ModelStreamEventHandler:
                 _response_identity(item),
                 item.item_id,
             )
-        await self.activity.request_model_wait("assistant_settled")
 
     async def _buffer_assistant_activity(self, item: CanonicalItem) -> None:
         """幂等登记一项已经接收但未必可见的 assistant 正文。"""
