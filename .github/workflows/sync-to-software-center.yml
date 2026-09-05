@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - README.md
+      - ARCHITECTURE.md
+      - AGENTS.md
       - LICENSE.md
       - docs/**
       - website/mind/**
@@ -54,6 +56,8 @@ jobs:
           rm -rf $DOCS_TARGET_DIR/docs
           rm -rf $SITE_TARGET_DIR/*
           cp README.md $DOCS_TARGET_DIR/ || true
+          cp ARCHITECTURE.md $DOCS_TARGET_DIR/ || true
+          cp AGENTS.md $DOCS_TARGET_DIR/ || true
           cp LICENSE.md $DOCS_TARGET_DIR/ || true
           cp -R docs $DOCS_TARGET_DIR/ || true
           cp -R website/mind/. $SITE_TARGET_DIR/ || true
