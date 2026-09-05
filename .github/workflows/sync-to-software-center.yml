@@ -6,7 +6,9 @@ on:
       - main
     paths:
       - README.md
+      - ARCHITECTURE_SYSTEM.md
       - ARCHITECTURE.md
+      - ARCHITECTURE_SCORECARD.md
       - AGENTS.md
       - LICENSE.md
       - docs/**
@@ -49,14 +51,16 @@ jobs:
           python website/mind/scripts/sync_docs.py
           python website/mind/scripts/check_docs.py --generated
 
-      - name: Copy README, LICENSE, docs and website shell to target repo
+      - name: Copy documentation and website shell to target repo
         run: |
           mkdir -p $DOCS_TARGET_DIR
           mkdir -p $SITE_TARGET_DIR
           rm -rf $DOCS_TARGET_DIR/docs
           rm -rf $SITE_TARGET_DIR/*
           cp README.md $DOCS_TARGET_DIR/ || true
+          cp ARCHITECTURE_SYSTEM.md $DOCS_TARGET_DIR/ || true
           cp ARCHITECTURE.md $DOCS_TARGET_DIR/ || true
+          cp ARCHITECTURE_SCORECARD.md $DOCS_TARGET_DIR/ || true
           cp AGENTS.md $DOCS_TARGET_DIR/ || true
           cp LICENSE.md $DOCS_TARGET_DIR/ || true
           cp -R docs $DOCS_TARGET_DIR/ || true
