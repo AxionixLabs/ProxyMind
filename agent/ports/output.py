@@ -475,6 +475,13 @@ class OutputActivityPort(typing.Protocol):
         """按身份和顺序接收一项展示事实。"""
         ...
 
+    async def emit_batch(
+        self,
+        events: tuple[OutputActivityEvent, ...],
+    ) -> None:
+        """原子接收一组非空有序事实，只向展示层提交最终归约结果。"""
+        ...
+
     async def close(self) -> None:
         """幂等取消当前表面的 timer、lease 和回调。"""
         ...
@@ -522,6 +529,15 @@ class PassiveOutputActivity(OutputActivityPort):
     async def emit(self, event: OutputActivityEvent) -> None:
         """忽略已类型化的展示事实。"""
         _ = event
+        return None
+
+    async def emit_batch(
+        self,
+        events: tuple[OutputActivityEvent, ...],
+    ) -> None:
+        """忽略原子提交的已类型化展示事实。"""
+        if not events:
+            raise ValueError("output activity batch cannot be empty")
         return None
 
     async def close(self) -> None:

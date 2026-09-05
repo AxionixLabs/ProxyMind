@@ -189,6 +189,29 @@ class TurnActivityProjector:
             name=name,
         ))
 
+    async def tool_completed_and_wait(
+        self,
+        tool_id: str,
+        tool_kind: ToolActivityKind,
+        *,
+        name: str = "",
+    ) -> None:
+        """原子释放工具活动 lease 并登记后续模型等待。"""
+        self._model_wait_revision += 1
+        await self.activity.emit_batch((
+            ToolCompleted(
+                **self._scope(),
+                tool_id=tool_id,
+                tool_kind=tool_kind,
+                name=name,
+            ),
+            ModelWaitRequested(
+                **self._scope(),
+                revision=self._model_wait_revision,
+                reason="tool_result",
+            ),
+        ))
+
     async def terminal_wait_started(
         self,
         call_id: str,

@@ -1076,6 +1076,208 @@ async def test_tui_tool_approval_and_terminal_leases_restore_parent_surface() ->
 
 
 @pytest.mark.anyio
+async def test_tool_completion_atomically_hands_surface_to_model_wait() -> None:
+    """验证最后一个工具释放时不会提交临时 hidden 帧。"""
+    context = _context(surface_id="surface_tool_handoff")
+    projections: list[SurfaceProjection] = []
+
+    async def apply(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(
+        context,
+        apply,
+        timing=TurnSurfaceTiming(
+            tool_result_sec=0.0,
+            lifecycle_sec=0.0,
+            tool_started_sec=0.0,
+        ),
+    )
+    await coordinator.open()
+    activity = TurnActivityProjector(context, coordinator)
+    await activity.tool_started("call_1", "client", name="read_file")
+    await activity.tool_started("call_2", "nested", name="shell_command")
+    await activity.tool_completed("call_1", "client", name="read_file")
+    projections.clear()
+
+    await activity.tool_completed_and_wait(
+        "call_2",
+        "nested",
+        name="shell_command",
+    )
+
+    assert [projection.indicator for projection in projections] == ["thinking"]
+    assert coordinator.state.tools == ()
+    assert coordinator.state.model_wait_reason == "tool_result"
+
+    await coordinator.close()
+
+
+@pytest.mark.anyio
+async def test_tool_handoff_preserves_real_tui_activity_lease() -> None:
+    """验证原子工具交接不会重建真实 TUI 状态组件。"""
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context(surface_id="surface_tool_handoff_identity")
+    session = create_tui_output_session(
+        "",
+        context=context,
+        runtime=runtime,
+        animate=False,
+    )
+    assert isinstance(session.activity, TuiTurnSurfaceCoordinator)
+    session.activity.timing = TurnSurfaceTiming(
+        tool_result_sec=0.0,
+        lifecycle_sec=0.0,
+        tool_started_sec=0.0,
+    )
+    await session.open()
+    activity = TurnActivityProjector(context, session.activity)
+    await activity.tool_started("call_1", "nested", name="shell_command")
+    lease_before = runtime.activity.lease("wait")
+    assert lease_before is not None
+
+    await activity.tool_completed_and_wait(
+        "call_1",
+        "nested",
+        name="shell_command",
+    )
+
+    assert runtime.activity.lease("wait") == lease_before
+    assert "Thinking" in _activity_text(runtime)
+
+    await session.close()
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_tool_handoff_batch_rolls_back_when_second_fact_is_invalid() -> None:
+    """验证原子批次归约失败时不提交部分状态或视觉帧。"""
+    context = _context(surface_id="surface_tool_handoff_rollback")
+    projections: list[SurfaceProjection] = []
+
+    async def apply(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(
+        context,
+        apply,
+        timing=TurnSurfaceTiming(
+            tool_result_sec=0.0,
+            lifecycle_sec=0.0,
+            tool_started_sec=0.0,
+        ),
+    )
+    await coordinator.open()
+    activity = TurnActivityProjector(context, coordinator)
+    await activity.tool_started("call_1", "nested", name="shell_command")
+    state_before = coordinator.state
+    projections.clear()
+
+    with pytest.raises(
+        ValueError,
+        match="tool completion does not match active tool",
+    ):
+        await coordinator.emit_batch((
+            ToolCompleted(
+                **_scope(context),
+                tool_id="call_1",
+                tool_kind="nested",
+                name="shell_command",
+            ),
+            ToolCompleted(
+                **_scope(context),
+                tool_id="call_missing",
+                tool_kind="nested",
+                name="shell_command",
+            ),
+        ))
+
+    assert coordinator.state == state_before
+    assert projections == []
+
+    await coordinator.close()
+
+
+@pytest.mark.anyio
+async def test_tool_handoff_batch_is_idempotent_for_duplicate_completion() -> None:
+    """验证同批重复完成事实不会重复释放工具或产生额外帧。"""
+    context = _context(surface_id="surface_tool_handoff_duplicate")
+    projections: list[SurfaceProjection] = []
+
+    async def apply(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(
+        context,
+        apply,
+        timing=TurnSurfaceTiming(
+            tool_result_sec=0.0,
+            lifecycle_sec=0.0,
+            tool_started_sec=0.0,
+        ),
+    )
+    await coordinator.open()
+    await coordinator.emit(ToolStarted(
+        **_scope(context),
+        tool_id="call_1",
+        tool_kind="nested",
+        name="shell_command",
+    ))
+    completed = ToolCompleted(
+        **_scope(context),
+        tool_id="call_1",
+        tool_kind="nested",
+        name="shell_command",
+    )
+    projections.clear()
+
+    await coordinator.emit_batch((
+        completed,
+        completed,
+        ModelWaitRequested(
+            **_scope(context),
+            revision=1,
+            reason="tool_result",
+        ),
+    ))
+
+    assert [projection.indicator for projection in projections] == ["thinking"]
+    assert len(coordinator.state.completed_tools) == 1
+
+    await coordinator.close()
+
+
+@pytest.mark.anyio
+async def test_activity_batch_rejects_empty_or_wrong_scope_atomically() -> None:
+    """验证空批次和错误 scope 都不能改变正式状态。"""
+    context = _context(surface_id="surface_batch_scope")
+    projections: list[SurfaceProjection] = []
+
+    async def apply(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(context, apply)
+    await coordinator.open()
+    state_before = coordinator.state
+
+    with pytest.raises(ValueError, match="batch cannot be empty"):
+        await coordinator.emit_batch(())
+    with pytest.raises(ValueError, match="does not match surface scope"):
+        await coordinator.emit_batch((ModelWaitRequested(
+            surface_id="surface_other",
+            turn_id=context.turn_id,
+            revision=1,
+            reason="tool_result",
+        ),))
+
+    assert coordinator.state == state_before
+    assert projections == []
+
+    await coordinator.close()
+
+
+@pytest.mark.anyio
 async def test_tui_unterminated_tail_hides_wait_after_text_done() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)

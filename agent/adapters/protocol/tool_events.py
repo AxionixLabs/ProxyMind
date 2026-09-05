@@ -257,12 +257,11 @@ class ToolEventHandler:
 
     async def complete_replayed_call(self, event: ToolCallEvent) -> None:
         """对已有权威结果的历史调用只收束本地活动投影。"""
-        await self.activity.tool_completed(
+        await self.activity.tool_completed_and_wait(
             event.call_id,
             tool_activity_kind(event.name),
             name=event.name,
         )
-        await self.activity.request_model_wait("tool_result")
 
     async def handle_call(
         self,
@@ -271,13 +270,18 @@ class ToolEventHandler:
         """处理客户端工具调用并返回外层循环应采取的动作。"""
         result = await self._handle_call(event)
         tool_kind = tool_activity_kind(event.name)
-        await self.activity.tool_completed(
-            event.call_id,
-            tool_kind,
-            name=event.name,
-        )
         if result.status == "handled":
-            await self.activity.request_model_wait("tool_result")
+            await self.activity.tool_completed_and_wait(
+                event.call_id,
+                tool_kind,
+                name=event.name,
+            )
+        else:
+            await self.activity.tool_completed(
+                event.call_id,
+                tool_kind,
+                name=event.name,
+            )
         return result
 
     async def _handle_call(

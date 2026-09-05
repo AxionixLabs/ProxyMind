@@ -27,14 +27,17 @@ from agent.ports import (
     AssistantResponseSuperseded,
     AssistantSegmentCompleted,
     AssistantTextDelta,
+    ModelWaitRequested,
     PresentationSuperseded,
     RecoveryChanged,
     RetryChanged,
     ResponseIdentity,
     SourcesOutput,
+    ToolCompleted,
     TurnTerminal,
 )
 from agent.ports import (
+    OutputActivityEvent,
     OutputSession,
     OutputSurfaceContext,
 )
@@ -310,6 +313,17 @@ class _Sink(object):
 
 class _ActivitySink(_Sink):
     """记录 OutputSession 的 typed activity 事实。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.batches: list[tuple[OutputActivityEvent, ...]] = []
+
+    async def emit_batch(
+        self,
+        items: tuple[OutputActivityEvent, ...],
+    ) -> None:
+        self.batches.append(items)
+        self.items.extend(items)
 
     async def open(self) -> None:
         return None
@@ -1072,6 +1086,11 @@ async def test_observed_replay_does_not_repeat_completed_client_tool(
         entry["event"] in {"tool.started", "tool.completed"}
         for entry in host.transcripts.entries
     )
+    assert len(host.output_session.activity.batches) == 1
+    assert tuple(
+        type(item)
+        for item in host.output_session.activity.batches[0]
+    ) == (ToolCompleted, ModelWaitRequested)
 
 
 @pytest.mark.anyio
@@ -3073,6 +3092,11 @@ async def test_stream_emits_assistant_boundary_before_structured_output(monkeypa
         AssistantSegmentCompleted(response_identity()),
         SourcesOutput(()),
     ]
+    assert len(host.output_session.activity.batches) == 1
+    assert tuple(
+        type(item)
+        for item in host.output_session.activity.batches[0]
+    ) == (ToolCompleted, ModelWaitRequested)
 
 
 @pytest.mark.anyio
@@ -3245,7 +3269,7 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
     monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
 
-    result, _host_state = await _run_stream(monkeypatch, [
+    result, host = await _run_stream(monkeypatch, [
         _durable_tool_call({
             "type": "tool.call",
             "cid": "cid_test",
@@ -3259,6 +3283,11 @@ async def test_stream_reports_client_tool_result_from_turn_context(monkeypatch) 
     ])
 
     assert result.status == "completed"
+    assert len(host.output_session.activity.batches) == 1
+    assert tuple(
+        type(item)
+        for item in host.output_session.activity.batches[0]
+    ) == (ToolCompleted, ModelWaitRequested)
     assert invocations[0].turn.cid == "cid_test"
     assert invocations[0].turn.sid == "sid_test"
     posted_args, posted_kwargs = posted[0]

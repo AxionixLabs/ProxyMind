@@ -356,26 +356,40 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             )
 
     async def emit(self, event: OutputActivityEvent) -> None:
-        """取消陈旧 timer、归约事实并提交或调度唯一派生投影。"""
+        """接收一项展示事实并提交其派生投影。"""
+        await self.emit_batch((event,))
+
+    async def emit_batch(
+        self,
+        events: tuple[OutputActivityEvent, ...],
+    ) -> None:
+        """原子归约有序事实并只提交最终派生投影。"""
+        if not events:
+            raise ValueError("turn surface activity batch cannot be empty")
         async with self._lock:
             self._raise_timer_error()
             if not self._opened:
                 raise RuntimeError("turn surface coordinator is not open")
             if self._closed:
                 raise RuntimeError("turn surface coordinator is closed")
+
+            next_state = self.state
+            for event in events:
+                next_state = reduce_turn_surface(next_state, event)
             self._cancel_timer()
-            self.state = reduce_turn_surface(self.state, event)
+            self.state = next_state
             projection = project_turn_surface(self.state)
             delay = self.timing.delay_for_projection(
                 projection,
                 state=self.state,
             )
-            if (
+            if any(
                 isinstance(event, (ApprovalStarted, TurnTerminal, SurfaceClosed))
                 or (
                     isinstance(event, RecoveryChanged)
                     and event.mode in {"replaying", "gap"}
                 )
+                for event in events
             ):
                 self._transport_retry_visible_until = 0.0
             elif not (
@@ -386,9 +400,12 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             if (
                 projection.indicator == "thinking"
                 and (self.state.tools or self.state.batches)
-                and isinstance(
-                    event,
-                    (ApprovalCompleted, TerminalWaitCompleted, ToolCompleted),
+                and any(
+                    isinstance(
+                        event,
+                        (ApprovalCompleted, TerminalWaitCompleted, ToolCompleted),
+                    )
+                    for event in events
                 )
             ):
                 delay = 0.0

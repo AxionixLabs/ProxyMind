@@ -96,12 +96,11 @@ class StreamToolDispatcher:
             return ToolDispatchResult("handled")
 
         if isinstance(event, ToolBuiltinDoneEvent):
-            await self.activity.tool_completed(
+            await self.activity.tool_completed_and_wait(
                 event.builtin_call_id,
                 "builtin",
                 name=event.builtin_type,
             )
-            await self.activity.request_model_wait("tool_result")
             return ToolDispatchResult("handled")
 
         if isinstance(event, ToolCallsStartEvent):
