@@ -557,6 +557,7 @@ async def test_recovery_probe_observes_terminal_without_silence_timeout(
 ) -> None:
     first_event_sent = asyncio.Event()
     calls: list[str] = []
+    recovery_phases: list[tuple[str, int]] = []
 
     async def streaming(url, _headers, _payload, _timeout):
         calls.append(url)
@@ -582,7 +583,13 @@ async def test_recovery_probe_observes_terminal_without_silence_timeout(
         terminal=terminal,
     ))
     monkeypatch.setattr(chat, "get_turn_status", status_probe)
-    event_stream = chat.stream_chat({}, "hello", [], timeout=60.0)
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        timeout=60.0,
+        on_recovery_status=_recovery_recorder(recovery_phases),
+    )
 
     collecting = asyncio.create_task(_collect(event_stream))
     await first_event_sent.wait()
@@ -596,6 +603,55 @@ async def test_recovery_probe_observes_terminal_without_silence_timeout(
     assert events[-1].status == "interrupted"
     assert calls == ["https://example.com/mind-chat"]
     status_probe.assert_awaited_once()
+    assert recovery_phases == [
+        ("replaying", 1),
+        ("caught_up", 2),
+    ]
+
+
+@pytest.mark.anyio
+async def test_control_probe_closes_existing_transport_retry(
+    monkeypatch,
+) -> None:
+    recovery_phases: list[tuple[str, int]] = []
+    terminal = SimpleNamespace(
+        type="turn.completed",
+        turn_id="turn_001",
+        status="interrupted",
+        error=None,
+        last_event_seq=2,
+        completed_at=10.0,
+    )
+    _install_reconnect_stream(monkeypatch, AsyncMock())
+    monkeypatch.setattr(
+        chat,
+        "get_turn_status",
+        AsyncMock(return_value=SimpleNamespace(
+            last_event_seq=2,
+            terminal=terminal,
+        )),
+    )
+    event_stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        on_recovery_status=_recovery_recorder(recovery_phases),
+    )
+    event_stream._attach_target = {
+        "cid": "cid_1",
+        "sid": "sid_1",
+        "turn_id": "turn_001",
+    }
+    event_stream._response_observed = True
+    event_stream._recovery_phase = "reconnecting"
+    event_stream.request_recovery_probe()
+
+    assert await event_stream._resume_stream()
+
+    assert recovery_phases == [
+        ("closed", 0),
+        ("replaying", 0),
+    ]
 
 
 @pytest.mark.anyio

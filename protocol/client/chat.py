@@ -711,10 +711,17 @@ class TurnEventStream(object):
 
             delay = self._attach_delay()
             self._reconnect_failures += 1
-        await self._notify_recovery(
-            "reconnecting",
-            event_seq=self.last_event_seq,
-        )
+        if control_settlement:
+            if self._recovery_phase in {"reconnecting", "replaying"}:
+                await self._notify_recovery(
+                    "closed",
+                    event_seq=self.last_event_seq,
+                )
+        else:
+            await self._notify_recovery(
+                "reconnecting",
+                event_seq=self.last_event_seq,
+            )
 
         await self._close_payload_stream()
         await self._wait_for_recovery_delay(delay)
