@@ -273,3 +273,31 @@ def test_force_kill_reaps_process() -> None:
     session.kill()
     assert session.output_closed
     session.close()
+
+
+def test_context_cancellation_cleans_process_tree() -> None:
+    """验证测试异常展开仍清理根进程及其后代。"""
+    source = (
+        "import subprocess,sys,time; "
+        "child=subprocess.Popen([sys.executable, '-c', "
+        "'import time; time.sleep(120)']); "
+        "print(f'CHILD={child.pid}',flush=True); time.sleep(120)"
+    )
+    session = _spawn_python(source)
+    root_pid = session.pid
+    child_pid = 0
+
+    with pytest.raises(RuntimeError, match="cancel scenario"):
+        with session:
+            output = session.wait_for_output("CHILD=").decode(
+                "utf-8",
+                errors="replace",
+            )
+            match = re.search(r"CHILD=(\d+)", output)
+            assert match is not None
+            child_pid = int(match.group(1))
+            raise RuntimeError("cancel scenario")
+
+    assert not _process_exists(root_pid)
+    assert child_pid > 0
+    assert not _process_exists(child_pid)
