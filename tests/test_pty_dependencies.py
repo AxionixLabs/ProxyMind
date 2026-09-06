@@ -40,31 +40,3 @@ def test_posix_pty_runs_python_with_utf8() -> None:
     finally:
         if child.isalive():
             child.close(force=True)
-
-
-@pytest.mark.skipif(os.name != "nt", reason="Windows ConPTY only")
-def test_windows_conpty_runs_python_with_utf8() -> None:
-    """验证 Windows runner 能在真实 ConPTY 中执行 UTF-8 子进程。"""
-    import winpty
-
-    command = [
-        sys.executable,
-        "-u",
-        "-c",
-        "print('PTY-READY-\\u4e16\\u754c', flush=True)",
-    ]
-    process = winpty.PtyProcess.spawn(command, dimensions=(24, 80))
-    chunks: list[str] = []
-    try:
-        while True:
-            try:
-                chunks.append(process.read(4096))
-            except EOFError:
-                break
-        process.wait()
-        assert "PTY-READY-世界" in "".join(chunks)
-        assert process.exitstatus == 0
-    finally:
-        if process.isalive():
-            process.sendintr()
-            process.wait()

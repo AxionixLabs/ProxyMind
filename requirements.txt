@@ -82,4 +82,3 @@ pytest>=9.1.1
 pexpect==4.9.0; sys_platform != "win32"
 ptyprocess==0.7.0; sys_platform != "win32"
 pyte==0.8.2
-pywinpty==3.0.5; sys_platform == "win32"
