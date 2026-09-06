@@ -125,7 +125,10 @@ def test_process_session_event_chunks_preserve_utf8_boundaries() -> None:
 async def test_exec_command_pty_supports_input_resize_and_cursor(tmp_path) -> None:
     script = tmp_path / "interactive.py"
     script.write_text(
+        "import sys\n"
         "import shutil\n"
+        "print(f'ISATTY={sys.stdin.isatty()}:'"
+        "      f'{sys.stdout.isatty()}:{sys.stderr.isatty()}', flush=True)\n"
         "value = input('READY>')\n"
         "print('VALUE=' + value, flush=True)\n"
         "input('RESIZE>')\n"
@@ -159,6 +162,7 @@ async def test_exec_command_pty_supports_input_resize_and_cursor(tmp_path) -> No
         assert started["data"]["pty_fallback"] is False
         assert started["data"]["execution_backend"] == "native-pty"
         assert started["data"]["stderr"] == ""
+        assert "ISATTY=True:True:True" in started["data"]["output"]
         session_id = started["data"]["session_id"]
         running = await coding.running_exec_sessions()
         assert running["items"][0]["pty"] is True
@@ -236,6 +240,50 @@ async def test_exec_command_pty_never_falls_back_to_pipe(tmp_path) -> None:
 
 
 @pytest.mark.anyio
+async def test_exec_command_pty_delivers_terminal_eof(tmp_path) -> None:
+    script = tmp_path / "terminal_eof.py"
+    script.write_text(
+        "import sys\n"
+        "print('EOF-READY', flush=True)\n"
+        "sys.stdin.read()\n"
+        "print('EOF-RECEIVED', flush=True)\n",
+        encoding="utf-8",
+    )
+    command, shell = _python_command(script)
+    capability = LocalInteractiveProcessCapability()
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=None,
+        interactive_process_capability=capability,
+        network_access="enabled",
+    )
+    try:
+        started = await coding.exec_command(
+            command=command,
+            shell=shell,
+            tty=True,
+            yield_time_ms=100,
+            timeout_sec=30,
+            cid="cid_test",
+            sid="sid_test",
+        )
+        completed = await coding.write_stdin(
+            session_id=started["data"]["session_id"],
+            control="eof",
+            wait_ms=3000,
+            cid="cid_test",
+            sid="sid_test",
+        )
+    finally:
+        await coding.close()
+        await capability.aclose()
+
+    assert completed["ok"] is True
+    assert completed["data"]["status"] == "exited"
+    assert "EOF-RECEIVED" in completed["data"]["output"]
+
+
+@pytest.mark.anyio
 async def test_exec_command_pty_reports_resize_capability_failure(tmp_path) -> None:
     capability = _ResizeFailureCapability()
     coding = create_workspace_coding(
@@ -286,6 +334,9 @@ async def test_sandboxed_exec_command_uses_sidecar_pty(tmp_path) -> None:
 
     script = tmp_path / "sandbox_interactive.py"
     script.write_text(
+        "import sys\n"
+        "print(f'ISATTY={sys.stdin.isatty()}:'"
+        "      f'{sys.stdout.isatty()}:{sys.stderr.isatty()}', flush=True)\n"
         "value = input('SANDBOX>')\n"
         "print('VALUE=' + value, flush=True)\n",
         encoding="utf-8",
@@ -311,6 +362,8 @@ async def test_sandboxed_exec_command_uses_sidecar_pty(tmp_path) -> None:
         assert started["data"]["status"] == "running"
         assert started["data"]["pty"] is True
         assert started["data"]["pty_fallback"] is False
+        assert "ISATTY=True:True:True" in started["data"]["output"]
+        assert started["data"]["stderr"] == ""
         session_id = started["data"]["session_id"]
 
         resized = await coding.write_stdin(
