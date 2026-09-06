@@ -4,6 +4,7 @@
 import asyncio
 import os
 import secrets
+import typing
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -25,20 +26,26 @@ class _NativeInteractiveProcessHandle:
     EXIT_POLL_SEC = 0.02
     WINDOWS_OUTPUT_QUIET_SEC = 0.2
 
-    def __init__(self, backend: NativePtyBackend) -> None:
+    def __init__(
+        self,
+        backend: NativePtyBackend,
+        *,
+        on_closed: typing.Callable[[str], None],
+    ) -> None:
         """绑定原生 PTY 并初始化串行化生命周期状态。"""
         self._backend = backend
+        self._on_closed: typing.Callable[[str], None] | None = on_closed
         self.session_id = f"interactive_process_{secrets.token_hex(8)}"
         self.pid: int | None = backend.pid
         self.returncode: int | None = None
-        self._input_closed = False
-        self._closed = False
-        self._reader_claimed = False
-        self._output_revision = 0
-        self._output_changed = asyncio.Event()
-        self._operation_lock = asyncio.Lock()
-        self._wait_lock = asyncio.Lock()
-        self._close_lock = asyncio.Lock()
+        self._input_closed: bool = False
+        self._closed: bool = False
+        self._reader_claimed: bool = False
+        self._output_revision: int = 0
+        self._output_changed: asyncio.Event = asyncio.Event()
+        self._operation_lock: asyncio.Lock = asyncio.Lock()
+        self._wait_lock: asyncio.Lock = asyncio.Lock()
+        self._close_lock: asyncio.Lock = asyncio.Lock()
 
     async def read_output(self) -> AsyncIterator[bytes]:
         """在受控工作线程中持续读取合并后的原始终端输出。"""
@@ -193,7 +200,13 @@ class _NativeInteractiveProcessHandle:
                     await self.wait()
             finally:
                 self._closed = True
-                await asyncio.to_thread(self._backend.close)
+                try:
+                    await asyncio.to_thread(self._backend.close)
+                finally:
+                    on_closed = self._on_closed
+                    self._on_closed = None
+                    if on_closed is not None:
+                        on_closed(self.session_id)
 
     async def _wait_for_output_quiet(self) -> None:
         """等待 ConPTY 在根进程退出后交付剩余异步输出。"""
@@ -269,9 +282,16 @@ class LocalInteractiveProcessCapability:
                     retryable=True,
                     details={"exception_type": type(error).__name__},
                 ) from error
-            handle = _NativeInteractiveProcessHandle(backend)
+            handle = _NativeInteractiveProcessHandle(
+                backend,
+                on_closed=self._release_handle,
+            )
             self._handles[handle.session_id] = handle
             return handle
+
+    def _release_handle(self, session_id: str) -> None:
+        """幂等注销已经完成关闭的原生 PTY 句柄。"""
+        self._handles.pop(session_id, None)
 
     async def aclose(self) -> None:
         """幂等关闭全部由本能力创建的 PTY 进程。"""

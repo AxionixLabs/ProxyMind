@@ -143,3 +143,20 @@ async def test_local_interactive_process_interrupt_is_not_terminate() -> None:
         if not reader.done():
             reader.cancel()
             await asyncio.gather(reader, return_exceptions=True)
+
+
+@pytest.mark.anyio
+async def test_closed_interactive_process_handles_are_released() -> None:
+    capability = LocalInteractiveProcessCapability()
+    try:
+        for _index in range(100):
+            handle = await capability.spawn(InteractiveProcessSpec(
+                argv=(sys.executable, "-c", "pass"),
+                cwd=Path.cwd(),
+                env=os.environ,
+            ))
+            assert await handle.wait() == 0
+            await handle.aclose()
+            assert not capability._handles
+    finally:
+        await capability.aclose()

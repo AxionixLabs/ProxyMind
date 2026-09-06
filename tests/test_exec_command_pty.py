@@ -6,6 +6,7 @@ import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import jsonschema
 import pytest
@@ -20,7 +21,9 @@ from agent.ports import TerminalSize
 from frontends.tui.adapters.session import create_tui_output_session
 from frontends.tui.core.runtime import TuiRuntime
 from infrastructure.config.paths import resolve_application_layout
+from infrastructure.platform.process_sessions import ProcessSession
 from infrastructure.platform.process_sessions import ProcessSessionManager
+from infrastructure.platform.process_sessions import ProcessSessionSpec
 from infrastructure.platform.pty import LocalInteractiveProcessCapability
 from mind import create_workspace_coding
 
@@ -89,6 +92,18 @@ def _python_command(script: Path) -> tuple[str, str]:
     if os.name == "nt":
         return subprocess.list2cmdline(argv), os.environ.get("COMSPEC", "cmd.exe")
     return shlex.join(argv), os.environ.get("SHELL", "/bin/sh")
+
+
+async def _wait_until_session_finalized(
+    session: ProcessSession,
+    *,
+    timeout: float = 5.0,
+) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not session.finalized:
+        if asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError("timed out waiting for process session finalization")
+        await asyncio.sleep(0.02)
 
 
 def test_exec_command_schema_exposes_opt_in_pty_and_resize() -> None:
@@ -717,3 +732,164 @@ async def test_process_session_admission_is_bounded_and_prunes_finalized() -> No
     assert "finished" not in manager.sessions
     assert "live" in manager.sessions
     await manager._release_session_slot()
+
+
+@pytest.mark.anyio
+async def test_process_session_reaper_enforces_timeout_without_api_polling() -> None:
+    capability = LocalInteractiveProcessCapability()
+    manager = ProcessSessionManager(
+        interactive_process_capability=capability,
+    )
+    session = await manager.start(ProcessSessionSpec(
+        command="long running PTY",
+        args=(sys.executable, "-c", "import time; time.sleep(30)"),
+        cwd=str(Path.cwd()),
+        display_cwd=".",
+        runtime={},
+        origin="tool",
+        timeout_sec=1,
+        idle_timeout_sec=10,
+        env=dict(os.environ),
+        tty=True,
+    ))
+    reaper = manager._reaper_task
+    try:
+        await _wait_until_session_finalized(session)
+        assert session.finalized is True
+        assert session.session_id not in manager.sessions
+        assert not capability._handles
+    finally:
+        await manager.close()
+        await capability.aclose()
+
+    assert reaper is not None
+    assert reaper.done()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("interaction_kind", ["input", "resize"])
+async def test_process_session_reaper_extends_idle_deadline_after_interaction(
+    interaction_kind: str,
+) -> None:
+    capability = LocalInteractiveProcessCapability()
+    manager = ProcessSessionManager(
+        interactive_process_capability=capability,
+    )
+    session = await manager.start(ProcessSessionSpec(
+        command="idle PTY",
+        args=(sys.executable, "-c", "import time; time.sleep(30)"),
+        cwd=str(Path.cwd()),
+        display_cwd=".",
+        runtime={},
+        origin="tool",
+        timeout_sec=10,
+        idle_timeout_sec=1,
+        env=dict(os.environ),
+        tty=True,
+    ))
+    try:
+        await asyncio.sleep(0.7)
+        if interaction_kind == "input":
+            result = await manager.apply(session, input_text="x")
+        else:
+            result = await manager.apply(
+                session,
+                control="resize",
+                terminal_size=TerminalSize(rows=31, columns=101),
+            )
+        assert result is None
+        await asyncio.sleep(0.7)
+        assert session.process.returncode is None
+        await _wait_until_session_finalized(session)
+    finally:
+        await manager.close()
+        await capability.aclose()
+
+
+@pytest.mark.anyio
+async def test_process_session_output_extends_idle_deadline() -> None:
+    capability = LocalInteractiveProcessCapability()
+    manager = ProcessSessionManager(
+        interactive_process_capability=capability,
+    )
+    session = await manager.start(ProcessSessionSpec(
+        command="active output PTY",
+        args=(
+            sys.executable,
+            "-c",
+            (
+                "import time\n"
+                "for index in range(5):\n"
+                " print(f'PULSE={index}', flush=True)\n"
+                " time.sleep(0.4)\n"
+                "time.sleep(30)\n"
+            ),
+        ),
+        cwd=str(Path.cwd()),
+        display_cwd=".",
+        runtime={},
+        origin="tool",
+        timeout_sec=10,
+        idle_timeout_sec=1,
+        env=dict(os.environ),
+        tty=True,
+    ))
+    try:
+        await asyncio.sleep(1.3)
+        assert session.process.returncode is None
+        assert session.output_revision >= 4
+        await _wait_until_session_finalized(session)
+    finally:
+        await manager.close()
+        await capability.aclose()
+
+
+@pytest.mark.anyio
+async def test_process_session_deadlines_ignore_wall_clock_jumps() -> None:
+    capability = LocalInteractiveProcessCapability()
+    manager = ProcessSessionManager(
+        interactive_process_capability=capability,
+    )
+    session = await manager.start(ProcessSessionSpec(
+        command="monotonic PTY",
+        args=(sys.executable, "-c", "import time; time.sleep(30)"),
+        cwd=str(Path.cwd()),
+        display_cwd=".",
+        runtime={},
+        origin="tool",
+        timeout_sec=10,
+        idle_timeout_sec=10,
+        env=dict(os.environ),
+        tty=True,
+    ))
+    try:
+        with patch(
+            "infrastructure.platform.process_sessions.time.time",
+            return_value=session.started_at + 3600,
+        ):
+            await manager.cleanup()
+        assert session.process.returncode is None
+    finally:
+        await manager.close()
+        await capability.aclose()
+
+
+@pytest.mark.anyio
+async def test_process_session_manager_rejects_start_after_close() -> None:
+    manager = ProcessSessionManager()
+    await manager.close()
+
+    with pytest.raises(CapabilityError) as error:
+        await manager.start(ProcessSessionSpec(
+            command="closed manager",
+            args=(sys.executable, "-c", "pass"),
+            cwd=str(Path.cwd()),
+            display_cwd=".",
+            runtime={},
+            origin="tool",
+            timeout_sec=10,
+            idle_timeout_sec=10,
+            env=dict(os.environ),
+        ))
+
+    assert error.value.code == "process_session_manager_closed"

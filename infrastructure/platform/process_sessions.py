@@ -209,7 +209,9 @@ class ProcessSession(object):
         self.environment_id = spec.environment_id
         self.network_proxy = network_proxy
         self.started_at = time.time()
+        self.started_monotonic = time.monotonic()
         self.expires_at = self.started_at + spec.timeout_sec
+        self.expires_monotonic = self.started_monotonic + spec.timeout_sec
         self.idle_timeout_sec = spec.idle_timeout_sec
         self.audit_mode = spec.audit_mode
         self.audit_before = spec.audit_before
@@ -227,20 +229,27 @@ class ProcessSession(object):
         )
 
         self.last_activity = self.started_at
+        self.last_activity_monotonic = self.started_monotonic
         self.output_revision = 0
         self.update_event = asyncio.Event()
         self.output_events: deque[tuple[int, str, bytes]] = deque(
             maxlen=256,
         )
 
-        self.finalized = False
+        self.finalized: bool = False
 
         self.stdout_task: asyncio.Task[None] | None = None
         self.stderr_task: asyncio.Task[None] | None = None
         self.exit_watch_task: asyncio.Task[None] | None = None
 
-        self.lock = asyncio.Lock()
-        self.interaction_lock = asyncio.Lock()
+        self.lock: asyncio.Lock = asyncio.Lock()
+        self.interaction_lock: asyncio.Lock = asyncio.Lock()
+        self.finalize_lock: asyncio.Lock = asyncio.Lock()
+
+    def touch(self) -> None:
+        """同时更新展示时间和单调生命周期时间。"""
+        self.last_activity = time.time()
+        self.last_activity_monotonic = time.monotonic()
 
 
 class ProcessSessionManager(object):
@@ -265,7 +274,11 @@ class ProcessSessionManager(object):
         self._change_revision: int = 0
         self._change_event = asyncio.Event()
         self._admission_lock = asyncio.Lock()
+        self._cleanup_lock = asyncio.Lock()
         self._starting_sessions = 0
+        self._reaper_task: asyncio.Task[None] | None = None
+        self._reaper_wakeup = asyncio.Event()
+        self._closing = False
         self._sandbox_client = sandbox_client
         self._process_capability = process_capability
         self._interactive_process_capability = interactive_process_capability
@@ -347,6 +360,11 @@ class ProcessSessionManager(object):
 
     async def start(self, spec: ProcessSessionSpec) -> ProcessSession:
         """在统一 admission 边界内启动并登记进程会话。"""
+        if self._closing:
+            raise CapabilityError(
+                "process_session_manager_closed",
+                "process session manager is closed",
+            )
         await self.cleanup()
         await self._reserve_session_slot()
         try:
@@ -482,6 +500,8 @@ class ProcessSessionManager(object):
                 self._read_stream(session, "stderr")
             )
         self.sessions[session.session_id] = session
+        self._ensure_reaper()
+        self._reaper_wakeup.set()
         self._notify_change()
         session.exit_watch_task = asyncio.create_task(
             self._watch_process_exit(session),
@@ -744,8 +764,8 @@ class ProcessSessionManager(object):
             },
         }
 
-    @staticmethod
     async def apply(
+        self,
         session: ProcessSession,
         *,
         input_text: str = "",
@@ -754,15 +774,17 @@ class ProcessSessionManager(object):
     ) -> str | None:
         """向会话发送控制动作或标准输入。"""
         async with session.interaction_lock:
-            return await ProcessSessionManager._apply_interaction(
+            result = await self._apply_interaction(
                 session,
                 input_text=input_text,
                 control=control,
                 terminal_size=terminal_size,
             )
+        self._reaper_wakeup.set()
+        return result
 
-    @staticmethod
     async def _apply_interaction(
+        self,
         session: ProcessSession,
         *,
         input_text: str,
@@ -770,7 +792,7 @@ class ProcessSessionManager(object):
         terminal_size: TerminalSize | None,
     ) -> str | None:
         """在会话交互锁内应用一次输入、控制或 resize。"""
-        session.last_activity = time.time()
+        session.touch()
 
         process = session.process
 
@@ -889,8 +911,8 @@ class ProcessSessionManager(object):
 
         return None
 
-    @staticmethod
     async def drain(
+        self,
         session: ProcessSession,
         *,
         flush_pending: bool = False,
@@ -900,7 +922,8 @@ class ProcessSessionManager(object):
             stdout, stdout_dropped = session.stdout.drain()
             stderr, stderr_dropped = session.stderr.drain()
 
-            session.last_activity = time.time()
+            session.touch()
+            self._reaper_wakeup.set()
 
         output_lines = await session.output_buffer.drain(flush_pending=flush_pending)
 
@@ -908,26 +931,29 @@ class ProcessSessionManager(object):
 
     async def cleanup(self) -> None:
         """终止过期会话并回收空闲的已退出记录。"""
-        now = time.time()
-        for session in list(self.sessions.values()):
-            expired = now >= session.expires_at
-
-            idle = now - session.last_activity >= session.idle_timeout_sec
-
-            if session.process.returncode is None and (expired or idle):
-                observe(
-                    "process.cleanup",
-                    session_id=session.session_id,
-                    pid=session.process.pid,
-                    reason="expired" if expired else "idle",
+        async with self._cleanup_lock:
+            now = time.monotonic()
+            for session in list(self.sessions.values()):
+                expired = now >= session.expires_monotonic
+                idle = (
+                    now - session.last_activity_monotonic
+                    >= session.idle_timeout_sec
                 )
-                await self._terminate_and_wait(session, force=expired)
 
-            await self.finalize_if_exited(session)
+                if session.process.returncode is None and (expired or idle):
+                    observe(
+                        "process.cleanup",
+                        session_id=session.session_id,
+                        pid=session.process.pid,
+                        reason="expired" if expired else "idle",
+                    )
+                    await self._terminate_and_wait(session, force=expired)
 
-            if session.finalized and (expired or idle):
-                self.sessions.pop(session.session_id, None)
-                self._notify_change()
+                await self.finalize_if_exited(session)
+
+                if session.finalized and (expired or idle):
+                    self.sessions.pop(session.session_id, None)
+                    self._notify_change()
 
     async def stop_running_sessions(
         self,
@@ -1009,6 +1035,12 @@ class ProcessSessionManager(object):
 
     async def close(self) -> None:
         """终止并回收全部进程会话。"""
+        self._closing = True
+        self._reaper_wakeup.set()
+        reaper = self._reaper_task
+        self._reaper_task = None
+        if reaper is not None and reaper is not asyncio.current_task():
+            await asyncio.gather(reaper, return_exceptions=True)
         await self.stop_running_sessions()
         sessions = list(self.sessions.values())
 
@@ -1059,6 +1091,11 @@ class ProcessSessionManager(object):
 
     async def finalize_if_exited(self, session: ProcessSession) -> None:
         """在进程退出后收束输出读取任务。"""
+        async with session.finalize_lock:
+            await self._finalize_if_exited_locked(session)
+
+    async def _finalize_if_exited_locked(self, session: ProcessSession) -> None:
+        """在会话终结互斥内完成一次资源回收。"""
         if session.finalized or session.process.returncode is None:
             return None
 
@@ -1099,6 +1136,7 @@ class ProcessSessionManager(object):
             await session.network_proxy.close()
 
         session.finalized = True
+        self._reaper_wakeup.set()
         session.output_revision += 1
         session.update_event.set()
         self._notify_change()
@@ -1158,7 +1196,8 @@ class ProcessSessionManager(object):
             await session.output_buffer.append(name, chunk)
             await session.display_output_buffer.append(name, chunk)
 
-            session.last_activity = time.time()
+            session.touch()
+            self._reaper_wakeup.set()
             for event_chunk in self._bounded_event_chunks(chunk):
                 session.output_revision += 1
                 session.output_events.append((
@@ -1191,7 +1230,51 @@ class ProcessSessionManager(object):
         if not session.finalized:
             session.output_revision += 1
             session.update_event.set()
+            self._reaper_wakeup.set()
             self._notify_change()
+
+    def _ensure_reaper(self) -> None:
+        """按需启动由 manager 唯一拥有的生命周期回收任务。"""
+        task = self._reaper_task
+        if self._closing or (task is not None and not task.done()):
+            return
+        self._reaper_task = asyncio.create_task(
+            self._run_reaper(),
+            name="process session reaper",
+        )
+
+    async def _run_reaper(self) -> None:
+        """按最近期限自主清理会话并响应期限变化。"""
+        while not self._closing:
+            self._reaper_wakeup.clear()
+            delay = self._next_reaper_delay()
+            if delay is None:
+                await self._reaper_wakeup.wait()
+            elif delay > 0:
+                try:
+                    await asyncio.wait_for(
+                        self._reaper_wakeup.wait(),
+                        timeout=delay,
+                    )
+                except asyncio.TimeoutError:
+                    pass
+            if self._closing:
+                return
+            await self.cleanup()
+
+    def _next_reaper_delay(self) -> float | None:
+        """返回运行中会话距离最近清理期限的秒数。"""
+        deadlines = [
+            min(
+                session.expires_monotonic,
+                session.last_activity_monotonic + session.idle_timeout_sec,
+            )
+            for session in self.sessions.values()
+            if session.process.returncode is None
+        ]
+        if not deadlines:
+            return None
+        return max(0.0, min(deadlines) - time.monotonic())
 
     @staticmethod
     def clip_output(value: str, limit: int) -> str:
