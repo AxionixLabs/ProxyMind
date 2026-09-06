@@ -2,23 +2,25 @@ import asyncio
 
 import pytest
 from agent.capabilities import InMemoryProcessCapability
+from agent.domain.approvals import NetworkProtocol
+from agent.domain.approvals import NetworkTarget
+from infrastructure.config.paths import ApplicationLayout
+from infrastructure.platform.network import NetworkDecision
+from infrastructure.platform.network import StaticNetworkPolicy
 from infrastructure.platform.sandbox import (
     SandboxClient,
+    SandboxProtocolError,
+    SidecarProcess,
     _SidecarStream,
     sandbox_backend_name,
 )
 from infrastructure.platform.process_sessions import (
+    ProcessSession,
     ProcessSessionManager,
     ProcessSessionSpec,
 )
 from mind import create_workspace_coding
 from mind import create_workspace_runtime
-from agent.domain.approvals import NetworkProtocol, NetworkTarget
-from infrastructure.platform.network import (
-    NetworkDecision,
-    StaticNetworkPolicy,
-)
-from infrastructure.config.paths import ApplicationLayout
 
 
 def test_source_windows_sidecar_path_is_platform_specific(tmp_path, monkeypatch) -> None:
@@ -195,6 +197,143 @@ def test_sidecar_stream_read_without_size_collects_until_eof() -> None:
         assert await stream.read() == b"firstsecond"
 
     asyncio.run(run())
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("platform", "expected_eof"),
+    (
+        ("win32", b"\x1a\r"),
+        ("darwin", b"\x04"),
+        ("linux", b"\x04"),
+    ),
+)
+async def test_sidecar_pty_controls_use_terminal_input(
+    tmp_path,
+    monkeypatch,
+    platform: str,
+    expected_eof: bytes,
+) -> None:
+    client = SandboxClient(
+        workspace_root=tmp_path,
+        application_root=tmp_path,
+        packaged=False,
+        platform=platform,
+    )
+    writes: list[tuple[str, bytes, bool]] = []
+
+    async def capture_write(
+        process_id: str,
+        *,
+        data: bytes = b"",
+        eof: bool = False,
+    ) -> None:
+        writes.append((process_id, data, eof))
+
+    monkeypatch.setattr(client, "write", capture_write)
+
+    await client.interrupt("sandbox-pty", tty=True)
+    await client.close_input("sandbox-pty", tty=True)
+
+    assert writes == [
+        ("sandbox-pty", b"\x03", False),
+        ("sandbox-pty", expected_eof, False),
+    ]
+
+
+@pytest.mark.anyio
+async def test_sidecar_pipe_controls_use_process_protocol(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client = SandboxClient(
+        workspace_root=tmp_path,
+        application_root=tmp_path,
+        packaged=False,
+        platform="win32",
+    )
+    terminations: list[tuple[str, str]] = []
+    writes: list[tuple[str, bytes, bool]] = []
+
+    async def capture_terminate(
+        process_id: str,
+        *,
+        signal: str = "terminate",
+    ) -> None:
+        terminations.append((process_id, signal))
+
+    async def capture_write(
+        process_id: str,
+        *,
+        data: bytes = b"",
+        eof: bool = False,
+    ) -> None:
+        writes.append((process_id, data, eof))
+
+    monkeypatch.setattr(client, "terminate", capture_terminate)
+    monkeypatch.setattr(client, "write", capture_write)
+
+    await client.interrupt("sandbox-pipe", tty=False)
+    await client.close_input("sandbox-pipe", tty=False)
+
+    assert terminations == [("sandbox-pipe", "interrupt")]
+    assert writes == [("sandbox-pipe", b"", True)]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("control", "expected_reason"),
+    (
+        ("interrupt", "exec_interrupt_failed"),
+        ("eof", "exec_stdin_closed"),
+        ("terminate", "exec_terminate_failed"),
+    ),
+)
+async def test_sidecar_control_failures_return_stable_tool_reasons(
+    tmp_path,
+    monkeypatch,
+    control: str,
+    expected_reason: str,
+) -> None:
+    client = SandboxClient(
+        workspace_root=tmp_path,
+        application_root=tmp_path,
+        packaged=False,
+        platform="win32",
+    )
+
+    async def fail_tty_control(process_id: str, *, tty: bool) -> None:
+        del process_id, tty
+        raise SandboxProtocolError("synthetic failure")
+
+    async def fail_terminate(process_id: str, *, signal: str) -> None:
+        del process_id, signal
+        raise SandboxProtocolError("synthetic failure")
+
+    monkeypatch.setattr(client, "interrupt", fail_tty_control)
+    monkeypatch.setattr(client, "close_input", fail_tty_control)
+    monkeypatch.setattr(client, "terminate", fail_terminate)
+    process = SidecarProcess(client, "sandbox-failure")
+    session = ProcessSession(
+        session_id="exec_failure",
+        spec=ProcessSessionSpec(
+            command="failure",
+            args=("failure",),
+            cwd=str(tmp_path),
+            display_cwd=str(tmp_path),
+            runtime={},
+            origin="test",
+            timeout_sec=30,
+            idle_timeout_sec=30,
+            tty=True,
+        ),
+        process=process,
+    )
+    manager = ProcessSessionManager(sandbox_client=client)
+
+    reason = await manager.apply(session, control=control)
+
+    assert reason == expected_reason
 
 
 @pytest.mark.anyio

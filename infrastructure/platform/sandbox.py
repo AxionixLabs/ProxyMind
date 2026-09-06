@@ -30,6 +30,10 @@ _EXECUTABLE_NAMES = {
     "darwin": ("mind_sandbox_server",),
 }
 
+_TTY_INTERRUPT_INPUT = b"\x03"
+_POSIX_TTY_EOF_INPUT = b"\x04"
+_WINDOWS_TTY_EOF_INPUT = b"\x1a\r"
+
 
 def sandbox_platform_name(platform: str | None = None) -> str:
     """返回当前平台对应的沙箱目录名。"""
@@ -354,6 +358,25 @@ class SandboxClient(object):
             if process is not None and process.returncode is None:
                 process.finish(-1)
             raise
+
+    async def interrupt(self, process_id: str, *, tty: bool) -> None:
+        """按进程类型发送中断；PTY 使用终端输入语义。"""
+        if tty:
+            await self.write(process_id, data=_TTY_INTERRUPT_INPUT)
+            return
+        await self.terminate(process_id, signal="interrupt")
+
+    async def close_input(self, process_id: str, *, tty: bool) -> None:
+        """按进程类型关闭输入；PTY 发送平台对应的终端 EOF。"""
+        if not tty:
+            await self.write(process_id, eof=True)
+            return
+        eof_input = (
+            _WINDOWS_TTY_EOF_INPUT
+            if self.platform == "win32"
+            else _POSIX_TTY_EOF_INPUT
+        )
+        await self.write(process_id, data=eof_input)
 
     async def close(self) -> None:
         if self._sidecar is None:

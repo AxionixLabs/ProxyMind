@@ -159,6 +159,17 @@ def test_windows_sandbox_runtime_rejects_missing_helper(
         build.validate_sidecar_assets("win32", sandbox)
 
 
+def test_macos_sandbox_runtime_rejects_missing_sidecar(tmp_path) -> None:
+    sandbox = tmp_path / "sandbox" / "macos"
+    sandbox.mkdir(parents=True)
+
+    with pytest.raises(
+        build.AppError,
+        match="mind_sandbox_server",
+    ):
+        build.validate_sidecar_assets("darwin", sandbox)
+
+
 @pytest.mark.anyio
 async def test_extensions_are_normalized_before_provider_bundle_is_copied(
         monkeypatch,

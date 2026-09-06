@@ -709,6 +709,11 @@ async def _run_nested_surfaces(runtime: TuiRuntime, facts: ScenarioFacts) -> Non
     facts.set_detail("draft_after_transcript", runtime.screen.input.buffer.text)
     facts.stage = "surfaces_consumed"
     facts.write()
+    acknowledgment = facts.path.with_suffix(".ack")
+    await _wait_until(
+        acknowledgment.exists,
+        "nested surfaces assertion acknowledgment",
+    )
     reader.cancel()
     await asyncio.gather(reader, return_exceptions=True)
 

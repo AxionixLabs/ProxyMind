@@ -20,6 +20,7 @@ from agent.ports import OutputSurfaceContext
 from agent.ports import TerminalSize
 from frontends.tui.adapters.session import create_tui_output_session
 from frontends.tui.core.runtime import TuiRuntime
+from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.paths import resolve_application_layout
 from infrastructure.platform.process_sessions import ProcessSession
 from infrastructure.platform.process_sessions import ProcessSessionManager
@@ -93,6 +94,33 @@ def _python_command(script: Path) -> tuple[str, str]:
     if os.name == "nt":
         return subprocess.list2cmdline(argv), os.environ.get("COMSPEC", "cmd.exe")
     return shlex.join(argv), os.environ.get("SHELL", "/bin/sh")
+
+
+def _sandbox_layout_or_skip() -> ApplicationLayout:
+    """返回当前平台的真实 sandbox 布局，产物缺失时跳过。"""
+    root = Path(__file__).resolve().parents[1]
+    layout = resolve_application_layout(
+        entry_file=root / "mind.py",
+        argv0="mind.py",
+        platform=sys.platform,
+    )
+    platform_directory = "windows" if os.name == "nt" else "macos"
+    executable_name = (
+        "mind_sandbox_server.exe"
+        if os.name == "nt"
+        else "mind_sandbox_server"
+    )
+    sidecar = (
+        root
+        / "schematic"
+        / "sandbox"
+        / platform_directory
+        / "bin"
+        / executable_name
+    )
+    if not sidecar.is_file():
+        pytest.skip(f"sandbox sidecar is unavailable: {sidecar}")
+    return layout
 
 
 async def _wait_until_session_finalized(
@@ -533,18 +561,6 @@ async def test_exec_command_pty_reports_resize_capability_failure(tmp_path) -> N
 
 @pytest.mark.anyio
 async def test_sandboxed_exec_command_uses_sidecar_pty(tmp_path) -> None:
-    root = Path(__file__).resolve().parents[1]
-    layout = resolve_application_layout(
-        entry_file=root / "mind.py",
-        argv0="mind.py",
-        platform=sys.platform,
-    )
-    platform_directory = "windows" if os.name == "nt" else "macos"
-    executable_name = "mind_sandbox_server.exe" if os.name == "nt" else "mind_sandbox_server"
-    sidecar = root / "schematic" / "sandbox" / platform_directory / "bin" / executable_name
-    if not sidecar.is_file():
-        pytest.skip(f"sandbox sidecar is unavailable: {sidecar}")
-
     script = tmp_path / "sandbox_interactive.py"
     script.write_text(
         "import sys\n"
@@ -557,7 +573,7 @@ async def test_sandboxed_exec_command_uses_sidecar_pty(tmp_path) -> None:
     command, shell = _python_command(script)
     coding = create_workspace_coding(
         root=tmp_path,
-        application_layout=layout,
+        application_layout=_sandbox_layout_or_skip(),
         network_access="enabled",
     )
     try:
@@ -604,6 +620,116 @@ async def test_sandboxed_exec_command_uses_sidecar_pty(tmp_path) -> None:
         assert "VALUE=sandbox-value" in completed["data"]["output"]
     finally:
         await coding.close()
+
+
+@pytest.mark.anyio
+async def test_sandboxed_pty_delivers_terminal_eof(tmp_path) -> None:
+    script = tmp_path / "sandbox_eof.py"
+    script.write_text(
+        "import sys\n"
+        "print('SANDBOX-EOF-READY', flush=True)\n"
+        "sys.stdin.read()\n"
+        "print('SANDBOX-EOF-RECEIVED', flush=True)\n",
+        encoding="utf-8",
+    )
+    command, shell = _python_command(script)
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=_sandbox_layout_or_skip(),
+        network_access="enabled",
+    )
+    try:
+        started = await coding.exec_command(
+            command=command,
+            shell=shell,
+            tty=True,
+            timeout_sec=30,
+            sandbox_mode="workspace-write",
+            cid="cid_test",
+            sid="sid_test",
+        )
+        completed = await coding.write_stdin(
+            session_id=started["data"]["session_id"],
+            control="eof",
+            wait_ms=3000,
+            cid="cid_test",
+            sid="sid_test",
+        )
+    finally:
+        await coding.close()
+
+    assert started["ok"] is True
+    assert started["data"]["status"] == "running"
+    assert completed["ok"] is True
+    assert completed["data"]["status"] == "exited"
+    assert "SANDBOX-EOF-RECEIVED" in completed["data"]["output"]
+
+
+@pytest.mark.anyio
+async def test_sandboxed_pty_interrupt_keeps_process_interactive(tmp_path) -> None:
+    script = tmp_path / "sandbox_interrupt.py"
+    if os.name == "nt":
+        script.write_text(
+            "import ctypes\n"
+            "import sys\n"
+            "from ctypes import wintypes\n"
+            "kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)\n"
+            "stream = kernel32.GetStdHandle(-10)\n"
+            "mode = wintypes.DWORD()\n"
+            "assert kernel32.GetConsoleMode(stream, ctypes.byref(mode))\n"
+            "assert kernel32.SetConsoleMode(stream, mode.value & ~7)\n"
+            "print('SANDBOX-WAITING', flush=True)\n"
+            "value = sys.stdin.buffer.read(1)\n"
+            "print(f'SANDBOX-BYTE={value[0]}', flush=True)\n"
+            "print('SANDBOX-AFTER', flush=True)\n",
+            encoding="utf-8",
+        )
+        interrupted = "SANDBOX-BYTE=3"
+    else:
+        script.write_text(
+            "import time\n"
+            "print('SANDBOX-WAITING', flush=True)\n"
+            "try:\n"
+            "    while True:\n"
+            "        time.sleep(1)\n"
+            "except KeyboardInterrupt:\n"
+            "    print('SANDBOX-INTERRUPTED', flush=True)\n"
+            "print('SANDBOX-AFTER', flush=True)\n",
+            encoding="utf-8",
+        )
+        interrupted = "SANDBOX-INTERRUPTED"
+    command, shell = _python_command(script)
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=_sandbox_layout_or_skip(),
+        network_access="enabled",
+    )
+    try:
+        started = await coding.exec_command(
+            command=command,
+            shell=shell,
+            tty=True,
+            timeout_sec=30,
+            sandbox_mode="workspace-write",
+            cid="cid_test",
+            sid="sid_test",
+        )
+        completed = await coding.write_stdin(
+            session_id=started["data"]["session_id"],
+            control="interrupt",
+            wait_ms=3000,
+            cid="cid_test",
+            sid="sid_test",
+        )
+    finally:
+        await coding.close()
+
+    assert started["ok"] is True
+    assert started["data"]["status"] == "running"
+    assert completed["ok"] is True
+    assert completed["data"]["status"] == "exited"
+    assert interrupted in completed["data"]["output"]
+    assert "SANDBOX-AFTER" in completed["data"]["output"]
 
 
 @pytest.mark.anyio

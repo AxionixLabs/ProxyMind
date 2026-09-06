@@ -378,6 +378,10 @@ def test_nested_surfaces_consume_keys_before_composer(tmp_path: Path) -> None:
         _wait_for_stage(facts_path, "transcript_search_closed")
         terminal.write_user(b"\x14")
         _wait_for_stage(facts_path, "surfaces_consumed")
+        facts_path.with_suffix(".ack").write_text(
+            "surfaces-observed",
+            encoding="ascii",
+        )
 
         assert terminal.wait_for_exit(timeout=10.0) == 0
         facts = _read_facts(facts_path)

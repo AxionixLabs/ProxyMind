@@ -33,6 +33,7 @@ from infrastructure.platform.processes import (
 )
 from infrastructure.platform.sandbox import (
     SandboxClient,
+    SandboxProtocolError,
     SandboxUnavailable,
     SidecarProcess,
 )
@@ -815,23 +816,39 @@ class ProcessSessionManager(object):
         if isinstance(process, SidecarProcess):
             if control == "resize":
                 return "exec_resize_unavailable"
-            if control in {"terminate", "kill"}:
-                await process.client.terminate(process.process_id, signal="terminate")
-                return None
-            if control == "interrupt":
-                await process.client.terminate(process.process_id, signal="interrupt")
-                return None
-            if control == "eof":
-                await process.client.write(process.process_id, eof=True)
-                return None
-            if not input_text:
-                return None
-            if process.returncode is not None:
-                return "exec_session_exited"
-            await process.client.write(
-                process.process_id,
-                data=input_text.encode(),
-            )
+            try:
+                if control in {"terminate", "kill"}:
+                    await process.client.terminate(
+                        process.process_id,
+                        signal="terminate",
+                    )
+                    return None
+                if control == "interrupt":
+                    await process.client.interrupt(
+                        process.process_id,
+                        tty=session.tty,
+                    )
+                    return None
+                if control == "eof":
+                    await process.client.close_input(
+                        process.process_id,
+                        tty=session.tty,
+                    )
+                    return None
+                if not input_text:
+                    return None
+                if process.returncode is not None:
+                    return "exec_session_exited"
+                await process.client.write(
+                    process.process_id,
+                    data=input_text.encode(),
+                )
+            except (SandboxProtocolError, SandboxUnavailable, OSError, RuntimeError):
+                if control == "interrupt":
+                    return "exec_interrupt_failed"
+                if control in {"terminate", "kill"}:
+                    return "exec_terminate_failed"
+                return "exec_stdin_closed"
             return None
 
         if isinstance(process, _InteractiveCapabilityProcess):
