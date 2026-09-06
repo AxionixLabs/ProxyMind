@@ -67,6 +67,16 @@ class TerminalMode(Enum):
     KEYBOARD_ENHANCEMENT_RESTORED = "keyboard_enhancement_restored"
     FOCUS_REPORTING_ENABLED = "focus_reporting_enabled"
     FOCUS_REPORTING_DISABLED = "focus_reporting_disabled"
+    SYNCHRONIZED_OUTPUT_ENABLED = "synchronized_output_enabled"
+    SYNCHRONIZED_OUTPUT_DISABLED = "synchronized_output_disabled"
+    ALTERNATE_SCREEN_ENABLED = "alternate_screen_enabled"
+    ALTERNATE_SCREEN_DISABLED = "alternate_screen_disabled"
+    ALTERNATE_SCROLL_ENABLED = "alternate_scroll_enabled"
+    ALTERNATE_SCROLL_DISABLED = "alternate_scroll_disabled"
+    BRACKETED_PASTE_ENABLED = "bracketed_paste_enabled"
+    BRACKETED_PASTE_DISABLED = "bracketed_paste_disabled"
+    CURSOR_HIDDEN = "cursor_hidden"
+    CURSOR_SHOWN = "cursor_shown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +225,16 @@ class TerminalQueryResponder:
         (b"\x1b[<u", TerminalMode.KEYBOARD_ENHANCEMENT_RESTORED),
         (b"\x1b[?1004h", TerminalMode.FOCUS_REPORTING_ENABLED),
         (b"\x1b[?1004l", TerminalMode.FOCUS_REPORTING_DISABLED),
+        (b"\x1b[?2026h", TerminalMode.SYNCHRONIZED_OUTPUT_ENABLED),
+        (b"\x1b[?2026l", TerminalMode.SYNCHRONIZED_OUTPUT_DISABLED),
+        (b"\x1b[?1049h", TerminalMode.ALTERNATE_SCREEN_ENABLED),
+        (b"\x1b[?1049l", TerminalMode.ALTERNATE_SCREEN_DISABLED),
+        (b"\x1b[?1007h", TerminalMode.ALTERNATE_SCROLL_ENABLED),
+        (b"\x1b[?1007l", TerminalMode.ALTERNATE_SCROLL_DISABLED),
+        (b"\x1b[?2004h", TerminalMode.BRACKETED_PASTE_ENABLED),
+        (b"\x1b[?2004l", TerminalMode.BRACKETED_PASTE_DISABLED),
+        (b"\x1b[?25l", TerminalMode.CURSOR_HIDDEN),
+        (b"\x1b[?25h", TerminalMode.CURSOR_SHOWN),
     )
     _keyboard_enable_pattern = re.compile(rb"\x1b\[>[0-9;]{1,32}u")
 

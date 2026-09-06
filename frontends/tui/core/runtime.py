@@ -2225,7 +2225,6 @@ class TuiRuntime(object):
         preserve_transcript = self.document.has_conversation
 
         self._startup_presentations.clear()
-        self.terminal_progress.close()
 
         await self._resume_picker.close()
         await self.submissions.close()
@@ -2265,7 +2264,11 @@ class TuiRuntime(object):
         await self._background_tasks.close()
 
         await self.viewport.close()
-        await self._exit_application(erase=not preserve_transcript)
+        try:
+            await self._exit_application(erase=not preserve_transcript)
+        finally:
+            # Application 退出会写终端收尾序列，标题清理必须拥有最后写入权。
+            self.terminal_progress.close()
 
         self.screen.directory_trust.close()
         self.screen.set_startup_gate(False)

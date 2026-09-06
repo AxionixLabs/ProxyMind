@@ -217,6 +217,7 @@ class PtySession:
             with self._condition:
                 self._condition.wait(min(0.05, deadline - time.monotonic()))
 
+        self._wait_for_windows_output_quiet(deadline)
         exit_code = self._backend.wait()
         with self._condition:
             while not self._output_closed:
@@ -229,6 +230,29 @@ class PtySession:
                 self._condition.wait(remaining)
             self._raise_reader_error()
         return exit_code
+
+    def _wait_for_windows_output_quiet(self, deadline: float) -> None:
+        """在关闭 ConPTY 前等待退出后的异步终端输出完成。"""
+        if os.name != "nt":
+            return None
+
+        quiet_window = 0.2
+        quiet_deadline = min(deadline, time.monotonic() + quiet_window)
+        with self._condition:
+            output_size = len(self._output)
+            while not self._output_closed:
+                self._raise_reader_error()
+                remaining = quiet_deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self._condition.wait(remaining)
+                current_size = len(self._output)
+                if current_size != output_size:
+                    output_size = current_size
+                    quiet_deadline = min(
+                        deadline,
+                        time.monotonic() + quiet_window,
+                    )
 
     def terminate(self, timeout: float = 2.0) -> int:
         """终止进程树，超时后升级为强制终止。"""
