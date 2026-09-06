@@ -6,7 +6,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from prompt_toolkit.data_structures import Size
+from prompt_toolkit.output import ColorDepth
 from prompt_toolkit.output.plain_text import PlainTextOutput
+from prompt_toolkit.output.vt100 import Vt100_Output
 
 from frontends.runtime import PassiveFrontendRuntime
 from frontends.tui.core.models import (
@@ -53,6 +56,23 @@ def test_exit_summary_command_uses_semantic_accent_without_bold() -> None:
     assert command == "mind resume sid_test_1_abcdef"
     assert command_style == "class:terminal.accent"
     assert "bold" not in command_style
+
+
+def test_exit_summary_writes_codex_cyan_command_to_terminal() -> None:
+    stdout = StringIO()
+    output = Vt100_Output(
+        stdout,
+        get_size=lambda: Size(rows=24, columns=80),
+        default_color_depth=ColorDepth.DEPTH_4_BIT,
+    )
+    runtime = TuiRuntime(output_obj=output)
+
+    runtime.print_exit_summary("sid_test_1_abcdef")
+
+    rendered = stdout.getvalue()
+    assert "\x1b[0;36mmind resume sid_test_1_abcdef" in rendered
+    assert "\x1b[1;36m" not in rendered
+    assert "\x1b[36mTo continue this session" not in rendered
 
 
 @pytest.mark.anyio

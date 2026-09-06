@@ -1668,6 +1668,8 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                     ),
                 ),
                 output=self.application.output,
+                style=self.application.style,
+                color_depth=self.application.color_depth,
                 include_default_pygments_style=False,
             )
 
