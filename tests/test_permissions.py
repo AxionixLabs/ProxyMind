@@ -502,6 +502,29 @@ async def test_command_justification_is_not_passed_to_native_executor(
     assert arguments["justification"] == "需要使用宿主 shell"
 
 
+@pytest.mark.anyio
+async def test_exec_command_tty_reaches_native_executor_after_policy() -> None:
+    coding = _coding_stub()
+    tool = next(item for item in coding_tools(coding) if item.name == "exec_command")
+    runtime = _client_runtime(preset_permissions("full-access"))
+
+    result = await tool.handler(
+        {
+            "command": "python -i",
+            "tty": True,
+            "terminal_rows": 31,
+            "terminal_columns": 101,
+        },
+        runtime,
+    )
+
+    assert result.ok is True
+    native_arguments = coding.exec_command.await_args.kwargs
+    assert native_arguments["tty"] is True
+    assert native_arguments["terminal_rows"] == 31
+    assert native_arguments["terminal_columns"] == 101
+
+
 def test_approval_card_presentation_is_owned_by_client() -> None:
     approval = {
         "tool": "shell_command",

@@ -99,6 +99,25 @@ EXEC_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
             "type": "string",
             "description": "可选 shell 可执行文件路径；省略时使用系统默认 shell。",
         },
+        "tty": {
+            "type": "boolean",
+            "default": False,
+            "description": "是否为命令创建可持续交互的原生伪终端。",
+        },
+        "terminal_rows": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32767,
+            "default": 24,
+            "description": "PTY 的初始字符行数，仅在 tty=true 时生效。",
+        },
+        "terminal_columns": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32767,
+            "default": 80,
+            "description": "PTY 的初始字符列数，仅在 tty=true 时生效。",
+        },
         "yield_time_ms": {
             "type": "integer",
             "minimum": 0,
@@ -233,12 +252,40 @@ WRITE_STDIN_INPUT_SCHEMA: dict[str, typing.Any] = {
         },
         "control": {
             "type": "string",
-            "enum": ["none", "interrupt", "eof", "terminate", "kill"],
+            "enum": [
+                "none",
+                "interrupt",
+                "eof",
+                "resize",
+                "terminate",
+                "kill",
+            ],
             "default": "none",
             "description": "可选会话控制。",
         },
+        "terminal_rows": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32767,
+            "description": "control=resize 时的新终端字符行数。",
+        },
+        "terminal_columns": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32767,
+            "description": "control=resize 时的新终端字符列数。",
+        },
     },
     "required": ["session_id"],
+    "allOf": [
+        {
+            "if": {
+                "properties": {"control": {"const": "resize"}},
+                "required": ["control"],
+            },
+            "then": {"required": ["terminal_rows", "terminal_columns"]},
+        },
+    ],
     "additionalProperties": False,
 }
 

@@ -9,11 +9,15 @@ from collections import deque
 from dataclasses import dataclass
 
 from agent.ports import (
+    CapabilityError,
+    InteractiveProcessHandle,
+    InteractiveProcessSpec,
     NetworkBlockedHandlerFactory,
     InteractiveProcessCapability,
     ProcessCapability,
     ProcessHandle,
     ProcessSpec,
+    TerminalSize,
 )
 from infrastructure.platform.encoding import decode_process_output
 from infrastructure.platform.process_capture import (
@@ -63,6 +67,8 @@ class ProcessSessionSpec(object):
     background: bool | None = None
     sandbox_mode: str = "danger-full-access"
     additional_permissions: dict[str, typing.Any] | None = None
+    tty: bool = False
+    terminal_size: TerminalSize = TerminalSize()
 
 
 class _CapabilityProcess:
@@ -88,6 +94,29 @@ class _CapabilityProcess:
         await self.handle.aclose()
 
 
+class _InteractiveCapabilityProcess:
+    """把 InteractiveProcessCapability 纳入统一进程会话生命周期。"""
+
+    def __init__(self, handle: InteractiveProcessHandle) -> None:
+        """绑定交互句柄并保留退出状态快照。"""
+        self.handle = handle
+        self.pid = handle.pid
+        self.returncode: int | None = handle.returncode
+
+    async def wait(self) -> int:
+        """等待交互进程退出并同步退出码。"""
+        self.returncode = int(await self.handle.wait())
+        return self.returncode
+
+    async def terminate(self, *, force: bool = False) -> None:
+        """通过交互进程端口终止进程树。"""
+        await self.handle.terminate(force=force)
+
+    async def close(self) -> None:
+        """关闭交互句柄并回收原生终端。"""
+        await self.handle.aclose()
+
+
 class ProcessSession(object):
     """保存一个可持续读取和控制的本地进程会话。"""
 
@@ -96,7 +125,12 @@ class ProcessSession(object):
         *,
         session_id: str,
         spec: ProcessSessionSpec,
-        process: asyncio.subprocess.Process | SidecarProcess | _CapabilityProcess,
+        process: (
+            asyncio.subprocess.Process
+            | SidecarProcess
+            | _CapabilityProcess
+            | _InteractiveCapabilityProcess
+        ),
         network_proxy: ManagedNetworkProxy | None = None,
     ) -> None:
         """初始化进程会话及有限输出缓冲区。"""
@@ -122,6 +156,8 @@ class ProcessSession(object):
         self.idle_timeout_sec = spec.idle_timeout_sec
         self.audit_mode = spec.audit_mode
         self.audit_before = spec.audit_before
+        self.tty = spec.tty
+        self.terminal_size = spec.terminal_size
 
         self.stdout = bytearray()
         self.stderr = bytearray()
@@ -150,6 +186,7 @@ class ProcessSession(object):
         self.exit_watch_task: asyncio.Task[None] | None = None
 
         self.lock = asyncio.Lock()
+        self.interaction_lock = asyncio.Lock()
 
 
 class ProcessSessionManager(object):
@@ -234,6 +271,15 @@ class ProcessSessionManager(object):
             "workspace-write",
         }:
             raise ValueError(f"sandbox_mode_invalid: {spec.sandbox_mode}")
+        if (
+            spec.tty
+            and spec.sandbox_mode in {"read-only", "workspace-read", "workspace-write"}
+            and spec.terminal_size != TerminalSize()
+        ):
+            raise CapabilityError(
+                "interactive_process_size_unavailable",
+                "sandboxed PTY supports only the default 24x80 terminal size",
+            )
         await self.cleanup()
 
         session_id = f"exec_{secrets.token_hex(8)}"
@@ -263,7 +309,21 @@ class ProcessSessionManager(object):
             process_env = session_network_proxy.environment(process_env)
 
         try:
-            if (
+            if spec.tty and spec.sandbox_mode == "danger-full-access":
+                capability = self._interactive_process_capability
+                if capability is None:
+                    raise CapabilityError(
+                        "interactive_process_unavailable",
+                        "interactive process capability is not configured",
+                    )
+                handle = await capability.spawn(InteractiveProcessSpec(
+                    argv=spec.args,
+                    cwd=spec.cwd,
+                    env=process_env or {},
+                    size=spec.terminal_size,
+                ))
+                process = _InteractiveCapabilityProcess(handle)
+            elif (
                 self._process_capability is not None
                 and spec.sandbox_mode == "danger-full-access"
             ):
@@ -291,6 +351,7 @@ class ProcessSessionManager(object):
                     "env": process_env or {},
                     "sandbox_mode": spec.sandbox_mode,
                     "stdin_open": spec.stdin_enabled,
+                    "tty": spec.tty,
                     "timeout_ms": max(1, int(spec.timeout_sec)) * 1000,
                 }
                 if spec.additional_permissions is not None:
@@ -326,9 +387,10 @@ class ProcessSessionManager(object):
             self._read_stream(session, "stdout")
         )
 
-        session.stderr_task = asyncio.create_task(
-            self._read_stream(session, "stderr")
-        )
+        if not isinstance(process, _InteractiveCapabilityProcess):
+            session.stderr_task = asyncio.create_task(
+                self._read_stream(session, "stderr")
+            )
         self.sessions[session.session_id] = session
         self._notify_change()
         session.exit_watch_task = asyncio.create_task(
@@ -343,6 +405,7 @@ class ProcessSessionManager(object):
             origin=session.origin,
             cid=session.owner_cid,
             sid=session.owner_sid,
+            tty=session.tty,
         )
 
         return session
@@ -369,6 +432,9 @@ class ProcessSessionManager(object):
                 "last_activity": session.last_activity,
                 "origin": session.origin,
                 "background": session.background,
+                "pty": session.tty,
+                "terminal_rows": session.terminal_size.rows,
+                "terminal_columns": session.terminal_size.columns,
                 "owner_cid": session.owner_cid,
                 "owner_sid": session.owner_sid,
             }
@@ -490,6 +556,10 @@ class ProcessSessionManager(object):
             "runtime_name": session.runtime.get("name"),
             "origin": session.origin,
             "background": session.background,
+            "pty": session.tty,
+            "pty_fallback": False,
+            "terminal_rows": session.terminal_size.rows,
+            "terminal_columns": session.terminal_size.columns,
             "revision": session.output_revision,
             "owner_cid": session.owner_cid,
             "owner_sid": session.owner_sid,
@@ -574,6 +644,10 @@ class ProcessSessionManager(object):
                 "runtime_name": session.runtime.get("name"),
                 "origin": session.origin,
                 "background": session.background,
+                "pty": session.tty,
+                "pty_fallback": False,
+                "terminal_rows": session.terminal_size.rows,
+                "terminal_columns": session.terminal_size.columns,
                 "revision": current_revision,
                 "owner_cid": session.owner_cid,
                 "owner_sid": session.owner_sid,
@@ -588,8 +662,26 @@ class ProcessSessionManager(object):
         *,
         input_text: str = "",
         control: str = "none",
+        terminal_size: TerminalSize | None = None,
     ) -> str | None:
         """向会话发送控制动作或标准输入。"""
+        async with session.interaction_lock:
+            return await ProcessSessionManager._apply_interaction(
+                session,
+                input_text=input_text,
+                control=control,
+                terminal_size=terminal_size,
+            )
+
+    @staticmethod
+    async def _apply_interaction(
+        session: ProcessSession,
+        *,
+        input_text: str,
+        control: str,
+        terminal_size: TerminalSize | None,
+    ) -> str | None:
+        """在会话交互锁内应用一次输入、控制或 resize。"""
         session.last_activity = time.time()
 
         process = session.process
@@ -610,6 +702,8 @@ class ProcessSessionManager(object):
             )
 
         if isinstance(process, SidecarProcess):
+            if control == "resize":
+                return "exec_resize_unavailable"
             if control in {"terminate", "kill"}:
                 await process.client.terminate(process.process_id, signal="terminate")
                 return None
@@ -629,7 +723,37 @@ class ProcessSessionManager(object):
             )
             return None
 
+        if isinstance(process, _InteractiveCapabilityProcess):
+            try:
+                if control in {"terminate", "kill"}:
+                    await process.terminate(force=control == "kill")
+                    return None
+                if control == "interrupt":
+                    await process.handle.interrupt()
+                    return None
+                if control == "eof":
+                    await process.handle.write("", eof=True)
+                    return None
+                if control == "resize":
+                    if terminal_size is None:
+                        return "exec_terminal_size_required"
+                    await process.handle.resize(terminal_size)
+                    session.terminal_size = terminal_size
+                    return None
+                if not input_text:
+                    return None
+                if process.returncode is not None:
+                    return "exec_session_exited"
+                await process.handle.write(input_text)
+            except CapabilityError as error:
+                return error.code
+            except (OSError, RuntimeError, ValueError):
+                return "exec_stdin_closed"
+            return None
+
         if isinstance(process, _CapabilityProcess):
+            if control == "resize":
+                return "exec_resize_unavailable"
             if control in {"terminate", "kill"}:
                 await process.terminate(force=control == "kill")
                 return None
@@ -649,6 +773,8 @@ class ProcessSessionManager(object):
                 return "exec_stdin_closed"
             return None
 
+        if control == "resize":
+            return "exec_resize_unavailable"
         if control == "terminate":
             await terminate_process_tree(process, force=False)
             return None
@@ -716,19 +842,7 @@ class ProcessSessionManager(object):
                     pid=session.process.pid,
                     reason="expired" if expired else "idle",
                 )
-                if isinstance(session.process, SidecarProcess):
-                    await session.process.client.terminate(
-                        session.process.process_id,
-                        signal="terminate" if not expired else "kill",
-                    )
-                elif isinstance(session.process, _CapabilityProcess):
-                    await session.process.terminate(force=expired)
-                else:
-                    await terminate_process_tree(
-                        session.process,
-                        force=expired,
-                    )
-                await wait_for_process(session.process, 1000)
+                await self._terminate_and_wait(session, force=expired)
 
             await self.finalize_if_exited(session)
 
@@ -773,18 +887,7 @@ class ProcessSessionManager(object):
                 "origin": session.origin,
             }
             try:
-                if isinstance(session.process, SidecarProcess):
-                    await session.process.client.terminate(
-                        session.process.process_id,
-                        signal="terminate",
-                    )
-                elif isinstance(session.process, _CapabilityProcess):
-                    await session.process.terminate(force=False)
-                else:
-                    await terminate_process_tree(
-                        session.process,
-                        force=False,
-                    )
+                await self._terminate_and_wait(session, force=False)
                 if session.process.returncode is None:
                     failures.append({**item, "reason": "process_still_running"})
                     continue
@@ -832,15 +935,7 @@ class ProcessSessionManager(object):
 
         for session in sessions:
             if session.process.returncode is None:
-                if isinstance(session.process, SidecarProcess):
-                    await session.process.client.terminate(
-                        session.process.process_id,
-                        signal="kill",
-                    )
-                elif isinstance(session.process, _CapabilityProcess):
-                    await session.process.terminate(force=True)
-                else:
-                    await terminate_process_tree(session.process, force=True)
+                await self._terminate_and_wait(session, force=True)
             await self.finalize_if_exited(session)
 
         self.sessions.clear()
@@ -848,6 +943,40 @@ class ProcessSessionManager(object):
             await self._sandbox_client.close()
         if self._network_proxy is not None:
             await self._network_proxy.close()
+
+    @staticmethod
+    async def _terminate_and_wait(
+        session: ProcessSession,
+        *,
+        force: bool,
+    ) -> None:
+        """终止任一后端并有界等待统一退出状态。"""
+        process = session.process
+        if isinstance(process, SidecarProcess):
+            await process.client.terminate(
+                process.process_id,
+                signal="kill" if force else "terminate",
+            )
+        elif isinstance(
+            process,
+            (_CapabilityProcess, _InteractiveCapabilityProcess),
+        ):
+            await process.terminate(force=force)
+        else:
+            await terminate_process_tree(process, force=force)
+        await wait_for_process(process, 1000)
+        if process.returncode is not None or force:
+            return
+        if isinstance(process, SidecarProcess):
+            await process.client.terminate(process.process_id, signal="kill")
+        elif isinstance(
+            process,
+            (_CapabilityProcess, _InteractiveCapabilityProcess),
+        ):
+            await process.terminate(force=True)
+        else:
+            await terminate_process_tree(process, force=True)
+        await wait_for_process(process, 1000)
 
     async def finalize_if_exited(self, session: ProcessSession) -> None:
         """在进程退出后收束输出读取任务。"""
@@ -859,7 +988,7 @@ class ProcessSessionManager(object):
                 await session.process.handle.write("", eof=True)
             except (OSError, RuntimeError, ValueError):
                 pass
-        else:
+        elif not isinstance(session.process, _InteractiveCapabilityProcess):
             await close_process_stdin(session.process)
 
         tasks = [
@@ -879,7 +1008,10 @@ class ProcessSessionManager(object):
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
 
-        if isinstance(session.process, _CapabilityProcess):
+        if isinstance(
+            session.process,
+            (_CapabilityProcess, _InteractiveCapabilityProcess),
+        ):
             await session.process.close()
         elif not isinstance(session.process, SidecarProcess):
             ProcessCapture.close_process_transport(session.process)
@@ -904,6 +1036,13 @@ class ProcessSessionManager(object):
 
     async def _read_stream(self, session: ProcessSession, name: str) -> None:
         """持续读取会话输出流。"""
+        if isinstance(session.process, _InteractiveCapabilityProcess):
+            if name != "stdout":
+                return None
+            async for chunk in session.process.handle.read_output():
+                await self._record_output(session, "stdout", chunk)
+            return None
+
         if isinstance(session.process, _CapabilityProcess):
             stream_reader = (
                 session.process.handle.read_stdout

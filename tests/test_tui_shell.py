@@ -711,6 +711,9 @@ async def test_exec_command_keeps_tool_policy_and_result_flow(tmp_path) -> None:
 
     assert result["ok"]
     assert result["data"]["status"] == "exited"
+    assert result["data"]["pty"] is False
+    assert result["data"]["pty_fallback"] is False
+    assert result["data"]["execution_backend"] == "local"
     assert "shared-session" in result["data"]["output"]
 
 

@@ -61,6 +61,7 @@ def process_tools(
                 exec_permission_approvals_enabled=(
                     exec_permission_approvals_enabled
                 ),
+                preserve_tty=False,
             )
         except ExecutionAuthorizationError as error:
             return _authorization_failure(
@@ -96,6 +97,7 @@ def process_tools(
                 exec_permission_approvals_enabled=(
                     exec_permission_approvals_enabled
                 ),
+                preserve_tty=True,
             )
         except ExecutionAuthorizationError as error:
             return _authorization_failure(
@@ -165,8 +167,8 @@ def process_tools(
         ClientTool(
             name=EXEC_COMMAND_TOOL,
             description=(
-                "启动可持续读写的本地 shell 命令会话。适合长耗时任务、交互式任务和持续输出。"
-                "该实现使用标准输入输出管道，不提供真实 PTY。"
+                "启动可持续读写的本地 shell 命令会话。适合长耗时任务和持续输出；"
+                "需要 REPL、终端控制或交互式程序时设置 tty=true 创建原生 PTY。"
             ),
             input_schema=exec_command_input_schema(
                 exec_permission_approvals_enabled=exec_permission_approvals_enabled,
@@ -177,7 +179,8 @@ def process_tools(
         ClientTool(
             name=WRITE_STDIN_TOOL,
             description=(
-                "向 exec_command 创建的命令会话写入标准输入，或在 stdin 为空时轮询增量输出。"
+                "向 exec_command 创建的命令会话写入标准输入、调整 PTY 尺寸，"
+                "或在 stdin 为空时轮询增量输出。"
             ),
             input_schema=WRITE_STDIN_INPUT_SCHEMA,
             meta={"hidden": False, "domain": "coding", "class": "shell"},
@@ -190,6 +193,7 @@ def _process_arguments(
     arguments: dict[str, typing.Any],
     *,
     exec_permission_approvals_enabled: bool,
+    preserve_tty: bool,
 ) -> dict[str, typing.Any]:
     """校验权限覆盖并返回本地执行器可见参数。"""
     reject_model_execution(arguments)
@@ -209,11 +213,14 @@ def _process_arguments(
             "sandbox_permissions_invalid",
             str(error),
         ) from error
-    return {
+    result = {
         key: value
         for key, value in arguments.items()
         if key not in _EXECUTION_ONLY_FIELDS
     }
+    if preserve_tty and "tty" in arguments:
+        result["tty"] = arguments["tty"]
+    return result
 
 
 def _authorization_failure(

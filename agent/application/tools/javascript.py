@@ -282,6 +282,9 @@ def _nested_canonical_arguments(
             "command": str(arguments.get("command") or ""),
             "cwd": str(arguments.get("cwd") or "."),
             "shell": str(arguments.get("shell") or "") or None,
+            "tty": bool(arguments.get("tty", False)),
+            "terminal_rows": int(arguments.get("terminal_rows") or 24),
+            "terminal_columns": int(arguments.get("terminal_columns") or 80),
             "yield_time_ms": int(arguments.get("yield_time_ms", 1000)),
             "max_output_chars": int(arguments.get("max_output_chars") or 24000),
             "timeout_sec": int(arguments.get("timeout_sec") or 1800),
@@ -309,6 +312,14 @@ def _nested_canonical_arguments(
             "wait_ms": int(arguments.get("wait_ms", 1000)),
             "max_output_chars": int(arguments.get("max_output_chars") or 12000),
             "control": str(arguments.get("control") or "none"),
+            **(
+                {
+                    "terminal_rows": int(arguments["terminal_rows"]),
+                    "terminal_columns": int(arguments["terminal_columns"]),
+                }
+                if str(arguments.get("control") or "none") == "resize"
+                else {}
+            ),
         }
     return dict(arguments)
 

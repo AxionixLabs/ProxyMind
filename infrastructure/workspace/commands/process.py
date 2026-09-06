@@ -5,6 +5,8 @@ import os
 import time
 import typing
 
+from agent.ports import CapabilityError
+from agent.ports import TerminalSize
 from agent.domain.execution_policy import (
     effective_sandbox_mode,
     normalize_sandbox_permission,
@@ -16,7 +18,6 @@ from infrastructure.platform.process_sessions import (
     ProcessSessionSpec,
 )
 from infrastructure.platform.processes import (
-    terminate_process_tree,
     wait_for_process,
 )
 from infrastructure.platform.sandbox import (
@@ -59,6 +60,9 @@ class ProcessCommandExecutor(WorkspaceComponent):
         command: str,
         cwd: str = ".",
         shell: str | None = None,
+        tty: bool = False,
+        terminal_rows: int = 24,
+        terminal_columns: int = 80,
         yield_time_ms: int = 1000,
         max_output_chars: int = 24000,
         timeout_sec: int = 1800,
@@ -78,6 +82,24 @@ class ProcessCommandExecutor(WorkspaceComponent):
         cmd = str(command or "")
         if not cmd.strip():
             return self.fail_result("command_empty")
+        if not isinstance(tty, bool):
+            return self.fail_result(
+                "tty_invalid",
+                tool="exec_command",
+                command=cmd,
+            )
+        try:
+            terminal_size = TerminalSize(
+                rows=terminal_rows,
+                columns=terminal_columns,
+            )
+        except (TypeError, ValueError) as exc:
+            return self.fail_result(
+                "terminal_size_invalid",
+                tool="exec_command",
+                command=cmd,
+                detail=str(exc),
+            )
 
         try:
             permission = normalize_sandbox_permission(sandbox_permissions)
@@ -110,6 +132,9 @@ class ProcessCommandExecutor(WorkspaceComponent):
             arguments={
                 "command": cmd,
                 "cwd": str(cwd or "."),
+                "tty": tty,
+                "terminal_rows": terminal_size.rows,
+                "terminal_columns": terminal_size.columns,
                 "yield_time_ms": int(yield_time_ms),
                 "max_output_chars": int(max_output_chars),
                 "timeout_sec": int(timeout_sec or 1800),
@@ -166,6 +191,9 @@ class ProcessCommandExecutor(WorkspaceComponent):
             "source": runtime.source,
             "sandbox_mode": sandbox_mode,
             "sandbox_permissions": permission,
+            "tty": tty,
+            "terminal_rows": terminal_size.rows,
+            "terminal_columns": terminal_size.columns,
         }
         if normalized_additional_permissions is not None:
             runtime_info["additional_permissions"] = normalized_additional_permissions
@@ -199,7 +227,19 @@ class ProcessCommandExecutor(WorkspaceComponent):
                 env=env,
                 sandbox_mode=sandbox_mode,
                 additional_permissions=normalized_additional_permissions,
+                tty=tty,
+                terminal_size=terminal_size,
             ))
+        except CapabilityError as exc:
+            return self.fail_result(
+                exc.code,
+                tool="exec_command",
+                command=cmd,
+                cwd=self.relative_path(workdir),
+                sandbox_mode=sandbox_mode,
+                execution_backend="native-pty" if tty else "local",
+                detail=exc.message,
+            )
         except (
                 SandboxUnavailable,
                 SandboxProtocolError,
@@ -238,14 +278,14 @@ class ProcessCommandExecutor(WorkspaceComponent):
                 "timeout_sec": timeout,
                 "idle_timeout_sec": idle_timeout,
                 "yield_time_ms": yield_ms,
-                "pty": False,
-                "pty_fallback": True,
+                "pty": tty,
+                "pty_fallback": False,
                 "sandbox_mode": sandbox_mode,
                 "sandbox_permissions": permission,
                 "execution_backend": (
                     sandbox_backend_name()
                     if sandbox_mode in {"read-only", "workspace-read", "workspace-write"}
-                    else "local"
+                    else ("native-pty" if tty else "local")
                 ),
             }
         )
@@ -261,6 +301,8 @@ class ProcessCommandExecutor(WorkspaceComponent):
         wait_ms: int = 1000,
         max_output_chars: int = 12000,
         control: str = "none",
+        terminal_rows: int | None = None,
+        terminal_columns: int | None = None,
         cid: str = "",
         sid: str = "",
         call_id: str = "",
@@ -296,12 +338,45 @@ class ProcessCommandExecutor(WorkspaceComponent):
         wait_time = self._bounded_int(wait_ms, default=1000, minimum=0, maximum=30000)
         control_name = str(control or "none").strip().lower() or "none"
 
-        if control_name not in {"none", "interrupt", "eof", "terminate", "kill"}:
+        if control_name not in {
+            "none",
+            "interrupt",
+            "eof",
+            "resize",
+            "terminate",
+            "kill",
+        }:
             return self.fail_result(
                 "exec_control_invalid",
                 tool="write_stdin",
                 session_id=exec_session_id,
                 control=control
+            )
+        terminal_size: TerminalSize | None = None
+        if control_name == "resize":
+            if terminal_rows is None or terminal_columns is None:
+                return self.fail_result(
+                    "exec_terminal_size_required",
+                    tool="write_stdin",
+                    session_id=exec_session_id,
+                )
+            try:
+                terminal_size = TerminalSize(
+                    rows=terminal_rows,
+                    columns=terminal_columns,
+                )
+            except (TypeError, ValueError) as exc:
+                return self.fail_result(
+                    "terminal_size_invalid",
+                    tool="write_stdin",
+                    session_id=exec_session_id,
+                    detail=str(exc),
+                )
+        elif terminal_rows is not None or terminal_columns is not None:
+            return self.fail_result(
+                "exec_terminal_size_unexpected",
+                tool="write_stdin",
+                session_id=exec_session_id,
             )
 
         started = time.perf_counter()
@@ -309,7 +384,8 @@ class ProcessCommandExecutor(WorkspaceComponent):
         write_error = await self._apply_control_or_stdin(
             session,
             input_text=input_text,
-            control=control_name
+            control=control_name,
+            terminal_size=terminal_size,
         )
         if write_error is not None:
             return write_error
@@ -326,8 +402,10 @@ class ProcessCommandExecutor(WorkspaceComponent):
             extra={
                 "control": control_name,
                 "stdin_written": len(str(stdin or "")),
-                "pty": False,
-                "pty_fallback": True
+                "pty": session.tty,
+                "pty_fallback": False,
+                "terminal_rows": session.terminal_size.rows,
+                "terminal_columns": session.terminal_size.columns,
             }
         )
 
@@ -384,13 +462,15 @@ class ProcessCommandExecutor(WorkspaceComponent):
         session: ExecSession,
         *,
         input_text: str,
-        control: str
+        control: str,
+        terminal_size: TerminalSize | None,
     ) -> dict[str, typing.Any] | None:
         """应用控制动作或向会话写入标准输入。"""
         reason = await self._session_manager.apply(
             session,
             input_text=input_text,
             control=control,
+            terminal_size=terminal_size,
         )
 
         if reason is None:
@@ -436,13 +516,7 @@ class ProcessCommandExecutor(WorkspaceComponent):
         timed_out = time.time() >= session.expires_at and exit_code is None
 
         if timed_out:
-            if isinstance(session.process, SidecarProcess):
-                await session.process.client.terminate(
-                    session.process.process_id,
-                    signal="kill",
-                )
-            else:
-                await terminate_process_tree(session.process, force=True)
+            await self._session_manager.apply(session, control="kill")
             await wait_for_process(session.process, 1000)
             await self._session_manager.finalize_if_exited(session)
 
@@ -466,10 +540,14 @@ class ProcessCommandExecutor(WorkspaceComponent):
             "runtime": dict(session.runtime),
             "runtime_name": session.runtime.get("name"),
             "sandbox_mode": session.runtime.get("sandbox_mode", "danger-full-access"),
+            "pty": session.tty,
+            "pty_fallback": False,
+            "terminal_rows": session.terminal_size.rows,
+            "terminal_columns": session.terminal_size.columns,
             "execution_backend": (
                 sandbox_backend_name()
                 if isinstance(session.process, SidecarProcess)
-                else "local"
+                else ("native-pty" if session.tty else "local")
             ),
             "output": clipped_output,
             "stdout": clipped_stdout,
