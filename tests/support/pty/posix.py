@@ -46,10 +46,16 @@ class PosixPtyBackend:
             raise PtyEndOfFile from exc
 
     def write(self, data: bytes) -> int:
-        """写入原生 PTY 字节。"""
+        """循环推进原生 PTY 写入，避免短写丢失输入。"""
         if self._input_closed:
             raise RuntimeError("POSIX PTY input is closed")
-        return self._child.send(data)
+        total = 0
+        while total < len(data):
+            written = self._child.send(data[total:])
+            if written == 0:
+                raise OSError("POSIX PTY input write made no progress")
+            total += written
+        return total
 
     def close_input(self) -> None:
         """通过 controlling TTY 的 VEOF 字符交付输入结束。"""
