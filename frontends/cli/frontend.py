@@ -41,15 +41,15 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
         _require_tui_terminal()
 
         from frontends.tui.adapters.application import TuiApplicationSink
+        from frontends.tui.adapters.input import create_tui_input
         from frontends.tui.adapters.session import create_tui_output_session
         from frontends.tui.core.runtime import TuiRuntime
         from frontends.tui.features.transcript_export import TranscriptExporter
-        from prompt_toolkit.input import create_input
         from frontends.terminal.capabilities import detect_terminal_capabilities
         from frontends.terminal.progress import create_terminal_progress
 
         transcript_exporter = TranscriptExporter()
-        application_input = create_input(sys.stdin)
+        application_input = create_tui_input(sys.stdin)
 
         def replay_terminal_input(data: bytes) -> None:
             """将启动探测读到的 POSIX 输入交还 prompt_toolkit 解析器。"""
