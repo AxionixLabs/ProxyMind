@@ -195,6 +195,7 @@ class WindowsPtyBackend:
         self._pseudo_console: int | None = None
         self._process: int | None = None
         self._pid: int | None = None
+        self._previous_input_was_cr = False
         self._closed = False
         self._spawn(argv, cwd=cwd, env=env, size=size)
 
@@ -231,11 +232,14 @@ class WindowsPtyBackend:
         return buffer.raw[:read.value]
 
     def write(self, data: bytes) -> int:
-        """完整写入 ConPTY 同步输入管道。"""
+        """归一化终端按键后完整写入 ConPTY 同步输入管道。"""
+        normalized = self._normalize_input(data)
+        if not normalized:
+            return len(data)
         input_handle = self._required_input()
         total = 0
-        while total < len(data):
-            chunk = data[total:]
+        while total < len(normalized):
+            chunk = normalized[total:]
             buffer = ctypes.create_string_buffer(chunk)
             written = wintypes.DWORD()
             if not self._kernel32.WriteFile(
@@ -249,7 +253,11 @@ class WindowsPtyBackend:
             if written.value == 0:
                 raise OSError("ConPTY input write made no progress")
             total += written.value
-        return total
+        return len(data)
+
+    def close_input(self) -> None:
+        """发送 Windows 控制台 EOF 键，物理句柄由会话关闭。"""
+        self.write(b"\x1a\r")
 
     def resize(self, size: TerminalSize) -> None:
         """更新 ConPTY 缓冲区行列。"""
@@ -288,6 +296,7 @@ class WindowsPtyBackend:
             raise ctypes.WinError(ctypes.get_last_error())
         if exit_code.value == _STILL_ACTIVE:
             raise RuntimeError("ConPTY process is still active")
+        self._job.terminate()
         self._close_pseudoconsole()
         return int(exit_code.value)
 
@@ -560,6 +569,20 @@ class WindowsPtyBackend:
         error = ctypes.get_last_error()
         if error not in {_ERROR_INVALID_HANDLE, _ERROR_NOT_FOUND}:
             raise ctypes.WinError(error)
+
+    def _normalize_input(self, data: bytes) -> bytes:
+        """按 Codex Windows PTY 契约归一化换行与 Backspace。"""
+        normalized = bytearray()
+        for value in data:
+            if value == 0x08:
+                normalized.append(0x7F)
+            elif value == 0x0A:
+                if not self._previous_input_was_cr:
+                    normalized.append(0x0D)
+            else:
+                normalized.append(value)
+            self._previous_input_was_cr = value == 0x0D
+        return bytes(normalized)
 
     def _close_input(self) -> None:
         """关闭父侧 ConPTY 输入句柄。"""

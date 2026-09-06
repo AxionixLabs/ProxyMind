@@ -29,6 +29,9 @@ class PtyBackend(typing.Protocol):
     def write(self, data: bytes) -> int:
         """向终端写入完整输入字节。"""
 
+    def close_input(self) -> None:
+        """向子进程交付终端 EOF，并拒绝后续输入。"""
+
     def resize(self, size: "TerminalSize") -> None:
         """修改原生终端窗口尺寸。"""
 
@@ -83,7 +86,10 @@ class PtySession:
         self._output = bytearray()
         self._output_closed = False
         self._reader_error: Exception | None = None
+        self._input_closed = False
         self._closed = False
+        self._lifecycle_lock = threading.RLock()
+        self._write_lock = threading.Lock()
         self._reader = threading.Thread(
             target=self._read_output,
             name=f"pty-reader-{backend.pid}",
@@ -113,13 +119,17 @@ class PtySession:
 
     def write(self, data: bytes) -> None:
         """完整写入终端输入。"""
-        if self._closed:
-            raise RuntimeError("PTY session is closed")
-        written = self._backend.write(data)
-        if written != len(data):
-            raise OSError(
-                f"PTY input short write: expected {len(data)}, wrote {written}"
-            )
+        with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("PTY session is closed")
+            if self._input_closed:
+                raise RuntimeError("PTY input is closed")
+            with self._write_lock:
+                written = self._backend.write(data)
+            if written != len(data):
+                raise OSError(
+                    f"PTY input short write: expected {len(data)}, wrote {written}"
+                )
 
     def write_text(self, text: str) -> None:
         """以 UTF-8 写入用户文本。"""
@@ -128,15 +138,31 @@ class PtySession:
     def send_key(self, key: PtyKey) -> None:
         """写入稳定按键字节。"""
         if key is PtyKey.CTRL_C:
-            self._backend.interrupt()
+            with self._lifecycle_lock:
+                if self._closed:
+                    raise RuntimeError("PTY session is closed")
+                if self._input_closed:
+                    raise RuntimeError("PTY input is closed")
+                with self._write_lock:
+                    self._backend.interrupt()
             return
         self.write(key.value)
 
+    def close_input(self) -> None:
+        """幂等交付终端 EOF，并阻止后续写入。"""
+        with self._lifecycle_lock:
+            if self._closed or self._input_closed:
+                return
+            with self._write_lock:
+                self._backend.close_input()
+            self._input_closed = True
+
     def resize(self, size: TerminalSize) -> None:
         """调整原生终端尺寸。"""
-        if self._closed:
-            raise RuntimeError("PTY session is closed")
-        self._backend.resize(size)
+        with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("PTY session is closed")
+            self._backend.resize(size)
 
     def wait_for_output(self, expected: str, timeout: float = 5.0) -> bytes:
         """等待输出包含目标文本，并返回命中时的字节快照。"""
@@ -185,25 +211,38 @@ class PtySession:
 
     def terminate(self, timeout: float = 2.0) -> int:
         """终止进程树，超时后升级为强制终止。"""
-        if self._backend.is_alive():
-            self._backend.terminate()
-        try:
-            return self.wait_for_exit(timeout)
-        except TimeoutError:
+        with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("PTY session is closed")
+            if self._backend.is_alive():
+                self._backend.terminate()
+            try:
+                return self.wait_for_exit(timeout)
+            except TimeoutError:
+                self._backend.kill()
+                return self.wait_for_exit(timeout)
+
+    def kill(self, timeout: float = 2.0) -> int:
+        """强制终止进程树并等待输出关闭。"""
+        with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("PTY session is closed")
             self._backend.kill()
             return self.wait_for_exit(timeout)
 
     def close(self) -> None:
         """幂等终止残留进程并释放 reader 与原生句柄。"""
-        if self._closed:
-            return
-        try:
-            if self._backend.is_alive():
-                self.terminate()
-        finally:
-            self._backend.close()
-            self._reader.join(timeout=2.0)
-            self._closed = True
+        with self._lifecycle_lock:
+            if self._closed:
+                return
+            try:
+                if self._backend.is_alive():
+                    self.terminate()
+            finally:
+                self._backend.close()
+                self._reader.join(timeout=2.0)
+                self._input_closed = True
+                self._closed = True
         if self._reader.is_alive():
             raise TimeoutError(f"PTY reader for process {self.pid} did not stop")
         with self._condition:

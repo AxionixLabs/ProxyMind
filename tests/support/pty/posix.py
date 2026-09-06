@@ -30,6 +30,7 @@ class PosixPtyBackend:
             timeout=None,
             dimensions=(size.rows, size.columns),
         )
+        self._input_closed = False
         self._closed = False
 
     @property
@@ -46,7 +47,16 @@ class PosixPtyBackend:
 
     def write(self, data: bytes) -> int:
         """写入原生 PTY 字节。"""
+        if self._input_closed:
+            raise RuntimeError("POSIX PTY input is closed")
         return self._child.send(data)
+
+    def close_input(self) -> None:
+        """通过 controlling TTY 的 VEOF 字符交付输入结束。"""
+        if self._input_closed:
+            return
+        self._child.send(b"\x04")
+        self._input_closed = True
 
     def resize(self, size: TerminalSize) -> None:
         """更新 PTY 窗口行列。"""
@@ -63,6 +73,7 @@ class PosixPtyBackend:
     def wait(self) -> int:
         """等待并返回 POSIX 退出码。"""
         status = self._child.wait()
+        self._signal_group(signal.SIGTERM)
         if status is not None:
             return int(status)
         signal_status = self._child.signalstatus
@@ -87,8 +98,6 @@ class PosixPtyBackend:
 
     def _signal_group(self, value: signal.Signals) -> None:
         """只向本 adapter 创建的 session 进程组发信号。"""
-        if not self._child.isalive():
-            return
         try:
             os.killpg(self._child.pid, value)
         except ProcessLookupError:
