@@ -12,9 +12,13 @@ import pytest
 
 from agent.application.tools.coding_schemas import EXEC_COMMAND_INPUT_SCHEMA
 from agent.application.tools.coding_schemas import WRITE_STDIN_INPUT_SCHEMA
+from agent.application.views.builders.tools import build_native_tool_result_view
 from agent.ports import CapabilityError
 from agent.ports import InteractiveProcessSpec
+from agent.ports import OutputSurfaceContext
 from agent.ports import TerminalSize
+from frontends.tui.adapters.session import create_tui_output_session
+from frontends.tui.core.runtime import TuiRuntime
 from infrastructure.config.paths import resolve_application_layout
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.pty import LocalInteractiveProcessCapability
@@ -281,6 +285,107 @@ async def test_exec_command_pty_delivers_terminal_eof(tmp_path) -> None:
     assert completed["ok"] is True
     assert completed["data"]["status"] == "exited"
     assert "EOF-RECEIVED" in completed["data"]["output"]
+
+
+@pytest.mark.anyio
+async def test_exec_command_pty_projects_background_lifecycle_to_tui(
+    tmp_path,
+) -> None:
+    script = tmp_path / "terminal_projection.py"
+    script.write_text(
+        "value = input('TUI-READY>')\n"
+        "print('TUI-VALUE=' + value, flush=True)\n",
+        encoding="utf-8",
+    )
+    command, shell = _python_command(script)
+    capability = LocalInteractiveProcessCapability()
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=None,
+        interactive_process_capability=capability,
+        network_access="enabled",
+    )
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = OutputSurfaceContext(
+        surface_id="surface_pty_projection",
+        cid="cid_test",
+        sid="sid_test",
+        turn_id="turn_test",
+        agent_id="root",
+    )
+    output_session = create_tui_output_session(
+        "",
+        context=context,
+        runtime=runtime,
+        animate=False,
+    )
+    await output_session.open()
+    presentation = output_session.presentation
+    try:
+        started = await coding.exec_command(
+            command=command,
+            shell=shell,
+            tty=True,
+            yield_time_ms=100,
+            timeout_sec=30,
+            cid="cid_test",
+            sid="sid_test",
+        )
+        session_id = started["data"]["session_id"]
+        await presentation.emit(build_native_tool_result_view(
+            "exec_command",
+            {"command": command, "tty": True},
+            ok=True,
+            data=started["data"],
+            call_id="exec-1",
+        ))
+
+        waiting = await coding.write_stdin(
+            session_id=session_id,
+            wait_ms=0,
+            cid="cid_test",
+            sid="sid_test",
+        )
+        await presentation.emit(build_native_tool_result_view(
+            "write_stdin",
+            {"session_id": session_id, "stdin": ""},
+            ok=True,
+            data=waiting["data"],
+            call_id="wait-1",
+        ))
+        activity = "".join(
+            text for _style, text in runtime.screen.activity_block.fragments
+        )
+        assert activity.startswith("• Waiting for background terminal")
+
+        completed = await coding.write_stdin(
+            session_id=session_id,
+            stdin="projected\r",
+            wait_ms=3000,
+            cid="cid_test",
+            sid="sid_test",
+        )
+        await presentation.emit(build_native_tool_result_view(
+            "write_stdin",
+            {"session_id": session_id, "stdin": "projected\r"},
+            ok=True,
+            data=completed["data"],
+            call_id="input-1",
+        ))
+    finally:
+        await output_session.close()
+        runtime.set_execution_active(False)
+        await coding.close()
+        await capability.aclose()
+
+    text = "".join(
+        value for _style, value in runtime.document.fragments(width=80)
+    )
+    assert completed["data"]["status"] == "exited"
+    assert "TUI-VALUE=projected" in completed["data"]["output"]
+    assert text.count("Waited for background terminal") == 1
+    assert text.count("Interacted with background terminal") == 1
 
 
 @pytest.mark.anyio
