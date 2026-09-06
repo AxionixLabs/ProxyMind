@@ -65,6 +65,24 @@ def test_cache_discards_partial_default_color_pair() -> None:
     assert colors.method is TerminalProbeMethod.CUSTOM
 
 
+def test_cache_records_probe_failure_only_once() -> None:
+    """验证失败探测也形成会话级一次性缓存。"""
+    cache = TerminalDefaultColorsCache()
+    calls: list[int] = []
+
+    def probe(_input, _output, _timeout) -> TerminalDefaultColors:
+        calls.append(1)
+        raise OSError("terminal unavailable")
+
+    first = cache.get_or_probe(None, None, 0.1, probe)
+    second = cache.get_or_probe(None, None, 0.1, probe)
+
+    assert first == second
+    assert first.attempted
+    assert not first.complete
+    assert calls == [1]
+
+
 def test_unix_reader_uses_fixed_total_buffer_limit(monkeypatch) -> None:
     replayed: list[bytes] = []
 

@@ -117,6 +117,27 @@ class PtySession:
         """以替换非法序列的方式返回当前 UTF-8 输出。"""
         return self.output().decode("utf-8", errors="replace")
 
+    def wait_for_output_change(
+        self,
+        offset: int,
+        timeout: float,
+    ) -> tuple[bytes, bool]:
+        """等待指定偏移后出现新输出或 PTY 关闭。"""
+        if offset < 0:
+            raise ValueError("PTY output offset must not be negative")
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            if offset > len(self._output):
+                raise ValueError("PTY output offset exceeds collected output")
+            while len(self._output) == offset and not self._output_closed:
+                self._raise_reader_error()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("timed out waiting for PTY output change")
+                self._condition.wait(remaining)
+            self._raise_reader_error()
+            return bytes(self._output), self._output_closed
+
     def write(self, data: bytes) -> None:
         """完整写入终端输入。"""
         with self._lifecycle_lock:
