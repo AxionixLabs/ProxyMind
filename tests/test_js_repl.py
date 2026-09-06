@@ -20,6 +20,7 @@ from agent.application.tools.coding import coding_tools
 from agent.application.tools.javascript import (
     _authorize_nested_tool,
     _js_repl_arguments,
+    _nested_canonical_arguments,
     javascript_tools,
 )
 from agent.application.tools.coding_schemas import JS_REPL_INPUT_SCHEMA
@@ -63,6 +64,20 @@ from infrastructure.mcp.nested_tool_results import nested_tool_output
 from agent.composition import open_effect_journal
 from agent.application.config.settings import FeatureSettings
 from agent.domain.policies import preset_permissions
+
+
+def test_nested_process_tool_defaults_match_public_contract() -> None:
+    exec_arguments = _nested_canonical_arguments(
+        "exec_command",
+        {"command": "echo test"},
+    )
+    write_arguments = _nested_canonical_arguments(
+        "write_stdin",
+        {"session_id": "exec_test"},
+    )
+
+    assert exec_arguments["yield_time_ms"] == 10_000
+    assert write_arguments["wait_ms"] == 250
 
 
 async def _execute(

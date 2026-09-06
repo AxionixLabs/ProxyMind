@@ -9,9 +9,29 @@ from agent.domain.permission_profiles import PermissionProfile
 from agent.ports.capabilities import SandboxMode
 
 __all__ = (
+    "EXEC_COMMAND_DEFAULT_YIELD_MS",
+    "EXEC_COMMAND_MAX_YIELD_MS",
+    "EXEC_COMMAND_MIN_YIELD_MS",
+    "EXEC_COMMAND_WINDOWS_MIN_YIELD_MS",
+    "WRITE_STDIN_DEFAULT_WAIT_MS",
+    "WRITE_STDIN_EMPTY_MAX_WAIT_MS",
+    "WRITE_STDIN_EMPTY_MIN_WAIT_MS",
+    "WRITE_STDIN_MAX_WAIT_MS",
+    "WRITE_STDIN_MIN_WAIT_MS",
     "UserShellPort",
     "WorkspaceProcessPort",
 )
+
+
+EXEC_COMMAND_DEFAULT_YIELD_MS = 10_000
+EXEC_COMMAND_MIN_YIELD_MS = 250
+EXEC_COMMAND_WINDOWS_MIN_YIELD_MS = 10_000
+EXEC_COMMAND_MAX_YIELD_MS = 30_000
+WRITE_STDIN_DEFAULT_WAIT_MS = 250
+WRITE_STDIN_MIN_WAIT_MS = 250
+WRITE_STDIN_MAX_WAIT_MS = 30_000
+WRITE_STDIN_EMPTY_MIN_WAIT_MS = 5_000
+WRITE_STDIN_EMPTY_MAX_WAIT_MS = 300_000
 
 
 class WorkspaceProcessPort(typing.Protocol):
@@ -46,7 +66,7 @@ class WorkspaceProcessPort(typing.Protocol):
         tty: bool = False,
         terminal_rows: int = 24,
         terminal_columns: int = 80,
-        yield_time_ms: int = 1000,
+        yield_time_ms: int = EXEC_COMMAND_DEFAULT_YIELD_MS,
         max_output_chars: int = 24000,
         timeout_sec: int = 1800,
         idle_timeout_sec: int = 300,
@@ -66,7 +86,7 @@ class WorkspaceProcessPort(typing.Protocol):
         *,
         session_id: str,
         stdin: str = "",
-        wait_ms: int = 1000,
+        wait_ms: int = WRITE_STDIN_DEFAULT_WAIT_MS,
         max_output_chars: int = 12000,
         control: str = "none",
         terminal_rows: int | None = None,

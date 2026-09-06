@@ -25,6 +25,7 @@ from infrastructure.platform.process_sessions import ProcessSession
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.process_sessions import ProcessSessionSpec
 from infrastructure.platform.pty import LocalInteractiveProcessCapability
+from infrastructure.workspace.commands.process import ProcessCommandExecutor
 from mind import create_workspace_coding
 
 
@@ -111,6 +112,14 @@ def test_exec_command_schema_exposes_opt_in_pty_and_resize() -> None:
     assert properties["tty"]["default"] is False
     assert properties["terminal_rows"]["default"] == 24
     assert properties["terminal_columns"]["default"] == 80
+    assert properties["yield_time_ms"]["default"] == 10_000
+    assert properties["yield_time_ms"]["minimum"] == 0
+    assert properties["yield_time_ms"]["maximum"] == 30_000
+
+    write_properties = WRITE_STDIN_INPUT_SCHEMA["properties"]
+    assert write_properties["wait_ms"]["default"] == 250
+    assert write_properties["wait_ms"]["minimum"] == 0
+    assert write_properties["wait_ms"]["maximum"] == 300_000
 
     jsonschema.validate(
         {
@@ -126,6 +135,51 @@ def test_exec_command_schema_exposes_opt_in_pty_and_resize() -> None:
             {"session_id": "exec_test", "control": "resize"},
             WRITE_STDIN_INPUT_SCHEMA,
         )
+
+
+def test_process_command_wait_bounds_match_codex() -> None:
+    assert ProcessCommandExecutor._resolve_exec_yield_time(
+        None,
+        windows=True,
+    ) == 10_000
+    assert ProcessCommandExecutor._resolve_exec_yield_time(
+        0,
+        windows=True,
+    ) == 10_000
+    assert ProcessCommandExecutor._resolve_exec_yield_time(
+        0,
+        windows=False,
+    ) == 250
+    assert ProcessCommandExecutor._resolve_exec_yield_time(
+        60_000,
+        windows=False,
+    ) == 30_000
+
+    assert ProcessCommandExecutor._resolve_write_wait_time(
+        0,
+        input_text="input",
+        control="none",
+    ) == 250
+    assert ProcessCommandExecutor._resolve_write_wait_time(
+        60_000,
+        input_text="input",
+        control="none",
+    ) == 30_000
+    assert ProcessCommandExecutor._resolve_write_wait_time(
+        0,
+        input_text="",
+        control="none",
+    ) == 5_000
+    assert ProcessCommandExecutor._resolve_write_wait_time(
+        500_000,
+        input_text="",
+        control="none",
+    ) == 300_000
+    assert ProcessCommandExecutor._resolve_write_wait_time(
+        0,
+        input_text="",
+        control="interrupt",
+    ) == 250
 
 
 def test_process_session_event_chunks_preserve_utf8_boundaries() -> None:
@@ -180,6 +234,9 @@ async def test_exec_command_pty_supports_input_resize_and_cursor(tmp_path) -> No
         assert started["data"]["pty"] is True
         assert started["data"]["pty_fallback"] is False
         assert started["data"]["execution_backend"] == "native-pty"
+        assert started["data"]["yield_time_ms"] == (
+            10_000 if os.name == "nt" else 250
+        )
         assert started["data"]["stderr"] == ""
         assert "ISATTY=True:True:True" in started["data"]["output"]
         session_id = started["data"]["session_id"]
@@ -233,6 +290,42 @@ async def test_exec_command_pty_supports_input_resize_and_cursor(tmp_path) -> No
     finally:
         await coding.close()
         await capability.aclose()
+
+
+@pytest.mark.anyio
+async def test_exec_command_fast_pty_exit_does_not_become_background(tmp_path) -> None:
+    script = tmp_path / "fast_exit.py"
+    script.write_text(
+        "print('FAST-EXIT', flush=True)\n",
+        encoding="utf-8",
+    )
+    command, shell = _python_command(script)
+    capability = LocalInteractiveProcessCapability()
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=None,
+        interactive_process_capability=capability,
+        network_access="enabled",
+    )
+    try:
+        result = await coding.exec_command(
+            command=command,
+            shell=shell,
+            tty=True,
+            timeout_sec=30,
+            cid="cid_test",
+            sid="sid_test",
+        )
+        running = await coding.running_exec_sessions()
+    finally:
+        await coding.close()
+        await capability.aclose()
+
+    assert result["ok"] is True
+    assert result["data"]["status"] == "exited"
+    assert result["data"]["yield_time_ms"] == 10_000
+    assert result["data"]["output"].count("FAST-EXIT") == 1
+    assert not running["items"]
 
 
 @pytest.mark.anyio

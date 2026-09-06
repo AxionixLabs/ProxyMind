@@ -5,6 +5,9 @@ import copy
 import typing
 
 from agent.application.tools.permissions import PERMISSION_PROFILE_SCHEMA
+from agent.ports.process_tools import EXEC_COMMAND_DEFAULT_YIELD_MS
+from agent.ports.process_tools import WRITE_STDIN_DEFAULT_WAIT_MS
+from agent.ports.process_tools import WRITE_STDIN_EMPTY_MAX_WAIT_MS
 
 JS_REPL_INPUT_SCHEMA: dict[str, typing.Any] = {
     "type": "object",
@@ -122,8 +125,11 @@ EXEC_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
             "type": "integer",
             "minimum": 0,
             "maximum": 30000,
-            "default": 1000,
-            "description": "启动后等待首批输出的毫秒数；命令未结束时返回 session_id。",
+            "default": EXEC_COMMAND_DEFAULT_YIELD_MS,
+            "description": (
+                "启动后等待首批输出的毫秒数；默认 10000，Windows 有效范围为 "
+                "10000-30000，其他平台为 250-30000；命令未结束时返回 session_id。"
+            ),
         },
         "max_output_chars": {
             "type": "integer",
@@ -239,9 +245,12 @@ WRITE_STDIN_INPUT_SCHEMA: dict[str, typing.Any] = {
         "wait_ms": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 30000,
-            "default": 1000,
-            "description": "写入后等待新输出的毫秒数。",
+            "maximum": WRITE_STDIN_EMPTY_MAX_WAIT_MS,
+            "default": WRITE_STDIN_DEFAULT_WAIT_MS,
+            "description": (
+                "等待新输出的毫秒数；输入或控制有效范围为 250-30000，"
+                "纯空轮询为 5000-300000。"
+            ),
         },
         "max_output_chars": {
             "type": "integer",

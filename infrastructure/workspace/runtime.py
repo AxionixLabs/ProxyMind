@@ -6,6 +6,8 @@ import typing
 
 from agent.domain.patches.parsing import PatchParser
 from agent.ports.capabilities import SandboxMode
+from agent.ports.process_tools import EXEC_COMMAND_DEFAULT_YIELD_MS
+from agent.ports.process_tools import WRITE_STDIN_DEFAULT_WAIT_MS
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.workspace.commands.audit import WorkspaceFileAudit
 from infrastructure.workspace.commands.process import ProcessCommandExecutor
@@ -115,7 +117,7 @@ class WorkspaceCoding(WorkspaceContext):
         tty: bool = False,
         terminal_rows: int = 24,
         terminal_columns: int = 80,
-        yield_time_ms: int = 1000,
+        yield_time_ms: int = EXEC_COMMAND_DEFAULT_YIELD_MS,
         max_output_chars: int = 24000,
         timeout_sec: int = 1800,
         idle_timeout_sec: int = 300,
@@ -153,7 +155,7 @@ class WorkspaceCoding(WorkspaceContext):
         *,
         session_id: str,
         stdin: str = "",
-        wait_ms: int = 1000,
+        wait_ms: int = WRITE_STDIN_DEFAULT_WAIT_MS,
         max_output_chars: int = 12000,
         control: str = "none",
         terminal_rows: int | None = None,

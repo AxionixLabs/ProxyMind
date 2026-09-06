@@ -31,6 +31,8 @@ from agent.ports.javascript import (
     JavaScriptResetDisposition,
     NestedToolOutput,
 )
+from agent.ports.process_tools import EXEC_COMMAND_DEFAULT_YIELD_MS
+from agent.ports.process_tools import WRITE_STDIN_DEFAULT_WAIT_MS
 from agent.ports.workspace import ExecutionPolicy
 from protocol.schema.tool_approval import TOOL_APPROVAL_ACCEPT_DECISIONS
 
@@ -285,7 +287,12 @@ def _nested_canonical_arguments(
             "tty": bool(arguments.get("tty", False)),
             "terminal_rows": int(arguments.get("terminal_rows") or 24),
             "terminal_columns": int(arguments.get("terminal_columns") or 80),
-            "yield_time_ms": int(arguments.get("yield_time_ms", 1000)),
+            "yield_time_ms": int(
+                arguments.get(
+                    "yield_time_ms",
+                    EXEC_COMMAND_DEFAULT_YIELD_MS,
+                )
+            ),
             "max_output_chars": int(arguments.get("max_output_chars") or 24000),
             "timeout_sec": int(arguments.get("timeout_sec") or 1800),
             "idle_timeout_sec": int(arguments.get("idle_timeout_sec") or 300),
@@ -309,7 +316,12 @@ def _nested_canonical_arguments(
         return {
             "session_id": str(arguments.get("session_id") or ""),
             "stdin": str(arguments.get("stdin") or ""),
-            "wait_ms": int(arguments.get("wait_ms", 1000)),
+            "wait_ms": int(
+                arguments.get(
+                    "wait_ms",
+                    WRITE_STDIN_DEFAULT_WAIT_MS,
+                )
+            ),
             "max_output_chars": int(arguments.get("max_output_chars") or 12000),
             "control": str(arguments.get("control") or "none"),
             **(

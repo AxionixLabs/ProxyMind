@@ -209,7 +209,16 @@ from .presentation import TurnForegroundLifecyclePort
 from .process_lifecycle import ProcessLifecyclePort
 from .process_resources import ProcessResourcePort
 from .process_tools import (
+    EXEC_COMMAND_DEFAULT_YIELD_MS,
+    EXEC_COMMAND_MAX_YIELD_MS,
+    EXEC_COMMAND_MIN_YIELD_MS,
+    EXEC_COMMAND_WINDOWS_MIN_YIELD_MS,
     UserShellPort,
+    WRITE_STDIN_DEFAULT_WAIT_MS,
+    WRITE_STDIN_EMPTY_MAX_WAIT_MS,
+    WRITE_STDIN_EMPTY_MIN_WAIT_MS,
+    WRITE_STDIN_MAX_WAIT_MS,
+    WRITE_STDIN_MIN_WAIT_MS,
     WorkspaceProcessPort,
 )
 from .sessions import (
@@ -299,6 +308,10 @@ __all__ = (
     "EffectJournalDecision",
     "EffectJournalFactory",
     "EffectJournalPersistenceError",
+    "EXEC_COMMAND_DEFAULT_YIELD_MS",
+    "EXEC_COMMAND_MAX_YIELD_MS",
+    "EXEC_COMMAND_MIN_YIELD_MS",
+    "EXEC_COMMAND_WINDOWS_MIN_YIELD_MS",
     "LocalEffectReconciliationRequired",
     "RecoveryResolution",
     "RemoteTurnBinding",
@@ -368,6 +381,11 @@ __all__ = (
     "JavaScriptSessionLifecyclePort",
     "WorkspacePatchPort",
     "WorkspaceProcessPort",
+    "WRITE_STDIN_DEFAULT_WAIT_MS",
+    "WRITE_STDIN_EMPTY_MAX_WAIT_MS",
+    "WRITE_STDIN_EMPTY_MIN_WAIT_MS",
+    "WRITE_STDIN_MAX_WAIT_MS",
+    "WRITE_STDIN_MIN_WAIT_MS",
     "UserShellPort",
     "BeforeToolSession",
     "ExternalToolGroupPort",

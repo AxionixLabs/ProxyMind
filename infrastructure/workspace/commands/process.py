@@ -7,6 +7,15 @@ import typing
 
 from agent.ports import CapabilityError
 from agent.ports import TerminalSize
+from agent.ports.process_tools import EXEC_COMMAND_DEFAULT_YIELD_MS
+from agent.ports.process_tools import EXEC_COMMAND_MAX_YIELD_MS
+from agent.ports.process_tools import EXEC_COMMAND_MIN_YIELD_MS
+from agent.ports.process_tools import EXEC_COMMAND_WINDOWS_MIN_YIELD_MS
+from agent.ports.process_tools import WRITE_STDIN_DEFAULT_WAIT_MS
+from agent.ports.process_tools import WRITE_STDIN_EMPTY_MAX_WAIT_MS
+from agent.ports.process_tools import WRITE_STDIN_EMPTY_MIN_WAIT_MS
+from agent.ports.process_tools import WRITE_STDIN_MAX_WAIT_MS
+from agent.ports.process_tools import WRITE_STDIN_MIN_WAIT_MS
 from agent.domain.execution_policy import (
     effective_sandbox_mode,
     normalize_sandbox_permission,
@@ -63,7 +72,7 @@ class ProcessCommandExecutor(WorkspaceComponent):
         tty: bool = False,
         terminal_rows: int = 24,
         terminal_columns: int = 80,
-        yield_time_ms: int = 1000,
+        yield_time_ms: int = EXEC_COMMAND_DEFAULT_YIELD_MS,
         max_output_chars: int = 24000,
         timeout_sec: int = 1800,
         idle_timeout_sec: int = 300,
@@ -100,6 +109,7 @@ class ProcessCommandExecutor(WorkspaceComponent):
                 command=cmd,
                 detail=str(exc),
             )
+        yield_ms = self._resolve_exec_yield_time(yield_time_ms)
 
         try:
             permission = normalize_sandbox_permission(sandbox_permissions)
@@ -135,7 +145,7 @@ class ProcessCommandExecutor(WorkspaceComponent):
                 "tty": tty,
                 "terminal_rows": terminal_size.rows,
                 "terminal_columns": terminal_size.columns,
-                "yield_time_ms": int(yield_time_ms),
+                "yield_time_ms": yield_ms,
                 "max_output_chars": int(max_output_chars),
                 "timeout_sec": int(timeout_sec or 1800),
                 "idle_timeout_sec": int(idle_timeout_sec),
@@ -173,9 +183,6 @@ class ProcessCommandExecutor(WorkspaceComponent):
         )
         idle_timeout = self._bounded_int(
             idle_timeout_sec, default=300, minimum=1, maximum=1800
-        )
-        yield_ms = self._bounded_int(
-            yield_time_ms, default=1000, minimum=0, maximum=30000
         )
         output_limit = self._bounded_int(
             max_output_chars, default=self.max_output_chars, minimum=1024, maximum=120000
@@ -306,7 +313,7 @@ class ProcessCommandExecutor(WorkspaceComponent):
         *,
         session_id: str,
         stdin: str = "",
-        wait_ms: int = 1000,
+        wait_ms: int = WRITE_STDIN_DEFAULT_WAIT_MS,
         max_output_chars: int = 12000,
         control: str = "none",
         terminal_rows: int | None = None,
@@ -343,7 +350,6 @@ class ProcessCommandExecutor(WorkspaceComponent):
             maximum=120000
         )
 
-        wait_time = self._bounded_int(wait_ms, default=1000, minimum=0, maximum=30000)
         control_name = str(control or "none").strip().lower() or "none"
 
         if control_name not in {
@@ -360,6 +366,11 @@ class ProcessCommandExecutor(WorkspaceComponent):
                 session_id=exec_session_id,
                 control=control
             )
+        wait_time = self._resolve_write_wait_time(
+            wait_ms,
+            input_text=input_text,
+            control=control_name,
+        )
         terminal_size: TerminalSize | None = None
         if control_name == "resize":
             if terminal_rows is None or terminal_columns is None:
@@ -697,6 +708,52 @@ class ProcessCommandExecutor(WorkspaceComponent):
         except (TypeError, ValueError):
             number = default
         return max(minimum, min(maximum, number))
+
+    @classmethod
+    def _resolve_exec_yield_time(
+        cls,
+        value: typing.Any,
+        *,
+        windows: bool | None = None,
+    ) -> int:
+        """按平台解析首次命令调用的有效等待时间。"""
+        is_windows = os.name == "nt" if windows is None else windows
+        minimum = (
+            EXEC_COMMAND_WINDOWS_MIN_YIELD_MS
+            if is_windows
+            else EXEC_COMMAND_MIN_YIELD_MS
+        )
+        return cls._bounded_int(
+            value,
+            default=EXEC_COMMAND_DEFAULT_YIELD_MS,
+            minimum=minimum,
+            maximum=EXEC_COMMAND_MAX_YIELD_MS,
+        )
+
+    @classmethod
+    def _resolve_write_wait_time(
+        cls,
+        value: typing.Any,
+        *,
+        input_text: str,
+        control: str,
+    ) -> int:
+        """区分纯轮询与交互操作的有效等待时间。"""
+        empty_poll = not input_text and control == "none"
+        return cls._bounded_int(
+            value,
+            default=WRITE_STDIN_DEFAULT_WAIT_MS,
+            minimum=(
+                WRITE_STDIN_EMPTY_MIN_WAIT_MS
+                if empty_poll
+                else WRITE_STDIN_MIN_WAIT_MS
+            ),
+            maximum=(
+                WRITE_STDIN_EMPTY_MAX_WAIT_MS
+                if empty_poll
+                else WRITE_STDIN_MAX_WAIT_MS
+            ),
+        )
 
 
 if __name__ == '__main__':
