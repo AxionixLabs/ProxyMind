@@ -87,6 +87,7 @@ class TerminalEnvironment:
     colorterm: str = "truecolor"
     term_program: str = "WezTerm"
     term_program_version: str = "2026.1"
+    wt_session: str | None = None
     no_color: bool = False
 
     def derive(self, base: typing.Mapping[str, str]) -> dict[str, str]:
@@ -100,6 +101,8 @@ class TerminalEnvironment:
         environment["COLORTERM"] = self.colorterm
         environment["TERM_PROGRAM"] = self.term_program
         environment["TERM_PROGRAM_VERSION"] = self.term_program_version
+        if self.wt_session is not None:
+            environment["WT_SESSION"] = self.wt_session
         if self.no_color:
             environment["NO_COLOR"] = "1"
         return environment
@@ -725,3 +728,7 @@ def spawn_terminal(
         size=size,
     )
     return TerminalHarness(session, size=size, replies=replies)
+
+
+if __name__ == '__main__':
+    pass

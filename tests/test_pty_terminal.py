@@ -41,6 +41,19 @@ def test_terminal_environment_replaces_host_identity() -> None:
     assert "WT_SESSION" not in environment
 
 
+def test_terminal_environment_can_declare_windows_terminal() -> None:
+    """验证场景能够显式覆盖 Windows Terminal 身份。"""
+    environment = TerminalEnvironment(
+        term="xterm-color",
+        colorterm="",
+        term_program="",
+        term_program_version="",
+        wt_session="pty-session",
+    ).derive({"WT_SESSION": "host-session"})
+
+    assert environment["WT_SESSION"] == "pty-session"
+
+
 def test_query_responder_bounds_partial_and_unknown_sequences() -> None:
     """验证截断、超长和未知序列不会形成无界缓存。"""
     config = TerminalReplyConfig(max_query_bytes=64)

@@ -46,6 +46,7 @@ from prompt_toolkit.layout.processors import (
     AfterInput,
     ConditionalProcessor,
 )
+from prompt_toolkit.output import ColorDepth
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.base import Output
 from prompt_toolkit.shortcuts import print_formatted_text
@@ -56,6 +57,7 @@ from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
 )
+from frontends.terminal.color_support import TerminalColorLevel
 from frontends.terminal.text import sanitize_terminal_text
 from frontends.tui.contracts.pager import StaticPagerRequest
 from frontends.tui.contracts.resume import (
@@ -191,6 +193,17 @@ from ..rendering.screen.terminal import (
     supports_terminal_hyperlinks as _supports_terminal_hyperlinks,
     supports_vt_control as _supports_vt_control
 )
+
+
+def _prompt_color_depth(level: TerminalColorLevel) -> ColorDepth:
+    """把冻结的终端色深映射为 prompt_toolkit 输出契约。"""
+    if level is TerminalColorLevel.TRUECOLOR:
+        return ColorDepth.DEPTH_24_BIT
+    if level is TerminalColorLevel.ANSI256:
+        return ColorDepth.DEPTH_8_BIT
+    if level is TerminalColorLevel.NONE:
+        return ColorDepth.DEPTH_1_BIT
+    return ColorDepth.DEPTH_4_BIT
 
 
 class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
@@ -1155,6 +1168,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 TUI_APPROVAL_STYLE,
                 TUI_MENU_STYLE,
                 capabilities=terminal_capabilities,
+            ),
+            color_depth=_prompt_color_depth(
+                terminal_capabilities.color_support.effective_level
             ),
             full_screen=False,
             erase_when_done=False,

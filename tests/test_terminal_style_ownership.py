@@ -3,6 +3,8 @@
 import ast
 from pathlib import Path
 
+from prompt_toolkit.output import ColorDepth
+
 from frontends.terminal.capabilities import TerminalCapabilities
 from frontends.terminal.color_support import (
     TerminalColorLevel,
@@ -84,6 +86,28 @@ def test_no_color_application_style_contains_no_color_values() -> None:
         "#" not in value and "ansi" not in value
         for _selector, value in style.style_rules
     )
+
+
+def test_application_output_depth_uses_frozen_terminal_capability() -> None:
+    """验证渲染器不会重新从宿主环境推断输出色深。"""
+    expectations = (
+        (TerminalColorLevel.TRUECOLOR, ColorDepth.DEPTH_24_BIT),
+        (TerminalColorLevel.ANSI256, ColorDepth.DEPTH_8_BIT),
+        (TerminalColorLevel.ANSI16, ColorDepth.DEPTH_4_BIT),
+        (TerminalColorLevel.UNKNOWN, ColorDepth.DEPTH_4_BIT),
+        (TerminalColorLevel.NONE, ColorDepth.DEPTH_1_BIT),
+    )
+
+    for level, expected in expectations:
+        capabilities = TerminalCapabilities(
+            identity=TerminalIdentity(TerminalKind.UNKNOWN, "test"),
+            color_support=TerminalColorSupport.fixed(level),
+        )
+        application = TuiRuntime(
+            terminal_capabilities=capabilities
+        ).screen.application
+
+        assert application.color_depth is expected
 
 
 if __name__ == '__main__':
