@@ -237,6 +237,7 @@ class ProcessSession(object):
         )
 
         self.finalized: bool = False
+        self.termination_reason: typing.Literal["expired", "idle"] | None = None
 
         self.stdout_task: asyncio.Task[None] | None = None
         self.stderr_task: asyncio.Task[None] | None = None
@@ -941,11 +942,13 @@ class ProcessSessionManager(object):
                 )
 
                 if session.process.returncode is None and (expired or idle):
+                    termination_reason = "expired" if expired else "idle"
+                    session.termination_reason = termination_reason
                     observe(
                         "process.cleanup",
                         session_id=session.session_id,
                         pid=session.process.pid,
-                        reason="expired" if expired else "idle",
+                        reason=termination_reason,
                     )
                     await self._terminate_and_wait(session, force=expired)
 

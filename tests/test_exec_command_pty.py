@@ -756,6 +756,7 @@ async def test_process_session_reaper_enforces_timeout_without_api_polling() -> 
     try:
         await _wait_until_session_finalized(session)
         assert session.finalized is True
+        assert session.termination_reason == "expired"
         assert session.session_id not in manager.sessions
         assert not capability._handles
     finally:
@@ -764,6 +765,42 @@ async def test_process_session_reaper_enforces_timeout_without_api_polling() -> 
 
     assert reaper is not None
     assert reaper.done()
+
+
+@pytest.mark.anyio
+async def test_exec_command_reports_timeout_after_autonomous_reaping(tmp_path) -> None:
+    script = tmp_path / "timeout.py"
+    script.write_text(
+        "import time\ntime.sleep(30)\n",
+        encoding="utf-8",
+    )
+    command, shell = _python_command(script)
+    capability = LocalInteractiveProcessCapability()
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=None,
+        interactive_process_capability=capability,
+        network_access="enabled",
+    )
+    try:
+        result = await coding.exec_command(
+            command=command,
+            shell=shell,
+            tty=True,
+            yield_time_ms=3000,
+            timeout_sec=1,
+            idle_timeout_sec=10,
+            cid="cid_test",
+            sid="sid_test",
+        )
+    finally:
+        await coding.close()
+        await capability.aclose()
+
+    assert result["ok"] is False
+    assert result["data"]["status"] == "exited"
+    assert result["data"]["timed_out"] is True
+    assert result["data"]["reason"] == "command_timed_out"
 
 
 @pytest.mark.anyio

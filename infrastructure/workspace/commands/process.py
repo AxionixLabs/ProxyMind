@@ -521,9 +521,12 @@ class ProcessCommandExecutor(WorkspaceComponent):
 
         exit_code = session.process.returncode
         status = "running" if exit_code is None else "exited"
-        timed_out = time.time() >= session.expires_at and exit_code is None
+        timed_out = session.termination_reason == "expired"
+        if time.monotonic() >= session.expires_monotonic and exit_code is None:
+            session.termination_reason = "expired"
+            timed_out = True
 
-        if timed_out:
+        if timed_out and exit_code is None:
             await self._session_manager.apply(session, control="kill")
             await wait_for_process(session.process, 1000)
             await self._session_manager.finalize_if_exited(session)
