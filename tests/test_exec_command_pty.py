@@ -5,6 +5,7 @@ import subprocess
 import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import jsonschema
 import pytest
@@ -15,6 +16,7 @@ from agent.ports import CapabilityError
 from agent.ports import InteractiveProcessSpec
 from agent.ports import TerminalSize
 from infrastructure.config.paths import resolve_application_layout
+from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.pty import LocalInteractiveProcessCapability
 from mind import create_workspace_coding
 
@@ -105,6 +107,18 @@ def test_exec_command_schema_exposes_opt_in_pty_and_resize() -> None:
             {"session_id": "exec_test", "control": "resize"},
             WRITE_STDIN_INPUT_SCHEMA,
         )
+
+
+def test_process_session_event_chunks_preserve_utf8_boundaries() -> None:
+    payload = b"x" * 8191 + "🙂".encode("utf-8") + b"tail"
+
+    chunks = ProcessSessionManager._bounded_event_chunks(payload)
+
+    assert b"".join(chunks) == payload
+    assert all(len(chunk) <= 8192 for chunk in chunks)
+    assert "".join(chunk.decode("utf-8") for chunk in chunks) == (
+        "x" * 8191 + "🙂tail"
+    )
 
 
 @pytest.mark.anyio
@@ -393,3 +407,155 @@ async def test_exec_command_pty_interrupt_keeps_process_interactive(tmp_path) ->
     finally:
         await coding.close()
         await capability.aclose()
+
+
+@pytest.mark.anyio
+async def test_exec_command_pty_bounds_output_and_resets_old_cursor(tmp_path) -> None:
+    script = tmp_path / "large_output.py"
+    script.write_text(
+        "import sys\n"
+        "sys.stdout.write('HEAD-SENTINEL\\n')\n"
+        "for index in range(24000):\n"
+        "    sys.stdout.write(f'{index:05d}:' + ('x' * 90) + '\\n')\n"
+        "sys.stdout.write('TAIL-SENTINEL\\n')\n"
+        "sys.stdout.flush()\n"
+        "input()\n",
+        encoding="utf-8",
+    )
+    command, shell = _python_command(script)
+    capability = LocalInteractiveProcessCapability()
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=None,
+        interactive_process_capability=capability,
+        network_access="enabled",
+    )
+    try:
+        started = await coding.exec_command(
+            command=command,
+            shell=shell,
+            tty=True,
+            yield_time_ms=10000,
+            max_output_chars=120000,
+            timeout_sec=30,
+            cid="cid_test",
+            sid="sid_test",
+        )
+        session_id = started["data"]["session_id"]
+
+        assert started["data"]["status"] == "running"
+        assert started["data"]["stdout_dropped"] > 0
+        assert started["data"]["output_truncated"] is True
+        assert "HEAD-SENTINEL" in started["data"]["output"]
+        assert "TAIL-SENTINEL" in started["data"]["output"]
+
+        update = await coding.wait_exec_session_update(
+            session_id,
+            revision=0,
+            timeout_sec=1.0,
+        )
+        assert update["changed"] is True
+        assert update["delta_reset"] is True
+        revisions = [item["revision"] for item in update["delta"]]
+        assert revisions == sorted(revisions)
+        assert len(revisions) <= 256
+        assert all(
+            len(item["text"].encode("utf-8")) <= 8192
+            for item in update["delta"]
+        )
+
+        completed = await coding.write_stdin(
+            session_id=session_id,
+            stdin="\r",
+            wait_ms=3000,
+            cid="cid_test",
+            sid="sid_test",
+        )
+        assert completed["data"]["status"] == "exited"
+    finally:
+        await coding.close()
+        await capability.aclose()
+
+
+@pytest.mark.anyio
+async def test_cancelled_initial_pty_call_keeps_registered_session(tmp_path) -> None:
+    script = tmp_path / "cancelled_call.py"
+    script.write_text(
+        "value = input('CANCEL-READY>')\n"
+        "print('CANCEL-VALUE=' + value, flush=True)\n",
+        encoding="utf-8",
+    )
+    command, shell = _python_command(script)
+    capability = LocalInteractiveProcessCapability()
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=None,
+        interactive_process_capability=capability,
+        network_access="enabled",
+    )
+    initial = asyncio.create_task(coding.exec_command(
+        command=command,
+        shell=shell,
+        tty=True,
+        yield_time_ms=30000,
+        timeout_sec=30,
+        cid="cid_test",
+        sid="sid_test",
+    ))
+    try:
+        session_id = ""
+        for _index in range(100):
+            running = await coding.running_exec_sessions()
+            if running["items"]:
+                session_id = running["items"][0]["session_id"]
+                break
+            await asyncio.sleep(0.01)
+        assert session_id
+
+        initial.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await initial
+
+        completed = await coding.write_stdin(
+            session_id=session_id,
+            stdin="still-running\r",
+            wait_ms=3000,
+            cid="cid_test",
+            sid="sid_test",
+        )
+        assert completed["ok"] is True
+        assert completed["data"]["status"] == "exited"
+        assert "CANCEL-VALUE=still-running" in completed["data"]["output"]
+    finally:
+        if not initial.done():
+            initial.cancel()
+            await asyncio.gather(initial, return_exceptions=True)
+        await coding.close()
+        await capability.aclose()
+
+
+@pytest.mark.anyio
+async def test_process_session_admission_is_bounded_and_prunes_finalized() -> None:
+    manager = ProcessSessionManager()
+    manager.MAX_SESSIONS = 2
+    manager.sessions["live"] = SimpleNamespace(
+        session_id="live",
+        finalized=False,
+        started_at=2.0,
+    )
+
+    await manager._reserve_session_slot()
+    with pytest.raises(CapabilityError) as error:
+        await manager._reserve_session_slot()
+    assert error.value.code == "process_session_limit_reached"
+    await manager._release_session_slot()
+
+    manager.sessions["finished"] = SimpleNamespace(
+        session_id="finished",
+        finalized=True,
+        started_at=1.0,
+    )
+    await manager._reserve_session_slot()
+    assert "finished" not in manager.sessions
+    assert "live" in manager.sessions
+    await manager._release_session_slot()

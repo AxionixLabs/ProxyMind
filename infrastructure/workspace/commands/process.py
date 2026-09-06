@@ -237,7 +237,15 @@ class ProcessCommandExecutor(WorkspaceComponent):
                 command=cmd,
                 cwd=self.relative_path(workdir),
                 sandbox_mode=sandbox_mode,
-                execution_backend="native-pty" if tty else "local",
+                execution_backend=(
+                    sandbox_backend_name()
+                    if sandbox_mode in {
+                        "read-only",
+                        "workspace-read",
+                        "workspace-write",
+                    }
+                    else ("native-pty" if tty else "local")
+                ),
                 detail=exc.message,
             )
         except (
@@ -507,9 +515,9 @@ class ProcessCommandExecutor(WorkspaceComponent):
         if stderr_text:
             output_text = f"{output_text}{stderr_text}" if output_text else stderr_text
 
-        clipped_output = self.clip_output(output_text, max_chars=output_limit)
-        clipped_stdout = self.clip_output(stdout_text, max_chars=output_limit)
-        clipped_stderr = self.clip_output(stderr_text, max_chars=output_limit)
+        clipped_output = self._session_manager.clip_output(output_text, output_limit)
+        clipped_stdout = self._session_manager.clip_output(stdout_text, output_limit)
+        clipped_stderr = self._session_manager.clip_output(stderr_text, output_limit)
 
         exit_code = session.process.returncode
         status = "running" if exit_code is None else "exited"

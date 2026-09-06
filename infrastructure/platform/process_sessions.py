@@ -43,6 +43,63 @@ from observability import (
 )
 
 
+_PROCESS_OUTPUT_LIMIT_BYTES = 1024 * 1024
+_PROCESS_EVENT_CHUNK_BYTES = 8192
+_PROCESS_SESSION_LIMIT = 64
+
+
+class _HeadTailOutput:
+    """保存稳定前缀和最新后缀，并统计被省略的中段字节。"""
+
+    def __init__(self, *, limit_bytes: int) -> None:
+        """按固定字节预算初始化首尾缓冲。"""
+        self.limit_bytes = max(1, int(limit_bytes))
+        self.head_limit = self.limit_bytes // 2
+        self.tail_limit = self.limit_bytes - self.head_limit
+        self.head = bytearray()
+        self.tail = bytearray()
+        self.dropped_bytes = 0
+
+    def append(self, chunk: bytes) -> None:
+        """追加输出，并仅从中段淘汰超出预算的字节。"""
+        if not chunk:
+            return None
+        remaining = chunk
+        head_space = self.head_limit - len(self.head)
+        if head_space > 0:
+            accepted = min(head_space, len(remaining))
+            self.head.extend(remaining[:accepted])
+            remaining = remaining[accepted:]
+        if not remaining:
+            return None
+
+        overflow = max(0, len(self.tail) + len(remaining) - self.tail_limit)
+        self.dropped_bytes += overflow
+        if overflow >= len(self.tail):
+            skipped = overflow - len(self.tail)
+            self.tail.clear()
+            self.tail.extend(remaining[skipped:])
+            return None
+        if overflow:
+            del self.tail[:overflow]
+        self.tail.extend(remaining)
+
+    def snapshot(self) -> tuple[bytes, int]:
+        """返回包含省略标记的当前输出和累计省略字节数。"""
+        if not self.dropped_bytes:
+            return bytes(self.head + self.tail), 0
+        marker = f"\n... {self.dropped_bytes} bytes omitted ...\n".encode("ascii")
+        return bytes(self.head + marker + self.tail), self.dropped_bytes
+
+    def drain(self) -> tuple[bytes, int]:
+        """返回并清空当前输出窗口。"""
+        output, dropped = self.snapshot()
+        self.head.clear()
+        self.tail.clear()
+        self.dropped_bytes = 0
+        return output, dropped
+
+
 @dataclass(frozen=True, slots=True)
 class ProcessSessionSpec(object):
     """描述一个本地进程会话的启动参数。"""
@@ -159,8 +216,8 @@ class ProcessSession(object):
         self.tty = spec.tty
         self.terminal_size = spec.terminal_size
 
-        self.stdout = bytearray()
-        self.stderr = bytearray()
+        self.stdout = _HeadTailOutput(limit_bytes=_PROCESS_OUTPUT_LIMIT_BYTES)
+        self.stderr = _HeadTailOutput(limit_bytes=_PROCESS_OUTPUT_LIMIT_BYTES)
 
         self.output_buffer = OrderedOutputBuffer()
 
@@ -168,9 +225,6 @@ class ProcessSession(object):
             max_lines=1000,
             max_line_chars=1000,
         )
-
-        self.stdout_dropped = 0
-        self.stderr_dropped = 0
 
         self.last_activity = self.started_at
         self.output_revision = 0
@@ -192,7 +246,9 @@ class ProcessSession(object):
 class ProcessSessionManager(object):
     """统一管理本地进程会话的生命周期和输出。"""
 
-    BUFFER_LIMIT_BYTES = 1_000_000
+    BUFFER_LIMIT_BYTES = _PROCESS_OUTPUT_LIMIT_BYTES
+    EVENT_CHUNK_BYTES = _PROCESS_EVENT_CHUNK_BYTES
+    MAX_SESSIONS = _PROCESS_SESSION_LIMIT
     IO_DRAIN_TIMEOUT_SEC = 2.0
 
     def __init__(
@@ -208,6 +264,8 @@ class ProcessSessionManager(object):
         self.sessions: dict[str, ProcessSession] = {}
         self._change_revision: int = 0
         self._change_event = asyncio.Event()
+        self._admission_lock = asyncio.Lock()
+        self._starting_sessions = 0
         self._sandbox_client = sandbox_client
         self._process_capability = process_capability
         self._interactive_process_capability = interactive_process_capability
@@ -223,6 +281,31 @@ class ProcessSessionManager(object):
         """发布一次进程会话变更。"""
         self._change_revision += 1
         self._change_event.set()
+
+    async def _reserve_session_slot(self) -> None:
+        """为并行启动原子预留一个有界会话名额。"""
+        async with self._admission_lock:
+            while len(self.sessions) + self._starting_sessions >= self.MAX_SESSIONS:
+                finalized = [
+                    session
+                    for session in self.sessions.values()
+                    if session.finalized
+                ]
+                if not finalized:
+                    raise CapabilityError(
+                        "process_session_limit_reached",
+                        f"at most {self.MAX_SESSIONS} process sessions may be active",
+                        retryable=True,
+                    )
+                oldest = min(finalized, key=lambda session: session.started_at)
+                self.sessions.pop(oldest.session_id, None)
+                self._notify_change()
+            self._starting_sessions += 1
+
+    async def _release_session_slot(self) -> None:
+        """释放一次启动预留，不影响已经登记的正式会话。"""
+        async with self._admission_lock:
+            self._starting_sessions = max(0, self._starting_sessions - 1)
 
     async def wait_for_change(
         self,
@@ -263,6 +346,15 @@ class ProcessSessionManager(object):
         }
 
     async def start(self, spec: ProcessSessionSpec) -> ProcessSession:
+        """在统一 admission 边界内启动并登记进程会话。"""
+        await self.cleanup()
+        await self._reserve_session_slot()
+        try:
+            return await self._start_reserved(spec)
+        finally:
+            await self._release_session_slot()
+
+    async def _start_reserved(self, spec: ProcessSessionSpec) -> ProcessSession:
         """启动进程并注册可持续读取的会话。"""
         if spec.sandbox_mode not in {
             "danger-full-access",
@@ -280,8 +372,6 @@ class ProcessSessionManager(object):
                 "interactive_process_size_unavailable",
                 "sandboxed PTY supports only the default 24x80 terminal size",
             )
-        await self.cleanup()
-
         session_id = f"exec_{secrets.token_hex(8)}"
         execution_id = str(spec.execution_id or "").strip() or session_id
         process_env = dict(spec.env) if spec.env is not None else None
@@ -523,10 +613,8 @@ class ProcessSessionManager(object):
         await self.finalize_if_exited(session)
 
         async with session.lock:
-            stdout = bytes(session.stdout)
-            stderr = bytes(session.stderr)
-            stdout_dropped = session.stdout_dropped
-            stderr_dropped = session.stderr_dropped
+            stdout, stdout_dropped = session.stdout.snapshot()
+            stderr, stderr_dropped = session.stderr.snapshot()
 
         output_lines = await session.display_output_buffer.snapshot()
 
@@ -563,9 +651,9 @@ class ProcessSessionManager(object):
             "revision": session.output_revision,
             "owner_cid": session.owner_cid,
             "owner_sid": session.owner_sid,
-            "output": self._clip(output_text, limit),
-            "stdout": self._clip(stdout_text, limit),
-            "stderr": self._clip(stderr_text, limit),
+            "output": self.clip_output(output_text, limit),
+            "stdout": self.clip_output(stdout_text, limit),
+            "stderr": self.clip_output(stderr_text, limit),
             "output_lines": list(output_lines),
             "output_lines_dropped": session.display_output_buffer.dropped_lines,
             "output_truncated": len(output_text) > limit,
@@ -809,17 +897,8 @@ class ProcessSessionManager(object):
     ) -> tuple[bytes, bytes, tuple[str, ...], int, int]:
         """取出并清空会话自上次读取后的输出。"""
         async with session.lock:
-            stdout = bytes(session.stdout)
-            stderr = bytes(session.stderr)
-
-            session.stdout.clear()
-            session.stderr.clear()
-
-            stdout_dropped = session.stdout_dropped
-            stderr_dropped = session.stderr_dropped
-
-            session.stdout_dropped = 0
-            session.stderr_dropped = 0
+            stdout, stdout_dropped = session.stdout.drain()
+            stderr, stderr_dropped = session.stderr.drain()
 
             session.last_activity = time.time()
 
@@ -1030,8 +1109,8 @@ class ProcessSessionManager(object):
             pid=session.process.pid,
             exit_code=session.process.returncode,
             elapsed_ms=int(max(0.0, time.time() - session.started_at) * 1000),
-            stdout_dropped=session.stdout_dropped,
-            stderr_dropped=session.stderr_dropped,
+            stdout_dropped=session.stdout.dropped_bytes,
+            stderr_dropped=session.stderr.dropped_bytes,
         )
 
     async def _read_stream(self, session: ProcessSession, name: str) -> None:
@@ -1074,27 +1153,37 @@ class ProcessSessionManager(object):
         """把任一进程后端的输出写入统一会话缓冲。"""
         async with session.lock:
             target = session.stdout if name == "stdout" else session.stderr
-            target.extend(chunk)
-            if len(target) > self.BUFFER_LIMIT_BYTES:
-                overflow = len(target) - self.BUFFER_LIMIT_BYTES
-                del target[:overflow]
-                if name == "stdout":
-                    session.stdout_dropped += overflow
-                else:
-                    session.stderr_dropped += overflow
+            target.append(chunk)
 
             await session.output_buffer.append(name, chunk)
             await session.display_output_buffer.append(name, chunk)
 
             session.last_activity = time.time()
-            session.output_revision += 1
-            session.output_events.append((
-                session.output_revision,
-                name,
-                bytes(chunk),
-            ))
+            for event_chunk in self._bounded_event_chunks(chunk):
+                session.output_revision += 1
+                session.output_events.append((
+                    session.output_revision,
+                    name,
+                    event_chunk,
+                ))
             session.update_event.set()
             self._notify_change()
+
+    @classmethod
+    def _bounded_event_chunks(cls, chunk: bytes) -> tuple[bytes, ...]:
+        """按事件上限切分字节，并避免新增 UTF-8 字符边界破坏。"""
+        chunks: list[bytes] = []
+        offset = 0
+        while offset < len(chunk):
+            end = min(len(chunk), offset + cls.EVENT_CHUNK_BYTES)
+            if end < len(chunk):
+                while end > offset and chunk[end] & 0xC0 == 0x80:
+                    end -= 1
+                if end == offset:
+                    end = min(len(chunk), offset + cls.EVENT_CHUNK_BYTES)
+            chunks.append(bytes(chunk[offset:end]))
+            offset = end
+        return tuple(chunks)
 
     async def _watch_process_exit(self, session: ProcessSession) -> None:
         """在本地进程退出时发出一次会话更新事件。"""
@@ -1105,11 +1194,18 @@ class ProcessSessionManager(object):
             self._notify_change()
 
     @staticmethod
-    def _clip(value: str, limit: int) -> str:
-        """按字符上限截断输出文本。"""
+    def clip_output(value: str, limit: int) -> str:
+        """按字符上限保留输出首尾并明确标记省略量。"""
         if len(value) <= limit:
             return value
-        return f"{value[:limit]}\n...[truncated {len(value) - limit} chars]"
+        head_limit = limit // 2
+        tail_limit = limit - head_limit
+        omitted = len(value) - limit
+        return (
+            f"{value[:head_limit]}\n"
+            f"... {omitted} chars omitted ...\n"
+            f"{value[-tail_limit:]}"
+        )
 
 
 if __name__ == '__main__':
