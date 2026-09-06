@@ -3,67 +3,13 @@ import threading
 import time
 import typing
 import types
-from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-
-class PtyEndOfFile(Exception):
-    """表示伪终端输出已经完整关闭。"""
-
-
-class PtyBackend(typing.Protocol):
-    """定义单个原生 PTY 子进程的同步平台边界。
-
-    实现方拥有原生终端和子进程树，必须让读取可由 `close` 解除阻塞，并保证
-    `terminate`、`kill` 与 `close` 可重复调用。
-    """
-
-    @property
-    def pid(self) -> int:
-        """返回根子进程标识。"""
-
-    def read(self, size: int) -> bytes:
-        """阻塞读取至多指定字节，终端关闭时抛出 `PtyEndOfFile`。"""
-
-    def write(self, data: bytes) -> int:
-        """向终端写入完整输入字节。"""
-
-    def close_input(self) -> None:
-        """向子进程交付终端 EOF，并拒绝后续输入。"""
-
-    def resize(self, size: "TerminalSize") -> None:
-        """修改原生终端窗口尺寸。"""
-
-    def interrupt(self) -> None:
-        """通过终端发送 Ctrl-C。"""
-
-    def is_alive(self) -> bool:
-        """判断根子进程是否仍在运行。"""
-
-    def wait(self) -> int:
-        """等待根子进程并返回退出码。"""
-
-    def terminate(self) -> None:
-        """终止所拥有的进程树。"""
-
-    def kill(self) -> None:
-        """强制终止所拥有的进程树。"""
-
-    def close(self) -> None:
-        """释放终端、进程和平台句柄。"""
-
-
-@dataclass(frozen=True, slots=True)
-class TerminalSize:
-    """描述 PTY 的字符行列尺寸。"""
-
-    rows: int = 24
-    columns: int = 80
-
-    def __post_init__(self) -> None:
-        if self.rows <= 0 or self.columns <= 0:
-            raise ValueError("terminal rows and columns must be positive")
+from agent.ports.interactive_process import TerminalSize
+from infrastructure.platform.pty.contract import NativePtyBackend
+from infrastructure.platform.pty.contract import PtyEndOfFile
+from infrastructure.platform.pty.factory import spawn_native_pty
 
 
 class PtyKey(Enum):
@@ -80,7 +26,7 @@ class PtyKey(Enum):
 class PtySession:
     """拥有单个原生 PTY、持续输出 reader 和完整关闭生命周期。"""
 
-    def __init__(self, backend: PtyBackend) -> None:
+    def __init__(self, backend: NativePtyBackend) -> None:
         self._backend = backend
         self._condition = threading.Condition()
         self._output = bytearray()
@@ -341,12 +287,5 @@ def spawn_pty(
     """使用当前平台原生实现创建并拥有 PTY 会话。"""
     if not argv:
         raise ValueError("PTY argv must not be empty")
-    if os.name == "nt":
-        from .windows import WindowsPtyBackend
-
-        backend: PtyBackend = WindowsPtyBackend(argv, cwd=cwd, env=env, size=size)
-    else:
-        from .posix import PosixPtyBackend
-
-        backend = PosixPtyBackend(argv, cwd=cwd, env=env, size=size)
+    backend = spawn_native_pty(argv, cwd=cwd, env=env, size=size)
     return PtySession(backend)

@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
 import sys
 import typing
 
@@ -8,7 +11,6 @@ from prompt_toolkit.input.win32 import INPUT_RECORD
 from prompt_toolkit.input.win32 import KEY_EVENT_RECORD
 from prompt_toolkit.input.win32 import Vt100ConsoleInputReader
 from prompt_toolkit.input.win32 import Win32Input
-
 
 _VK_MENU = 0x12
 
@@ -55,3 +57,7 @@ def create_windows_input(stream: typing.TextIO) -> Input:
     input_obj.console_input_reader = WindowsConPtyInputReader()
     previous_reader.close()
     return input_obj
+
+
+if __name__ == '__main__':
+    pass

@@ -1,12 +1,13 @@
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
 import os
 import signal
 import typing
 from pathlib import Path
 
-import pexpect
-
-from .contract import PtyEndOfFile
-from .contract import TerminalSize
+from agent.ports.interactive_process import TerminalSize
+from infrastructure.platform.pty.contract import PtyEndOfFile
 
 
 class PosixPtyBackend:
@@ -20,6 +21,13 @@ class PosixPtyBackend:
         env: typing.Mapping[str, str],
         size: TerminalSize,
     ) -> None:
+        try:
+            import pexpect
+        except ModuleNotFoundError as error:
+            raise RuntimeError(
+                "POSIX PTY requires the pexpect package"
+            ) from error
+        self._eof_error: type[BaseException] = pexpect.EOF
         self._child = pexpect.spawn(
             argv[0],
             list(argv[1:]),
@@ -42,7 +50,7 @@ class PosixPtyBackend:
         """读取原生 PTY 字节。"""
         try:
             return self._child.read_nonblocking(size, timeout=None)
-        except pexpect.EOF as exc:
+        except self._eof_error as exc:
             raise PtyEndOfFile from exc
 
     def write(self, data: bytes) -> int:
@@ -108,3 +116,7 @@ class PosixPtyBackend:
             os.killpg(self._child.pid, value)
         except ProcessLookupError:
             return
+
+
+if __name__ == '__main__':
+    pass

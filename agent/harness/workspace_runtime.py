@@ -6,6 +6,7 @@ import contextlib
 
 from agent.domain.policies import NetworkAccess
 from agent.ports.capabilities import ProcessCapability
+from agent.ports.interactive_process import InteractiveProcessCapability
 from agent.ports.media import ImageReaderFactory
 from agent.ports.network import (
     NetworkBlockedHandlerFactory,
@@ -32,6 +33,7 @@ class WorkspaceRuntimeOwner:
         execution_policy_factory: ExecutionPolicyFactory,
         image_reader_factory: ImageReaderFactory,
         process_capability: ProcessCapability | None = None,
+        interactive_process_capability: InteractiveProcessCapability | None = None,
         network_access: NetworkAccess = "restricted",
         network_policy: NetworkPolicyPort | None = None,
         network_blocked_handler_factory: NetworkBlockedHandlerFactory | None = None,
@@ -42,6 +44,7 @@ class WorkspaceRuntimeOwner:
         self._execution_policy_factory = execution_policy_factory
         self._image_reader_factory = image_reader_factory
         self._process_capability = process_capability
+        self._interactive_process_capability = interactive_process_capability
         self._network_access = network_access
         self._network_policy = network_policy
         self._network_blocked_handler_factory = network_blocked_handler_factory
@@ -91,10 +94,19 @@ class WorkspaceRuntimeOwner:
         if close_tasks:
             await asyncio.gather(*close_tasks, return_exceptions=True)
 
+        close_operations = []
         if self._process_capability is not None:
-            await self._process_capability.aclose()
-
+            close_operations.append(self._process_capability.aclose())
+        if self._interactive_process_capability is not None:
+            close_operations.append(self._interactive_process_capability.aclose())
+        results = await asyncio.gather(
+            *close_operations,
+            return_exceptions=True,
+        )
         self._closed = True
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
 
     def _create_coding(self, workspace_root: WorkspaceRoot) -> CodingRuntime:
         """创建绑定指定工作区的编码运行时。"""
@@ -103,7 +115,11 @@ class WorkspaceRuntimeOwner:
             or self._network_policy is not None
             or self._network_blocked_handler_factory is not None
         )
-        if self._process_capability is None and not network_configured:
+        process_configured = (
+            self._process_capability is not None
+            or self._interactive_process_capability is not None
+        )
+        if not process_configured and not network_configured:
             return self._coding_factory(
                 root=workspace_root,
                 application_layout=self._application_layout,
@@ -113,11 +129,13 @@ class WorkspaceRuntimeOwner:
                 root=workspace_root,
                 application_layout=self._application_layout,
                 process_capability=self._process_capability,
+                interactive_process_capability=self._interactive_process_capability,
             )
         return self._coding_factory(
             root=workspace_root,
             application_layout=self._application_layout,
             process_capability=self._process_capability,
+            interactive_process_capability=self._interactive_process_capability,
             network_access=self._network_access,
             network_policy=self._network_policy,
             network_blocked_handler_factory=self._network_blocked_handler_factory,

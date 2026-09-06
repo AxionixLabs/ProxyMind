@@ -13,6 +13,7 @@ from agent.ports import (
     EnvironmentSnapshotCapability,
     HelixCapability,
     HookRegistryFactory,
+    InteractiveProcessCapability,
     JavaScriptExecutionPort,
     McpRuntimeBuilder,
     ModelCapability,
@@ -119,6 +120,7 @@ class RuntimeServices:
     create_subscription_runtime: SubscriptionRuntimeBuilder | None = None
     create_workspace_runtime: WorkspaceRuntimeFactory | None = None
     process_capability: ProcessCapability | None = None
+    interactive_process_capability: InteractiveProcessCapability | None = None
     helix_capability: HelixCapability | None = None
     create_skills_provider: SkillsProviderFactory | None = None
 
@@ -183,6 +185,14 @@ class RuntimeServices:
             and not isinstance(self.process_capability, ProcessCapability)
         ):
             raise TypeError("process capability is invalid")
+        if (
+            self.interactive_process_capability is not None
+            and not isinstance(
+                self.interactive_process_capability,
+                InteractiveProcessCapability,
+            )
+        ):
+            raise TypeError("interactive process capability is invalid")
         if (
             self.helix_capability is not None
             and not isinstance(self.helix_capability, HelixCapability)

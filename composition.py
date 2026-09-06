@@ -319,6 +319,9 @@ class ApplicationHost:
             self.history_workspace,
             application_layout=self.application_layout,
             process_capability=runtime_services.process_capability,
+            interactive_process_capability=(
+                runtime_services.interactive_process_capability
+            ),
             network_access=self.settings.permissions.network_access,
             network_policy=network_policy,
             network_blocked_handler_factory=network_blocked_handler_factory,

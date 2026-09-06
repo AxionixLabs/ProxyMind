@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
 import ctypes
 import shutil
 import subprocess
@@ -5,8 +8,8 @@ import typing
 from ctypes import wintypes
 from pathlib import Path
 
-from .contract import PtyEndOfFile
-from .contract import TerminalSize
+from agent.ports.interactive_process import TerminalSize
+from infrastructure.platform.pty.contract import PtyEndOfFile
 
 
 _CREATE_UNICODE_ENVIRONMENT = 0x00000400
@@ -642,3 +645,7 @@ class WindowsPtyBackend:
         if handle is None:
             raise RuntimeError("ConPTY process handle is closed")
         return handle
+
+
+if __name__ == '__main__':
+    pass

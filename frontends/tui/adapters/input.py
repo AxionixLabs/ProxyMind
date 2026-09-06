@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
 import sys
 import typing
 
@@ -154,3 +157,7 @@ def create_tui_input(stream: typing.TextIO) -> Input:
 
         return WindowsUnicodeInputAdapter(create_windows_input(stream))
     return create_input(stream)
+
+
+if __name__ == '__main__':
+    pass

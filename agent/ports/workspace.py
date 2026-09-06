@@ -10,6 +10,7 @@ from agent.domain.execution_policy import (
 )
 from agent.domain.policies import NetworkAccess
 from .capabilities import ProcessCapability
+from .interactive_process import InteractiveProcessCapability
 from .media import ImageReaderPort
 from .network import (
     NetworkBlockedHandlerFactory,
@@ -147,6 +148,7 @@ class CodingFactory(typing.Protocol):
         root: WorkspaceRoot,
         application_layout: object | None,
         process_capability: ProcessCapability | None = None,
+        interactive_process_capability: InteractiveProcessCapability | None = None,
         network_access: NetworkAccess = "restricted",
         network_policy: NetworkPolicyPort | None = None,
         network_blocked_handler_factory: NetworkBlockedHandlerFactory | None = None,
@@ -187,6 +189,7 @@ class WorkspaceRuntimeFactory(typing.Protocol):
         *,
         application_layout: object | None = None,
         process_capability: ProcessCapability | None = None,
+        interactive_process_capability: InteractiveProcessCapability | None = None,
         network_access: NetworkAccess = "restricted",
         network_policy: NetworkPolicyPort | None = None,
         network_blocked_handler_factory: NetworkBlockedHandlerFactory | None = None,

@@ -1,7 +1,7 @@
 import asyncio
-from types import SimpleNamespace
-
 import pytest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
 
@@ -82,3 +82,38 @@ async def test_workspace_runtime_close_is_idempotent() -> None:
     await owner.close()
 
     assert closed == ["workspace-a"]
+
+
+@pytest.mark.anyio
+async def test_workspace_close_releases_both_process_capabilities_on_failure() -> None:
+    closed = []
+    process_capability = AsyncMock()
+    interactive_process_capability = AsyncMock()
+    process_capability.aclose.side_effect = RuntimeError("pipe close failed")
+
+    def create_coding(
+        *,
+        root,
+        application_layout,
+        process_capability,
+        interactive_process_capability,
+    ):
+        return _CodingRuntime(root, application_layout, closed)
+
+    owner = WorkspaceRuntimeOwner(
+        "workspace-a",
+        application_layout=SimpleNamespace(root="application"),
+        coding_factory=create_coding,
+        execution_policy_factory=(
+            lambda *, workspace_root: SimpleNamespace(workspace_root=workspace_root)
+        ),
+        image_reader_factory=lambda root: SimpleNamespace(root=root),
+        process_capability=process_capability,
+        interactive_process_capability=interactive_process_capability,
+    )
+
+    with pytest.raises(RuntimeError, match="pipe close failed"):
+        await owner.close()
+
+    process_capability.aclose.assert_awaited_once_with()
+    interactive_process_capability.aclose.assert_awaited_once_with()

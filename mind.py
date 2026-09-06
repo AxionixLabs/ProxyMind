@@ -34,6 +34,7 @@ from agent.ports import (
 from agent.ports import (
     McpRuntime,
     McpRuntimeContext,
+    InteractiveProcessCapability,
     ProcessCapability,
     SubscriptionHost,
     SubscriptionRuntime,
@@ -69,6 +70,7 @@ from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.platform.hook_command import HookCommandExecutor
 from infrastructure.platform.images import FileImageReader
 from infrastructure.platform.process_sessions import ProcessSessionManager
+from infrastructure.platform.pty import LocalInteractiveProcessCapability
 from infrastructure.platform.sandbox import SandboxClient
 from infrastructure.platform.network import (
     ManagedNetworkProxy,
@@ -260,6 +262,7 @@ def create_workspace_coding(
     root: str | os.PathLike[str],
     application_layout: object | None,
     process_capability: ProcessCapability | None = None,
+    interactive_process_capability: InteractiveProcessCapability | None = None,
     network_proxy: ManagedNetworkProxy | None = None,
     network_access: NetworkAccess = "restricted",
     network_policy: NetworkPolicyPort | None = None,
@@ -291,6 +294,7 @@ def create_workspace_coding(
     process_sessions = ProcessSessionManager(
         sandbox_client,
         process_capability=process_capability,
+        interactive_process_capability=interactive_process_capability,
         network_proxy=effective_network_proxy,
         network_blocked_handler_factory=network_blocked_handler_factory,
     )
@@ -328,6 +332,7 @@ def create_workspace_runtime(
     *,
     application_layout: ApplicationLayout | None = None,
     process_capability: ProcessCapability | None = None,
+    interactive_process_capability: InteractiveProcessCapability | None = None,
     network_access: NetworkAccess = "restricted",
     network_policy: NetworkPolicyPort | None = None,
     network_blocked_handler_factory: NetworkBlockedHandlerFactory | None = None,
@@ -368,6 +373,7 @@ def create_workspace_runtime(
         execution_policy_factory=create_execution_policy,
         image_reader_factory=FileImageReader,
         process_capability=process_capability,
+        interactive_process_capability=interactive_process_capability,
         network_access=network_access,
         network_policy=network_policy,
         network_blocked_handler_factory=network_blocked_handler_factory,
@@ -386,6 +392,7 @@ if __name__ == "__main__":
         create_subscription_runtime=create_subscription_runtime,
         skills_payload_builder=skills_payload,
         create_workspace_runtime=create_workspace_runtime,
+        interactive_process_capability=LocalInteractiveProcessCapability(),
     )
     root_turn_runner = bind_root_turn_runner(process_runtime_services)
     raise SystemExit(run(

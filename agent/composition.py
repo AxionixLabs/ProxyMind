@@ -23,6 +23,7 @@ from agent.harness.sessions.owner import SessionRuntimeOwner
 from agent.ports import (
     DurableQueueClient,
     EffectJournal,
+    InteractiveProcessCapability,
     ProtocolCommandClient,
     SkillsProvider,
     TurnObservationCapability,
@@ -116,6 +117,7 @@ def create_runtime_services(
     create_subscription_runtime: SubscriptionRuntimeBuilder | None = None,
     skills_payload_builder: SkillsPayloadBuilder,
     create_workspace_runtime: WorkspaceRuntimeFactory | None = None,
+    interactive_process_capability: InteractiveProcessCapability | None = None,
 ) -> RuntimeServices:
     """创建供单个进程入口共享的 Agent Harness 依赖。"""
     if not callable(skills_payload_builder):
@@ -149,6 +151,7 @@ def create_runtime_services(
         create_subscription_runtime=create_subscription_runtime,
         create_workspace_runtime=create_workspace_runtime,
         process_capability=open_process_capability(),
+        interactive_process_capability=interactive_process_capability,
         create_skills_provider=(
             lambda reader: open_skills_provider(
                 reader,

@@ -100,6 +100,12 @@ from .hooks import (
     HookStatusPort,
     HookSessionCleanup,
 )
+from .interactive_process import (
+    InteractiveProcessCapability,
+    InteractiveProcessHandle,
+    InteractiveProcessSpec,
+    TerminalSize,
+)
 from .javascript import (
     JavaScriptExecution,
     JavaScriptExecutionError,
@@ -346,6 +352,9 @@ __all__ = (
     "ImageReadError",
     "ImageReaderFactory",
     "ImageReaderPort",
+    "InteractiveProcessCapability",
+    "InteractiveProcessHandle",
+    "InteractiveProcessSpec",
     "ProcessLifecyclePort",
     "ProcessResourcePort",
     "NestedToolDispatch",
@@ -446,6 +455,7 @@ __all__ = (
     "SurfaceTurnStarted",
     "TerminalWaitCompleted",
     "TerminalWaitStarted",
+    "TerminalSize",
     "ToolActivityKind",
     "ToolInteractionActivityPort",
     "ToolBatchCompleted",

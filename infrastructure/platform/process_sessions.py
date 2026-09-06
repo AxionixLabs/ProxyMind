@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from agent.ports import (
     NetworkBlockedHandlerFactory,
+    InteractiveProcessCapability,
     ProcessCapability,
     ProcessHandle,
     ProcessSpec,
@@ -162,6 +163,7 @@ class ProcessSessionManager(object):
         sandbox_client: SandboxClient | None = None,
         *,
         process_capability: ProcessCapability | None = None,
+        interactive_process_capability: InteractiveProcessCapability | None = None,
         network_proxy: ManagedNetworkProxy | None = None,
         network_blocked_handler_factory: NetworkBlockedHandlerFactory | None = None,
     ) -> None:
@@ -171,6 +173,7 @@ class ProcessSessionManager(object):
         self._change_event = asyncio.Event()
         self._sandbox_client = sandbox_client
         self._process_capability = process_capability
+        self._interactive_process_capability = interactive_process_capability
         self._network_proxy = network_proxy
         self._network_blocked_handler_factory = network_blocked_handler_factory
 
