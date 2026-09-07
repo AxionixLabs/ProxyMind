@@ -327,6 +327,128 @@ async def _run_idle(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     facts.record_submission(submission, queue_only=False)
 
 
+async def _run_editor_keys(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """验证真实终端中的 Emacs 风格单词编辑和撤销链。"""
+    _ready(runtime, facts)
+    reader = asyncio.create_task(
+        runtime.read_message(PromptContext(model="test-model"))
+    )
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "one two three",
+        "editor input",
+    )
+    facts.stage = "editor_input"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.cursor_position == 8,
+        "word-left movement",
+    )
+    facts.stage = "word_left"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.cursor_position == 13,
+        "word-right movement",
+    )
+    facts.stage = "word_right"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.cursor_position == 8,
+        "word-left return movement",
+    )
+    facts.stage = "word_delete_ready"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "one two ",
+        "forward word deletion",
+    )
+    facts.stage = "word_deleted"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "one two three",
+        "kill-buffer yank",
+    )
+    facts.stage = "word_yanked"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "one two ",
+        "editor undo",
+    )
+    facts.set_detail(
+        "editor_cursor",
+        runtime.screen.input.buffer.cursor_position,
+    )
+    facts.stage = "editor_undone"
+    facts.write()
+    acknowledgment = facts.path.with_suffix(".ack")
+    await _wait_until(
+        acknowledgment.exists,
+        "editor key assertion acknowledgment",
+    )
+    reader.cancel()
+    await asyncio.gather(reader, return_exceptions=True)
+
+
+async def _run_history_search_keys(
+    runtime: TuiRuntime,
+    facts: ScenarioFacts,
+) -> None:
+    """验证 Ctrl-R/S 搜索在真实终端中前后移动并恢复草稿。"""
+    _ready(runtime, facts)
+    reader = asyncio.create_task(
+        runtime.read_message(PromptContext(model="test-model"))
+    )
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "draft",
+        "history-search draft",
+    )
+    facts.stage = "history_input"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.input_model.history_search_active,
+        "history-search activation",
+    )
+    facts.stage = "history_open"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "alpha new",
+        "newest history match",
+    )
+    facts.stage = "history_newest"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "alpha old",
+        "older history match",
+    )
+    facts.stage = "history_older"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "alpha new",
+        "newer history match",
+    )
+    facts.stage = "history_newer"
+    facts.write()
+    await _wait_until(
+        lambda: (
+            runtime.screen.input.buffer.text == "draft"
+            and not runtime.input_model.history_search_active
+        ),
+        "history-search cancellation",
+    )
+    facts.set_detail(
+        "history_restored_cursor",
+        runtime.screen.input.buffer.cursor_position,
+    )
+    facts.stage = "history_restored"
+    facts.write()
+    acknowledgment = facts.path.with_suffix(".ack")
+    await _wait_until(
+        acknowledgment.exists,
+        "history-search assertion acknowledgment",
+    )
+    reader.cancel()
+    await asyncio.gather(reader, return_exceptions=True)
+
+
 async def _run_active_inputs(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     """验证活动 Turn 的 Enter steer、Tab queue 和 Shell queue。"""
     control, server = _active_turn(
@@ -1178,6 +1300,22 @@ async def _run(scenario: str, facts_path: Path) -> None:
         ),))
     elif scenario == "completion_file":
         runtime.input_model.set_workspace_root(Path.cwd())
+    elif scenario == "history_search_keys":
+        runtime.input_model.history.append_submission(
+            "alpha old",
+            {},
+            shell_mode=False,
+        )
+        runtime.input_model.history.append_submission(
+            "beta",
+            {},
+            shell_mode=False,
+        )
+        runtime.input_model.history.append_submission(
+            "alpha new",
+            {},
+            shell_mode=False,
+        )
     await runtime.open()
     try:
         if scenario in {
@@ -1190,6 +1328,10 @@ async def _run(scenario: str, facts_path: Path) -> None:
             "focus_adjacent",
         }:
             await _run_idle(runtime, facts)
+        elif scenario == "editor_keys":
+            await _run_editor_keys(runtime, facts)
+        elif scenario == "history_search_keys":
+            await _run_history_search_keys(runtime, facts)
         elif scenario == "active_inputs":
             await _run_active_inputs(runtime, facts)
         elif scenario == "non_steer_enter":
