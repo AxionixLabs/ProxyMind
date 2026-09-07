@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+from dataclasses import FrozenInstanceError
 
 import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
@@ -67,6 +68,57 @@ def test_tui_keymap_resolves_defaults_remaps_and_explicit_unbinding() -> None:
     })
     assert unbound.open_transcript == ()
     assert unbound.open_transcript_label == ""
+
+
+def test_tui_keymap_exposes_frozen_stable_action_contexts() -> None:
+    keymap = TuiRuntimeKeymap.defaults()
+    action_ids = {action.action_id for action in keymap.actions()}
+
+    assert {
+        "global.open_transcript",
+        "chat.interrupt_turn",
+        "composer.submit",
+        "editor.insert_newline",
+        "pager.close",
+        "list.accept",
+        "approval.accept_selected",
+    } <= action_ids
+    assert keymap.bindings_for("global.copy_last_response")[0].label == (
+        "Ctrl+O"
+    )
+    with pytest.raises(KeyError):
+        keymap.bindings_for("composer.missing")
+    with pytest.raises(FrozenInstanceError):
+        keymap.chat.interrupt_turn = ()
+
+
+def test_tui_components_consume_runtime_keymap_contexts() -> None:
+    runtime = TuiRuntime()
+    keymap = runtime.keymap
+
+    assert runtime.input_model.keymap is keymap
+    assert runtime.screen.keymap is keymap
+    assert runtime.screen.menu.keymap is keymap.list
+    assert runtime.screen.approval.keymap is keymap.approval
+
+    input_sequences = {
+        tuple(binding.keys)
+        for binding in runtime.input_model.key_bindings.bindings
+    }
+    menu_sequences = {
+        tuple(binding.keys)
+        for binding in runtime.screen.menu.key_bindings.bindings
+    }
+    approval_sequences = {
+        tuple(binding.keys)
+        for binding in runtime.screen.approval.key_bindings.bindings
+    }
+
+    assert keymap.global_keys.copy_last_response[0].keys in input_sequences
+    assert keymap.chat.interrupt_turn[0].keys in input_sequences
+    assert keymap.composer.submit[0].keys in input_sequences
+    assert keymap.list.accept[0].keys in menu_sequences
+    assert keymap.approval.accept_selected[0].keys in approval_sequences
 
 
 @pytest.mark.parametrize(

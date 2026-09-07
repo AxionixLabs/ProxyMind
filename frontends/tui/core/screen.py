@@ -94,6 +94,7 @@ from .interrupt import TuiInterruptState
 from .keymap import (
     TuiKeyBinding,
     TuiRuntimeKeymap,
+    bind_key_action,
     binding_labels,
     primary_binding_label,
 )
@@ -462,6 +463,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             get_max_height=self._active_view_available_height,
             terminal_capabilities=terminal_capabilities,
             open_static_pager=self._open_approval_pager,
+            keymap=keymap.approval,
         )
         self.approval_control = FormattedTextControl(
             self.approval.fragments,
@@ -478,6 +480,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             focus_input=lambda: self._deactivate_bottom_surface("menu"),
             get_width=lambda: self.terminal_width,
             view_stack=self.bottom_pane.view_stack,
+            keymap=keymap.list,
         )
         self.menu_control = FormattedTextControl(
             self._menu_view_fragments,
@@ -1277,12 +1280,12 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         binding_filter: typing.Any = True
     ) -> None:
         """把已解析的按键序列注册到一个输入上下文。"""
-        for binding in configured:
-            bindings.add(
-                *binding.keys,
-                eager=True,
-                filter=binding_filter,
-            )(handler)
+        bind_key_action(
+            bindings,
+            configured,
+            eager=True,
+            binding_filter=binding_filter,
+        )(handler)
 
     @staticmethod
     def _help_line(hints: typing.Iterable[str]) -> str:
@@ -1337,6 +1340,12 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._validate_keymap(keymap)
 
         self.keymap = keymap
+        self.input_model.set_keymap(keymap)
+        self.approval.set_keymap(keymap.approval)
+        self.menu.set_keymap(keymap.list)
+        self.approval_control.key_bindings = self.approval.key_bindings
+        self.menu_control.key_bindings = self.menu.key_bindings
+        self.startup_menu_control.key_bindings = self.menu.key_bindings
 
         self.transcript_overlay_control.key_bindings = (
             self._transcript_overlay_key_bindings()
@@ -2265,20 +2274,38 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             )
         )
 
-        @bindings.add("c-l", eager=True, filter=input_active)
-        def _(event) -> None:
+        def clear_terminal(event) -> None:
             _ = event
             self._clear_visible_transcript()
 
-        @bindings.add("pageup", eager=True, filter=input_active)
-        def _(event) -> None:
+        self._add_configured_bindings(
+            bindings,
+            self.keymap.global_keys.clear_terminal,
+            clear_terminal,
+            binding_filter=input_active,
+        )
+
+        def page_up(event) -> None:
             _ = event
             self._scroll_transcript_page(-1)
 
-        @bindings.add("pagedown", eager=True, filter=input_active)
-        def _(event) -> None:
+        self._add_configured_bindings(
+            bindings,
+            self.keymap.global_keys.transcript_page_up,
+            page_up,
+            binding_filter=input_active,
+        )
+
+        def page_down(event) -> None:
             _ = event
             self._scroll_transcript_page(1)
+
+        self._add_configured_bindings(
+            bindings,
+            self.keymap.global_keys.transcript_page_down,
+            page_down,
+            binding_filter=input_active,
+        )
 
         def open_transcript(event) -> None:
             _ = event

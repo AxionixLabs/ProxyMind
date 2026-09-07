@@ -7,14 +7,110 @@ from dataclasses import (
     fields,
 )
 
+from prompt_toolkit.filters import FilterOrBool
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding.key_processor import KeyPressEvent
+from prompt_toolkit.keys import Keys
 
 
 @dataclass(frozen=True, slots=True)
 class TuiKeyBinding(object):
     """保存一个已解析的按键序列及其展示标签。"""
-    keys: tuple[typing.Any, ...]
+    keys: tuple[Keys | str, ...]
     label: str
+
+
+TuiActionBindings = tuple[TuiKeyBinding, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TuiResolvedKeyAction(object):
+    """保存稳定动作身份及其已解析绑定。"""
+    action_id: str
+    bindings: TuiActionBindings
+
+
+@dataclass(frozen=True, slots=True)
+class TuiGlobalKeymap(object):
+    """保存主界面全局动作的按键映射。"""
+    open_transcript: TuiActionBindings
+    copy_last_response: TuiActionBindings
+    clear_terminal: TuiActionBindings
+    transcript_page_up: TuiActionBindings
+    transcript_page_down: TuiActionBindings
+
+
+@dataclass(frozen=True, slots=True)
+class TuiChatKeymap(object):
+    """保存 Turn 与排队输入动作的按键映射。"""
+    interrupt_turn: TuiActionBindings
+    edit_queued_message: TuiActionBindings
+
+
+@dataclass(frozen=True, slots=True)
+class TuiComposerKeymap(object):
+    """保存输入提交和补全动作的按键映射。"""
+    submit: TuiActionBindings
+    queue: TuiActionBindings
+    enter_shell_mode: TuiActionBindings
+    previous_completion: TuiActionBindings
+
+
+@dataclass(frozen=True, slots=True)
+class TuiEditorKeymap(object):
+    """保存输入编辑动作的按键映射。"""
+    interrupt: TuiActionBindings
+    exit: TuiActionBindings
+    delete_line: TuiActionBindings
+    cancel_shell_mode: TuiActionBindings
+    cancel_completion: TuiActionBindings
+    delete_backward: TuiActionBindings
+    delete_forward: TuiActionBindings
+    delete_word_backward: TuiActionBindings
+    undo: TuiActionBindings
+    move_left: TuiActionBindings
+    move_right: TuiActionBindings
+    move_up: TuiActionBindings
+    move_down: TuiActionBindings
+    insert_newline: TuiActionBindings
+    completion_previous: TuiActionBindings
+    completion_next: TuiActionBindings
+
+
+@dataclass(frozen=True, slots=True)
+class TuiListKeymap(object):
+    """保存通用选择列表的按键映射。"""
+    accept: TuiActionBindings
+    toggle: TuiActionBindings
+    alternate: TuiActionBindings
+    move_down: TuiActionBindings
+    move_up: TuiActionBindings
+    page_down: TuiActionBindings
+    page_up: TuiActionBindings
+    jump_top: TuiActionBindings
+    jump_bottom: TuiActionBindings
+    move_right: TuiActionBindings
+    move_left: TuiActionBindings
+    delete_query_character: TuiActionBindings
+    clear_query: TuiActionBindings
+    delete_query_word: TuiActionBindings
+    cancel: TuiActionBindings
+    interrupt: TuiActionBindings
+
+
+@dataclass(frozen=True, slots=True)
+class TuiApprovalKeymap(object):
+    """保存审批表面的按键映射。"""
+    expand_details: TuiActionBindings
+    accept_selected: TuiActionBindings
+    move_down: TuiActionBindings
+    move_up: TuiActionBindings
+    decline: TuiActionBindings
+    accept_once: TuiActionBindings
+    accept_session: TuiActionBindings
+    strict_review: TuiActionBindings
+    persist_rule: TuiActionBindings
+    cancel: TuiActionBindings
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +136,12 @@ class TuiPagerKeymap(object):
 @dataclass(frozen=True, slots=True)
 class TuiRuntimeKeymap(object):
     """保存完成默认值解析和冲突校验的 TUI 按键映射。"""
-    open_transcript: tuple[TuiKeyBinding, ...]
+    global_keys: TuiGlobalKeymap
+    chat: TuiChatKeymap
+    composer: TuiComposerKeymap
+    editor: TuiEditorKeymap
+    list: TuiListKeymap
+    approval: TuiApprovalKeymap
     pager: TuiPagerKeymap
 
     @classmethod
@@ -72,40 +173,302 @@ class TuiRuntimeKeymap(object):
             else {}
         )
 
-        open_transcript = _resolve_bindings(
-            global_config,
-            "open_transcript",
-            defaults=("ctrl-t",),
-            path="tui.keymap.global.open_transcript",
+        global_keys = TuiGlobalKeymap(
+            open_transcript=_resolve_bindings(
+                global_config,
+                "open_transcript",
+                defaults=("ctrl-t",),
+                path="tui.keymap.global.open_transcript",
+            ),
+            copy_last_response=_default_bindings(
+                "global.copy_last_response",
+                "ctrl-o",
+            ),
+            clear_terminal=_default_bindings(
+                "global.clear_terminal",
+                "ctrl-l",
+            ),
+            transcript_page_up=_default_bindings(
+                "global.transcript_page_up",
+                "page-up",
+            ),
+            transcript_page_down=_default_bindings(
+                "global.transcript_page_down",
+                "page-down",
+            ),
         )
-
+        chat = _default_chat_keymap()
+        composer = _default_composer_keymap()
+        editor = _default_editor_keymap()
+        list_keys = _default_list_keymap()
+        approval = _default_approval_keymap()
         pager = _resolve_pager_keymap(pager_config)
 
-        _validate_context_conflicts("pager", pager)
+        for context_name, context in (
+            ("chat", chat),
+            ("composer", composer),
+            ("list", list_keys),
+            ("approval", approval),
+            ("pager", pager),
+        ):
+            _validate_context_conflicts(context_name, context)
         _validate_reserved_pager_bindings(pager)
 
-        return cls(open_transcript=open_transcript, pager=pager)
+        return cls(
+            global_keys=global_keys,
+            chat=chat,
+            composer=composer,
+            editor=editor,
+            list=list_keys,
+            approval=approval,
+            pager=pager,
+        )
+
+    @property
+    def open_transcript(self) -> TuiActionBindings:
+        """返回兼容现有调用方的完整记录绑定。"""
+        return self.global_keys.open_transcript
 
     @property
     def open_transcript_label(self) -> str:
         """返回打开完整记录的首选按键标签。"""
-        return _primary_label(self.open_transcript)
+        return _primary_label(self.global_keys.open_transcript)
+
+    def actions(self) -> tuple[TuiResolvedKeyAction, ...]:
+        """按稳定上下文顺序返回全部运行时动作。"""
+        contexts: tuple[tuple[str, TuiKeymapContext], ...] = (
+            ("global", self.global_keys),
+            ("chat", self.chat),
+            ("composer", self.composer),
+            ("editor", self.editor),
+            ("pager", self.pager),
+            ("list", self.list),
+            ("approval", self.approval),
+        )
+        return tuple(
+            TuiResolvedKeyAction(
+                action_id=f"{context_name}.{action}",
+                bindings=bindings,
+            )
+            for context_name, context in contexts
+            for action, bindings in _context_actions(context)
+        )
+
+    def bindings_for(self, action_id: str) -> TuiActionBindings:
+        """按稳定动作身份返回绑定，不接受隐式别名。"""
+        for action in self.actions():
+            if action.action_id == action_id:
+                return action.bindings
+        raise KeyError(action_id)
 
     def validate_main_conflicts(
         self,
         reserved: typing.Iterable[
-            tuple[str, tuple[typing.Any, ...]]
+            tuple[str, tuple[Keys | str, ...]]
         ]
     ) -> None:
-        """拒绝打开完整记录的按键覆盖现有主输入动作。"""
+        """拒绝可配置的全局记录入口覆盖主输入动作。"""
         owners = {keys: action for action, keys in reserved}
-        for binding in self.open_transcript:
+        for binding in self.global_keys.open_transcript:
             previous = owners.get(binding.keys)
             if previous is not None:
                 raise ValueError(
                     "tui.keymap.global.open_transcript conflicts with "
                     f"{previous}: {binding.label}"
                 )
+
+
+TuiKeymapContext = (
+    TuiGlobalKeymap
+    | TuiChatKeymap
+    | TuiComposerKeymap
+    | TuiEditorKeymap
+    | TuiListKeymap
+    | TuiApprovalKeymap
+    | TuiPagerKeymap
+)
+
+
+def bind_key_action(
+    bindings: KeyBindings,
+    configured: TuiActionBindings,
+    *,
+    eager: FilterOrBool = False,
+    binding_filter: FilterOrBool = True,
+    save_before: typing.Callable[[KeyPressEvent], bool] | None = None,
+) -> typing.Callable[
+    [typing.Callable[[KeyPressEvent], None]],
+    typing.Callable[[KeyPressEvent], None],
+]:
+    """把一个已解析动作的全部按键注册到当前输入上下文。"""
+    def register(
+        handler: typing.Callable[[KeyPressEvent], None],
+    ) -> typing.Callable[[KeyPressEvent], None]:
+        for binding in configured:
+            if save_before is None:
+                bindings.add(
+                    *binding.keys,
+                    eager=eager,
+                    filter=binding_filter,
+                )(handler)
+            else:
+                bindings.add(
+                    *binding.keys,
+                    eager=eager,
+                    filter=binding_filter,
+                    save_before=save_before,
+                )(handler)
+        return handler
+
+    return register
+
+
+def key_action_matches(
+    configured: TuiActionBindings,
+    key_sequence: tuple[Keys | str, ...],
+) -> bool:
+    """判断规范化按键序列是否属于指定运行时动作。"""
+    return any(binding.keys == key_sequence for binding in configured)
+
+
+def _default_bindings(action: str, *values: str) -> TuiActionBindings:
+    """解析一个内置动作的默认按键。"""
+    return tuple(
+        _parse_binding(value, path=f"tui.keymap.{action}")
+        for value in values
+    )
+
+
+def _default_chat_keymap() -> TuiChatKeymap:
+    """返回 Turn 输入动作的默认按键。"""
+    return TuiChatKeymap(
+        interrupt_turn=_default_bindings("chat.interrupt_turn", "esc"),
+        edit_queued_message=_default_bindings(
+            "chat.edit_queued_message",
+            "alt-up",
+            "shift-left",
+        ),
+    )
+
+
+def _default_composer_keymap() -> TuiComposerKeymap:
+    """返回输入提交动作的默认按键。"""
+    return TuiComposerKeymap(
+        submit=_default_bindings("composer.submit", "enter"),
+        queue=_default_bindings("composer.queue", "tab"),
+        enter_shell_mode=_default_bindings("composer.enter_shell_mode", "!"),
+        previous_completion=_default_bindings(
+            "composer.previous_completion",
+            "shift-tab",
+        ),
+    )
+
+
+def _default_editor_keymap() -> TuiEditorKeymap:
+    """返回输入编辑动作的默认按键。"""
+    return TuiEditorKeymap(
+        interrupt=_default_bindings("editor.interrupt", "ctrl-c"),
+        exit=_default_bindings("editor.exit", "ctrl-d"),
+        delete_line=_default_bindings("editor.delete_line", "ctrl-u"),
+        cancel_shell_mode=_default_bindings(
+            "editor.cancel_shell_mode",
+            "backspace",
+            "esc",
+        ),
+        cancel_completion=_default_bindings(
+            "editor.cancel_completion",
+            "esc",
+        ),
+        delete_backward=_default_bindings(
+            "editor.delete_backward",
+            "backspace",
+        ),
+        delete_forward=_default_bindings(
+            "editor.delete_forward",
+            "delete",
+        ),
+        delete_word_backward=_default_bindings(
+            "editor.delete_word_backward",
+            "ctrl-w",
+        ),
+        undo=_default_bindings("editor.undo", "ctrl-z"),
+        move_left=_default_bindings("editor.move_left", "left"),
+        move_right=_default_bindings("editor.move_right", "right"),
+        move_up=_default_bindings("editor.move_up", "up"),
+        move_down=_default_bindings("editor.move_down", "down"),
+        insert_newline=_default_bindings(
+            "editor.insert_newline",
+            "ctrl-j",
+            "alt-enter",
+        ),
+        completion_previous=_default_bindings(
+            "editor.completion_previous",
+            "ctrl-p",
+        ),
+        completion_next=_default_bindings(
+            "editor.completion_next",
+            "ctrl-n",
+        ),
+    )
+
+
+def _default_list_keymap() -> TuiListKeymap:
+    """返回通用选择列表的默认按键。"""
+    return TuiListKeymap(
+        accept=_default_bindings("list.accept", "enter"),
+        toggle=_default_bindings("list.toggle", "space"),
+        alternate=_default_bindings("list.alternate", "t"),
+        move_down=_default_bindings("list.move_down", "down", "ctrl-n"),
+        move_up=_default_bindings("list.move_up", "up", "ctrl-p"),
+        page_down=_default_bindings("list.page_down", "page-down"),
+        page_up=_default_bindings("list.page_up", "page-up"),
+        jump_top=_default_bindings("list.jump_top", "home"),
+        jump_bottom=_default_bindings("list.jump_bottom", "end"),
+        move_right=_default_bindings("list.move_right", "right"),
+        move_left=_default_bindings("list.move_left", "left"),
+        delete_query_character=_default_bindings(
+            "list.delete_query_character",
+            "backspace",
+        ),
+        clear_query=_default_bindings("list.clear_query", "ctrl-u"),
+        delete_query_word=_default_bindings(
+            "list.delete_query_word",
+            "ctrl-w",
+        ),
+        cancel=_default_bindings("list.cancel", "esc"),
+        interrupt=_default_bindings("list.interrupt", "ctrl-c"),
+    )
+
+
+def _default_approval_keymap() -> TuiApprovalKeymap:
+    """返回审批表面的默认按键。"""
+    return TuiApprovalKeymap(
+        expand_details=_default_bindings(
+            "approval.expand_details",
+            "ctrl-a",
+            "shift-a",
+        ),
+        accept_selected=_default_bindings(
+            "approval.accept_selected",
+            "enter",
+        ),
+        move_down=_default_bindings(
+            "approval.move_down",
+            "down",
+            "ctrl-n",
+        ),
+        move_up=_default_bindings(
+            "approval.move_up",
+            "up",
+            "ctrl-p",
+        ),
+        decline=_default_bindings("approval.decline", "esc", "n"),
+        accept_once=_default_bindings("approval.accept_once", "y"),
+        accept_session=_default_bindings("approval.accept_session", "s"),
+        strict_review=_default_bindings("approval.strict_review", "r"),
+        persist_rule=_default_bindings("approval.persist_rule", "p"),
+        cancel=_default_bindings("approval.cancel", "ctrl-c"),
+    )
 
 
 def binding_labels(bindings: tuple[TuiKeyBinding, ...]) -> str:
@@ -135,7 +498,7 @@ def _resolve_bindings(
         raise ValueError(f"{path} must be a string or an array of strings")
 
     out: list[TuiKeyBinding] = []
-    seen: set[tuple[typing.Any, ...]] = set()
+    seen: set[tuple[Keys | str, ...]] = set()
 
     for value in values:
         binding = _parse_binding(value, path=path)
@@ -167,7 +530,7 @@ def _resolve_pager_keymap(config: dict[str, typing.Any]) -> TuiPagerKeymap:
         ("close_transcript", ("ctrl-t",)),
     )
     resolved: dict[str, tuple[TuiKeyBinding, ...]] = {}
-    owners: dict[tuple[typing.Any, ...], tuple[str, bool]] = {}
+    owners: dict[tuple[Keys | str, ...], tuple[str, bool]] = {}
 
     for action, action_defaults in defaults:
         explicit = action in config
@@ -248,6 +611,9 @@ def _parse_binding(value: str, *, path: str) -> TuiKeyBinding:
         if prompt_key == "tab":
             keys = ("s-tab",)
             label = "Shift+Tab"
+        elif prompt_key in {"left", "right", "up", "down"}:
+            keys = (f"s-{prompt_key}",)
+            label = f"Shift+{label}"
         elif len(prompt_key) == 1 and prompt_key.isalpha():
             keys = (prompt_key.upper(),)
             label = f"Shift+{label}"
@@ -301,7 +667,7 @@ def _prompt_keys(
     *,
     path: str,
     value: str
-) -> tuple[typing.Any, ...]:
+) -> tuple[Keys | str, ...]:
     """使用 prompt_toolkit 校验并规范化按键序列。"""
     bindings = KeyBindings()
 
@@ -315,9 +681,12 @@ def _prompt_keys(
     return tuple(bindings.bindings[0].keys)
 
 
-def _validate_context_conflicts(context: str, keymap: TuiPagerKeymap) -> None:
+def _validate_context_conflicts(
+    context: str,
+    keymap: TuiKeymapContext,
+) -> None:
     """拒绝同一输入上下文中分配给多个动作的按键。"""
-    owners: dict[tuple[typing.Any, ...], str] = {}
+    owners: dict[tuple[Keys | str, ...], str] = {}
     for field_info in fields(keymap):
         action = field_info.name
         bindings = _bindings_for_action(keymap, action)
@@ -329,6 +698,19 @@ def _validate_context_conflicts(context: str, keymap: TuiPagerKeymap) -> None:
                     f"tui.keymap.{context}.{previous}: {binding.label}"
                 )
             owners[binding.keys] = action
+
+
+def _context_actions(
+    keymap: TuiKeymapContext,
+) -> tuple[tuple[str, TuiActionBindings], ...]:
+    """返回一个冻结上下文中的全部动作绑定。"""
+    return tuple(
+        (
+            field_info.name,
+            _bindings_for_action(keymap, field_info.name),
+        )
+        for field_info in fields(keymap)
+    )
 
 
 def _validate_reserved_pager_bindings(keymap: TuiPagerKeymap) -> None:
@@ -357,7 +739,7 @@ def _validate_reserved_pager_bindings(keymap: TuiPagerKeymap) -> None:
 
 
 def _bindings_for_action(
-    keymap: TuiPagerKeymap,
+    keymap: TuiKeymapContext,
     action: str,
 ) -> tuple[TuiKeyBinding, ...]:
     """读取并校验按键映射动作的绑定集合。"""

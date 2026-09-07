@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.keys import Keys
 
 from agent.application.approvals.models import (
     ApprovalDecisionValue,
@@ -26,6 +25,11 @@ from .approval_render import (
     approval_command_pager_lines,
     approval_pager_title,
     tui_approval_content_lines,
+)
+from .keymap import (
+    TuiApprovalKeymap,
+    TuiRuntimeKeymap,
+    bind_key_action,
 )
 
 
@@ -50,6 +54,7 @@ class TuiApproval(object):
         get_max_height: typing.Callable[[], int],
         terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
         open_static_pager: typing.Callable[[StaticPagerRequest], bool] | None = None,
+        keymap: TuiApprovalKeymap | None = None,
     ) -> None:
         self.invalidate = invalidate
         self.focus_card = focus_card
@@ -67,6 +72,12 @@ class TuiApproval(object):
             pending=(),
             revision=0,
         )
+        self.keymap = keymap or TuiRuntimeKeymap.defaults().approval
+        self.key_bindings = self._build_key_bindings()
+
+    def set_keymap(self, keymap: TuiApprovalKeymap) -> None:
+        """替换审批表面使用的不可变运行时按键快照。"""
+        self.keymap = keymap
         self.key_bindings = self._build_key_bindings()
 
     @property
@@ -281,8 +292,7 @@ class TuiApproval(object):
         """创建审批卡局部按键绑定。"""
         bindings = KeyBindings()
 
-        @bindings.add("c-a")
-        @bindings.add("A")
+        @bind_key_action(bindings, self.keymap.expand_details)
         def _(event) -> None:
             _ = event
             state = self.state
@@ -296,39 +306,36 @@ class TuiApproval(object):
                 ),
             ))
 
-        @bindings.add("enter")
+        @bind_key_action(bindings, self.keymap.accept_selected)
         def _(event) -> None:
             if self.state is not None:
                 self._finish_index(self.selected_index)
 
-        @bindings.add("down")
-        @bindings.add("c-n")
+        @bind_key_action(bindings, self.keymap.move_down)
         def _(event) -> None:
             self._move(1)
 
-        @bindings.add("up")
-        @bindings.add("c-p")
+        @bind_key_action(bindings, self.keymap.move_up)
         def _(event) -> None:
             self._move(-1)
 
-        @bindings.add(Keys.Escape, eager=True)
-        @bindings.add("n")
+        @bind_key_action(bindings, self.keymap.decline, eager=True)
         def _(event) -> None:
             self.finish("decline")
 
-        @bindings.add("y")
+        @bind_key_action(bindings, self.keymap.accept_once)
         def _(event) -> None:
             self._finish_shortcut("accept", "grantForTurn")
 
-        @bindings.add("s")
+        @bind_key_action(bindings, self.keymap.accept_session)
         def _(event) -> None:
             self._finish_shortcut("acceptForSession", "grantForSession")
 
-        @bindings.add("r")
+        @bind_key_action(bindings, self.keymap.strict_review)
         def _(event) -> None:
             self._finish_shortcut("grantForTurnWithStrictAutoReview")
 
-        @bindings.add("p")
+        @bind_key_action(bindings, self.keymap.persist_rule)
         def _(event) -> None:
             self._finish_shortcut(
                 "acceptAndRemember",
@@ -336,7 +343,7 @@ class TuiApproval(object):
                 "applyNetworkPolicyAmendment",
             )
 
-        @bindings.add("c-c")
+        @bind_key_action(bindings, self.keymap.cancel)
         def _(event) -> None:
             self.finish("cancel")
 

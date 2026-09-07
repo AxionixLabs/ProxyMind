@@ -20,6 +20,12 @@ from frontends.tui.contracts.views import (
     ViewCompletion,
     ViewIdentity
 )
+from .keymap import (
+    TuiListKeymap,
+    TuiRuntimeKeymap,
+    bind_key_action,
+    key_action_matches,
+)
 from .view import BottomPaneViewStack
 from ..rendering.menu.layout import MENU_SURFACE_HORIZONTAL_INSET
 from ..rendering.menu.measure import line_count
@@ -118,7 +124,8 @@ class TuiMenu(object):
         focus_menu: typing.Callable[[], None],
         focus_input: typing.Callable[[], None],
         get_width: typing.Callable[[], int],
-        view_stack: BottomPaneViewStack | None = None
+        view_stack: BottomPaneViewStack | None = None,
+        keymap: TuiListKeymap | None = None,
     ) -> None:
         self.invalidate = invalidate
         self.focus_menu = focus_menu
@@ -131,6 +138,12 @@ class TuiMenu(object):
         )
         self._generations: dict[str, int] = {}
         self._session_generation: int = 0
+        self.keymap = keymap or TuiRuntimeKeymap.defaults().list
+        self.key_bindings = self._build_key_bindings()
+
+    def set_keymap(self, keymap: TuiListKeymap) -> None:
+        """替换菜单使用的不可变运行时按键快照。"""
+        self.keymap = keymap
         self.key_bindings = self._build_key_bindings()
 
     @property
@@ -517,50 +530,75 @@ class TuiMenu(object):
             getattr(event, "key", None),
         )
         data = getattr(event, "data", "")
+        normalized_sequence = tuple(
+            getattr(key_press, "key", key_press)
+            for key_press in key_sequence
+        ) or ((data,) if data else (key,))
 
-        if key in (Keys.Down, "down", Keys.ControlN, "c-n"):
+        if key_action_matches(self.keymap.move_down, normalized_sequence):
             self._move(1)
-        elif key in (Keys.Up, "up", Keys.ControlP, "c-p"):
+        elif key_action_matches(self.keymap.move_up, normalized_sequence):
             self._move(-1)
-        elif key in (Keys.PageDown, "pagedown"):
+        elif key_action_matches(self.keymap.page_down, normalized_sequence):
             self._move(self.VISIBLE_ROWS)
-        elif key in (Keys.PageUp, "pageup"):
+        elif key_action_matches(self.keymap.page_up, normalized_sequence):
             self._move(-self.VISIBLE_ROWS)
-        elif key in (Keys.Home, "home"):
+        elif key_action_matches(self.keymap.jump_top, normalized_sequence):
             self._set_selection(0, direction=1)
-        elif key in (Keys.End, "end"):
+        elif key_action_matches(self.keymap.jump_bottom, normalized_sequence):
             self._set_selection(
                 len(state.request.options) - 1,
                 direction=-1,
             )
-        elif key in (Keys.Right, "right"):
+        elif key_action_matches(self.keymap.move_right, normalized_sequence):
             self._switch_tab(1)
-        elif key in (Keys.Left, "left"):
+        elif key_action_matches(self.keymap.move_left, normalized_sequence):
             self._switch_tab(-1)
-        elif key in (Keys.Backspace, "backspace") and state.request.searchable:
+        elif (
+            key_action_matches(
+                self.keymap.delete_query_character,
+                normalized_sequence,
+            )
+            and state.request.searchable
+        ):
             self._update_query(state.query[:-1])
-        elif key in (Keys.ControlU, "c-u") and state.request.searchable:
+        elif (
+            key_action_matches(self.keymap.clear_query, normalized_sequence)
+            and state.request.searchable
+        ):
             self._update_query("")
-        elif key in (Keys.ControlW, "c-w") and state.request.searchable:
+        elif (
+            key_action_matches(
+                self.keymap.delete_query_word,
+                normalized_sequence,
+            )
+            and state.request.searchable
+        ):
             self._update_query(delete_previous_query_word(state.query))
         elif key in (Keys.BracketedPaste,) and state.request.searchable:
             self.handle_paste(data, state)
-        elif key in (Keys.Escape, "escape") and state.request.allow_cancel:
+        elif (
+            key_action_matches(self.keymap.cancel, normalized_sequence)
+            and state.request.allow_cancel
+        ):
             self.cancel()
-        elif key in (Keys.ControlC, "c-c"):
+        elif key_action_matches(self.keymap.interrupt, normalized_sequence):
             return self.on_ctrl_c(state)
-        elif key in (Keys.Enter, "enter"):
+        elif key_action_matches(self.keymap.accept, normalized_sequence):
             indices = filtered_indices(state)
             if has_selectable(state.request.options, indices):
                 self._choose_index(state.selected)
             elif state.request.empty_accept_action is MenuEmptyAcceptAction.CANCEL:
                 self.cancel()
-        elif key in ("space", " "):
+        elif key_action_matches(self.keymap.toggle, normalized_sequence):
             if state.request.on_space is not None:
                 state.request.on_space()
             else:
                 return False
-        elif data == "t" and state.request.on_t is not None:
+        elif (
+            key_action_matches(self.keymap.alternate, normalized_sequence)
+            and state.request.on_t is not None
+        ):
             state.request.on_t()
         elif data and data.isprintable() and state.request.searchable:
             self._update_query(state.query + data)
@@ -807,7 +845,7 @@ class TuiMenu(object):
         """创建内嵌菜单局部按键绑定。"""
         bindings = KeyBindings()
 
-        @bindings.add("enter")
+        @bind_key_action(bindings, self.keymap.accept)
         def _(_event) -> None:
             state = self.state
             indices = filtered_indices(state) if state is not None else ()
@@ -822,7 +860,7 @@ class TuiMenu(object):
             ):
                 self.cancel()
 
-        @bindings.add("space")
+        @bind_key_action(bindings, self.keymap.toggle)
         def _(_event) -> None:
             state = self.state
             if state is not None and state.request.on_space is not None:
@@ -836,35 +874,33 @@ class TuiMenu(object):
                 if not option.dismiss_on_select:
                     self._choose_index(state.selected)
 
-        @bindings.add("t")
+        @bind_key_action(bindings, self.keymap.alternate)
         def _(_event) -> None:
             state = self.state
             if state is not None and state.request.on_t is not None:
                 state.request.on_t()
 
-        @bindings.add("down")
-        @bindings.add("c-n")
+        @bind_key_action(bindings, self.keymap.move_down)
         def _(_event) -> None:
             self._move(1)
 
-        @bindings.add("up")
-        @bindings.add("c-p")
+        @bind_key_action(bindings, self.keymap.move_up)
         def _(_event) -> None:
             self._move(-1)
 
-        @bindings.add("pagedown")
+        @bind_key_action(bindings, self.keymap.page_down)
         def _(_event) -> None:
             self._move(self.VISIBLE_ROWS)
 
-        @bindings.add("pageup")
+        @bind_key_action(bindings, self.keymap.page_up)
         def _(_event) -> None:
             self._move(-self.VISIBLE_ROWS)
 
-        @bindings.add("home")
+        @bind_key_action(bindings, self.keymap.jump_top)
         def _(_event) -> None:
             self._set_selection(0)
 
-        @bindings.add("end")
+        @bind_key_action(bindings, self.keymap.jump_bottom)
         def _(_event) -> None:
             state = self.state
             if state is not None:
@@ -873,25 +909,25 @@ class TuiMenu(object):
                     direction=-1,
                 )
 
-        @bindings.add("right")
+        @bind_key_action(bindings, self.keymap.move_right)
         def _(_event) -> None:
             self._switch_tab(1)
 
-        @bindings.add("left")
+        @bind_key_action(bindings, self.keymap.move_left)
         def _(_event) -> None:
             self._switch_tab(-1)
 
-        @bindings.add("backspace")
+        @bind_key_action(bindings, self.keymap.delete_query_character)
         def _(_event) -> None:
             state = self.state
             if state is not None and state.request.searchable:
                 self._update_query(state.query[:-1])
 
-        @bindings.add("c-u")
+        @bind_key_action(bindings, self.keymap.clear_query)
         def _(_event) -> None:
             self._update_query("")
 
-        @bindings.add("c-w")
+        @bind_key_action(bindings, self.keymap.delete_query_word)
         def _(_event) -> None:
             state = self.state
             if state is not None and state.request.searchable:
@@ -917,13 +953,13 @@ class TuiMenu(object):
             ):
                 self._update_query(state.query + data)
 
-        @bindings.add(Keys.Escape, eager=True)
+        @bind_key_action(bindings, self.keymap.cancel, eager=True)
         def _(_event) -> None:
             state = self.state
             if state is not None and state.request.allow_cancel:
                 self.cancel()
 
-        @bindings.add("c-c")
+        @bind_key_action(bindings, self.keymap.interrupt)
         def _(_event) -> None:
             self.on_ctrl_c()
 

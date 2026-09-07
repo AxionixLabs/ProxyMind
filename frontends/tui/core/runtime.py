@@ -158,9 +158,10 @@ class TuiRuntime(object):
                                TranscriptExportResult,
                            ] | None = None
     ) -> None:
-        self.input_model = input_model or TuiInputModel()
         self.context = PromptContext(model="")
         self.keymap = keymap or TuiRuntimeKeymap.defaults()
+        self.input_model = input_model or TuiInputModel(keymap=self.keymap)
+        self.input_model.set_keymap(self.keymap)
         self.terminal_capabilities = terminal_capabilities
         self.task_state = TuiTaskState(
             activity_running=lambda: self.activity.active,

@@ -30,6 +30,10 @@ from prompt_toolkit.styles import Style
 from frontends.terminal.text import sanitize_terminal_text
 from infrastructure.skills import SkillSpec
 from .interrupt import InterruptDisposition
+from .keymap import (
+    TuiRuntimeKeymap,
+    bind_key_action,
+)
 from .token_menu import (
     CommittedTokenQuery,
     DismissedToken,
@@ -255,7 +259,12 @@ class TuiInputModel(object):
     PASTE_CHAR_THRESHOLD: typing.Final[int] = 1200
     PASTE_LINE_THRESHOLD: typing.Final[int] = 20
 
-    def __init__(self, *, workspace_root: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        workspace_root: Path | str | None = None,
+        keymap: TuiRuntimeKeymap | None = None,
+    ) -> None:
         self.paste_store: dict[str, str] = {}
         self.skills: tuple[SkillSpec, ...] = ()
         self.workspace_root: Path | None = (
@@ -311,6 +320,7 @@ class TuiInputModel(object):
         self._token_menu_state: TokenMenuState = TokenMenuState()
         self._skill_search_mode_index: int = 0
         self._mention_popup_active: bool = False
+        self.keymap = keymap or TuiRuntimeKeymap.defaults()
 
         self.key_bindings = self._build_key_bindings()
 
@@ -368,6 +378,11 @@ class TuiInputModel(object):
             "token-menu.meta.completion.current": "bold nodim",
             "tui-menu.footer.right.plugins.current": "bold nodim",
         })
+
+    def set_keymap(self, keymap: TuiRuntimeKeymap) -> None:
+        """替换输入区使用的不可变运行时按键快照。"""
+        self.keymap = keymap
+        self.key_bindings = self._build_key_bindings()
 
     @property
     def skill_search_mode(self) -> str:
@@ -925,10 +940,11 @@ class TuiInputModel(object):
         """创建 TUI 输入区按键绑定。"""
         bindings = KeyBindings()
 
-        @bindings.add(
-            "c-c",
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.interrupt,
             eager=True,
-            filter=has_focus(INPUT_BUFFER_NAME),
+            binding_filter=has_focus(INPUT_BUFFER_NAME),
         )
         def _(event) -> None:
             self.handle_interrupt(event.app.current_buffer)
@@ -942,15 +958,21 @@ class TuiInputModel(object):
             )
         )
 
-        @bindings.add("c-d", eager=True, filter=direct_exit)
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.exit,
+            eager=True,
+            binding_filter=direct_exit,
+        )
         def _(event) -> None:
             _ = event
             self.exit_handler()
 
-        @bindings.add(
-            "c-u",
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.delete_line,
             eager=True,
-            filter=has_focus(INPUT_BUFFER_NAME),
+            binding_filter=has_focus(INPUT_BUFFER_NAME),
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
@@ -974,8 +996,12 @@ class TuiInputModel(object):
             lambda: self.shell_mode and not get_app().current_buffer.text
         )
 
-        @bindings.add("backspace", eager=True, filter=shell_mode_empty)
-        @bindings.add("escape", eager=True, filter=shell_mode_empty)
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.cancel_shell_mode,
+            eager=True,
+            binding_filter=shell_mode_empty,
+        )
         def _(event) -> None:
             self.set_shell_mode(False)
             event.app.invalidate()
@@ -995,7 +1021,12 @@ class TuiInputModel(object):
             )
         )
 
-        @bindings.add("escape", eager=True, filter=completion_menu_open)
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.cancel_completion,
+            eager=True,
+            binding_filter=completion_menu_open,
+        )
         def _(event) -> None:
             self.dismiss_completion_menu(event.app.current_buffer)
             event.app.invalidate()
@@ -1017,10 +1048,11 @@ class TuiInputModel(object):
             lambda: not get_app().key_processor.input_queue
         )
 
-        @bindings.add(
-            Keys.Escape,
+        @bind_key_action(
+            bindings,
+            self.keymap.chat.interrupt_turn,
             eager=standalone_key,
-            filter=turn_interrupt,
+            binding_filter=turn_interrupt,
         )
         def _(event) -> None:
             _ = event
@@ -1029,7 +1061,12 @@ class TuiInputModel(object):
 
         edit_backspace = has_focus(INPUT_BUFFER_NAME) & ~shell_mode_empty
 
-        @bindings.add("backspace", eager=True, filter=edit_backspace)
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.delete_backward,
+            eager=True,
+            binding_filter=edit_backspace,
+        )
         def _(event) -> None:
             buffer = event.app.current_buffer
             state = buffer.complete_state
@@ -1056,10 +1093,11 @@ class TuiInputModel(object):
                 previous_text=previous_text,
             )
 
-        @bindings.add(
-            "delete",
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.delete_forward,
             eager=True,
-            filter=has_focus(INPUT_BUFFER_NAME),
+            binding_filter=has_focus(INPUT_BUFFER_NAME),
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
@@ -1075,10 +1113,11 @@ class TuiInputModel(object):
                 previous_text=previous_text,
             )
 
-        @bindings.add(
-            "c-w",
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.delete_word_backward,
             eager=True,
-            filter=has_focus(INPUT_BUFFER_NAME),
+            binding_filter=has_focus(INPUT_BUFFER_NAME),
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
@@ -1097,7 +1136,12 @@ class TuiInputModel(object):
                 previous_text=previous_text,
             )
 
-        @bindings.add("c-z", eager=True, save_before=lambda event: False)
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.undo,
+            eager=True,
+            save_before=lambda event: False,
+        )
         def _(event) -> None:
             buffer = event.app.current_buffer
             previous_text = buffer.text
@@ -1108,7 +1152,12 @@ class TuiInputModel(object):
             )
             self.notify_input_layout()
 
-        @bindings.add("left", eager=True, filter=has_focus(INPUT_BUFFER_NAME))
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.move_left,
+            eager=True,
+            binding_filter=has_focus(INPUT_BUFFER_NAME),
+        )
         def _(event) -> None:
             buffer = event.app.current_buffer
             if self._skill_mention_popup_open(buffer):
@@ -1120,7 +1169,12 @@ class TuiInputModel(object):
                 count=max(1, event.arg),
             )
 
-        @bindings.add("right", eager=True, filter=has_focus(INPUT_BUFFER_NAME))
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.move_right,
+            eager=True,
+            binding_filter=has_focus(INPUT_BUFFER_NAME),
+        )
         def _(event) -> None:
             buffer = event.app.current_buffer
             if self._skill_mention_popup_open(buffer):
@@ -1132,8 +1186,10 @@ class TuiInputModel(object):
                 count=max(1, event.arg),
             )
 
-        @bindings.add("c-j")
-        @bindings.add("escape", "enter")
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.insert_newline,
+        )
         def _(event) -> None:
             buffer = event.app.current_buffer
             completion_open = bool(
@@ -1148,10 +1204,11 @@ class TuiInputModel(object):
                 buffer.cancel_completion()
                 self.notify_input_layout()
 
-        @bindings.add(
-            "c-o",
+        @bind_key_action(
+            bindings,
+            self.keymap.global_keys.copy_last_response,
             eager=True,
-            filter=has_focus(INPUT_BUFFER_NAME),
+            binding_filter=has_focus(INPUT_BUFFER_NAME),
         )
         def _(_event) -> None:
             self.copy_last_response_handler()
@@ -1200,22 +1257,30 @@ class TuiInputModel(object):
                 self.history_backtrack_primed = True
             event.app.invalidate()
 
-        @bindings.add("escape", "up", eager=True, filter=queue_rollback)
-        @bindings.add(Keys.ShiftLeft, eager=True, filter=queue_rollback)
+        @bind_key_action(
+            bindings,
+            self.keymap.chat.edit_queued_message,
+            eager=True,
+            binding_filter=queue_rollback,
+        )
         def _(event) -> None:
             event.app.current_buffer.cancel_completion()
             self.rollback_queue_handler()
 
-        @bindings.add(
-            "escape",
-            "up",
+        @bind_key_action(
+            bindings,
+            self.keymap.chat.edit_queued_message[:1],
             eager=True,
-            filter=queue_rollback_reserved,
+            binding_filter=queue_rollback_reserved,
         )
         def _(event) -> None:
             event.app.current_buffer.cancel_completion()
 
-        @bindings.add("!", eager=True)
+        @bind_key_action(
+            bindings,
+            self.keymap.composer.enter_shell_mode,
+            eager=True,
+        )
         def _(event) -> None:
             buffer = event.app.current_buffer
             if not self.shell_mode and not buffer.text:
@@ -1225,7 +1290,7 @@ class TuiInputModel(object):
                 return None
             buffer.insert_text("!")
 
-        @bindings.add("tab")
+        @bind_key_action(bindings, self.keymap.composer.queue)
         def _(event) -> None:
             buffer = event.app.current_buffer
 
@@ -1286,7 +1351,10 @@ class TuiInputModel(object):
                 return None
             buffer.insert_text("/")
 
-        @bindings.add("s-tab")
+        @bind_key_action(
+            bindings,
+            self.keymap.composer.previous_completion,
+        )
         def _(event) -> None:
             self._select_completion(
                 event.app.current_buffer,
@@ -1303,7 +1371,7 @@ class TuiInputModel(object):
                 data = data[1:].lstrip(" ")
             buffer.insert_text(self._display_paste(data, buffer.text))
 
-        @bindings.add("enter")
+        @bind_key_action(bindings, self.keymap.composer.submit)
         def _(event) -> None:
             buffer = event.app.current_buffer
             completion = self._selected_menu_completion(buffer)
@@ -1330,7 +1398,7 @@ class TuiInputModel(object):
 
             buffer.validate_and_handle()
 
-        @bindings.add("up")
+        @bind_key_action(bindings, self.keymap.editor.move_up)
         def _(event) -> None:
             buffer = event.app.current_buffer
 
@@ -1354,7 +1422,7 @@ class TuiInputModel(object):
                     count=max(1, event.arg),
                 )
 
-        @bindings.add("down")
+        @bind_key_action(bindings, self.keymap.editor.move_down)
         def _(event) -> None:
             buffer = event.app.current_buffer
             if self.completion_menu_completions(buffer.document):
@@ -1377,14 +1445,24 @@ class TuiInputModel(object):
                     count=max(1, event.arg),
                 )
 
-        @bindings.add("c-p", eager=True, filter=completion_candidates_open)
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.completion_previous,
+            eager=True,
+            binding_filter=completion_candidates_open,
+        )
         def _(event) -> None:
             self._select_completion(
                 event.app.current_buffer,
                 -max(1, event.arg),
             )
 
-        @bindings.add("c-n", eager=True, filter=completion_candidates_open)
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.completion_next,
+            eager=True,
+            binding_filter=completion_candidates_open,
+        )
         def _(event) -> None:
             self._select_completion(
                 event.app.current_buffer,
