@@ -1912,6 +1912,22 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         else:
             self._focus_bottom_surface(surface)
 
+    def prepare_terminal_suspend(self) -> bool:
+        """在进程挂起前暂离当前全屏覆盖表面。"""
+        restore_overlay = self._inline_renderer_state is not None
+        if restore_overlay:
+            self._leave_full_screen_overlay()
+        return restore_overlay
+
+    def restore_terminal_suspend(self, restore_overlay: bool) -> None:
+        """在进程恢复后按挂起前状态重建全屏覆盖表面。"""
+        if not restore_overlay:
+            return None
+        if self._inline_renderer_state is not None:
+            return None
+        self._enter_full_screen_overlay()
+        self.invalidate()
+
     def _enter_full_screen_overlay(self) -> None:
         """保存 inline 渲染状态并准备全屏覆盖画面。"""
         renderer = self.application.renderer

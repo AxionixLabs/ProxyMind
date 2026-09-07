@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import typing
 
@@ -366,6 +367,99 @@ def test_input_adapter_balances_raw_and_cooked_keyboard_modes() -> None:
     enable = "\x1b[>4;0m\x1b[>7u"
     restore = "\x1b[<u\x1b[>4;0m"
     assert output.raw == f"{enable}{restore}{enable}{restore}"
+
+
+def test_input_adapter_consumes_ctrl_z_when_job_control_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enhanced = enhanced_key_token("z", frozenset({"ctrl"}))
+    if enhanced is None:
+        raise AssertionError("enhanced Ctrl+Z token is unavailable")
+    source = _BatchInput(((
+        KeyPress(Keys.ControlZ, "\x1a"),
+        KeyPress(enhanced, ""),
+        KeyPress("x", "x"),
+    ),))
+    adapter = TerminalKeyboardInputAdapter(source, None, {})
+    monkeypatch.setattr(keyboard_adapter, "_job_control_supported", lambda: False)
+
+    assert adapter.read_keys() == [KeyPress("x", "x")]
+
+
+@pytest.mark.anyio
+async def test_input_adapter_coalesces_ctrl_z_into_one_suspend_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    suspended = asyncio.Event()
+
+    async def fake_suspend(
+        _adapter: TerminalKeyboardInputAdapter,
+    ) -> None:
+        calls.append("suspend")
+        suspended.set()
+
+    source = _BatchInput(((
+        KeyPress(Keys.ControlZ, "\x1a"),
+        KeyPress(Keys.ControlZ, "\x1a"),
+        KeyPress("x", "x"),
+    ),))
+    adapter = TerminalKeyboardInputAdapter(source, None, {})
+    monkeypatch.setattr(keyboard_adapter, "_job_control_supported", lambda: True)
+    monkeypatch.setattr(
+        TerminalKeyboardInputAdapter,
+        "_suspend_to_background",
+        fake_suspend,
+    )
+
+    assert adapter.read_keys() == [KeyPress("x", "x")]
+    await asyncio.wait_for(suspended.wait(), timeout=1.0)
+    await asyncio.sleep(0)
+
+    assert calls == ["suspend"]
+
+
+@pytest.mark.anyio
+async def test_input_adapter_restores_bound_surface_inside_suspend_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    restored = asyncio.Event()
+
+    def prepare() -> bool:
+        calls.append("prepare")
+        return True
+
+    def restore(restore_surface: bool) -> None:
+        calls.append(f"restore:{restore_surface}")
+        restored.set()
+
+    def stop_process_group() -> None:
+        calls.append("stop")
+
+    def flush_input(file_descriptor: int) -> None:
+        calls.append(f"flush:{file_descriptor}")
+
+    source = _BatchInput(((KeyPress(Keys.ControlZ, "\x1a"),),))
+    adapter = TerminalKeyboardInputAdapter(source, None, {})
+    adapter.bind_terminal_suspend_lifecycle(prepare, restore)
+    monkeypatch.setattr(keyboard_adapter, "_job_control_supported", lambda: True)
+    monkeypatch.setattr(
+        keyboard_adapter,
+        "_stop_current_process_group",
+        stop_process_group,
+    )
+    monkeypatch.setattr(
+        keyboard_adapter,
+        "_flush_terminal_input_buffer",
+        flush_input,
+    )
+
+    assert adapter.read_keys() == []
+    await asyncio.wait_for(restored.wait(), timeout=1.0)
+    await asyncio.sleep(0)
+
+    assert calls == ["prepare", "stop", "flush:7", "restore:True"]
 
 
 def test_keyboard_mode_freezes_terminal_probe_before_cooked_resume() -> None:

@@ -195,6 +195,10 @@ async def _run_stream_retry(
             f"STREAM LONGWORD {'x' * 180}"
         )
         await session.control.settle_stream()
+        await _wait_until(
+            lambda: runtime.document.scrollback_line_count > 0,
+            "stream scrollback projection",
+        )
         _record_document(facts, runtime)
         await _checkpoint(facts, "stream_settled")
 

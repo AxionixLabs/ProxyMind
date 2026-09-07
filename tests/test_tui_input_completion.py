@@ -2946,36 +2946,6 @@ async def test_destructive_edit_promotes_revealed_shell_prefix(
 
 
 @pytest.mark.anyio
-async def test_shell_prefix_promotion_undo_restores_plain_input() -> None:
-    with create_pipe_input() as pipe_input:
-        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
-
-        await runtime.open()
-        try:
-            pipe_input.send_text(" !")
-            await wait_for_input_text(runtime, " !")
-            pipe_input.send_text("\x1b[D\x7f")
-
-            for _ in range(1000):
-                if runtime.input_model.shell_mode:
-                    break
-                await asyncio.sleep(0.001)
-            else:
-                raise AssertionError("shell prefix was not promoted")
-
-            pipe_input.send_text("\x1a")
-            await wait_for_input_text(runtime, " !")
-
-            assert not runtime.input_model.shell_mode
-            assert runtime.screen.input.buffer.cursor_position == 1
-
-            await render_next_frame(runtime)
-            assert rendered_input_line(runtime) == "›  !"
-        finally:
-            await runtime.close()
-
-
-@pytest.mark.anyio
 async def test_control_up_restores_structured_shell_history() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())

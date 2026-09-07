@@ -341,7 +341,7 @@ async def _run_idle(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
 
 
 async def _run_editor_keys(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
-    """验证真实终端中的 Emacs 风格单词编辑和撤销链。"""
+    """验证真实终端中的 Emacs 风格单词编辑和 kill-buffer 链。"""
     _ready(runtime, facts)
     reader = asyncio.create_task(
         runtime.read_message(PromptContext(model="test-model"))
@@ -382,20 +382,51 @@ async def _run_editor_keys(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     )
     facts.stage = "word_yanked"
     facts.write()
-    await _wait_until(
-        lambda: runtime.screen.input.buffer.text == "one two ",
-        "editor undo",
-    )
     facts.set_detail(
         "editor_cursor",
         runtime.screen.input.buffer.cursor_position,
     )
-    facts.stage = "editor_undone"
+    facts.stage = "editor_complete"
     facts.write()
     acknowledgment = facts.path.with_suffix(".ack")
     await _wait_until(
         acknowledgment.exists,
         "editor key assertion acknowledgment",
+    )
+    reader.cancel()
+    await asyncio.gather(reader, return_exceptions=True)
+
+
+async def _run_ctrl_z(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """验证 Ctrl+Z 不进入编辑器且恢复后草稿继续可编辑。"""
+    _ready(runtime, facts)
+    reader = asyncio.create_task(
+        runtime.read_message(PromptContext(model="test-model"))
+    )
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "draft",
+        "Ctrl+Z draft",
+    )
+    facts.stage = "ctrl_z_ready"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "draftx",
+        "Ctrl+Z resume input",
+    )
+    facts.set_detail(
+        "ctrl_z_text",
+        runtime.screen.input.buffer.text,
+    )
+    facts.set_detail(
+        "ctrl_z_cursor",
+        runtime.screen.input.buffer.cursor_position,
+    )
+    facts.stage = "ctrl_z_resumed"
+    facts.write()
+    acknowledgment = facts.path.with_suffix(".ack")
+    await _wait_until(
+        acknowledgment.exists,
+        "Ctrl+Z assertion acknowledgment",
     )
     reader.cancel()
     await asyncio.gather(reader, return_exceptions=True)
@@ -1441,6 +1472,8 @@ async def _run(scenario: str, facts_path: Path) -> None:
             await _run_idle(runtime, facts)
         elif scenario == "editor_keys":
             await _run_editor_keys(runtime, facts)
+        elif scenario == "ctrl_z":
+            await _run_ctrl_z(runtime, facts)
         elif scenario == "history_search_keys":
             await _run_history_search_keys(runtime, facts)
         elif scenario == "reasoning_effort_keys":

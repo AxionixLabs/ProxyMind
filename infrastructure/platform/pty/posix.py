@@ -3,6 +3,7 @@
 
 import ctypes
 import ctypes.util
+import errno
 import os
 import signal
 import sys
@@ -93,7 +94,6 @@ class PosixPtyBackend:
             raise RuntimeError(
                 "POSIX PTY requires the pexpect package"
             ) from error
-        self._eof_error: type[BaseException] = pexpect.EOF
         self._child = pexpect.spawn(
             argv[0],
             list(argv[1:]),
@@ -115,9 +115,14 @@ class PosixPtyBackend:
     def read(self, size: int) -> bytes:
         """读取原生 PTY 字节。"""
         try:
-            return self._child.read_nonblocking(size, timeout=None)
-        except self._eof_error as exc:
+            chunk = os.read(self._child.fileno(), size)
+        except OSError as exc:
+            if exc.errno != errno.EIO:
+                raise
             raise PtyEndOfFile from exc
+        if not chunk:
+            raise PtyEndOfFile
+        return chunk
 
     def write(self, data: bytes) -> int:
         """循环推进原生 PTY 写入，避免短写丢失输入。"""

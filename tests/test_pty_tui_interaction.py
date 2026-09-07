@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -68,6 +69,30 @@ def _wait_for_stage(
                 return facts
         if time.monotonic() >= deadline:
             raise TimeoutError(f"timed out waiting for PTY TUI stage {expected!r}")
+        time.sleep(0.01)
+
+
+def _wait_for_mode_count(
+    terminal: TerminalHarness,
+    mode: TerminalMode,
+    minimum: int,
+    *,
+    timeout: float = 10.0,
+) -> None:
+    """等待指定终端模式事件达到给定数量。"""
+    deadline = time.monotonic() + timeout
+    while True:
+        count = sum(
+            event.mode is mode
+            for event in terminal.mode_events
+        )
+        if count >= minimum:
+            return None
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"timed out waiting for {minimum} {mode.value} events; "
+                f"observed={count}"
+            )
         time.sleep(0.01)
 
 
@@ -482,8 +507,8 @@ def test_edit_last_queued_message_restores_once(
     assert details["steer_request_count"] == 1
 
 
-def test_editor_alt_keys_yank_and_ctrl_z_use_real_terminal(tmp_path: Path) -> None:
-    """验证 Alt 单词编辑、Ctrl-Y 和 Ctrl-Z 不被终端层截获。"""
+def test_editor_alt_keys_and_yank_use_real_terminal(tmp_path: Path) -> None:
+    """验证 Alt 单词编辑和 Ctrl-Y 不被终端层截获。"""
     facts_path = tmp_path / "facts.json"
     with _spawn_tui("editor_keys", facts_path) as terminal:
         _wait_for_tui_ready(terminal, "editor_keys")
@@ -498,9 +523,7 @@ def test_editor_alt_keys_yank_and_ctrl_z_use_real_terminal(tmp_path: Path) -> No
         terminal.send_key(PtyKey.ALT_D)
         _wait_for_stage(facts_path, "word_deleted")
         terminal.send_key(PtyKey.CTRL_Y)
-        _wait_for_stage(facts_path, "word_yanked")
-        terminal.send_key(PtyKey.CTRL_Z)
-        facts = _wait_for_stage(facts_path, "editor_undone")
+        facts = _wait_for_stage(facts_path, "editor_complete")
         facts_path.with_suffix(".ack").write_text(
             "editor-observed",
             encoding="ascii",
@@ -508,7 +531,102 @@ def test_editor_alt_keys_yank_and_ctrl_z_use_real_terminal(tmp_path: Path) -> No
 
         assert terminal.wait_for_exit(timeout=10.0) == 0
 
-    assert _details(facts)["editor_cursor"] == len("one two ")
+    assert _details(facts)["editor_cursor"] == len("one two three")
+    assert _submissions(facts) == []
+
+
+def test_ctrl_z_does_not_modify_composer_input(tmp_path: Path) -> None:
+    """验证 Ctrl-Z 不执行编辑器 Undo，也不插入控制字符。"""
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui("ctrl_z", facts_path) as terminal:
+        _wait_for_tui_ready(terminal, "ctrl_z")
+        terminal.write_user_text("draft")
+        _wait_for_stage(facts_path, "ctrl_z_ready")
+        terminal.send_key(PtyKey.CTRL_Z)
+        time.sleep(0.1)
+        terminal.write_user_text("x")
+        facts = _wait_for_stage(facts_path, "ctrl_z_resumed")
+        facts_path.with_suffix(".ack").write_text(
+            "ctrl-z-observed",
+            encoding="ascii",
+        )
+
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+
+    assert _details(facts) == {
+        "ctrl_z_text": "draftx",
+        "ctrl_z_cursor": len("draftx"),
+    }
+    assert _submissions(facts) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX job control only")
+def test_ctrl_z_suspends_and_fg_restores_real_tui(tmp_path: Path) -> None:
+    """验证交互式 Shell 中 Ctrl-Z 真正挂起并由 fg 恢复 TUI。"""
+    facts_path = tmp_path / "facts.json"
+    environment = dict(os.environ)
+    environment["PS1"] = "PTY-JOB-SHELL> "
+    environment["PROMPT_COMMAND"] = ""
+    command = shlex.join((
+        sys.executable,
+        "-m",
+        "tests.support.pty.tui_scenario",
+        "ctrl_z",
+        str(facts_path),
+    ))
+    with spawn_terminal(
+        ("/bin/bash", "--noprofile", "--norc", "-i"),
+        cwd=Path.cwd(),
+        env=environment,
+        size=TerminalSize(rows=24, columns=100),
+        failure_artifact_directory=facts_path.parent / "artifacts",
+    ) as terminal:
+        terminal.wait_for_screen_text("PTY-JOB-SHELL>", timeout=10.0)
+        terminal.write_user_text(command)
+        terminal.send_key(PtyKey.ENTER)
+        _wait_for_tui_ready(terminal, "ctrl_z")
+        terminal.write_user_text("draft")
+        _wait_for_stage(facts_path, "ctrl_z_ready")
+
+        enabled_before = sum(
+            event.mode is TerminalMode.KEYBOARD_ENHANCEMENT_ENABLED
+            for event in terminal.mode_events
+        )
+        restored_before = sum(
+            event.mode is TerminalMode.KEYBOARD_ENHANCEMENT_RESTORED
+            for event in terminal.mode_events
+        )
+        terminal.send_key(PtyKey.CTRL_Z)
+        terminal.wait_for_screen_text("Stopped", timeout=10.0)
+        _wait_for_mode_count(
+            terminal,
+            TerminalMode.KEYBOARD_ENHANCEMENT_RESTORED,
+            restored_before + 1,
+        )
+
+        terminal.write_user_text("fg")
+        terminal.send_key(PtyKey.ENTER)
+        _wait_for_mode_count(
+            terminal,
+            TerminalMode.KEYBOARD_ENHANCEMENT_ENABLED,
+            enabled_before + 1,
+        )
+        terminal.write_user_text("x")
+        facts = _wait_for_stage(facts_path, "ctrl_z_resumed")
+        facts_path.with_suffix(".ack").write_text(
+            "ctrl-z-resumed",
+            encoding="ascii",
+        )
+        terminal.wait_for_screen_text("PTY-JOB-SHELL>", timeout=10.0)
+        terminal.write_user_text("exit")
+        terminal.send_key(PtyKey.ENTER)
+
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+
+    assert _details(facts) == {
+        "ctrl_z_text": "draftx",
+        "ctrl_z_cursor": len("draftx"),
+    }
     assert _submissions(facts) == []
 
 

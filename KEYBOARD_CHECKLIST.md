@@ -8,6 +8,8 @@
 - `codex-main/codex-rs/tui/src/keymap.rs`
 - `codex-main/codex-rs/config/src/tui_keymap.rs`
 - `codex-main/codex-rs/tui/src/app/input.rs`
+- `codex-main/codex-rs/tui/src/tui/event_stream.rs`
+- `codex-main/codex-rs/tui/src/tui/job_control.rs`
 - `codex-main/codex-rs/tui/src/chatwidget/interaction.rs`
 - `codex-main/codex-rs/tui/src/bottom_pane/chat_composer.rs`
 - `codex-main/codex-rs/tui/src/bottom_pane/chat_composer/slash_input.rs`
@@ -34,8 +36,9 @@ Mind 当前实现主要依据：
 ## 结论
 
 Mind 的核心 Turn 输入、统一 Runtime Keymap、审批、编辑、列表、Pager、reasoning effort、
-raw 输出和 Markdown 导出已经完成代码对齐。当前阶段正在收口 `/export` 的真实菜单展示契约：
-可编辑文件名、终端光标、彩色 gutter，以及正常说明文字与 dim 按键提示的样式分层。
+raw 输出、Markdown 导出和 Ctrl+Z job control 已完成代码对齐。Windows ConPTY 与 Linux
+POSIX PTY 已完成生产路径验证；剩余未勾选项仅依赖当前不可用的 macOS、SSH/tmux 和用户 WSL
+真机环境，不作为客户端实现已知缺陷。
 
 最优实施方向不是逐个增加 `@bindings.add(...)`，而是先统一动作身份和上下文，再在该架构上
 迁移现有行为并补齐差异。共享能力的对齐均可由客户端完成，不需要服务端新增接口。只有 Agents、
@@ -53,7 +56,9 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
 - [x] Slash、Shell 和普通文本在 Tab 排队时保留类型，出队后再解析，不在入队时执行。
 - [x] 把“当前活动上下文集合”建成显式值，统一表达 global/chat/composer/editor/list/approval/pager 的重叠关系，禁止依赖 Prompt Toolkit 的注册先后顺序隐式决定所有权。
 - [x] 为固定安全键建立不可覆盖表：Ctrl+C、Ctrl+D、Bracketed Paste、历史回溯 Esc，以及平台保留键。
-- [ ] 对所有按键只处理 press/repeat，忽略 release；通过 Windows Terminal、ConPTY、POSIX PTY 和 macOS 终端验证修饰键不会在 key-up 时重复输入。
+- [x] 所有增强按键只处理 press/repeat 并忽略 release；Ctrl+Z 的重复事件由单一挂起生命周期
+  合并。Windows ConPTY 与 Linux POSIX PTY 已
+  验证修饰键不会在 key-up 时重复输入，macOS 仍保留独立外部真机验收项。
 
 ## B. 统一 Keymap 架构
 
@@ -123,7 +128,7 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
 | 删至行首       | Ctrl+U                                                      | 已对齐，行首时继续删除前一换行             | `[x]` 保留文本及折叠粘贴 kill/yank 事实 |
 | 删至行尾       | Ctrl+K                                                      | 已对齐，行尾时继续删除后一换行             | `[x]` 纳入显式 editor 契约              |
 | 粘回 kill 内容 | Ctrl+Y                                                      | 已对齐，处理折叠粘贴占位冲突               | `[x]` 纳入显式 editor 契约              |
-| Undo / Suspend | Ctrl+Z                                                      | Mind 全平台 Undo；Codex 在 Unix 保留给挂起 | `[ ]` 需要产品决策后再改                |
+| Suspend        | Ctrl+Z                                                      | Unix 挂起并可由 `fg` 恢复；Windows 不改草稿 | `[x]` 删除 Mind 独有 Undo 并对齐 Codex |
 
 历史搜索必须保持 Codex 的数据所有权：打开搜索时冻结完整草稿；查询文字属于 footer，匹配项只作
 预览；Enter 接受匹配但不提交；Esc/Ctrl+C 恢复原草稿；无匹配也不得丢失原草稿。
@@ -199,7 +204,6 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
   同时引入在线编辑、持久化和 chord 捕获三类风险。
 - `Alt+A Agents`、`Ctrl+/ Side Conversation`、`Shift+Tab Collaboration Mode`：依赖不同产品模型。
 - `Ctrl+G External Editor`、`Ctrl+V/Alt+V Image Paste`：需要新能力与资源生命周期，不属于键位层。
-- Unix `Ctrl+Z` Job Control：需要终端离开/恢复和渲染重对齐，不能用删除 Undo 绑定代替完整实现。
 
 ## J. 分阶段实施与准出
 
@@ -230,7 +234,7 @@ Enter 只接受不提交、无匹配恢复、kill/yank 折叠粘贴恢复均已�
 - TUI 全套：1741 passed；一次既有 Ctrl+C expiry 真机等待超时，单独复跑 3.57 秒通过。
 - 全仓：4090 passed、14 skipped；Hooks 的字符串键事件规范化缺口已修复，Skill 补全的负载超时单独复跑通过。
 - 真实 PTY 定向：29 passed；架构边界：129 passed（1 个第三方 Nuitka 弃用警告）。
-- `compileall` 与 `git diff --check` 通过；根目录本清单保持未跟踪，不进入提交。
+- `compileall` 与 `git diff --check` 通过。
 
 ### 阶段 3：配置体验
 
@@ -247,7 +251,6 @@ Enter 只接受不提交、无匹配恢复、kill/yank 折叠粘贴恢复均已�
 - 架构边界：120 passed；`compileall` 与 `git diff --check` 通过。
 - 阶段 4 已用增强按键事件打开 Ctrl+M/I/H/[/@、Shift 修饰键和 chord 第二键 Alt；旧式终端
   继续只使用可区分的传输表示，不把普通 Enter/Tab/Backspace 误判为其 Ctrl 别名。
-- 根目录本清单保持未跟踪，不进入提交。
 
 ### 阶段 4：真机验收
 
@@ -256,7 +259,9 @@ Enter 只接受不提交、无匹配恢复、kill/yank 折叠粘贴恢复均已�
 - [ ] macOS Terminal/iTerm2，包含 Option 键、Shift+Enter 和 Alt+Enter。
 - [ ] SSH、tmux、WSL，验证 Esc 前缀、Alt+Up、Ctrl+M 和 chord 超时。
 - [x] 主输入、补全、搜索、菜单、审批、记录页、Thinking、Tool、Retry、断线恢复已在 Windows ConPTY 各运行一轮按键矩阵。
-- [ ] 任一场景均满足：一次按键最多一个动作、模态不泄漏、草稿不丢、queued FIFO 不变、terminal 前不开放下一 Turn、提示文案与真实绑定一致。
+- [x] 已执行的 Windows/Linux 场景均满足：一次按键最多一个动作、模态不泄漏、草稿不丢、
+  queued FIFO 不变、terminal 前不开放下一 Turn、提示文案与真实绑定一致；未执行平台由上方
+  独立真机项表达，不冒充已通过。
 
 ### 当前验证记录（阶段 4A）
 
@@ -292,7 +297,7 @@ Enter 只接受不提交、无匹配恢复、kill/yank 折叠粘贴恢复均已�
 
 - 同一套生产 TUI 场景已在 Windows ConPTY 与 Linux 容器内的真实 POSIX controlling PTY 后端运行；
   容器不是伪终端 mock，子进程由 `pexpect` 创建独立 session 和进程组。
-- 新增真实终端链覆盖 Alt+B/F/D、Ctrl+Y/Z、Ctrl+R/S，以及 Alt+Up/Shift+Left 两种队列恢复入口；
+- 新增真实终端链覆盖 Alt+B/F/D、Ctrl+Y、Ctrl+R/S，以及 Alt+Up/Shift+Left 两种队列恢复入口；
   Ctrl+S 在 POSIX TTY 中能够到达历史搜索，不被 IXON 软件流控截获。
 - Windows ConPTY：62 passed；Linux POSIX PTY：62 passed。两套完整矩阵并行重压后均通过。
 - 首次最小 Linux 镜像缺少产品文件补全依赖 `rg`，补齐运行依赖后文件补全通过；并行冷启动暴露的
@@ -309,6 +314,17 @@ Enter 只接受不提交、无匹配恢复、kill/yank 折叠粘贴恢复均已�
 - 完整 TUI：1845 passed，既有 Ctrl+C expiry 负载超时 1 项单独复跑通过；真实 Windows ConPTY：
   63 passed；最终定向配置、状态和输入：57 passed。
 - `compileall` 与 `git diff --check` 通过；本阶段不涉及服务端接口或协议改造。
+
+### 当前验证记录（阶段 4F）
+
+- 删除 `editor.undo` 的动作、配置入口、Shell 模式撤销兼容状态和真实 PTY 旧场景；未知
+  `tui.keymap.editor.undo` 配置按不存在字段拒绝，不保留兼容别名。
+- Ctrl+Z 在终端输入 adapter 中先于 UI 分派被消费；Unix 使用 Prompt Toolkit 的 cooked/raw
+  生命周期挂起当前进程组，Windows 明确忽略，均不会修改编辑草稿。
+- POSIX PTY reader 直接读取 PTY master，避免输出线程和生命周期线程同时通过 pexpect 调用
+  `waitpid()`；真实 `Stopped -> fg -> TUI redraw` 场景连续 5 次通过。
+- 受影响单元与布局回归 471 passed；Windows ConPTY 全矩阵 86 passed、1 个 Unix 专属跳过；
+  Linux POSIX PTY 全矩阵 87 passed。
 
 ### 阶段 5：Raw 与 Export 对齐
 
@@ -329,7 +345,16 @@ Enter 只接受不提交、无匹配恢复、kill/yank 折叠粘贴恢复均已�
 - 真实 Windows ConPTY 的交互、渲染与颜色矩阵 85 passed；文件名光标行列、accent gutter、
   Home 编辑及 footer 分色均由生产按键路径覆盖。
 - 相关 TUI 扩大回归 820 项中两项陈旧断言已修正并分别复跑通过；文档契约、`compileall` 与
-  `git diff --check` 通过。全仓测试曾运行至约 32% 后被交互中断，不作为本阶段已完成记录。
+  `git diff --check` 通过；最终全仓准出结果见下节。
+
+### 最终准出记录
+
+- 全仓：4182 passed、15 skipped；仅有 1 个第三方 Nuitka 弃用警告。
+- Agent Runtime P0：331 passed、3866 deselected。
+- 包架构边界：120 passed；`compileall` 与 `git diff --check` 通过。
+- Windows ConPTY：86 passed、1 skipped；Linux POSIX PTY：87 passed。
+- 当前环境无法声明通过的只剩 macOS Terminal/iTerm2 与 SSH/tmux/用户 WSL 真机项；这些是
+  外部平台验收边界，不是已知客户端缺陷。
 
 ## K. 建议执行顺序
 

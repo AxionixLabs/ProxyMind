@@ -6421,46 +6421,6 @@ async def test_multiline_input_backspace_shrinks_without_top_spacer(
 
 
 @pytest.mark.anyio
-async def test_multiline_input_undo_shrinks_without_top_spacer() -> None:
-    with create_pipe_input() as pipe_input:
-        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
-
-        with patch.object(
-            runtime.screen.application.output,
-            "get_size",
-            return_value=Size(rows=16, columns=40),
-        ):
-            await runtime.open()
-            try:
-                initial_height = runtime.screen._visible_height()
-                buffer = runtime.screen.input.buffer
-
-                buffer.text = "first"
-                buffer.cursor_position = len(buffer.text)
-                buffer.save_to_undo_stack()
-
-                buffer.text = "first\nsecond\nthird"
-                buffer.cursor_position = len(buffer.text)
-                await _render_next_frame(runtime)
-
-                assert runtime.screen._visible_height() > initial_height
-
-                pipe_input.send_text("\x1a")
-                await _wait_for_input_text(runtime, "first")
-
-                screen = await _render_next_frame(runtime)
-                positions = screen.visible_windows_to_write_positions
-
-                assert runtime.screen._visible_height() == initial_height
-                assert runtime.screen._visible_height() == (
-                    runtime.screen._natural_visible_height()
-                )
-                assert runtime.screen.canvas_spacer not in positions
-            finally:
-                await runtime.close()
-
-
-@pytest.mark.anyio
 async def test_programmatic_input_replacement_restores_natural_canvas() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
@@ -6746,7 +6706,7 @@ async def test_idle_destructive_edit_uses_current_input_height(
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "clear_mode",
-    ("ctrl_u", "ctrl_w", "delete", "history", "undo"),
+    ("ctrl_u", "ctrl_w", "delete", "history"),
 )
 async def test_multiline_clear_restores_natural_layout_after_oversized_stream(
     clear_mode: str,
@@ -6828,10 +6788,6 @@ async def test_multiline_clear_restores_natural_layout_after_oversized_stream(
                 if clear_mode == "history":
                     runtime.input_model.history.append_string(pasted)
                     pipe_input.send_text("\x1b[A")
-                elif clear_mode == "undo":
-                    buffer.save_to_undo_stack()
-                    buffer.text = pasted
-                    buffer.cursor_position = len(pasted)
                 else:
                     pipe_input.send_text(f"\x1b[200~{pasted}\x1b[201~")
                 await _wait_for_input_text(runtime, pasted)
@@ -6850,8 +6806,6 @@ async def test_multiline_clear_restores_natural_layout_after_oversized_stream(
                     pipe_input.send_text("\x1b[3~" * len(pasted))
                 elif clear_mode == "history":
                     pipe_input.send_text("\x1b[B")
-                else:
-                    pipe_input.send_text("\x1a")
                 await _wait_for_input_text(runtime, "")
                 screen = await _render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions

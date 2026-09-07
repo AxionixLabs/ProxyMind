@@ -119,7 +119,6 @@ class TuiEditorKeymap(object):
     delete_backward: TuiActionBindings
     delete_forward: TuiActionBindings
     delete_word_backward: TuiActionBindings
-    undo: TuiActionBindings
     move_left: TuiActionBindings
     move_right: TuiActionBindings
     move_up: TuiActionBindings
@@ -585,7 +584,6 @@ def _default_editor_keymap() -> TuiEditorKeymap:
             "ctrl-w",
             "ctrl-alt-h",
         ),
-        undo=_default_bindings("editor.undo", "ctrl-z"),
         move_left=_default_bindings("editor.move_left", "left", "ctrl-b"),
         move_right=_default_bindings("editor.move_right", "right", "ctrl-f"),
         move_up=_default_bindings("editor.move_up", "up", "ctrl-p"),
@@ -1401,9 +1399,6 @@ def _validate_reserved_stroke(
         ("d", frozenset({"ctrl"})): frozenset({
             "editor.delete_forward",
             "pager.half_page_down",
-        }),
-        ("z", frozenset({"ctrl"})): frozenset({
-            "editor.undo",
         }),
     }
     owners = allowed.get(token)

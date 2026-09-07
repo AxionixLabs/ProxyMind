@@ -316,6 +316,10 @@ class TuiRuntime(object):
                 self.screen.application.output,
                 terminal_capabilities.identity,
             )
+            application_input.bind_terminal_suspend_lifecycle(
+                self.screen.prepare_terminal_suspend,
+                self.screen.restore_terminal_suspend,
+            )
         self.input_model.bind_interrupt(self._handle_input_interrupt)
 
         self.input_model.bind_history_backtrack(

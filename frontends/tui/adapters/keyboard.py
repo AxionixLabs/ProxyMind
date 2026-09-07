@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import contextlib
 import os
 import platform
+import signal
 import subprocess
 import sys
 import typing
 from dataclasses import dataclass
 
+from prompt_toolkit.application import in_terminal
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.input.vt100_parser import Vt100Parser
 from prompt_toolkit.key_binding import KeyPress
@@ -66,6 +69,15 @@ _CSI_TILDE_KEYS: typing.Final[typing.Mapping[int, str]] = {
     33: "f19",
     34: "f20",
 }
+
+
+def _no_suspend_surface() -> bool:
+    """返回没有需要在进程恢复后重建的终端表面。"""
+    return False
+
+
+def _ignore_suspend_surface(_restore: bool) -> None:
+    """忽略没有绑定前端生命周期的终端表面恢复。"""
 
 _KITTY_FUNCTIONAL_KEYS: typing.Final[typing.Mapping[int, str]] = {
     57376 + offset: f"f{13 + offset}"
@@ -298,6 +310,11 @@ class TerminalKeyboardInputAdapter(Input):
         self._parser = parser
         self._environ = dict(environ)
         self._mode: TerminalKeyboardMode | None = None
+        self._suspend_task: asyncio.Task[None] | None = None
+        self._prepare_suspend: typing.Callable[[], bool] = _no_suspend_surface
+        self._restore_suspend: typing.Callable[[bool], None] = (
+            _ignore_suspend_surface
+        )
 
     @property
     def closed(self) -> bool:
@@ -319,6 +336,15 @@ class TerminalKeyboardInputAdapter(Input):
         """在 Application 输出确定后绑定同生命周期的终端模式。"""
         self._mode = TerminalKeyboardMode(output, identity, self._environ)
 
+    def bind_terminal_suspend_lifecycle(
+        self,
+        prepare: typing.Callable[[], bool],
+        restore: typing.Callable[[bool], None],
+    ) -> None:
+        """绑定 job control 暂离和恢复前端终端表面的回调。"""
+        self._prepare_suspend = prepare
+        self._restore_suspend = restore
+
     def replay(self, data: bytes, encoding: str) -> None:
         """把启动探测期间读取的非探测输入交还增强解析器。"""
         if self._parser is None:
@@ -335,11 +361,11 @@ class TerminalKeyboardInputAdapter(Input):
 
     def read_keys(self) -> list[KeyPress]:
         """读取已经过增强协议规范化的按键。"""
-        return self._input.read_keys()
+        return self._consume_job_control(self._input.read_keys())
 
     def flush_keys(self) -> list[KeyPress]:
         """冲刷增强协议和底层输入的残留按键。"""
-        return self._input.flush_keys()
+        return self._consume_job_control(self._input.flush_keys())
 
     def flush(self) -> None:
         """把事件循环 flush 请求委托给底层输入。"""
@@ -381,9 +407,57 @@ class TerminalKeyboardInputAdapter(Input):
 
     def close(self) -> None:
         """恢复终端模式并关闭底层输入。"""
+        suspend_task = self._suspend_task
+        if suspend_task is not None and not suspend_task.done():
+            suspend_task.cancel()
+        self._suspend_task = None
         if self._mode is not None:
             self._mode.restore()
         self._input.close()
+
+    def _consume_job_control(
+        self,
+        keys: typing.Iterable[KeyPress],
+    ) -> list[KeyPress]:
+        """消费 Ctrl+Z，并在支持作业控制的平台请求一次进程挂起。"""
+        retained: list[KeyPress] = []
+        suspend_requested = False
+        for key_press in keys:
+            if not _is_suspend_key(key_press):
+                retained.append(key_press)
+                continue
+            suspend_requested = True
+        if suspend_requested:
+            self._request_suspend()
+        return retained
+
+    def _request_suspend(self) -> None:
+        """幂等调度单个 POSIX 挂起与恢复生命周期。"""
+        if not _job_control_supported():
+            return None
+        current = self._suspend_task
+        if current is not None and not current.done():
+            return None
+        self._suspend_task = asyncio.get_running_loop().create_task(
+            self._suspend_to_background()
+        )
+
+    async def _suspend_to_background(self) -> None:
+        """离开 raw mode，挂起当前进程组并在恢复后重建终端。"""
+        restore_surface = self._prepare_suspend()
+        surface_restored = False
+        try:
+            async with in_terminal():
+                try:
+                    _stop_current_process_group()
+                    _flush_terminal_input_buffer(self.fileno())
+                finally:
+                    surface_restored = True
+                    self._restore_suspend(restore_surface)
+        finally:
+            if not surface_restored:
+                self._restore_suspend(restore_surface)
+            self._suspend_task = None
 
 
 def install_enhanced_vt_parser(
@@ -406,6 +480,35 @@ def replay_tui_terminal_input(
     """把启动探测保留的输入回放到 TUI 输入 adapter。"""
     if isinstance(input_obj, TerminalKeyboardInputAdapter):
         input_obj.replay(data, encoding)
+
+
+def _is_suspend_key(key_press: KeyPress) -> bool:
+    """判断规范化按键是否为传统或增强 Ctrl+Z。"""
+    enhanced = enhanced_key_token("z", frozenset({"ctrl"}))
+    return bool(
+        key_press.key == Keys.ControlZ
+        or (enhanced is not None and key_press.key == enhanced)
+    )
+
+
+def _job_control_supported() -> bool:
+    """判断当前平台是否提供 POSIX 进程挂起信号。"""
+    return isinstance(getattr(signal, "SIGTSTP", None), signal.Signals)
+
+
+def _stop_current_process_group() -> None:
+    """向当前 POSIX 进程组发送挂起信号。"""
+    suspend_signal = getattr(signal, "SIGTSTP", None)
+    if not isinstance(suspend_signal, signal.Signals):
+        return None
+    os.kill(0, suspend_signal)
+
+
+def _flush_terminal_input_buffer(file_descriptor: int) -> None:
+    """在 POSIX 进程恢复后丢弃挂起期间积压的终端输入。"""
+    import termios
+
+    termios.tcflush(file_descriptor, termios.TCIFLUSH)
 
 
 def _csi_sequence_length(candidate: str) -> int | None:

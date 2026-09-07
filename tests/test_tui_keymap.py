@@ -190,9 +190,9 @@ def test_tui_keymap_schema_rejects_unknown_actions_and_invalid_values(
 
 @pytest.mark.parametrize(
     "removed_action",
-    ("completion_previous", "completion_next"),
+    ("completion_previous", "completion_next", "undo"),
 )
-def test_editor_rejects_removed_parallel_completion_actions(
+def test_editor_rejects_removed_actions(
     removed_action: str,
 ) -> None:
     with pytest.raises(

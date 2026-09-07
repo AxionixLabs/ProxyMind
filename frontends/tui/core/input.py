@@ -348,7 +348,6 @@ class TuiInputModel(object):
         self.backtrack_history_handler: typing.Callable[[], None] = _ignore_action
         self.missing_backtrack_handler: typing.Callable[[], None] = _ignore_action
         self.shell_mode: bool = False
-        self._shell_mode_undo_transition: tuple[str, str] | None = None
         self.history_backtrack_primed: bool = False
         self._history_entries: tuple[TuiInputHistoryEntry, ...] = ()
         self._history_index: int | None = None
@@ -638,8 +637,6 @@ class TuiInputModel(object):
     def _promote_shell_prefix(
         self,
         buffer,
-        *,
-        previous_text: str,
     ) -> bool:
         """把编辑后暴露的 Shell 前缀提升为独立输入状态。"""
         document = buffer.document
@@ -658,36 +655,15 @@ class TuiInputModel(object):
         buffer.cancel_completion()
         self.set_shell_mode(True)
         buffer.document = Document(command, cursor_position=cursor)
-        self._shell_mode_undo_transition = previous_text, command
-        return True
-
-    def _restore_shell_mode_after_undo(
-        self,
-        buffer,
-        *,
-        previous_text: str
-    ) -> bool:
-        """在文本撤销跨过模式转换边界时恢复普通输入状态。"""
-        transition = self._shell_mode_undo_transition
-        if not self.shell_mode or transition is None:
-            return False
-
-        target, source = transition
-        if previous_text != source or buffer.text != target:
-            return False
-
-        self.set_shell_mode(False)
         return True
 
     def _finish_destructive_edit(
         self,
         buffer,
         selected_text: str | None = None,
-        *,
-        previous_text: str
     ) -> None:
         """收束删除后的输入模式、联想和补全状态。"""
-        self._promote_shell_prefix(buffer, previous_text=previous_text)
+        self._promote_shell_prefix(buffer)
 
         buffer.suggestion = self.auto_suggest.get_suggestion(
             buffer,
@@ -1184,7 +1160,6 @@ class TuiInputModel(object):
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
-            previous_text = buffer.text
             buffer.cancel_completion()
             deleted = self._delete_to_line_start(buffer)
             if deleted:
@@ -1197,7 +1172,6 @@ class TuiInputModel(object):
             if deleted:
                 self._finish_destructive_edit(
                     buffer,
-                    previous_text=previous_text,
                 )
             else:
                 self.notify_input_layout()
@@ -1272,7 +1246,6 @@ class TuiInputModel(object):
         def _(event) -> None:
             buffer = event.app.current_buffer
             state = buffer.complete_state
-            previous_text = buffer.text
 
             selected_text = (
                 state.current_completion.text
@@ -1292,7 +1265,6 @@ class TuiInputModel(object):
             self._finish_destructive_edit(
                 buffer,
                 selected_text,
-                previous_text=previous_text,
             )
 
         @bind_key_action(
@@ -1303,7 +1275,6 @@ class TuiInputModel(object):
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
-            previous_text = buffer.text
             deleted = buffer.delete(count=event.arg)
 
             if not deleted:
@@ -1312,7 +1283,6 @@ class TuiInputModel(object):
 
             self._finish_destructive_edit(
                 buffer,
-                previous_text=previous_text,
             )
 
         @bind_key_action(
@@ -1342,25 +1312,7 @@ class TuiInputModel(object):
 
             self._finish_destructive_edit(
                 buffer,
-                previous_text=previous_text,
             )
-
-        @bind_key_action(
-            bindings,
-            self.keymap.editor.undo,
-            eager=True,
-            binding_filter=ordinary_input,
-            save_before=lambda event: False,
-        )
-        def _(event) -> None:
-            buffer = event.app.current_buffer
-            previous_text = buffer.text
-            buffer.undo()
-            self._restore_shell_mode_after_undo(
-                buffer,
-                previous_text=previous_text,
-            )
-            self.notify_input_layout()
 
         @bind_key_action(
             bindings,
@@ -1493,7 +1445,6 @@ class TuiInputModel(object):
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
-            previous_text = buffer.text
             offset = buffer.document.find_next_word_ending(
                 count=max(1, event.arg),
             )
@@ -1502,7 +1453,6 @@ class TuiInputModel(object):
                 self._store_kill(deleted)
                 self._finish_destructive_edit(
                     buffer,
-                    previous_text=previous_text,
                 )
 
         @bind_key_action(
@@ -1513,7 +1463,6 @@ class TuiInputModel(object):
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
-            previous_text = buffer.text
             count = len(buffer.document.current_line_after_cursor)
             if count:
                 deleted = buffer.delete(count=count)
@@ -1525,7 +1474,6 @@ class TuiInputModel(object):
                 self._store_kill(deleted)
                 self._finish_destructive_edit(
                     buffer,
-                    previous_text=previous_text,
                 )
 
         @bind_key_action(
@@ -2101,7 +2049,6 @@ class TuiInputModel(object):
         """更新输入框的 Shell 前缀模式。"""
         self.shell_mode = bool(active)
         self.auto_suggest.shell_mode = self.shell_mode
-        self._shell_mode_undo_transition = None
 
     def bind_interrupt(
         self,

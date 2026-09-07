@@ -405,7 +405,6 @@ TUI_EDITOR_KEYMAP_FIELDS = frozenset({
     "delete_backward",
     "delete_forward",
     "delete_word_backward",
-    "undo",
     "move_left",
     "move_right",
     "move_up",

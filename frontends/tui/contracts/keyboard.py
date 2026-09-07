@@ -46,10 +46,11 @@ _MAX_TOKEN_OFFSET: typing.Final[int] = (
 
 @typing.runtime_checkable
 class TerminalKeyboardBindable(typing.Protocol):
-    """定义输入 adapter 接收终端输出的组合边界。
+    """定义输入 adapter 接收终端生命周期依赖的组合边界。
 
-    实现方拥有增强键盘模式的启停，调用方只在 Application 完成输入输出
-    装配后绑定一次，不读取具体平台状态。
+    实现方拥有增强键盘模式和平台 job control，调用方只在 Application
+    完成输入输出装配后绑定一次，不读取具体平台状态。挂起准备只负责临时
+    离开前端专用终端表面，恢复回调必须按准备结果幂等还原该表面。
     """
 
     def bind_terminal_output(
@@ -58,6 +59,14 @@ class TerminalKeyboardBindable(typing.Protocol):
         identity: TerminalIdentity,
     ) -> None:
         """绑定与当前输入共享生命周期的终端输出。"""
+        ...
+
+    def bind_terminal_suspend_lifecycle(
+        self,
+        prepare: typing.Callable[[], bool],
+        restore: typing.Callable[[bool], None],
+    ) -> None:
+        """绑定平台挂起前后的前端终端表面生命周期。"""
         ...
 
 

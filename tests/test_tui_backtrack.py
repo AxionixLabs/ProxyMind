@@ -263,6 +263,26 @@ def test_apply_transcript_backtrack_removes_selected_turn_and_tail() -> None:
     assert runtime.document.cleared_line_count == 0
 
 
+def test_terminal_suspend_temporarily_leaves_transcript_overlay() -> None:
+    runtime = TuiRuntime()
+
+    assert runtime.screen.set_transcript_overlay(True)
+    assert runtime.screen.transcript_overlay.active
+    assert runtime.screen.application.full_screen
+
+    restore_overlay = runtime.screen.prepare_terminal_suspend()
+
+    assert restore_overlay
+    assert runtime.screen.transcript_overlay.active
+    assert not runtime.screen.application.full_screen
+
+    runtime.screen.restore_terminal_suspend(restore_overlay)
+
+    assert runtime.screen.transcript_overlay.active
+    assert runtime.screen.application.full_screen
+    assert runtime.screen.set_transcript_overlay(False)
+
+
 def test_apply_transcript_backtrack_false_keeps_input_and_document() -> None:
     runtime = TuiRuntime()
     runtime.append_block(_block("header"), kind="system")
