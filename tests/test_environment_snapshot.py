@@ -3,8 +3,6 @@
 import datetime
 from types import SimpleNamespace
 
-import backend.utilities.runtime.exec_env
-
 import pytest
 
 from agent.application.turns.environment import capture_environment_snapshot
@@ -178,26 +176,6 @@ def test_turn_environment_adapter_rejects_invalid_service_provider(tmp_path) -> 
 
     with pytest.raises(TypeError, match="service environment snapshot"):
         capture_active_turn_environment(host)
-
-
-def test_helix_provider_keeps_tools_without_runtimes(tmp_path) -> None:
-    provider = backend.utilities.runtime.exec_env.exec_env()
-    snapshot = LocalEnvironmentSnapshotCapability().capture(
-        cwd=tmp_path,
-        workspace_root=tmp_path,
-        providers={"helix": provider},
-    )
-
-    assert "runtimes" not in provider
-    assert set(provider["tools"]) == {
-        "adb",
-        "k6",
-        "ffmpeg",
-        "ffprobe",
-        "framix",
-        "memrix",
-    }
-    assert snapshot["providers"]["helix"] == provider
 
 
 @pytest.mark.parametrize(

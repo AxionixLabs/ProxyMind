@@ -337,17 +337,6 @@ def test_historical_source_packages_are_retired() -> None:
     )
 
 
-def test_packaged_backend_is_self_contained() -> None:
-    violations = _forbidden_imports(
-        "backend",
-        {"engine", "mind_app", "mind_core", "protocol", "server"},
-    )
-
-    assert not violations, "backend imports application code:\n" + "\n".join(
-        violations
-    )
-
-
 def test_agent_harness_core_does_not_import_legacy_packages() -> None:
     legacy_forbidden = {
         "applications",

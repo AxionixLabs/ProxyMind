@@ -197,6 +197,43 @@ def _default_effective_config() -> dict[str, typing.Any]:
     }
 
 
+def _validate_effective_model_profiles(config: dict[str, typing.Any]) -> None:
+    """校验配置层合并后的 Provider Profile 关系。"""
+    providers = _as_dict(config.get("model_providers"))
+    active_id = _as_str(config.get("model_provider")).strip()
+
+    if active_id and active_id not in providers:
+        raise ConfigValidationError(
+            f"model_provider references an unknown profile: {active_id}"
+        )
+
+    for provider_id, profile_value in providers.items():
+        profile = _as_dict(profile_value)
+        kind = (
+            _as_str(profile.get("kind"), DEFAULT_PROVIDER_KIND).strip().lower()
+            or DEFAULT_PROVIDER_KIND
+        )
+        route = (
+            _as_str(
+                profile.get("route"),
+                default_route_for_kind(kind),
+            ).strip().lower()
+            or default_route_for_kind(kind)
+        )
+        if route not in supported_routes_for_kind(kind):
+            choices = ", ".join(supported_routes_for_kind(kind))
+            raise ConfigValidationError(
+                f"model_providers.{provider_id}.route must be one of: {choices}"
+            )
+
+
+def validate_config(raw: typing.Any) -> None:
+    """校验一个可为部分配置的原始配置表。"""
+    if not isinstance(raw, dict):
+        raise ConfigValidationError("config root must be a table")
+    _validate_known_config(raw)
+
+
 def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
     """把任意 TOML 数据规范化为稳定的应用配置结构。"""
     data = _as_dict(raw)
@@ -242,45 +279,6 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
         "tui": _normalize_tui_config(tui),
         "hosted_tools": _normalize_hosted_tools(hosted)
     }
-
-
-def validate_config(raw: typing.Any) -> None:
-    """校验一个可为部分配置的原始配置表。"""
-    if not isinstance(raw, dict):
-        raise ConfigValidationError("config root must be a table")
-    _validate_known_config(raw)
-
-
-def _validate_effective_model_profiles(
-    config: dict[str, typing.Any]
-) -> None:
-    """校验配置层合并后的 Provider Profile 关系。"""
-    providers = _as_dict(config.get("model_providers"))
-    active_id = _as_str(config.get("model_provider")).strip()
-
-    if active_id and active_id not in providers:
-        raise ConfigValidationError(
-            f"model_provider references an unknown profile: {active_id}"
-        )
-
-    for provider_id, profile_value in providers.items():
-        profile = _as_dict(profile_value)
-        kind = (
-            _as_str(profile.get("kind"), DEFAULT_PROVIDER_KIND).strip().lower()
-            or DEFAULT_PROVIDER_KIND
-        )
-        route = (
-            _as_str(
-                profile.get("route"),
-                default_route_for_kind(kind),
-            ).strip().lower()
-            or default_route_for_kind(kind)
-        )
-        if route not in supported_routes_for_kind(kind):
-            choices = ", ".join(supported_routes_for_kind(kind))
-            raise ConfigValidationError(
-                f"model_providers.{provider_id}.route must be one of: {choices}"
-            )
 
 
 STRING_CONFIG_PATHS = frozenset({
@@ -513,29 +511,24 @@ MCP_STRING_FIELDS = frozenset({
     "bearer_token_env_var",
     "default_tools_approval_mode",
 })
-
 MCP_BOOL_FIELDS = frozenset({
     "enabled",
     "required",
 })
-
 MCP_STRING_LIST_FIELDS = frozenset({
     "args",
     "allow",
     "deny",
 })
-
 MCP_STRING_MAP_FIELDS = frozenset({
     "env",
     "http_headers",
     "env_http_headers",
 })
-
 MCP_NUMBER_FIELDS = frozenset({
     "startup_timeout_sec",
     "tool_timeout_sec",
 })
-
 MCP_FIELDS = frozenset({
     *MCP_STRING_FIELDS,
     *MCP_BOOL_FIELDS,
@@ -544,8 +537,12 @@ MCP_FIELDS = frozenset({
     *MCP_NUMBER_FIELDS,
     "tools",
 })
-
-MCP_APPROVAL_MODES = frozenset({"auto", "prompt", "writes", "approve"})
+MCP_APPROVAL_MODES = frozenset({
+    "auto",
+    "prompt",
+    "writes",
+    "approve"
+})
 
 
 def _raw_path_value(
