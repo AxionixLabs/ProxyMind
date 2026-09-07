@@ -54,6 +54,9 @@ class TuiComposerKeymap(object):
     queue: TuiActionBindings
     enter_shell_mode: TuiActionBindings
     previous_completion: TuiActionBindings
+    toggle_shortcuts: TuiActionBindings
+    history_search_previous: TuiActionBindings
+    history_search_next: TuiActionBindings
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +78,13 @@ class TuiEditorKeymap(object):
     insert_newline: TuiActionBindings
     completion_previous: TuiActionBindings
     completion_next: TuiActionBindings
+    move_line_start: TuiActionBindings
+    move_line_end: TuiActionBindings
+    move_word_left: TuiActionBindings
+    move_word_right: TuiActionBindings
+    delete_word_forward: TuiActionBindings
+    delete_to_line_end: TuiActionBindings
+    yank: TuiActionBindings
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +120,7 @@ class TuiApprovalKeymap(object):
     accept_session: TuiActionBindings
     strict_review: TuiActionBindings
     persist_rule: TuiActionBindings
+    deny: TuiActionBindings
     cancel: TuiActionBindings
 
 
@@ -328,7 +339,23 @@ def key_action_matches(
     key_sequence: tuple[Keys | str, ...],
 ) -> bool:
     """判断规范化按键序列是否属于指定运行时动作。"""
-    return any(binding.keys == key_sequence for binding in configured)
+    normalized: list[Keys | str] = []
+    for key in key_sequence:
+        if isinstance(key, Keys) or len(key) == 1:
+            normalized.append(key)
+            continue
+        alias = key
+        if alias.startswith("c-"):
+            alias = f"ctrl-{alias[2:]}"
+        try:
+            normalized.extend(_parse_binding(
+                alias,
+                path="runtime key event",
+            ).keys)
+        except ValueError:
+            normalized.append(key)
+    resolved = tuple(normalized)
+    return any(binding.keys == resolved for binding in configured)
 
 
 def _default_bindings(action: str, *values: str) -> TuiActionBindings:
@@ -361,6 +388,18 @@ def _default_composer_keymap() -> TuiComposerKeymap:
             "composer.previous_completion",
             "shift-tab",
         ),
+        toggle_shortcuts=_default_bindings(
+            "composer.toggle_shortcuts",
+            "?",
+        ),
+        history_search_previous=_default_bindings(
+            "composer.history_search_previous",
+            "ctrl-r",
+        ),
+        history_search_next=_default_bindings(
+            "composer.history_search_next",
+            "ctrl-s",
+        ),
     )
 
 
@@ -386,14 +425,16 @@ def _default_editor_keymap() -> TuiEditorKeymap:
         delete_forward=_default_bindings(
             "editor.delete_forward",
             "delete",
+            "ctrl-d",
         ),
         delete_word_backward=_default_bindings(
             "editor.delete_word_backward",
             "ctrl-w",
+            "alt-backspace",
         ),
         undo=_default_bindings("editor.undo", "ctrl-z"),
-        move_left=_default_bindings("editor.move_left", "left"),
-        move_right=_default_bindings("editor.move_right", "right"),
+        move_left=_default_bindings("editor.move_left", "left", "ctrl-b"),
+        move_right=_default_bindings("editor.move_right", "right", "ctrl-f"),
         move_up=_default_bindings("editor.move_up", "up"),
         move_down=_default_bindings("editor.move_down", "down"),
         insert_newline=_default_bindings(
@@ -409,6 +450,39 @@ def _default_editor_keymap() -> TuiEditorKeymap:
             "editor.completion_next",
             "ctrl-n",
         ),
+        move_line_start=_default_bindings(
+            "editor.move_line_start",
+            "home",
+            "ctrl-a",
+        ),
+        move_line_end=_default_bindings(
+            "editor.move_line_end",
+            "end",
+            "ctrl-e",
+        ),
+        move_word_left=_default_bindings(
+            "editor.move_word_left",
+            "alt-b",
+            "alt-left",
+            "ctrl-left",
+        ),
+        move_word_right=_default_bindings(
+            "editor.move_word_right",
+            "alt-f",
+            "alt-right",
+            "ctrl-right",
+        ),
+        delete_word_forward=_default_bindings(
+            "editor.delete_word_forward",
+            "alt-delete",
+            "ctrl-delete",
+            "alt-d",
+        ),
+        delete_to_line_end=_default_bindings(
+            "editor.delete_to_line_end",
+            "ctrl-k",
+        ),
+        yank=_default_bindings("editor.yank", "ctrl-y"),
     )
 
 
@@ -418,13 +492,33 @@ def _default_list_keymap() -> TuiListKeymap:
         accept=_default_bindings("list.accept", "enter"),
         toggle=_default_bindings("list.toggle", "space"),
         alternate=_default_bindings("list.alternate", "t"),
-        move_down=_default_bindings("list.move_down", "down", "ctrl-n"),
-        move_up=_default_bindings("list.move_up", "up", "ctrl-p"),
-        page_down=_default_bindings("list.page_down", "page-down"),
-        page_up=_default_bindings("list.page_up", "page-up"),
+        move_down=_default_bindings(
+            "list.move_down",
+            "down",
+            "ctrl-n",
+            "ctrl-j",
+            "j",
+        ),
+        move_up=_default_bindings(
+            "list.move_up",
+            "up",
+            "ctrl-p",
+            "ctrl-k",
+            "k",
+        ),
+        page_down=_default_bindings(
+            "list.page_down",
+            "page-down",
+            "ctrl-f",
+        ),
+        page_up=_default_bindings(
+            "list.page_up",
+            "page-up",
+            "ctrl-b",
+        ),
         jump_top=_default_bindings("list.jump_top", "home"),
         jump_bottom=_default_bindings("list.jump_bottom", "end"),
-        move_right=_default_bindings("list.move_right", "right"),
+        move_right=_default_bindings("list.move_right", "right", "ctrl-l"),
         move_left=_default_bindings("list.move_left", "left"),
         delete_query_character=_default_bindings(
             "list.delete_query_character",
@@ -446,7 +540,6 @@ def _default_approval_keymap() -> TuiApprovalKeymap:
         expand_details=_default_bindings(
             "approval.expand_details",
             "ctrl-a",
-            "shift-a",
         ),
         accept_selected=_default_bindings(
             "approval.accept_selected",
@@ -464,16 +557,77 @@ def _default_approval_keymap() -> TuiApprovalKeymap:
         ),
         decline=_default_bindings("approval.decline", "esc", "n"),
         accept_once=_default_bindings("approval.accept_once", "y"),
-        accept_session=_default_bindings("approval.accept_session", "s"),
+        accept_session=_default_bindings("approval.accept_session", "a"),
         strict_review=_default_bindings("approval.strict_review", "r"),
         persist_rule=_default_bindings("approval.persist_rule", "p"),
-        cancel=_default_bindings("approval.cancel", "ctrl-c"),
+        deny=_default_bindings("approval.deny", "d"),
+        cancel=_default_bindings("approval.cancel", "c"),
     )
 
 
 def binding_labels(bindings: tuple[TuiKeyBinding, ...]) -> str:
     """把一组按键转换为斜线分隔的展示标签。"""
     return "/".join(binding.label for binding in bindings)
+
+
+def approval_decision_shortcut_label(
+    keymap: TuiApprovalKeymap,
+    decision: str,
+    *,
+    kind: str,
+) -> str:
+    """返回当前审批类型中一个正式决定的实际快捷键标签。"""
+    if decision in {"accept", "grantForTurn"}:
+        configured = keymap.accept_once
+    elif decision in {"acceptForSession", "grantForSession"}:
+        configured = keymap.accept_session
+    elif decision == "grantForTurnWithStrictAutoReview":
+        configured = keymap.strict_review
+    elif decision in {
+        "acceptAndRemember",
+        "acceptWithExecpolicyAmendment",
+        "applyNetworkPolicyAmendment",
+    }:
+        configured = keymap.persist_rule
+    elif decision == "decline":
+        configured = (
+            tuple(
+                binding
+                for binding in keymap.decline
+                if binding.label != "Esc"
+            )
+            if kind == "mcp_tool_call"
+            else keymap.deny
+        )
+    elif decision == "cancel":
+        configured = tuple(
+            binding
+            for binding in (
+                (
+                    *tuple(
+                        item
+                        for item in keymap.decline
+                        if item.label == "Esc"
+                    ),
+                    *keymap.cancel,
+                )
+                if kind == "mcp_tool_call"
+                else (
+                    ()
+                    if kind == "request_permissions"
+                    else keymap.decline
+                )
+            )
+        )
+    else:
+        configured = ()
+
+    return "/".join(
+        binding.label.lower()
+        if len(binding.label) == 1
+        else binding.label
+        for binding in configured
+    )
 
 
 def primary_binding_label(bindings: tuple[TuiKeyBinding, ...]) -> str:
@@ -597,10 +751,23 @@ def _parse_binding(value: str, *, path: str) -> TuiKeyBinding:
     prompt_key, label = _plain_key(base, path=path, value=value)
 
     if modifier == "ctrl":
-        if len(prompt_key) != 1:
+        if len(prompt_key) == 1:
+            keys = (f"c-{prompt_key}",)
+        elif prompt_key in {
+            "delete",
+            "down",
+            "end",
+            "home",
+            "insert",
+            "left",
+            "pagedown",
+            "pageup",
+            "right",
+            "up",
+        }:
+            keys = (f"c-{prompt_key}",)
+        else:
             raise ValueError(f"{path} has unsupported key binding: {value}")
-
-        keys = (f"c-{prompt_key}",)
         label = f"Ctrl+{label}"
 
     elif modifier == "alt":

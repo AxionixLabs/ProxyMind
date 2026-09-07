@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 
 from agent.application.approvals.models import (
     ApprovalDecisionValue,
@@ -238,6 +239,7 @@ class TuiApproval(object):
             selected_index=self.selected_index,
             width=max(1, self.get_width() - 4),
             max_height=self.get_max_height(),
+            keymap=self.keymap,
         )
         footer_start = next((
             index
@@ -319,9 +321,36 @@ class TuiApproval(object):
         def _(event) -> None:
             self._move(-1)
 
-        @bind_key_action(bindings, self.keymap.decline, eager=True)
+        escape_decline = tuple(
+            binding
+            for binding in self.keymap.decline
+            if binding.label == "Esc"
+        )
+        named_decline = tuple(
+            binding
+            for binding in self.keymap.decline
+            if binding.label != "Esc"
+        )
+
+        @bind_key_action(bindings, escape_decline, eager=True)
         def _(event) -> None:
-            self.finish("decline")
+            state = self.state
+            if state is None:
+                return None
+            if state.presentation.context.kind == "request_permissions":
+                self._finish_shortcut("decline")
+            else:
+                self.finish("cancel")
+
+        @bind_key_action(bindings, named_decline)
+        def _(event) -> None:
+            state = self.state
+            if state is None:
+                return None
+            if state.presentation.context.kind == "mcp_tool_call":
+                self._finish_shortcut("decline")
+            elif state.presentation.context.kind != "request_permissions":
+                self._finish_shortcut("cancel")
 
         @bind_key_action(bindings, self.keymap.accept_once)
         def _(event) -> None:
@@ -343,7 +372,26 @@ class TuiApproval(object):
                 "applyNetworkPolicyAmendment",
             )
 
+        @bind_key_action(bindings, self.keymap.deny)
+        def _(event) -> None:
+            state = self.state
+            if (
+                state is not None
+                and state.presentation.context.kind == "mcp_tool_call"
+            ):
+                return None
+            self._finish_shortcut("decline")
+
         @bind_key_action(bindings, self.keymap.cancel)
+        def _(event) -> None:
+            state = self.state
+            if (
+                state is not None
+                and state.presentation.context.kind == "mcp_tool_call"
+            ):
+                self.finish("cancel")
+
+        @bindings.add(Keys.ControlC)
         def _(event) -> None:
             self.finish("cancel")
 

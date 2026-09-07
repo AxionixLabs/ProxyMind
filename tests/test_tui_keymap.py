@@ -12,7 +12,10 @@ from infrastructure.config.schema import (
     ConfigValidationError,
     normalize_config,
 )
-from frontends.tui.core.keymap import TuiRuntimeKeymap
+from frontends.tui.core.keymap import (
+    TuiRuntimeKeymap,
+    key_action_matches,
+)
 from frontends.tui.core.models import FragmentBlock
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.features.transcript_export import TranscriptExporter
@@ -90,6 +93,43 @@ def test_tui_keymap_exposes_frozen_stable_action_contexts() -> None:
         keymap.bindings_for("composer.missing")
     with pytest.raises(FrozenInstanceError):
         keymap.chat.interrupt_turn = ()
+
+
+def test_codex_editor_list_and_approval_aliases_are_runtime_facts() -> None:
+    keymap = TuiRuntimeKeymap.defaults()
+
+    assert [item.label for item in keymap.composer.history_search_previous] == [
+        "Ctrl+R"
+    ]
+    assert [item.label for item in keymap.composer.history_search_next] == [
+        "Ctrl+S"
+    ]
+    assert [item.label for item in keymap.editor.move_line_start] == [
+        "Home",
+        "Ctrl+A",
+    ]
+    assert [item.label for item in keymap.editor.move_word_right] == [
+        "Alt+F",
+        "Alt+Right",
+        "Ctrl+Right",
+    ]
+    assert [item.label for item in keymap.list.move_down] == [
+        "Down",
+        "Ctrl+N",
+        "Ctrl+J",
+        "J",
+    ]
+    assert [item.label for item in keymap.approval.accept_session] == ["A"]
+    assert [item.label for item in keymap.approval.deny] == ["D"]
+    assert [item.label for item in keymap.approval.cancel] == ["C"]
+
+
+def test_runtime_key_matching_normalizes_named_adapter_events() -> None:
+    keymap = TuiRuntimeKeymap.defaults()
+
+    assert key_action_matches(keymap.list.accept, ("enter",))
+    assert key_action_matches(keymap.list.cancel, ("escape",))
+    assert key_action_matches(keymap.list.move_right, ("right",))
 
 
 def test_tui_components_consume_runtime_keymap_contexts() -> None:
@@ -280,6 +320,57 @@ async def test_configured_transcript_keys_replace_default_dispatch() -> None:
                 if not overlay.active:
                     break
             assert not overlay.active
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_empty_composer_question_mark_opens_runtime_shortcuts() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+        )
+        await runtime.open()
+        try:
+            pipe_input.send_text("?")
+            for _index in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.static_pager.active:
+                    break
+
+            assert runtime.screen.static_pager.active
+            assert runtime.screen.static_pager.title == "Keyboard shortcuts"
+            text = "\n".join(
+                "".join(value for _style, value in line)
+                for line in runtime.screen.static_pager.lines
+            )
+            assert "Ctrl+O" in text
+            assert "copy last response" in text
+            assert runtime.screen.input.buffer.text == ""
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_question_mark_remains_text_in_nonempty_composer() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+        )
+        await runtime.open()
+        try:
+            runtime.screen.input.buffer.text = "draft"
+            runtime.screen.input.buffer.cursor_position = len("draft")
+            pipe_input.send_text("?")
+            for _index in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.input.buffer.text.endswith("?"):
+                    break
+
+            assert not runtime.screen.static_pager.active
+            assert runtime.screen.input.buffer.text == "draft?"
         finally:
             await runtime.close()
 

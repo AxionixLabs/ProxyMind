@@ -5998,7 +5998,7 @@ async def test_multiline_paste_grows_without_hiding_input_or_padding_top(
                 assert input_position.height == 14
                 assert render_info.vertical_scroll == 4
 
-            pipe_input.send_text("\x15" * (pasted.count("\n") + 1))
+            pipe_input.send_text("\x15" * (2 * (pasted.count("\n") + 1)))
             await _wait_for_input_text(runtime, "")
             restored = await _render_next_frame(runtime)
             restored_positions = restored.visible_windows_to_write_positions
@@ -6521,7 +6521,7 @@ async def test_repeated_ctrl_u_clears_input_without_top_canvas_spacer() -> None:
 
                 assert runtime.screen._visible_height() > initial_height
 
-                pipe_input.send_text("\x15" * (value.count("\n") + 1))
+                pipe_input.send_text("\x15" * (2 * (value.count("\n") + 1)))
                 await _wait_for_input_text(runtime, "")
 
                 screen = await _render_next_frame(runtime)
@@ -6841,7 +6841,9 @@ async def test_multiline_clear_restores_natural_layout_after_oversized_stream(
 
                 runtime.screen.clear_activity_renderable()
                 if clear_mode == "ctrl_u":
-                    pipe_input.send_text("\x15" * (pasted.count("\n") + 1))
+                    pipe_input.send_text(
+                        "\x15" * (2 * (pasted.count("\n") + 1))
+                    )
                 elif clear_mode == "ctrl_w":
                     pipe_input.send_text("\x17" * 16)
                 elif clear_mode == "delete":

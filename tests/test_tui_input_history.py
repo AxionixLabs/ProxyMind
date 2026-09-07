@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.clipboard import InMemoryClipboard
 from prompt_toolkit.document import Document
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
@@ -17,14 +18,49 @@ from frontends.tui.core.runtime import TuiRuntime
 
 
 def press_history_key(model: TuiInputModel, key: Keys, buffer: Buffer) -> None:
+    app = SimpleNamespace(
+        current_buffer=buffer,
+        clipboard=InMemoryClipboard(),
+        invalidate=lambda: None,
+    )
     binding = next(
         item
         for item in model.key_bindings.bindings
         if item.keys == (key,)
     )
     binding.handler(SimpleNamespace(
-        app=SimpleNamespace(current_buffer=buffer),
+        app=app,
+        current_buffer=buffer,
         arg=1,
+        is_repeat=False,
+        key_sequence=(SimpleNamespace(key=key),),
+    ))
+
+
+def press_input_sequence(
+    model: TuiInputModel,
+    keys: tuple[Keys | str, ...],
+    buffer: Buffer,
+) -> None:
+    app = SimpleNamespace(
+        current_buffer=buffer,
+        clipboard=InMemoryClipboard(),
+        invalidate=lambda: None,
+    )
+    binding = next(
+        item
+        for item in model.key_bindings.bindings
+        if item.keys == keys
+    )
+    binding.handler(SimpleNamespace(
+        app=app,
+        current_buffer=buffer,
+        arg=1,
+        is_repeat=False,
+        key_sequence=tuple(
+            SimpleNamespace(key=key)
+            for key in keys
+        ),
     ))
 
 
@@ -268,13 +304,13 @@ def test_history_slash_dismissal_clears_after_editing_arguments() -> None:
 @pytest.mark.parametrize(
     ("text", "cursor_position", "expected_text", "expected_cursor"),
     (
-        ("first\nsecond\nthird", 2, "second\nthird", 0),
-        ("first\nsecond\nthird", 9, "first\nthird", 6),
-        ("first\nsecond\nthird", 18, "first\nsecond", 12),
-        ("first\n\nthird", 6, "first\nthird", 6),
+        ("first\nsecond\nthird", 2, "rst\nsecond\nthird", 0),
+        ("first\nsecond\nthird", 9, "first\nond\nthird", 6),
+        ("first\nsecond\nthird", 18, "first\nsecond\n", 13),
+        ("first\n\nthird", 6, "first\nthird", 5),
     ),
 )
-def test_ctrl_u_deletes_the_current_input_line(
+def test_ctrl_u_deletes_to_current_line_start(
     text: str,
     cursor_position: int,
     expected_text: str,
@@ -290,7 +326,7 @@ def test_ctrl_u_deletes_the_current_input_line(
     assert buffer.cursor_position == expected_cursor
 
 
-def test_ctrl_u_preserves_folded_paste_state_on_other_lines() -> None:
+def test_ctrl_u_preserves_folded_paste_state_after_cursor() -> None:
     model = TuiInputModel()
     first_text = "a" * 1200
     second_text = "b" * 1200
@@ -299,14 +335,319 @@ def test_ctrl_u_preserves_folded_paste_state_on_other_lines() -> None:
     buffer = Buffer()
     buffer.document = Document(
         f"{first}\n{second}",
-        cursor_position=len(first) + 1,
+        cursor_position=len(first) + 1 + len(second),
     )
 
     press_history_key(model, Keys.ControlU, buffer)
 
-    assert buffer.text == first
+    assert buffer.text == f"{first}\n"
     assert model.submission_state() == {first: first_text}
     assert model.restore_submission(buffer.text) == first_text
+
+
+def test_ctrl_u_yank_restores_folded_paste_content() -> None:
+    model = TuiInputModel()
+    original = "x" * 1200
+    placeholder = model._display_paste(original, "")
+    buffer = Buffer()
+    buffer.document = Document(placeholder, cursor_position=len(placeholder))
+
+    press_history_key(model, Keys.ControlU, buffer)
+    assert buffer.text == ""
+    assert model.submission_state() == {}
+
+    press_input_sequence(model, (Keys.ControlY,), buffer)
+
+    assert buffer.text == placeholder
+    assert model.restore_submission(buffer.text) == original
+
+
+def test_yank_rekeys_folded_paste_when_placeholder_was_reused() -> None:
+    model = TuiInputModel()
+    first_original = "a" * 1200
+    first_placeholder = model._display_paste(first_original, "")
+    buffer = Buffer()
+    buffer.document = Document(
+        first_placeholder,
+        cursor_position=len(first_placeholder),
+    )
+
+    press_history_key(model, Keys.ControlU, buffer)
+
+    second_original = "b" * 1200
+    second_placeholder = model._display_paste(second_original, buffer.text)
+    assert second_placeholder == first_placeholder
+    buffer.document = Document(
+        second_placeholder,
+        cursor_position=len(second_placeholder),
+    )
+
+    press_input_sequence(model, (Keys.ControlY,), buffer)
+
+    assert buffer.text == f"{first_placeholder}{first_placeholder} #2"
+    assert model.restore_submission(buffer.text) == (
+        f"{second_original}{first_original}"
+    )
+
+
+def test_ctrl_u_at_line_start_kills_the_preceding_newline() -> None:
+    model = TuiInputModel()
+    buffer = Buffer()
+    buffer.document = Document("first\nsecond", cursor_position=6)
+
+    press_history_key(model, Keys.ControlU, buffer)
+
+    assert buffer.text == "firstsecond"
+    assert buffer.cursor_position == 5
+
+    press_input_sequence(model, (Keys.ControlY,), buffer)
+
+    assert buffer.text == "first\nsecond"
+    assert buffer.cursor_position == 6
+
+
+@pytest.mark.parametrize("key", (Keys.Home, Keys.ControlA))
+def test_editor_line_start_aliases_are_explicit(key: Keys) -> None:
+    model = TuiInputModel()
+    buffer = Buffer()
+    buffer.document = Document("first\nsecond", cursor_position=10)
+
+    press_input_sequence(model, (key,), buffer)
+
+    assert buffer.cursor_position == 6
+
+
+def test_ctrl_a_repeats_to_the_previous_line_but_home_does_not() -> None:
+    model = TuiInputModel()
+    buffer = Buffer()
+    buffer.document = Document("one\ntwo\nthree", cursor_position=5)
+
+    press_input_sequence(model, (Keys.ControlA,), buffer)
+    assert buffer.cursor_position == 4
+
+    press_input_sequence(model, (Keys.ControlA,), buffer)
+    assert buffer.cursor_position == 0
+
+    buffer.cursor_position = 4
+    press_input_sequence(model, (Keys.Home,), buffer)
+    assert buffer.cursor_position == 4
+
+
+@pytest.mark.parametrize("key", (Keys.End, Keys.ControlE))
+def test_editor_line_end_aliases_are_explicit(key: Keys) -> None:
+    model = TuiInputModel()
+    buffer = Buffer()
+    buffer.document = Document("first\nsecond", cursor_position=7)
+
+    press_input_sequence(model, (key,), buffer)
+
+    assert buffer.cursor_position == len("first\nsecond")
+
+
+def test_ctrl_e_repeats_to_the_next_line_but_end_does_not() -> None:
+    model = TuiInputModel()
+    buffer = Buffer()
+    buffer.document = Document("one\ntwo\nthree", cursor_position=1)
+
+    press_input_sequence(model, (Keys.ControlE,), buffer)
+    assert buffer.cursor_position == 3
+
+    press_input_sequence(model, (Keys.ControlE,), buffer)
+    assert buffer.cursor_position == 7
+
+    buffer.cursor_position = 3
+    press_input_sequence(model, (Keys.End,), buffer)
+    assert buffer.cursor_position == 3
+
+
+def test_editor_word_movement_and_forward_kill_yank_share_runtime_keymap() -> None:
+    model = TuiInputModel()
+    buffer = Buffer()
+    buffer.document = Document("one two three", cursor_position=4)
+
+    press_input_sequence(model, (Keys.Escape, "f"), buffer)
+    assert buffer.cursor_position == 7
+
+    press_input_sequence(model, (Keys.Escape, "b"), buffer)
+    assert buffer.cursor_position == 4
+
+    press_input_sequence(model, (Keys.Escape, "d"), buffer)
+    assert buffer.text == "one  three"
+    assert buffer.cursor_position == 4
+
+    press_input_sequence(model, (Keys.ControlY,), buffer)
+    assert buffer.text == "one two three"
+    assert buffer.cursor_position == 7
+
+
+def test_editor_line_end_kill_and_yank_preserve_following_lines() -> None:
+    model = TuiInputModel()
+    buffer = Buffer()
+    buffer.document = Document("first line\nsecond", cursor_position=5)
+
+    press_input_sequence(model, (Keys.ControlK,), buffer)
+
+    assert buffer.text == "first\nsecond"
+    assert buffer.cursor_position == 5
+
+    press_input_sequence(model, (Keys.ControlY,), buffer)
+
+    assert buffer.text == "first line\nsecond"
+    assert buffer.cursor_position == len("first line")
+
+
+def test_ctrl_k_at_line_end_kills_the_following_newline() -> None:
+    model = TuiInputModel()
+    buffer = Buffer()
+    buffer.document = Document("first\nsecond", cursor_position=5)
+
+    press_input_sequence(model, (Keys.ControlK,), buffer)
+
+    assert buffer.text == "firstsecond"
+    assert buffer.cursor_position == 5
+
+    press_input_sequence(model, (Keys.ControlY,), buffer)
+
+    assert buffer.text == "first\nsecond"
+    assert buffer.cursor_position == 6
+
+
+@pytest.mark.anyio
+async def test_ctrl_d_deletes_forward_when_composer_is_not_empty() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+        )
+        await runtime.open()
+        try:
+            buffer = runtime.screen.input.buffer
+            buffer.document = Document("first", cursor_position=2)
+
+            pipe_input.send_text("\x04")
+            for _ in range(100):
+                if buffer.text == "fist":
+                    break
+                await asyncio.sleep(0.01)
+
+            assert buffer.text == "fist"
+            assert buffer.cursor_position == 2
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.parametrize(
+    "keys",
+    (
+        (Keys.ControlW,),
+        (Keys.Escape, Keys.Backspace),
+    ),
+)
+def test_editor_backward_word_kill_aliases_feed_yank(
+    keys: tuple[Keys | str, ...],
+) -> None:
+    model = TuiInputModel()
+    buffer = Buffer()
+    buffer.document = Document("one two", cursor_position=len("one two"))
+
+    press_input_sequence(model, keys, buffer)
+    assert buffer.text == "one "
+
+    press_input_sequence(model, (Keys.ControlY,), buffer)
+    assert buffer.text == "one two"
+
+
+def test_history_search_owns_query_and_restores_full_original_draft() -> None:
+    model = TuiInputModel()
+    model.history.append_submission("alpha old", {}, shell_mode=False)
+    model.history.append_submission("beta", {}, shell_mode=False)
+    model.history.append_submission("alpha new", {}, shell_mode=True)
+    original_paste = "[Pasted Content 1200 chars]"
+    model.restore_submission_state({original_paste: "x" * 1200})
+    model.set_shell_mode(False)
+    buffer = Buffer()
+    buffer.document = Document(
+        f"draft {original_paste}",
+        cursor_position=3,
+    )
+
+    model.begin_history_search(buffer)
+
+    assert buffer.text == f"draft {original_paste}"
+    assert model.history_search_snapshot() is not None
+    assert model.history_search_snapshot().status == "idle"
+
+    model.append_history_search_text(buffer, "alpha")
+
+    assert buffer.text == "alpha new"
+    assert model.shell_mode
+    assert model.history_search_snapshot().status == "match"
+
+    model.step_history_search(buffer, older=True)
+
+    assert buffer.text == "alpha old"
+    assert not model.shell_mode
+
+    assert model.cancel_history_search(buffer)
+    assert buffer.document == Document(
+        f"draft {original_paste}",
+        cursor_position=3,
+    )
+    assert model.submission_state() == {original_paste: "x" * 1200}
+    assert not model.shell_mode
+
+
+def test_history_search_accepts_match_without_submitting() -> None:
+    model = TuiInputModel()
+    model.history.append_submission("matching prompt", {}, shell_mode=False)
+    buffer = Buffer()
+    buffer.text = "draft"
+
+    model.begin_history_search(buffer)
+    model.append_history_search_text(buffer, "match")
+
+    assert model.accept_history_search(buffer)
+    assert buffer.text == "matching prompt"
+    assert buffer.cursor_position == len("matching prompt")
+    assert not model.history_search_active
+
+
+@pytest.mark.anyio
+async def test_history_search_real_keys_accept_without_turn_submission() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+        )
+        runtime.input_model.history.append_submission(
+            "matching prompt",
+            {},
+            shell_mode=False,
+        )
+        await runtime.open()
+        try:
+            runtime.screen.input.buffer.text = "draft"
+            pipe_input.send_text("\x12match")
+            for _index in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.input.buffer.text == "matching prompt":
+                    break
+
+            assert runtime.input_model.history_search_active
+            footer_text = fragments_text(runtime.screen._footer_fragments())
+            assert "reverse-i-search: match" in footer_text
+            assert "enter accept · esc cancel" in footer_text
+            assert runtime.screen.input.window.always_hide_cursor()
+
+            pipe_input.send_text("\r")
+            await asyncio.sleep(0.05)
+
+            assert not runtime.input_model.history_search_active
+            assert runtime.screen.input.buffer.text == "matching prompt"
+            assert runtime.submissions.message_queue.empty()
+            assert not runtime.screen.input.window.always_hide_cursor()
+        finally:
+            await runtime.close()
 
 
 def test_shell_history_does_not_restart_after_deleting_current_entry() -> None:

@@ -695,6 +695,97 @@ async def test_searchable_menu_treats_number_keys_as_query_text() -> None:
 
 
 @pytest.mark.anyio
+async def test_plain_j_and_k_navigate_only_non_searchable_menus() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Pick",
+        options=(
+            MenuOption("one", "One"),
+            MenuOption("two", "Two"),
+        ),
+    )))
+    await asyncio.sleep(0)
+    assert menu.state is not None
+
+    assert menu.handle_key_event(SimpleNamespace(
+        key="j",
+        data="j",
+        key_sequence=(),
+    ))
+    assert menu.state.selected == 1
+    assert menu.handle_key_event(SimpleNamespace(
+        key="k",
+        data="k",
+        key_sequence=(),
+    ))
+    assert menu.state.selected == 0
+    menu.cancel()
+    assert await task is None
+
+    search_task = asyncio.create_task(menu.request(MenuRequest(
+        title="Search",
+        searchable=True,
+        options=(MenuOption("one", "One"),),
+    )))
+    await asyncio.sleep(0)
+
+    assert menu.handle_key_event(SimpleNamespace(
+        key="j",
+        data="j",
+        key_sequence=(),
+    ))
+    assert menu.handle_key_event(SimpleNamespace(
+        key="k",
+        data="k",
+        key_sequence=(),
+    ))
+    assert menu.state is not None
+    assert menu.state.query == "jk"
+    menu.cancel()
+    assert await search_task is None
+
+
+@pytest.mark.anyio
+async def test_ctrl_list_aliases_navigate_and_page() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Pick",
+        options=tuple(
+            MenuOption(str(index), f"Option {index}")
+            for index in range(12)
+        ),
+    )))
+    await asyncio.sleep(0)
+    assert menu.state is not None
+
+    for key, expected in (
+        (Keys.ControlJ, 1),
+        (Keys.ControlK, 0),
+        (Keys.ControlF, 8),
+        (Keys.ControlB, 0),
+    ):
+        assert menu.handle_key_event(SimpleNamespace(
+            key=key,
+            data="",
+            key_sequence=(SimpleNamespace(key=key),),
+        ))
+        assert menu.state.selected == expected
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
 async def test_menu_footer_wraps_and_contributes_to_desired_height() -> None:
     menu = TuiMenu(
         invalidate=lambda: None,

@@ -22,7 +22,7 @@ from .models import (
 DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
     "accept",
     "acceptForSession",
-    "decline"
+    "decline",
 )
 
 DECISION_LABELS: dict[str, str] = {
@@ -34,19 +34,8 @@ DECISION_LABELS: dict[str, str] = {
     "grantForTurn": "Yes, grant these permissions for this turn",
     "grantForTurnWithStrictAutoReview": "Yes, grant for this turn with strict auto review",
     "grantForSession": "Yes, grant these permissions for this session",
-    "decline": f"No, and tell {const.APP_DESC} what to do differently",
-}
-
-DECISION_SHORTCUT_LABELS: dict[str, str] = {
-    "accept": "y",
-    "acceptForSession": "s",
-    "acceptAndRemember": "p",
-    "acceptWithExecpolicyAmendment": "p",
-    "applyNetworkPolicyAmendment": "p",
-    "grantForTurn": "y",
-    "grantForTurnWithStrictAutoReview": "r",
-    "grantForSession": "s",
-    "decline": "n/esc",
+    "decline": "No, continue without it",
+    "cancel": f"No, and tell {const.APP_DESC} what to do differently",
 }
 
 
@@ -310,8 +299,6 @@ def approval_decisions(
                 raise ValueError(
                     f"approval decision is invalid for kind: {kind}"
                 )
-            if decision == "cancel":
-                continue
             seen.add(decision)
             decisions.append(normalize_approval_decision(decision))
         if approval_execpolicy_amendment(approval) is None:
@@ -330,7 +317,7 @@ def approval_decisions(
             "grantForSession",
             "decline",
         ],
-        "mcp_tool_call": ["accept", "decline"],
+        "mcp_tool_call": ["accept", "decline", "cancel"],
     }
     decisions = list(kind_defaults.get(kind, DEFAULT_APPROVAL_DECISIONS))
     if kind == "command" and approval_execpolicy_amendment(approval) is not None:
@@ -356,7 +343,8 @@ def approval_decision_label(
     decision: str,
     approval: dict[str, typing.Any] | None = None,
     *,
-    amendment: ExecPolicyAmendmentProposal | None = None
+    amendment: ExecPolicyAmendmentProposal | None = None,
+    kind: str = "",
 ) -> str:
     """返回客户端定义的审批选项展示文案。"""
     if decision == "acceptWithExecpolicyAmendment":
@@ -366,6 +354,15 @@ def approval_decision_label(
                 "Yes, and don't ask again for commands that start with "
                 f"`{amendment.display}`"
             )
+    if decision == "decline":
+        return {
+            "command": "No, continue without running it",
+            "write_stdin": "No, continue without sending it",
+            "apply_patch": "No, continue without applying it",
+            "network_access": "No, continue without network access",
+            "request_permissions": "No, continue without permissions",
+            "mcp_tool_call": "No, but continue without it",
+        }.get(kind, DECISION_LABELS["decline"])
     return DECISION_LABELS.get(decision, decision)
 
 

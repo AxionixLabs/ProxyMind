@@ -58,7 +58,10 @@ from .interrupt import (
     InterruptDisposition,
     TuiExitReason
 )
-from .keymap import TuiRuntimeKeymap
+from .keymap import (
+    TuiRuntimeKeymap,
+    binding_labels,
+)
 from .models import (
     CLOSE_MENU_FOOTER_HINT,
     FragmentBlock,
@@ -377,6 +380,7 @@ class TuiRuntime(object):
                 lambda: self.input_model.cancel_history_backtrack()
             ),
         )
+        self.input_model.bind_shortcut_help(self._open_keyboard_shortcuts)
 
     @property
     def active(self) -> bool:
@@ -1804,6 +1808,29 @@ class TuiRuntime(object):
             request,
             allow_approval=allow_approval,
         )
+
+    def _open_keyboard_shortcuts(self) -> None:
+        """打开由当前运行时按键快照生成的只读快捷键页面。"""
+        lines: list[tuple[tuple[str, str], ...]] = []
+        current_context = ""
+        for action in self.keymap.actions():
+            context, _, name = action.action_id.partition(".")
+            label = binding_labels(action.bindings)
+            if not label:
+                continue
+            if context != current_context:
+                if lines:
+                    lines.append(())
+                lines.append((("class:static-pager.heading", context.title()),))
+                current_context = context
+            lines.append((
+                ("class:static-pager.key", f"{label:<18}"),
+                ("class:static-pager.text", name.replace("_", " ")),
+            ))
+        self.open_static_pager(StaticPagerRequest(
+            title="Keyboard shortcuts",
+            lines=tuple(lines),
+        ))
 
     def close_static_pager(self) -> None:
         """关闭只读全屏静态页面。"""

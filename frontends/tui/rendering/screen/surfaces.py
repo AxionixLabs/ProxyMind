@@ -14,6 +14,7 @@ from ..fragments import clip_fragments
 class FooterMode(str, Enum):
     """描述输入 footer 当前采用的互斥展示模式。"""
     DEFAULT = "default"
+    HISTORY_SEARCH = "history_search"
     HISTORY_BACKTRACK = "history_backtrack"
     EXIT_ARMED = "exit_armed"
     QUEUE_SUBMISSION = "queue_submission"
@@ -22,12 +23,15 @@ class FooterMode(str, Enum):
 
 def resolve_footer_mode(
     *,
+    history_search_active: bool = False,
     history_backtrack_primed: bool,
     exit_armed: bool,
     queue_submission_hint_visible: bool,
     submission_pending: bool,
 ) -> FooterMode:
     """按 footer 展示优先级返回唯一模式。"""
+    if history_search_active:
+        return FooterMode.HISTORY_SEARCH
     if history_backtrack_primed:
         return FooterMode.HISTORY_BACKTRACK
     if exit_armed:
@@ -47,8 +51,35 @@ def footer_fragments(
     model_label: str | None = "",
     permissions_label: str = "",
     workspace_label: str = "",
+    history_search_query: str = "",
+    history_search_status: str = "idle",
+    history_search_accept_label: str = "enter",
+    history_search_cancel_label: str = "esc",
 ) -> FormattedText:
     """生成指定模式下的输入 footer 片段。"""
+    if mode is FooterMode.HISTORY_SEARCH:
+        fragments: FormattedText = [
+            ("class:footer.search-label", "reverse-i-search: "),
+            ("class:footer.search-query", history_search_query),
+            ("class:footer.search-query", "█"),
+        ]
+        if history_search_status == "match":
+            actions = (
+                f"  {history_search_accept_label} accept"
+                if history_search_accept_label
+                else ""
+            )
+            if history_search_cancel_label:
+                actions += (
+                    " · " if actions else "  "
+                ) + f"{history_search_cancel_label} cancel"
+            if actions:
+                fragments.append(("class:footer.search-status", actions))
+        elif history_search_status == "no_match":
+            fragments.extend([
+                ("class:footer.search-error", "  no match"),
+            ])
+        return clip_fragments(fragments, width=width)
     if mode is FooterMode.HISTORY_BACKTRACK:
         return [
             ("class:footer.exit-key", "Esc"),

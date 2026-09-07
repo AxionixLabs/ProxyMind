@@ -8,10 +8,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 
 from agent.application.approvals.models import ApprovalDecisionValue
-from agent.application.approvals.policy import (
-    DECISION_SHORTCUT_LABELS,
-    approval_decision_label,
-)
+from agent.application.approvals.policy import approval_decision_label
 from agent.application.approvals.presentation import (
     ApplyPatchApprovalPresentation,
     ApprovalPresentation,
@@ -41,6 +38,11 @@ from frontends.terminal.styles import (
 )
 from frontends.terminal.traces.command_parts import render_command_parts
 from frontends.tui.contracts.text import FormattedLine
+from .keymap import (
+    TuiApprovalKeymap,
+    TuiRuntimeKeymap,
+    approval_decision_shortcut_label,
+)
 from .styles import styled_block_fragments
 from ..rendering.text_sanitize import sanitize_formatted_text
 
@@ -92,9 +94,11 @@ def tui_approval_content_lines(
     selected_index: int = 0,
     width: int | None = None,
     max_height: int | None = None,
+    keymap: TuiApprovalKeymap | None = None,
 ) -> list[list[tuple[str, str]]]:
     """按当前可用空间生成审批面板内容行。"""
     approval = ensure_approval_presentation(approval)
+    resolved_keymap = keymap or TuiRuntimeKeymap.defaults().approval
     content_width = max(1, int(width or 80))
 
     question_lines = _wrap_fragment_line(
@@ -168,7 +172,14 @@ def tui_approval_content_lines(
         approval=approval,
         selected_index=selected_index,
         max_width=content_width,
+        keymap=resolved_keymap,
     )
+
+    cancel_label = next((
+        binding.label.casefold()
+        for binding in resolved_keymap.decline
+        if binding.label == "Esc"
+    ), "")
 
     footer_lines = _wrap_fragment_line(
         [(
@@ -178,7 +189,11 @@ def tui_approval_content_lines(
                 f"{'s' if pending_count != 1 else ''} waiting · "
                 if pending_count > 0
                 else ""
-            ) + "Press enter to confirm or ctrl + c to cancel",
+            ) + (
+                f"Press enter to confirm or {cancel_label} to cancel"
+                if cancel_label
+                else "Press enter to confirm"
+            ),
         )],
         max_width=content_width,
     )
@@ -298,6 +313,7 @@ def _approval_option_groups(
     approval: ApprovalPresentation,
     selected_index: int,
     max_width: int,
+    keymap: TuiApprovalKeymap,
 ) -> list[list[list[tuple[str, str]]]]:
     """生成可按选项整体压缩的审批选项行。"""
     groups: list[list[list[tuple[str, str]]]] = []
@@ -322,6 +338,7 @@ def _approval_option_groups(
             approval=approval,
             label_style=label_style,
             shortcut_style=shortcut_style,
+            keymap=keymap,
         )
         groups.append(_wrap_prefixed_line(
             prefix,
@@ -1262,6 +1279,7 @@ def _decision_parts(
     approval: ApprovalPresentation,
     label_style: str,
     shortcut_style: str,
+    keymap: TuiApprovalKeymap,
 ) -> list[tuple[str, str]]:
     """生成审批选项标签和快捷键片段。"""
     amendment = (
@@ -1270,8 +1288,16 @@ def _decision_parts(
         else None
     )
 
-    label = approval_decision_label(decision, amendment=amendment)
-    shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
+    label = approval_decision_label(
+        decision,
+        amendment=amendment,
+        kind=approval.context.kind,
+    )
+    shortcut = approval_decision_shortcut_label(
+        keymap,
+        decision,
+        kind=approval.context.kind,
+    )
     parts = [(label_style, label)]
 
     if shortcut:

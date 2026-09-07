@@ -538,7 +538,8 @@ def test_approval_card_presentation_is_owned_by_client() -> None:
     assert approval_decision_label(
         "acceptForSession"
     ) == "Yes, for this session"
-    assert approval_decision_label("decline") == (
+    assert approval_decision_label("decline") == "No, continue without it"
+    assert approval_decision_label("cancel") == (
         f"No, and tell {const.APP_DESC} what to do differently"
     )
     assert approval_decisions() == [

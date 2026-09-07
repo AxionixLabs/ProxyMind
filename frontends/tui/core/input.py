@@ -121,6 +121,31 @@ class TuiInputHistoryEntry(object):
         return dict(self.paste_items)
 
 
+@dataclass(frozen=True, slots=True)
+class TuiHistorySearchSnapshot(object):
+    """描述 footer 当前显示的历史搜索状态。"""
+    query: str
+    status: typing.Literal["idle", "match", "no_match"]
+
+
+@dataclass(slots=True)
+class _TuiHistorySearchSession(object):
+    """保存一次历史搜索独占的草稿与遍历位置。"""
+    original_document: Document
+    original_paste_items: tuple[tuple[str, str], ...]
+    original_shell_mode: bool
+    query: str = ""
+    matches: tuple[TuiInputHistoryEntry, ...] = ()
+    match_index: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _TuiKillBuffer(object):
+    """保存可粘回文本及其折叠粘贴映射。"""
+    text: str = ""
+    paste_items: tuple[tuple[str, str], ...] = ()
+
+
 class TuiInputHistory(InMemoryHistory):
     """保存输入历史并允许撤销最近一次匹配的提交。"""
 
@@ -296,6 +321,7 @@ class TuiInputModel(object):
         self.copy_last_response_handler: typing.Callable[[], None] = (
             _ignore_action
         )
+        self.shortcut_help_handler: typing.Callable[[], None] = _ignore_action
         self.exit_handler: typing.Callable[[], None] = _ignore_action
         self._input_layout_handler: typing.Callable[[], None] = (
             _ignore_input_layout
@@ -320,6 +346,8 @@ class TuiInputModel(object):
         self._token_menu_state: TokenMenuState = TokenMenuState()
         self._skill_search_mode_index: int = 0
         self._mention_popup_active: bool = False
+        self._history_search: _TuiHistorySearchSession | None = None
+        self._kill_buffer = _TuiKillBuffer()
         self.keymap = keymap or TuiRuntimeKeymap.defaults()
 
         self.key_bindings = self._build_key_bindings()
@@ -377,6 +405,10 @@ class TuiInputModel(object):
             "token-menu.meta.completion": "dim",
             "token-menu.meta.completion.current": "bold nodim",
             "tui-menu.footer.right.plugins.current": "bold nodim",
+            "footer.search-label": "dim",
+            "footer.search-query": "bold",
+            "footer.search-status": "dim",
+            "footer.search-error": "bold",
         })
 
     def set_keymap(self, keymap: TuiRuntimeKeymap) -> None:
@@ -472,36 +504,14 @@ class TuiInputModel(object):
         return token_start, token
 
     @staticmethod
-    def _delete_current_line(buffer) -> bool:
-        """删除光标所在逻辑行及其分隔换行。"""
-        document = buffer.document
-        text = document.text
-
-        line_start = (
-            document.cursor_position
-            - len(document.current_line_before_cursor)
-        )
-
-        line_end = (
-            document.cursor_position
-            + len(document.current_line_after_cursor)
-        )
-
-        if line_end < len(text):
-            delete_start, delete_end = line_start, line_end + 1
-        elif line_start > 0:
-            delete_start, delete_end = line_start - 1, line_end
-        else:
-            delete_start, delete_end = 0, len(text)
-
-        if delete_start == delete_end:
-            return False
-
-        buffer.document = Document(
-            text[:delete_start] + text[delete_end:],
-            cursor_position=delete_start,
-        )
-        return True
+    def _delete_to_line_start(buffer) -> str:
+        """删除当前逻辑行中光标之前的文本并返回被删内容。"""
+        count = len(buffer.document.current_line_before_cursor)
+        if count:
+            return buffer.delete_before_cursor(count=count)
+        if buffer.cursor_position > 0:
+            return buffer.delete_before_cursor(count=1)
+        return ""
 
     @staticmethod
     def _history_cursor_at_boundary(buffer) -> bool:
@@ -833,11 +843,194 @@ class TuiInputModel(object):
         """清理粘贴内容映射。"""
         self.paste_store.clear()
 
+    def _store_kill(self, text: str) -> None:
+        """保存删除文本及其仍可恢复的折叠粘贴事实。"""
+        if not text:
+            return None
+        self._kill_buffer = _TuiKillBuffer(
+            text=text,
+            paste_items=tuple(self.submission_state(text).items()),
+        )
+
+    def _yank_kill_buffer(self, buffer) -> None:
+        """粘回 kill buffer，并为冲突的折叠粘贴分配新占位符。"""
+        killed = self._kill_buffer
+        if not killed.text:
+            return None
+
+        text = killed.text
+        self.paste_store = self.submission_state(buffer.text)
+        for placeholder, original in killed.paste_items:
+            occurrences = text.count(placeholder)
+            if not occurrences:
+                continue
+            if occurrences == 1 and placeholder not in buffer.text:
+                self.paste_store[placeholder] = original
+                continue
+            for _index in range(occurrences):
+                replacement = self._display_paste(
+                    original,
+                    f"{buffer.text}{text}",
+                )
+                text = text.replace(placeholder, replacement, 1)
+
+        buffer.insert_text(text)
+        self.notify_input_layout()
+
     def _reset_history_navigation(self) -> None:
         """重置输入历史导航状态。"""
         self._history_entries = ()
         self._history_index = None
         self._history_completion_dismissed = False
+
+    @property
+    def history_search_active(self) -> bool:
+        """返回 footer 是否正在独占历史搜索输入。"""
+        return self._history_search is not None
+
+    def history_search_snapshot(self) -> TuiHistorySearchSnapshot | None:
+        """返回当前历史搜索的只读展示快照。"""
+        search = self._history_search
+        if search is None:
+            return None
+        if not search.query:
+            status: typing.Literal["idle", "match", "no_match"] = "idle"
+        elif search.match_index is not None:
+            status = "match"
+        else:
+            status = "no_match"
+        return TuiHistorySearchSnapshot(query=search.query, status=status)
+
+    def begin_history_search(self, buffer) -> None:
+        """冻结当前草稿并让 footer 接管历史搜索输入。"""
+        if self._history_search is not None:
+            self.step_history_search(buffer, older=True)
+            return None
+        buffer.cancel_completion()
+        self._reset_history_navigation()
+        self._history_search = _TuiHistorySearchSession(
+            original_document=buffer.document,
+            original_paste_items=tuple(self.paste_store.items()),
+            original_shell_mode=self.shell_mode,
+        )
+        self.notify_input_layout()
+
+    def cancel_history_search(self, buffer) -> bool:
+        """取消历史搜索并原样恢复进入搜索前的草稿。"""
+        search = self._history_search
+        if search is None:
+            return False
+        self._history_search = None
+        self.set_shell_mode(search.original_shell_mode)
+        self.restore_submission_state(dict(search.original_paste_items))
+        buffer.document = search.original_document
+        self._reset_history_navigation()
+        self.notify_input_layout()
+        return True
+
+    def accept_history_search(self, buffer) -> bool:
+        """把当前匹配接受为可编辑草稿，但不提交。"""
+        search = self._history_search
+        if search is None or search.match_index is None:
+            return False
+        self._history_search = None
+        buffer.cursor_position = len(buffer.text)
+        self._reset_history_navigation()
+        self.notify_input_layout()
+        return True
+
+    def append_history_search_text(self, buffer, text: str) -> None:
+        """向 footer 查询追加可打印文本并从最新记录重新搜索。"""
+        search = self._history_search
+        if search is None:
+            return None
+        search.query += text
+        self._restart_history_search(buffer)
+
+    def backspace_history_search(self, buffer) -> None:
+        """删除 footer 查询的最后一个字符并重新搜索。"""
+        search = self._history_search
+        if search is None:
+            return None
+        search.query = search.query[:-1]
+        self._restart_history_search(buffer)
+
+    def clear_history_search(self, buffer) -> None:
+        """清空 footer 查询并恢复原始草稿。"""
+        search = self._history_search
+        if search is None:
+            return None
+        search.query = ""
+        self._restart_history_search(buffer)
+
+    def step_history_search(self, buffer, *, older: bool) -> None:
+        """在当前查询的唯一匹配项之间移动。"""
+        search = self._history_search
+        if search is None or not search.query:
+            return None
+        if not search.matches:
+            self._restart_history_search(buffer)
+            return None
+        current = search.match_index if search.match_index is not None else 0
+        target = min(
+            len(search.matches) - 1,
+            current + 1,
+        ) if older else max(0, current - 1)
+        search.match_index = target
+        self._apply_history_search_entry(buffer, search.matches[target])
+
+    def _restart_history_search(self, buffer) -> None:
+        """按当前查询重建去重后的从新到旧匹配序列。"""
+        search = self._history_search
+        if search is None:
+            return None
+        query = search.query.casefold()
+        if not query:
+            search.matches = ()
+            search.match_index = None
+            self._restore_history_search_original(buffer, search)
+            return None
+
+        matches: list[TuiInputHistoryEntry] = []
+        seen: set[TuiInputHistoryEntry] = set()
+        for entry in reversed(self.history.entries()):
+            if entry in seen or query not in entry.visible_text.casefold():
+                continue
+            seen.add(entry)
+            matches.append(entry)
+        search.matches = tuple(matches)
+        search.match_index = 0 if matches else None
+        if matches:
+            self._apply_history_search_entry(buffer, matches[0])
+        else:
+            self._restore_history_search_original(buffer, search)
+
+    def _restore_history_search_original(
+        self,
+        buffer,
+        search: _TuiHistorySearchSession,
+    ) -> None:
+        """恢复搜索会话冻结的原始编辑状态。"""
+        self.set_shell_mode(search.original_shell_mode)
+        self.restore_submission_state(dict(search.original_paste_items))
+        buffer.document = search.original_document
+        self.dismiss_completion_menu(buffer)
+        self.notify_input_layout()
+
+    def _apply_history_search_entry(
+        self,
+        buffer,
+        entry: TuiInputHistoryEntry,
+    ) -> None:
+        """把匹配历史项投影为输入区预览。"""
+        self.set_shell_mode(entry.shell_mode)
+        self.restore_submission_state(entry.paste_store)
+        buffer.document = Document(
+            entry.editable_text,
+            cursor_position=len(entry.editable_text),
+        )
+        self.dismiss_completion_menu(buffer)
+        self.notify_input_layout()
 
     def _start_history_navigation(self) -> None:
         """开始遍历完整输入历史。"""
@@ -939,17 +1132,22 @@ class TuiInputModel(object):
     def _build_key_bindings(self) -> KeyBindings:
         """创建 TUI 输入区按键绑定。"""
         bindings = KeyBindings()
+        input_focused = has_focus(INPUT_BUFFER_NAME)
+        history_search_active = input_focused & Condition(
+            lambda: self.history_search_active
+        )
+        ordinary_input = input_focused & ~history_search_active
 
         @bind_key_action(
             bindings,
             self.keymap.editor.interrupt,
             eager=True,
-            binding_filter=has_focus(INPUT_BUFFER_NAME),
+            binding_filter=ordinary_input,
         )
         def _(event) -> None:
             self.handle_interrupt(event.app.current_buffer)
 
-        direct_exit = has_focus(INPUT_BUFFER_NAME) & Condition(
+        direct_exit = ordinary_input & Condition(
             lambda: bool(
                 self.can_exit()
                 and not get_app().current_buffer.text
@@ -972,13 +1170,15 @@ class TuiInputModel(object):
             bindings,
             self.keymap.editor.delete_line,
             eager=True,
-            binding_filter=has_focus(INPUT_BUFFER_NAME),
+            binding_filter=ordinary_input,
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
             previous_text = buffer.text
             buffer.cancel_completion()
-            deleted = self._delete_current_line(buffer)
+            deleted = self._delete_to_line_start(buffer)
+            if deleted:
+                self._store_kill(deleted)
             self.paste_store = self.submission_state(buffer.text)
 
             if not buffer.text:
@@ -992,7 +1192,7 @@ class TuiInputModel(object):
             else:
                 self.notify_input_layout()
 
-        shell_mode_empty = has_focus(INPUT_BUFFER_NAME) & Condition(
+        shell_mode_empty = ordinary_input & Condition(
             lambda: self.shell_mode and not get_app().current_buffer.text
         )
 
@@ -1006,14 +1206,14 @@ class TuiInputModel(object):
             self.set_shell_mode(False)
             event.app.invalidate()
 
-        completion_menu_open = has_focus(INPUT_BUFFER_NAME) & Condition(
+        completion_menu_open = ordinary_input & Condition(
             lambda: bool(
                 self.completion_menu_completions(
                     get_app().current_buffer.document
                 ) is not None
             )
         )
-        completion_candidates_open = has_focus(INPUT_BUFFER_NAME) & Condition(
+        completion_candidates_open = ordinary_input & Condition(
             lambda: bool(
                 self.completion_menu_completions(
                     get_app().current_buffer.document
@@ -1031,7 +1231,7 @@ class TuiInputModel(object):
             self.dismiss_completion_menu(event.app.current_buffer)
             event.app.invalidate()
 
-        turn_interrupt = has_focus(INPUT_BUFFER_NAME) & Condition(
+        turn_interrupt = ordinary_input & Condition(
             lambda: bool(
                 self.can_interrupt_turn()
                 and get_app().current_buffer.complete_state is None
@@ -1059,7 +1259,7 @@ class TuiInputModel(object):
             self.turn_interrupt_handler()
             self.notify_input_layout()
 
-        edit_backspace = has_focus(INPUT_BUFFER_NAME) & ~shell_mode_empty
+        edit_backspace = ordinary_input & ~shell_mode_empty
 
         @bind_key_action(
             bindings,
@@ -1097,7 +1297,7 @@ class TuiInputModel(object):
             bindings,
             self.keymap.editor.delete_forward,
             eager=True,
-            binding_filter=has_focus(INPUT_BUFFER_NAME),
+            binding_filter=ordinary_input & ~direct_exit,
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
@@ -1117,7 +1317,7 @@ class TuiInputModel(object):
             bindings,
             self.keymap.editor.delete_word_backward,
             eager=True,
-            binding_filter=has_focus(INPUT_BUFFER_NAME),
+            binding_filter=ordinary_input,
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
@@ -1131,6 +1331,13 @@ class TuiInputModel(object):
             if buffer.text == previous_text:
                 return None
 
+            removed_count = len(previous_text) - len(buffer.text)
+            if removed_count > 0:
+                self._store_kill(previous_text[
+                    buffer.cursor_position:
+                    buffer.cursor_position + removed_count
+                ])
+
             self._finish_destructive_edit(
                 buffer,
                 previous_text=previous_text,
@@ -1140,6 +1347,7 @@ class TuiInputModel(object):
             bindings,
             self.keymap.editor.undo,
             eager=True,
+            binding_filter=ordinary_input,
             save_before=lambda event: False,
         )
         def _(event) -> None:
@@ -1156,7 +1364,7 @@ class TuiInputModel(object):
             bindings,
             self.keymap.editor.move_left,
             eager=True,
-            binding_filter=has_focus(INPUT_BUFFER_NAME),
+            binding_filter=ordinary_input,
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
@@ -1173,7 +1381,7 @@ class TuiInputModel(object):
             bindings,
             self.keymap.editor.move_right,
             eager=True,
-            binding_filter=has_focus(INPUT_BUFFER_NAME),
+            binding_filter=ordinary_input,
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
@@ -1188,7 +1396,149 @@ class TuiInputModel(object):
 
         @bind_key_action(
             bindings,
+            self.keymap.editor.move_line_start,
+            eager=True,
+            binding_filter=ordinary_input,
+        )
+        def _(event) -> None:
+            buffer = event.app.current_buffer
+            offset = buffer.document.get_start_of_line_position()
+            key_sequence = event.key_sequence
+            pressed_key = key_sequence[-1].key if key_sequence else None
+            if (
+                not offset
+                and pressed_key == Keys.ControlA
+                and buffer.cursor_position > 0
+            ):
+                previous_character = buffer.cursor_position - 1
+                buffer.cursor_position = (
+                    buffer.text.rfind("\n", 0, previous_character) + 1
+                )
+            elif offset:
+                buffer.cursor_position += offset
+            else:
+                return None
+            self.dismiss_completion_menu(buffer)
+            self.notify_input_layout()
+
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.move_line_end,
+            eager=True,
+            binding_filter=ordinary_input,
+        )
+        def _(event) -> None:
+            buffer = event.app.current_buffer
+            offset = buffer.document.get_end_of_line_position()
+            key_sequence = event.key_sequence
+            pressed_key = key_sequence[-1].key if key_sequence else None
+            if (
+                not offset
+                and pressed_key == Keys.ControlE
+                and buffer.cursor_position < len(buffer.text)
+            ):
+                next_line_start = buffer.cursor_position + 1
+                next_line_end = buffer.text.find("\n", next_line_start)
+                buffer.cursor_position = (
+                    len(buffer.text)
+                    if next_line_end < 0
+                    else next_line_end
+                )
+            elif offset:
+                buffer.cursor_position += offset
+            else:
+                return None
+            self.dismiss_completion_menu(buffer)
+            self.notify_input_layout()
+
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.move_word_left,
+            eager=True,
+            binding_filter=ordinary_input,
+        )
+        def _(event) -> None:
+            buffer = event.app.current_buffer
+            offset = buffer.document.find_previous_word_beginning(
+                count=max(1, event.arg),
+            )
+            if offset is not None:
+                buffer.cursor_position += offset
+                self.dismiss_completion_menu(buffer)
+                self.notify_input_layout()
+
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.move_word_right,
+            eager=True,
+            binding_filter=ordinary_input,
+        )
+        def _(event) -> None:
+            buffer = event.app.current_buffer
+            offset = buffer.document.find_next_word_ending(
+                count=max(1, event.arg),
+            )
+            if offset is not None:
+                buffer.cursor_position += offset
+                self.dismiss_completion_menu(buffer)
+                self.notify_input_layout()
+
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.delete_word_forward,
+            eager=True,
+            binding_filter=ordinary_input,
+        )
+        def _(event) -> None:
+            buffer = event.app.current_buffer
+            previous_text = buffer.text
+            offset = buffer.document.find_next_word_ending(
+                count=max(1, event.arg),
+            )
+            deleted = buffer.delete(count=offset or 0)
+            if deleted:
+                self._store_kill(deleted)
+                self._finish_destructive_edit(
+                    buffer,
+                    previous_text=previous_text,
+                )
+
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.delete_to_line_end,
+            eager=True,
+            binding_filter=ordinary_input,
+        )
+        def _(event) -> None:
+            buffer = event.app.current_buffer
+            previous_text = buffer.text
+            count = len(buffer.document.current_line_after_cursor)
+            if count:
+                deleted = buffer.delete(count=count)
+            elif buffer.cursor_position < len(buffer.text):
+                deleted = buffer.delete(count=1)
+            else:
+                deleted = ""
+            if deleted:
+                self._store_kill(deleted)
+                self._finish_destructive_edit(
+                    buffer,
+                    previous_text=previous_text,
+                )
+
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.yank,
+            eager=True,
+            binding_filter=ordinary_input,
+        )
+        def _(event) -> None:
+            self._yank_kill_buffer(event.app.current_buffer)
+
+        @bind_key_action(
+            bindings,
             self.keymap.editor.insert_newline,
+            binding_filter=ordinary_input,
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
@@ -1208,12 +1558,12 @@ class TuiInputModel(object):
             bindings,
             self.keymap.global_keys.copy_last_response,
             eager=True,
-            binding_filter=has_focus(INPUT_BUFFER_NAME),
+            binding_filter=ordinary_input,
         )
         def _(_event) -> None:
             self.copy_last_response_handler()
 
-        queue_rollback = has_focus(INPUT_BUFFER_NAME) & Condition(
+        queue_rollback = ordinary_input & Condition(
             lambda: bool(
                 self.can_rollback_queue()
                 and self.completion_menu_completions(
@@ -1222,7 +1572,7 @@ class TuiInputModel(object):
             )
         )
 
-        queue_rollback_reserved = has_focus(INPUT_BUFFER_NAME) & Condition(
+        queue_rollback_reserved = ordinary_input & Condition(
             lambda: bool(
                 self.can_submit_queue()
                 and not self.can_rollback_queue()
@@ -1232,10 +1582,10 @@ class TuiInputModel(object):
             )
         )
 
-        history_backtrack = has_focus(INPUT_BUFFER_NAME) & Condition(
+        history_backtrack = ordinary_input & Condition(
             lambda: bool(self.can_backtrack_history())
         )
-        missing_backtrack = has_focus(INPUT_BUFFER_NAME) & Condition(
+        missing_backtrack = ordinary_input & Condition(
             lambda: bool(self.can_report_missing_backtrack())
         )
 
@@ -1280,6 +1630,7 @@ class TuiInputModel(object):
             bindings,
             self.keymap.composer.enter_shell_mode,
             eager=True,
+            binding_filter=ordinary_input,
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
@@ -1290,7 +1641,28 @@ class TuiInputModel(object):
                 return None
             buffer.insert_text("!")
 
-        @bind_key_action(bindings, self.keymap.composer.queue)
+        shortcut_help_available = ordinary_input & Condition(
+            lambda: bool(
+                not get_app().current_buffer.text
+                and get_app().current_buffer.complete_state is None
+                and not self.shell_mode
+            )
+        )
+
+        @bind_key_action(
+            bindings,
+            self.keymap.composer.toggle_shortcuts,
+            eager=True,
+            binding_filter=shortcut_help_available,
+        )
+        def _(_event) -> None:
+            self.shortcut_help_handler()
+
+        @bind_key_action(
+            bindings,
+            self.keymap.composer.queue,
+            binding_filter=ordinary_input,
+        )
         def _(event) -> None:
             buffer = event.app.current_buffer
 
@@ -1354,6 +1726,7 @@ class TuiInputModel(object):
         @bind_key_action(
             bindings,
             self.keymap.composer.previous_completion,
+            binding_filter=ordinary_input,
         )
         def _(event) -> None:
             self._select_completion(
@@ -1361,7 +1734,11 @@ class TuiInputModel(object):
                 -max(1, event.arg),
             )
 
-        @bindings.add(Keys.BracketedPaste, eager=True)
+        @bindings.add(
+            Keys.BracketedPaste,
+            eager=True,
+            filter=ordinary_input,
+        )
         def _(event) -> None:
             buffer = event.app.current_buffer
             data = sanitize_terminal_text(event.data or "")
@@ -1371,7 +1748,11 @@ class TuiInputModel(object):
                 data = data[1:].lstrip(" ")
             buffer.insert_text(self._display_paste(data, buffer.text))
 
-        @bind_key_action(bindings, self.keymap.composer.submit)
+        @bind_key_action(
+            bindings,
+            self.keymap.composer.submit,
+            binding_filter=ordinary_input,
+        )
         def _(event) -> None:
             buffer = event.app.current_buffer
             completion = self._selected_menu_completion(buffer)
@@ -1398,7 +1779,11 @@ class TuiInputModel(object):
 
             buffer.validate_and_handle()
 
-        @bind_key_action(bindings, self.keymap.editor.move_up)
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.move_up,
+            binding_filter=ordinary_input,
+        )
         def _(event) -> None:
             buffer = event.app.current_buffer
 
@@ -1422,7 +1807,11 @@ class TuiInputModel(object):
                     count=max(1, event.arg),
                 )
 
-        @bind_key_action(bindings, self.keymap.editor.move_down)
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.move_down,
+            binding_filter=ordinary_input,
+        )
         def _(event) -> None:
             buffer = event.app.current_buffer
             if self.completion_menu_completions(buffer.document):
@@ -1472,7 +1861,7 @@ class TuiInputModel(object):
         @bindings.add(
             Keys.ControlUp,
             eager=True,
-            filter=has_focus(INPUT_BUFFER_NAME),
+            filter=ordinary_input,
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
@@ -1486,7 +1875,7 @@ class TuiInputModel(object):
         @bindings.add(
             Keys.ControlDown,
             eager=True,
-            filter=has_focus(INPUT_BUFFER_NAME),
+            filter=ordinary_input,
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
@@ -1495,6 +1884,93 @@ class TuiInputModel(object):
                     buffer,
                     step=1,
                     count=max(1, event.arg),
+                )
+
+        @bind_key_action(
+            bindings,
+            self.keymap.composer.history_search_previous,
+            eager=True,
+            binding_filter=input_focused,
+        )
+        def _(event) -> None:
+            self.begin_history_search(event.app.current_buffer)
+
+        @bind_key_action(
+            bindings,
+            self.keymap.composer.history_search_next,
+            eager=True,
+            binding_filter=history_search_active,
+        )
+        def _(event) -> None:
+            self.step_history_search(event.app.current_buffer, older=False)
+
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.interrupt,
+            eager=True,
+            binding_filter=history_search_active,
+        )
+        @bind_key_action(
+            bindings,
+            self.keymap.chat.interrupt_turn,
+            eager=True,
+            binding_filter=history_search_active,
+        )
+        def _(event) -> None:
+            self.cancel_history_search(event.app.current_buffer)
+
+        @bind_key_action(
+            bindings,
+            self.keymap.composer.submit,
+            eager=True,
+            binding_filter=history_search_active,
+        )
+        def _(event) -> None:
+            self.accept_history_search(event.app.current_buffer)
+
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.delete_backward,
+            eager=True,
+            binding_filter=history_search_active,
+        )
+        def _(event) -> None:
+            self.backspace_history_search(event.app.current_buffer)
+
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.delete_line,
+            eager=True,
+            binding_filter=history_search_active,
+        )
+        def _(event) -> None:
+            self.clear_history_search(event.app.current_buffer)
+
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.move_up,
+            eager=True,
+            binding_filter=history_search_active,
+        )
+        def _(event) -> None:
+            self.step_history_search(event.app.current_buffer, older=True)
+
+        @bind_key_action(
+            bindings,
+            self.keymap.editor.move_down,
+            eager=True,
+            binding_filter=history_search_active,
+        )
+        def _(event) -> None:
+            self.step_history_search(event.app.current_buffer, older=False)
+
+        @bindings.add(Keys.Any, eager=True, filter=history_search_active)
+        def _(event) -> None:
+            text = str(event.data or "")
+            if text and text.isprintable():
+                self.append_history_search_text(
+                    event.app.current_buffer,
+                    text,
                 )
 
         return bindings
@@ -1641,6 +2117,10 @@ class TuiInputModel(object):
     def bind_copy_last_response(self, handler: typing.Callable[[], None]) -> None:
         """绑定 Ctrl+O 直接复制最近整体回复的本地动作。"""
         self.copy_last_response_handler = handler
+
+    def bind_shortcut_help(self, handler: typing.Callable[[], None]) -> None:
+        """绑定空草稿问号触发的只读快捷键页面。"""
+        self.shortcut_help_handler = handler
 
     def bind_input_layout(self, handler: typing.Callable[[], None]) -> None:
         """绑定输入内容变化后的当前帧布局刷新动作。"""

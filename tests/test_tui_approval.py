@@ -328,7 +328,7 @@ def test_approval_content_keeps_question_without_card_title() -> None:
     assert text_lines[command_index + 1] == ""
     assert text_lines[-2] == ""
     assert text_lines[-1] == (
-        "Press enter to confirm or ctrl + c to cancel"
+        "Press enter to confirm or esc to cancel"
     )
     assert "Review command" not in "\n".join(text_lines)
 
@@ -412,7 +412,7 @@ def test_approval_displays_environment_and_justification_only() -> None:
     assert "legacy request reason" not in "\n".join(text_lines)
     assert text_lines[-2] == ""
     assert text_lines[-1] == (
-        "Press enter to confirm or ctrl + c to cancel"
+        "Press enter to confirm or esc to cancel"
     )
 
 
@@ -999,7 +999,7 @@ def test_selected_session_shortcut_uses_118_style() -> None:
     assert session_line[-4:] == [
         ("class:approval-option-selected", " "),
         ("class:approval-option-selected", "("),
-        ("class:approval-shortcut-selected", "s"),
+        ("class:approval-shortcut-selected", "a"),
         ("class:approval-option-selected", ")"),
     ]
     shortcut = TUI_APPROVAL_STYLE.get_attrs_for_style_str(
@@ -1042,7 +1042,7 @@ async def test_approval_fills_width_and_is_not_limited_to_fourteen_rows() -> Non
         text for _, text in runtime.screen.approval.footer_fragments()
     )
     assert footer_text == (
-        "  Press enter to confirm or ctrl + c to cancel"
+        "  Press enter to confirm or esc to cancel"
     )
     assert runtime.screen.approval_footer_window.style == ""
     assert runtime.screen.approval_window.width is None
@@ -1148,13 +1148,138 @@ async def test_approval_ctrl_c_returns_hidden_cancel() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("keys", ((Keys.Escape,), ("n",)))
-async def test_approval_decline_shortcuts_do_not_cancel_turn(keys) -> None:
+async def test_command_approval_cancel_shortcuts_abort_turn(keys) -> None:
     runtime = TuiRuntime()
     approval = runtime.screen.approval
 
     assert approval.begin({
+        "kind": "command",
         "tool": "shell_command",
         "command": "pytest -q",
+        "available_decisions": ["accept", "decline", "cancel"],
+        "show_timer": False,
+    })
+
+    _invoke_approval_binding(approval, keys)
+
+    assert await approval.wait() == "cancel"
+    await approval.dismiss()
+
+
+@pytest.mark.anyio
+async def test_command_approval_c_is_not_an_unadvertised_shortcut() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+
+    assert approval.begin({
+        "kind": "command",
+        "tool": "shell_command",
+        "command": "pytest -q",
+        "available_decisions": ["accept", "decline", "cancel"],
+        "show_timer": False,
+    })
+    assert approval.state is not None
+
+    _invoke_approval_binding(approval, ("c",))
+
+    assert not approval.state.future.done()
+    approval.finish("cancel")
+    await approval.dismiss()
+
+
+@pytest.mark.anyio
+async def test_command_approval_d_declines_without_cancelling_turn() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+
+    assert approval.begin({
+        "kind": "command",
+        "tool": "shell_command",
+        "command": "pytest -q",
+        "available_decisions": ["accept", "decline", "cancel"],
+        "show_timer": False,
+    })
+
+    _invoke_approval_binding(approval, ("d",))
+
+    assert await approval.wait() == "decline"
+    await approval.dismiss()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("keys", "expected"),
+    (
+        (("n",), "decline"),
+        ((Keys.Escape,), "cancel"),
+        (("c",), "cancel"),
+    ),
+)
+async def test_mcp_approval_uses_distinct_decline_and_cancel_shortcuts(
+    keys,
+    expected,
+) -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+
+    assert approval.begin({
+        "kind": "mcp_tool_call",
+        "approval_id": "approval-mcp-shortcut",
+        "call_id": "call-mcp-shortcut",
+        "server": "test",
+        "tool_name": "read",
+        "available_decisions": ["accept", "decline", "cancel"],
+        "show_timer": False,
+    })
+
+    _invoke_approval_binding(approval, keys)
+
+    assert await approval.wait() == expected
+    await approval.dismiss()
+
+
+@pytest.mark.anyio
+async def test_mcp_approval_d_is_not_an_unadvertised_shortcut() -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+
+    assert approval.begin({
+        "kind": "mcp_tool_call",
+        "approval_id": "approval-mcp-no-d",
+        "call_id": "call-mcp-no-d",
+        "server": "test",
+        "tool_name": "read",
+        "available_decisions": ["accept", "decline", "cancel"],
+        "show_timer": False,
+    })
+    assert approval.state is not None
+
+    _invoke_approval_binding(approval, ("d",))
+
+    assert not approval.state.future.done()
+    approval.finish("cancel")
+    await approval.dismiss()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("keys", ((Keys.Escape,), ("d",)))
+async def test_permissions_cancel_surface_declines_without_interrupting_turn(
+    keys,
+) -> None:
+    runtime = TuiRuntime()
+    approval = runtime.screen.approval
+
+    assert approval.begin({
+        "kind": "request_permissions",
+        "approval_id": "approval-permissions-shortcut",
+        "call_id": "call-permissions-shortcut",
+        "permissions": {"network": {"enabled": True}},
+        "available_decisions": [
+            "grantForTurn",
+            "grantForSession",
+            "decline",
+            "cancel",
+        ],
         "show_timer": False,
     })
 

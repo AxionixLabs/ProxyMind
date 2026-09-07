@@ -362,7 +362,10 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             auto_suggest=self.input_model.auto_suggest,
             completer=self.input_model.completer,
             complete_while_typing=Condition(
-                lambda: not self.input_model.shell_mode
+                lambda: bool(
+                    not self.input_model.shell_mode
+                    and not self.input_model.history_search_active
+                )
             ),
             accept_handler=accept_input,
             history=self.input_model.history,
@@ -378,6 +381,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                     ),
                 )
             ],
+        )
+        self.input.window.always_hide_cursor = Condition(
+            lambda: self.input_model.history_search_active
         )
 
         self.input_prompt_control = FormattedTextControl(
@@ -2208,7 +2214,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _footer_fragments(self) -> FormattedText:
         """生成单行 TUI 信息栏。"""
+        history_search = self.input_model.history_search_snapshot()
         mode = resolve_footer_mode(
+            history_search_active=history_search is not None,
             history_backtrack_primed=(
                 self.input_model.history_backtrack_primed
             ),
@@ -2225,6 +2233,22 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             return render_footer_fragments(
                 mode=mode,
                 width=self.terminal_width,
+                history_search_query=(
+                    history_search.query
+                    if history_search is not None
+                    else ""
+                ),
+                history_search_status=(
+                    history_search.status
+                    if history_search is not None
+                    else "idle"
+                ),
+                history_search_accept_label=primary_binding_label(
+                    self.keymap.composer.submit
+                ).casefold(),
+                history_search_cancel_label=primary_binding_label(
+                    self.keymap.chat.interrupt_turn
+                ).casefold(),
             )
 
         context = self._get_context()

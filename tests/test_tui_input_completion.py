@@ -936,7 +936,7 @@ async def test_slash_canvas_frames_restore_current_layout_after_dismissal(
 @pytest.mark.parametrize("prefix", ("/", "$"))
 @pytest.mark.parametrize(
     "clear_method",
-    ("ctrl_u", "ctrl_w", "backspace", "delete"),
+    ("ctrl_w", "backspace", "delete"),
 )
 async def test_clearing_multiline_completion_collapses_canvas(
     prefix: str,
@@ -969,9 +969,7 @@ async def test_clearing_multiline_completion_collapses_canvas(
                 assert runtime.screen._completion_section_height() == 8
 
                 buffer.cursor_position = len(buffer.text)
-                if clear_method == "ctrl_u":
-                    pipe_input.send_text("\x15" * 13)
-                elif clear_method == "ctrl_w":
+                if clear_method == "ctrl_w":
                     pipe_input.send_text("\x17" * 13)
                 elif clear_method == "delete":
                     runtime.screen.input.buffer.cursor_position = 0

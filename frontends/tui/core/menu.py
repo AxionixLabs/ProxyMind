@@ -6,6 +6,7 @@ import typing
 from dataclasses import replace
 
 from prompt_toolkit.formatted_text import StyleAndTextTuples
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
@@ -535,9 +536,15 @@ class TuiMenu(object):
             for key_press in key_sequence
         ) or ((data,) if data else (key,))
 
-        if key_action_matches(self.keymap.move_down, normalized_sequence):
+        if (
+            key_action_matches(self.keymap.move_down, normalized_sequence)
+            and not (state.request.searchable and data == "j")
+        ):
             self._move(1)
-        elif key_action_matches(self.keymap.move_up, normalized_sequence):
+        elif (
+            key_action_matches(self.keymap.move_up, normalized_sequence)
+            and not (state.request.searchable and data == "k")
+        ):
             self._move(-1)
         elif key_action_matches(self.keymap.page_down, normalized_sequence):
             self._move(self.VISIBLE_ROWS)
@@ -844,6 +851,12 @@ class TuiMenu(object):
     def _build_key_bindings(self) -> KeyBindings:
         """创建内嵌菜单局部按键绑定。"""
         bindings = KeyBindings()
+        non_searchable = Condition(
+            lambda: bool(
+                self.state is not None
+                and not self.state.request.searchable
+            )
+        )
 
         @bind_key_action(bindings, self.keymap.accept)
         def _(_event) -> None:
@@ -880,11 +893,43 @@ class TuiMenu(object):
             if state is not None and state.request.on_t is not None:
                 state.request.on_t()
 
-        @bind_key_action(bindings, self.keymap.move_down)
+        @bind_key_action(
+            bindings,
+            tuple(
+                binding
+                for binding in self.keymap.move_down
+                if binding.keys != ("j",)
+            ),
+        )
+        @bind_key_action(
+            bindings,
+            tuple(
+                binding
+                for binding in self.keymap.move_down
+                if binding.keys == ("j",)
+            ),
+            binding_filter=non_searchable,
+        )
         def _(_event) -> None:
             self._move(1)
 
-        @bind_key_action(bindings, self.keymap.move_up)
+        @bind_key_action(
+            bindings,
+            tuple(
+                binding
+                for binding in self.keymap.move_up
+                if binding.keys != ("k",)
+            ),
+        )
+        @bind_key_action(
+            bindings,
+            tuple(
+                binding
+                for binding in self.keymap.move_up
+                if binding.keys == ("k",)
+            ),
+            binding_filter=non_searchable,
+        )
         def _(_event) -> None:
             self._move(-1)
 
