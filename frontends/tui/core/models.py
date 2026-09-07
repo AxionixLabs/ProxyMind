@@ -9,8 +9,11 @@ from frontends.tui.contracts.menu import (
     MenuColumnWidthMode,
     MenuDescriptionLayout,
     MenuEmptyAcceptAction,
+    MenuFooterCommand,
+    MenuFooterHint,
     MenuOption,
     MenuRequest,
+    MenuShortcutAction,
     MenuTab,
 )
 from frontends.tui.contracts.pager import StaticPagerRequest
@@ -40,8 +43,11 @@ __all__ = (
     "MenuColumnWidthMode",
     "MenuDescriptionLayout",
     "MenuEmptyAcceptAction",
+    "MenuFooterCommand",
+    "MenuFooterHint",
     "MenuOption",
     "MenuRequest",
+    "MenuShortcutAction",
     "MenuTab",
     "FormattedLine",
     "FormattedText",

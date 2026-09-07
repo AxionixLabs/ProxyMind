@@ -32,6 +32,7 @@ from frontends.tui.features.hooks import (
 from frontends.tui.core.models import (
     FragmentBlock,
     MenuDescriptionLayout,
+    MenuFooterHint,
     STANDARD_MENU_FOOTER_HINT,
 )
 from frontends.tui.core.runtime import TuiRuntime
@@ -423,7 +424,10 @@ def test_hook_event_menu_uses_codex_descriptions_and_columns(
     )
     assert menu.view_id == "hooks:events"
     assert menu.help_text == ""
-    assert menu.footer_hint == "Press enter to view hooks; esc to close"
+    assert isinstance(menu.footer_hint, MenuFooterHint)
+    assert tuple(
+        command.description for command in menu.footer_hint.commands
+    ) == ("to view hooks", "to close")
     assert (
         menu.description_layout
         is MenuDescriptionLayout.COLUMNS
@@ -994,11 +998,11 @@ def test_hook_list_menu_uses_codex_rows_details_and_dynamic_footer(tmp_path) -> 
         trust_policy="managed",
     ).hooks[0]
 
-    for entry, expected_label, expected_footer in (
-        (untrusted, "[!] Hook 1 · new", "Press t to trust; esc to go back"),
-        (trusted, "[x] Hook 1", "Press space or enter to toggle; esc to go back"),
-        (disabled, "[ ] Hook 1", "Press space or enter to toggle; esc to go back"),
-        (managed, "[x] Hook 1", "Managed hooks are always on; press esc to go back"),
+    for entry, expected_label, expected_descriptions in (
+        (untrusted, "[!] Hook 1 · new", ("to trust", "to go back")),
+        (trusted, "[x] Hook 1", ("to toggle", "to go back")),
+        (disabled, "[ ] Hook 1", ("to toggle", "to go back")),
+        (managed, "[x] Hook 1", ("to go back",)),
     ):
         catalog = replace(_catalog(tmp_path, trust_state=entry.trust_state), hooks=(entry,))
         menu = hook_list_menu(catalog, "PreToolUse")
@@ -1006,7 +1010,10 @@ def test_hook_list_menu_uses_codex_rows_details_and_dynamic_footer(tmp_path) -> 
         assert menu.options[0].label == expected_label
         assert menu.options[0].detail == ""
         assert menu.options[0].selected_body[0] == "Event     PreToolUse"
-        assert menu.footer_hint == expected_footer
+        assert isinstance(menu.footer_hint, MenuFooterHint)
+        assert tuple(
+            command.description for command in menu.footer_hint.commands
+        ) == expected_descriptions
 
     review_menu = hook_list_menu(
         replace(_catalog(tmp_path, trust_state="untrusted"), hooks=(untrusted,)),

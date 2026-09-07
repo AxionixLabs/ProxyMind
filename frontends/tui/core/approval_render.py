@@ -42,6 +42,7 @@ from .keymap import (
     TuiApprovalKeymap,
     TuiRuntimeKeymap,
     approval_decision_shortcut_label,
+    primary_binding_label,
 )
 from .styles import styled_block_fragments
 from ..rendering.text_sanitize import sanitize_formatted_text
@@ -180,6 +181,16 @@ def tui_approval_content_lines(
         for binding in resolved_keymap.decline
         if binding.label == "Esc"
     ), "")
+    confirm_label = primary_binding_label(
+        resolved_keymap.accept_selected
+    ).casefold()
+    footer_actions = (
+        f"{confirm_label} to confirm" if confirm_label else ""
+    )
+    if cancel_label:
+        footer_actions = (
+            f"{footer_actions} or " if footer_actions else ""
+        ) + f"{cancel_label} to cancel"
 
     footer_lines = _wrap_fragment_line(
         [(
@@ -189,11 +200,7 @@ def tui_approval_content_lines(
                 f"{'s' if pending_count != 1 else ''} waiting · "
                 if pending_count > 0
                 else ""
-            ) + (
-                f"Press enter to confirm or {cancel_label} to cancel"
-                if cancel_label
-                else "Press enter to confirm"
-            ),
+            ) + (f"Press {footer_actions}" if footer_actions else ""),
         )],
         max_width=content_width,
     )

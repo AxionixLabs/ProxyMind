@@ -13,8 +13,11 @@ from ..core.models import (
     MenuColumnWidthMode,
     MenuDescriptionLayout,
     MenuEmptyAcceptAction,
+    MenuFooterCommand,
+    MenuFooterHint,
     MenuOption,
     MenuRequest,
+    MenuShortcutAction,
     STANDARD_MENU_FOOTER_HINT
 )
 from ..prompting.skills import (
@@ -27,8 +30,15 @@ _LIST_ACTION: typing.Final[str] = "list"
 
 _MANAGE_ACTION: typing.Final[str] = "manage"
 
-_SKILL_MANAGE_FOOTER: typing.Final[str] = (
-    "Press space or enter to toggle; esc to close"
+_SKILL_MANAGE_FOOTER: typing.Final[MenuFooterHint] = MenuFooterHint(
+    commands=(
+        MenuFooterCommand(
+            (MenuShortcutAction.TOGGLE, MenuShortcutAction.ACCEPT),
+            "to toggle",
+        ),
+        MenuFooterCommand((MenuShortcutAction.CANCEL,), "to close"),
+    ),
+    separator="; ",
 )
 
 

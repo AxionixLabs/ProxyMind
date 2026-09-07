@@ -182,6 +182,33 @@ def test_profile_can_switch_mcp_transport(tmp_path) -> None:
     }
 
 
+def test_profile_merges_keymap_actions_and_preserves_explicit_unbinding(
+    tmp_path,
+) -> None:
+    store = ConfigStore(tmp_path / "config.toml")
+    store.update({
+        ("tui", "keymap", "global", "open_transcript"): "f10",
+        ("tui", "keymap", "composer", "submit"): "f11",
+        ("tui", "keymap", "composer", "queue"): "tab",
+    })
+    (tmp_path / "work.config.toml").write_text(
+        "[tui.keymap.composer]\n"
+        "queue = []\n"
+        "[tui.keymap.editor]\n"
+        'move_left = "f12"\n',
+        encoding="utf-8",
+    )
+
+    config = ConfigSession(store, profile="work").load()
+
+    assert config["tui"]["keymap"]["global"]["open_transcript"] == "f10"
+    assert config["tui"]["keymap"]["composer"] == {
+        "submit": "f11",
+        "queue": [],
+    }
+    assert config["tui"]["keymap"]["editor"] == {"move_left": "f12"}
+
+
 def test_permission_update_reports_profile_shadow_before_write(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.toml")
     store.ensure()

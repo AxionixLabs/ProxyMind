@@ -27,6 +27,7 @@ from frontends.terminal.identity import (
 )
 from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.core.interrupt import InterruptDisposition
+from frontends.tui.core.keymap import TuiRuntimeKeymap
 from frontends.tui.core.queued import (
     TuiPendingSteers,
     TuiQueuedMessages,
@@ -41,7 +42,10 @@ def test_queue_uses_next_turn_title() -> None:
     queue = TuiQueuedMessages()
     queue.append(_submission("next task"))
 
-    text = _fragments_text(queue.fragments(width=100))
+    text = _fragments_text(queue.fragments(
+        width=100,
+        edit_binding="alt + ↑",
+    ))
 
     assert "• Queued follow-up inputs" in text
     assert "  ↳ next task" in text
@@ -57,7 +61,10 @@ def test_pending_steer_uses_current_turn_title() -> None:
     pending = TuiPendingSteers()
     pending.add(_submission("adjust current task"))
 
-    text = _fragments_text(pending.fragments(width=100))
+    text = _fragments_text(pending.fragments(
+        width=100,
+        interrupt_binding="esc",
+    ))
 
     assert (
         "• Messages to be submitted after next tool call "
@@ -66,7 +73,10 @@ def test_pending_steer_uses_current_turn_title() -> None:
     assert "  ↳ adjust current task" in text
     assert "Queued follow-up inputs" not in text
 
-    title_fragments = pending.fragments(width=100)[:2]
+    title_fragments = pending.fragments(
+        width=100,
+        interrupt_binding="esc",
+    )[:2]
     assert title_fragments == [
         (
             "class:queue.label",
@@ -85,7 +95,10 @@ def test_pending_steer_lists_each_enter_submission() -> None:
     pending.add(_submission("second"))
     pending.add(_submission("third"))
 
-    text = _fragments_text(pending.fragments(width=100))
+    text = _fragments_text(pending.fragments(
+        width=100,
+        interrupt_binding="esc",
+    ))
 
     assert text.splitlines() == [
         (
@@ -108,7 +121,10 @@ def test_pending_steers_show_interrupt_settlement_immediately() -> None:
     assert pending.mark_interrupt_settling()
     assert not pending.mark_interrupt_settling()
 
-    text = _fragments_text(pending.fragments(width=100))
+    text = _fragments_text(pending.fragments(
+        width=100,
+        interrupt_binding="esc",
+    ))
     assert text.splitlines() == [
         "• Queued while interrupted turn settles",
         "  ↳ second query",
@@ -120,7 +136,10 @@ def test_pending_steers_show_interrupt_settlement_immediately() -> None:
     pending.add(_submission("new turn steer"))
 
     assert "Messages to be submitted after next tool call" in (
-        _fragments_text(pending.fragments(width=100))
+        _fragments_text(pending.fragments(
+            width=100,
+            interrupt_binding="esc",
+        ))
     )
 
 
@@ -150,10 +169,10 @@ def test_uncertain_only_projection_is_not_interrupt_settling() -> None:
 
     assert not pending.mark_interrupt_settling()
     assert "Delivery unconfirmed" in _fragments_text(
-        pending.fragments(width=100)
+        pending.fragments(width=100, interrupt_binding="esc")
     )
     assert "interrupted turn settles" not in _fragments_text(
-        pending.fragments(width=100)
+        pending.fragments(width=100, interrupt_binding="esc")
     )
 
 
@@ -257,6 +276,29 @@ def test_screen_renders_all_input_queue_categories_within_budget() -> None:
         "• Queued follow-up inputs",
         "  ↳ tab follow up",
     ]
+
+
+def test_queue_hints_follow_runtime_chat_keymap() -> None:
+    keymap = TuiRuntimeKeymap.from_config({
+        "tui": {
+            "keymap": {
+                "chat": {
+                    "interrupt_turn": "f13",
+                    "edit_queued_message": "f14",
+                },
+            },
+        },
+    })
+    runtime = TuiRuntime(keymap=keymap)
+    runtime.track_pending_steer(_submission("pending"))
+    runtime.defer_submission(_submission("queued"))
+
+    text = _fragments_text(runtime.screen._queued_fragments(width=100))
+
+    assert "press f13 to interrupt and send immediately" in text
+    assert "f14 edit last queued message" in text
+    assert "press esc" not in text
+    assert "alt + ↑" not in text
 
 
 @pytest.mark.parametrize(
@@ -436,11 +478,14 @@ def test_follow_up_input_uses_codex_italic_style() -> None:
     queued = TuiQueuedMessages()
     queued.append(_submission("tab message"))
 
-    assert ("class:queue.text", "enter message") in pending.fragments(width=100)
+    assert ("class:queue.text", "enter message") in pending.fragments(
+        width=100,
+        interrupt_binding="esc",
+    )
     assert (
         "class:queue.text.queued",
         "tab message",
-    ) in queued.fragments(width=100)
+    ) in queued.fragments(width=100, edit_binding="alt + ↑")
 
 
 def test_multiline_follow_up_matches_codex_preview_shape() -> None:
@@ -473,7 +518,11 @@ def test_queue_reserves_last_row_for_hidden_count() -> None:
     for index in range(7):
         queue.append(_submission(f"message {index + 1}"))
 
-    text = _fragments_text(queue.fragments(width=100, max_rows=6))
+    text = _fragments_text(queue.fragments(
+        width=100,
+        max_rows=6,
+        edit_binding="alt + ↑",
+    ))
     lines = text.splitlines()
 
     assert len(lines) == 6
@@ -816,7 +865,10 @@ def test_queued_preview_uses_expanded_submission_text() -> None:
         paste_store={placeholder: original},
     ))
 
-    text = _fragments_text(queue.fragments(width=100))
+    text = _fragments_text(queue.fragments(
+        width=100,
+        edit_binding="alt + ↑",
+    ))
 
     assert placeholder not in text
     assert "expanded queued content" in text

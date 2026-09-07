@@ -14,7 +14,6 @@ from frontends.tui.core.models import (
     FragmentBlock,
     MailboxRunRequest,
     MenuDescriptionLayout,
-    STANDARD_MENU_FOOTER_HINT,
 )
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
@@ -126,7 +125,7 @@ async def test_mailbox_summary_uses_command_description() -> None:
     assert request.selected == 2
     assert request.view_id == "mailbox:summary"
     assert request.help_text == ""
-    assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert request.footer_hint == "Press enter to confirm or esc to go back"
     assert (
         request.description_layout
         is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW

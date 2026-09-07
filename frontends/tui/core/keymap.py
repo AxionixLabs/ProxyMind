@@ -14,17 +14,57 @@ from prompt_toolkit.keys import Keys
 
 
 @dataclass(frozen=True, slots=True)
+class TuiKeyStroke:
+    """保存一个逻辑按键及其终端输入序列。"""
+    keys: tuple[Keys | str, ...]
+    label: str
+    key_name: str
+    modifiers: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
 class TuiKeyBinding(object):
     """保存一个已解析的按键序列及其展示标签。"""
     keys: tuple[Keys | str, ...]
     label: str
+    strokes: tuple[TuiKeyStroke, ...]
+
+    @property
+    def is_chord(self) -> bool:
+        """返回当前绑定是否由两个逻辑按键组成。"""
+        return len(self.strokes) == 2
 
 
 TuiActionBindings = tuple[TuiKeyBinding, ...]
+TuiKeymapConfigValue: typing.TypeAlias = str | list[str] | tuple[str, ...]
+TuiKeymapConfig: typing.TypeAlias = typing.Mapping[
+    str,
+    TuiKeymapConfigValue,
+]
+KEY_CHORD_TIMEOUT_SEC: typing.Final[float] = 1.0
+TUI_KEYMAP_CONTEXT_ORDER: typing.Final[tuple[str, ...]] = (
+    "global",
+    "chat",
+    "composer",
+    "editor",
+    "pager",
+    "list",
+    "approval",
+)
+TUI_KEYMAP_OVERLAP_GROUPS: typing.Final[tuple[frozenset[str], ...]] = (
+    frozenset({"global", "chat", "composer", "editor"}),
+)
+_LEGACY_CONTROL_ALIASES: typing.Final[dict[str, str]] = {
+    "@": "NUL",
+    "h": "Backspace",
+    "i": "Tab",
+    "m": "Enter",
+    "[": "Esc",
+}
 
 
 @dataclass(frozen=True, slots=True)
-class TuiResolvedKeyAction(object):
+class TuiResolvedKeyAction:
     """保存稳定动作身份及其已解析绑定。"""
     action_id: str
     bindings: TuiActionBindings
@@ -162,7 +202,7 @@ class TuiRuntimeKeymap(object):
 
     @classmethod
     def from_config(cls, config: typing.Any) -> "TuiRuntimeKeymap":
-        """从有效配置中解析完整记录相关按键。"""
+        """从有效配置中解析全部 TUI 动作按键。"""
         root = config if isinstance(config, dict) else {}
         tui = root.get("tui") if isinstance(root.get("tui"), dict) else {}
 
@@ -172,58 +212,94 @@ class TuiRuntimeKeymap(object):
             else {}
         )
 
-        global_config = (
-            keymap.get("global")
-            if isinstance(keymap.get("global"), dict)
-            else {}
-        )
+        context_config = {
+            context: (
+                keymap.get(context)
+                if isinstance(keymap.get(context), dict)
+                else {}
+            )
+            for context in TUI_KEYMAP_CONTEXT_ORDER
+        }
 
-        pager_config = (
-            keymap.get("pager")
-            if isinstance(keymap.get("pager"), dict)
-            else {}
-        )
+        global_defaults = _default_global_keymap()
+        chat_defaults = _default_chat_keymap()
+        composer_defaults = _default_composer_keymap()
+        editor_defaults = _default_editor_keymap()
+        list_defaults = _default_list_keymap()
+        approval_defaults = _default_approval_keymap()
 
-        global_keys = TuiGlobalKeymap(
-            open_transcript=_resolve_bindings(
-                global_config,
-                "open_transcript",
-                defaults=("ctrl-t",),
-                path="tui.keymap.global.open_transcript",
-            ),
-            copy_last_response=_default_bindings(
-                "global.copy_last_response",
-                "ctrl-o",
-            ),
-            clear_terminal=_default_bindings(
-                "global.clear_terminal",
-                "ctrl-l",
-            ),
-            transcript_page_up=_default_bindings(
-                "global.transcript_page_up",
-                "page-up",
-            ),
-            transcript_page_down=_default_bindings(
-                "global.transcript_page_down",
-                "page-down",
-            ),
-        )
-        chat = _default_chat_keymap()
-        composer = _default_composer_keymap()
-        editor = _default_editor_keymap()
-        list_keys = _default_list_keymap()
-        approval = _default_approval_keymap()
-        pager = _resolve_pager_keymap(pager_config)
+        global_keys = TuiGlobalKeymap(**_resolve_context_values(
+            "global",
+            global_defaults,
+            context_config["global"],
+        ))
+        chat = TuiChatKeymap(**_resolve_context_values(
+            "chat",
+            chat_defaults,
+            context_config["chat"],
+        ))
+        composer = TuiComposerKeymap(**_resolve_context_values(
+            "composer",
+            composer_defaults,
+            context_config["composer"],
+            fallback_config=context_config["global"],
+            fallback_actions=frozenset({
+                "submit",
+                "queue",
+                "toggle_shortcuts",
+            }),
+        ))
+        editor = TuiEditorKeymap(**_resolve_context_values(
+            "editor",
+            editor_defaults,
+            context_config["editor"],
+            fixed_actions=frozenset({
+                "interrupt",
+                "exit",
+                "cancel_shell_mode",
+                "cancel_completion",
+            }),
+        ))
+        list_keys = TuiListKeymap(**_resolve_context_values(
+            "list",
+            list_defaults,
+            context_config["list"],
+            fixed_actions=frozenset({"interrupt"}),
+        ))
+        approval = TuiApprovalKeymap(**_resolve_context_values(
+            "approval",
+            approval_defaults,
+            context_config["approval"],
+        ))
+        pager = _resolve_pager_keymap(context_config["pager"])
 
+        _validate_reserved_pager_bindings(pager)
+        _validate_configured_binding_shapes(context_config)
         for context_name, context in (
+            ("global", global_keys),
             ("chat", chat),
             ("composer", composer),
+            ("editor", editor),
             ("list", list_keys),
             ("approval", approval),
             ("pager", pager),
         ):
             _validate_context_conflicts(context_name, context)
-        _validate_reserved_pager_bindings(pager)
+        _validate_overlapping_contexts(
+            global_keys,
+            chat,
+            composer,
+            editor,
+        )
+        _validate_chord_conflicts(
+            global_keys,
+            chat,
+            composer,
+            editor,
+            pager,
+            list_keys,
+            approval,
+        )
 
         return cls(
             global_keys=global_keys,
@@ -247,14 +323,18 @@ class TuiRuntimeKeymap(object):
 
     def actions(self) -> tuple[TuiResolvedKeyAction, ...]:
         """按稳定上下文顺序返回全部运行时动作。"""
-        contexts: tuple[tuple[str, TuiKeymapContext], ...] = (
-            ("global", self.global_keys),
-            ("chat", self.chat),
-            ("composer", self.composer),
-            ("editor", self.editor),
-            ("pager", self.pager),
-            ("list", self.list),
-            ("approval", self.approval),
+        resolved_contexts = {
+            "global": self.global_keys,
+            "chat": self.chat,
+            "composer": self.composer,
+            "editor": self.editor,
+            "pager": self.pager,
+            "list": self.list,
+            "approval": self.approval,
+        }
+        contexts: tuple[tuple[str, TuiKeymapContext], ...] = tuple(
+            (name, resolved_contexts[name])
+            for name in TUI_KEYMAP_CONTEXT_ORDER
         )
         return tuple(
             TuiResolvedKeyAction(
@@ -329,6 +409,18 @@ def bind_key_action(
                     filter=binding_filter,
                     save_before=save_before,
                 )(handler)
+            if binding.is_chord:
+                prefix = binding.strokes[0].keys
+
+                def cancel_pending_chord(event: KeyPressEvent) -> None:
+                    _ = event
+
+                bindings.add(
+                    *prefix,
+                    Keys.Escape,
+                    eager=True,
+                    filter=binding_filter,
+                )(cancel_pending_chord)
         return handler
 
     return register
@@ -363,6 +455,32 @@ def _default_bindings(action: str, *values: str) -> TuiActionBindings:
     return tuple(
         _parse_binding(value, path=f"tui.keymap.{action}")
         for value in values
+    )
+
+
+def _default_global_keymap() -> TuiGlobalKeymap:
+    """返回主界面全局动作的默认按键。"""
+    return TuiGlobalKeymap(
+        open_transcript=_default_bindings(
+            "global.open_transcript",
+            "ctrl-t",
+        ),
+        copy_last_response=_default_bindings(
+            "global.copy_last_response",
+            "ctrl-o",
+        ),
+        clear_terminal=_default_bindings(
+            "global.clear_terminal",
+            "ctrl-l",
+        ),
+        transcript_page_up=_default_bindings(
+            "global.transcript_page_up",
+            "page-up",
+        ),
+        transcript_page_down=_default_bindings(
+            "global.transcript_page_down",
+            "page-down",
+        ),
     )
 
 
@@ -635,8 +753,54 @@ def primary_binding_label(bindings: tuple[TuiKeyBinding, ...]) -> str:
     return _primary_label(bindings)
 
 
+def _resolve_context_values(
+    context: str,
+    defaults: TuiKeymapContext,
+    config: TuiKeymapConfig,
+    *,
+    fallback_config: TuiKeymapConfig | None = None,
+    fallback_actions: frozenset[str] = frozenset(),
+    fixed_actions: frozenset[str] = frozenset(),
+) -> dict[str, TuiActionBindings]:
+    """按局部、合法全局回退和默认值解析一个上下文。"""
+    values: dict[str, TuiActionBindings] = {}
+    for field_info in fields(defaults):
+        action = field_info.name
+        default_bindings = _bindings_for_action(defaults, action)
+        if action in fixed_actions:
+            if action in config:
+                raise ValueError(
+                    f"tui.keymap.{context}.{action} is a fixed safety binding"
+                )
+            values[action] = default_bindings
+            continue
+
+        source = config
+        source_context = context
+        if (
+            action not in source
+            and fallback_config is not None
+            and action in fallback_actions
+            and action in fallback_config
+        ):
+            source = fallback_config
+            source_context = "global"
+
+        if action not in source:
+            values[action] = default_bindings
+            continue
+
+        values[action] = _resolve_bindings(
+            source,
+            action,
+            defaults=(),
+            path=f"tui.keymap.{source_context}.{action}",
+        )
+    return values
+
+
 def _resolve_bindings(
-    config: dict[str, typing.Any],
+    config: TuiKeymapConfig,
     action: str,
     *,
     defaults: tuple[str, ...],
@@ -664,7 +828,7 @@ def _resolve_bindings(
     return tuple(out)
 
 
-def _resolve_pager_keymap(config: dict[str, typing.Any]) -> TuiPagerKeymap:
+def _resolve_pager_keymap(config: TuiKeymapConfig) -> TuiPagerKeymap:
     """解析页面按键，并让显式覆盖优先于其他动作的默认键。"""
     defaults: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("scroll_up", ("up", "k")),
@@ -727,70 +891,124 @@ def _resolve_pager_keymap(config: dict[str, typing.Any]) -> TuiPagerKeymap:
 
 def _parse_binding(value: str, *, path: str) -> TuiKeyBinding:
     """把规范按键字符串转换为 prompt_toolkit 按键序列。"""
-    text = str(value or "").strip().lower().replace("control-", "ctrl-")
+    text = str(value or "").strip().lower()
     if not text:
         raise ValueError(f"{path} contains an empty key binding")
+    raw_strokes = text.split()
+    if len(raw_strokes) > 2:
+        raise ValueError(
+            f"{path} has unsupported key chord: {value}; "
+            "use at most two strokes"
+        )
 
-    modifier: str = ""
+    strokes = tuple(
+        _parse_stroke(stroke, path=path, value=value)
+        for stroke in raw_strokes
+    )
+    return TuiKeyBinding(
+        keys=tuple(key for stroke in strokes for key in stroke.keys),
+        label=" ".join(stroke.label for stroke in strokes),
+        strokes=strokes,
+    )
 
-    base = text
 
-    for candidate in ("ctrl", "alt", "shift"):
-        prefix = f"{candidate}-"
-        if text.startswith(prefix):
-            modifier = candidate
-            base = text[len(prefix):]
-            break
-    if not base or any(base.startswith(f"{item}-") for item in (
-            "ctrl",
-            "alt",
-            "shift",
-    )):
+def _parse_stroke(raw: str, *, path: str, value: str) -> TuiKeyStroke:
+    """解析一个逻辑按键并保留修饰键事实。"""
+    aliases = {"control": "ctrl", "option": "alt"}
+    segments = raw.split("-")
+    modifiers: list[str] = []
+    while segments and aliases.get(segments[0], segments[0]) in {
+        "ctrl",
+        "alt",
+        "shift",
+    }:
+        raw_modifier = segments.pop(0)
+        modifier = aliases.get(raw_modifier, raw_modifier)
+        if modifier in modifiers:
+            raise ValueError(
+                f"{path} has duplicate modifier in key binding: {value}"
+            )
+        modifiers.append(modifier)
+
+    base = "-".join(segments)
+    if (
+        not base
+        or any(aliases.get(item, item) in {"ctrl", "alt", "shift"}
+               for item in segments)
+    ):
         raise ValueError(f"{path} has unsupported key binding: {value}")
 
-    prompt_key, label = _plain_key(base, path=path, value=value)
+    prompt_key, plain_label = _plain_key(base, path=path, value=value)
+    modifier_set = frozenset(modifiers)
+    key_name = _canonical_key_name(base)
+    prompt_sequence = _modified_prompt_sequence(
+        prompt_key,
+        modifier_set,
+        path=path,
+        value=value,
+    )
+    parsed = _prompt_keys(prompt_sequence, path=path, value=value)
+    ordered_labels = tuple(
+        label
+        for modifier, label in (
+            ("ctrl", "Ctrl"),
+            ("alt", "Alt"),
+            ("shift", "Shift"),
+        )
+        if modifier in modifier_set
+    )
+    label = "+".join((*ordered_labels, plain_label))
+    return TuiKeyStroke(
+        keys=parsed,
+        label=label,
+        key_name=key_name,
+        modifiers=modifier_set,
+    )
 
-    if modifier == "ctrl":
-        if len(prompt_key) == 1:
-            keys = (f"c-{prompt_key}",)
-        elif prompt_key in {
-            "delete",
-            "down",
-            "end",
-            "home",
-            "insert",
-            "left",
-            "pagedown",
-            "pageup",
-            "right",
-            "up",
-        }:
-            keys = (f"c-{prompt_key}",)
+
+def _modified_prompt_sequence(
+    prompt_key: str,
+    modifiers: frozenset[str],
+    *,
+    path: str,
+    value: str,
+) -> tuple[str, ...]:
+    """把逻辑修饰键转换为旧式终端可表达的输入序列。"""
+    core = prompt_key
+    if "shift" in modifiers:
+        if len(core) == 1 and core.isalpha():
+            core = core.upper()
         else:
-            raise ValueError(f"{path} has unsupported key binding: {value}")
-        label = f"Ctrl+{label}"
+            core = f"s-{core}"
+    if "ctrl" in modifiers:
+        core = f"c-{core}"
 
-    elif modifier == "alt":
-        keys = ("escape", prompt_key)
-        label = f"Alt+{label}"
+    sequence = (core,)
+    if "alt" in modifiers:
+        sequence = ("escape", *sequence)
+    try:
+        _prompt_keys(sequence, path=path, value=value)
+    except ValueError as error:
+        raise ValueError(
+            f"{path} has unsupported key binding in the current terminal "
+            f"decoder: {value}"
+        ) from error
+    return sequence
 
-    elif modifier == "shift":
-        if prompt_key == "tab":
-            keys = ("s-tab",)
-            label = "Shift+Tab"
-        elif prompt_key in {"left", "right", "up", "down"}:
-            keys = (f"s-{prompt_key}",)
-            label = f"Shift+{label}"
-        elif len(prompt_key) == 1 and prompt_key.isalpha():
-            keys = (prompt_key.upper(),)
-            label = f"Shift+{label}"
-        else:
-            raise ValueError(f"{path} has unsupported key binding: {value}")
-    else:
-        keys = (prompt_key,)
 
-    parsed = _prompt_keys(keys, path=path, value=value)
-    return TuiKeyBinding(keys=parsed, label=label)
+def _canonical_key_name(base: str) -> str:
+    """返回用于冲突诊断的规范键名。"""
+    aliases = {
+        "escape": "esc",
+        "return": "enter",
+        "spacebar": "space",
+        "pageup": "page-up",
+        "pagedown": "page-down",
+        "pgup": "page-up",
+        "pgdn": "page-down",
+        "del": "delete",
+    }
+    return aliases.get(base, base)
 
 
 def _plain_key(base: str, *, path: str, value: str) -> tuple[str, str]:
@@ -799,6 +1017,7 @@ def _plain_key(base: str, *, path: str, value: str) -> tuple[str, str]:
         "esc": ("escape", "Esc"),
         "escape": ("escape", "Esc"),
         "enter": ("enter", "Enter"),
+        "return": ("enter", "Enter"),
         "tab": ("tab", "Tab"),
         "backspace": ("backspace", "Backspace"),
         "delete": ("delete", "Delete"),
@@ -811,9 +1030,12 @@ def _plain_key(base: str, *, path: str, value: str) -> tuple[str, str]:
         "end": ("end", "End"),
         "page-up": ("pageup", "PgUp"),
         "pageup": ("pageup", "PgUp"),
+        "pgup": ("pageup", "PgUp"),
         "page-down": ("pagedown", "PgDn"),
         "pagedown": ("pagedown", "PgDn"),
+        "pgdn": ("pagedown", "PgDn"),
         "space": (" ", "Space"),
+        "spacebar": (" ", "Space"),
         "minus": ("-", "-"),
     }
 
@@ -859,12 +1081,293 @@ def _validate_context_conflicts(
         bindings = _bindings_for_action(keymap, action)
         for binding in bindings:
             previous = owners.get(binding.keys)
-            if previous is not None:
+            if (
+                previous is not None
+                and not _same_context_overlap_allowed(
+                    context,
+                    previous,
+                    action,
+                )
+            ):
                 raise ValueError(
                     f"tui.keymap.{context}.{action} conflicts with "
                     f"tui.keymap.{context}.{previous}: {binding.label}"
                 )
             owners[binding.keys] = action
+
+
+def _same_context_overlap_allowed(
+    context: str,
+    first: str,
+    second: str,
+) -> bool:
+    """判断两个动作是否由互斥运行时条件明确分派。"""
+    allowed = {
+        "editor": frozenset({
+            frozenset({"exit", "delete_forward"}),
+            frozenset({"cancel_shell_mode", "delete_backward"}),
+            frozenset({"cancel_shell_mode", "cancel_completion"}),
+        }),
+    }
+    return frozenset({first, second}) in allowed.get(context, frozenset())
+
+
+def _validate_overlapping_contexts(
+    global_keys: TuiGlobalKeymap,
+    chat: TuiChatKeymap,
+    composer: TuiComposerKeymap,
+    editor: TuiEditorKeymap,
+) -> None:
+    """拒绝会在主输入分派链中互相遮蔽的动作。"""
+    contexts: tuple[tuple[str, TuiKeymapContext], ...] = (
+        ("global", global_keys),
+        ("chat", chat),
+        ("composer", composer),
+        ("editor", editor),
+    )
+    owners: dict[tuple[Keys | str, ...], tuple[str, str]] = {}
+    for context, keymap in contexts:
+        for action, bindings in _context_actions(keymap):
+            for binding in bindings:
+                previous = owners.get(binding.keys)
+                if previous is None:
+                    owners[binding.keys] = context, action
+                    continue
+                previous_context, previous_action = previous
+                if previous_context == context:
+                    continue
+                if _main_overlap_allowed(
+                    previous_context,
+                    previous_action,
+                    context,
+                    action,
+                    binding,
+                ):
+                    continue
+                raise ValueError(
+                    f"tui.keymap.{context}.{action} conflicts with "
+                    f"tui.keymap.{previous_context}.{previous_action}: "
+                    f"{binding.label}"
+                )
+
+
+def _main_overlap_allowed(
+    first_context: str,
+    first_action: str,
+    second_context: str,
+    second_action: str,
+    binding: TuiKeyBinding,
+) -> bool:
+    """判断主输入上下文间是否存在显式的条件化优先级。"""
+    identities = frozenset({
+        f"{first_context}.{first_action}",
+        f"{second_context}.{second_action}",
+    })
+    allowed = {
+        frozenset({
+            "chat.interrupt_turn",
+            "editor.cancel_shell_mode",
+        }),
+        frozenset({
+            "chat.interrupt_turn",
+            "editor.cancel_completion",
+        }),
+    }
+    return identities in allowed and binding.strokes[0].key_name == "esc"
+
+
+def _validate_configured_binding_shapes(
+    configs: typing.Mapping[str, TuiKeymapConfig],
+) -> None:
+    """校验可配置按键不会占用文本输入或固定安全入口。"""
+    for context, config in configs.items():
+        for action in config:
+            effective_context = (
+                "composer"
+                if context == "global"
+                and action in {"submit", "queue", "toggle_shortcuts"}
+                else context
+            )
+            bindings = _resolve_bindings(
+                config,
+                action,
+                defaults=(),
+                path=f"tui.keymap.{context}.{action}",
+            )
+            for binding in bindings:
+                _validate_binding_shape(
+                    context=effective_context,
+                    action=action,
+                    path=f"tui.keymap.{context}.{action}",
+                    binding=binding,
+                )
+
+
+def _validate_binding_shape(
+    *,
+    context: str,
+    action: str,
+    path: str,
+    binding: TuiKeyBinding,
+) -> None:
+    """校验一个绑定在其输入上下文中的可达性与安全性。"""
+    for stroke in binding.strokes:
+        legacy_alias = (
+            _LEGACY_CONTROL_ALIASES.get(stroke.key_name)
+            if stroke.modifiers == frozenset({"ctrl"})
+            else None
+        )
+        if legacy_alias is not None:
+            raise ValueError(
+                f"{path}: {stroke.label} is indistinguishable from "
+                f"{legacy_alias} in the current terminal decoder"
+            )
+        if (
+            len(stroke.key_name) == 1
+            and {"ctrl", "alt"}.issubset(stroke.modifiers)
+        ):
+            raise ValueError(
+                f"{path}: Ctrl+Alt character keys may be AltGr text input"
+            )
+
+    if binding.is_chord:
+        prefix = binding.strokes[0]
+        if any(stroke.key_name == "esc" for stroke in binding.strokes):
+            raise ValueError(
+                f"{path}: Esc is reserved for cancelling an incomplete chord"
+            )
+        if "alt" in binding.strokes[1].modifiers:
+            raise ValueError(
+                f"{path}: an Alt-modified second chord stroke conflicts with "
+                "Esc cancellation in the current terminal decoder"
+            )
+        if (
+            len(prefix.key_name) == 1
+            and not {"ctrl", "alt"}.intersection(prefix.modifiers)
+        ):
+            raise ValueError(
+                f"{path}: a chord prefix must use Ctrl, Alt, or a named key"
+            )
+        for stroke in binding.strokes:
+            _validate_reserved_stroke(
+                context=context,
+                action=action,
+                path=path,
+                stroke=stroke,
+                chord=True,
+            )
+        return None
+
+    stroke = binding.strokes[0]
+    if (
+        context in {"global", "chat", "editor"}
+        and len(stroke.key_name) == 1
+        and not stroke.modifiers
+    ):
+        raise ValueError(f"{path}: printable keys are reserved for text input")
+    if (
+        context == "composer"
+        and action not in {"enter_shell_mode", "toggle_shortcuts"}
+        and len(stroke.key_name) == 1
+        and not stroke.modifiers
+    ):
+        raise ValueError(f"{path}: printable keys are reserved for text input")
+    _validate_reserved_stroke(
+        context=context,
+        action=action,
+        path=path,
+        stroke=stroke,
+        chord=False,
+    )
+
+
+def _validate_reserved_stroke(
+    *,
+    context: str,
+    action: str,
+    path: str,
+    stroke: TuiKeyStroke,
+    chord: bool,
+) -> None:
+    """拒绝覆盖固定取消、退出和历史回溯按键。"""
+    identity = f"{context}.{action}"
+    token = stroke.key_name, stroke.modifiers
+    allowed: dict[tuple[str, frozenset[str]], frozenset[str]] = {
+        ("esc", frozenset()): frozenset({
+            "chat.interrupt_turn",
+            "editor.cancel_shell_mode",
+            "editor.cancel_completion",
+            "list.cancel",
+            "approval.decline",
+        }),
+        ("c", frozenset({"ctrl"})): frozenset({
+            "pager.close",
+        }),
+        ("d", frozenset({"ctrl"})): frozenset({
+            "editor.delete_forward",
+            "pager.half_page_down",
+        }),
+        ("z", frozenset({"ctrl"})): frozenset({
+            "editor.undo",
+        }),
+    }
+    owners = allowed.get(token)
+    if owners is None:
+        return None
+    if chord or identity not in owners:
+        raise ValueError(
+            f"{path}: {stroke.label} is reserved by a fixed safety action"
+        )
+
+
+def _validate_chord_conflicts(
+    global_keys: TuiGlobalKeymap,
+    chat: TuiChatKeymap,
+    composer: TuiComposerKeymap,
+    editor: TuiEditorKeymap,
+    pager: TuiPagerKeymap,
+    list_keys: TuiListKeymap,
+    approval: TuiApprovalKeymap,
+) -> None:
+    """拒绝两键 chord 的前缀遮蔽和跨重叠上下文歧义。"""
+    contexts: tuple[tuple[str, TuiKeymapContext], ...] = (
+        ("global", global_keys),
+        ("chat", chat),
+        ("composer", composer),
+        ("editor", editor),
+        ("pager", pager),
+        ("list", list_keys),
+        ("approval", approval),
+    )
+    actions = tuple(
+        (context, action, binding)
+        for context, keymap in contexts
+        for action, bindings in _context_actions(keymap)
+        for binding in bindings
+    )
+    for context, action, binding in actions:
+        if not binding.is_chord:
+            continue
+        prefix = binding.strokes[0].keys
+        for other_context, other_action, other_binding in actions:
+            if not _contexts_overlap(context, other_context):
+                continue
+            if not other_binding.is_chord and other_binding.keys == prefix:
+                raise ValueError(
+                    f"tui.keymap.{context}.{action} chord prefix conflicts "
+                    f"with tui.keymap.{other_context}.{other_action}: "
+                    f"{binding.strokes[0].label}"
+                )
+
+
+def _contexts_overlap(first: str, second: str) -> bool:
+    """返回两个运行时上下文是否共享同一输入路径。"""
+    if first == second:
+        return True
+    return any(
+        first in group and second in group
+        for group in TUI_KEYMAP_OVERLAP_GROUPS
+    )
 
 
 def _context_actions(

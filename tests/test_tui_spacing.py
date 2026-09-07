@@ -690,7 +690,7 @@ def test_queued_messages_filter_controls_before_clipping() -> None:
         paste_store={},
     ))
 
-    fragments = queued.fragments(width=24)
+    fragments = queued.fragments(width=24, edit_binding="alt + ↑")
     text = "".join(value for _style, value in fragments)
 
     assert "\x1b" not in text

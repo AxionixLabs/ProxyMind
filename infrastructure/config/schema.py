@@ -180,7 +180,12 @@ def _default_effective_config() -> dict[str, typing.Any]:
             ),
             "keymap": {
                 "global": {},
+                "chat": {},
+                "composer": {},
+                "editor": {},
                 "pager": {},
+                "list": {},
+                "approval": {},
             }
         },
         "hosted_tools": {
@@ -323,7 +328,12 @@ TABLE_CONFIG_PATHS = (
     ("tui",),
     ("tui", "keymap"),
     ("tui", "keymap", "global"),
+    ("tui", "keymap", "chat"),
+    ("tui", "keymap", "composer"),
+    ("tui", "keymap", "editor"),
     ("tui", "keymap", "pager"),
+    ("tui", "keymap", "list"),
+    ("tui", "keymap", "approval"),
 )
 
 ROOT_CONFIG_FIELDS = frozenset({
@@ -355,10 +365,59 @@ TUI_FIELDS = frozenset({
     "keymap",
     "scrollback_reflow_line_limit",
 })
-
-TUI_KEYMAP_FIELDS = frozenset({"global", "pager"})
-TUI_GLOBAL_KEYMAP_FIELDS = frozenset({"open_transcript"})
-
+TUI_KEYMAP_FIELDS = frozenset({
+    "global",
+    "chat",
+    "composer",
+    "editor",
+    "pager",
+    "list",
+    "approval",
+})
+TUI_GLOBAL_KEYMAP_FIELDS = frozenset({
+    "open_transcript",
+    "copy_last_response",
+    "clear_terminal",
+    "transcript_page_up",
+    "transcript_page_down",
+    "submit",
+    "queue",
+    "toggle_shortcuts",
+})
+TUI_CHAT_KEYMAP_FIELDS = frozenset({
+    "interrupt_turn",
+    "edit_queued_message",
+})
+TUI_COMPOSER_KEYMAP_FIELDS = frozenset({
+    "submit",
+    "queue",
+    "enter_shell_mode",
+    "previous_completion",
+    "toggle_shortcuts",
+    "history_search_previous",
+    "history_search_next",
+})
+TUI_EDITOR_KEYMAP_FIELDS = frozenset({
+    "delete_line",
+    "delete_backward",
+    "delete_forward",
+    "delete_word_backward",
+    "undo",
+    "move_left",
+    "move_right",
+    "move_up",
+    "move_down",
+    "insert_newline",
+    "completion_previous",
+    "completion_next",
+    "move_line_start",
+    "move_line_end",
+    "move_word_left",
+    "move_word_right",
+    "delete_word_forward",
+    "delete_to_line_end",
+    "yank",
+})
 TUI_PAGER_KEYMAP_FIELDS = frozenset({
     "scroll_up",
     "scroll_down",
@@ -376,7 +435,36 @@ TUI_PAGER_KEYMAP_FIELDS = frozenset({
     "close",
     "close_transcript",
 })
-
+TUI_LIST_KEYMAP_FIELDS = frozenset({
+    "accept",
+    "toggle",
+    "alternate",
+    "move_down",
+    "move_up",
+    "page_down",
+    "page_up",
+    "jump_top",
+    "jump_bottom",
+    "move_right",
+    "move_left",
+    "delete_query_character",
+    "clear_query",
+    "delete_query_word",
+    "cancel",
+})
+TUI_APPROVAL_KEYMAP_FIELDS = frozenset({
+    "expand_details",
+    "accept_selected",
+    "move_down",
+    "move_up",
+    "decline",
+    "accept_once",
+    "accept_session",
+    "strict_review",
+    "persist_rule",
+    "deny",
+    "cancel",
+})
 TUI_KEYMAP_TABLE_FIELDS: typing.Mapping[
     tuple[str, ...],
     typing.AbstractSet[str],
@@ -384,13 +472,29 @@ TUI_KEYMAP_TABLE_FIELDS: typing.Mapping[
     ("tui",): TUI_FIELDS,
     ("tui", "keymap"): TUI_KEYMAP_FIELDS,
     ("tui", "keymap", "global"): TUI_GLOBAL_KEYMAP_FIELDS,
+    ("tui", "keymap", "chat"): TUI_CHAT_KEYMAP_FIELDS,
+    ("tui", "keymap", "composer"): TUI_COMPOSER_KEYMAP_FIELDS,
+    ("tui", "keymap", "editor"): TUI_EDITOR_KEYMAP_FIELDS,
     ("tui", "keymap", "pager"): TUI_PAGER_KEYMAP_FIELDS,
+    ("tui", "keymap", "list"): TUI_LIST_KEYMAP_FIELDS,
+    ("tui", "keymap", "approval"): TUI_APPROVAL_KEYMAP_FIELDS,
 }
-
-TUI_KEYMAP_CONTEXT_PATHS: frozenset[tuple[str, ...]] = frozenset({
-    ("tui", "keymap", "global"),
-    ("tui", "keymap", "pager"),
-})
+TUI_KEYMAP_CONTEXT_FIELDS: typing.Mapping[
+    str,
+    typing.AbstractSet[str],
+] = {
+    "global": TUI_GLOBAL_KEYMAP_FIELDS,
+    "chat": TUI_CHAT_KEYMAP_FIELDS,
+    "composer": TUI_COMPOSER_KEYMAP_FIELDS,
+    "editor": TUI_EDITOR_KEYMAP_FIELDS,
+    "pager": TUI_PAGER_KEYMAP_FIELDS,
+    "list": TUI_LIST_KEYMAP_FIELDS,
+    "approval": TUI_APPROVAL_KEYMAP_FIELDS,
+}
+TUI_KEYMAP_CONTEXT_PATHS: frozenset[tuple[str, ...]] = frozenset(
+    ("tui", "keymap", context)
+    for context in TUI_KEYMAP_CONTEXT_FIELDS
+)
 
 MODEL_PROVIDER_STRING_FIELDS = frozenset({
     "name",
@@ -766,8 +870,8 @@ def _normalize_tui_config(value: typing.Any) -> dict[str, typing.Any]:
             DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT,
         )),
         "keymap": {
-            "global": copy.deepcopy(_as_dict(keymap.get("global"))),
-            "pager": copy.deepcopy(_as_dict(keymap.get("pager"))),
+            context: copy.deepcopy(_as_dict(keymap.get(context)))
+            for context in TUI_KEYMAP_CONTEXT_FIELDS
         }
     }
 
@@ -797,11 +901,7 @@ def _validate_tui_config(value: typing.Any) -> None:
         raise ConfigValidationError("tui.keymap must be a table")
     _validate_known_fields(keymap, TUI_KEYMAP_FIELDS, "tui.keymap")
 
-    contexts = (
-        ("global", TUI_GLOBAL_KEYMAP_FIELDS),
-        ("pager", TUI_PAGER_KEYMAP_FIELDS),
-    )
-    for context, fields in contexts:
+    for context, fields in TUI_KEYMAP_CONTEXT_FIELDS.items():
         bindings = keymap.get(context)
         if bindings is None:
             continue
@@ -840,21 +940,15 @@ def _validate_tui_config_value(
             _validate_tui_config(value)
         elif path == ("tui", "keymap"):
             _validate_tui_config({"keymap": value})
-        elif path == ("tui", "keymap", "global"):
-            _validate_tui_config({"keymap": {"global": value}})
         else:
-            _validate_tui_config({"keymap": {"pager": value}})
+            _validate_tui_config({"keymap": {path[2]: value}})
         return None
 
     if (
         len(path) == 4
         and path[:3] in TUI_KEYMAP_CONTEXT_PATHS
     ):
-        fields = (
-            TUI_GLOBAL_KEYMAP_FIELDS
-            if path[2] == "global"
-            else TUI_PAGER_KEYMAP_FIELDS
-        )
+        fields = TUI_KEYMAP_CONTEXT_FIELDS[path[2]]
         if path[3] not in fields:
             raise ConfigValidationError(f"unknown config key: {dotted}")
         _validate_key_binding_config(value, path=dotted)

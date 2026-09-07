@@ -92,6 +92,7 @@ from .input import (
 )
 from .interrupt import TuiInterruptState
 from .keymap import (
+    KEY_CHORD_TIMEOUT_SEC,
     TuiKeyBinding,
     TuiRuntimeKeymap,
     bind_key_action,
@@ -273,9 +274,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self.queued_messages = queued_messages
         self.interrupt_state = interrupt_state
 
-        self._queued_message_edit_binding = _queued_message_edit_binding(
-            terminal_capabilities.identity
-        )
+        self._terminal_identity = terminal_capabilities.identity
 
         self._get_context = get_context
         self._get_placeholder_text = get_placeholder_text
@@ -307,6 +306,13 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._observe_render_revision = observe_render_revision
 
         self.keymap: TuiRuntimeKeymap = keymap
+        self._queued_message_edit_binding = _queued_message_edit_binding(
+            self._terminal_identity,
+            tuple(
+                binding.label
+                for binding in keymap.chat.edit_queued_message
+            ),
+        )
 
         self._validate_keymap(keymap)
 
@@ -1203,6 +1209,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             self.application.renderer.output = hyperlink_output
 
         self.application.ttimeoutlen = self.ESCAPE_SEQUENCE_TIMEOUT_SEC
+        self.application.timeoutlen = KEY_CHORD_TIMEOUT_SEC
 
         self._inline_renderer_state: _InlineRendererState | None = None
 
@@ -1346,6 +1353,13 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._validate_keymap(keymap)
 
         self.keymap = keymap
+        self._queued_message_edit_binding = _queued_message_edit_binding(
+            self._terminal_identity,
+            tuple(
+                binding.label
+                for binding in keymap.chat.edit_queued_message
+            ),
+        )
         self.input_model.set_keymap(keymap)
         self.approval.set_keymap(keymap.approval)
         self.menu.set_keymap(keymap.list)
@@ -2188,6 +2202,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         pending = self.pending_steers.fragments(
             width=render_width,
             max_rows=pending_rows,
+            interrupt_binding=primary_binding_label(
+                self.keymap.chat.interrupt_turn
+            ).casefold(),
         )
         rejected = self.rejected_steers.fragments(
             width=render_width,

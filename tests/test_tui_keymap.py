@@ -3,6 +3,7 @@
 import asyncio
 import threading
 from dataclasses import FrozenInstanceError
+from unittest.mock import Mock
 
 import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
@@ -224,25 +225,194 @@ def test_tui_keymap_rejects_context_and_main_input_conflicts() -> None:
             }
         })
 
+    with pytest.raises(ValueError, match="transcript_page_up.*open_transcript"):
+        TuiRuntimeKeymap.from_config({
+            "tui": {
+                "keymap": {
+                    "global": {"open_transcript": "page-up"},
+                }
+            }
+        })
+
+    with pytest.raises(ValueError, match="copy_last_response.*open_transcript"):
+        TuiRuntimeKeymap.from_config({
+            "tui": {
+                "keymap": {
+                    "global": {"open_transcript": "ctrl-o"},
+                }
+            }
+        })
+
+
+def test_all_runtime_contexts_support_remapping_and_explicit_unbinding() -> None:
+    config = normalize_config({
+        "tui": {
+            "keymap": {
+                "global": {"copy_last_response": "f13"},
+                "chat": {"edit_queued_message": "f14"},
+                "composer": {"submit": "f15", "queue": []},
+                "editor": {"move_left": "f16"},
+                "pager": {"scroll_up": "f17"},
+                "list": {"accept": "f18"},
+                "approval": {"accept_selected": "f19"},
+            }
+        }
+    })
+
+    assert set(config["tui"]["keymap"]) == {
+        "global",
+        "chat",
+        "composer",
+        "editor",
+        "pager",
+        "list",
+        "approval",
+    }
+    keymap = TuiRuntimeKeymap.from_config(config)
+    assert keymap.global_keys.copy_last_response[0].label == "F13"
+    assert keymap.chat.edit_queued_message[0].label == "F14"
+    assert keymap.composer.submit[0].label == "F15"
+    assert keymap.composer.queue == ()
+    assert keymap.editor.move_left[0].label == "F16"
+    assert keymap.pager.scroll_up[0].label == "F17"
+    assert keymap.list.accept[0].label == "F18"
+    assert keymap.approval.accept_selected[0].label == "F19"
+
+
+def test_composer_local_config_precedes_global_fallback_and_defaults() -> None:
+    fallback = TuiRuntimeKeymap.from_config({
+        "tui": {"keymap": {"global": {"submit": "f20", "queue": []}}},
+    })
+    assert fallback.composer.submit[0].label == "F20"
+    assert fallback.composer.queue == ()
+    assert fallback.composer.toggle_shortcuts[0].label == "?"
+
+    local = TuiRuntimeKeymap.from_config({
+        "tui": {
+            "keymap": {
+                "global": {"submit": "f20"},
+                "composer": {"submit": "f21"},
+            }
+        },
+    })
+    assert local.composer.submit[0].label == "F21"
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    (
+        (
+            {"global": {"open_transcript": "ctrl-c"}},
+            "fixed safety",
+        ),
+        (
+            {"composer": {"submit": "x"}},
+            "printable keys",
+        ),
+        (
+            {"global": {"copy_last_response": "ctrl-alt-e"}},
+            "AltGr",
+        ),
+        (
+            {"composer": {"toggle_shortcuts": "x ctrl-s"}},
+            "chord prefix",
+        ),
+        (
+            {"composer": {"toggle_shortcuts": "ctrl-x esc"}},
+            "Esc is reserved",
+        ),
+        (
+            {
+                "global": {"copy_last_response": "f24"},
+                "composer": {"submit": "f24"},
+            },
+            "conflicts",
+        ),
+        (
+            {"global": {"copy_last_response": "ctrl-m"}},
+            "indistinguishable from Enter",
+        ),
+        (
+            {"global": {"copy_last_response": "ctrl-i"}},
+            "indistinguishable from Tab",
+        ),
+        (
+            {"global": {"copy_last_response": "ctrl-h"}},
+            "indistinguishable from Backspace",
+        ),
+        (
+            {"global": {"copy_last_response": "ctrl-x alt-o"}},
+            "Alt-modified second chord stroke",
+        ),
+    ),
+)
+def test_keymap_rejects_unsafe_or_ambiguous_config(config, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        TuiRuntimeKeymap.from_config({"tui": {"keymap": config}})
+
+
+def test_keymap_supports_two_stroke_chords_aliases_and_modified_named_keys() -> None:
     keymap = TuiRuntimeKeymap.from_config({
         "tui": {
             "keymap": {
-                "global": {"open_transcript": "page-up"},
+                "global": {"open_transcript": "option-x control-t"},
+                "editor": {"move_word_left": "ctrl-shift-left"},
             }
         }
     })
-    with pytest.raises(ValueError, match="tui.transcript.page_up"):
-        TuiRuntime(keymap=keymap)
 
-    copy_conflict = TuiRuntimeKeymap.from_config({
+    binding = keymap.global_keys.open_transcript[0]
+    assert binding.is_chord
+    assert binding.label == "Alt+X Ctrl+T"
+    assert len(binding.strokes) == 2
+    assert keymap.editor.move_word_left[0].label == "Ctrl+Shift+Left"
+
+
+@pytest.mark.anyio
+async def test_chord_dispatch_cancel_and_timeout_follow_codex_semantics() -> None:
+    keymap = TuiRuntimeKeymap.from_config({
         "tui": {
             "keymap": {
-                "global": {"open_transcript": "ctrl-o"},
+                "global": {"open_transcript": "ctrl-x ctrl-t"},
             }
         }
     })
-    with pytest.raises(ValueError, match="tui.input.binding"):
-        TuiRuntime(keymap=copy_conflict)
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+            keymap=keymap,
+        )
+        toggle_transcript = Mock(
+            wraps=runtime.screen._toggle_transcript_overlay
+        )
+        runtime.screen._toggle_transcript_overlay = toggle_transcript
+        await runtime.open()
+        try:
+            pipe_input.send_text("\x18\x1b")
+            await asyncio.sleep(0.15)
+            assert runtime.active, runtime._application_lifecycle.exception()
+            assert not runtime.screen.transcript_overlay.active
+            assert not runtime.input_model.history_backtrack_primed
+            assert toggle_transcript.call_count == 0
+
+            pipe_input.send_text("\x18")
+            await asyncio.sleep(1.1)
+            pipe_input.send_text("\x14")
+            await asyncio.sleep(0.1)
+            assert runtime.active, runtime._application_lifecycle.exception()
+            assert not runtime.screen.transcript_overlay.active
+            assert toggle_transcript.call_count == 0
+
+            pipe_input.send_text("\x18\x14")
+            for _index in range(100):
+                await asyncio.sleep(0.01)
+                if runtime.screen.transcript_overlay.active:
+                    break
+            assert toggle_transcript.call_count == 1
+            assert runtime.screen.transcript_overlay.active
+        finally:
+            await runtime.close()
 
 
 @pytest.mark.anyio

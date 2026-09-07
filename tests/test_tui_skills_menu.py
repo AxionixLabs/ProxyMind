@@ -18,7 +18,10 @@ from infrastructure.config.store import ConfigStore
 from infrastructure.skills import SkillSpec
 from frontends.tui.core.input import TuiInputModel
 from frontends.tui.core.menu import TUI_MENU_STYLE, TuiMenu
-from frontends.tui.core.models import MenuEmptyAcceptAction
+from frontends.tui.core.models import (
+    MenuEmptyAcceptAction,
+    MenuFooterHint,
+)
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.features import skills as skills_feature
 from frontends.tui.rendering.fragments import fragments_text
@@ -117,9 +120,11 @@ async def test_manage_skills_toggles_persist_and_refresh_input_snapshot(
     manage_request = requests[1]
     assert manage_request.title == "Enable/Disable Skills"
     assert manage_request.help_text.startswith("Turn skills on or off")
-    assert manage_request.footer_hint == (
-        "Press space or enter to toggle; esc to close"
-    )
+    assert isinstance(manage_request.footer_hint, MenuFooterHint)
+    assert tuple(
+        command.description
+        for command in manage_request.footer_hint.commands
+    ) == ("to toggle", "to close")
     assert manage_request.search_help_text == "Type to search skills"
     assert manage_request.search_prompt_prefix == "> "
     assert manage_request.search_prompt_style == (

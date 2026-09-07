@@ -14,8 +14,11 @@ from prompt_toolkit.styles import Style
 from frontends.terminal.text import sanitize_terminal_line
 from frontends.tui.contracts.menu import (
     MenuEmptyAcceptAction,
+    MenuFooterHint,
     MenuOption,
-    MenuRequest
+    MenuRequest,
+    MenuShortcutAction,
+    MenuTab,
 )
 from frontends.tui.contracts.views import (
     ViewCompletion,
@@ -26,13 +29,12 @@ from .keymap import (
     TuiRuntimeKeymap,
     bind_key_action,
     key_action_matches,
+    primary_binding_label,
 )
 from .view import BottomPaneViewStack
 from ..rendering.menu.layout import MENU_SURFACE_HORIZONTAL_INSET
 from ..rendering.menu.measure import line_count
-from ..rendering.menu.sanitize import (
-    sanitize_menu_request as _sanitize_menu_request
-)
+from ..rendering.menu.sanitize import sanitize_menu_request as _sanitize_menu_request
 from ..rendering.menu.selection import (
     delete_previous_query_word,
     filtered_indices,
@@ -270,7 +272,7 @@ class TuiMenu(object):
 
     def push(self, request: MenuRequest) -> asyncio.Future[typing.Any]:
         """压入一个子菜单并返回只属于该 view 的 future。"""
-        request = self._with_generation(_sanitize_menu_request(request))
+        request = self._prepare_request(request)
         base_footer_hint = request.footer_hint
         request = request_for_tab(request)
         future = asyncio.get_running_loop().create_future()
@@ -680,7 +682,7 @@ class TuiMenu(object):
         """在不改变 view 对象的情况下替换其请求内容。"""
         previous_value = selected_value(state)
         previous_selected = state.selected
-        request = self._with_generation(_sanitize_menu_request(request))
+        request = self._prepare_request(request)
 
         state.base_footer_hint = request.footer_hint
 
@@ -702,6 +704,71 @@ class TuiMenu(object):
         else:
             state.selected = 0
         self._normalize_filtered_state(state)
+
+    def _prepare_request(self, request: MenuRequest) -> MenuRequest:
+        """解析运行时快捷键标签并清理菜单展示字段。"""
+        resolved = replace(
+            request,
+            footer_hint=self._resolve_footer_hint(request.footer_hint),
+            options=tuple(
+                replace(
+                    option,
+                    selected_footer_hint=self._resolve_footer_hint(
+                        option.selected_footer_hint
+                    ),
+                )
+                for option in request.options
+            ),
+            tabs=tuple(self._resolve_tab_footer(tab) for tab in request.tabs),
+        )
+        return self._with_generation(_sanitize_menu_request(resolved))
+
+    def _resolve_tab_footer(self, tab: MenuTab) -> MenuTab:
+        """解析页签及其选项的运行时快捷键标签。"""
+        return replace(
+            tab,
+            footer_hint=(
+                self._resolve_footer_hint(tab.footer_hint)
+                if tab.footer_hint is not None
+                else None
+            ),
+            options=tuple(
+                replace(
+                    option,
+                    selected_footer_hint=self._resolve_footer_hint(
+                        option.selected_footer_hint
+                    ),
+                )
+                for option in tab.options
+            ),
+        )
+
+    def _resolve_footer_hint(self, hint: str | MenuFooterHint) -> str:
+        """用当前 List Keymap 生成一个可见 footer。"""
+        if not isinstance(hint, MenuFooterHint):
+            return hint
+
+        bindings_by_action = {
+            MenuShortcutAction.ACCEPT: self.keymap.accept,
+            MenuShortcutAction.CANCEL: self.keymap.cancel,
+            MenuShortcutAction.TOGGLE: self.keymap.toggle,
+            MenuShortcutAction.ALTERNATE: self.keymap.alternate,
+        }
+        commands: list[str] = []
+        for command in hint.commands:
+            labels: list[str] = []
+            for action in command.actions:
+                bindings = bindings_by_action[action]
+                label = primary_binding_label(bindings).casefold()
+                if label and label not in labels:
+                    labels.append(label)
+            if labels:
+                commands.append(
+                    f"{' or '.join(labels)} {command.description}".strip()
+                )
+        if not commands:
+            return ""
+        return f"{hint.prefix}{hint.separator.join(commands)}"
 
     def _with_generation(self, request: MenuRequest) -> MenuRequest:
         """为带 view 标识的请求分配单调显示代数。"""

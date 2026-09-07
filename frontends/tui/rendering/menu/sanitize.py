@@ -11,6 +11,9 @@ from frontends.tui.contracts.menu import (
     MenuColumnWidthMode,
     MenuDescriptionLayout,
     MenuEmptyAcceptAction,
+    MenuFooterCommand,
+    MenuFooterHint,
+    MenuFooterValue,
     MenuOption,
     MenuRequest,
     MenuTab
@@ -49,7 +52,7 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
             request.empty_accept_action
         ),
         footer_note=sanitize_terminal_line(request.footer_note),
-        footer_hint=sanitize_terminal_line(request.footer_hint),
+        footer_hint=sanitize_footer_hint(request.footer_hint),
         footer_right=sanitize_inline_text(request.footer_right),
         footer_right_active=sanitize_inline_text(request.footer_right_active),
         allow_cancel=request.allow_cancel,
@@ -135,7 +138,7 @@ def sanitize_menu_tab(tab: MenuTab) -> MenuTab:
         label=sanitize_terminal_line(tab.label),
         options=sanitize_menu_options(tab.options),
         footer_hint=(
-            sanitize_terminal_line(tab.footer_hint)
+            sanitize_footer_hint(tab.footer_hint)
             if tab.footer_hint is not None
             else None
         ),
@@ -165,7 +168,7 @@ def sanitize_menu_option(option: MenuOption) -> MenuOption:
         selected_body=tuple(
             sanitize_inline_text(line) for line in option.selected_body
         ),
-        selected_footer_hint=sanitize_terminal_line(option.selected_footer_hint),
+        selected_footer_hint=sanitize_footer_hint(option.selected_footer_hint),
         columns=tuple(sanitize_terminal_line(value) for value in option.columns),
         column_styles=tuple(
             sanitize_terminal_line(style) for style in option.column_styles
@@ -191,6 +194,23 @@ def sanitize_menu_option(option: MenuOption) -> MenuOption:
 def sanitize_menu_options(options: tuple[MenuOption, ...]) -> tuple[MenuOption, ...]:
     """清理菜单选项集合。"""
     return tuple(sanitize_menu_option(option) for option in options)
+
+
+def sanitize_footer_hint(value: MenuFooterValue) -> MenuFooterValue:
+    """清理静态 footer 或结构化快捷键 footer。"""
+    if not isinstance(value, MenuFooterHint):
+        return sanitize_terminal_line(value)
+    return MenuFooterHint(
+        commands=tuple(
+            MenuFooterCommand(
+                actions=command.actions,
+                description=sanitize_terminal_line(command.description),
+            )
+            for command in value.commands
+        ),
+        prefix=sanitize_terminal_line(value.prefix),
+        separator=sanitize_terminal_line(value.separator),
+    )
 
 
 if __name__ == '__main__':

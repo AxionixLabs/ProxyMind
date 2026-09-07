@@ -7,12 +7,6 @@ from enum import Enum
 
 from .text import FormattedLine
 
-STANDARD_MENU_FOOTER_HINT: typing.Final[str] = (
-    "Press enter to confirm or esc to go back"
-)
-
-CLOSE_MENU_FOOTER_HINT: typing.Final[str] = "Press enter or esc to close"
-
 
 class MenuDescriptionLayout(str, Enum):
     """描述菜单选项辅助文本的排列方式。"""
@@ -39,6 +33,51 @@ class MenuEmptyAcceptAction(str, Enum):
     IGNORE = "ignore"
 
 
+class MenuShortcutAction(str, Enum):
+    """标识菜单 footer 中由 Runtime Keymap 解析的动作。"""
+    ACCEPT = "accept"
+    CANCEL = "cancel"
+    TOGGLE = "toggle"
+    ALTERNATE = "alternate"
+
+
+@dataclass(frozen=True, slots=True)
+class MenuFooterCommand:
+    """描述一组等价按键及其 footer 操作说明。"""
+    actions: tuple[MenuShortcutAction, ...]
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
+class MenuFooterHint:
+    """描述由菜单动作动态生成的 footer。"""
+    commands: tuple[MenuFooterCommand, ...]
+    prefix: str = "Press "
+    separator: str = " or "
+
+
+MenuFooterValue: typing.TypeAlias = str | MenuFooterHint
+
+STANDARD_MENU_FOOTER_HINT: typing.Final[MenuFooterHint] = MenuFooterHint(
+    commands=(
+        MenuFooterCommand((MenuShortcutAction.ACCEPT,), "to confirm"),
+        MenuFooterCommand((MenuShortcutAction.CANCEL,), "to go back"),
+    ),
+)
+
+CLOSE_MENU_FOOTER_HINT: typing.Final[MenuFooterHint] = MenuFooterHint(
+    commands=(
+        MenuFooterCommand(
+            (
+                MenuShortcutAction.ACCEPT,
+                MenuShortcutAction.CANCEL,
+            ),
+            "to close",
+        ),
+    ),
+)
+
+
 @dataclass(frozen=True, slots=True)
 class MenuOption(object):
     """描述运行期选择菜单中的一项。"""
@@ -56,7 +95,7 @@ class MenuOption(object):
     search_value: str | None = None
     disabled_gutter_marker: str = ""
     selected_body: tuple[str, ...] = ()
-    selected_footer_hint: str = ""
+    selected_footer_hint: MenuFooterValue = ""
     columns: tuple[str, ...] = ()
     column_styles: tuple[str, ...] = ()
     row_style: str = ""
@@ -73,7 +112,7 @@ class MenuTab(object):
     tab_id: str
     label: str
     options: tuple[MenuOption, ...] = ()
-    footer_hint: str | None = None
+    footer_hint: MenuFooterValue | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +149,7 @@ class MenuRequest(object):
     search_empty_text: str = ""
     empty_accept_action: MenuEmptyAcceptAction = MenuEmptyAcceptAction.CANCEL
     footer_note: str = ""
-    footer_hint: str = ""
+    footer_hint: MenuFooterValue = ""
     footer_right: str = ""
     footer_right_active: str = ""
     allow_cancel: bool = True

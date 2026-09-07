@@ -13,14 +13,70 @@ from frontends.tui.core.menu import (
     TUI_MENU_STYLE,
     TuiMenu,
 )
+from frontends.tui.core.keymap import TuiRuntimeKeymap
 from frontends.tui.core.models import (
+    CLOSE_MENU_FOOTER_HINT,
     MenuColumnWidthMode,
     MenuDescriptionLayout,
+    MenuFooterCommand,
+    MenuFooterHint,
     MenuOption,
     MenuRequest,
+    MenuShortcutAction,
+    STANDARD_MENU_FOOTER_HINT,
     MenuTab,
     ViewCompletion,
 )
+
+
+@pytest.mark.anyio
+async def test_menu_footer_uses_runtime_keymap_and_skips_unbound_actions() -> None:
+    keymap = TuiRuntimeKeymap.from_config({
+        "tui": {
+            "keymap": {
+                "list": {
+                    "accept": "f18",
+                    "cancel": "f19",
+                    "toggle": [],
+                },
+            },
+        },
+    })
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 100,
+        keymap=keymap.list,
+    )
+    custom_hint = MenuFooterHint(
+        commands=(
+            MenuFooterCommand(
+                (MenuShortcutAction.TOGGLE, MenuShortcutAction.ACCEPT),
+                "to toggle",
+            ),
+            MenuFooterCommand(
+                (MenuShortcutAction.CANCEL,),
+                "to close",
+            ),
+        ),
+        separator="; ",
+    )
+
+    for hint, expected in (
+        (STANDARD_MENU_FOOTER_HINT, "Press f18 to confirm or f19 to go back"),
+        (CLOSE_MENU_FOOTER_HINT, "Press f18 or f19 to close"),
+        (custom_hint, "Press f18 to toggle; f19 to close"),
+    ):
+        future = menu.push(MenuRequest(
+            title="Keymap footer",
+            body=("content",),
+            footer_hint=hint,
+        ))
+        assert menu.state is not None
+        assert menu.state.request.footer_hint == expected
+        menu.cancel()
+        assert await future is None
 
 
 @pytest.mark.anyio

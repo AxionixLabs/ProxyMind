@@ -27,8 +27,13 @@ _OSC8_TERMINALS = frozenset({
 })
 
 
-def queued_message_edit_binding(identity: TerminalIdentity) -> str:
-    """返回当前终端适合展示的队尾编辑按键。"""
+def queued_message_edit_binding(
+    identity: TerminalIdentity,
+    bindings: tuple[str, ...],
+) -> str:
+    """从有效绑定中选择适合当前终端展示的队尾编辑按键。"""
+    if not bindings:
+        return ""
     if (
         identity.multiplexer == TerminalKind.TMUX
         or identity.kind in {
@@ -37,8 +42,22 @@ def queued_message_edit_binding(identity: TerminalIdentity) -> str:
             TerminalKind.WARP,
         }
     ):
-        return "shift + ←"
-    return "alt + ↑"
+        preferred = "Shift+Left"
+    else:
+        preferred = "Alt+Up"
+    selected = next(
+        (
+            binding
+            for binding in bindings
+            if binding.casefold() == preferred.casefold()
+        ),
+        bindings[0],
+    )
+    display = {
+        "alt+up": "alt + ↑",
+        "shift+left": "shift + ←",
+    }
+    return display.get(selected.casefold(), selected.casefold())
 
 
 def supports_terminal_hyperlinks(identity: TerminalIdentity) -> bool:

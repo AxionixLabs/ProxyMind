@@ -25,6 +25,7 @@ from frontends.tui.core.approval_render import (
     approval_pager_title,
     tui_approval_content_lines,
 )
+from frontends.tui.core.keymap import TuiRuntimeKeymap
 from frontends.tui.core.runtime import TuiRuntime
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from frontends.tui.core.styles import build_tui_application_style
@@ -100,6 +101,36 @@ def test_permissions_approval_card_uses_native_fields_and_rule_color() -> None:
     assert TUI_APPROVAL_STYLE.get_attrs_for_style_str(
         "class:approval-permission-value"
     ).bold
+
+
+def test_approval_footer_uses_runtime_keymap_labels() -> None:
+    keymap = TuiRuntimeKeymap.from_config({
+        "tui": {
+            "keymap": {
+                "approval": {
+                    "accept_selected": "f18",
+                    "decline": "f19",
+                },
+            },
+        },
+    })
+    lines = tui_approval_content_lines(
+        ["accept", "decline"],
+        approval={
+            "kind": "mcp_tool_call",
+            "approval_id": "approval-keymap",
+            "call_id": "call-keymap",
+            "server": "test",
+            "tool_name": "read",
+            "available_decisions": ["accept", "decline"],
+        },
+        width=100,
+        keymap=keymap.approval,
+    )
+
+    text = "\n".join(_line_texts(lines))
+    assert "Press f18 to confirm" in text
+    assert "Press enter" not in text
 
 
 def test_network_approval_card_uses_target_row_and_network_colors() -> None:

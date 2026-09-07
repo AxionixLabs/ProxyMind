@@ -21,8 +21,11 @@ from ..core.models import (
     MenuActionKind,
     MenuColumnWidthMode,
     MenuDescriptionLayout,
+    MenuFooterCommand,
+    MenuFooterHint,
     MenuOption,
     MenuRequest,
+    MenuShortcutAction,
     STANDARD_MENU_FOOTER_HINT
 )
 from ..core.styles import (
@@ -305,15 +308,41 @@ def _hook_row_label(entry: HookCatalogEntry, index: int) -> str:
     return f"[{marker}] Hook {index + 1}{suffix}"
 
 
-def _hook_list_footer(entry: HookCatalogEntry | None) -> str:
+def _hook_list_footer(entry: HookCatalogEntry | None) -> MenuFooterHint:
     """返回当前选中 Hook 对应的动态 footer。"""
     if entry is None:
-        return "Press esc to go back"
+        return MenuFooterHint(
+            (MenuFooterCommand((MenuShortcutAction.CANCEL,), "to go back"),)
+        )
     if entry.trust_policy == "managed":
-        return "Managed hooks are always on; press esc to go back"
+        return MenuFooterHint(
+            (MenuFooterCommand((MenuShortcutAction.CANCEL,), "to go back"),),
+            prefix="Managed hooks are always on; press ",
+        )
     if entry.needs_review:
-        return "Press t to trust; esc to go back"
-    return "Press space or enter to toggle; esc to go back"
+        return MenuFooterHint(
+            commands=(
+                MenuFooterCommand(
+                    (MenuShortcutAction.ALTERNATE,),
+                    "to trust",
+                ),
+                MenuFooterCommand(
+                    (MenuShortcutAction.CANCEL,),
+                    "to go back",
+                ),
+            ),
+            separator="; ",
+        )
+    return MenuFooterHint(
+        commands=(
+            MenuFooterCommand(
+                (MenuShortcutAction.TOGGLE, MenuShortcutAction.ACCEPT),
+                "to toggle",
+            ),
+            MenuFooterCommand((MenuShortcutAction.CANCEL,), "to go back"),
+        ),
+        separator="; ",
+    )
 
 
 def _hook_detail_body(entry: HookCatalogEntry) -> tuple[str, ...]:
@@ -456,10 +485,24 @@ def hook_event_menu(
         0,
     )
 
-    footer = (
-        "Press t to trust all; enter to review hooks; esc to close"
-        if show_review
-        else "Press enter to view hooks; esc to close"
+    footer = MenuFooterHint(
+        commands=(
+            (
+                MenuFooterCommand(
+                    (MenuShortcutAction.ALTERNATE,),
+                    "to trust all",
+                ),
+            )
+            if show_review
+            else ()
+        ) + (
+            MenuFooterCommand(
+                (MenuShortcutAction.ACCEPT,),
+                "to review hooks" if show_review else "to view hooks",
+            ),
+            MenuFooterCommand((MenuShortcutAction.CANCEL,), "to close"),
+        ),
+        separator="; ",
     )
 
     body: list[str] = [""]

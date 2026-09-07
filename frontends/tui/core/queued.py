@@ -145,7 +145,7 @@ class TuiQueuedMessages(object):
         *,
         width: int,
         max_rows: int = 6,
-        edit_binding: str = "alt + ↑"
+        edit_binding: str,
     ) -> FormattedText:
         """生成动画行下方的待提交消息列表。"""
         if not self._items:
@@ -442,7 +442,13 @@ class TuiPendingSteers(object):
             resolved_ids=tuple(resolved_ids),
         )
 
-    def fragments(self, *, width: int, max_rows: int = 6) -> FormattedText:
+    def fragments(
+        self,
+        *,
+        width: int,
+        max_rows: int = 6,
+        interrupt_binding: str,
+    ) -> FormattedText:
         """生成等待当前轮次接收的消息列表。"""
         if not self.active:
             return []
@@ -466,7 +472,10 @@ class TuiPendingSteers(object):
             lines.append(
                 _interrupt_settling_title(width)
                 if self._interrupt_settling
-                else _pending_steer_title(width)
+                else _pending_steer_title(
+                    width,
+                    interrupt_binding=interrupt_binding,
+                )
             )
             lines.extend(_submission_lines(
                 pending_items,
@@ -507,13 +516,19 @@ def _queue_title(width: int) -> FormattedText:
     ]
 
 
-def _pending_steer_title(width: int) -> FormattedText:
+def _pending_steer_title(
+    width: int,
+    *,
+    interrupt_binding: str,
+) -> FormattedText:
     """返回适合当前终端宽度的即时输入标题。"""
+    hint = (
+        f" (press {interrupt_binding} to interrupt and send immediately)"
+        if interrupt_binding
+        else ""
+    )
     titles = (
-        (
-            "• Messages to be submitted after next tool call",
-            " (press esc to interrupt and send immediately)",
-        ),
+        ("• Messages to be submitted after next tool call", hint),
         ("• Messages to be submitted after next tool call", ""),
         ("• Submit after next tool call", ""),
     )
