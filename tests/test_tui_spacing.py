@@ -6033,7 +6033,7 @@ async def test_saturated_input_keeps_footer_and_scrolls_only_overflow(
         try:
             await _prepare_scrolled_turn_footer(runtime, terminal)
 
-            pipe_input.send_text("\x0f" * expansion_rows)
+            pipe_input.send_text("\n" * expansion_rows)
             await _wait_for_input_text(runtime, "\n" * expansion_rows)
             expanded = await _render_next_frame(runtime)
             positions = expanded.visible_windows_to_write_positions
@@ -6364,14 +6364,14 @@ async def test_multiline_input_backspace_shrinks_without_top_spacer(
                     pipe_input.send_text("x")
                     await _wait_for_input_text(runtime, "x")
                     for line_count in range(1, 9):
-                        pipe_input.send_text("\x0f")
+                        pipe_input.send_text("\n")
                         await _wait_for_input_text(
                             runtime,
                             "x" + "\n" * line_count,
                         )
                         await _render_next_frame(runtime)
                 else:
-                    pipe_input.send_text("x" + "\x0f" * 8)
+                    pipe_input.send_text("x" + "\n" * 8)
                     await _wait_for_input_text(runtime, "x" + "\n" * 8)
 
                 await _render_next_frame(runtime)
@@ -6564,7 +6564,7 @@ async def test_ctrl_u_restores_natural_layout_after_multiline_terminal_scroll(
 
             baseline = await _render_next_frame(runtime)
 
-            pipe_input.send_text("\x0f" * expansion_rows)
+            pipe_input.send_text("\n" * expansion_rows)
             await _wait_for_input_text(runtime, "\n" * expansion_rows)
             expanded = await _render_next_frame(runtime)
             expected_expanded_height = min(
@@ -6639,7 +6639,7 @@ async def test_reexpanded_input_never_adds_top_canvas_spacer(
         try:
             await _prepare_scrolled_turn_footer(runtime, terminal)
 
-            pipe_input.send_text("\x0f" * 20)
+            pipe_input.send_text("\n" * 20)
             await _wait_for_input_text(runtime, "\n" * 20)
             expanded = await _render_next_frame(runtime)
             peak_input_height = (
@@ -6661,7 +6661,7 @@ async def test_reexpanded_input_never_adds_top_canvas_spacer(
             )
 
             for line_count in range(1, peak_input_height):
-                pipe_input.send_text("\x0f")
+                pipe_input.send_text("\n")
                 await _wait_for_input_text(runtime, "\n" * line_count)
                 expanded = await _render_next_frame(runtime)
                 positions = expanded.visible_windows_to_write_positions
@@ -6702,7 +6702,7 @@ async def test_idle_destructive_edit_uses_current_input_height(
             await _prepare_scrolled_turn_footer(runtime, terminal)
             assert runtime.execution_active is False
 
-            pipe_input.send_text("\x0f" * 20)
+            pipe_input.send_text("\n" * 20)
             await _wait_for_input_text(runtime, "\n" * 20)
             expanded = await _render_next_frame(runtime)
             peak_input_height = runtime.screen._input_height()
@@ -6928,7 +6928,7 @@ async def test_multiline_input_backspace_keeps_retired_canvas_collapsed() -> Non
                     runtime.screen._natural_visible_height()
                 )
 
-                pipe_input.send_text("\x0f" * 8)
+                pipe_input.send_text("\n" * 8)
                 await _wait_for_input_text(runtime, "\n" * 8)
 
                 pipe_input.send_text("\x7f" * 8)

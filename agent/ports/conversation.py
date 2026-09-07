@@ -7,6 +7,7 @@ from pathlib import Path
 
 from agent.domain.hooks import SessionEndReason
 from agent.domain.transcripts import TranscriptEntry
+from agent.protocol import AssistantReplySnapshot
 
 __all__ = (
     "ConversationHistoryPort",
@@ -170,8 +171,8 @@ class RootConversationPort(typing.Protocol):
         """归档指定的非当前会话。"""
         ...
 
-    def last_assistant_reply(self) -> str:
-        """返回最近一次完整 assistant 回复。"""
+    def assistant_reply_snapshot(self) -> AssistantReplySnapshot | None:
+        """返回最近一次完整 assistant 回复的稳定快照。"""
         ...
 
 

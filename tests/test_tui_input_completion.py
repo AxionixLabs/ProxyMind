@@ -736,7 +736,7 @@ async def test_slash_completion_only_opens_on_the_first_input_line() -> None:
             pipe_input.send_text("/")
             await wait_for_completion(runtime)
 
-            pipe_input.send_text("\x0f/")
+            pipe_input.send_text("\n/")
             await wait_for_input_text(runtime, "/\n/")
             await asyncio.sleep(0)
 
@@ -768,7 +768,7 @@ def test_slash_suggestion_is_not_shown_on_any_input_line() -> None:
 
 
 @pytest.mark.anyio
-async def test_ctrl_o_closes_skill_menu_and_restores_natural_height() -> None:
+async def test_ctrl_j_closes_skill_menu_and_restores_natural_height() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         runtime.input_model.set_skills(tuple(
@@ -789,7 +789,7 @@ async def test_ctrl_o_closes_skill_menu_and_restores_natural_height() -> None:
 
                 assert runtime.screen._completion_section_height() == 10
 
-                pipe_input.send_text("\x0f")
+                pipe_input.send_text("\n")
                 await wait_for_input_text(runtime, "$\n")
                 screen = await render_next_frame(runtime)
                 positions = screen.visible_windows_to_write_positions

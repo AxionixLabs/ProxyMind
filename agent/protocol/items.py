@@ -23,6 +23,33 @@ AssistantTextPhase: typing.TypeAlias = typing.Literal[
 
 
 @dataclass(frozen=True, slots=True)
+class AssistantReplySnapshot:
+    """描述最近一条可复制 assistant 回复的稳定快照。
+
+    ``content`` 供会话生命周期和 Hook 使用；``source`` 保留复制选择器解析
+    Markdown 所需的原始空白。构造方必须只在完整、非 commentary 的文本 Item
+    完成后替换该快照。
+    """
+
+    content: str
+    source: str
+
+    def __post_init__(self) -> None:
+        """校验规范化正文与原始源码属于同一条回复。"""
+        if not isinstance(self.source, str) or not self.source.strip():
+            raise ValueError("assistant reply source is required")
+        if self.content != self.source.strip():
+            raise ValueError("assistant reply content must match stripped source")
+
+    @classmethod
+    def from_source(cls, source: str) -> "AssistantReplySnapshot":
+        """从完整 assistant 原文构造规范化正文与保真源码。"""
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError("assistant reply source is required")
+        return cls(content=source.strip(), source=source)
+
+
+@dataclass(frozen=True, slots=True)
 class CanonicalItem:
     """描述 Protocol Client 可交给任意前端的不可变 Item 快照。
 

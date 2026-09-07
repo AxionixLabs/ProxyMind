@@ -220,6 +220,10 @@ async def stream_turn(
         transcript=transcript,
         content=content,
         activity=activity_projector,
+        assistant_reply_sink=(
+            session_state.remember_assistant_reply if turn_context.agent.depth == 0
+            else None
+        ),
     )
     turn_state_stores = [approval_ledger]
     permission_grants = turn_context.permission_grants
@@ -707,8 +711,6 @@ async def stream_turn(
 
         if outcome.is_completed and turn_context.agent.depth == 0:
             model_events.flush_pending()
-            assistant_text = event_stream.assistant_text
-            session_state.remember_assistant_reply(assistant_text)
 
         await run_presentation.emit_result(event_stream.sources)
 

@@ -49,6 +49,7 @@ from ..features.conversation import (
     compact_current_conversation,
     confirm_archive_session,
     copy_last_assistant_reply,
+    copy_whole_assistant_reply,
     fork_current_conversation,
     render_compact_failure,
     render_compact_interrupted,
@@ -281,10 +282,14 @@ class TuiCommandDispatcher(object):
             ),
             "queue": self._resolve_stream_queue_action,
             "diff": lambda _request: self._diff_local_action(),
-            "copy": lambda _request: StreamLocalAction(
-                key="copy",
-                name="tui copy assistant response",
-                factory=lambda: copy_last_assistant_reply(self.host),
+            "copy": lambda _request: StreamBarrierAction(
+                lambda: self.foreground_tasks.start(
+                    "Copy from response",
+                    lambda: copy_last_assistant_reply(
+                        self.runtime,
+                        self.host,
+                    ),
+                )
             ),
             "ps": lambda _request: StreamLocalAction(
                 key="ps",
@@ -480,6 +485,19 @@ class TuiCommandDispatcher(object):
             name="tui git diff",
             factory=self._workspace_diff_coroutine,
         )
+
+    def copy_last_response(self) -> None:
+        """按 Ctrl+O 语义异步复制调用时冻结的完整回复。"""
+        snapshot = self.host.conversation.assistant_reply_snapshot()
+        source = snapshot.source if snapshot is not None else ""
+        self._start_local_action(StreamLocalAction(
+            key="copy",
+            name="tui copy whole assistant response",
+            factory=lambda: copy_whole_assistant_reply(
+                self.host,
+                source=source,
+            ),
+        ))
 
     def _workspace_diff_coroutine(
         self,
@@ -1138,7 +1156,7 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "copy"):
-            await copy_last_assistant_reply(self.host)
+            await copy_last_assistant_reply(self.runtime, self.host)
             return DispatchAction.HANDLED
 
         if matches_command(command, "skills"):

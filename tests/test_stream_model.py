@@ -83,7 +83,10 @@ class _Projection:
         )
 
 
-def _handler() -> tuple[
+def _handler(
+    *,
+    assistant_reply_sink=None,
+) -> tuple[
     ModelStreamEventHandler,
     _Projection,
     _Transcript,
@@ -105,6 +108,7 @@ def _handler() -> tuple[
         transcript=transcript,
         content=content,
         activity=TurnActivityProjector(context, activity),
+        assistant_reply_sink=assistant_reply_sink,
     )
     return (
         handler,
@@ -272,6 +276,45 @@ async def test_model_handler_completes_each_item_revision_once() -> None:
             phase="final_answer",
         ),
     ]
+
+
+@pytest.mark.anyio
+async def test_model_handler_snapshots_only_completed_non_commentary_item() -> None:
+    replies: list[str] = []
+    handler, projection, _transcript, _content, _activity = _handler(
+        assistant_reply_sink=replies.append,
+    )
+    commentary = _item(
+        "commentary",
+        "analysis",
+        status="completed",
+        phase="commentary",
+    )
+    projection.update(commentary, commentary)
+    await handler.handle(TextDoneEvent(
+        type="text.done",
+        turn_id="turn_test",
+        segment_id="commentary",
+        phase="commentary",
+    ), projection=projection)
+
+    answer = _item(
+        "answer",
+        "  final  \r\n",
+        status="completed",
+        phase="final_answer",
+    )
+    projection.update(answer, commentary, answer)
+    done = TextDoneEvent(
+        type="text.done",
+        turn_id="turn_test",
+        segment_id="answer",
+        phase="final_answer",
+    )
+    await handler.handle(done, projection=projection)
+    await handler.handle(done, projection=projection)
+
+    assert replies == ["  final  \r\n"]
 
 
 @pytest.mark.anyio

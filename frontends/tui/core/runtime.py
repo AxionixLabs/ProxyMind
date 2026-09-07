@@ -1918,6 +1918,13 @@ class TuiRuntime(object):
         """绑定或清除当前可中断生命周期的取消函数。"""
         self.submissions.bind_interrupt_handler(handler)
 
+    def bind_copy_last_response_handler(
+        self,
+        handler: typing.Callable[[], None],
+    ) -> None:
+        """绑定 Ctrl+O 使用的最近整体回复复制动作。"""
+        self.input_model.bind_copy_last_response(handler)
+
     def bind_stream_command_handler(
         self,
         handler: typing.Callable[[str], bool] | None

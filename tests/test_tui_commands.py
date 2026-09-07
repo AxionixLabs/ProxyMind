@@ -21,6 +21,7 @@ from metadata import const
 from agent.domain.transcripts import TranscriptEntry
 from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.ports import ProtocolCommandClient
+from agent.protocol import AssistantReplySnapshot
 from frontends.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
@@ -492,7 +493,7 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
         ("/preferences", "local_snapshot"),
         ("/tools", "local_snapshot"),
         ("/diff", "local_snapshot"),
-        ("/copy", "local_snapshot"),
+        ("/copy", "interactive_panel"),
         ("/ps", "local_snapshot"),
         ("/listen status", "local_snapshot"),
         ("/mcp status", "local_snapshot"),
@@ -1663,6 +1664,61 @@ async def test_dispatcher_opens_agent_panel_without_interrupting(
 
     handled = dispatcher.handle_stream_command(
         "/agent",
+        lambda: cancelled.append(True) or True,
+    )
+    await asyncio.wait_for(menu_called.wait(), timeout=1)
+
+    assert handled
+    assert cancelled == []
+
+
+@pytest.mark.anyio
+async def test_dispatcher_opens_copy_picker_as_stream_input_barrier(
+    monkeypatch,
+) -> None:
+    from frontends.tui.session import dispatch as dispatch_module
+
+    menu_called = asyncio.Event()
+    runtime = TuiRuntime()
+    host = SimpleNamespace(
+        conversation=SimpleNamespace(
+            assistant_reply_snapshot=lambda: AssistantReplySnapshot.from_source(
+                "response"
+            ),
+        ),
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=lambda _view: None),
+        ),
+    )
+
+    async def open_picker(received_runtime, received_host):
+        assert received_runtime is runtime
+        assert received_host is host
+        menu_called.set()
+
+    monkeypatch.setattr(
+        dispatch_module,
+        "copy_last_assistant_reply",
+        open_picker,
+    )
+    foreground = SimpleNamespace()
+
+    def start(_label, factory):
+        runtime.start_background_task(factory(), name="test copy picker")
+        return True
+
+    foreground.start = start
+    foreground.handle_stream_command = lambda *_args: False
+    dispatcher = TuiCommandDispatcher(
+        host,
+        runtime,
+        SimpleNamespace(),
+        foreground,
+    )
+    cancelled = []
+
+    handled = dispatcher.handle_stream_command(
+        "/copy",
         lambda: cancelled.append(True) or True,
     )
     await asyncio.wait_for(menu_called.wait(), timeout=1)

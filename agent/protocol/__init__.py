@@ -31,6 +31,7 @@ from .events import (
     validate_model_event,
 )
 from .items import (
+    AssistantReplySnapshot,
     AssistantTextPhase,
     CanonicalItem,
 )
@@ -48,6 +49,7 @@ __all__ = (
     "TurnObservationRequest",
     "ModelStreamEndReason",
     "CanonicalItem",
+    "AssistantReplySnapshot",
     "AssistantTextPhase",
     "SubmitTurnCommand",
     "SteerTurnInput",

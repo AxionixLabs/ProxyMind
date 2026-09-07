@@ -29,6 +29,7 @@ from protocol.schema.stream_events import (
 )
 
 _ItemRevision: typing.TypeAlias = tuple[str, int, int, int]
+AssistantReplySink: typing.TypeAlias = typing.Callable[[str], None]
 
 
 class ModelStreamEventHandler:
@@ -40,11 +41,13 @@ class ModelStreamEventHandler:
         transcript: TranscriptSink,
         content: ContentSink,
         activity: TurnActivityProjector,
+        assistant_reply_sink: AssistantReplySink | None = None,
     ) -> None:
         """绑定输出端口并初始化 Transcript 交付水位。"""
         self.transcript = transcript
         self.content = content
         self.activity = activity
+        self.assistant_reply_sink = assistant_reply_sink
         self._item_history: tuple[CanonicalItem, ...] = ()
         self._delivered_text: dict[_ItemRevision, str] = {}
         self._completed_presentations: set[_ItemRevision] = set()
@@ -216,8 +219,16 @@ class ModelStreamEventHandler:
             self._synchronize_transcript_item(item)
         self._completed_presentations.add(revision)
         self._presented_text_revision = None
-        if str(item.payload_value().get("text") or event.final_text or ""):
+        text = str(item.payload_value().get("text") or event.final_text or "")
+        if text:
             await self._buffer_assistant_activity(item)
+        if (
+            self.assistant_reply_sink is not None
+            and item.item_status == "completed"
+            and item.phase != "commentary"
+            and text.strip()
+        ):
+            self.assistant_reply_sink(text)
         await self.content.emit(AssistantSegmentCompleted(
             _response_identity(item),
             final_text=event.final_text,
@@ -246,8 +257,8 @@ class ModelStreamEventHandler:
 
     def _synchronize_transcript_item(self, item: CanonicalItem) -> None:
         """按 Item revision 创建或更新一条 Transcript assistant 消息。"""
-        text = str(item.payload_value().get("text") or "").strip()
-        if not text:
+        text = str(item.payload_value().get("text") or "")
+        if not text.strip():
             return
         revision = _item_revision(item)
         previous = self._delivered_text.get(revision)

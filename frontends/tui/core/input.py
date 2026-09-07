@@ -284,6 +284,9 @@ class TuiInputModel(object):
         self.turn_interrupt_handler: typing.Callable[
             [], InterruptDisposition
         ] = _ignore_interrupt
+        self.copy_last_response_handler: typing.Callable[[], None] = (
+            _ignore_action
+        )
         self.exit_handler: typing.Callable[[], None] = _ignore_action
         self._input_layout_handler: typing.Callable[[], None] = (
             _ignore_input_layout
@@ -421,47 +424,6 @@ class TuiInputModel(object):
             return "command"
         return "completion"
 
-    def _token_menu_match_indices(
-        self,
-        document: Document,
-        completion: Completion,
-    ) -> tuple[int, ...] | None:
-        """返回补全候选中需要高亮的位置。"""
-        query = skill_query_token(document.text_before_cursor)
-        category = file_category(completion.display_meta_text)
-        if query and query.startswith("@") and category in {"File", "Dir"}:
-            return self.file_search.match_indices(
-                completion.text.strip(),
-                completion.display_text,
-                query[1:].strip(),
-            )
-
-        if completion.text[:1] in SKILL_SIGILS:
-            if query is None:
-                return None
-            return subsequence_match_indices(
-                completion.display_text,
-                query[1:].strip(),
-            )
-
-        if completion.text.startswith("/"):
-            query = slash_command_query(document)
-            if query is None:
-                return None
-
-            token = query.token[1:].strip()
-            if not token:
-                return None
-
-            offset = 1 if completion.display_text.startswith("/") else 0
-            return prefix_match_indices(
-                completion.display_text,
-                token,
-                offset=offset,
-            )
-
-        return None
-
     @staticmethod
     def _skill_completion_token(document: Document) -> tuple[int, str] | None:
         """返回当前 skill 补全 token 的起点和完整文本。"""
@@ -553,6 +515,47 @@ class TuiInputModel(object):
             text,
             cursor_position=start + len(completion.text),
         )
+
+    def _token_menu_match_indices(
+        self,
+        document: Document,
+        completion: Completion,
+    ) -> tuple[int, ...] | None:
+        """返回补全候选中需要高亮的位置。"""
+        query = skill_query_token(document.text_before_cursor)
+        category = file_category(completion.display_meta_text)
+        if query and query.startswith("@") and category in {"File", "Dir"}:
+            return self.file_search.match_indices(
+                completion.text.strip(),
+                completion.display_text,
+                query[1:].strip(),
+            )
+
+        if completion.text[:1] in SKILL_SIGILS:
+            if query is None:
+                return None
+            return subsequence_match_indices(
+                completion.display_text,
+                query[1:].strip(),
+            )
+
+        if completion.text.startswith("/"):
+            query = slash_command_query(document)
+            if query is None:
+                return None
+
+            token = query.token[1:].strip()
+            if not token:
+                return None
+
+            offset = 1 if completion.display_text.startswith("/") else 0
+            return prefix_match_indices(
+                completion.display_text,
+                token,
+                offset=offset,
+            )
+
+        return None
 
     def _selected_menu_completion(self, buffer) -> Completion | None:
         """返回当前补全菜单中准备确认的候选项。"""
@@ -1122,8 +1125,8 @@ class TuiInputModel(object):
                 count=max(1, event.arg),
             )
 
+        @bindings.add("c-j")
         @bindings.add("escape", "enter")
-        @bindings.add("c-o")
         def _(event) -> None:
             buffer = event.app.current_buffer
             completion_open = bool(
@@ -1137,6 +1140,14 @@ class TuiInputModel(object):
             ):
                 buffer.cancel_completion()
                 self.notify_input_layout()
+
+        @bindings.add(
+            "c-o",
+            eager=True,
+            filter=has_focus(INPUT_BUFFER_NAME),
+        )
+        def _(_event) -> None:
+            self.copy_last_response_handler()
 
         queue_rollback = has_focus(INPUT_BUFFER_NAME) & Condition(
             lambda: bool(
@@ -1541,6 +1552,10 @@ class TuiInputModel(object):
         """绑定 Esc 中断当前轮次的独立按键动作。"""
         self.can_interrupt_turn = can_interrupt
         self.turn_interrupt_handler = handler
+
+    def bind_copy_last_response(self, handler: typing.Callable[[], None]) -> None:
+        """绑定 Ctrl+O 直接复制最近整体回复的本地动作。"""
+        self.copy_last_response_handler = handler
 
     def bind_input_layout(self, handler: typing.Callable[[], None]) -> None:
         """绑定输入内容变化后的当前帧布局刷新动作。"""

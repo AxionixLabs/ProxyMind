@@ -194,8 +194,8 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         stream_policy="local_snapshot",
     ),
     TuiCommandSpec(
-        "copy", "/copy", "Copy latest reply",
-        stream_policy="local_snapshot",
+        "copy", "/copy", "Copy last response, code block, or quote",
+        stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
         "ps", "/ps", "View terminals",

@@ -14,6 +14,10 @@ from agent.application.agents.views import AgentSnapshot
 from agent.application.hooks.context import HookExecutionContext
 from agent.domain.hooks import SessionEndReason
 from agent.domain.policies import PermissionSettings
+from agent.domain.transcripts import (
+    TranscriptEntry,
+    TranscriptReplay,
+)
 from agent.harness.hooks.session_lifecycle import SessionLifecycleGateway
 from agent.harness.sessions.conversation import (
     ConversationState,
@@ -26,6 +30,7 @@ from agent.ports import (
     PermissionGrantReader,
     TranscriptFactory,
 )
+from agent.protocol import AssistantReplySnapshot
 from observability import (
     observe,
     observe_exception,
@@ -52,6 +57,21 @@ CleanupWaiter: typing.TypeAlias = Callable[
     [Awaitable[CleanupValue]],
     Awaitable[CleanupValue],
 ]
+
+
+def _last_copyable_assistant_reply(
+    entries: Iterable[TranscriptEntry],
+) -> AssistantReplySnapshot | None:
+    """从归并后的记录恢复最近一条可复制 assistant 原文。"""
+    for entry in reversed(TranscriptReplay(entries).build()):
+        if entry.event != "message.created" or entry.actor != "assistant":
+            continue
+        if entry.payload.get("phase") == "commentary":
+            continue
+        content = entry.payload.get("content")
+        if isinstance(content, str) and content.strip():
+            return AssistantReplySnapshot.from_source(content)
+    return None
 
 
 class RootConversationSession:
@@ -99,7 +119,7 @@ class RootConversationSession:
         self._await_cleanup = await_cleanup
         self._state = ConversationState()
         self._lifecycle_id = 0
-        self._last_assistant_reply = ""
+        self._assistant_reply_snapshot: AssistantReplySnapshot | None = None
 
     @property
     def cid(self) -> str | None:
@@ -204,14 +224,15 @@ class RootConversationSession:
         self._state.queue_turn_context(contexts)
 
     def remember_assistant_reply(self, text: str) -> None:
-        """保存最近一次已完成的 assistant 回复。"""
-        value = str(text or "").strip()
-        if value:
-            self._last_assistant_reply = value
+        """保存最近一次已完成且可复制的 assistant 原文。"""
+        if isinstance(text, str) and text.strip():
+            self._assistant_reply_snapshot = AssistantReplySnapshot.from_source(
+                text
+            )
 
-    def last_assistant_reply(self) -> str:
-        """返回最近一次完整模型回复原文。"""
-        return self._last_assistant_reply
+    def assistant_reply_snapshot(self) -> AssistantReplySnapshot | None:
+        """返回最近一次完整模型回复的稳定快照。"""
+        return self._assistant_reply_snapshot
 
     async def begin_turn(
         self,
@@ -237,7 +258,7 @@ class RootConversationSession:
             ):
                 await self.end(reason="switch")
                 self._lifecycle_id += 1
-                self._last_assistant_reply = ""
+                self._assistant_reply_snapshot = None
 
         turn = self._state.begin_turn(
             cid=cid,
@@ -272,7 +293,7 @@ class RootConversationSession:
         await self.end(reason="reset")
         metadata = self._state.reset(reason=reason)
         self._lifecycle_id += 1
-        self._last_assistant_reply = ""
+        self._assistant_reply_snapshot = None
         self._history.touch(
             metadata,
             workspace=self.workspace_root,
@@ -349,7 +370,9 @@ class RootConversationSession:
             fork_source_available=True,
         )
         self._lifecycle_id += 1
-        self._last_assistant_reply = ""
+        self._assistant_reply_snapshot = _last_copyable_assistant_reply(
+            self._history.read_transcript(sid)
+        )
         metadata = self._state.snapshot()
         self._history.touch(
             metadata,
@@ -398,7 +421,11 @@ class RootConversationSession:
             self._session_hook_context(cid=cid, sid=sid),
             reason=reason,
             transcript_path=transcript_path,
-            last_assistant_message=self._last_assistant_reply,
+            last_assistant_message=(
+                self._assistant_reply_snapshot.content
+                if self._assistant_reply_snapshot is not None
+                else ""
+            ),
             before_dispatch=record_session_end,
         )
         await self._event_session_close(cid, sid)

@@ -1449,6 +1449,38 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_copy_snapshot_uses_latest_final_item_and_preserves_source(
+    monkeypatch,
+) -> None:
+    result, host = await _run_stream(monkeypatch, [
+        {
+            "type": "text.done",
+            "segment_id": "commentary-item",
+            "final_text": "analysis",
+            "phase": "commentary",
+        },
+        {
+            "type": "text.done",
+            "segment_id": "answer-item",
+            "final_text": "  final answer  \r\n",
+            "phase": "final_answer",
+        },
+        {"type": "turn.completed"},
+    ])
+
+    assert result.assistant_text == "analysis\n  final answer"
+    assert host.remembered == ["  final answer  \r\n"]
+    assistant_entries = [
+        entry
+        for entry in host.transcripts.entries
+        if entry["actor"] == "assistant"
+    ]
+    assert assistant_entries[-1]["payload"]["content"] == (
+        "  final answer  \r\n"
+    )
+
+
+@pytest.mark.anyio
 async def test_stream_projects_deduplicated_canonical_sources(monkeypatch) -> None:
     _result, host = await _run_stream(monkeypatch, [
         {

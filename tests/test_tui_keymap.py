@@ -142,6 +142,16 @@ def test_tui_keymap_rejects_context_and_main_input_conflicts() -> None:
     with pytest.raises(ValueError, match="tui.transcript.page_up"):
         TuiRuntime(keymap=keymap)
 
+    copy_conflict = TuiRuntimeKeymap.from_config({
+        "tui": {
+            "keymap": {
+                "global": {"open_transcript": "ctrl-o"},
+            }
+        }
+    })
+    with pytest.raises(ValueError, match="tui.input.binding"):
+        TuiRuntime(keymap=copy_conflict)
+
 
 @pytest.mark.anyio
 async def test_configured_transcript_keys_replace_default_dispatch() -> None:

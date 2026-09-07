@@ -9,6 +9,7 @@ from unittest.mock import (
 import pytest
 
 from composition import ApplicationHost
+from agent.domain.transcripts import TranscriptEntry
 from agent.harness.process_resources import ProcessResourceOwner
 from agent.harness.sessions.conversation import ConversationState
 from agent.harness.sessions.root import RootConversationSession
@@ -19,6 +20,8 @@ from infrastructure.persistence.conversation_history import LocalConversationHis
 
 def _root_session(
     state: ConversationState | None = None,
+    *,
+    transcript_entries: tuple[TranscriptEntry, ...] = (),
 ) -> tuple[RootConversationSession, SimpleNamespace]:
     transcript = SimpleNamespace(open=Mock(), append=Mock(), close=Mock())
     store = SimpleNamespace(
@@ -45,8 +48,10 @@ def _root_session(
 
     history = LocalConversationHistory(
         store,
-        existing_transcript_path_for=lambda _sid: "",
-        transcript_entries_for=lambda _path: (),
+        existing_transcript_path_for=lambda _sid: (
+            "D:/sessions/session.jsonl" if transcript_entries else ""
+        ),
+        transcript_entries_for=lambda _path: transcript_entries,
     )
     session = RootConversationSession(
         history,
@@ -233,7 +238,7 @@ async def test_root_session_end_uses_current_snapshot(
         turn_count=turn_count,
     ))
     session._lifecycle_id = 4
-    session.remember_assistant_reply("final answer")
+    session.remember_assistant_reply("  final answer\r\n")
 
     ended = await session.end(reason="exit")
 
@@ -248,6 +253,9 @@ async def test_root_session_end_uses_current_snapshot(
     assert call.kwargs["reason"] == "exit"
     assert call.kwargs["transcript_path"] == "D:/sessions/session.jsonl"
     assert call.kwargs["last_assistant_message"] == "final answer"
+    snapshot = session.assistant_reply_snapshot()
+    assert snapshot is not None
+    assert snapshot.source == "  final answer\r\n"
     resources.shutdown_root.assert_awaited_once_with(
         "sid_test_1_abcdef"
     )
@@ -412,3 +420,38 @@ async def test_root_session_marks_new_binding_as_forkable_history() -> None:
     assert session.turn_count == 0
     assert session.session_bound is True
     assert session.fork_source_available is True
+
+
+@pytest.mark.anyio
+async def test_root_session_restores_latest_final_reply_snapshot() -> None:
+    entries = (
+        TranscriptEntry(
+            timestamp="2026-09-07T00:00:00Z",
+            event="message.created",
+            session_id="sid_test_1_abcdef",
+            turn_id="turn_1",
+            actor="assistant",
+            payload={"content": "analysis", "phase": "commentary"},
+        ),
+        TranscriptEntry(
+            timestamp="2026-09-07T00:00:01Z",
+            event="message.created",
+            session_id="sid_test_1_abcdef",
+            turn_id="turn_1",
+            actor="assistant",
+            payload={"content": "  final\r\n", "phase": "final_answer"},
+        ),
+    )
+    session, _resources = _root_session(transcript_entries=entries)
+    session.end = AsyncMock()
+
+    await session.bind(
+        "cid_test_12345678",
+        "sid_test_1_abcdef",
+        source="tui:resume",
+    )
+
+    snapshot = session.assistant_reply_snapshot()
+    assert snapshot is not None
+    assert snapshot.content == "final"
+    assert snapshot.source == "  final\r\n"

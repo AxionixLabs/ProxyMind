@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.document import Document
+from prompt_toolkit.input import create_pipe_input
+from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.keys import Keys
 
 from frontends.interaction.contracts import PromptContext
@@ -23,6 +26,59 @@ def press_history_key(model: TuiInputModel, key: Keys, buffer: Buffer) -> None:
         app=SimpleNamespace(current_buffer=buffer),
         arg=1,
     ))
+
+
+def test_ctrl_o_copies_last_response_without_editing_input() -> None:
+    model = TuiInputModel()
+    buffer = Buffer()
+    buffer.text = "draft"
+    copied: list[None] = []
+    model.bind_copy_last_response(lambda: copied.append(None))
+
+    press_history_key(model, Keys.ControlO, buffer)
+
+    assert copied == [None]
+    assert buffer.text == "draft"
+
+
+def test_ctrl_j_inserts_newline_after_ctrl_o_is_reserved_for_copy() -> None:
+    model = TuiInputModel()
+    buffer = Buffer()
+    buffer.document = Document("firstsecond", cursor_position=5)
+    binding = next(
+        item
+        for item in model.key_bindings.bindings
+        if item.keys == (Keys.ControlJ,)
+    )
+
+    binding.handler(SimpleNamespace(
+        app=SimpleNamespace(current_buffer=buffer),
+        arg=1,
+    ))
+
+    assert buffer.text == "first\nsecond"
+    assert buffer.cursor_position == 6
+
+
+@pytest.mark.anyio
+async def test_ctrl_o_pipe_input_routes_copy_without_mutating_draft() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+        )
+        copied = asyncio.Event()
+        runtime.bind_copy_last_response_handler(copied.set)
+
+        await runtime.open()
+        try:
+            runtime.screen.input.buffer.text = "draft"
+            pipe_input.send_text("\x0f")
+            await asyncio.wait_for(copied.wait(), timeout=1)
+
+            assert runtime.screen.input.buffer.text == "draft"
+        finally:
+            await runtime.close()
 
 
 async def submit(runtime: TuiRuntime) -> str:

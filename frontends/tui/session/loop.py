@@ -533,6 +533,7 @@ async def _run_tui_loop(
         conversation_compactor=conversation_compactor,
         configuration_service_url=host.configuration_service_url,
     )
+    runtime.bind_copy_last_response_handler(dispatcher.copy_last_response)
     dispatcher.mailbox.bind_listener()
     if initial_prompt is not None:
         runtime.submissions.enqueue_message(initial_prompt)

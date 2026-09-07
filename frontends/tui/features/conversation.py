@@ -23,6 +23,10 @@ from frontends.tui.adapters.clipboard import (
     ClipboardError,
     copy_text_to_clipboard
 )
+from frontends.tui.adapters.copy_targets import (
+    AssistantCopyTarget,
+    assistant_copy_targets,
+)
 from metadata import const
 from observability import (
     observe,
@@ -643,27 +647,86 @@ def _positive_int(value: typing.Any) -> int:
         return 0
 
 
-async def copy_last_assistant_reply(host: "TuiApplicationHost") -> None:
-    """复制最近一次模型回复到剪贴板。"""
-    text = host.conversation.last_assistant_reply()
-    if not text:
+async def copy_last_assistant_reply(
+    runtime: "MenuSelectionPort",
+    host: "TuiApplicationHost",
+) -> None:
+    """选择最近 assistant 回复中的整体、代码块或引用并复制。"""
+    snapshot = host.conversation.assistant_reply_snapshot()
+    source = snapshot.source if snapshot is not None else ""
+    targets = assistant_copy_targets(source)
+    if not targets:
         _present(host, failure_text_block("No agent response to copy"))
         _present(host, view_type="tui.gap")
         return None
 
+    selected = await runtime.select_menu(MenuRequest(
+        title="Copy from response",
+        view_id="conversation:copy-response",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
+        body_preserve_spacing=True,
+        options=tuple(
+            MenuOption(
+                value=target,
+                label=target.label,
+                detail=target.description,
+                selected_body=(target.text,),
+            )
+            for target in targets
+        ),
+    ))
+    if not isinstance(selected, AssistantCopyTarget):
+        return None
+
+    await _copy_assistant_target(host, selected)
+
+
+async def copy_whole_assistant_reply(
+    host: "TuiApplicationHost",
+    *,
+    source: str | None = None,
+) -> None:
+    """按 Codex Ctrl+O 语义直接复制最近 assistant 整体回复。"""
+    snapshot = host.conversation.assistant_reply_snapshot()
+    if source is not None:
+        frozen_source = source
+    elif snapshot is not None:
+        frozen_source = snapshot.source
+    else:
+        frozen_source = ""
+    targets = assistant_copy_targets(frozen_source)
+    if not targets:
+        _present(host, failure_text_block("No agent response to copy"))
+        _present(host, view_type="tui.gap")
+        return None
+    target = AssistantCopyTarget(
+        label="last message",
+        text=targets[0].text,
+        description=targets[0].description,
+    )
+    await _copy_assistant_target(host, target)
+
+
+async def _copy_assistant_target(
+    host: "TuiApplicationHost",
+    target: AssistantCopyTarget,
+) -> None:
+    """执行一次已冻结候选的剪贴板写入并展示稳定结果。"""
+
     try:
-        await copy_text_to_clipboard(text)
+        await copy_text_to_clipboard(target.text)
     except ClipboardError as error:
-        _present(host, command_result_block(
-            "/copy",
-            TextSpan(f"Failed: {error}", FAILURE_STYLE),
-        ))
+        _present(host, failure_text_block(f"Copy failed: {error}"))
         _present(host, view_type="tui.gap")
         return None
 
     _present(host, fragment_block(
         TextSpan("• ", BODY_STYLE),
-        TextSpan("Copied last message to clipboard", BRIGHT_STYLE),
+        TextSpan(
+            f"Copied {target.label} to clipboard",
+            BRIGHT_STYLE,
+        ),
     ))
     _present(host, view_type="tui.gap")
 
