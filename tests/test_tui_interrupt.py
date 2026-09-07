@@ -238,6 +238,48 @@ async def test_editing_clears_exit_confirmation() -> None:
     )
 
 
+@pytest.mark.anyio
+async def test_non_ctrl_c_key_breaks_double_press_exit_sequence() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        interrupt = Mock(return_value=InterruptDisposition.CONSUMED)
+        runtime.set_execution_active(True)
+        runtime.bind_interrupt_handler(interrupt)
+
+        await runtime.open()
+        reader = asyncio.create_task(
+            runtime.read_message(PromptContext(model="test"))
+        )
+        try:
+            pipe_input.send_text("\x03")
+            for _ in range(100):
+                if runtime.submissions.interrupt_state.exit_armed:
+                    break
+                await asyncio.sleep(0.001)
+            assert runtime.submissions.interrupt_state.exit_armed
+
+            pipe_input.send_text("\x1b[D")
+            for _ in range(100):
+                if not runtime.submissions.interrupt_state.exit_armed:
+                    break
+                await asyncio.sleep(0.001)
+            assert not runtime.submissions.interrupt_state.exit_armed
+
+            pipe_input.send_text("\x03")
+            for _ in range(100):
+                if runtime.submissions.interrupt_state.exit_armed:
+                    break
+                await asyncio.sleep(0.001)
+
+            assert runtime.submissions.interrupt_state.exit_armed
+            assert not reader.done()
+            assert interrupt.call_count == 2
+        finally:
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+            await runtime.close()
+
+
 def test_first_ctrl_c_clears_idle_draft_without_arming_exit() -> None:
     runtime = TuiRuntime()
     runtime.screen.input.buffer.text = "unfinished draft"

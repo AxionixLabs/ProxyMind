@@ -122,8 +122,6 @@ class TuiEditorKeymap(object):
     move_up: TuiActionBindings
     move_down: TuiActionBindings
     insert_newline: TuiActionBindings
-    completion_previous: TuiActionBindings
-    completion_next: TuiActionBindings
     move_line_start: TuiActionBindings
     move_line_end: TuiActionBindings
     move_word_left: TuiActionBindings
@@ -569,8 +567,8 @@ def _default_editor_keymap() -> TuiEditorKeymap:
         undo=_default_bindings("editor.undo", "ctrl-z"),
         move_left=_default_bindings("editor.move_left", "left", "ctrl-b"),
         move_right=_default_bindings("editor.move_right", "right", "ctrl-f"),
-        move_up=_default_bindings("editor.move_up", "up"),
-        move_down=_default_bindings("editor.move_down", "down"),
+        move_up=_default_bindings("editor.move_up", "up", "ctrl-p"),
+        move_down=_default_bindings("editor.move_down", "down", "ctrl-n"),
         insert_newline=_default_bindings(
             "editor.insert_newline",
             "ctrl-j",
@@ -578,14 +576,6 @@ def _default_editor_keymap() -> TuiEditorKeymap:
             "enter",
             "shift-enter",
             "alt-enter",
-        ),
-        completion_previous=_default_bindings(
-            "editor.completion_previous",
-            "ctrl-p",
-        ),
-        completion_next=_default_bindings(
-            "editor.completion_next",
-            "ctrl-n",
         ),
         move_line_start=_default_bindings(
             "editor.move_line_start",

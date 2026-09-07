@@ -406,8 +406,6 @@ TUI_EDITOR_KEYMAP_FIELDS = frozenset({
     "move_up",
     "move_down",
     "insert_newline",
-    "completion_previous",
-    "completion_next",
     "move_line_start",
     "move_line_end",
     "move_word_left",

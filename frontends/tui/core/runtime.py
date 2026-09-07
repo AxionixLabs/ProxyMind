@@ -218,6 +218,9 @@ class TuiRuntime(object):
             ),
             invalidate=self.invalidate,
         )
+        self.input_model.bind_input_activity(
+            self.submissions.clear_exit_confirmation
+        )
 
         self.viewport = TuiTranscriptViewport(
             document=self.document,
@@ -1834,6 +1837,17 @@ class TuiRuntime(object):
                 ("class:static-pager.key", f"{label:<18}"),
                 ("class:static-pager.text", name.replace("_", " ")),
             ))
+        lines.extend((
+            (),
+            (("class:static-pager.heading", "Safety"),),
+            (
+                ("class:static-pager.key", f"{'Ctrl+C':<18}"),
+                (
+                    "class:static-pager.text",
+                    "press twice within 2s to exit; any other key cancels",
+                ),
+            ),
+        ))
         self.open_static_pager(StaticPagerRequest(
             title="Keyboard shortcuts",
             lines=tuple(lines),

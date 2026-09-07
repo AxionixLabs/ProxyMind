@@ -115,6 +115,14 @@ def test_codex_editor_list_and_approval_aliases_are_runtime_facts() -> None:
         "Alt+Right",
         "Ctrl+Right",
     ]
+    assert [item.label for item in keymap.editor.move_up] == [
+        "Up",
+        "Ctrl+P",
+    ]
+    assert [item.label for item in keymap.editor.move_down] == [
+        "Down",
+        "Ctrl+N",
+    ]
     assert [item.label for item in keymap.list.move_down] == [
         "Down",
         "Ctrl+N",
@@ -175,6 +183,26 @@ def test_tui_keymap_schema_rejects_unknown_actions_and_invalid_values(
 ) -> None:
     with pytest.raises(ConfigValidationError, match="tui.keymap.pager"):
         normalize_config(config)
+
+
+@pytest.mark.parametrize(
+    "removed_action",
+    ("completion_previous", "completion_next"),
+)
+def test_editor_rejects_removed_parallel_completion_actions(
+    removed_action: str,
+) -> None:
+    with pytest.raises(
+        ConfigValidationError,
+        match=f"tui.keymap.editor.{removed_action}",
+    ):
+        normalize_config({
+            "tui": {
+                "keymap": {
+                    "editor": {removed_action: "f20"},
+                },
+            },
+        })
 
 
 def test_tui_scrollback_reflow_line_limit_is_normalized_and_validated() -> None:
@@ -550,6 +578,7 @@ async def test_empty_composer_question_mark_opens_runtime_shortcuts() -> None:
             )
             assert "Ctrl+O" in text
             assert "copy last response" in text
+            assert "press twice within 2s to exit" in text
             assert runtime.screen.input.buffer.text == ""
         finally:
             await runtime.close()

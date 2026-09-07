@@ -550,6 +550,60 @@ async def _run_ctrl_c_expiry(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     await _close_turn(runtime, control)
 
 
+async def _run_ctrl_c_intervening_key(
+    runtime: TuiRuntime,
+    facts: ScenarioFacts,
+) -> None:
+    """验证任意非 Ctrl-C 按键会打断连续退出手势。"""
+    control, server = _active_turn(runtime)
+    counter = _InterruptCounter()
+
+    def interrupt() -> InterruptDisposition:
+        """记录每次重新武装期间的幂等中断调用。"""
+        counter.value += 1
+        control.request_interrupt()
+        return InterruptDisposition.CONSUMED
+
+    runtime.bind_interrupt_handler(interrupt)
+    _ready(runtime, facts)
+    runtime.set_execution_active(True)
+    facts.stage = "accepting"
+    facts.write()
+    reader = asyncio.create_task(
+        runtime.read_message(PromptContext(model="test-model"))
+    )
+    await _wait_until(
+        lambda: runtime.submissions.interrupt_state.exit_armed,
+        "first Ctrl-C confirmation",
+    )
+    facts.stage = "armed"
+    facts.write()
+    await _wait_until(
+        lambda: not runtime.submissions.interrupt_state.exit_armed,
+        "intervening editor key",
+    )
+    facts.stage = "broken"
+    facts.write()
+    await _wait_until(
+        lambda: (
+            counter.value == 2
+            and runtime.submissions.interrupt_state.exit_armed
+        ),
+        "Ctrl-C confirmation rearm",
+    )
+    facts.stage = "rearmed"
+    facts.write()
+    try:
+        await asyncio.wait_for(reader, timeout=10.0)
+        raise RuntimeError("consecutive Ctrl-C did not exit TUI input")
+    except TuiInterruptRequested:
+        facts.set_detail("exit_kind", "interrupt")
+    facts.set_detail("interrupt_invocations", counter.value)
+    facts.set_detail("interrupt_request_count", len(server.interrupt_requests))
+    _complete_turn(control, server, status="interrupted")
+    await _close_turn(runtime, control)
+
+
 async def _run_queue_edit(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     """验证最近一条 Tab 队列消息只恢复和重交付一次。"""
     control, server = _active_turn(runtime)
@@ -800,6 +854,8 @@ async def _run(scenario: str, facts_path: Path) -> None:
             )
         elif scenario == "ctrl_c_expiry":
             await _run_ctrl_c_expiry(runtime, facts)
+        elif scenario == "ctrl_c_intervening_key":
+            await _run_ctrl_c_intervening_key(runtime, facts)
         elif scenario == "queue_edit":
             await _run_queue_edit(runtime, facts)
         elif scenario == "interrupt_restore_order":

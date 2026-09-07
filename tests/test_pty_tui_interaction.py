@@ -358,6 +358,35 @@ def test_ctrl_c_confirmation_expiry_rearms_first_press(tmp_path: Path) -> None:
     assert details["interrupt_request_count"] == 1
 
 
+def test_ctrl_c_confirmation_requires_consecutive_keypresses(
+    tmp_path: Path,
+) -> None:
+    """验证插入普通编辑键后 Ctrl-C 只会重新武装退出确认。"""
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui("ctrl_c_intervening_key", facts_path) as terminal:
+        terminal.wait_for_screen_text("PTY TUI READY ctrl_c_intervening_key")
+        _wait_for_stage(facts_path, "accepting")
+        terminal.send_key(PtyKey.CTRL_C)
+        terminal.wait_for_screen_text("again to exit")
+        _wait_for_stage(facts_path, "armed")
+
+        terminal.write_user(b"\x1b[D")
+        _wait_for_stage(facts_path, "broken")
+        terminal.send_key(PtyKey.CTRL_C)
+        terminal.wait_for_screen_text("again to exit")
+        _wait_for_stage(facts_path, "rearmed")
+        assert not terminal.session.output_closed
+
+        terminal.send_key(PtyKey.CTRL_C)
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+        facts = _read_facts(facts_path)
+
+    details = _details(facts)
+    assert details["exit_kind"] == "interrupt"
+    assert details["interrupt_invocations"] == 3
+    assert details["interrupt_request_count"] == 1
+
+
 def test_edit_last_queued_message_restores_once(tmp_path: Path) -> None:
     """验证队尾消息删除、恢复和编辑后 Enter 重交付均恰好一次。"""
     facts_path = tmp_path / "facts.json"

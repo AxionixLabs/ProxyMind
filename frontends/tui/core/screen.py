@@ -1196,6 +1196,12 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             input=application_input,
             output=application_output,
         )
+        self.application.key_processor.before_key_press += (
+            lambda _sender: self.input_model.begin_key_dispatch()
+        )
+        self.application.key_processor.after_key_press += (
+            lambda _sender: self.input_model.finish_key_dispatch()
+        )
 
         self.hyperlinks_enabled = bool(
             _supports_terminal_hyperlinks(terminal_capabilities.identity)

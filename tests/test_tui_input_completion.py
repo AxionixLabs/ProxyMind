@@ -2033,6 +2033,46 @@ async def test_skill_menu_ctrl_p_and_ctrl_n_wrap_selection() -> None:
 
 
 @pytest.mark.anyio
+async def test_shift_tab_routes_only_to_open_completion_popup() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((
+            skill_spec("alpha"),
+            skill_spec("beta"),
+        ))
+
+        await runtime.open()
+        try:
+            pipe_input.send_text("plain draft")
+            await wait_for_input_text(runtime, "plain draft")
+            pipe_input.send_text("\x1b[Z")
+            await asyncio.sleep(0.05)
+
+            buffer = runtime.screen.input.buffer
+            assert buffer.text == "plain draft"
+            assert buffer.complete_state is None
+
+            buffer.text = ""
+            pipe_input.send_text("$")
+            await wait_for_input_text(runtime, "$")
+            await wait_for_completion(runtime)
+            assert buffer.complete_state is not None
+            assert buffer.complete_state.current_completion.text == "$alpha "
+
+            pipe_input.send_text("\x1b[Z")
+            for _ in range(100):
+                if buffer.complete_state.current_completion.text == "$beta ":
+                    break
+                await asyncio.sleep(0.001)
+
+            assert buffer.text == "$"
+            assert buffer.complete_state.current_completion.text == "$beta "
+            assert runtime.submissions.message_queue.empty()
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_skill_menu_accepts_non_contiguous_query_matches() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())

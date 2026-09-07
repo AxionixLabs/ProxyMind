@@ -166,6 +166,56 @@ def test_history_navigation_ignores_interior_cursor_for_normal_up() -> None:
     assert buffer.cursor_position == len("second input") - 1
 
 
+@pytest.mark.parametrize(
+    ("key", "expected"),
+    (
+        (Keys.ControlP, "second input"),
+        (Keys.ControlN, ""),
+    ),
+)
+def test_ctrl_p_and_ctrl_n_share_editor_history_navigation(
+    key: Keys,
+    expected: str,
+) -> None:
+    model = TuiInputModel()
+    model.history.append_string("first input")
+    model.history.append_string("second input")
+    buffer = Buffer(history=model.history)
+
+    press_history_key(model, Keys.ControlP, buffer)
+    if key is Keys.ControlN:
+        press_history_key(model, key, buffer)
+
+    assert buffer.text == expected
+
+
+@pytest.mark.anyio
+async def test_ctrl_p_and_ctrl_n_route_history_through_real_input() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.history.append_string("first input")
+        runtime.input_model.history.append_string("second input")
+
+        await runtime.open()
+        try:
+            buffer = runtime.screen.input.buffer
+            pipe_input.send_text("\x10")
+            for _ in range(100):
+                if buffer.text == "second input":
+                    break
+                await asyncio.sleep(0.001)
+            assert buffer.text == "second input"
+
+            pipe_input.send_text("\x0e")
+            for _ in range(100):
+                if buffer.text == "":
+                    break
+                await asyncio.sleep(0.001)
+            assert buffer.text == ""
+        finally:
+            await runtime.close()
+
+
 def test_history_navigation_stops_after_returning_to_nonempty_draft() -> None:
     model = TuiInputModel()
     model.history.append_string("first input")
