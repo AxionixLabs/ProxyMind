@@ -30,6 +30,7 @@ def _spawn_tui(scenario: str, facts_path: Path):
         cwd=Path.cwd(),
         env=os.environ,
         size=TerminalSize(rows=24, columns=100),
+        failure_artifact_directory=facts_path.parent / "artifacts",
     )
 
 
@@ -402,6 +403,10 @@ def test_approval_surface_consumes_key_before_composer(tmp_path: Path) -> None:
         terminal.wait_for_screen_text("Would you like to run")
         terminal.write_user_text("y")
         _wait_for_stage(facts_path, "approval_consumed")
+        facts_path.with_suffix(".ack").write_text(
+            "approval-observed",
+            encoding="ascii",
+        )
 
         assert terminal.wait_for_exit(timeout=10.0) == 0
         facts = _read_facts(facts_path)

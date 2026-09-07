@@ -1,13 +1,79 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import ctypes
+import ctypes.util
 import os
 import signal
+import sys
 import typing
 from pathlib import Path
 
 from agent.ports.interactive_process import TerminalSize
 from infrastructure.platform.pty.contract import PtyEndOfFile
+
+
+_MACOS_PROCESS_BATCH_SIZE = 16
+
+
+def _macos_process_group_members(process_group_id: int) -> tuple[int, ...]:
+    """列出 macOS 指定进程组当前仍存在的成员。"""
+    library_name = ctypes.util.find_library("proc")
+    if library_name is None:
+        raise OSError("macOS libproc is unavailable")
+    library = ctypes.CDLL(library_name, use_errno=True)
+    list_processes = library.proc_listpgrppids
+    list_processes.argtypes = (
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.c_int,
+    )
+    list_processes.restype = ctypes.c_int
+
+    capacity = _MACOS_PROCESS_BATCH_SIZE
+    while True:
+        process_ids = (ctypes.c_int * capacity)()
+        count = list_processes(
+            process_group_id,
+            process_ids,
+            ctypes.sizeof(process_ids),
+        )
+        if count < 0:
+            error_number = ctypes.get_errno()
+            raise OSError(error_number, os.strerror(error_number))
+        if count < capacity:
+            return tuple(
+                process_id
+                for process_id in process_ids[:count]
+                if process_id > 0
+            )
+        capacity *= 2
+
+
+def _signal_macos_process_group_members(
+    process_group_id: int,
+    value: signal.Signals,
+) -> None:
+    """在 macOS 拒绝组信号时逐个通知仍属于目标组的成员。"""
+    process_ids = sorted(
+        _macos_process_group_members(process_group_id),
+        key=lambda process_id: process_id == process_group_id,
+    )
+    delivered = False
+    first_error: OSError | None = None
+    for process_id in process_ids:
+        try:
+            if os.getpgid(process_id) != process_group_id:
+                continue
+            os.kill(process_id, value)
+            delivered = True
+        except ProcessLookupError:
+            continue
+        except OSError as error:
+            if first_error is None:
+                first_error = error
+    if not delivered and first_error is not None:
+        raise first_error
 
 
 class PosixPtyBackend:
@@ -116,6 +182,10 @@ class PosixPtyBackend:
             os.killpg(self._child.pid, value)
         except ProcessLookupError:
             return
+        except PermissionError:
+            if sys.platform != "darwin":
+                raise
+            _signal_macos_process_group_members(self._child.pid, value)
 
 
 if __name__ == '__main__':

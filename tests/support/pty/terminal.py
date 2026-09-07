@@ -427,6 +427,8 @@ class TerminalScreen:
                 if (
                     expected in snapshot.visible_text
                     or expected in snapshot.scrollback_text
+                    or expected in "".join(snapshot.visible_lines)
+                    or expected in "".join(snapshot.scrollback_lines)
                 ):
                     return snapshot
                 remaining = deadline - time.monotonic()
@@ -448,9 +450,11 @@ class TerminalHarness:
         *,
         size: TerminalSize,
         replies: TerminalReplyConfig,
+        failure_artifact_directory: Path | None = None,
     ) -> None:
         self.session = session
         self.screen = TerminalScreen(size)
+        self._failure_artifact_directory = failure_artifact_directory
         self._responder = TerminalQueryResponder(replies)
         self._condition = threading.Condition()
         self._input_lock = threading.Lock()
@@ -633,7 +637,11 @@ class TerminalHarness:
         exception: BaseException | None,
         traceback: types.TracebackType | None,
     ) -> None:
-        self.close()
+        try:
+            if exception is not None and self._failure_artifact_directory is not None:
+                self.save_failure_artifacts(self._failure_artifact_directory)
+        finally:
+            self.close()
 
     def _monitor_output(self) -> None:
         offset = 0
@@ -719,6 +727,7 @@ def spawn_terminal(
     size: TerminalSize = TerminalSize(),
     terminal: TerminalEnvironment = TerminalEnvironment(),
     replies: TerminalReplyConfig = TerminalReplyConfig(),
+    failure_artifact_directory: Path | None = None,
 ) -> TerminalHarness:
     """以固定终端环境创建带协议响应和 Screen oracle 的 PTY。"""
     session = spawn_pty(
@@ -727,7 +736,12 @@ def spawn_terminal(
         env=terminal.derive(env),
         size=size,
     )
-    return TerminalHarness(session, size=size, replies=replies)
+    return TerminalHarness(
+        session,
+        size=size,
+        replies=replies,
+        failure_artifact_directory=failure_artifact_directory,
+    )
 
 
 if __name__ == '__main__':

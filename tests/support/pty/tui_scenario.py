@@ -750,6 +750,11 @@ async def _run_approval_surface(runtime: TuiRuntime, facts: ScenarioFacts) -> No
     facts.set_detail("draft_after_approval", runtime.screen.input.buffer.text)
     facts.stage = "approval_consumed"
     facts.write()
+    acknowledgment = facts.path.with_suffix(".ack")
+    await _wait_until(
+        acknowledgment.exists,
+        "approval assertion acknowledgment",
+    )
     reader.cancel()
     await asyncio.gather(reader, return_exceptions=True)
 

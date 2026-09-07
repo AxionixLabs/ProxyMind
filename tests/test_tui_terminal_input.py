@@ -5,6 +5,7 @@ from prompt_toolkit.input.base import Input
 from prompt_toolkit.key_binding import KeyPress
 from prompt_toolkit.keys import Keys
 
+from frontends.tui.adapters.input import FocusEventInputAdapter
 from frontends.tui.adapters.input import WindowsUnicodeInputAdapter
 
 
@@ -52,6 +53,50 @@ class _BatchInput(Input):
     def detach(self) -> typing.ContextManager[None]:
         """返回空事件循环解除挂接上下文。"""
         return contextlib.nullcontext()
+
+
+def test_focus_event_input_consumes_events_and_preserves_adjacent_keys() -> None:
+    """验证 focus 事件不会进入正文且相邻用户输入保持顺序。"""
+    source = _BatchInput(((
+        KeyPress(Keys.Escape, "\x1b"),
+        KeyPress("[", "["),
+        KeyPress("I", "I"),
+        KeyPress("a", "a"),
+        KeyPress(Keys.Escape, "\x1b"),
+        KeyPress("[", "["),
+        KeyPress("O", "O"),
+        KeyPress("b", "b"),
+    ),))
+    input_obj = FocusEventInputAdapter(source)
+
+    assert input_obj.read_keys() == [
+        KeyPress("a", "a"),
+        KeyPress("b", "b"),
+    ]
+
+
+def test_focus_event_input_handles_split_sequences_and_flushes_text() -> None:
+    """验证跨批 focus 序列只消费一次且普通 Escape 前缀可冲刷。"""
+    source = _BatchInput((
+        (
+            KeyPress(Keys.Escape, "\x1b"),
+            KeyPress("[", "["),
+        ),
+        (
+            KeyPress("I", "I"),
+            KeyPress("x", "x"),
+            KeyPress(Keys.Escape, "\x1b"),
+            KeyPress("[", "["),
+        ),
+    ))
+    input_obj = FocusEventInputAdapter(source)
+
+    assert input_obj.read_keys() == []
+    assert input_obj.read_keys() == [KeyPress("x", "x")]
+    assert input_obj.flush_keys() == [
+        KeyPress(Keys.Escape, "\x1b"),
+        KeyPress("[", "["),
+    ]
 
 
 def test_windows_unicode_input_merges_surrogates_across_reads() -> None:

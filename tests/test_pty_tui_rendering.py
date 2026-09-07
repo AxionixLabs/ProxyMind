@@ -38,6 +38,7 @@ def _spawn_render_scenario(
         cwd=Path.cwd(),
         env=os.environ,
         size=size,
+        failure_artifact_directory=facts_path.parent / "artifacts",
     )
 
 

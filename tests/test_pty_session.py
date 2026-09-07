@@ -118,9 +118,10 @@ def test_pty_session_normalizes_newlines_backspace_and_eof() -> None:
         session.wait_for_output("READY>")
         session.write_text("one\n")
         session.write_text("two\r")
-        session.write_text("\n")
+        if os.name == "nt":
+            session.write_text("\n")
         session.write_text("abcX")
-        session.write(b"\x08")
+        session.send_key(PtyKey.BACKSPACE)
         session.send_key(PtyKey.ENTER)
         session.wait_for_output("VALUES=one|two|abc")
         session.wait_for_output("EOF-READY")
@@ -243,6 +244,39 @@ def test_root_exit_with_pty_descendant_converges() -> None:
         assert match is not None
         child_pid = int(match.group(1))
         assert session.wait_for_exit(timeout=3.0) == 0
+        assert not _process_exists(child_pid)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS process group fallback")
+def test_root_exit_cleans_sighup_resistant_descendant_on_macos() -> None:
+    """验证 macOS 组信号受拒后仍逐成员回收后代。"""
+    descendant = (
+        "import signal,time; "
+        "signal.signal(signal.SIGHUP,signal.SIG_IGN); "
+        "print('READY',flush=True); time.sleep(120)"
+    )
+    source = (
+        "import subprocess,sys; "
+        "child=subprocess.Popen([sys.executable, '-c', "
+        f"{descendant!r}], stdout=subprocess.PIPE, text=True); "
+        "assert child.stdout is not None; child.stdout.readline(); "
+        "print(f'ORPHAN={child.pid}',flush=True)"
+    )
+
+    with _spawn_python(source) as session:
+        output = session.wait_for_output("ORPHAN=").decode(
+            "utf-8",
+            errors="replace",
+        )
+        match = re.search(r"ORPHAN=(\d+)", output)
+        assert match is not None
+        child_pid = int(match.group(1))
+        assert _process_exists(child_pid)
+        assert session.wait_for_exit(timeout=3.0) == 0
+
+        deadline = time.monotonic() + 2.0
+        while _process_exists(child_pid) and time.monotonic() < deadline:
+            time.sleep(0.02)
         assert not _process_exists(child_pid)
 
 

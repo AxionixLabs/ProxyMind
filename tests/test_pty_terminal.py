@@ -136,6 +136,12 @@ def test_terminal_screen_exposes_style_cursor_and_scrollback() -> None:
     assert history_snapshot.visible_lines[2].rstrip() == "D"
     assert history_snapshot.cursor == history.snapshot().cursor
 
+    wrapped = TerminalScreen(TerminalSize(rows=2, columns=5))
+    wrapped.feed(b"abcdefgh")
+    wrapped_snapshot = wrapped.wait_for_text("abcdefgh")
+    assert wrapped_snapshot.visible_lines[0] == "abcde"
+    assert wrapped_snapshot.visible_lines[1].startswith("fgh")
+
 
 def test_real_pty_replies_and_user_input_are_delivered_once(
     tmp_path: Path,
@@ -183,6 +189,7 @@ def test_real_pty_replies_and_user_input_are_delivered_once(
         env=os.environ,
         size=TerminalSize(rows=12, columns=100),
         replies=replies,
+        failure_artifact_directory=tmp_path,
     ) as terminal:
         query_events = terminal.wait_for_queries(expected_queries, timeout=1.0)
         terminal.wait_for_modes(
@@ -230,3 +237,27 @@ def test_real_pty_replies_and_user_input_are_delivered_once(
         assert "[scrollback]" in screen_artifact
         assert "[screen]" in screen_artifact
         assert "[cursor]" in screen_artifact
+
+
+def test_terminal_harness_saves_artifacts_when_scenario_fails(
+    tmp_path: Path,
+) -> None:
+    """验证真实 PTY 场景异常时自动保留 raw output 与 Screen。"""
+    with pytest.raises(RuntimeError, match="injected PTY failure"):
+        with spawn_terminal(
+            [
+                sys.executable,
+                "-u",
+                "-c",
+                "print('ARTIFACT-READY',flush=True); input()",
+            ],
+            cwd=Path.cwd(),
+            env=os.environ,
+            failure_artifact_directory=tmp_path,
+        ) as terminal:
+            terminal.wait_for_screen_text("ARTIFACT-READY")
+            raise RuntimeError("injected PTY failure")
+
+    assert b"ARTIFACT-READY" in (tmp_path / "raw-output.bin").read_bytes()
+    screen_artifact = (tmp_path / "screen.txt").read_text(encoding="utf-8")
+    assert "ARTIFACT-READY" in screen_artifact
