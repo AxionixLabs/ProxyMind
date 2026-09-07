@@ -1013,8 +1013,15 @@ class TuiInputModel(object):
                 )
             )
         )
+        standalone_key = Condition(
+            lambda: not get_app().key_processor.input_queue
+        )
 
-        @bindings.add(Keys.Escape, filter=turn_interrupt)
+        @bindings.add(
+            Keys.Escape,
+            eager=standalone_key,
+            filter=turn_interrupt,
+        )
         def _(event) -> None:
             _ = event
             self.turn_interrupt_handler()

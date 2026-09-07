@@ -98,7 +98,7 @@ class TuiResumePicker(object):
         def cancel(_event) -> None:
             self.finish(None)
 
-        @bindings.add("escape")
+        @bindings.add("escape", eager=True)
         def escape(_event) -> None:
             state = self.state
             if state is None:

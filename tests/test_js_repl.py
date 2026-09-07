@@ -1271,7 +1271,7 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
     )
     coding.shell_command = AsyncMock(return_value=coding.ok_result(
         "nested shell completed",
-        command='Start-Process "https://example.com"',
+        command="echo nested",
         output="nested-ok",
         output_lines=["nested-ok"],
         exit_code=0,
@@ -1331,7 +1331,8 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
                 arguments={
                     "code": (
                         'await host.tool("shell_command", {'
-                        'command: \'Start-Process "https://example.com"\''
+                        'command: "echo nested", '
+                        'sandbox_permissions: "require_escalated"'
                         '});'
                     ),
                     "timeout_ms": 5000,
@@ -1348,7 +1349,7 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
     assert events[1][1].name == "js_repl"
     assert events[2] == (
         "approval",
-        'Start-Process "https://example.com"',
+        "echo nested",
     )
     assert [event for event in events if event[0] == "arguments"] == [
         ("arguments", "js_repl"),
