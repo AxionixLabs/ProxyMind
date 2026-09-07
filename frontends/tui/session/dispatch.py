@@ -120,6 +120,7 @@ from ..features.processes import (
 from ..features.shell import run_shell_escape
 from ..features.skills import choose_skill
 from ..features.tools import print_available_tools
+from ..features.transcript_export import export_conversation
 from ..prompting.commands import (
     StreamCommandPolicy,
     TUI_COMMANDS,
@@ -285,6 +286,23 @@ class TuiCommandDispatcher(object):
             ),
             "queue": self._resolve_stream_queue_action,
             "diff": lambda _request: self._diff_local_action(),
+            "export": lambda request: StreamBarrierAction(
+                lambda: self.foreground_tasks.start(
+                    "Export conversation",
+                    lambda: export_conversation(
+                        self.runtime,
+                        self.host,
+                        requested_path=self._command_argument(request.value),
+                    ),
+                )
+            ),
+            "raw": lambda request: StreamLocalAction(
+                key="raw-output-mode",
+                name="tui raw output mode",
+                factory=lambda: _run_immediate_stream_action(
+                    lambda: self._apply_raw_command(request.value)
+                ),
+            ),
             "copy": lambda _request: StreamBarrierAction(
                 lambda: self.foreground_tasks.start(
                     "Copy from response",
@@ -446,6 +464,37 @@ class TuiCommandDispatcher(object):
         self.application.emit(ApplicationView(
             type=resolved_type,
             renderable=renderable,
+        ))
+
+    @staticmethod
+    def _command_argument(value: str) -> str:
+        """返回命令名之后保留大小写的完整参数。"""
+        parts = str(value or "").strip().split(maxsplit=1)
+        return parts[1].strip() if len(parts) == 2 else ""
+
+    def _apply_raw_command(self, value: str) -> None:
+        """执行 `/raw [on|off]` 并展示 Codex 同构反馈。"""
+        argument = self._command_argument(value).casefold()
+        if not argument:
+            enabled = not self.runtime.document.raw_output_mode
+        elif argument == "on":
+            enabled = True
+        elif argument == "off":
+            enabled = False
+        else:
+            self._present(failure_text_block("Usage: /raw [on|off]"))
+            return None
+
+        self.runtime.set_raw_output_mode(enabled)
+        notice = (
+            "Raw output mode on: transcript text is shown for clean terminal "
+            "selection."
+            if enabled
+            else "Raw output mode off: rich transcript rendering restored."
+        )
+        self._present(fragment_block(
+            TextSpan("• ", BODY_STYLE),
+            TextSpan(notice, BRIGHT_STYLE),
         ))
 
     def _finish_conversation_fork(self, status: ForkLiveStatus) -> None:
@@ -1139,6 +1188,18 @@ class TuiCommandDispatcher(object):
                 raise RuntimeError("a durable queue turn is already pending")
             self._started_durable_queue_turn = result.started
             return DispatchAction.DURABLE_QUEUE_TURN
+
+        if new_command is not None and new_command.key == "raw":
+            self._apply_raw_command(prompt_text)
+            return DispatchAction.HANDLED
+
+        if new_command is not None and new_command.key == "export":
+            await export_conversation(
+                self.runtime,
+                self.host,
+                requested_path=self._command_argument(prompt_text),
+            )
+            return DispatchAction.HANDLED
 
         if matches_command(command, "shutdown"):
             self.host.service_runtime.request_termination_on_close()

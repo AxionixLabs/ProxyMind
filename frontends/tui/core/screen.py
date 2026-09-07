@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import asyncio
 import contextlib
 import shutil
 import sys
@@ -28,7 +27,6 @@ from prompt_toolkit.key_binding import (
     KeyBindings,
     merge_key_bindings,
 )
-from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import (
     Dimension,
     Layout,
@@ -58,7 +56,6 @@ from frontends.terminal.capabilities import (
     TerminalCapabilities,
 )
 from frontends.terminal.color_support import TerminalColorLevel
-from frontends.terminal.text import sanitize_terminal_text
 from frontends.tui.contracts.pager import StaticPagerRequest
 from frontends.tui.contracts.resume import (
     ResumePickerRequest,
@@ -111,8 +108,6 @@ from .models import (
     FormattedText,
     FragmentBlock,
     TranscriptBacktrackRequest,
-    TranscriptExportFormat,
-    TranscriptExportResult,
 )
 from .process_status import TuiProcessStatus
 from .queued import (
@@ -242,6 +237,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         clear_exit_confirmation: typing.Callable[[], None],
         clear_visible_transcript: typing.Callable[[], None],
         scroll_transcript_page: typing.Callable[[int], None],
+        toggle_raw_output_mode: typing.Callable[[], None],
         toggle_transcript_overlay: typing.Callable[[], None],
         close_mailbox_overlay: typing.Callable[[], None],
         close_static_pager: typing.Callable[[], None],
@@ -253,10 +249,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             None,
         ],
         report_missing_transcript_backtrack: typing.Callable[[], None],
-        export_transcript: typing.Callable[
-                               [typing.Iterable[TranscriptBlock], TranscriptExportFormat],
-                               TranscriptExportResult,
-                           ] | None,
         observe_terminal_geometry: typing.Callable[[int, int], None],
         observe_render_revision: typing.Callable[[int], None],
         keymap: TuiRuntimeKeymap,
@@ -287,6 +279,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._clear_exit_confirmation = clear_exit_confirmation
         self._clear_visible_transcript = clear_visible_transcript
         self._scroll_transcript_page = scroll_transcript_page
+        self._toggle_raw_output_mode = toggle_raw_output_mode
         self._toggle_transcript_overlay = toggle_transcript_overlay
         self._close_mailbox_overlay = close_mailbox_overlay
         self._close_static_pager = close_static_pager
@@ -299,8 +292,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._report_missing_transcript_backtrack = (
             report_missing_transcript_backtrack
         )
-
-        self._export_transcript = export_transcript
 
         self._observe_terminal_geometry = observe_terminal_geometry
         self._observe_render_revision = observe_render_revision
@@ -493,6 +484,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             get_width=lambda: self.terminal_width,
             view_stack=self.bottom_pane.view_stack,
             keymap=keymap.list,
+            editor_keymap=keymap.editor,
         )
         self.menu_control = FormattedTextControl(
             self._menu_view_fragments,
@@ -767,7 +759,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             content=self.menu_control,
             height=self._menu_dimension,
             wrap_lines=False,
-            always_hide_cursor=True,
+            always_hide_cursor=Condition(self._menu_cursor_hidden),
             dont_extend_height=True,
             style="class:menu-card",
             char=" ",
@@ -795,7 +787,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             content=self.startup_menu_control,
             height=self._startup_menu_dimension,
             wrap_lines=False,
-            always_hide_cursor=True,
+            always_hide_cursor=Condition(self._menu_cursor_hidden),
             dont_extend_height=True,
             style="class:menu-card",
             char=" ",
@@ -1368,7 +1360,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         )
         self.input_model.set_keymap(keymap)
         self.approval.set_keymap(keymap.approval)
-        self.menu.set_keymap(keymap.list)
+        self.menu.set_keymap(keymap.list, keymap.editor)
         self.approval_control.key_bindings = self.approval.key_bindings
         self.menu_control.key_bindings = self.menu.key_bindings
         self.startup_menu_control.key_bindings = self.menu.key_bindings
@@ -2285,6 +2277,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             ),
             model_label=context.model,
             permissions_label=context.permissions_label,
+            raw_output_label=(
+                "raw output" if self.document.raw_output_mode else ""
+            ),
             workspace_label=context.workspace_label,
         )
 
@@ -2365,6 +2360,17 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             binding_filter=overlay_available,
         )
 
+        def toggle_raw_output(event) -> None:
+            _ = event
+            self._toggle_raw_output_mode()
+
+        self._add_configured_bindings(
+            bindings,
+            self.keymap.global_keys.toggle_raw_output,
+            toggle_raw_output,
+            binding_filter=input_active & overlay_available,
+        )
+
         return bindings
 
     def _transcript_overlay_key_bindings(self) -> KeyBindings:
@@ -2372,13 +2378,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         bindings = KeyBindings()
         pager = self.keymap.pager
 
-        search_editing = Condition(
-            lambda: self.transcript_overlay.search_editing
-        )
-
-        browsing = ~search_editing
-
-        @bindings.add("escape", eager=True, filter=browsing)
+        @bindings.add("escape", eager=True)
         def _(event) -> None:
             _ = event
             if not self._can_transcript_backtrack():
@@ -2388,18 +2388,18 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 self._toggle_transcript_overlay()
                 self._report_missing_transcript_backtrack()
 
-        @bindings.add("left", eager=True, filter=browsing)
+        @bindings.add("left", eager=True)
         def _(event) -> None:
             _ = event
             if self.transcript_overlay.backtrack_active:
                 self.transcript_overlay.begin_or_step_backtrack()
 
-        @bindings.add("right", eager=True, filter=browsing)
+        @bindings.add("right", eager=True)
         def _(event) -> None:
             _ = event
             self.transcript_overlay.step_backtrack_forward()
 
-        @bindings.add("enter", eager=True, filter=browsing)
+        @bindings.add("enter", eager=True)
         def _(event) -> None:
             _ = event
             request = self.transcript_overlay.confirm_backtrack()
@@ -2407,103 +2407,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 return None
             self._toggle_transcript_overlay()
             self._request_transcript_backtrack(request)
-
-        def toggle_raw(event) -> None:
-            _ = event
-            self.transcript_overlay.toggle_raw_mode()
-
-        self._add_configured_bindings(
-            bindings,
-            pager.toggle_raw,
-            toggle_raw,
-            binding_filter=browsing,
-        )
-
-        def begin_search(event) -> None:
-            _ = event
-            self.transcript_overlay.begin_search()
-
-        self._add_configured_bindings(
-            bindings,
-            pager.search,
-            begin_search,
-            binding_filter=browsing,
-        )
-
-        def search_next(event) -> None:
-            _ = event
-            self.transcript_overlay.step_search(1)
-
-        self._add_configured_bindings(
-            bindings,
-            pager.search_next,
-            search_next,
-            binding_filter=browsing,
-        )
-
-        def search_previous(event) -> None:
-            _ = event
-            self.transcript_overlay.step_search(-1)
-
-        self._add_configured_bindings(
-            bindings,
-            pager.search_previous,
-            search_previous,
-            binding_filter=browsing,
-        )
-
-        def export_transcript(event) -> None:
-            handler = self._export_transcript
-            if handler is None:
-                self.transcript_overlay.set_export_status(
-                    "Export unavailable.",
-                    failed=True,
-                )
-                return None
-
-            output_format: TranscriptExportFormat = (
-                "raw" if self.transcript_overlay.raw_mode else "markdown"
-            )
-
-            request_id = self.transcript_overlay.begin_export(output_format)
-            if request_id is None:
-                return None
-
-            cells = self.document.transcript_snapshot().committed_cells
-
-            async def run_export() -> None:
-                """在线程中写入记录文件并把结果返回当前覆盖层。"""
-                try:
-                    result = await asyncio.to_thread(
-                        handler,
-                        cells,
-                        output_format,
-                    )
-                except Exception as error:
-                    detail = sanitize_terminal_text(str(error)).strip()
-                    self.transcript_overlay.set_export_status(
-                        f"Export failed: {detail or type(error).__name__}",
-                        failed=True,
-                        request_id=request_id,
-                    )
-                    return None
-
-                self.transcript_overlay.set_export_status(
-                    f"Exported {result.format}: {result.path}",
-                    failed=False,
-                    request_id=request_id,
-                )
-
-            event.app.create_background_task(
-                run_export(),
-            )
-
-        self._add_configured_bindings(
-            bindings,
-            pager.export,
-            export_transcript,
-            binding_filter=browsing,
-        )
 
         def close(event) -> None:
             _ = event
@@ -2513,7 +2416,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             bindings,
             (*pager.close, *pager.close_transcript),
             close,
-            binding_filter=browsing,
         )
 
         def scroll_up(event) -> None:
@@ -2524,7 +2426,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             bindings,
             pager.scroll_up,
             scroll_up,
-            binding_filter=browsing,
         )
 
         def scroll_down(event) -> None:
@@ -2535,7 +2436,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             bindings,
             pager.scroll_down,
             scroll_down,
-            binding_filter=browsing,
         )
 
         def page_up(event) -> None:
@@ -2546,7 +2446,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             bindings,
             pager.page_up,
             page_up,
-            binding_filter=browsing,
         )
 
         def page_down(event) -> None:
@@ -2557,7 +2456,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             bindings,
             pager.page_down,
             page_down,
-            binding_filter=browsing,
         )
 
         def half_page_up(event) -> None:
@@ -2568,7 +2466,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             bindings,
             pager.half_page_up,
             half_page_up,
-            binding_filter=browsing,
         )
 
         def half_page_down(event) -> None:
@@ -2579,7 +2476,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             bindings,
             pager.half_page_down,
             half_page_down,
-            binding_filter=browsing,
         )
 
         def jump_top(event) -> None:
@@ -2590,7 +2486,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             bindings,
             pager.jump_top,
             jump_top,
-            binding_filter=browsing,
         )
 
         def jump_bottom(event) -> None:
@@ -2601,28 +2496,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             bindings,
             pager.jump_bottom,
             jump_bottom,
-            binding_filter=browsing,
         )
-
-        @bindings.add("escape", eager=True, filter=search_editing)
-        def _(event) -> None:
-            _ = event
-            self.transcript_overlay.cancel_search()
-
-        @bindings.add("enter", eager=True, filter=search_editing)
-        def _(event) -> None:
-            _ = event
-            self.transcript_overlay.confirm_search()
-
-        @bindings.add("backspace", eager=True, filter=search_editing)
-        @bindings.add("c-h", eager=True, filter=search_editing)
-        def _(event) -> None:
-            _ = event
-            self.transcript_overlay.backspace_search()
-
-        @bindings.add(Keys.Any, eager=True, filter=search_editing)
-        def _(event) -> None:
-            self.transcript_overlay.append_search_text(event.data)
 
         return bindings
 
@@ -2857,10 +2731,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _transcript_overlay_header_fragments(self) -> FormattedText:
         """生成标题覆盖在装饰图案上的单行页眉。"""
-        return transcript_header_fragments(
-            width=self.terminal_width,
-            raw_mode=self.transcript_overlay.raw_mode,
-        )
+        return transcript_header_fragments(width=self.terminal_width)
 
     def _transcript_overlay_separator_fragments(self) -> FormattedText:
         """生成包含滚动百分比的底栏分隔线。"""
@@ -2871,71 +2742,29 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _transcript_overlay_primary_help_fragments(self) -> FormattedText:
         """生成完整记录的滚动提示。"""
-        if self.transcript_overlay.search_editing:
-            return [
-                ("class:transcript.overlay.search-prompt", "/ "),
-                (
-                    "class:transcript.overlay.search-query",
-                    self.transcript_overlay.search_query,
-                ),
-                ("class:transcript.overlay.search-cursor", "█"),
-            ]
         if self.transcript_overlay.backtrack_active:
             return [(
                 "class:transcript.overlay.help",
                 " Esc/Left previous   Right next   Enter edit",
             )]
-        if self.transcript_overlay.export_status:
-            style = (
-                "class:transcript.overlay.export-error"
-                if self.transcript_overlay.export_failed
-                else "class:transcript.overlay.export-success"
-            )
-            marker = "■ " if self.transcript_overlay.export_failed else ""
-            return [(style, f" {marker}{self.transcript_overlay.export_status}")]
 
         pager = self.keymap.pager
-        raw_label = primary_binding_label(pager.toggle_raw)
-        search_label = primary_binding_label(pager.search)
-        export_label = primary_binding_label(pager.export)
-        search_status = ""
-
-        if self.transcript_overlay.search_query:
-            current, total = self.transcript_overlay.search_result_position
-            search_status = (
-                f"{current}/{total} {self.transcript_overlay.search_query}"
-            )
-
-        scroll_hint = self._paired_key_hint(
-            pager.scroll_up,
-            pager.scroll_down,
-            "to scroll",
-        )
-        raw_hint = (
-            f"{raw_label} "
-            f"{'rich' if self.transcript_overlay.raw_mode else 'raw'}"
-            if raw_label
-            else ""
-        )
         hints = (
-            (search_status, scroll_hint, raw_hint)
-            if search_status
-            else (
-                scroll_hint,
-                self._paired_key_hint(
-                    pager.page_up,
-                    pager.page_down,
-                    "to page",
-                ),
-                self._paired_key_hint(
-                    pager.jump_top,
-                    pager.jump_bottom,
-                    "to jump",
-                ),
-                raw_hint,
-                f"{search_label} search" if search_label else "",
-                f"{export_label} export" if export_label else "",
-            )
+            self._paired_key_hint(
+                pager.scroll_up,
+                pager.scroll_down,
+                "to scroll",
+            ),
+            self._paired_key_hint(
+                pager.page_up,
+                pager.page_down,
+                "to page",
+            ),
+            self._paired_key_hint(
+                pager.jump_top,
+                pager.jump_bottom,
+                "to jump",
+            ),
         )
 
         return [("class:transcript.overlay.help", self._help_line(hints))]
@@ -2944,12 +2773,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         """生成完整记录的跳转和退出提示。"""
         pager = self.keymap.pager
         close = binding_labels((*pager.close, *pager.close_transcript))
-
-        if self.transcript_overlay.search_editing:
-            return [(
-                "class:transcript.overlay.help",
-                " Enter search   Esc cancel",
-            )]
 
         if self.transcript_overlay.backtrack_active:
             hint = f" {close} to cancel" if close else ""
@@ -2969,11 +2792,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         hints = (
             "Esc to edit previous" if has_target else "",
             close_hint,
-            self._paired_key_hint(
-                pager.search_next,
-                pager.search_previous,
-                "search result",
-            ) if self.transcript_overlay.search_query else "",
             self._paired_key_hint(
                 pager.half_page_up,
                 pager.half_page_down,
@@ -3584,6 +3402,11 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._sync_menu_surface_style()
         view = self.bottom_pane.active_view
         return view.fragments() if view is not None else []
+
+    def _menu_cursor_hidden(self) -> bool:
+        """仅在菜单不接收文本编辑时隐藏终端光标。"""
+        state = self.menu.state
+        return state is None or not state.request.text_input
 
     def _menu_surface_style(self) -> str:
         """返回当前菜单窗口使用的 surface 样式。"""

@@ -99,7 +99,6 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "transcript.overlay.rule": "dim",
     "transcript.overlay.progress": "bold",
     "transcript.overlay.filler": "dim",
-    "transcript.overlay.search-prompt": "bold",
     "static-pager.title": "dim",
     "static-pager.rule": "dim",
     "static-pager.progress": "bold",
@@ -256,7 +255,6 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
                 "ps.title",
                 "ps.command",
                 "transcript.overlay.progress",
-                "transcript.overlay.search-query",
                 "static-pager.progress",
                 "approval-question",
                 "approval-field-label",
@@ -284,6 +282,7 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
                 "tui-menu.label",
                 "tui-menu.body",
                 "tui-menu.body.heading",
+                "tui-menu.footer.hint",
             ),
         ),
         (
@@ -368,7 +367,7 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
                 "tui-menu.index.disabled",
                 "tui-menu.footer",
                 "tui-menu.footer.note",
-                "tui-menu.footer.hint",
+                "tui-menu.footer.key",
                 "tui-menu.footer.right",
                 "tui-menu.category",
             ),
@@ -383,10 +382,10 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
                 "footer.access",
                 "footer.mailbox",
                 "footer.model",
+                "footer.raw",
+                "tui-menu.input-gutter",
                 "shell.title.dot.running",
                 "ps.stream.command",
-                "transcript.overlay.search-prompt",
-                "transcript.overlay.search-cursor",
                 "approval-network",
                 "approval-network-host",
                 "approval-permission-rule",
@@ -401,7 +400,6 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
             semantics.success,
             (
                 "shell.title.dot.success",
-                "transcript.overlay.export-success",
                 "approval-patch-count-add",
                 "approval-command-string",
                 "approval-mcp-readonly",
@@ -416,7 +414,6 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
                 "directory-trust.error",
                 "shell.title.dot.failure",
                 "ps.error",
-                "transcript.overlay.export-error",
                 "approval-patch-count-remove",
                 "approval-mcp-destructive",
                 "resume-picker.error",
@@ -500,10 +497,7 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
         "resume-picker.rule",
     ):
         styles[style_class] = separator_style
-    for style_class in (
-        "transcript.overlay.selection",
-        "transcript.overlay.search-match",
-    ):
+    for style_class in ("transcript.overlay.selection",):
         styles[style_class] = _terminal_surface_style(semantics.selected_surface)
 
     return Style.from_dict(styles)

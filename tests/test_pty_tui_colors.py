@@ -320,24 +320,18 @@ def test_real_tui_color_matrix_preserves_screen_and_business_facts(
 
             _wait_for_stage(facts_path, "overlay_open")
             terminal.wait_for_screen_text("COLOR OVERLAY ROW")
-            terminal.write_user_text("/match-2")
-            terminal.send_key(PtyKey.ENTER)
+            terminal.write_user(b"\x1b[5~")
             _acknowledge(facts_path, "overlay_open")
 
-            search_facts = _wait_for_stage(facts_path, "overlay_search")
-            search_position = _details(search_facts)["overlay_search_position"]
-            assert isinstance(search_position, list)
-            assert search_position[1] > 0
-            terminal.write_user_text("r")
-            _acknowledge(facts_path, "overlay_search")
-
-            raw_facts = _wait_for_stage(facts_path, "overlay_raw")
-            terminal.wait_for_screen_text("COLOR RAW ROW")
-            raw_details = _details(raw_facts)
-            assert raw_details["overlay_raw_mode"] is True
-            assert raw_details["styles_final"] == raw_details["styles_initial"]
+            scrolled_facts = _wait_for_stage(facts_path, "overlay_scrolled")
+            scrolled_details = _details(scrolled_facts)
+            assert (
+                scrolled_details["overlay_scrolled_offset"]
+                != scrolled_details["overlay_initial_offset"]
+            )
+            assert scrolled_details["styles_final"] == scrolled_details["styles_initial"]
             terminal.write_user(b"\x14")
-            _acknowledge(facts_path, "overlay_raw")
+            _acknowledge(facts_path, "overlay_scrolled")
 
             assert terminal.wait_for_exit(timeout=10.0) == 0
             final_facts = _read_facts(facts_path)

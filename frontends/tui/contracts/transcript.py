@@ -8,17 +8,11 @@ from dataclasses import (
 )
 from pathlib import Path
 
-TranscriptExportFormat: typing.TypeAlias = typing.Literal[
-    "markdown",
-    "raw",
-]
-
 
 @dataclass(frozen=True, slots=True)
 class TranscriptExportResult(object):
     """描述记录导出回调返回的结构化结果。"""
     path: Path
-    format: TranscriptExportFormat
     cell_count: int
 
 

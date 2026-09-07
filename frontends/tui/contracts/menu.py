@@ -31,6 +31,7 @@ class MenuEmptyAcceptAction(str, Enum):
     """描述菜单没有可选结果时确认键的行为。"""
     CANCEL = "cancel"
     IGNORE = "ignore"
+    SUBMIT_QUERY = "submit_query"
 
 
 class MenuShortcutAction(str, Enum):
@@ -46,6 +47,7 @@ class MenuFooterCommand:
     """描述一组等价按键及其 footer 操作说明。"""
     actions: tuple[MenuShortcutAction, ...]
     description: str
+    key_labels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +138,10 @@ class MenuRequest(object):
     view_id: str | None = None
     generation: int = 0
     searchable: bool = False
+    text_input: bool = False
+    initial_query: str = ""
+    text_input_gutter: str = ""
+    text_input_gutter_style: str = ""
     search_placeholder: str = "Search"
     search_matcher: typing.Callable[[str, MenuOption], bool] | None = None
     search_ranker: typing.Callable[
@@ -179,6 +185,7 @@ class MenuRequest(object):
     body_line_limits: tuple[int | None, ...] = ()
     status_style: str = ""
     selection_marker: str = "›"
+    surface_horizontal_inset: int | None = None
 
 
 if __name__ == '__main__':

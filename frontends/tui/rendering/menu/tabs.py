@@ -3,7 +3,10 @@
 
 from dataclasses import replace
 
-from frontends.tui.contracts.menu import MenuRequest
+from frontends.tui.contracts.menu import (
+    MenuFooterValue,
+    MenuRequest,
+)
 
 
 def request_for_tab(
@@ -35,7 +38,7 @@ def switched_tab_request(
     request: MenuRequest,
     *,
     step: int,
-    base_footer_hint: str,
+    base_footer_hint: MenuFooterValue,
 ) -> MenuRequest | None:
     """返回按方向循环切换页签后的请求。"""
     tabs = request.tabs

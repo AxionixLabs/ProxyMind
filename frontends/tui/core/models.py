@@ -27,7 +27,6 @@ from frontends.tui.contracts.transcript import (
     MailboxEntry,
     MailboxRunRequest,
     TranscriptBacktrackRequest,
-    TranscriptExportFormat,
     TranscriptExportResult,
 )
 from frontends.tui.contracts.views import (
@@ -56,7 +55,6 @@ __all__ = (
     "MailboxEntry",
     "MailboxRunRequest",
     "TranscriptBacktrackRequest",
-    "TranscriptExportFormat",
     "TranscriptExportResult",
     "ViewCompletion",
     "ViewIdentity",

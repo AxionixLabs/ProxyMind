@@ -50,6 +50,7 @@ def footer_fragments(
     mailbox_label: str = "",
     model_label: str | None = "",
     permissions_label: str = "",
+    raw_output_label: str = "",
     workspace_label: str = "",
     history_search_query: str = "",
     history_search_status: str = "idle",
@@ -108,6 +109,7 @@ def footer_fragments(
         ("class:footer.mailbox", mailbox_label),
         ("class:footer.model", model_label or "-"),
         (access_style, permissions),
+        ("class:footer.raw", raw_output_label),
         ("class:footer.workspace", workspace_label),
     )
     for style, value in values:
@@ -239,9 +241,9 @@ def mention_completion_hint_fragments(
 
     left_fragments: FormattedText = [
         ("class:tui-menu.footer.hint", " " * max(0, int(left_padding))),
-        ("class:tui-menu.footer.hint", "enter"),
+        ("class:tui-menu.footer.key", "enter"),
         ("class:tui-menu.footer.hint", " insert · "),
-        ("class:tui-menu.footer.hint", "esc"),
+        ("class:tui-menu.footer.key", "esc"),
         ("class:tui-menu.footer.hint", " close · ←/→ switch search modes"),
     ]
 

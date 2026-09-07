@@ -680,13 +680,10 @@ async def test_backtrack_local_failure_restores_full_transaction_state() -> None
     runtime.replace_input_text("local prompt")
     runtime.document.scrollback_line_count = 2
     runtime.document.cleared_line_count = 1
+    runtime.set_raw_output_mode(True)
     runtime.viewport.view_row = 4
     runtime.toggle_transcript_overlay()
     overlay = runtime.screen.transcript_overlay
-    overlay.begin_search()
-    overlay.append_search_text("answer")
-    assert overlay.confirm_search()
-    assert overlay.step_search(1)
     before_text = "".join(
         value
         for _style, value in runtime.document.all_fragments(width=80)
@@ -765,8 +762,8 @@ async def test_backtrack_local_failure_restores_full_transaction_state() -> None
     assert runtime.document.scrollback_line_count == 2
     assert runtime.document.cleared_line_count == 1
     assert runtime.viewport.view_row == 4
-    assert overlay.search_query == "answer"
-    assert overlay.search_result_position == (1, 2)
+    assert runtime.document.raw_output_mode
+    assert overlay.active
     assert attach.consume_pending_attachments() == [{
         "kind": "file",
         "file_key": "file_123",

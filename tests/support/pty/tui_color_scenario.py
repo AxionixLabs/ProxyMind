@@ -343,7 +343,7 @@ async def _run_turn_surfaces(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
 
 
 async def _run_overlay(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
-    """通过真实按键验证 transcript 搜索、选择、raw 和 resize。"""
+    """通过真实按键验证 transcript 着色、滚动和关闭。"""
     for index in range(28):
         runtime.append_block(
             FragmentBlock(((
@@ -359,26 +359,19 @@ async def _run_overlay(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
         lambda: runtime.screen.transcript_overlay.active,
         "transcript overlay open",
     )
+    initial_offset = runtime.screen.transcript_overlay.scroll_offset
+    facts.set_detail("overlay_initial_offset", initial_offset)
     await _checkpoint(runtime, facts, "overlay_open")
     await _wait_until(
-        lambda: (
-            runtime.screen.transcript_overlay.search_query == "match-2"
-            and not runtime.screen.transcript_overlay.search_editing
-        ),
-        "transcript search",
+        lambda: runtime.screen.transcript_overlay.scroll_offset != initial_offset,
+        "transcript scroll",
     )
     facts.set_detail(
-        "overlay_search_position",
-        list(runtime.screen.transcript_overlay.search_result_position),
+        "overlay_scrolled_offset",
+        runtime.screen.transcript_overlay.scroll_offset,
     )
-    await _checkpoint(runtime, facts, "overlay_search")
-    await _wait_until(
-        lambda: runtime.screen.transcript_overlay.raw_mode,
-        "transcript raw mode",
-    )
-    facts.set_detail("overlay_raw_mode", runtime.screen.transcript_overlay.raw_mode)
     facts.set_detail("styles_final", _style_snapshot(runtime))
-    await _checkpoint(runtime, facts, "overlay_raw")
+    await _checkpoint(runtime, facts, "overlay_scrolled")
     await _wait_until(
         lambda: not runtime.screen.transcript_overlay.active,
         "transcript overlay close",

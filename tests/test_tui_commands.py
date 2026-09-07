@@ -117,6 +117,8 @@ def test_root_command_completion_order_is_stable() -> None:
         "/mailbox",
         "/queue",
         "/diff",
+        "/export",
+        "/raw",
         "/copy",
         "/ps",
         "/stop",
@@ -1252,7 +1254,7 @@ async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_resumed_transcript_supports_search_export_and_backtrack(
+async def test_resumed_transcript_supports_export_and_backtrack(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1351,19 +1353,14 @@ async def test_resumed_transcript_supports_search_export_and_backtrack(
 
     runtime.toggle_transcript_overlay()
     overlay = runtime.screen.transcript_overlay
-    overlay.begin_search()
-    overlay.append_search_text("needle")
-    assert overlay.confirm_search()
-    assert overlay.search_result_position == (1, 2)
-    overlay.toggle_raw_mode()
-    assert overlay.raw_mode
-    assert "**Needle found**" in "".join(
+    assert overlay.active
+    assert "Needle found" in "".join(
         text for _style, text in overlay.fragments()
     )
 
     exported = TranscriptExporter(tmp_path).export(
         runtime.document.transcript_snapshot().committed_cells,
-        "raw",
+        "resumed.md",
     )
     exported_text = exported.path.read_text(encoding="utf-8")
     assert exported_text.count("pwd") == 1

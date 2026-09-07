@@ -18,6 +18,7 @@ from frontends.tui.core.models import (
     CLOSE_MENU_FOOTER_HINT,
     MenuColumnWidthMode,
     MenuDescriptionLayout,
+    MenuEmptyAcceptAction,
     MenuFooterCommand,
     MenuFooterHint,
     MenuOption,
@@ -74,7 +75,18 @@ async def test_menu_footer_uses_runtime_keymap_and_skips_unbound_actions() -> No
             footer_hint=hint,
         ))
         assert menu.state is not None
-        assert menu.state.request.footer_hint == expected
+        footer = menu.footer_fragments()
+        assert _fragments_text(footer).strip() == expected
+        assert [
+            text
+            for style, text in footer
+            if style == "class:tui-menu.footer.key"
+        ] == ["f18", "f19"]
+        assert all(
+            style == "class:tui-menu.footer.hint"
+            for style, text in footer
+            if text.strip() and text not in {"f18", "f19"}
+        )
         menu.cancel()
         assert await future is None
 
@@ -708,12 +720,12 @@ async def test_searchable_menu_ctrl_w_removes_previous_query_word() -> None:
     await asyncio.sleep(0)
 
     menu._update_query("alpha beta  ")
-    ctrl_w = next(
-        binding.handler
-        for binding in menu.key_bindings.bindings
-        if binding.keys == (Keys.ControlW,)
+    event = SimpleNamespace(
+        key=Keys.ControlW,
+        data="\x17",
+        key_sequence=(SimpleNamespace(key=Keys.ControlW),),
     )
-    ctrl_w(None)
+    assert menu.handle_key_event(event)
 
     assert menu.state is not None
     assert menu.state.query == "alpha"
@@ -1601,3 +1613,57 @@ async def test_menu_text_snapshots_cover_visible_states(
 
 def _fragments_text(parts) -> str:
     return "".join(text for _, text in parts)
+
+
+@pytest.mark.anyio
+async def test_text_input_menu_prefills_edits_and_submits_filename() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Save conversation",
+        text_input=True,
+        initial_query="mind-session.md",
+        text_input_gutter="▌",
+        search_placeholder="",
+        empty_accept_action=MenuEmptyAcceptAction.SUBMIT_QUERY,
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        show_option_gutter=False,
+        separate_options=False,
+        surface_horizontal_inset=0,
+    )))
+    await asyncio.sleep(0)
+
+    assert menu.state is not None
+    assert menu.state.query == "mind-session.md"
+    assert menu.state.query_cursor == len("mind-session.md")
+    fragments = menu.fragments()
+    gutter_fragments = [
+        (style, text)
+        for style, text in fragments
+        if "tui-menu.input-gutter" in style
+    ]
+    assert [text for _style, text in gutter_fragments] == ["▌ ", "▌", "▌ "]
+    assert any(
+        style == "[SetCursorPosition]"
+        for style, _text in fragments
+    )
+
+    def event(key, data=""):
+        return SimpleNamespace(
+            key=key,
+            data=data,
+            key_sequence=(SimpleNamespace(key=key),),
+        )
+
+    assert menu.handle_key_event(event(Keys.Home))
+    assert menu.handle_key_event(event("X", "X"))
+    assert menu.handle_key_event(event(Keys.End))
+    assert menu.handle_key_event(event(Keys.ControlH))
+    assert menu.handle_key_event(event(Keys.BracketedPaste, "-copy.md"))
+    assert menu.handle_key_event(event(Keys.Enter))
+
+    assert await task == "Xmind-session.m-copy.md"

@@ -28,6 +28,7 @@ from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.submission import TuiInterruptRequested
+from frontends.tui.features.transcript_export import _filename_prompt
 from frontends.tui.features.model import next_model_reasoning_effort
 from frontends.tui.session.turn_input import TuiTurnInputControl
 from infrastructure.skills import SkillSpec
@@ -1048,19 +1049,7 @@ async def _run_nested_surfaces(runtime: TuiRuntime, facts: ScenarioFacts) -> Non
     )
     facts.stage = "transcript_open"
     facts.write()
-    await _wait_until(
-        lambda: runtime.screen.transcript_overlay.search_query == "needle",
-        "transcript search input",
-    )
     facts.set_detail("draft_during_transcript", runtime.screen.input.buffer.text)
-    facts.stage = "transcript_search"
-    facts.write()
-    await _wait_until(
-        lambda: not runtime.screen.transcript_overlay.search_editing,
-        "transcript search close",
-    )
-    facts.stage = "transcript_search_closed"
-    facts.write()
     await _wait_until(
         lambda: not runtime.screen.transcript_overlay.active,
         "transcript overlay close",
@@ -1295,6 +1284,51 @@ async def _run_menu_surface(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     await asyncio.gather(reader, return_exceptions=True)
 
 
+async def _run_export_filename(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """验证生产导出文件名表面的真实编辑和光标生命周期。"""
+    _ready(runtime, facts)
+    selection = asyncio.create_task(
+        runtime.select_menu(_filename_prompt("sid-pty-export"))
+    )
+    await _wait_until(
+        lambda: (
+            runtime.screen.menu.state is not None
+            and runtime.screen.menu.state.request.view_id
+            == "conversation:export-filename"
+        ),
+        "export filename menu",
+    )
+    content = runtime.screen.menu_control.create_content(100, None)
+    cursor = content.cursor_position
+    facts.set_detail(
+        "menu_control_focused",
+        runtime.screen.application.layout.current_control
+        is runtime.screen.menu_control,
+    )
+    facts.set_detail(
+        "menu_window_focused",
+        runtime.screen.application.layout.current_window
+        is runtime.screen.menu_window,
+    )
+    facts.set_detail(
+        "menu_content_cursor",
+        [cursor.x, cursor.y] if cursor is not None else [],
+    )
+    facts.stage = "export_filename_open"
+    facts.write()
+
+    result = await selection
+    facts.set_detail("export_filename_result", str(result or ""))
+    facts.set_detail("draft_after_export", runtime.screen.input.buffer.text)
+    facts.stage = "export_filename_consumed"
+    facts.write()
+    acknowledgment = facts.path.with_suffix(".ack")
+    await _wait_until(
+        acknowledgment.exists,
+        "export filename assertion acknowledgment",
+    )
+
+
 async def _run_transcript_pager(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     """验证记录页导航键只改变记录视口并保留主输入草稿。"""
     for index in range(80):
@@ -1457,6 +1491,8 @@ async def _run(scenario: str, facts_path: Path) -> None:
             await _run_approval_surface(runtime, facts)
         elif scenario in {"menu_surface", "searchable_menu_surface"}:
             await _run_menu_surface(runtime, facts)
+        elif scenario == "export_filename":
+            await _run_export_filename(runtime, facts)
         elif scenario == "transcript_pager":
             await _run_transcript_pager(runtime, facts)
         else:

@@ -592,7 +592,6 @@ def render_resume_transcript(
         _fit_line(
             transcript_header_fragments(
                 width=canvas_width,
-                raw_mode=False,
             ),
             width=canvas_width,
         ),
@@ -634,7 +633,7 @@ def _resume_transcript_lines(
     if preview.status is ResumePreviewStatus.ERROR:
         return [[
             (
-                "class:transcript.overlay.export-error",
+                "class:resume-picker.error",
                 _safe_text(preview.error) or "Could not load transcript",
             ),
         ]]

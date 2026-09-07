@@ -220,6 +220,9 @@ def split_formatted_lines(parts: FormattedText) -> list[FormattedText]:
 
     for style, text in parts:
         if not text:
+            if "[SetCursorPosition]" in style:
+                current.append((style, text))
+                found = True
             continue
         found = True
         if ZERO_WIDTH_ESCAPE_STYLE in style:

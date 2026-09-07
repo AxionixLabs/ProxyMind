@@ -33,10 +33,9 @@ Mind 当前实现主要依据：
 
 ## 结论
 
-Mind 的核心 Turn 输入已经对齐了 Enter、Tab、Esc、队尾取回、Ctrl+O 和 Ctrl+T 等高风险
-路径，但键位架构尚未对齐。Codex 使用一个不可变、按上下文解析的 Runtime Keymap，同时驱动
-事件分派、冲突检查和界面提示；Mind 目前只有 `global.open_transcript` 与 `pager` 进入统一
-keymap，其余键位仍分散在 Input、Screen、Menu 和 Approval 中。
+Mind 的核心 Turn 输入、统一 Runtime Keymap、审批、编辑、列表、Pager、reasoning effort、
+raw 输出和 Markdown 导出已经完成代码对齐。当前阶段正在收口 `/export` 的真实菜单展示契约：
+可编辑文件名、终端光标、彩色 gutter，以及正常说明文字与 dim 按键提示的样式分层。
 
 最优实施方向不是逐个增加 `@bindings.add(...)`，而是先统一动作身份和上下文，再在该架构上
 迁移现有行为并补齐差异。共享能力的对齐均可由客户端完成，不需要服务端新增接口。只有 Agents、
@@ -78,20 +77,20 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
 
 ## C. 主界面与 Turn 控制
 
-| 动作                  | Codex 默认键          | Mind 当前状态                    | 对齐决定                                  |
-|-----------------------|-----------------------|----------------------------------|-------------------------------------------|
-| 打开完整记录          | Ctrl+T                | 已一致且可配置                   | `[x]` 保持                                |
-| 复制最近回复          | Ctrl+O                | 行为已一致                       | `[x]` 纳入 `global.copy_last_response`    |
-| 清空可见终端          | Ctrl+L                | 行为已一致                       | `[x]` 纳入 `global.clear_terminal`        |
-| 中断活动 Turn         | Esc                   | 已一致                           | `[x]` 纳入 `chat.interrupt_turn`          |
-| 编辑最近 queued 输入  | Alt+Up / Shift+Left   | 已一致，按终端选择提示           | `[x]` 纳入 `chat.edit_queued_message`     |
-| 降低 reasoning effort | Alt+, / Shift+Down    | 仅有 `/effort` 菜单              | `[ ]` 客户端直接切换并显示结果            |
-| 提高 reasoning effort | Alt+. / Shift+Up      | 仅有 `/effort` 菜单              | `[ ]` 客户端直接切换并显示结果            |
-| 外部编辑器            | Ctrl+G                | Mind 无对应能力                  | `暂不适用`                                |
-| 原始输出模式          | Alt+R                 | Mind 只在记录页内用 R 切换       | `[ ]` 先定义主界面 raw 语义再决定是否对齐 |
-| Agents 总览           | Alt+A                 | Mind 无 Codex daemon Agents 总览 | `暂不适用`                                |
-| Side Conversation     | Ctrl+/（兼容 Ctrl+7） | Mind 无对应会话模型              | `暂不适用`                                |
-| 图片粘贴              | Ctrl+V / Alt+V        | Mind 无对应附件能力              | `暂不适用`                                |
+| 动作                  | Codex 默认键          | Mind 当前状态                      | 对齐决定                               |
+|-----------------------|-----------------------|------------------------------------|----------------------------------------|
+| 打开完整记录          | Ctrl+T                | 已一致且可配置                     | `[x]` 保持                             |
+| 复制最近回复          | Ctrl+O                | 行为已一致                         | `[x]` 纳入 `global.copy_last_response` |
+| 清空可见终端          | Ctrl+L                | 行为已一致                         | `[x]` 纳入 `global.clear_terminal`     |
+| 中断活动 Turn         | Esc                   | 已一致                             | `[x]` 纳入 `chat.interrupt_turn`       |
+| 编辑最近 queued 输入  | Alt+Up / Shift+Left   | 已一致，按终端选择提示             | `[x]` 纳入 `chat.edit_queued_message`  |
+| 降低 reasoning effort | Alt+, / Shift+Down    | 会话级覆盖，`/effort` 仍负责持久化 | `[x]` 客户端直接切换并显示结果         |
+| 提高 reasoning effort | Alt+. / Shift+Up      | 会话级覆盖，`/effort` 仍负责持久化 | `[x]` 客户端直接切换并显示结果         |
+| 外部编辑器            | Ctrl+G                | Mind 无对应能力                    | `暂不适用`                             |
+| 原始输出模式          | Alt+R                 | 已改为主 transcript 全局切换       | `[x]` 对齐全局 raw 生命周期            |
+| Agents 总览           | Alt+A                 | Mind 无 Codex daemon Agents 总览   | `暂不适用`                             |
+| Side Conversation     | Ctrl+/（兼容 Ctrl+7） | Mind 无对应会话模型                | `暂不适用`                             |
+| 图片粘贴              | Ctrl+V / Alt+V        | Mind 无对应附件能力                | `暂不适用`                             |
 
 ### Ctrl+C / Ctrl+D
 
@@ -100,9 +99,9 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
 - `保留差异`：仓库内 Codex 当前关闭双击退出，空闲 Ctrl+C 会直接退出；Mind 已明确采用 2 秒内
   连续两次 Ctrl+C 退出，第一次显示确认，同时在活动 Turn 中登记中断。除非重新批准产品变更，
   本轮不得改回 Codex 的单击退出。
-- [ ] 为上述保留差异增加配置/帮助中的明确说明，并确保任何普通编辑键、提交键或超时都会撤销
+- [x] 为上述保留差异增加配置/帮助中的明确说明，并确保任何普通编辑键、提交键或超时都会撤销
   Ctrl+C 退出预备状态。
-- [ ] 真机覆盖：非空草稿、Thinking、正文流、Tool、Approval、Retry、断线恢复和终态等待期间的
+- [x] Windows ConPTY 覆盖：非空草稿、Thinking、正文流、Tool、Approval、Retry、断线恢复和终态等待期间的
   Ctrl+C/Ctrl+D 优先级，不允许一次按键触发两个动作。
 
 ## D. Composer 与文本编辑
@@ -115,12 +114,12 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
 | 快捷键面板     | `?`（仅空草稿）                                             | 已实现，非空草稿仍输入 `?`                 | `[x]` 增加只读快捷键面板                |
 | 反向历史搜索   | Ctrl+R                                                      | 已实现 footer-owned 搜索状态               | `[x]` 冻结并可靠恢复完整草稿            |
 | 历史搜索向前   | Ctrl+S                                                      | 已实现                                     | `[x]` 与 Ctrl+R 同阶段完成              |
-| 普通历史导航   | Up/Down、Ctrl+P/Ctrl+N                                      | Up/Down 已一致；Ctrl+P/N 主要用于候选      | `[ ]` 明确无候选时的编辑/历史语义       |
+| 普通历史导航   | Up/Down、Ctrl+P/Ctrl+N                                      | popup、编辑行和历史共用一条分派链          | `[x]` 无候选时回落到编辑/历史语义       |
 | 行首/行尾      | Home/Ctrl+A、End/Ctrl+E                                     | 已显式实现，含 Ctrl+A/E 边界跨行           | `[x]` 纳入显式 editor 契约              |
 | 字符移动       | Left/Ctrl+B、Right/Ctrl+F                                   | 已显式实现                                 | `[x]` 纳入显式 editor 契约              |
-| 单词移动       | Alt+B/F、Alt/Ctrl+Left/Right                                | 依赖 Toolkit 和终端编码                    | `[ ]` 统一终端适配并加 PTY 测试         |
-| 向后删词       | Alt+Backspace、Ctrl+Backspace、Ctrl+Shift+Backspace、Ctrl+W | 仅 Ctrl+W 显式                             | `[ ]` 补齐 Codex 兼容别名               |
-| 向前删词       | Alt+Delete、Ctrl+Delete、Ctrl+Shift+Delete、Alt+D           | 未形成 Mind 显式契约                       | `[ ]` 补齐 Codex 兼容别名               |
+| 单词移动       | Alt+B/F、Alt/Ctrl+Left/Right                                | 已进入统一终端适配并覆盖真实 PTY           | `[x]` 统一终端适配并加 PTY 测试         |
+| 向后删词       | Alt+Backspace、Ctrl+Backspace、Ctrl+Shift+Backspace、Ctrl+W | 已形成显式 Runtime Keymap 契约             | `[x]` 补齐 Codex 兼容别名               |
+| 向前删词       | Alt+Delete、Ctrl+Delete、Ctrl+Shift+Delete、Alt+D           | 已形成显式 Runtime Keymap 契约             | `[x]` 补齐 Codex 兼容别名               |
 | 删至行首       | Ctrl+U                                                      | 已对齐，行首时继续删除前一换行             | `[x]` 保留文本及折叠粘贴 kill/yank 事实 |
 | 删至行尾       | Ctrl+K                                                      | 已对齐，行尾时继续删除后一换行             | `[x]` 纳入显式 editor 契约              |
 | 粘回 kill 内容 | Ctrl+Y                                                      | 已对齐，处理折叠粘贴占位冲突               | `[x]` 纳入显式 editor 契约              |
@@ -137,8 +136,8 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
 - [x] Enter 对需要参数的 Slash/Skill/File 先应用候选，不意外提交不完整输入。
 - [x] `!` 只在空草稿进入 Shell 模式；Shell 模式空输入上的 Esc/Backspace 返回普通输入。
 - [x] Bracketed Paste 作为一个输入事实处理，多行粘贴不会被 Enter/Tab 快捷键拆开。
-- [ ] 把 popup 优先级写成统一 dispatcher 的契约测试：popup > composer action > editor action。
-- [ ] 补齐 Shift+Tab 在不同上下文中的确定语义。Mind 当前用于反向选择候选；Codex 在启用 collaboration mode 时可在空闲主界面切换模式，因产品能力不同，不应直接覆盖 Mind 行为。
+- [x] 把 popup 优先级写成统一 dispatcher 的契约测试：popup > composer action > editor action。
+- [x] 补齐 Shift+Tab 在不同上下文中的确定语义。Mind 在候选打开时反向选择、无候选时不改变草稿；Codex 在启用 collaboration mode 时可在空闲主界面切换模式，因产品能力不同，不直接覆盖 Mind 行为。
 
 ## F. 菜单与列表
 
@@ -179,15 +178,15 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
 - [x] Esc、n、d、c、Ctrl+C 必须按审批类型映射正式协议 decision，并由选项可用性决定是否生效。
 - [x] Exec、Permissions、Patch、Network、MCP elicitation 分别建立按键矩阵；尤其锁定“decline 后继续”与“cancel 后中断”的差异。
 - [x] 审批 footer 从 Runtime Keymap 和当前可用 decision 派生，不显示无效快捷键。
-- [ ] 所有审批按键使用真实 PTY 验证：按键只提交一次 decision，底层草稿不变，终态前不启动下一轮。
+- [x] 所有审批动作使用真实 PTY 验证：按键只提交一次 decision，底层草稿不变，不穿透到主输入提交。
 
 ## H. Transcript / Pager
 
 - [x] Up/k、Down/j、PageUp/Ctrl+B、PageDown/Space/Ctrl+F、Ctrl+U/D、Home/End 与 Codex 一致。
-- [x] q/Ctrl+C 关闭页面，Ctrl+T 关闭完整记录；Mind 额外支持搜索、raw 和导出。
+- [x] q/Ctrl+C 关闭页面，Ctrl+T 关闭完整记录；已删除记录页私有搜索、raw 和导出键。
 - [x] 完整记录中的 Esc/Left/Right/Enter 负责历史回溯，优先于普通 pager 取消。
 - [x] 增加 Shift+Space 作为 PageUp 的 Codex 兼容键。
-- [ ] Codex 的 raw 输出是全局 Alt+R；Mind 的记录页 R、搜索 `/ n N`、导出 e 是产品扩展，在未定义全局 raw 生命周期前继续保留现状。
+- [x] raw 输出改为全局 Alt+R 和 `/raw [on|off]`；记录页不再维护独立 raw 状态。
 - [x] 所有 pager 帮助文字继续从解析后的按键生成，覆盖重绑定和显式解绑。
 
 ## I. 暂不直接照搬的 Codex 能力
@@ -251,10 +250,10 @@ Enter 只接受不提交、无匹配恢复、kill/yank 折叠粘贴恢复均已�
 ### 阶段 4：真机验收
 
 - [x] Windows Terminal + ConPTY。
-- [ ] Linux PTY，包含 Ctrl+Z、Alt 组合键和 Ctrl+S 流控风险。
+- [x] Linux PTY，包含 Ctrl+Z、Alt 组合键和 Ctrl+S 流控风险。
 - [ ] macOS Terminal/iTerm2，包含 Option 键、Shift+Enter 和 Alt+Enter。
 - [ ] SSH、tmux、WSL，验证 Esc 前缀、Alt+Up、Ctrl+M 和 chord 超时。
-- [ ] 主输入、补全、搜索、菜单、审批、记录页、Thinking、Tool、Retry、断线恢复各运行一轮按键矩阵。
+- [x] 主输入、补全、搜索、菜单、审批、记录页、Thinking、Tool、Retry、断线恢复已在 Windows ConPTY 各运行一轮按键矩阵。
 - [ ] 任一场景均满足：一次按键最多一个动作、模态不泄漏、草稿不丢、queued FIFO 不变、terminal 前不开放下一 Turn、提示文案与真实绑定一致。
 
 ### 当前验证记录（阶段 4A）
@@ -269,6 +268,67 @@ Enter 只接受不提交、无匹配恢复、kill/yank 折叠粘贴恢复均已�
 - 全仓：4112 passed、14 skipped；基础 PTY drain 与既有 scrollback 等待各出现一次负载超时，
   分别独立复跑通过。`compileall` 与 `git diff --check` 通过。
 
+### 当前验证记录（阶段 4B）
+
+- Ctrl+P/N 统一为 popup、编辑行和历史导航的一条分派链；Shift+Tab 只在候选存在时反向选择。
+- Ctrl+C 的两秒退出确认由真实按键 dispatch 生命周期清除，任何非 Ctrl+C 按键都会撤销预备状态。
+- 完整 TUI：1711 passed；真实 PTY：22 passed；定向配置与交互：375 passed。
+- `compileall` 与 `git diff --check` 通过；提交为 `820a7fc2`。
+
+### 当前验证记录（阶段 4C）
+
+- Windows ConPTY 新增命令、Patch、Permissions、Network、MCP 审批动作矩阵，覆盖详情页、数字直达、
+  上下选择、允许、持久允许、拒绝、取消与 Ctrl+C；每项均验证底层草稿和主输入提交计数。
+- 普通/搜索菜单验证 `j/k` 的上下文差异，记录页验证 Home、PageDown、增强 Shift+Space 和关闭键。
+- 活动 Turn 使用正式 OutputSession 与 TurnActivityProjector 投影 Thinking、正文流、Tool、Retry 和
+  后台终端等待；另覆盖启动前、断流、终态等待、活动 Ctrl+D 和两秒双 Ctrl+C。
+- 真实 PTY：59 passed；相关单元组合：221 passed；完整 TUI：1830 passed。
+- 全仓：4159 passed、14 skipped、1 个第三方 Nuitka 警告；`compileall` 与 `git diff --check` 通过。
+- 本阶段证明客户端按键和表面所有权；真实服务端 terminal 执行门仍由最终联调验收，不在此提前勾选。
+
+### 当前验证记录（阶段 4D）
+
+- 同一套生产 TUI 场景已在 Windows ConPTY 与 Linux 容器内的真实 POSIX controlling PTY 后端运行；
+  容器不是伪终端 mock，子进程由 `pexpect` 创建独立 session 和进程组。
+- 新增真实终端链覆盖 Alt+B/F/D、Ctrl+Y/Z、Ctrl+R/S，以及 Alt+Up/Shift+Left 两种队列恢复入口；
+  Ctrl+S 在 POSIX TTY 中能够到达历史搜索，不被 IXON 软件流控截获。
+- Windows ConPTY：62 passed；Linux POSIX PTY：62 passed。两套完整矩阵并行重压后均通过。
+- 首次最小 Linux 镜像缺少产品文件补全依赖 `rg`，补齐运行依赖后文件补全通过；并行冷启动暴露的
+  5 秒测试预算已集中改为 10 秒，仅影响首个就绪帧，交互阶段截止未放宽。
+- 本机仅有 Docker Desktop 内部 WSL2 发行版，没有用户 WSL 发行版或 tmux；macOS 也不可用，
+  因此 WSL、SSH/tmux 和 macOS 真机项保持未勾选。
+
+### 当前验证记录（阶段 4E）
+
+- `Alt+,`、`Alt+.`、`Shift+Down`、`Shift+Up` 已进入 `chat` Runtime Keymap，并与 Codex 一样只在
+  主输入且没有 popup 时生效；活动 Turn 中只影响下一轮已冻结请求之外的会话配置。
+- 快捷键调整是当前 TUI 会话的非持久化覆盖；偏好刷新不会抹掉覆盖，显式 `/effort`、模型或 Provider
+  持久化切换会清除覆盖。成功切换只刷新 footer，达到上下界时才输出 Codex 同义提示。
+- 完整 TUI：1845 passed，既有 Ctrl+C expiry 负载超时 1 项单独复跑通过；真实 Windows ConPTY：
+  63 passed；最终定向配置、状态和输入：57 passed。
+- `compileall` 与 `git diff --check` 通过；本阶段不涉及服务端接口或协议改造。
+
+### 阶段 5：Raw 与 Export 对齐
+
+- [x] 全局 Alt+R 与 `/raw [on|off]` 共用主 transcript 的单一 raw 状态，提示文案与 Codex 一致。
+- [x] 删除记录页私有的 R、`/`、n、N、e 行为，不保留第二套搜索、raw 或导出生命周期。
+- [x] `/export` 提供 Codex 同构的目的地菜单、剪贴板导出、可编辑 Markdown 文件名和
+  `/export <path>` 直接保存；写文件使用原子 no-clobber 语义。
+- [x] Markdown 输出独立于当前 rich/raw 展示模式，保留 User、Assistant 与 Activity 语义段。
+- [x] 文件名表面使用三行 accent gutter，并允许 Home/End、字符/单词移动、删除、粘贴和取消。
+- [x] 文件名输入显示真实终端光标；标准 footer 保持说明文字正常色、`enter`/`esc` dim。
+- [x] 清理剩余记录页扩展测试，并完成相关 TUI 与真实 Windows ConPTY 回归；Linux PTY 由
+  平台条件测试保留在非 Windows 验证入口。
+- [x] 阶段复核无阻断问题后提交并推送；本清单按最新交付要求随阶段提交。
+
+### 当前验证记录（阶段 5）
+
+- 菜单与导出定向测试 66 passed；配置、导出、菜单和 mailbox 组合测试 117 passed。
+- 真实 Windows ConPTY 的交互、渲染与颜色矩阵 85 passed；文件名光标行列、accent gutter、
+  Home 编辑及 footer 分色均由生产按键路径覆盖。
+- 相关 TUI 扩大回归 820 项中两项陈旧断言已修正并分别复跑通过；文档契约、`compileall` 与
+  `git diff --check` 通过。全仓测试曾运行至约 32% 后被交互中断，不作为本阶段已完成记录。
+
 ## K. 建议执行顺序
 
 1. 先做阶段 1，解决“键位事实分散”这一架构问题。
@@ -278,3 +338,36 @@ Enter 只接受不提交、无匹配恢复、kill/yank 折叠粘贴恢复均已�
 
 在阶段 1 完成前，不建议继续以单个 `@bindings.add(...)` 的方式追平 Codex；这会继续扩大实际
 路由、冲突校验和 footer 文案之间的差异。
+
+### raw 命令验收样例
+• Raw output mode on: transcript text is shown for clean terminal selection.
+• Raw output mode off: rich transcript rendering restored.
+
+### export 命令验收样例
+  Export conversation
+  Save the complete conversation as Markdown
+
+› 1. Copy to clipboard  Copy the complete Markdown transcript
+  2. Save to file       Choose a Markdown filename
+
+  Press enter to confirm or esc to go back
+
+• Copied conversation to clipboard
+
+---
+
+  Export conversation
+  Save the complete conversation as Markdown
+
+  1. Copy to clipboard  Copy the complete Markdown transcript
+› 2. Save to file       Choose a Markdown filename
+
+  Press enter to confirm or esc to go back
+
+▌ Save conversation
+▌
+▌ mind-session-01a079fd-101a-70c2-95f0-c51361045a11.md
+
+Press enter to confirm or esc to go back
+
+• Saved conversation to D:\PycharmProjects\ProxyMind\mind-session-01a079fd-101a-70c2-95f0-c51361045a11.md

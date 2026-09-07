@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 
-from frontends.tui.contracts.menu import MenuRequest
+from frontends.tui.contracts.menu import (
+    MenuFooterValue,
+    MenuRequest,
+)
 from frontends.tui.contracts.views import (
     ViewCompletion,
     ViewIdentity
@@ -63,6 +66,7 @@ class MenuState(object):
         "completion",
         "result",
         "query",
+        "query_cursor",
         "base_footer_hint",
     )
 
@@ -74,7 +78,8 @@ class MenuState(object):
     completion: ViewCompletion | None
     result: typing.Any
     query: str
-    base_footer_hint: str
+    query_cursor: int
+    base_footer_hint: MenuFooterValue
 
 
 @dataclass(slots=True)

@@ -397,6 +397,10 @@ async def _run_application(
                 TuiRuntimeKeymap.from_config(config_resolution.config)
             )
 
+            tui_runtime.configure_raw_output_mode(
+                config_resolution.config["tui"]["raw_output_mode"]
+            )
+
             tui_runtime.configure_scrollback_reflow_line_limit(
                 config_resolution.config["tui"][
                     "scrollback_reflow_line_limit"

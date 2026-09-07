@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import typing
-import unicodedata
 from bisect import bisect_right
 from copy import deepcopy
 from dataclasses import dataclass
@@ -24,7 +23,6 @@ from .styles import ASSISTANT_PREFIX_CLASS
 from ..rendering.fragments import (
     fragments_text,
     iter_formatted_text_units,
-    iter_text_unit_ranges,
     join_formatted_lines,
     split_formatted_lines
 )
@@ -75,20 +73,10 @@ class TuiTranscriptOverlay(object):
         self._get_snapshot = get_snapshot
         self._invalidate = invalidate
         self.active: bool = False
-        self.raw_mode: bool = False
         self.scroll_offset: int = 0
         self.follow_bottom: bool = True
         self.backtrack_active: bool = False
-        self.search_editing: bool = False
-        self.search_query: str = ""
-        self.export_status: str = ""
-        self.export_failed: bool = False
-        self.export_in_progress: bool = False
-        self._export_request_id: int = 0
         self._selected_cell: TranscriptBlock | None = None
-        self._search_matches: tuple[TranscriptBlock, ...] = ()
-        self._search_match_index: int = -1
-        self._search_revision: int = -1
         self._cached_stable_revision: int = -1
         self._cached_width: int = -1
         self._cached_live_tail_key: TranscriptRenderKey | None = None
@@ -105,13 +93,6 @@ class TuiTranscriptOverlay(object):
     def has_backtrack_target(self) -> bool:
         """返回记录中是否存在可重新编辑的用户轮次。"""
         return bool(self._backtrack_cells())
-
-    @property
-    def search_result_position(self) -> tuple[int, int]:
-        """返回当前搜索结果序号和结果总数。"""
-        total = len(self._search_matches)
-        current = self._search_match_index + 1 if total else 0
-        return current, total
 
     @staticmethod
     def _wrap_line(
@@ -169,11 +150,6 @@ class TuiTranscriptOverlay(object):
         self.follow_bottom = True
         self.backtrack_active = False
         self._selected_cell = None
-        self._reset_search()
-        self.export_status = ""
-        self.export_failed = False
-        self.export_in_progress = False
-        self._export_request_id += 1
         self._invalidate()
 
     def fragments(self) -> FormattedText:
@@ -185,23 +161,12 @@ class TuiTranscriptOverlay(object):
         if not self.active:
             return None
         self._sync_scroll_offset()
-        if self.search_query and not self.search_editing:
-            self._refresh_search_matches()
         self._invalidate()
 
     def content_replaced(self) -> None:
         """在完整记录被替换后丢弃依赖旧 cell 身份的缓存。"""
         self._clear_render_cache()
         self.content_changed()
-
-    def toggle_raw_mode(self) -> None:
-        """切换完整记录的富文本与无装饰文本表示。"""
-        self.raw_mode = not self.raw_mode
-        self.export_status = ""
-        self.export_failed = False
-        self._clear_render_cache()
-        self._sync_scroll_offset()
-        self._invalidate()
 
     def _clear_render_cache(self) -> None:
         """清除依赖 cell 身份、宽度或渲染模式的视觉缓存。"""
@@ -240,122 +205,6 @@ class TuiTranscriptOverlay(object):
         self.follow_bottom = True
         self._sync_scroll_offset()
         self._invalidate()
-
-    def begin_search(self) -> None:
-        """开始输入记录搜索词并退出历史编辑状态。"""
-        self.backtrack_active = False
-        self._selected_cell = None
-        self.search_editing = True
-        self.search_query = ""
-        self._search_matches = ()
-        self._search_match_index = -1
-        self._search_revision = -1
-        self.export_status = ""
-        self.export_failed = False
-        self._invalidate()
-
-    def set_export_status(
-        self,
-        message: str,
-        *,
-        failed: bool,
-        request_id: int | None = None
-    ) -> None:
-        """更新最近一次记录导出的用户反馈。"""
-        if request_id is not None and (
-            not self.active
-            or request_id != self._export_request_id
-            or not self.export_in_progress
-        ):
-            return None
-        self.export_status = str(message or "").strip()
-        self.export_failed = bool(failed)
-        self.export_in_progress = False
-        self._invalidate()
-
-    def begin_export(self, output_format: str) -> int | None:
-        """开始一次记录导出并拒绝并发重复请求。"""
-        if self.export_in_progress:
-            return None
-        self._export_request_id += 1
-        self.export_in_progress = True
-        self.export_failed = False
-        self.export_status = f"Exporting {output_format}..."
-        self._invalidate()
-        return self._export_request_id
-
-    def append_search_text(self, text: str) -> None:
-        """向当前记录搜索词追加可显示字符。"""
-        if not self.search_editing:
-            return None
-        value = "".join(
-            char
-            for char in str(text or "")
-            if (
-                char.isprintable()
-                or char == "\u200d"
-                or unicodedata.category(char) in {"Mn", "Mc"}
-            )
-        )
-        if not value:
-            return None
-        self.search_query += value
-        self._invalidate()
-
-    def backspace_search(self) -> None:
-        """删除记录搜索词末尾的一个字符。"""
-        if not self.search_editing or not self.search_query:
-            return None
-        last_start = tuple(iter_text_unit_ranges(self.search_query))[-1][0]
-        self.search_query = self.search_query[:last_start]
-        self._invalidate()
-
-    def cancel_search(self) -> None:
-        """取消当前搜索输入并清除尚未确认的查询。"""
-        if not self.search_editing:
-            return None
-        self._reset_search()
-        self._invalidate()
-
-    def confirm_search(self) -> bool:
-        """确认搜索词并跳转到当前视口之后的首个结果。"""
-        if not self.search_editing:
-            return False
-
-        self.search_query = self.search_query.strip()
-        self.search_editing = False
-        if not self.search_query:
-            self._reset_search()
-            self._invalidate()
-            return False
-
-        self._sync_cache()
-        self._refresh_search_matches(force=True, preserve_selection=False)
-        if not self._search_matches:
-            self._invalidate()
-            return False
-
-        self._search_match_index = self._first_search_match_index()
-        self._jump_to_search_match()
-        return True
-
-    def step_search(self, direction: int) -> bool:
-        """循环跳转到下一个或上一个记录搜索结果。"""
-        if self.search_editing or not self.search_query:
-            return False
-
-        self._sync_cache()
-        self._refresh_search_matches()
-        if not self._search_matches:
-            self._invalidate()
-            return False
-
-        step = 1 if direction >= 0 else -1
-        self._search_match_index = (
-                                       self._search_match_index + step
-                                   ) % len(self._search_matches)
-        self._jump_to_search_match()
-        return True
 
     def scroll_percentage(self) -> int:
         """返回当前完整记录视口的滚动百分比。"""
@@ -443,7 +292,6 @@ class TuiTranscriptOverlay(object):
 
     def _select_backtrack_cell(self, cell: TranscriptBlock) -> None:
         """选择一个用户 cell 并保证其位于当前视口。"""
-        self._reset_search()
         self._selected_cell = cell
         self._sync_cache()
 
@@ -496,12 +344,6 @@ class TuiTranscriptOverlay(object):
         """给当前视口内选中的用户输入追加高亮样式。"""
         selected_range = self._selected_line_range()
         highlight_class = "class:transcript.overlay.selection"
-
-        if selected_range is None:
-            selected_range = self._cell_line_range(
-                self._selected_search_match()
-            )
-            highlight_class = "class:transcript.overlay.search-match"
 
         if selected_range is None:
             return lines
@@ -747,104 +589,6 @@ class TuiTranscriptOverlay(object):
         self._stable_cell_rows_by_id[id(cell)] = rows
         self._stable_line_count = stop
 
-    def _reset_search(self) -> None:
-        """清除记录搜索输入、匹配集合和选中位置。"""
-        self.search_editing = False
-        self.search_query = ""
-        self._search_matches = ()
-        self._search_match_index = -1
-        self._search_revision = -1
-
-    def _refresh_search_matches(
-        self,
-        *,
-        force: bool = False,
-        preserve_selection: bool = True
-    ) -> None:
-        """按稳定记录版本更新搜索结果并尽量保留当前选中项。"""
-        query = self.search_query.casefold()
-        snapshot = self._get_snapshot()
-
-        if not query:
-            self._search_matches = ()
-            self._search_match_index = -1
-            self._search_revision = snapshot.committed_revision
-            return None
-        if not force and snapshot.committed_revision == self._search_revision:
-            return None
-
-        selected = self._selected_search_match() if preserve_selection else None
-
-        matches = tuple(
-            cell
-            for cell in snapshot.committed_cells
-            if query in self._searchable_cell_text(cell).casefold()
-        )
-
-        self._search_matches = matches
-        self._search_revision = snapshot.committed_revision
-
-        selected_index = next(
-            (
-                index
-                for index, cell in enumerate(matches)
-                if cell is selected
-            ),
-            None,
-        )
-
-        if selected_index is not None:
-            self._search_match_index = selected_index
-        elif matches:
-            self._search_match_index = min(
-                max(0, self._search_match_index),
-                len(matches) - 1,
-            )
-        else:
-            self._search_match_index = -1
-
-    def _searchable_cell_text(self, cell: TranscriptBlock) -> str:
-        """返回不依赖当前富文本排版的 cell 搜索文本。"""
-        if cell.raw_text is not None:
-            return cell.raw_text
-        return fragments_text(self.document.transcript_cell_fragments(cell))
-
-    def _selected_search_match(self) -> TranscriptBlock | None:
-        """返回当前选中的记录搜索结果。"""
-        if not (
-            self._search_matches
-            and 0 <= self._search_match_index < len(self._search_matches)
-        ):
-            return None
-        return self._search_matches[self._search_match_index]
-
-    def _first_search_match_index(self) -> int:
-        """返回当前视口起点之后的首个搜索结果序号。"""
-        for index, cell in enumerate(self._search_matches):
-            line_range = self._cell_line_range(cell)
-            if line_range is not None and line_range[1] > self.scroll_offset:
-                return index
-        return 0
-
-    def _jump_to_search_match(self) -> None:
-        """把当前搜索结果定位到视口上部并停止底部跟随。"""
-        line_range = self._cell_line_range(self._selected_search_match())
-        if line_range is None:
-            self._invalidate()
-            return None
-
-        start, stop = line_range
-
-        height = self._window_height()
-
-        if start < self.scroll_offset or stop > self.scroll_offset + height:
-            self.scroll_offset = max(0, start - height // 3)
-
-        self.scroll_offset = min(self.scroll_offset, self._max_scroll_offset())
-        self.follow_bottom = False
-
-        self._invalidate()
-
     def _stable_cell_render(
         self,
         cell: TranscriptBlock,
@@ -975,13 +719,7 @@ class TuiTranscriptOverlay(object):
         width: int
     ) -> tuple[FormattedText, ...]:
         """把单个记录 cell 转换为终端视觉行。"""
-        parts = (
-            [("", cell.raw_text)]
-            if self.raw_mode and cell.raw_text is not None
-            else self.document.transcript_cell_fragments(cell, width=width)
-        )
-        if self.raw_mode and cell.raw_text is None:
-            parts = [("", fragments_text(parts))]
+        parts = self.document.transcript_cell_fragments(cell, width=width)
 
         out: list[FormattedText] = []
 

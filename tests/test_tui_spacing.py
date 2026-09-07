@@ -97,7 +97,6 @@ from frontends.tui.core.models import (
     LineFill,
     MenuOption,
     MenuRequest,
-    TranscriptBacktrackRequest,
 )
 from frontends.tui.core.keymap import TuiRuntimeKeymap
 from frontends.tui.core.hyperlinks import (
@@ -7415,14 +7414,6 @@ async def test_ctrl_t_opens_and_closes_full_transcript_overlay() -> None:
                 runtime.screen.transcript_overlay_control
             )
 
-            pipe_input.send_text("r")
-            for _ in range(100):
-                await asyncio.sleep(0.01)
-                if runtime.screen.transcript_overlay.raw_mode:
-                    break
-
-            assert runtime.screen.transcript_overlay.raw_mode
-
             pipe_input.send_text("\x1b")
             for _ in range(100):
                 await asyncio.sleep(0.01)
@@ -8053,7 +8044,7 @@ def test_transcript_overlay_reuses_stable_cache_during_active_updates() -> None:
     assert second == "stable\n\n$ command\nfirst\nsecond"
 
 
-def test_transcript_overlay_switches_between_rich_and_raw_cells() -> None:
+def test_main_transcript_switches_between_rich_and_raw_cells() -> None:
     runtime = TuiRuntime()
     runtime.append_block(
         _block("compact"),
@@ -8061,40 +8052,39 @@ def test_transcript_overlay_switches_between_rich_and_raw_cells() -> None:
         transcript_block=_block("Ran shell_command\n$ npm install"),
         raw_text="npm install",
     )
-    runtime.toggle_transcript_overlay()
-    overlay = runtime.screen.transcript_overlay
+    assert "".join(
+        text for _style, text in runtime.document.fragments(width=80)
+    ) == "compact"
 
-    assert "".join(text for _style, text in overlay.fragments()) == (
-        "Ran shell_command\n$ npm install"
-    )
+    runtime.set_raw_output_mode(True)
 
-    overlay.toggle_raw_mode()
+    raw = runtime.document.fragments(width=80)
+    assert runtime.document.raw_output_mode
+    assert "".join(text for _style, text in raw) == "npm install"
+    assert all(not style for style, _text in raw)
 
-    assert overlay.raw_mode
-    assert "".join(text for _style, text in overlay.fragments()) == "npm install"
-    assert all(not style for style, _text in overlay.fragments())
+    runtime.set_raw_output_mode(False)
 
-    overlay.toggle_raw_mode()
-
-    assert not overlay.raw_mode
-    assert "Ran shell_command" in "".join(
-        text for _style, text in overlay.fragments()
-    )
+    assert not runtime.document.raw_output_mode
+    assert "".join(
+        text for _style, text in runtime.document.fragments(width=80)
+    ) == "compact"
 
 
 @pytest.mark.anyio
-async def test_transcript_overlay_keeps_stream_source_text_for_raw_mode() -> None:
+async def test_main_transcript_keeps_stream_source_text_for_raw_mode() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
 
     await output.append_assistant_delta("**bold** and `code`")
     await output.prepare_external_output()
-    runtime.toggle_transcript_overlay()
-    overlay = runtime.screen.transcript_overlay
-
-    rich = "".join(text for _style, text in overlay.fragments())
-    overlay.toggle_raw_mode()
-    raw = "".join(text for _style, text in overlay.fragments())
+    rich = "".join(
+        text for _style, text in runtime.document.fragments(width=80)
+    )
+    runtime.set_raw_output_mode(True)
+    raw = "".join(
+        text for _style, text in runtime.document.fragments(width=80)
+    )
 
     assert "**" not in rich
     assert "`" not in rich
@@ -8147,8 +8137,9 @@ async def test_markdown_hyperlink_degrades_safely_in_dynamic_tui() -> None:
     )
     assert all(style != "[ZeroWidthEscape]" for style, _text in rich)
 
-    overlay.toggle_raw_mode()
-    raw = overlay.fragments()
+    runtime.toggle_transcript_overlay()
+    runtime.set_raw_output_mode(True)
+    raw = runtime.document.fragments(width=20)
 
     assert fragments_text(raw).replace("\n", "") == (
         "[documentation-link-that-wraps](https://example.com/docs)"
@@ -8675,159 +8666,6 @@ def test_transcript_overlay_index_matches_every_full_transcript_slice() -> None:
             assert overlay._visible_lines(start=start, count=count) == (
                 expected[start:start + count]
             )
-
-
-def test_transcript_overlay_search_uses_raw_text_and_survives_reflow() -> None:
-    runtime = TuiRuntime()
-    output_size = [32, 10]
-    runtime.screen._output_size = lambda: tuple(output_size)
-    runtime.append_block(
-        _block("rendered first"),
-        kind="assistant",
-        raw_text="**Needle** in original markdown",
-    )
-    for index in range(8):
-        runtime.append_block(_block(f"filler {index}"), kind="assistant")
-    runtime.append_block(
-        _block("rendered second"),
-        kind="operation",
-        raw_text="tool output contains needle",
-    )
-    runtime.toggle_transcript_overlay()
-    overlay = runtime.screen.transcript_overlay
-    overlay.jump_top()
-
-    overlay.begin_search()
-    overlay.append_search_text("nEeDlE")
-    assert overlay.confirm_search()
-    assert overlay.search_result_position == (1, 2)
-    assert overlay.scroll_offset == 0
-    assert "1/2 nEeDlE" in fragments_text(
-        runtime.screen._transcript_overlay_primary_help_fragments()
-    )
-    assert any(
-        "class:transcript.overlay.search-match" in style
-        for style, _text in overlay.visible_fragments()
-    )
-
-    assert overlay.step_search(1)
-    second_offset = overlay.scroll_offset
-    assert second_offset > 0
-    assert overlay.search_result_position == (2, 2)
-
-    overlay.toggle_raw_mode()
-    output_size[0] = 18
-    overlay.visible_fragments()
-    assert overlay.search_result_position == (2, 2)
-    assert overlay.scroll_offset <= overlay._max_scroll_offset()
-
-    runtime.append_block(
-        _block("rendered third"),
-        kind="assistant",
-        raw_text="new needle result",
-    )
-    assert overlay.search_result_position == (2, 3)
-
-    runtime.set_active_renderable(
-        _block("live needle is not committed"),
-        kind="assistant",
-    )
-    assert overlay.search_result_position == (2, 3)
-    assert overlay.step_search(-1)
-    assert overlay.search_result_position == (1, 3)
-
-    runtime.commit_active_renderable(_block("committed live needle"))
-    assert overlay.search_result_position == (1, 4)
-
-
-def test_transcript_overlay_search_keeps_hyperlink_metadata() -> None:
-    runtime = TuiRuntime()
-    runtime.append_block(
-        render_tui_assistant_markdown(
-            "[docs](https://example.com/docs)",
-            40,
-            hyperlinks=True,
-        ),
-        kind="assistant",
-        raw_text="[docs](https://example.com/docs)",
-    )
-    runtime.toggle_transcript_overlay()
-    overlay = runtime.screen.transcript_overlay
-
-    overlay.begin_search()
-    overlay.append_search_text("docs")
-    assert overlay.confirm_search()
-
-    linked_styles = [
-        style
-        for style, text in overlay.visible_fragments()
-        if "docs" in text
-    ]
-    assert linked_styles
-    assert all(
-        "class:transcript.overlay.search-match" in style
-        for style in linked_styles
-    )
-    assert {
-        terminal_hyperlink_from_style(style)
-        for style in linked_styles
-    } == {"https://example.com/docs"}
-
-
-def test_transcript_search_recovers_when_backtrack_removes_current_match() -> None:
-    runtime = TuiRuntime()
-    runtime.append_block(_block("first prompt"), kind="user")
-    assert runtime.bind_submitted_turn("turn_one", "first prompt")
-    runtime.append_block(
-        _block("first needle result"),
-        kind="assistant",
-    )
-    runtime.append_block(_block("second prompt"), kind="user")
-    assert runtime.bind_submitted_turn("turn_two", "second prompt")
-    runtime.append_block(
-        _block("second needle result"),
-        kind="assistant",
-    )
-    runtime.toggle_transcript_overlay()
-    overlay = runtime.screen.transcript_overlay
-
-    overlay.begin_search()
-    overlay.append_search_text("needle")
-    assert overlay.confirm_search()
-    assert overlay.step_search(1)
-    assert overlay.search_result_position == (2, 2)
-
-    assert runtime.apply_transcript_backtrack(
-        TranscriptBacktrackRequest(
-            turn_id="turn_two",
-            prompt="second prompt revised",
-        )
-    )
-
-    assert overlay.search_query == "needle"
-    assert overlay.search_result_position == (1, 1)
-    assert runtime.screen.input.buffer.text == "second prompt revised"
-
-
-def test_transcript_overlay_search_cancel_and_empty_result_state() -> None:
-    runtime = TuiRuntime()
-    runtime.append_block(_block("only content"), kind="assistant")
-    runtime.toggle_transcript_overlay()
-    overlay = runtime.screen.transcript_overlay
-
-    overlay.begin_search()
-    overlay.append_search_text("missin👩\u200d💻")
-    overlay.backspace_search()
-    assert overlay.search_query == "missin"
-    overlay.cancel_search()
-    assert not overlay.search_editing
-    assert overlay.search_query == ""
-
-    overlay.begin_search()
-    overlay.append_search_text("absent")
-    assert not overlay.confirm_search()
-    assert overlay.search_result_position == (0, 0)
-    assert not overlay.step_search(1)
 
 
 def test_transcript_overlay_survives_resize_and_continuous_active_output() -> None:

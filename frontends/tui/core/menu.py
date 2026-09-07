@@ -14,7 +14,9 @@ from prompt_toolkit.styles import Style
 from frontends.terminal.text import sanitize_terminal_line
 from frontends.tui.contracts.menu import (
     MenuEmptyAcceptAction,
+    MenuFooterCommand,
     MenuFooterHint,
+    MenuFooterValue,
     MenuOption,
     MenuRequest,
     MenuShortcutAction,
@@ -25,6 +27,7 @@ from frontends.tui.contracts.views import (
     ViewIdentity
 )
 from .keymap import (
+    TuiEditorKeymap,
     TuiListKeymap,
     TuiRuntimeKeymap,
     bind_key_action,
@@ -65,6 +68,7 @@ from ..rendering.menu.tabs import (
     request_for_tab,
     switched_tab_request
 )
+from ..rendering.fragments import iter_text_unit_ranges
 
 TUI_MENU_STYLE = Style.from_dict({
     "tui-menu.title": "bold",
@@ -76,6 +80,7 @@ TUI_MENU_STYLE = Style.from_dict({
     "tui-menu.search": "",
     "tui-menu.search.placeholder": "dim",
     "tui-menu.search.empty": "dim italic",
+    "tui-menu.input-gutter": "",
     "tui-menu.tab": "dim",
     "tui-menu.tab-selected": "bold",
     "tui-menu.index": "",
@@ -96,7 +101,8 @@ TUI_MENU_STYLE = Style.from_dict({
     "tui-menu.index.disabled": "dim",
     "tui-menu.footer": "dim",
     "tui-menu.footer.note": "dim",
-    "tui-menu.footer.hint": "dim",
+    "tui-menu.footer.hint": "nodim",
+    "tui-menu.footer.key": "dim",
     "tui-menu.footer.right": "dim",
     "tui-menu.footer.right.current": "bold nodim",
     "tui-menu.category": "dim",
@@ -129,6 +135,7 @@ class TuiMenu(object):
         get_width: typing.Callable[[], int],
         view_stack: BottomPaneViewStack | None = None,
         keymap: TuiListKeymap | None = None,
+        editor_keymap: TuiEditorKeymap | None = None,
     ) -> None:
         self.invalidate = invalidate
         self.focus_menu = focus_menu
@@ -142,11 +149,20 @@ class TuiMenu(object):
         self._generations: dict[str, int] = {}
         self._session_generation: int = 0
         self.keymap = keymap or TuiRuntimeKeymap.defaults().list
+        self.editor_keymap = (
+            editor_keymap or TuiRuntimeKeymap.defaults().editor
+        )
         self.key_bindings = self._build_key_bindings()
 
-    def set_keymap(self, keymap: TuiListKeymap) -> None:
+    def set_keymap(
+        self,
+        keymap: TuiListKeymap,
+        editor_keymap: TuiEditorKeymap | None = None,
+    ) -> None:
         """替换菜单使用的不可变运行时按键快照。"""
         self.keymap = keymap
+        if editor_keymap is not None:
+            self.editor_keymap = editor_keymap
         self.key_bindings = self._build_key_bindings()
 
     @property
@@ -261,12 +277,17 @@ class TuiMenu(object):
         if (
             current is None
             or current is not self.state
-            or not current.request.searchable
+            or not (
+                current.request.searchable
+                or current.request.text_input
+            )
         ):
             return False
         pasted = sanitize_terminal_line(text)
         if not pasted:
             return False
+        if current.request.text_input:
+            return self._insert_query_text(current, pasted)
         self._update_query(current.query + pasted)
         return True
 
@@ -276,7 +297,11 @@ class TuiMenu(object):
         base_footer_hint = request.footer_hint
         request = request_for_tab(request)
         future = asyncio.get_running_loop().create_future()
-        if not request.options and not request.body:
+        if (
+            not request.options
+            and not request.body
+            and request.empty_accept_action is not MenuEmptyAcceptAction.SUBMIT_QUERY
+        ):
             future.set_result(None)
             return future
 
@@ -285,6 +310,7 @@ class TuiMenu(object):
         if session_id is None:
             self._session_generation += 1
             session_id = self._session_generation
+        initial_query = request.initial_query if request.text_input else ""
         state = MenuState(
             request=request,
             future=future,
@@ -293,7 +319,8 @@ class TuiMenu(object):
             dismiss_after_child_accept=False,
             completion=None,
             result=None,
-            query="",
+            query=initial_query,
+            query_cursor=len(initial_query),
             base_footer_hint=base_footer_hint,
         )
         self._view_stack.push(MenuView(self, state))
@@ -328,10 +355,15 @@ class TuiMenu(object):
         width: int | None = None
     ) -> StyleAndTextTuples:
         """生成指定菜单状态的透明页脚片段。"""
+        inset = (
+            self._RENDER_CONFIG.horizontal_inset
+            if state.request.surface_horizontal_inset is None
+            else max(0, int(state.request.surface_horizontal_inset))
+        )
         return render_footer_fragments(
             state,
             width=self.get_width() if width is None else width,
-            inset=self._RENDER_CONFIG.horizontal_inset,
+            inset=inset,
         )
 
     def content_height_for_state(self, state: MenuState, *, width: int) -> int:
@@ -517,6 +549,183 @@ class TuiMenu(object):
         """取消当前菜单并回到父菜单或输入区。"""
         self._complete(self.state, None, ViewCompletion.CANCELLED)
 
+    def _submit_text_input(self, state: MenuState) -> bool:
+        """提交当前文本输入视图中的非空值。"""
+        if (
+            not state.request.text_input
+            or state.request.empty_accept_action
+            is not MenuEmptyAcceptAction.SUBMIT_QUERY
+            or not state.query.strip()
+        ):
+            return False
+        self._complete(state, state.query, ViewCompletion.ACCEPTED)
+        return True
+
+    def _replace_query(
+        self,
+        state: MenuState,
+        query: str,
+        cursor: int,
+    ) -> None:
+        """替换可编辑查询并把光标限制在有效边界。"""
+        state.query = query
+        state.query_cursor = max(0, min(int(cursor), len(query)))
+        self._normalize_filtered_state(state)
+        self.invalidate()
+
+    def _insert_query_text(self, state: MenuState, text: str) -> bool:
+        """在当前查询光标处插入单行文本。"""
+        value = sanitize_terminal_line(text)
+        if not value:
+            return False
+        cursor = state.query_cursor
+        self._replace_query(
+            state,
+            f"{state.query[:cursor]}{value}{state.query[cursor:]}",
+            cursor + len(value),
+        )
+        return True
+
+    @staticmethod
+    def _previous_query_boundary(query: str, cursor: int) -> int:
+        """返回当前光标左侧组合文本单元的起点。"""
+        boundaries = tuple(iter_text_unit_ranges(query[:cursor]))
+        return boundaries[-1][0] if boundaries else 0
+
+    @staticmethod
+    def _next_query_boundary(query: str, cursor: int) -> int:
+        """返回当前光标右侧组合文本单元的终点。"""
+        unit = next(iter_text_unit_ranges(query[cursor:]), None)
+        return cursor + unit[1] if unit is not None else len(query)
+
+    @staticmethod
+    def _previous_query_word_boundary(query: str, cursor: int) -> int:
+        """返回当前光标左侧单词的起点。"""
+        index = max(0, min(cursor, len(query)))
+        while index > 0 and query[index - 1].isspace():
+            index -= 1
+        while index > 0 and not query[index - 1].isspace():
+            index -= 1
+        return index
+
+    @staticmethod
+    def _next_query_word_boundary(query: str, cursor: int) -> int:
+        """返回当前光标右侧单词之后的位置。"""
+        index = max(0, min(cursor, len(query)))
+        while index < len(query) and query[index].isspace():
+            index += 1
+        while index < len(query) and not query[index].isspace():
+            index += 1
+        return index
+
+    def _handle_text_input_sequence(
+        self,
+        state: MenuState,
+        sequence: tuple[Keys | str, ...],
+        *,
+        key: Keys | str | None,
+        data: str,
+    ) -> bool | None:
+        """处理文本输入视图的统一编辑与完成动作。"""
+        if not state.request.text_input:
+            return None
+        editor = self.editor_keymap
+        cursor = state.query_cursor
+
+        if (
+            key_action_matches(self.keymap.cancel, sequence)
+            and state.request.allow_cancel
+        ):
+            self.cancel()
+            return True
+        if key_action_matches(self.keymap.interrupt, sequence):
+            return self.on_ctrl_c(state)
+        if key_action_matches(self.keymap.accept, sequence):
+            return self._submit_text_input(state)
+        if key_action_matches(editor.move_left, sequence):
+            self._replace_query(
+                state,
+                state.query,
+                self._previous_query_boundary(state.query, cursor),
+            )
+            return True
+        if key_action_matches(editor.move_right, sequence):
+            self._replace_query(
+                state,
+                state.query,
+                self._next_query_boundary(state.query, cursor),
+            )
+            return True
+        if key_action_matches(editor.move_line_start, sequence):
+            self._replace_query(state, state.query, 0)
+            return True
+        if key_action_matches(editor.move_line_end, sequence):
+            self._replace_query(state, state.query, len(state.query))
+            return True
+        if key_action_matches(editor.move_word_left, sequence):
+            self._replace_query(
+                state,
+                state.query,
+                self._previous_query_word_boundary(state.query, cursor),
+            )
+            return True
+        if key_action_matches(editor.move_word_right, sequence):
+            self._replace_query(
+                state,
+                state.query,
+                self._next_query_word_boundary(state.query, cursor),
+            )
+            return True
+        if key_action_matches(editor.delete_backward, sequence):
+            start = self._previous_query_boundary(state.query, cursor)
+            if start != cursor:
+                self._replace_query(
+                    state,
+                    f"{state.query[:start]}{state.query[cursor:]}",
+                    start,
+                )
+            return True
+        if key_action_matches(editor.delete_forward, sequence):
+            end = self._next_query_boundary(state.query, cursor)
+            if end != cursor:
+                self._replace_query(
+                    state,
+                    f"{state.query[:cursor]}{state.query[end:]}",
+                    cursor,
+                )
+            return True
+        if key_action_matches(editor.delete_line, sequence):
+            self._replace_query(state, state.query[cursor:], 0)
+            return True
+        if key_action_matches(editor.delete_to_line_end, sequence):
+            self._replace_query(state, state.query[:cursor], cursor)
+            return True
+        if key_action_matches(editor.delete_word_backward, sequence):
+            start = self._previous_query_word_boundary(state.query, cursor)
+            self._replace_query(
+                state,
+                f"{state.query[:start]}{state.query[cursor:]}",
+                start,
+            )
+            return True
+        if key_action_matches(editor.delete_word_forward, sequence):
+            end = self._next_query_word_boundary(state.query, cursor)
+            self._replace_query(
+                state,
+                f"{state.query[:cursor]}{state.query[end:]}",
+                cursor,
+            )
+            return True
+        if key in (Keys.BracketedPaste,):
+            return self.handle_paste(data, state)
+        if (
+            len(sequence) == 1
+            and data
+            and data.isprintable()
+        ):
+            return self._insert_query_text(state, data)
+        return False
+
     def handle_key_event(self, event: typing.Any) -> bool:
         """处理统一 view 协议传入的单个按键事件。"""
         state = self.state
@@ -537,6 +746,15 @@ class TuiMenu(object):
             getattr(key_press, "key", key_press)
             for key_press in key_sequence
         ) or ((data,) if data else (key,))
+
+        text_input_result = self._handle_text_input_sequence(
+            state,
+            normalized_sequence,
+            key=key,
+            data=data,
+        )
+        if text_input_result is not None:
+            return text_input_result
 
         if (
             key_action_matches(self.keymap.move_down, normalized_sequence)
@@ -667,10 +885,15 @@ class TuiMenu(object):
 
     def _footer_height(self, state: MenuState, *, width: int) -> int:
         """返回指定菜单透明 footer 占用的显示行数。"""
+        inset = (
+            self._RENDER_CONFIG.horizontal_inset
+            if state.request.surface_horizontal_inset is None
+            else max(0, int(state.request.surface_horizontal_inset))
+        )
         footer = render_footer_fragments(
             state,
             width=width,
-            inset=self._RENDER_CONFIG.horizontal_inset,
+            inset=inset,
         )
         return line_count(footer)
 
@@ -743,8 +966,8 @@ class TuiMenu(object):
             ),
         )
 
-    def _resolve_footer_hint(self, hint: str | MenuFooterHint) -> str:
-        """用当前 List Keymap 生成一个可见 footer。"""
+    def _resolve_footer_hint(self, hint: MenuFooterValue) -> MenuFooterValue:
+        """用当前 List Keymap 解析 footer 的按键标签。"""
         if not isinstance(hint, MenuFooterHint):
             return hint
 
@@ -754,7 +977,7 @@ class TuiMenu(object):
             MenuShortcutAction.TOGGLE: self.keymap.toggle,
             MenuShortcutAction.ALTERNATE: self.keymap.alternate,
         }
-        commands: list[str] = []
+        commands: list[MenuFooterCommand] = []
         for command in hint.commands:
             labels: list[str] = []
             for action in command.actions:
@@ -764,11 +987,19 @@ class TuiMenu(object):
                     labels.append(label)
             if labels:
                 commands.append(
-                    f"{' or '.join(labels)} {command.description}".strip()
+                    MenuFooterCommand(
+                        actions=command.actions,
+                        description=command.description,
+                        key_labels=tuple(labels),
+                    )
                 )
         if not commands:
             return ""
-        return f"{hint.prefix}{hint.separator.join(commands)}"
+        return MenuFooterHint(
+            commands=tuple(commands),
+            prefix=hint.prefix,
+            separator=hint.separator,
+        )
 
     def _with_generation(self, request: MenuRequest) -> MenuRequest:
         """为带 view 标识的请求分配单调显示代数。"""
@@ -877,9 +1108,12 @@ class TuiMenu(object):
     def _update_query(self, query: str) -> None:
         """更新搜索查询并把选择定位到新的过滤结果。"""
         state = self.state
-        if state is None or not state.request.searchable:
+        if state is None or not (
+            state.request.searchable or state.request.text_input
+        ):
             return None
         state.query = query
+        state.query_cursor = len(query)
         self._normalize_filtered_state(state)
         self.invalidate()
 
@@ -918,16 +1152,26 @@ class TuiMenu(object):
     def _build_key_bindings(self) -> KeyBindings:
         """创建内嵌菜单局部按键绑定。"""
         bindings = KeyBindings()
+        text_input = Condition(
+            lambda: bool(
+                self.state is not None
+                and self.state.request.text_input
+            )
+        )
+        list_navigation = ~text_input
         non_searchable = Condition(
             lambda: bool(
                 self.state is not None
                 and not self.state.request.searchable
+                and not self.state.request.text_input
             )
         )
 
         @bind_key_action(bindings, self.keymap.accept)
         def _(_event) -> None:
             state = self.state
+            if state is not None and self._submit_text_input(state):
+                return None
             indices = filtered_indices(state) if state is not None else ()
             if (
                 state is not None
@@ -943,7 +1187,9 @@ class TuiMenu(object):
         @bind_key_action(bindings, self.keymap.toggle)
         def _(_event) -> None:
             state = self.state
-            if state is not None and state.request.on_space is not None:
+            if state is not None and state.request.text_input:
+                self._insert_query_text(state, " ")
+            elif state is not None and state.request.on_space is not None:
                 state.request.on_space()
             elif state is not None and has_selectable(
                 state.request.options,
@@ -954,7 +1200,11 @@ class TuiMenu(object):
                 if not option.dismiss_on_select:
                     self._choose_index(state.selected)
 
-        @bind_key_action(bindings, self.keymap.alternate)
+        @bind_key_action(
+            bindings,
+            self.keymap.alternate,
+            binding_filter=list_navigation,
+        )
         def _(_event) -> None:
             state = self.state
             if state is not None and state.request.on_t is not None:
@@ -967,6 +1217,7 @@ class TuiMenu(object):
                 for binding in self.keymap.move_down
                 if binding.keys != ("j",)
             ),
+            binding_filter=list_navigation,
         )
         @bind_key_action(
             bindings,
@@ -987,6 +1238,7 @@ class TuiMenu(object):
                 for binding in self.keymap.move_up
                 if binding.keys != ("k",)
             ),
+            binding_filter=list_navigation,
         )
         @bind_key_action(
             bindings,
@@ -1000,19 +1252,35 @@ class TuiMenu(object):
         def _(_event) -> None:
             self._move(-1)
 
-        @bind_key_action(bindings, self.keymap.page_down)
+        @bind_key_action(
+            bindings,
+            self.keymap.page_down,
+            binding_filter=list_navigation,
+        )
         def _(_event) -> None:
             self._move(self.VISIBLE_ROWS)
 
-        @bind_key_action(bindings, self.keymap.page_up)
+        @bind_key_action(
+            bindings,
+            self.keymap.page_up,
+            binding_filter=list_navigation,
+        )
         def _(_event) -> None:
             self._move(-self.VISIBLE_ROWS)
 
-        @bind_key_action(bindings, self.keymap.jump_top)
+        @bind_key_action(
+            bindings,
+            self.keymap.jump_top,
+            binding_filter=list_navigation,
+        )
         def _(_event) -> None:
             self._set_selection(0)
 
-        @bind_key_action(bindings, self.keymap.jump_bottom)
+        @bind_key_action(
+            bindings,
+            self.keymap.jump_bottom,
+            binding_filter=list_navigation,
+        )
         def _(_event) -> None:
             state = self.state
             if state is not None:
@@ -1021,25 +1289,225 @@ class TuiMenu(object):
                     direction=-1,
                 )
 
-        @bind_key_action(bindings, self.keymap.move_right)
+        @bind_key_action(
+            bindings,
+            self.keymap.move_right,
+            binding_filter=list_navigation,
+        )
         def _(_event) -> None:
             self._switch_tab(1)
 
-        @bind_key_action(bindings, self.keymap.move_left)
+        @bind_key_action(
+            bindings,
+            self.keymap.move_left,
+            binding_filter=list_navigation,
+        )
         def _(_event) -> None:
             self._switch_tab(-1)
 
-        @bind_key_action(bindings, self.keymap.delete_query_character)
+        @bind_key_action(
+            bindings,
+            self.editor_keymap.move_left,
+            binding_filter=text_input,
+        )
+        def _(_event) -> None:
+            state = self.state
+            if state is not None and state.request.text_input:
+                self._replace_query(
+                    state,
+                    state.query,
+                    self._previous_query_boundary(
+                        state.query,
+                        state.query_cursor,
+                    ),
+                )
+
+        @bind_key_action(
+            bindings,
+            self.editor_keymap.move_right,
+            binding_filter=text_input,
+        )
+        def _(_event) -> None:
+            state = self.state
+            if state is not None and state.request.text_input:
+                self._replace_query(
+                    state,
+                    state.query,
+                    self._next_query_boundary(
+                        state.query,
+                        state.query_cursor,
+                    ),
+                )
+
+        @bind_key_action(
+            bindings,
+            self.editor_keymap.move_line_start,
+            binding_filter=text_input,
+        )
+        def _(_event) -> None:
+            state = self.state
+            if state is not None and state.request.text_input:
+                self._replace_query(state, state.query, 0)
+
+        @bind_key_action(
+            bindings,
+            self.editor_keymap.move_line_end,
+            binding_filter=text_input,
+        )
+        def _(_event) -> None:
+            state = self.state
+            if state is not None and state.request.text_input:
+                self._replace_query(state, state.query, len(state.query))
+
+        @bind_key_action(
+            bindings,
+            self.editor_keymap.move_word_left,
+            binding_filter=text_input,
+        )
+        def _(_event) -> None:
+            state = self.state
+            if state is not None and state.request.text_input:
+                self._replace_query(
+                    state,
+                    state.query,
+                    self._previous_query_word_boundary(
+                        state.query,
+                        state.query_cursor,
+                    ),
+                )
+
+        @bind_key_action(
+            bindings,
+            self.editor_keymap.move_word_right,
+            binding_filter=text_input,
+        )
+        def _(_event) -> None:
+            state = self.state
+            if state is not None and state.request.text_input:
+                self._replace_query(
+                    state,
+                    state.query,
+                    self._next_query_word_boundary(
+                        state.query,
+                        state.query_cursor,
+                    ),
+                )
+
+        @bind_key_action(
+            bindings,
+            self.editor_keymap.delete_backward,
+            binding_filter=text_input,
+        )
+        def _(_event) -> None:
+            state = self.state
+            if state is not None and state.request.text_input:
+                cursor = state.query_cursor
+                start = self._previous_query_boundary(state.query, cursor)
+                if start != cursor:
+                    self._replace_query(
+                        state,
+                        f"{state.query[:start]}{state.query[cursor:]}",
+                        start,
+                    )
+
+        @bind_key_action(
+            bindings,
+            self.editor_keymap.delete_forward,
+            binding_filter=text_input,
+        )
+        def _(_event) -> None:
+            state = self.state
+            if state is not None and state.request.text_input:
+                cursor = state.query_cursor
+                end = self._next_query_boundary(state.query, cursor)
+                if end != cursor:
+                    self._replace_query(
+                        state,
+                        f"{state.query[:cursor]}{state.query[end:]}",
+                        cursor,
+                    )
+
+        @bind_key_action(
+            bindings,
+            self.editor_keymap.delete_word_backward,
+            binding_filter=text_input,
+        )
+        def _(_event) -> None:
+            state = self.state
+            if state is not None and state.request.text_input:
+                cursor = state.query_cursor
+                start = self._previous_query_word_boundary(
+                    state.query,
+                    cursor,
+                )
+                self._replace_query(
+                    state,
+                    f"{state.query[:start]}{state.query[cursor:]}",
+                    start,
+                )
+
+        @bind_key_action(
+            bindings,
+            self.editor_keymap.delete_word_forward,
+            binding_filter=text_input,
+        )
+        def _(_event) -> None:
+            state = self.state
+            if state is not None and state.request.text_input:
+                cursor = state.query_cursor
+                end = self._next_query_word_boundary(state.query, cursor)
+                self._replace_query(
+                    state,
+                    f"{state.query[:cursor]}{state.query[end:]}",
+                    cursor,
+                )
+
+        @bind_key_action(
+            bindings,
+            self.editor_keymap.delete_line,
+            binding_filter=text_input,
+        )
+        def _(_event) -> None:
+            state = self.state
+            if state is not None and state.request.text_input:
+                cursor = state.query_cursor
+                self._replace_query(state, state.query[cursor:], 0)
+
+        @bind_key_action(
+            bindings,
+            self.editor_keymap.delete_to_line_end,
+            binding_filter=text_input,
+        )
+        def _(_event) -> None:
+            state = self.state
+            if state is not None and state.request.text_input:
+                cursor = state.query_cursor
+                self._replace_query(state, state.query[:cursor], cursor)
+
+        @bind_key_action(
+            bindings,
+            self.keymap.delete_query_character,
+            binding_filter=list_navigation,
+        )
         def _(_event) -> None:
             state = self.state
             if state is not None and state.request.searchable:
                 self._update_query(state.query[:-1])
 
-        @bind_key_action(bindings, self.keymap.clear_query)
+        @bind_key_action(
+            bindings,
+            self.keymap.clear_query,
+            binding_filter=list_navigation,
+        )
         def _(_event) -> None:
+            state = self.state
             self._update_query("")
 
-        @bind_key_action(bindings, self.keymap.delete_query_word)
+        @bind_key_action(
+            bindings,
+            self.keymap.delete_query_word,
+            binding_filter=list_navigation,
+        )
         def _(_event) -> None:
             state = self.state
             if state is not None and state.request.searchable:
@@ -1050,7 +1518,9 @@ class TuiMenu(object):
         @bindings.add(Keys.BracketedPaste)
         def _(event) -> None:
             state = self.state
-            if state is not None and state.request.searchable:
+            if state is not None and (
+                state.request.searchable or state.request.text_input
+            ):
                 self.handle_paste(getattr(event, "data", ""), state)
 
         @bindings.add(Keys.Any)
@@ -1059,11 +1529,16 @@ class TuiMenu(object):
             data = getattr(event, "data", "")
             if (
                 state is not None
-                and state.request.searchable
+                and (
+                    state.request.searchable or state.request.text_input
+                )
                 and data
                 and data.isprintable()
             ):
-                self._update_query(state.query + data)
+                if state.request.text_input:
+                    self._insert_query_text(state, data)
+                else:
+                    self._update_query(state.query + data)
 
         @bind_key_action(bindings, self.keymap.cancel, eager=True)
         def _(_event) -> None:
@@ -1080,6 +1555,9 @@ class TuiMenu(object):
             def _(_event, selected_number=number) -> None:
                 state = self.state
                 if state is None:
+                    return None
+                if state.request.text_input:
+                    self._insert_query_text(state, str(selected_number))
                     return None
                 if state.request.searchable:
                     self._update_query(state.query + str(selected_number))

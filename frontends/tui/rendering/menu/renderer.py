@@ -135,6 +135,18 @@ def body_fragments(request: MenuRequest, *, width: int) -> StyleAndTextTuples:
 
 def header_fragments(request: MenuRequest, *, width: int) -> StyleAndTextTuples:
     """生成标题和辅助状态的分层菜单头部。"""
+    gutter = (
+        f"{request.text_input_gutter} "
+        if request.text_input and request.text_input_gutter
+        else ""
+    )
+    gutter_style = (
+        request.text_input_gutter_style or "class:tui-menu.input-gutter"
+    )
+    title_width = max(0, width - get_cwidth(gutter))
+    out: StyleAndTextTuples = []
+    if gutter:
+        out.append((gutter_style, gutter))
     suffix = request.title_accent_suffix
     if suffix:
         title_text = (
@@ -143,14 +155,22 @@ def header_fragments(request: MenuRequest, *, width: int) -> StyleAndTextTuples:
             else request.title
         )
         suffix_width = get_cwidth(suffix)
-        title = clip_text(title_text, width=max(0, width - suffix_width))
-        suffix = clip_text(suffix, width=max(0, width - get_cwidth(title)))
-        out: StyleAndTextTuples = [
+        title = clip_text(title_text, width=max(0, title_width - suffix_width))
+        suffix = clip_text(
+            suffix,
+            width=max(0, title_width - get_cwidth(title)),
+        )
+        out.extend([
             ("class:tui-menu.title", title),
             ("class:tui-menu.title.current", suffix),
-        ]
+        ])
     else:
-        out = [("class:tui-menu.title", clip_text(request.title, width=width))]
+        out.append(
+            (
+                "class:tui-menu.title",
+                clip_text(request.title, width=title_width),
+            )
+        )
 
     if request.status:
         out.extend([

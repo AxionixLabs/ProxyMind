@@ -23,6 +23,7 @@ from ..rendering.fragments import (
     split_formatted_lines
 )
 from ..rendering.text_sanitize import sanitize_fragment_block
+from ..rendering.text_sanitize import sanitize_formatted_text
 
 if typing.TYPE_CHECKING:
     from agent.domain.transcripts import TranscriptEntry
@@ -121,6 +122,7 @@ class TuiDocumentState(object):
     stable_tail_kind: TuiBlockKind | None
     stable_snapshot_cells: tuple[TranscriptBlock, ...]
     stable_snapshot_revision: int
+    raw_output_mode: bool
 
 
 class TuiDocument(object):
@@ -154,6 +156,7 @@ class TuiDocument(object):
         self._stable_snapshot_revision: int = -1
         self._display_width: int | None = None
         self._source_layout_width: int | None = None
+        self.raw_output_mode: bool = False
 
     @property
     def has_pending_submission(self) -> bool:
@@ -409,6 +412,22 @@ class TuiDocument(object):
 
     def _block_lines(self, item: TranscriptBlock) -> list[FormattedText]:
         """返回指定稳定块去除外侧换行后的逻辑行。"""
+        if self.raw_output_mode:
+            raw_parts = (
+                [("", item.raw_text)]
+                if item.raw_text is not None
+                else [
+                    ("", text)
+                    for _style, text in self._trim_block_fragments(
+                        list(item.transcript_block.fragments)
+                    )
+                ]
+            )
+            parts = self._trim_block_fragments(
+                sanitize_formatted_text(raw_parts)
+            )
+            return split_formatted_lines(parts)
+
         block = self._source_rendered_block(
             item,
             width=(
@@ -588,6 +607,33 @@ class TuiDocument(object):
             if source_reflow:
                 self.stable_transcript_revision += 1
 
+        return True
+
+    def set_raw_output_mode(self, enabled: bool) -> bool:
+        """切换主 transcript 的富文本或纯文本投影并重建行缓存。"""
+        normalized = bool(enabled)
+        if normalized == self.raw_output_mode:
+            return False
+
+        previous_line_count = self._stable_line_count()
+        cleared_at_end = self.cleared_line_count == previous_line_count
+        scrollback_at_end = self.scrollback_line_count == previous_line_count
+
+        self.raw_output_mode = normalized
+        self._rebuild_stable_lines()
+        line_count = self._stable_line_count()
+        self.cleared_line_count = (
+            line_count
+            if cleared_at_end
+            else min(self.cleared_line_count, line_count)
+        )
+        self.scrollback_line_count = (
+            line_count
+            if scrollback_at_end
+            else min(self.scrollback_line_count, line_count)
+        )
+        self.stable_transcript_revision += 1
+        self.active_transcript_revision += 1
         return True
 
     def stage_submission(
@@ -962,6 +1008,7 @@ class TuiDocument(object):
             stable_tail_kind=self._stable_tail_kind,
             stable_snapshot_cells=deepcopy(self._stable_snapshot_cells),
             stable_snapshot_revision=self._stable_snapshot_revision,
+            raw_output_mode=self.raw_output_mode,
         )
 
     def restore_state(self, state: TuiDocumentState) -> None:
@@ -993,6 +1040,7 @@ class TuiDocument(object):
         self._stable_tail_kind = state.stable_tail_kind
         self._stable_snapshot_cells = deepcopy(state.stable_snapshot_cells)
         self._stable_snapshot_revision = state.stable_snapshot_revision
+        self.raw_output_mode = state.raw_output_mode
 
     def bind_turn_payload(
         self,

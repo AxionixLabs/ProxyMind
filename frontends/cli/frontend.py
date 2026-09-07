@@ -45,11 +45,9 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
         from frontends.tui.adapters.keyboard import replay_tui_terminal_input
         from frontends.tui.adapters.session import create_tui_output_session
         from frontends.tui.core.runtime import TuiRuntime
-        from frontends.tui.features.transcript_export import TranscriptExporter
         from frontends.terminal.capabilities import detect_terminal_capabilities
         from frontends.terminal.progress import create_terminal_progress
 
-        transcript_exporter = TranscriptExporter()
         application_input = create_tui_input(sys.stdin)
 
         def replay_terminal_input(data: bytes) -> None:
@@ -68,7 +66,6 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
                 output_stream=sys.stdout,
                 input_replay=replay_terminal_input,
             ),
-            export_transcript=transcript_exporter.export,
         )
         return Frontend(
             application=TuiApplicationSink(runtime),

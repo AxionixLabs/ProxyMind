@@ -73,8 +73,6 @@ from .models import (
     MenuRequest,
     StaticPagerRequest,
     TranscriptBacktrackRequest,
-    TranscriptExportFormat,
-    TranscriptExportResult
 )
 from .queued import (
     SteerResolution,
@@ -157,10 +155,6 @@ class TuiRuntime(object):
             DEGRADED_TERMINAL_CAPABILITIES
         ),
         keymap: TuiRuntimeKeymap | None = None,
-        export_transcript: typing.Callable[
-                               [typing.Iterable[TranscriptBlock], TranscriptExportFormat],
-                               TranscriptExportResult,
-                           ] | None = None
     ) -> None:
         self.context = PromptContext(model="")
         self.keymap = keymap or TuiRuntimeKeymap.defaults()
@@ -288,6 +282,7 @@ class TuiRuntime(object):
             clear_exit_confirmation=self.submissions.clear_exit_confirmation,
             clear_visible_transcript=self.viewport.clear_visible,
             scroll_transcript_page=self.viewport.scroll_page,
+            toggle_raw_output_mode=self.toggle_raw_output_mode,
             toggle_transcript_overlay=self.toggle_transcript_overlay,
             close_mailbox_overlay=self.close_mailbox_overlay,
             close_static_pager=self.close_static_pager,
@@ -306,7 +301,6 @@ class TuiRuntime(object):
             report_missing_transcript_backtrack=(
                 self._report_missing_backtrack
             ),
-            export_transcript=export_transcript,
             observe_terminal_geometry=(
                 self.viewport.observe_terminal_geometry
             ),
@@ -866,6 +860,24 @@ class TuiRuntime(object):
                 "cannot configure scrollback reflow while TUI is running"
             )
         self.viewport.configure_scrollback_reflow_line_limit(value)
+
+    def configure_raw_output_mode(self, enabled: bool) -> None:
+        """在 Application 启动前应用 transcript 的初始渲染模式。"""
+        if self.active:
+            raise RuntimeError("cannot configure raw output mode while TUI is running")
+        self.document.set_raw_output_mode(enabled)
+
+    def set_raw_output_mode(self, enabled: bool) -> bool:
+        """切换主 transcript 投影并安排原生滚屏原子重排。"""
+        changed = self.document.set_raw_output_mode(enabled)
+        if not changed:
+            return False
+        self.viewport.render_mode_changed()
+        return True
+
+    def toggle_raw_output_mode(self) -> None:
+        """切换主 transcript 的富文本与纯文本投影。"""
+        self.set_raw_output_mode(not self.document.raw_output_mode)
 
     def set_startup_animation(
         self,

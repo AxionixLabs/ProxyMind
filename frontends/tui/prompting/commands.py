@@ -194,6 +194,17 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         stream_policy="local_snapshot",
     ),
     TuiCommandSpec(
+        "export", "/export", "Export conversation as Markdown",
+        accepts_arguments=True,
+        surface_on_bare=True,
+        stream_policy="interactive_panel",
+    ),
+    TuiCommandSpec(
+        "raw", "/raw", "Toggle raw output mode",
+        accepts_arguments=True,
+        stream_policy="local_snapshot",
+    ),
+    TuiCommandSpec(
         "copy", "/copy", "Copy last response, code block, or quote",
         stream_policy="interactive_panel",
     ),

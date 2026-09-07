@@ -405,7 +405,7 @@ async def _run_resize(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
 
 
 async def _run_overlay(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
-    """验证 transcript 搜索、滚动、raw/rich 与活动输出的跨尺寸状态。"""
+    """验证 transcript 滚动与活动输出的跨尺寸状态。"""
     for index in range(36):
         runtime.append_block(
             FragmentBlock((("", f"OVERLAY ROW {index:02d} target-{index % 4}"),)),
@@ -418,19 +418,11 @@ async def _run_overlay(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
         lambda: runtime.screen.transcript_overlay.active,
         "transcript overlay open",
     )
+    initial_offset = runtime.screen.transcript_overlay.scroll_offset
+    facts.set_detail("initial_offset", initial_offset)
     await _checkpoint(facts, "overlay_open")
     await _wait_until(
-        lambda: (
-            runtime.screen.transcript_overlay.search_query == "target-2"
-            and not runtime.screen.transcript_overlay.search_editing
-        ),
-        "transcript search confirmation",
-    )
-    search_offset = runtime.screen.transcript_overlay.scroll_offset
-    facts.set_detail("search_offset", search_offset)
-    await _checkpoint(facts, "overlay_search")
-    await _wait_until(
-        lambda: runtime.screen.transcript_overlay.scroll_offset != search_offset,
+        lambda: runtime.screen.transcript_overlay.scroll_offset != initial_offset,
         "transcript overlay scroll",
     )
     scrolled_offset = runtime.screen.transcript_overlay.scroll_offset
@@ -450,16 +442,11 @@ async def _run_overlay(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
         lambda: (
             runtime.terminal_width == (63 if sys.platform == "win32" else 64)
             and runtime.terminal_height == 16
-            and runtime.screen.transcript_overlay.raw_mode
         ),
-        "raw overlay at final geometry",
+        "transcript overlay at final geometry",
     )
     await asyncio.sleep(0.15)
     facts.set_detail("resized_offset", runtime.screen.transcript_overlay.scroll_offset)
-    facts.set_detail(
-        "search_result_position",
-        list(runtime.screen.transcript_overlay.search_result_position),
-    )
     _record_document(facts, runtime)
     await _checkpoint(facts, "overlay_resized")
     await _wait_until(

@@ -640,6 +640,21 @@ class TuiTranscriptViewport(object):
         self._reflow_required = True
         self._schedule_scrollback_reflow(delay=0)
 
+    def render_mode_changed(self) -> None:
+        """在 transcript 渲染模式变化后立即安排原生滚屏重排。"""
+        current = self._current_geometry()
+        self._observed_geometry = current
+        if self._reflowed_geometry is None:
+            self._reflowed_geometry = current
+
+        self._cancel_scrollback_recheck()
+        self._reflow_generation += 1
+        self._failed_scrollback_generation = None
+        self._reflow_required = True
+        self.view_row = None
+        self._require_stable_render()
+        self._schedule_scrollback_reflow(delay=0)
+
     def refresh_geometry(self) -> bool:
         """在终端恢复后重新读取尺寸并刷新正文布局。"""
         previous = self._observed_geometry

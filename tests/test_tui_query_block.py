@@ -301,13 +301,11 @@ def test_submitted_query_preview_is_width_aware_and_transcript_is_complete() -> 
     runtime.toggle_transcript_overlay()
     overlay = runtime.screen.transcript_overlay
     assert "final marker" in fragments_text(overlay.fragments())
-    overlay.toggle_raw_mode()
-    assert "final marker" in fragments_text(overlay.fragments())
-    overlay.begin_search()
-    overlay.append_search_text("final marker")
-    assert overlay.confirm_search()
-    assert overlay.search_result_position == (1, 1)
     runtime.toggle_transcript_overlay()
+
+    runtime.set_raw_output_mode(True)
+    assert "final marker" in fragments_text(runtime.document.fragments(width=20))
+    runtime.set_raw_output_mode(False)
 
     assert runtime.document.set_display_width(48, reflow_sources=True)
     wide = fragments_text(runtime.document.fragments(width=48))

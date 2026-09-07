@@ -10,16 +10,11 @@ from ..fragments import clip_text
 def transcript_header_fragments(
     *,
     width: int,
-    raw_mode: bool,
 ) -> FormattedText:
     """生成完整记录 overlay 的标题行。"""
     render_width = max(0, int(width))
     pattern = ("/ " * ((render_width + 1) // 2))[:render_width]
-    title = (
-        "/ R A W   T R A N S C R I P T"
-        if raw_mode
-        else "/ T R A N S C R I P T"
-    )
+    title = "/ T R A N S C R I P T"
     if len(title) >= render_width:
         return [("class:transcript.overlay.title", title[:render_width])]
     return [

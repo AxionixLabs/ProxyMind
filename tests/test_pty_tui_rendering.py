@@ -365,10 +365,10 @@ def test_resize_storm_reflows_stream_at_final_geometry(tmp_path: Path) -> None:
     )
 
 
-def test_transcript_overlay_preserves_search_scroll_and_modes_during_resize(
+def test_transcript_overlay_preserves_scroll_during_resize(
     tmp_path: Path,
 ) -> None:
-    """验证 overlay 在活动输出与 resize 中保留搜索、滚动和 raw 状态。"""
+    """验证 overlay 在活动输出与 resize 中保留滚动状态。"""
     facts_path = tmp_path / "facts.json"
     with _spawn_render_scenario("overlay", facts_path) as terminal:
         _wait_for_stage(facts_path, "overlay_ready")
@@ -377,37 +377,25 @@ def test_transcript_overlay_preserves_search_scroll_and_modes_during_resize(
 
         _wait_for_stage(facts_path, "overlay_open")
         terminal.wait_for_screen_text("OVERLAY ROW 35")
-        terminal.write_user_text("/target-2")
-        terminal.send_key(PtyKey.ENTER)
-        _acknowledge(facts_path, "overlay_open")
-
-        search = _wait_for_stage(facts_path, "overlay_search")
-        search_snapshot = terminal.wait_for_screen_text("target-2")
-        assert "target-2" in search_snapshot.visible_text
-        assert isinstance(_detail(search, "search_offset"), int)
         terminal.write_user(b"\x1b[5~")
-        _acknowledge(facts_path, "overlay_search")
+        _acknowledge(facts_path, "overlay_open")
 
         live = _wait_for_stage(facts_path, "overlay_live")
         terminal.wait_for_screen_text("target-2")
         assert _detail(live, "live_offset") == _detail(live, "scrolled_offset")
         terminal.resize(TerminalSize(rows=16, columns=64))
-        terminal.write_user_text("r")
         _acknowledge(facts_path, "overlay_live")
 
         resized = _wait_for_stage(facts_path, "overlay_resized")
-        raw_snapshot = terminal.wait_for_screen_text("OVERLAY RAW 18")
-        assert "target-2" in raw_snapshot.visible_text
-        assert "OVERLAY LIVE RAW" not in raw_snapshot.visible_text
+        rich_snapshot = terminal.wait_for_screen_text("OVERLAY ROW 18")
+        assert "target-2" in rich_snapshot.visible_text
+        assert "OVERLAY LIVE target-2 update" not in rich_snapshot.visible_text
         final_size = TerminalSize(rows=16, columns=64)
         assert _detail(resized, "terminal_width") == _expected_tui_width(final_size)
         assert _detail(resized, "terminal_height") == 16
         assert _detail(resized, "resized_offset") == _detail(live, "live_offset")
-        result_position = _detail(resized, "search_result_position")
-        assert isinstance(result_position, list)
-        assert result_position[1] > 0
         terminal.write_user(b"\x1b[F")
-        terminal.wait_for_screen_text("OVERLAY LIVE RAW")
+        terminal.wait_for_screen_text("OVERLAY LIVE target-2 update")
         terminal.write_user(b"\x14")
         _acknowledge(facts_path, "overlay_resized")
         assert terminal.wait_for_exit(timeout=10.0) == 0

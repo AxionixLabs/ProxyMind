@@ -81,6 +81,7 @@ class TuiGlobalKeymap(object):
     """保存主界面全局动作的按键映射。"""
     open_transcript: TuiActionBindings
     copy_last_response: TuiActionBindings
+    toggle_raw_output: TuiActionBindings
     clear_terminal: TuiActionBindings
     transcript_page_up: TuiActionBindings
     transcript_page_down: TuiActionBindings
@@ -181,11 +182,6 @@ class TuiPagerKeymap(object):
     half_page_down: tuple[TuiKeyBinding, ...]
     jump_top: tuple[TuiKeyBinding, ...]
     jump_bottom: tuple[TuiKeyBinding, ...]
-    toggle_raw: tuple[TuiKeyBinding, ...]
-    search: tuple[TuiKeyBinding, ...]
-    search_next: tuple[TuiKeyBinding, ...]
-    search_previous: tuple[TuiKeyBinding, ...]
-    export: tuple[TuiKeyBinding, ...]
     close: tuple[TuiKeyBinding, ...]
     close_transcript: tuple[TuiKeyBinding, ...]
 
@@ -419,6 +415,15 @@ def bind_key_action(
                     )(handler)
             if binding.is_chord:
                 for prefix in binding.strokes[0].key_sequences:
+                    def settle_timed_out_chord(event: KeyPressEvent) -> None:
+                        _ = event
+
+                    bindings.add(
+                        *prefix,
+                        eager=False,
+                        filter=binding_filter,
+                    )(settle_timed_out_chord)
+
                     def cancel_pending_chord(event: KeyPressEvent) -> None:
                         _ = event
 
@@ -478,6 +483,10 @@ def _default_global_keymap() -> TuiGlobalKeymap:
         copy_last_response=_default_bindings(
             "global.copy_last_response",
             "ctrl-o",
+        ),
+        toggle_raw_output=_default_bindings(
+            "global.toggle_raw_output",
+            "alt-r",
         ),
         clear_terminal=_default_bindings(
             "global.clear_terminal",
@@ -863,11 +872,6 @@ def _resolve_pager_keymap(config: TuiKeymapConfig) -> TuiPagerKeymap:
         ("half_page_down", ("ctrl-d",)),
         ("jump_top", ("home",)),
         ("jump_bottom", ("end",)),
-        ("toggle_raw", ("r",)),
-        ("search", ("/",)),
-        ("search_next", ("n",)),
-        ("search_previous", ("shift-n",)),
-        ("export", ("e",)),
         ("close", ("q", "ctrl-c")),
         ("close_transcript", ("ctrl-t",)),
     )

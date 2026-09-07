@@ -175,6 +175,7 @@ def _default_effective_config() -> dict[str, typing.Any]:
         "agents": normalize_agent_table(None),
         "mcp_servers": {},
         "tui": {
+            "raw_output_mode": False,
             "scrollback_reflow_line_limit": (
                 DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT
             ),
@@ -361,6 +362,7 @@ PROJECT_FIELDS = frozenset({"trust_level"})
 
 TUI_FIELDS = frozenset({
     "keymap",
+    "raw_output_mode",
     "scrollback_reflow_line_limit",
 })
 TUI_KEYMAP_FIELDS = frozenset({
@@ -375,6 +377,7 @@ TUI_KEYMAP_FIELDS = frozenset({
 TUI_GLOBAL_KEYMAP_FIELDS = frozenset({
     "open_transcript",
     "copy_last_response",
+    "toggle_raw_output",
     "clear_terminal",
     "transcript_page_up",
     "transcript_page_down",
@@ -425,11 +428,6 @@ TUI_PAGER_KEYMAP_FIELDS = frozenset({
     "half_page_down",
     "jump_top",
     "jump_bottom",
-    "toggle_raw",
-    "search",
-    "search_next",
-    "search_previous",
-    "export",
     "close",
     "close_transcript",
 })
@@ -862,6 +860,7 @@ def _normalize_tui_config(value: typing.Any) -> dict[str, typing.Any]:
     keymap = _as_dict(tui.get("keymap"))
 
     return {
+        "raw_output_mode": bool(tui.get("raw_output_mode", False)),
         "scrollback_reflow_line_limit": int(tui.get(
             "scrollback_reflow_line_limit",
             DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT,
@@ -890,6 +889,10 @@ def _validate_tui_config(value: typing.Any) -> None:
         raise ConfigValidationError(
             "tui.scrollback_reflow_line_limit must be a positive integer"
         )
+
+    raw_output_mode = value.get("raw_output_mode")
+    if raw_output_mode is not None and not isinstance(raw_output_mode, bool):
+        raise ConfigValidationError("tui.raw_output_mode must be a boolean")
 
     keymap = value.get("keymap")
     if keymap is None:
@@ -927,6 +930,10 @@ def _validate_tui_config_value(
 
     if path == ("tui", "scrollback_reflow_line_limit"):
         _validate_tui_config({"scrollback_reflow_line_limit": value})
+        return None
+
+    if path == ("tui", "raw_output_mode"):
+        _validate_tui_config({"raw_output_mode": value})
         return None
 
     if path in TUI_KEYMAP_TABLE_FIELDS:

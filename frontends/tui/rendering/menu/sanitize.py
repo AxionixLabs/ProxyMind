@@ -40,6 +40,12 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         view_id=sanitize_terminal_line(request.view_id or "") or None,
         generation=max(0, int(request.generation)),
         searchable=request.searchable,
+        text_input=bool(request.text_input),
+        initial_query=sanitize_terminal_line(request.initial_query),
+        text_input_gutter=sanitize_terminal_line(request.text_input_gutter),
+        text_input_gutter_style=sanitize_terminal_line(
+            request.text_input_gutter_style
+        ),
         search_placeholder=sanitize_terminal_line(request.search_placeholder),
         search_matcher=request.search_matcher,
         search_ranker=request.search_ranker,
@@ -96,6 +102,11 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
             for limit in request.body_line_limits
         ),
         selection_marker=sanitize_inline_text(request.selection_marker) or "›",
+        surface_horizontal_inset=(
+            max(0, int(request.surface_horizontal_inset))
+            if request.surface_horizontal_inset is not None
+            else None
+        ),
     )
 
 
@@ -205,11 +216,15 @@ def sanitize_footer_hint(value: MenuFooterValue) -> MenuFooterValue:
             MenuFooterCommand(
                 actions=command.actions,
                 description=sanitize_terminal_line(command.description),
+                key_labels=tuple(
+                    sanitize_terminal_line(label)
+                    for label in command.key_labels
+                ),
             )
             for command in value.commands
         ),
-        prefix=sanitize_terminal_line(value.prefix),
-        separator=sanitize_terminal_line(value.separator),
+        prefix=sanitize_inline_text(value.prefix),
+        separator=sanitize_inline_text(value.separator),
     )
 
 

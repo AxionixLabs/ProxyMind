@@ -10,6 +10,8 @@ from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.utils import get_cwidth
 
 from frontends.tui.contracts.menu import (
+    MenuFooterHint,
+    MenuFooterValue,
     MenuOption,
     MenuRequest
 )
@@ -22,6 +24,7 @@ from .renderer import (
     body_fragments,
     header_fragments,
     join_surface_sections,
+    strip_leading_spaces,
     tab_fragments,
     wrapped_text_fragments
 )
@@ -37,7 +40,10 @@ from .selection import (
 from .state import MenuState
 from ..fragments import (
     clip_fragments,
-    clip_text
+    clip_text,
+    fragments_text,
+    iter_text_unit_ranges,
+    wrap_formatted_lines,
 )
 
 
@@ -51,6 +57,46 @@ class MenuRenderConfig(object):
     max_detail_reserve: int
 
 
+def _surface_inset(request: MenuRequest, config: MenuRenderConfig) -> int:
+    """返回当前表面显式覆盖或共享默认的水平内缩。"""
+    if request.surface_horizontal_inset is None:
+        return config.horizontal_inset
+    return max(0, int(request.surface_horizontal_inset))
+
+
+def _text_input_fragments(
+    query: str,
+    cursor: int,
+    *,
+    style: str,
+    width: int,
+) -> StyleAndTextTuples:
+    """生成光标始终位于可见窗口内的单行输入片段。"""
+    limit = max(1, int(width))
+    cursor = max(0, min(int(cursor), len(query)))
+    start = 0
+    for _unit_start, unit_end, _unit in iter_text_unit_ranges(query[:cursor]):
+        if get_cwidth(query[start:cursor]) < limit:
+            break
+        start = unit_end
+
+    end = cursor
+    for _unit_start, unit_end, _unit in iter_text_unit_ranges(query[cursor:]):
+        candidate_end = cursor + unit_end
+        if get_cwidth(query[start:candidate_end]) > limit:
+            break
+        end = candidate_end
+
+    trailing = query[cursor:end]
+    if not trailing:
+        trailing = " "
+    return [
+        (style, query[start:cursor]),
+        ("[SetCursorPosition]", ""),
+        (style, trailing),
+    ]
+
+
 def surface_fragments(
     state: MenuState,
     *,
@@ -59,13 +105,14 @@ def surface_fragments(
 ) -> StyleAndTextTuples:
     """生成指定宽度下的菜单表面内容。"""
     request = state.request
+    surface_inset = _surface_inset(request, config)
     content_width = surface_content_width(
         width,
-        inset=config.horizontal_inset,
+        inset=surface_inset,
     )
     available_rows_width = rows_width(
         width,
-        inset=config.horizontal_inset,
+        inset=surface_inset,
     )
     _start, visible_indices = visible_window(
         state,
@@ -78,7 +125,7 @@ def surface_fragments(
         width=available_rows_width,
         number_width=number_width,
         visible_indices=visible_indices,
-        surface_inset=config.horizontal_inset,
+        surface_inset=surface_inset,
         min_label_width=config.min_label_width,
         min_detail_width=config.min_detail_width,
         max_detail_reserve=config.max_detail_reserve,
@@ -108,7 +155,16 @@ def surface_fragments(
             ("", "\n"),
         ])
     header.extend(body_fragments(request, width=content_width))
-    if request.searchable:
+    if request.text_input and request.text_input_gutter:
+        gutter_style = (
+            request.text_input_gutter_style
+            or "class:tui-menu.input-gutter"
+        )
+        header.extend([
+            (gutter_style, request.text_input_gutter.rstrip()),
+            ("", "\n"),
+        ])
+    if request.searchable or request.text_input:
         if request.search_help_text:
             if header:
                 header.append(("", "\n"))
@@ -127,18 +183,39 @@ def surface_fragments(
             else "class:tui-menu.search.placeholder"
         )
 
-        prompt_prefix = request.search_prompt_prefix
-        prompt_style = request.search_prompt_style or query_style
+        prompt_prefix = (
+            f"{request.text_input_gutter} "
+            if request.text_input and request.text_input_gutter
+            else request.search_prompt_prefix
+        )
+        if request.text_input and request.text_input_gutter:
+            prompt_style = (
+                request.text_input_gutter_style
+                or "class:tui-menu.input-gutter"
+            )
+        else:
+            prompt_style = request.search_prompt_style or query_style
+
+        available_query_width = max(
+            1,
+            content_width - get_cwidth(prompt_prefix),
+        )
+        if request.text_input:
+            query_fragments = _text_input_fragments(
+                state.query,
+                state.query_cursor,
+                style=query_style,
+                width=available_query_width,
+            )
+        else:
+            query_fragments = clip_fragments(
+                [(query_style, query)],
+                width=available_query_width,
+            )
 
         header.extend([
             (prompt_style, prompt_prefix),
-            (
-                query_style,
-                clip_text(
-                    query,
-                    width=max(1, content_width - get_cwidth(prompt_prefix)),
-                ),
-            ),
+            *query_fragments,
             ("", "\n"),
         ])
 
@@ -161,7 +238,7 @@ def surface_fragments(
             index,
             active=active,
             number_width=number_width,
-            surface_inset=config.horizontal_inset,
+            surface_inset=surface_inset,
         )
 
         rows = option_fragments(
@@ -208,13 +285,13 @@ def surface_fragments(
                 ),
                 width=content_width,
             ),
-            inset=config.horizontal_inset,
+            inset=surface_inset,
         ))
 
     return join_surface_sections(
         surface_inset_fragments(
             header,
-            inset=config.horizontal_inset,
+            inset=surface_inset,
         ),
         rows_out,
         separate=not request.body_as_table_header and request.separate_options,
@@ -243,9 +320,10 @@ def surface_footer_fragments(
 ) -> StyleAndTextTuples:
     """生成兼容独立菜单文本的 surface 内 footer。"""
     request = _request_with_selected_footer(state)
+    surface_inset = _surface_inset(request, config)
     return _request_footer_fragments(
         request,
-        width=max(1, int(width) - config.horizontal_inset),
+        width=max(1, int(width) - surface_inset),
     )
 
 
@@ -264,12 +342,15 @@ def menu_fragments(
 
     surface.append(("", "\n"))
     surface.extend([
-        ("class:tui-menu.surface", "  "),
+        (
+            "class:tui-menu.surface",
+            " " * _surface_inset(state.request, config),
+        ),
         ("", "\n"),
     ])
     surface.extend(surface_inset_fragments(
         footer,
-        inset=config.horizontal_inset,
+        inset=_surface_inset(state.request, config),
     ))
 
     return surface
@@ -302,29 +383,57 @@ def _request_footer_fragments(
         ))
 
     if request.footer_hint and request.allow_cancel:
+        hint_fragments = _footer_hint_fragments(request.footer_hint)
         right_text, right_active = _footer_right_content(request)
         if right_text:
 
             right = clip_text(right_text, width=inner_width)
             right_width = get_cwidth(right)
             left_width = max(1, inner_width - right_width - 1)
-            left = clip_text(request.footer_hint, width=left_width)
-            gap = max(1, inner_width - get_cwidth(left) - right_width)
+            left = clip_fragments(hint_fragments, width=left_width)
+            gap = max(
+                1,
+                inner_width - get_cwidth(fragments_text(left)) - right_width,
+            )
 
             out.extend([
-                ("class:tui-menu.footer.hint", left),
+                *left,
                 ("class:tui-menu.footer.hint", " " * gap),
                 *_right_footer_fragments(right, active=right_active),
                 ("", "\n"),
             ])
 
         else:
-            out.extend(wrapped_text_fragments(
-                request.footer_hint,
-                style="class:tui-menu.footer.hint",
-                width=inner_width,
-            ))
+            for line in wrap_formatted_lines(
+                    hint_fragments,
+                    width=inner_width,
+            ):
+                out.extend(strip_leading_spaces(line))
+                out.append(("", "\n"))
 
+    return out
+
+
+def _footer_hint_fragments(hint: MenuFooterValue) -> StyleAndTextTuples:
+    """保留 footer 说明文字与按键标签的独立样式。"""
+    if not isinstance(hint, MenuFooterHint):
+        return [("class:tui-menu.footer.hint", hint)]
+
+    out: StyleAndTextTuples = [
+        ("class:tui-menu.footer.hint", hint.prefix),
+    ]
+    for command_index, command in enumerate(hint.commands):
+        if command_index:
+            out.append(("class:tui-menu.footer.hint", hint.separator))
+        for label_index, label in enumerate(command.key_labels):
+            if label_index:
+                out.append(("class:tui-menu.footer.hint", " or "))
+            out.append(("class:tui-menu.footer.key", label))
+        if command.description:
+            out.append((
+                "class:tui-menu.footer.hint",
+                f" {command.description}",
+            ))
     return out
 
 

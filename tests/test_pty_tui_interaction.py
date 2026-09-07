@@ -615,11 +615,7 @@ def test_nested_surfaces_consume_keys_before_composer(tmp_path: Path) -> None:
         terminal.write_user(b"\x14")
         _wait_for_stage(facts_path, "transcript_open")
         terminal.wait_for_screen_text("T R A N S C R I P T")
-        terminal.write_user_text("/needle")
-        _wait_for_stage(facts_path, "transcript_search")
-        terminal.wait_for_screen_text("/ needle")
-        terminal.send_key(PtyKey.ESCAPE)
-        _wait_for_stage(facts_path, "transcript_search_closed")
+        terminal.send_key(PtyKey.PAGE_DOWN)
         terminal.write_user(b"\x14")
         _wait_for_stage(facts_path, "surfaces_consumed")
         facts_path.with_suffix(".ack").write_text(
@@ -868,6 +864,67 @@ def test_menu_navigation_is_modal_and_preserves_composer(
     assert details["menu_result"] == "second"
     assert details["draft_after_menu"] == "draft remains"
     assert details.get("menu_query", "jk") == "jk"
+    assert _submissions(facts) == []
+
+
+def test_export_filename_has_real_cursor_and_submits_edited_value(
+    tmp_path: Path,
+) -> None:
+    """验证生产导出文件名表面在真实 PTY 中显示并移动终端光标。"""
+    scenario = "export_filename"
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui(scenario, facts_path) as terminal:
+        _wait_for_tui_ready(terminal, scenario)
+        _wait_for_stage(facts_path, "export_filename_open")
+        filename = "mind-session-sid-pty-export.md"
+        terminal.wait_for_screen_text(filename)
+        deadline = time.monotonic() + 2.0
+        while True:
+            snapshot = terminal.screen.snapshot()
+            filename_row = next(
+                index
+                for index, line in enumerate(snapshot.visible_lines)
+                if filename in line
+            )
+            filename_column = snapshot.visible_lines[filename_row].index(filename)
+            if (
+                not snapshot.cursor.hidden
+                and snapshot.cursor.row == filename_row
+                and snapshot.cursor.column == filename_column + len(filename)
+            ):
+                break
+            if time.monotonic() >= deadline:
+                raise AssertionError(
+                    "export filename cursor did not settle at the edit point: "
+                    f"{snapshot.cursor!r}"
+                )
+            time.sleep(0.01)
+
+        assert not snapshot.cursor.hidden
+        assert snapshot.cursor.row == filename_row
+        assert snapshot.cursor.column == filename_column + len(filename)
+        assert "Press enter to confirm or esc to go back" in snapshot.visible_text
+        assert (
+            terminal.screen.cell(filename_row, 0).foreground
+            != terminal.screen.cell(filename_row, filename_column).foreground
+        )
+
+        terminal.send_key(PtyKey.HOME)
+        terminal.write_user_text("custom-")
+        terminal.send_key(PtyKey.ENTER)
+        consumed = _wait_for_stage(facts_path, "export_filename_consumed")
+        facts_path.with_suffix(".ack").write_text(
+            "export-observed",
+            encoding="ascii",
+        )
+
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+        facts = _read_facts(facts_path)
+
+    details = _details(consumed)
+    assert details["export_filename_result"] == f"custom-{filename}"
+    assert details["draft_after_export"] == ""
+    assert facts["stage"] == "complete"
     assert _submissions(facts) == []
 
 
