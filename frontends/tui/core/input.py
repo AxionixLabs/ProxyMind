@@ -321,6 +321,12 @@ class TuiInputModel(object):
         self.copy_last_response_handler: typing.Callable[[], None] = (
             _ignore_action
         )
+        self.decrease_reasoning_effort_handler: typing.Callable[[], None] = (
+            _ignore_action
+        )
+        self.increase_reasoning_effort_handler: typing.Callable[[], None] = (
+            _ignore_action
+        )
         self.shortcut_help_handler: typing.Callable[[], None] = _ignore_action
         self.exit_handler: typing.Callable[[], None] = _ignore_action
         self._input_activity_handler: typing.Callable[[], None] = (
@@ -1559,6 +1565,33 @@ class TuiInputModel(object):
         def _(_event) -> None:
             self.copy_last_response_handler()
 
+        reasoning_shortcut_available = ordinary_input & Condition(
+            lambda: bool(
+                get_app().current_buffer.complete_state is None
+                and self.completion_menu_completions(
+                    get_app().current_buffer.document
+                ) is None
+            )
+        )
+
+        @bind_key_action(
+            bindings,
+            self.keymap.chat.decrease_reasoning_effort,
+            eager=True,
+            binding_filter=reasoning_shortcut_available,
+        )
+        def _(_event) -> None:
+            self.decrease_reasoning_effort_handler()
+
+        @bind_key_action(
+            bindings,
+            self.keymap.chat.increase_reasoning_effort,
+            eager=True,
+            binding_filter=reasoning_shortcut_available,
+        )
+        def _(_event) -> None:
+            self.increase_reasoning_effort_handler()
+
         queue_rollback = ordinary_input & Condition(
             lambda: bool(
                 self.can_rollback_queue()
@@ -2089,6 +2122,16 @@ class TuiInputModel(object):
     def bind_copy_last_response(self, handler: typing.Callable[[], None]) -> None:
         """绑定 Ctrl+O 直接复制最近整体回复的本地动作。"""
         self.copy_last_response_handler = handler
+
+    def bind_reasoning_effort_shortcuts(
+        self,
+        *,
+        decrease: typing.Callable[[], None],
+        increase: typing.Callable[[], None],
+    ) -> None:
+        """绑定主界面非持久化推理强度调整动作。"""
+        self.decrease_reasoning_effort_handler = decrease
+        self.increase_reasoning_effort_handler = increase
 
     def bind_shortcut_help(self, handler: typing.Callable[[], None]) -> None:
         """绑定空草稿问号触发的只读快捷键页面。"""

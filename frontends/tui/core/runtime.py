@@ -1974,6 +1974,18 @@ class TuiRuntime(object):
         """绑定 Ctrl+O 使用的最近整体回复复制动作。"""
         self.input_model.bind_copy_last_response(handler)
 
+    def bind_reasoning_effort_shortcuts(
+        self,
+        *,
+        decrease: typing.Callable[[], None],
+        increase: typing.Callable[[], None],
+    ) -> None:
+        """绑定主输入区使用的会话级推理强度调整动作。"""
+        self.input_model.bind_reasoning_effort_shortcuts(
+            decrease=decrease,
+            increase=increase,
+        )
+
     def bind_stream_command_handler(
         self,
         handler: typing.Callable[[str], bool] | None

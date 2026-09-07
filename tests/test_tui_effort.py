@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from prompt_toolkit.input.defaults import create_pipe_input
+from prompt_toolkit.output import DummyOutput
 
 from agent.application.turns.commands import (
     RemoteTurnRecovery,
@@ -24,6 +26,7 @@ from agent.ports import (
 )
 from agent.protocol import SubmitTurnCommand
 from frontends.tui.core.interrupt import InterruptDisposition
+from frontends.tui.contracts.keyboard import enhanced_key_token
 from frontends.tui.core.models import (
     MenuDescriptionLayout,
     STANDARD_MENU_FOOTER_HINT,
@@ -31,8 +34,13 @@ from frontends.tui.core.models import (
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.submission import TuiInterruptRequested
 from frontends.tui.features.model import choose_model_effort
+from frontends.tui.features.model import next_model_reasoning_effort
+from frontends.tui.features.model import ReasoningEffortDirection
+from frontends.tui.features.model import reasoning_effort_boundary_status_block
+from frontends.tui.session.barriers import TuiForegroundTasks
 from frontends.tui.session import dispatch
 from frontends.tui.session import loop
+from frontends.tui.session.state import TuiSessionState
 
 
 @pytest.fixture(autouse=True)
@@ -569,3 +577,266 @@ async def test_effort_command_updates_footer_context_immediately(
     )
 
     assert runtime.context.model == "test-model high"
+
+
+@pytest.mark.anyio
+async def test_tui_loop_wires_non_persistent_effort_shortcuts(
+    monkeypatch,
+) -> None:
+    runtime = TuiRuntime()
+    lifecycle = ProcessLifecycle()
+    pref_config = {
+        "primary": {
+            "model": "test-model",
+            "reasoning_effort": "medium",
+        },
+    }
+    host = SimpleNamespace(
+        configuration_service_url=None,
+        attach=SimpleNamespace(
+            has_pending_attachments=lambda: False,
+        ),
+        subscription=SimpleNamespace(current=None),
+        lifecycle=lifecycle,
+        settings=SimpleNamespace(
+            preference_config=lambda: pref_config,
+            permissions=preset_permissions("auto"),
+        ),
+        frontend=SimpleNamespace(
+            runtime=runtime,
+            interaction=runtime,
+            application=SimpleNamespace(emit=Mock()),
+        ),
+    )
+    observed: list[str] = []
+
+    async def monitor_exec_status(_runtime, _host) -> None:
+        return None
+
+    def bind_shortcuts(*, decrease, increase) -> None:
+        _ = decrease
+        increase()
+        observed.append(runtime.context.model)
+        lifecycle.request_stop()
+
+    monkeypatch.setattr(loop, "monitor_exec_status", monitor_exec_status)
+    monkeypatch.setattr(
+        runtime,
+        "bind_reasoning_effort_shortcuts",
+        bind_shortcuts,
+    )
+
+    await loop.run_tui_loop(
+        host,
+        protocol_client=Mock(spec=ProtocolCommandClient),
+        turn_runner=AsyncMock(),
+    )
+
+    assert observed == ["test-model high"]
+
+
+@pytest.mark.parametrize(
+    ("current", "direction", "expected"),
+    (
+        ("medium", "lower", "low"),
+        ("medium", "raise", "high"),
+        ("low", "lower", None),
+        ("xhigh", "raise", None),
+        ("unsupported", "raise", "high"),
+    ),
+)
+def test_reasoning_effort_shortcut_uses_codex_step_semantics(
+    current: str,
+    direction: ReasoningEffortDirection,
+    expected: str | None,
+) -> None:
+    assert next_model_reasoning_effort(current, direction) == expected
+
+
+@pytest.mark.parametrize(
+    ("effort", "direction", "expected"),
+    (
+        (
+            "low",
+            "lower",
+            "• Reasoning is already at the lowest level (low).",
+        ),
+        (
+            "xhigh",
+            "raise",
+            "• Reasoning is already at the highest level (extra high).",
+        ),
+    ),
+)
+def test_reasoning_effort_shortcut_uses_codex_boundary_messages(
+    effort: str,
+    direction: ReasoningEffortDirection,
+    expected: str,
+) -> None:
+    block = reasoning_effort_boundary_status_block(effort, direction)
+
+    assert "".join(text for _style, text in block.fragments) == expected
+
+
+@pytest.mark.anyio
+async def test_reasoning_effort_session_override_survives_refresh_and_is_cleared_by_persistence(
+) -> None:
+    persisted = {
+        "primary": {
+            "model": "test-model",
+            "reasoning_effort": "medium",
+        },
+    }
+    state = TuiSessionState(
+        pref_config=persisted,
+        model="test-model",
+        workspace_label="workspace",
+        permissions=preset_permissions("auto"),
+    )
+    host = SimpleNamespace(
+        settings=SimpleNamespace(
+            fresh_preferences=AsyncMock(return_value=persisted),
+        ),
+    )
+
+    assert state.override_reasoning_effort("high") == "high"
+    assert state.pref_config["primary"]["reasoning_effort"] == "high"
+
+    await state.refresh_preferences(host, ttl_sec=0.0)
+
+    assert state.reasoning_effort_override == "high"
+    assert state.pref_config["primary"]["reasoning_effort"] == "high"
+    assert persisted["primary"]["reasoning_effort"] == "medium"
+
+    state.merge_primary({
+        "model": "test-model",
+        "reasoning_effort": "low",
+    })
+
+    assert state.reasoning_effort_override is None
+    assert state.pref_config["primary"]["reasoning_effort"] == "low"
+
+
+def test_reasoning_effort_shortcut_updates_next_turn_without_persisting() -> None:
+    runtime = TuiRuntime()
+    emit = Mock()
+    host = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=emit),
+        ),
+    )
+    state = TuiSessionState(
+        pref_config={
+            "primary": {
+                "model": "test-model",
+                "reasoning_effort": "medium",
+            },
+        },
+        model="test-model",
+        workspace_label="workspace",
+        permissions=preset_permissions("auto"),
+    )
+    dispatcher = dispatch.TuiCommandDispatcher(
+        host,
+        runtime,
+        state,
+        TuiForegroundTasks(runtime, host),
+        protocol_client=Mock(spec=ProtocolCommandClient),
+    )
+
+    dispatcher.increase_reasoning_effort()
+
+    assert state.reasoning_effort_override == "high"
+    assert state.pref_config["primary"]["reasoning_effort"] == "high"
+    assert runtime.context.model == "test-model high"
+    emit.assert_not_called()
+
+    dispatcher.increase_reasoning_effort()
+    dispatcher.increase_reasoning_effort()
+
+    assert state.reasoning_effort_override == "xhigh"
+    assert runtime.context.model == "test-model xhigh"
+    boundary = emit.call_args_list[0].args[0]
+    assert boundary.type == "tui.model_effort"
+    assert "".join(
+        text
+        for _style, text in boundary.renderable.fragments
+    ) == (
+        "• Reasoning is already at the highest level (extra high)."
+    )
+    assert emit.call_args_list[1].args[0].type == "tui.gap"
+
+
+def test_reasoning_effort_shortcut_does_not_mutate_frozen_active_turn() -> None:
+    state = TuiSessionState(
+        pref_config={
+            "primary": {
+                "model": "test-model",
+                "reasoning_effort": "medium",
+            },
+        },
+        model="test-model",
+        workspace_label="workspace",
+        permissions=preset_permissions("auto"),
+    )
+    active_turn = SubmitTurnCommand.create(
+        session_id="session-effort",
+        message="active turn",
+        pref_config=state.pref_config,
+    )
+
+    state.override_reasoning_effort("high")
+
+    active_pref = active_turn.pref_config_value()
+    active_primary = active_pref["primary"] if active_pref is not None else {}
+    assert active_primary["reasoning_effort"] == "medium"
+    assert state.pref_config["primary"]["reasoning_effort"] == "high"
+
+
+@pytest.mark.anyio
+async def test_reasoning_effort_keys_dispatch_once_and_defer_to_popup() -> None:
+    calls: list[str] = []
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=DummyOutput(),
+        )
+        runtime.bind_reasoning_effort_shortcuts(
+            decrease=lambda: calls.append("lower"),
+            increase=lambda: calls.append("raise"),
+        )
+        await runtime.open()
+        try:
+            alt_period = enhanced_key_token(
+                ".",
+                frozenset({"alt"}),
+            )
+            assert alt_period is not None
+            pipe_input.send_text(alt_period)
+            for _index in range(100):
+                if calls:
+                    break
+                await asyncio.sleep(0.01)
+            assert calls == ["raise"]
+
+            shift_down = enhanced_key_token(
+                "down",
+                frozenset({"shift"}),
+            )
+            assert shift_down is not None
+            pipe_input.send_text(shift_down)
+            for _index in range(100):
+                if len(calls) == 2:
+                    break
+                await asyncio.sleep(0.01)
+            assert calls == ["raise", "lower"]
+
+            runtime.input_model.completion_menu_completions = Mock(
+                return_value=(),
+            )
+            pipe_input.send_text(alt_period)
+            await asyncio.sleep(0.1)
+
+            assert calls == ["raise", "lower"]
+        finally:
+            await runtime.close()

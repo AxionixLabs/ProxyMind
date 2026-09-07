@@ -90,6 +90,8 @@ class TuiGlobalKeymap(object):
 class TuiChatKeymap(object):
     """保存 Turn 与排队输入动作的按键映射。"""
     interrupt_turn: TuiActionBindings
+    decrease_reasoning_effort: TuiActionBindings
+    increase_reasoning_effort: TuiActionBindings
     edit_queued_message: TuiActionBindings
 
 
@@ -496,6 +498,16 @@ def _default_chat_keymap() -> TuiChatKeymap:
     """返回 Turn 输入动作的默认按键。"""
     return TuiChatKeymap(
         interrupt_turn=_default_bindings("chat.interrupt_turn", "esc"),
+        decrease_reasoning_effort=_default_bindings(
+            "chat.decrease_reasoning_effort",
+            "alt-,",
+            "shift-down",
+        ),
+        increase_reasoning_effort=_default_bindings(
+            "chat.increase_reasoning_effort",
+            "alt-.",
+            "shift-up",
+        ),
         edit_queued_message=_default_bindings(
             "chat.edit_queued_message",
             "alt-up",

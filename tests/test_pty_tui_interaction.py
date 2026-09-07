@@ -539,6 +539,40 @@ def test_ctrl_s_history_search_is_not_stopped_by_terminal_flow_control(
         assert terminal.wait_for_exit(timeout=10.0) == 0
 
     assert _details(facts)["history_restored_cursor"] == len("draft")
+
+
+def test_reasoning_effort_shortcuts_use_real_terminal_events(
+    tmp_path: Path,
+) -> None:
+    """验证 Alt 与 Shift 快捷键均只调整一次且不修改草稿。"""
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui("reasoning_effort_keys", facts_path) as terminal:
+        _wait_for_tui_ready(terminal, "reasoning_effort_keys")
+        terminal.write_user_text("effort draft")
+        _wait_for_stage(facts_path, "effort_input")
+        terminal.send_key(PtyKey.ALT_PERIOD)
+        _wait_for_stage(facts_path, "alt_raise")
+        terminal.send_key(PtyKey.SHIFT_UP)
+        _wait_for_stage(facts_path, "shift_raise")
+        terminal.send_key(PtyKey.SHIFT_DOWN)
+        _wait_for_stage(facts_path, "shift_lower")
+        terminal.send_key(PtyKey.ALT_COMMA)
+        facts = _wait_for_stage(facts_path, "effort_complete")
+        facts_path.with_suffix(".ack").write_text(
+            "effort-observed",
+            encoding="ascii",
+        )
+
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+
+    assert _details(facts)["effort_sequence"] == [
+        "high",
+        "xhigh",
+        "high",
+        "medium",
+    ]
+    assert _details(facts)["effort_draft"] == "effort draft"
+    assert _submissions(facts) == []
     assert _submissions(facts) == []
 
 

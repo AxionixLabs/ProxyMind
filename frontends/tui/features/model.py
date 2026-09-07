@@ -45,6 +45,43 @@ MODEL_EFFORT_OPTIONS: tuple[tuple[str, str, str], ...] = (
     ("high", "High", "Higher reasoning, improves quality on complex tasks"),
     ("xhigh", "Extra high", "Highest reasoning, for difficult tasks"),
 )
+ReasoningEffortDirection: typing.TypeAlias = typing.Literal["lower", "raise"]
+
+
+def next_model_reasoning_effort(
+    current_effort: str,
+    direction: ReasoningEffortDirection,
+) -> str | None:
+    """按当前产品支持的顺序返回相邻推理强度。"""
+    normalized = normalize_reasoning_effort(current_effort)
+    values = tuple(value for value, _label, _detail in MODEL_EFFORT_OPTIONS)
+    current_index = values.index(normalized)
+    offset = -1 if direction == "lower" else 1
+    next_index = current_index + offset
+    if next_index < 0 or next_index >= len(values):
+        return None
+    return values[next_index]
+
+
+def reasoning_effort_boundary_status_block(
+    effort: str,
+    direction: ReasoningEffortDirection,
+) -> FragmentBlock:
+    """生成推理强度快捷键到达边界时的 Codex 同义提示。"""
+    normalized = normalize_reasoning_effort(effort)
+    labels = {
+        value: label.lower()
+        for value, label, _detail in MODEL_EFFORT_OPTIONS
+    }
+    boundary = "lowest" if direction == "lower" else "highest"
+    return fragment_block(
+        TextSpan("• ", BODY_STYLE),
+        TextSpan(
+            "Reasoning is already at the "
+            f"{boundary} level ({labels[normalized]}).",
+            BRIGHT_STYLE,
+        ),
+    )
 
 
 async def exchange_pref_value(

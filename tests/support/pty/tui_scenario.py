@@ -4,7 +4,10 @@ import json
 import sys
 import time
 import typing
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field,
+)
 from pathlib import Path
 
 from agent.adapters.protocol.activity_events import TurnActivityProjector
@@ -25,6 +28,7 @@ from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.submission import TuiInterruptRequested
+from frontends.tui.features.model import next_model_reasoning_effort
 from frontends.tui.session.turn_input import TuiTurnInputControl
 from infrastructure.skills import SkillSpec
 from observability import reset_sinks
@@ -203,6 +207,14 @@ class _ActionCounter:
     """保存真实按键场景中的具名动作次数。"""
 
     value: int = 0
+
+
+@dataclass(slots=True)
+class _ReasoningEffortState:
+    """保存真实按键场景中的当前推理强度与切换记录。"""
+
+    value: str = "medium"
+    transitions: list[str] = field(default_factory=list)
 
 
 async def _wait_until(
@@ -444,6 +456,71 @@ async def _run_history_search_keys(
     await _wait_until(
         acknowledgment.exists,
         "history-search assertion acknowledgment",
+    )
+    reader.cancel()
+    await asyncio.gather(reader, return_exceptions=True)
+
+
+async def _run_reasoning_effort_keys(
+    runtime: TuiRuntime,
+    facts: ScenarioFacts,
+) -> None:
+    """验证真实终端中的四个推理强度快捷键及草稿所有权。"""
+    effort = _ReasoningEffortState()
+
+    def step(direction: typing.Literal["lower", "raise"]) -> None:
+        """记录由真实输入分派触发的一次相邻档位切换。"""
+        next_effort = next_model_reasoning_effort(effort.value, direction)
+        if next_effort is not None:
+            effort.value = next_effort
+            effort.transitions.append(next_effort)
+
+    def decrease() -> None:
+        """应用一次降低动作并维护当前测试档位。"""
+        step("lower")
+
+    def increase() -> None:
+        """应用一次提高动作并维护当前测试档位。"""
+        step("raise")
+
+    runtime.bind_reasoning_effort_shortcuts(
+        decrease=decrease,
+        increase=increase,
+    )
+    _ready(runtime, facts)
+    reader = asyncio.create_task(
+        runtime.read_message(PromptContext(model="test-model medium"))
+    )
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "effort draft",
+        "reasoning effort draft",
+    )
+    facts.stage = "effort_input"
+    facts.write()
+
+    for expected, stage in (
+        ("high", "alt_raise"),
+        ("xhigh", "shift_raise"),
+        ("high", "shift_lower"),
+        ("medium", "alt_lower"),
+    ):
+        await _wait_until(
+            lambda expected=expected: bool(
+                effort.transitions and effort.transitions[-1] == expected
+            ),
+            f"reasoning effort {stage}",
+        )
+        facts.stage = stage
+        facts.write()
+
+    facts.set_detail("effort_sequence", list(effort.transitions))
+    facts.set_detail("effort_draft", runtime.screen.input.buffer.text)
+    facts.stage = "effort_complete"
+    facts.write()
+    acknowledgment = facts.path.with_suffix(".ack")
+    await _wait_until(
+        acknowledgment.exists,
+        "reasoning effort assertion acknowledgment",
     )
     reader.cancel()
     await asyncio.gather(reader, return_exceptions=True)
@@ -1332,6 +1409,8 @@ async def _run(scenario: str, facts_path: Path) -> None:
             await _run_editor_keys(runtime, facts)
         elif scenario == "history_search_keys":
             await _run_history_search_keys(runtime, facts)
+        elif scenario == "reasoning_effort_keys":
+            await _run_reasoning_effort_keys(runtime, facts)
         elif scenario == "active_inputs":
             await _run_active_inputs(runtime, facts)
         elif scenario == "non_steer_enter":

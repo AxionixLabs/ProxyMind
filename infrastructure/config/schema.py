@@ -384,6 +384,8 @@ TUI_GLOBAL_KEYMAP_FIELDS = frozenset({
 })
 TUI_CHAT_KEYMAP_FIELDS = frozenset({
     "interrupt_turn",
+    "decrease_reasoning_effort",
+    "increase_reasoning_effort",
     "edit_queued_message",
 })
 TUI_COMPOSER_KEYMAP_FIELDS = frozenset({

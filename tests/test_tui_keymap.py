@@ -31,6 +31,14 @@ def test_tui_keymap_resolves_defaults_remaps_and_explicit_unbinding() -> None:
     defaults = TuiRuntimeKeymap.defaults()
 
     assert defaults.open_transcript_label == "Ctrl+T"
+    assert [
+        binding.label
+        for binding in defaults.chat.decrease_reasoning_effort
+    ] == ["Alt+,", "Shift+Down"]
+    assert [
+        binding.label
+        for binding in defaults.chat.increase_reasoning_effort
+    ] == ["Alt+.", "Shift+Up"]
     assert [binding.label for binding in defaults.pager.scroll_up] == [
         "Up",
         "K",
@@ -82,6 +90,8 @@ def test_tui_keymap_exposes_frozen_stable_action_contexts() -> None:
     assert {
         "global.open_transcript",
         "chat.interrupt_turn",
+        "chat.decrease_reasoning_effort",
+        "chat.increase_reasoning_effort",
         "composer.submit",
         "editor.insert_newline",
         "pager.close",
@@ -278,7 +288,10 @@ def test_all_runtime_contexts_support_remapping_and_explicit_unbinding() -> None
         "tui": {
             "keymap": {
                 "global": {"copy_last_response": "f13"},
-                "chat": {"edit_queued_message": "f14"},
+                "chat": {
+                    "decrease_reasoning_effort": "f20",
+                    "edit_queued_message": "f14",
+                },
                 "composer": {"submit": "f15", "queue": []},
                 "editor": {"move_left": "f16"},
                 "pager": {"scroll_up": "f17"},
@@ -299,6 +312,7 @@ def test_all_runtime_contexts_support_remapping_and_explicit_unbinding() -> None
     }
     keymap = TuiRuntimeKeymap.from_config(config)
     assert keymap.global_keys.copy_last_response[0].label == "F13"
+    assert keymap.chat.decrease_reasoning_effort[0].label == "F20"
     assert keymap.chat.edit_queued_message[0].label == "F14"
     assert keymap.composer.submit[0].label == "F15"
     assert keymap.composer.queue == ()

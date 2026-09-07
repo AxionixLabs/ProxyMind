@@ -21,6 +21,7 @@ from ..core.runtime import (
 from ..features.context import (
     WORKSPACE_LABEL_REFRESH,
     exec_status_display_label,
+    normalize_reasoning_effort,
     split_exec_snapshot_by_origin,
     primary_model_from_config,
     primary_model_prompt_label,
@@ -46,6 +47,7 @@ class TuiSessionState(object):
         self.pref_config = pref_config
         self.model = model
         self.model_override = model_override
+        self.reasoning_effort_override: str | None = None
         self.workspace_label = workspace_label
         self.permissions = permissions
 
@@ -118,10 +120,7 @@ class TuiSessionState(object):
                 ttl_sec=ttl_sec,
             )
 
-        self.pref_config = apply_primary_model_override(
-            pref_config,
-            self.model_override,
-        )
+        self.pref_config = self._apply_runtime_overrides(pref_config)
         self.model = primary_model_from_config(self.pref_config, self.model)
 
         return self.pref_config
@@ -145,12 +144,56 @@ class TuiSessionState(object):
             overrides is not None and "model" in overrides
         ):
             self.model_override = None
+        if (
+            "provider" in saved_primary
+            or "model" in saved_primary
+            or "reasoning_effort" in saved_primary
+            or (
+                overrides is not None
+                and any(
+                    field in overrides
+                    for field in (
+                        "provider",
+                        "model",
+                        "reasoning_effort",
+                    )
+                )
+            )
+        ):
+            self.reasoning_effort_override = None
 
         self.pref_config = dict(self.pref_config)
         self.pref_config["primary"] = primary
         self.model = primary_model_from_config(self.pref_config, self.model)
 
         return primary
+
+    def override_reasoning_effort(self, effort: str) -> str:
+        """把推理强度作为当前 TUI 会话的非持久化覆盖。"""
+        normalized = normalize_reasoning_effort(effort)
+        self.reasoning_effort_override = normalized
+        self.pref_config = self._apply_runtime_overrides(self.pref_config)
+        return normalized
+
+    def _apply_runtime_overrides(
+        self,
+        pref_config: dict[str, typing.Any],
+    ) -> dict[str, typing.Any]:
+        """把当前会话拥有的模型与推理强度覆盖投影到配置副本。"""
+        resolved = apply_primary_model_override(
+            pref_config,
+            self.model_override,
+        )
+        effort = self.reasoning_effort_override
+        if effort is None:
+            return resolved
+
+        result = deepcopy(resolved)
+        current = result.get("primary")
+        primary = dict(current) if isinstance(current, dict) else {}
+        primary["reasoning_effort"] = effort
+        result["primary"] = primary
+        return result
 
     def invalidate_workspace(self) -> None:
         """让下一轮输入刷新工作区标签。"""

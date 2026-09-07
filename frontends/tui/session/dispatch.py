@@ -96,12 +96,15 @@ from ..features.mcp import (
     render_mcp_status
 )
 from ..features.model import (
+    ReasoningEffortDirection,
     choose_model_effort,
     choose_provider,
     exchange_pref_value,
     model_changed_status_block,
+    next_model_reasoning_effort,
     persist_primary_pref,
     provider_changed_status_block,
+    reasoning_effort_boundary_status_block,
     render_model_effort_status,
     save_active_provider
 )
@@ -486,18 +489,31 @@ class TuiCommandDispatcher(object):
             factory=self._workspace_diff_coroutine,
         )
 
-    def copy_last_response(self) -> None:
-        """按 Ctrl+O 语义异步复制调用时冻结的完整回复。"""
-        snapshot = self.host.conversation.assistant_reply_snapshot()
-        source = snapshot.source if snapshot is not None else ""
-        self._start_local_action(StreamLocalAction(
-            key="copy",
-            name="tui copy whole assistant response",
-            factory=lambda: copy_whole_assistant_reply(
-                self.host,
-                source=source,
-            ),
-        ))
+    def _step_reasoning_effort(
+        self,
+        direction: ReasoningEffortDirection,
+    ) -> None:
+        """应用一次不持久化的推理强度快捷调整。"""
+        primary = self.state.pref_config.get("primary")
+        current = primary if isinstance(primary, dict) else {}
+        current_effort = str(current.get("reasoning_effort") or "")
+        next_effort = next_model_reasoning_effort(
+            current_effort,
+            direction,
+        )
+        if next_effort is None:
+            self._present(
+                reasoning_effort_boundary_status_block(
+                    current_effort,
+                    direction,
+                ),
+                view_type="tui.model_effort",
+            )
+            self._present()
+            return None
+
+        self.state.override_reasoning_effort(next_effort)
+        self.state.apply_prompt_context(self.runtime)
 
     def _workspace_diff_coroutine(
         self,
@@ -518,6 +534,98 @@ class TuiCommandDispatcher(object):
         """回收已经完成的运行中本地动作。"""
         if self._local_tasks.get(key) is task:
             self._local_tasks.pop(key, None)
+
+    def _resolve_stream_action(
+        self,
+        command: TuiCommandSpec,
+        request: StreamCommandRequest,
+    ) -> StreamResolvedAction:
+        """把已授权命令解析为与声明策略匹配的运行期动作。"""
+        resolver = self._stream_action_resolvers.get(command.key)
+        if resolver is None:
+            raise RuntimeError(
+                f"No stream action registered for {command.command}"
+            )
+        return resolver(request)
+
+    def _resolve_stream_listener_action(
+        self,
+        command: str,
+    ) -> StreamResolvedAction:
+        """解析活动轮次中的监听器查询、菜单或状态切换。"""
+        is_listener, action = parse_listener_command(command)
+        if not is_listener:
+            raise RuntimeError(
+                "Registered listener stream action received invalid input"
+            )
+        if action is None:
+            return StreamBarrierAction(lambda: self.foreground_tasks.start(
+                "Listener menu",
+                self._choose_stream_listener_action,
+            ))
+        if action == "status":
+            return StreamLocalAction(
+                key="listen",
+                name="tui listener status",
+                factory=lambda: _run_immediate_stream_action(
+                    lambda: render_listener_status(self.host)
+                ),
+            )
+        return StreamBarrierAction(
+            lambda: self.foreground_tasks.start_listener(
+                action,
+                on_succeeded=self.mailbox.bind_listener,
+            )
+        )
+
+    def _resolve_stream_mcp_action(
+        self,
+        command: str,
+    ) -> StreamResolvedAction:
+        """解析活动轮次中不会破坏当前工具会话的 MCP 操作。"""
+        is_mcp, action = parse_mcp_command(command)
+        if not is_mcp or action is None:
+            raise RuntimeError("Registered MCP stream action received invalid input")
+        if action == "status":
+            return StreamLocalAction(
+                key="mcp",
+                name="tui external mcp status",
+                factory=lambda: _run_immediate_stream_action(
+                    lambda: render_mcp_status(self.host)
+                ),
+            )
+        return StreamBarrierAction(
+            lambda: self.foreground_tasks.handle_stream_command(
+                command,
+                lambda: False,
+            )
+        )
+
+    def _finish_helix_home(self, home_url: str) -> None:
+        """展示 Helix 首页打开结果并刷新工作区关联状态。"""
+        render_helix_home_result(self.host, home_url)
+        self.state.invalidate_workspace()
+
+    def copy_last_response(self) -> None:
+        """按 Ctrl+O 语义异步复制调用时冻结的完整回复。"""
+        snapshot = self.host.conversation.assistant_reply_snapshot()
+        source = snapshot.source if snapshot is not None else ""
+        self._start_local_action(StreamLocalAction(
+            key="copy",
+            name="tui copy whole assistant response",
+            factory=lambda: copy_whole_assistant_reply(
+                self.host,
+                source=source,
+            ),
+        ))
+
+    def decrease_reasoning_effort(self) -> None:
+        """降低当前会话后续轮次使用的推理强度。"""
+        self._step_reasoning_effort("lower")
+
+    def increase_reasoning_effort(self) -> None:
+        """提高当前会话后续轮次使用的推理强度。"""
+        self._step_reasoning_effort("raise")
 
     def handle_stream_command(
         self,
@@ -564,19 +672,6 @@ class TuiCommandDispatcher(object):
         raise RuntimeError(
             f"Unsupported stream command policy for {command.command}: {policy}"
         )
-
-    def _resolve_stream_action(
-        self,
-        command: TuiCommandSpec,
-        request: StreamCommandRequest,
-    ) -> StreamResolvedAction:
-        """把已授权命令解析为与声明策略匹配的运行期动作。"""
-        resolver = self._stream_action_resolvers.get(command.key)
-        if resolver is None:
-            raise RuntimeError(
-                f"No stream action registered for {command.command}"
-            )
-        return resolver(request)
 
     async def _choose_effort(self, *, present_on_cancel: bool = True) -> None:
         """选择并持久化模型推理强度。"""
@@ -750,36 +845,6 @@ class TuiCommandDispatcher(object):
         """打开当前运行时可用的 skill 选择面板。"""
         await choose_skill(self.runtime, self.host.settings.config)
 
-    def _resolve_stream_listener_action(
-        self,
-        command: str,
-    ) -> StreamResolvedAction:
-        """解析活动轮次中的监听器查询、菜单或状态切换。"""
-        is_listener, action = parse_listener_command(command)
-        if not is_listener:
-            raise RuntimeError(
-                "Registered listener stream action received invalid input"
-            )
-        if action is None:
-            return StreamBarrierAction(lambda: self.foreground_tasks.start(
-                "Listener menu",
-                self._choose_stream_listener_action,
-            ))
-        if action == "status":
-            return StreamLocalAction(
-                key="listen",
-                name="tui listener status",
-                factory=lambda: _run_immediate_stream_action(
-                    lambda: render_listener_status(self.host)
-                ),
-            )
-        return StreamBarrierAction(
-            lambda: self.foreground_tasks.start_listener(
-                action,
-                on_succeeded=self.mailbox.bind_listener,
-            )
-        )
-
     async def _choose_stream_listener_action(self) -> None:
         """选择并启动不会中断当前模型轮次的监听器操作。"""
         action = await choose_listener_action(self.runtime, self.host)
@@ -788,29 +853,6 @@ class TuiCommandDispatcher(object):
         self.foreground_tasks.start_listener(
             action,
             on_succeeded=self.mailbox.bind_listener,
-        )
-
-    def _resolve_stream_mcp_action(
-        self,
-        command: str,
-    ) -> StreamResolvedAction:
-        """解析活动轮次中不会破坏当前工具会话的 MCP 操作。"""
-        is_mcp, action = parse_mcp_command(command)
-        if not is_mcp or action is None:
-            raise RuntimeError("Registered MCP stream action received invalid input")
-        if action == "status":
-            return StreamLocalAction(
-                key="mcp",
-                name="tui external mcp status",
-                factory=lambda: _run_immediate_stream_action(
-                    lambda: render_mcp_status(self.host)
-                ),
-            )
-        return StreamBarrierAction(
-            lambda: self.foreground_tasks.handle_stream_command(
-                command,
-                lambda: False,
-            )
         )
 
     async def _dispatch_mcp(self, mcp_action: McpAction | None) -> None:
@@ -979,11 +1021,6 @@ class TuiCommandDispatcher(object):
 
         self.host.execution.set_service_tool_profile(selected)
         render_helix_mode_result(self.host, selected)
-        self.state.invalidate_workspace()
-
-    def _finish_helix_home(self, home_url: str) -> None:
-        """展示 Helix 首页打开结果并刷新工作区关联状态。"""
-        render_helix_home_result(self.host, home_url)
         self.state.invalidate_workspace()
 
     async def _open_helix_home(
