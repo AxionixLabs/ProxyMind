@@ -186,6 +186,7 @@ def test_startup_frame_matches_shared_screen_golden(
         TerminalMode.CURSOR_SHOWN,
         TerminalMode.BRACKETED_PASTE_DISABLED,
         TerminalMode.FOCUS_REPORTING_DISABLED,
+        TerminalMode.KEYBOARD_ENHANCEMENT_RESTORED,
     }
 
 

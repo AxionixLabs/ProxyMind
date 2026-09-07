@@ -1207,7 +1207,11 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             self.application.renderer.output = hyperlink_output
 
         self.application.ttimeoutlen = self.ESCAPE_SEQUENCE_TIMEOUT_SEC
-        self.application.timeoutlen = KEY_CHORD_TIMEOUT_SEC
+        # Prompt Toolkit 的 Esc 空 flush 会重启 timeoutlen，需扣除该等待。
+        self.application.timeoutlen = max(
+            0.0,
+            KEY_CHORD_TIMEOUT_SEC - self.ESCAPE_SEQUENCE_TIMEOUT_SEC,
+        )
 
         self._inline_renderer_state: _InlineRendererState | None = None
 
