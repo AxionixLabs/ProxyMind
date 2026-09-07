@@ -98,10 +98,8 @@ class _SidecarStdin(object):
     def __init__(self, client: "SandboxClient", process_id: str) -> None:
         self._client = client
         self._process_id = process_id
-
-        self._pending = bytearray()
-        self._closing = False
-
+        self._pending: bytearray = bytearray()
+        self._closing: bool = False
         self._close_task: asyncio.Task[None] | None = None
 
     def is_closing(self) -> bool:
@@ -144,18 +142,11 @@ class SidecarProcess(object):
         self.client = client
         self.process_id = process_id
         self.pid = process_id
-
         self.returncode: int | None = None
-
         self.stdin = _SidecarStdin(client, process_id)
         self.stdout = _SidecarStream()
         self.stderr = _SidecarStream()
-
-        self._exit_event = asyncio.Event()
-
-    async def wait(self) -> int:
-        await self._exit_event.wait()
-        return int(self.returncode if self.returncode is not None else -1)
+        self._exit_event: asyncio.Event = asyncio.Event()
 
     def feed_output(self, stream: str, data: bytes) -> None:
         target = self.stdout if stream == "stdout" else self.stderr
@@ -168,6 +159,10 @@ class SidecarProcess(object):
         self.stdout.close()
         self.stderr.close()
         self._exit_event.set()
+
+    async def wait(self) -> int:
+        await self._exit_event.wait()
+        return int(self.returncode if self.returncode is not None else -1)
 
 
 class SandboxClient(object):
@@ -190,27 +185,26 @@ class SandboxClient(object):
         self.platform = (sys.platform if platform is None else platform).strip().lower()
         self.platform_name = sandbox_platform_name(self.platform)
         self.packaged = self._is_packaged_runtime() if packaged is None else bool(packaged)
-
         self.application_root = (
             Path(application_root).expanduser().resolve()
             if application_root is not None
             else self._default_application_root()
         )
-
         self.executable = self._resolve_executable(executable)
 
         self._sidecar: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task[None] | None = None
-
         self._start_lock: asyncio.Lock = asyncio.Lock()
         self._write_lock: asyncio.Lock = asyncio.Lock()
-
         self._request_number: int = 0
-
         self._pending: dict[str, asyncio.Future[dict[str, typing.Any]]] = {}
         self._ready: asyncio.Future[bool] | None = None
         self._processes: dict[str, SidecarProcess] = {}
         self._early_events: dict[str, list[dict[str, typing.Any]]] = {}
+
+    @property
+    def available(self) -> bool:
+        return self.executable.is_file()
 
     @staticmethod
     def _is_packaged_runtime() -> bool:
@@ -253,9 +247,137 @@ class SandboxClient(object):
                 return candidate
         return candidates[0]
 
-    @property
-    def available(self) -> bool:
-        return self.executable.is_file()
+    def _handle_process_event(self, event: dict[str, typing.Any]) -> None:
+        process_id = str(event.get("process_id") or "").strip()
+        if not process_id:
+            return
+        process = self._processes.get(process_id)
+        if process is None:
+            self._early_events.setdefault(process_id, []).append(dict(event))
+            return
+
+        event_name = str(event.get("event") or "").strip()
+        if event_name in {"stdout", "stderr"}:
+            try:
+                data = base64.b64decode(str(event.get("data") or ""))
+            except (ValueError, TypeError):
+                return
+            process.feed_output(event_name, data)
+            return
+        if event_name == "exit":
+            try:
+                exit_code = int(event.get("exit_code"))
+            except (TypeError, ValueError):
+                exit_code = -1
+            process.finish(exit_code)
+
+    async def _request(
+        self,
+        method: str,
+        params: dict[str, typing.Any],
+    ) -> dict[str, typing.Any]:
+        await self.ensure_started()
+        process = self._sidecar
+        if process is None or process.stdin is None:
+            raise SandboxUnavailable("sandbox sidecar stdin is unavailable")
+
+        self._request_number += 1
+        request_id = f"r{self._request_number}"
+        future = asyncio.get_running_loop().create_future()
+        self._pending[request_id] = future
+        payload = {
+            "id": request_id,
+            "method": str(method),
+            "params": dict(params),
+        }
+        try:
+            async with self._write_lock:
+                process.stdin.write(
+                    (json.dumps(payload, ensure_ascii=True) + "\n").encode()
+                )
+                await process.stdin.drain()
+            response = await asyncio.wait_for(
+                asyncio.shield(future),
+                timeout=self.REQUEST_TIMEOUT_SEC,
+            )
+        finally:
+            self._pending.pop(request_id, None)
+
+        if not bool(response.get("ok")):
+            error = response.get("error")
+            if isinstance(error, dict):
+                code = str(error.get("code") or "sidecar_error")
+                detail = str(error.get("detail") or "").strip()
+                raise SandboxProtocolError(
+                    f"{code}: {detail}" if detail else code
+                )
+            raise SandboxProtocolError("sidecar_error")
+        result = response.get("result")
+        return result if isinstance(result, dict) else {}
+
+    async def _read_events(self) -> None:
+        process = self._sidecar
+        if process is None or process.stdout is None:
+            return
+        try:
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                try:
+                    message = json.loads(line.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(message, dict):
+                    continue
+                event = str(message.get("event") or "").strip()
+                if event == "ready":
+                    try:
+                        protocol_version = int(message["protocol_version"])
+                    except (KeyError, TypeError, ValueError):
+                        protocol_version = None
+                    if protocol_version != self.PROTOCOL_VERSION:
+                        error = SandboxUnavailable(
+                            "unsupported sandbox sidecar protocol version: "
+                            f"{message.get('protocol_version')!r}"
+                        )
+                        if self._ready is not None and not self._ready.done():
+                            self._ready.set_exception(error)
+                        return
+                    if self._ready is not None and not self._ready.done():
+                        self._ready.set_result(True)
+                    continue
+                if event in {"stdout", "stderr", "exit"}:
+                    self._handle_process_event(message)
+                    continue
+                request_id = str(message.get("id") or "").strip()
+                future = self._pending.get(request_id)
+                if future is not None and not future.done():
+                    future.set_result(message)
+        finally:
+            error = SandboxUnavailable("sandbox sidecar exited")
+            if self._ready is not None and not self._ready.done():
+                self._ready.set_exception(error)
+            for future in tuple(self._pending.values()):
+                if not future.done():
+                    future.set_exception(error)
+            for process in tuple(self._processes.values()):
+                process.finish(-1)
+
+    async def _abort_sidecar(self) -> None:
+        reader_task = self._reader_task
+        self._reader_task = None
+        if reader_task is not None and reader_task is not asyncio.current_task():
+            reader_task.cancel()
+            await asyncio.gather(reader_task, return_exceptions=True)
+
+        process = self._sidecar
+        self._sidecar = None
+        if process is None:
+            return
+        if process.returncode is None:
+            process.terminate()
+            await asyncio.gather(process.wait(), return_exceptions=True)
 
     async def ensure_started(self) -> None:
         if self._sidecar is not None and self._sidecar.returncode is None:
@@ -387,138 +509,6 @@ class SandboxClient(object):
         except (OSError, RuntimeError, SandboxProtocolError, asyncio.TimeoutError):
             pass
         await self._abort_sidecar()
-
-    async def _request(
-        self,
-        method: str,
-        params: dict[str, typing.Any],
-    ) -> dict[str, typing.Any]:
-        await self.ensure_started()
-        process = self._sidecar
-        if process is None or process.stdin is None:
-            raise SandboxUnavailable("sandbox sidecar stdin is unavailable")
-
-        self._request_number += 1
-        request_id = f"r{self._request_number}"
-        future = asyncio.get_running_loop().create_future()
-        self._pending[request_id] = future
-        payload = {
-            "id": request_id,
-            "method": str(method),
-            "params": dict(params),
-        }
-        try:
-            async with self._write_lock:
-                process.stdin.write(
-                    (json.dumps(payload, ensure_ascii=True) + "\n").encode()
-                )
-                await process.stdin.drain()
-            response = await asyncio.wait_for(
-                asyncio.shield(future),
-                timeout=self.REQUEST_TIMEOUT_SEC,
-            )
-        finally:
-            self._pending.pop(request_id, None)
-
-        if not bool(response.get("ok")):
-            error = response.get("error")
-            if isinstance(error, dict):
-                code = str(error.get("code") or "sidecar_error")
-                detail = str(error.get("detail") or "").strip()
-                raise SandboxProtocolError(
-                    f"{code}: {detail}" if detail else code
-                )
-            raise SandboxProtocolError("sidecar_error")
-        result = response.get("result")
-        return result if isinstance(result, dict) else {}
-
-    async def _read_events(self) -> None:
-        process = self._sidecar
-        if process is None or process.stdout is None:
-            return
-        try:
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
-                try:
-                    message = json.loads(line.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    continue
-                if not isinstance(message, dict):
-                    continue
-                event = str(message.get("event") or "").strip()
-                if event == "ready":
-                    try:
-                        protocol_version = int(message["protocol_version"])
-                    except (KeyError, TypeError, ValueError):
-                        protocol_version = None
-                    if protocol_version != self.PROTOCOL_VERSION:
-                        error = SandboxUnavailable(
-                            "unsupported sandbox sidecar protocol version: "
-                            f"{message.get('protocol_version')!r}"
-                        )
-                        if self._ready is not None and not self._ready.done():
-                            self._ready.set_exception(error)
-                        return
-                    if self._ready is not None and not self._ready.done():
-                        self._ready.set_result(True)
-                    continue
-                if event in {"stdout", "stderr", "exit"}:
-                    self._handle_process_event(message)
-                    continue
-                request_id = str(message.get("id") or "").strip()
-                future = self._pending.get(request_id)
-                if future is not None and not future.done():
-                    future.set_result(message)
-        finally:
-            error = SandboxUnavailable("sandbox sidecar exited")
-            if self._ready is not None and not self._ready.done():
-                self._ready.set_exception(error)
-            for future in tuple(self._pending.values()):
-                if not future.done():
-                    future.set_exception(error)
-            for process in tuple(self._processes.values()):
-                process.finish(-1)
-
-    def _handle_process_event(self, event: dict[str, typing.Any]) -> None:
-        process_id = str(event.get("process_id") or "").strip()
-        if not process_id:
-            return
-        process = self._processes.get(process_id)
-        if process is None:
-            self._early_events.setdefault(process_id, []).append(dict(event))
-            return
-
-        event_name = str(event.get("event") or "").strip()
-        if event_name in {"stdout", "stderr"}:
-            try:
-                data = base64.b64decode(str(event.get("data") or ""))
-            except (ValueError, TypeError):
-                return
-            process.feed_output(event_name, data)
-            return
-        if event_name == "exit":
-            try:
-                exit_code = int(event.get("exit_code"))
-            except (TypeError, ValueError):
-                exit_code = -1
-            process.finish(exit_code)
-
-    async def _abort_sidecar(self) -> None:
-        reader_task = self._reader_task
-        self._reader_task = None
-        if reader_task is not None and reader_task is not asyncio.current_task():
-            reader_task.cancel()
-            await asyncio.gather(reader_task, return_exceptions=True)
-
-        process = self._sidecar
-        self._sidecar = None
-        if process is None:
-            return
-        if process.returncode is None:
-            process.terminate()
-            await asyncio.gather(process.wait(), return_exceptions=True)
 
 
 if __name__ == '__main__':
