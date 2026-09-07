@@ -17,10 +17,17 @@ class PtyKey(Enum):
 
     ENTER = b"\r"
     TAB = b"\x09"
+    CTRL_A = b"\x01"
+    CTRL_N = b"\x0e"
+    CTRL_P = b"\x10"
+    CTRL_T = b"\x14"
     CTRL_C = b"\x03"
     ESCAPE = b"\x1b"
     BACKSPACE = b"\x7f"
     CTRL_D = b"\x04"
+    HOME = b"\x1b[H"
+    PAGE_DOWN = b"\x1b[6~"
+    SHIFT_SPACE = b"\x1b[32;2u"
 
 
 class PtySession:

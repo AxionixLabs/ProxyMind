@@ -306,13 +306,22 @@ def test_ctrl_c_with_draft_only_clears_draft(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "scenario",
-    ("ctrl_c_early", "ctrl_c_late", "ctrl_c_stream_closed"),
+    (
+        "ctrl_c_early",
+        "ctrl_c_thinking",
+        "ctrl_c_streaming",
+        "ctrl_c_tool",
+        "ctrl_c_retry",
+        "ctrl_c_terminal_wait",
+        "ctrl_c_late",
+        "ctrl_c_stream_closed",
+    ),
 )
 def test_double_ctrl_c_converges_across_turn_phases(
     tmp_path: Path,
     scenario: str,
 ) -> None:
-    """验证启动前、终态后和断流阶段的 Ctrl-C 均幂等收敛。"""
+    """验证各个活动、恢复及终态阶段的 Ctrl-C 均幂等收敛。"""
     facts_path = tmp_path / "facts.json"
     with _spawn_tui(scenario, facts_path) as terminal:
         terminal.wait_for_screen_text(f"PTY TUI READY {scenario}")
@@ -332,6 +341,17 @@ def test_double_ctrl_c_converges_across_turn_phases(
     assert details["interrupt_request_count"] == expected_remote_count
     if scenario == "ctrl_c_early":
         assert details["request_attempts_before_turn_started"] == 1
+    phase = scenario.removeprefix("ctrl_c_")
+    if phase in {"thinking", "streaming", "tool", "retry", "terminal_wait"}:
+        assert details["surface_phase"] == phase
+        expected_surface_text = {
+            "thinking": "Thinking",
+            "streaming": "partial response",
+            "tool": "Thinking",
+            "retry": "Retrying",
+            "terminal_wait": "Waiting for background terminal",
+        }[phase]
+        assert expected_surface_text in details["surface_text"]
 
 
 def test_ctrl_c_confirmation_expiry_rearms_first_press(tmp_path: Path) -> None:
@@ -356,6 +376,31 @@ def test_ctrl_c_confirmation_expiry_rearms_first_press(tmp_path: Path) -> None:
     assert details["exit_kind"] == "interrupt"
     assert details["interrupt_invocations"] == 3
     assert details["interrupt_request_count"] == 1
+
+
+def test_ctrl_d_does_not_bypass_active_turn_gate(tmp_path: Path) -> None:
+    """验证活动 Turn 中 Ctrl-D 保持输入存活且不触发远端中断。"""
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui("ctrl_d_active", facts_path) as terminal:
+        terminal.wait_for_screen_text("PTY TUI READY ctrl_d_active")
+        _wait_for_stage(facts_path, "accepting")
+        terminal.send_key(PtyKey.CTRL_D)
+        facts_path.with_suffix(".ctrl-d").write_text("sent", encoding="ascii")
+        _wait_for_stage(facts_path, "ctrl_d_observed")
+        assert not terminal.session.output_closed
+        terminal.send_key(PtyKey.CTRL_C)
+        terminal.wait_for_screen_text("again to exit")
+        terminal.send_key(PtyKey.CTRL_C)
+
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+        facts = _read_facts(facts_path)
+
+    details = _details(facts)
+    assert details["reader_active_after_ctrl_d"] is True
+    assert details["interrupt_count_after_ctrl_d"] == 0
+    assert details["interrupt_invocations"] == 2
+    assert details["interrupt_request_count"] == 1
+    assert details["exit_kind"] == "interrupt"
 
 
 def test_ctrl_c_confirmation_requires_consecutive_keypresses(
@@ -496,6 +541,248 @@ def test_approval_surface_consumes_key_before_composer(tmp_path: Path) -> None:
     details = _details(facts)
     assert details["approval_decision"] == "accept"
     assert details["draft_after_approval"] == "draft remains"
+    assert details["composer_submission_count"] == 0
+
+
+@pytest.mark.parametrize(
+    ("scenario", "key_sequence", "expected"),
+    (
+        pytest.param("approval_command", (b"y",), "accept", id="command-yes"),
+        pytest.param(
+            "approval_command",
+            (b"a",),
+            "acceptForSession",
+            id="command-session",
+        ),
+        pytest.param("approval_command", (b"d",), "decline", id="command-decline"),
+        pytest.param(
+            "approval_command",
+            (PtyKey.ESCAPE,),
+            "cancel",
+            id="command-escape-cancel",
+        ),
+        pytest.param("approval_command", (b"n",), "cancel", id="command-no-cancel"),
+        pytest.param(
+            "approval_command",
+            (PtyKey.CTRL_C,),
+            "cancel",
+            id="command-ctrl-c-cancel",
+        ),
+        pytest.param(
+            "approval_command",
+            (PtyKey.CTRL_D, b"y"),
+            "accept",
+            id="command-ctrl-d-stays-modal",
+        ),
+        pytest.param(
+            "approval_command",
+            (PtyKey.CTRL_N, PtyKey.ENTER),
+            "acceptForSession",
+            id="command-select-next",
+        ),
+        pytest.param(
+            "approval_command",
+            (PtyKey.CTRL_P, PtyKey.ENTER),
+            "cancel",
+            id="command-select-previous",
+        ),
+        pytest.param(
+            "approval_command",
+            (b"2",),
+            "acceptForSession",
+            id="command-number",
+        ),
+        pytest.param(
+            "approval_amendment",
+            (b"p",),
+            "acceptWithExecpolicyAmendment",
+            id="command-persist-amendment",
+        ),
+        pytest.param("approval_patch", (b"y",), "accept", id="patch-yes"),
+        pytest.param("approval_patch", (b"d",), "decline", id="patch-decline"),
+        pytest.param(
+            "approval_permissions",
+            (b"y",),
+            "grantForTurn",
+            id="permissions-turn",
+        ),
+        pytest.param(
+            "approval_permissions",
+            (b"a",),
+            "grantForSession",
+            id="permissions-session",
+        ),
+        pytest.param(
+            "approval_permissions",
+            (b"r",),
+            "grantForTurnWithStrictAutoReview",
+            id="permissions-strict",
+        ),
+        pytest.param(
+            "approval_permissions",
+            (PtyKey.ESCAPE,),
+            "decline",
+            id="permissions-escape-decline",
+        ),
+        pytest.param(
+            "approval_permissions",
+            (b"d",),
+            "decline",
+            id="permissions-deny",
+        ),
+        pytest.param("approval_network", (b"y",), "accept", id="network-once"),
+        pytest.param(
+            "approval_network",
+            (b"a",),
+            "acceptForSession",
+            id="network-session",
+        ),
+        pytest.param(
+            "approval_network",
+            (b"p",),
+            "applyNetworkPolicyAmendment",
+            id="network-persist",
+        ),
+        pytest.param("approval_network", (b"d",), "decline", id="network-decline"),
+        pytest.param("approval_mcp", (b"y",), "accept", id="mcp-yes"),
+        pytest.param("approval_mcp", (b"n",), "decline", id="mcp-decline"),
+        pytest.param("approval_mcp", (b"c",), "cancel", id="mcp-cancel"),
+        pytest.param(
+            "approval_mcp",
+            (PtyKey.ESCAPE,),
+            "cancel",
+            id="mcp-escape-cancel",
+        ),
+    ),
+)
+def test_approval_key_matrix_is_modal_and_exactly_once(
+    tmp_path: Path,
+    scenario: str,
+    key_sequence: tuple[PtyKey | bytes, ...],
+    expected: str,
+) -> None:
+    """验证审批类别的正式快捷键经真实 PTY 只形成一个决策。"""
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui(scenario, facts_path) as terminal:
+        terminal.wait_for_screen_text(f"PTY TUI READY {scenario}")
+        terminal.write_user_text("draft remains")
+        _wait_for_stage(facts_path, "approval_open")
+        for key in key_sequence:
+            if isinstance(key, PtyKey):
+                terminal.send_key(key)
+            else:
+                terminal.write_user(key)
+        _wait_for_stage(facts_path, "approval_consumed")
+        facts_path.with_suffix(".ack").write_text("approval-observed", encoding="ascii")
+
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+        facts = _read_facts(facts_path)
+
+    details = _details(facts)
+    assert details["approval_decision"] == expected
+    assert details["draft_after_approval"] == "draft remains"
+    assert details["composer_submission_count"] == 0
+    assert _submissions(facts) == []
+
+
+@pytest.mark.parametrize(
+    "details_key",
+    (
+        pytest.param(PtyKey.CTRL_A, id="ctrl-a"),
+        pytest.param(b"\x1b[97;6u", id="ctrl-shift-a"),
+    ),
+)
+def test_approval_details_pager_returns_to_same_modal_surface(
+    tmp_path: Path,
+    details_key: PtyKey | bytes,
+) -> None:
+    """验证审批详情页关闭后恢复原审批，且快捷键不穿透主输入。"""
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui("approval_details", facts_path) as terminal:
+        terminal.wait_for_screen_text("PTY TUI READY approval_details", timeout=10.0)
+        terminal.write_user_text("draft remains")
+        _wait_for_stage(facts_path, "approval_open")
+        if isinstance(details_key, PtyKey):
+            terminal.send_key(details_key)
+        else:
+            terminal.write_user(details_key)
+        _wait_for_stage(facts_path, "approval_pager_open")
+        terminal.write_user_text("q")
+        _wait_for_stage(facts_path, "approval_pager_closed")
+        terminal.write_user_text("y")
+        _wait_for_stage(facts_path, "approval_consumed")
+        facts_path.with_suffix(".ack").write_text("approval-observed", encoding="ascii")
+
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+        facts = _read_facts(facts_path)
+
+    details = _details(facts)
+    assert details["approval_decision"] == "accept"
+    assert details["draft_after_approval"] == "draft remains"
+    assert details["composer_submission_count"] == 0
+
+
+@pytest.mark.parametrize("searchable", (False, True), ids=("list", "search"))
+def test_menu_navigation_is_modal_and_preserves_composer(
+    tmp_path: Path,
+    searchable: bool,
+) -> None:
+    """验证列表导航和搜索文本均由菜单消费，底层草稿不变。"""
+    scenario = "searchable_menu_surface" if searchable else "menu_surface"
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui(scenario, facts_path) as terminal:
+        terminal.wait_for_screen_text(f"PTY TUI READY {scenario}")
+        terminal.write_user_text("draft remains")
+        _wait_for_stage(facts_path, "menu_open")
+        if searchable:
+            terminal.write_user_text("jk")
+            _wait_for_stage(facts_path, "menu_query")
+            terminal.send_key(PtyKey.CTRL_N)
+        else:
+            terminal.write_user_text("j")
+        _wait_for_stage(facts_path, "menu_moved")
+        terminal.send_key(PtyKey.ENTER)
+        _wait_for_stage(facts_path, "menu_consumed")
+        facts_path.with_suffix(".ack").write_text("menu-observed", encoding="ascii")
+
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+        facts = _read_facts(facts_path)
+
+    details = _details(facts)
+    assert details["menu_result"] == "second"
+    assert details["draft_after_menu"] == "draft remains"
+    assert details.get("menu_query", "jk") == "jk"
+    assert _submissions(facts) == []
+
+
+def test_transcript_pager_navigation_preserves_composer(tmp_path: Path) -> None:
+    """验证真实 PTY 的 Home/PageDown/Shift+Space/q 仅操作记录页。"""
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui("transcript_pager", facts_path) as terminal:
+        terminal.wait_for_screen_text("PTY TUI READY transcript_pager")
+        terminal.write_user_text("draft remains")
+        _wait_for_stage(facts_path, "transcript_input_ready")
+        terminal.send_key(PtyKey.CTRL_T)
+        _wait_for_stage(facts_path, "transcript_scroll_open")
+        terminal.send_key(PtyKey.HOME)
+        _wait_for_stage(facts_path, "transcript_at_top")
+        terminal.send_key(PtyKey.PAGE_DOWN)
+        _wait_for_stage(facts_path, "transcript_paged_down")
+        terminal.send_key(PtyKey.SHIFT_SPACE)
+        _wait_for_stage(facts_path, "transcript_paged_up")
+        terminal.write_user_text("q")
+        _wait_for_stage(facts_path, "transcript_pager_consumed")
+        facts_path.with_suffix(".ack").write_text("transcript-observed", encoding="ascii")
+
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+        facts = _read_facts(facts_path)
+
+    details = _details(facts)
+    assert details["transcript_initial_offset"] > 0
+    assert details["transcript_paged_offset"] > 0
+    assert details["transcript_page_up_offset"] < details["transcript_paged_offset"]
+    assert details["draft_after_transcript"] == "draft remains"
+    assert _submissions(facts) == []
 
 
 def test_bracketed_paste_preserves_multiline_unicode(tmp_path: Path) -> None:

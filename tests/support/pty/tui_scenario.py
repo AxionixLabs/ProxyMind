@@ -7,12 +7,19 @@ import typing
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.application.approvals.coordinator import ApprovalCoordinator
+from agent.ports import AssistantTextDelta
+from agent.ports import OutputSurfaceContext
+from agent.ports import ResponseIdentity
 from agent.protocol.json_value import ThawedJsonValue
 from agent.protocol.json_value import freeze_json
 from agent.protocol.json_value import thaw_object
 from frontends.interaction.contracts import PromptContext
 from frontends.tui.adapters.input import create_tui_input
+from frontends.tui.adapters.session import create_tui_output_session
+from frontends.tui.contracts.menu import MenuOption
+from frontends.tui.contracts.menu import MenuRequest
 from frontends.tui.contracts.text import FragmentBlock
 from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.queued import TuiSubmission
@@ -192,8 +199,8 @@ class _Controller:
 
 
 @dataclass(slots=True)
-class _InterruptCounter:
-    """保存真实按键触发的中断处理次数。"""
+class _ActionCounter:
+    """保存真实按键场景中的具名动作次数。"""
 
     value: int = 0
 
@@ -410,7 +417,7 @@ async def _run_non_steer_enter(runtime: TuiRuntime, facts: ScenarioFacts) -> Non
 
 async def _run_ctrl_c_draft(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     """验证活动 Turn 的首次 Ctrl-C 仅清除已有草稿。"""
-    counter = _InterruptCounter()
+    counter = _ActionCounter()
     saw_draft = False
 
     def interrupt() -> InterruptDisposition:
@@ -444,11 +451,66 @@ async def _run_ctrl_c_exit(
 ) -> None:
     """验证不同 Turn 阶段的 Ctrl-C 幂等与二次退出。"""
     control, server = _active_turn(runtime, started=phase != "early")
+    output_session = None
+    activity = None
+    if phase in {"thinking", "streaming", "tool", "retry", "terminal_wait"}:
+        context = OutputSurfaceContext(
+            surface_id=f"surface-pty-{phase}",
+            cid=_CID,
+            sid=_SID,
+            turn_id=_TURN_ID,
+            agent_id="root",
+        )
+        output_session = create_tui_output_session(
+            "",
+            context=context,
+            animate=False,
+            runtime=runtime,
+        )
+        await output_session.open()
+        activity = TurnActivityProjector(context, output_session.activity)
+        if phase == "thinking":
+            await activity.request_model_wait("initial")
+        elif phase == "streaming":
+            identity = ResponseIdentity(_TURN_ID, 1, 1, 1)
+            await activity.request_model_wait("initial")
+            await activity.assistant_buffered(identity, "item-pty-stream")
+            await output_session.content.emit(AssistantTextDelta(
+                "partial response\n",
+                identity,
+                item_id="item-pty-stream",
+            ))
+        elif phase == "tool":
+            await activity.tool_started(
+                "call-pty-tool",
+                "client",
+                name="shell_command",
+            )
+        elif phase == "retry":
+            await activity.transport_recovery_changed("reconnecting", 3)
+        elif phase == "terminal_wait":
+            await activity.terminal_wait_started(
+                "call-pty-wait",
+                "process-pty",
+                command="long-running command",
+            )
+        facts.set_detail("surface_phase", phase)
+        surface_block = (
+            runtime.document.active_block
+            if phase == "streaming"
+            else runtime.screen.activity_block
+        )
+        if surface_block is None:
+            raise RuntimeError(f"{phase} did not produce a visible Turn surface")
+        facts.set_detail(
+            "surface_text",
+            "".join(text for _style, text in surface_block.fragments),
+        )
     if phase == "late":
         _complete_turn(control, server)
     elif phase == "stream_closed":
         control.handle_stream_end("fatal")
-    counter = _InterruptCounter()
+    counter = _ActionCounter()
 
     def interrupt() -> InterruptDisposition:
         """调用产品幂等中断控制并保留 TUI 消费语义。"""
@@ -495,6 +557,10 @@ async def _run_ctrl_c_exit(
         facts.set_detail("exit_kind", "interrupt")
     facts.set_detail("interrupt_invocations", counter.value)
     facts.set_detail("interrupt_request_count", len(server.interrupt_requests))
+    if activity is not None:
+        await activity.turn_terminal("interrupted")
+    if output_session is not None:
+        await output_session.close(blink=False)
     if phase != "late":
         _complete_turn(control, server, status="interrupted")
     await _close_turn(runtime, control)
@@ -503,7 +569,7 @@ async def _run_ctrl_c_exit(
 async def _run_ctrl_c_expiry(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     """验证退出确认过期后下一次 Ctrl-C 恢复为首次语义。"""
     control, server = _active_turn(runtime)
-    counter = _InterruptCounter()
+    counter = _ActionCounter()
 
     def interrupt() -> InterruptDisposition:
         """记录确认窗口两侧的幂等中断调用。"""
@@ -550,13 +616,53 @@ async def _run_ctrl_c_expiry(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     await _close_turn(runtime, control)
 
 
+async def _run_ctrl_d_active(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """验证活动 Turn 的空草稿 Ctrl-D 不退出也不触发远端中断。"""
+    control, server = _active_turn(runtime)
+    counter = _ActionCounter()
+
+    def interrupt() -> InterruptDisposition:
+        """记录后续 Ctrl-C 的产品中断调用。"""
+        counter.value += 1
+        control.request_interrupt()
+        return InterruptDisposition.CONSUMED
+
+    runtime.bind_interrupt_handler(interrupt)
+    _ready(runtime, facts)
+    runtime.set_execution_active(True)
+    reader = asyncio.create_task(
+        runtime.read_message(PromptContext(model="test-model"))
+    )
+    facts.stage = "accepting"
+    facts.write()
+    ctrl_d_sent = facts.path.with_suffix(".ctrl-d")
+    await _wait_until(ctrl_d_sent.exists, "Ctrl-D delivery acknowledgment")
+    await asyncio.sleep(0.1)
+    facts.set_detail("reader_active_after_ctrl_d", not reader.done())
+    facts.set_detail(
+        "interrupt_count_after_ctrl_d",
+        len(server.interrupt_requests),
+    )
+    facts.stage = "ctrl_d_observed"
+    facts.write()
+    try:
+        await asyncio.wait_for(reader, timeout=10.0)
+        raise RuntimeError("double Ctrl-C did not exit after active Ctrl-D")
+    except TuiInterruptRequested:
+        facts.set_detail("exit_kind", "interrupt")
+    facts.set_detail("interrupt_invocations", counter.value)
+    facts.set_detail("interrupt_request_count", len(server.interrupt_requests))
+    _complete_turn(control, server, status="interrupted")
+    await _close_turn(runtime, control)
+
+
 async def _run_ctrl_c_intervening_key(
     runtime: TuiRuntime,
     facts: ScenarioFacts,
 ) -> None:
     """验证任意非 Ctrl-C 按键会打断连续退出手势。"""
     control, server = _active_turn(runtime)
-    counter = _InterruptCounter()
+    counter = _ActionCounter()
 
     def interrupt() -> InterruptDisposition:
         """记录每次重新武装期间的幂等中断调用。"""
@@ -773,8 +879,18 @@ async def _run_nested_surfaces(runtime: TuiRuntime, facts: ScenarioFacts) -> Non
 
 
 async def _run_approval_surface(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
-    """验证审批表面消费按键且不改写主输入草稿。"""
+    """验证各类审批表面消费按键且不改写主输入草稿。"""
     _ready(runtime, facts)
+    composer_submission_count = _ActionCounter()
+
+    def submit(submission: TuiSubmission, queue_only: bool) -> bool:
+        """记录本应被审批表面拦截的主输入提交。"""
+        _ = submission, queue_only
+        composer_submission_count.value += 1
+        return True
+
+    runtime.bind_turn_input_handler(submit)
+    runtime.set_execution_active(True)
     reader = asyncio.create_task(
         runtime.read_message(PromptContext(model="test-model"))
     )
@@ -783,11 +899,9 @@ async def _run_approval_surface(runtime: TuiRuntime, facts: ScenarioFacts) -> No
         "approval background draft",
     )
     render_counter = runtime.screen.application.render_counter
-    approval = asyncio.create_task(ApprovalCoordinator(runtime).request({
-        "tool": "shell_command",
-        "command": "echo nested-surface",
-        "show_timer": False,
-    }))
+    approval = asyncio.create_task(
+        ApprovalCoordinator(runtime).request(_approval_request(facts.scenario))
+    )
     await _wait_until(
         lambda: (
             runtime.screen.approval.state is not None
@@ -799,15 +913,251 @@ async def _run_approval_surface(runtime: TuiRuntime, facts: ScenarioFacts) -> No
     )
     facts.stage = "approval_open"
     facts.write()
+    if facts.scenario == "approval_details":
+        await _wait_until(
+            lambda: runtime.screen.static_pager.active,
+            "approval details pager",
+        )
+        facts.stage = "approval_pager_open"
+        facts.write()
+        await _wait_until(
+            lambda: not runtime.screen.static_pager.active,
+            "approval details pager close",
+        )
+        facts.stage = "approval_pager_closed"
+        facts.write()
     decision = await approval
     facts.set_detail("approval_decision", decision)
     facts.set_detail("draft_after_approval", runtime.screen.input.buffer.text)
+    facts.set_detail("composer_submission_count", composer_submission_count.value)
     facts.stage = "approval_consumed"
     facts.write()
     acknowledgment = facts.path.with_suffix(".ack")
     await _wait_until(
         acknowledgment.exists,
         "approval assertion acknowledgment",
+    )
+    reader.cancel()
+    await asyncio.gather(reader, return_exceptions=True)
+    runtime.bind_turn_input_handler(None)
+    runtime.set_execution_active(False)
+
+
+def _approval_request(scenario: str) -> dict[str, ThawedJsonValue]:
+    """返回真实 PTY 审批矩阵中指定类别的正式请求载荷。"""
+    if scenario in {"approval_surface", "approval_command", "approval_details"}:
+        return {
+            "id": "approval-command-pty",
+            "kind": "command",
+            "tool": "shell_command",
+            "command": "echo approval-surface",
+            "available_decisions": [
+                "accept",
+                "acceptForSession",
+                "decline",
+                "cancel",
+            ],
+            "show_timer": False,
+        }
+    if scenario == "approval_amendment":
+        return {
+            "id": "approval-amendment-pty",
+            "kind": "command",
+            "tool": "shell_command",
+            "command": "git clone https://example.test/repo.git",
+            "proposed_execpolicy_amendment": {
+                "id": "amendment-pty",
+                "command_prefix": ["git", "clone"],
+                "display": "git clone",
+            },
+            "available_decisions": [
+                "accept",
+                "acceptWithExecpolicyAmendment",
+                "decline",
+                "cancel",
+            ],
+            "show_timer": False,
+        }
+    if scenario == "approval_patch":
+        return {
+            "id": "approval-patch-pty",
+            "tool": "apply_patch",
+            "patch": "*** Begin Patch\n+approval surface",
+            "show_timer": False,
+        }
+    if scenario == "approval_permissions":
+        return {
+            "kind": "request_permissions",
+            "approval_id": "approval-permissions-pty",
+            "call_id": "call-permissions-pty",
+            "permissions": {"network": {"enabled": True}},
+            "available_decisions": [
+                "grantForTurn",
+                "grantForTurnWithStrictAutoReview",
+                "grantForSession",
+                "decline",
+                "cancel",
+            ],
+            "show_timer": False,
+        }
+    if scenario == "approval_network":
+        return {
+            "kind": "network_access",
+            "approval_id": "approval-network-pty",
+            "call_id": "call-network-pty",
+            "host": "api.example.com",
+            "protocol": "https",
+            "port": 443,
+            "command": ["xh", "HEAD", "https://api.example.com"],
+            "available_decisions": [
+                "accept",
+                "acceptForSession",
+                "applyNetworkPolicyAmendment",
+                "decline",
+                "cancel",
+            ],
+            "proposed_network_policy_amendment": {
+                "host": "api.example.com",
+                "protocol": "https",
+                "port": 443,
+                "action": "allow",
+            },
+            "show_timer": False,
+        }
+    if scenario == "approval_mcp":
+        return {
+            "kind": "mcp_tool_call",
+            "approval_id": "approval-mcp-pty",
+            "call_id": "call-mcp-pty",
+            "server": "docs",
+            "tool_name": "publish",
+            "available_decisions": ["accept", "decline", "cancel"],
+            "show_timer": False,
+        }
+    raise ValueError(f"unsupported approval PTY scenario: {scenario}")
+
+
+async def _run_menu_surface(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """验证搜索与非搜索菜单拥有导航键且不会改写主输入。"""
+    searchable = facts.scenario == "searchable_menu_surface"
+    _ready(runtime, facts)
+    reader = asyncio.create_task(
+        runtime.read_message(PromptContext(model="test-model"))
+    )
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "draft remains",
+        "menu background draft",
+    )
+    options = (
+        MenuOption("first", "jk alpha" if searchable else "First"),
+        MenuOption("second", "jk beta" if searchable else "Second"),
+        MenuOption("third", "other" if searchable else "Third"),
+    )
+    menu = asyncio.create_task(runtime.select_menu(MenuRequest(
+        title="Search menu" if searchable else "Menu surface",
+        options=options,
+        searchable=searchable,
+    )))
+    await _wait_until(
+        lambda: (
+            runtime.screen.menu.state is not None
+            and runtime.screen.application.layout.current_control
+            is runtime.screen.menu_control
+        ),
+        "focused menu surface",
+    )
+    facts.stage = "menu_open"
+    facts.write()
+    if searchable:
+        await _wait_until(
+            lambda: (
+                runtime.screen.menu.state is not None
+                and runtime.screen.menu.state.query == "jk"
+            ),
+            "search menu query",
+        )
+        facts.set_detail("menu_query", "jk")
+        facts.stage = "menu_query"
+        facts.write()
+    await _wait_until(
+        lambda: runtime.screen.menu.selected_index() == 1,
+        "second menu selection",
+    )
+    facts.stage = "menu_moved"
+    facts.write()
+    result = await menu
+    facts.set_detail("menu_result", str(result or ""))
+    facts.set_detail("draft_after_menu", runtime.screen.input.buffer.text)
+    facts.stage = "menu_consumed"
+    facts.write()
+    acknowledgment = facts.path.with_suffix(".ack")
+    await _wait_until(acknowledgment.exists, "menu assertion acknowledgment")
+    reader.cancel()
+    await asyncio.gather(reader, return_exceptions=True)
+
+
+async def _run_transcript_pager(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """验证记录页导航键只改变记录视口并保留主输入草稿。"""
+    for index in range(80):
+        runtime.append_block(
+            FragmentBlock((("", f"transcript line {index:02d}"),)),
+            kind="assistant",
+        )
+    _ready(runtime, facts)
+    reader = asyncio.create_task(
+        runtime.read_message(PromptContext(model="test-model"))
+    )
+    await _wait_until(
+        lambda: runtime.screen.input.buffer.text == "draft remains",
+        "transcript background draft",
+    )
+    facts.stage = "transcript_input_ready"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.transcript_overlay.active,
+        "transcript pager open",
+    )
+    initial_offset = runtime.screen.transcript_overlay.scroll_offset
+    if initial_offset <= 0:
+        raise RuntimeError("transcript pager did not open at the bottom")
+    facts.set_detail("transcript_initial_offset", initial_offset)
+    facts.stage = "transcript_scroll_open"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.transcript_overlay.scroll_offset == 0,
+        "transcript jump to top",
+    )
+    facts.stage = "transcript_at_top"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.transcript_overlay.scroll_offset > 0,
+        "transcript page down",
+    )
+    paged_offset = runtime.screen.transcript_overlay.scroll_offset
+    facts.set_detail("transcript_paged_offset", paged_offset)
+    facts.stage = "transcript_paged_down"
+    facts.write()
+    await _wait_until(
+        lambda: runtime.screen.transcript_overlay.scroll_offset < paged_offset,
+        "transcript enhanced page up",
+    )
+    facts.set_detail(
+        "transcript_page_up_offset",
+        runtime.screen.transcript_overlay.scroll_offset,
+    )
+    facts.stage = "transcript_paged_up"
+    facts.write()
+    await _wait_until(
+        lambda: not runtime.screen.transcript_overlay.active,
+        "transcript pager close",
+    )
+    facts.set_detail("draft_after_transcript", runtime.screen.input.buffer.text)
+    facts.stage = "transcript_pager_consumed"
+    facts.write()
+    acknowledgment = facts.path.with_suffix(".ack")
+    await _wait_until(
+        acknowledgment.exists,
+        "transcript pager assertion acknowledgment",
     )
     reader.cancel()
     await asyncio.gather(reader, return_exceptions=True)
@@ -846,7 +1196,16 @@ async def _run(scenario: str, facts_path: Path) -> None:
             await _run_non_steer_enter(runtime, facts)
         elif scenario == "ctrl_c_draft":
             await _run_ctrl_c_draft(runtime, facts)
-        elif scenario in {"ctrl_c_early", "ctrl_c_late", "ctrl_c_stream_closed"}:
+        elif scenario in {
+            "ctrl_c_early",
+            "ctrl_c_thinking",
+            "ctrl_c_streaming",
+            "ctrl_c_tool",
+            "ctrl_c_retry",
+            "ctrl_c_terminal_wait",
+            "ctrl_c_late",
+            "ctrl_c_stream_closed",
+        }:
             await _run_ctrl_c_exit(
                 runtime,
                 facts,
@@ -854,6 +1213,8 @@ async def _run(scenario: str, facts_path: Path) -> None:
             )
         elif scenario == "ctrl_c_expiry":
             await _run_ctrl_c_expiry(runtime, facts)
+        elif scenario == "ctrl_d_active":
+            await _run_ctrl_d_active(runtime, facts)
         elif scenario == "ctrl_c_intervening_key":
             await _run_ctrl_c_intervening_key(runtime, facts)
         elif scenario == "queue_edit":
@@ -862,8 +1223,21 @@ async def _run(scenario: str, facts_path: Path) -> None:
             await _run_interrupt_restore_order(runtime, facts)
         elif scenario == "nested_surfaces":
             await _run_nested_surfaces(runtime, facts)
-        elif scenario == "approval_surface":
+        elif scenario in {
+            "approval_surface",
+            "approval_command",
+            "approval_details",
+            "approval_amendment",
+            "approval_patch",
+            "approval_permissions",
+            "approval_network",
+            "approval_mcp",
+        }:
             await _run_approval_surface(runtime, facts)
+        elif scenario in {"menu_surface", "searchable_menu_surface"}:
+            await _run_menu_surface(runtime, facts)
+        elif scenario == "transcript_pager":
+            await _run_transcript_pager(runtime, facts)
         else:
             raise ValueError(f"unsupported PTY TUI scenario: {scenario}")
         facts.stage = "complete"
