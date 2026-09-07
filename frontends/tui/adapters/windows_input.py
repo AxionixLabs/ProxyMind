@@ -12,6 +12,8 @@ from prompt_toolkit.input.win32 import KEY_EVENT_RECORD
 from prompt_toolkit.input.win32 import Vt100ConsoleInputReader
 from prompt_toolkit.input.win32 import Win32Input
 
+from .keyboard import EnhancedVt100Parser
+
 _VK_MENU = 0x12
 
 
@@ -22,6 +24,16 @@ class WindowsConPtyInputReader(Vt100ConsoleInputReader):
     最终 Unicode 码元只出现在 `VK_MENU` 的 key-up 记录中。实现方必须保留
     Vt100 reader 的解析与关闭生命周期，只扩展字符事件接收条件。
     """
+
+    def __init__(self) -> None:
+        super().__init__()
+        parser = self._vt100_parser
+        self._vt100_parser = EnhancedVt100Parser(parser.feed_key_callback)
+
+    @property
+    def enhanced_parser(self) -> EnhancedVt100Parser:
+        """返回当前 reader 独占的增强 VT 解析器。"""
+        return self._vt100_parser
 
     def _get_keys(
         self,
@@ -57,6 +69,18 @@ def create_windows_input(stream: typing.TextIO) -> Input:
     input_obj.console_input_reader = WindowsConPtyInputReader()
     previous_reader.close()
     return input_obj
+
+
+def windows_enhanced_parser(
+    input_obj: Input,
+) -> EnhancedVt100Parser | None:
+    """返回 Windows VT 输入已安装的增强解析器。"""
+    if not isinstance(input_obj, Win32Input):
+        return None
+    reader = input_obj.console_input_reader
+    if not isinstance(reader, WindowsConPtyInputReader):
+        return None
+    return reader.enhanced_parser
 
 
 if __name__ == '__main__':

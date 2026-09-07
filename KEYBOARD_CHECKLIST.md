@@ -107,24 +107,24 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
 
 ## D. Composer 与文本编辑
 
-| 动作           | Codex 默认键                                                | Mind 当前状态                              | 对齐决定                                      |
-|----------------|-------------------------------------------------------------|--------------------------------------------|-----------------------------------------------|
-| 提交           | Enter                                                       | 已一致                                     | `[x]` 纳入 `composer.submit`                  |
-| 活动 Turn 排队 | Tab                                                         | 已一致                                     | `[x]` 纳入 `composer.queue`                   |
-| 插入换行       | Ctrl+J、Ctrl+M、Shift+Enter、Alt+Enter                      | 明确支持 Ctrl+J、Alt+Enter                 | `[ ]` 补齐并真机验证 Ctrl+M/Shift+Enter       |
-| 快捷键面板     | `?`（仅空草稿）                                             | 已实现，非空草稿仍输入 `?`                 | `[x]` 增加只读快捷键面板                      |
-| 反向历史搜索   | Ctrl+R                                                      | 已实现 footer-owned 搜索状态               | `[x]` 冻结并可靠恢复完整草稿                  |
-| 历史搜索向前   | Ctrl+S                                                      | 已实现                                     | `[x]` 与 Ctrl+R 同阶段完成                    |
-| 普通历史导航   | Up/Down、Ctrl+P/Ctrl+N                                      | Up/Down 已一致；Ctrl+P/N 主要用于候选      | `[ ]` 明确无候选时的编辑/历史语义             |
-| 行首/行尾      | Home/Ctrl+A、End/Ctrl+E                                     | 已显式实现，含 Ctrl+A/E 边界跨行           | `[x]` 纳入显式 editor 契约                    |
-| 字符移动       | Left/Ctrl+B、Right/Ctrl+F                                   | 已显式实现                                 | `[x]` 纳入显式 editor 契约                    |
-| 单词移动       | Alt+B/F、Alt/Ctrl+Left/Right                                | 依赖 Toolkit 和终端编码                    | `[ ]` 统一终端适配并加 PTY 测试               |
-| 向后删词       | Alt+Backspace、Ctrl+Backspace、Ctrl+Shift+Backspace、Ctrl+W | 仅 Ctrl+W 显式                             | `[ ]` 补齐 Codex 兼容别名                     |
-| 向前删词       | Alt+Delete、Ctrl+Delete、Ctrl+Shift+Delete、Alt+D           | 未形成 Mind 显式契约                       | `[ ]` 补齐 Codex 兼容别名                     |
-| 删至行首       | Ctrl+U                                                      | 已对齐，行首时继续删除前一换行              | `[x]` 保留文本及折叠粘贴 kill/yank 事实       |
-| 删至行尾       | Ctrl+K                                                      | 已对齐，行尾时继续删除后一换行              | `[x]` 纳入显式 editor 契约                    |
-| 粘回 kill 内容 | Ctrl+Y                                                      | 已对齐，处理折叠粘贴占位冲突                | `[x]` 纳入显式 editor 契约                    |
-| Undo / Suspend | Ctrl+Z                                                      | Mind 全平台 Undo；Codex 在 Unix 保留给挂起 | `[ ]` 需要产品决策后再改                      |
+| 动作           | Codex 默认键                                                | Mind 当前状态                              | 对齐决定                                |
+|----------------|-------------------------------------------------------------|--------------------------------------------|-----------------------------------------|
+| 提交           | Enter                                                       | 已一致                                     | `[x]` 纳入 `composer.submit`            |
+| 活动 Turn 排队 | Tab                                                         | 已一致                                     | `[x]` 纳入 `composer.queue`             |
+| 插入换行       | Ctrl+J、Ctrl+M、Shift+Enter、Alt+Enter                      | 增强协议及旧式降级路径均已接入             | `[x]` 补齐并真机验证 Ctrl+M/Shift+Enter |
+| 快捷键面板     | `?`（仅空草稿）                                             | 已实现，非空草稿仍输入 `?`                 | `[x]` 增加只读快捷键面板                |
+| 反向历史搜索   | Ctrl+R                                                      | 已实现 footer-owned 搜索状态               | `[x]` 冻结并可靠恢复完整草稿            |
+| 历史搜索向前   | Ctrl+S                                                      | 已实现                                     | `[x]` 与 Ctrl+R 同阶段完成              |
+| 普通历史导航   | Up/Down、Ctrl+P/Ctrl+N                                      | Up/Down 已一致；Ctrl+P/N 主要用于候选      | `[ ]` 明确无候选时的编辑/历史语义       |
+| 行首/行尾      | Home/Ctrl+A、End/Ctrl+E                                     | 已显式实现，含 Ctrl+A/E 边界跨行           | `[x]` 纳入显式 editor 契约              |
+| 字符移动       | Left/Ctrl+B、Right/Ctrl+F                                   | 已显式实现                                 | `[x]` 纳入显式 editor 契约              |
+| 单词移动       | Alt+B/F、Alt/Ctrl+Left/Right                                | 依赖 Toolkit 和终端编码                    | `[ ]` 统一终端适配并加 PTY 测试         |
+| 向后删词       | Alt+Backspace、Ctrl+Backspace、Ctrl+Shift+Backspace、Ctrl+W | 仅 Ctrl+W 显式                             | `[ ]` 补齐 Codex 兼容别名               |
+| 向前删词       | Alt+Delete、Ctrl+Delete、Ctrl+Shift+Delete、Alt+D           | 未形成 Mind 显式契约                       | `[ ]` 补齐 Codex 兼容别名               |
+| 删至行首       | Ctrl+U                                                      | 已对齐，行首时继续删除前一换行             | `[x]` 保留文本及折叠粘贴 kill/yank 事实 |
+| 删至行尾       | Ctrl+K                                                      | 已对齐，行尾时继续删除后一换行             | `[x]` 纳入显式 editor 契约              |
+| 粘回 kill 内容 | Ctrl+Y                                                      | 已对齐，处理折叠粘贴占位冲突               | `[x]` 纳入显式 editor 契约              |
+| Undo / Suspend | Ctrl+Z                                                      | Mind 全平台 Undo；Codex 在 Unix 保留给挂起 | `[ ]` 需要产品决策后再改                |
 
 历史搜索必须保持 Codex 的数据所有权：打开搜索时冻结完整草稿；查询文字属于 footer，匹配项只作
 预览；Enter 接受匹配但不提交；Esc/Ctrl+C 恢复原草稿；无匹配也不得丢失原草稿。
@@ -146,7 +146,7 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
 |-----------|-------------------------|---------------|-------------------------------|
 | 上移      | Up、Ctrl+P、Ctrl+K、k   | 已对齐        | `[x]` 非搜索输入时补 Ctrl+K/k |
 | 下移      | Down、Ctrl+N、Ctrl+J、j | 已对齐        | `[x]` 非搜索输入时补 Ctrl+J/j |
-| 左移      | Left、Ctrl+H            | Left          | `[ ]` 补 Ctrl+H               |
+| 左移      | Left、Ctrl+H            | 已对齐        | `[x]` 补 Ctrl+H               |
 | 右移      | Right、Ctrl+L           | 已对齐        | `[x]` 补 Ctrl+L               |
 | 上翻页    | PageUp、Ctrl+B          | 已对齐        | `[x]` 补 Ctrl+B               |
 | 下翻页    | PageDown、Ctrl+F        | 已对齐        | `[x]` 补 Ctrl+F               |
@@ -163,22 +163,21 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
 审批键不仅是显示差异，`decline` 与 `cancel` 会导致不同 Turn 生命周期，必须以结构化 decision
 映射验证，不能只改字母。
 
-| 动作                | Codex 默认键              | Mind 当前状态                      | 对齐决定                                    |
-|---------------------|---------------------------|------------------------------------|---------------------------------------------|
-| 当前选项确认        | Enter                     | 已一致                             | `[x]` 保持                                  |
-| 选择上/下           | Up/Ctrl+P、Down/Ctrl+N    | 已一致                             | `[x]` 保持                                  |
-| 展开详情            | Ctrl+A、Ctrl+Shift+A      | Ctrl+A、普通大写 A                 | `[ ]` 改为 Codex 修饰键集合                 |
-| 单次允许            | y                         | 已一致                             | `[x]` 保持                                  |
-| Session 允许        | a                         | 已对齐 a，未保留 s 别名            | `[x]` 对齐                               |
-| 前缀/规则允许       | p                         | 已一致                             | `[x]` 保持                                  |
-| 拒绝但继续 Turn     | d                         | 已按审批类型映射 decline           | `[x]` 对齐 d -> decline                     |
-| 取消请求/中止当前链 | Esc/n/c（依审批类型裁决） | 已按审批类型及可用 decision 裁决   | `[x]` 对齐 Codex 的 decision 语义           |
-| 严格自动审查        | r                         | Mind 已支持对应权限决定            | `[x]` 保持                                  |
-| 打开来源线程        | o                         | Mind 无同构多线程审批来源          | `暂不适用`                                  |
+| 动作                | Codex 默认键              | Mind 当前状态                    | 对齐决定                          |
+|---------------------|---------------------------|----------------------------------|-----------------------------------|
+| 当前选项确认        | Enter                     | 已一致                           | `[x]` 保持                        |
+| 选择上/下           | Up/Ctrl+P、Down/Ctrl+N    | 已一致                           | `[x]` 保持                        |
+| 展开详情            | Ctrl+A、Ctrl+Shift+A      | 已对齐                           | `[x]` 改为 Codex 修饰键集合       |
+| 单次允许            | y                         | 已一致                           | `[x]` 保持                        |
+| Session 允许        | a                         | 已对齐 a，未保留 s 别名          | `[x]` 对齐                        |
+| 前缀/规则允许       | p                         | 已一致                           | `[x]` 保持                        |
+| 拒绝但继续 Turn     | d                         | 已按审批类型映射 decline         | `[x]` 对齐 d -> decline           |
+| 取消请求/中止当前链 | Esc/n/c（依审批类型裁决） | 已按审批类型及可用 decision 裁决 | `[x]` 对齐 Codex 的 decision 语义 |
+| 严格自动审查        | r                         | Mind 已支持对应权限决定          | `[x]` 保持                        |
+| 打开来源线程        | o                         | Mind 无同构多线程审批来源        | `暂不适用`                        |
 
 - [x] Esc、n、d、c、Ctrl+C 必须按审批类型映射正式协议 decision，并由选项可用性决定是否生效。
-- [x] Exec、Permissions、Patch、Network、MCP elicitation 分别建立按键矩阵；尤其锁定
-  “decline 后继续”与“cancel 后中断”的差异。
+- [x] Exec、Permissions、Patch、Network、MCP elicitation 分别建立按键矩阵；尤其锁定“decline 后继续”与“cancel 后中断”的差异。
 - [x] 审批 footer 从 Runtime Keymap 和当前可用 decision 派生，不显示无效快捷键。
 - [ ] 所有审批按键使用真实 PTY 验证：按键只提交一次 decision，底层草稿不变，终态前不启动下一轮。
 
@@ -187,9 +186,8 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
 - [x] Up/k、Down/j、PageUp/Ctrl+B、PageDown/Space/Ctrl+F、Ctrl+U/D、Home/End 与 Codex 一致。
 - [x] q/Ctrl+C 关闭页面，Ctrl+T 关闭完整记录；Mind 额外支持搜索、raw 和导出。
 - [x] 完整记录中的 Esc/Left/Right/Enter 负责历史回溯，优先于普通 pager 取消。
-- [ ] 增加 Shift+Space 作为 PageUp 的 Codex 兼容键。
-- [ ] Codex 的 raw 输出是全局 Alt+R；Mind 的记录页 R、搜索 `/ n N`、导出 e 是产品扩展，
-  在未定义全局 raw 生命周期前继续保留现状。
+- [x] 增加 Shift+Space 作为 PageUp 的 Codex 兼容键。
+- [ ] Codex 的 raw 输出是全局 Alt+R；Mind 的记录页 R、搜索 `/ n N`、导出 e 是产品扩展，在未定义全局 raw 生命周期前继续保留现状。
 - [x] 所有 pager 帮助文字继续从解析后的按键生成，覆盖重绑定和显式解绑。
 
 ## I. 暂不直接照搬的 Codex 能力
@@ -237,8 +235,7 @@ Enter 只接受不提交、无匹配恢复、kill/yank 折叠粘贴恢复均已�
 
 - [x] 除固定安全生命周期入口外，全部现有动作支持在 `config.toml` / Profile 中重绑定或显式解绑。
 - [x] 支持 1 秒 chord、前缀冲突检测、AltGr、旧终端别名和平台保留键诊断。
-- [x] 只读诊断复用现有 `?` Keyboard shortcuts 页面；不新增重复的 `/keymap`。交互编辑和运行时
-  热更新不纳入本阶段，Runtime Keymap 继续保持启动时冻结，配置在下次启动原子生效。
+- [x] 只读诊断复用现有 `?` Keyboard shortcuts 页面；不新增重复的 `/keymap`。交互编辑和运行时热更新不纳入本阶段，Runtime Keymap 继续保持启动时冻结，配置在下次启动原子生效。
 - [x] 显示提示、实际路由和持久配置由同一 Runtime Keymap 快照生成。
 
 ### 当前验证记录（阶段 3）
@@ -247,19 +244,30 @@ Enter 只接受不提交、无匹配恢复、kill/yank 折叠粘贴恢复均已�
 - 完整 TUI：1758 passed。
 - 全仓：4087 passed、14 skipped；仅有 1 个第三方 Nuitka 弃用警告。
 - 架构边界：120 passed；`compileall` 与 `git diff --check` 通过。
-- 旧式终端无法区分的 Ctrl+M/I/H/[/@ 和 chord 第二键 Alt 会在启动时明确拒绝，待阶段 4
-  的增强按键事件适配后再开放，不伪装成已支持。
+- 阶段 4 已用增强按键事件打开 Ctrl+M/I/H/[/@、Shift 修饰键和 chord 第二键 Alt；旧式终端
+  继续只使用可区分的传输表示，不把普通 Enter/Tab/Backspace 误判为其 Ctrl 别名。
 - 根目录本清单保持未跟踪，不进入提交。
 
 ### 阶段 4：真机验收
 
-- [ ] Windows Terminal + ConPTY。
+- [x] Windows Terminal + ConPTY。
 - [ ] Linux PTY，包含 Ctrl+Z、Alt 组合键和 Ctrl+S 流控风险。
 - [ ] macOS Terminal/iTerm2，包含 Option 键、Shift+Enter 和 Alt+Enter。
 - [ ] SSH、tmux、WSL，验证 Esc 前缀、Alt+Up、Ctrl+M 和 chord 超时。
 - [ ] 主输入、补全、搜索、菜单、审批、记录页、Thinking、Tool、Retry、断线恢复各运行一轮按键矩阵。
-- [ ] 任一场景均满足：一次按键最多一个动作、模态不泄漏、草稿不丢、queued FIFO 不变、
-  terminal 前不开放下一 Turn、提示文案与真实绑定一致。
+- [ ] 任一场景均满足：一次按键最多一个动作、模态不泄漏、草稿不丢、queued FIFO 不变、terminal 前不开放下一 Turn、提示文案与真实绑定一致。
+
+### 当前验证记录（阶段 4A）
+
+- Terminal adapter 已对齐 Codex 的 flags 7、iTerm2/Ghostty/tmux xterm flags 5、tmux csi-u
+  modifyOtherKeys 2、Press/Repeat/Release 和 WSL + VS Code 禁用策略。
+- 增强事件矩阵覆盖换行、字符删除、前后删词、列表左移、审批详情与 Pager Shift+Space；
+  Bracketed Paste 内部的 CSI-u 保持文本，单独 Esc 在 flush 后仍按原动作交付。
+- Windows Terminal + 真实 ConPTY 已验证 Ctrl+M、Shift+Enter、模式启用和退出恢复；Linux、
+  macOS、SSH、tmux 与 WSL 的真机项仍保持未勾选，不用模拟测试冒充真机结论。
+- 完整 TUI：1704 passed；真实 PTY：88 passed、2 skipped；架构边界随全仓复核通过。
+- 全仓：4112 passed、14 skipped；基础 PTY drain 与既有 scrollback 等待各出现一次负载超时，
+  分别独立复跑通过。`compileall` 与 `git diff --check` 通过。
 
 ## K. 建议执行顺序
 

@@ -42,6 +42,7 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
 
         from frontends.tui.adapters.application import TuiApplicationSink
         from frontends.tui.adapters.input import create_tui_input
+        from frontends.tui.adapters.keyboard import replay_tui_terminal_input
         from frontends.tui.adapters.session import create_tui_output_session
         from frontends.tui.core.runtime import TuiRuntime
         from frontends.tui.features.transcript_export import TranscriptExporter
@@ -53,15 +54,11 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
 
         def replay_terminal_input(data: bytes) -> None:
             """将启动探测读到的 POSIX 输入交还 prompt_toolkit 解析器。"""
-            parser = getattr(application_input, "vt100_parser", None)
-            if parser is not None:
-                try:
-                    operator.methodcaller("feed", data.decode(
-                        sys.stdin.encoding or "utf-8",
-                        errors="replace",
-                    ))(parser)
-                except (AttributeError, TypeError):
-                    return None
+            replay_tui_terminal_input(
+                application_input,
+                data,
+                sys.stdin.encoding or "utf-8",
+            )
 
         runtime = TuiRuntime(
             input_obj=application_input,

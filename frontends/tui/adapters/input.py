@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import os
 import sys
 import typing
 
@@ -8,6 +9,9 @@ from prompt_toolkit.input import create_input
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.key_binding import KeyPress
 from prompt_toolkit.keys import Keys
+
+from .keyboard import TerminalKeyboardInputAdapter
+from .keyboard import install_enhanced_vt_parser
 
 
 class FocusEventInputAdapter(Input):
@@ -261,9 +265,20 @@ def create_tui_input(stream: typing.TextIO) -> Input:
     """按当前平台创建并规范化 prompt_toolkit 输入。"""
     if sys.platform == "win32":
         from frontends.tui.adapters.windows_input import create_windows_input
+        from frontends.tui.adapters.windows_input import windows_enhanced_parser
 
-        return WindowsUnicodeInputAdapter(create_windows_input(stream))
-    return FocusEventInputAdapter(create_input(stream))
+        platform_input = create_windows_input(stream)
+        parser = windows_enhanced_parser(platform_input)
+        normalized_input = WindowsUnicodeInputAdapter(platform_input)
+    else:
+        platform_input = create_input(stream)
+        parser = install_enhanced_vt_parser(platform_input)
+        normalized_input = FocusEventInputAdapter(platform_input)
+    return TerminalKeyboardInputAdapter(
+        normalized_input,
+        parser,
+        os.environ,
+    )
 
 
 if __name__ == '__main__':

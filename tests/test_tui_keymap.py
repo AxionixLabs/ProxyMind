@@ -9,6 +9,7 @@ import pytest
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
+from frontends.tui.contracts.keyboard import enhanced_key_token
 from infrastructure.config.schema import (
     ConfigValidationError,
     normalize_config,
@@ -328,27 +329,59 @@ def test_composer_local_config_precedes_global_fallback_and_defaults() -> None:
             },
             "conflicts",
         ),
-        (
-            {"global": {"copy_last_response": "ctrl-m"}},
-            "indistinguishable from Enter",
-        ),
-        (
-            {"global": {"copy_last_response": "ctrl-i"}},
-            "indistinguishable from Tab",
-        ),
-        (
-            {"global": {"copy_last_response": "ctrl-h"}},
-            "indistinguishable from Backspace",
-        ),
-        (
-            {"global": {"copy_last_response": "ctrl-x alt-o"}},
-            "Alt-modified second chord stroke",
-        ),
     ),
 )
 def test_keymap_rejects_unsafe_or_ambiguous_config(config, message) -> None:
     with pytest.raises(ValueError, match=message):
         TuiRuntimeKeymap.from_config({"tui": {"keymap": config}})
+
+
+def test_enhanced_terminal_keys_make_legacy_aliases_configurable() -> None:
+    keymap = TuiRuntimeKeymap.from_config({
+        "tui": {
+            "keymap": {
+                "global": {
+                    "copy_last_response": "ctrl-m",
+                    "clear_terminal": "ctrl-i",
+                    "open_transcript": "ctrl-h",
+                },
+                "editor": {
+                    "insert_newline": [],
+                    "delete_backward": [],
+                },
+            }
+        }
+    })
+
+    assert keymap.global_keys.copy_last_response[0].keys == (
+        enhanced_key_token("m", frozenset({"ctrl"})),
+    )
+    assert keymap.global_keys.clear_terminal[0].keys == (
+        enhanced_key_token("i", frozenset({"ctrl"})),
+    )
+    assert keymap.global_keys.open_transcript[0].keys == (
+        enhanced_key_token("h", frozenset({"ctrl"})),
+    )
+
+
+def test_enhanced_terminal_supports_alt_modified_second_chord_stroke() -> None:
+    keymap = TuiRuntimeKeymap.from_config({
+        "tui": {
+            "keymap": {
+                "global": {
+                    "open_transcript": "ctrl-x alt-o",
+                },
+            }
+        }
+    })
+
+    binding = keymap.global_keys.open_transcript[0]
+    assert binding.label == "Ctrl+X Alt+O"
+    assert all(len(sequence) == 2 for sequence in binding.key_sequences)
+    assert all(
+        sequence[-1] == enhanced_key_token("o", frozenset({"alt"}))
+        for sequence in binding.key_sequences
+    )
 
 
 def test_keymap_supports_two_stroke_chords_aliases_and_modified_named_keys() -> None:

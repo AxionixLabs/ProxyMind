@@ -40,6 +40,7 @@ from frontends.tui.contracts.resume import (
     ResumePickerResult,
     ResumeRow,
 )
+from frontends.tui.contracts.keyboard import TerminalKeyboardBindable
 from .activity import (
     ActivityLease,
     TuiActivity
@@ -312,6 +313,12 @@ class TuiRuntime(object):
             output_obj=output_obj,
             terminal_capabilities=terminal_capabilities,
         )
+        application_input = self.screen.application.input
+        if isinstance(application_input, TerminalKeyboardBindable):
+            application_input.bind_terminal_output(
+                self.screen.application.output,
+                terminal_capabilities.identity,
+            )
         self.input_model.bind_interrupt(self._handle_input_interrupt)
 
         self.input_model.bind_history_backtrack(

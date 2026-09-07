@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import itertools
 import typing
 from dataclasses import (
     dataclass,
@@ -12,11 +13,15 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.keys import Keys
 
+from frontends.tui.contracts.keyboard import enhanced_key_token
+from frontends.tui.contracts.keyboard import is_enhanced_key_token
+
 
 @dataclass(frozen=True, slots=True)
 class TuiKeyStroke:
     """保存一个逻辑按键及其终端输入序列。"""
     keys: tuple[Keys | str, ...]
+    key_sequences: tuple[tuple[Keys | str, ...], ...]
     label: str
     key_name: str
     modifiers: frozenset[str]
@@ -26,6 +31,7 @@ class TuiKeyStroke:
 class TuiKeyBinding(object):
     """保存一个已解析的按键序列及其展示标签。"""
     keys: tuple[Keys | str, ...]
+    key_sequences: tuple[tuple[Keys | str, ...], ...]
     label: str
     strokes: tuple[TuiKeyStroke, ...]
 
@@ -361,12 +367,13 @@ class TuiRuntimeKeymap(object):
         """拒绝可配置的全局记录入口覆盖主输入动作。"""
         owners = {keys: action for action, keys in reserved}
         for binding in self.global_keys.open_transcript:
-            previous = owners.get(binding.keys)
-            if previous is not None:
-                raise ValueError(
-                    "tui.keymap.global.open_transcript conflicts with "
-                    f"{previous}: {binding.label}"
-                )
+            for key_sequence in binding.key_sequences:
+                previous = owners.get(key_sequence)
+                if previous is not None:
+                    raise ValueError(
+                        "tui.keymap.global.open_transcript conflicts with "
+                        f"{previous}: {binding.label}"
+                    )
 
 
 TuiKeymapContext = (
@@ -396,31 +403,31 @@ def bind_key_action(
         handler: typing.Callable[[KeyPressEvent], None],
     ) -> typing.Callable[[KeyPressEvent], None]:
         for binding in configured:
-            if save_before is None:
-                bindings.add(
-                    *binding.keys,
-                    eager=eager,
-                    filter=binding_filter,
-                )(handler)
-            else:
-                bindings.add(
-                    *binding.keys,
-                    eager=eager,
-                    filter=binding_filter,
-                    save_before=save_before,
-                )(handler)
+            for key_sequence in binding.key_sequences:
+                if save_before is None:
+                    bindings.add(
+                        *key_sequence,
+                        eager=eager,
+                        filter=binding_filter,
+                    )(handler)
+                else:
+                    bindings.add(
+                        *key_sequence,
+                        eager=eager,
+                        filter=binding_filter,
+                        save_before=save_before,
+                    )(handler)
             if binding.is_chord:
-                prefix = binding.strokes[0].keys
+                for prefix in binding.strokes[0].key_sequences:
+                    def cancel_pending_chord(event: KeyPressEvent) -> None:
+                        _ = event
 
-                def cancel_pending_chord(event: KeyPressEvent) -> None:
-                    _ = event
-
-                bindings.add(
-                    *prefix,
-                    Keys.Escape,
-                    eager=True,
-                    filter=binding_filter,
-                )(cancel_pending_chord)
+                    bindings.add(
+                        *prefix,
+                        Keys.Escape,
+                        eager=True,
+                        filter=binding_filter,
+                    )(cancel_pending_chord)
         return handler
 
     return register
@@ -447,7 +454,10 @@ def key_action_matches(
         except ValueError:
             normalized.append(key)
     resolved = tuple(normalized)
-    return any(binding.keys == resolved for binding in configured)
+    return any(
+        resolved in binding.key_sequences
+        for binding in configured
+    )
 
 
 def _default_bindings(action: str, *values: str) -> TuiActionBindings:
@@ -539,16 +549,22 @@ def _default_editor_keymap() -> TuiEditorKeymap:
         delete_backward=_default_bindings(
             "editor.delete_backward",
             "backspace",
+            "shift-backspace",
+            "ctrl-h",
         ),
         delete_forward=_default_bindings(
             "editor.delete_forward",
             "delete",
+            "shift-delete",
             "ctrl-d",
         ),
         delete_word_backward=_default_bindings(
             "editor.delete_word_backward",
-            "ctrl-w",
             "alt-backspace",
+            "ctrl-backspace",
+            "ctrl-shift-backspace",
+            "ctrl-w",
+            "ctrl-alt-h",
         ),
         undo=_default_bindings("editor.undo", "ctrl-z"),
         move_left=_default_bindings("editor.move_left", "left", "ctrl-b"),
@@ -558,6 +574,9 @@ def _default_editor_keymap() -> TuiEditorKeymap:
         insert_newline=_default_bindings(
             "editor.insert_newline",
             "ctrl-j",
+            "ctrl-m",
+            "enter",
+            "shift-enter",
             "alt-enter",
         ),
         completion_previous=_default_bindings(
@@ -594,6 +613,7 @@ def _default_editor_keymap() -> TuiEditorKeymap:
             "editor.delete_word_forward",
             "alt-delete",
             "ctrl-delete",
+            "ctrl-shift-delete",
             "alt-d",
         ),
         delete_to_line_end=_default_bindings(
@@ -637,7 +657,7 @@ def _default_list_keymap() -> TuiListKeymap:
         jump_top=_default_bindings("list.jump_top", "home"),
         jump_bottom=_default_bindings("list.jump_bottom", "end"),
         move_right=_default_bindings("list.move_right", "right", "ctrl-l"),
-        move_left=_default_bindings("list.move_left", "left"),
+        move_left=_default_bindings("list.move_left", "left", "ctrl-h"),
         delete_query_character=_default_bindings(
             "list.delete_query_character",
             "backspace",
@@ -658,6 +678,7 @@ def _default_approval_keymap() -> TuiApprovalKeymap:
         expand_details=_default_bindings(
             "approval.expand_details",
             "ctrl-a",
+            "ctrl-shift-a",
         ),
         accept_selected=_default_bindings(
             "approval.accept_selected",
@@ -816,13 +837,14 @@ def _resolve_bindings(
         raise ValueError(f"{path} must be a string or an array of strings")
 
     out: list[TuiKeyBinding] = []
-    seen: set[tuple[Keys | str, ...]] = set()
+    seen: set[tuple[tuple[Keys | str, ...], ...]] = set()
 
     for value in values:
         binding = _parse_binding(value, path=path)
-        if binding.keys in seen:
+        identity = binding.key_sequences
+        if identity in seen:
             continue
-        seen.add(binding.keys)
+        seen.add(identity)
         out.append(binding)
 
     return tuple(out)
@@ -833,7 +855,7 @@ def _resolve_pager_keymap(config: TuiKeymapConfig) -> TuiPagerKeymap:
     defaults: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("scroll_up", ("up", "k")),
         ("scroll_down", ("down", "j")),
-        ("page_up", ("page-up", "ctrl-b")),
+        ("page_up", ("page-up", "shift-space", "ctrl-b")),
         ("page_down", ("page-down", "space", "ctrl-f")),
         ("half_page_up", ("ctrl-u",)),
         ("half_page_down", ("ctrl-d",)),
@@ -861,24 +883,50 @@ def _resolve_pager_keymap(config: TuiKeymapConfig) -> TuiPagerKeymap:
         accepted: list[TuiKeyBinding] = []
 
         for binding in bindings:
-            previous = owners.get(binding.keys)
-            if previous is None:
-                owners[binding.keys] = action, explicit
+            binding_sequences = frozenset(binding.key_sequences)
+            collisions = {
+                owner
+                for sequence in binding_sequences
+                if (owner := owners.get(sequence)) is not None
+                and owner[0] != action
+            }
+            if not collisions:
+                for sequence in binding_sequences:
+                    owners[sequence] = action, explicit
                 accepted.append(binding)
                 continue
 
-            previous_action, previous_explicit = previous
-            if previous_explicit and not explicit:
+            if not explicit and any(
+                previous_explicit
+                for _previous_action, previous_explicit in collisions
+            ):
                 continue
-            if explicit and not previous_explicit:
-                resolved[previous_action] = tuple(
-                    item
-                    for item in resolved[previous_action]
-                    if item.keys != binding.keys
-                )
-                owners[binding.keys] = action, True
+            if explicit and all(
+                not previous_explicit
+                for _previous_action, previous_explicit in collisions
+            ):
+                for previous_action, _previous_explicit in collisions:
+                    resolved[previous_action] = tuple(
+                        item
+                        for item in resolved[previous_action]
+                        if binding_sequences.isdisjoint(item.key_sequences)
+                    )
+                    owners = {
+                        sequence: owner
+                        for sequence, owner in owners.items()
+                        if owner[0] != previous_action
+                    }
+                    for remaining in resolved[previous_action]:
+                        for sequence in remaining.key_sequences:
+                            owners[sequence] = previous_action, False
+                for sequence in binding_sequences:
+                    owners[sequence] = action, True
                 accepted.append(binding)
                 continue
+            previous_action = sorted(
+                previous_action
+                for previous_action, _previous_explicit in collisions
+            )[0]
             raise ValueError(
                 f"tui.keymap.pager.{action} conflicts with "
                 f"tui.keymap.pager.{previous_action}: {binding.label}"
@@ -905,8 +953,10 @@ def _parse_binding(value: str, *, path: str) -> TuiKeyBinding:
         _parse_stroke(stroke, path=path, value=value)
         for stroke in raw_strokes
     )
+    key_sequences = _combine_stroke_sequences(strokes)
     return TuiKeyBinding(
-        keys=tuple(key for stroke in strokes for key in stroke.keys),
+        keys=key_sequences[0],
+        key_sequences=key_sequences,
         label=" ".join(stroke.label for stroke in strokes),
         strokes=strokes,
     )
@@ -941,13 +991,13 @@ def _parse_stroke(raw: str, *, path: str, value: str) -> TuiKeyStroke:
     prompt_key, plain_label = _plain_key(base, path=path, value=value)
     modifier_set = frozenset(modifiers)
     key_name = _canonical_key_name(base)
-    prompt_sequence = _modified_prompt_sequence(
+    prompt_sequences = _modified_prompt_sequences(
         prompt_key,
+        key_name,
         modifier_set,
         path=path,
         value=value,
     )
-    parsed = _prompt_keys(prompt_sequence, path=path, value=value)
     ordered_labels = tuple(
         label
         for modifier, label in (
@@ -959,21 +1009,23 @@ def _parse_stroke(raw: str, *, path: str, value: str) -> TuiKeyStroke:
     )
     label = "+".join((*ordered_labels, plain_label))
     return TuiKeyStroke(
-        keys=parsed,
+        keys=prompt_sequences[0],
+        key_sequences=prompt_sequences,
         label=label,
         key_name=key_name,
         modifiers=modifier_set,
     )
 
 
-def _modified_prompt_sequence(
+def _modified_prompt_sequences(
     prompt_key: str,
+    key_name: str,
     modifiers: frozenset[str],
     *,
     path: str,
     value: str,
-) -> tuple[str, ...]:
-    """把逻辑修饰键转换为旧式终端可表达的输入序列。"""
+) -> tuple[tuple[Keys | str, ...], ...]:
+    """生成同一逻辑按键的旧式 VT 与增强事件表示。"""
     core = prompt_key
     if "shift" in modifiers:
         if len(core) == 1 and core.isalpha():
@@ -986,14 +1038,57 @@ def _modified_prompt_sequence(
     sequence = (core,)
     if "alt" in modifiers:
         sequence = ("escape", *sequence)
+
+    resolved: list[tuple[Keys | str, ...]] = []
+    legacy_ambiguous = bool(
+        modifiers == frozenset({"ctrl"})
+        and key_name in _LEGACY_CONTROL_ALIASES
+    )
     try:
-        _prompt_keys(sequence, path=path, value=value)
-    except ValueError as error:
+        legacy = _prompt_keys(sequence, path=path, value=value)
+    except ValueError:
+        legacy = None
+    if legacy is not None and not legacy_ambiguous:
+        resolved.append(legacy)
+
+    enhanced = enhanced_key_token(key_name, modifiers)
+    if enhanced is not None:
+        enhanced_sequence = (enhanced,)
+        if enhanced_sequence not in resolved:
+            resolved.append(enhanced_sequence)
+
+    if not resolved:
         raise ValueError(
             f"{path} has unsupported key binding in the current terminal "
             f"decoder: {value}"
-        ) from error
-    return sequence
+        )
+    return tuple(resolved)
+
+
+def _combine_stroke_sequences(
+    strokes: tuple[TuiKeyStroke, ...],
+) -> tuple[tuple[Keys | str, ...], ...]:
+    """按输入顺序组合 chord 各 stroke 的可用终端表示。"""
+    choices: list[tuple[tuple[Keys | str, ...], ...]] = []
+    for index, stroke in enumerate(strokes):
+        sequences = stroke.key_sequences
+        if index > 0 and "alt" in stroke.modifiers:
+            sequences = tuple(
+                sequence
+                for sequence in sequences
+                if len(sequence) == 1
+                and isinstance(sequence[0], str)
+                and is_enhanced_key_token(sequence[0])
+            )
+        choices.append(sequences)
+
+    combined = tuple(
+        tuple(key for sequence in selection for key in sequence)
+        for selection in itertools.product(*choices)
+    )
+    if not combined:
+        raise ValueError("key chord has no terminal representation")
+    return combined
 
 
 def _canonical_key_name(base: str) -> str:
@@ -1080,20 +1175,22 @@ def _validate_context_conflicts(
         action = field_info.name
         bindings = _bindings_for_action(keymap, action)
         for binding in bindings:
-            previous = owners.get(binding.keys)
-            if (
-                previous is not None
-                and not _same_context_overlap_allowed(
-                    context,
-                    previous,
-                    action,
-                )
-            ):
-                raise ValueError(
-                    f"tui.keymap.{context}.{action} conflicts with "
-                    f"tui.keymap.{context}.{previous}: {binding.label}"
-                )
-            owners[binding.keys] = action
+            for key_sequence in binding.key_sequences:
+                previous = owners.get(key_sequence)
+                if (
+                    previous is not None
+                    and previous != action
+                    and not _same_context_overlap_allowed(
+                        context,
+                        previous,
+                        action,
+                    )
+                ):
+                    raise ValueError(
+                        f"tui.keymap.{context}.{action} conflicts with "
+                        f"tui.keymap.{context}.{previous}: {binding.label}"
+                    )
+                owners[key_sequence] = action
 
 
 def _same_context_overlap_allowed(
@@ -1129,26 +1226,27 @@ def _validate_overlapping_contexts(
     for context, keymap in contexts:
         for action, bindings in _context_actions(keymap):
             for binding in bindings:
-                previous = owners.get(binding.keys)
-                if previous is None:
-                    owners[binding.keys] = context, action
-                    continue
-                previous_context, previous_action = previous
-                if previous_context == context:
-                    continue
-                if _main_overlap_allowed(
-                    previous_context,
-                    previous_action,
-                    context,
-                    action,
-                    binding,
-                ):
-                    continue
-                raise ValueError(
-                    f"tui.keymap.{context}.{action} conflicts with "
-                    f"tui.keymap.{previous_context}.{previous_action}: "
-                    f"{binding.label}"
-                )
+                for key_sequence in binding.key_sequences:
+                    previous = owners.get(key_sequence)
+                    if previous is None:
+                        owners[key_sequence] = context, action
+                        continue
+                    previous_context, previous_action = previous
+                    if previous_context == context:
+                        continue
+                    if _main_overlap_allowed(
+                        previous_context,
+                        previous_action,
+                        context,
+                        action,
+                        binding,
+                    ):
+                        continue
+                    raise ValueError(
+                        f"tui.keymap.{context}.{action} conflicts with "
+                        f"tui.keymap.{previous_context}.{previous_action}: "
+                        f"{binding.label}"
+                    )
 
 
 def _main_overlap_allowed(
@@ -1172,8 +1270,14 @@ def _main_overlap_allowed(
             "chat.interrupt_turn",
             "editor.cancel_completion",
         }),
+        frozenset({
+            "composer.submit",
+            "editor.insert_newline",
+        }),
     }
-    return identities in allowed and binding.strokes[0].key_name == "esc"
+    if identities not in allowed:
+        return False
+    return binding.strokes[0].key_name in {"esc", "enter"}
 
 
 def _validate_configured_binding_shapes(
@@ -1212,16 +1316,6 @@ def _validate_binding_shape(
 ) -> None:
     """校验一个绑定在其输入上下文中的可达性与安全性。"""
     for stroke in binding.strokes:
-        legacy_alias = (
-            _LEGACY_CONTROL_ALIASES.get(stroke.key_name)
-            if stroke.modifiers == frozenset({"ctrl"})
-            else None
-        )
-        if legacy_alias is not None:
-            raise ValueError(
-                f"{path}: {stroke.label} is indistinguishable from "
-                f"{legacy_alias} in the current terminal decoder"
-            )
         if (
             len(stroke.key_name) == 1
             and {"ctrl", "alt"}.issubset(stroke.modifiers)
@@ -1235,11 +1329,6 @@ def _validate_binding_shape(
         if any(stroke.key_name == "esc" for stroke in binding.strokes):
             raise ValueError(
                 f"{path}: Esc is reserved for cancelling an incomplete chord"
-            )
-        if "alt" in binding.strokes[1].modifiers:
-            raise ValueError(
-                f"{path}: an Alt-modified second chord stroke conflicts with "
-                "Esc cancellation in the current terminal decoder"
             )
         if (
             len(prefix.key_name) == 1
@@ -1348,16 +1437,20 @@ def _validate_chord_conflicts(
     for context, action, binding in actions:
         if not binding.is_chord:
             continue
-        prefix = binding.strokes[0].keys
-        for other_context, other_action, other_binding in actions:
-            if not _contexts_overlap(context, other_context):
-                continue
-            if not other_binding.is_chord and other_binding.keys == prefix:
-                raise ValueError(
-                    f"tui.keymap.{context}.{action} chord prefix conflicts "
-                    f"with tui.keymap.{other_context}.{other_action}: "
-                    f"{binding.strokes[0].label}"
-                )
+        for prefix in binding.strokes[0].key_sequences:
+            for other_context, other_action, other_binding in actions:
+                if not _contexts_overlap(context, other_context):
+                    continue
+                if (
+                    not other_binding.is_chord
+                    and prefix in other_binding.key_sequences
+                ):
+                    raise ValueError(
+                        f"tui.keymap.{context}.{action} chord prefix "
+                        "conflicts with "
+                        f"tui.keymap.{other_context}.{other_action}: "
+                        f"{binding.strokes[0].label}"
+                    )
 
 
 def _contexts_overlap(first: str, second: str) -> bool:
@@ -1385,27 +1478,29 @@ def _context_actions(
 
 def _validate_reserved_pager_bindings(keymap: TuiPagerKeymap) -> None:
     """拒绝页面动作覆盖完整记录的固定编辑按键。"""
-    reserved = {
-        _parse_binding(key, path="tui.keymap.pager").keys: action
-        for key, action in (
-            ("esc", "edit_previous"),
-            ("left", "edit_previous"),
-            ("right", "edit_next"),
-            ("enter", "edit_confirm"),
-        )
-    }
+    reserved: dict[tuple[Keys | str, ...], str] = {}
+    for key, action in (
+        ("esc", "edit_previous"),
+        ("left", "edit_previous"),
+        ("right", "edit_next"),
+        ("enter", "edit_confirm"),
+    ):
+        binding = _parse_binding(key, path="tui.keymap.pager")
+        for key_sequence in binding.key_sequences:
+            reserved[key_sequence] = action
 
     for field_info in fields(keymap):
         action = field_info.name
         bindings = _bindings_for_action(keymap, action)
 
         for binding in bindings:
-            fixed = reserved.get(binding.keys)
-            if fixed is not None:
-                raise ValueError(
-                    f"tui.keymap.pager.{action} conflicts with fixed "
-                    f"transcript {fixed}: {binding.label}"
-                )
+            for key_sequence in binding.key_sequences:
+                fixed = reserved.get(key_sequence)
+                if fixed is not None:
+                    raise ValueError(
+                        f"tui.keymap.pager.{action} conflicts with fixed "
+                        f"transcript {fixed}: {binding.label}"
+                    )
 
 
 def _bindings_for_action(

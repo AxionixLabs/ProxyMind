@@ -10,6 +10,7 @@ from agent.protocol.json_value import ThawedJsonValue
 from agent.protocol.json_value import freeze_json
 from agent.protocol.json_value import thaw_object
 from tests.support.pty import PtyKey
+from tests.support.pty import TerminalMode
 from tests.support.pty import TerminalSize
 from tests.support.pty import spawn_terminal
 
@@ -108,6 +109,58 @@ def test_idle_submit_keys_deliver_exactly_once(
     assert [item["value"] for item in _submissions(facts)] == [
         "hello from PTY"
     ]
+
+
+@pytest.mark.parametrize(
+    "newline_sequence",
+    (
+        pytest.param(b"\x1b[109;5u", id="ctrl-m"),
+        pytest.param(b"\x1b[13;2u", id="shift-enter"),
+    ),
+)
+def test_enhanced_newline_keys_use_real_tui_terminal_lifecycle(
+    tmp_path: Path,
+    newline_sequence: bytes,
+) -> None:
+    """验证增强键经真实 PTY 插入换行且退出恢复终端模式。"""
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui("idle_enter", facts_path) as terminal:
+        terminal.wait_for_screen_text("PTY TUI READY idle_enter")
+        terminal.wait_for_modes({
+            TerminalMode.KEYBOARD_ENHANCEMENT_ENABLED,
+        })
+        terminal.write_user_text("first")
+        terminal.write_user(newline_sequence)
+        terminal.write_user_text("second")
+        terminal.send_key(PtyKey.ENTER)
+
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+        facts = _read_facts(facts_path)
+        mode_events = terminal.mode_events
+
+    assert [item["value"] for item in _submissions(facts)] == [
+        "first\nsecond"
+    ]
+    modes = [event.mode for event in mode_events]
+    assert TerminalMode.KEYBOARD_ENHANCEMENT_RESTORED in modes
+    assert modes.index(TerminalMode.KEYBOARD_ENHANCEMENT_ENABLED) < (
+        modes.index(TerminalMode.KEYBOARD_ENHANCEMENT_RESTORED)
+    )
+
+
+def test_enhanced_ctrl_backspace_edits_real_tui_composer(tmp_path: Path) -> None:
+    """验证增强 Ctrl+Backspace 经真实 PTY 删除前一个单词。"""
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui("idle_enter", facts_path) as terminal:
+        terminal.wait_for_screen_text("PTY TUI READY idle_enter")
+        terminal.write_user_text("first second")
+        terminal.write_user(b"\x1b[127;5u")
+        terminal.send_key(PtyKey.ENTER)
+
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+        facts = _read_facts(facts_path)
+
+    assert [item["value"] for item in _submissions(facts)] == ["first"]
 
 
 def test_tab_completion_precedes_submission(tmp_path: Path) -> None:

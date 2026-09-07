@@ -4804,6 +4804,7 @@ def test_tui_contracts_are_owned_by_frontends() -> None:
 
     expected_files = {
         "__init__.py",
+        "keyboard.py",
         "menu.py",
         "pager.py",
         "resume.py",
