@@ -185,6 +185,8 @@ Side Conversation、图片粘贴等 Mind 尚不存在的产品能力，未来若
 - [x] Up/k、Down/j、PageUp/Ctrl+B、PageDown/Space/Ctrl+F、Ctrl+U/D、Home/End 与 Codex 一致。
 - [x] q/Ctrl+C 关闭页面，Ctrl+T 关闭完整记录；已删除记录页私有搜索、raw 和导出键。
 - [x] 完整记录中的 Esc/Left/Right/Enter 负责历史回溯，优先于普通 pager 取消。
+- [x] 无可编辑历史时通过统一信息块显示 `• No previous message to edit.`，前缀、正文样式和
+  Codex 的 info message 语义一致。
 - [x] 增加 Shift+Space 作为 PageUp 的 Codex 兼容键。
 - [x] raw 输出改为全局 Alt+R 和 `/raw [on|off]`；记录页不再维护独立 raw 状态。
 - [x] 所有 pager 帮助文字继续从解析后的按键生成，覆盖重绑定和显式解绑。

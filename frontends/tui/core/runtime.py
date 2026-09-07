@@ -81,10 +81,10 @@ from .queued import (
 from .screen import TuiScreen
 from .styles import (
     failure_text_block,
+    info_text_block,
     query_block,
     query_display_block,
     query_preview_block,
-    text_block
 )
 from .submission import (
     TuiInputClosed,
@@ -657,7 +657,7 @@ class TuiRuntime(object):
 
     def _report_missing_backtrack(self) -> None:
         """追加没有可编辑历史消息的提示。"""
-        self.queue_background_block(text_block(
+        self.queue_background_block(info_text_block(
             "No previous message to edit."
         ))
 

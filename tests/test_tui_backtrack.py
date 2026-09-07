@@ -198,7 +198,11 @@ async def test_double_escape_reports_missing_previous_message() -> None:
                 value
                 for _style, value in runtime.document.all_fragments(width=80)
             )
-            assert text == "No previous message to edit."
+            assert text == "• No previous message to edit."
+            assert runtime.document.blocks[-1].display_block.fragments == (
+                ("", "• "),
+                ("bold", "No previous message to edit."),
+            )
             assert not runtime.screen.transcript_overlay.active
         finally:
             await runtime.close()
@@ -225,7 +229,11 @@ async def test_transcript_escape_reports_missing_previous_message() -> None:
                 value
                 for _style, value in runtime.document.all_fragments(width=80)
             )
-            assert text == "No previous message to edit."
+            assert text == "• No previous message to edit."
+            assert runtime.document.blocks[-1].display_block.fragments == (
+                ("", "• "),
+                ("bold", "No previous message to edit."),
+            )
             assert not runtime.screen.transcript_overlay.active
         finally:
             await runtime.close()

@@ -698,6 +698,14 @@ def text_block(text: str, style: TextStyle = TextStyle()) -> FragmentBlock:
     return fragment_block(TextSpan(str(text), style))
 
 
+def info_text_block(text: str) -> FragmentBlock:
+    """生成带中性项目符号的独立信息块。"""
+    return fragment_block(
+        TextSpan("• ", BODY_STYLE),
+        TextSpan(str(text), BRIGHT_STYLE),
+    )
+
+
 def failure_parts(
     text: str,
     style: TextStyle = FAILURE_STYLE
