@@ -132,6 +132,7 @@ class TranscriptReplay:
         last_user_index: int | None = None
         pending_tools: dict[str, int] = {}
         pending_unmerged_tools: dict[str, dict[str, typing.Any]] = {}
+        compacted_items: dict[tuple[str | None, str], tuple[int, int]] = {}
 
         for entry in self.entries:
             if entry.event == "message.superseded" and entry.actor == "assistant":
@@ -229,6 +230,26 @@ class TranscriptReplay:
                         previous,
                         payload={**previous.payload, **entry.payload},
                     )
+                continue
+
+            if entry.event == "context.compacted":
+                item_id = _payload_text(entry.payload, "item_id")
+                event_seq = _payload_positive_int(entry.payload, "event_seq")
+                if item_id and event_seq is not None:
+                    identity = (entry.turn_id, item_id)
+                    previous = compacted_items.get(identity)
+                    if previous is not None:
+                        previous_event_seq, previous_index = previous
+                        if event_seq <= previous_event_seq:
+                            continue
+                        replay[previous_index] = entry
+                        compacted_items[identity] = (
+                            event_seq,
+                            previous_index,
+                        )
+                        continue
+                    compacted_items[identity] = (event_seq, len(replay))
+                replay.append(entry)
                 continue
 
             if entry.event == "tool.started":

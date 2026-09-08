@@ -10,6 +10,7 @@ from agent.application.views import (
     ApprovalView,
     BatchCompletedView,
     BatchStartView,
+    ContextCompactionView,
     FailureView,
     GenericToolResultView,
     HookRunView,
@@ -488,6 +489,10 @@ class TextPresentationSink(PresentationSink):
         if isinstance(view, FailureView):
             self.state.settle_assistant()
             self.state.process(f"ERROR:\n{view.error}\n")
+            return None
+        if isinstance(view, ContextCompactionView):
+            if view.status == "completed":
+                self.state.process("Context compacted\n")
             return None
         if isinstance(view, LifecycleView):
             self.state.process(f"{view.text}\n")

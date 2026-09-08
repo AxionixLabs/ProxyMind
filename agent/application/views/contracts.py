@@ -15,6 +15,7 @@ from .plan import (
 )
 from .progress import ProgressView
 from .run import (
+    ContextCompactionView,
     FailureView,
     LifecycleView,
     RunCompletedView,
@@ -45,6 +46,7 @@ PresentationView: typing.TypeAlias = (
     | BatchStartView
     | BatchCompletedView
     | FailureView
+    | ContextCompactionView
     | LifecycleView
     | ProgressView
 )

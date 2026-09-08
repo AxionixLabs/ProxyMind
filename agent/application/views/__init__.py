@@ -40,6 +40,10 @@ from .progress import (
     ProgressView,
 )
 from .run import (
+    ContextCompactionPhase,
+    ContextCompactionStatus,
+    ContextCompactionTrigger,
+    ContextCompactionView,
     FailureView,
     LifecycleView,
     RunCompletedView,
@@ -78,6 +82,10 @@ __all__ = (
     "BatchCompletedView",
     "BatchResultView",
     "BatchStartView",
+    "ContextCompactionPhase",
+    "ContextCompactionStatus",
+    "ContextCompactionTrigger",
+    "ContextCompactionView",
     "FailureView",
     "GenericToolResultView",
     "HookOutputKind",

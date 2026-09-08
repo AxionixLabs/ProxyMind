@@ -460,3 +460,30 @@ def test_store_finds_only_existing_transcript_path(tmp_path) -> None:
     path = store.path_for_session(session_id)
 
     assert store.existing_path_for_session(session_id) == path
+
+
+def test_replay_deduplicates_context_compaction_by_item_and_event_seq() -> None:
+    """验证断线重放不会为同一压缩 Item 创建重复历史标记。"""
+    def entry(event_seq: int, replacement_version: int) -> TranscriptEntry:
+        return TranscriptEntry(
+            timestamp="2026-09-08T00:00:00.000Z",
+            event="context.compacted",
+            session_id="session_test",
+            turn_id="turn_test",
+            actor="system",
+            payload={
+                "item_id": "compaction_test",
+                "event_seq": event_seq,
+                "replacement_version": replacement_version,
+            },
+        )
+
+    replay = TranscriptReplay((
+        entry(3, 1),
+        entry(3, 1),
+        entry(4, 2),
+    )).build()
+
+    assert len(replay) == 1
+    assert replay[0].payload["event_seq"] == 4
+    assert replay[0].payload["replacement_version"] == 2

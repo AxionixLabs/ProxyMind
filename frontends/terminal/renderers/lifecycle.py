@@ -4,6 +4,7 @@
 import typing
 
 from agent.application.views import (
+    ContextCompactionView,
     FailureView,
     LifecycleView,
     RunIncompleteView,
@@ -46,6 +47,18 @@ def render_incomplete_view(
 def render_lifecycle_view(view: LifecycleView) -> StyledBlock:
     """把生命周期事件视图转换为中立展示块。"""
     title = f"• {view.text}"
+    return StyledBlock(
+        plain_text=title,
+        spans=tuple(render_lifecycle_display_parts(title)),
+    )
+
+
+def render_context_compaction_view(
+    view: ContextCompactionView,
+) -> StyledBlock:
+    """把上下文压缩完成事实转换为稳定信息块。"""
+    _ = view
+    title = "• Context compacted"
     return StyledBlock(
         plain_text=title,
         spans=tuple(render_lifecycle_display_parts(title)),

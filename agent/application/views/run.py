@@ -7,6 +7,23 @@ from dataclasses import (
     field,
 )
 
+ContextCompactionPhase: typing.TypeAlias = typing.Literal[
+    "pre_turn",
+    "mid_turn",
+    "standalone",
+]
+
+ContextCompactionTrigger: typing.TypeAlias = typing.Literal[
+    "automatic",
+    "manual",
+]
+
+ContextCompactionStatus: typing.TypeAlias = typing.Literal[
+    "in_progress",
+    "completed",
+    "failed",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class RunStartedView:
@@ -77,6 +94,30 @@ class LifecycleView:
     """描述服务端生命周期事件的展示数据。"""
 
     text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ContextCompactionView:
+    """描述一项服务端上下文压缩事实及其展示边界坐标。"""
+
+    turn_id: str
+    item_id: str
+    event_seq: int
+    presentation_epoch: int
+    status: ContextCompactionStatus
+    phase: ContextCompactionPhase
+    trigger: ContextCompactionTrigger
+    reason: str
+    error_type: str | None = None
+    retryable: bool | None = None
+    before_items: int | None = None
+    after_items: int | None = None
+    before_chars: int | None = None
+    after_chars: int | None = None
+    dropped_items: int | None = None
+    reduction_ratio: float | None = None
+    latency_ms: int | None = None
+    replacement_version: int | None = None
 
 
 if __name__ == '__main__':

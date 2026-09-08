@@ -576,8 +576,8 @@ async def stream_turn(
                 continue
 
             if await handle_lifecycle_event(
-                event,
-                presentation=presentation,
+                event, presentation=presentation,
+                transcript=transcript,
             ):
                 await activity_projector.request_model_wait("lifecycle")
                 continue

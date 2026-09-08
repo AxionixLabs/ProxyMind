@@ -11,6 +11,7 @@ from agent.application.views import (
     ApprovalView,
     BatchCompletedView,
     BatchStartView,
+    ContextCompactionView,
     FailureView,
     GenericToolResultView,
     HookRunView,
@@ -557,6 +558,36 @@ class JsonPresentationSink(PresentationSink):
                 "text": view.text,
                 "status": "completed" if view.ok else "failed",
             })
+            return None
+
+        if isinstance(view, ContextCompactionView):
+            item = {
+                "id": self.state.item_id(view.item_id),
+                "type": "context_compaction",
+                "status": view.status,
+                "turn_id": view.turn_id,
+                "event_seq": view.event_seq,
+                "presentation_epoch": view.presentation_epoch,
+                "phase": view.phase,
+                "trigger": view.trigger,
+                "reason": view.reason,
+                "error_type": view.error_type,
+                "retryable": view.retryable,
+                "before_items": view.before_items,
+                "after_items": view.after_items,
+                "before_chars": view.before_chars,
+                "after_chars": view.after_chars,
+                "dropped_items": view.dropped_items,
+                "reduction_ratio": view.reduction_ratio,
+                "latency_ms": view.latency_ms,
+                "replacement_version": view.replacement_version,
+            }
+            event_type = (
+                "item.started"
+                if view.status == "in_progress"
+                else "item.completed"
+            )
+            self.state.emit({"type": event_type, "item": item})
             return None
 
         if isinstance(view, LifecycleView):

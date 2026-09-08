@@ -8,6 +8,7 @@ from agent.application.views import (
     ApprovalView,
     BatchCompletedView,
     BatchStartView,
+    ContextCompactionView,
     FailureView,
     GenericToolResultView,
     HookRunView,
@@ -42,6 +43,7 @@ from .batch import (
 )
 from .hook import render_hook_run_view
 from .lifecycle import (
+    render_context_compaction_view,
     render_failure_view,
     render_incomplete_view,
     render_lifecycle_view
@@ -237,6 +239,10 @@ def _render_presentation_view(
             terminal_width=terminal_width,
             measure_width=measure_width,
         ),)
+    if isinstance(view, ContextCompactionView):
+        if view.status != "completed":
+            return ()
+        return (render_context_compaction_view(view),)
     if isinstance(view, LifecycleView):
         return (render_lifecycle_view(view),)
     if isinstance(view, ProgressView):

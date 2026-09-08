@@ -12,6 +12,7 @@ import pytest
 
 from protocol.client import chat
 from protocol.schema.stream_events import (
+    ContextCompactionEvent,
     StreamGapEvent,
     TextDeltaEvent,
     TurnCompletedEvent,
@@ -173,6 +174,81 @@ async def test_stream_chat_parses_events_and_filters_ping(monkeypatch) -> None:
     build_payload.assert_awaited_once()
     endpoint.assert_called_once_with("/mind-chat")
     make_headers.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_compaction_events_continue_same_turn_without_new_request(
+    monkeypatch,
+) -> None:
+    async def streaming(*_args, **_kwargs):
+        yield {
+            "type": "turn.started",
+            "turn_id": "turn_001",
+            "event_seq": 1,
+        }
+        yield {
+            "type": "context.compaction.started",
+            "turn_id": "turn_001",
+            "event_seq": 2,
+            "item_id": "compaction_1",
+            "item_kind": "context_compaction",
+            "item_status": "in_progress",
+            "phase": "mid_turn",
+            "trigger": "automatic",
+            "reason": "context_limit",
+        }
+        yield {
+            "type": "context.compaction.completed",
+            "turn_id": "turn_001",
+            "event_seq": 3,
+            "item_id": "compaction_1",
+            "item_kind": "context_compaction",
+            "item_status": "completed",
+            "phase": "mid_turn",
+            "trigger": "automatic",
+            "reason": "context_limit",
+            "replacement_version": 2,
+        }
+        yield {
+            "type": "text.delta",
+            "turn_id": "turn_001",
+            "event_seq": 4,
+            "segment_id": "segment_1",
+            "text": "continued",
+        }
+        yield {
+            "type": "turn.completed",
+            "turn_id": "turn_001",
+            "event_seq": 5,
+        }
+
+    build_payload = AsyncMock(return_value={
+        "turn_id": "turn_001",
+        "message": "hello",
+        "metadata": {"cid": "cid_1", "sid": "sid_1"},
+    })
+    endpoint = Mock(return_value="https://example.com/mind-chat")
+    transport = Mock(return_value=streaming())
+    monkeypatch.setattr(chat, "build_chat_payload", build_payload)
+    monkeypatch.setattr(chat, "build_service_headers", Mock(return_value={}))
+    monkeypatch.setattr(chat.service_endpoints, "endpoint", endpoint)
+    monkeypatch.setattr(chat, "streaming", transport)
+
+    events = await _collect(chat.stream_chat({}, "hello", []))
+
+    assert [event.type for event in events] == [
+        "turn.started",
+        "context.compaction.started",
+        "context.compaction.completed",
+        "text.delta",
+        "turn.completed",
+    ]
+    assert all(event.turn_id == "turn_001" for event in events)
+    assert isinstance(events[1], ContextCompactionEvent)
+    assert isinstance(events[2], ContextCompactionEvent)
+    build_payload.assert_awaited_once()
+    endpoint.assert_called_once_with("/mind-chat")
+    transport.assert_called_once()
 
 
 @pytest.mark.anyio

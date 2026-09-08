@@ -12,6 +12,7 @@ from agent.application.views import (
     ApprovalView,
     BatchCompletedView,
     BatchStartView,
+    ContextCompactionView,
     FailureView,
     GenericToolResultView,
     HookRunView,
@@ -93,7 +94,12 @@ def _presentation_block_kind(view: PresentationView) -> TuiBlockKind:
         return "plan"
     if isinstance(view, _OPERATION_VIEWS):
         return "operation"
-    if isinstance(view, (FailureView, LifecycleView, RunIncompleteView)):
+    if isinstance(view, (
+        ContextCompactionView,
+        FailureView,
+        LifecycleView,
+        RunIncompleteView,
+    )):
         return "notice"
 
     return "system"
@@ -439,6 +445,14 @@ class TuiPresentationSink(PresentationSink):
                     terminal_width if width_aware else None
                 ),
             )
+
+        if (
+            isinstance(view, ContextCompactionView)
+            and view.status == "completed"
+            and view.trigger == "automatic"
+            and view.phase != "standalone"
+        ):
+            self.output.mark_context_compaction_boundary()
 
         if isinstance(view, _WORK_COMPLETED_VIEWS) or (
             isinstance(view, GenericToolResultView)
