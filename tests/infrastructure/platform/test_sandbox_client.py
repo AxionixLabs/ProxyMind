@@ -1,6 +1,9 @@
 import asyncio
 
 import pytest
+
+from unittest.mock import AsyncMock
+
 from agent.capabilities import InMemoryProcessCapability
 from agent.domain.approvals import NetworkProtocol
 from agent.domain.approvals import NetworkTarget
@@ -10,6 +13,7 @@ from infrastructure.platform.network import StaticNetworkPolicy
 from infrastructure.platform.sandbox import (
     SandboxClient,
     SandboxProtocolError,
+    SandboxUnavailable,
     SidecarProcess,
     _SidecarStream,
     sandbox_backend_name,
@@ -21,6 +25,175 @@ from infrastructure.platform.process_sessions import (
 )
 from mind import create_workspace_coding
 from mind import create_workspace_runtime
+
+
+class _FakeSidecarReader:
+    """提供可控 ready 帧和 EOF 的 Sidecar 读取端。"""
+
+    def __init__(self, *lines: bytes, block_after_lines: bool = False) -> None:
+        self._lines = list(lines)
+        self._block_after_lines = block_after_lines
+        self._blocked = asyncio.Event()
+
+    async def readline(self) -> bytes:
+        if self._lines:
+            return self._lines.pop(0)
+        if self._block_after_lines:
+            await self._blocked.wait()
+        return b""
+
+
+class _FakeSidecarWriter:
+    """记录客户端写入但不生成响应。"""
+
+    def __init__(self) -> None:
+        self.payloads: list[bytes] = []
+
+    def write(self, payload: bytes) -> None:
+        self.payloads.append(bytes(payload))
+
+    async def drain(self) -> None:
+        return None
+
+
+class _FakeSidecarProcess:
+    """模拟 Sidecar 进程的最小异步生命周期。"""
+
+    def __init__(self, stdout: _FakeSidecarReader) -> None:
+        self.stdin = _FakeSidecarWriter()
+        self.stdout = stdout
+        self.stderr = _FakeSidecarReader()
+        self.returncode: int | None = None
+        self.pid = 4100
+
+    def terminate(self) -> None:
+        self.returncode = -15
+
+    async def wait(self) -> int:
+        if self.returncode is None:
+            self.returncode = 0
+        return self.returncode
+
+
+def _fake_startable_client(tmp_path) -> SandboxClient:
+    """创建显式绑定测试产物路径的 Sandbox 客户端。"""
+    executable = tmp_path / "mind_sandbox_server.exe"
+    executable.write_bytes(b"test-sidecar")
+    return SandboxClient(
+        workspace_root=tmp_path,
+        executable=executable,
+        application_root=tmp_path,
+        packaged=False,
+        platform="win32",
+    )
+
+
+@pytest.mark.anyio
+async def test_missing_sidecar_fails_before_start(tmp_path) -> None:
+    """固定 helper 缺失时的 v1 客户端失败边界。"""
+    client = SandboxClient(
+        workspace_root=tmp_path,
+        executable=tmp_path / "missing-sidecar.exe",
+        application_root=tmp_path,
+        packaged=False,
+        platform="win32",
+    )
+
+    with pytest.raises(SandboxUnavailable, match="sandbox sidecar not found"):
+        await client.ensure_started()
+
+
+@pytest.mark.anyio
+async def test_sidecar_start_permission_error_is_not_hidden(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """固定 Sidecar 进程启动拒绝仍保留原始 OS 异常。"""
+    client = _fake_startable_client(tmp_path)
+    start_sidecar = AsyncMock(
+        side_effect=PermissionError(5, "Access is denied"),
+    )
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", start_sidecar)
+
+    with pytest.raises(PermissionError, match="Access is denied"):
+        await client.ensure_started()
+
+
+@pytest.mark.anyio
+async def test_sidecar_handshake_timeout_has_stable_boundary(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """固定 ready 帧超时对应的可用性失败。"""
+    client = _fake_startable_client(tmp_path)
+    client.READY_TIMEOUT_SEC = 0.01
+    process = _FakeSidecarProcess(
+        _FakeSidecarReader(block_after_lines=True),
+    )
+    start_sidecar = AsyncMock(return_value=process)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", start_sidecar)
+
+    with pytest.raises(
+        SandboxUnavailable,
+        match="sandbox sidecar did not become ready",
+    ):
+        await client.ensure_started()
+
+    ready = client._ready
+    assert ready is not None
+    assert isinstance(ready.exception(), SandboxUnavailable)
+
+
+@pytest.mark.anyio
+async def test_sidecar_protocol_version_mismatch_is_rejected(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """固定未知 Sidecar 协议版本按 fail-closed 处理。"""
+    client = _fake_startable_client(tmp_path)
+    process = _FakeSidecarProcess(
+        _FakeSidecarReader(b'{"event":"ready","protocol_version":2}\n'),
+    )
+    start_sidecar = AsyncMock(return_value=process)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", start_sidecar)
+
+    with pytest.raises(
+        SandboxUnavailable,
+        match="unsupported sandbox sidecar protocol version: 2",
+    ):
+        await client.ensure_started()
+
+
+@pytest.mark.anyio
+async def test_sidecar_eof_before_ready_is_unavailable(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """固定 ready 前异常 EOF 对应的可用性失败。"""
+    client = _fake_startable_client(tmp_path)
+    process = _FakeSidecarProcess(_FakeSidecarReader())
+    start_sidecar = AsyncMock(return_value=process)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", start_sidecar)
+
+    with pytest.raises(SandboxUnavailable, match="sandbox sidecar exited"):
+        await client.ensure_started()
+
+
+@pytest.mark.anyio
+async def test_sidecar_request_timeout_clears_pending_request(tmp_path) -> None:
+    """固定请求超时后 pending future 必须被移除。"""
+    client = _fake_startable_client(tmp_path)
+    process = _FakeSidecarProcess(
+        _FakeSidecarReader(block_after_lines=True),
+    )
+    client._sidecar = process
+    client.REQUEST_TIMEOUT_SEC = 0.01
+
+    with pytest.raises(asyncio.TimeoutError):
+        await client._request("ping", {})
+
+    assert client._pending == {}
+    process.returncode = -1
 
 
 def test_source_windows_sidecar_path_is_platform_specific(tmp_path, monkeypatch) -> None:
