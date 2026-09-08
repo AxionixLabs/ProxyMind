@@ -34,12 +34,32 @@ CID = "cid_demo_12345678"
 SID = "sid_demo_x_abcdef"
 TURN_ID = "turn_review_01"
 REQUEST_ID = "review_request_01"
+FULL_SHA = "a" * 40
+
+
+def _tool(name: str = "read_file") -> dict:
+    """构造服务端严格契约接受的只读工具。"""
+    return {
+        "name": name,
+        "description": f"Read repository data with {name}.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        },
+    }
 
 
 def _execution() -> ReviewExecutionOptions:
     """构造最小只读 Review execution。"""
     return ReviewExecutionOptions(
         llm_conf={"primary": {"model": "test"}},
+        tools=(_tool(),),
         metadata={"cid": CID, "sid": SID},
     )
 
@@ -139,11 +159,15 @@ def test_workspace_normalizes_paths_and_round_trips_strict_payload() -> None:
         (ReviewUncommittedTarget(), {"type": "uncommitted_changes"}),
         (
             ReviewBaseBranchTarget(" main "),
-            {"type": "base_branch", "branch": "main"},
+            {
+                "type": "base_branch",
+                "branch": "main",
+                "merge_base_sha": None,
+            },
         ),
         (
-            ReviewCommitTarget("ABCDEF1", " title "),
-            {"type": "commit", "sha": "abcdef1", "title": "title"},
+            ReviewCommitTarget("A" * 40, " title "),
+            {"type": "commit", "sha": FULL_SHA, "title": "title"},
         ),
         (
             ReviewCustomTarget("  first\nsecond  "),
@@ -157,7 +181,7 @@ def test_review_targets_round_trip(target, expected) -> None:
 
 
 def test_protocol_parsers_apply_formal_server_defaults() -> None:
-    commit = parse_review_target({"type": "commit", "sha": "abcdef1"})
+    commit = parse_review_target({"type": "commit", "sha": FULL_SHA})
     workspace = parse_review_workspace({
         "source": "client",
         "revision": REVIEW_EMPTY_WORKSPACE_REVISION,
@@ -166,7 +190,7 @@ def test_protocol_parsers_apply_formal_server_defaults() -> None:
     del output_payload["findings"]
     output = parse_review_output(output_payload)
 
-    assert commit == ReviewCommitTarget("abcdef1")
+    assert commit == ReviewCommitTarget(FULL_SHA)
     assert workspace == ClientReviewWorkspace.create()
     assert output.findings == ()
 
@@ -180,11 +204,19 @@ def test_base_branch_rejects_invalid_git_refs(branch: str) -> None:
         ReviewBaseBranchTarget(branch)
 
 
-def test_only_custom_target_accepts_empty_workspace() -> None:
-    assert _request().workspace.revision == REVIEW_EMPTY_WORKSPACE_REVISION
-
-    with pytest.raises(ValueError, match="non-custom"):
-        _request(target=ReviewUncommittedTarget())
+@pytest.mark.parametrize(
+    "target",
+    (
+        ReviewUncommittedTarget(),
+        ReviewBaseBranchTarget("main", FULL_SHA),
+        ReviewCommitTarget(FULL_SHA),
+        ReviewCustomTarget("Review boundaries."),
+    ),
+)
+def test_all_targets_accept_canonical_empty_workspace(target) -> None:
+    assert _request(target=target).workspace.revision == (
+        REVIEW_EMPTY_WORKSPACE_REVISION
+    )
 
 
 def test_request_round_trip_keeps_only_read_only_execution_fields() -> None:
@@ -198,7 +230,7 @@ def test_request_round_trip_keeps_only_read_only_execution_fields() -> None:
         "system_message": "",
         "attachments": None,
         "streaming": False,
-        "tools": None,
+        "tools": [_tool()],
         "hosted_tools": None,
         "skills": None,
         "sandbox_mode": "read-only",
@@ -209,18 +241,44 @@ def test_request_round_trip_keeps_only_read_only_execution_fields() -> None:
 def test_review_tools_must_explicitly_declare_read_only_hint() -> None:
     with pytest.raises(ValueError, match="readOnlyHint"):
         ReviewExecutionOptions(
-            llm_conf={},
-            tools=({"name": "read_file", "annotations": {}},),
+            llm_conf={"primary": {}},
+            tools=({**_tool(), "annotations": {}},),
         )
 
     execution = ReviewExecutionOptions(
-        llm_conf={},
-        tools=({
-            "name": "read_file",
-            "annotations": {"readOnlyHint": True},
-        },),
+        llm_conf={"primary": {}},
+        tools=(_tool(),),
     )
-    assert execution.request_payload()["tools"] is not None
+    assert execution.request_payload()["tools"] == [_tool()]
+
+
+def test_review_tools_reject_forbidden_names_and_unknown_wire_fields() -> None:
+    with pytest.raises(ValueError, match="not permitted"):
+        ReviewExecutionOptions(
+            llm_conf={"primary": {}},
+            tools=(_tool("shell_command"),),
+        )
+
+    with pytest.raises(ValueError, match="unknown fields"):
+        ReviewExecutionOptions(
+            llm_conf={"primary": {}},
+            tools=({**_tool(), "meta": {"client_builtin": True}},),
+        )
+
+
+def test_review_llm_conf_rejects_local_provider_and_host_fields() -> None:
+    with pytest.raises(ValueError, match="unknown fields"):
+        ReviewExecutionOptions(
+            llm_conf={
+                "primary": {
+                    "model": "test",
+                    "name": "OpenAI",
+                    "kind": "openai_compatible",
+                    "enabled": True,
+                },
+            },
+            tools=(_tool(),),
+        )
 
 
 def test_workspace_enforces_revision_and_utf8_total_size() -> None:

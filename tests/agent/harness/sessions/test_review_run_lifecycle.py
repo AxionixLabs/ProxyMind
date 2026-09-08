@@ -37,6 +37,16 @@ TURN_ID = "turn_review_01"
 REQUEST_ID = "review_request_01"
 
 
+def _tools() -> tuple[dict, ...]:
+    """构造最小严格只读工具目录。"""
+    return ({
+        "name": "read_file",
+        "description": "Read a UTF-8 repository file.",
+        "inputSchema": {"type": "object"},
+        "annotations": {"readOnlyHint": True},
+    },)
+
+
 def _request(
     *,
     patch: str = "diff --git a/a.py b/a.py\n",
@@ -51,6 +61,7 @@ def _request(
         workspace=ClientReviewWorkspace.create(patch=patch),
         execution=ReviewExecutionOptions(
             llm_conf={"primary": {"model": "test-model"}},
+            tools=_tools(),
             metadata={"cid": CID, "sid": SID},
         ),
     )

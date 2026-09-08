@@ -36,15 +36,41 @@ REVIEW_WORKSPACE_MAX_BYTES: typing.Final[int] = 4_000_000
 REVIEW_PATCH_MAX_CHARS: typing.Final[int] = 1_500_000
 REVIEW_FILE_MAX_CHARS: typing.Final[int] = 1_000_000
 REVIEW_FILE_MAX_COUNT: typing.Final[int] = 256
+REVIEW_TOOL_MAX_COUNT: typing.Final[int] = 64
+REVIEW_TOOL_SCHEMA_MAX_BYTES: typing.Final[int] = 64_000
+REVIEW_TOOLS_MAX_BYTES: typing.Final[int] = 512_000
 REVIEW_EMPTY_WORKSPACE_REVISION: typing.Final[str] = (
     "sha256:266a24608d21b1d56e6f51f822b3a516b9908a006afd3cacf7366d07b730626f"
 )
 
 _BRANCH_INVALID_CHARS: typing.Final[frozenset[str]] = frozenset("~^:?*[\\")
-_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,64}$")
+_SHA_PATTERN = re.compile(r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
 _REVISION_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 _REFERENCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]+$")
+_TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+
+_REVIEW_FORBIDDEN_TOOL_NAMES: typing.Final[frozenset[str]] = frozenset({
+    "apply_patch",
+    "create_goal",
+    "exec_command",
+    "followup_task",
+    "get_goal",
+    "image_query",
+    "interrupt_agent",
+    "list_agents",
+    "network_access",
+    "request_permissions",
+    "search_query",
+    "send_message",
+    "shell_command",
+    "spawn_agent",
+    "update_goal",
+    "view_image",
+    "wait_agent",
+    "web_search",
+    "write_stdin",
+})
 
 
 def canonical_review_digest(value: JsonValue) -> str:
@@ -171,6 +197,116 @@ def _strict_score(value: JsonValue, label: str) -> float:
     return score
 
 
+def _validate_review_tool(value: JsonObject) -> JsonObject:
+    """严格校验单个 Review 客户端工具的只读 wire 契约。"""
+    payload = _mapping(value, "review tool")
+    _exact_fields(
+        payload,
+        frozenset({"name", "description", "inputSchema", "annotations"}),
+        "review tool",
+    )
+    name = payload["name"]
+    description = payload["description"]
+    if (
+        not isinstance(name, str)
+        or not 1 <= len(name) <= 128
+        or _TOOL_NAME_PATTERN.fullmatch(name) is None
+    ):
+        raise ValueError("review tool name is invalid")
+    if name in _REVIEW_FORBIDDEN_TOOL_NAMES:
+        raise ValueError("review tool is not permitted by the read-only contract")
+    if not isinstance(description, str) or not 1 <= len(description) <= 4_000:
+        raise ValueError("review tool description is invalid")
+
+    input_schema = _mapping(payload["inputSchema"], "review tool inputSchema")
+    if input_schema.get("type") != "object":
+        raise ValueError("review tool inputSchema must describe an object")
+    encoded_schema = json.dumps(
+        input_schema,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    if len(encoded_schema) > REVIEW_TOOL_SCHEMA_MAX_BYTES:
+        raise ValueError("review tool inputSchema exceeds the byte limit")
+
+    annotations = _mapping(payload["annotations"], "review tool annotations")
+    _declared_fields(
+        annotations,
+        required=frozenset({"readOnlyHint"}),
+        allowed=frozenset({
+            "title",
+            "readOnlyHint",
+            "destructiveHint",
+            "idempotentHint",
+            "openWorldHint",
+        }),
+        label="review tool annotations",
+    )
+    if annotations["readOnlyHint"] is not True:
+        raise ValueError("review tools must declare annotations.readOnlyHint=true")
+    for field_name in ("destructiveHint", "openWorldHint"):
+        field_value = annotations.get(field_name)
+        if field_value is not None and field_value is not False:
+            raise ValueError(f"review tool annotations.{field_name} must be false or null")
+    idempotent = annotations.get("idempotentHint")
+    if idempotent is not None and not isinstance(idempotent, bool):
+        raise TypeError("review tool annotations.idempotentHint must be boolean or null")
+    title = annotations.get("title")
+    if title is not None and (
+        not isinstance(title, str)
+        or not 1 <= len(title) <= 240
+    ):
+        raise ValueError("review tool annotations.title is invalid")
+
+    return {
+        "name": name,
+        "description": description,
+        "inputSchema": input_schema,
+        "annotations": annotations,
+    }
+
+
+def _validate_review_metadata(value: JsonObject) -> JsonObject:
+    """严格校验 Review execution 允许携带的会话坐标。"""
+    payload = _mapping(value, "review metadata")
+    _exact_fields(payload, frozenset({"cid", "sid"}), "review metadata")
+    cid = payload["cid"]
+    sid = payload["sid"]
+    if not isinstance(cid, str) or not 1 <= len(cid) <= 64:
+        raise ValueError("review metadata cid is invalid")
+    if not isinstance(sid, str) or not 1 <= len(sid) <= 96:
+        raise ValueError("review metadata sid is invalid")
+    return {"cid": cid, "sid": sid}
+
+
+def _validate_review_llm_conf(value: JsonObject) -> JsonObject:
+    """校验 Review 可在线上传输的唯一模型配置结构。"""
+    payload = _mapping(value, "review llm_conf")
+    _exact_fields(payload, frozenset({"primary"}), "review llm_conf")
+    primary = _mapping(payload["primary"], "review llm_conf primary")
+    allowed = frozenset({
+        "provider",
+        "route",
+        "model",
+        "apikey",
+        "base_url",
+        "reasoning_effort",
+    })
+    unknown = sorted(set(primary).difference(allowed))
+    if unknown:
+        raise ValueError(
+            "review llm_conf primary contains unknown fields: "
+            + ", ".join(unknown)
+        )
+    if any(not isinstance(value, str) for value in primary.values()):
+        raise TypeError("review llm_conf primary fields must be text")
+    route = primary.get("route", "")
+    if route not in {"", "responses", "chat_completions", "messages"}:
+        raise ValueError("review llm_conf primary route is invalid")
+    return {"primary": primary}
+
+
 def _normalize_branch(value: str) -> str:
     """按服务端契约规范化并校验 Git branch ref。"""
     normalized = value.strip()
@@ -211,18 +347,31 @@ class ReviewBaseBranchTarget:
     """声明以指定基础分支为审查基线。"""
 
     branch: str
+    merge_base_sha: str | None = None
     type: typing.Literal["base_branch"] = field(
         default="base_branch",
         init=False,
     )
 
     def __post_init__(self) -> None:
-        """规范化基础分支名称。"""
+        """规范化基础分支名称和客户端冻结的 merge base。"""
         object.__setattr__(self, "branch", _normalize_branch(self.branch))
+        merge_base_sha = self.merge_base_sha
+        if merge_base_sha is not None:
+            if not isinstance(merge_base_sha, str):
+                raise TypeError("review merge base sha must be text or null")
+            normalized_sha = merge_base_sha.strip().lower()
+            if _SHA_PATTERN.fullmatch(normalized_sha) is None:
+                raise ValueError("review merge base sha is invalid")
+            object.__setattr__(self, "merge_base_sha", normalized_sha)
 
     def request_payload(self) -> JsonObject:
         """返回基础分支目标的 wire 对象。"""
-        return {"type": self.type, "branch": self.branch}
+        return {
+            "type": self.type,
+            "branch": self.branch,
+            "merge_base_sha": self.merge_base_sha,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,11 +437,21 @@ def parse_review_target(value: JsonValue) -> ReviewTarget:
         _exact_fields(payload, frozenset({"type"}), "review target")
         return ReviewUncommittedTarget()
     if target_type == "base_branch":
-        _exact_fields(payload, frozenset({"type", "branch"}), "review target")
+        _exact_fields(
+            payload,
+            frozenset({"type", "branch", "merge_base_sha"}),
+            "review target",
+        )
         branch = payload["branch"]
+        merge_base_sha = payload["merge_base_sha"]
         if not isinstance(branch, str):
             raise TypeError("review target branch must be text")
-        return ReviewBaseBranchTarget(branch=branch)
+        if merge_base_sha is not None and not isinstance(merge_base_sha, str):
+            raise TypeError("review target merge_base_sha must be text or null")
+        return ReviewBaseBranchTarget(
+            branch=branch,
+            merge_base_sha=merge_base_sha,
+        )
     if target_type == "commit":
         _declared_fields(
             payload,
@@ -590,29 +749,39 @@ class ReviewExecutionOptions:
     """描述 Review 专用的只读运行参数。"""
 
     llm_conf: JsonObject
-    tools: tuple[JsonObject, ...] | None = None
+    tools: tuple[JsonObject, ...]
     metadata: JsonObject | None = None
 
     def __post_init__(self) -> None:
         """复制运行参数并拒绝未声明为只读的工具。"""
         if not isinstance(self.llm_conf, dict):
             raise TypeError("review llm_conf must be an object")
-        if self.tools is not None and not isinstance(self.tools, tuple):
-            raise TypeError("review tools must be an immutable tuple or null")
+        if not isinstance(self.tools, tuple):
+            raise TypeError("review tools must be an immutable tuple")
+        if not self.tools:
+            raise ValueError("review tools must not be empty")
+        if len(self.tools) > REVIEW_TOOL_MAX_COUNT:
+            raise ValueError("review contains too many tools")
         if self.metadata is not None and not isinstance(self.metadata, dict):
             raise TypeError("review metadata must be an object or null")
-        copied_llm_conf = _copy_json_object(self.llm_conf)
-        copied_tools = (
-            tuple(_copy_json_object(tool) for tool in self.tools)
-            if self.tools is not None
-            else None
+        copied_llm_conf = _validate_review_llm_conf(self.llm_conf)
+        copied_tools = tuple(
+            _validate_review_tool(tool)
+            for tool in self.tools
         )
-        for tool in copied_tools or ():
-            annotations = tool.get("annotations")
-            if not isinstance(annotations, dict) or annotations.get("readOnlyHint") is not True:
-                raise ValueError("review tools must declare annotations.readOnlyHint=true")
+        names = tuple(str(tool["name"]) for tool in copied_tools)
+        if len(names) != len(set(names)):
+            raise ValueError("review tool names must be unique")
+        encoded_tools = json.dumps(
+            copied_tools,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        if len(encoded_tools) > REVIEW_TOOLS_MAX_BYTES:
+            raise ValueError("review tools exceed the aggregate byte limit")
         copied_metadata = (
-            _copy_json_object(self.metadata)
+            _validate_review_metadata(self.metadata)
             if self.metadata is not None
             else None
         )
@@ -628,11 +797,7 @@ class ReviewExecutionOptions:
             "system_message": "",
             "attachments": None,
             "streaming": False,
-            "tools": (
-                [_copy_json_object(tool) for tool in self.tools]
-                if self.tools is not None
-                else None
-            ),
+            "tools": [_copy_json_object(tool) for tool in self.tools],
             "hosted_tools": None,
             "skills": None,
             "sandbox_mode": "read-only",
@@ -676,13 +841,11 @@ def parse_review_execution(value: JsonValue) -> ReviewExecutionOptions:
             raise ValueError(f"review {field_name} is invalid")
     llm_conf = _mapping(payload["llm_conf"], "review llm_conf")
     raw_tools = payload["tools"]
-    tools: tuple[JsonObject, ...] | None
-    if raw_tools is None:
-        tools = None
-    elif isinstance(raw_tools, list):
+    tools: tuple[JsonObject, ...]
+    if isinstance(raw_tools, list):
         tools = tuple(_mapping(item, "review tool") for item in raw_tools)
     else:
-        raise TypeError("review tools must be a list or null")
+        raise TypeError("review tools must be a list")
     raw_metadata = payload["metadata"]
     metadata = (
         None
@@ -719,12 +882,6 @@ class MindReviewRequest:
             raise ValueError("cid and sid must be valid related session identifiers")
         if self.delivery not in {"inline", "detached"}:
             raise ValueError("review delivery is invalid")
-        if (
-            not isinstance(self.target, ReviewCustomTarget)
-            and not self.workspace.patch
-            and not self.workspace.files
-        ):
-            raise ValueError("non-custom review workspace patch or files are required")
         metadata = self.execution.metadata or {}
         for key, expected in (("cid", normalized_cid), ("sid", normalized_sid)):
             supplied = metadata.get(key)
@@ -752,6 +909,32 @@ class MindReviewRequest:
         """生成不包含传输幂等键的稳定请求指纹。"""
         payload = self.request_payload()
         del payload["request_id"]
+        execution = payload.get("execution")
+        if isinstance(execution, dict):
+            llm_conf = execution.get("llm_conf")
+            if isinstance(llm_conf, dict):
+                primary = llm_conf.get("primary")
+                if isinstance(primary, dict):
+                    for field_name in (
+                        "provider",
+                        "route",
+                        "model",
+                        "apikey",
+                        "base_url",
+                        "reasoning_effort",
+                    ):
+                        primary.setdefault(field_name, "")
+            tools = execution.get("tools")
+            if isinstance(tools, list):
+                for tool in tools:
+                    if not isinstance(tool, dict):
+                        continue
+                    annotations = tool.get("annotations")
+                    if isinstance(annotations, dict):
+                        annotations.setdefault("title", None)
+                        annotations.setdefault("destructiveHint", None)
+                        annotations.setdefault("idempotentHint", None)
+                        annotations.setdefault("openWorldHint", None)
         return canonical_review_digest(payload)
 
 

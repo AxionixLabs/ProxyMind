@@ -21,6 +21,7 @@ from .process_tools import (
     UserShellPort,
     WorkspaceProcessPort,
 )
+from .review_workspace import WorkspaceReviewReadPort
 
 __all__ = (
     "CodingFactory",
@@ -53,9 +54,10 @@ class WorkspaceCodingPort(
     CodingRuntime,
     WorkspacePatchPort,
     WorkspaceProcessPort,
+    WorkspaceReviewReadPort,
     typing.Protocol,
 ):
-    """聚合一个工作区内共享生命周期的进程与补丁能力。"""
+    """聚合一个工作区内共享生命周期的进程、补丁与只读审查能力。"""
 
 
 class PatchPreviewPort(typing.Protocol):

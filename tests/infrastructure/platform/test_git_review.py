@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from infrastructure.platform.git_review import (
-    REVIEW_GIT_PATCH_BYTES_CAP,
     ReviewGitError,
     ReviewGitErrorCode,
     WorkspaceReviewGitService,
@@ -17,8 +16,7 @@ from infrastructure.platform.workspace import (
     WorkspaceCommandOutput,
 )
 from protocol.schema.review import (
-    REVIEW_EMPTY_WORKSPACE_REVISION,
-    REVIEW_WORKSPACE_MAX_BYTES,
+    ClientReviewWorkspace,
     ReviewBaseBranchTarget,
     ReviewCommitTarget,
     ReviewCustomTarget,
@@ -104,157 +102,72 @@ async def test_review_catalog_matches_codex_branch_and_commit_order(
 
 
 @pytest.mark.anyio
-async def test_uncommitted_snapshot_includes_staged_unstaged_untracked_and_binary(
+async def test_freeze_resolves_base_and_uses_empty_workspace_for_all_targets(
     tmp_path: Path,
 ) -> None:
     repo = _repository(tmp_path)
-    (repo / "unstaged.txt").write_text("before unstaged\n", encoding="utf-8")
-    (repo / "staged.txt").write_text("before staged\n", encoding="utf-8")
-    _git(repo, "add", "unstaged.txt", "staged.txt")
-    _git(repo, "commit", "-qm", "add tracked files")
-
-    (repo / "unstaged.txt").write_text("after unstaged\n", encoding="utf-8")
-    (repo / "staged.txt").write_text("after staged\n", encoding="utf-8")
-    _git(repo, "add", "staged.txt")
-    (repo / "new file.txt").write_text("new untracked\n", encoding="utf-8")
-    (repo / "binary.dat").write_bytes(b"\x00\x01\x02review\xff")
-
-    service = WorkspaceReviewGitService()
-    first = await service.freeze(repo, ReviewUncommittedTarget())
-    second = await service.freeze(repo, ReviewUncommittedTarget())
-
-    assert "after staged" in first.patch
-    assert "after unstaged" in first.patch
-    assert "new untracked" in first.patch
-    assert "GIT binary patch" in first.patch
-    assert first.files == ()
-    assert second == first
-
-
-@pytest.mark.anyio
-async def test_base_branch_snapshot_uses_merge_base_and_keeps_untracked(
-    tmp_path: Path,
-) -> None:
-    repo = _repository(tmp_path)
-    _git(repo, "checkout", "-qb", "feature/review")
-    (repo / "feature.txt").write_text("feature commit\n", encoding="utf-8")
-    _git(repo, "add", "feature.txt")
-    _git(repo, "commit", "-qm", "feature commit")
-    (repo / "working.txt").write_text("untracked feature\n", encoding="utf-8")
-
-    workspace = await WorkspaceReviewGitService().freeze(
-        repo,
+    initial_sha = _git(repo, "rev-parse", "HEAD")
+    targets = (
         ReviewBaseBranchTarget("main"),
+        ReviewUncommittedTarget(),
+        ReviewCommitTarget(initial_sha, "initial commit"),
+        ReviewCustomTarget("Review architecture."),
     )
 
-    assert "feature commit" in workspace.patch
-    assert "untracked feature" in workspace.patch
-    assert workspace.revision.startswith("sha256:")
-
-
-@pytest.mark.anyio
-async def test_commit_snapshot_supports_root_commit_and_rejects_empty_commit(
-    tmp_path: Path,
-) -> None:
-    repo = _repository(tmp_path)
-    root_sha = _git(repo, "rev-list", "--max-parents=0", "HEAD")
-    service = WorkspaceReviewGitService()
-
-    root = await service.freeze(repo, ReviewCommitTarget(root_sha, "initial commit"))
-
-    assert "initial.txt" in root.patch
-    assert "initial" in root.patch
-
-    _git(repo, "commit", "--allow-empty", "-qm", "empty commit")
-    empty_sha = _git(repo, "rev-parse", "HEAD")
-    with pytest.raises(ReviewGitError) as raised:
-        await service.freeze(repo, ReviewCommitTarget(empty_sha, "empty commit"))
-    assert raised.value.code is ReviewGitErrorCode.EMPTY_DIFF
-
-
-@pytest.mark.anyio
-async def test_clean_custom_is_canonical_empty_but_other_targets_fail(
-    tmp_path: Path,
-) -> None:
-    repo = _repository(tmp_path)
-    service = WorkspaceReviewGitService()
-
-    custom = await service.freeze(repo, ReviewCustomTarget("Review architecture."))
-
-    assert custom.patch == ""
-    assert custom.revision == REVIEW_EMPTY_WORKSPACE_REVISION
-    with pytest.raises(ReviewGitError) as raised:
-        await service.freeze(repo, ReviewUncommittedTarget())
-    assert raised.value.code is ReviewGitErrorCode.EMPTY_DIFF
-
-
-@pytest.mark.anyio
-async def test_review_git_reports_non_repository_and_missing_target(
-    tmp_path: Path,
-) -> None:
-    service = WorkspaceReviewGitService()
-    with pytest.raises(ReviewGitError) as not_git:
-        await service.branch_catalog(tmp_path)
-    assert not_git.value.code is ReviewGitErrorCode.NOT_GIT_REPOSITORY
-
-    repo = _repository(tmp_path)
-    with pytest.raises(ReviewGitError) as missing:
-        await service.freeze(repo, ReviewBaseBranchTarget("missing"))
-    assert missing.value.code is ReviewGitErrorCode.TARGET_MISSING
-
-
-@pytest.mark.anyio
-async def test_review_git_rejects_non_utf8_text_diff_as_named_invalid_output(
-    tmp_path: Path,
-) -> None:
-    repo = _repository(tmp_path)
-    path = repo / "encoding.txt"
-    path.write_bytes(b"before\n")
-    _git(repo, "add", "encoding.txt")
-    _git(repo, "commit", "-qm", "add encoding fixture")
-    path.write_bytes(b"\xffafter\n")
-
-    with pytest.raises(ReviewGitError) as raised:
-        await WorkspaceReviewGitService().freeze(
-            repo,
-            ReviewUncommittedTarget(),
-        )
-
-    assert raised.value.code is ReviewGitErrorCode.INVALID_OUTPUT
-
-
-@pytest.mark.anyio
-async def test_review_git_commands_are_noninteractive_bounded_and_filter_safe(
-    tmp_path: Path,
-) -> None:
-    head = "a" * 40
-    runner = FakeRunner([
-        _output(stdout="true\n"),
-        _output(stdout="filter.evil.clean\0filter.evil.process\0"),
-        _output(stdout=head + "\n"),
-        _output(stdout="diff --git a/a.py b/a.py\n"),
-        _output(stdout=""),
+    results = tuple([
+        await WorkspaceReviewGitService().freeze(repo, target)
+        for target in targets
     ])
 
-    workspace = await WorkspaceReviewGitService(runner).freeze(
-        tmp_path,
-        ReviewUncommittedTarget(),
-    )
+    assert results[0].target == ReviewBaseBranchTarget("main", initial_sha)
+    assert tuple(item.target for item in results[1:]) == targets[1:]
+    assert all(item.workspace == ClientReviewWorkspace.create() for item in results)
 
-    assert workspace.patch.startswith("diff --git")
-    diff_command = runner.commands[3]
-    assert diff_command.argv[:2] == ("git", "--no-pager")
-    assert "core.fsmonitor=false" in diff_command.argv
-    assert any(value.startswith("core.hooksPath=") for value in diff_command.argv)
-    assert "--binary" in diff_command.argv
-    assert "--no-textconv" in diff_command.argv
-    assert "--no-ext-diff" in diff_command.argv
-    assert diff_command.timeout_sec == 30.0
-    assert diff_command.output_bytes_cap == REVIEW_GIT_PATCH_BYTES_CAP
-    assert diff_command.require_utf8_output is True
-    assert ("GIT_TERMINAL_PROMPT", "0") in diff_command.env
-    assert ("GIT_EXTERNAL_DIFF", None) in diff_command.env
-    assert ("GIT_CONFIG_COUNT", "3") in diff_command.env
+
+@pytest.mark.anyio
+async def test_clean_main_and_empty_commit_remain_valid_review_targets(
+    tmp_path: Path,
+) -> None:
+    repo = _repository(tmp_path)
+    _git(repo, "commit", "--allow-empty", "-qm", "empty commit")
+    empty_sha = _git(repo, "rev-parse", "HEAD")
+    service = WorkspaceReviewGitService()
+
+    base = await service.freeze(repo, ReviewBaseBranchTarget("main"))
+    commit = await service.freeze(repo, ReviewCommitTarget(empty_sha, "empty commit"))
+    uncommitted = await service.freeze(repo, ReviewUncommittedTarget())
+
+    assert base.target == ReviewBaseBranchTarget("main", empty_sha)
+    assert commit.target == ReviewCommitTarget(empty_sha, "empty commit")
+    assert uncommitted.workspace == ClientReviewWorkspace.create()
+
+
+@pytest.mark.anyio
+async def test_missing_branch_and_unborn_head_freeze_null_merge_base(
+    tmp_path: Path,
+) -> None:
+    repo = _repository(tmp_path)
+    missing = await WorkspaceReviewGitService().freeze(
+        repo,
+        ReviewBaseBranchTarget("missing"),
+    )
+    assert missing.target == ReviewBaseBranchTarget("missing", None)
+
+    unborn = tmp_path / "unborn"
+    unborn.mkdir()
+    _git(unborn, "init", "-q")
+    result = await WorkspaceReviewGitService().freeze(
+        unborn,
+        ReviewBaseBranchTarget("main"),
+    )
+    assert result.target == ReviewBaseBranchTarget("main", None)
+
+
+@pytest.mark.anyio
+async def test_review_git_reports_non_repository(tmp_path: Path) -> None:
+    with pytest.raises(ReviewGitError) as raised:
+        await WorkspaceReviewGitService().branch_catalog(tmp_path)
+    assert raised.value.code is ReviewGitErrorCode.NOT_GIT_REPOSITORY
 
 
 @pytest.mark.anyio
@@ -267,46 +180,31 @@ async def test_base_branch_prefers_upstream_sha_when_remote_is_ahead(
     merge_base = "d" * 40
     runner = FakeRunner([
         _output(stdout="true\n"),
-        _output(exit_code=1),
         _output(stdout=head + "\n"),
         _output(stdout=local_base + "\n"),
         _output(stdout="origin/main\n"),
         _output(stdout="0\t1\n"),
         _output(stdout=remote_base + "\n"),
         _output(stdout=merge_base + "\n"),
-        _output(stdout="diff --git a/a.py b/a.py\n"),
-        _output(stdout=""),
     ])
 
-    await WorkspaceReviewGitService(runner).freeze(
+    result = await WorkspaceReviewGitService(runner).freeze(
         tmp_path,
         ReviewBaseBranchTarget("main"),
     )
 
-    merge_base_command = runner.commands[7]
+    assert result.target == ReviewBaseBranchTarget("main", merge_base)
+    merge_base_command = runner.commands[6]
     assert merge_base_command.argv[-3:] == (
         "merge-base",
         head,
         remote_base,
     )
+    assert merge_base_command.timeout_sec == 30.0
+    assert merge_base_command.require_utf8_output is True
+    assert ("GIT_TERMINAL_PROMPT", "0") in merge_base_command.env
+    assert ("GIT_EXTERNAL_DIFF", None) in merge_base_command.env
 
 
-@pytest.mark.anyio
-async def test_review_git_rejects_patch_beyond_service_byte_limit(
-    tmp_path: Path,
-) -> None:
-    head = "a" * 40
-    runner = FakeRunner([
-        _output(stdout="true\n"),
-        _output(exit_code=1),
-        _output(stdout=head + "\n"),
-        _output(stdout="x" * (REVIEW_WORKSPACE_MAX_BYTES + 1)),
-    ])
-
-    with pytest.raises(ReviewGitError) as raised:
-        await WorkspaceReviewGitService(runner).freeze(
-            tmp_path,
-            ReviewUncommittedTarget(),
-        )
-
-    assert raised.value.code is ReviewGitErrorCode.SNAPSHOT_TOO_LARGE
+if __name__ == '__main__':
+    pass

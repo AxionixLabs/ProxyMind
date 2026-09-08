@@ -423,6 +423,29 @@ def test_native_shell_start_and_result_use_running_then_ran_titles() -> None:
     assert result.plain_text.startswith("• Ran echo ready\n")
 
 
+def test_review_repository_read_uses_native_git_trace_titles() -> None:
+    arguments = {"operation": "status"}
+    start = render_tool_start_view(build_tool_start_view(
+        "read_repository",
+        arguments,
+        call_id="review-read-call",
+    ))
+    result = render_native_tool_result_view(build_native_tool_result_view(
+        "read_repository",
+        arguments,
+        ok=True,
+        data={
+            "command": "git status --short",
+            "output_lines": [" M source.py"],
+            "exit_code": 0,
+        },
+        call_id="review-read-call",
+    ))[0]
+
+    assert start.plain_text == "• Running git status --short"
+    assert result.plain_text.startswith("• Ran git status --short\n")
+
+
 def test_shell_result_aligns_following_output_lines_under_preview() -> None:
     view = build_native_tool_result_view(
         "shell_command",

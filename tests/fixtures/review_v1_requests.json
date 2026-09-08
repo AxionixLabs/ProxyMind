@@ -1,0 +1,145 @@
+{
+  "protocol": "mind-review/1",
+  "cases": [
+    {
+      "name": "uncommitted_empty_workspace",
+      "expected_fingerprint": "b31e264c7171ca23430f4e067f90fb812d7041498fa48315cd82d915e856748e",
+      "request": {
+        "request_id": "review_fixture_uncommitted",
+        "cid": "cid_fixture_12345678",
+        "sid": "sid_fixture_x_abcdef",
+        "turn_id": "turn_fixture_uncommitted",
+        "target": {"type": "uncommitted_changes"},
+        "delivery": "inline",
+        "workspace": {
+          "source": "client",
+          "revision": "sha256:266a24608d21b1d56e6f51f822b3a516b9908a006afd3cacf7366d07b730626f",
+          "patch": "",
+          "files": []
+        },
+        "execution": {
+          "llm_conf": {"primary": {"provider": "openai", "route": "responses", "model": "gpt-test", "apikey": "", "base_url": "", "reasoning_effort": ""}},
+          "additional_context": [],
+          "system_message": "",
+          "attachments": null,
+          "streaming": false,
+          "tools": [{
+            "name": "read_file",
+            "description": "Read a UTF-8 repository file.",
+            "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"], "additionalProperties": false},
+            "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
+          }],
+          "hosted_tools": null,
+          "skills": null,
+          "sandbox_mode": "read-only",
+          "metadata": {"cid": "cid_fixture_12345678", "sid": "sid_fixture_x_abcdef"}
+        }
+      }
+    },
+    {
+      "name": "base_branch_empty_workspace",
+      "expected_fingerprint": "ab7259a16a5756f7800155a02e614ae890b5fbba38edbcb071f45239ca5ad153",
+      "request": {
+        "request_id": "review_fixture_base",
+        "cid": "cid_fixture_12345678",
+        "sid": "sid_fixture_x_abcdef",
+        "turn_id": "turn_fixture_base",
+        "target": {"type": "base_branch", "branch": "main", "merge_base_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "delivery": "inline",
+        "workspace": {
+          "source": "client",
+          "revision": "sha256:266a24608d21b1d56e6f51f822b3a516b9908a006afd3cacf7366d07b730626f",
+          "patch": "",
+          "files": []
+        },
+        "execution": {
+          "llm_conf": {"primary": {"provider": "openai", "route": "responses", "model": "gpt-test", "apikey": "", "base_url": "", "reasoning_effort": ""}},
+          "additional_context": [],
+          "system_message": "",
+          "attachments": null,
+          "streaming": false,
+          "tools": [{
+            "name": "read_file",
+            "description": "Read a UTF-8 repository file.",
+            "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"], "additionalProperties": false},
+            "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
+          }],
+          "hosted_tools": null,
+          "skills": null,
+          "sandbox_mode": "read-only",
+          "metadata": {"cid": "cid_fixture_12345678", "sid": "sid_fixture_x_abcdef"}
+        }
+      }
+    },
+    {
+      "name": "commit_empty_workspace",
+      "expected_fingerprint": "13ebc3da1bca921bf76fd6d9a51d50a5c49c4159c076a21a467543f55530d37c",
+      "request": {
+        "request_id": "review_fixture_commit",
+        "cid": "cid_fixture_12345678",
+        "sid": "sid_fixture_x_abcdef",
+        "turn_id": "turn_fixture_commit",
+        "target": {"type": "commit", "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "title": "Review fixture commit"},
+        "delivery": "inline",
+        "workspace": {
+          "source": "client",
+          "revision": "sha256:266a24608d21b1d56e6f51f822b3a516b9908a006afd3cacf7366d07b730626f",
+          "patch": "",
+          "files": []
+        },
+        "execution": {
+          "llm_conf": {"primary": {"provider": "openai", "route": "responses", "model": "gpt-test", "apikey": "", "base_url": "", "reasoning_effort": ""}},
+          "additional_context": [],
+          "system_message": "",
+          "attachments": null,
+          "streaming": false,
+          "tools": [{
+            "name": "read_file",
+            "description": "Read a UTF-8 repository file.",
+            "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"], "additionalProperties": false},
+            "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
+          }],
+          "hosted_tools": null,
+          "skills": null,
+          "sandbox_mode": "read-only",
+          "metadata": {"cid": "cid_fixture_12345678", "sid": "sid_fixture_x_abcdef"}
+        }
+      }
+    },
+    {
+      "name": "custom_empty_workspace",
+      "expected_fingerprint": "2210251b261e29de7490b938d9c542d6ba7de6beb645e25b220828a301e029fa",
+      "request": {
+        "request_id": "review_fixture_custom",
+        "cid": "cid_fixture_12345678",
+        "sid": "sid_fixture_x_abcdef",
+        "turn_id": "turn_fixture_custom",
+        "target": {"type": "custom", "instructions": "Focus on durable lifecycle races."},
+        "delivery": "inline",
+        "workspace": {
+          "source": "client",
+          "revision": "sha256:266a24608d21b1d56e6f51f822b3a516b9908a006afd3cacf7366d07b730626f",
+          "patch": "",
+          "files": []
+        },
+        "execution": {
+          "llm_conf": {"primary": {"provider": "openai", "route": "responses", "model": "gpt-test", "apikey": "", "base_url": "", "reasoning_effort": ""}},
+          "additional_context": [],
+          "system_message": "",
+          "attachments": null,
+          "streaming": false,
+          "tools": [{
+            "name": "read_file",
+            "description": "Read a UTF-8 repository file.",
+            "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"], "additionalProperties": false},
+            "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
+          }],
+          "hosted_tools": null,
+          "skills": null,
+          "sandbox_mode": "read-only",
+          "metadata": {"cid": "cid_fixture_12345678", "sid": "sid_fixture_x_abcdef"}
+        }
+      }
+    }
+  ]
+}

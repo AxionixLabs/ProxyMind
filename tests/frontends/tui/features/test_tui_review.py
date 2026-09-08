@@ -440,7 +440,11 @@ def test_review_target_hint_uses_the_same_typed_source() -> None:
 async def test_inline_review_dispatch_freezes_typed_input_without_menu() -> None:
     views = []
     workspace = ClientReviewWorkspace.create()
-    snapshot = AsyncMock(return_value=workspace)
+    resolved = SimpleNamespace(
+        target=ReviewCustomTarget("focus on races"),
+        workspace=workspace,
+    )
+    snapshot = AsyncMock(return_value=resolved)
     host = SimpleNamespace(
         frontend=SimpleNamespace(
             application=SimpleNamespace(emit=views.append),
@@ -454,7 +458,7 @@ async def test_inline_review_dispatch_freezes_typed_input_without_menu() -> None
         SimpleNamespace(),
         protocol_client=Mock(spec=ProtocolCommandClient),
         review_catalog=_Catalog(),
-        review_snapshot=SimpleNamespace(freeze=snapshot),
+        review_preparation=SimpleNamespace(freeze=snapshot),
     )
 
     action = await dispatcher.dispatch("/review  focus on races  ")
@@ -471,12 +475,12 @@ async def test_inline_review_dispatch_freezes_typed_input_without_menu() -> None
 
 
 @pytest.mark.anyio
-async def test_review_snapshot_limit_is_visible_before_turn_creation() -> None:
-    """确保快照超限只产生明确错误且不留下待执行 Review。"""
+async def test_review_target_resolution_failure_is_visible_before_turn_creation() -> None:
+    """确保目标解析失败只产生明确错误且不留下待执行 Review。"""
     views = []
     snapshot = AsyncMock(side_effect=ReviewGitError(
-        ReviewGitErrorCode.SNAPSHOT_TOO_LARGE,
-        "Review snapshot exceeds the aggregate size limit.",
+        ReviewGitErrorCode.COMMAND_FAILED,
+        "Review target resolution failed.",
     ))
     host = SimpleNamespace(
         frontend=SimpleNamespace(
@@ -491,7 +495,7 @@ async def test_review_snapshot_limit_is_visible_before_turn_creation() -> None:
         SimpleNamespace(),
         protocol_client=Mock(spec=ProtocolCommandClient),
         review_catalog=_Catalog(),
-        review_snapshot=SimpleNamespace(freeze=snapshot),
+        review_preparation=SimpleNamespace(freeze=snapshot),
     )
 
     action = await dispatcher.dispatch("/review focus on size boundaries")
@@ -504,7 +508,7 @@ async def test_review_snapshot_limit_is_visible_before_turn_creation() -> None:
     )
     assert visible.endswith(
         "Unable to prepare review: "
-        "Review snapshot exceeds the aggregate size limit."
+        "Review target resolution failed."
     )
     with pytest.raises(RuntimeError, match="not available"):
         dispatcher.take_prepared_review()

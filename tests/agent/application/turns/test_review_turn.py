@@ -113,10 +113,11 @@ def _catalog():
             "meta": {
                 "client_builtin": True,
                 "domain": "coding",
-                "class": "shell",
+                "class": "review_read",
+                "review_read_only": True,
             },
         }
-        for name in ("shell_command", "exec_command", "write_stdin")
+        for name in ("read_file", "read_repository")
     ]
 
 
@@ -128,18 +129,13 @@ def _command(*, target=None):
     resolved_target = target or ReviewCustomTarget(
         "Focus on lifecycle correctness."
     )
-    workspace = (
-        ClientReviewWorkspace.create()
-        if isinstance(resolved_target, ReviewCustomTarget)
-        else ClientReviewWorkspace.create(patch="diff --git a/a b/a\n")
-    )
     return create_review_command(
         local_session_id="tui_session_01",
         cid=CID,
         sid=SID,
         turn_id=TURN_ID,
         target=resolved_target,
-        workspace=workspace,
+        workspace=ClientReviewWorkspace.create(),
         pref_config={"primary": {"model": "test-model"}},
         environment_snapshot={"platform": "test"},
         tools=_tools(),
@@ -253,24 +249,33 @@ def test_create_review_command_projects_only_wire_llm_fields_and_tools() -> None
         },
     }
     assert [tool["name"] for tool in execution["tools"]] == [
-        "exec_command",
-        "shell_command",
-        "write_stdin",
+        "read_file",
+        "read_repository",
     ]
     assert all(
-        tool["annotations"] == {"readOnlyHint": True}
+        tool["annotations"] == {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+        }
         for tool in execution["tools"]
     )
+    assert all("meta" not in tool for tool in execution["tools"])
     assert execution["hosted_tools"] is None
 
 
 def test_review_wire_tools_reject_missing_or_non_client_capabilities() -> None:
-    with pytest.raises(RuntimeError, match="shell_command"):
+    with pytest.raises(RuntimeError, match="read_file"):
         review_wire_tools(_catalog()[1:])
 
     catalog = _catalog()
     catalog[0]["meta"]["external"] = True
-    with pytest.raises(RuntimeError, match="shell_command"):
+    with pytest.raises(RuntimeError, match="read_file"):
+        review_wire_tools(catalog)
+
+    catalog = _catalog()
+    catalog[0]["meta"].pop("review_read_only")
+    with pytest.raises(RuntimeError, match="read-only policy proof"):
         review_wire_tools(catalog)
 
 
@@ -289,9 +294,8 @@ async def test_discover_review_tools_uses_one_runtime_catalog() -> None:
     )
 
     assert {tool["name"] for tool in tools} == {
-        "shell_command",
-        "exec_command",
-        "write_stdin",
+        "read_file",
+        "read_repository",
     }
 
 

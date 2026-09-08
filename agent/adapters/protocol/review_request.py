@@ -10,7 +10,7 @@ from protocol.schema.review import (
 
 __all__ = (
     "build_review_stream_request",
-    "require_review_code_context",
+    "require_review_tools",
     "wire_review_request",
 )
 
@@ -32,13 +32,13 @@ def wire_review_request(request: ReviewStreamRequest) -> MindReviewRequest:
     return parse_mind_review_request(request.to_dict())
 
 
-def require_review_code_context(request: ReviewStreamRequest) -> None:
-    """拒绝既无快照内容也无只读检索能力的 Review。"""
-    if request.has_workspace_content or request.has_read_only_tools:
+def require_review_tools(request: ReviewStreamRequest) -> None:
+    """拒绝没有冻结只读仓库能力的 Review 请求。"""
+    if request.has_read_only_tools:
         return
     raise ModelCapabilityError(
-        "review_code_context_unavailable",
-        "Custom review requires workspace content or a read-only code tool.",
+        "review_tools_unavailable",
+        "Review requires a frozen read-only repository tool catalog.",
         details={"submission_unknown": False},
     )
 

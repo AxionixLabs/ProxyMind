@@ -79,7 +79,7 @@ from protocol.schema.durable_queue import DurableQueueItem as _WireQueueItem
 from protocol.schema.tool_approval import ToolApprovalSnapshot as _WireApprovalSnapshot
 from .items import CanonicalItemReducer
 from .review_request import (
-    require_review_code_context,
+    require_review_tools,
     wire_review_request,
 )
 from .review_stream import ReviewStreamValidator
@@ -349,7 +349,7 @@ class MindChatProtocolClient:
     ) -> ModelEventStream:
         """可靠登记冻结 Review 请求并观察回执确认的 Turn。"""
         try:
-            require_review_code_context(request)
+            require_review_tools(request)
             submission = await _submit_review(
                 wire_review_request(request),
                 on_recovery_status=on_recovery_status,

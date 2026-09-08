@@ -4,6 +4,7 @@
 from agent.application.tools.definitions import ClientTool
 from agent.application.tools.patching import patch_tools
 from agent.application.tools.processes import process_tools
+from agent.application.tools.review_reads import review_read_tools
 from agent.ports.workspace import WorkspaceCodingPort
 
 __all__ = ("coding_tools",)
@@ -14,8 +15,9 @@ def coding_tools(
     *,
     exec_permission_approvals_enabled: bool = False,
 ) -> list[ClientTool]:
-    """组合共享同一工作区生命周期的进程和补丁工具能力族。"""
+    """组合共享同一工作区生命周期的只读、进程和补丁工具能力族。"""
     return [
+        *review_read_tools(coding),
         *process_tools(
             coding,
             exec_permission_approvals_enabled=exec_permission_approvals_enabled,

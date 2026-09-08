@@ -43,6 +43,16 @@ REQUEST_ID = "review_request_01"
 REVIEW_ITEM_ID = "review_item_01"
 
 
+def _tools() -> tuple[dict, ...]:
+    """构造最小严格只读工具目录。"""
+    return ({
+        "name": "read_file",
+        "description": "Read a UTF-8 repository file.",
+        "inputSchema": {"type": "object"},
+        "annotations": {"readOnlyHint": True},
+    },)
+
+
 class _ReviewWireStream:
     """提供可控制终态的 Review wire 流测试替身。"""
 
@@ -72,7 +82,7 @@ class _ReviewWireStream:
         self.recovery_probe_requested = True
 
 
-def _wire_request(*, patch: str = "diff --git a/a.py b/a.py\n") -> MindReviewRequest:
+def _wire_request(*, patch: str = "") -> MindReviewRequest:
     """构造可由客户端持久化的 inline Review 请求。"""
     return MindReviewRequest(
         request_id=REQUEST_ID,
@@ -83,6 +93,7 @@ def _wire_request(*, patch: str = "diff --git a/a.py b/a.py\n") -> MindReviewReq
         workspace=ClientReviewWorkspace.create(patch=patch),
         execution=ReviewExecutionOptions(
             llm_conf={"primary": {"model": "test-model"}},
+            tools=_tools(),
             metadata={"cid": CID, "sid": SID},
         ),
     )
@@ -232,20 +243,19 @@ async def test_review_observation_replays_without_resubmitting(
 
 
 @pytest.mark.anyio
-async def test_review_capability_rejects_empty_custom_before_http(
+async def test_review_capability_submits_empty_workspace_with_read_only_tools(
     monkeypatch,
 ) -> None:
-    """确保无快照且无只读工具时不发送 HTTP 请求。"""
-    submit = AsyncMock()
+    """确保规范空 workspace 由冻结只读工具提供代码观察能力。"""
+    submit = AsyncMock(return_value=_submission(_events()))
     monkeypatch.setattr(review_adapter, "_submit_review", submit)
-    request = build_review_stream_request(_wire_request(patch=""))
+    request = build_review_stream_request(_wire_request())
 
-    with pytest.raises(ModelCapabilityError) as raised:
-        await MindChatProtocolClient().review(request)
+    stream = await MindChatProtocolClient().review(request)
+    delivered = [event async for event in stream]
 
-    assert raised.value.code == "review_code_context_unavailable"
-    assert raised.value.details["submission_unknown"] is False
-    submit.assert_not_awaited()
+    assert delivered[-1].type == "turn.completed"
+    submit.assert_awaited_once()
 
 
 @pytest.mark.anyio

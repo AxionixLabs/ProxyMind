@@ -22,6 +22,16 @@ TURN_ID = "turn_review_01"
 REQUEST_ID = "review_request_01"
 
 
+def _tools() -> tuple[dict, ...]:
+    """构造最小严格只读工具目录。"""
+    return ({
+        "name": "read_file",
+        "description": "Read a UTF-8 repository file.",
+        "inputSchema": {"type": "object"},
+        "annotations": {"readOnlyHint": True},
+    },)
+
+
 def _request() -> MindReviewRequest:
     """构造最小 inline Review 请求。"""
     return MindReviewRequest(
@@ -33,6 +43,7 @@ def _request() -> MindReviewRequest:
         workspace=ClientReviewWorkspace.create(),
         execution=ReviewExecutionOptions(
             llm_conf={"primary": {"model": "test"}},
+            tools=_tools(),
             metadata={"cid": CID, "sid": SID},
         ),
     )

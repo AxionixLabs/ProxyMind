@@ -60,8 +60,11 @@ def render_tool_start_trace(
     if kind is ToolDisplayKind.JAVASCRIPT_RESET:
         return "• Resetting JavaScript"
     if kind is ToolDisplayKind.SHELL:
+        command_value = arguments.get("command")
+        if name == "read_repository":
+            command_value = _review_repository_command(arguments)
         command = _shell_command_title(
-            arguments.get("command"),
+            command_value,
             title_prefix=SHELL_TRACE_TITLE_PREFIX,
             terminal_width=terminal_width,
             measure_width=measure_width,
@@ -280,6 +283,49 @@ def render_tool_trace(
     detail = f" {summary}" if summary else ""
 
     return f"• Ran {name}{detail}"
+
+
+def _review_repository_command(arguments: dict[str, typing.Any]) -> list[str]:
+    """把结构化 Review 仓库读取参数投影为用户可见 Git 摘要。"""
+    operation = str(arguments.get("operation") or "").strip()
+    revision = str(arguments.get("revision") or "").strip()
+    other_revision = str(arguments.get("other_revision") or "").strip()
+    raw_paths = arguments.get("paths")
+    paths = (
+        [str(path) for path in raw_paths]
+        if isinstance(raw_paths, list)
+        else []
+    )
+    if operation == "status":
+        command = ["git", "status", "--short"]
+    elif operation == "diff":
+        command = ["git", "diff"]
+        if arguments.get("staged") is True:
+            command.append("--cached")
+        if revision:
+            command.append(revision)
+    elif operation == "show":
+        command = ["git", "show"]
+        if revision:
+            command.append(revision)
+    elif operation == "merge_base":
+        command = ["git", "merge-base"]
+        command.extend(value for value in (revision, other_revision) if value)
+    elif operation == "log":
+        command = ["git", "log", "-n", str(arguments.get("max_count") or 20)]
+        if revision:
+            command.append(revision)
+    elif operation == "list_files":
+        command = (
+            ["git", "ls-tree", "-r", "--name-only", revision]
+            if revision
+            else ["git", "ls-files"]
+        )
+    else:
+        return ["git", operation or "inspect"]
+    if paths:
+        command.extend(("--", *paths))
+    return command
 
 
 def _shell_command_error_context_lines(

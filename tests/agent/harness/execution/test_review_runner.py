@@ -127,13 +127,13 @@ def _catalog() -> list[dict]:
             "meta": {
                 "client_builtin": True,
                 "domain": "coding",
-                "class": "shell",
+                "class": "review_read",
+                "review_read_only": True,
             },
         }
         for name in (
-            "shell_command",
-            "exec_command",
-            "write_stdin",
+            "read_file",
+            "read_repository",
             "apply_patch",
         )
     ]
@@ -218,9 +218,8 @@ async def test_review_runner_uses_standard_harness_and_foreground_lifecycle(
     assert isinstance(captured["turn_source"], SubmittingReviewTurnStreamSource)
     assert isinstance(captured["event_projection"], ReviewEventProjector)
     assert {tool["name"] for tool in captured["tools"]} == {
-        "exec_command",
-        "shell_command",
-        "write_stdin",
+        "read_file",
+        "read_repository",
     }
     assert captured["exec_env"] == {"PATH": "D:/tools"}
     assert lifecycle.actions == [

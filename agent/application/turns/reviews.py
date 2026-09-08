@@ -120,16 +120,25 @@ def review_wire_tools(
         tool = by_name.get(name)
         if tool is None:
             continue
-        payload: JsonObject = dict(tool)
-        raw_annotations = payload.get("annotations")
-        annotations = (
-            dict(raw_annotations)
-            if isinstance(raw_annotations, dict)
-            else {}
-        )
-        annotations["readOnlyHint"] = True
-        payload["annotations"] = annotations
-        frozen.append(payload)
+        meta = tool.get("meta")
+        if not isinstance(meta, dict) or meta.get("review_read_only") is not True:
+            raise RuntimeError(
+                f"review tool does not have a read-only policy proof: {name}"
+            )
+        description = tool.get("description")
+        input_schema = tool.get("inputSchema")
+        if not isinstance(description, str) or not isinstance(input_schema, dict):
+            raise RuntimeError(f"review tool definition is invalid: {name}")
+        frozen.append({
+            "name": name,
+            "description": description,
+            "inputSchema": dict(input_schema),
+            "annotations": {
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "openWorldHint": False,
+            },
+        })
     return tuple(frozen)
 
 

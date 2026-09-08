@@ -8,6 +8,11 @@ from agent.domain.patches.parsing import PatchParser
 from agent.ports.capabilities import SandboxMode
 from agent.ports.process_tools import EXEC_COMMAND_DEFAULT_YIELD_MS
 from agent.ports.process_tools import WRITE_STDIN_DEFAULT_WAIT_MS
+from agent.ports.review_workspace import (
+    ReviewFileRead,
+    ReviewRepositoryOperation,
+    ReviewRepositoryRead,
+)
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.workspace.commands.audit import WorkspaceFileAudit
 from infrastructure.workspace.commands.process import ProcessCommandExecutor
@@ -20,6 +25,7 @@ from infrastructure.workspace.patches.diagnostics import PatchDiagnostics
 from infrastructure.workspace.patches.operations import TextPatchOperations
 from infrastructure.workspace.patches.planner import PatchPlanner
 from infrastructure.workspace.patches.tracker import WorkspaceDiffTracker
+from infrastructure.workspace.review_reader import ReviewWorkspaceReader
 
 
 class WorkspaceCoding(WorkspaceContext):
@@ -76,6 +82,41 @@ class WorkspaceCoding(WorkspaceContext):
             command_policy=self._command_policy,
             file_audit=self._file_audit,
             sessions=self._process_sessions,
+        )
+        self._review_reader = ReviewWorkspaceReader(self.root)
+
+    async def read_repository(
+        self,
+        *,
+        operation: ReviewRepositoryOperation,
+        revision: str | None = None,
+        other_revision: str | None = None,
+        staged: bool = False,
+        paths: tuple[str, ...] = (),
+        max_count: int = 20,
+    ) -> ReviewRepositoryRead:
+        """执行 Review 专用的结构化只读 Git 查询。"""
+        return await self._review_reader.read_repository(
+            operation=operation,
+            revision=revision,
+            other_revision=other_revision,
+            staged=staged,
+            paths=paths,
+            max_count=max_count,
+        )
+
+    async def read_file(
+        self,
+        *,
+        path: str,
+        start_line: int = 1,
+        max_lines: int = 200,
+    ) -> ReviewFileRead:
+        """读取 Review 专用的有界 UTF-8 工作区文件。"""
+        return await self._review_reader.read_file(
+            path=path,
+            start_line=start_line,
+            max_lines=max_lines,
         )
 
     async def shell_command(

@@ -270,10 +270,11 @@ def _catalog():
             "meta": {
                 "client_builtin": True,
                 "domain": "coding",
-                "class": "shell",
+                "class": "review_read",
+                "review_read_only": True,
             },
         }
-        for name in ("shell_command", "exec_command", "write_stdin")
+        for name in ("read_file", "read_repository")
     ]
 
 
@@ -326,8 +327,8 @@ def _events():
             type="tool.call",
             event_seq=6,
             call_id="call_review",
-            name="exec_command",
-            arguments={"cmd": "git status --short"},
+            name="read_repository",
+            arguments={"operation": "status"},
             **common,
         ),
         ToolCallsDoneEvent(

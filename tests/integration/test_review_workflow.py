@@ -59,6 +59,7 @@ from protocol.schema.review import (
     ReviewSession,
     ReviewTarget,
     ReviewUncommittedTarget,
+    parse_mind_review_request,
 )
 from protocol.schema.stream_events import (
     ReviewCancelledEvent,
@@ -99,10 +100,11 @@ def _review_tools():
             "meta": {
                 "client_builtin": True,
                 "domain": "coding",
-                "class": "shell",
+                "class": "review_read",
+                "review_read_only": True,
             },
         }
-        for name in ("shell_command", "exec_command", "write_stdin")
+        for name in ("read_file", "read_repository")
     ]
     return review_wire_tools(catalog)
 
@@ -286,7 +288,7 @@ async def _choose_target(
 
 
 def _review_payloads(
-    target: ReviewCustomTarget,
+    target: ReviewTarget,
     workspace: ClientReviewWorkspace,
 ) -> tuple[JsonObject, JsonObject, JsonObject]:
     """构造可经 wire parser 校验的 Review 完整事件序列。"""
@@ -335,6 +337,122 @@ def _review_payloads(
         "completed_at": 1.0,
     }
     return started, completed, terminal
+
+
+@pytest.mark.runtime_p0
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("target", "receipt_status"),
+    (
+        (ReviewUncommittedTarget(), "accepted"),
+        (ReviewBaseBranchTarget("main", "a" * 40), "idempotent"),
+        (ReviewCommitTarget("b" * 40, "Fixture commit"), "accepted"),
+        (ReviewCustomTarget("Focus on lifecycle boundaries"), "idempotent"),
+    ),
+)
+async def test_controllable_protocol_accepts_all_empty_workspace_targets(
+    monkeypatch,
+    target: ReviewTarget,
+    receipt_status: str,
+) -> None:
+    """验证四类正式 wire 请求均可登记并完成同一 Review 事件链。"""
+    workspace = ClientReviewWorkspace.create()
+    command = create_review_command(
+        local_session_id="session_review_target_matrix",
+        cid=CID,
+        sid=SID,
+        turn_id=TURN_ID,
+        target=target,
+        workspace=workspace,
+        pref_config={"primary": {"model": "test-model"}},
+        environment_snapshot=None,
+        tools=_review_tools(),
+    )
+    event_payloads = _review_payloads(target, workspace)
+    submitted = []
+
+    async def register(
+        _url: str,
+        *,
+        headers: dict[str, str],
+        payload: JsonObject,
+        timeout: float,
+    ) -> httpx.Response:
+        """严格解析请求并返回 accepted 或 idempotent 回执。"""
+        assert headers == {"authorization": "test"}
+        assert timeout == 60.0
+        parsed = parse_mind_review_request(payload)
+        assert parsed.target == target
+        assert parsed.workspace == workspace
+        assert parsed.execution.tools
+        assert all("meta" not in tool for tool in payload["execution"]["tools"])
+        submitted.append(parsed)
+        return httpx.Response(
+            202,
+            json={
+                "ok": True,
+                "data": {
+                    "request_id": command.request.request_id,
+                    "status": receipt_status,
+                    "cid": CID,
+                    "sid": SID,
+                    "turn_id": TURN_ID,
+                    "review_session": {"cid": CID, "sid": SID},
+                    "delivery": "inline",
+                },
+            },
+            request=httpx.Request("POST", "https://example.test/mind-review"),
+        )
+
+    async def streaming(
+        _url: str,
+        _headers: dict[str, str],
+        _payload: JsonObject,
+        _timeout: float,
+    ) -> AsyncIterator[JsonObject]:
+        """交付严格 Review Item 和 Turn 终态。"""
+        for payload in event_payloads:
+            yield payload
+
+    monkeypatch.setattr(review_client, "post_json_reliably", register)
+    monkeypatch.setattr(
+        review_client,
+        "build_service_headers",
+        lambda: {"authorization": "test"},
+    )
+    monkeypatch.setattr(
+        review_client.service_endpoints,
+        "endpoint",
+        lambda path: f"https://example.test{path}",
+    )
+    monkeypatch.setattr(chat, "streaming", streaming)
+    monkeypatch.setattr(
+        chat,
+        "build_service_headers",
+        lambda: {"authorization": "test"},
+    )
+    monkeypatch.setattr(
+        chat.service_endpoints,
+        "endpoint",
+        lambda path: f"https://example.test{path}",
+    )
+
+    sink = _Sink()
+    result = await _consume_review_stream(
+        MindChatProtocolClient(),
+        command.request,
+        sink,
+        hint="target matrix",
+    )
+
+    assert len(submitted) == 1
+    assert result.status == "completed"
+    assert result.assistant_text == "No findings."
+    assert [view.type for view in sink.views] == [
+        "review.started",
+        "review.finished",
+        "review.completed",
+    ]
 
 
 def _interrupt_events(
@@ -638,10 +756,10 @@ async def test_real_git_and_tui_freeze_all_review_targets(tmp_path: Path) -> Non
     for preset_index in range(4):
         selected.append(await _choose_target(service, repo, preset_index))
     targets = tuple(selected)
-    frozen: list[ClientReviewWorkspace] = []
+    frozen = []
     for target in targets:
         frozen.append(await service.freeze(repo, target))
-    snapshots = tuple(frozen)
+    resolved_inputs = tuple(frozen)
 
     assert isinstance(targets[0], ReviewBaseBranchTarget)
     assert targets[0].branch == "main"
@@ -650,11 +768,17 @@ async def test_real_git_and_tui_freeze_all_review_targets(tmp_path: Path) -> Non
     assert targets[2].title == "Add review feature"
     assert targets[2].sha == _git(repo, "rev-parse", "HEAD")
     assert targets[3] == ReviewCustomTarget("Focus on lifecycle boundaries")
-    assert "feature" in snapshots[0].patch
-    assert "working change" in snapshots[1].patch
-    assert "feature" in snapshots[2].patch
-    assert "working change" in snapshots[3].patch
+    assert isinstance(resolved_inputs[0].target, ReviewBaseBranchTarget)
+    assert resolved_inputs[0].target.merge_base_sha == _git(
+        repo,
+        "merge-base",
+        "HEAD",
+        "main",
+    )
+    assert resolved_inputs[1].target == targets[1]
+    assert resolved_inputs[2].target == targets[2]
+    assert resolved_inputs[3].target == targets[3]
     assert all(
-        workspace.revision.startswith("sha256:")
-        for workspace in snapshots
+        item.workspace == ClientReviewWorkspace.create()
+        for item in resolved_inputs
     )

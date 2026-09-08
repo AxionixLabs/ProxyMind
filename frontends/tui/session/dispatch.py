@@ -123,7 +123,7 @@ from ..features.review import (
     PreparedReview,
     ReviewMenuController,
     WorkspaceReviewCatalogPort,
-    WorkspaceReviewSnapshotPort,
+    WorkspaceReviewPreparationPort,
 )
 from ..features.shell import run_shell_escape
 from ..features.skills import choose_skill
@@ -214,7 +214,7 @@ class TuiCommandDispatcher(object):
         conversation_compactor: ConversationCompactor | None = None,
         configuration_service_url: typing.Callable[[], str] | None = None,
         review_catalog: WorkspaceReviewCatalogPort | None = None,
-        review_snapshot: WorkspaceReviewSnapshotPort | None = None,
+        review_preparation: WorkspaceReviewPreparationPort | None = None,
     ) -> None:
         self.host = host
         self.runtime = runtime
@@ -225,7 +225,7 @@ class TuiCommandDispatcher(object):
         self.configuration_service_url = configuration_service_url
         review_git = WorkspaceReviewGitService()
         self.review_catalog = review_catalog or review_git
-        self.review_snapshot = review_snapshot or review_git
+        self.review_preparation = review_preparation or review_git
         self.application = host.frontend.application
         self.durable_queue = TuiDurableQueueFeature(host, runtime, state)
         self.mailbox = TuiMailboxFeature(runtime, host)
@@ -508,7 +508,7 @@ class TuiCommandDispatcher(object):
         if target is None:
             return False
         try:
-            workspace = await self.review_snapshot.freeze(
+            resolved = await self.review_preparation.freeze(
                 self.host.history_workspace,
                 target,
             )
@@ -522,9 +522,9 @@ class TuiCommandDispatcher(object):
         if self._prepared_review is not None:
             raise RuntimeError("a prepared Review is already pending")
         self._prepared_review = PreparedReview(
-            target=target,
-            workspace=workspace,
-            hint=review_target_hint(target),
+            target=resolved.target,
+            workspace=resolved.workspace,
+            hint=review_target_hint(resolved.target),
         )
         return True
 

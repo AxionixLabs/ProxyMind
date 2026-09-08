@@ -67,16 +67,23 @@ class WorkspaceReviewCatalogPort(typing.Protocol):
         ...
 
 
-class WorkspaceReviewSnapshotPort(typing.Protocol):
-    """把 Review 目标冻结为不可变客户端工作区快照。"""
+class WorkspaceReviewPreparationPort(typing.Protocol):
+    """把 Review 目标冻结为派生事实和规范客户端工作区。"""
 
     async def freeze(
         self,
         cwd: str,
         target: ReviewTarget,
-    ) -> ClientReviewWorkspace:
-        """返回完整校验后的客户端快照。"""
+    ) -> "ResolvedReviewInputValue":
+        """返回完整校验后的目标派生事实与客户端工作区。"""
         ...
+
+
+class ResolvedReviewInputValue(typing.Protocol):
+    """描述 Review 准备边界返回的稳定冻结值。"""
+
+    target: ReviewTarget
+    workspace: ClientReviewWorkspace
 
 
 ReviewMenuResult: typing.TypeAlias = ReviewTarget | None

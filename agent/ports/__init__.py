@@ -224,6 +224,13 @@ from .process_tools import (
     WRITE_STDIN_MIN_WAIT_MS,
     WorkspaceProcessPort,
 )
+from .review_workspace import (
+    ReviewFileRead,
+    ReviewRepositoryOperation,
+    ReviewRepositoryRead,
+    ReviewWorkspaceReadError,
+    WorkspaceReviewReadPort,
+)
 from .sessions import (
     RunExecution,
     SessionRuntime,
