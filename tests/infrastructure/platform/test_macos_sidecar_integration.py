@@ -47,10 +47,8 @@ def _new_client(
     """创建指向指定测试工作区的真实 sidecar 客户端。"""
     return SandboxClient(
         workspace_root=workspace,
-        application_root=repository_root,
-        packaged=False,
-        platform="darwin",
         executable=sidecar,
+        platform="darwin",
     )
 
 

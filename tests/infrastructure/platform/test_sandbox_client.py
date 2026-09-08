@@ -8,6 +8,7 @@ from agent.capabilities import InMemoryProcessCapability
 from agent.domain.approvals import NetworkProtocol
 from agent.domain.approvals import NetworkTarget
 from infrastructure.config.paths import ApplicationLayout
+from infrastructure.config.paths import resolve_application_layout
 from infrastructure.platform.network import NetworkDecision
 from infrastructure.platform.network import StaticNetworkPolicy
 from infrastructure.platform.sandbox import (
@@ -17,7 +18,11 @@ from infrastructure.platform.sandbox import (
     SidecarProcess,
     _SidecarStream,
     sandbox_backend_name,
+    sandbox_executable_path,
 )
+from infrastructure.workspace.commands.sandbox_failures import SandboxToolFailure
+from infrastructure.workspace.commands.sandbox_failures import map_sandbox_failure
+from infrastructure.workspace.runtime import WorkspaceCoding
 from infrastructure.platform.process_sessions import (
     ProcessSession,
     ProcessSessionManager,
@@ -75,6 +80,21 @@ class _FakeSidecarProcess:
         return self.returncode
 
 
+async def _request_with_response(client: SandboxClient, response):
+    """向一个已启动的 Fake Sidecar 请求注入指定响应。"""
+    process = _FakeSidecarProcess(_FakeSidecarReader(block_after_lines=True))
+    client._sidecar = process
+    request = asyncio.create_task(client._request("ping", {}))
+    await asyncio.sleep(0)
+    pending = tuple(client._pending.values())
+    assert len(pending) == 1
+    pending[0].set_result(response)
+    try:
+        return await request
+    finally:
+        process.returncode = -1
+
+
 def _fake_startable_client(tmp_path) -> SandboxClient:
     """创建显式绑定测试产物路径的 Sandbox 客户端。"""
     executable = tmp_path / "mind_sandbox_server.exe"
@@ -82,8 +102,6 @@ def _fake_startable_client(tmp_path) -> SandboxClient:
     return SandboxClient(
         workspace_root=tmp_path,
         executable=executable,
-        application_root=tmp_path,
-        packaged=False,
         platform="win32",
     )
 
@@ -94,8 +112,6 @@ async def test_missing_sidecar_fails_before_start(tmp_path) -> None:
     client = SandboxClient(
         workspace_root=tmp_path,
         executable=tmp_path / "missing-sidecar.exe",
-        application_root=tmp_path,
-        packaged=False,
         platform="win32",
     )
 
@@ -115,8 +131,12 @@ async def test_sidecar_start_permission_error_is_not_hidden(
     )
     monkeypatch.setattr(asyncio, "create_subprocess_exec", start_sidecar)
 
-    with pytest.raises(PermissionError, match="Access is denied"):
+    with pytest.raises(SandboxUnavailable, match="Access is denied") as raised:
         await client.ensure_started()
+
+    assert raised.value.backend_code == "sidecar_start_failed"
+    assert raised.value.stage == "startup"
+    assert raised.value.retryable is False
 
 
 @pytest.mark.anyio
@@ -189,16 +209,77 @@ async def test_sidecar_request_timeout_clears_pending_request(tmp_path) -> None:
     client._sidecar = process
     client.REQUEST_TIMEOUT_SEC = 0.01
 
-    with pytest.raises(asyncio.TimeoutError):
+    with pytest.raises(SandboxProtocolError) as raised:
         await client._request("ping", {})
 
+    assert raised.value.code == "sandbox_protocol_error"
+    assert raised.value.backend_code == "sidecar_request_timeout"
+    assert raised.value.stage == "request"
+    assert raised.value.retryable is True
     assert client._pending == {}
     process.returncode = -1
 
 
-def test_source_windows_sidecar_path_is_platform_specific(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("MIND_SANDBOX_SERVER", raising=False)
+@pytest.mark.anyio
+async def test_sidecar_v1_error_response_preserves_code_and_detail(tmp_path) -> None:
+    """验证 v1 错误信封在客户端边界保留独立字段。"""
+    client = _fake_startable_client(tmp_path)
 
+    with pytest.raises(SandboxProtocolError) as raised:
+        await _request_with_response(client, {
+            "ok": False,
+            "error": {
+                "code": "sandbox_spawn_failed",
+                "detail": "CreateProcess failed with OS error 5",
+            },
+        })
+
+    assert raised.value.code == "sandbox_process_start_failed"
+    assert raised.value.backend_code == "sandbox_spawn_failed"
+    assert raised.value.detail == "CreateProcess failed with OS error 5"
+    assert raised.value.stage == "spawn"
+    assert raised.value.retryable is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("response", "expected_detail"),
+    (
+        ([], "response must be an object"),
+        ({"ok": 1, "result": {}}, "field 'ok'"),
+        ({"ok": False, "error": "failed"}, "field 'error'"),
+        ({"ok": False, "error": {"code": ""}}, "field 'error.code'"),
+        (
+            {"ok": False, "error": {"code": "failure", "detail": 5}},
+            "field 'error.detail'",
+        ),
+        ({"ok": True, "result": []}, "field 'result'"),
+    ),
+)
+async def test_sidecar_v1_rejects_malformed_response_fields(
+    tmp_path,
+    response,
+    expected_detail: str,
+) -> None:
+    """验证畸形 v1 响应在协议边界立即失败。"""
+    client = _fake_startable_client(tmp_path)
+
+    with pytest.raises(SandboxProtocolError) as raised:
+        await _request_with_response(client, response)
+
+    assert raised.value.code == "sandbox_protocol_error"
+    assert raised.value.backend_code == "sidecar_response_invalid"
+    assert expected_detail in raised.value.detail
+
+
+def test_source_windows_sidecar_path_is_platform_specific(tmp_path) -> None:
+    layout = ApplicationLayout(
+        mode="source",
+        platform="win32",
+        executable=tmp_path / "mind.py",
+        root=tmp_path,
+        supports=tmp_path / "schematic" / "supports" / "windows",
+    )
     expected = (
         tmp_path
         / "schematic"
@@ -212,9 +293,8 @@ def test_source_windows_sidecar_path_is_platform_specific(tmp_path, monkeypatch)
 
     resolved = SandboxClient(
         workspace_root=tmp_path,
-        application_root=tmp_path,
-        packaged=False,
-        platform="win32",
+        executable=sandbox_executable_path(layout),
+        platform=layout.platform,
     )
 
     assert resolved.executable == expected.resolve()
@@ -222,9 +302,14 @@ def test_source_windows_sidecar_path_is_platform_specific(tmp_path, monkeypatch)
     assert resolved.platform_name == "windows"
 
 
-def test_packaged_macos_sidecar_path_is_separate(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("MIND_SANDBOX_SERVER", raising=False)
-
+def test_packaged_macos_sidecar_path_is_separate(tmp_path) -> None:
+    layout = ApplicationLayout(
+        mode="packaged",
+        platform="darwin",
+        executable=tmp_path / "mind",
+        root=tmp_path,
+        supports=tmp_path / "schematic" / "supports" / "macos",
+    )
     expected = (
         tmp_path
         / "schematic"
@@ -238,9 +323,8 @@ def test_packaged_macos_sidecar_path_is_separate(tmp_path, monkeypatch) -> None:
 
     client = SandboxClient(
         workspace_root=tmp_path,
-        application_root=tmp_path,
-        packaged=True,
-        platform="darwin",
+        executable=sandbox_executable_path(layout),
+        platform=layout.platform,
     )
 
     assert client.executable == expected.resolve()
@@ -256,8 +340,7 @@ def test_spawn_payload_only_sends_windows_fields_to_windows_sidecar(
     async def run(platform: str) -> None:
         client = SandboxClient(
             workspace_root=tmp_path,
-            application_root=tmp_path,
-            packaged=False,
+            executable=tmp_path / "mind_sandbox_server",
             platform=platform,
         )
 
@@ -317,8 +400,7 @@ def test_native_coding_reuses_application_layout_for_sandbox_paths(tmp_path) -> 
     try:
         sandbox_client = coding._process_sessions._sandbox_client
         assert sandbox_client is not None
-        assert sandbox_client.application_root == layout.root
-        assert sandbox_client.packaged is True
+        assert sandbox_client.executable == sandbox_executable_path(layout)
         assert sandbox_client.platform == layout.platform
     finally:
         asyncio.run(coding.close())
@@ -358,6 +440,29 @@ def test_network_enabled_does_not_create_managed_proxy(tmp_path) -> None:
         asyncio.run(coding.close())
 
 
+def test_composition_resolves_source_sandbox_layout_when_omitted(
+    tmp_path,
+    repository_root,
+) -> None:
+    """验证组合根为测试调用补齐源码布局而非由客户端猜测层级。"""
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=None,
+        network_access="enabled",
+    )
+    layout = resolve_application_layout(
+        entry_file=repository_root / "mind.py",
+        argv0="mind.py",
+    )
+    expected = sandbox_executable_path(layout)
+    try:
+        client = coding._process_sessions._sandbox_client
+        assert client is not None
+        assert client.executable == expected
+    finally:
+        asyncio.run(coding.close())
+
+
 def test_sidecar_stream_read_without_size_collects_until_eof() -> None:
     """验证无 size 的读取会合并全部事件块并等待 EOF。"""
 
@@ -389,8 +494,7 @@ async def test_sidecar_pty_controls_use_terminal_input(
 ) -> None:
     client = SandboxClient(
         workspace_root=tmp_path,
-        application_root=tmp_path,
-        packaged=False,
+        executable=tmp_path / "mind_sandbox_server",
         platform=platform,
     )
     writes: list[tuple[str, bytes, bool]] = []
@@ -421,8 +525,7 @@ async def test_sidecar_pipe_controls_use_process_protocol(
 ) -> None:
     client = SandboxClient(
         workspace_root=tmp_path,
-        application_root=tmp_path,
-        packaged=False,
+        executable=tmp_path / "mind_sandbox_server.exe",
         platform="win32",
     )
     terminations: list[tuple[str, str]] = []
@@ -470,8 +573,7 @@ async def test_sidecar_control_failures_return_stable_tool_reasons(
 ) -> None:
     client = SandboxClient(
         workspace_root=tmp_path,
-        application_root=tmp_path,
-        packaged=False,
+        executable=tmp_path / "mind_sandbox_server.exe",
         platform="win32",
     )
 
@@ -504,9 +606,166 @@ async def test_sidecar_control_failures_return_stable_tool_reasons(
     )
     manager = ProcessSessionManager(sandbox_client=client)
 
-    reason = await manager.apply(session, control=control)
+    manager.sessions[session.session_id] = session
+    coding = WorkspaceCoding(root=tmp_path, process_sessions=manager)
+    try:
+        result = await coding.write_stdin(
+            session_id=session.session_id,
+            control=control,
+        )
+    finally:
+        manager.remove(session.session_id)
+        process.finish(-1)
+        await coding.close()
 
-    assert reason == expected_reason
+    data = result["data"]
+    failure = map_sandbox_failure(
+        SandboxProtocolError("synthetic failure"),
+        control=control,
+    )
+    assert isinstance(failure, SandboxToolFailure)
+    assert data["reason"] == failure.reason == expected_reason
+    assert data["backend_code"] == failure.backend_code == "synthetic failure"
+    assert data["stage"] == failure.stage == "control"
+
+
+@pytest.mark.anyio
+async def test_process_session_manager_owns_byte_output_snapshot(tmp_path) -> None:
+    """验证字节输出、顺序记录和截断事实由会话管理器投影。"""
+    client = SandboxClient(
+        workspace_root=tmp_path,
+        executable=tmp_path / "mind_sandbox_server.exe",
+        platform="win32",
+    )
+    process = SidecarProcess(client, "sandbox-output")
+    session = ProcessSession(
+        session_id="exec_output",
+        spec=ProcessSessionSpec(
+            command="output",
+            args=("output",),
+            cwd=str(tmp_path),
+            display_cwd=str(tmp_path),
+            runtime={},
+            origin="test",
+            timeout_sec=30,
+            idle_timeout_sec=30,
+        ),
+        process=process,
+    )
+    manager = ProcessSessionManager(sandbox_client=client)
+    encoded = "中文\n".encode("utf-8")
+
+    await manager._record_output(session, "stdout", encoded[:2])
+    await manager._record_output(session, "stdout", encoded[2:])
+    await manager._record_output(session, "stderr", b"warning\n")
+    await manager._finish_output_stream(session, "stdout")
+    await manager._finish_output_stream(session, "stderr")
+
+    snapshot = await manager.byte_output_snapshot(session)
+
+    assert snapshot.stdout == encoded
+    assert snapshot.stderr == b"warning\n"
+    assert snapshot.stdout_dropped == 0
+    assert snapshot.stderr_dropped == 0
+    assert [
+        (record.stream, record.data)
+        for record in snapshot.output_records
+    ] == [
+        ("stdout", "中文".encode("utf-8")),
+        ("stderr", b"warning"),
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tool", ("shell_command", "exec_command"))
+async def test_sandbox_spawn_failure_uses_shared_tool_mapping(
+    tmp_path,
+    monkeypatch,
+    tool: str,
+) -> None:
+    """验证两个命令入口共享 v1 失败映射和 failure_context。"""
+    layout = ApplicationLayout(
+        mode="source",
+        platform="win32",
+        executable=tmp_path / "mind.py",
+        root=tmp_path,
+        supports=tmp_path / "schematic" / "supports" / "windows",
+    )
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=layout,
+        network_access="enabled",
+    )
+    client = coding._process_sessions._sandbox_client
+    assert client is not None
+
+    async def fail_spawn(**_kwargs):
+        raise SandboxProtocolError(
+            "sandbox_spawn_failed",
+            "CreateProcess failed with OS error 5",
+        )
+
+    monkeypatch.setattr(client, "spawn", fail_spawn)
+    try:
+        execute = getattr(coding, tool)
+        result = await execute(
+            command="Write-Output ok",
+            sandbox_mode="workspace-read",
+        )
+    finally:
+        await coding.close()
+
+    data = result["data"]
+    assert result["ok"] is False
+    assert data["reason"] == "sandbox_process_start_failed"
+    assert data["backend_code"] == "sandbox_spawn_failed"
+    assert data["stage"] == "spawn"
+    assert data["retryable"] is False
+    assert data["detail"] == "CreateProcess failed with OS error 5"
+    assert data["failure_context"]["backend_code"] == "sandbox_spawn_failed"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tool", ("shell_command", "exec_command"))
+async def test_unknown_execution_error_is_not_sandbox_unavailable(
+    tmp_path,
+    monkeypatch,
+    tool: str,
+) -> None:
+    """验证未知实现异常按工具内部错误观测。"""
+    layout = ApplicationLayout(
+        mode="source",
+        platform="win32",
+        executable=tmp_path / "mind.py",
+        root=tmp_path,
+        supports=tmp_path / "schematic" / "supports" / "windows",
+    )
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=layout,
+        network_access="enabled",
+    )
+    client = coding._process_sessions._sandbox_client
+    assert client is not None
+
+    async def fail_spawn(**_kwargs):
+        raise RuntimeError("synthetic implementation defect")
+
+    monkeypatch.setattr(client, "spawn", fail_spawn)
+    try:
+        execute = getattr(coding, tool)
+        result = await execute(
+            command="Write-Output ok",
+            sandbox_mode="workspace-read",
+        )
+    finally:
+        await coding.close()
+
+    data = result["data"]
+    assert result["ok"] is False
+    assert data["reason"] == "tool_internal_error"
+    assert data["exception_type"] == "RuntimeError"
+    assert "backend_code" not in data
 
 
 @pytest.mark.anyio

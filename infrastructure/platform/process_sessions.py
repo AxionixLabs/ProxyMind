@@ -22,6 +22,7 @@ from agent.ports import (
 from infrastructure.platform.encoding import decode_process_output
 from infrastructure.platform.output_decoder import StreamingProcessOutputDecoder
 from infrastructure.platform.process_capture import (
+    CapturedOutputLine,
     OrderedOutputBuffer,
     ProcessCapture
 )
@@ -34,7 +35,6 @@ from infrastructure.platform.processes import (
 )
 from infrastructure.platform.sandbox import (
     SandboxClient,
-    SandboxProtocolError,
     SandboxUnavailable,
     SidecarProcess,
 )
@@ -128,6 +128,17 @@ class ProcessSessionSpec(object):
     additional_permissions: dict[str, typing.Any] | None = None
     tty: bool = False
     terminal_size: TerminalSize = TerminalSize()
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessOutputSnapshot(object):
+    """保存进程会话的字节输出、顺序记录和截断事实。"""
+
+    stdout: bytes
+    stderr: bytes
+    output_records: tuple[CapturedOutputLine, ...]
+    stdout_dropped: int
+    stderr_dropped: int
 
 
 class _CapabilityProcess:
@@ -691,6 +702,23 @@ class ProcessSessionManager(object):
             "stderr_dropped": stderr_dropped
         }
 
+    async def byte_output_snapshot(
+        self,
+        session: ProcessSession,
+    ) -> ProcessOutputSnapshot:
+        """返回由会话管理器持有的完整字节输出快照。"""
+        async with session.lock:
+            stdout, stdout_dropped = session.stdout.snapshot()
+            stderr, stderr_dropped = session.stderr.snapshot()
+            output_records = await session.output_buffer.snapshot_records()
+        return ProcessOutputSnapshot(
+            stdout=stdout,
+            stderr=stderr,
+            output_records=output_records,
+            stdout_dropped=stdout_dropped,
+            stderr_dropped=stderr_dropped,
+        )
+
     async def output_delta(
         self,
         session_id: str,
@@ -821,39 +849,32 @@ class ProcessSessionManager(object):
         if isinstance(process, SidecarProcess):
             if control == "resize":
                 return "exec_resize_unavailable"
-            try:
-                if control in {"terminate", "kill"}:
-                    await process.client.terminate(
-                        process.process_id,
-                        signal="terminate",
-                    )
-                    return None
-                if control == "interrupt":
-                    await process.client.interrupt(
-                        process.process_id,
-                        tty=session.tty,
-                    )
-                    return None
-                if control == "eof":
-                    await process.client.close_input(
-                        process.process_id,
-                        tty=session.tty,
-                    )
-                    return None
-                if not input_text:
-                    return None
-                if process.returncode is not None:
-                    return "exec_session_exited"
-                await process.client.write(
+            if control in {"terminate", "kill"}:
+                await process.client.terminate(
                     process.process_id,
-                    data=input_text.encode(),
+                    signal="terminate",
                 )
-            except (SandboxProtocolError, SandboxUnavailable, OSError, RuntimeError):
-                if control == "interrupt":
-                    return "exec_interrupt_failed"
-                if control in {"terminate", "kill"}:
-                    return "exec_terminate_failed"
-                return "exec_stdin_closed"
+                return None
+            if control == "interrupt":
+                await process.client.interrupt(
+                    process.process_id,
+                    tty=session.tty,
+                )
+                return None
+            if control == "eof":
+                await process.client.close_input(
+                    process.process_id,
+                    tty=session.tty,
+                )
+                return None
+            if not input_text:
+                return None
+            if process.returncode is not None:
+                return "exec_session_exited"
+            await process.client.write(
+                process.process_id,
+                data=input_text.encode(),
+            )
             return None
 
         if isinstance(process, _InteractiveCapabilityProcess):

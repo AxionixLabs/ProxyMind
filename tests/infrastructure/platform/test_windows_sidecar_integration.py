@@ -8,6 +8,7 @@ from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.paths import resolve_application_layout
 from infrastructure.platform.sandbox import SandboxClient
 from infrastructure.platform.sandbox import SandboxProtocolError
+from infrastructure.platform.sandbox import sandbox_executable_path
 from infrastructure.platform.shell_runtime import ShellRuntimeResolver
 from mind import create_workspace_coding
 
@@ -45,8 +46,7 @@ def _new_windows_client(
     layout = _windows_sandbox_layout_or_skip(repository_root)
     return SandboxClient(
         workspace_root=workspace,
-        application_root=layout.root,
-        packaged=layout.packaged,
+        executable=sandbox_executable_path(layout),
         platform=layout.platform,
     )
 
@@ -182,11 +182,6 @@ async def test_windows_sidecar_v1_invalid_request_codes(
         await client.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AttributeError,
-    reason="阶段 1 将 v1 code/detail 转换为结构化失败属性",
-)
 @pytest.mark.parametrize(
     (
         "backend_code",
@@ -236,11 +231,6 @@ def test_v1_protocol_failure_exposes_stable_mapping_facts(
     assert failure.retryable is retryable
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=TypeError,
-    reason="阶段 1 将 shell_command 切换到 ProcessSessionManager 输出快照",
-)
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "scenario",

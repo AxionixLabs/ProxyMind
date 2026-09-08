@@ -9,15 +9,99 @@ import sys
 import typing
 from pathlib import Path
 
-from infrastructure.config.paths import is_packaged_executable
+from infrastructure.config.paths import ApplicationLayout
 
 
-class SandboxUnavailable(RuntimeError):
+SandboxFailureStage = typing.Literal[
+    "startup",
+    "handshake",
+    "request",
+    "spawn",
+    "control",
+]
+
+
+class SandboxError(RuntimeError):
+    """保存 Sandbox 边界失败的稳定分类和后端诊断事实。"""
+
+    def __init__(
+        self,
+        code: str,
+        backend_code: str,
+        detail: str,
+        *,
+        stage: SandboxFailureStage,
+        retryable: bool,
+    ) -> None:
+        self.code = code
+        self.backend_code = backend_code
+        self.detail = detail
+        self.stage = stage
+        self.retryable = retryable
+        message = backend_code
+        if detail:
+            message = f"{message}: {detail}"
+        super().__init__(message)
+
+
+class SandboxUnavailable(SandboxError):
     """表示当前平台的本地沙箱 sidecar 不可用。"""
 
+    def __init__(
+        self,
+        detail: str,
+        *,
+        backend_code: str = "sandbox_unavailable",
+        stage: SandboxFailureStage = "startup",
+        retryable: bool = True,
+    ) -> None:
+        super().__init__(
+            "sandbox_unavailable",
+            backend_code,
+            detail,
+            stage=stage,
+            retryable=retryable,
+        )
 
-class SandboxProtocolError(RuntimeError):
+
+class SandboxProtocolError(SandboxError):
     """表示 sidecar 返回了协议或执行错误。"""
+
+    def __init__(
+        self,
+        backend_code: str,
+        detail: str = "",
+        *,
+        stage: SandboxFailureStage | None = None,
+        retryable: bool | None = None,
+    ) -> None:
+        code, default_stage, default_retryable = _protocol_failure_mapping(
+            backend_code
+        )
+        super().__init__(
+            code,
+            backend_code,
+            detail,
+            stage=default_stage if stage is None else stage,
+            retryable=(
+                default_retryable if retryable is None else retryable
+            ),
+        )
+
+
+def _protocol_failure_mapping(
+    backend_code: str,
+) -> tuple[str, SandboxFailureStage, bool]:
+    """把 v1 后端错误码映射为稳定的本地失败语义。"""
+    if backend_code == "sandbox_spawn_failed":
+        return "sandbox_process_start_failed", "spawn", False
+    if backend_code in {
+        "cwd_outside_workspace_roots",
+        "sandbox_mode_disabled",
+        "argv_empty",
+    }:
+        return "sandbox_request_invalid", "request", False
+    return "sandbox_protocol_error", "request", False
 
 
 _PLATFORM_DIRECTORIES = {
@@ -44,6 +128,22 @@ def sandbox_platform_name(platform: str | None = None) -> str:
 def sandbox_backend_name(platform: str | None = None) -> str:
     """返回当前平台的 sidecar 后端标识。"""
     return f"{sandbox_platform_name(platform)}-sidecar"
+
+
+def sandbox_executable_path(layout: ApplicationLayout) -> Path:
+    """根据应用布局返回当前平台唯一的 Sandbox Sidecar 路径。"""
+    names = _EXECUTABLE_NAMES.get(
+        layout.platform,
+        ("mind_sandbox_server",),
+    )
+    return (
+        layout.root
+        / "schematic"
+        / "sandbox"
+        / sandbox_platform_name(layout.platform)
+        / "bin"
+        / names[0]
+    ).resolve()
 
 
 class _SidecarStream(object):
@@ -176,21 +276,13 @@ class SandboxClient(object):
         self,
         *,
         workspace_root: str | os.PathLike[str],
-        executable: str | os.PathLike[str] | None = None,
-        application_root: str | os.PathLike[str] | None = None,
-        packaged: bool | None = None,
-        platform: str | None = None,
+        executable: str | os.PathLike[str],
+        platform: str,
     ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
-        self.platform = (sys.platform if platform is None else platform).strip().lower()
+        self.platform = platform.strip().lower()
         self.platform_name = sandbox_platform_name(self.platform)
-        self.packaged = self._is_packaged_runtime() if packaged is None else bool(packaged)
-        self.application_root = (
-            Path(application_root).expanduser().resolve()
-            if application_root is not None
-            else self._default_application_root()
-        )
-        self.executable = self._resolve_executable(executable)
+        self.executable = Path(executable).expanduser().resolve()
 
         self._sidecar: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task[None] | None = None
@@ -205,47 +297,6 @@ class SandboxClient(object):
     @property
     def available(self) -> bool:
         return self.executable.is_file()
-
-    @staticmethod
-    def _is_packaged_runtime() -> bool:
-        """判断当前进程是否由独立应用入口启动。"""
-        if bool(getattr(sys, "frozen", False)):
-            return True
-        return is_packaged_executable(sys.executable)
-
-    def _default_application_root(self) -> Path:
-        """返回源码或打包入口对应的应用根目录。"""
-        if self.packaged:
-            return Path(sys.executable).expanduser().resolve().parent
-        return Path(__file__).resolve().parents[3]
-
-    def _resolve_executable(
-        self,
-        executable: str | os.PathLike[str] | None,
-    ) -> Path:
-        if executable is not None:
-            return Path(executable).expanduser().resolve()
-
-        configured = os.environ.get("MIND_SANDBOX_SERVER", "").strip()
-        if configured:
-            return Path(configured).expanduser().resolve()
-
-        names = _EXECUTABLE_NAMES.get(
-            self.platform,
-            ("mind_sandbox_server",),
-        )
-        sandbox_bin = (
-            self.application_root
-            / "schematic"
-            / "sandbox"
-            / self.platform_name
-            / "bin"
-        )
-        candidates = tuple(sandbox_bin / name for name in names)
-        for candidate in candidates:
-            if candidate.is_file():
-                return candidate
-        return candidates[0]
 
     def _handle_process_event(self, event: dict[str, typing.Any]) -> None:
         process_id = str(event.get("process_id") or "").strip()
@@ -279,7 +330,11 @@ class SandboxClient(object):
         await self.ensure_started()
         process = self._sidecar
         if process is None or process.stdin is None:
-            raise SandboxUnavailable("sandbox sidecar stdin is unavailable")
+            raise SandboxUnavailable(
+                "sandbox sidecar stdin is unavailable",
+                backend_code="sidecar_transport_unavailable",
+                stage="request",
+            )
 
         self._request_number += 1
         request_id = f"r{self._request_number}"
@@ -291,29 +346,77 @@ class SandboxClient(object):
             "params": dict(params),
         }
         try:
-            async with self._write_lock:
-                process.stdin.write(
-                    (json.dumps(payload, ensure_ascii=True) + "\n").encode()
+            try:
+                async with self._write_lock:
+                    process.stdin.write(
+                        (json.dumps(payload, ensure_ascii=True) + "\n").encode()
+                    )
+                    await process.stdin.drain()
+            except OSError as exc:
+                raise SandboxUnavailable(
+                    str(exc).strip() or type(exc).__name__,
+                    backend_code="sidecar_transport_failed",
+                    stage="request",
+                ) from exc
+            try:
+                response = await asyncio.wait_for(
+                    asyncio.shield(future),
+                    timeout=self.REQUEST_TIMEOUT_SEC,
                 )
-                await process.stdin.drain()
-            response = await asyncio.wait_for(
-                asyncio.shield(future),
-                timeout=self.REQUEST_TIMEOUT_SEC,
-            )
+            except asyncio.TimeoutError as exc:
+                raise SandboxProtocolError(
+                    "sidecar_request_timeout",
+                    f"request {method!r} did not receive a response",
+                    stage="request",
+                    retryable=True,
+                ) from exc
         finally:
             self._pending.pop(request_id, None)
 
-        if not bool(response.get("ok")):
+        if not isinstance(response, dict):
+            raise SandboxProtocolError(
+                "sidecar_response_invalid",
+                "response must be an object",
+            )
+        ok = response.get("ok")
+        if not isinstance(ok, bool):
+            raise SandboxProtocolError(
+                "sidecar_response_invalid",
+                "response field 'ok' must be a boolean",
+            )
+        if not ok:
             error = response.get("error")
-            if isinstance(error, dict):
-                code = str(error.get("code") or "sidecar_error")
-                detail = str(error.get("detail") or "").strip()
+            if not isinstance(error, dict):
                 raise SandboxProtocolError(
-                    f"{code}: {detail}" if detail else code
+                    "sidecar_response_invalid",
+                    "failed response field 'error' must be an object",
                 )
-            raise SandboxProtocolError("sidecar_error")
+            code = error.get("code")
+            if not isinstance(code, str) or not code.strip():
+                raise SandboxProtocolError(
+                    "sidecar_response_invalid",
+                    "failed response field 'error.code' must be a non-empty string",
+                )
+            detail_value = error.get("detail", "")
+            if detail_value is None:
+                detail = ""
+            elif isinstance(detail_value, str):
+                detail = detail_value.strip()
+            else:
+                raise SandboxProtocolError(
+                    "sidecar_response_invalid",
+                    "failed response field 'error.detail' must be a string or null",
+                )
+            raise SandboxProtocolError(code.strip(), detail)
         result = response.get("result")
-        return result if isinstance(result, dict) else {}
+        if result is None and "result" not in response:
+            return {}
+        if not isinstance(result, dict):
+            raise SandboxProtocolError(
+                "sidecar_response_invalid",
+                "successful response field 'result' must be an object",
+            )
+        return result
 
     async def _read_events(self) -> None:
         process = self._sidecar
@@ -332,14 +435,20 @@ class SandboxClient(object):
                     continue
                 event = str(message.get("event") or "").strip()
                 if event == "ready":
-                    try:
-                        protocol_version = int(message["protocol_version"])
-                    except (KeyError, TypeError, ValueError):
-                        protocol_version = None
+                    protocol_value = message.get("protocol_version")
+                    protocol_version = (
+                        protocol_value
+                        if isinstance(protocol_value, int)
+                        and not isinstance(protocol_value, bool)
+                        else None
+                    )
                     if protocol_version != self.PROTOCOL_VERSION:
                         error = SandboxUnavailable(
                             "unsupported sandbox sidecar protocol version: "
-                            f"{message.get('protocol_version')!r}"
+                            f"{protocol_value!r}",
+                            backend_code="sidecar_protocol_version_mismatch",
+                            stage="handshake",
+                            retryable=False,
                         )
                         if self._ready is not None and not self._ready.done():
                             self._ready.set_exception(error)
@@ -355,7 +464,14 @@ class SandboxClient(object):
                 if future is not None and not future.done():
                     future.set_result(message)
         finally:
-            error = SandboxUnavailable("sandbox sidecar exited")
+            stage: SandboxFailureStage = "request"
+            if self._ready is not None and not self._ready.done():
+                stage = "handshake"
+            error = SandboxUnavailable(
+                "sandbox sidecar exited",
+                backend_code="sidecar_exited",
+                stage=stage,
+            )
             if self._ready is not None and not self._ready.done():
                 self._ready.set_exception(error)
             for future in tuple(self._pending.values()):
@@ -387,17 +503,30 @@ class SandboxClient(object):
                 return
             if not self.available:
                 raise SandboxUnavailable(
-                    f"sandbox sidecar not found: {self.executable}"
+                    (
+                        "sandbox sidecar not found: "
+                        f"{self.executable} (platform={self.platform_name})"
+                    ),
+                    backend_code="sidecar_not_found",
+                    retryable=False,
                 )
 
-            self._sidecar = await asyncio.create_subprocess_exec(
-                str(self.executable),
-                cwd=str(self.workspace_root),
-                env=os.environ.copy(),
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            try:
+                self._sidecar = await asyncio.create_subprocess_exec(
+                    str(self.executable),
+                    cwd=str(self.workspace_root),
+                    env=os.environ.copy(),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            except OSError as exc:
+                raise SandboxUnavailable(
+                    str(exc).strip() or type(exc).__name__,
+                    backend_code="sidecar_start_failed",
+                    stage="startup",
+                    retryable=False,
+                ) from exc
             self._ready = asyncio.get_running_loop().create_future()
             self._reader_task = asyncio.create_task(
                 self._read_events(),
@@ -408,11 +537,15 @@ class SandboxClient(object):
                     asyncio.shield(self._ready),
                     timeout=self.READY_TIMEOUT_SEC,
                 )
-            except (SandboxUnavailable, asyncio.TimeoutError, RuntimeError) as exc:
+            except (SandboxUnavailable, asyncio.TimeoutError) as exc:
                 await self._abort_sidecar()
                 if isinstance(exc, SandboxUnavailable):
                     raise
-                raise SandboxUnavailable("sandbox sidecar did not become ready") from exc
+                raise SandboxUnavailable(
+                    "sandbox sidecar did not become ready",
+                    backend_code="sidecar_ready_timeout",
+                    stage="handshake",
+                ) from exc
 
     async def spawn(
         self,
@@ -445,7 +578,11 @@ class SandboxClient(object):
 
         process_id = str(response.get("process_id") or "").strip()
         if not process_id:
-            raise SandboxProtocolError("sidecar spawn response missing process_id")
+            raise SandboxProtocolError(
+                "sidecar_response_invalid",
+                "spawn result field 'process_id' must be a non-empty string",
+                stage="spawn",
+            )
 
         process = SidecarProcess(self, process_id)
         self._processes[process_id] = process
@@ -506,7 +643,7 @@ class SandboxClient(object):
         try:
             if self._sidecar.returncode is None:
                 await self._request("close", {})
-        except (OSError, RuntimeError, SandboxProtocolError, asyncio.TimeoutError):
+        except SandboxError:
             pass
         await self._abort_sidecar()
 

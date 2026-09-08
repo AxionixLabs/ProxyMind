@@ -30,19 +30,20 @@ from infrastructure.platform.processes import (
     wait_for_process,
 )
 from infrastructure.platform.sandbox import (
-    SandboxProtocolError,
-    SandboxUnavailable,
+    SandboxError,
     SidecarProcess,
     sandbox_backend_name,
 )
 from infrastructure.platform.shell_runtime import ShellRuntimeResolver
 from infrastructure.workspace.commands.audit import WorkspaceFileAudit
 from infrastructure.workspace.commands.profile import CommandExecutionProfile
+from infrastructure.workspace.commands.sandbox_failures import map_sandbox_failure
 from infrastructure.workspace.commands.shell import ShellCommandExecutor
 from infrastructure.workspace.context import (
     WorkspaceComponent,
     WorkspaceContext,
 )
+from observability import observe_exception
 
 
 class ProcessCommandExecutor(WorkspaceComponent):
@@ -255,21 +256,44 @@ class ProcessCommandExecutor(WorkspaceComponent):
                 ),
                 detail=exc.message,
             )
-        except (
-                SandboxUnavailable,
-                SandboxProtocolError,
-                OSError,
-                RuntimeError,
-                ValueError,
-        ) as exc:
+        except SandboxError as exc:
+            failure = map_sandbox_failure(exc)
             return self.fail_result(
-                "sandbox_unavailable",
+                failure.reason,
                 tool="exec_command",
                 command=cmd,
                 cwd=self.relative_path(workdir),
                 sandbox_mode=sandbox_mode,
                 execution_backend=sandbox_backend_name(),
-                detail=str(exc).strip() or type(exc).__name__,
+                backend_code=failure.backend_code,
+                stage=failure.stage,
+                retryable=failure.retryable,
+                detail=failure.detail,
+            )
+        except Exception as exc:
+            execution_backend = (
+                sandbox_backend_name()
+                if sandbox_mode in {
+                    "read-only",
+                    "workspace-read",
+                    "workspace-write",
+                }
+                else ("native-pty" if tty else "local")
+            )
+            observe_exception(
+                "exec_command.internal_error",
+                exc,
+                tool="exec_command",
+                execution_backend=execution_backend,
+            )
+            return self.fail_result(
+                "tool_internal_error",
+                tool="exec_command",
+                command=cmd,
+                cwd=self.relative_path(workdir),
+                sandbox_mode=sandbox_mode,
+                execution_backend=execution_backend,
+                exception_type=type(exc).__name__,
             )
 
         process = session.process
@@ -485,18 +509,33 @@ class ProcessCommandExecutor(WorkspaceComponent):
         terminal_size: TerminalSize | None,
     ) -> dict[str, typing.Any] | None:
         """应用控制动作或向会话写入标准输入。"""
-        reason = await self._session_manager.apply(
-            session,
-            input_text=input_text,
-            control=control,
-            terminal_size=terminal_size,
-        )
+        try:
+            failure = await self._session_manager.apply(
+                session,
+                input_text=input_text,
+                control=control,
+                terminal_size=terminal_size,
+            )
+        except SandboxError as error:
+            mapped = map_sandbox_failure(error, control=control)
+            return self.fail_result(
+                mapped.reason,
+                tool="write_stdin",
+                session_id=session.session_id,
+                exit_code=session.process.returncode,
+                sandbox_mode=session.runtime.get("sandbox_mode"),
+                execution_backend=sandbox_backend_name(),
+                backend_code=mapped.backend_code,
+                stage=mapped.stage,
+                retryable=mapped.retryable,
+                detail=mapped.detail,
+            )
 
-        if reason is None:
+        if failure is None:
             return None
 
         return self.fail_result(
-            reason,
+            failure,
             tool="write_stdin",
             session_id=session.session_id,
             exit_code=session.process.returncode,

@@ -56,6 +56,7 @@ from frontends.terminal.worked import emit_worked_footer
 from frontends.tui.features.conversation import ConversationCompactor
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from infrastructure.config.paths import ApplicationLayout
+from infrastructure.config.paths import resolve_application_layout
 from infrastructure.config.preferences import Preferences
 from infrastructure.config.runtime_paths import effect_journal_db_path
 from infrastructure.config.session import ConfigSession
@@ -72,6 +73,7 @@ from infrastructure.platform.images import FileImageReader
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.platform.pty import LocalInteractiveProcessCapability
 from infrastructure.platform.sandbox import SandboxClient
+from infrastructure.platform.sandbox import sandbox_executable_path
 from infrastructure.platform.network import (
     ManagedNetworkProxy,
     ManagedNetworkRule,
@@ -260,7 +262,7 @@ def create_subscription_runtime(
 def create_workspace_coding(
     *,
     root: str | os.PathLike[str],
-    application_layout: object | None,
+    application_layout: ApplicationLayout | None,
     process_capability: ProcessCapability | None = None,
     interactive_process_capability: InteractiveProcessCapability | None = None,
     network_proxy: ManagedNetworkProxy | None = None,
@@ -274,17 +276,14 @@ def create_workspace_coding(
         and not isinstance(application_layout, ApplicationLayout)
     ):
         raise TypeError("application_layout must be ApplicationLayout")
+    resolved_layout = application_layout or resolve_application_layout(
+        entry_file=Path(__file__),
+        argv0=Path(__file__).name,
+    )
     sandbox_client = SandboxClient(
         workspace_root=root,
-        application_root=(
-            application_layout.root if application_layout is not None else None
-        ),
-        packaged=(
-            application_layout.packaged if application_layout is not None else None
-        ),
-        platform=(
-            application_layout.platform if application_layout is not None else None
-        ),
+        executable=sandbox_executable_path(resolved_layout),
+        platform=resolved_layout.platform,
     )
     effective_network_proxy = network_proxy
     if effective_network_proxy is None and network_access == "restricted":

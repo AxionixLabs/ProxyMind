@@ -14,7 +14,6 @@ from agent.domain.permission_profiles import normalize_permission_profile
 from infrastructure.platform.encoding import normalize_process_output_encoding
 from infrastructure.platform.output_decoder import CapturedOutputDecoder
 from infrastructure.platform.process_capture import (
-    CapturedOutputLine,
     CapturedProcessResult,
     ProcessCapture,
 )
@@ -24,18 +23,19 @@ from infrastructure.platform.process_sessions import (
 )
 from infrastructure.platform.processes import wait_for_process
 from infrastructure.platform.sandbox import (
-    SandboxProtocolError,
-    SandboxUnavailable,
+    SandboxError,
     sandbox_backend_name,
 )
 from infrastructure.platform.shell_runtime import ShellRuntimeResolver
 from infrastructure.workspace.commands.audit import WorkspaceFileAudit
 from infrastructure.workspace.commands.profile import CommandExecutionProfile
+from infrastructure.workspace.commands.sandbox_failures import map_sandbox_failure
 from infrastructure.workspace.context import (
     WorkspaceComponent,
     WorkspaceContext,
 )
 from observability import observe
+from observability import observe_exception
 
 
 class ShellCommandExecutor(WorkspaceComponent):
@@ -375,30 +375,56 @@ class ShellCommandExecutor(WorkspaceComponent):
                     timeout_sec=effective_timeout,
                     buffer_limit_bytes=max(output_limit * 2, output_limit + 4096)
                 )
-        except (
-                SandboxUnavailable,
-                SandboxProtocolError,
-                OSError,
-                RuntimeError,
-                ValueError,
-        ) as exc:
-            data = {
-                "command": cmd,
-                "cwd": self.relative_path(workdir),
-                "sandbox_mode": sandbox_mode,
-                "sandbox_permissions": permission,
-                "execution_backend": sandbox_backend_name(),
-                "error": "sandbox_unavailable",
-                "detail": str(exc).strip() or type(exc).__name__,
-            }
-            result = {
-                "ok": False,
-                "text": "shell_command sandbox unavailable",
-                "attachments": [],
-                "data": data,
-                "logs": [],
-            }
-            self._record_shell_result(data)
+        except SandboxError as exc:
+            failure = map_sandbox_failure(exc)
+            result = self.fail_result(
+                failure.reason,
+                tool="shell_command",
+                command=cmd,
+                cwd=self.relative_path(workdir),
+                sandbox_mode=sandbox_mode,
+                sandbox_permissions=permission,
+                execution_backend=sandbox_backend_name(),
+                backend_code=failure.backend_code,
+                stage=failure.stage,
+                retryable=failure.retryable,
+                detail=failure.detail,
+            )
+            self._record_shell_result(result["data"])
+            return result
+        except Exception as exc:
+            observe_exception(
+                "shell_command.internal_error",
+                exc,
+                tool="shell_command",
+                execution_backend=(
+                    sandbox_backend_name()
+                    if sandbox_mode in {
+                        "read-only",
+                        "workspace-read",
+                        "workspace-write",
+                    }
+                    else "local"
+                ),
+            )
+            result = self.fail_result(
+                "tool_internal_error",
+                tool="shell_command",
+                command=cmd,
+                cwd=self.relative_path(workdir),
+                sandbox_mode=sandbox_mode,
+                execution_backend=(
+                    sandbox_backend_name()
+                    if sandbox_mode in {
+                        "read-only",
+                        "workspace-read",
+                        "workspace-write",
+                    }
+                    else "local"
+                ),
+                exception_type=type(exc).__name__,
+            )
+            self._record_shell_result(result["data"])
             return result
 
         elapsed_ms = capture.elapsed_ms
@@ -548,28 +574,18 @@ class ShellCommandExecutor(WorkspaceComponent):
                 await wait_for_process(session.process, 1000)
 
             await self._sessions.finalize_if_exited(session)
-
-            async with session.lock:
-                stdout = bytes(session.stdout)
-                stderr = bytes(session.stderr)
-                stdout_dropped = session.stdout_dropped
-                stderr_dropped = session.stderr_dropped
-
-                output_records = tuple(
-                    CapturedOutputLine(stream=stream, data=bytes(chunk))
-                    for _, stream, chunk in session.output_events
-                )
+            output = await self._sessions.byte_output_snapshot(session)
 
             exit_code = session.process.returncode
             if exit_code is None:
                 exit_code = -1
             return CapturedProcessResult(
                 exit_code=int(exit_code),
-                stdout=stdout,
-                stderr=stderr,
-                output_records=output_records,
-                stdout_dropped=stdout_dropped,
-                stderr_dropped=stderr_dropped,
+                stdout=output.stdout,
+                stderr=output.stderr,
+                output_records=output.output_records,
+                stdout_dropped=output.stdout_dropped,
+                stderr_dropped=output.stderr_dropped,
                 timed_out=timed_out,
                 elapsed_ms=int((time.perf_counter() - started) * 1000),
             )

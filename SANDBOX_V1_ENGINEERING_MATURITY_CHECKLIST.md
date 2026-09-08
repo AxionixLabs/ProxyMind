@@ -1,6 +1,6 @@
 # Sandbox v1 工程成熟度改造清单
 
-> 状态：阶段 0 已完成并通过复核；阶段 1 待实施。
+> 状态：阶段 0-1 已完成并通过复核；阶段 2 待实施。
 > 计划版本：v1。
 > Sandbox 私有协议版本：`1`，本次改造保持不变。
 > 基准日期：2026-09-08。
@@ -14,16 +14,16 @@
 目标是把本地 Sandbox 从“基本可运行”提升到“错误可区分、生命周期可收敛、平台行为可证明、
 发布产物可追溯”的生产就绪状态，同时保持现有 JSONL 私有协议 v1。
 
-- [ ] `ready.protocol_version` 继续固定为 `1`，不增加 v2 帧或双版本兼容分支。
-- [ ] Sidecar 错误仍使用 v1 的 `{code, detail}` 信封，客户端必须分别保存两个字段，不再拼接后反推。
-- [ ] 只有 helper 缺失、Sidecar 启动失败、握手失败或异常退出可以归类为 `sandbox_unavailable`。
-- [ ] Sidecar 已就绪但子进程无法创建时归类为 `sandbox_process_start_failed`。
-- [ ] 调用参数或工作区边界不合法时归类为 `sandbox_request_invalid`。
-- [ ] 子进程成功创建后的非零退出默认归类为 `command_failed`，Shell 解析错误不得归类为 Sandbox 故障。
+- [x] `ready.protocol_version` 继续固定为 `1`，不增加 v2 帧或双版本兼容分支。
+- [x] Sidecar 错误仍使用 v1 的 `{code, detail}` 信封，客户端必须分别保存两个字段，不再拼接后反推。
+- [x] 只有 helper 缺失、Sidecar 启动失败、握手失败或异常退出可以归类为 `sandbox_unavailable`。
+- [x] Sidecar 已就绪但子进程无法创建时归类为 `sandbox_process_start_failed`。
+- [x] 调用参数或工作区边界不合法时归类为 `sandbox_request_invalid`。
+- [x] 子进程成功创建后的非零退出默认归类为 `command_failed`，Shell 解析错误不得归类为 Sandbox 故障。
 - [ ] 有可靠证据证明文件系统或网络策略拒绝时才归类为 `sandbox_denied`。
-- [ ] 未知客户端异常归类为 `tool_internal_error` 并进入结构化观测，不伪装成 Sandbox 不可用。
-- [ ] 任一受限执行失败均保持 fail-closed，不自动切换到宿主 Shell 或 `danger-full-access`。
-- [ ] 不在前端依据 WinError 文案、日志文本或展示文本重建执行事实。
+- [x] 未知客户端异常归类为 `tool_internal_error` 并进入结构化观测，不伪装成 Sandbox 不可用。
+- [x] 任一受限执行失败均保持 fail-closed，不自动切换到宿主 Shell 或 `danger-full-access`。
+- [x] 不在前端依据 WinError 文案、日志文本或展示文本重建执行事实。
 
 ## 2. 已确认基线
 
@@ -71,37 +71,47 @@
 
 ### 4.1 输出所有权
 
-- [ ] `ProcessSessionManager` 提供具名的字节输出快照，统一返回 stdout、stderr、顺序事件和 dropped bytes。
-- [ ] `ShellCommandExecutor` 不再直接读取 `ProcessSession.lock`、`stdout`、`stderr` 或 `output_events`。
-- [ ] 删除 `bytes(session.stdout)` 和不存在的 `session.stdout_dropped` / `session.stderr_dropped` 旧路径。
-- [ ] `shell_command` 与 `exec_command` 复用同一进程终结和输出收束语义，不复制缓冲实现。
-- [ ] 多字节字符、stdout/stderr 交错、首尾截断和 EOF flush 继续遵守统一解码生命周期。
+- [x] `ProcessSessionManager` 提供具名的字节输出快照，统一返回 stdout、stderr、顺序事件和 dropped bytes。
+- [x] `ShellCommandExecutor` 不再直接读取 `ProcessSession.lock`、`stdout`、`stderr` 或 `output_events`。
+- [x] 删除 `bytes(session.stdout)` 和不存在的 `session.stdout_dropped` / `session.stderr_dropped` 旧路径。
+- [x] `shell_command` 与 `exec_command` 复用同一进程终结和输出收束语义，不复制缓冲实现。
+- [x] 多字节字符、stdout/stderr 交错、首尾截断和 EOF flush 继续遵守统一解码生命周期。
 
 ### 4.2 v1 错误保真
 
-- [ ] `SandboxProtocolError` 以具名属性保存 v1 `code` 和 `detail`，不把二者拼接成唯一字符串。
-- [ ] Sidecar v1 响应在边界完成对象、字段、类型和空值校验；畸形响应按协议故障收敛。
-- [ ] 建立唯一的 Sandbox-to-tool 错误映射函数，由 `shell_command`、`exec_command` 和控制操作复用。
-- [ ] 删除两个命令执行器对宽泛 `OSError`、`RuntimeError`、`ValueError` 的同义捕获。
-- [ ] 边界层将真实 OS 启动异常转换为具名 Sandbox 失败；业务编程错误保持可观测并独立归类。
-- [ ] `sandbox_spawn_failed` 映射为 `sandbox_process_start_failed`，并在 `failure_context` 保留 backend code。
-- [ ] `cwd_outside_workspace_roots`、`sandbox_mode_disabled` 和 `argv_empty` 映射为
+- [x] `SandboxProtocolError` 以具名属性保存 v1 `code` 和 `detail`，不把二者拼接成唯一字符串。
+- [x] Sidecar v1 响应在边界完成对象、字段、类型和空值校验；畸形响应按协议故障收敛。
+- [x] 建立唯一的 Sandbox-to-tool 错误映射函数，由 `shell_command`、`exec_command` 和控制操作复用。
+- [x] 删除两个命令执行器对宽泛 `OSError`、`RuntimeError`、`ValueError` 的同义捕获。
+- [x] 边界层将真实 OS 启动异常转换为具名 Sandbox 失败；业务编程错误保持可观测并独立归类。
+- [x] `sandbox_spawn_failed` 映射为 `sandbox_process_start_failed`，并在 `failure_context` 保留 backend code。
+- [x] `cwd_outside_workspace_roots`、`sandbox_mode_disabled` 和 `argv_empty` 映射为
       `sandbox_request_invalid`。
-- [ ] v1 `detail` 中存在 OS error code 时只作为结构化诊断事实保存，不用字符串决定是否自动提权。
+- [x] v1 `detail` 中存在 OS error code 时只作为结构化诊断事实保存，不用字符串决定是否自动提权。
 
 ### 4.3 应用布局
 
-- [ ] Sandbox 可执行文件路径由组合根根据 `ApplicationLayout` 显式注入。
-- [ ] 删除 `SandboxClient` 的源码目录层级猜测，不保留第二条隐式发现路径。
-- [ ] 源码运行、独立打包和测试 fixture 使用同一可执行文件定位契约。
-- [ ] 缺失产物在启动前返回包含期望路径和平台的稳定失败，不进入模糊的握手超时。
+- [x] Sandbox 可执行文件路径由组合根根据 `ApplicationLayout` 显式注入。
+- [x] 删除 `SandboxClient` 的源码目录层级猜测，不保留第二条隐式发现路径。
+- [x] 源码运行、独立打包和测试 fixture 使用同一可执行文件定位契约。
+- [x] 缺失产物在启动前返回包含期望路径和平台的稳定失败，不进入模糊的握手超时。
 
 ### 阶段 1 准出
 
-- [ ] 非 PTY `shell_command` 在 Windows Sidecar 下完成成功、失败、超时和截断回归。
-- [ ] 非法 `python - <<'PY'` 明确返回 `command_failed`，不会触发宿主 Shell 请求。
-- [ ] 只有真实 Sidecar 可用性问题返回 `sandbox_unavailable`。
-- [ ] 定向测试、Runtime P0、`compileall` 和 `git diff --check` 全部通过。
+- [x] 非 PTY `shell_command` 在 Windows Sidecar 下完成成功、失败、超时和截断回归。
+- [x] 非法 `python - <<'PY'` 明确返回 `command_failed`，不会触发宿主 Shell 请求。
+- [x] 只有真实 Sidecar 可用性问题返回 `sandbox_unavailable`。
+- [x] 定向测试、Runtime P0、`compileall` 和 `git diff --check` 全部通过。
+
+### 阶段 1 复核证据
+
+- [x] Sandbox 客户端与 Windows Sidecar 定向组：`45 passed`。
+- [x] 进程输出解码、PTY 与 TUI Shell 相邻回归：`82 passed`。
+- [x] Runtime P0：`342 passed, 4024 deselected`，阶段 0 的 9 个 strict xfail 已全部移除。
+- [x] 架构审计首轮发现新模块缺少规范 main guard；修复后完整审计
+      `138 passed, 1 warning`。
+- [x] macOS Sidecar 真机验收在 Windows 上保留 `11 skipped`，不计为通过。
+- [x] 全量 `compileall` 和阶段差异检查通过。
 
 ## 5. 阶段 2：生命周期与协议健壮性
 
@@ -171,8 +181,8 @@
 
 | 等级 | 定义 | 准入条件 |
 |------|------|----------|
-| L2.6 当前 | 基本 Sidecar 与 PTY 可运行，但非 PTY、错误语义和诊断未收口 | 当前基线 |
-| L3 正确 | 两个命令入口共享生命周期，错误分类稳定，已知 P0 缺陷清零 | 阶段 0-1 全部通过 |
+| L2.6 基线 | 基本 Sidecar 与 PTY 可运行，但非 PTY、错误语义和诊断未收口 | 阶段 0 前基线 |
+| L3 当前 | 两个命令入口共享生命周期，错误分类稳定，已知 P0 缺陷清零 | 阶段 0-1 全部通过 |
 | L3.5 健壮 | 协议严格、资源有界、异常退出结果明确、soak 无泄漏 | 阶段 2 全部通过 |
 | L4 可运营 | 拒绝与审批正确，Doctor 和结构化观测可以独立定位故障 | 阶段 3-4 全部通过 |
 | L4.5 可发布 | Windows/macOS 平台证明完整，产物可追溯，发布门禁可重复 | 阶段 5 全部通过 |
@@ -183,11 +193,11 @@ Blocked”，但不因此改写已经成立的系统 Authority 和依赖方向�
 
 ## 10. 每阶段复核与提交纪律
 
-- [ ] 每个阶段先运行定向测试，风险跨越 Session Manager、公共工具结果或平台边界时扩大验证。
-- [ ] 每个阶段单独复核、单独提交，不与 `/review`、TUI 布局或其他用户改动混合。
-- [ ] 提交前确认暂存区只包含本阶段文件，保留用户现有 `REVIEW_ALIGNMENT_PLAN.md` 改动。
+- [x] 每个阶段先运行定向测试，风险跨越 Session Manager、公共工具结果或平台边界时扩大验证。
+- [x] 每个阶段单独复核、单独提交，不与 `/review`、TUI 布局或其他用户改动混合。
+- [x] 提交前确认暂存区只包含本阶段文件，保留用户现有改动。
 - [ ] 每次提交后记录提交哈希、验证命令和结果；平台缺失或 skip 必须如实保留。
-- [ ] 阶段完成后更新本清单；全部完成后把长期不变量收敛到正式架构和测试文档。
+- [x] 阶段完成后更新本清单；全部完成后把长期不变量收敛到正式架构和测试文档。
 
 ## 11. Codex-main 本地参考
 
