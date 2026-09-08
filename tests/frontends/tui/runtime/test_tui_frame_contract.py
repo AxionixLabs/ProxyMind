@@ -44,7 +44,7 @@ from frontends.tui.runtime.turn_surface import (
     project_turn_surface,
     reduce_turn_surface,
 )
-from tests.scenarios.turns import (
+from tests.scenarios.frames import (
     FrameIndicator,
     FrameKind,
     FrameTrace,

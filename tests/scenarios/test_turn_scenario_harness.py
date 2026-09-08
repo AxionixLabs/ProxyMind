@@ -4,14 +4,16 @@ import itertools
 
 import pytest
 
-from tests.scenarios.turns import (
+from tests.scenarios.frames import (
     FrameIndicator,
     FrameKind,
+    LogicalFrame,
+    RuntimeInvariantError,
+)
+from tests.scenarios.turns import (
     InputOwner,
     InterruptScenario,
     InterruptTransport,
-    LogicalFrame,
-    RuntimeInvariantError,
     RuntimeLease,
     ServerResult,
     TransportCondition,
@@ -101,6 +103,14 @@ def test_seeded_long_traces_preserve_runtime_invariants(seed: int) -> None:
     harness = run_seeded_trace(seed=seed, steps=1000)
 
     harness.assert_invariants()
+
+
+def test_seeded_trace_is_reproducible() -> None:
+    """确保相同 seed 生成完全相同的事实序列。"""
+    first = run_seeded_trace(seed=937, steps=250)
+    second = run_seeded_trace(seed=937, steps=250)
+
+    assert first.trace == second.trace
 
 
 def test_turn_authority_assertion_detects_interrupt_as_terminal() -> None:
@@ -193,3 +203,24 @@ def test_reconciliation_keeps_one_owner_for_each_message() -> None:
 
     assert harness.next_queue == ["message-1"]
     assert harness.inputs["message-1"].owner is InputOwner.QUEUED_NEXT
+
+
+def test_runtime_trace_reports_identity_sequence_owner_and_lease() -> None:
+    """确保场景 trace 包含重放所需的核心事实。"""
+    harness = TurnScenarioHarness()
+    harness.start_turn("turn-diagnostics", TurnPhase.MODEL_WAIT)
+    harness.set_phase(TurnPhase.TOOL)
+    harness.submit_input("message-diagnostics")
+    harness.observe_event(
+        turn_id="turn-diagnostics",
+        epoch=harness.epoch,
+        event_seq=7,
+    )
+
+    trace = harness.trace_text()
+
+    assert "turn=turn-diagnostics" in trace
+    assert "event_seq=7" in trace
+    assert "message-diagnostics:sent_steer" in trace
+    assert "leases=[tool,turn_task]" in trace
+    assert "terminal=False" in trace

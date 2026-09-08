@@ -40,6 +40,12 @@ class SteerBehavior(enum.Enum):
     PENDING = "pending"
 
 
+class ToolResultBehavior(enum.Enum):
+    ACCEPT = "accept"
+    RESPONSE_LOST = "response_lost"
+    COMMIT_RESPONSE_LOST = "commit_response_lost"
+
+
 class FakeInputState(enum.Enum):
     COMMITTED = "committed"
     PENDING = "pending"
@@ -71,17 +77,66 @@ class FakeMindChatRequest:
     initial_event_seq: int
 
 
+@dataclass(frozen=True, slots=True)
+class FakeEventSpec:
+    """描述故障计划中的一个确定事件。"""
+
+    kind: FakeEventKind
+    event_seq: int
+    turn_id: str | None = None
+    text: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class FakeMindChatFaultPlan:
+    """组合命令、工具结果与事件序列故障。"""
+
+    interrupt: CommandFault = CommandFault.NORMAL
+    steer: SteerBehavior = SteerBehavior.ACCEPT
+    tool_result: ToolResultBehavior = ToolResultBehavior.ACCEPT
+    events: tuple[FakeEventSpec, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class FakeToolResultRequest:
+    """记录一次工具结果提交的稳定身份。"""
+
+    cid: str
+    sid: str
+    call_id: str
+    name: str
+    ok: bool
+    result: Mapping[str, JsonValue]
+    additional_context: tuple[str, ...]
+    request_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class FakeServerFact:
+    """记录 Fake Server 边界发生的一个可诊断事实。"""
+
+    operation: str
+    turn_id: str
+    request_id: str = ""
+    subject_id: str = ""
+    event_seq: int | None = None
+    owner: str = ""
+    status: str = ""
+
+
 class FakeMindChatServer:
-    """实现控制端口并精确注入提交后丢响应等传输窗口。"""
+    """实现控制端口并精确注入提交后丢响应等传输窗口。
+
+    本实现不创建后台 task、socket 或进程；事件队列由场景调用方显式写入和消费，因而没有
+    独立 close 生命周期。
+    """
 
     def __init__(
         self,
         *,
-        interrupt_fault: CommandFault = CommandFault.NORMAL,
-        steer_behavior: SteerBehavior = SteerBehavior.ACCEPT,
+        fault_plan: FakeMindChatFaultPlan = FakeMindChatFaultPlan(),
     ) -> None:
-        self.interrupt_fault = interrupt_fault
-        self.steer_behavior = steer_behavior
+        self.fault_plan = fault_plan
         self.cid = "cid-test"
         self.sid = "sid-test"
         self.turn_id = ""
@@ -92,11 +147,14 @@ class FakeMindChatServer:
         self.mind_chat_requests: list[FakeMindChatRequest] = []
         self.interrupt_requests: list[str] = []
         self.steer_requests: list[tuple[str, str]] = []
+        self.tool_result_requests: list[FakeToolResultRequest] = []
+        self.facts: list[FakeServerFact] = []
         self.accepted_interrupt_count = 0
         self.status_read = asyncio.Event()
         self._interrupt_request_ids: set[str] = set()
         self._steer_request_ids: dict[str, str] = {}
         self._input_states: dict[str, FakeInputState] = {}
+        self._tool_results: dict[str, FakeToolResultRequest] = {}
         self._events: asyncio.Queue[FakeServerEvent] = asyncio.Queue()
 
     @property
@@ -125,6 +183,11 @@ class FakeMindChatServer:
             turn_id,
             initial_event_seq,
         ))
+        self._record(
+            "mind_chat",
+            event_seq=initial_event_seq,
+            status=status,
+        )
         await self.emit_event(FakeEventKind.TURN_STARTED)
 
     async def emit_event(
@@ -150,7 +213,23 @@ class FakeMindChatServer:
             text,
         )
         await self._events.put(event)
+        self._record(
+            "event",
+            turn_id=event.turn_id,
+            event_seq=event.event_seq,
+            status=event.kind.value,
+        )
         return event
+
+    async def emit_fault_events(self) -> None:
+        """按故障计划写入可重复、跳号和迟到 Turn 事件。"""
+        for event in self.fault_plan.events:
+            await self.emit_event(
+                event.kind,
+                event_seq=event.event_seq,
+                turn_id=event.turn_id,
+                text=event.text,
+            )
 
     async def stream_events(self) -> AsyncIterator[FakeServerEvent]:
         """按服务端入队顺序生成 SSE 事件。"""
@@ -186,6 +265,11 @@ class FakeMindChatServer:
             last_event_seq=self.last_event_seq,
             completed_at=1.0,
         )
+        self._record(
+            "settle",
+            event_seq=self.last_event_seq,
+            status=status,
+        )
 
     async def interrupt_turn(
         self,
@@ -199,6 +283,7 @@ class FakeMindChatServer:
         self._validate_turn(cid, sid, turn_id)
         resolved_request_id = request_id or "interrupt-request"
         self.interrupt_requests.append(resolved_request_id)
+        self._record("interrupt", request_id=resolved_request_id)
         if resolved_request_id in self._interrupt_request_ids:
             return TurnControlReceipt(
                 "duplicate",
@@ -207,10 +292,10 @@ class FakeMindChatServer:
             )
         self._interrupt_request_ids.add(resolved_request_id)
         self.accepted_interrupt_count += 1
-        if self.interrupt_fault is not CommandFault.NORMAL:
+        if self.fault_plan.interrupt is not CommandFault.NORMAL:
             raise ProtocolCommandError(
-                self.interrupt_fault.value,
-                f"injected interrupt {self.interrupt_fault.value}",
+                self.fault_plan.interrupt.value,
+                f"injected interrupt {self.fault_plan.interrupt.value}",
                 retryable=True,
             )
         return TurnControlReceipt("accepted", resolved_request_id, turn_id)
@@ -238,6 +323,14 @@ class FakeMindChatServer:
                     "idempotency_conflict",
                     "request id was reused for another input",
                 )
+            known_state = self._input_states.get(turn_input.client_message_id)
+            self._record(
+                "steer",
+                request_id=resolved_request_id,
+                subject_id=turn_input.client_message_id,
+                owner=known_state.value if known_state is not None else "",
+                status="duplicate",
+            )
             return TurnControlReceipt(
                 "duplicate",
                 resolved_request_id,
@@ -248,21 +341,36 @@ class FakeMindChatServer:
             turn_input.client_message_id
         )
 
-        if self.steer_behavior is SteerBehavior.REJECT:
+        if self.fault_plan.steer is SteerBehavior.REJECT:
             self._input_states[turn_input.client_message_id] = FakeInputState.RETRY
+            self._record(
+                "steer",
+                request_id=resolved_request_id,
+                subject_id=turn_input.client_message_id,
+                owner=FakeInputState.RETRY.value,
+                status="turn_not_steerable",
+            )
             return TurnControlReceipt(
                 "turn_not_steerable",
                 resolved_request_id,
                 turn_id,
                 turn_input.client_message_id,
             )
-        if self.steer_behavior is SteerBehavior.PENDING:
+        if self.fault_plan.steer is SteerBehavior.PENDING:
             self._input_states[turn_input.client_message_id] = FakeInputState.PENDING
         else:
             self._input_states[turn_input.client_message_id] = (
                 FakeInputState.COMMITTED
             )
-        if self.steer_behavior is SteerBehavior.COMMIT_RESPONSE_LOST:
+        input_state = self._input_states[turn_input.client_message_id]
+        self._record(
+            "steer",
+            request_id=resolved_request_id,
+            subject_id=turn_input.client_message_id,
+            owner=input_state.value,
+            status=self.fault_plan.steer.value,
+        )
+        if self.fault_plan.steer is SteerBehavior.COMMIT_RESPONSE_LOST:
             raise ProtocolCommandError(
                 "response_lost",
                 "steer was committed before its response was lost",
@@ -337,6 +445,11 @@ class FakeMindChatServer:
                 self.client_cursor,
                 snapshot.terminal.last_event_seq,
             )
+        self._record(
+            "status",
+            event_seq=snapshot.last_event_seq,
+            status=snapshot.status,
+        )
         return snapshot
 
     async def fork_session(
@@ -362,8 +475,48 @@ class FakeMindChatServer:
         additional_context: Sequence[str] = (),
         request_id: str | None = None,
     ) -> None:
-        """拒绝超出本 Fake Server 场景边界的工具结果请求。"""
-        raise AssertionError("post_tool_result is outside FakeMindChatServer scope")
+        """模拟不可覆盖的工具结果提交及提交前后丢回执窗口。"""
+        self._validate_session(cid, sid)
+        resolved_request_id = request_id or f"tool-result-{call_id}"
+        request = FakeToolResultRequest(
+            cid=cid,
+            sid=sid,
+            call_id=call_id,
+            name=name,
+            ok=ok,
+            result=dict(result),
+            additional_context=tuple(additional_context),
+            request_id=resolved_request_id,
+        )
+        self.tool_result_requests.append(request)
+        known = self._tool_results.get(call_id)
+        if known is not None:
+            if known != request:
+                raise ProtocolCommandError(
+                    "tool_result_conflict",
+                    "tool result cannot overwrite an existing result",
+                )
+            self._record(
+                "tool_result",
+                request_id=resolved_request_id,
+                subject_id=call_id,
+                status="duplicate",
+            )
+            return
+        if self.fault_plan.tool_result is not ToolResultBehavior.RESPONSE_LOST:
+            self._tool_results[call_id] = request
+        self._record(
+            "tool_result",
+            request_id=resolved_request_id,
+            subject_id=call_id,
+            status=self.fault_plan.tool_result.value,
+        )
+        if self.fault_plan.tool_result is not ToolResultBehavior.ACCEPT:
+            raise ProtocolCommandError(
+                "response_lost",
+                "tool result response was lost",
+                retryable=True,
+            )
 
     async def get_tool_result_status(
         self,
@@ -372,10 +525,33 @@ class FakeMindChatServer:
         sid: str,
         call_id: str,
     ) -> Mapping[str, ThawedJsonValue]:
-        """拒绝超出本 Fake Server 场景边界的工具状态请求。"""
-        raise AssertionError(
-            "get_tool_result_status is outside FakeMindChatServer scope"
+        """返回正式字段形状的工具结果权威状态。"""
+        self._validate_session(cid, sid)
+        request = self._tool_results.get(call_id)
+        received = request is not None
+        self._record(
+            "tool_result_status",
+            subject_id=call_id,
+            status="result_received" if received else "missing",
         )
+        return {
+            "cid": cid,
+            "sid": sid,
+            "call_id": call_id,
+            "turn_id": self.turn_id,
+            "name": request.name if request is not None else "",
+            "tool_status": "result_received" if received else "missing",
+            "completion_mode": "interactive",
+            "turn_status": self.status,
+            "result_received": received,
+            "request_id": request.request_id if request is not None else None,
+            "completed_at": 1.0 if received else None,
+            "execution_deadline_at": None,
+            "failure_reason": None,
+            "effect_id": None,
+            "effect_status": None,
+            "reconciliation_required": False,
+        }
 
     async def renew_tool_result(
         self,
@@ -426,8 +602,51 @@ class FakeMindChatServer:
         )
 
     def _validate_turn(self, cid: str, sid: str, turn_id: str) -> None:
-        if (cid, sid, turn_id) != (self.cid, self.sid, self.turn_id):
+        self._validate_session(cid, sid)
+        if turn_id != self.turn_id:
             raise ProtocolCommandError(
                 "turn_mismatch",
                 "fake command coordinates do not match the active turn",
             )
+
+    def _validate_session(self, cid: str, sid: str) -> None:
+        """校验 Fake Server 固定的会话身份。"""
+        if (cid, sid) != (self.cid, self.sid):
+            raise ProtocolCommandError(
+                "session_mismatch",
+                "fake command coordinates do not match the active session",
+            )
+
+    def trace_text(self) -> str:
+        """返回带序号和关键身份字段的边界事实。"""
+        return "\n".join(
+            (
+                f"{index} {fact.operation} turn={fact.turn_id or '-'} "
+                f"request={fact.request_id or '-'} "
+                f"subject={fact.subject_id or '-'} "
+                f"event_seq={fact.event_seq if fact.event_seq is not None else '-'} "
+                f"owner={fact.owner or '-'} status={fact.status or '-'}"
+            )
+            for index, fact in enumerate(self.facts, start=1)
+        )
+
+    def _record(
+        self,
+        operation: str,
+        *,
+        turn_id: str | None = None,
+        request_id: str = "",
+        subject_id: str = "",
+        event_seq: int | None = None,
+        owner: str = "",
+        status: str = "",
+    ) -> None:
+        self.facts.append(FakeServerFact(
+            operation=operation,
+            turn_id=self.turn_id if turn_id is None else turn_id,
+            request_id=request_id,
+            subject_id=subject_id,
+            event_seq=event_seq,
+            owner=owner,
+            status=status,
+        ))

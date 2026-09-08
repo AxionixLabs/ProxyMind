@@ -35,8 +35,9 @@
 
 ## 测试设施
 
-- `scenarios/turns.py`：Turn 场景、事实记录和稳定不变量；
-- `fakes/mind_chat.py`：可控协议故障与请求记录；
+- `scenarios/turns.py`：Turn 场景、确定性组合选择和 Runtime 稳定不变量；
+- `scenarios/frames.py`：逻辑 frame 事实与跨帧原子性断言；
+- `fakes/mind_chat.py`：不可变故障计划、正式命令端口和请求/事件事实记录；
 - `pty/`：跨平台 PTY、终端输入和渲染验收设施；
 - `fixtures/`：无行为的正式协议、配置和展示输入；
 - `frontends/tui/rendering/frame_scenarios.py`：TUI frame 输入构造、同步等待与可见事实读取；
@@ -45,6 +46,12 @@
 公共 helper 只在至少三个测试模块共享稳定概念，或重复已经造成契约不一致时提取。fake 只实现
 它声明的端口，不能复制生产状态机来计算期望结果。禁止新增 `support/`、`utils/`、`common/`
 等通用收纳模块；仓库路径通过根 `conftest.py` 的 pytest fixture 显式注入。
+
+Turn 场景使用调用方提供的固定 seed，并在失败信息中输出 seed 与完整 trace。Runtime trace 包含
+Turn/epoch、事件序号、cursor、输入 owner、lease、终态和执行门状态；Fake Server trace 包含命令
+请求身份、Turn、事件序号、输入 owner 和工具结果状态。Fake Server 不创建后台 task、socket 或
+进程；PTY 资源由 context manager 关闭。场景与 Fake 使用 event 或零延迟让步同步，真实 PTY、
+sidecar 和终端时序可以保留带明确截止时间的轮询。
 
 ## 结构守护
 

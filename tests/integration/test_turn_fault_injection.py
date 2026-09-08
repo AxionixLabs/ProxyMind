@@ -26,7 +26,9 @@ from protocol.schema.stream_events import (
 from tests.fakes.mind_chat import (
     CommandFault,
     FakeEventKind,
+    FakeEventSpec,
     FakeInputState,
+    FakeMindChatFaultPlan,
     FakeMindChatServer,
     SteerBehavior,
 )
@@ -182,7 +184,9 @@ async def test_production_interrupt_matrix_preserves_gate_and_input_ownership(
 ) -> None:
     """以生产输入控制器覆盖完整中断时机、输入和传输矩阵。"""
     server = FakeMindChatServer(
-        interrupt_fault=_INTERRUPT_FAULT[scenario.transport],
+        fault_plan=FakeMindChatFaultPlan(
+            interrupt=_INTERRUPT_FAULT[scenario.transport],
+        ),
     )
     await server.post_mind_chat(
         turn_id="turn-1",
@@ -280,7 +284,9 @@ async def test_escape_interrupt_response_loss_submits_only_sampled_steers(
 ) -> None:
     """验证 Esc 在中断回执丢失时仍只提交按键时的 pending steer。"""
     server = FakeMindChatServer(
-        interrupt_fault=CommandFault.RESPONSE_LOST,
+        fault_plan=FakeMindChatFaultPlan(
+            interrupt=CommandFault.RESPONSE_LOST,
+        ),
     )
     await server.post_mind_chat(
         turn_id="turn-1",
@@ -364,8 +370,10 @@ async def test_approval_rejection_interrupt_loss_preserves_gate_and_fifo(
 ) -> None:
     """复现审批拒绝、回执丢失、排队输入和延迟终态的组合。"""
     server = FakeMindChatServer(
-        interrupt_fault=CommandFault.RESPONSE_LOST,
-        steer_behavior=SteerBehavior.REJECT,
+        fault_plan=FakeMindChatFaultPlan(
+            interrupt=CommandFault.RESPONSE_LOST,
+            steer=SteerBehavior.REJECT,
+        ),
     )
     await server.post_mind_chat(
         turn_id="turn-1",
@@ -559,7 +567,9 @@ async def test_durable_gate_waits_for_terminal_then_dispatches_fifo(
 async def test_committed_steer_response_loss_reconciles_without_resubmit() -> None:
     """验证 steer 已提交但回执丢失时只保留一份服务端事实。"""
     server = FakeMindChatServer(
-        steer_behavior=SteerBehavior.COMMIT_RESPONSE_LOST,
+        fault_plan=FakeMindChatFaultPlan(
+            steer=SteerBehavior.COMMIT_RESPONSE_LOST,
+        ),
     )
     await server.post_mind_chat(turn_id="turn-1", initial_event_seq=0)
     runtime = TuiRuntime()
@@ -593,32 +603,36 @@ async def test_committed_steer_response_loss_reconciles_without_resubmit() -> No
 @pytest.mark.anyio
 async def test_fake_sse_duplicate_gap_and_late_event_feed_same_oracle() -> None:
     """验证 Fake SSE trace 可直接驱动身份、gap 和 cursor 不变量。"""
-    server = FakeMindChatServer()
+    server = FakeMindChatServer(
+        fault_plan=FakeMindChatFaultPlan(events=(
+            FakeEventSpec(
+                FakeEventKind.ASSISTANT_DELTA,
+                event_seq=2,
+                text="hello",
+            ),
+            FakeEventSpec(
+                FakeEventKind.ASSISTANT_DELTA,
+                event_seq=2,
+                text="duplicate",
+            ),
+            FakeEventSpec(
+                FakeEventKind.ASSISTANT_DELTA,
+                event_seq=4,
+                text="after gap",
+            ),
+            FakeEventSpec(
+                FakeEventKind.ASSISTANT_DELTA,
+                event_seq=5,
+                turn_id="turn-old",
+                text="late",
+            ),
+            FakeEventSpec(FakeEventKind.STREAM_CLOSED, event_seq=5),
+        )),
+    )
     harness = TurnScenarioHarness()
     harness.start_turn("turn-1", TurnPhase.REPLAY)
     await server.post_mind_chat(turn_id="turn-1", initial_event_seq=0)
-    await server.emit_event(
-        FakeEventKind.ASSISTANT_DELTA,
-        event_seq=2,
-        text="hello",
-    )
-    await server.emit_event(
-        FakeEventKind.ASSISTANT_DELTA,
-        event_seq=2,
-        text="duplicate",
-    )
-    await server.emit_event(
-        FakeEventKind.ASSISTANT_DELTA,
-        event_seq=4,
-        text="after gap",
-    )
-    await server.emit_event(
-        FakeEventKind.ASSISTANT_DELTA,
-        event_seq=5,
-        turn_id="turn-old",
-        text="late",
-    )
-    await server.emit_event(FakeEventKind.STREAM_CLOSED, event_seq=5)
+    await server.emit_fault_events()
 
     async for event in server.stream_events():
         harness.observe_event(

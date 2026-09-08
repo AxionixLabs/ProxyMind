@@ -295,7 +295,8 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 ### 当前实施状态（2026-09-08）
 
 当前接力点如下。通用 `tests/support` 已移除，阶段 1 路径治理、阶段 2 目录迁移和阶段 3 巨型
-模块拆分均已完成并通过门禁；阶段 3 推送后进入阶段 4。继续改造时仍按真实层级确定主要生命周期，
+模块拆分均已完成并通过门禁，阶段 3 已推送为 `c9c9a2c8`。阶段 4 场景与测试设施已经完成实现，
+并通过全部合并验证；阶段 4 推送后进入阶段 5 CI 门禁。继续改造时仍按真实层级确定主要生命周期，
 不能按文件名前缀机械归类：
 
 | 项目                 | 当前状态                                                                                                |
@@ -323,7 +324,7 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 | 阶段 2 批次 E        | 已完成 10 个 integration、composition、scenario 测试和 3 个 manual 入口移动                             |
 | 批次 E 定向验证      | 非 PTY 为 `458 passed, 23 deselected`；规范化收集数量和哈希与当前基线完全一致                            |
 | 根目录收口           | 仅保留 `conftest.py`、`README.md`、`test_package_architecture.py`                                       |
-| 当前全树收集         | `4213`；在 4209 迁移基线上新增 4 个结构守护用例，无收集错误                                              |
+| 当前全树收集         | `4222`；阶段 4 新增场景与 Fake 契约节点，无收集错误                                                       |
 | 当前规范化收集基线   | node id 按“文件名 + 测试路径”排序、LF 连接且无尾换行，SHA-256 为 `A0F968290BCBC4FEA1E84AB2AD31F193FBAC3D3730A451CABF8160035AE81556` |
 | 阶段 3 语义收集基线  | 拆分后仍为 `4213`；忽略文件路径的测试路径 SHA-256 为 `443274728CC422B18311F0F251F74686724E8DB51CA9252D419A197A7049407F` |
 | 架构与平台定向验证   | 根架构、terminal acceptance、macOS 门禁共 `139 passed, 13 skipped`                                     |
@@ -335,7 +336,11 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 | 阶段 3 architecture  | 原 124 个节点，拆分前后哈希 `F6D3314D...3E74`；含既有 TUI 专题共 `132 passed`                           |
 | 阶段 3 合并定向集    | 受影响责任目录 `1480 passed, 2 skipped`                                                                |
 | 阶段 3 风险门禁      | Runtime P0 `331 passed`；非 PTY 全量 `4064 passed, 14 skipped, 135 deselected`                          |
-| 静态收口             | 阶段 3 `compileall` 与 `git diff --check` 通过                                                         |
+| 阶段 4 设施定向集    | Fake、场景、故障集成与 frame 契约 `357 passed`                                                         |
+| 阶段 4 平台验收      | TUI 与 terminal PTY `105 passed, 3 skipped`                                                            |
+| 阶段 4 风险门禁      | Runtime P0 `331 passed`；非 PTY 全量 `4073 passed, 14 skipped, 135 deselected`                          |
+| 阶段 4 收集基线      | `4222`；语义 node id SHA-256 为 `BA8EE17DE3CD5F796C2C25CEDFCB6F8CA76FC8331013FA6591E2DCDD04793DC8`     |
+| 静态收口             | 阶段 4 完整架构审计 `132 passed`，`compileall` 与 `git diff --check` 通过                              |
 
 批次 A 已应用的目录范围：
 
@@ -421,17 +426,18 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 
 ### 阶段 4：收敛领域场景与测试设施
 
-- [ ] 将 `turn_scenarios.py` 按 runtime scenario、frame trace 和 invariant 分为最小稳定模块，仅在
+- [x] 将 `turn_scenarios.py` 按 runtime scenario、frame trace 和 invariant 分为最小稳定模块，仅在
   拆分确实降低耦合时执行。
-- [ ] 将 Fake Mind Chat Server 对齐正式控制端口、事件序号和错误类型，不增加服务端未声明字段。
-- [ ] 为响应已提交但回执丢失、重复事件、gap、迟到 epoch、未知工具结果建立可组合故障表。
-- [ ] 为每条核心风险建立一个快速最小场景和少量完整组合场景，删除只增加组合数量但不增加风险
+- [x] 将 Fake Mind Chat Server 对齐正式控制端口、事件序号和错误类型，不增加服务端未声明字段。
+- [x] 为响应已提交但回执丢失、重复事件、gap、迟到 epoch、未知工具结果建立可组合故障表。
+- [x] 为每条核心风险建立一个快速最小场景和少量完整组合场景，删除只增加组合数量但不增加风险
   覆盖的参数化项。
-- [ ] 统一 recorder 输出：请求身份、Turn 身份、事件序号、owner、lease、终态和关闭顺序可诊断。
-- [ ] 用注入 clock/event 替代普通测试中的固定等待；PTY/进程轮询保留有界截止时间和完整超时事实。
-- [ ] 固定所有随机 seed，并在失败 node id 或错误信息中输出 seed。
-- [ ] 为 harness 的隔离、资源清理、错误报告和确定性增加契约测试。
-- [ ] 保持 fake 与生产 port 的类型一致；第三方对象只在 adapter 测试边界出现。
+- [x] 统一 recorder 输出：请求身份、Turn 身份、事件序号、owner、lease、终态和关闭顺序可诊断。
+- [x] 场景与 Fake 使用 event 或零延迟让步同步；PTY/进程轮询只保留有界截止时间和完整超时事实。
+  全仓普通测试的真实时间等待审计仍按阶段 6 逐项治理。
+- [x] 固定所有随机 seed，并在失败 node id 或错误信息中输出 seed。
+- [x] 为 harness 的隔离、资源清理、错误报告和确定性增加契约测试。
+- [x] 保持 fake 与生产 port 的类型一致；第三方对象只在 adapter 测试边界出现。
 
 完成门槛：同一场景连续运行结果一致；harness 自身失败可定位；领域支持层没有复制生产决策逻辑。
 
