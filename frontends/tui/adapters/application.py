@@ -27,6 +27,7 @@ from ..core.models import (
 from ..core.runtime import TuiRuntime
 from ..core.styles import (
     assistant_block,
+    prompt_style,
     styled_block_fragments,
     text_block,
 )
@@ -135,7 +136,10 @@ class TuiApplicationSink(ApplicationSink):
             if view.type in {"review.started", "review.finished"}:
                 self._commit_block(
                     view.type,
-                    FragmentBlock(((REVIEW_STATUS, view.renderable.plain_text),)),
+                    FragmentBlock(((
+                        prompt_style(REVIEW_STATUS),
+                        view.renderable.plain_text,
+                    ),)),
                     block_kind,
                 )
                 return None

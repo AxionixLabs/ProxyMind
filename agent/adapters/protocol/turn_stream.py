@@ -448,7 +448,7 @@ async def stream_turn(
                     break
                 continue
 
-            if event_type == "turn.started":
+            if event_type in {"turn.started", "session.title.updated"}:
                 if callbacks.input_event is not None:
                     callbacks.input_event(event)
                 continue

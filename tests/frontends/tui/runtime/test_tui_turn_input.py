@@ -20,7 +20,12 @@ from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.submission import TuiInterruptRequested
-from frontends.tui.core.styles import query_block, text_block
+from frontends.tui.core.styles import (
+    TERMINAL_CYAN_STYLE,
+    prompt_style,
+    query_block,
+    text_block,
+)
 from frontends.tui.session import turn_input as turn_input_session
 from frontends.tui.session.turn import execute_tui_model_turn
 from frontends.tui.session.turn_input import (
@@ -29,6 +34,7 @@ from frontends.tui.session.turn_input import (
 )
 from protocol.schema.stream_events import (
     MarkerEvent,
+    SessionTitleUpdatedEvent,
     TurnCompletedEvent,
     TurnInputAcceptedEvent,
 )
@@ -125,6 +131,77 @@ def _completed(
         last_event_seq=event_seq,
         completed_at=1.0,
     )
+
+
+def test_session_title_event_updates_cursor_and_emits_resume_coordinates(
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    runtime = TuiRuntime()
+    application = SimpleNamespace(emit=Mock())
+    conversation = SimpleNamespace(update_title=Mock(return_value=True))
+    controller = SimpleNamespace(
+        attach=_Attachments(),
+        conversation=conversation,
+        frontend=SimpleNamespace(application=application),
+    )
+    control = TuiTurnInputControl(
+        controller,
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+    event = SessionTitleUpdatedEvent(
+        type="session.title.updated",
+        proto="mind.chat",
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        event_seq=2,
+        title="Review current changes",
+    )
+
+    assert control.handle_event(event) is None
+
+    conversation.update_title.assert_called_once_with(
+        "cid_1",
+        "sid_1",
+        "Review current changes",
+        source="stream",
+    )
+    view = application.emit.call_args.args[0]
+    assert view.type == "session.title.updated"
+    assert fragments_text(view.renderable.fragments) == (
+        "• Session renamed to Review current changes. To resume this session "
+        "run mind resume, then select Review current changes (sid_1)"
+    )
+    cyan_style = prompt_style(TERMINAL_CYAN_STYLE)
+    highlighted = [
+        text
+        for style, text in view.renderable.fragments
+        if style == cyan_style
+    ]
+    assert highlighted == [
+        "Review current changes",
+        "mind resume",
+        "Review current changes (sid_1)",
+    ]
+    assert all("dim" not in style for style, _text in view.renderable.fragments)
+
+    stale = SessionTitleUpdatedEvent(
+        type="session.title.updated",
+        proto="mind.chat",
+        cid="cid_stale",
+        sid="sid_stale",
+        turn_id="turn_001",
+        event_seq=3,
+        title="Stale title",
+    )
+    control.handle_event(stale)
+    conversation.update_title.assert_called_once()
+    application.emit.assert_called_once()
 
 
 @pytest.mark.anyio

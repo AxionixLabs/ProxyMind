@@ -88,6 +88,30 @@ class LocalConversationHistory:
                 source=source,
             )
 
+    def update_title(
+        self,
+        cid: str,
+        sid: str,
+        title: str,
+    ) -> bool:
+        """更新已有会话标题，并在本地存储故障时显式降级。"""
+        try:
+            self._store.rename_session(
+                cid=cid,
+                sid=sid,
+                title=title,
+            )
+        except (OSError, sqlite3.Error, ValueError, LookupError) as error:
+            observe_exception(
+                "history.title_update.failed",
+                error,
+                level="WARNING",
+                cid=cid,
+                sid=sid,
+            )
+            return False
+        return True
+
     def recent(
         self,
         *,

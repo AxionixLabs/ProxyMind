@@ -4,6 +4,7 @@ import pytest
 
 from protocol.schema.stream_events import (
     PresentationSupersededEvent,
+    SessionTitleUpdatedEvent,
     StreamGapEvent,
     TextDeltaEvent,
     TextDoneEvent,
@@ -165,6 +166,37 @@ def test_latest_tool_protocol_parses_direct_tool_fields() -> None:
     assert event.call_id == "call_test"
     assert event.arguments == {"command": "echo ready"}
     assert event.reason == "模型需要检查命令输出。"
+
+
+def test_session_title_update_is_typed_and_strict() -> None:
+    event = parse_stream_event({
+        "type": "session.title.updated",
+        "title": "Review the code changes against main",
+    })
+
+    assert isinstance(event, SessionTitleUpdatedEvent)
+    assert event.title == "Review the code changes against main"
+
+    for title in ("", "two\nlines", "x" * 81):
+        with pytest.raises(ValueError, match="session.title.updated title"):
+            parse_stream_event({
+                "type": "session.title.updated",
+                "title": title,
+            })
+
+    with pytest.raises(ValueError, match="unknown fields"):
+        parse_stream_event({
+            "type": "session.title.updated",
+            "title": "Review current changes",
+            "legacy_name": "ignored",
+        })
+
+    with pytest.raises(ValueError, match="Item projection"):
+        parse_stream_event({
+            "type": "session.title.updated",
+            "title": "Review current changes",
+            "item_id": "review-title",
+        })
 
 
 def test_tool_call_batch_boundaries_are_typed_and_strict() -> None:

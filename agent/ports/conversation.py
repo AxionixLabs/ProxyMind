@@ -39,6 +39,15 @@ class ConversationHistoryPort(typing.Protocol):
         """更新指定会话的本地历史游标。"""
         ...
 
+    def update_title(
+        self,
+        cid: str,
+        sid: str,
+        title: str,
+    ) -> bool:
+        """用服务端权威标题更新已有的本地会话游标。"""
+        ...
+
     def recent(
         self,
         *,
@@ -128,6 +137,17 @@ class RootConversationPort(typing.Protocol):
 
     def snapshot(self) -> dict[str, str]:
         """返回当前会话稳定坐标。"""
+        ...
+
+    def update_title(
+        self,
+        cid: str,
+        sid: str,
+        title: str,
+        *,
+        source: str = "remote",
+    ) -> bool:
+        """更新当前会话标题并返回事件是否属于活动会话。"""
         ...
 
     async def reset(

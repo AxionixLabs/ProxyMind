@@ -200,6 +200,42 @@ class RootConversationSession:
         """返回当前会话的稳定身份快照。"""
         return self._state.snapshot()
 
+    def update_title(
+        self,
+        cid: str,
+        sid: str,
+        title: str,
+        *,
+        source: str = "remote",
+    ) -> bool:
+        """应用属于当前会话的权威标题更新。"""
+        current_cid = str(self._state.cid or "").strip()
+        current_sid = str(self._state.sid or "").strip()
+        if (
+            not self._state.session_bound
+            or (cid, sid) != (current_cid, current_sid)
+        ):
+            observe(
+                "conversation.title_update.skipped",
+                level="WARNING",
+                reason="stale_session",
+                cid=cid,
+                sid=sid,
+                source=source,
+            )
+            return False
+
+        persisted = self._history.update_title(cid, sid, title)
+        observe(
+            "conversation.title_updated",
+            level="INFO" if persisted else "WARNING",
+            cid=cid,
+            sid=sid,
+            source=source,
+            persisted=persisted,
+        )
+        return True
+
     def transcript_path_for_session(self, sid: str) -> str:
         """返回指定会话的 Transcript 路径。"""
         return self._transcript_path_for(sid)

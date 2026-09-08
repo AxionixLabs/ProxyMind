@@ -2,6 +2,8 @@
 
 import sqlite3
 
+import pytest
+
 from agent.stores.sessions import (
     ConversationHistoryStore,
     INTERACTIVE_HISTORY_SOURCES,
@@ -65,6 +67,48 @@ def test_history_keeps_the_original_session_source(tmp_path) -> None:
 
     assert record is not None
     assert record["source"] == "tui"
+
+
+def test_history_renames_only_an_existing_session(tmp_path) -> None:
+    store = ConversationHistoryStore(tmp_path / "history.db", ttl_ms=10_000)
+    session = {
+        "cid": "cid_alpha_12345678",
+        "sid": "sid_alpha_1_abcdef",
+    }
+    store.touch_session(
+        **session,
+        title="Initial title",
+        workspace="D:/workspace",
+        source="tui",
+        now_ms=100,
+    )
+
+    renamed = store.rename_session(
+        **session,
+        title="Review current changes",
+        now_ms=200,
+    )
+
+    assert renamed["title"] == "Review current changes"
+    assert renamed["workspace"] == "d:/workspace"
+    assert renamed["source"] == "tui"
+    assert renamed["updated_at"] == 200
+    assert renamed["expires_at"] == 10_200
+
+    with pytest.raises(LookupError, match="was not found"):
+        store.rename_session(
+            cid="cid_missing_12345678",
+            sid="sid_missing_1_abcdef",
+            title="Must not create a cursor",
+            now_ms=300,
+        )
+
+    with pytest.raises(ValueError, match="at most 80"):
+        store.rename_session(
+            **session,
+            title="x" * 81,
+            now_ms=300,
+        )
 
 
 def test_history_persists_branch_and_status(tmp_path) -> None:

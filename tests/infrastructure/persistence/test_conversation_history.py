@@ -43,10 +43,15 @@ def test_local_conversation_history_composes_cursor_and_transcript_storage(
         title="Inspect",
         source="tui",
     )
+    assert history.update_title(
+        coordinates["cid"],
+        coordinates["sid"],
+        "Review current changes",
+    )
 
     record = history.find(coordinates["sid"])
     assert record is not None
-    assert record["title"] == "Inspect"
+    assert record["title"] == "Review current changes"
     assert [record["sid"] for record in history.recent()] == [
         coordinates["sid"],
     ]
@@ -65,6 +70,7 @@ def test_local_conversation_history_contains_storage_read_failures() -> None:
         ttl_ms=10_000,
         max_items=200,
         touch_session=Mock(side_effect=failure),
+        rename_session=Mock(side_effect=failure),
         list_sessions=Mock(side_effect=failure),
         find_session=Mock(side_effect=failure),
         get_or_create_fork_request=Mock(side_effect=failure),
@@ -81,6 +87,11 @@ def test_local_conversation_history_contains_storage_read_failures() -> None:
 
     history.touch(coordinates, workspace="D:/workspace", source="tui")
 
+    assert not history.update_title(
+        coordinates["cid"],
+        coordinates["sid"],
+        "Review current changes",
+    )
     assert history.recent() == []
     assert history.find(coordinates["sid"]) is None
     with pytest.raises(

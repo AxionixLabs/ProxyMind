@@ -4,6 +4,7 @@ import asyncio
 import subprocess
 from collections.abc import (
     AsyncIterator,
+    Callable,
     Coroutine,
 )
 from pathlib import Path
@@ -36,14 +37,18 @@ from agent.protocol import ReviewStreamRequest
 from agent.protocol.json_value import ThawedJsonValue
 from agent.stores import SQLiteRunStore
 from frontends.tui.core.menu import TuiMenu
+from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.models import (
     MenuRequest,
     ViewIdentity,
 )
+from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.features.review import (
     ReviewMenuController,
     ReviewMenuResult,
 )
+from frontends.tui.session.turn import execute_tui_model_turn
+from frontends.tui.session.turn_input import TuiTurnInputControl
 from infrastructure.platform.git_review import WorkspaceReviewGitService
 from protocol.client import chat
 from protocol.client import review as review_client
@@ -116,6 +121,7 @@ async def _consume_review_stream(
     *,
     hint: str,
     delivered: list[str] | None = None,
+    on_event: Callable[[StreamEvent], None] | None = None,
 ) -> RunResult:
     """在协议集成测试中归约 Review 流，不替代生产共享事件泵。"""
     projector = ReviewEventProjector(sink, hint=hint)
@@ -126,6 +132,8 @@ async def _consume_review_stream(
             if delivered is not None:
                 delivered.append(event.type)
             await projector.observe(event, stream.current_item)
+            if on_event is not None:
+                on_event(event)
             if isinstance(event, TurnCompletedEvent):
                 terminal_status = event.status
     finally:
@@ -712,23 +720,40 @@ async def test_review_interrupt_waits_for_cancelled_then_turn_terminal(
     protocol_client = MindChatProtocolClient()
     sink = _Sink()
     delivered: list[str] = []
-    running = asyncio.create_task(_consume_review_stream(
-        protocol_client,
-        command.request,
-        sink,
-        hint="Focus on lifecycle boundaries",
-        delivered=delivered,
-    ))
-
-    await wire_stream.started.wait()
-    receipt = await protocol_client.interrupt_turn(
+    runtime = TuiRuntime()
+    controller = SimpleNamespace(attach=SimpleNamespace())
+    state = SimpleNamespace()
+    control = TuiTurnInputControl(
+        controller,
+        runtime,
+        state,
         cid=CID,
         sid=SID,
         turn_id=TURN_ID,
+        protocol_client=protocol_client,
+        allow_steer=False,
+    )
+    running = asyncio.create_task(execute_tui_model_turn(
+        sink,
+        runtime,
+        _consume_review_stream(
+            protocol_client,
+            command.request,
+            sink,
+            hint="Focus on lifecycle boundaries",
+            delivered=delivered,
+            on_event=control.handle_event,
+        ),
+        turn_input_control=control,
+    ))
+
+    await wire_stream.started.wait()
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.CONSUMED
     )
     result = await running
 
-    assert receipt.status == "accepted"
+    assert result is not None
     assert interrupt_calls == [(CID, SID, TURN_ID)]
     assert delivered == [
         "review.started",
@@ -740,9 +765,19 @@ async def test_review_interrupt_waits_for_cancelled_then_turn_terminal(
         "review.started",
         "review.finished",
         "review.cancelled",
+        "tui.interrupted",
     ]
+    assert not runtime.execution_active
+    assert not runtime.activity.active
+    buffer = runtime.screen.input.buffer
+    buffer.text = "next message"
+    buffer.cursor_position = len(buffer.text)
+    assert runtime.submissions.accept_input(buffer)
+    next_submission = await runtime.submissions.read_submission()
+    assert next_submission.value == "next message"
     assert wire_stream.recovery_probe_count == 2
     assert wire_stream.closed
+    await runtime.close()
 
 
 @pytest.mark.runtime_p0

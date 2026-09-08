@@ -55,6 +55,7 @@ from protocol.schema.stream_events import (
     MarkerEvent,
     ReviewCompletedEvent,
     ReviewStartedEvent,
+    SessionTitleUpdatedEvent,
     TextDeltaEvent,
     TextDoneEvent,
     ToolCallEvent,
@@ -303,10 +304,16 @@ def _events():
             prompt_version="mind-review/1",
             **common,
         ),
-        MarkerEvent(type="turn.thinking", event_seq=3, **common),
+        SessionTitleUpdatedEvent(
+            type="session.title.updated",
+            event_seq=3,
+            title="Review current changes",
+            **common,
+        ),
+        MarkerEvent(type="turn.thinking", event_seq=4, **common),
         TurnRetryingEvent(
             type="turn.retrying",
-            event_seq=4,
+            event_seq=5,
             round=1,
             attempt=2,
             max_attempts=3,
@@ -316,7 +323,7 @@ def _events():
         ),
         ToolCallsStartEvent(
             type="tool.calls.start",
-            event_seq=5,
+            event_seq=6,
             batch_id="batch_review",
             call_ids=("call_review",),
             count=1,
@@ -325,7 +332,7 @@ def _events():
         ),
         ToolCallEvent(
             type="tool.call",
-            event_seq=6,
+            event_seq=7,
             call_id="call_review",
             name="read_repository",
             arguments={"operation": "status"},
@@ -333,7 +340,7 @@ def _events():
         ),
         ToolCallsDoneEvent(
             type="tool.calls.done",
-            event_seq=7,
+            event_seq=8,
             batch_id="batch_review",
             call_ids=("call_review",),
             count=1,
@@ -341,7 +348,7 @@ def _events():
         ),
         TextDeltaEvent(
             type="text.delta",
-            event_seq=8,
+            event_seq=9,
             item_id="review_json",
             item_kind="text",
             item_status="in_progress",
@@ -351,7 +358,7 @@ def _events():
         ),
         TextDoneEvent(
             type="text.done",
-            event_seq=9,
+            event_seq=10,
             item_id="review_json",
             item_kind="text",
             item_status="completed",
@@ -361,7 +368,7 @@ def _events():
         ),
         ReviewCompletedEvent(
             type="review.completed",
-            event_seq=10,
+            event_seq=11,
             item_id=REVIEW_ITEM_ID,
             item_kind="review",
             item_status="completed",
@@ -377,9 +384,9 @@ def _events():
         ),
         TurnCompletedEvent(
             type="turn.completed",
-            event_seq=11,
+            event_seq=12,
             status="completed",
-            last_event_seq=11,
+            last_event_seq=12,
             completed_at=1.0,
             **common,
         ),
@@ -499,6 +506,7 @@ async def test_review_reuses_standard_activity_and_tool_event_pump(
     protocol_client.post_tool_result = AsyncMock(return_value={})
     protocol_client.get_tool_result_status = AsyncMock(return_value={})
     protocol_client.post_effect_reconciliation = AsyncMock(return_value={})
+    input_events = []
 
     result = await stream_turn(
         _McpSession(),
@@ -513,10 +521,16 @@ async def test_review_reuses_standard_activity_and_tool_event_pump(
         ),
         tool_execution=McpToolExecutionAdapter(),
         session_factory=session_factory,
+        on_turn_input_event=input_events.append,
     )
 
     assert result.status == "completed"
     assert result.assistant_text == "No findings."
+    assert [event.type for event in input_events] == [
+        "turn.started",
+        "session.title.updated",
+        "turn.completed",
+    ]
     assert [view.type for view in application.views] == [
         "review.started",
         "review.finished",

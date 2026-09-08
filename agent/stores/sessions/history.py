@@ -195,6 +195,68 @@ class ConversationHistoryStore(object):
             now_ms=now_ms,
         )
 
+    def rename_session(
+        self,
+        *,
+        cid: str,
+        sid: str,
+        title: str,
+        now_ms: typing.Optional[int] = None,
+    ) -> dict[str, typing.Any]:
+        """原子更新已有会话的标题和恢复游标有效期。"""
+        cid_text = _clean(cid)
+        sid_text = _clean(sid)
+        if not valid_session_ids(cid_text, sid_text):
+            raise ValueError("valid cid and sid are required")
+
+        normalized_title = " ".join(str(title or "").split())
+        if len(normalized_title) > TITLE_MAX_CHARS:
+            raise ValueError(
+                f"session title must contain at most {TITLE_MAX_CHARS} characters"
+            )
+        title_text = _clean_title(normalized_title)
+        if not title_text:
+            raise ValueError("session title is required")
+
+        now = _now_ms() if now_ms is None else int(now_ms)
+        conn = self._connect()
+        try:
+            with conn:
+                self._init_schema(conn)
+                self._prune_expired(conn, now_ms=now)
+                cursor = conn.execute(
+                    f"""
+                    UPDATE {TABLE_SESSION_CURSORS}
+                    SET title = ?, updated_at = ?, expires_at = ?
+                    WHERE cid = ? AND sid = ?
+                    """,
+                    (
+                        title_text,
+                        now,
+                        now + self.ttl_ms,
+                        cid_text,
+                        sid_text,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise LookupError("conversation session was not found")
+                row = conn.execute(
+                    f"""
+                    SELECT cid, sid, workspace, source,
+                           title, created_at, updated_at, expires_at,
+                           branch, status
+                    FROM {TABLE_SESSION_CURSORS}
+                    WHERE cid = ? AND sid = ?
+                    """,
+                    (cid_text, sid_text),
+                ).fetchone()
+        finally:
+            conn.close()
+
+        if row is None:
+            raise sqlite3.DatabaseError("session title was not persisted")
+        return _row_to_dict(row)
+
     def unarchive_session(
         self,
         *,

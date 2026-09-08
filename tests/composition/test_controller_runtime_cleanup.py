@@ -28,6 +28,7 @@ def _root_session(
         ttl_ms=1000,
         max_items=10,
         touch_session=Mock(),
+        rename_session=Mock(return_value={"title": "Review current changes"}),
         archive_session=Mock(return_value={"status": "archived"}),
         unarchive_session=Mock(return_value={"status": "active"}),
     )
@@ -117,6 +118,37 @@ def test_application_host_exposes_turn_session_context_port() -> None:
 
     assert isinstance(controller, TurnSessionContextPort)
     assert controller.animate is False
+
+
+def test_root_session_applies_title_only_to_current_coordinates() -> None:
+    session, resources = _root_session(ConversationState(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+    ))
+
+    assert session.update_title(
+        "cid_test_12345678",
+        "sid_test_1_abcdef",
+        "Review current changes",
+        source="stream",
+    )
+    resources.store.rename_session.assert_called_once_with(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+        title="Review current changes",
+    )
+
+    assert not session.update_title(
+        "cid_stale_12345678",
+        "sid_stale_1_abcdef",
+        "Stale title",
+        source="stream",
+    )
+    resources.store.rename_session.assert_called_once_with(
+        cid="cid_test_12345678",
+        sid="sid_test_1_abcdef",
+        title="Review current changes",
+    )
 
 
 def test_controller_keeps_workspace_when_runtime_replacement_fails(

@@ -183,6 +183,12 @@ class TurnInputAcceptedEvent(StreamEvent):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class SessionTitleUpdatedEvent(StreamEvent):
+    """描述服务端已提交的会话标题更新。"""
+    title: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class TurnReconciliationRequiredEvent(StreamEvent):
     """描述持久效果结果不确定且轮次暂停结算的状态。"""
     status: typing.Literal["reconciliation_required"] = "reconciliation_required"
@@ -544,6 +550,7 @@ ChatStreamEvent: typing.TypeAlias = (
     | TurnCompletedEvent
     | TurnRetryingEvent
     | TurnInputAcceptedEvent
+    | SessionTitleUpdatedEvent
     | TurnReconciliationRequiredEvent
     | PresentationSupersededEvent
     | ContextCompactionEvent
@@ -685,6 +692,8 @@ def parse_stream_event(
             **common,
             client_message_id=_text(raw.get("client_message_id")),
         )
+    if event_type == "session.title.updated":
+        return _session_title_updated_event(raw, common)
     if event_type == "turn.reconciliation_required":
         return TurnReconciliationRequiredEvent(
             **common,
@@ -1142,6 +1151,50 @@ _REVIEW_COMMON_FIELDS = frozenset({
     "idempotency_key",
     "ts",
 })
+
+_SESSION_TITLE_UPDATED_FIELDS = frozenset({
+    "type",
+    "proto",
+    "cid",
+    "sid",
+    "turn_id",
+    "event_seq",
+    "round",
+    "presentation_epoch",
+    "display",
+    "event_id",
+    "correlation_id",
+    "causation_id",
+    "occurred_at",
+    "created_at",
+    "idempotency_key",
+    "ts",
+    "title",
+})
+
+
+def _session_title_updated_event(
+    payload: dict[str, typing.Any],
+    common: dict[str, typing.Any],
+) -> SessionTitleUpdatedEvent:
+    """严格解析服务端提交的会话标题更新。"""
+    unknown = sorted(set(payload).difference(_SESSION_TITLE_UPDATED_FIELDS))
+    if unknown:
+        raise ValueError(
+            "session.title.updated contains unknown fields: "
+            + ", ".join(unknown)
+        )
+    title = _required_text(
+        payload.get("title"),
+        "session.title.updated title",
+    )
+    if len(title) > 80:
+        raise ValueError(
+            "session.title.updated title must contain at most 80 characters"
+        )
+    if not title.isprintable():
+        raise ValueError("session.title.updated title must be printable")
+    return SessionTitleUpdatedEvent(**common, title=title)
 
 
 def _review_event(

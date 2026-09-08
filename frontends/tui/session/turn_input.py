@@ -22,6 +22,7 @@ from observability import (
 )
 from protocol.schema.identifiers import new_request_id
 from protocol.schema.stream_events import (
+    SessionTitleUpdatedEvent,
     StreamEvent,
     TurnCompletedEvent,
     TurnInputAcceptedEvent,
@@ -29,6 +30,7 @@ from protocol.schema.stream_events import (
 from protocol.schema.turn_inputs import TurnInput
 from ..core.queued import TuiSubmission
 from ..runtime.ports import TurnInputRuntimePort
+from .title import project_session_title_update
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
@@ -284,6 +286,12 @@ class TuiTurnInputControl(object):
         """按服务端确认结果完成即时输入或安排下一轮输入。"""
         active_turn_id = self._target[2]
         if event.turn_id != active_turn_id:
+            return None
+
+        if isinstance(event, SessionTitleUpdatedEvent):
+            if (event.cid, event.sid) != self._target[:2]:
+                return None
+            project_session_title_update(self._controller, event)
             return None
 
         if event.type == "turn.started":
