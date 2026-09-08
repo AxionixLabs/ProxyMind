@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import codecs
 import typing
 from dataclasses import dataclass
 
@@ -9,7 +10,8 @@ from infrastructure.platform.encoding import (
     UTF8_ENCODING,
     UTF8_SIG_ENCODING,
     decode_process_output_details,
-    normalize_process_output_encoding
+    normalize_process_output_encoding,
+    process_output_encodings,
 )
 from infrastructure.platform.process_capture import CapturedProcessResult
 
@@ -35,6 +37,133 @@ class StreamEncodingHint(object):
 
     encoding: str = ""
     authoritative: bool = False
+
+
+class StreamingProcessOutputDecoder(object):
+    """跨进程读取块保存解码状态并只输出完整文本。"""
+
+    def __init__(self, *, encoding: str = "auto") -> None:
+        """初始化单个 stdout 或 stderr 流的解码生命周期。"""
+        self.encoding = normalize_process_output_encoding(encoding)
+        self.selected_encoding = ""
+        self._decoder: codecs.IncrementalDecoder | None = None
+        self._pending = b""
+        self._started = False
+        self._finished = False
+
+        if self.encoding != "auto":
+            self._select(self.encoding)
+
+    def feed(self, data: bytes) -> str:
+        """追加原始字节并返回当前能够稳定解码的文本。"""
+        if self._finished:
+            raise RuntimeError("process output decoder is already finished")
+        if not data:
+            return ""
+        if self._decoder is not None:
+            return self._decode_selected(data, final=False)
+
+        payload = self._pending + data
+        self._pending = b""
+
+        if payload.isascii():
+            self._started = True
+            return payload.decode("ascii")
+
+        if not self._started and payload.startswith(UTF8_BOM):
+            self._select(UTF8_SIG_ENCODING)
+            return self._decode_selected(payload, final=False)
+
+        try:
+            payload.decode(UTF8_ENCODING, errors="strict")
+        except UnicodeDecodeError as error:
+            if self._is_incomplete_utf8_suffix(error, payload):
+                prefix = payload[:error.start]
+                suffix = payload[error.start:]
+                if any(byte >= 0x80 for byte in prefix):
+                    self._select(self._detected_encoding(prefix) or UTF8_ENCODING)
+                    return self._decode_selected(payload, final=False)
+                self._pending = suffix
+                text = prefix.decode("ascii")
+                self._started = self._started or bool(text)
+                return text
+
+            self._select(self._legacy_encoding(payload) or UTF8_ENCODING)
+            return self._decode_selected(payload, final=False)
+
+        self._select(self._detected_encoding(payload) or UTF8_ENCODING)
+        return self._decode_selected(payload, final=False)
+
+    def finish(self) -> str:
+        """结束当前流并释放残留的不完整字节。"""
+        if self._finished:
+            return ""
+        self._finished = True
+
+        if self._decoder is not None:
+            return self._decode_selected(b"", final=True)
+        if not self._pending:
+            return ""
+
+        decoded = decode_process_output_details(
+            self._pending,
+            encoding=self.encoding,
+        )
+        self._pending = b""
+        if decoded.encodings:
+            self.selected_encoding = decoded.encodings[0]
+        return decoded.text
+
+    def _select(self, encoding: str) -> None:
+        """固定当前流的编码并建立增量解码器。"""
+        selected = normalize_process_output_encoding(encoding)
+        factory = codecs.getincrementaldecoder(selected)
+        self.selected_encoding = selected
+        self._decoder = factory(errors="replace")
+
+    def _decode_selected(self, data: bytes, *, final: bool) -> str:
+        """使用已经固定的编码解码字节。"""
+        decoder = self._decoder
+        if decoder is None:
+            raise RuntimeError("process output encoding is not selected")
+        text = decoder.decode(data, final=final)
+        self._started = self._started or bool(text)
+        return text
+
+    @staticmethod
+    def _is_incomplete_utf8_suffix(
+        error: UnicodeDecodeError,
+        data: bytes,
+    ) -> bool:
+        """判断首次 UTF-8 错误是否只是末尾字符尚未读完。"""
+        return (
+            error.reason == "unexpected end of data"
+            and error.end == len(data)
+        )
+
+    @staticmethod
+    def _legacy_encoding(data: bytes) -> str:
+        """返回首个能增量接收当前字节的系统候选编码。"""
+        for value in process_output_encodings():
+            try:
+                encoding = normalize_process_output_encoding(value)
+            except ValueError:
+                continue
+            if encoding in {UTF8_ENCODING, UTF8_SIG_ENCODING}:
+                continue
+            decoder = codecs.getincrementaldecoder(encoding)(errors="strict")
+            try:
+                decoder.decode(data, final=False)
+            except UnicodeDecodeError:
+                continue
+            return encoding
+        return ""
+
+    @staticmethod
+    def _detected_encoding(data: bytes) -> str:
+        """复用完整输出评分结果选择当前流编码。"""
+        decoded = decode_process_output_details(data)
+        return decoded.encodings[0] if decoded.encodings else ""
 
 
 class CapturedOutputDecoder(object):

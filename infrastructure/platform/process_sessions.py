@@ -20,6 +20,7 @@ from agent.ports import (
     TerminalSize,
 )
 from infrastructure.platform.encoding import decode_process_output
+from infrastructure.platform.output_decoder import StreamingProcessOutputDecoder
 from infrastructure.platform.process_capture import (
     OrderedOutputBuffer,
     ProcessCapture
@@ -236,6 +237,10 @@ class ProcessSession(object):
         self.output_events: deque[tuple[int, str, bytes]] = deque(
             maxlen=256,
         )
+        self.output_decoders = {
+            "stdout": StreamingProcessOutputDecoder(),
+            "stderr": StreamingProcessOutputDecoder(),
+        }
 
         self.finalized: bool = False
         self.termination_reason: typing.Literal["expired", "idle"] | None = None
@@ -1173,34 +1178,37 @@ class ProcessSessionManager(object):
 
     async def _read_stream(self, session: ProcessSession, name: str) -> None:
         """持续读取会话输出流。"""
-        if isinstance(session.process, _InteractiveCapabilityProcess):
-            if name != "stdout":
+        try:
+            if isinstance(session.process, _InteractiveCapabilityProcess):
+                if name != "stdout":
+                    return None
+                async for chunk in session.process.handle.read_output():
+                    await self._record_output(session, "stdout", chunk)
                 return None
-            async for chunk in session.process.handle.read_output():
-                await self._record_output(session, "stdout", chunk)
-            return None
 
-        if isinstance(session.process, _CapabilityProcess):
-            stream_reader = (
-                session.process.handle.read_stdout
-                if name == "stdout"
-                else session.process.handle.read_stderr
-            )
-            async for text in stream_reader():
-                chunk = str(text).encode("utf-8", errors="replace")
+            if isinstance(session.process, _CapabilityProcess):
+                stream_reader = (
+                    session.process.handle.read_stdout
+                    if name == "stdout"
+                    else session.process.handle.read_stderr
+                )
+                async for text in stream_reader():
+                    chunk = str(text).encode("utf-8", errors="replace")
+                    await self._record_output(session, name, chunk)
+                return None
+
+            stream = session.process.stdout if name == "stdout" else session.process.stderr
+
+            if stream is None:
+                return None
+
+            while True:
+                chunk = await stream.read(4096)
+                if not chunk:
+                    return None
                 await self._record_output(session, name, chunk)
-            return None
-
-        stream = session.process.stdout if name == "stdout" else session.process.stderr
-
-        if stream is None:
-            return None
-
-        while True:
-            chunk = await stream.read(4096)
-            if not chunk:
-                return None
-            await self._record_output(session, name, chunk)
+        finally:
+            await self._finish_output_stream(session, name)
 
     async def _record_output(
         self,
@@ -1210,23 +1218,51 @@ class ProcessSessionManager(object):
     ) -> None:
         """把任一进程后端的输出写入统一会话缓冲。"""
         async with session.lock:
-            target = session.stdout if name == "stdout" else session.stderr
-            target.append(chunk)
-
-            await session.output_buffer.append(name, chunk)
-            await session.display_output_buffer.append(name, chunk)
-
+            text = session.output_decoders[name].feed(chunk)
             session.touch()
             self._reaper_wakeup.set()
-            for event_chunk in self._bounded_event_chunks(chunk):
-                session.output_revision += 1
-                session.output_events.append((
-                    session.output_revision,
-                    name,
-                    event_chunk,
-                ))
+            if text:
+                await self._append_decoded_output(session, name, text)
             session.update_event.set()
             self._notify_change()
+
+    async def _finish_output_stream(
+        self,
+        session: ProcessSession,
+        name: str,
+    ) -> None:
+        """在流关闭时释放解码尾字节并收束未换行输出。"""
+        async with session.lock:
+            text = session.output_decoders[name].finish()
+            if text:
+                await self._append_decoded_output(session, name, text)
+            await session.output_buffer.finish_stream(name)
+            await session.display_output_buffer.finish_stream(name)
+            if text:
+                session.update_event.set()
+                self._notify_change()
+
+    async def _append_decoded_output(
+        self,
+        session: ProcessSession,
+        name: str,
+        text: str,
+    ) -> None:
+        """把已完成字符的 UTF-8 投影写入会话展示缓冲。"""
+        chunk = text.encode("utf-8")
+        target = session.stdout if name == "stdout" else session.stderr
+        target.append(chunk)
+
+        await session.output_buffer.append(name, chunk)
+        await session.display_output_buffer.append(name, chunk)
+
+        for event_chunk in self._bounded_event_chunks(chunk):
+            session.output_revision += 1
+            session.output_events.append((
+                session.output_revision,
+                name,
+                event_chunk,
+            ))
 
     @classmethod
     def _bounded_event_chunks(cls, chunk: bytes) -> tuple[bytes, ...]:
