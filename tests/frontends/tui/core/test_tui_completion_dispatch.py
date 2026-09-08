@@ -53,29 +53,6 @@ from frontends.tui.prompting.skills import (
 from frontends.tui.session.barriers import TuiForegroundTasks
 
 
-async def wait_for_completion(runtime: TuiRuntime) -> None:
-    """等待当前输入对应的异步补全结果就绪。"""
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + 1.0
-    while loop.time() < deadline:
-        state = runtime.screen.input.buffer.complete_state
-        if state is not None and state.completions:
-            return
-        await asyncio.sleep(0.001)
-    raise AssertionError("completion did not become ready")
-
-
-async def wait_for_input_text(runtime: TuiRuntime, text: str) -> None:
-    """等待管道输入被主输入框完整消费。"""
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + 1.0
-    while loop.time() < deadline:
-        if runtime.screen.input.buffer.text == text:
-            return
-        await asyncio.sleep(0.001)
-    raise AssertionError(f"input text did not become {text!r}")
-
-
 async def render_next_frame(runtime: TuiRuntime):
     """触发渲染并返回完成后的屏幕。"""
     previous_revision = runtime.screen.application.render_counter
@@ -131,12 +108,14 @@ async def test_slash_command_result_uses_current_layout(
                     PromptContext(model="test"),
                 ))
 
-                pipe_input.send_text("/")
-                await wait_for_completion(runtime)
+                buffer = runtime.screen.input.buffer
+                buffer.document = Document("/", cursor_position=1)
+                runtime.input_model.refresh_completion_menu(buffer)
+                assert buffer.complete_state is not None
                 await render_next_frame(runtime)
 
-                pipe_input.send_text(command[1:])
-                await wait_for_input_text(runtime, command)
+                buffer.insert_text(command[1:])
+                assert buffer.text == command
                 screen = await render_next_frame(runtime)
                 command_input = screen.visible_windows_to_write_positions[
                     runtime.screen.input.window
@@ -273,11 +252,13 @@ async def test_foreground_command_uses_current_activity_layout(
                 read_task = asyncio.create_task(runtime.read_message(
                     PromptContext(model="test"),
                 ))
-                pipe_input.send_text("/")
-                await wait_for_completion(runtime)
+                buffer = runtime.screen.input.buffer
+                buffer.document = Document("/", cursor_position=1)
+                runtime.input_model.refresh_completion_menu(buffer)
+                assert buffer.complete_state is not None
                 await render_next_frame(runtime)
-                pipe_input.send_text(command[1:])
-                await wait_for_input_text(runtime, command)
+                buffer.insert_text(command[1:])
+                assert buffer.text == command
                 screen = await render_next_frame(runtime)
                 position = screen.visible_windows_to_write_positions[
                     runtime.screen.input.window
@@ -350,10 +331,13 @@ async def test_stream_command_result_uses_natural_layout_after_turn() -> None:
                     kind="assistant",
                 )
 
-                pipe_input.send_text("/")
-                await wait_for_completion(runtime)
+                buffer = runtime.screen.input.buffer
+                buffer.document = Document("/", cursor_position=1)
+                runtime.input_model.refresh_completion_menu(buffer)
+                assert buffer.complete_state is not None
                 await render_next_frame(runtime)
-                pipe_input.send_text("helix-link\r")
+                buffer.insert_text("helix-link")
+                pipe_input.send_text("\r")
 
                 loop = asyncio.get_running_loop()
                 deadline = loop.time() + 1.0

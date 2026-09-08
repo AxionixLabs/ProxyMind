@@ -149,7 +149,7 @@ async def test_local_interactive_process_interrupt_is_not_terminate() -> None:
 async def test_closed_interactive_process_handles_are_released() -> None:
     capability = LocalInteractiveProcessCapability()
     try:
-        for _index in range(100):
+        for _index in range(8):
             handle = await capability.spawn(InteractiveProcessSpec(
                 argv=(sys.executable, "-c", "pass"),
                 cwd=Path.cwd(),

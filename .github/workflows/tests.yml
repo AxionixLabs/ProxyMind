@@ -154,13 +154,19 @@ jobs:
       - name: Run complete suite
         run: >-
           python -m pytest -q --junitxml=junit-full.xml --durations=50
+          --cov=agent --cov=protocol --cov=frontends
+          --cov=infrastructure --cov=observability --cov=metadata
+          --cov-branch --cov-report=term-missing:skip-covered
+          --cov-report=xml:coverage.xml
 
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: pytest-full-${{ github.run_attempt }}
-          path: junit-full.xml
+          path: |
+            junit-full.xml
+            coverage.xml
           if-no-files-found: error
           retention-days: 30
 
