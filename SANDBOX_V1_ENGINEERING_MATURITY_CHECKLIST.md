@@ -1,6 +1,6 @@
 # Sandbox v1 工程成熟度改造清单
 
-> 状态：阶段 0-2 已完成并通过复核；阶段 3 待实施。
+> 状态：阶段 0-3 已完成并通过复核；阶段 4 待实施。
 > 计划版本：v1。
 > Sandbox 私有协议版本：`1`，本次改造保持不变。
 > 基准日期：2026-09-08。
@@ -20,7 +20,7 @@
 - [x] Sidecar 已就绪但子进程无法创建时归类为 `sandbox_process_start_failed`。
 - [x] 调用参数或工作区边界不合法时归类为 `sandbox_request_invalid`。
 - [x] 子进程成功创建后的非零退出默认归类为 `command_failed`，Shell 解析错误不得归类为 Sandbox 故障。
-- [ ] 有可靠证据证明文件系统或网络策略拒绝时才归类为 `sandbox_denied`。
+- [x] 有可靠证据证明文件系统或网络策略拒绝时才归类为 `sandbox_denied`。
 - [x] 未知客户端异常归类为 `tool_internal_error` 并进入结构化观测，不伪装成 Sandbox 不可用。
 - [x] 任一受限执行失败均保持 fail-closed，不自动切换到宿主 Shell 或 `danger-full-access`。
 - [x] 不在前端依据 WinError 文案、日志文本或展示文本重建执行事实。
@@ -156,20 +156,43 @@
 
 ## 6. 阶段 3：拒绝识别与审批边界
 
-- [ ] 优先依据 v1 backend code 区分请求拒绝和进程启动失败。
-- [ ] 对“子进程已启动后发生的策略拒绝”建立平台 adapter 内的有限分类器。
-- [ ] 分类器同时考虑 backend、退出码和受控错误模式，不能仅搜索 `sandbox` 或 `access denied` 单词。
-- [ ] PowerShell ParserError、命令不存在和普通应用错误必须作为反例加入测试。
-- [ ] 推断型拒绝在本地结果中标记 `evidence_source=inferred_output`，不得冒充 Sidecar 协议事实。
-- [ ] 只有 `sandbox_denied` 可以进入现有审批重试流程；`sandbox_unavailable`、请求无效和命令语法错误
+- [x] 优先依据 v1 backend code 区分请求拒绝和进程启动失败。
+- [x] 对“子进程已启动后发生的策略拒绝”建立平台 adapter 内的有限分类器。
+- [x] 分类器同时考虑 backend、退出码和受控错误模式，不能仅搜索 `sandbox` 或 `access denied` 单词。
+- [x] PowerShell ParserError、命令不存在和普通应用错误必须作为反例加入测试。
+- [x] 推断型拒绝在本地结果中标记 `evidence_source=inferred_output`，不得冒充 Sidecar 协议事实。
+- [x] 只有 `sandbox_denied` 可以进入现有审批重试流程；`sandbox_unavailable`、请求无效和命令语法错误
       不得建议提权。
-- [ ] 经用户批准的重试冻结原命令、工作目录和权限差异，不在 UI 中临时改写命令。
+- [x] 经用户批准的重试冻结原命令、工作目录和权限差异，不在 UI 中临时改写命令。
 
 ### 阶段 3 准出
 
-- [ ] WinError 5 的启动拒绝和文件读取拒绝能依据发生阶段得到不同稳定结果。
-- [ ] 所有自动审批和人工审批测试证明一次裁决只影响当前动作，不形成全局安全回退。
-- [ ] 误判反例矩阵通过，普通命令失败不会触发 Sandbox 审批。
+- [x] WinError 5 的启动拒绝和文件读取拒绝能依据发生阶段得到不同稳定结果。
+- [x] 所有自动审批和人工审批测试证明一次裁决只影响当前动作，不形成全局安全回退。
+- [x] 误判反例矩阵通过，普通命令失败不会触发 Sandbox 审批。
+
+### 阶段 3 复核证据
+
+- [x] 阶段 3 实现提交：`04e46050`。
+- [x] v1 结构化失败继续优先映射 request/spawn；仅对子进程已启动后的非零退出执行本地有限分类，
+      结果使用 `reason=sandbox_denied`、`stage=execution` 和 `evidence_source=inferred_output`。
+- [x] Windows PowerShell 与 macOS Shell 分类器同时校验 backend、runtime、退出码、原命令词和受控 stderr
+      行；ParserError、命令不存在、普通应用文案、错误 backend、成功退出、超时和结果未知均为反例。
+- [x] `shell_command` 使用一次性捕获的完整 stderr；`exec_command` / `write_stdin` 使用 Session Manager
+      持有的非消费有界输出，即使先读取过增量输出也不会丢失终态拒绝证据。
+- [x] 真实 Windows Sidecar 证明受保护文件读取返回 `sandbox_denied` / `stage=execution`，而 Sidecar
+      启动 WinError 5 保持 `sandbox_unavailable` / `stage=startup`；Windows 真链路组 `12 passed`。
+- [x] 审批账本在 `cid/sid/turn/call_id` 之外绑定执行动作指纹；命令、cwd、Shell、tty、权限模式或
+      additional permissions 变化时 fail-closed 为 `approval_action_mismatch`，不会消费旧批准。
+- [x] 人工审批篡改矩阵、自动 review 正向动作绑定、Hook 受信任改写和会话授权隔离均通过；审批、
+      策略与执行定向组 `70 passed`，协议与审批快照兼容组 `167 passed`。
+- [x] Sandbox 分类、客户端投影和 Windows 真链路定向组 `84 passed`；平台扩大组
+      `151 passed, 12 skipped`，其中 macOS 真机验收在 Windows 上如实 skip。
+- [x] Runtime P0：`364 passed, 4060 deselected`；快速全量：
+      `4277 passed, 12 skipped, 135 deselected`；收集总数 `4424`。
+- [x] 完整架构审计：`138 passed, 1 warning`；warning 为 Nuitka 内置 `glob2` 的既有
+      `DeprecationWarning`。全量 `compileall` 和 `git diff --check` 通过。
+- [x] 阶段 4 尚未完成，因此成熟度仍为 L3.5，Production Readiness 继续保持 Blocked。
 
 ## 7. 阶段 4：Doctor 与可观测性
 
