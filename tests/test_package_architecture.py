@@ -5,8 +5,8 @@ import functools
 import os
 from pathlib import Path
 
-
-PROJECT_ROOT = Path(__file__).parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+TESTS_ROOT = PROJECT_ROOT / "tests"
 NON_REPOSITORY_DIRECTORY_NAMES = frozenset({
     ".git",
     ".mypy_cache",
@@ -99,6 +99,83 @@ def test_python_source_inventory_excludes_non_repository_directories() -> None:
         "architecture inventory includes non-repository sources:\n"
         + "\n".join(violations)
     )
+
+
+def test_tests_root_contains_only_stable_entrypoints() -> None:
+    """确保业务测试不会重新回到 tests 根目录平铺。"""
+    allowed_files = {
+        "README.md",
+        "conftest.py",
+        "test_package_architecture.py",
+    }
+    unexpected = sorted(
+        path.name
+        for path in TESTS_ROOT.iterdir()
+        if path.is_file() and path.name not in allowed_files
+    )
+
+    assert unexpected == []
+
+
+def test_tests_do_not_create_generic_utility_packages() -> None:
+    """确保共享测试代码按真实能力命名而不是进入通用收纳包。"""
+    forbidden_packages = {
+        "common",
+        "support",
+        "utils",
+    }
+    present = sorted(
+        path.name
+        for path in TESTS_ROOT.iterdir()
+        if path.is_dir() and path.name in forbidden_packages
+    )
+
+    assert present == []
+
+
+def test_client_tests_do_not_import_backend() -> None:
+    """确保客户端测试树不直接验证独立 backend 服务实现。"""
+    violations: list[str] = []
+    for path in TESTS_ROOT.rglob("*.py"):
+        tree = _parsed_source(path)
+        for node in ast.walk(tree):
+            imported: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                imported = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                imported = (node.module or "",)
+            for module in imported:
+                if module.partition(".")[0] == "backend":
+                    relative = path.relative_to(PROJECT_ROOT)
+                    violations.append(f"{relative}:{node.lineno} -> {module}")
+
+    assert violations == []
+
+
+def test_movable_tests_do_not_derive_root_from_file_depth() -> None:
+    """确保可迁移测试从 pytest fixture 接收仓库根。"""
+    violations: list[str] = []
+    stable_entrypoint = TESTS_ROOT / "test_package_architecture.py"
+    for path in TESTS_ROOT.rglob("*.py"):
+        if path == stable_entrypoint:
+            continue
+        tree = _parsed_source(path)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Subscript):
+                continue
+            parents = node.value
+            if (
+                isinstance(parents, ast.Attribute)
+                and parents.attr == "parents"
+                and any(
+                    isinstance(child, ast.Name) and child.id == "__file__"
+                    for child in ast.walk(parents.value)
+                )
+            ):
+                relative = path.relative_to(PROJECT_ROOT)
+                violations.append(f"{relative}:{node.lineno}")
+
+    assert violations == []
 
 
 def _is_import_block_node(node: ast.stmt) -> bool:

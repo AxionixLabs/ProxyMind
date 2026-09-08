@@ -5,6 +5,9 @@
 `ARCHITECTURE_SYSTEM.md`、服务端正式契约及 `protocol/schema/`、`protocol/client/` 为准；
 本文不重新定义产品架构或线上协议。
 
+本文只作为改造期间的接力清单和验证记录。所有长期有效的测试归属、设施边界和运行方式必须在
+改造完成前收敛到 `tests/README.md`；完成后由仓库维护者手动删除本文，最终只保留一份测试说明。
+
 ## 目标结论
 
 采用“pytest 稳定内核 + ProxyMind 领域测试设施”的架构：
@@ -52,11 +55,11 @@
 ### 已有优势
 
 - 测试统一使用 pytest，异步测试已有 `anyio` 约定；
-- `tests/support/turn_scenarios.py` 已提供不可变场景值、状态枚举和统一不变量断言；
-- `tests/support/fake_mind_chat_server.py` 已能表达响应丢失、超时、重连和幂等窗口；
-- `tests/support/pty/` 已隔离原生 PTY、终端输入、渲染场景和平台差异；
+- Turn 场景设施已提供不可变场景值、状态枚举和统一不变量断言；
+- Fake Mind Chat Server 已能表达响应丢失、超时、重连和幂等窗口；
+- PTY 设施已隔离原生 PTY、终端输入、渲染场景和平台差异；
 - fixture 数据使用 JSON 文件而不是把大型结构散落在测试代码中；
-- 大多数测试不互相导入，公共依赖集中在 `tests.support`，物理迁移风险可控；
+- 大多数测试不互相导入，需要复用的测试设施数量有限，物理迁移风险可控；
 - 现有 marker 已覆盖 Runtime 最关键的故障、帧和状态序列。
 
 ### 主要问题
@@ -66,7 +69,7 @@
 - “测试哪一层”和“什么时候运行”尚未分离，开发者难以稳定选择最小测试集；
 - 测试通过 `Path(__file__).parents[...]` 推导仓库根，结构变化会产生隐式破坏；
 - 少数命令展示断言写死旧测试路径，移动后必须区分真实路径与故意构造的示例文本；
-- 手工联调脚本、自动化验收测试和公共支持代码尚未形成清晰生命周期边界；
+- 手工联调脚本、自动化验收测试和可复用测试设施尚未形成清晰生命周期边界；
 - 当前 CI 没有形成快速门禁、Runtime 风险门禁、平台验收和全量回归的明确矩阵；
 - 超大文件内已有与其他专题文件重叠的行为，直接按行切分会固化重复职责。
 
@@ -132,15 +135,14 @@ tests/
 │   ├── skills/
 │   ├── update/
 │   └── workspace/
+├── observability/                     # 运行报告、结构化观察与记录边界
 ├── composition/                       # 根组合入口和资源 owner
 ├── integration/                       # 跨顶层所有者的完整客户端用例
 ├── distribution/                      # build、npm 和发布布局
 ├── fixtures/                          # 无行为的版本化输入与期望数据
-├── support/                           # 可复用测试设施，不参与测试发现
-│   ├── paths.py
-│   ├── runtime/
-│   ├── protocol/
-│   └── pty/
+├── scenarios/                         # Turn 场景、观察事实与稳定不变量
+├── fakes/                             # 按正式端口命名的可控测试实现
+├── pty/                               # 跨平台 PTY 与终端验收设施
 └── manual/                            # live_* 人工联调入口，不作为 pytest 用例
 ```
 
@@ -148,9 +150,11 @@ tests/
 不删除。允许把专题扫描器和专题测试拆入 `tests/architecture/`，但根文件必须继续承载跨包总边界
 和稳定的定向执行入口。
 
-测试目录默认不添加 `__init__.py`，测试模块文件名在整棵树内保持唯一。只有 `tests/support/`
-这类需要显式导入的支持包使用包初始化文件。不要在迁移阶段同时切换 pytest import mode；若未来
-确有模块冲突，再作为独立变更评估 `importlib` 模式。
+测试目录默认不添加 `__init__.py`，测试模块文件名在整棵树内保持唯一。只有
+`tests/scenarios/`、`tests/fakes/`、`tests/pty/` 这类需要显式导入的具名测试设施使用包初始化
+文件。禁止新增 `support/`、`utils/`、`common/` 等通用收纳包；无法按能力命名的 helper 留在
+使用它的测试模块内。不要在迁移阶段同时切换 pytest import mode；若未来确有模块冲突，再作为
+独立变更评估 `importlib` 模式。
 
 ## 归属决策
 
@@ -216,9 +220,9 @@ tests/
 
 ### 应保留并增强
 
-- `turn_scenarios`：只保存不可变输入维度、稳定标识、观察记录和跨实现不变量；
-- `fake_mind_chat_server`：模拟正式端口语义、可控故障窗口、事件序号和请求记录；
-- `support/pty`：隔离 Windows ConPTY 与 POSIX PTY 差异，统一有界等待、输入、resize 和关闭；
+- `scenarios/turns.py`：只保存不可变输入维度、稳定标识、观察记录和跨实现不变量；
+- `fakes/mind_chat.py`：模拟正式端口语义、可控故障窗口、事件序号和请求记录；
+- `pty/`：隔离 Windows ConPTY 与 POSIX PTY 差异，统一有界等待、输入、resize 和关闭；
 - 协议 fixture：保存正式 wire 载荷、未知字段、边界值和版本化期望；
 - 事实 recorder：记录端口调用、资源 lease、frame、请求身份和关闭顺序，失败时输出完整事实；
 - 固定 seed 状态序列：失败报告必须包含 seed 和最小场景标识，保证可复现。
@@ -233,7 +237,7 @@ tests/
 - 依赖固定 `sleep`、真实公网、真实用户配置或测试执行顺序的调度器；
 - 为了减少几行样板而返回宽泛字典、`Any` 或动态属性的万能 stub。
 
-### 支持代码准入规则
+### 测试设施准入规则
 
 - 至少有三个测试模块共享同一稳定概念，或重复实现已经造成事实不一致，才提取公共 helper；
 - helper 接收显式参数并返回具名值，不读取调用测试的局部变量或隐藏的进程状态；
@@ -242,10 +246,13 @@ tests/
 - assertion helper 必须保留 pytest 可读的差异，并在错误中包含身份、序号、阶段和观察事实；
 - 支持代码本身的状态转换、故障注入和资源生命周期必须有小型契约测试；
 - 平台差异只留在 PTY/进程 adapter，领域场景不分支判断操作系统。
+- 不建立按“支持”“通用”或“工具”命名的收纳模块；共享代码必须直接表达场景、fake、PTY 或
+  其他稳定测试能力。
 
 ## Fixture 与数据规则
 
-- 根 `tests/conftest.py` 只保存全测试树确实共享且无业务含义的配置，例如 anyio backend；
+- 根 `tests/conftest.py` 只保存全测试树确实共享且无业务含义的配置，例如 anyio backend 和由
+  pytest `rootpath` 派生的仓库、fixture 根目录；
 - 只在同一责任子树的三个以上模块共享 fixture 时增加局部 `conftest.py`；
 - 优先使用显式 factory/helper 参数，不使用难以追踪的 autouse fixture；
 - fixture 的创建方负责关闭进程、task group、socket、文件和 sidecar，清理失败不得跳过后续资源；
@@ -253,8 +260,9 @@ tests/
 - JSON fixture 进入 schema/parser 前保持原始外部形态，验证后再转为具名类型；
 - golden/snapshot 只用于稳定的用户可见输出或正式 wire 载荷，不用于隐藏业务状态；
 - 更新 snapshot 必须审阅语义差异，禁止用批量接受掩盖回归；
-- 临时文件统一使用 pytest `tmp_path`，仓库 fixture 使用 `tests/support/paths.py` 的稳定常量；
-- 不再从测试文件深度推导仓库根。`REPOSITORY_ROOT`、`FIXTURES_ROOT` 等路径由一个支持模块拥有。
+- 临时文件统一使用 pytest `tmp_path`，仓库与 fixture 根通过具名 pytest fixture 注入；
+- 不再从可迁移测试文件的目录深度推导仓库根，也不建立保存全局路径常量的公共测试模块；固定在
+  根目录的架构审计入口可以从自身稳定位置定位仓库根。
 
 ## Marker 与执行策略
 
@@ -284,27 +292,80 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 
 ## 分阶段改造
 
+### 当前实施状态（2026-09-08）
+
+当前接力点如下。通用 `tests/support` 已移除，阶段 1 路径治理和阶段 2 全部目录迁移已完成；
+下一步进入阶段 3，先盘点巨型测试的重复职责，再逐个拆分。继续改造时仍按真实层级确定主要
+生命周期，不能按文件名前缀机械归类：
+
+| 项目                 | 当前状态                                                                                                |
+|----------------------|---------------------------------------------------------------------------------------------------------|
+| 阶段 1 路径治理      | 已完成；无通用 support 包，可迁移测试由 pytest 根 fixture 显式接收仓库或 fixture 根                     |
+| 路径与具名设施定向集 | `416 passed`；另有真实 TUI PTY `86 passed, 1 skipped`                                                   |
+| macOS sidecar 定向集 | 当前 Windows 环境 `11 skipped`，仍需 macOS 门禁验证                                                     |
+| 根架构审计           | `120 passed`，1 条第三方弃用 warning                                                                    |
+| 非 PTY 快速全量      | 目录迁移后为 `4064 passed, 14 skipped, 135 deselected`                                                  |
+| Runtime P0           | `331 passed, 3882 deselected`                                                                           |
+| PTY 已知基线         | `test_exec_command_pty.py` 为 `20 passed, 3 failed`；失败均为 sandbox sidecar 启动后未返回 session id   |
+| 批次 A 迁移前收集    | 规范化 node id 共 `4211`，SHA-256 为 `CC786B4BE4A8EA6D7037CF45FCC673DD46429D9922F9A9E9B134E79E24D3EE03` |
+| 阶段 2 批次 A        | 已完成 36 个纯文件移动；迁移后规范化 node id 数量和哈希与迁移前完全一致                                 |
+| 批次 A 定向验证      | protocol `128 passed`；infrastructure `259 passed, 14 skipped`；distribution `11 passed`                |
+| 阶段 2 批次 B        | 已完成 28 个 frontend 纯文件移动；迁移后规范化 node id 数量和哈希与迁移前完全一致                       |
+| 批次 B 定向验证      | frontend 非 PTY `471 passed, 21 deselected`；terminal acceptance `19 passed, 2 skipped`                 |
+| 阶段 2 批次 C1       | 已完成 34 个 Agent composition、domain、application、capabilities、adapters 纯文件移动                  |
+| 批次 C1 定向验证     | `tests/agent` 为 `400 passed`；全树规范化 node id 数量和哈希与迁移前完全一致                             |
+| 阶段 2 批次 C2       | 已完成 18 个 Agent stores 与 harness 纯文件移动                                                         |
+| 批次 C2 定向验证     | `tests/agent` 为 `677 passed`                                                                           |
+| 阶段 2 批次 C3       | 已完成 14 个 Agent、hooks、persistence、protocol schema、observability 纯文件移动                        |
+| 批次 C3 定向验证     | 对应迁移目标为 `212 passed`；规范化收集数量和哈希与当前基线完全一致                                     |
+| 阶段 2 批次 D1       | 已完成 38 个 TUI adapters、core、features 纯文件移动；定向验证 `1103 passed`                             |
+| 阶段 2 批次 D2       | 已完成 17 个 TUI architecture、rendering、runtime、acceptance 纯文件移动；非 PTY 定向验证 `625 passed`  |
+| 阶段 2 批次 E        | 已完成 10 个 integration、composition、scenario 测试和 3 个 manual 入口移动                             |
+| 批次 E 定向验证      | 非 PTY 为 `458 passed, 23 deselected`；规范化收集数量和哈希与当前基线完全一致                            |
+| 根目录收口           | 仅保留 `conftest.py`、`README.md`、`test_package_architecture.py`                                       |
+| 当前全树收集         | `4213`；在 4209 迁移基线上新增 4 个结构守护用例，无收集错误                                              |
+| 当前规范化收集基线   | node id 按“文件名 + 测试路径”排序、LF 连接且无尾换行，SHA-256 为 `A0F968290BCBC4FEA1E84AB2AD31F193FBAC3D3730A451CABF8160035AE81556` |
+| 架构与平台定向验证   | 根架构、terminal acceptance、macOS 门禁共 `139 passed, 13 skipped`                                     |
+| 最新根架构审计       | 新增结构守护后为 `124 passed`，1 条第三方弃用 warning                                                   |
+| 静态收口             | `compileall` 与 `git diff --check` 通过                                                                 |
+
+批次 A 已应用的目录范围：
+
+- `tests/distribution/`：build、npm；
+- `tests/protocol/client/`：chat stream、tool requests、turn control；
+- `tests/protocol/transport/`：event report、reliable requests、service auth；
+- `tests/infrastructure/config/`：应用路径、执行策略、配置 session、运行路径、settings session；
+- `tests/infrastructure/platform/`：命令安全、git diff、PTY capability、macOS、安全沙箱、受管网络、shell；
+- `tests/infrastructure/mcp/`：approval policy、group、基础设施和 tool result；
+- `tests/infrastructure/services/`：配置服务、结果增强、server manager 和服务生命周期；
+- `tests/infrastructure/sidecars/`：JavaScript bundle、process、protocol、provider 和 session；
+- `tests/infrastructure/skills/` 与 `tests/infrastructure/update/`。
+
+阶段 2 只完成物理归属，不代表巨型文件内部职责已经合理。`test_tui_spacing.py`、
+`test_package_architecture.py`、`test_run_result.py` 等仍按阶段 3 逐个拆分；不能在同一次提交中夹带
+行为修改或重复用例删除。
+
 ### 阶段 0：冻结基线与建立可比清单
 
-- [ ] 等待将被移动的测试文件不再承载未收口的用户行为修改；不回退或覆盖现有工作树改动。
-- [ ] 使用当前虚拟环境记录 `pytest --collect-only -q` 的退出码、总数和 node id 清单。
+- [x] 等待将被移动的测试文件不再承载未收口的用户行为修改；不回退或覆盖现有工作树改动。
+- [x] 使用当前虚拟环境记录 `pytest --collect-only -q` 的退出码、总数和 node id 清单。
 - [ ] 记录五个现有 marker 的收集清单，而不只记录数量。
 - [ ] 运行一次完整测试集，记录通过、失败、跳过、耗时和最慢测试；已有失败单独列为基线。
 - [ ] 分 Windows、Linux、macOS 记录可运行集合，平台缺失不能伪装成通过。
 - [ ] 建立移动映射表：原路径、目标路径、主要所有者、路径依赖、稳定文档引用。
-- [ ] 对测试模块中的真实路径字符串与故意作为展示数据的虚构路径做人工区分。
-- [ ] 确认 backend 专属测试不在客户端测试清单中；客户端禁止反向依赖 backend 的审计保留。
+- [x] 对测试模块中的真实路径字符串与故意作为展示数据的虚构路径做人工区分。
+- [x] 确认 backend 专属测试不在客户端测试清单中；客户端禁止反向依赖 backend 的审计保留。
 
 完成门槛：基线可重复生成，每个测试模块有唯一目标目录，当前失败与结构改造引入的失败可以区分。
 
 ### 阶段 1：先消除目录深度耦合
 
-- [ ] 新增最小的 `tests/support/paths.py`，集中拥有仓库根、fixture 根和必要资产路径。
-- [ ] 替换真实的 `Path(__file__).parents[...]` 仓库根推导；局部同目录 fixture 可以保留明确相对路径。
-- [ ] 修正 `durable_queue.json`、hook fixture、sidecar、npm、TUI 架构等路径消费者。
-- [ ] 为路径支持模块增加 Windows/POSIX 形式无关的定向测试。
-- [ ] 新增 `tests/README.md`，写明本文的归属决策、定向命令和新增测试检查项。
-- [ ] 保持 pytest import mode 和测试文件位置不变，单独验证路径改造。
+- [x] 删除 `tests/support/paths.py` 和其专用契约测试，不建立通用路径模块。
+- [x] 根 `tests/conftest.py` 通过 pytest `rootpath` 提供仓库根和 fixture 根的具名 fixture。
+- [x] 修正 `durable_queue.json`、hook fixture、sidecar、npm 等路径消费者，通过参数显式接收路径。
+- [x] 固定根架构审计入口保留自身定位；可迁移测试不再通过 `Path(__file__).parents[...]` 推导仓库根。
+- [x] 新增 `tests/README.md`，写明本文的归属决策、定向命令和新增测试检查项。
+- [x] 保持 pytest import mode 不变，重新执行路径消费者定向集和完整收集。
 
 完成门槛：移动任一测试到多一层临时目录仍能解析仓库根和 fixture；完整收集与阶段 0 等价。
 
@@ -313,17 +374,17 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 每个批次只做文件移动、必要导入修正和真实文档路径更新，不拆测试、不改变断言、不重写 fixture。
 保留现有文件名，避免 pytest 默认导入模式下的同名模块冲突。
 
-- [ ] 批次 A：迁移 `protocol/`、`distribution/` 和边界清晰的 `infrastructure/` 测试。
-- [ ] 批次 B：迁移 CLI、MCP、Subscription 和 terminal 测试，PTY 测试进入 terminal 或 TUI
+- [x] 批次 A：迁移 `protocol/`、`distribution/` 和边界清晰的 `infrastructure/` 测试。
+- [x] 批次 B：迁移 CLI、MCP、Subscription 和 terminal 测试，PTY 测试进入 terminal 或 TUI
   acceptance 的真实所有者目录。
-- [ ] 批次 C：按 domain、application、harness、stores、capabilities、adapters 迁移 Agent 测试。
-- [ ] 批次 D：迁移 TUI 测试；先按 adapters、core、features、rendering、runtime、acceptance 分组。
-- [ ] 批次 E：迁移根组合、跨所有者 integration、专题 architecture 和 manual 脚本。
-- [ ] 保留 `tests/test_package_architecture.py` 原路径，并同步 `AGENTS.md`、`ARCHITECTURE.md`、
+- [x] 批次 C：按 domain、application、harness、stores、capabilities、adapters 迁移 Agent 测试。
+- [x] 批次 D：迁移 TUI 测试；先按 adapters、core、features、rendering、runtime、acceptance 分组。
+- [x] 批次 E：迁移根组合、跨所有者 integration、专题 architecture 和 manual 脚本。
+- [x] 保留 `tests/test_package_architecture.py` 原路径，并同步 `AGENTS.md`、`ARCHITECTURE.md`、
   `PTY_CHECKLIST.md` 中真正发生变化的稳定路径。
-- [ ] 更新测试断言中的真实 pytest 命令；保留 `tests/test_sample.py` 等明确作为示例载荷的虚构路径。
-- [ ] 每个批次比较规范化 node id：忽略目录前缀后，模块名、测试名和参数 id 必须等价。
-- [ ] 每个批次先跑目标目录，再跑收集；所有批次结束后跑完整测试集。
+- [x] 更新测试断言中的真实 pytest 命令；保留 `tests/test_sample.py` 等明确作为示例载荷的虚构路径。
+- [x] 每个批次比较规范化 node id：忽略目录前缀后，模块名、测试名和参数 id 必须等价。
+- [x] 每个批次先跑目标目录，再跑收集；所有批次结束后完成非 PTY 全量，真实 PTY 按平台集合独立验证。
 
 完成门槛：除 `test_package_architecture.py` 外，根目录不再平铺业务测试；收集集合没有静默增加、
 减少或重命名；稳定文档路径有效。
@@ -397,9 +458,10 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 
 ### 阶段 7：长期守护
 
-- [ ] 在架构审计中限制 `tests/` 根目录允许文件，保留 `conftest.py`、稳定审计入口和文档。
-- [ ] 审计测试不得直接导入 `backend`；客户端包禁止依赖 backend 的生产边界审计继续执行。
-- [ ] 审计仓库路径统一来自 `tests.support.paths`，不再引入依赖目录深度的根路径推导。
+- [x] 在架构审计中限制 `tests/` 根目录允许文件，保留 `conftest.py`、稳定审计入口和文档。
+- [x] 审计测试不得直接导入 `backend`；客户端包禁止依赖 backend 的生产边界审计继续执行。
+- [x] 审计不存在 `tests/support`、`tests.utils`、`tests.common` 等通用收纳包。
+- [x] 审计可迁移测试的仓库路径来自 pytest 根 fixture，不再引入依赖目录深度的根路径推导。
 - [ ] 新增测试评审模板：所有者、主要不变量、验证深度、关键失败路径、资源关闭、最小定向命令。
 - [ ] 每季度检查最慢集合、最大模块、marker 规模、跳过原因和 flaky 记录。
 - [ ] 当目录职责或 marker 语义变化时同步 `tests/README.md` 和稳定架构文档，不维护迁移流水账。
@@ -430,7 +492,7 @@ git diff --check
 
 ## 建议提交顺序
 
-1. 测试路径支持层与 `tests/README.md`；
+1. pytest 根路径 fixture、具名测试设施目录与 `tests/README.md`；
 2. protocol、distribution、infrastructure 纯移动；
 3. 非 TUI frontend 纯移动；
 4. Agent 纯移动；
@@ -446,6 +508,7 @@ git diff --check
 
 ## 完成定义
 
+- [ ] 所有长期有效规则和命令已收敛到 `tests/README.md`，本文仅剩可删除的完成记录；
 - [ ] `tests/` 根目录只保留约定的稳定入口、配置和说明文件；
 - [ ] 每个自动化测试存在唯一、可解释的责任所有者；
 - [ ] backend 独立服务实现不由客户端测试树直接导入或验证；
@@ -453,7 +516,7 @@ git diff --check
 - [ ] 不存在依赖测试文件目录深度的仓库根解析；
 - [ ] 不存在无说明的超大多职责测试模块；
 - [ ] Turn、审批、工具、replay、终态、资源关闭和 TUI 原子帧均有快速确定性门禁；
-- [ ] Fake Server、场景模型和 PTY harness 各自拥有明确契约与关闭生命周期；
+- [ ] Fake Server、场景模型和 PTY harness 各自拥有明确契约与关闭生命周期，不存在通用 support 包；
 - [ ] 自动化测试不访问公网、不依赖真实用户配置、不依赖执行顺序；
 - [ ] 定向、PR、Runtime P0、平台验收、夜间和发布门禁各有清晰职责；
 - [ ] 全量测试、架构审计、compileall 和差异检查通过；
