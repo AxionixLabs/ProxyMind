@@ -5,6 +5,7 @@ import pytest
 from agent.application.views.builders.review import (
     build_review_cancelled_view,
     build_review_failed_view,
+    build_review_finished_view,
     build_review_reconciliation_view,
     build_review_started_view,
     review_output_text,
@@ -86,10 +87,23 @@ def test_review_output_formats_multiple_findings() -> None:
     )
 
 
+def test_review_status_and_interruption_match_codex_surface() -> None:
+    assert build_review_started_view("changes against 'main'").renderable.plain_text == (
+        ">> Code review started: changes against 'main' <<"
+    )
+    assert build_review_finished_view().renderable.plain_text == (
+        "<< Code review finished >>"
+    )
+    assert build_review_cancelled_view("interrupted").renderable.plain_text == (
+        "Review was interrupted. Please re-run /review and wait for it to complete."
+    )
+
+
 @pytest.mark.parametrize(
     "view",
     (
         build_review_started_view("current changes"),
+        build_review_finished_view(),
         build_review_failed_view("Review failed."),
         build_review_cancelled_view("interrupted"),
         build_review_reconciliation_view("connection lost"),

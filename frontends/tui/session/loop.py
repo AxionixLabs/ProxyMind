@@ -14,6 +14,7 @@ from agent.application.turns.commands import (
     SubmitTurnCommand,
     TurnApplication,
 )
+from agent.application.turns.foreground import run_foreground_turn
 from agent.application.turns.observation import TurnObservationCallbacks
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.reviews import (
@@ -1024,7 +1025,9 @@ async def _execute_tui_review_command(
             environment_snapshot: dict[str, ThawedJsonValue] | None,
         ) -> RunResult:
             """把持久化 Review Command 适配到 Review 能力。"""
-            return await run_review_turn(
+            return await run_foreground_turn(
+                host.turn_foreground_lifecycle,
+                run_review_turn,
                 request,
                 environment_snapshot,
                 capability=review_capability,

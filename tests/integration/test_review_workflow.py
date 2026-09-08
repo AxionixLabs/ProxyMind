@@ -478,6 +478,7 @@ async def test_review_full_chain_reconnects_without_duplicate_projection(
     assert [payload["after_seq"] for payload in attach_payloads] == [0, 1]
     assert [view.type for view in sink.views] == [
         "review.started",
+        "review.finished",
         "review.completed",
     ]
 
@@ -572,6 +573,7 @@ async def test_review_interrupt_waits_for_cancelled_then_turn_terminal(
     assert result.status == "interrupted"
     assert [view.type for view in sink.views] == [
         "review.started",
+        "review.finished",
         "review.cancelled",
     ]
     assert wire_stream.recovery_probe_count == 2

@@ -31,6 +31,7 @@ from agent.ports import (
     ProcessLifecyclePort,
     RootConversationPort,
     SubscriptionRuntime,
+    TurnForegroundLifecyclePort,
     TurnObservationCapability,
     WorkspaceRuntime,
 )
@@ -259,6 +260,7 @@ class TuiApplicationHost(typing.Protocol):
     frontend: Frontend
     history_workspace: str
     lifecycle: ProcessLifecyclePort
+    turn_foreground_lifecycle: TurnForegroundLifecyclePort
 
     async def enqueue_durable_turn(
         self,

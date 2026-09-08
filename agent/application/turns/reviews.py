@@ -13,6 +13,7 @@ from agent.application.views.builders.review import (
     build_review_cancelled_view,
     build_review_completed_view,
     build_review_failed_view,
+    build_review_finished_view,
     build_review_reconciliation_view,
     build_review_started_view,
     review_output_text,
@@ -190,15 +191,18 @@ async def _run_review_stream(
                 payload = item.payload_value().get("output")
                 output = parse_review_output(payload)
                 review_text = review_output_text(output)
+                application.emit(build_review_finished_view())
                 application.emit(build_review_completed_view(output))
                 continue
             if isinstance(event, ReviewFailedEvent):
                 _require_review_item(event, current_item)
                 review_error = event.error
+                application.emit(build_review_finished_view())
                 application.emit(build_review_failed_view(event.error))
                 continue
             if isinstance(event, ReviewCancelledEvent):
                 _require_review_item(event, current_item)
+                application.emit(build_review_finished_view())
                 application.emit(build_review_cancelled_view(event.reason))
                 continue
             if isinstance(event, ReviewReconciliationRequiredEvent):

@@ -11,20 +11,29 @@ from protocol.schema.review import ReviewOutput
 
 _PRIMARY = TextStyle()
 _BOLD = TextStyle(bold=True)
-_SECONDARY = TextStyle(dim=True)
 
 
 def build_review_started_view(hint: str) -> ApplicationView:
     """构建不暴露隐藏 prompt 或请求载荷的 Review 启动展示。"""
-    text = f"Reviewing {hint}"
+    text = f">> Code review started: {hint} <<"
     return ApplicationView(
         type="review.started",
         renderable=StyledBlock(
-            plain_text=f"• {text}",
-            spans=(
-                TextSpan("• ", _SECONDARY),
-                TextSpan(text, _PRIMARY),
-            ),
+            plain_text=text,
+            spans=(TextSpan(text, _PRIMARY),),
+            preserve_spans=True,
+        ),
+    )
+
+
+def build_review_finished_view() -> ApplicationView:
+    """构建 Review 子会话退出后的状态展示。"""
+    text = "<< Code review finished >>"
+    return ApplicationView(
+        type="review.finished",
+        renderable=StyledBlock(
+            plain_text=text,
+            spans=(TextSpan(text, _PRIMARY),),
             preserve_spans=True,
         ),
     )
@@ -61,13 +70,13 @@ def build_review_failed_view(message: str) -> ApplicationView:
 
 def build_review_cancelled_view(reason: str) -> ApplicationView:
     """构建 Review 已由权威终态取消的展示。"""
-    detail = str(reason or "").strip()
-    text = "Review cancelled" + (f": {detail}" if detail else "")
+    _ = reason
+    text = "Review was interrupted. Please re-run /review and wait for it to complete."
     return ApplicationView(
         type="review.cancelled",
         renderable=StyledBlock(
             plain_text=text,
-            spans=(TextSpan(text, _SECONDARY),),
+            spans=(TextSpan(text, _PRIMARY),),
             preserve_spans=True,
         ),
     )

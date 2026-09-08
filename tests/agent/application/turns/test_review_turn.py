@@ -327,6 +327,7 @@ async def test_review_turn_uses_canonical_output_and_turn_terminal() -> None:
     )
     assert [view.type for view in sink.views] == [
         "review.started",
+        "review.finished",
         "review.completed",
     ]
     assert capability.request == command.request
@@ -456,6 +457,7 @@ async def test_observed_review_reuses_projection_and_replay_identity() -> None:
     assert capability.replay_target_seq == 4
     assert [view.type for view in sink.views] == [
         "review.started",
+        "review.finished",
         "review.completed",
     ]
 
@@ -636,5 +638,6 @@ async def test_review_terminal_events_keep_distinct_presentations(
     assert result.error == error
     assert [view.type for view in sink.views] == [
         "review.started",
+        "review.finished",
         view_type,
     ]

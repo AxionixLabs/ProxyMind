@@ -33,6 +33,7 @@ from ..core.styles import (
 
 MUTED = semantic_text_style(TerminalSemanticRole.SECONDARY)
 ACCENT = semantic_text_style(TerminalSemanticRole.ACCENT, bold=True)
+REVIEW_STATUS = semantic_text_style(TerminalSemanticRole.ACCENT)
 BRIGHT = semantic_text_style(TerminalSemanticRole.PRIMARY, bold=True)
 SUCCESS = semantic_text_style(TerminalSemanticRole.SUCCESS, bold=True)
 WARNING = semantic_text_style(TerminalSemanticRole.ATTENTION, bold=True)
@@ -118,10 +119,9 @@ class TuiApplicationSink(ApplicationSink):
             return None
         block_kind: TuiBlockKind = (
             "assistant"
-            if view.type == "review.completed"
+            if view.type in {"review.completed", "review.cancelled"}
             else "notice"
             if view.type in {
-                "review.cancelled",
                 "review.failed",
                 "review.reconciliation_required",
                 "tui.interrupted",
@@ -132,6 +132,13 @@ class TuiApplicationSink(ApplicationSink):
             self._commit_block(view.type, view.renderable, block_kind)
             return None
         if isinstance(view.renderable, StyledBlock):
+            if view.type in {"review.started", "review.finished"}:
+                self._commit_block(
+                    view.type,
+                    FragmentBlock(((REVIEW_STATUS, view.renderable.plain_text),)),
+                    block_kind,
+                )
+                return None
             fill_character = str(view.payload.get("line_fill_character") or "")
             line_fill = (
                 LineFill(
