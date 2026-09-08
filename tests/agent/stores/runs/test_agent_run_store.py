@@ -811,6 +811,32 @@ async def test_queued_recovery_is_returned_for_editor_restore(
 
 
 @pytest.mark.anyio
+async def test_unbound_running_recovery_fails_without_persistent_gate(
+    tmp_path: Path,
+) -> None:
+    """确保无法定位远端 Turn 的历史残留不会永久阻塞新输入。"""
+    db_path = tmp_path / "runtime.db"
+    store = SQLiteRunStore(db_path)
+    command = _command(trace_context={})
+    await _append_started(store, command)
+    application = open_turn_application(db_path)
+    protocol_client = AsyncMock()
+
+    recovery = await application.reconcile_remote_session(
+        command.session_id,
+        protocol_client,
+    )
+    remaining = await application.recover_session(command.session_id)
+    await application.close()
+
+    assert recovery.pending == ()
+    assert recovery.restore_commands == ()
+    assert recovery.resolved_run_ids == (command.run_id,)
+    assert remaining == ()
+    protocol_client.get_turn_status.assert_not_awaited()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("kind", "status", "action"),
     (

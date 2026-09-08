@@ -177,6 +177,15 @@ class TurnApplication(typing.Generic[ResultValue]):
             )
             binding = remote_turn_binding(snapshot.command)
             if frozen is None and binding is None:
+                await self.resolve_recovery(
+                    snapshot.command.run_id,
+                    request_id=(
+                        f"recover_unbound_{snapshot.command.run_id}"
+                    ),
+                    resolution="failed",
+                    error="remote turn identity is unavailable",
+                )
+                resolved_run_ids.append(snapshot.command.run_id)
                 continue
             cid = frozen.request.cid if frozen is not None else binding.cid
             sid = frozen.request.sid if frozen is not None else binding.sid
