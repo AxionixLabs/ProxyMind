@@ -1,6 +1,6 @@
 # Sandbox v1 工程成熟度改造清单
 
-> 状态：阶段 0-1 已完成并通过复核；阶段 2 待实施。
+> 状态：阶段 0-2 已完成并通过复核；阶段 3 待实施。
 > 计划版本：v1。
 > Sandbox 私有协议版本：`1`，本次改造保持不变。
 > 基准日期：2026-09-08。
@@ -117,22 +117,42 @@
 
 ## 5. 阶段 2：生命周期与协议健壮性
 
-- [ ] Sidecar stderr 由有界后台任务持续消费，启动失败时保留有限诊断尾部。
-- [ ] 握手超时或读取任务取消时必须消费并收束 `_ready` future，不能向事件循环泄漏后台异常。
-- [ ] Sidecar 子进程退出后立即清理 `_processes`，不得随命令次数增长。
-- [ ] `_early_events` 设置进程数、事件数和总字节上限；未知 process id 不得形成无界缓存。
-- [ ] JSONL 单帧设置字节上限；非法 UTF-8、非法 JSON、未知事件和缺失字段进入明确协议故障。
-- [ ] 请求超时后移除 pending future；迟到响应不得错误完成新的请求。
-- [ ] Sidecar 重启使用本地 generation 隔离旧进程身份，防止复用 `sandbox_1` 等标识时串线。
-- [ ] Sidecar 异常退出时，在途命令标记为 `execution_outcome_unknown`；可能产生副作用的命令不得自动重试。
-- [ ] `close()` 在请求关闭、读取任务取消和进程终止任一步失败时仍继续其余清理。
-- [ ] 连续执行至少 1,000 个短命令，验证进程表、pending 表、事件缓存、句柄和内存不持续增长。
+- [x] Sidecar stderr 由有界后台任务持续消费，启动失败时保留有限诊断尾部。
+- [x] 握手超时或读取任务取消时必须消费并收束 `_ready` future，不能向事件循环泄漏后台异常。
+- [x] Sidecar 子进程退出后立即清理 `_processes`，不得随命令次数增长。
+- [x] `_early_events` 设置进程数、事件数和总字节上限；未知 process id 不得形成无界缓存。
+- [x] JSONL 单帧设置字节上限；非法 UTF-8、非法 JSON、未知事件和缺失字段进入明确协议故障。
+- [x] 请求超时后移除 pending future；迟到响应不得错误完成新的请求。
+- [x] Sidecar 重启使用本地 generation 隔离旧进程身份，防止复用 `sandbox_1` 等标识时串线。
+- [x] Sidecar 异常退出时，在途命令标记为 `execution_outcome_unknown`；可能产生副作用的命令不得自动重试。
+- [x] `close()` 在请求关闭、读取任务取消和进程终止任一步失败时仍继续其余清理。
+- [x] 连续执行至少 1,000 个短命令，验证进程表、pending 表、事件缓存、句柄和内存不持续增长。
 
 ### 阶段 2 准出
 
-- [ ] Fake Sidecar 故障矩阵覆盖乱序、重复、迟到、畸形、超大帧、异常 EOF 和关闭竞态。
-- [ ] Soak 结果记录执行数、峰值句柄、峰值内存、残留进程和未清理请求。
-- [ ] 所有失败路径均证明不会隐式落到非 Sandbox 执行。
+- [x] Fake Sidecar 故障矩阵覆盖乱序、重复、迟到、畸形、超大帧、异常 EOF 和关闭竞态。
+- [x] Soak 结果记录执行数、峰值句柄、峰值内存、残留进程和未清理请求。
+- [x] 所有失败路径均证明不会隐式落到非 Sandbox 执行。
+
+### 阶段 2 复核证据
+
+- [x] 阶段 2 实现提交：`cc340cf4`。
+- [x] Sandbox 客户端与 Fake Sidecar 故障矩阵：`58 passed`；覆盖严格帧校验、三重早到缓存预算、
+      generation 隔离、effectful timeout、异常 EOF、重复/迟到事件和多故障关闭。
+- [x] 真实 Windows Sidecar v1 回归：`11 passed`；相邻输出、PTY 与 TUI Shell 组：
+      `151 passed, 11 skipped`，其中 macOS 真机验收在 Windows 上如实 skip。
+- [x] 干净提交快照 Runtime P0：`345 passed, 4058 deselected`；完整架构审计：`138 passed`。
+- [x] 非 PTY 全量两次均完成 `4255 passed, 12 skipped, 135 deselected`，每次各有 1 个不同的
+      无关时序用例失败；JavaScript Sidecar 用例定向复测 `1 passed in 0.35s`，TUI scrollback
+      用例定向复测 `1 passed in 0.73s`，按复测门禁不扩展本阶段范围。
+- [x] 真实 Windows Sidecar 冷启动后连续执行 1,000 个短命令用时 `47.642s`；客户端活动进程、
+      pending、早到进程、早到事件和早到字节最终均为 `0`，关闭后残留 Sidecar 为 `false`。
+- [x] 1,100 次趋势复核在前 100 次热身后按 200 次采样；Sidecar 句柄为
+      `174, 174, 174, 174, 174, 176`，工作集保持约 `13.2-13.9 MB`，未随命令数持续增长。
+- [x] 1,000 次 soak 中 Python 句柄始终为 `159`，`tracemalloc` 峰值 `144208 bytes`、最终
+      `103339 bytes`；客户端已退出进程 tombstone 固定不超过 `256`。
+- [x] 全量 `compileall`、约束扫描和 `git diff --check` 通过；当前成熟度达到 L3.5，达到 L4 前
+      仍保持 Production Readiness Blocked。
 
 ## 6. 阶段 3：拒绝识别与审批边界
 
