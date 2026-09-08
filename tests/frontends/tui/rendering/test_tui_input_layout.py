@@ -39,6 +39,7 @@ from frontends.tui.core.models import (
     LineFill,
     MenuOption,
     MenuRequest,
+    STANDARD_MENU_FOOTER_HINT,
 )
 from frontends.tui.core.queued import TuiQueuedMessages, TuiSubmission
 from frontends.tui.core.render import (
@@ -849,6 +850,52 @@ async def test_nested_menu_uses_its_own_top_padding(
                 assert menu_position.ypos == (
                     menu_padding.ypos + menu_padding.height
                 )
+            finally:
+                if runtime.screen.menu.active:
+                    runtime.screen.menu.finish(None)
+                if menu_task is not None:
+                    await menu_task
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_menu_scroll_boundary_uses_allocated_screen_height() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.screen.application.output,
+            "get_size",
+            return_value=Size(rows=10, columns=60),
+        ):
+            await runtime.open()
+            menu_task = None
+            try:
+                menu_task = asyncio.create_task(runtime.select_menu(MenuRequest(
+                    title="Select a commit to review",
+                    searchable=True,
+                    search_prompt_prefix="",
+                    search_placeholder="Type to search commits",
+                    footer_hint=STANDARD_MENU_FOOTER_HINT,
+                    options=tuple(
+                        MenuOption(index, f"Commit {index}")
+                        for index in range(10)
+                    ),
+                )))
+                await asyncio.sleep(0)
+
+                runtime.screen.menu._move(2)
+                screen = await _render_next_frame(runtime)
+                text = _rendered_screen_text(screen)
+                assert "  Commit 0" in text
+                assert "› Commit 2" in text
+
+                runtime.screen.menu._move(1)
+                screen = await _render_next_frame(runtime)
+                text = _rendered_screen_text(screen)
+                assert "Commit 0" not in text
+                assert "  Commit 1" in text
+                assert "› Commit 3" in text
             finally:
                 if runtime.screen.menu.active:
                     runtime.screen.menu.finish(None)

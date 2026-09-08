@@ -483,6 +483,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             focus_menu=lambda: self._activate_bottom_surface("menu"),
             focus_input=lambda: self._deactivate_bottom_surface("menu"),
             get_width=lambda: self.terminal_width,
+            get_render_height=lambda: self._menu_content_height(),
             view_stack=self.bottom_pane.view_stack,
             keymap=keymap.list,
             editor_keymap=keymap.editor,

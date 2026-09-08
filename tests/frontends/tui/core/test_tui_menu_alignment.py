@@ -28,6 +28,7 @@ from frontends.tui.core.models import (
     MenuFooterHint,
     MenuOption,
     MenuRequest,
+    MenuRowDisplay,
     MenuShortcutAction,
     STANDARD_MENU_FOOTER_HINT,
     MenuTab,
@@ -509,6 +510,96 @@ async def test_searchable_menu_matches_codex_spacing_and_scroll_boundary() -> No
     menu._move(-1)
     assert menu.state.selected == 7
     assert menu.state.scroll_top == 1
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_menu_scrolls_after_actual_last_visible_option() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 80,
+        get_render_height=lambda: 5,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Select a commit to review",
+        searchable=True,
+        search_prompt_prefix="",
+        search_placeholder="Type to search commits",
+        options=tuple(
+            MenuOption(index, f"Commit {index}")
+            for index in range(10)
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    assert menu.state is not None
+    assert _fragments_text(
+        menu.surface_fragments_for_state(menu.state)
+    ).splitlines()[3:] == [
+        "› Commit 0",
+        "  Commit 1",
+    ]
+
+    menu._move(1)
+    assert menu.state.selected == 1
+    assert menu.state.scroll_top == 0
+    assert _fragments_text(
+        menu.surface_fragments_for_state(menu.state)
+    ).splitlines()[3:] == [
+        "  Commit 0",
+        "› Commit 1",
+    ]
+
+    menu._move(1)
+    assert menu.state.selected == 2
+    assert menu.state.scroll_top == 0
+    assert _fragments_text(
+        menu.surface_fragments_for_state(menu.state)
+    ).splitlines()[3:] == [
+        "  Commit 1",
+        "› Commit 2",
+    ]
+
+    menu.cancel()
+    assert await task is None
+
+
+@pytest.mark.anyio
+async def test_menu_wrapped_rows_keep_selected_option_in_physical_viewport() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 24,
+        get_render_height=lambda: 5,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Options",
+        row_display=MenuRowDisplay.WRAPPED,
+        options=(
+            MenuOption("first", "First option with a long label"),
+            MenuOption("second", "Second option with a long label"),
+            MenuOption("third", "Third option"),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    assert menu.state is not None
+    menu._move(1)
+    lines = _fragments_text(
+        menu.surface_fragments_for_state(menu.state)
+    ).splitlines()
+
+    assert menu.state.selected == 1
+    assert menu.state.scroll_top == 0
+    assert lines[:2] == ["  Options", ""]
+    assert lines[2].startswith("› 2. Second option")
+    assert all("First option" not in line for line in lines[2:])
+    assert len(lines) == 5
 
     menu.cancel()
     assert await task is None

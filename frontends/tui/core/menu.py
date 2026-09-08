@@ -140,6 +140,7 @@ class TuiMenu(object):
         focus_menu: typing.Callable[[], None],
         focus_input: typing.Callable[[], None],
         get_width: typing.Callable[[], int],
+        get_render_height: typing.Callable[[], int] | None = None,
         view_stack: BottomPaneViewStack | None = None,
         keymap: TuiListKeymap | None = None,
         editor_keymap: TuiEditorKeymap | None = None,
@@ -148,6 +149,7 @@ class TuiMenu(object):
         self.focus_menu = focus_menu
         self.focus_input = focus_input
         self.get_width = get_width
+        self.get_render_height = get_render_height
         self._view_stack = (
             view_stack
             if view_stack is not None
@@ -362,6 +364,11 @@ class TuiMenu(object):
             state,
             width=self.get_width(),
             config=self._RENDER_CONFIG,
+            max_height=(
+                self.get_render_height()
+                if self.get_render_height is not None
+                else None
+            ),
         )
 
     def footer_fragments_for_state(

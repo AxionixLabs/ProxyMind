@@ -22,6 +22,7 @@ from .layout import (
     surface_content_width,
     surface_inset_fragments
 )
+from .measure import line_count
 from .renderer import (
     body_fragments,
     header_fragments,
@@ -36,6 +37,7 @@ from .rows import (
     option_prefix, row_layout
 )
 from .selection import (
+    filtered_indices,
     option_is_disabled,
     visible_window
 )
@@ -57,6 +59,100 @@ class MenuRenderConfig(object):
     min_label_width: int
     min_detail_width: int
     max_detail_reserve: int
+
+
+def _option_row_groups(
+    state: MenuState,
+    *,
+    indices: tuple[int, ...],
+    request: MenuRequest,
+    available_rows_width: int,
+    surface_inset: int,
+    config: MenuRenderConfig,
+) -> tuple[tuple[int, tuple[StyleAndTextTuples, ...]], ...]:
+    """生成一段候选窗口，并保留每个选项对应的物理行。"""
+    number_width = enabled_number_width(state)
+    row_prefix_width, label_width = row_layout(
+        request,
+        width=available_rows_width,
+        number_width=number_width,
+        visible_indices=indices,
+        surface_inset=surface_inset,
+        min_label_width=config.min_label_width,
+        min_detail_width=config.min_detail_width,
+        max_detail_reserve=config.max_detail_reserve,
+    )
+    groups: list[tuple[int, tuple[StyleAndTextTuples, ...]]] = []
+    for index in indices:
+        option = request.options[index]
+        active = index == state.selected and not option_is_disabled(option)
+        index_style = (
+            "class:tui-menu.index.disabled"
+            if option_is_disabled(option)
+            else "class:tui-menu.index.active"
+            if active
+            else "class:tui-menu.index"
+        )
+        prefix = option_prefix(
+            state,
+            index,
+            active=active,
+            number_width=number_width,
+            surface_inset=surface_inset,
+        )
+        rows = option_fragments(
+            option,
+            available=max(1, available_rows_width - get_cwidth(prefix)),
+            label_width=label_width,
+            active=active,
+            request=request,
+            row_prefix_width=row_prefix_width,
+            width=available_rows_width,
+            index_style=index_style,
+            prefix=prefix,
+        )
+        groups.append((index, tuple(rows)))
+    return tuple(groups)
+
+
+def _selected_visible_in_groups(
+    groups: tuple[tuple[int, tuple[StyleAndTextTuples, ...]], ...],
+    *,
+    selected: int,
+    row_budget: int,
+) -> bool:
+    """判断选择项的首行是否位于当前物理行预算内。"""
+    if row_budget <= 0:
+        return False
+    used_rows = 0
+    for index, rows in groups:
+        row_height = max(1, len(rows))
+        if used_rows > 0 and used_rows + row_height > row_budget:
+            break
+        if index == selected:
+            return True
+        used_rows += row_height
+        if used_rows >= row_budget:
+            break
+    return False
+
+
+def _option_row_budget(
+    header: StyleAndTextTuples,
+    *,
+    max_height: int | None,
+    separate: bool,
+) -> int | None:
+    """扣除头部和分隔行后返回候选区域的物理行预算。"""
+    if max_height is None:
+        return None
+    probe = join_surface_sections(
+        header,
+        [("", "x"), ("", "\n")],
+        separate=separate,
+    )
+    row_origin = max(0, line_count(probe) - 1)
+    return max(0, int(max_height) - row_origin)
 
 
 def _surface_inset(request: MenuRequest, config: MenuRenderConfig) -> int:
@@ -194,8 +290,9 @@ def surface_fragments(
     *,
     width: int,
     config: MenuRenderConfig,
+    max_height: int | None = None,
 ) -> StyleAndTextTuples:
-    """生成指定宽度下的菜单表面内容。"""
+    """生成指定宽度和可选物理高度下的菜单表面内容。"""
     request = state.request
     surface_inset = _surface_inset(request, config)
     content_width = surface_content_width(
@@ -206,23 +303,6 @@ def surface_fragments(
         width,
         inset=surface_inset,
     )
-    _start, visible_indices = visible_window(
-        state,
-        visible_rows=config.visible_rows,
-    )
-    options = tuple(request.options[index] for index in visible_indices)
-    number_width = enabled_number_width(state)
-    row_prefix_width, label_width = row_layout(
-        request,
-        width=available_rows_width,
-        number_width=number_width,
-        visible_indices=visible_indices,
-        surface_inset=surface_inset,
-        min_label_width=config.min_label_width,
-        min_detail_width=config.min_detail_width,
-        max_detail_reserve=config.max_detail_reserve,
-    )
-
     header: StyleAndTextTuples = (
         header_fragments(request, width=content_width)
         if request.title or request.status
@@ -327,48 +407,80 @@ def surface_fragments(
                 ("", "\n"),
             ])
 
-    rows_out: StyleAndTextTuples = []
+    separate = (
+        not request.body_as_table_header
+        and request.separate_options
+        and not (request.searchable or text_input)
+    )
+    inset_header = surface_inset_fragments(header, inset=surface_inset)
+    row_budget = _option_row_budget(
+        inset_header,
+        max_height=max_height,
+        separate=separate,
+    )
+    indices = filtered_indices(state)
+    max_items = (
+        len(indices)
+        if request.show_all_options
+        else max(1, int(config.visible_rows))
+    )
+    start, _visible_indices = visible_window(
+        state,
+        visible_rows=max_items,
+    )
+    selected_position = (
+        indices.index(state.selected)
+        if state.selected in indices
+        else None
+    )
 
-    for offset, option in enumerate(options):
-        index = visible_indices[offset]
-        active = index == state.selected and not option_is_disabled(option)
-
-        index_style = (
-            "class:tui-menu.index.disabled"
-            if option_is_disabled(option)
-            else "class:tui-menu.index.active"
-            if active
-            else "class:tui-menu.index"
-        )
-
-        prefix = option_prefix(
+    while True:
+        visible_indices = indices[start:start + max_items]
+        groups = _option_row_groups(
             state,
-            index,
-            active=active,
-            number_width=number_width,
-            surface_inset=surface_inset,
-        )
-
-        rows = option_fragments(
-            option,
-            available=max(1, available_rows_width - get_cwidth(prefix)),
-            label_width=label_width,
-            active=active,
+            indices=visible_indices,
             request=request,
-            row_prefix_width=row_prefix_width,
-            width=available_rows_width,
-            index_style=index_style,
-            prefix=prefix,
+            available_rows_width=available_rows_width,
+            surface_inset=surface_inset,
+            config=config,
         )
-        for row in rows:
+        if (
+            row_budget is None
+            or selected_position is None
+            or start >= selected_position
+            or _selected_visible_in_groups(
+                groups,
+                selected=state.selected,
+                row_budget=row_budget,
+            )
+        ):
+            break
+        start += 1
+
+    rows_out: StyleAndTextTuples = []
+    used_rows = 0
+    for _index, rows in groups:
+        remaining = (
+            len(rows)
+            if row_budget is None
+            else max(0, row_budget - used_rows)
+        )
+        if remaining <= 0:
+            break
+        visible_rows = rows[:remaining]
+        for row in visible_rows:
             rows_out.extend(clip_fragments(row, width=available_rows_width))
             rows_out.append(("", "\n"))
+        used_rows += len(visible_rows)
+        if len(visible_rows) < len(rows):
+            break
 
     if (
         request.searchable
         and request.search_empty_text
         and state.query
-        and not visible_indices
+        and not indices
+        and (row_budget is None or row_budget > 0)
     ):
         rows_out.extend([
             (
@@ -397,16 +509,9 @@ def surface_fragments(
         ))
 
     return join_surface_sections(
-        surface_inset_fragments(
-            header,
-            inset=surface_inset,
-        ),
+        inset_header,
         rows_out,
-        separate=(
-            not request.body_as_table_header
-            and request.separate_options
-            and not (request.searchable or text_input)
-        ),
+        separate=separate,
     )
 
 
