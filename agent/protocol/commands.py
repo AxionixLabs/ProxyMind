@@ -18,6 +18,7 @@ from .json_value import (
     thaw_json,
     thaw_object,
 )
+from .model import ReviewStreamRequest
 
 TurnControlStatus: typing.TypeAlias = typing.Literal[
     "accepted",
@@ -415,17 +416,7 @@ class SubmitTurnCommand:
 
     def fingerprint(self) -> str:
         """返回忽略 command_id 的 SHA-256 意图指纹。"""
-        value = self.to_dict()
-        value.pop("command_id")
-        value.pop("causation_id")
-        encoded = json.dumps(
-            value,
-            ensure_ascii=True,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+        return _command_fingerprint(self.to_dict())
 
     def attachment_values(self) -> list[dict[str, ThawedJsonValue]]:
         """返回旧 Turn adapter 可消费的独立附件副本。"""
@@ -456,6 +447,230 @@ class SubmitTurnCommand:
         if self.extras is None:
             return None
         return thaw_object(self.extras, field_name="extras")
+
+
+@dataclass(frozen=True, slots=True)
+class SubmitReviewCommand:
+    """描述一次本地 Review 提交及其完整冻结远端意图。"""
+
+    command_id: str
+    session_id: str
+    run_id: str
+    request: ReviewStreamRequest
+    environment_snapshot: Mapping[str, JsonValue] | None = None
+    idempotency_key: str = ""
+    causation_id: str | None = None
+    trace_context: Mapping[str, JsonValue] = field(default_factory=dict)
+    kind: typing.Literal["submit_review"] = field(
+        default="submit_review",
+        init=False,
+    )
+
+    def __post_init__(self) -> None:
+        """校验本地身份并冻结 Review 执行环境和追踪上下文。"""
+        for field_name in ("command_id", "session_id", "run_id"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{field_name} is required")
+            object.__setattr__(self, field_name, value.strip())
+        if not isinstance(self.request, ReviewStreamRequest):
+            raise TypeError("review request is required")
+
+        environment = _optional_frozen_object(
+            self.environment_snapshot,
+            field_name="review environment_snapshot",
+        )
+        trace_context = _required_frozen_object(
+            self.trace_context,
+            field_name="review trace_context",
+        )
+        idempotency_key = str(self.idempotency_key or "").strip()
+        causation_id = str(self.causation_id or "").strip() or None
+        object.__setattr__(self, "environment_snapshot", environment)
+        object.__setattr__(self, "trace_context", trace_context)
+        object.__setattr__(
+            self,
+            "idempotency_key",
+            idempotency_key or self.command_id,
+        )
+        object.__setattr__(self, "causation_id", causation_id)
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        request: ReviewStreamRequest,
+        environment_snapshot: Mapping[str, JsonValue] | None = None,
+        session_id: str | None = None,
+        run_id: str | None = None,
+        command_id: str | None = None,
+        idempotency_key: str | None = None,
+        causation_id: str | None = None,
+        trace_context: Mapping[str, JsonValue] | None = None,
+    ) -> "SubmitReviewCommand":
+        """创建具有本地稳定身份的 Review 命令。"""
+        resolved_command_id = command_id or _new_id("cmd")
+        return cls(
+            command_id=resolved_command_id,
+            session_id=session_id or _new_id("session"),
+            run_id=run_id or _new_id("run"),
+            request=request,
+            environment_snapshot=environment_snapshot,
+            idempotency_key=idempotency_key or resolved_command_id,
+            causation_id=causation_id,
+            trace_context=trace_context or {},
+        )
+
+    @classmethod
+    def from_dict(
+        cls,
+        value: Mapping[str, ThawedJsonValue],
+    ) -> "SubmitReviewCommand":
+        """从持久化协议字典还原并重新校验 Review 命令。"""
+        expected = {
+            "command_id",
+            "session_id",
+            "run_id",
+            "kind",
+            "payload",
+            "idempotency_key",
+            "causation_id",
+            "trace_context",
+        }
+        if set(value) != expected or value.get("kind") != "submit_review":
+            raise ValueError("persisted review command fields are invalid")
+        payload = value.get("payload")
+        if not isinstance(payload, dict) or set(payload) != {
+            "request",
+            "environment_snapshot",
+        }:
+            raise ValueError("persisted review command payload is invalid")
+        request = payload.get("request")
+        environment = payload.get("environment_snapshot")
+        trace_context = value.get("trace_context")
+        if not isinstance(request, dict):
+            raise TypeError("persisted review request must be an object")
+        if environment is not None and not isinstance(environment, dict):
+            raise TypeError("persisted review environment must be an object")
+        if not isinstance(trace_context, dict):
+            raise TypeError("persisted review trace_context must be an object")
+        command_id = value.get("command_id")
+        session_id = value.get("session_id")
+        run_id = value.get("run_id")
+        idempotency_key = value.get("idempotency_key")
+        causation_id = value.get("causation_id")
+        for field_name, field_value in (
+            ("command_id", command_id),
+            ("session_id", session_id),
+            ("run_id", run_id),
+            ("idempotency_key", idempotency_key),
+        ):
+            if not isinstance(field_value, str):
+                raise TypeError(f"persisted review {field_name} must be text")
+        if causation_id is not None and not isinstance(causation_id, str):
+            raise TypeError("persisted review causation_id must be text or null")
+        return cls(
+            command_id=command_id,
+            session_id=session_id,
+            run_id=run_id,
+            request=ReviewStreamRequest.from_dict(request),
+            environment_snapshot=environment,
+            idempotency_key=idempotency_key,
+            causation_id=causation_id,
+            trace_context=trace_context,
+        )
+
+    def to_dict(self) -> dict[str, ThawedJsonValue]:
+        """返回不包含运行时对象的 Review 命令字典。"""
+        return {
+            "command_id": self.command_id,
+            "session_id": self.session_id,
+            "run_id": self.run_id,
+            "kind": self.kind,
+            "payload": {
+                "request": self.request.to_dict(),
+                "environment_snapshot": (
+                    thaw_json(self.environment_snapshot)
+                    if self.environment_snapshot is not None
+                    else None
+                ),
+            },
+            "idempotency_key": self.idempotency_key,
+            "causation_id": self.causation_id,
+            "trace_context": thaw_json(self.trace_context),
+        }
+
+    def fingerprint(self) -> str:
+        """返回忽略 command_id 的 SHA-256 Review 意图指纹。"""
+        return _command_fingerprint(self.to_dict())
+
+    def environment_snapshot_value(
+        self,
+    ) -> dict[str, ThawedJsonValue] | None:
+        """返回 Review 执行 adapter 可消费的环境快照副本。"""
+        if self.environment_snapshot is None:
+            return None
+        return thaw_object(
+            self.environment_snapshot,
+            field_name="review environment_snapshot",
+        )
+
+
+RunCommand: typing.TypeAlias = SubmitTurnCommand | SubmitReviewCommand
+
+
+def parse_run_command(
+    value: Mapping[str, ThawedJsonValue],
+) -> RunCommand:
+    """按命令判别字段还原本地主动 Run 命令。"""
+    if not isinstance(value, Mapping):
+        raise TypeError("persisted run command must be an object")
+    kind = value.get("kind")
+    if kind == "submit_turn":
+        return SubmitTurnCommand.from_dict(value)
+    if kind == "submit_review":
+        return SubmitReviewCommand.from_dict(value)
+    raise ValueError("unsupported command kind")
+
+
+def _command_fingerprint(value: dict[str, ThawedJsonValue]) -> str:
+    """计算忽略投递身份的稳定命令意图指纹。"""
+    material = dict(value)
+    material.pop("command_id")
+    material.pop("causation_id")
+    encoded = json.dumps(
+        material,
+        ensure_ascii=True,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _required_frozen_object(
+    value: Mapping[str, JsonValue],
+    *,
+    field_name: str,
+) -> Mapping[str, JsonValue]:
+    """校验并冻结一个命令 JSON 对象。"""
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{field_name} must be an object")
+    frozen = freeze_json(dict(value), field_name=field_name)
+    if not isinstance(frozen, Mapping):
+        raise TypeError(f"{field_name} must be an object")
+    return frozen
+
+
+def _optional_frozen_object(
+    value: Mapping[str, JsonValue] | None,
+    *,
+    field_name: str,
+) -> Mapping[str, JsonValue] | None:
+    """校验并冻结一个可空命令 JSON 对象。"""
+    if value is None:
+        return None
+    return _required_frozen_object(value, field_name=field_name)
 
 
 def _new_id(prefix: str) -> str:

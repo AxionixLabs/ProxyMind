@@ -24,6 +24,11 @@ ModelStreamEndReason: typing.TypeAlias = typing.Literal[
     "protocol_error",
 ]
 
+RemoteRequestKind: typing.TypeAlias = typing.Literal[
+    "mind_chat",
+    "mind_review",
+]
+
 _RESERVED_MODEL_OPTIONS = frozenset({
     "attachments",
     "cid",
@@ -287,6 +292,146 @@ class ModelStreamRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewStreamRequest:
+    """描述一次与传输实现无关的冻结 Review 请求。"""
+
+    request_id: str
+    cid: str
+    sid: str
+    turn_id: str
+    target: Mapping[str, JsonValue]
+    workspace: Mapping[str, JsonValue]
+    execution: Mapping[str, JsonValue]
+    delivery: typing.Literal["inline"] = "inline"
+
+    def __post_init__(self) -> None:
+        """校验本地身份、只读执行边界并冻结结构化载荷。"""
+        for field_name in ("request_id", "cid", "sid", "turn_id"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"review {field_name} is required")
+            object.__setattr__(self, field_name, value.strip())
+        if self.delivery != "inline":
+            raise ValueError("local review delivery must be inline")
+
+        target = _freeze_object(self.target, field_name="review target")
+        workspace = _freeze_object(
+            self.workspace,
+            field_name="review workspace",
+        )
+        execution = _freeze_object(
+            self.execution,
+            field_name="review execution",
+        )
+        _validate_review_execution(execution)
+        object.__setattr__(self, "target", target)
+        object.__setattr__(self, "workspace", workspace)
+        object.__setattr__(self, "execution", execution)
+
+    @property
+    def has_workspace_content(self) -> bool:
+        """返回冻结工作区是否携带补丁或文件内容。"""
+        patch = self.workspace.get("patch")
+        files = self.workspace.get("files")
+        return bool(
+            isinstance(patch, str) and patch
+            or isinstance(files, tuple) and files
+        )
+
+    @property
+    def has_read_only_tools(self) -> bool:
+        """返回执行快照是否声明至少一个只读客户端工具。"""
+        tools = self.execution.get("tools")
+        return isinstance(tools, tuple) and bool(tools)
+
+    def to_dict(self) -> dict[str, ThawedJsonValue]:
+        """返回可供协议 adapter 和恢复账本消费的完整请求。"""
+        return {
+            "request_id": self.request_id,
+            "cid": self.cid,
+            "sid": self.sid,
+            "turn_id": self.turn_id,
+            "target": thaw_json(self.target),
+            "delivery": self.delivery,
+            "workspace": thaw_json(self.workspace),
+            "execution": thaw_json(self.execution),
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        value: Mapping[str, ThawedJsonValue],
+    ) -> "ReviewStreamRequest":
+        """从持久化字典还原并重新校验冻结 Review 请求。"""
+        expected = {
+            "request_id",
+            "cid",
+            "sid",
+            "turn_id",
+            "target",
+            "delivery",
+            "workspace",
+            "execution",
+        }
+        if set(value) != expected:
+            raise ValueError("persisted review request fields are invalid")
+        identities: dict[str, str] = {}
+        for field_name in ("request_id", "cid", "sid", "turn_id"):
+            field_value = value.get(field_name)
+            if not isinstance(field_value, str):
+                raise TypeError(
+                    f"persisted review {field_name} must be a string"
+                )
+            identities[field_name] = field_value
+        target = value.get("target")
+        workspace = value.get("workspace")
+        execution = value.get("execution")
+        if not isinstance(target, dict):
+            raise TypeError("persisted review target must be an object")
+        if not isinstance(workspace, dict):
+            raise TypeError("persisted review workspace must be an object")
+        if not isinstance(execution, dict):
+            raise TypeError("persisted review execution must be an object")
+        delivery = value.get("delivery")
+        if delivery != "inline":
+            raise ValueError("persisted review delivery must be inline")
+        return cls(
+            request_id=identities["request_id"],
+            cid=identities["cid"],
+            sid=identities["sid"],
+            turn_id=identities["turn_id"],
+            target=target,
+            workspace=workspace,
+            execution=execution,
+            delivery="inline",
+        )
+
+
+RemoteStreamRequest: typing.TypeAlias = ModelStreamRequest | ReviewStreamRequest
+
+
+def remote_request_kind(request: RemoteStreamRequest) -> RemoteRequestKind:
+    """返回冻结远端请求的持久化判别值。"""
+    if isinstance(request, ModelStreamRequest):
+        return "mind_chat"
+    if isinstance(request, ReviewStreamRequest):
+        return "mind_review"
+    raise TypeError("remote stream request is invalid")
+
+
+def remote_request_from_dict(
+    kind: RemoteRequestKind,
+    value: Mapping[str, ThawedJsonValue],
+) -> RemoteStreamRequest:
+    """按持久化判别值还原正式远端请求联合。"""
+    if kind == "mind_chat":
+        return ModelStreamRequest.from_dict(value)
+    if kind == "mind_review":
+        return ReviewStreamRequest.from_dict(value)
+    raise ValueError("persisted remote request kind is invalid")
+
+
+@dataclass(frozen=True, slots=True)
 class TurnObservationRequest:
     """描述只观察已提交远端 Turn 的稳定坐标与超时。"""
 
@@ -351,6 +496,70 @@ def _freeze_objects(
     return tuple(frozen_values)
 
 
+def _freeze_object(
+    value: Mapping[str, JsonValue],
+    *,
+    field_name: str,
+) -> Mapping[str, JsonValue]:
+    """校验并冻结一个具名 JSON 对象。"""
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{field_name} must be an object")
+    frozen = freeze_json(dict(value), field_name=field_name)
+    if not isinstance(frozen, Mapping):
+        raise TypeError(f"{field_name} must be an object")
+    return frozen
+
+
+def _validate_review_execution(execution: Mapping[str, JsonValue]) -> None:
+    """拒绝 Review 请求中的普通输入和可写执行能力。"""
+    expected = {
+        "llm_conf",
+        "additional_context",
+        "system_message",
+        "attachments",
+        "streaming",
+        "tools",
+        "hosted_tools",
+        "skills",
+        "sandbox_mode",
+        "metadata",
+    }
+    if set(execution) != expected:
+        raise ValueError("review execution fields are invalid")
+    fixed_values: tuple[tuple[str, JsonValue], ...] = (
+        ("additional_context", ()),
+        ("system_message", ""),
+        ("attachments", None),
+        ("streaming", False),
+        ("hosted_tools", None),
+        ("skills", None),
+        ("sandbox_mode", "read-only"),
+    )
+    for field_name, expected_value in fixed_values:
+        if execution.get(field_name) != expected_value:
+            raise ValueError(f"review execution {field_name} is invalid")
+    if not isinstance(execution.get("llm_conf"), Mapping):
+        raise TypeError("review execution llm_conf must be an object")
+    metadata = execution.get("metadata")
+    if metadata is not None and not isinstance(metadata, Mapping):
+        raise TypeError("review execution metadata must be an object or null")
+    tools = execution.get("tools")
+    if tools is None:
+        return
+    if not isinstance(tools, tuple):
+        raise TypeError("review execution tools must be a sequence or null")
+    for tool in tools:
+        if not isinstance(tool, Mapping):
+            raise TypeError("review execution tool must be an object")
+        annotations = tool.get("annotations")
+        if (
+            not isinstance(annotations, Mapping)
+            or annotations.get("readOnlyHint") is not True
+        ):
+            raise ValueError(
+                "review execution tools must declare "
+                "annotations.readOnlyHint=true"
+            )
 def _object_sequence(
     values: typing.Iterable[ThawedJsonValue],
     *,

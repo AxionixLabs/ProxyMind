@@ -6,6 +6,8 @@ from .capabilities import (
     McpToolResult,
 )
 from .commands import (
+    RunCommand,
+    SubmitReviewCommand,
     SubmitTurnCommand,
     SteerTurnInput,
     TurnControlReceipt,
@@ -14,6 +16,7 @@ from .commands import (
     TurnStatusSnapshot,
     ConversationForkReceipt,
     ForkPrompt,
+    parse_run_command,
 )
 from .durable_queue import (
     DurableQueueInput,
@@ -38,7 +41,12 @@ from .items import (
 from .model import (
     ModelStreamEndReason,
     ModelStreamRequest,
+    RemoteRequestKind,
+    RemoteStreamRequest,
+    ReviewStreamRequest,
     TurnObservationRequest,
+    remote_request_from_dict,
+    remote_request_kind,
 )
 
 __all__ = (
@@ -46,12 +54,20 @@ __all__ = (
     "ModelEvent",
     "validate_model_event",
     "ModelStreamRequest",
+    "ReviewStreamRequest",
+    "RemoteStreamRequest",
+    "RemoteRequestKind",
+    "remote_request_kind",
+    "remote_request_from_dict",
     "TurnObservationRequest",
     "ModelStreamEndReason",
     "CanonicalItem",
     "AssistantReplySnapshot",
     "AssistantTextPhase",
     "SubmitTurnCommand",
+    "SubmitReviewCommand",
+    "RunCommand",
+    "parse_run_command",
     "SteerTurnInput",
     "TurnControlReceipt",
     "TurnCompletedSnapshot",

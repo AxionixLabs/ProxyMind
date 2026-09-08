@@ -10,7 +10,7 @@ from agent.ports import (
     TurnExecutor,
     TurnExecutorResult
 )
-from agent.protocol import SubmitTurnCommand
+from agent.protocol import RunCommand
 from .loop import (
     RunExecution,
     SessionLoop
@@ -38,7 +38,7 @@ class SessionRuntimeOwner(typing.Generic[ResultValue]):
 
     async def execute(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         executor: TurnExecutor[ResultValue],
     ) -> RunExecution[ResultValue]:
         """在命令所属 Session 的唯一队列中提交一次执行。"""

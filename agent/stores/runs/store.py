@@ -28,8 +28,14 @@ from agent.ports import (
 )
 from agent.protocol import (
     ModelStreamRequest,
+    RemoteStreamRequest,
+    ReviewStreamRequest,
+    RunCommand,
     RunEvent,
+    SubmitReviewCommand,
     SubmitTurnCommand,
+    remote_request_from_dict,
+    remote_request_kind,
 )
 from agent.protocol.json_value import (
     ThawedJsonValue,
@@ -59,7 +65,7 @@ class SQLiteRunStore:
 
     async def append_event(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         event: RunEvent,
     ) -> None:
         """在线程中的单个立即事务内提交 Run 状态事实。"""
@@ -67,7 +73,7 @@ class SQLiteRunStore:
 
     async def find_run(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
     ) -> RunSnapshot | None:
         """按 Run、Command 或幂等身份查找并校验同一意图。"""
         return await asyncio.to_thread(self._find_run, command)
@@ -126,14 +132,23 @@ class SQLiteRunStore:
 
     async def save_remote_request(
         self,
-        command: SubmitTurnCommand,
-        request: ModelStreamRequest,
+        command: RunCommand,
+        request: RemoteStreamRequest,
     ) -> RemoteTurnExecutionSnapshot:
         """在线程内保存或推进 Run 最新的冻结远端请求。"""
-        if not isinstance(command, SubmitTurnCommand):
+        if not isinstance(command, (SubmitTurnCommand, SubmitReviewCommand)):
             raise TypeError("remote request command is invalid")
-        if not isinstance(request, ModelStreamRequest):
+        if not isinstance(request, (ModelStreamRequest, ReviewStreamRequest)):
             raise TypeError("remote model request is invalid")
+        if isinstance(command, SubmitReviewCommand):
+            if not isinstance(request, ReviewStreamRequest):
+                raise TypeError("review command requires a review request")
+            if request != command.request:
+                raise RunPersistenceConflict(
+                    "review request does not match frozen command"
+                )
+        elif not isinstance(request, ModelStreamRequest):
+            raise TypeError("turn command requires a model request")
         return await asyncio.to_thread(
             self._save_remote_request,
             command,
@@ -200,15 +215,36 @@ class SQLiteRunStore:
             connection.close()
             raise RuntimeError("agent runtime store schema is newer than this client")
         connection.executescript(RUN_STORE_SCHEMA_SQL)
+        self._migrate_schema(connection, current_version)
         if current_version < RUN_STORE_SCHEMA_VERSION:
             connection.execute(
                 f"PRAGMA user_version={RUN_STORE_SCHEMA_VERSION}"
             )
         return connection
 
+    @staticmethod
+    def _migrate_schema(
+        connection: sqlite3.Connection,
+        current_version: int,
+    ) -> None:
+        """把旧 Run store 一次性迁移到显式远端请求判别契约。"""
+        if current_version >= 3:
+            return
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(run_remote_requests)"
+            ).fetchall()
+        }
+        if "request_kind" not in columns:
+            connection.execute(
+                "ALTER TABLE run_remote_requests "
+                "ADD COLUMN request_kind TEXT NOT NULL DEFAULT 'mind_chat'"
+            )
+
     def _append_event(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         event: RunEvent,
     ) -> None:
         """校验单写者序列并执行原子状态提交。"""
@@ -285,8 +321,8 @@ class SQLiteRunStore:
 
     def _save_remote_request(
         self,
-        command: SubmitTurnCommand,
-        request: ModelStreamRequest,
+        command: RunCommand,
+        request: RemoteStreamRequest,
     ) -> RemoteTurnExecutionSnapshot:
         """在一个立即事务中保存首个请求或推进 continuation 请求。"""
         binding = remote_turn_binding(command)
@@ -298,7 +334,6 @@ class SQLiteRunStore:
             raise RunPersistenceConflict(
                 "remote request session does not match command binding"
             )
-
         encoded_request = encode_json(request.to_dict())
         fingerprint = hashlib.sha256(
             encoded_request.encode("utf-8")
@@ -332,12 +367,13 @@ class SQLiteRunStore:
                 connection.execute(
                     """
                     INSERT INTO run_remote_requests (
-                        run_id, cid, sid, turn_id, request_json, fingerprint,
-                        revision, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+                        run_id, request_kind, cid, sid, turn_id, request_json,
+                        fingerprint, revision, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                     """,
                     (
                         command.run_id,
+                        remote_request_kind(request),
                         request.cid,
                         request.sid,
                         request.turn_id,
@@ -356,11 +392,12 @@ class SQLiteRunStore:
                 connection.execute(
                     """
                     UPDATE run_remote_requests
-                       SET turn_id = ?, request_json = ?, fingerprint = ?,
+                       SET request_kind = ?, turn_id = ?, request_json = ?, fingerprint = ?,
                            revision = revision + 1, updated_at = ?
                      WHERE run_id = ?
                     """,
                     (
+                        remote_request_kind(request),
                         request.turn_id,
                         encoded_request,
                         fingerprint,
@@ -406,7 +443,7 @@ class SQLiteRunStore:
         self,
         connection: sqlite3.Connection,
         *,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         event: RunEvent,
         encoded_command: str,
         fingerprint: str,
@@ -460,7 +497,7 @@ class SQLiteRunStore:
         connection: sqlite3.Connection,
         *,
         row: sqlite3.Row,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         event: RunEvent,
         fingerprint: str,
         target_status: RunStatus,
@@ -543,7 +580,7 @@ class SQLiteRunStore:
     @staticmethod
     def _validate_identity(
         row: sqlite3.Row,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         fingerprint: str,
     ) -> None:
         """拒绝 Run、Command 或幂等键被复用于另一项意图。"""
@@ -587,7 +624,7 @@ class SQLiteRunStore:
                 ),
             )
 
-    def _find_run(self, command: SubmitTurnCommand) -> RunSnapshot | None:
+    def _find_run(self, command: RunCommand) -> RunSnapshot | None:
         """同步查找一项已有 Run，并拒绝跨身份碰撞。"""
         connection = self._connect()
         try:
@@ -873,7 +910,16 @@ def _remote_request_snapshot(
         raise RunPersistenceConflict(
             "persisted remote request snapshot is malformed"
         )
-    request = ModelStreamRequest.from_dict(request_value)
+    raw_kind = str(row["request_kind"])
+    if raw_kind == "mind_chat":
+        request_kind = "mind_chat"
+    elif raw_kind == "mind_review":
+        request_kind = "mind_review"
+    else:
+        raise RunPersistenceConflict(
+            "persisted remote request kind is invalid"
+        )
+    request = remote_request_from_dict(request_kind, request_value)
     if (
         request.cid != str(row["cid"])
         or request.sid != str(row["sid"])

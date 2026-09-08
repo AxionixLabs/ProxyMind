@@ -13,8 +13,10 @@ from agent.domain import (
     RunStatus,
 )
 from agent.protocol import (
-    ModelStreamRequest,
+    RemoteStreamRequest,
+    RunCommand,
     RunEvent,
+    SubmitReviewCommand,
     SubmitTurnCommand,
 )
 from agent.protocol.json_value import ThawedJsonValue
@@ -24,7 +26,7 @@ from agent.protocol.json_value import ThawedJsonValue
 class RunSnapshot:
     """描述可脱离具体数据库实现读取的 Run 恢复快照。"""
 
-    command: SubmitTurnCommand
+    command: RunCommand
     status: RunStatus
     sequence: int
     snapshot_version: int
@@ -72,7 +74,7 @@ class RemoteTurnExecutionSnapshot:
     """描述一个本地 Run 最新一次可安全恢复的冻结远端请求。"""
 
     run_id: str
-    request: ModelStreamRequest
+    request: RemoteStreamRequest
     revision: int
     created_at: str
     updated_at: str
@@ -88,9 +90,17 @@ class RemoteTurnBinding:
 
 
 def remote_turn_binding(
-    command: SubmitTurnCommand,
+    command: RunCommand,
 ) -> RemoteTurnBinding | None:
     """从已持久化命令中读取严格的远端轮次绑定。"""
+    if isinstance(command, SubmitReviewCommand):
+        return RemoteTurnBinding(
+            cid=command.request.cid,
+            sid=command.request.sid,
+            turn_id=command.request.turn_id,
+        )
+    if not isinstance(command, SubmitTurnCommand):
+        raise RunPersistenceConflict("remote turn command is invalid")
     raw_binding = command.trace_context.get("remote_turn")
     if raw_binding is None:
         return None
@@ -161,7 +171,7 @@ class RunPersistence(typing.Protocol):
 
     async def append_event(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         event: RunEvent,
     ) -> None:
         """在同一事务中追加事件并推进快照与 outbox。"""
@@ -169,7 +179,7 @@ class RunPersistence(typing.Protocol):
 
     async def find_run(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
     ) -> RunSnapshot | None:
         """按 Run 或幂等身份读取并校验已有快照。"""
         ...
@@ -195,8 +205,8 @@ class RunPersistence(typing.Protocol):
 
     async def save_remote_request(
         self,
-        command: SubmitTurnCommand,
-        request: ModelStreamRequest,
+        command: RunCommand,
+        request: RemoteStreamRequest,
     ) -> RemoteTurnExecutionSnapshot:
         """在首次网络提交前保存 Run 当前使用的完整冻结请求。"""
         ...
@@ -227,13 +237,14 @@ class RunPersistence(typing.Protocol):
         ...
 
 
+@typing.runtime_checkable
 class RemoteTurnRequestRecorder(typing.Protocol):
     """接收已经冻结且即将首次提交网络的远端 Turn 请求。"""
 
     async def record_remote_request(
         self,
-        command: SubmitTurnCommand,
-        request: ModelStreamRequest,
+        command: RunCommand,
+        request: RemoteStreamRequest,
     ) -> None:
         """在网络提交前把请求绑定到对应本地 Run。"""
         ...

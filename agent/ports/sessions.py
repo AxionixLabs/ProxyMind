@@ -5,8 +5,8 @@ import typing
 from dataclasses import dataclass
 
 from agent.protocol import (
+    RunCommand,
     RunEvent,
-    SubmitTurnCommand,
 )
 from .capabilities import (
     TurnExecutor,
@@ -46,7 +46,7 @@ class SessionRuntime(typing.Protocol[ResultValue]):
 
     async def execute(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         executor: TurnExecutor[ResultValue],
     ) -> RunExecution[ResultValue]:
         """提交命令并返回执行结果。"""

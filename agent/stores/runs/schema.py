@@ -3,7 +3,7 @@
 
 import typing
 
-RUN_STORE_SCHEMA_VERSION: typing.Final = 2
+RUN_STORE_SCHEMA_VERSION: typing.Final = 3
 RUN_SNAPSHOT_VERSION: typing.Final = 1
 
 RUN_STORE_SCHEMA_SQL: typing.Final = """
@@ -42,6 +42,7 @@ CREATE INDEX IF NOT EXISTS idx_run_snapshots_recovery
 
 CREATE TABLE IF NOT EXISTS run_remote_requests (
     run_id TEXT PRIMARY KEY,
+    request_kind TEXT NOT NULL,
     cid TEXT NOT NULL,
     sid TEXT NOT NULL,
     turn_id TEXT NOT NULL,

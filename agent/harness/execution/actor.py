@@ -20,8 +20,8 @@ from agent.ports import (
     remote_turn_binding,
 )
 from agent.protocol import (
+    RunCommand,
     RunEvent,
-    SubmitTurnCommand
 )
 from agent.protocol.events import RunEventKind
 
@@ -47,7 +47,7 @@ class RunActor(typing.Generic[ResultValue]):
 
     def __init__(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         executor: TurnExecutor[ResultValue],
         event_sink: EventSink,
         *,
@@ -111,11 +111,30 @@ class RunActor(typing.Generic[ResultValue]):
             )
             raise
         except ModelCapabilityError as error:
+            submission_unknown = (
+                error.details.get("submission_unknown") is True
+            )
+            reconciliation_required = (
+                submission_unknown
+                or error.details.get("reconciliation_required") is True
+            )
             await self._transition(
-                RunStatus.FAILED,
-                "run_failed",
+                (
+                    RunStatus.RECONCILIATION_REQUIRED
+                    if reconciliation_required
+                    else RunStatus.FAILED
+                ),
+                (
+                    "run_reconciliation_required"
+                    if reconciliation_required
+                    else "run_failed"
+                ),
                 payload={
-                    "status": "failed",
+                    "status": (
+                        "reconciliation_required"
+                        if reconciliation_required
+                        else "failed"
+                    ),
                     "error": error.to_dict(),
                 },
             )

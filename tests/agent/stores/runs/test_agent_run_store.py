@@ -161,7 +161,7 @@ async def test_run_store_commits_event_snapshot_outbox_and_final_facts(
     assert outbox[0:2] == ("committed", 1)
     assert len(outbox[2]) == 64
     assert outbox[3] == "manual"
-    assert schema_version == 2
+    assert schema_version == 3
 
 
 @pytest.mark.anyio
@@ -220,8 +220,48 @@ async def test_run_store_upgrades_v1_database_with_remote_request_table(
         table = connection.execute(
             "SELECT name FROM sqlite_master WHERE name='run_remote_requests'"
         ).fetchone()
-    assert version == 2
+    assert version == 3
     assert table == ("run_remote_requests",)
+
+
+@pytest.mark.anyio
+async def test_run_store_upgrades_v2_remote_request_discriminator(
+    tmp_path: Path,
+) -> None:
+    """确保 v2 的 mind.chat 请求按正式判别值原位迁移。"""
+    db_path = tmp_path / "runtime.db"
+    store = SQLiteRunStore(db_path)
+    command = _command(trace_context={
+        "remote_turn": {
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "turn_id": "turn_remote",
+        },
+    })
+    await _append_started(store, command)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "ALTER TABLE run_remote_requests DROP COLUMN request_kind"
+        )
+        connection.execute("PRAGMA user_version=2")
+
+    snapshot = await store.save_remote_request(command, _model_request())
+
+    assert snapshot.request == _model_request()
+    with sqlite3.connect(db_path) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(run_remote_requests)"
+            ).fetchall()
+        }
+        request_kind = connection.execute(
+            "SELECT request_kind FROM run_remote_requests"
+        ).fetchone()
+    assert version == 3
+    assert "request_kind" in columns
+    assert request_kind == ("mind_chat",)
 
 
 @pytest.mark.anyio

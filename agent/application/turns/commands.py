@@ -20,9 +20,10 @@ from agent.ports import (
     remote_turn_binding,
 )
 from agent.protocol import (
-    ModelStreamRequest,
+    RemoteStreamRequest,
+    RunCommand,
     RunEvent,
-    SubmitTurnCommand
+    SubmitTurnCommand,
 )
 from agent.protocol.json_value import ThawedJsonValue
 from .projections import (
@@ -47,7 +48,7 @@ class RemoteTurnRecovery:
     """描述必须通过原 Turn attach/replay 完成的本地 Run 恢复项。"""
 
     snapshot: RunSnapshot
-    request: ModelStreamRequest
+    request: RemoteStreamRequest
     replay_target_seq: int
 
 
@@ -56,7 +57,7 @@ class SessionRecoveryResult:
     """描述一次 Session 恢复探测后仍待处理和可恢复编辑的命令。"""
 
     pending: tuple[RunSnapshot, ...]
-    restore_commands: tuple[SubmitTurnCommand, ...]
+    restore_commands: tuple[RunCommand, ...]
     resolved_run_ids: tuple[str, ...]
     observe_turns: tuple[RemoteTurnRecovery, ...] = ()
 
@@ -83,7 +84,7 @@ class TurnApplication(typing.Generic[ResultValue]):
 
     async def submit(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         executor: TurnExecutor[ResultValue],
     ) -> SubmitTurnResult[ResultValue]:
         """提交命令并从该 Run 的完整事件序列生成稳定结果投影。"""
@@ -135,8 +136,8 @@ class TurnApplication(typing.Generic[ResultValue]):
 
     async def record_remote_request(
         self,
-        command: SubmitTurnCommand,
-        request: ModelStreamRequest,
+        command: RunCommand,
+        request: RemoteStreamRequest,
     ) -> None:
         """在远端提交前持久化当前 Run 的完整冻结请求。"""
         if self._persistence is None:
@@ -155,7 +156,7 @@ class TurnApplication(typing.Generic[ResultValue]):
         if self._persistence is None:
             return SessionRecoveryResult(recoveries, (), ())
 
-        restore_commands: list[SubmitTurnCommand] = []
+        restore_commands: list[RunCommand] = []
         resolved_run_ids: list[str] = []
         observe_turns: list[RemoteTurnRecovery] = []
         for snapshot in recoveries:
@@ -334,7 +335,7 @@ class TurnApplication(typing.Generic[ResultValue]):
 
 
 async def submit_turn(
-    command: SubmitTurnCommand,
+    command: RunCommand,
     executor: TurnExecutor[ResultValue],
     *,
     runtime_factory: SessionRuntimeFactory[ResultValue],

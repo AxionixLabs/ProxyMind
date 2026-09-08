@@ -23,8 +23,8 @@ from agent.ports import (
     TurnExecutorResult
 )
 from agent.protocol import (
+    RunCommand,
     RunEvent,
-    SubmitTurnCommand
 )
 from observability import observe
 from ..execution.actor import RunActor
@@ -99,7 +99,7 @@ class SessionLoop(typing.Generic[ResultValue]):
 
     async def execute(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         executor: TurnExecutor[ResultValue] | None = None,
     ) -> RunExecution[ResultValue]:
         """提交命令，并让相同幂等身份共享同一执行结果。"""
@@ -173,7 +173,7 @@ class SessionLoop(typing.Generic[ResultValue]):
 
     def _resolve_existing(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
     ) -> asyncio.Future[RunExecution[ResultValue]] | None:
         """按 command id 或幂等键解析已经登记的执行。"""
         future = self._futures_by_command.get(command.command_id)
@@ -191,7 +191,7 @@ class SessionLoop(typing.Generic[ResultValue]):
 
     def _register(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         future: asyncio.Future[RunExecution[ResultValue]],
     ) -> None:
         """登记命令、幂等身份和 Run 的唯一归属。"""
@@ -287,7 +287,7 @@ class SessionLoop(typing.Generic[ResultValue]):
 
     async def _prepare_actor(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         executor: TurnExecutor[ResultValue],
     ) -> RunActor[ResultValue]:
         """创建新 RunActor，或仅对同一 queued 命令执行安全恢复。"""
@@ -324,7 +324,7 @@ class SessionLoop(typing.Generic[ResultValue]):
         await actor.enqueue()
         return actor
 
-    def _recovery_blocks(self, command: SubmitTurnCommand) -> bool:
+    def _recovery_blocks(self, command: RunCommand) -> bool:
         """判断最新恢复快照是否禁止指定 queued Run 开始执行。"""
         blockers = tuple(
             item
@@ -346,7 +346,7 @@ class SessionLoop(typing.Generic[ResultValue]):
 
     def _execution_gate_error(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
     ) -> RunPersistenceConflict | RunRecoveryRequired | None:
         """返回阻止命令执行的恢复门禁错误。"""
         if self._recovery_refresh_failed:
@@ -359,7 +359,7 @@ class SessionLoop(typing.Generic[ResultValue]):
 
     def _release_blocked_future(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
         future: asyncio.Future[RunExecution[ResultValue]],
     ) -> None:
         """释放未执行命令的易失去重引用，保留持久 queued 事实。"""
@@ -392,7 +392,7 @@ class SessionLoop(typing.Generic[ResultValue]):
 
     def _event_sink_for(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
     ) -> Callable[[RunEvent], Awaitable[None]]:
         """把当前 Run 命令显式绑定到异步事件提交出口。"""
 

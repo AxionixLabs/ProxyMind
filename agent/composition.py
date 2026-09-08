@@ -25,6 +25,7 @@ from agent.ports import (
     EffectJournal,
     InteractiveProcessCapability,
     ProtocolCommandClient,
+    ReviewCapability,
     SkillsProvider,
     TurnObservationCapability,
     TurnExecutorResult,
@@ -131,8 +132,13 @@ def create_runtime_services(
         raise TypeError(
             "model capability does not implement TurnObservationCapability"
         )
+    if not isinstance(model_capability, ReviewCapability):
+        raise TypeError(
+            "model capability does not implement ReviewCapability"
+        )
     return RuntimeServices(
         model_capability=model_capability,
+        review_capability=model_capability,
         turn_observer=model_capability,
         protocol_client=model_capability,
         durable_queue_client=model_capability,

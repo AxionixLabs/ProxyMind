@@ -11,7 +11,11 @@ from agent.domain import (
     recovery_action,
 )
 from agent.ports import RunSnapshot
-from agent.protocol import RunEvent, SubmitTurnCommand
+from agent.protocol import (
+    RunCommand,
+    RunEvent,
+    parse_run_command,
+)
 from agent.protocol.json_value import thaw_json
 from .schema import RUN_SNAPSHOT_VERSION
 
@@ -46,7 +50,7 @@ def run_status_for_event(kind: str) -> RunStatus | None:
     return _EVENT_STATUSES.get(kind)
 
 
-def run_effect_id(command: SubmitTurnCommand, fingerprint: str) -> str:
+def run_effect_id(command: RunCommand, fingerprint: str) -> str:
     """从 Run 坐标和命令指纹派生稳定 outbox 效果身份。"""
     material = (
         f"{command.session_id}\0{command.run_id}\0{fingerprint}"
@@ -115,7 +119,7 @@ def snapshot_from_row(
         else None
     )
     return RunSnapshot(
-        command=SubmitTurnCommand.from_dict(
+        command=parse_run_command(
             json.loads(str(row["command_json"]))
         ),
         status=status,

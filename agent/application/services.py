@@ -20,6 +20,7 @@ from agent.ports import (
     ProcessCapability,
     PermissionGrantPort,
     ProtocolCommandClient,
+    ReviewCapability,
     SkillsProvider,
     SubagentControlPort,
     SubscriptionHost,
@@ -105,6 +106,7 @@ class RuntimeServices:
     """
 
     model_capability: ModelCapability
+    review_capability: ReviewCapability
     turn_observer: TurnObservationCapability
     protocol_client: ProtocolCommandClient
     durable_queue_client: DurableQueueClient
@@ -128,6 +130,10 @@ class RuntimeServices:
         """拒绝缺失能力，确保组合错误在启动边界暴露。"""
         if not isinstance(self.model_capability, ModelCapability):
             raise TypeError("model capability does not implement ModelCapability")
+        if not isinstance(self.review_capability, ReviewCapability):
+            raise TypeError(
+                "review capability does not implement ReviewCapability"
+            )
         if not isinstance(self.turn_observer, TurnObservationCapability):
             raise TypeError(
                 "turn observer does not implement TurnObservationCapability"

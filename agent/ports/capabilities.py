@@ -25,6 +25,8 @@ from agent.protocol import (
     ModelEvent,
     ModelStreamEndReason,
     ModelStreamRequest,
+    ReviewStreamRequest,
+    RunCommand,
     SubmitTurnCommand,
     SteerTurnInput,
     TurnControlReceipt,
@@ -51,6 +53,10 @@ RecoveryStatusCallback: typing.TypeAlias = Callable[
 ]
 ModelRequestFrozenCallback: typing.TypeAlias = Callable[
     [ModelStreamRequest],
+    Awaitable[None],
+]
+ReviewRequestFrozenCallback: typing.TypeAlias = Callable[
+    [ReviewStreamRequest],
     Awaitable[None],
 ]
 
@@ -450,6 +456,21 @@ class ModelCapability(typing.Protocol):
 
 
 @typing.runtime_checkable
+class ReviewCapability(typing.Protocol):
+    """可靠登记冻结 Review 请求并观察服务端确认的既有 Turn。"""
+
+    async def review(
+        self,
+        request: ReviewStreamRequest,
+        *,
+        on_recovery_status: RecoveryStatusCallback | None = None,
+        on_approval_snapshot: ApprovalSnapshotCallback | None = None,
+    ) -> ModelEventStream:
+        """返回只在 Review 登记确认后建立的可恢复事件流。"""
+        ...
+
+
+@typing.runtime_checkable
 class TurnObservationCapability(typing.Protocol):
     """观察已经由独立命令提交的远端 Turn。
 
@@ -698,7 +719,7 @@ class TurnExecutor(typing.Protocol[TurnResultValue]):
 
     async def __call__(
         self,
-        command: SubmitTurnCommand,
+        command: RunCommand,
     ) -> TurnResultValue:
         """执行命令并返回具有稳定 status 的结果。"""
         ...

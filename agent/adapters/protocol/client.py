@@ -26,6 +26,7 @@ from agent.protocol import (
     ModelEvent,
     ModelStreamEndReason,
     ModelStreamRequest,
+    ReviewStreamRequest,
     SteerTurnInput,
     TurnControlReceipt,
     TurnCompletedSnapshot,
@@ -40,6 +41,8 @@ from agent.protocol.json_value import (
 )
 from protocol.client.chat import observe_turn as _observe_turn
 from protocol.client.chat import stream_chat
+from protocol.client.review import ReviewRequestError
+from protocol.client.review import submit_review as _submit_review
 from protocol.client.effects import post_effect_reconciliation as _post_effect_reconciliation
 from protocol.client.fork import (
     ConversationForkRequestError,
@@ -75,6 +78,11 @@ from protocol.schema.turn_inputs import TurnInput as _WireTurnInput
 from protocol.schema.durable_queue import DurableQueueItem as _WireQueueItem
 from protocol.schema.tool_approval import ToolApprovalSnapshot as _WireApprovalSnapshot
 from .items import CanonicalItemReducer
+from .review_request import (
+    require_review_code_context,
+    wire_review_request,
+)
+from .review_stream import ReviewStreamValidator
 
 SessionIdentity: typing.TypeAlias = tuple[str, str]
 SessionTurnIdentity: typing.TypeAlias = tuple[str, str, str]
@@ -111,6 +119,23 @@ class _WireEventStream(typing.Protocol):
 
     def request_recovery_probe(self) -> None:
         """请求底层传输立即核对当前 Turn 的权威状态。"""
+        ...
+
+
+class _ModelEventValidator(typing.Protocol):
+    """校验一类模型流的跨事件生命周期。"""
+
+    @property
+    def settled(self) -> bool:
+        """返回所需终态是否已完整观察。"""
+        ...
+
+    def validate(self, event: ModelEvent) -> None:
+        """校验一项已校验坐标的事件。"""
+        ...
+
+    def finish(self, end_reason: ModelStreamEndReason | None) -> None:
+        """校验流结束边界。"""
         ...
 
 
@@ -162,6 +187,7 @@ class ProtocolModelEventStream:
         turn_id: str,
         event_cursors: ProtocolEventCursorStore,
         item_reducer: CanonicalItemReducer | None = None,
+        event_validator: _ModelEventValidator | None = None,
         on_close: typing.Callable[[], None] | None = None,
     ) -> None:
         """绑定单 Turn 传输及其 Protocol Client 状态所有者。"""
@@ -176,6 +202,7 @@ class ProtocolModelEventStream:
             else CanonicalItemReducer(cid=cid, sid=sid, turn_id=turn_id)
         )
         self._current_item: CanonicalItem | None = None
+        self._event_validator = event_validator
         self._closed = False
         self._on_close = on_close
 
@@ -239,8 +266,12 @@ class ProtocolModelEventStream:
             async for event in self._stream:
                 validated = validate_model_event(event)
                 self._validate_identity(validated)
+                if self._event_validator is not None:
+                    self._event_validator.validate(validated)
                 self._current_item = self._item_reducer.apply(validated)
                 yield validated
+            if self._event_validator is not None:
+                self._event_validator.finish(self.end_reason)
         except asyncio.CancelledError:
             raise
         except ModelCapabilityError:
@@ -257,7 +288,11 @@ class ProtocolModelEventStream:
         self._closed = True
         try:
             await self._stream.aclose()
-            if self.end_reason == "settled":
+            validator_settled = (
+                self._event_validator is None
+                or self._event_validator.settled
+            )
+            if self.end_reason == "settled" and validator_settled:
                 self._event_cursors.advance(
                     cid=self._cid,
                     sid=self._sid,
@@ -304,6 +339,47 @@ class MindChatProtocolClient:
             SessionTurnIdentity,
             ProtocolModelEventStream,
         ] = {}
+
+    async def review(
+        self,
+        request: ReviewStreamRequest,
+        *,
+        on_recovery_status: RecoveryStatusCallback | None = None,
+        on_approval_snapshot: ApprovalSnapshotCallback | None = None,
+    ) -> ModelEventStream:
+        """可靠登记冻结 Review 请求并观察回执确认的 Turn。"""
+        try:
+            require_review_code_context(request)
+            submission = await _submit_review(
+                wire_review_request(request),
+                on_recovery_status=on_recovery_status,
+                on_approval_snapshot=on_approval_snapshot,
+                initial_event_seq=self._event_cursors.current(
+                    cid=request.cid,
+                    sid=request.sid,
+                ),
+            )
+        except asyncio.CancelledError:
+            raise
+        except ReviewRequestError as error:
+            raise _review_request_error(error) from error
+        except ModelCapabilityError:
+            raise
+        except Exception as error:
+            raise _classify_model_error(error) from error
+
+        identity = (request.cid, request.sid, request.turn_id)
+        model_stream = ProtocolModelEventStream(
+            submission.events,
+            cid=request.cid,
+            sid=request.sid,
+            turn_id=request.turn_id,
+            event_cursors=self._event_cursors,
+            event_validator=ReviewStreamValidator(request),
+            on_close=lambda: self._active_streams.pop(identity, None),
+        )
+        self._active_streams[identity] = model_stream
+        return model_stream
 
     def stream(
         self,
@@ -1163,6 +1239,28 @@ def _turn_control_command_error(
     return ProtocolCommandError(
         error.code or fallback_code,
         str(error) or fallback_message,
+        retryable=error.retryable,
+        details=details,
+    )
+
+
+def _review_request_error(error: ReviewRequestError) -> ModelCapabilityError:
+    """把 Review 登记失败映射为稳定模型能力错误。"""
+    details: dict[str, JsonValue] = {
+        "submission_unknown": error.submission_unknown,
+    }
+    if error.status_code is not None:
+        details["status_code"] = error.status_code
+    if error.code:
+        details["server_code"] = error.code
+    code = error.code or (
+        "review_submission_unknown"
+        if error.submission_unknown
+        else "review_request_failed"
+    )
+    return ModelCapabilityError(
+        code,
+        str(error) or "review request failed",
         retryable=error.retryable,
         details=details,
     )

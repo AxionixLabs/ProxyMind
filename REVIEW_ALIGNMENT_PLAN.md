@@ -1,6 +1,6 @@
 # `/review` 分阶段对齐计划
 
-> 状态：实施中；阶段 0、1、2 门禁已通过。
+> 状态：实施中；阶段 0、1、2、3 门禁已通过。
 > 基准日期：2026-09-08。
 > 客户端基准：当前仓库 `codex-main/` 中的 `/review` 实现。
 > 服务端基准：`D:\PycharmProjects\AppServer` 当前提交
@@ -500,17 +500,22 @@ v1 收口证据：
 责任目录：`agent/protocol/`、`agent/application/`、`agent/harness/`、`agent/stores/`、
 `agent/adapters/`。
 
-- [ ] 用具名 Review 请求进入本地 Command 链，不把 `/review` 伪装成普通 message。
-- [ ] 在首次网络操作前冻结 target、workspace、execution、request identity 和 environment。
-- [ ] 扩展 `ModelStreamRequest` 或建立职责更窄的正式请求联合；选型前验证 store、queue、恢复和 adapter 的完整影响面。
-- [ ] 持久化后才允许远端提交；相同本地 Run 恢复时复用原 `request_id`、`turn_id` 和快照。
-- [ ] 收到 accepted/idempotent 后只观察既有 Turn，未知提交结果进入现有恢复流程。
-- [ ] Review 的 interrupt、终态和执行门释放遵循普通 Turn 权威规则。
-- [ ] Review 不携带普通 prompt attachments、skills 或可写工具；已有待输入保持原 owner。
-- [ ] 审计客户端工具 annotations，为空快照 custom 建立最小只读代码检索 allowlist；若当前环境没有足够的只读工具，则在提交前要求文件快照或返回具名能力错误，不能发送无代码上下文的空 Review。
-- [ ] 覆盖 store round-trip、崩溃点、重复提交、重启 attach、冲突和终态唯一性测试。
+- [x] 用具名 Review 请求进入本地 Command 链，不把 `/review` 伪装成普通 message。
+- [x] 在首次网络操作前冻结 target、workspace、execution、request identity 和 environment。
+- [x] 扩展 `ModelStreamRequest` 或建立职责更窄的正式请求联合；选型前验证 store、queue、恢复和 adapter 的完整影响面。
+- [x] 持久化后才允许远端提交；相同本地 Run 恢复时复用原 `request_id`、`turn_id` 和快照。
+- [x] 收到 accepted/idempotent 后只观察既有 Turn，未知提交结果进入现有恢复流程。
+- [x] Review 的 interrupt、终态和执行门释放遵循普通 Turn 权威规则。
+- [x] Review 不携带普通 prompt attachments、skills 或可写工具；已有待输入保持原 owner。
+- [x] 审计客户端工具 annotations，为空快照 custom 建立最小只读代码检索 allowlist；若当前环境没有足够的只读工具，则在提交前要求文件快照或返回具名能力错误，不能发送无代码上下文的空 Review。
+- [x] 覆盖 store round-trip、崩溃点、重复提交、重启 attach、冲突和终态唯一性测试。
 
 阶段门槛：故障注入证明“网络前有本地事实、确认后不重复创建、EOF 不释放执行门”。
+
+阶段 3 复核证据：`tests/agent` 754 项通过；架构边界 138 项通过；
+Review 定向用例覆盖网络前持久化、重启恢复、未知提交、终态冲突、EOF 和 interrupt。
+当前客户端没有同时满足正式 `readOnlyHint` 和代码检索语义的工具，因此不建立伪
+allowlist；空快照 custom 在 HTTP 前稳定返回 `review_code_context_unavailable`。
 
 ### 阶段 4：TUI 命令、菜单和交互
 
