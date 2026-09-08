@@ -434,5 +434,5 @@ def test_hook_driven_approval_has_neutral_actor_text() -> None:
         source="hook",
     ))
 
-    assert denied.plain_text == "• Hook denied pytest -q"
+    assert denied.plain_text == "✗ Hook denied pytest -q"
     assert approved.plain_text == "✔ Hook approved pytest -q"

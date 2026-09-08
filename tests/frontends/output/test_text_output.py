@@ -421,7 +421,7 @@ async def test_text_hook_lifecycle_matches_codex_exec_stderr() -> None:
     assert stderr.getvalue() == (
         "hook: UserPromptSubmit\n"
         "hook: UserPromptSubmit Completed\n"
-        "• Approval policy denied pytest -q\n"
+        "✗ Approval policy denied pytest -q\n"
     )
 
 

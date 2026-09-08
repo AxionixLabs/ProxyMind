@@ -3,40 +3,22 @@
 
 from agent.application.views import ApprovalView
 from agent.ports.presentation import StyledBlock
-from frontends.terminal.traces.approval import (
-    render_approval_approved_trace,
-    render_approval_cancelled_trace,
-    render_approval_denied_trace,
-    render_approval_trace_parts
-)
+from frontends.terminal.traces.approval import render_approval_trace_parts
 
 
 def render_approval_view(view: ApprovalView) -> StyledBlock:
     """把工具审批结果视图转换为中立展示块。"""
-    if view.state == "cancelled":
-        title = render_approval_cancelled_trace(view.approval)
-        style_state = "denied"
-    elif view.state == "approved":
-        title = render_approval_approved_trace(
-            view.approval,
-            decision=view.decision,
-            source=view.source,
-        )
-        style_state = "approved"
-    else:
-        title = render_approval_denied_trace(
-            view.approval,
-            source=view.source,
-        )
-        style_state = "denied"
+    spans = tuple(render_approval_trace_parts(
+        view.approval,
+        decision=view.decision,
+        source=view.source,
+        state=view.state,
+    ))
+    title = "".join(span.text for span in spans)
 
     return StyledBlock(
         plain_text=title,
-        spans=tuple(render_approval_trace_parts(
-            title,
-            approval=view.approval,
-            state=style_state,
-        )),
+        spans=spans,
         direct=True,
     )
 
