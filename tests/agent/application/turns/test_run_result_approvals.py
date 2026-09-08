@@ -972,6 +972,7 @@ async def _run_stream(
 
 
 @pytest.mark.anyio
+@pytest.mark.runtime_p0
 async def test_stream_registers_review_before_approval_core_decides(
     monkeypatch,
 ) -> None:
@@ -1086,6 +1087,8 @@ async def test_stream_registers_review_before_approval_core_decides(
     )
     assert approval_posts[0][1]["decision"] == "accept"
     assert len(executions) == 1
+    assert executions[0].name == "exec_command"
+    assert executions[0].arguments["command"] == "echo reviewed"
     assert len(result_posts) == 1
     assert result_posts[0][0][:5] == (
         "cid_test",
@@ -1500,8 +1503,8 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
         _durable_tool_call({
             "type": "tool.call",
             "call_id": "call-approved",
-            "name": "test_tool",
-            "arguments": {"value": 1},
+            "name": "exec_command",
+            "arguments": {"command": "pytest -q", "cwd": "."},
         }),
         {"type": "turn.completed"},
     ])
@@ -1526,9 +1529,78 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
         "cid_test",
         "sid_test",
         "call-approved",
-        "test_tool",
+        "exec_command",
         True,
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.runtime_p0
+@pytest.mark.parametrize(
+    "changed_arguments",
+    (
+        {"command": "pytest tests -q", "cwd": "."},
+        {"command": "pytest -q", "cwd": "tests"},
+        {
+            "command": "pytest -q",
+            "cwd": ".",
+            "sandbox_permissions": "require_escalated",
+        },
+    ),
+)
+async def test_approved_command_cannot_authorize_changed_action(
+    monkeypatch,
+    changed_arguments: dict[str, str],
+) -> None:
+    executions = []
+    result_posts = []
+
+    async def execute(_runner, invocation, *, use_coding_trace, display=True):
+        del _runner, use_coding_trace, display
+        executions.append(invocation)
+        raise AssertionError("changed approved action must not execute")
+
+    async def post_tool_result(*args, **kwargs):
+        result_posts.append((args, kwargs))
+        return {}
+
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
+    monkeypatch.setattr(stream, "post_tool_approval", AsyncMock())
+
+    result, host = await _run_stream(monkeypatch, [
+        {
+            "type": "tool.approval_required",
+            "call_id": "call-frozen",
+            "approval_id": "approval-frozen",
+            "kind": "command",
+            "command": "pytest -q",
+            "cwd": ".",
+            "reason": "模型需要运行测试。",
+            "available_decisions": ["accept", "decline"],
+        },
+        _durable_tool_call({
+            "type": "tool.call",
+            "call_id": "call-frozen",
+            "name": "exec_command",
+            "arguments": changed_arguments,
+        }),
+        {"type": "turn.completed"},
+    ])
+
+    assert result.status == "completed"
+    assert executions == []
+    host.frontend.interaction.present_approval.assert_awaited_once()
+    assert len(result_posts) == 1
+    posted = result_posts[0][0]
+    assert posted[:5] == (
+        "cid_test",
+        "sid_test",
+        "call-frozen",
+        "exec_command",
+        False,
+    )
+    assert posted[5]["data"]["reason"] == "approval_action_mismatch"
 
 
 @pytest.mark.anyio
@@ -1574,8 +1646,8 @@ async def test_confirmed_approval_skips_duplicate_local_prompt_on_replayed_call(
         _durable_tool_call({
             "type": "tool.call",
             "call_id": "call-shell-approved",
-            "name": "shell_command",
-            "arguments": {"command": "rm -rf build"},
+            "name": "exec_command",
+            "arguments": {"command": "rm -rf build", "cwd": "."},
             "reason": "模型需要清理构建目录。",
         }),
         {"type": "turn.completed"},
@@ -2175,11 +2247,11 @@ async def test_pre_tool_hook_denial_is_reported_without_execution(monkeypatch) -
     ),
     [
         (
-            "test_tool",
-            {"value": 1},
-            {"value": 2},
-            {"value": 2},
-            {"value": 1},
+            "exec_command",
+            {"command": "pytest --collect-only", "cwd": "."},
+            {"command": "pytest -q"},
+            {"command": "pytest -q", "cwd": "."},
+            {"command": "pytest --collect-only"},
         ),
         (
             "apply_patch",
@@ -2259,15 +2331,28 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     monkeypatch.setattr(stream, "post_tool_result", post_tool_result)
     monkeypatch.setattr(stream, "post_tool_approval", post_tool_approval)
 
-    approval_event = {
-        "type": "tool.approval_required",
-        "call_id": "call-rewrite",
-        "approval_id": "approval-rewrite",
-        "kind": "command",
-        "command": "pytest -q",
-        "cwd": ".",
-        "reason": "模型需要运行测试。",
-    }
+    if tool_name == "exec_command":
+        approval_event = {
+            "type": "tool.approval_required",
+            "call_id": "call-rewrite",
+            "approval_id": "approval-rewrite",
+            "kind": "command",
+            "command": original_arguments["command"],
+            "cwd": ".",
+            "reason": "模型需要运行测试。",
+        }
+    else:
+        approval_event = {
+            "type": "tool.approval_required",
+            "call_id": "call-rewrite",
+            "approval_id": "approval-rewrite",
+            "kind": "apply_patch",
+            "patch": original_arguments["patch"],
+            "cwd": ".",
+            "files": ["safe"],
+            "permissions_preapproved": False,
+            "reason": "模型需要修改文件。",
+        }
     call_event = {
         "type": "tool.call",
             "call_id": "call-rewrite",
@@ -2290,10 +2375,12 @@ async def test_pre_tool_updated_input_flows_through_approval_and_execution(
     assert result.status == "completed"
     request = host.frontend.interaction.present_approval.await_args.args[0]
     presentation = request.presentation
-    assert presentation.commands == (("pytest -q",),)
-    assert presentation.context.kind == "command"
+    assert presentation.context.kind == (
+        "command" if tool_name == "exec_command" else "apply_patch"
+    )
     assert executed == [expected_arguments]
-    assert runner.calls[0]["tool_input"] == expected_hook_input
+    for field_name, value in expected_hook_input.items():
+        assert runner.calls[0]["tool_input"][field_name] == value
     assert posted[0][0][5] == {
         "ok": True,
         "tool": tool_name,

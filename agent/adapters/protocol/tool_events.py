@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.adapters.protocol.tool_results import ToolReplayAction
+from agent.application.approvals.fingerprints import approval_execution_fingerprint
 from agent.application.approvals.local_policy import (
     apply_local_exec_policy_approval,
     apply_local_patch_approval,
@@ -293,11 +294,21 @@ class ToolEventHandler:
         arguments = dict(event.arguments)
         turn_context = self.turn_context
 
+        if not name:
+            raise ValueError("tool.call name must be a non-empty string")
+
+        action_fingerprint = approval_execution_fingerprint(
+            tool=name,
+            arguments=arguments,
+            cwd_default=turn_context.cwd,
+        )
+
         approval_state = self.ledger.consume(
             cid=turn_context.cid,
             sid=turn_context.sid,
             turn_id=turn_context.turn_id,
             call_id=event.call_id,
+            action_fingerprint=str(action_fingerprint),
         )
         if approval_state == "consumed":
             observe(
@@ -315,17 +326,31 @@ class ToolEventHandler:
             )
             return ToolCallHandlingResult.handled()
 
-        approval_consumed = approval_state == "approved"
-
-        if not name:
-            raise ValueError("tool.call name must be a non-empty string")
-
         invocation = tool_invocation_from_event(
             turn_context,
             event,
             self.tools,
             arguments=arguments,
         )
+        if approval_state == "mismatch":
+            observe(
+                "tool.call.approval_action_mismatch",
+                call_id=event.call_id,
+                turn_id=turn_context.turn_id,
+                tool=name,
+            )
+            await self._reject_and_wait(
+                invocation,
+                reason="approved action does not match tool call",
+                result={
+                    "execution_denied": True,
+                    "reason": "approval_action_mismatch",
+                    "error": "approved action does not match tool call",
+                },
+            )
+            return ToolCallHandlingResult.handled()
+
+        approval_consumed = approval_state == "approved"
         hook_decision = await self.coordinator.prepare(invocation)
 
         if not hook_decision.allowed:

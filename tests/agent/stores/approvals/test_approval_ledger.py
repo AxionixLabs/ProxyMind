@@ -10,9 +10,24 @@ def test_approval_ledger_only_tracks_approval_consumption() -> None:
         "call_id": "call",
     }
 
-    ledger.record_approved(**key)
-    assert ledger.consume(**key) == "approved"
+    ledger.record_approved(**key, action_fingerprint="same-action")
+    assert ledger.consume(**key, action_fingerprint="same-action") == "approved"
     assert ledger.consume(**key) == "consumed"
+
+
+def test_approval_ledger_rejects_changed_action_for_same_call() -> None:
+    ledger = ApprovalCallLedger()
+    key = {
+        "cid": "cid",
+        "sid": "sid",
+        "turn_id": "turn",
+        "call_id": "call",
+    }
+
+    ledger.record_approved(**key, action_fingerprint="approved-action")
+
+    assert ledger.consume(**key, action_fingerprint="changed-action") == "mismatch"
+    assert ledger.consume(**key, action_fingerprint="approved-action") == "terminal"
 
 
 def test_clear_turn_removes_approval_state() -> None:

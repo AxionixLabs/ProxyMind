@@ -27,6 +27,7 @@ from infrastructure.platform.sandbox import (
     SidecarProcess,
     sandbox_backend_name,
 )
+from infrastructure.platform.sandbox_denials import classify_sandbox_denial
 from infrastructure.platform.shell_runtime import ShellRuntimeResolver
 from infrastructure.workspace.commands.audit import WorkspaceFileAudit
 from infrastructure.workspace.commands.profile import CommandExecutionProfile
@@ -519,6 +520,19 @@ class ShellCommandExecutor(WorkspaceComponent):
         if not ok:
             if capture.execution_outcome_unknown:
                 data["reason"] = "execution_outcome_unknown"
+            elif denial_evidence := classify_sandbox_denial(
+                backend=str(data["execution_backend"]),
+                runtime_name=runtime.name,
+                command=cmd,
+                exit_code=exit_code,
+                stderr=raw_stderr,
+                timed_out=capture.timed_out,
+                execution_outcome_unknown=capture.execution_outcome_unknown,
+            ):
+                data["reason"] = "sandbox_denied"
+                data["evidence_source"] = denial_evidence.evidence_source
+                data["evidence_code"] = denial_evidence.evidence_code
+                data["stage"] = denial_evidence.stage
             else:
                 data["reason"] = (
                     "command_timed_out"

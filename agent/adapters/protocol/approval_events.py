@@ -7,6 +7,7 @@ import typing
 from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.adapters.protocol.tool_events import tool_invocation_from_event
 from agent.application.approvals.amendments import approval_execpolicy_amendment
+from agent.application.approvals.fingerprints import approval_execution_fingerprint
 from agent.application.approvals.local_policy import (
     LOCAL_EXEC_POLICY_TOOLS,
     apply_local_exec_policy_approval,
@@ -185,8 +186,9 @@ class ApprovalEventHandler:
                 item.status == "resolved"
                 and item.decision in TOOL_APPROVAL_ACCEPT_DECISIONS
             ):
+                resolved_approval = approval_from_snapshot(item.approval)
                 self._apply_permission_grant(
-                    approval_from_snapshot(item.approval),
+                    resolved_approval,
                     decision=normalize_approval_decision(item.decision),
                 )
                 self.ledger.record_approved(
@@ -194,6 +196,9 @@ class ApprovalEventHandler:
                     sid=snapshot.sid,
                     turn_id=snapshot.turn_id,
                     call_id=item.call_id,
+                    action_fingerprint=self._execution_fingerprint(
+                        resolved_approval
+                    ),
                 )
                 continue
             if item.status in {"resolved", "expired", "cancelled"}:
@@ -248,6 +253,9 @@ class ApprovalEventHandler:
                     sid=snapshot.sid,
                     turn_id=snapshot.turn_id,
                     call_id=item.call_id,
+                    action_fingerprint=self._execution_fingerprint(
+                        restored_approval
+                    ),
                 )
             else:
                 self.ledger.record_terminal(
@@ -261,6 +269,7 @@ class ApprovalEventHandler:
         """处理审批请求并把决定同步到服务端和本地账本。"""
         turn_context = self.turn_context
         approval = approval_from_event(event)
+        approved_action_fingerprint = self._execution_fingerprint(approval)
 
         if self.ledger.is_terminal(
             cid=turn_context.cid,
@@ -308,6 +317,7 @@ class ApprovalEventHandler:
                     sid=turn_context.sid,
                     turn_id=turn_context.turn_id,
                     call_id=event.call_id,
+                    action_fingerprint=approved_action_fingerprint,
                 )
             else:
                 self.ledger.record_terminal(
@@ -517,6 +527,7 @@ class ApprovalEventHandler:
                 sid=turn_context.sid,
                 turn_id=turn_context.turn_id,
                 call_id=approval_call_id,
+                action_fingerprint=approved_action_fingerprint,
             )
         else:
             self.ledger.record_terminal(
@@ -575,6 +586,21 @@ class ApprovalEventHandler:
         if isinstance(command, str) and command.strip():
             arguments[argument_name] = command
         return arguments
+
+    def _execution_fingerprint(
+        self,
+        approval: dict[str, typing.Any],
+    ) -> str | None:
+        """返回审批载荷所对应的实际客户端动作指纹。"""
+        tool = str(approval.get("tool") or "").strip()
+        if not tool:
+            return None
+        arguments = self._approval_arguments(approval, tool=tool)
+        return str(approval_execution_fingerprint(
+            tool=tool,
+            arguments=arguments,
+            cwd_default=self.turn_context.cwd,
+        ))
 
     def _apply_local_policy_choice(
         self,

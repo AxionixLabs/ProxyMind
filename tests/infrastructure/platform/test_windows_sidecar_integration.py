@@ -295,3 +295,37 @@ async def test_windows_sandboxed_shell_command_non_tty_contract(
         assert result["ok"] is True
         assert data["stdout_truncated"] is True
         assert data["truncated"] is True
+
+
+@pytest.mark.anyio
+async def test_windows_sidecar_file_read_denial_is_not_startup_failure(
+    tmp_path: Path,
+    repository_root: Path,
+) -> None:
+    """验证进程启动后的文件读取拒绝保留推断证据而非启动错误。"""
+    protected_file = Path(r"C:\Windows\System32\config\SAM")
+    if not protected_file.is_file():
+        pytest.skip(f"protected Windows fixture is unavailable: {protected_file}")
+    escaped_target = str(protected_file).replace("'", "''")
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=_windows_sandbox_layout_or_skip(repository_root),
+        network_access="enabled",
+    )
+
+    try:
+        result = await coding.shell_command(
+            command=f"Get-Content -LiteralPath '{escaped_target}'",
+            sandbox_mode="workspace-read",
+            timeout_sec=10,
+        )
+    finally:
+        await coding.close()
+
+    data = result["data"]
+    assert result["ok"] is False
+    assert data["reason"] == "sandbox_denied"
+    assert data["evidence_source"] == "inferred_output"
+    assert data["evidence_code"] == "windows_powershell_path_access_denied"
+    assert data["stage"] == "execution"
+    assert "backend_code" not in data

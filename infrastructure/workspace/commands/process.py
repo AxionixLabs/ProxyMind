@@ -588,6 +588,11 @@ class ProcessCommandExecutor(WorkspaceComponent):
             isinstance(session.process, SidecarProcess)
             and session.process.execution_outcome_unknown
         )
+        denial_evidence = await self._session_manager.sandbox_denial_evidence(
+            session,
+            timed_out=timed_out,
+            execution_outcome_unknown=execution_outcome_unknown,
+        )
 
         output_truncated = len(output_text) > output_limit
         stdout_truncated = len(stdout_text) > output_limit
@@ -645,6 +650,11 @@ class ProcessCommandExecutor(WorkspaceComponent):
         ):
             if execution_outcome_unknown:
                 data["reason"] = "execution_outcome_unknown"
+            elif denial_evidence is not None:
+                data["reason"] = "sandbox_denied"
+                data["evidence_source"] = denial_evidence.evidence_source
+                data["evidence_code"] = denial_evidence.evidence_code
+                data["stage"] = denial_evidence.stage
             else:
                 data["reason"] = (
                     "command_timed_out" if timed_out else "command_failed"

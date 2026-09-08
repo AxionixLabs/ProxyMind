@@ -70,7 +70,17 @@ def approval_from_event(event: ToolApprovalRequiredEvent) -> dict[str, typing.An
         arguments = event.arguments
     else:
         operation = event.command
-        arguments = {"command": operation, "cwd": normalized_cwd}
+        arguments = {
+            "command": operation,
+            "cwd": normalized_cwd,
+            "tty": event.tty,
+            "sandbox_permissions": event.sandbox_permissions,
+            "additional_permissions": (
+                dict(event.additional_permissions)
+                if event.additional_permissions is not None
+                else None
+            ),
+        }
 
     approval: dict[str, typing.Any] = {
         "id": event.approval_id or event.call_id,
@@ -212,6 +222,18 @@ def approval_from_snapshot(
             operation_field: operation,
             "cwd": normalized_cwd,
         }
+        if kind == "command":
+            arguments.update({
+                "tty": bool(approval.get("tty", False)),
+                "sandbox_permissions": str(
+                    approval.get("sandbox_permissions") or "use_default"
+                ),
+                "additional_permissions": (
+                    dict(approval["additional_permissions"])
+                    if isinstance(approval.get("additional_permissions"), dict)
+                    else None
+                ),
+            })
 
     approval.update({
         "id": approval_id or call_id,

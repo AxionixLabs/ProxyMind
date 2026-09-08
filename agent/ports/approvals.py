@@ -35,6 +35,7 @@ class ApprovalCoordinatorPort(typing.Protocol):
 ApprovalLedgerState: typing.TypeAlias = typing.Literal[
     "approved",
     "consumed",
+    "mismatch",
     "unknown",
     "terminal",
 ]
@@ -51,6 +52,7 @@ class ApprovalLedger(typing.Protocol):
         sid: str,
         turn_id: str,
         call_id: str,
+        action_fingerprint: str | None = None,
     ) -> None:
         """记录已获批准的工具调用。"""
         ...
@@ -95,6 +97,7 @@ class ApprovalLedger(typing.Protocol):
         sid: str,
         turn_id: str,
         call_id: str,
+        action_fingerprint: str | None = None,
     ) -> ApprovalLedgerState:
         """消费一次工具调用的审批状态。"""
         ...

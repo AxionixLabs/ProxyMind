@@ -258,6 +258,8 @@ class WorkspaceContext(object):
             "error",
             "exception_type",
             "backend_code",
+            "evidence_source",
+            "evidence_code",
             "stage",
             "retryable",
             "execution_backend",

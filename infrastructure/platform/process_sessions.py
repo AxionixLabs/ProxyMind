@@ -37,6 +37,11 @@ from infrastructure.platform.sandbox import (
     SandboxClient,
     SandboxUnavailable,
     SidecarProcess,
+    sandbox_backend_name,
+)
+from infrastructure.platform.sandbox_denials import (
+    SandboxDenialEvidence,
+    classify_sandbox_denial,
 )
 from infrastructure.platform.network import ManagedNetworkProxy
 from observability import (
@@ -717,6 +722,33 @@ class ProcessSessionManager(object):
             output_records=output_records,
             stdout_dropped=stdout_dropped,
             stderr_dropped=stderr_dropped,
+        )
+
+    async def sandbox_denial_evidence(
+        self,
+        session: ProcessSession,
+        *,
+        timed_out: bool,
+        execution_outcome_unknown: bool,
+    ) -> SandboxDenialEvidence | None:
+        """从 Sidecar 会话的有界持久输出中投影策略拒绝证据。"""
+        process = session.process
+        if not isinstance(process, SidecarProcess):
+            return None
+        records = await session.display_output_buffer.snapshot_records()
+        stderr = "\n".join(
+            decode_process_output(record.data)
+            for record in records
+            if record.stream == "stderr" and not record.truncated
+        )
+        return classify_sandbox_denial(
+            backend=sandbox_backend_name(process.client.platform),
+            runtime_name=str(session.runtime.get("name") or ""),
+            command=session.command,
+            exit_code=process.returncode,
+            stderr=stderr,
+            timed_out=timed_out,
+            execution_outcome_unknown=execution_outcome_unknown,
         )
 
     async def output_delta(

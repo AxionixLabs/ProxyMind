@@ -7,6 +7,7 @@ import typing
 ApprovalLedgerState: typing.TypeAlias = typing.Literal[
     "approved",
     "consumed",
+    "mismatch",
     "unknown",
     "terminal",
 ]
@@ -19,6 +20,7 @@ class ApprovalCallLedger(object):
         """创建线程安全的调用审批账本。"""
         self._lock = threading.RLock()
         self._states: dict[tuple[str, str, str, str], ApprovalLedgerState] = {}
+        self._action_fingerprints: dict[tuple[str, str, str, str], str] = {}
 
     @staticmethod
     def _key(
@@ -48,12 +50,18 @@ class ApprovalCallLedger(object):
         cid: str,
         sid: str,
         turn_id: str,
-        call_id: str
+        call_id: str,
+        action_fingerprint: str | None = None,
     ) -> None:
         """记录客户端已经确认的审批调用。"""
         key = self._key(cid=cid, sid=sid, turn_id=turn_id, call_id=call_id)
         with self._lock:
             self._states[key] = "approved"
+            fingerprint = str(action_fingerprint or "").strip()
+            if fingerprint:
+                self._action_fingerprints[key] = fingerprint
+            else:
+                self._action_fingerprints.pop(key, None)
 
     def discard(
         self,
@@ -67,6 +75,7 @@ class ApprovalCallLedger(object):
         key = self._key(cid=cid, sid=sid, turn_id=turn_id, call_id=call_id)
         with self._lock:
             self._states.pop(key, None)
+            self._action_fingerprints.pop(key, None)
 
     def record_terminal(
         self,
@@ -80,6 +89,7 @@ class ApprovalCallLedger(object):
         key = self._key(cid=cid, sid=sid, turn_id=turn_id, call_id=call_id)
         with self._lock:
             self._states[key] = "terminal"
+            self._action_fingerprints.pop(key, None)
 
     def is_terminal(
         self,
@@ -100,12 +110,18 @@ class ApprovalCallLedger(object):
         cid: str,
         sid: str,
         turn_id: str,
-        call_id: str
+        call_id: str,
+        action_fingerprint: str | None = None,
     ) -> ApprovalLedgerState:
         """登记一次工具调用并返回其此前的审批状态。"""
         key = self._key(cid=cid, sid=sid, turn_id=turn_id, call_id=call_id)
         with self._lock:
             state = self._states.get(key, "unknown")
+            expected = self._action_fingerprints.pop(key, None)
+            actual = str(action_fingerprint or "").strip()
+            if state == "approved" and expected is not None and expected != actual:
+                self._states[key] = "terminal"
+                return "mismatch"
             if state in {"approved", "unknown"}:
                 self._states[key] = "consumed"
             return state
@@ -136,6 +152,7 @@ class ApprovalCallLedger(object):
             for key in tuple(self._states):
                 if key[:3] == prefix:
                     del self._states[key]
+                    self._action_fingerprints.pop(key, None)
 
 
 if __name__ == '__main__':

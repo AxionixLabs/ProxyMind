@@ -816,6 +816,63 @@ async def test_process_session_manager_owns_byte_output_snapshot(tmp_path) -> No
 
 
 @pytest.mark.anyio
+@pytest.mark.runtime_p0
+async def test_exec_session_projects_inferred_sandbox_denial_after_prior_drain(
+    tmp_path,
+) -> None:
+    """验证持久会话使用非消费输出快照识别文件读取拒绝。"""
+    client = SandboxClient(
+        workspace_root=tmp_path,
+        executable=tmp_path / "mind_sandbox_server.exe",
+        platform="win32",
+    )
+    command = "Get-Content -LiteralPath 'C:\\protected.txt'"
+    process = SidecarProcess(client, "sandbox-denied")
+    session = ProcessSession(
+        session_id="exec_denied",
+        spec=ProcessSessionSpec(
+            command=command,
+            args=(command,),
+            cwd=str(tmp_path),
+            display_cwd=str(tmp_path),
+            runtime={"name": "pwsh", "sandbox_mode": "workspace-read"},
+            origin="test",
+            timeout_sec=30,
+            idle_timeout_sec=30,
+            sandbox_mode="workspace-read",
+        ),
+        process=process,
+    )
+    manager = ProcessSessionManager(sandbox_client=client)
+    manager.sessions[session.session_id] = session
+    coding = WorkspaceCoding(root=tmp_path, process_sessions=manager)
+    stderr = (
+        "Get-Content: Access to the path 'C:\\protected.txt' is denied.\n"
+    ).encode("utf-8")
+
+    await manager._record_output(session, "stderr", stderr)
+    await manager.drain(session, flush_pending=False)
+    await manager._finish_output_stream(session, "stderr")
+    process.finish(1)
+
+    try:
+        result = await coding.write_stdin(
+            session_id=session.session_id,
+            wait_ms=0,
+        )
+    finally:
+        await coding.close()
+
+    data = result["data"]
+    assert result["ok"] is False
+    assert data["reason"] == "sandbox_denied"
+    assert data["evidence_source"] == "inferred_output"
+    assert data["evidence_code"] == "windows_powershell_path_access_denied"
+    assert data["stage"] == "execution"
+    assert data["failure_context"]["evidence_source"] == "inferred_output"
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("tool", ("shell_command", "exec_command"))
 async def test_sandbox_spawn_failure_uses_shared_tool_mapping(
     tmp_path,

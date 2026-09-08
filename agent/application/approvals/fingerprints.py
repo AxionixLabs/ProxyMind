@@ -9,6 +9,7 @@ from pathlib import Path
 
 from agent.domain.approvals import ActionFingerprint
 from agent.protocol.json_value import (
+    JsonValue,
     freeze_json,
     thaw_json,
 )
@@ -111,6 +112,74 @@ def approval_action_fingerprint(
         separators=(",", ":"),
     )
     return ActionFingerprint(hashlib.sha256(encoded.encode(config.CHARSET)).hexdigest())
+
+
+def approval_execution_fingerprint(
+    *,
+    tool: str,
+    arguments: Mapping[str, JsonValue],
+    cwd_default: str,
+) -> ActionFingerprint:
+    """为审批后实际执行的安全相关参数生成稳定指纹。"""
+    normalized_tool = str(tool or "").strip()
+    if not normalized_tool:
+        raise ValueError("approval execution tool is invalid")
+
+    if normalized_tool in {"exec_command", "shell_command"}:
+        cwd_value = arguments.get("cwd")
+        cwd = cwd_value if isinstance(cwd_value, str) else cwd_default
+        fields: dict[str, JsonValue] = {
+            "tool": normalized_tool,
+            "command": arguments.get("command"),
+            "cwd": _normalize_execution_cwd(cwd),
+            "shell": arguments.get("shell"),
+            "tty": bool(arguments.get("tty", False)),
+            "sandbox_permissions": str(
+                arguments.get("sandbox_permissions") or "use_default"
+            ).strip().casefold(),
+            "additional_permissions": arguments.get("additional_permissions"),
+        }
+    elif normalized_tool == "write_stdin":
+        fields = {
+            "tool": normalized_tool,
+            "session_id": arguments.get("session_id"),
+            "input": arguments.get("input", arguments.get("stdin")),
+            "control": str(arguments.get("control") or "none").strip().casefold(),
+        }
+    elif normalized_tool == "apply_patch":
+        cwd_value = arguments.get("cwd")
+        cwd = cwd_value if isinstance(cwd_value, str) else cwd_default
+        fields = {
+            "tool": normalized_tool,
+            "patch": arguments.get("patch"),
+            "cwd": _normalize_execution_cwd(cwd),
+        }
+    else:
+        fields = {
+            "tool": normalized_tool,
+            "arguments": dict(arguments),
+        }
+
+    frozen = freeze_json(fields, field_name="approval execution")
+    normalized = thaw_json(frozen)
+    encoded = json.dumps(
+        normalized,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return ActionFingerprint(hashlib.sha256(encoded.encode(config.CHARSET)).hexdigest())
+
+
+def _normalize_execution_cwd(value: str) -> str:
+    """规范化审批执行指纹中的工作目录。"""
+    cwd = str(value or "").strip()
+    if not cwd:
+        return ""
+    try:
+        return str(Path(cwd).expanduser().resolve())
+    except (OSError, RuntimeError, ValueError):
+        return cwd
 
 
 if __name__ == '__main__':
