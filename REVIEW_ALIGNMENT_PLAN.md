@@ -1,6 +1,6 @@
 # `/review` 分阶段对齐计划
 
-> 状态：实施中；阶段 0、1、2、3、4、5 门禁已通过。
+> 状态：已完成；阶段 0 至 6 门禁全部通过。
 > 基准日期：2026-09-08。
 > 客户端基准：当前仓库 `codex-main/` 中的 `/review` 实现。
 > 服务端基准：`D:\PycharmProjects\AppServer` 当前提交
@@ -17,25 +17,25 @@ AppServer 已有的持久 Review Turn 协议完成提交、观察、恢复、中
 
 完成必须同时满足：
 
-- [ ] `/review` 在命令菜单中的位置、文案、可用性和参数行为与基准一致。
-- [ ] 四种预设入口、两级菜单返回关系、搜索、提交和取消行为与基准一致。
-- [ ] 菜单尺寸、选中态、说明文字、输入框、页脚和窄终端布局通过快照对比。
-- [ ] Git 目标解析和不可变工作区快照跨 Windows、Linux、macOS 可复现。
-- [ ] Review 请求在首次网络提交前冻结并持久化，恢复时不重复创建 Turn。
-- [ ] AppServer 的结构化 Review 事件进入统一 Item reducer，不由 TUI 猜测协议语义。
-- [ ] 成功、失败、取消、断线恢复、冲突和 reconciliation 都收敛到权威终态。
-- [ ] 定向测试、协议契约测试、架构审计、编译和 diff 检查全部通过。
+- [x] `/review` 在命令菜单中的位置、文案、可用性和参数行为与基准一致。
+- [x] 四种预设入口、两级菜单返回关系、搜索、提交和取消行为与基准一致。
+- [x] 菜单尺寸、选中态、说明文字、输入框、页脚和窄终端布局通过快照对比。
+- [x] Git 目标解析和不可变工作区快照跨 Windows、Linux、macOS 可复现。
+- [x] Review 请求在首次网络提交前冻结并持久化，恢复时不重复创建 Turn。
+- [x] AppServer 的结构化 Review 事件进入统一 Item reducer，不由 TUI 猜测协议语义。
+- [x] 成功、失败、取消、断线恢复、冲突和 reconciliation 都收敛到权威终态。
+- [x] 定向测试、协议契约测试、架构审计、编译和 diff 检查全部通过。
 
 ## 2. Codex 对齐基准
 
 ### 2.1 命令目录
 
-- [ ] 命令名为 `/review`。
-- [ ] 描述精确为 `review my current changes and find issues`。
-- [ ] 展示顺序位于 `/hooks` 之后、`/rename` 之前。
-- [ ] 支持 `/review <instructions>` 行内参数。
-- [ ] 活动 Turn 期间不可再次启动 `/review`，沿用现有命令拒绝策略，不新增旁路。
-- [ ] 裸 `/review` 打开预设菜单；带参数时跳过菜单并按 `custom` 目标提交去除首尾空白后的指令。
+- [x] 命令名为 `/review`。
+- [x] 描述精确为 `review my current changes and find issues`。
+- [x] 展示顺序位于 `/hooks` 之后、`/rename` 之前。
+- [x] 支持 `/review <instructions>` 行内参数。
+- [x] 活动 Turn 期间不可再次启动 `/review`，沿用现有命令拒绝策略，不新增旁路。
+- [x] 裸 `/review` 打开预设菜单；带参数时跳过菜单并按 `custom` 目标提交去除首尾空白后的指令。
 
 基准文件：
 
@@ -44,56 +44,56 @@ AppServer 已有的持久 Review Turn 协议完成提交、观察、恢复、中
 
 ### 2.2 根预设菜单
 
-- [ ] 标题精确为 `Select a review preset`。
-- [ ] 使用标准选择菜单页脚和现有 TUI 语义样式。
-- [ ] 选项顺序和文字精确为：
-  - [ ] `Review against a base branch`，右侧说明为 `(PR Style)`。
-  - [ ] `Review uncommitted changes`。
-  - [ ] `Review a commit`。
-  - [ ] `Custom review instructions`。
-- [ ] 未提交改动可直接接受并关闭菜单。
-- [ ] 其余三项打开子视图，选择成功后同时关闭子视图和父菜单。
-- [ ] 子视图第一次 `Esc` 返回根预设菜单，第二次 `Esc` 关闭根菜单。
+- [x] 标题精确为 `Select a review preset`。
+- [x] 使用标准选择菜单页脚和现有 TUI 语义样式。
+- [x] 选项顺序和文字精确为：
+  - [x] `Review against a base branch`，右侧说明为 `(PR Style)`。
+  - [x] `Review uncommitted changes`。
+  - [x] `Review a commit`。
+  - [x] `Custom review instructions`。
+- [x] 未提交改动可直接接受并关闭菜单。
+- [x] 其余三项打开子视图，选择成功后同时关闭子视图和父菜单。
+- [x] 子视图第一次 `Esc` 返回根预设菜单，第二次 `Esc` 关闭根菜单。
 
 ### 2.3 基础分支选择
 
-- [ ] 标题精确为 `Select a base branch`。
-- [ ] 搜索占位符精确为 `Type to search branches`。
-- [ ] 只列本地分支，按名称稳定排序；检测到默认分支时置顶。
-- [ ] 当前分支为空时使用 `(detached HEAD)`。
-- [ ] 展示标签为 `<current branch> -> <base branch>`。
-- [ ] 搜索值只使用基础分支名称，不把展示箭头文本并入搜索语义。
-- [ ] 选中后产生 `base_branch` 目标并保留原始分支名。
+- [x] 标题精确为 `Select a base branch`。
+- [x] 搜索占位符精确为 `Type to search branches`。
+- [x] 只列本地分支，按名称稳定排序；检测到默认分支时置顶。
+- [x] 当前分支为空时使用 `(detached HEAD)`。
+- [x] 展示标签为 `<current branch> -> <base branch>`。
+- [x] 搜索值只使用基础分支名称，不把展示箭头文本并入搜索语义。
+- [x] 选中后产生 `base_branch` 目标并保留原始分支名。
 
 ### 2.4 提交选择
 
-- [ ] 标题精确为 `Select a commit to review`。
-- [ ] 搜索占位符精确为 `Type to search commits`。
-- [ ] 最多列出最近 100 个提交。
-- [ ] 行内只显示提交 subject，不显示时间戳或额外元数据。
-- [ ] 搜索值由 `<subject> <sha>` 组成。
-- [ ] 选中后产生含 `sha` 和可选 `title` 的 `commit` 目标。
+- [x] 标题精确为 `Select a commit to review`。
+- [x] 搜索占位符精确为 `Type to search commits`。
+- [x] 最多列出最近 100 个提交。
+- [x] 行内只显示提交 subject，不显示时间戳或额外元数据。
+- [x] 搜索值由 `<subject> <sha>` 组成。
+- [x] 选中后产生含 `sha` 和可选 `title` 的 `commit` 目标。
 
 ### 2.5 自定义指令
 
-- [ ] 标题精确为 `Custom review instructions`。
-- [ ] 输入占位符精确为 `Type instructions and press Enter`。
-- [ ] 空输入或纯空白输入不提交。
-- [ ] 提交前去除首尾空白，内部换行保持不变。
-- [ ] `Esc` 返回根预设菜单并保留父菜单生命周期。
+- [x] 标题精确为 `Custom review instructions`。
+- [x] 输入占位符精确为 `Type instructions and press Enter`。
+- [x] 空输入或纯空白输入不提交。
+- [x] 提交前去除首尾空白，内部换行保持不变。
+- [x] `Esc` 返回根预设菜单并保留父菜单生命周期。
 
 ### 2.6 运行和结果展示
 
-- [ ] `review.started` 后展示与目标对应的 review hint：
+- [x] `review.started` 后展示与目标对应的 review hint：
   `current changes`、`changes against '<branch>'`、
   `commit <short sha>: <title>` 或自定义指令。
-- [ ] Review 期间不把隐藏的审查提示或原始 JSON 当作普通用户消息渲染。
-- [ ] Review 结果先展示 `overall_explanation`。
-- [ ] 单条 finding 使用 `Review comment:`，多条使用 `Full review comments:`。
-- [ ] finding 标题行格式为 `- <title> — <path>:<start>-<end>`，正文每行缩进两个空格。
-- [ ] 没有 finding 时不渲染空标题块。
-- [ ] 中断、失败和取消使用各自正式终态，不把连接 EOF 当作完成。
-- [ ] Review 期间的普通输入行为沿用 ProxyMind 当前 pending input/Turn gate 规则；若与 Codex
+- [x] Review 期间不把隐藏的审查提示或原始 JSON 当作普通用户消息渲染。
+- [x] Review 结果先展示 `overall_explanation`。
+- [x] 单条 finding 使用 `Review comment:`，多条使用 `Full review comments:`。
+- [x] finding 标题行格式为 `- <title> — <path>:<start>-<end>`，正文每行缩进两个空格。
+- [x] 没有 finding 时不渲染空标题块。
+- [x] 中断、失败和取消使用各自正式终态，不把连接 EOF 当作完成。
+- [x] Review 期间的普通输入行为沿用 ProxyMind 当前 pending input/Turn gate 规则；若与 Codex
       的 review-mode 队列行为不同，先补契约测试并记录明确差异，不在 TUI 内创建第二套队列。
 
 ### 2.7 菜单视觉对齐设计
@@ -122,10 +122,10 @@ token 解析，不写死 ANSI 色值。
 
 这里有三项不能直接声称“现有能力已对齐”：
 
-- [ ] 当前动态主题会覆盖 `tui-menu.title` 的 bold，需要修正共享语义样式并回归全部菜单快照。
-- [ ] 当前列表 footer 的说明文字不是整体 dim，需要增加语义化 footer tone，不能写 Review 专用
+- [x] 当前动态主题会覆盖 `tui-menu.title` 的 bold，需要修正共享语义样式并回归全部菜单快照。
+- [x] 当前列表 footer 的说明文字不是整体 dim，需要增加语义化 footer tone，不能写 Review 专用
       ANSI 样式。
-- [ ] 当前无说明的长菜单标签只会截断，而 Codex 的 wrapped row 会按候选前缀续行；需要增加
+- [x] 当前无说明的长菜单标签只会截断，而 Codex 的 wrapped row 会按候选前缀续行；需要增加
       通用 `MenuRowDisplay.WRAPPED`，Review 列表显式使用该模式。
 
 #### 根预设菜单线框
@@ -243,18 +243,18 @@ custom prompt 不使用 `menu-card` / user-message surface 背景，也不使用
 现有 `MenuRequest.text_input` 只支持单行、会把粘贴内容清理为单行，因此不能直接复用。对齐时
 扩展通用菜单输入契约，而不是新增 Review 专用编辑器：
 
-- [ ] 用具名 `MenuTextInputMode.NONE/SINGLE_LINE/MULTILINE` 替代布尔 `text_input`，同一次改造
+- [x] 用具名 `MenuTextInputMode.NONE/SINGLE_LINE/MULTILINE` 替代布尔 `text_input`，同一次改造
       迁移现有 transcript export 调用方，不保留双字段兼容路径。
-- [ ] `MULTILINE` 使用 `text_input_max_rows=8`，规范化 CRLF/LF，但保留合法内部换行。
-- [ ] 粘贴保留多行文本；控制字符仍在 TUI 输入边界清理。
-- [ ] 复用 runtime editor keymap 的移动、按词移动、删除、行首/行尾和 `insert_newline` 动作。
-- [ ] 裸 `Enter` 明确优先执行 accept；multiline 模式从 editor `insert_newline` 的有效绑定中
+- [x] `MULTILINE` 使用 `text_input_max_rows=8`，规范化 CRLF/LF，但保留合法内部换行。
+- [x] 粘贴保留多行文本；控制字符仍在 TUI 输入边界清理。
+- [x] 复用 runtime editor keymap 的移动、按词移动、删除、行首/行尾和 `insert_newline` 动作。
+- [x] 裸 `Enter` 明确优先执行 accept；multiline 模式从 editor `insert_newline` 的有效绑定中
       排除裸 `Enter`，默认由 `Shift+Enter`、`Alt+Enter` 或 `Ctrl+J` 插入换行。
-- [ ] 自定义 keymap 若把 submit 和有效 newline 绑定到同一 chord，配置校验必须拒绝歧义，不能
+- [x] 自定义 keymap 若把 submit 和有效 newline 绑定到同一 chord，配置校验必须拒绝歧义，不能
       依据 handler 注册顺序偶然决定行为。
-- [ ] 空白文本执行 accept 时保持视图和光标不变，不产生错误提示或远端请求。
-- [ ] 提交结果只在完成边界做一次 `strip()`，内部换行不变。
-- [ ] ProxyMind 当前没有全局 Vim mode，因此首期按非 Vim Codex 行为对齐；若未来加入全局 Vim，
+- [x] 空白文本执行 accept 时保持视图和光标不变，不产生错误提示或远端请求。
+- [x] 提交结果只在完成边界做一次 `strip()`，内部换行不变。
+- [x] ProxyMind 当前没有全局 Vim mode，因此首期按非 Vim Codex 行为对齐；若未来加入全局 Vim，
       第一次 `Esc` 的 insert-to-normal 转换必须由通用编辑器拥有，不能写进 Review feature。
 
 ### 2.8 菜单对象与职责设计
@@ -294,13 +294,13 @@ TuiCommandDispatcher
 
 分支、提交查询不能阻塞 TUI，也不能由未归属任务更新已关闭菜单：
 
-- [ ] catalog 操作通过 `runtime.start_background_task` 进入现有资源 owner。
-- [ ] 每个操作捕获根菜单 `session_id` 和单调 `generation`；完成后同时校验 session 仍活动、
+- [x] catalog 操作通过 `runtime.start_background_task` 进入现有资源 owner。
+- [x] 每个操作捕获根菜单 `session_id` 和单调 `generation`；完成后同时校验 session 仍活动、
       `review:preset` 仍存在且 generation 当前。
-- [ ] 根菜单在加载期间保持可见，不新增偏离 Codex 的 loading popup。
-- [ ] 用户在加载期间关闭根菜单时，结果静默丢弃；不得重新打开菜单。
-- [ ] 多次触发导航只允许最新 generation 压入子菜单，旧结果不得覆盖新选择。
-- [ ] 查询失败压入可返回的 failure child；`Esc` 或 `Back` 以 cancelled 完成 child，从而清除
+- [x] 根菜单在加载期间保持可见，不新增偏离 Codex 的 loading popup。
+- [x] 用户在加载期间关闭根菜单时，结果静默丢弃；不得重新打开菜单。
+- [x] 多次触发导航只允许最新 generation 压入子菜单，旧结果不得覆盖新选择。
+- [x] 查询失败压入可返回的 failure child；`Esc` 或 `Back` 以 cancelled 完成 child，从而清除
       父级 `dismiss_after_child_accept`，不能误关根菜单。
 
 ### 2.9 交互状态机
@@ -384,12 +384,12 @@ PREPARING -> SUBMITTING -> REVIEW_RUNNING -> AUTHORITY_TERMINAL
 
 焦点和完成传播不变量：
 
-- [ ] 根菜单打开时 focus 从 composer 转到 menu；所有根 view 退出后才恢复 composer focus。
-- [ ] 子 view 取消只弹出自己；父 view 的 query、selection 和 session identity 原样保留。
-- [ ] 子 view accepted 时，同一个类型化 target 依次完成 child 和已标记父 view，只触发一次快照冻结。
-- [ ] completion callback、后台 catalog 返回和按键事件竞争时，以 view stack 当前 identity 为准。
-- [ ] 任意取消路径都不创建本地 Command、`request_id` 或远端 Turn。
-- [ ] 提交后的菜单不得因 HTTP 失败自动重开；错误属于 Turn/command presentation，不属于旧菜单。
+- [x] 根菜单打开时 focus 从 composer 转到 menu；所有根 view 退出后才恢复 composer focus。
+- [x] 子 view 取消只弹出自己；父 view 的 query、selection 和 session identity 原样保留。
+- [x] 子 view accepted 时，同一个类型化 target 依次完成 child 和已标记父 view，只触发一次快照冻结。
+- [x] completion callback、后台 catalog 返回和按键事件竞争时，以 view stack 当前 identity 为准。
+- [x] 任意取消路径都不创建本地 Command、`request_id` 或远端 Turn。
+- [x] 提交后的菜单不得因 HTTP 失败自动重开；错误属于 Turn/command presentation，不属于旧菜单。
 
 ## 3. AppServer 协议就绪度
 
@@ -566,14 +566,21 @@ queued Review 以原 `SubmitReviewCommand` 重派，不降级成普通 message�
 
 ### 阶段 6：端到端联调与发布收口
 
-- [ ] AppServer 定向运行 Review route、schema、submission、event projection、worker resume 测试。
-- [ ] ProxyMind 使用 fake transport 覆盖 submit -> attach -> completed 全链。
-- [ ] 使用真实临时 Git 仓库和本地 TUI 场景覆盖四种目标。
-- [ ] 在已存在 Session 和全新 Session 中分别执行 `/review` smoke test。
-- [ ] 在 `review.started` 后断开并重连，验证 status/replay 水位与唯一终态。
-- [ ] 在 Review 运行中执行 interrupt，验证 `review.cancelled` 与 `turn.completed` 顺序。
-- [ ] 校验 403、`request_id_conflict`、`turn_already_active`、`turn_id_reused`、503 和快照超限的用户可见错误；新 Session 路径必须成功，不再期待 `review_source_missing`。
-- [ ] 同步受影响的稳定协议文档和契约测试，不把本计划中的临时决策复制进架构权威。
+- [x] AppServer 定向运行 Review route、schema、submission、event projection、worker resume 测试。
+- [x] ProxyMind 使用 fake transport 覆盖 submit -> attach -> completed 全链。
+- [x] 使用真实临时 Git 仓库和本地 TUI 场景覆盖四种目标。
+- [x] 在已存在 Session 和全新 Session 中分别执行 `/review` smoke test。
+- [x] 在 `review.started` 后断开并重连，验证 status/replay 水位与唯一终态。
+- [x] 在 Review 运行中执行 interrupt，验证 `review.cancelled` 与 `turn.completed` 顺序。
+- [x] 校验 403、`request_id_conflict`、`turn_already_active`、`turn_id_reused`、503 和快照超限的用户可见错误；新 Session 路径必须成功，不再期待 `review_source_missing`。
+- [x] 同步受影响的稳定协议文档和契约测试，不把本计划中的临时决策复制进架构权威。
+
+阶段 6 复核证据：ProxyMind 的 Review 定向门禁 100 项通过；agent、protocol、TUI、integration
+和真实 Git 扩大回归 3121 项通过、1 项按既有环境条件跳过；架构审计 138 项通过。AppServer
+Review schema、route、submission、event projection、worker resume 和新 Session 路径在本地真实
+PostgreSQL 上 39 项通过。端到端 fake transport 覆盖持久 submit、attach、断线 status/replay、
+重复事件去重和唯一完成展示；独立并发门禁确认 interrupt 后事件顺序为
+`review.cancelled -> turn.completed(interrupted)`。文档契约、compileall 和 diff 检查通过。
 
 最终验证命令：
 
@@ -588,13 +595,13 @@ git diff --check
 
 ## 5. 明确不采用的路径
 
-- [ ] 不把 `/review` 翻译成普通 `/mind-chat` 文本提示。
-- [ ] 不允许 AppServer 根据客户端绝对路径读取本地工作区。
-- [ ] 不在 TUI 中解析服务端原始 JSON 或维护第二套 Review 状态机。
-- [ ] 不因提交结果未知而生成新 `request_id` 或重复创建 Turn。
-- [ ] 不用串行 `/fork` 加 `/mind-chat` 模拟 `detached` Review。
-- [ ] 不为旧的未声明字段、端点或载荷增加兼容别名和静默回退。
-- [ ] 不在本次对齐中顺手重构无关的菜单、Git、Turn 或展示代码。
+- [x] 不把 `/review` 翻译成普通 `/mind-chat` 文本提示。
+- [x] 不允许 AppServer 根据客户端绝对路径读取本地工作区。
+- [x] 不在 TUI 中解析服务端原始 JSON 或维护第二套 Review 状态机。
+- [x] 不因提交结果未知而生成新 `request_id` 或重复创建 Turn。
+- [x] 不用串行 `/fork` 加 `/mind-chat` 模拟 `detached` Review。
+- [x] 不为旧的未声明字段、端点或载荷增加兼容别名和静默回退。
+- [x] 不在本次对齐中顺手重构无关的菜单、Git、Turn 或展示代码。
 
 ## 6. 变更面预估
 

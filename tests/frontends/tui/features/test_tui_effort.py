@@ -203,7 +203,7 @@ async def test_durable_recovery_observes_remote_turn_before_opening_gate(
         ),
         SessionRecoveryResult((), (), (command.run_id,)),
     )
-    execute_recovery = AsyncMock(return_value=loop._QueueTurnExecutionOutcome(
+    execute_recovery = AsyncMock(return_value=loop._TurnExecutionOutcome(
         settled=True,
         exit_requested=False,
     ))

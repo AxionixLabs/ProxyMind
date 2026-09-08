@@ -240,9 +240,8 @@ async def _run_review_stream(
         if event_count:
             stream_end_reason = "protocol_error"
         uncertain = bool(
-            error.retryable
+            stream is not None
             or error.details.get("submission_unknown") is True
-            or event_count
         )
         if uncertain:
             if not reconciliation_visible:

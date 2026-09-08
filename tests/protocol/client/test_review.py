@@ -123,6 +123,8 @@ async def test_submit_review_reliably_registers_then_observes_receipt_turn(
         (403, "owner_mismatch", False),
         (404, "endpoint_not_found", False),
         (409, "request_id_conflict", False),
+        (409, "turn_already_active", False),
+        (409, "turn_id_reused", False),
         (503, "runtime_unavailable", True),
     ),
 )

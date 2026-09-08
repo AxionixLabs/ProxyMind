@@ -37,6 +37,10 @@ from frontends.tui.session.dispatch import (
     DispatchAction,
     TuiCommandDispatcher,
 )
+from infrastructure.platform.git_review import (
+    ReviewGitError,
+    ReviewGitErrorCode,
+)
 from protocol.schema.review import (
     ClientReviewWorkspace,
     ReviewBaseBranchTarget,
@@ -464,3 +468,43 @@ async def test_inline_review_dispatch_freezes_typed_input_without_menu() -> None
         "D:/workspace",
         ReviewCustomTarget("focus on races"),
     )
+
+
+@pytest.mark.anyio
+async def test_review_snapshot_limit_is_visible_before_turn_creation() -> None:
+    """确保快照超限只产生明确错误且不留下待执行 Review。"""
+    views = []
+    snapshot = AsyncMock(side_effect=ReviewGitError(
+        ReviewGitErrorCode.SNAPSHOT_TOO_LARGE,
+        "Review snapshot exceeds the aggregate size limit.",
+    ))
+    host = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        history_workspace="D:/workspace",
+    )
+    dispatcher = TuiCommandDispatcher(
+        host,
+        SimpleNamespace(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
+        review_catalog=_Catalog(),
+        review_snapshot=SimpleNamespace(freeze=snapshot),
+    )
+
+    action = await dispatcher.dispatch("/review focus on size boundaries")
+
+    assert action is DispatchAction.HANDLED
+    failure = next(view for view in views if view.renderable is not None)
+    visible = "".join(
+        text
+        for _style, text in failure.renderable.fragments
+    )
+    assert visible.endswith(
+        "Unable to prepare review: "
+        "Review snapshot exceeds the aggregate size limit."
+    )
+    with pytest.raises(RuntimeError, match="not available"):
+        dispatcher.take_prepared_review()

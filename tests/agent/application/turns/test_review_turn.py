@@ -10,6 +10,7 @@ from agent.application.turns.reviews import (
     run_observed_review_turn,
     run_review_turn,
 )
+from agent.ports import ModelCapabilityError
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,
@@ -118,6 +119,59 @@ class _ObservationCapability:
         self.request = request
         self.after_event_seq = after_event_seq
         self.replay_target_seq = replay_target_seq
+        return self.stream
+
+
+class _RejectedCapability:
+    """在远端明确拒绝登记时返回稳定能力错误。"""
+
+    async def review(self, _request: ReviewStreamRequest) -> _Stream:
+        """模拟可重试但提交结果确定的服务端拒绝。"""
+        raise ModelCapabilityError(
+            "runtime_unavailable",
+            "Review service is temporarily unavailable.",
+            retryable=True,
+            details={"submission_unknown": False},
+        )
+
+
+class _DisconnectedStream:
+    """模拟已登记 Review 在首项事件前失去观察连接。"""
+
+    def __init__(self) -> None:
+        self.current_item: CanonicalItem | None = None
+        self.end_reason = "fatal"
+        self.last_event_seq = 0
+        self.closed = False
+
+    def __aiter__(self) -> "_DisconnectedStream":
+        """返回自身作为失败的异步迭代器。"""
+        return self
+
+    async def __anext__(self) -> StreamEvent:
+        """在尚未交付事件时报告连接失败。"""
+        raise ModelCapabilityError(
+            "model_transport_error",
+            "connection lost",
+            retryable=True,
+        )
+
+    async def aclose(self) -> None:
+        """记录失败观察流已关闭。"""
+        self.closed = True
+
+
+class _DisconnectedCapability:
+    """返回已经确认登记的失败观察流。"""
+
+    def __init__(self, stream: _DisconnectedStream) -> None:
+        self.stream = stream
+
+    async def review(
+        self,
+        _request: ReviewStreamRequest,
+    ) -> _DisconnectedStream:
+        """模拟登记回执成功后才发生的观察失败。"""
         return self.stream
 
 
@@ -267,6 +321,66 @@ async def test_review_turn_without_turn_terminal_requires_reconciliation() -> No
     assert result.status == "reconciliation_required"
     assert sink.views[-1].type == "review.reconciliation_required"
     assert ends == ["protocol_error"]
+    assert stream.closed
+
+
+@pytest.mark.anyio
+async def test_review_explicit_retryable_rejection_is_visible_failure() -> None:
+    """确保明确的 503 拒绝不会误报为提交结果未知。"""
+    sink = _Sink()
+    request = create_review_command(
+        local_session_id="tui_session_01",
+        cid=CID,
+        sid=SID,
+        turn_id=TURN_ID,
+        target=ReviewCustomTarget("Focus on lifecycle correctness."),
+        workspace=ClientReviewWorkspace.create(),
+        llm_conf={},
+        environment_snapshot=None,
+    ).request
+
+    result = await run_review_turn(
+        request,
+        None,
+        capability=_RejectedCapability(),
+        application=sink,
+        hint="Focus on lifecycle correctness.",
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "runtime_unavailable"
+    assert [view.type for view in sink.views] == ["review.failed"]
+
+
+@pytest.mark.anyio
+async def test_review_disconnect_after_receipt_requires_reconciliation() -> None:
+    """确保已拿到登记回执后的首事件前断线仍保留恢复门禁。"""
+    stream = _DisconnectedStream()
+    sink = _Sink()
+    request = create_review_command(
+        local_session_id="tui_session_01",
+        cid=CID,
+        sid=SID,
+        turn_id=TURN_ID,
+        target=ReviewCustomTarget("Focus on lifecycle correctness."),
+        workspace=ClientReviewWorkspace.create(),
+        llm_conf={},
+        environment_snapshot=None,
+    ).request
+
+    result = await run_review_turn(
+        request,
+        None,
+        capability=_DisconnectedCapability(stream),
+        application=sink,
+        hint="Focus on lifecycle correctness.",
+    )
+
+    assert result.status == "reconciliation_required"
+    assert result.error_code == "model_transport_error"
+    assert [view.type for view in sink.views] == [
+        "review.reconciliation_required",
+    ]
     assert stream.closed
 
 
