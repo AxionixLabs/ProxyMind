@@ -296,8 +296,8 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 
 当前接力点如下。通用 `tests/support` 已移除，阶段 1 路径治理、阶段 2 目录迁移和阶段 3 巨型
 模块拆分均已完成并通过门禁，阶段 3 已推送为 `c9c9a2c8`。阶段 4 场景与测试设施已经完成实现，
-并通过全部合并验证；阶段 4 推送后进入阶段 5 CI 门禁。继续改造时仍按真实层级确定主要生命周期，
-不能按文件名前缀机械归类：
+并通过全部合并验证，已推送为 `fd40f25d`。阶段 5 CI 分层门禁已完成本地复核，推送后进入阶段 6
+风险覆盖和重复用例治理。继续改造时仍按真实层级确定主要生命周期，不能按文件名前缀机械归类：
 
 | 项目                 | 当前状态                                                                                                |
 |----------------------|---------------------------------------------------------------------------------------------------------|
@@ -307,7 +307,7 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 | 完整架构审计         | 拆分后根入口与 `tests/architecture/` 合计 `132 passed`，1 条第三方弃用 warning                          |
 | 非 PTY 快速全量      | 目录迁移后为 `4064 passed, 14 skipped, 135 deselected`                                                  |
 | Runtime P0           | `331 passed, 3882 deselected`                                                                           |
-| PTY 已知基线         | `test_exec_command_pty.py` 为 `20 passed, 3 failed`；失败均为 sandbox sidecar 启动后未返回 session id   |
+| PTY 当前基线         | 全局 `pty_acceptance` 为 `132 passed, 3 skipped`；`test_exec_command_pty.py` 单独为 `23 passed`          |
 | 批次 A 迁移前收集    | 规范化 node id 共 `4211`，SHA-256 为 `CC786B4BE4A8EA6D7037CF45FCC673DD46429D9922F9A9E9B134E79E24D3EE03` |
 | 阶段 2 批次 A        | 已完成 36 个纯文件移动；迁移后规范化 node id 数量和哈希与迁移前完全一致                                 |
 | 批次 A 定向验证      | protocol `128 passed`；infrastructure `259 passed, 14 skipped`；distribution `11 passed`                |
@@ -341,6 +341,8 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 | 阶段 4 风险门禁      | Runtime P0 `331 passed`；非 PTY 全量 `4073 passed, 14 skipped, 135 deselected`                          |
 | 阶段 4 收集基线      | `4222`；语义 node id SHA-256 为 `BA8EE17DE3CD5F796C2C25CEDFCB6F8CA76FC8331013FA6591E2DCDD04793DC8`     |
 | 静态收口             | 阶段 4 完整架构审计 `132 passed`，`compileall` 与 `git diff --check` 通过                              |
+| 阶段 5 CI 门禁       | YAML 解析通过；Windows 平台非 PTY 为 `61 passed, 12 skipped, 4 deselected`                             |
+| 阶段 5 平台验收      | 全局 PTY 为 `132 passed, 3 skipped`；三平台实机结果由 `platform` matrix 分别拥有                        |
 
 批次 A 已应用的目录范围：
 
@@ -443,14 +445,15 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 
 ### 阶段 5：建立执行矩阵与 CI 门禁
 
-- [ ] 为责任目录提供稳定的定向 pytest 命令，并写入 `tests/README.md`。
-- [ ] 建立快速全量 job，排除真实 PTY 和经定义的 slow 集合。
-- [ ] 建立独立 `runtime_p0` job，报告其与快速全量的重叠但不因此删除风险标记。
-- [ ] 在 Windows、Linux、macOS 对应 runner 上运行各自平台 adapter 和 PTY 集合。
-- [ ] 建立完整夜间回归，保留 junit 报告、最慢测试和失败 seed。
-- [ ] 发布门禁运行完整测试、架构审计、compileall 和 `git diff --check`。
-- [ ] 只有 CI 有真实选择需求时才注册 `slow`、`external_process`、平台或 `serial` marker。
-- [ ] 审计固定端口、进程环境、单例缓存和共享目录后，再评估 pytest-xdist；并行结果必须与串行一致。
+- [x] 为责任目录提供稳定的定向 pytest 命令，并写入 `tests/README.md`。
+- [x] 建立快速全量 job，排除真实 PTY；当前没有经定义的 slow marker。
+- [x] 建立独立 `runtime_p0` job，报告其与快速全量的重叠但不因此删除风险标记。
+- [x] 在 Windows、Linux、macOS 对应 runner 上运行各自平台 adapter 和 PTY 集合。
+- [x] 建立完整夜间回归，保留 junit 报告、最慢测试和失败 seed。
+- [x] 发布门禁运行完整测试、架构审计、compileall 和 `git diff --check`。
+- [x] 只有 CI 有真实选择需求时才注册 `slow`、`external_process`、平台或 `serial` marker；本阶段
+  没有新增 marker。
+- [x] 审计固定端口、进程环境、单例缓存和共享目录后，暂不启用 pytest-xdist；并行隔离尚未证明。
 
 完成门槛：PR 能在合理时间内获得确定性反馈；平台失败不会被其他平台的 skip 掩盖；夜间失败可以
 由 node id、seed 和事实 trace 重放。

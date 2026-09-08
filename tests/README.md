@@ -87,6 +87,23 @@ python -m pytest tests/test_package_architecture.py tests/architecture -q
 `-m runtime_frame`，固定 seed 的状态长序列使用 `-m runtime_stateful`。平台测试必须在对应平台
 执行，缺少平台不能视为该门禁通过。
 
+## CI 门禁
+
+`.github/workflows/tests.yml` 使用 Python 3.11，并把责任目录与执行属性保持正交：
+
+| job | 触发 | 选择 | 职责 |
+|-----|------|------|------|
+| `fast` | PR、main | `-m "not pty_acceptance"` | 快速全量合并门禁 |
+| `runtime-p0` | PR、main | `-m runtime_p0` | Runtime 核心风险独立门禁 |
+| `platform` | 全部 | 三平台的 `infrastructure/platform` 与 `pty_acceptance` | 平台 adapter 和真实终端 |
+| `full-regression` | 夜间、手动、版本标签 | 完整测试树 | 完整回归、最慢 50 项和 JUnit |
+| `release-gate` | 版本标签 | 架构审计、compileall、差异检查 | 汇总完整回归与三平台结果后收口 |
+
+每个 pytest job 都上传 JUnit；PR 报告保留 14 天，完整回归保留 30 天。`runtime_p0` 与快速全量
+有意重叠，因为前者是可单独要求的风险门禁。源码仓不包含 macOS sandbox 可执行产物；对应的
+sidecar 集成测试只在外部产物流水线提供 `MIND_SANDBOX_SERVER` 时成立，不计入源码 CI 的 macOS
+通过结论。当前不启用 pytest-xdist：进程环境、固定端口和跨进程资产尚未完成并行隔离证明。
+
 ## 新增测试检查
 
 - 主要断言是否属于唯一责任所有者和同一稳定不变量；

@@ -1,0 +1,198 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  schedule:
+    - cron: "23 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  fast:
+    if: github.event_name != 'schedule' && !startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run non-PTY suite
+        run: >-
+          python -m pytest -m "not pty_acceptance" -q
+          --junitxml=junit-fast.xml --durations=25
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-fast-${{ github.run_attempt }}
+          path: junit-fast.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  runtime-p0:
+    if: github.event_name != 'schedule' && !startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run Runtime P0 suite
+        run: >-
+          python -m pytest -m runtime_p0 -q
+          --junitxml=junit-runtime-p0.xml --durations=25
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-runtime-p0-${{ github.run_attempt }}
+          path: junit-runtime-p0.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  platform:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run platform adapters
+        run: >-
+          python -m pytest tests/infrastructure/platform
+          -m "not pty_acceptance" -q
+          --junitxml=junit-platform.xml --durations=25
+
+      - name: Run PTY acceptance
+        run: >-
+          python -m pytest -m pty_acceptance -q
+          --junitxml=junit-pty.xml --durations=25
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-platform-${{ matrix.os }}-${{ github.run_attempt }}
+          path: |
+            junit-platform.xml
+            junit-pty.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  full-regression:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run complete suite
+        run: >-
+          python -m pytest -q --junitxml=junit-full.xml --durations=50
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-full-${{ github.run_attempt }}
+          path: junit-full.xml
+          if-no-files-found: error
+          retention-days: 30
+
+  release-gate:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - platform
+      - full-regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run architecture audit
+        run: >-
+          python -m pytest tests/test_package_architecture.py
+          tests/architecture -q
+
+      - name: Compile production packages
+        run: >-
+          python -m compileall agent protocol frontends infrastructure
+          observability metadata
+
+      - name: Check patch whitespace
+        run: git diff --check
