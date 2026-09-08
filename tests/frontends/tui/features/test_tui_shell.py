@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 
+"""验证 TUI Shell 生命周期、模式切换和命令执行。
+
+这些场景共享同一 Shell 状态机，维持整体可保留跨模式的清理不变量。
+"""
+
 import sys
 import asyncio
 from types import SimpleNamespace

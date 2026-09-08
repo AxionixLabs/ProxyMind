@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 
+"""验证 TUI 输入到 Turn 启动、取消和恢复的状态转换。
+
+这些场景共享同一输入状态机，维持整体可保留并发转换的顺序约束。
+"""
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock

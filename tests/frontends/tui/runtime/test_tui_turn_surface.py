@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 
+"""验证 Turn 事件投影到 TUI 表面的完整过程。
+
+这些断言共享同一事件序列，维持整体可避免表面状态与事件边界脱节。
+"""
+
 import asyncio
 from unittest.mock import patch
 

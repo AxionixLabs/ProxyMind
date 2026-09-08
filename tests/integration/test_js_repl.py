@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 
+"""验证 JavaScript REPL sidecar 的端到端协议与生命周期。
+
+这些场景共享真实子进程协议，维持整体可统一启动、超时和清理基线。
+"""
+
 import asyncio
 import base64
 import json

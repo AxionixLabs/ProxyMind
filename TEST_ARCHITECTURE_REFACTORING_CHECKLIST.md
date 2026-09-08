@@ -294,16 +294,16 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 
 ### 当前实施状态（2026-09-08）
 
-当前接力点如下。通用 `tests/support` 已移除，阶段 1 路径治理和阶段 2 全部目录迁移已完成；
-下一步进入阶段 3，先盘点巨型测试的重复职责，再逐个拆分。继续改造时仍按真实层级确定主要
-生命周期，不能按文件名前缀机械归类：
+当前接力点如下。通用 `tests/support` 已移除，阶段 1 路径治理、阶段 2 目录迁移和阶段 3 巨型
+模块拆分均已完成并通过门禁；阶段 3 推送后进入阶段 4。继续改造时仍按真实层级确定主要生命周期，
+不能按文件名前缀机械归类：
 
 | 项目                 | 当前状态                                                                                                |
 |----------------------|---------------------------------------------------------------------------------------------------------|
 | 阶段 1 路径治理      | 已完成；无通用 support 包，可迁移测试由 pytest 根 fixture 显式接收仓库或 fixture 根                     |
 | 路径与具名设施定向集 | `416 passed`；另有真实 TUI PTY `86 passed, 1 skipped`                                                   |
 | macOS sidecar 定向集 | 当前 Windows 环境 `11 skipped`，仍需 macOS 门禁验证                                                     |
-| 根架构审计           | `120 passed`，1 条第三方弃用 warning                                                                    |
+| 完整架构审计         | 拆分后根入口与 `tests/architecture/` 合计 `132 passed`，1 条第三方弃用 warning                          |
 | 非 PTY 快速全量      | 目录迁移后为 `4064 passed, 14 skipped, 135 deselected`                                                  |
 | Runtime P0           | `331 passed, 3882 deselected`                                                                           |
 | PTY 已知基线         | `test_exec_command_pty.py` 为 `20 passed, 3 failed`；失败均为 sandbox sidecar 启动后未返回 session id   |
@@ -325,9 +325,17 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 | 根目录收口           | 仅保留 `conftest.py`、`README.md`、`test_package_architecture.py`                                       |
 | 当前全树收集         | `4213`；在 4209 迁移基线上新增 4 个结构守护用例，无收集错误                                              |
 | 当前规范化收集基线   | node id 按“文件名 + 测试路径”排序、LF 连接且无尾换行，SHA-256 为 `A0F968290BCBC4FEA1E84AB2AD31F193FBAC3D3730A451CABF8160035AE81556` |
+| 阶段 3 语义收集基线  | 拆分后仍为 `4213`；忽略文件路径的测试路径 SHA-256 为 `443274728CC422B18311F0F251F74686724E8DB51CA9252D419A197A7049407F` |
 | 架构与平台定向验证   | 根架构、terminal acceptance、macOS 门禁共 `139 passed, 13 skipped`                                     |
-| 最新根架构审计       | 新增结构守护后为 `124 passed`，1 条第三方弃用 warning                                                   |
-| 静态收口             | `compileall` 与 `git diff --check` 通过                                                                 |
+| 阶段 3 TUI rendering | 原 437 个节点，拆分前后哈希 `04271FDB...EC81F5`；共享 frame 设施收敛后 `437 passed`                     |
+| 阶段 3 RunResult     | 原 87 个节点，拆分前后哈希 `E5FE18E4...87285`；拆分后 `87 passed`                                      |
+| 阶段 3 completion    | 原 123 个节点，拆分前后哈希 `705B89BC...53E45`；拆分后 `123 passed`                                    |
+| 阶段 3 Hook          | 原 88 个节点，拆分前后哈希 `AF83170F...D0EC`；拆分后 `88 passed`                                       |
+| 阶段 3 config        | 原 95 个节点，拆分前后哈希 `12F693F8...8F37`；拆分后 `95 passed`                                       |
+| 阶段 3 architecture  | 原 124 个节点，拆分前后哈希 `F6D3314D...3E74`；含既有 TUI 专题共 `132 passed`                           |
+| 阶段 3 合并定向集    | 受影响责任目录 `1480 passed, 2 skipped`                                                                |
+| 阶段 3 风险门禁      | Runtime P0 `331 passed`；非 PTY 全量 `4064 passed, 14 skipped, 135 deselected`                          |
+| 静态收口             | 阶段 3 `compileall` 与 `git diff --check` 通过                                                         |
 
 批次 A 已应用的目录范围：
 
@@ -341,9 +349,8 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 - `tests/infrastructure/sidecars/`：JavaScript bundle、process、protocol、provider 和 session；
 - `tests/infrastructure/skills/` 与 `tests/infrastructure/update/`。
 
-阶段 2 只完成物理归属，不代表巨型文件内部职责已经合理。`test_tui_spacing.py`、
-`test_package_architecture.py`、`test_run_result.py` 等仍按阶段 3 逐个拆分；不能在同一次提交中夹带
-行为修改或重复用例删除。
+阶段 3 已按职责拆除六个巨型聚合模块。仍超过约 1500 行的模块只保留单一状态机或不变量矩阵，并在
+模块 docstring 中说明维持整体的原因；后续不得仅为降低行数复制 fixture、驱动器或期望计算。
 
 ### 阶段 0：冻结基线与建立可比清单
 
@@ -394,20 +401,20 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 拆分按生产责任和不变量进行，不按固定行数机械切割。优先把已有专题模块能拥有的测试迁回专题，
 避免创造名称不同但事实重复的新文件。
 
-- [ ] `test_tui_spacing.py`：按 frame/viewport、stream rendering、input layout、menu/approval
+- [x] `test_tui_spacing.py`：按 frame/viewport、stream rendering、input layout、menu/approval
   surface、shell/process surface 和 terminal degradation 归入对应 TUI 专题。
-- [ ] 清理 `test_tui_spacing.py` 中重复的 Screen/Runtime 构造器，提取显式的局部 factory；渲染期望仍
+- [x] 清理 `test_tui_spacing.py` 中重复的 Screen/Runtime 构造器，提取显式的局部 factory；渲染期望仍
   由测试声明，不在 helper 中计算。
-- [ ] `test_package_architecture.py`：将 agent、protocol、frontend、infrastructure、源码卫生等专题
+- [x] `test_package_architecture.py`：将 agent、protocol、frontend、infrastructure、源码卫生等专题
   审计拆入 `tests/architecture/`，根文件保留跨包总边界、公共清单入口和稳定可执行路径。
-- [ ] 架构扫描 helper 只解析一次源码清单并返回具名违规项，不让专题测试各自遍历仓库。
-- [ ] `test_run_result.py`：按 Turn 建立与终态、工具与审批、replay/recovery、展示投影、资源关闭拆分。
-- [ ] `test_tui_input_completion.py`：按 completion source、候选菜单、编辑操作和关闭/恢复生命周期拆分。
-- [ ] `test_hooks.py`：与现有 catalog、protocol、trust、async、MCP 专题核对，按真实 owner 合并，删除
+- [x] 架构扫描 helper 只解析一次源码清单并返回具名违规项，不让专题测试各自遍历仓库。
+- [x] `test_run_result.py`：按 Turn 建立与终态、工具与审批、replay/recovery、展示投影、资源关闭拆分。
+- [x] `test_tui_input_completion.py`：按 completion source、候选菜单、编辑操作和关闭/恢复生命周期拆分。
+- [x] `test_hooks.py`：与现有 catalog、protocol、trust、async、MCP 专题核对，按真实 owner 合并，删除
   重复断言而不是复制到新文件。
-- [ ] `test_config_session.py`：按 schema/解析、session 生命周期、持久化和服务边界拆分。
-- [ ] 继续处理超过约 1500 行或同时覆盖三个以上稳定职责的模块；例外必须在模块顶部说明原因。
-- [ ] 每拆一个文件，先比较测试名和参数 id，再运行拆出的全部测试；行为变更另起提交。
+- [x] `test_config_session.py`：按 schema/解析、session 生命周期、持久化和服务边界拆分。
+- [x] 继续处理超过约 1500 行或同时覆盖三个以上稳定职责的模块；例外必须在模块顶部说明原因。
+- [x] 每拆一个文件，先比较测试名和参数 id，再运行拆出的全部测试；行为变更另起提交。
 
 完成门槛：不存在无说明的巨型多职责测试文件；测试构造、刺激、观察和断言四部分边界清晰；
 拆分没有降低失败信息质量。
@@ -476,7 +483,7 @@ marker 只在存在实际选择命令和维护责任时增加。保留当前五�
 python -m pytest <affected-targets> -q
 python -m pytest --collect-only -q
 python -m pytest -m runtime_p0 -q
-python -m pytest tests/test_package_architecture.py -q
+python -m pytest tests/test_package_architecture.py tests/architecture -q
 python -m compileall agent protocol frontends infrastructure observability metadata
 git diff --check
 ```

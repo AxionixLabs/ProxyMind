@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 
+"""验证聊天流协议的增量解析、错误与终止语义。
+
+这些场景共享同一流式解析状态机，维持整体可保留跨分片的不变量。
+"""
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import (

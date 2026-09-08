@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 
+"""验证 CLI 会话选择、恢复和分支交互。
+
+这些场景共享同一选择状态机，维持整体可避免重复且分歧的交互桩。
+"""
+
 import asyncio
 from io import StringIO
 from types import SimpleNamespace

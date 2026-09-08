@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 
+"""验证终端工具展示的格式、宽度与内容归一化。
+
+这些快照共享同一渲染语法矩阵，维持整体可保证不同工具输出可直接对照。
+"""
+
 import difflib
 import pytest
 from prompt_toolkit.utils import get_cwidth

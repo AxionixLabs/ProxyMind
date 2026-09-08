@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 
+"""验证 TUI 菜单与终端单元格宽度的对齐规则。
+
+这些用例共享同一几何矩阵，维持整体可避免宽字符基准在多个模块漂移。
+"""
+
 import asyncio
 from types import SimpleNamespace
 

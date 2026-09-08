@@ -38,7 +38,9 @@
 - `scenarios/turns.py`：Turn 场景、事实记录和稳定不变量；
 - `fakes/mind_chat.py`：可控协议故障与请求记录；
 - `pty/`：跨平台 PTY、终端输入和渲染验收设施；
-- `fixtures/`：无行为的正式协议、配置和展示输入。
+- `fixtures/`：无行为的正式协议、配置和展示输入；
+- `frontends/tui/rendering/frame_scenarios.py`：TUI frame 输入构造、同步等待与可见事实读取；
+- `architecture/source_inventory.py`：架构审计专用的源码清单和进程内 AST 缓存。
 
 公共 helper 只在至少三个测试模块共享稳定概念，或重复已经造成契约不一致时提取。fake 只实现
 它声明的端口，不能复制生产状态机来计算期望结果。禁止新增 `support/`、`utils/`、`common/`
@@ -46,7 +48,8 @@
 
 ## 结构守护
 
-`test_package_architecture.py` 持续审计以下测试架构边界：
+`test_package_architecture.py` 保留全仓入口与基础依赖方向，`architecture/` 承载 Agent、基础设施、
+前端和组合根的专题审计。两者共享同一源码清单与 AST 缓存，并共同审计以下测试架构边界：
 
 - `tests/` 根目录只允许 `conftest.py`、`README.md` 和稳定架构审计入口；
 - 不允许新增 `support/`、`utils/`、`common/` 等通用测试包；
@@ -70,7 +73,7 @@ python -m pytest tests/frontends -m "not pty_acceptance" -q
 python -m pytest tests/integration -m "not pty_acceptance" -q
 python -m pytest --collect-only -q
 python -m pytest -m runtime_p0 -q
-python -m pytest tests/test_package_architecture.py -q
+python -m pytest tests/test_package_architecture.py tests/architecture -q
 ```
 
 真实 PTY 或 ConPTY 使用 `-m pty_acceptance`，故障注入使用 `-m runtime_fault`，逻辑帧使用
@@ -86,3 +89,4 @@ python -m pytest tests/test_package_architecture.py -q
 - task、socket、进程、PTY、sidecar 和临时资源是否由创建方完整关闭；
 - 失败信息是否包含必要的身份、序号、阶段、seed 和观察事实；
 - 是否可以通过稳定的最小 pytest 命令独立运行。
+- 超过约 1500 行时是否仍只覆盖一个状态机或不变量矩阵，并在模块顶部说明保持整体的原因。

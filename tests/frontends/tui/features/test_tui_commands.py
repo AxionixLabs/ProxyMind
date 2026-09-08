@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 
+"""验证 TUI 命令注册、分派和会话副作用。
+
+这些场景共同约束单一命令表，维持整体可防止注册与执行契约分散。
+"""
+
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
