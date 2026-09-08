@@ -105,9 +105,11 @@
 
 ### 阶段 1 复核证据
 
+- [x] 阶段 1 实现提交：`d5731b0c`。
 - [x] Sandbox 客户端与 Windows Sidecar 定向组：`45 passed`。
 - [x] 进程输出解码、PTY 与 TUI Shell 相邻回归：`82 passed`。
-- [x] Runtime P0：`342 passed, 4024 deselected`，阶段 0 的 9 个 strict xfail 已全部移除。
+- [x] 干净提交快照 Runtime P0：`342 passed, 4025 deselected`，阶段 0 的 9 个 strict xfail
+      已全部移除。
 - [x] 架构审计首轮发现新模块缺少规范 main guard；修复后完整审计
       `138 passed, 1 warning`。
 - [x] macOS Sidecar 真机验收在 Windows 上保留 `11 skipped`，不计为通过。
@@ -196,7 +198,7 @@ Blocked”，但不因此改写已经成立的系统 Authority 和依赖方向�
 - [x] 每个阶段先运行定向测试，风险跨越 Session Manager、公共工具结果或平台边界时扩大验证。
 - [x] 每个阶段单独复核、单独提交，不与 `/review`、TUI 布局或其他用户改动混合。
 - [x] 提交前确认暂存区只包含本阶段文件，保留用户现有改动。
-- [ ] 每次提交后记录提交哈希、验证命令和结果；平台缺失或 skip 必须如实保留。
+- [x] 每个阶段记录实现提交哈希、验证命令和结果；平台缺失或 skip 必须如实保留。
 - [x] 阶段完成后更新本清单；全部完成后把长期不变量收敛到正式架构和测试文档。
 
 ## 11. Codex-main 本地参考
