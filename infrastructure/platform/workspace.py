@@ -22,6 +22,7 @@ class WorkspaceCommand(object):
     env: tuple[tuple[str, str | None], ...] = ()
     timeout_sec: float = 5.0
     output_bytes_cap: int | None = 64 * 1024
+    require_utf8_output: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +40,10 @@ class WorkspaceCommandOutput(object):
 
 class WorkspaceCommandError(RuntimeError):
     """表示工作区命令未能产生可用的进程结果。"""
+
+
+class WorkspaceCommandEncodingError(WorkspaceCommandError):
+    """表示工作区命令输出不满足调用方要求的 UTF-8 契约。"""
 
 
 class WorkspaceCommandRunner(typing.Protocol):
@@ -96,10 +101,21 @@ class LocalWorkspaceCommandRunner(object):
 
         stdout = _cap_output(stdout, command.output_bytes_cap)
         stderr = _cap_output(stderr, command.output_bytes_cap)
+        if command.require_utf8_output:
+            try:
+                decoded_stdout = stdout.decode("utf-8", errors="strict")
+                decoded_stderr = stderr.decode("utf-8", errors="strict")
+            except UnicodeDecodeError as error:
+                raise WorkspaceCommandEncodingError(
+                    "workspace command output is not valid UTF-8"
+                ) from error
+        else:
+            decoded_stdout = decode_process_output(stdout)
+            decoded_stderr = decode_process_output(stderr)
         return WorkspaceCommandOutput(
             exit_code=int(process.returncode if process.returncode is not None else -1),
-            stdout=decode_process_output(stdout),
-            stderr=decode_process_output(stderr),
+            stdout=decoded_stdout,
+            stderr=decoded_stderr,
         )
 
 

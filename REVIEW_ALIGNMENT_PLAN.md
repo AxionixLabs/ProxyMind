@@ -1,6 +1,6 @@
 # `/review` 分阶段对齐计划
 
-> 状态：实施中；阶段 0、1 门禁已通过。
+> 状态：实施中；阶段 0、1、2 门禁已通过。
 > 基准日期：2026-09-08。
 > 客户端基准：当前仓库 `codex-main/` 中的 `/review` 实现。
 > 服务端基准：`D:\PycharmProjects\AppServer` 当前提交
@@ -484,14 +484,14 @@ v1 收口证据：
 
 责任目录：`infrastructure/platform/`，通过窄契约供上层使用。
 
-- [ ] 提供当前分支、本地分支、默认分支和最近 100 个提交的类型化查询结果。
-- [ ] 所有 Git 子进程关闭交互输入，设置超时和输出上限，并隔离 hooks、filter、pager、颜色及平台差异。
-- [ ] 未提交目标覆盖 staged、unstaged 和 untracked；二进制内容使用可传输 patch 表达。
-- [ ] 基础分支目标先解析与 HEAD 的 merge base，再冻结相对该 SHA 的 diff。
-- [ ] commit 目标冻结指定提交自身的 diff，并验证 SHA 与所选条目一致。
-- [ ] 生成 `source=client` 的不可变快照，在提交前完成限制检查和 revision 计算。
-- [ ] 非 custom 目标的无有效 diff、非 Git 目录、分支消失、提交消失、超限和编码失败均返回具名错误；custom 干净工作区生成合法空快照。
-- [ ] 使用临时 Git 仓库覆盖 staged/unstaged/untracked、detached HEAD、默认分支置顶、merge base、root commit、二进制文件和跨平台路径测试。
+- [x] 提供当前分支、本地分支、默认分支和最近 100 个提交的类型化查询结果。
+- [x] 所有 Git 子进程关闭交互输入，设置超时和输出上限，并隔离 hooks、filter、pager、颜色及平台差异。
+- [x] 未提交目标覆盖 staged、unstaged 和 untracked；二进制内容使用可传输 patch 表达。
+- [x] 基础分支目标先解析与 HEAD 的 merge base，再冻结相对该 SHA 的 diff。
+- [x] commit 目标冻结指定提交自身的 diff，并验证 SHA 与所选条目一致。
+- [x] 生成 `source=client` 的不可变快照，在提交前完成限制检查和 revision 计算。
+- [x] 非 custom 目标的无有效 diff、非 Git 目录、分支消失、提交消失、超限和编码失败均返回具名错误；custom 干净工作区生成合法空快照。
+- [x] 使用临时 Git 仓库覆盖 staged/unstaged/untracked、detached HEAD、默认分支置顶、merge base、root commit、二进制文件和跨平台路径测试。
 
 阶段门槛：相同输入生成稳定快照；失败不会产生部分请求或启动远端 Turn。
 
