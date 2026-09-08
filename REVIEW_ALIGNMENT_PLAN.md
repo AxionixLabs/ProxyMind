@@ -1,6 +1,6 @@
 # `/review` 分阶段对齐计划
 
-> 状态：实施中；阶段 0 客户端启动门禁已通过。
+> 状态：实施中；阶段 0、1 门禁已通过。
 > 基准日期：2026-09-08。
 > 客户端基准：当前仓库 `codex-main/` 中的 `/review` 实现。
 > 服务端基准：`D:\PycharmProjects\AppServer` 当前提交
@@ -457,12 +457,10 @@ v1 收口证据：
 
 - [x] 记录 Codex 菜单、交互、目标和结果格式基准。
 - [x] 核对 AppServer 路由、请求、事件、终态和恢复契约。
-- [x] 新会话首个 `/review` 由服务端登记事务原子创建源 Session 和空 transcript；客户端禁止
-      发送空 `/mind-chat` 伪造源 Turn。
-- [x] 干净工作区 custom 使用指令驱动语义，允许空 patch/files，仍提交规范 revision；其他
-      target 继续要求非空快照。
+- [x] 新会话首个 `/review` 由服务端登记事务原子创建源 Session 和空 transcript；客户端禁止发送空 `/mind-chat` 伪造源 Turn。
+- [x] 干净工作区 custom 使用指令驱动语义，允许空 patch/files，仍提交规范 revision；其他 target 继续要求非空快照。
 - [x] 首期只交付 `inline`，与 Codex 当前会话 Review 语义一致；TUI 不提供 `detached` 入口。
-- [ ] 确认目标 AppServer 部署版本包含上述契约并完成鉴权 smoke test。
+- [x] 确认目标 AppServer 部署版本包含上述契约并完成鉴权 smoke test。
 
 阶段门槛：服务端协议缺口已关闭，客户端主链可以开始；delivery 产品范围须在 TUI 提交入口前
 冻结，真实部署 smoke test 仍是发布门槛。
@@ -471,15 +469,14 @@ v1 收口证据：
 
 责任目录：`protocol/schema/`、`protocol/client/`。
 
-- [ ] 建立严格的 Review target、workspace、execution、receipt 和 output 类型，不复用松散字典。
-- [ ] 实现与服务端完全一致的路径校验、大小上限、文件摘要和 workspace revision 算法。
-- [ ] 请求联合严格表达“仅 custom 可为空”，并覆盖空 patch/files 的固定规范 revision。
-- [ ] 将五类 `review.*` 事件加入正式判别联合，并校验 `review_item_id == item_id`、状态与事件
-      类型一致。
-- [ ] 建立 Review 提交用例：可靠 `POST /mind-review` 后只 attach/replay 已登记 Turn。
-- [ ] 对 HTTP 回执只认 `accepted` / `idempotent`，严格映射 403、404、409、503 错误。
-- [ ] Review 恢复复用 `/turn/status`、`/mind-attach`、`/mind-replay`；不新增同义端点。
-- [ ] 为请求、摘要、响应、事件、未知字段、边界大小和错误码添加契约测试。
+- [x] 建立严格的 Review target、workspace、execution、receipt 和 output 类型，不复用松散字典。
+- [x] 实现与服务端完全一致的路径校验、大小上限、文件摘要和 workspace revision 算法。
+- [x] 请求联合严格表达“仅 custom 可为空”，并覆盖空 patch/files 的固定规范 revision。
+- [x] 将五类 `review.*` 事件加入正式判别联合，并校验 `review_item_id == item_id`、状态与事件类型一致。
+- [x] 建立 Review 提交用例：可靠 `POST /mind-review` 后只 attach/replay 已登记 Turn。
+- [x] 对 HTTP 回执只认 `accepted` / `idempotent`，严格映射 403、404、409、503 错误。
+- [x] Review 恢复复用 `/turn/status`、`/mind-attach`、`/mind-replay`；不新增同义端点。
+- [x] 为请求、摘要、响应、事件、未知字段、边界大小和错误码添加契约测试。
 
 阶段门槛：协议层可以在不导入 `agent`、`frontends`、`infrastructure` 的条件下独立通过测试。
 
@@ -488,16 +485,13 @@ v1 收口证据：
 责任目录：`infrastructure/platform/`，通过窄契约供上层使用。
 
 - [ ] 提供当前分支、本地分支、默认分支和最近 100 个提交的类型化查询结果。
-- [ ] 所有 Git 子进程关闭交互输入，设置超时和输出上限，并隔离 hooks、filter、pager、颜色及
-      平台差异。
+- [ ] 所有 Git 子进程关闭交互输入，设置超时和输出上限，并隔离 hooks、filter、pager、颜色及平台差异。
 - [ ] 未提交目标覆盖 staged、unstaged 和 untracked；二进制内容使用可传输 patch 表达。
 - [ ] 基础分支目标先解析与 HEAD 的 merge base，再冻结相对该 SHA 的 diff。
 - [ ] commit 目标冻结指定提交自身的 diff，并验证 SHA 与所选条目一致。
 - [ ] 生成 `source=client` 的不可变快照，在提交前完成限制检查和 revision 计算。
-- [ ] 非 custom 目标的无有效 diff、非 Git 目录、分支消失、提交消失、超限和编码失败均返回
-      具名错误；custom 干净工作区生成合法空快照。
-- [ ] 使用临时 Git 仓库覆盖 staged/unstaged/untracked、detached HEAD、默认分支置顶、merge
-      base、root commit、二进制文件和跨平台路径测试。
+- [ ] 非 custom 目标的无有效 diff、非 Git 目录、分支消失、提交消失、超限和编码失败均返回具名错误；custom 干净工作区生成合法空快照。
+- [ ] 使用临时 Git 仓库覆盖 staged/unstaged/untracked、detached HEAD、默认分支置顶、merge base、root commit、二进制文件和跨平台路径测试。
 
 阶段门槛：相同输入生成稳定快照；失败不会产生部分请求或启动远端 Turn。
 
@@ -508,15 +502,12 @@ v1 收口证据：
 
 - [ ] 用具名 Review 请求进入本地 Command 链，不把 `/review` 伪装成普通 message。
 - [ ] 在首次网络操作前冻结 target、workspace、execution、request identity 和 environment。
-- [ ] 扩展 `ModelStreamRequest` 或建立职责更窄的正式请求联合；选型前验证 store、queue、恢复和
-      adapter 的完整影响面。
+- [ ] 扩展 `ModelStreamRequest` 或建立职责更窄的正式请求联合；选型前验证 store、queue、恢复和 adapter 的完整影响面。
 - [ ] 持久化后才允许远端提交；相同本地 Run 恢复时复用原 `request_id`、`turn_id` 和快照。
 - [ ] 收到 accepted/idempotent 后只观察既有 Turn，未知提交结果进入现有恢复流程。
 - [ ] Review 的 interrupt、终态和执行门释放遵循普通 Turn 权威规则。
 - [ ] Review 不携带普通 prompt attachments、skills 或可写工具；已有待输入保持原 owner。
-- [ ] 审计客户端工具 annotations，为空快照 custom 建立最小只读代码检索 allowlist；若当前
-      环境没有足够的只读工具，则在提交前要求文件快照或返回具名能力错误，不能发送无代码上下文
-      的空 Review。
+- [ ] 审计客户端工具 annotations，为空快照 custom 建立最小只读代码检索 allowlist；若当前环境没有足够的只读工具，则在提交前要求文件快照或返回具名能力错误，不能发送无代码上下文的空 Review。
 - [ ] 覆盖 store round-trip、崩溃点、重复提交、重启 attach、冲突和终态唯一性测试。
 
 阶段门槛：故障注入证明“网络前有本地事实、确认后不重复创建、EOF 不释放执行门”。
@@ -527,8 +518,7 @@ v1 收口证据：
 
 - [ ] 按第 2.1 至 2.5 节精确加入命令目录和四项预设菜单。
 - [ ] 按第 2.7 节实现共享表面、语义样式、线框和窄终端布局。
-- [ ] 补齐 `MenuRowDisplay`、footer tone 和 multiline text input 三项通用菜单能力；不得用
-      Review 私有 renderer 绕过现有 view stack。
+- [ ] 补齐 `MenuRowDisplay`、footer tone 和 multiline text input 三项通用菜单能力；不得用 Review 私有 renderer 绕过现有 view stack。
 - [ ] 按第 2.8 节组装 `ReviewMenuController` 与 catalog/snapshot 窄契约。
 - [ ] 按第 2.9 节实现父子完成传播、异步 generation guard 和全部取消路径。
 - [ ] 分支、提交查询异步执行时保持输入响应；失败 child 可返回稳定父视图。
@@ -553,8 +543,7 @@ TUI renderer。
 - [ ] `review.failed`、`review.cancelled` 和 `review.reconciliation_required` 进入独立投影。
 - [ ] 只有 `turn.completed` 释放生命周期；Review Item 完成不等于 Turn 完成。
 - [ ] active/audit revision、replay 去重、迟到事件和 terminal 冲突沿用现有 reducer 规则。
-- [ ] 覆盖无 finding、单 finding、多 finding、多行 body、路径/行号、失败、取消、reconciliation、
-      replay 和断线恢复测试。
+- [ ] 覆盖无 finding、单 finding、多 finding、多行 body、路径/行号、失败、取消、reconciliation、replay 和断线恢复测试。
 
 阶段门槛：最终 assistant 正文只从 active Review Item 派生，且重放不会产生重复可见内容。
 
@@ -566,8 +555,7 @@ TUI renderer。
 - [ ] 在已存在 Session 和全新 Session 中分别执行 `/review` smoke test。
 - [ ] 在 `review.started` 后断开并重连，验证 status/replay 水位与唯一终态。
 - [ ] 在 Review 运行中执行 interrupt，验证 `review.cancelled` 与 `turn.completed` 顺序。
-- [ ] 校验 403、`request_id_conflict`、`turn_already_active`、`turn_id_reused`、503 和快照
-      超限的用户可见错误；新 Session 路径必须成功，不再期待 `review_source_missing`。
+- [ ] 校验 403、`request_id_conflict`、`turn_already_active`、`turn_id_reused`、503 和快照超限的用户可见错误；新 Session 路径必须成功，不再期待 `review_source_missing`。
 - [ ] 同步受影响的稳定协议文档和契约测试，不把本计划中的临时决策复制进架构权威。
 
 最终验证命令：
@@ -593,12 +581,12 @@ git diff --check
 
 ## 6. 变更面预估
 
-| 边界                        | 预期变更                           | 核心验证                       |
-|-----------------------------|------------------------------------|--------------------------------|
-| `protocol/schema/`          | Review 请求、响应、输出和事件类型  | 严格解析、摘要、限制、未知字段 |
-| `protocol/client/`          | submit + attach/replay Review 用例 | 幂等、错误分类、恢复水位       |
-| `infrastructure/platform/`  | Git catalog、target diff、snapshot | 跨平台临时仓库测试             |
-| `agent/protocol/` 与 stores | 冻结 Review Command/请求事实       | round-trip、重启、故障注入     |
-| reducer 与 presentation     | Review Item 和结果投影             | replay、revision、唯一正文     |
-| `frontends/tui/`            | 命令、嵌套菜单、运行态和渲染       | 键盘交互、窄终端、快照         |
+| 边界                        | 预期变更                                            | 核心验证                       |
+|-----------------------------|-----------------------------------------------------|--------------------------------|
+| `protocol/schema/`          | Review 请求、响应、输出和事件类型                   | 严格解析、摘要、限制、未知字段 |
+| `protocol/client/`          | submit + attach/replay Review 用例                  | 幂等、错误分类、恢复水位       |
+| `infrastructure/platform/`  | Git catalog、target diff、snapshot                  | 跨平台临时仓库测试             |
+| `agent/protocol/` 与 stores | 冻结 Review Command/请求事实                        | round-trip、重启、故障注入     |
+| reducer 与 presentation     | Review Item 和结果投影                              | replay、revision、唯一正文     |
+| `frontends/tui/`            | 命令、嵌套菜单、运行态和渲染                        | 键盘交互、窄终端、快照         |
 | AppServer                   | v1 协议缺口已完成；仅在契约测试暴露新缺口时继续变更 | route/schema/worker/持久化测试 |

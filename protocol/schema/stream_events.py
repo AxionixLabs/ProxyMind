@@ -3,6 +3,7 @@
 
 import copy
 import math
+import re
 import typing
 from collections.abc import Mapping
 from dataclasses import (
@@ -18,6 +19,12 @@ from protocol.schema.item_projection import (
     reject_item_projection as _reject_item_projection,
     tool_output_item_status as _tool_output_item_status,
     validate_item_fields as _item_fields,
+)
+from protocol.schema.review import (
+    ReviewOutput,
+    ReviewTarget,
+    parse_review_output,
+    parse_review_target,
 )
 from protocol.schema.tool_approval import (
     TOOL_APPROVAL_DECISIONS,
@@ -206,6 +213,50 @@ class ContextCompactionEvent(ItemStreamEvent):
     reduction_ratio: float | None = None
     latency_ms: int | None = None
     replacement_version: int | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ReviewStartedEvent(ItemStreamEvent):
+    """描述 Review Item 已开始执行。"""
+    review_item_id: str
+    status: typing.Literal["in_progress"]
+    target: ReviewTarget
+    workspace_revision: str
+    prompt_version: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ReviewCompletedEvent(ItemStreamEvent):
+    """描述 Review Item 已产生结构化结果。"""
+    review_item_id: str
+    status: typing.Literal["completed"]
+    output: ReviewOutput
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ReviewFailedEvent(ItemStreamEvent):
+    """描述 Review Item 已失败。"""
+    review_item_id: str
+    status: typing.Literal["failed"]
+    error: str
+    output_preview: str = ""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ReviewCancelledEvent(ItemStreamEvent):
+    """描述 Review Item 已取消。"""
+    review_item_id: str
+    status: typing.Literal["cancelled"]
+    reason: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ReviewReconciliationRequiredEvent(ItemStreamEvent):
+    """描述 Review Item 因持久效果不确定而暂停。"""
+    review_item_id: str
+    status: typing.Literal["reconciliation_required"]
+    effect_id: str
+    error: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -496,6 +547,11 @@ ChatStreamEvent: typing.TypeAlias = (
     | TurnReconciliationRequiredEvent
     | PresentationSupersededEvent
     | ContextCompactionEvent
+    | ReviewStartedEvent
+    | ReviewCompletedEvent
+    | ReviewFailedEvent
+    | ReviewCancelledEvent
+    | ReviewReconciliationRequiredEvent
     | TextDeltaEvent
     | TextDoneEvent
     | TextMetaEvent
@@ -528,6 +584,11 @@ _ITEM_EVENT_TYPES = frozenset({
     "context.compaction.started",
     "context.compaction.completed",
     "context.compaction.failed",
+    "review.started",
+    "review.completed",
+    "review.failed",
+    "review.cancelled",
+    "review.reconciliation_required",
     "text.delta",
     "text.done",
     "text.meta",
@@ -657,6 +718,14 @@ def parse_stream_event(
             common,
             event_type=event_type,
         )
+    if event_type in {
+        "review.started",
+        "review.completed",
+        "review.failed",
+        "review.cancelled",
+        "review.reconciliation_required",
+    }:
+        return _review_event(raw, common, event_type=event_type)
     if event_type == "text.delta":
         segment_id = _required_text(
             raw.get("segment_id"),
@@ -1048,6 +1117,156 @@ def _context_compaction_event(
         replacement_version=_optional_nonnegative_int(
             payload.get("replacement_version"),
             f"{event_type} replacement_version",
+        ),
+    )
+
+
+_REVIEW_COMMON_FIELDS = frozenset({
+    "type",
+    "proto",
+    "cid",
+    "sid",
+    "turn_id",
+    "event_seq",
+    "round",
+    "presentation_epoch",
+    "display",
+    "item_id",
+    "item_kind",
+    "item_status",
+    "event_id",
+    "correlation_id",
+    "causation_id",
+    "occurred_at",
+    "created_at",
+    "idempotency_key",
+    "ts",
+})
+
+
+def _review_event(
+    payload: dict[str, typing.Any],
+    common: dict[str, typing.Any],
+    *,
+    event_type: str,
+) -> (
+    ReviewStartedEvent
+    | ReviewCompletedEvent
+    | ReviewFailedEvent
+    | ReviewCancelledEvent
+    | ReviewReconciliationRequiredEvent
+):
+    """严格解析 Review Item 生命周期事件。"""
+    expected_status: ItemStatus = {
+        "review.started": "in_progress",
+        "review.completed": "completed",
+        "review.failed": "failed",
+        "review.cancelled": "cancelled",
+        "review.reconciliation_required": "reconciliation_required",
+    }[event_type]
+    review_item_id = _required_text(
+        payload.get("review_item_id"),
+        f"{event_type} review_item_id",
+    )
+    item_fields = _item_fields(
+        payload,
+        event_type=event_type,
+        source_id=review_item_id,
+        expected_kind="review",
+        expected_status=expected_status,
+    )
+    status = _required_text(payload.get("status"), f"{event_type} status")
+    if status != expected_status:
+        raise ValueError(f"{event_type} status does not match event type")
+
+    event_fields = {"review_item_id", "status"}
+    if event_type == "review.started":
+        event_fields.update({"target", "workspace_revision", "prompt_version"})
+    elif event_type == "review.completed":
+        event_fields.add("output")
+    elif event_type == "review.failed":
+        event_fields.update({"error", "output_preview"})
+    elif event_type == "review.cancelled":
+        event_fields.add("reason")
+    else:
+        event_fields.update({"effect_id", "error"})
+    unknown = sorted(set(payload).difference(_REVIEW_COMMON_FIELDS | event_fields))
+    if unknown:
+        raise ValueError(
+            f"{event_type} contains unknown fields: " + ", ".join(unknown)
+        )
+
+    if event_type == "review.started":
+        revision = _required_text(
+            payload.get("workspace_revision"),
+            "review.started workspace_revision",
+        )
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", revision) is None:
+            raise ValueError("review.started workspace_revision is invalid")
+        prompt_version = _required_text(
+            payload.get("prompt_version"),
+            "review.started prompt_version",
+        )
+        if prompt_version != "mind-review/1":
+            raise ValueError("review.started prompt_version is unsupported")
+        target_value = payload.get("target")
+        if not _is_json_value(target_value):
+            raise ValueError("review.started target must be a JSON value")
+        return ReviewStartedEvent(
+            **common,
+            **item_fields,
+            review_item_id=review_item_id,
+            status="in_progress",
+            target=parse_review_target(target_value),
+            workspace_revision=revision,
+            prompt_version=prompt_version,
+        )
+    if event_type == "review.completed":
+        output_value = payload.get("output")
+        if not _is_json_value(output_value):
+            raise ValueError("review.completed output must be a JSON value")
+        return ReviewCompletedEvent(
+            **common,
+            **item_fields,
+            review_item_id=review_item_id,
+            status="completed",
+            output=parse_review_output(output_value),
+        )
+    if event_type == "review.failed":
+        output_preview = payload.get("output_preview", "")
+        if not isinstance(output_preview, str):
+            raise ValueError("review.failed output_preview must be text")
+        return ReviewFailedEvent(
+            **common,
+            **item_fields,
+            review_item_id=review_item_id,
+            status="failed",
+            error=_required_text(payload.get("error"), "review.failed error"),
+            output_preview=output_preview,
+        )
+    if event_type == "review.cancelled":
+        return ReviewCancelledEvent(
+            **common,
+            **item_fields,
+            review_item_id=review_item_id,
+            status="cancelled",
+            reason=_required_text(
+                payload.get("reason"),
+                "review.cancelled reason",
+            ),
+        )
+    return ReviewReconciliationRequiredEvent(
+        **common,
+        **item_fields,
+        review_item_id=review_item_id,
+        status="reconciliation_required",
+        effect_id=_required_text(
+            payload.get("effect_id"),
+            "review.reconciliation_required effect_id",
+        ),
+        error=_required_text(
+            payload.get("error"),
+            "review.reconciliation_required error",
         ),
     )
 

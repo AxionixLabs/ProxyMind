@@ -12,6 +12,7 @@ ItemKind: typing.TypeAlias = typing.Literal[
     "tool_output",
     "builtin_tool",
     "approval",
+    "review",
     "custom",
 ]
 
