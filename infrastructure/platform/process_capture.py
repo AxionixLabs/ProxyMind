@@ -33,6 +33,7 @@ class CapturedProcessResult(object):
     elapsed_ms: int
     stdout_prefix_partial: bool = False
     stderr_prefix_partial: bool = False
+    execution_outcome_unknown: bool = False
 
 
 class _CaptureBuffer(object):

@@ -853,18 +853,21 @@ class ProcessSessionManager(object):
                 await process.client.terminate(
                     process.process_id,
                     signal="terminate",
+                    generation=process.generation,
                 )
                 return None
             if control == "interrupt":
                 await process.client.interrupt(
                     process.process_id,
                     tty=session.tty,
+                    generation=process.generation,
                 )
                 return None
             if control == "eof":
                 await process.client.close_input(
                     process.process_id,
                     tty=session.tty,
+                    generation=process.generation,
                 )
                 return None
             if not input_text:
@@ -1113,6 +1116,7 @@ class ProcessSessionManager(object):
             await process.client.terminate(
                 process.process_id,
                 signal="kill" if force else "terminate",
+                generation=process.generation,
             )
         elif isinstance(
             process,
@@ -1125,7 +1129,11 @@ class ProcessSessionManager(object):
         if process.returncode is not None or force:
             return
         if isinstance(process, SidecarProcess):
-            await process.client.terminate(process.process_id, signal="kill")
+            await process.client.terminate(
+                process.process_id,
+                signal="kill",
+                generation=process.generation,
+            )
         elif isinstance(
             process,
             (_CapabilityProcess, _InteractiveCapabilityProcess),

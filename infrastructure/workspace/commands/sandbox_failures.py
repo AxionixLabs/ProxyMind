@@ -26,7 +26,9 @@ def map_sandbox_failure(
     """把 Sandbox 边界失败唯一映射为本地工具失败事实。"""
     reason = error.code
     stage = error.stage
-    if control == "interrupt":
+    if error.code == "execution_outcome_unknown":
+        stage = "control" if control is not None else error.stage
+    elif control == "interrupt":
         reason = "exec_interrupt_failed"
         stage = "control"
     elif control in {"terminate", "kill"}:

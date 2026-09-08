@@ -1,4 +1,11 @@
 import asyncio
+import base64
+import ctypes
+import ctypes.wintypes
+import gc
+import json
+import os
+import tracemalloc
 
 import pytest
 
@@ -13,6 +20,7 @@ from infrastructure.platform.network import NetworkDecision
 from infrastructure.platform.network import StaticNetworkPolicy
 from infrastructure.platform.sandbox import (
     SandboxClient,
+    SandboxOutcomeUnknown,
     SandboxProtocolError,
     SandboxUnavailable,
     SidecarProcess,
@@ -47,6 +55,10 @@ class _FakeSidecarReader:
             await self._blocked.wait()
         return b""
 
+    async def read(self, size: int = -1) -> bytes:
+        del size
+        return await self.readline()
+
 
 class _FakeSidecarWriter:
     """记录客户端写入但不生成响应。"""
@@ -64,15 +76,23 @@ class _FakeSidecarWriter:
 class _FakeSidecarProcess:
     """模拟 Sidecar 进程的最小异步生命周期。"""
 
-    def __init__(self, stdout: _FakeSidecarReader) -> None:
+    def __init__(
+        self,
+        stdout: _FakeSidecarReader,
+        *,
+        stderr: _FakeSidecarReader | None = None,
+    ) -> None:
         self.stdin = _FakeSidecarWriter()
         self.stdout = stdout
-        self.stderr = _FakeSidecarReader()
+        self.stderr = stderr or _FakeSidecarReader()
         self.returncode: int | None = None
         self.pid = 4100
 
     def terminate(self) -> None:
         self.returncode = -15
+
+    def kill(self) -> None:
+        self.returncode = -9
 
     async def wait(self) -> int:
         if self.returncode is None:
@@ -80,10 +100,27 @@ class _FakeSidecarProcess:
         return self.returncode
 
 
+def _bind_request_transport(
+    client: SandboxClient,
+    process: _FakeSidecarProcess,
+    *,
+    generation: int = 1,
+) -> None:
+    """把请求测试绑定到一个已完成握手的 Fake Sidecar 代次。"""
+    async def already_started() -> None:
+        return None
+
+    client._sidecar = process
+    client._generation = generation
+    client._sidecar_generation = generation
+    client._transport_failed = False
+    client.ensure_started = already_started
+
+
 async def _request_with_response(client: SandboxClient, response):
     """向一个已启动的 Fake Sidecar 请求注入指定响应。"""
     process = _FakeSidecarProcess(_FakeSidecarReader(block_after_lines=True))
-    client._sidecar = process
+    _bind_request_transport(client, process)
     request = asyncio.create_task(client._request("ping", {}))
     await asyncio.sleep(0)
     pending = tuple(client._pending.values())
@@ -93,6 +130,49 @@ async def _request_with_response(client: SandboxClient, response):
         return await request
     finally:
         process.returncode = -1
+
+
+def _jsonl_frame(payload) -> bytes:
+    """编码一个测试用 JSONL 帧。"""
+    return (json.dumps(payload, ensure_ascii=True) + "\n").encode("utf-8")
+
+
+def _bind_reader_transport(
+    client: SandboxClient,
+    process: _FakeSidecarProcess,
+    *,
+    generation: int = 1,
+) -> asyncio.Future[bool]:
+    """把协议读取测试绑定到指定 Fake Sidecar 代次。"""
+    ready = asyncio.get_running_loop().create_future()
+    ready.add_done_callback(client._consume_future_exception)
+    client._sidecar = process
+    client._generation = generation
+    client._sidecar_generation = generation
+    client._transport_failed = False
+    client._ready = ready
+    return ready
+
+
+def _process_handle_count() -> int | None:
+    """返回 Windows 当前进程句柄数，其他平台不提供该指标。"""
+    if os.name != "nt":
+        return None
+    count = ctypes.wintypes.DWORD()
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GetCurrentProcess.restype = ctypes.wintypes.HANDLE
+    kernel32.GetProcessHandleCount.argtypes = (
+        ctypes.wintypes.HANDLE,
+        ctypes.POINTER(ctypes.wintypes.DWORD),
+    )
+    kernel32.GetProcessHandleCount.restype = ctypes.wintypes.BOOL
+    succeeded = kernel32.GetProcessHandleCount(
+        kernel32.GetCurrentProcess(),
+        ctypes.byref(count),
+    )
+    if not succeeded:
+        raise ctypes.WinError()
+    return int(count.value)
 
 
 def _fake_startable_client(tmp_path) -> SandboxClient:
@@ -206,7 +286,7 @@ async def test_sidecar_request_timeout_clears_pending_request(tmp_path) -> None:
     process = _FakeSidecarProcess(
         _FakeSidecarReader(block_after_lines=True),
     )
-    client._sidecar = process
+    _bind_request_transport(client, process)
     client.REQUEST_TIMEOUT_SEC = 0.01
 
     with pytest.raises(SandboxProtocolError) as raised:
@@ -217,7 +297,31 @@ async def test_sidecar_request_timeout_clears_pending_request(tmp_path) -> None:
     assert raised.value.stage == "request"
     assert raised.value.retryable is True
     assert client._pending == {}
+    assert json.loads(process.stdin.payloads[0])["id"] == "g1:r1"
     process.returncode = -1
+
+
+@pytest.mark.anyio
+async def test_effectful_request_timeout_is_unknown_and_stops_generation(
+    tmp_path,
+) -> None:
+    """验证可能已生效的超时请求不可重试且会收束当前代次。"""
+    client = _fake_startable_client(tmp_path)
+    client.REQUEST_TIMEOUT_SEC = 0.01
+    process = _FakeSidecarProcess(
+        _FakeSidecarReader(block_after_lines=True),
+    )
+    _bind_request_transport(client, process)
+
+    with pytest.raises(SandboxOutcomeUnknown) as raised:
+        await client._request("spawn", {"argv": ["side-effect"]})
+
+    assert raised.value.backend_code == "sidecar_request_timeout"
+    assert raised.value.stage == "spawn"
+    assert raised.value.retryable is False
+    assert client._pending == {}
+    assert client._sidecar is None
+    assert process.returncode == -15
 
 
 @pytest.mark.anyio
@@ -345,9 +449,16 @@ def test_spawn_payload_only_sends_windows_fields_to_windows_sidecar(
         )
 
         async def fake_ensure_started() -> None:
+            client._sidecar_generation = 1
             return None
 
-        async def fake_request(method: str, params: dict[str, object]) -> dict[str, str]:
+        async def fake_request(
+            method: str,
+            params,
+            *,
+            generation: int | None = None,
+        ) -> dict[str, str]:
+            assert generation == 1
             captured[platform] = dict(params)
             return {"process_id": f"sandbox-{platform}"}
 
@@ -504,7 +615,9 @@ async def test_sidecar_pty_controls_use_terminal_input(
         *,
         data: bytes = b"",
         eof: bool = False,
+        generation: int | None = None,
     ) -> None:
+        del generation
         writes.append((process_id, data, eof))
 
     monkeypatch.setattr(client, "write", capture_write)
@@ -535,7 +648,9 @@ async def test_sidecar_pipe_controls_use_process_protocol(
         process_id: str,
         *,
         signal: str = "terminate",
+        generation: int | None = None,
     ) -> None:
+        del generation
         terminations.append((process_id, signal))
 
     async def capture_write(
@@ -543,7 +658,9 @@ async def test_sidecar_pipe_controls_use_process_protocol(
         *,
         data: bytes = b"",
         eof: bool = False,
+        generation: int | None = None,
     ) -> None:
+        del generation
         writes.append((process_id, data, eof))
 
     monkeypatch.setattr(client, "terminate", capture_terminate)
@@ -577,12 +694,22 @@ async def test_sidecar_control_failures_return_stable_tool_reasons(
         platform="win32",
     )
 
-    async def fail_tty_control(process_id: str, *, tty: bool) -> None:
-        del process_id, tty
+    async def fail_tty_control(
+        process_id: str,
+        *,
+        tty: bool,
+        generation: int | None = None,
+    ) -> None:
+        del process_id, tty, generation
         raise SandboxProtocolError("synthetic failure")
 
-    async def fail_terminate(process_id: str, *, signal: str) -> None:
-        del process_id, signal
+    async def fail_terminate(
+        process_id: str,
+        *,
+        signal: str,
+        generation: int | None = None,
+    ) -> None:
+        del process_id, signal, generation
         raise SandboxProtocolError("synthetic failure")
 
     monkeypatch.setattr(client, "interrupt", fail_tty_control)
@@ -627,6 +754,18 @@ async def test_sidecar_control_failures_return_stable_tool_reasons(
     assert data["reason"] == failure.reason == expected_reason
     assert data["backend_code"] == failure.backend_code == "synthetic failure"
     assert data["stage"] == failure.stage == "control"
+
+
+def test_unknown_control_outcome_is_not_downgraded_to_control_failure() -> None:
+    """验证控制请求失联时保留结果未知语义和不可重试事实。"""
+    failure = map_sandbox_failure(
+        SandboxOutcomeUnknown("sidecar exited during terminate"),
+        control="terminate",
+    )
+
+    assert failure.reason == "execution_outcome_unknown"
+    assert failure.stage == "control"
+    assert failure.retryable is False
 
 
 @pytest.mark.anyio
@@ -800,3 +939,512 @@ async def test_process_session_manager_uses_injected_process_capability() -> Non
 
     await manager.close()
     await capability.aclose()
+
+
+@pytest.mark.anyio
+async def test_sidecar_stderr_tail_is_bounded_and_attached_to_startup_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """验证 ready 前退出会持续消费 stderr 且只保留有限尾部。"""
+    client = _fake_startable_client(tmp_path)
+    client.STDERR_TAIL_LIMIT_BYTES = 32
+    process = _FakeSidecarProcess(
+        _FakeSidecarReader(),
+        stderr=_FakeSidecarReader(b"a" * 64, b"b" * 64),
+    )
+    monkeypatch.setattr(
+        asyncio,
+        "create_subprocess_exec",
+        AsyncMock(return_value=process),
+    )
+
+    with pytest.raises(SandboxUnavailable) as raised:
+        await client.ensure_started()
+
+    assert bytes(client._stderr_tail) == b"b" * 32
+    assert "b" * 32 in raised.value.detail
+    assert "a" * 16 not in raised.value.detail
+    assert client._reader_task is None
+    assert client._stderr_task is None
+    ready = client._ready
+    assert ready is not None
+    assert ready.done()
+    assert ready._log_traceback is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("frame", "backend_code"),
+    (
+        (b"\xff\n", "sidecar_frame_invalid_utf8"),
+        (b"{invalid}\n", "sidecar_frame_invalid_json"),
+        (b"[]\n", "sidecar_frame_invalid"),
+        (_jsonl_frame({"event": "mystery"}), "sidecar_event_unknown"),
+        (
+            _jsonl_frame({"event": "stdout", "process_id": "", "data": ""}),
+            "sidecar_event_invalid",
+        ),
+        (
+            _jsonl_frame({
+                "event": "stderr",
+                "process_id": "sandbox-1",
+                "data": "not base64!",
+            }),
+            "sidecar_event_invalid",
+        ),
+        (
+            _jsonl_frame({"event": "exit", "process_id": "sandbox-1"}),
+            "sidecar_event_invalid",
+        ),
+        (
+            _jsonl_frame({"event": 7, "id": "g1:r1"}),
+            "sidecar_event_invalid",
+        ),
+        (_jsonl_frame({}), "sidecar_response_invalid"),
+    ),
+)
+async def test_sidecar_malformed_frames_fail_closed(
+    tmp_path,
+    frame: bytes,
+    backend_code: str,
+) -> None:
+    """验证畸形帧不会被静默忽略或切换到其他执行后端。"""
+    client = _fake_startable_client(tmp_path)
+    process = _FakeSidecarProcess(_FakeSidecarReader(frame))
+    ready = _bind_reader_transport(client, process)
+
+    await client._read_events(process, 1, bytearray())
+
+    failure = client._transport_error
+    assert isinstance(failure, SandboxProtocolError)
+    assert failure.backend_code == backend_code
+    assert failure.retryable is False
+    assert ready.exception() is failure
+    assert client.generation == 1
+
+
+@pytest.mark.anyio
+async def test_sidecar_oversized_and_duplicate_frames_are_protocol_failures(
+    tmp_path,
+) -> None:
+    """验证单帧上限和重复 ready 均关闭当前协议代次。"""
+    oversized_client = _fake_startable_client(tmp_path)
+    oversized_client.FRAME_LIMIT_BYTES = 32
+    oversized_process = _FakeSidecarProcess(
+        _FakeSidecarReader(b"{" + b"x" * 40 + b"}\n"),
+    )
+    _bind_reader_transport(oversized_client, oversized_process)
+
+    await oversized_client._read_events(
+        oversized_process,
+        1,
+        bytearray(),
+    )
+
+    oversized_failure = oversized_client._transport_error
+    assert isinstance(oversized_failure, SandboxProtocolError)
+    assert oversized_failure.backend_code == "sidecar_frame_too_large"
+
+    duplicate_client = _fake_startable_client(tmp_path)
+    ready_frame = _jsonl_frame({"event": "ready", "protocol_version": 1})
+    duplicate_process = _FakeSidecarProcess(
+        _FakeSidecarReader(ready_frame, ready_frame),
+    )
+    ready = _bind_reader_transport(duplicate_client, duplicate_process)
+
+    await duplicate_client._read_events(
+        duplicate_process,
+        1,
+        bytearray(),
+    )
+
+    duplicate_failure = duplicate_client._transport_error
+    assert ready.result() is True
+    assert isinstance(duplicate_failure, SandboxProtocolError)
+    assert duplicate_failure.backend_code == "sidecar_event_duplicate"
+
+
+@pytest.mark.anyio
+async def test_sidecar_replays_early_events_and_releases_exited_process(
+    tmp_path,
+) -> None:
+    """验证乱序输出和退出可重放，退出后立即释放进程表。"""
+    client = _fake_startable_client(tmp_path)
+    fake_sidecar = _FakeSidecarProcess(
+        _FakeSidecarReader(block_after_lines=True),
+    )
+    _bind_request_transport(client, fake_sidecar)
+    output_event = client._decode_process_event({
+        "event": "stdout",
+        "process_id": "sandbox-early",
+        "data": base64.b64encode(b"early output").decode("ascii"),
+    }, "stdout")
+    exit_event = client._decode_process_event({
+        "event": "exit",
+        "process_id": "sandbox-early",
+        "exit_code": 7,
+    }, "exit")
+    client._handle_process_event(output_event, generation=1)
+    client._handle_process_event(exit_event, generation=1)
+
+    async def spawn_response(
+        method: str,
+        params,
+        *,
+        generation: int | None = None,
+    ) -> dict[str, str]:
+        del params
+        assert method == "spawn"
+        assert generation == 1
+        return {"process_id": "sandbox-early"}
+
+    client._request = spawn_response
+    process = await client.spawn(
+        argv=("echo", "early"),
+        cwd=tmp_path,
+        env={},
+        sandbox_mode="workspace-read",
+        stdin_open=False,
+    )
+
+    assert await process.wait() == 7
+    assert await process.stdout.read() == b"early output"
+    assert client._processes == {}
+    assert client._early_events == {}
+    assert client._early_event_count == 0
+    assert client._early_event_bytes == 0
+
+    client._handle_process_event(exit_event, generation=1)
+    assert client._early_events == {}
+
+
+@pytest.mark.parametrize("budget", ("processes", "events", "bytes"))
+def test_sidecar_early_event_cache_is_bounded(tmp_path, budget: str) -> None:
+    """验证未知进程事件不能突破任一早到缓存预算。"""
+    client = _fake_startable_client(tmp_path)
+    client.EARLY_PROCESS_LIMIT = 1
+    client.EARLY_EVENT_LIMIT = 1
+    client.EARLY_BYTES_LIMIT = 1
+    first = client._decode_process_event({
+        "event": "stdout",
+        "process_id": "sandbox-first",
+        "data": base64.b64encode(b"x").decode("ascii"),
+    }, "stdout")
+    client._handle_process_event(first, generation=1)
+    process_id = (
+        "sandbox-second" if budget == "processes" else "sandbox-first"
+    )
+    payload = b"xx" if budget == "bytes" else b"x"
+    second = client._decode_process_event({
+        "event": "stdout",
+        "process_id": process_id,
+        "data": base64.b64encode(payload).decode("ascii"),
+    }, "stdout")
+    if budget == "processes":
+        client.EARLY_EVENT_LIMIT = 2
+        client.EARLY_BYTES_LIMIT = 2
+    elif budget == "events":
+        client.EARLY_BYTES_LIMIT = 2
+    else:
+        client.EARLY_EVENT_LIMIT = 2
+
+    with pytest.raises(SandboxProtocolError) as raised:
+        client._handle_process_event(second, generation=1)
+
+    assert raised.value.backend_code == "sidecar_early_event_limit"
+    assert len(client._early_events) == 1
+    assert client._early_event_count == 1
+    assert client._early_event_bytes == 1
+
+
+@pytest.mark.anyio
+async def test_late_response_cannot_complete_restarted_generation_request(
+    tmp_path,
+) -> None:
+    """验证旧 generation 的迟到响应不会串入新请求。"""
+    client = _fake_startable_client(tmp_path)
+    client._generation = 2
+    process = _FakeSidecarProcess(_FakeSidecarReader(
+        _jsonl_frame({"event": "ready", "protocol_version": 1}),
+        _jsonl_frame({"id": "g1:r1", "ok": True, "result": {"old": True}}),
+        _jsonl_frame({"id": "g2:r1", "ok": True, "result": {"new": True}}),
+    ))
+    _bind_reader_transport(client, process, generation=2)
+    response = asyncio.get_running_loop().create_future()
+    response.add_done_callback(client._consume_future_exception)
+    client._pending["g2:r1"] = response
+    client._pending_methods["g2:r1"] = "ping"
+
+    await client._read_events(process, 2, bytearray())
+
+    assert response.result()["result"] == {"new": True}
+    assert client._generation == 2
+    assert client._pending["g2:r1"] is response
+
+
+def test_sidecar_generation_isolates_reused_process_ids(tmp_path) -> None:
+    """验证重启后复用 process id 不会接收旧代次迟到事件。"""
+    client = _fake_startable_client(tmp_path)
+    client._sidecar_generation = 1
+    old_process = SidecarProcess(
+        client,
+        "sandbox-1",
+        generation=1,
+    )
+    client._processes[(1, "sandbox-1")] = old_process
+    client._settle_generation(
+        1,
+        SandboxUnavailable("synthetic sidecar exit"),
+        outcome_unknown=True,
+    )
+    assert old_process.execution_outcome_unknown is True
+
+    client._sidecar_generation = 2
+    client._generation = 2
+    client._transport_failed = False
+    new_process = SidecarProcess(
+        client,
+        "sandbox-1",
+        generation=2,
+    )
+    client._processes[(2, "sandbox-1")] = new_process
+    old_output = client._decode_process_event({
+        "event": "stdout",
+        "process_id": "sandbox-1",
+        "data": base64.b64encode(b"old").decode("ascii"),
+    }, "stdout")
+    new_output = client._decode_process_event({
+        "event": "stdout",
+        "process_id": "sandbox-1",
+        "data": base64.b64encode(b"new").decode("ascii"),
+    }, "stdout")
+
+    client._handle_process_event(old_output, generation=1)
+    client._handle_process_event(new_output, generation=2)
+    new_process.finish(0)
+
+    async def read_output() -> bytes:
+        return await new_process.stdout.read()
+
+    assert asyncio.run(read_output()) == b"new"
+    assert client._processes == {}
+
+
+@pytest.mark.anyio
+async def test_unexpected_eof_marks_process_and_effectful_request_unknown(
+    tmp_path,
+) -> None:
+    """验证就绪后异常 EOF 将在途副作用标记为结果未知且不可重试。"""
+    client = _fake_startable_client(tmp_path)
+    process = _FakeSidecarProcess(_FakeSidecarReader(
+        _jsonl_frame({"event": "ready", "protocol_version": 1}),
+    ))
+    _bind_reader_transport(client, process)
+    logical_process = SidecarProcess(
+        client,
+        "sandbox-running",
+        generation=1,
+    )
+    client._processes[(1, "sandbox-running")] = logical_process
+    pending_spawn = asyncio.get_running_loop().create_future()
+    pending_spawn.add_done_callback(client._consume_future_exception)
+    client._pending["g1:r1"] = pending_spawn
+    client._pending_methods["g1:r1"] = "spawn"
+
+    await client._read_events(process, 1, bytearray())
+
+    assert logical_process.returncode == -1
+    assert logical_process.execution_outcome_unknown is True
+    assert client._processes == {}
+    failure = pending_spawn.exception()
+    assert isinstance(failure, SandboxOutcomeUnknown)
+    assert failure.code == "execution_outcome_unknown"
+    assert failure.retryable is False
+    assert client._generation == 1
+
+
+@pytest.mark.anyio
+async def test_close_continues_after_request_reader_and_process_failures(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """验证关闭竞态中的单步失败不会跳过其余清理。"""
+    client = _fake_startable_client(tmp_path)
+    process = _FakeSidecarProcess(
+        _FakeSidecarReader(block_after_lines=True),
+        stderr=_FakeSidecarReader(block_after_lines=True),
+    )
+
+    def fail_terminate() -> None:
+        raise OSError("synthetic terminate failure")
+
+    async def fail_wait() -> int:
+        raise OSError("synthetic wait failure")
+
+    def fail_kill() -> None:
+        raise OSError("synthetic kill failure")
+
+    process.terminate = fail_terminate
+    process.wait = fail_wait
+    process.kill = fail_kill
+    client._sidecar = process
+    client._sidecar_generation = 1
+    client._generation = 1
+    client._ready = asyncio.get_running_loop().create_future()
+    client._ready.set_result(True)
+
+    async def reader_fails_during_cancel() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError as exc:
+            raise RuntimeError("synthetic reader cancellation failure") from exc
+
+    reader_task = asyncio.create_task(reader_fails_during_cancel())
+    stderr_task = asyncio.create_task(asyncio.Event().wait())
+    client._reader_task = reader_task
+    client._stderr_task = stderr_task
+    await asyncio.sleep(0)
+
+    async def fail_close_request(
+        method: str,
+        params,
+        *,
+        generation: int | None = None,
+    ):
+        del method, params, generation
+        raise SandboxProtocolError("synthetic close failure")
+
+    monkeypatch.setattr(client, "_request", fail_close_request)
+
+    await client.close()
+
+    assert isinstance(reader_task.exception(), RuntimeError)
+    assert stderr_task.cancelled()
+    assert client._sidecar is None
+    assert client._reader_task is None
+    assert client._stderr_task is None
+    assert client._processes == {}
+    assert client._pending == {}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tool", ("shell_command", "exec_command"))
+async def test_unknown_outcome_is_fail_closed_for_both_command_entries(
+    tmp_path,
+    monkeypatch,
+    tool: str,
+) -> None:
+    """验证结果未知不会自动重试到宿主进程或完整权限执行。"""
+    layout = ApplicationLayout(
+        mode="source",
+        platform="win32",
+        executable=tmp_path / "mind.py",
+        root=tmp_path,
+        supports=tmp_path / "schematic" / "supports" / "windows",
+    )
+    coding = create_workspace_coding(
+        root=tmp_path,
+        application_layout=layout,
+        network_access="enabled",
+    )
+    client = coding._process_sessions._sandbox_client
+    assert client is not None
+    spawn_count = [0]
+
+    async def uncertain_spawn(**_kwargs):
+        spawn_count[0] += 1
+        logical_process = SidecarProcess(
+            client,
+            f"sandbox-unknown-{spawn_count[0]}",
+        )
+        logical_process.finish(-1, outcome_unknown=True)
+        return logical_process
+
+    host_spawn = AsyncMock(
+        side_effect=AssertionError("host process fallback is forbidden"),
+    )
+    monkeypatch.setattr(client, "spawn", uncertain_spawn)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", host_spawn)
+    try:
+        execute = getattr(coding, tool)
+        result = await execute(
+            command="Write-Output side-effect",
+            sandbox_mode="workspace-read",
+        )
+    finally:
+        await coding.close()
+
+    assert result["ok"] is False
+    assert result["data"]["reason"] == "execution_outcome_unknown"
+    assert result["data"]["execution_outcome_unknown"] is True
+    assert spawn_count[0] == 1
+    host_spawn.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_sidecar_thousand_process_soak_keeps_resources_bounded(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """验证一千次短命令后表、句柄和内存保持有界。"""
+    client = _fake_startable_client(tmp_path)
+    client._sidecar_generation = 1
+    client._generation = 1
+
+    async def already_started() -> None:
+        return None
+
+    process_number = [0]
+
+    async def spawn_response(
+        method: str,
+        params,
+        *,
+        generation: int | None = None,
+    ) -> dict[str, str]:
+        del params
+        assert method == "spawn"
+        assert generation == 1
+        process_number[0] += 1
+        return {"process_id": f"sandbox-soak-{process_number[0]}"}
+
+    monkeypatch.setattr(client, "ensure_started", already_started)
+    monkeypatch.setattr(client, "_request", spawn_response)
+    handle_count_before = _process_handle_count()
+    gc.collect()
+    tracemalloc.start()
+    memory_before, _ = tracemalloc.get_traced_memory()
+
+    for _ in range(1000):
+        logical_process = await client.spawn(
+            argv=("short-command",),
+            cwd=tmp_path,
+            env={},
+            sandbox_mode="workspace-read",
+            stdin_open=False,
+        )
+        exit_event = client._decode_process_event({
+            "event": "exit",
+            "process_id": logical_process.process_id,
+            "exit_code": 0,
+        }, "exit")
+        client._handle_process_event(exit_event, generation=1)
+        assert await logical_process.wait() == 0
+
+    gc.collect()
+    memory_after, memory_peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    handle_count_after = _process_handle_count()
+
+    assert process_number[0] == 1000
+    assert client._processes == {}
+    assert client._pending == {}
+    assert client._early_events == {}
+    assert client._early_event_count == 0
+    assert client._early_event_bytes == 0
+    assert len(client._completed_processes) <= client.COMPLETED_PROCESS_LIMIT
+    assert memory_after - memory_before < 512 * 1024
+    assert memory_peak - memory_before < 2 * 1024 * 1024
+    if handle_count_before is not None and handle_count_after is not None:
+        assert handle_count_after - handle_count_before <= 4

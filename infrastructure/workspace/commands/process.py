@@ -584,6 +584,11 @@ class ProcessCommandExecutor(WorkspaceComponent):
             exit_code = session.process.returncode
             status = "exited" if exit_code is not None else "running"
 
+        execution_outcome_unknown = (
+            isinstance(session.process, SidecarProcess)
+            and session.process.execution_outcome_unknown
+        )
+
         output_truncated = len(output_text) > output_limit
         stdout_truncated = len(stdout_text) > output_limit
         stderr_truncated = len(stderr_text) > output_limit
@@ -622,6 +627,8 @@ class ProcessCommandExecutor(WorkspaceComponent):
             "stderr_dropped": dropped_stderr,
         }
         data.update(extra or {})
+        if execution_outcome_unknown:
+            data["execution_outcome_unknown"] = True
 
         if session.finalized:
             data["shell_file_changes"] = self._final_file_changes(session)
@@ -633,8 +640,15 @@ class ProcessCommandExecutor(WorkspaceComponent):
             and str(data.get("control") or "") in {"interrupt", "terminate", "kill"}
         )
 
-        if not controlled_stop and (exit_code not in (None, 0) or timed_out):
-            data["reason"] = "command_timed_out" if timed_out else "command_failed"
+        if execution_outcome_unknown or (
+            not controlled_stop and (exit_code not in (None, 0) or timed_out)
+        ):
+            if execution_outcome_unknown:
+                data["reason"] = "execution_outcome_unknown"
+            else:
+                data["reason"] = (
+                    "command_timed_out" if timed_out else "command_failed"
+                )
             self.core.enrich_failure_facts(data)
 
         return data

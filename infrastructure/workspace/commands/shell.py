@@ -24,6 +24,7 @@ from infrastructure.platform.process_sessions import (
 from infrastructure.platform.processes import wait_for_process
 from infrastructure.platform.sandbox import (
     SandboxError,
+    SidecarProcess,
     sandbox_backend_name,
 )
 from infrastructure.platform.shell_runtime import ShellRuntimeResolver
@@ -512,8 +513,18 @@ class ShellCommandExecutor(WorkspaceComponent):
             "output_lines": list(decoded_output.output_lines)
         }
 
+        if capture.execution_outcome_unknown:
+            data["execution_outcome_unknown"] = True
+
         if not ok:
-            data["reason"] = "command_timed_out" if capture.timed_out else "command_failed"
+            if capture.execution_outcome_unknown:
+                data["reason"] = "execution_outcome_unknown"
+            else:
+                data["reason"] = (
+                    "command_timed_out"
+                    if capture.timed_out
+                    else "command_failed"
+                )
             self.core.enrich_failure_facts(data)
 
         self._record_shell_result(data)
@@ -588,6 +599,10 @@ class ShellCommandExecutor(WorkspaceComponent):
                 stderr_dropped=output.stderr_dropped,
                 timed_out=timed_out,
                 elapsed_ms=int((time.perf_counter() - started) * 1000),
+                execution_outcome_unknown=(
+                    isinstance(session.process, SidecarProcess)
+                    and session.process.execution_outcome_unknown
+                ),
             )
         finally:
             self._sessions.remove(session.session_id)
