@@ -11,8 +11,11 @@ from agent.application.turns.durable_queue import (
     DurableQueueSubmissionResult,
 )
 from agent.application.turns.commands import RemoteTurnRecovery
+from agent.application.turns.commands import SessionRecoveryResult
 from agent.application.turns.observation import TurnObservationCallbacks
+from agent.application.turns.reviews import create_review_command
 from agent.application.turns.run_result import RunResult
+from agent.adapters.protocol.client import MindChatProtocolClient
 from agent.domain import RecoveryAction
 from agent.domain import RunStatus
 from agent.domain.policies import preset_permissions
@@ -36,6 +39,10 @@ from frontends.tui.session.dispatch import DispatchAction
 from frontends.tui.session.dispatch import TuiCommandDispatcher
 from frontends.tui.core.runtime import TuiRuntime
 from protocol.schema.stream_events import TurnCompletedEvent
+from protocol.schema.review import (
+    ClientReviewWorkspace,
+    ReviewCustomTarget,
+)
 
 
 def _request() -> ModelStreamRequest:
@@ -437,6 +444,172 @@ async def test_cold_run_recovery_replays_without_resubmitting_user_message(
     observe_turn_mock.assert_awaited_once()
     resolve_recovery.assert_awaited_once_with(recovery, result)
     runtime.append_submitted_query.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_cold_review_recovery_uses_review_observer_without_resubmit(
+    monkeypatch,
+) -> None:
+    """确保 Review 冷恢复不进入只接受聊天请求的普通恢复器。"""
+    command = create_review_command(
+        local_session_id="tui_review_session_0001",
+        cid="cid_demo_12345678",
+        sid="sid_demo_x_abcdef",
+        turn_id="turn_review_01",
+        target=ReviewCustomTarget("Focus on lifecycle correctness."),
+        workspace=ClientReviewWorkspace.create(),
+        llm_conf={},
+        environment_snapshot=None,
+    )
+    snapshot = RunSnapshot(
+        command=command,
+        status=RunStatus.RECONCILIATION_REQUIRED,
+        sequence=3,
+        snapshot_version=1,
+        effect_id="",
+        effect_status="reconciliation_required",
+        recovery_action=RecoveryAction.RECONCILE,
+        updated_at="2026-09-08T00:00:00Z",
+    )
+    recovery = RemoteTurnRecovery(
+        snapshot=snapshot,
+        request=command.request,
+        replay_target_seq=3,
+    )
+    runtime = _QueueTurnRuntime()
+    result = RunResult(status="completed", assistant_text="No findings.")
+
+    async def observe_review(request, **kwargs):
+        kwargs["on_event"](TurnCompletedEvent(
+            type="turn.completed",
+            cid=request.cid,
+            sid=request.sid,
+            turn_id=request.turn_id,
+            event_seq=3,
+            status="completed",
+            last_event_seq=3,
+            completed_at=1.0,
+        ))
+        return result
+
+    review_observer = AsyncMock(side_effect=observe_review)
+    monkeypatch.setattr(
+        session_loop,
+        "run_observed_review_turn",
+        review_observer,
+    )
+    chat_observer = AsyncMock()
+    host = SimpleNamespace(
+        frontend=SimpleNamespace(application=SimpleNamespace(emit=Mock())),
+        workspace_runtime=SimpleNamespace(
+            coding=SimpleNamespace(reset_patch_diff=Mock()),
+        ),
+        lifecycle=SimpleNamespace(
+            stop_event=asyncio.Event(),
+            request_stop=Mock(),
+        ),
+        observe_recovered_turn=chat_observer,
+    )
+    turn_application = SimpleNamespace(
+        resolve_observed_recovery=AsyncMock(),
+    )
+
+    async def execute_observer(_application, _runtime, turn, **_kwargs):
+        return await turn
+
+    monkeypatch.setattr(session_loop, "execute_tui_model_turn", execute_observer)
+
+    outcome = await session_loop._execute_tui_recovered_turn(
+        host,
+        runtime,
+        SimpleNamespace(),
+        turn_application,
+        MindChatProtocolClient(),
+        recovery,
+        dispatcher=None,
+    )
+
+    assert outcome.settled is True
+    review_observer.assert_awaited_once()
+    assert review_observer.await_args.kwargs["replay_target_seq"] == 3
+    assert review_observer.await_args.kwargs["hint"] == (
+        "Focus on lifecycle correctness."
+    )
+    chat_observer.assert_not_awaited()
+    turn_application.resolve_observed_recovery.assert_awaited_once_with(
+        recovery,
+        result,
+    )
+
+
+@pytest.mark.anyio
+async def test_queued_review_recovery_redispatches_exact_frozen_command(
+    monkeypatch,
+) -> None:
+    """确保网络前退出后由原 Review Command 继续执行。"""
+    command = create_review_command(
+        local_session_id="tui_review_session_0001",
+        cid="cid_demo_12345678",
+        sid="sid_demo_x_abcdef",
+        turn_id="turn_review_01",
+        target=ReviewCustomTarget("Focus on lifecycle correctness."),
+        workspace=ClientReviewWorkspace.create(),
+        llm_conf={},
+        environment_snapshot=None,
+    )
+    pending = RunSnapshot(
+        command=command,
+        status=RunStatus.QUEUED,
+        sequence=1,
+        snapshot_version=1,
+        effect_id="",
+        effect_status="",
+        recovery_action=RecoveryAction.REDISPATCH,
+        updated_at="2026-09-08T00:00:00Z",
+    )
+    reconcile = AsyncMock(side_effect=(
+        SessionRecoveryResult(
+            pending=(pending,),
+            restore_commands=(),
+            resolved_run_ids=(),
+            redispatch_reviews=(command,),
+        ),
+        SessionRecoveryResult((), (), ()),
+    ))
+    turn_application = SimpleNamespace(reconcile_remote_session=reconcile)
+    execute_review = AsyncMock(return_value=session_loop._TurnExecutionOutcome(
+        settled=True,
+        exit_requested=False,
+    ))
+    monkeypatch.setattr(
+        session_loop,
+        "_execute_tui_review_command",
+        execute_review,
+    )
+    runtime = _QueueTurnRuntime()
+    host = SimpleNamespace(
+        lifecycle=SimpleNamespace(stop_event=asyncio.Event()),
+    )
+    protocol_client = MindChatProtocolClient()
+
+    ready = await session_loop._await_durable_session_recovery(
+        host,
+        runtime,
+        SimpleNamespace(),
+        SimpleNamespace(emit=Mock()),
+        turn_application,
+        protocol_client,
+        session_id=command.session_id,
+        review_capability=protocol_client,
+    )
+
+    assert ready is True
+    execute_review.assert_awaited_once()
+    assert execute_review.await_args.args[6] == command
+    assert execute_review.await_args.kwargs["hint"] == (
+        "Focus on lifecycle correctness."
+    )
+    assert reconcile.await_count == 2
 
 
 @pytest.mark.anyio

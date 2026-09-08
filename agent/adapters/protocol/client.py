@@ -456,6 +456,44 @@ class MindChatProtocolClient:
         on_approval_snapshot: ApprovalSnapshotCallback | None = None,
     ) -> ModelEventStream:
         """只通过 attach 观察已经由独立命令提交的 Turn。"""
+        return self._observe_registered_turn(
+            request,
+            on_recovery_status=on_recovery_status,
+            on_approval_snapshot=on_approval_snapshot,
+        )
+
+    def observe_review(
+        self,
+        request: ReviewStreamRequest,
+        *,
+        after_event_seq: int | None = None,
+        replay_target_seq: int | None = None,
+        on_recovery_status: RecoveryStatusCallback | None = None,
+    ) -> ModelEventStream:
+        """只通过 attach/replay 观察已登记 Review 并恢复严格校验。"""
+        if not isinstance(request, ReviewStreamRequest):
+            raise TypeError("review observation request is required")
+        return self._observe_registered_turn(
+            TurnObservationRequest(
+                cid=request.cid,
+                sid=request.sid,
+                turn_id=request.turn_id,
+                after_event_seq=after_event_seq,
+                replay_target_seq=replay_target_seq,
+            ),
+            on_recovery_status=on_recovery_status,
+            event_validator=ReviewStreamValidator(request),
+        )
+
+    def _observe_registered_turn(
+        self,
+        request: TurnObservationRequest,
+        *,
+        on_recovery_status: RecoveryStatusCallback | None = None,
+        on_approval_snapshot: ApprovalSnapshotCallback | None = None,
+        event_validator: _ModelEventValidator | None = None,
+    ) -> ModelEventStream:
+        """建立共享 attach/replay 流并应用调用方声明的事件校验器。"""
         try:
             item_reducer = CanonicalItemReducer(
                 cid=request.cid,
@@ -517,6 +555,7 @@ class MindChatProtocolClient:
             turn_id=request.turn_id,
             event_cursors=self._event_cursors,
             item_reducer=item_reducer,
+            event_validator=event_validator,
             on_close=lambda: self._active_streams.pop(identity, None),
         )
         self._active_streams[identity] = model_stream

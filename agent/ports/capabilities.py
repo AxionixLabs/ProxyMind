@@ -471,6 +471,26 @@ class ReviewCapability(typing.Protocol):
 
 
 @typing.runtime_checkable
+class ReviewObservationCapability(typing.Protocol):
+    """只观察已经登记且持有完整冻结语义的 Review Turn。
+
+    调用方拥有冻结请求和 replay 水位；实现方只拥有返回流的传输生命周期，首个
+    网络动作必须是 attach/replay，且不得重新登记 Review 或改变请求身份。
+    """
+
+    def observe_review(
+        self,
+        request: ReviewStreamRequest,
+        *,
+        after_event_seq: int | None = None,
+        replay_target_seq: int | None = None,
+        on_recovery_status: RecoveryStatusCallback | None = None,
+    ) -> ModelEventStream:
+        """以 attach/replay 打开 Review 流，不得重新提交 Review 请求。"""
+        ...
+
+
+@typing.runtime_checkable
 class TurnObservationCapability(typing.Protocol):
     """观察已经由独立命令提交的远端 Turn。
 

@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -12,6 +13,7 @@ from agent.application.turns.run_result import RunResult
 from agent.harness.sessions.owner import SessionRuntimeOwner
 from agent.ports import (
     ModelCapabilityError,
+    ProtocolCommandClient,
     RunPersistenceConflict,
 )
 from agent.protocol import (
@@ -269,3 +271,33 @@ async def test_review_session_deduplicates_repeated_command() -> None:
 
     assert calls == ["execute"]
     assert duplicate_result.value is first_result.value
+
+
+@pytest.mark.anyio
+async def test_queued_review_recovery_preserves_exact_command_for_redispatch(
+    tmp_path: Path,
+) -> None:
+    """确保网络前退出不会把冻结 Review 降级成普通输入草稿。"""
+    store = SQLiteRunStore(tmp_path / "runtime.db")
+    command = _command()
+    await store.append_event(
+        command,
+        _event(command, 1, "run_queued", "queued"),
+    )
+    application: TurnApplication[RunResult] = TurnApplication(
+        store,
+        runtime_factory=SessionRuntimeOwner,
+    )
+    protocol_client = AsyncMock(spec=ProtocolCommandClient)
+
+    recovery = await application.reconcile_remote_session(
+        command.session_id,
+        protocol_client,
+    )
+    await application.close()
+
+    assert recovery.redispatch_reviews == (command,)
+    assert recovery.restore_commands == ()
+    assert recovery.resolved_run_ids == ()
+    assert recovery.pending[0].command == command
+    protocol_client.get_turn_status.assert_not_awaited()

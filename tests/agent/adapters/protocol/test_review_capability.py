@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from unittest.mock import Mock
 
 import pytest
 
@@ -14,6 +15,7 @@ from agent.adapters.protocol.client import (
 from agent.ports import (
     ModelCapabilityError,
     ReviewCapability,
+    ReviewObservationCapability,
 )
 from protocol.client.review import (
     ReviewRequestError,
@@ -180,8 +182,53 @@ async def test_review_capability_submits_then_validates_terminal_stream(
         "turn.completed",
     ]
     assert cursors.current(cid=CID, sid=SID) == 3
+    assert len(stream.canonical_items) == 1
+    assert stream.canonical_items[0].item_kind == "review"
+    assert stream.canonical_items[0].item_status == "completed"
     submitted_request = submit.await_args.args[0]
     assert submitted_request.request_payload() == _wire_request().request_payload()
+
+
+@pytest.mark.anyio
+async def test_review_observation_replays_without_resubmitting(
+    monkeypatch,
+) -> None:
+    """确保冷恢复只 attach/replay，并继续归约 Review Canonical Item。"""
+    local_request = build_review_stream_request(_wire_request())
+    observe = Mock(return_value=_ReviewWireStream(_events()))
+    submit = AsyncMock()
+    monkeypatch.setattr(review_adapter, "_observe_turn", observe)
+    monkeypatch.setattr(review_adapter, "_submit_review", submit)
+    client = MindChatProtocolClient()
+
+    stream = client.observe_review(
+        local_request,
+        after_event_seq=0,
+        replay_target_seq=3,
+    )
+    observed_items = []
+    delivered = []
+    async for event in stream:
+        delivered.append(event.type)
+        observed_items.append(
+            stream.current_item.item_id
+            if stream.current_item is not None
+            else None
+        )
+
+    assert isinstance(client, ReviewObservationCapability)
+    assert delivered == [
+        "review.started",
+        "review.completed",
+        "turn.completed",
+    ]
+    assert observed_items == [REVIEW_ITEM_ID, REVIEW_ITEM_ID, None]
+    assert stream.canonical_items[0].item_kind == "review"
+    assert stream.canonical_items[0].item_status == "completed"
+    observe.assert_called_once()
+    assert observe.call_args.kwargs["initial_event_seq"] == 0
+    assert observe.call_args.kwargs["replay_target_seq"] == 3
+    submit.assert_not_awaited()
 
 
 @pytest.mark.anyio

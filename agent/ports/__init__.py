@@ -34,6 +34,7 @@ from .capabilities import (
     ModelEventStream,
     ModelRequestFrozenCallback,
     ReviewCapability,
+    ReviewObservationCapability,
     ReviewRequestFrozenCallback,
     ProtocolCommandClient,
     ProtocolCommandError,

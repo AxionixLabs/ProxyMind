@@ -1,6 +1,6 @@
 # `/review` 分阶段对齐计划
 
-> 状态：实施中；阶段 0、1、2、3、4 门禁已通过。
+> 状态：实施中；阶段 0、1、2、3、4、5 门禁已通过。
 > 基准日期：2026-09-08。
 > 客户端基准：当前仓库 `codex-main/` 中的 `/review` 实现。
 > 服务端基准：`D:\PycharmProjects\AppServer` 当前提交
@@ -547,16 +547,22 @@ Git 命令字符串。
 责任目录：`protocol/schema/stream_events.py`、Canonical Item reducer、application presentation、
 TUI renderer。
 
-- [ ] 将 `item_kind=review` 纳入 Item 投影，使用稳定 `item_id + event_seq` 归约。
-- [ ] `review.started` 建立运行态和 hint；replay 不重复展示启动横幅。
-- [ ] `review.completed.output` 先严格解析为 `ReviewOutput`，再生成纯展示值。
-- [ ] 按第 2.6 节实现 explanation 和 findings 文本格式，不从 JSON 文本反向猜测。
-- [ ] `review.failed`、`review.cancelled` 和 `review.reconciliation_required` 进入独立投影。
-- [ ] 只有 `turn.completed` 释放生命周期；Review Item 完成不等于 Turn 完成。
-- [ ] active/audit revision、replay 去重、迟到事件和 terminal 冲突沿用现有 reducer 规则。
-- [ ] 覆盖无 finding、单 finding、多 finding、多行 body、路径/行号、失败、取消、reconciliation、replay 和断线恢复测试。
+- [x] 将 `item_kind=review` 纳入 Item 投影，使用稳定 `item_id + event_seq` 归约。
+- [x] `review.started` 建立运行态和 hint；replay 不重复展示启动横幅。
+- [x] `review.completed.output` 先严格解析为 `ReviewOutput`，再生成纯展示值。
+- [x] 按第 2.6 节实现 explanation 和 findings 文本格式，不从 JSON 文本反向猜测。
+- [x] `review.failed`、`review.cancelled` 和 `review.reconciliation_required` 进入独立投影。
+- [x] 只有 `turn.completed` 释放生命周期；Review Item 完成不等于 Turn 完成。
+- [x] active/audit revision、replay 去重、迟到事件和 terminal 冲突沿用现有 reducer 规则。
+- [x] 覆盖无 finding、单 finding、多 finding、多行 body、路径/行号、失败、取消、reconciliation、replay 和断线恢复测试。
 
 阶段门槛：最终 assistant 正文只从 active Review Item 派生，且重放不会产生重复可见内容。
+
+阶段 5 复核证据：`tests/agent` 771 项通过，`tests/frontends/tui` 1828 项通过、1 项按环境
+跳过。主动提交和冷恢复都由 `ProtocolModelEventStream` 的同一 Canonical Item reducer 投影；
+恢复使用独立 `ReviewObservationCapability`，首个网络动作只能是 attach/replay。网络前退出的
+queued Review 以原 `SubmitReviewCommand` 重派，不降级成普通 message；reconciliation 展示去重，
+只有匹配 Review 终态的 `turn.completed` 才解除本地恢复门。
 
 ### 阶段 6：端到端联调与发布收口
 

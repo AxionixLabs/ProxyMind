@@ -23,6 +23,7 @@ from agent.protocol import (
     RemoteStreamRequest,
     RunCommand,
     RunEvent,
+    SubmitReviewCommand,
     SubmitTurnCommand,
 )
 from agent.protocol.json_value import ThawedJsonValue
@@ -60,6 +61,7 @@ class SessionRecoveryResult:
     restore_commands: tuple[RunCommand, ...]
     resolved_run_ids: tuple[str, ...]
     observe_turns: tuple[RemoteTurnRecovery, ...] = ()
+    redispatch_reviews: tuple[SubmitReviewCommand, ...] = ()
 
 
 class TurnApplication(typing.Generic[ResultValue]):
@@ -159,8 +161,12 @@ class TurnApplication(typing.Generic[ResultValue]):
         restore_commands: list[RunCommand] = []
         resolved_run_ids: list[str] = []
         observe_turns: list[RemoteTurnRecovery] = []
+        redispatch_reviews: list[SubmitReviewCommand] = []
         for snapshot in recoveries:
             if snapshot.recovery_action is RecoveryAction.REDISPATCH:
+                if isinstance(snapshot.command, SubmitReviewCommand):
+                    redispatch_reviews.append(snapshot.command)
+                    continue
                 await self.resolve_recovery(
                     snapshot.command.run_id,
                     request_id=(
@@ -272,6 +278,7 @@ class TurnApplication(typing.Generic[ResultValue]):
             restore_commands=tuple(restore_commands),
             resolved_run_ids=tuple(resolved_run_ids),
             observe_turns=tuple(observe_turns),
+            redispatch_reviews=tuple(redispatch_reviews),
         )
 
     async def resolve_observed_recovery(
