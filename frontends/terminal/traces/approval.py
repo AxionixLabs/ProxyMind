@@ -79,6 +79,27 @@ def render_approval_trace_parts(
     return _approval_denied_parts(approval, source=source)
 
 
+def render_approval_failure_parts(
+    *,
+    subject: str,
+    outcome: str,
+    relation: str,
+    target: str,
+    suffix: str | None = None,
+) -> list[TextSpan]:
+    """按统一终端样式构造未通过审批的决策内容。"""
+    parts = [
+        TextSpan("✗ ", APPROVAL_DENIED_SYMBOL_STYLE),
+        TextSpan(subject),
+        TextSpan(outcome, APPROVAL_EMPHASIS_STYLE),
+        TextSpan(relation),
+        TextSpan(target, APPROVAL_TARGET_STYLE),
+    ]
+    if suffix is not None:
+        parts.append(TextSpan(suffix))
+    return parts
+
+
 def _approval_approved_parts(
     approval: dict[str, typing.Any],
     *,
@@ -136,39 +157,35 @@ def _approval_denied_parts(
 ) -> list[TextSpan]:
     """按 Codex 历史单元样式构造审批拒绝内容。"""
     summary = approval_summary(approval)
-    parts = [TextSpan("✗ ", APPROVAL_DENIED_SYMBOL_STYLE)]
     if source in {"hook", "policy"}:
         actor = "Hook " if source == "hook" else "Approval policy "
-        parts.extend([
-            TextSpan(actor),
-            TextSpan("denied", APPROVAL_EMPHASIS_STYLE),
-            TextSpan(" "),
-            TextSpan(summary, APPROVAL_TARGET_STYLE),
-        ])
-        return parts
+        return render_approval_failure_parts(
+            subject=actor,
+            outcome="denied",
+            relation=" ",
+            target=summary,
+        )
 
     verb = "call" if _is_mcp_approval(approval) else "run"
-    parts.extend([
-        TextSpan("You "),
-        TextSpan("did not approve", APPROVAL_EMPHASIS_STYLE),
-        TextSpan(f" {const.APP_NAME} to {verb} "),
-        TextSpan(summary, APPROVAL_TARGET_STYLE),
-    ])
-    return parts
+    return render_approval_failure_parts(
+        subject="You ",
+        outcome="did not approve",
+        relation=f" {const.APP_NAME} to {verb} ",
+        target=summary,
+    )
 
 
 def _approval_cancelled_parts(
     approval: dict[str, typing.Any],
 ) -> list[TextSpan]:
     """按审批历史样式构造用户取消内容。"""
-    return [
-        TextSpan("✗ ", APPROVAL_DENIED_SYMBOL_STYLE),
-        TextSpan("You "),
-        TextSpan("cancelled", APPROVAL_EMPHASIS_STYLE),
-        TextSpan(" "),
-        TextSpan(approval_summary(approval), APPROVAL_TARGET_STYLE),
-        TextSpan(" · turn was interrupted"),
-    ]
+    return render_approval_failure_parts(
+        subject="You ",
+        outcome="cancelled",
+        relation=" ",
+        target=approval_summary(approval),
+        suffix=" · turn was interrupted",
+    )
 
 
 def _trace_text(parts: list[TextSpan]) -> str:

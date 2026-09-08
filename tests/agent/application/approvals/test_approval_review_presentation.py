@@ -5,7 +5,11 @@ import pytest
 from agent.application.approvals.summary import approval_review_action_summary
 from agent.application.views import ApprovalReviewView
 from agent.application.views.builders.approval import build_approval_view
+from agent.ports.presentation import TextSpan
+from agent.ports.presentation import TextStyle
 from frontends.terminal.renderers.dispatch import render_presentation_view
+from frontends.terminal.semantic_styles import TerminalSemanticRole
+from frontends.terminal.semantic_styles import semantic_text_style
 
 
 @pytest.mark.parametrize(
@@ -85,7 +89,26 @@ def test_denied_review_renders_warning_and_action_record() -> None:
     assert tuple(block.plain_text for block in blocks) == (
         "⚠ Automatic approval review denied (risk: high): "
         "The request could send data outside the workspace.",
-        "• Request denied for mind to access https://example.com:443",
+        "✗ Request denied for mind to access https://example.com:443",
+    )
+    assert blocks[0].spans == (
+        TextSpan(
+            blocks[0].plain_text,
+            semantic_text_style(TerminalSemanticRole.ATTENTION),
+        ),
+    )
+    assert blocks[1].spans == (
+        TextSpan(
+            "✗ ",
+            semantic_text_style(TerminalSemanticRole.FAILURE),
+        ),
+        TextSpan("Request "),
+        TextSpan("denied", TextStyle(bold=True)),
+        TextSpan(" for "),
+        TextSpan(
+            "mind to access https://example.com:443",
+            TextStyle(dim=True),
+        ),
     )
 
 
@@ -95,7 +118,26 @@ def test_timed_out_review_uses_distinct_fail_closed_wording() -> None:
     assert tuple(block.plain_text for block in blocks) == (
         "⚠ Automatic approval review timed out while evaluating the requested "
         "approval.",
-        "• Review timed out before mind could access https://example.com:443",
+        "✗ Review timed out before mind could access https://example.com:443",
+    )
+    assert blocks[0].spans == (
+        TextSpan(
+            blocks[0].plain_text,
+            semantic_text_style(TerminalSemanticRole.ATTENTION),
+        ),
+    )
+    assert blocks[1].spans == (
+        TextSpan(
+            "✗ ",
+            semantic_text_style(TerminalSemanticRole.FAILURE),
+        ),
+        TextSpan("Review "),
+        TextSpan("timed out", TextStyle(bold=True)),
+        TextSpan(" before "),
+        TextSpan(
+            "mind could access https://example.com:443",
+            TextStyle(dim=True),
+        ),
     )
 
 

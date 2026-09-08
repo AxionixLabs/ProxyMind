@@ -11,7 +11,7 @@ from frontends.terminal.semantic_styles import (
     TerminalSemanticRole,
     semantic_text_style,
 )
-from frontends.terminal.styles import ERROR_STYLE
+from frontends.terminal.traces.approval import render_approval_failure_parts
 from metadata import const
 
 _WARNING_STYLE = semantic_text_style(TerminalSemanticRole.ATTENTION)
@@ -28,22 +28,26 @@ def render_approval_review_view(
             "⚠ Automatic approval review denied "
             f"(risk: {view.risk_level}): {view.rationale}"
         )
-        action = (
-            f"• Request denied for {const.APP_NAME} to "
-            f"{view.action_summary}"
+        action_parts = render_approval_failure_parts(
+            subject="Request ",
+            outcome="denied",
+            relation=" for ",
+            target=f"{const.APP_NAME} to {view.action_summary}",
         )
     else:
         warning = (
             "⚠ Automatic approval review timed out while evaluating "
             "the requested approval."
         )
-        action = (
-            f"• Review timed out before {const.APP_NAME} could "
-            f"{view.action_summary}"
+        action_parts = render_approval_failure_parts(
+            subject="Review ",
+            outcome="timed out",
+            relation=" before ",
+            target=f"{const.APP_NAME} could {view.action_summary}",
         )
     return (
         _review_block(warning, style=_WARNING_STYLE),
-        _review_block(action, style=ERROR_STYLE),
+        _review_action_block(action_parts),
     )
 
 
@@ -52,6 +56,15 @@ def _review_block(text: str, *, style: TextStyle) -> StyledBlock:
     return StyledBlock(
         plain_text=text,
         spans=(TextSpan(text, style),),
+        direct=True,
+    )
+
+
+def _review_action_block(spans: list[TextSpan]) -> StyledBlock:
+    """构建遵循统一审批决策样式的自动评审历史块。"""
+    return StyledBlock(
+        plain_text="".join(span.text for span in spans),
+        spans=tuple(spans),
         direct=True,
     )
 
