@@ -226,6 +226,10 @@ class RootTurnSessionPort(typing.Protocol):
         """返回根轮次使用的审批调用账本。"""
         ...
 
+    def snapshot(self) -> dict[str, str]:
+        """返回当前根会话已经绑定的远端身份快照。"""
+        ...
+
     async def fresh_pref_config(
         self,
         *,

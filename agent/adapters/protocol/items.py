@@ -333,6 +333,11 @@ class CanonicalItemReducer:
 
     def _response_position(self, event: ModelEvent) -> tuple[int, int]:
         """返回事件所属模型 round 和当前 provider attempt。"""
+        item_id = str(getattr(event, "item_id", "") or "").strip()
+        if getattr(event, "item_kind", None) == "review" and item_id:
+            review_state = self._active_item_state(item_id)
+            if review_state is not None:
+                return review_state.round_no, review_state.attempt
         raw_round = getattr(event, "round", None)
         round_no = 1 if raw_round is None else _positive_int(
             raw_round,
@@ -364,6 +369,8 @@ class CanonicalItemReducer:
             getattr(event, "supersedes_item_id", "") or ""
         ).strip()
         for state in self._items.values():
+            if state.item_kind == "review":
+                continue
             named = bool(supersedes_item_id) and (
                 state.item_id == supersedes_item_id
             )

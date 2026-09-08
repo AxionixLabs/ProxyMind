@@ -16,6 +16,10 @@ from agent.adapters.protocol.turn_source import (
     SubmittingTurnStreamSource,
     TurnStreamSource,
 )
+from agent.adapters.protocol.turn_projection import (
+    TurnEventProjection,
+    TurnProjectionCoordinator,
+)
 from agent.adapters.protocol.recovery_events import handle_stream_gap
 from agent.adapters.protocol.tool_dispatch import StreamToolDispatcher
 from agent.adapters.protocol.tool_events import ToolEventHandler
@@ -31,10 +35,7 @@ from agent.adapters.protocol.turn_interrupts import (
 from agent.adapters.protocol.turn_setup import prepare_stream_turn
 from agent.application.tools.execution import ToolExecutionAdapter
 from agent.application.turns.exception_text import friendly_exception_text
-from agent.application.turns.execution import (
-    TurnExecution,
-    create_continuation_execution,
-)
+from agent.application.turns.execution import TurnExecution
 from agent.application.turns.lifecycle import handle_lifecycle_event
 from agent.application.turns.presentation import (
     FailureProjectionMode,
@@ -47,7 +48,10 @@ from agent.application.turns.transcript import (
     record_turn_started,
 )
 from agent.harness.execution.turn_finalizer import StreamTurnFinalizer
-from agent.harness.execution.turn_runner import turn_continuation_count
+from agent.harness.execution.turn_continuation import (
+    resolve_turn_continuation,
+    turn_continuation_count,
+)
 from agent.harness.hooks.tool_lifecycle import ToolCallCoordinator
 from agent.harness.hooks.turn_lifecycle import (
     PromptHookBlockedError,
@@ -89,9 +93,6 @@ from protocol.schema.stream_events import (
 )
 from protocol.schema.turn_inputs import TurnInput
 
-MAX_STOP_CONTINUATIONS = 3
-
-
 async def stream_turn(
     session: McpSessionPort,
     pref_config: dict[str, typing.Any],
@@ -104,6 +105,7 @@ async def stream_turn(
     effect_journal_factory: EffectJournalFactory | None = None,
     tool_execution: ToolExecutionAdapter | None = None,
     session_factory: OutputSessionFactory | None = None,
+    event_projection: TurnEventProjection | None = None,
     **kwargs
 ) -> RunResult:
     """处理流式事件、工具调用和输出上报。"""
@@ -126,6 +128,7 @@ async def stream_turn(
         raise RuntimeError("effect journal factory is required")
     if not isinstance(tool_execution, ToolExecutionAdapter):
         raise RuntimeError("tool execution adapter is required")
+    command_projection = TurnProjectionCoordinator(event_projection)
 
     reentry_kwargs = prepared.continuation_kwargs
     ev_report = prepared.event_report
@@ -152,6 +155,7 @@ async def stream_turn(
         content=content,
         presentation=presentation,
         event_report=ev_report,
+        visible=command_projection.run_lifecycle_visible,
     )
 
     failed_tool_context: list[str] = []
@@ -224,6 +228,7 @@ async def stream_turn(
             session_state.remember_assistant_reply if turn_context.agent.depth == 0
             else None
         ),
+        output_visible=command_projection.assistant_output_visible,
     )
     turn_state_stores = [approval_ledger]
     permission_grants = turn_context.permission_grants
@@ -420,6 +425,9 @@ async def stream_turn(
             if await model_events.handle(event, projection=event_stream):
                 continue
 
+            if await command_projection.observe(event, event_stream.current_item):
+                continue
+
             if isinstance(event, ToolApprovalReviewEvent):
                 if approval_review_handler is None:
                     raise RuntimeError(
@@ -600,6 +608,7 @@ async def stream_turn(
             failure_phase,
             mode=FailureProjectionMode.PROJECTION_ONLY,
         )
+        await command_projection.failure(outcome)
 
     except LocalEffectReconciliationRequired as error:
         outcome.require_reconciliation(str(error))
@@ -614,6 +623,7 @@ async def stream_turn(
             "turn.reconciliation_required",
             effect_id=error.effect_id,
         )
+        await command_projection.failure(outcome, effect_id=error.effect_id)
 
     except PromptHookBlockedError as error:
         outcome.fail(
@@ -636,6 +646,7 @@ async def stream_turn(
             "turn.prompt_blocked",
             mode=FailureProjectionMode.PROJECTION_ONLY,
         )
+        await command_projection.failure(outcome)
 
     except ModelCapabilityError as error:
         if error.retryable or event_count > 0:
@@ -668,6 +679,7 @@ async def stream_turn(
         if output_session.is_open:
             await project_terminal_activity()
             await run_presentation.emit_failure(failure_phase)
+            await command_projection.failure(outcome)
 
     except asyncio.CancelledError:
         outcome.interrupt()
@@ -699,6 +711,7 @@ async def stream_turn(
         if output_session.is_open:
             await project_terminal_activity()
             await run_presentation.emit_failure("turn.failed")
+            await command_projection.failure(outcome)
 
     else:
         outcome.settle_stream()
@@ -708,6 +721,7 @@ async def stream_turn(
                 "turn.incomplete",
                 mode=FailureProjectionMode.PROJECTION_ONLY,
             )
+            await command_projection.failure(outcome)
 
         if outcome.is_completed and turn_context.agent.depth == 0:
             model_events.flush_pending()
@@ -739,6 +753,8 @@ async def stream_turn(
                 observe_exception("stream.model_close_failed", error)
             assistant_text = event_stream.assistant_text
 
+        assistant_text = command_projection.assistant_text(assistant_text)
+
         stream_end_reason = (
             getattr(event_stream, "end_reason", None)
             if event_stream is not None
@@ -756,41 +772,23 @@ async def stream_turn(
 
     result = outcome.build_result(assistant_text)
 
-    if stop_decision.should_continue and outcome.continuation_allowed:
-        continuation_count = turn_continuation_count(turn_execution)
-        if continuation_count >= MAX_STOP_CONTINUATIONS:
-            observe(
-                "hooks.stop.limit_reached",
-                level="WARNING",
-                turn_id=turn_context.turn_id,
-                continuation_count=continuation_count,
-                hook_keys=list(stop_decision.hook_keys),
-            )
-            return result
+    continuation = resolve_turn_continuation(
+        turn_execution,
+        outcome,
+        stop_decision,
+        source.continuation_capability,
+    )
+    if continuation is not None:
         return await stream_turn(
             session,
             pref_config,
             tools,
-            turn_execution=create_continuation_execution(
-                turn_execution,
-                stop_decision.continuation_prompt,
-                additional_context=stop_decision.additional_context,
-            ),
-            model_capability=source.continuation_capability,
+            turn_execution=continuation.execution,
+            model_capability=continuation.capability,
             protocol_client=protocol_client,
             effect_journal_factory=effect_journal_factory,
             tool_execution=tool_execution,
             **reentry_kwargs,
-        )
-
-    if stop_decision.should_continue:
-        observe(
-            "hooks.stop.continuation_denied",
-            level="WARNING",
-            turn_id=turn_context.turn_id,
-            outcome=outcome.status,
-            can_continue=outcome.can_continue,
-            stop_reason=outcome.terminal_meta.get("stop_reason"),
         )
 
     return result

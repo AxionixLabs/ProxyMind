@@ -45,6 +45,14 @@ from protocol.schema.review import (
 )
 
 
+def _review_tools():
+    """返回恢复测试使用的冻结只读工具目录。"""
+    return tuple({
+        "name": name,
+        "annotations": {"readOnlyHint": True},
+    } for name in ("shell_command", "exec_command", "write_stdin"))
+
+
 def _request() -> ModelStreamRequest:
     """创建一项可供 TUI 观察的冻结 Queue 请求。"""
     return ModelStreamRequest(
@@ -460,6 +468,7 @@ async def test_cold_review_recovery_uses_review_observer_without_resubmit(
         workspace=ClientReviewWorkspace.create(),
         pref_config={},
         environment_snapshot=None,
+        tools=_review_tools(),
     )
     snapshot = RunSnapshot(
         command=command,
@@ -479,8 +488,8 @@ async def test_cold_review_recovery_uses_review_observer_without_resubmit(
     runtime = _QueueTurnRuntime()
     result = RunResult(status="completed", assistant_text="No findings.")
 
-    async def observe_review(request, **kwargs):
-        kwargs["on_event"](TurnCompletedEvent(
+    async def observe_review(_pref_config, *, request, callbacks, **_kwargs):
+        callbacks.input_event(TurnCompletedEvent(
             type="turn.completed",
             cid=request.cid,
             sid=request.sid,
@@ -493,11 +502,6 @@ async def test_cold_review_recovery_uses_review_observer_without_resubmit(
         return result
 
     review_observer = AsyncMock(side_effect=observe_review)
-    monkeypatch.setattr(
-        session_loop,
-        "run_observed_review_turn",
-        review_observer,
-    )
     chat_observer = AsyncMock()
     host = SimpleNamespace(
         frontend=SimpleNamespace(application=SimpleNamespace(emit=Mock())),
@@ -519,14 +523,18 @@ async def test_cold_review_recovery_uses_review_observer_without_resubmit(
 
     monkeypatch.setattr(session_loop, "execute_tui_model_turn", execute_observer)
 
+    state = SimpleNamespace(
+        refresh_preferences=AsyncMock(return_value={}),
+    )
     outcome = await session_loop._execute_tui_recovered_turn(
         host,
         runtime,
-        SimpleNamespace(),
+        state,
         turn_application,
         MindChatProtocolClient(),
         recovery,
         dispatcher=None,
+        review_turn_runner=review_observer,
     )
 
     assert outcome.settled is True
@@ -556,6 +564,7 @@ async def test_queued_review_recovery_redispatches_exact_frozen_command(
         workspace=ClientReviewWorkspace.create(),
         pref_config={},
         environment_snapshot=None,
+        tools=_review_tools(),
     )
     pending = RunSnapshot(
         command=command,
@@ -601,11 +610,12 @@ async def test_queued_review_recovery_redispatches_exact_frozen_command(
         protocol_client,
         session_id=command.session_id,
         review_capability=protocol_client,
+        review_turn_runner=AsyncMock(),
     )
 
     assert ready is True
     execute_review.assert_awaited_once()
-    assert execute_review.await_args.args[6] == command
+    assert execute_review.await_args.args[5] == command
     assert execute_review.await_args.kwargs["hint"] == (
         "Focus on lifecycle correctness."
     )

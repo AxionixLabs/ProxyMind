@@ -15,10 +15,15 @@ from agent.ports import (
     ModelEventStream,
     ModelRequestFrozenCallback,
     RecoveryStatusCallback,
+    ReviewCapability,
+    ReviewObservationCapability,
     TranscriptSink,
     TurnObservationCapability,
 )
-from agent.protocol import TurnObservationRequest
+from agent.protocol import (
+    ReviewStreamRequest,
+    TurnObservationRequest,
+)
 
 
 @typing.runtime_checkable
@@ -30,7 +35,7 @@ class TurnStreamSource(typing.Protocol):
     """
 
     @property
-    def continuation_capability(self) -> ModelCapability:
+    def continuation_capability(self) -> ModelCapability | None:
         """返回 Stop continuation 创建新 Turn 使用的模型能力。"""
         ...
 
@@ -257,6 +262,177 @@ class ObservingTurnStreamSource:
             on_recovery_status=on_recovery_status,
             on_approval_snapshot=on_approval_snapshot,
         )
+
+
+class SubmittingReviewTurnStreamSource:
+    """登记冻结 Review 请求并把确认后的事件流交给共享 Turn 生命周期。"""
+
+    def __init__(
+        self,
+        capability: ReviewCapability,
+        request: ReviewStreamRequest,
+    ) -> None:
+        """绑定 Review 登记能力和不可变请求。"""
+        if not isinstance(capability, ReviewCapability):
+            raise RuntimeError("review capability is required")
+        if not isinstance(request, ReviewStreamRequest):
+            raise TypeError("review stream request is required")
+        self._capability = capability
+        self._request = request
+
+    @property
+    def continuation_capability(self) -> ModelCapability | None:
+        """Review 终态不允许 Stop Hook 创建普通模型续轮。"""
+        return None
+
+    @property
+    def records_local_start(self) -> bool:
+        """新登记 Review 必须写入本地 Turn 起始记录。"""
+        return True
+
+    @property
+    def initial_wait_visible(self) -> bool:
+        """Review 登记和首个事件等待期间显示模型等待。"""
+        return True
+
+    @property
+    def historical_replay_target_seq(self) -> int | None:
+        """新登记 Review 不包含历史重放前缀。"""
+        return None
+
+    async def prepare(
+        self,
+        hook_events: TurnHookEvents,
+        transcript: TranscriptSink,
+        message: str,
+        options: dict[str, typing.Any],
+    ) -> str:
+        """Review 请求已冻结，不运行普通 UserPromptSubmit Hook。"""
+        del hook_events, transcript, options
+        return message
+
+    async def open(
+        self,
+        context: TurnContext,
+        *,
+        pref_config: dict[str, typing.Any],
+        message: str,
+        tools: list[dict[str, typing.Any]],
+        options: dict[str, typing.Any],
+        on_recovery_status: RecoveryStatusCallback,
+        on_approval_snapshot: ApprovalSnapshotCallback,
+    ) -> ModelEventStream:
+        """登记同一坐标的 Review 并返回服务端确认后的事件流。"""
+        del pref_config, message, tools, options
+        _require_review_context(context, self._request)
+        return await self._capability.review(
+            self._request,
+            on_recovery_status=on_recovery_status,
+            on_approval_snapshot=on_approval_snapshot,
+        )
+
+
+class ObservingReviewTurnStreamSource:
+    """只 attach 已登记 Review，并保留共享事件泵的历史水位语义。"""
+
+    def __init__(
+        self,
+        capability: ReviewObservationCapability,
+        request: ReviewStreamRequest,
+        *,
+        after_event_seq: int = 0,
+        replay_target_seq: int,
+        records_local_start: bool = True,
+    ) -> None:
+        """绑定冻结请求、观察能力和恢复时的权威事件水位。"""
+        if not isinstance(capability, ReviewObservationCapability):
+            raise RuntimeError("review observation capability is required")
+        if not isinstance(request, ReviewStreamRequest):
+            raise TypeError("review stream request is required")
+        for field_name, value in (
+            ("after_event_seq", after_event_seq),
+            ("replay_target_seq", replay_target_seq),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+            ):
+                raise ValueError(f"{field_name} must be non-negative")
+        if replay_target_seq < after_event_seq:
+            raise ValueError("replay target precedes observation cursor")
+        if not isinstance(records_local_start, bool):
+            raise TypeError("records_local_start must be boolean")
+        self._capability = capability
+        self._request = request
+        self._after_event_seq = after_event_seq
+        self._replay_target_seq = replay_target_seq
+        self._records_local_start = records_local_start
+
+    @property
+    def continuation_capability(self) -> ModelCapability | None:
+        """Review attach 完成后不允许创建普通模型续轮。"""
+        return None
+
+    @property
+    def records_local_start(self) -> bool:
+        """返回本次恢复是否还需补写本地 Turn 起始记录。"""
+        return self._records_local_start
+
+    @property
+    def initial_wait_visible(self) -> bool:
+        """历史重放阶段静默归约，追平后才展示等待。"""
+        return self._replay_target_seq <= self._after_event_seq
+
+    @property
+    def historical_replay_target_seq(self) -> int | None:
+        """返回 attach 建立时冻结的权威历史事件水位。"""
+        return self._replay_target_seq
+
+    async def prepare(
+        self,
+        hook_events: TurnHookEvents,
+        transcript: TranscriptSink,
+        message: str,
+        options: dict[str, typing.Any],
+    ) -> str:
+        """恢复路径不重复运行普通提交 Hook。"""
+        del hook_events, transcript, options
+        return message
+
+    async def open(
+        self,
+        context: TurnContext,
+        *,
+        pref_config: dict[str, typing.Any],
+        message: str,
+        tools: list[dict[str, typing.Any]],
+        options: dict[str, typing.Any],
+        on_recovery_status: RecoveryStatusCallback,
+        on_approval_snapshot: ApprovalSnapshotCallback,
+    ) -> ModelEventStream:
+        """只按冻结身份和水位打开 Review attach/replay 流。"""
+        del pref_config, message, tools, options, on_approval_snapshot
+        _require_review_context(context, self._request)
+        return self._capability.observe_review(
+            self._request,
+            after_event_seq=self._after_event_seq,
+            replay_target_seq=self._replay_target_seq,
+            on_recovery_status=on_recovery_status,
+        )
+
+
+def _require_review_context(
+    context: TurnContext,
+    request: ReviewStreamRequest,
+) -> None:
+    """确认共享 Turn 上下文没有改变冻结 Review 的远端身份。"""
+    if (
+        context.cid != request.cid
+        or context.sid != request.sid
+        or context.turn_id != request.turn_id
+    ):
+        raise ValueError("review request does not match turn context")
 
 
 if __name__ == '__main__':

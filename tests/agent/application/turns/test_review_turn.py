@@ -1,42 +1,45 @@
 # -*- coding: utf-8 -*-
 
-from collections.abc import AsyncIterator
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from agent.adapters.protocol.items import CanonicalItemReducer
+from agent.adapters.protocol.review_events import ReviewEventProjector
+from agent.adapters.protocol.turn_source import (
+    ObservingReviewTurnStreamSource,
+    SubmittingReviewTurnStreamSource,
+)
 from agent.application.turns.reviews import (
     create_review_command,
-    run_observed_review_turn,
-    run_review_turn,
+    discover_review_tools,
+    review_request_hint,
+    review_target_hint,
+    review_wire_tools,
 )
-from agent.ports import ModelCapabilityError
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,
     Viewport,
 )
-from agent.protocol import (
-    CanonicalItem,
-    ReviewStreamRequest,
-)
 from protocol.schema.review import (
     ClientReviewWorkspace,
+    ReviewBaseBranchTarget,
     ReviewCodeLocation,
+    ReviewCommitTarget,
     ReviewCustomTarget,
     ReviewFinding,
     ReviewLineRange,
     ReviewOutput,
+    ReviewUncommittedTarget,
 )
 from protocol.schema.stream_events import (
-    MarkerEvent,
     ReviewCancelledEvent,
     ReviewCompletedEvent,
     ReviewFailedEvent,
     ReviewReconciliationRequiredEvent,
     ReviewStartedEvent,
-    StreamEvent,
-    TurnCompletedEvent,
 )
 
 CID = "cid_demo_12345678"
@@ -59,120 +62,88 @@ class _Sink(ApplicationSink):
         self.views.append(view)
 
 
-class _Stream:
-    """按正式 reducer 顺序交付 Review 事件。"""
-
-    def __init__(self, events: tuple[StreamEvent, ...]) -> None:
-        self._events = events
-        self._reducer = CanonicalItemReducer(
-            cid=CID,
-            sid=SID,
-            turn_id=TURN_ID,
-        )
-        self.current_item: CanonicalItem | None = None
-        self.end_reason = None
-        self.last_event_seq = 0
-        self.closed = False
-
-    def __aiter__(self) -> AsyncIterator[StreamEvent]:
-        return self._iterate()
-
-    async def _iterate(self) -> AsyncIterator[StreamEvent]:
-        for event in self._events:
-            self.current_item = self._reducer.apply(event)
-            self.last_event_seq = event.event_seq or self.last_event_seq
-            yield event
-
-    async def aclose(self) -> None:
-        self.closed = True
-
-
-class _Capability:
-    """返回预置 Review 事件流。"""
-
-    def __init__(self, stream: _Stream) -> None:
-        self.stream = stream
-        self.request: ReviewStreamRequest | None = None
-
-    async def review(self, request: ReviewStreamRequest) -> _Stream:
-        self.request = request
-        return self.stream
-
-
-class _ObservationCapability:
-    """记录只观察 Review 时使用的 replay 水位。"""
-
-    def __init__(self, stream: _Stream) -> None:
-        self.stream = stream
-        self.request: ReviewStreamRequest | None = None
-        self.after_event_seq: int | None = None
-        self.replay_target_seq: int | None = None
-
-    def observe_review(
-        self,
-        request: ReviewStreamRequest,
-        *,
-        after_event_seq: int | None = None,
-        replay_target_seq: int | None = None,
-        on_recovery_status=None,
-    ) -> _Stream:
-        self.request = request
-        self.after_event_seq = after_event_seq
-        self.replay_target_seq = replay_target_seq
-        return self.stream
-
-
-class _RejectedCapability:
-    """在远端明确拒绝登记时返回稳定能力错误。"""
-
-    async def review(self, _request: ReviewStreamRequest) -> _Stream:
-        """模拟可重试但提交结果确定的服务端拒绝。"""
-        raise ModelCapabilityError(
-            "runtime_unavailable",
-            "Review service is temporarily unavailable.",
-            retryable=True,
-            details={"submission_unknown": False},
-        )
-
-
-class _DisconnectedStream:
-    """模拟已登记 Review 在首项事件前失去观察连接。"""
+class _ReviewCapability:
+    """记录 Review source 的提交参数。"""
 
     def __init__(self) -> None:
-        self.current_item: CanonicalItem | None = None
-        self.end_reason = "fatal"
-        self.last_event_seq = 0
-        self.closed = False
-
-    def __aiter__(self) -> "_DisconnectedStream":
-        """返回自身作为失败的异步迭代器。"""
-        return self
-
-    async def __anext__(self) -> StreamEvent:
-        """在尚未交付事件时报告连接失败。"""
-        raise ModelCapabilityError(
-            "model_transport_error",
-            "connection lost",
-            retryable=True,
-        )
-
-    async def aclose(self) -> None:
-        """记录失败观察流已关闭。"""
-        self.closed = True
-
-
-class _DisconnectedCapability:
-    """返回已经确认登记的失败观察流。"""
-
-    def __init__(self, stream: _DisconnectedStream) -> None:
-        self.stream = stream
+        self.calls = []
+        self.stream = SimpleNamespace()
 
     async def review(
         self,
-        _request: ReviewStreamRequest,
-    ) -> _DisconnectedStream:
-        """模拟登记回执成功后才发生的观察失败。"""
+        request,
+        *,
+        on_recovery_status=None,
+        on_approval_snapshot=None,
+    ):
+        self.calls.append((request, on_recovery_status, on_approval_snapshot))
         return self.stream
+
+
+class _ReviewObserver:
+    """记录 Review source 的 attach 参数。"""
+
+    def __init__(self) -> None:
+        self.calls = []
+        self.stream = SimpleNamespace()
+
+    def observe_review(
+        self,
+        request,
+        *,
+        after_event_seq=None,
+        replay_target_seq=None,
+        on_recovery_status=None,
+    ):
+        self.calls.append((
+            request,
+            after_event_seq,
+            replay_target_seq,
+            on_recovery_status,
+        ))
+        return self.stream
+
+
+def _catalog():
+    return [
+        {
+            "name": name,
+            "description": name,
+            "inputSchema": {"type": "object"},
+            "meta": {
+                "client_builtin": True,
+                "domain": "coding",
+                "class": "shell",
+            },
+        }
+        for name in ("shell_command", "exec_command", "write_stdin")
+    ]
+
+
+def _tools():
+    return review_wire_tools(_catalog())
+
+
+def _command(*, target=None):
+    resolved_target = target or ReviewCustomTarget(
+        "Focus on lifecycle correctness."
+    )
+    workspace = (
+        ClientReviewWorkspace.create()
+        if isinstance(resolved_target, ReviewCustomTarget)
+        else ClientReviewWorkspace.create(patch="diff --git a/a b/a\n")
+    )
+    return create_review_command(
+        local_session_id="tui_session_01",
+        cid=CID,
+        sid=SID,
+        turn_id=TURN_ID,
+        target=resolved_target,
+        workspace=workspace,
+        pref_config={"primary": {"model": "test-model"}},
+        environment_snapshot={"platform": "test"},
+        tools=_tools(),
+    )
 
 
 def _output() -> ReviewOutput:
@@ -193,64 +164,59 @@ def _output() -> ReviewOutput:
     )
 
 
-def _events(*, include_turn_terminal: bool) -> tuple[StreamEvent, ...]:
-    target = ReviewCustomTarget("Focus on lifecycle correctness.")
-    workspace = ClientReviewWorkspace.create()
-    events: tuple[StreamEvent, ...] = (
-        MarkerEvent(
-            type="turn.started",
-            cid=CID,
-            sid=SID,
-            turn_id=TURN_ID,
-            event_seq=1,
-        ),
-        ReviewStartedEvent(
-            type="review.started",
-            proto="mind.chat",
-            cid=CID,
-            sid=SID,
-            turn_id=TURN_ID,
-            event_seq=2,
-            item_id=REVIEW_ITEM_ID,
-            item_kind="review",
+def _review_event(event_type: str):
+    common = {
+        "type": event_type,
+        "proto": "mind.chat",
+        "cid": CID,
+        "sid": SID,
+        "turn_id": TURN_ID,
+        "event_seq": 2 if event_type == "review.started" else 3,
+        "presentation_epoch": 1,
+        "item_id": REVIEW_ITEM_ID,
+        "item_kind": "review",
+        "review_item_id": REVIEW_ITEM_ID,
+    }
+    if event_type == "review.started":
+        return ReviewStartedEvent(
+            **common,
             item_status="in_progress",
-            review_item_id=REVIEW_ITEM_ID,
             status="in_progress",
-            target=target,
-            workspace_revision=workspace.revision,
+            target=ReviewCustomTarget("Focus on lifecycle correctness."),
+            workspace_revision=ClientReviewWorkspace.create().revision,
             prompt_version="mind-review/1",
-        ),
-        ReviewCompletedEvent(
-            type="review.completed",
-            proto="mind.chat",
-            cid=CID,
-            sid=SID,
-            turn_id=TURN_ID,
-            event_seq=3,
-            item_id=REVIEW_ITEM_ID,
-            item_kind="review",
+        )
+    if event_type == "review.completed":
+        return ReviewCompletedEvent(
+            **common,
             item_status="completed",
-            review_item_id=REVIEW_ITEM_ID,
             status="completed",
             output=_output(),
-        ),
+        )
+    if event_type == "review.failed":
+        return ReviewFailedEvent(
+            **common,
+            item_status="failed",
+            status="failed",
+            error="Review failed.",
+        )
+    if event_type == "review.cancelled":
+        return ReviewCancelledEvent(
+            **common,
+            item_status="cancelled",
+            status="cancelled",
+            reason="interrupted",
+        )
+    return ReviewReconciliationRequiredEvent(
+        **common,
+        item_status="reconciliation_required",
+        status="reconciliation_required",
+        effect_id="effect-review",
+        error="effect outcome is unknown",
     )
-    if not include_turn_terminal:
-        return events
-    return events + (TurnCompletedEvent(
-        type="turn.completed",
-        proto="mind.chat",
-        cid=CID,
-        sid=SID,
-        turn_id=TURN_ID,
-        event_seq=4,
-        status="completed",
-        last_event_seq=4,
-        completed_at=1.0,
-    ),)
 
 
-def test_create_review_command_projects_local_preferences_to_wire_llm_conf() -> None:
+def test_create_review_command_projects_only_wire_llm_fields_and_tools() -> None:
     command = create_review_command(
         local_session_id="tui_session_01",
         cid=CID,
@@ -269,14 +235,10 @@ def test_create_review_command_projects_local_preferences_to_wire_llm_conf() -> 
                 "base_url": "https://example.test/v1",
                 "reasoning_effort": "xhigh",
             },
-            "hosted_tools": {
-                "groups": {
-                    "perf_engine": False,
-                    "sandbox_cloud": False,
-                },
-            },
+            "hosted_tools": {"groups": {"sandbox_cloud": False}},
         },
         environment_snapshot=None,
+        tools=_tools(),
     )
 
     execution = command.request.to_dict()["execution"]
@@ -290,354 +252,175 @@ def test_create_review_command_projects_local_preferences_to_wire_llm_conf() -> 
             "reasoning_effort": "xhigh",
         },
     }
+    assert [tool["name"] for tool in execution["tools"]] == [
+        "exec_command",
+        "shell_command",
+        "write_stdin",
+    ]
+    assert all(
+        tool["annotations"] == {"readOnlyHint": True}
+        for tool in execution["tools"]
+    )
+    assert execution["hosted_tools"] is None
+
+
+def test_review_wire_tools_reject_missing_or_non_client_capabilities() -> None:
+    with pytest.raises(RuntimeError, match="shell_command"):
+        review_wire_tools(_catalog()[1:])
+
+    catalog = _catalog()
+    catalog[0]["meta"]["external"] = True
+    with pytest.raises(RuntimeError, match="shell_command"):
+        review_wire_tools(catalog)
 
 
 @pytest.mark.anyio
-async def test_review_turn_uses_canonical_output_and_turn_terminal() -> None:
-    stream = _Stream(_events(include_turn_terminal=True))
-    capability = _Capability(stream)
+async def test_discover_review_tools_uses_one_runtime_catalog() -> None:
+    runtime = SimpleNamespace(with_mcp_session=AsyncMock())
+
+    async def run_callback(pref_config, callback):
+        assert pref_config == {"primary": {"model": "test"}}
+        return await callback(SimpleNamespace(), _catalog())
+
+    runtime.with_mcp_session.side_effect = run_callback
+    tools = await discover_review_tools(
+        runtime,
+        {"primary": {"model": "test"}},
+    )
+
+    assert {tool["name"] for tool in tools} == {
+        "shell_command",
+        "exec_command",
+        "write_stdin",
+    }
+
+
+@pytest.mark.anyio
+async def test_review_sources_preserve_submit_and_attach_identity() -> None:
+    request = _command().request
+    context = SimpleNamespace(cid=CID, sid=SID, turn_id=TURN_ID)
+    recovery = AsyncMock()
+    approvals = AsyncMock()
+    submit_capability = _ReviewCapability()
+    submit = SubmittingReviewTurnStreamSource(submit_capability, request)
+
+    submitted = await submit.open(
+        context,
+        pref_config={},
+        message="review",
+        tools=[],
+        options={},
+        on_recovery_status=recovery,
+        on_approval_snapshot=approvals,
+    )
+
+    assert submitted is submit_capability.stream
+    assert submit_capability.calls == [(request, recovery, approvals)]
+    assert submit.records_local_start
+    assert submit.initial_wait_visible
+    assert submit.continuation_capability is None
+
+    observer = _ReviewObserver()
+    observed_source = ObservingReviewTurnStreamSource(
+        observer,
+        request,
+        after_event_seq=1,
+        replay_target_seq=4,
+    )
+    observed = await observed_source.open(
+        context,
+        pref_config={},
+        message="review",
+        tools=[],
+        options={},
+        on_recovery_status=recovery,
+        on_approval_snapshot=approvals,
+    )
+
+    assert observed is observer.stream
+    assert observer.calls == [(request, 1, 4, recovery)]
+    assert observed_source.historical_replay_target_seq == 4
+    assert not observed_source.initial_wait_visible
+
+
+@pytest.mark.anyio
+async def test_review_projector_uses_only_canonical_completed_output() -> None:
     sink = _Sink()
-    ends = []
-    command = create_review_command(
-        local_session_id="tui_session_01",
-        cid=CID,
-        sid=SID,
-        turn_id=TURN_ID,
-        target=ReviewCustomTarget("Focus on lifecycle correctness."),
-        workspace=ClientReviewWorkspace.create(),
-        pref_config={"primary": {"model": "test-model"}},
-        environment_snapshot={"platform": "test"},
+    replies = []
+    projector = ReviewEventProjector(
+        sink,
+        hint="current changes",
+        assistant_reply_sink=replies.append,
     )
+    reducer = CanonicalItemReducer(cid=CID, sid=SID, turn_id=TURN_ID)
+    started = _review_event("review.started")
+    completed = _review_event("review.completed")
 
-    result = await run_review_turn(
-        command.request,
-        command.environment_snapshot_value(),
-        capability=capability,
-        application=sink,
-        hint="Focus on lifecycle correctness.",
-        on_stream_end=ends.append,
-    )
+    assert await projector.observe(started, reducer.apply(started))
+    assert await projector.observe(completed, reducer.apply(completed))
 
-    assert result.status == "completed"
-    assert result.assistant_text == (
+    assert [view.type for view in sink.views] == [
+        "review.started",
+        "review.finished",
+        "review.completed",
+    ]
+    assert projector.assistant_text("raw reviewer JSON") == (
         "One lifecycle issue remains.\n\n"
         "Review comment:\n\n"
         "- Reject stale terminal — agent/runtime.py:10-12\n"
         "  The stale event can replace the active item."
     )
-    assert [view.type for view in sink.views] == [
-        "review.started",
-        "review.finished",
-        "review.completed",
-    ]
-    assert capability.request == command.request
-    assert ends == ["settled"]
-    assert stream.closed
-
-
-@pytest.mark.anyio
-async def test_review_turn_without_turn_terminal_requires_reconciliation() -> None:
-    stream = _Stream(_events(include_turn_terminal=False))
-    capability = _Capability(stream)
-    sink = _Sink()
-    ends = []
-    command = create_review_command(
-        local_session_id="tui_session_01",
-        cid=CID,
-        sid=SID,
-        turn_id=TURN_ID,
-        target=ReviewCustomTarget("Focus on lifecycle correctness."),
-        workspace=ClientReviewWorkspace.create(),
-        pref_config={},
-        environment_snapshot=None,
-    )
-
-    result = await run_review_turn(
-        command.request,
-        None,
-        capability=capability,
-        application=sink,
-        hint="Focus on lifecycle correctness.",
-        on_stream_end=ends.append,
-    )
-
-    assert result.status == "reconciliation_required"
-    assert sink.views[-1].type == "review.reconciliation_required"
-    assert ends == ["protocol_error"]
-    assert stream.closed
-
-
-@pytest.mark.anyio
-async def test_review_explicit_retryable_rejection_is_visible_failure() -> None:
-    """确保明确的 503 拒绝不会误报为提交结果未知。"""
-    sink = _Sink()
-    request = create_review_command(
-        local_session_id="tui_session_01",
-        cid=CID,
-        sid=SID,
-        turn_id=TURN_ID,
-        target=ReviewCustomTarget("Focus on lifecycle correctness."),
-        workspace=ClientReviewWorkspace.create(),
-        pref_config={},
-        environment_snapshot=None,
-    ).request
-
-    result = await run_review_turn(
-        request,
-        None,
-        capability=_RejectedCapability(),
-        application=sink,
-        hint="Focus on lifecycle correctness.",
-    )
-
-    assert result.status == "failed"
-    assert result.error_code == "runtime_unavailable"
-    assert [view.type for view in sink.views] == ["review.failed"]
-
-
-@pytest.mark.anyio
-async def test_review_disconnect_after_receipt_requires_reconciliation() -> None:
-    """确保已拿到登记回执后的首事件前断线仍保留恢复门禁。"""
-    stream = _DisconnectedStream()
-    sink = _Sink()
-    request = create_review_command(
-        local_session_id="tui_session_01",
-        cid=CID,
-        sid=SID,
-        turn_id=TURN_ID,
-        target=ReviewCustomTarget("Focus on lifecycle correctness."),
-        workspace=ClientReviewWorkspace.create(),
-        pref_config={},
-        environment_snapshot=None,
-    ).request
-
-    result = await run_review_turn(
-        request,
-        None,
-        capability=_DisconnectedCapability(stream),
-        application=sink,
-        hint="Focus on lifecycle correctness.",
-    )
-
-    assert result.status == "reconciliation_required"
-    assert result.error_code == "model_transport_error"
-    assert [view.type for view in sink.views] == [
-        "review.reconciliation_required",
-    ]
-    assert stream.closed
-
-
-@pytest.mark.anyio
-async def test_observed_review_reuses_projection_and_replay_identity() -> None:
-    stream = _Stream(_events(include_turn_terminal=True))
-    capability = _ObservationCapability(stream)
-    sink = _Sink()
-    request = create_review_command(
-        local_session_id="tui_session_01",
-        cid=CID,
-        sid=SID,
-        turn_id=TURN_ID,
-        target=ReviewCustomTarget("Focus on lifecycle correctness."),
-        workspace=ClientReviewWorkspace.create(),
-        pref_config={},
-        environment_snapshot=None,
-    ).request
-
-    result = await run_observed_review_turn(
-        request,
-        capability=capability,
-        application=sink,
-        hint="Focus on lifecycle correctness.",
-        replay_target_seq=4,
-    )
-
-    assert result.status == "completed"
-    assert capability.request == request
-    assert capability.after_event_seq == 0
-    assert capability.replay_target_seq == 4
-    assert [view.type for view in sink.views] == [
-        "review.started",
-        "review.finished",
-        "review.completed",
-    ]
-
-
-@pytest.mark.anyio
-async def test_review_reconciliation_terminal_is_presented_once() -> None:
-    target = ReviewCustomTarget("Focus on lifecycle correctness.")
-    workspace = ClientReviewWorkspace.create()
-    events: tuple[StreamEvent, ...] = (
-        ReviewStartedEvent(
-            type="review.started",
-            proto="mind.chat",
-            cid=CID,
-            sid=SID,
-            turn_id=TURN_ID,
-            event_seq=1,
-            item_id=REVIEW_ITEM_ID,
-            item_kind="review",
-            item_status="in_progress",
-            review_item_id=REVIEW_ITEM_ID,
-            status="in_progress",
-            target=target,
-            workspace_revision=workspace.revision,
-            prompt_version="mind-review/1",
-        ),
-        ReviewReconciliationRequiredEvent(
-            type="review.reconciliation_required",
-            proto="mind.chat",
-            cid=CID,
-            sid=SID,
-            turn_id=TURN_ID,
-            event_seq=2,
-            item_id=REVIEW_ITEM_ID,
-            item_kind="review",
-            item_status="reconciliation_required",
-            review_item_id=REVIEW_ITEM_ID,
-            status="reconciliation_required",
-            error="submission outcome is uncertain",
-            effect_id="effect_review_01",
-        ),
-    )
-    stream = _Stream(events)
-    sink = _Sink()
-
-    request = create_review_command(
-        local_session_id="tui_session_01",
-        cid=CID,
-        sid=SID,
-        turn_id=TURN_ID,
-        target=target,
-        workspace=workspace,
-        pref_config={},
-        environment_snapshot=None,
-    ).request
-
-    result = await run_review_turn(
-        request,
-        None,
-        capability=_Capability(stream),
-        application=sink,
-        hint="Focus on lifecycle correctness.",
-    )
-
-    assert result.status == "reconciliation_required"
-    assert [view.type for view in sink.views] == [
-        "review.started",
-        "review.reconciliation_required",
-    ]
+    assert replies == [projector.assistant_text("")]
+    assert not projector.assistant_output_visible
+    assert not projector.run_lifecycle_visible
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("review_terminal", "turn_status", "result_status", "view_type", "error"),
+    ("event_type", "expected"),
     (
-        (
-            ReviewFailedEvent(
-                type="review.failed",
-                proto="mind.chat",
-                cid=CID,
-                sid=SID,
-                turn_id=TURN_ID,
-                event_seq=2,
-                item_id=REVIEW_ITEM_ID,
-                item_kind="review",
-                item_status="failed",
-                review_item_id=REVIEW_ITEM_ID,
-                status="failed",
-                error="review worker failed",
-            ),
-            "failed",
-            "failed",
-            "review.failed",
-            "review worker failed",
-        ),
-        (
-            ReviewCancelledEvent(
-                type="review.cancelled",
-                proto="mind.chat",
-                cid=CID,
-                sid=SID,
-                turn_id=TURN_ID,
-                event_seq=2,
-                item_id=REVIEW_ITEM_ID,
-                item_kind="review",
-                item_status="cancelled",
-                review_item_id=REVIEW_ITEM_ID,
-                status="cancelled",
-                reason="interrupted",
-            ),
-            "cancelled",
-            "cancelled",
-            "review.cancelled",
-            None,
-        ),
+        ("review.failed", ["review.finished", "review.failed"]),
+        ("review.cancelled", ["review.finished", "review.cancelled"]),
+        ("review.reconciliation_required", ["review.reconciliation_required"]),
     ),
 )
-async def test_review_terminal_events_keep_distinct_presentations(
-    review_terminal: StreamEvent,
-    turn_status: str,
-    result_status: str,
-    view_type: str,
-    error: str | None,
+async def test_review_projector_preserves_distinct_terminal_views(
+    event_type: str,
+    expected: list[str],
 ) -> None:
-    target = ReviewCustomTarget("Focus on lifecycle correctness.")
-    workspace = ClientReviewWorkspace.create()
-    events: tuple[StreamEvent, ...] = (
-        ReviewStartedEvent(
-            type="review.started",
-            proto="mind.chat",
-            cid=CID,
-            sid=SID,
-            turn_id=TURN_ID,
-            event_seq=1,
-            item_id=REVIEW_ITEM_ID,
-            item_kind="review",
-            item_status="in_progress",
-            review_item_id=REVIEW_ITEM_ID,
-            status="in_progress",
-            target=target,
-            workspace_revision=workspace.revision,
-            prompt_version="mind-review/1",
-        ),
-        review_terminal,
-        TurnCompletedEvent(
-            type="turn.completed",
-            proto="mind.chat",
-            cid=CID,
-            sid=SID,
-            turn_id=TURN_ID,
-            event_seq=3,
-            status=turn_status,
-            last_event_seq=3,
-            completed_at=1.0,
-            error=error,
-        ),
-    )
-    request = create_review_command(
-        local_session_id="tui_session_01",
-        cid=CID,
-        sid=SID,
-        turn_id=TURN_ID,
-        target=target,
-        workspace=workspace,
-        pref_config={},
-        environment_snapshot=None,
-    ).request
     sink = _Sink()
+    projector = ReviewEventProjector(sink, hint="current changes")
+    reducer = CanonicalItemReducer(cid=CID, sid=SID, turn_id=TURN_ID)
+    started = _review_event("review.started")
+    terminal = _review_event(event_type)
+    await projector.observe(started, reducer.apply(started))
+    await projector.observe(terminal, reducer.apply(terminal))
 
-    result = await run_review_turn(
-        request,
-        None,
-        capability=_Capability(_Stream(events)),
-        application=sink,
-        hint="Focus on lifecycle correctness.",
-    )
+    assert [view.type for view in sink.views] == ["review.started", *expected]
 
-    assert result.status == result_status
-    assert result.error == error
+
+@pytest.mark.anyio
+async def test_review_projector_maps_local_uncertainty_without_duplicates() -> None:
+    sink = _Sink()
+    projector = ReviewEventProjector(sink, hint="current changes")
+
+    await projector.failure("reconciliation_required", "connection lost")
+    await projector.failure("reconciliation_required", "connection lost")
+
     assert [view.type for view in sink.views] == [
-        "review.started",
-        "review.finished",
-        view_type,
+        "review.reconciliation_required",
     ]
+
+
+@pytest.mark.parametrize(
+    ("target", "hint"),
+    (
+        (ReviewUncommittedTarget(), "current changes"),
+        (ReviewBaseBranchTarget("main"), "changes against 'main'"),
+        (ReviewCommitTarget("a" * 40, "Fix race"), "commit aaaaaaa: Fix race"),
+        (ReviewCustomTarget("Focus on races"), "Focus on races"),
+    ),
+)
+def test_review_target_and_request_hints_share_typed_source(target, hint) -> None:
+    assert review_target_hint(target) == hint
+    assert review_request_hint(_command(target=target).request) == hint

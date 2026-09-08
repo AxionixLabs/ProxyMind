@@ -18,11 +18,12 @@ from agent.adapters.protocol.client import (
     ProtocolEventCursorStore,
 )
 from agent.adapters.protocol import client as protocol_client_module
+from agent.adapters.protocol.review_events import ReviewEventProjector
 from agent.adapters.turns.review import ReviewCommandExecutor
 from agent.application.turns.commands import TurnApplication
 from agent.application.turns.reviews import (
     create_review_command,
-    run_review_turn,
+    review_wire_tools,
 )
 from agent.application.turns.run_result import RunResult
 from agent.harness.sessions.owner import SessionRuntimeOwner
@@ -86,6 +87,51 @@ class _Sink(ApplicationSink):
     def emit(self, view: ApplicationView) -> None:
         """记录一项应用展示。"""
         self.views.append(view)
+
+
+def _review_tools():
+    """返回协议集成测试使用的冻结只读工具目录。"""
+    catalog = [
+        {
+            "name": name,
+            "description": name,
+            "inputSchema": {"type": "object"},
+            "meta": {
+                "client_builtin": True,
+                "domain": "coding",
+                "class": "shell",
+            },
+        }
+        for name in ("shell_command", "exec_command", "write_stdin")
+    ]
+    return review_wire_tools(catalog)
+
+
+async def _consume_review_stream(
+    client: MindChatProtocolClient,
+    request: ReviewStreamRequest,
+    sink: _Sink,
+    *,
+    hint: str,
+    delivered: list[str] | None = None,
+) -> RunResult:
+    """在协议集成测试中归约 Review 流，不替代生产共享事件泵。"""
+    projector = ReviewEventProjector(sink, hint=hint)
+    stream = await client.review(request)
+    terminal_status = ""
+    try:
+        async for event in stream:
+            if delivered is not None:
+                delivered.append(event.type)
+            await projector.observe(event, stream.current_item)
+            if isinstance(event, TurnCompletedEvent):
+                terminal_status = event.status
+    finally:
+        await stream.aclose()
+    return RunResult(
+        status=terminal_status or "reconciliation_required",
+        assistant_text=projector.assistant_text(""),
+    )
 
 
 class _MenuRuntime:
@@ -361,6 +407,7 @@ async def test_review_full_chain_reconnects_without_duplicate_projection(
         workspace=workspace,
         pref_config={"primary": {"model": "test-model"}},
         environment_snapshot={"workspace": {"root": str(tmp_path)}},
+        tools=_review_tools(),
     )
     started, completed, terminal = _review_payloads(target, workspace)
     operations: list[str] = []
@@ -454,11 +501,11 @@ async def test_review_full_chain_reconnects_without_duplicate_projection(
         environment_snapshot: dict[str, ThawedJsonValue] | None,
     ) -> RunResult:
         """把持久 Review Command 接到正式协议能力和展示投影。"""
-        return await run_review_turn(
+        _ = environment_snapshot
+        return await _consume_review_stream(
+            protocol_client,
             request,
-            environment_snapshot,
-            capability=protocol_client,
-            application=sink,
+            sink,
             hint="Focus on lifecycle boundaries",
         )
 
@@ -502,6 +549,7 @@ async def test_review_interrupt_waits_for_cancelled_then_turn_terminal(
         workspace=workspace,
         pref_config={},
         environment_snapshot=None,
+        tools=_review_tools(),
     )
     wire_stream = _InterruptibleReviewStream(
         _interrupt_events(target, workspace),
@@ -546,13 +594,12 @@ async def test_review_interrupt_waits_for_cancelled_then_turn_terminal(
     protocol_client = MindChatProtocolClient()
     sink = _Sink()
     delivered: list[str] = []
-    running = asyncio.create_task(run_review_turn(
+    running = asyncio.create_task(_consume_review_stream(
+        protocol_client,
         command.request,
-        None,
-        capability=protocol_client,
-        application=sink,
+        sink,
         hint="Focus on lifecycle boundaries",
-        on_event=lambda event: delivered.append(event.type),
+        delivered=delivered,
     ))
 
     await wire_stream.started.wait()

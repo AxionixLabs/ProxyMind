@@ -365,16 +365,23 @@ async def _run_tui_session(
         host.attach.add_pending_attachments(image)
 
     try:
+        selected_turn_runner = run_root_turn if turn_runner is None else turn_runner
         loop_kwargs: dict[str, typing.Any] = {
             "initial_prompt": prompt,
             "initial_images": images,
             "initial_model": model,
             "turn_runner": functools.partial(
-                run_root_turn if turn_runner is None else turn_runner,
+                selected_turn_runner,
                 host,
             ),
             "protocol_client": protocol_client,
         }
+        review_turn_method = getattr(selected_turn_runner, "review", None)
+        if callable(review_turn_method):
+            loop_kwargs["review_turn_runner"] = functools.partial(
+                review_turn_method,
+                host,
+            )
         if turn_application_factory is not None:
             loop_kwargs["turn_application_factory"] = turn_application_factory
         if conversation_compactor is not None:

@@ -41,16 +41,6 @@ _UNSPECIFIED_TOOL_FILTER_MODE: typing.Final[_UnspecifiedToolFilterMode] = (
 )
 
 
-def turn_continuation_count(execution: TurnExecution) -> int:
-    """读取模型执行的续跑次数。"""
-    value = execution.metadata.get("continuation_count")
-    try:
-        count = int(value or 0)
-    except (TypeError, ValueError):
-        return 0
-    return max(0, count)
-
-
 def _resolve_tool_filter_mode(
     runtime: TurnExecutionRuntimePort,
     selected: ToolFilterMode | None | _UnspecifiedToolFilterMode,

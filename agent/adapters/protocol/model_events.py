@@ -42,12 +42,16 @@ class ModelStreamEventHandler:
         content: ContentSink,
         activity: TurnActivityProjector,
         assistant_reply_sink: AssistantReplySink | None = None,
+        output_visible: bool = True,
     ) -> None:
         """绑定输出端口并初始化 Transcript 交付水位。"""
+        if not isinstance(output_visible, bool):
+            raise TypeError("model output visibility must be boolean")
         self.transcript = transcript
         self.content = content
         self.activity = activity
         self.assistant_reply_sink = assistant_reply_sink
+        self.output_visible = output_visible
         self._item_history: tuple[CanonicalItem, ...] = ()
         self._delivered_text: dict[_ItemRevision, str] = {}
         self._completed_presentations: set[_ItemRevision] = set()
@@ -71,7 +75,7 @@ class ModelStreamEventHandler:
                 attempt=current_item.attempt,
             )
 
-        if is_assistant_output_boundary(event):
+        if self.output_visible and is_assistant_output_boundary(event):
             self.flush_pending()
             self._presented_text_revision = None
             await self.content.emit(AssistantOutputBoundary())
@@ -102,6 +106,8 @@ class ModelStreamEventHandler:
 
     def flush_pending(self, *, complete_only: bool = False) -> None:
         """把 Canonical text Items 幂等同步到 Transcript。"""
+        if not self.output_visible:
+            return None
         for item in self._item_history:
             if item.item_kind != "text":
                 continue
@@ -121,7 +127,7 @@ class ModelStreamEventHandler:
         )
         self._presented_text_revision = None
 
-        if replaced_items:
+        if self.output_visible and replaced_items:
             payload: dict[str, typing.Any] = {
                 "scope": "response",
                 "presentation_epoch": event.presentation_epoch,
@@ -157,7 +163,7 @@ class ModelStreamEventHandler:
     ) -> None:
         """把当前 canonical text Item 的新增 delta 交给展示层。"""
         item = _matching_text_item(event, current_item)
-        if item is None or not event.text:
+        if item is None or not event.text or not self.output_visible:
             return
         revision = _item_revision(item)
         if (
@@ -181,22 +187,24 @@ class ModelStreamEventHandler:
     ) -> None:
         """提交旧展示正文并投影 Worker 展示代次替换边界。"""
         self.flush_pending()
-        self.transcript.append(
-            "message.superseded",
-            actor="assistant",
-            payload={
-                "scope": "presentation",
-                "presentation_epoch": event.superseded_epoch,
-                "superseded_by_epoch": event.presentation_epoch,
-                "reason": event.reason,
-            },
-        )
+        if self.output_visible:
+            self.transcript.append(
+                "message.superseded",
+                actor="assistant",
+                payload={
+                    "scope": "presentation",
+                    "presentation_epoch": event.superseded_epoch,
+                    "superseded_by_epoch": event.presentation_epoch,
+                    "reason": event.reason,
+                },
+            )
         self._presented_text_revision = None
-        await self.content.emit(AssistantPresentationSuperseded(
-            turn_id=event.turn_id,
-            superseded_epoch=event.superseded_epoch,
-            presentation_epoch=event.presentation_epoch,
-        ))
+        if self.output_visible:
+            await self.content.emit(AssistantPresentationSuperseded(
+                turn_id=event.turn_id,
+                superseded_epoch=event.superseded_epoch,
+                presentation_epoch=event.presentation_epoch,
+            ))
         await self.activity.presentation_superseded(
             superseded_epoch=event.superseded_epoch,
             presentation_epoch=event.presentation_epoch,
@@ -211,6 +219,9 @@ class ModelStreamEventHandler:
         """完成当前 canonical text Item 并同步已交付文本的修订。"""
         item = _matching_text_item(event, current_item)
         if item is None:
+            return
+        if not self.output_visible:
+            await self.activity.provider_retry_completed()
             return
         revision = _item_revision(item)
         if revision in self._completed_presentations:

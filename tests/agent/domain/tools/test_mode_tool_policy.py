@@ -143,6 +143,31 @@ def test_filter_mode_tools_default_only_removes_plan_steps() -> None:
     ]
 
 
+def test_review_mode_only_exposes_local_read_only_shell_capabilities() -> None:
+    tools = [
+        _tool(
+            name,
+            client_builtin=True,
+            domain="coding",
+            **{"class": "shell"},
+        )
+        for name in ("shell_command", "exec_command", "write_stdin")
+    ]
+    tools.extend((
+        _tool("apply_patch", client_builtin=True, domain="coding"),
+        _tool("exec_command", external=True, domain="foreign"),
+        _tool("view_image", client_builtin=True, domain="client"),
+    ))
+
+    filtered = filter_mode_tools("review", tools)
+
+    assert [tool["name"] for tool in filtered] == [
+        "shell_command",
+        "exec_command",
+        "write_stdin",
+    ]
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("mode", ["app", "api"])
 async def test_filter_mode_tools_preserves_external_mcp_tools(mode) -> None:

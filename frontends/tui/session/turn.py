@@ -3,10 +3,14 @@
 
 import asyncio
 import typing
+from collections.abc import Mapping
 
 from agent.domain.policies import PermissionSettings
 from agent.ports import ModelRequestFrozenCallback
 from agent.ports import RunRecoveryRequired
+from agent.application.turns.observation import TurnObservationCallbacks
+from agent.protocol import ReviewStreamRequest
+from agent.protocol.json_value import ThawedJsonValue
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,
@@ -45,6 +49,23 @@ class TuiRootTurnRunner(typing.Protocol):
         **kwargs: typing.Any,
     ) -> "RunResult":
         """执行一次已冻结的 TUI 根轮次。"""
+        ...
+
+
+class TuiReviewTurnRunner(typing.Protocol):
+    """描述 TUI 调用组合根 Review 用例的稳定入口。"""
+
+    async def __call__(
+        self,
+        pref_config: dict[str, typing.Any],
+        *,
+        request: ReviewStreamRequest,
+        environment_snapshot: Mapping[str, ThawedJsonValue] | None,
+        hint: str,
+        callbacks: TurnObservationCallbacks | None = None,
+        replay_target_seq: int | None = None,
+    ) -> "RunResult":
+        """提交或观察一次身份和工具集合均已冻结的 Review。"""
         ...
 
 

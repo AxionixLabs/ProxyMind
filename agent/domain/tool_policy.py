@@ -5,8 +5,14 @@ import typing
 
 Rule = dict[str, typing.Any]
 
-ToolFilterMode = typing.Literal["app", "api"]
+ToolFilterMode = typing.Literal["app", "api", "review"]
 ModeToolPolicy = dict[str, tuple[Rule, ...] | None]
+
+REVIEW_TOOL_NAMES: typing.Final[frozenset[str]] = frozenset({
+    "shell_command",
+    "exec_command",
+    "write_stdin",
+})
 
 MODE_TOOL_POLICIES: dict[ToolFilterMode, ModeToolPolicy] = {
     "app": {
@@ -34,6 +40,15 @@ MODE_TOOL_POLICIES: dict[ToolFilterMode, ModeToolPolicy] = {
             {"domain": "common", "class": "security"},
             {"domain": "common", "class": "runtime"},
             {"domain": "common", "class": "inspect"},
+        ),
+    },
+    "review": {
+        "deny": (
+            {"hidden": True},
+        ),
+        "allow": tuple(
+            {"name": name}
+            for name in sorted(REVIEW_TOOL_NAMES)
         ),
     },
 }
@@ -154,6 +169,13 @@ def _is_allowed(
     """按工具来源和能力规则判断工具是否可见。"""
     if mode is None:
         return not _is_plan_steps(meta)
+
+    if mode == "review":
+        return bool(
+            name in REVIEW_TOOL_NAMES
+            and meta.get("client_builtin") is True
+            and meta.get("external") is not True
+        )
 
     if (
         bool(meta.get("client_builtin", False))

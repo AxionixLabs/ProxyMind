@@ -3,6 +3,7 @@
 
 import asyncio
 import typing
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from agent.adapters.turns.review import ReviewCommandExecutor
@@ -14,15 +15,13 @@ from agent.application.turns.commands import (
     SubmitTurnCommand,
     TurnApplication,
 )
-from agent.application.turns.foreground import run_foreground_turn
 from agent.application.turns.observation import TurnObservationCallbacks
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.reviews import (
     create_review_command,
+    discover_review_tools,
     review_request_hint,
     review_target_hint,
-    run_observed_review_turn,
-    run_review_turn,
 )
 from agent.application.views.builders.review import build_review_failed_view
 from agent.ports import (
@@ -59,6 +58,7 @@ from .dispatch import (
 )
 from .state import TuiSessionState
 from .turn import (
+    TuiReviewTurnRunner,
     TuiRootTurnRunner,
     emit_tui_recovery_notice,
     execute_tui_model_turn,
@@ -170,6 +170,7 @@ async def _await_durable_session_recovery(
     session_id: str,
     dispatcher: TuiCommandDispatcher | None = None,
     review_capability: ReviewCapability | None = None,
+    review_turn_runner: TuiReviewTurnRunner | None = None,
 ) -> bool:
     """以有限自动探测等待 Durable Turn，并响应提交或退出意图。"""
     notice_shown: bool = False
@@ -196,6 +197,7 @@ async def _await_durable_session_recovery(
                             protocol_client,
                             observed,
                             dispatcher=dispatcher,
+                            review_turn_runner=review_turn_runner,
                         )
                     except (
                         LookupError,
@@ -222,14 +224,18 @@ async def _await_durable_session_recovery(
                 if observations_settled:
                     continue
             if recovery.redispatch_reviews:
-                redispatch_settled = review_capability is not None
-                if review_capability is None and not notice_shown:
+                redispatch_available = (
+                    review_capability is not None
+                    and review_turn_runner is not None
+                )
+                redispatch_settled = redispatch_available
+                if not redispatch_available and not notice_shown:
                     runtime.queue_background_block(failure_text_block(
                         "Previous Review must be redispatched before the "
-                        "next turn, but Review capability is unavailable.",
+                        "next turn, but Review execution is unavailable.",
                     ))
                     notice_shown = True
-                if review_capability is not None:
+                if redispatch_available:
                     for command in recovery.redispatch_reviews:
                         outcome = await _execute_tui_review_command(
                             host,
@@ -237,10 +243,10 @@ async def _await_durable_session_recovery(
                             state,
                             turn_application,
                             protocol_client,
-                            review_capability,
                             command,
                             hint=review_request_hint(command.request),
                             dispatcher=dispatcher,
+                            review_turn_runner=review_turn_runner,
                         )
                         if outcome.exit_requested:
                             return False
@@ -432,6 +438,7 @@ async def _execute_tui_recovered_turn(
     recovery: RemoteTurnRecovery,
     *,
     dispatcher: TuiCommandDispatcher | None,
+    review_turn_runner: TuiReviewTurnRunner | None = None,
 ) -> _TurnExecutionOutcome:
     """以前台生命周期从头重放进程中断前已提交的远端 Turn。"""
     application = host.frontend.application
@@ -462,14 +469,22 @@ async def _execute_tui_recovered_turn(
                 raise RuntimeError(
                     "Review observation capability is unavailable."
                 )
-            observed_turn = run_observed_review_turn(
-                request,
-                capability=protocol_client,
-                application=application,
+            if review_turn_runner is None:
+                raise RuntimeError("TUI Review turn runner is unavailable.")
+            observed_turn = review_turn_runner(
+                await state.refresh_preferences(host, ttl_sec=0.0),
+                request=request,
+                environment_snapshot=(
+                    recovery.snapshot.command.environment_snapshot_value()
+                    if isinstance(
+                        recovery.snapshot.command,
+                        SubmitReviewCommand,
+                    )
+                    else None
+                ),
                 hint=review_request_hint(request),
+                callbacks=callbacks,
                 replay_target_seq=recovery.replay_target_seq,
-                on_event=terminal_authority.handle_event,
-                on_stream_end=turn_input_control.handle_stream_end,
             )
         else:
             observed_turn = host.observe_recovered_turn(
@@ -528,6 +543,7 @@ async def run_tui_loop(
     initial_model: str | None = None,
     turn_application_factory: TurnApplicationFactory | None = None,
     review_capability: ReviewCapability | None = None,
+    review_turn_runner: TuiReviewTurnRunner | None = None,
 ) -> None:
     """运行 TUI 会话，并统一关闭其主动 Turn application。"""
     durable_runtime = getattr(host, "application_layout", None) is not None
@@ -552,6 +568,7 @@ async def run_tui_loop(
                 and isinstance(protocol_client, ReviewCapability)
                 else review_capability
             ),
+            review_turn_runner=review_turn_runner,
             local_session_id=(
                 None
                 if durable_runtime
@@ -573,6 +590,7 @@ async def _run_tui_loop(
     conversation_compactor: ConversationCompactor | None,
     protocol_client: ProtocolCommandClient,
     review_capability: ReviewCapability | None,
+    review_turn_runner: TuiReviewTurnRunner | None,
     local_session_id: str | None,
     initial_prompt: str | None,
     initial_images: tuple[str, ...],
@@ -639,6 +657,7 @@ async def _run_tui_loop(
                     ),
                     dispatcher=dispatcher,
                     review_capability=review_capability,
+                    review_turn_runner=review_turn_runner,
                 )
             except TuiInterruptRequested:
                 host.lifecycle.request_stop(exit_code=130)
@@ -802,6 +821,13 @@ async def _run_tui_loop(
                 ))
                 runtime.set_turn_start_pending(False)
                 continue
+            if review_turn_runner is None:
+                dispatcher.take_prepared_review()
+                application.emit(build_review_failed_view(
+                    "Review turn runner is unavailable.",
+                ))
+                runtime.set_turn_start_pending(False)
+                continue
             exit_requested = await _execute_tui_review_turn(
                 host,
                 runtime,
@@ -809,7 +835,7 @@ async def _run_tui_loop(
                 dispatcher,
                 turn_application,
                 protocol_client,
-                review_capability,
+                review_turn_runner,
                 local_session_id=local_session_id,
             )
             if exit_requested:
@@ -947,7 +973,7 @@ async def _execute_tui_review_turn(
     dispatcher: TuiCommandDispatcher,
     turn_application: TurnApplication["RunResult"],
     protocol_client: ProtocolCommandClient,
-    review_capability: ReviewCapability,
+    review_turn_runner: TuiReviewTurnRunner,
     *,
     local_session_id: str | None,
 ) -> bool:
@@ -961,6 +987,10 @@ async def _execute_tui_review_turn(
             "tui",
             remote_session,
         )
+        tools = await discover_review_tools(
+            host.execution,
+            state.pref_config,
+        )
         command = create_review_command(
             local_session_id=resolved_local_session_id,
             cid=remote_session["cid"],
@@ -970,8 +1000,9 @@ async def _execute_tui_review_turn(
             workspace=prepared.workspace,
             pref_config=state.pref_config,
             environment_snapshot=capture_active_turn_environment(host),
+            tools=tools,
         )
-    except (TypeError, ValueError) as error:
+    except (OSError, RuntimeError, TypeError, ValueError) as error:
         dispatcher.application.emit(build_review_failed_view(
             str(error).strip() or type(error).__name__,
         ))
@@ -983,10 +1014,10 @@ async def _execute_tui_review_turn(
         state,
         turn_application,
         protocol_client,
-        review_capability,
         command,
         hint=prepared.hint,
         dispatcher=dispatcher,
+        review_turn_runner=review_turn_runner,
     )
     return outcome.exit_requested
 
@@ -997,11 +1028,11 @@ async def _execute_tui_review_command(
     state: TuiSessionState,
     turn_application: TurnApplication["RunResult"],
     protocol_client: ProtocolCommandClient,
-    review_capability: ReviewCapability,
     command: SubmitReviewCommand,
     *,
     hint: str,
     dispatcher: TuiCommandDispatcher | None,
+    review_turn_runner: TuiReviewTurnRunner | None = None,
 ) -> _TurnExecutionOutcome:
     """执行一个新建或安全重派的冻结 Review Command。"""
     application = host.frontend.application
@@ -1020,21 +1051,25 @@ async def _execute_tui_review_command(
             allow_steer=False,
         )
 
+        if review_turn_runner is None:
+            raise RuntimeError("TUI Review turn runner is unavailable.")
+        callbacks = TurnObservationCallbacks(
+            input_context=turn_input_control.activate,
+            input_event=turn_input_control.handle_event,
+            stream_end=turn_input_control.handle_stream_end,
+        )
+
         async def execute_review(
             request: ReviewStreamRequest,
-            environment_snapshot: dict[str, ThawedJsonValue] | None,
+            environment_snapshot: Mapping[str, ThawedJsonValue] | None,
         ) -> RunResult:
             """把持久化 Review Command 适配到 Review 能力。"""
-            return await run_foreground_turn(
-                host.turn_foreground_lifecycle,
-                run_review_turn,
-                request,
-                environment_snapshot,
-                capability=review_capability,
-                application=application,
+            return await review_turn_runner(
+                state.pref_config,
+                request=request,
+                environment_snapshot=environment_snapshot,
                 hint=hint,
-                on_event=turn_input_control.handle_event,
-                on_stream_end=turn_input_control.handle_stream_end,
+                callbacks=callbacks,
             )
 
         executor = ReviewCommandExecutor(

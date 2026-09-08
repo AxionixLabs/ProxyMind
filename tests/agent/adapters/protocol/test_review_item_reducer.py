@@ -11,6 +11,7 @@ from protocol.schema.review import (
 from protocol.schema.stream_events import (
     ReviewCompletedEvent,
     ReviewStartedEvent,
+    TurnRetryingEvent,
 )
 
 CID = "cid_review_reducer"
@@ -87,3 +88,31 @@ def test_review_item_reducer_rejects_duplicate_and_late_events() -> None:
     reducer.apply(_completed())
     with pytest.raises(ValueError, match="cannot transition"):
         reducer.apply(_started(event_seq=3))
+
+
+def test_review_item_spans_provider_retry_attempts() -> None:
+    """Review Item 不随 reviewer provider attempt 被替换。"""
+    reducer = CanonicalItemReducer(cid=CID, sid=SID, turn_id=TURN_ID)
+    started = reducer.apply(_started())
+
+    reducer.apply(TurnRetryingEvent(
+        type="turn.retrying",
+        proto="mind.chat",
+        cid=CID,
+        sid=SID,
+        turn_id=TURN_ID,
+        event_seq=2,
+        round=1,
+        attempt=2,
+        max_attempts=3,
+        retry_in_ms=20,
+        reason="stream_reset",
+    ))
+    completed = reducer.apply(_completed(event_seq=3))
+
+    assert started is not None
+    assert completed is not None
+    assert completed.attempt == started.attempt == 1
+    assert completed.superseded is False
+    assert reducer.canonical_items == (completed,)
+    assert reducer.item_history == (completed,)

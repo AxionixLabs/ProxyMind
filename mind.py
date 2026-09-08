@@ -14,6 +14,7 @@ from agent.application.config.settings import (
     FeatureSettings,
 )
 from agent.application.turns.run_result import RunResult
+from agent.application.turns.observation import TurnObservationCallbacks
 from agent.composition import create_runtime_services
 from agent.domain.approvals import NetworkProtocol
 from agent.domain.policies import (
@@ -22,6 +23,7 @@ from agent.domain.policies import (
 )
 from agent.harness.execution.compaction import compact_conversation
 from agent.harness.execution.root_runner import run_root_turn
+from agent.harness.execution.review_runner import run_review_turn
 from agent.harness.hooks.registry import HookRegistry
 from agent.harness.hooks.async_tasks import HookAsyncTaskOwner
 from agent.harness.process_lifecycle import ProcessLifecycle
@@ -31,6 +33,8 @@ from agent.ports import (
     HookRegistryPort,
     HookStatusPort,
 )
+from agent.protocol import ReviewStreamRequest
+from agent.protocol.json_value import ThawedJsonValue
 from agent.ports import (
     McpRuntime,
     McpRuntimeContext,
@@ -109,15 +113,15 @@ class _ConfigurationServiceHost(SubscriptionHost, typing.Protocol):
         ...
 
 
-def bind_root_turn_runner(
-    runtime_services: RuntimeServices,
-) -> typing.Callable[..., typing.Awaitable[RunResult]]:
-    """在进程组合根绑定根轮次的模型、协议和效果能力。"""
-    model_capability = runtime_services.model_capability
-    protocol_client = runtime_services.protocol_client
-    effect_journal_factory = runtime_services.create_effect_journal
+class BoundRootTurnRunner:
+    """绑定普通 Turn 与 Review Turn 共用的进程级执行能力。"""
 
-    async def run_bound_root_turn(
+    def __init__(self, runtime_services: RuntimeServices) -> None:
+        """固定模型、协议、工具和效果能力的进程级所有者。"""
+        self._runtime_services = runtime_services
+
+    async def __call__(
+        self,
         controller: ApplicationHost,
         pref_config: dict[str, typing.Any] | None = None,
         *,
@@ -125,13 +129,14 @@ def bind_root_turn_runner(
         **kwargs: typing.Any,
     ) -> RunResult:
         """执行绑定进程级能力的根轮次。"""
+        runtime_services = self._runtime_services
         return await run_root_turn(
             controller.conversation,
             pref_config,
             message=message,
-            model_capability=model_capability,
-            protocol_client=protocol_client,
-            effect_journal_factory=effect_journal_factory,
+            model_capability=runtime_services.model_capability,
+            protocol_client=runtime_services.protocol_client,
+            effect_journal_factory=runtime_services.create_effect_journal,
             tool_execution=runtime_services.tool_execution,
             approval_coordinator=controller.approval_coordinator,
             execution_policy=controller.workspace_runtime.execution_policy,
@@ -146,7 +151,50 @@ def bind_root_turn_runner(
             **kwargs,
         )
 
-    return run_bound_root_turn
+    async def review(
+        self,
+        controller: ApplicationHost,
+        pref_config: dict[str, typing.Any],
+        *,
+        request: ReviewStreamRequest,
+        environment_snapshot: typing.Mapping[str, ThawedJsonValue] | None,
+        hint: str,
+        callbacks: TurnObservationCallbacks | None = None,
+        replay_target_seq: int | None = None,
+    ) -> RunResult:
+        """执行绑定进程级能力的只读 Review Turn。"""
+        runtime_services = self._runtime_services
+        protocol_client = runtime_services.protocol_client
+        return await run_review_turn(
+            controller.conversation,
+            pref_config,
+            request,
+            environment_snapshot,
+            hint=hint,
+            review_capability=protocol_client,
+            review_observer=protocol_client,
+            protocol_client=protocol_client,
+            effect_journal_factory=runtime_services.create_effect_journal,
+            tool_execution=runtime_services.tool_execution,
+            approval_coordinator=controller.approval_coordinator,
+            execution_policy=controller.workspace_runtime.execution_policy,
+            execution_runtime=controller.execution,
+            lifecycle=controller.turn_foreground_lifecycle,
+            session_factory=controller.frontend.session_factory,
+            transcript_factory=controller.conversation.transcript_factory,
+            cleanup=controller.conversation,
+            session_context=controller,
+            session_state=controller.conversation,
+            callbacks=callbacks,
+            replay_target_seq=replay_target_seq,
+        )
+
+
+def bind_root_turn_runner(
+    runtime_services: RuntimeServices,
+) -> BoundRootTurnRunner:
+    """在进程组合根绑定普通 Turn 和 Review Turn 的执行能力。"""
+    return BoundRootTurnRunner(runtime_services)
 
 
 def bind_conversation_compactor(host: object) -> ConversationCompactor:

@@ -39,12 +39,16 @@ class StreamTurnPresentation:
         content: ContentSink,
         presentation: PresentationSink,
         event_report: EventReportPort | None,
+        visible: bool = True,
     ) -> None:
         """绑定单轮终态快照和与具体前端无关的输出端口。"""
+        if not isinstance(visible, bool):
+            raise TypeError("run presentation visibility must be boolean")
         self._outcome = outcome
         self._content = content
         self._presentation = presentation
         self._event_report = event_report
+        self._visible = visible
 
     async def emit_started(
         self,
@@ -58,6 +62,8 @@ class StreamTurnPresentation:
         hook_warnings: typing.Iterable[str] = (),
     ) -> None:
         """投影当前轮次固定后的启动信息。"""
+        if not self._visible:
+            return None
         await self._presentation.emit(build_run_started_view(
             metadata=metadata,
             message=message,
@@ -80,6 +86,8 @@ class StreamTurnPresentation:
         if mode is FailureProjectionMode.REPORTED:
             await self._report_failure(phase, message, effect_id=effect_id)
 
+        if not self._visible:
+            return None
         await self._presentation.emit(build_failure_view(
             phase,
             message,
@@ -97,6 +105,8 @@ class StreamTurnPresentation:
 
     async def emit_result(self, sources: typing.Iterable[typing.Any]) -> None:
         """结束状态、投影来源，并按唯一终态输出完成或未完整视图。"""
+        if not self._visible:
+            return None
         await self._content.emit(SourcesOutput(tuple(sources)))
 
         if self._outcome.is_completed and not self._outcome.is_failed:

@@ -89,6 +89,7 @@ class ApplicationSink(ABC):
         raise NotImplementedError
 
 
+@typing.runtime_checkable
 class TurnForegroundLifecyclePort(typing.Protocol):
     """定义终端前台轮次进度、动画和资源清理端口。"""
 
