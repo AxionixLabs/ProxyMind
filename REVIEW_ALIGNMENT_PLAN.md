@@ -11,7 +11,8 @@ ProxyMind `/review` 的菜单、目标解析、执行生命周期、工具调用
 
 - 四种 Review target 都能从真实 TUI 菜单进入并完成，不以 patch 非空作为启动前提。
 - 选择当前所在的 `main` 作为 base branch 时，即使 merge diff 为空也必须开始 Review。
-- Review 期间展示 Codex 同构的 `Working` / `Thinking` 动画和真实 `Ran ...` 工具轨迹。
+- Review 期间展示 Mind 的 `Thinking` 动画；其行为对应 Codex 的 `Working`，并展示真实
+  `Ran ...` 工具轨迹。
 - 模型生成的中间结构化 JSON 不直接显示；最终结果只来自权威 Review 终态事件。
 - Ctrl-C 能中断远端 Review，先收敛 Review 退出事件，再恢复普通输入和展示中断提示。
 - Mind 和 AppServer 的正式 schema、OpenAPI、持久化、attach/replay 与终态顺序一致。
@@ -41,7 +42,7 @@ ProxyMind `/review` 的菜单、目标解析、执行生命周期、工具调用
   -> 在首次网络操作前持久化本地 SubmitReviewCommand
   -> AppServer 原子登记 Review Turn 和 Review Item
   -> 客户端进入独立、只读、never-approval 的 Review 执行上下文
-  -> 标准事件链驱动 Thinking / Working、工具调用和工具结果回传
+  -> 标准事件链驱动 Mind Thinking、工具调用和工具结果回传
   -> 隐藏 reviewer 的原始 assistant JSON
   -> review.completed / failed / cancelled
   -> turn.completed 释放执行门
@@ -51,6 +52,9 @@ ProxyMind `/review` 的菜单、目标解析、执行生命周期、工具调用
 Review 不是一条带“Reviewing ...”文案的普通聊天，也不是客户端先生成完整 patch 再让服务端
 总结。它是拥有独立上下文和终态的只读模型轮次，但复用普通 Turn 已有的活动、工具、传输、
 中断和展示基础设施。
+
+状态名称保持产品边界：Codex 的可见状态叫 `Working`，Mind 对应状态叫 `Thinking`。对齐范围是
+动画生命周期、计时、事件驱动切换和清理行为，不把 Mind 的展示文字改成 `Working`。
 
 ## 四种 Target 的对齐语义
 
@@ -107,7 +111,8 @@ workspace 也必须使用规范 revision 并通过校验；本地 Git 实际内�
 
 - 进入事件展示精确文本 `>> Code review started: {hint} <<`，采用 Codex review status 的强调色，
   不展示 `• Reviewing ...` 占位行。
-- 选择完成后立即进入前台 Turn 生命周期；首个远端事件等待期间也必须显示 `Working` 动画。
+- 选择完成后立即进入前台 Turn 生命周期；首个远端事件等待期间也必须显示 Mind 的
+  `Thinking` 动画，其行为对应 Codex 的 `Working`。
 - `turn.thinking`、provider retry、tool batch 和 tool result 必须交给普通 Turn 的活动投影器，不能
   被 Review 专用循环静默丢弃。
 - Reviewer 只得到明确 allowlist 的本地只读工具。至少覆盖 shell/exec 及其会话轮询；禁止
@@ -173,7 +178,7 @@ workspace 也必须使用规范 revision 并通过校验；本地 Git 实际内�
 | Commit 搜索与接受 | 必须 | 必须 | subject/SHA 搜索、提交身份正确 |
 | Custom 空/非空 | 必须 | 必须 | 空值不提交、非空原样进入 Review |
 | Uncommitted 混合改动 | 必须 | 必须 | staged/unstaged/untracked 均被工具检查 |
-| Thinking + 多次工具调用 | 必须 | 必须 | `Working` 持续、`Ran ...` 顺序、JSON 隐藏 |
+| 状态动画 + 多次工具调用 | 必须 | 必须 | Codex `Working` / Mind `Thinking` 持续、`Ran ...` 顺序、JSON 隐藏 |
 | 正常完成 | 必须 | 必须 | started/finished/结果/普通 composer 顺序 |
 | Ctrl-C 中断 | 必须 | 必须 | 远端取消、精确中断提示、无重复身份 |
 | 断线 attach/replay | 行为参考 | 必须 | 不重提交流程、不重复工具副作用、终态一致 |
@@ -221,10 +226,11 @@ paste、focus reporting 和 synchronized output 全部恢复。通过后单独�
 - [ ] 用一个 Review stream source 接入标准 Turn event pump，不复制第二套工具状态机。
 - [ ] 建立独立 Review execution context，固定 read-only + never，并过滤出经过证明的只读工具。
 - [ ] 接通 `turn.thinking`、retry、tool batch、tool result delivery、effect reconciliation 和 cleanup。
-- [ ] 首个事件之前启动 Working 动画；工具执行期间切换状态，完成和异常时幂等停止。
+- [ ] 首个事件之前启动 Mind `Thinking` 动画；工具执行期间切换状态，完成和异常时幂等停止。
 - [ ] 保持 Review 原始 assistant JSON 静默，只转发思考、工具和 lifecycle 事件。
 
-阶段门禁：真实 PTY 中出现持续更新的 Working/Thinking 和实际 `Ran git ...`；Review 前后工作树内容
+阶段门禁：Codex PTY 的 `Working` 与 Mind PTY 的 `Thinking` 具有相同生命周期，且 Mind 出现
+实际 `Ran git ...`；Review 前后工作树内容
 哈希一致；普通 Turn 全量回归无变化；取消、工具失败和 transport failure 不泄漏动画/PTY/session。
 复核通过后提交并推送 ProxyMind。
 
@@ -263,7 +269,7 @@ paste、focus reporting 和 synchronized output 全部恢复。通过后单独�
 
 最终门禁：本清单全部勾选，两个仓库工作树仅含用户原有改动，远端分支包含每个已验收阶段的
 独立提交，真实端到端运行不再出现 `request validation failed`、静态 `Reviewing ...` 占位或缺失
-Working/Thinking 的状态。
+Mind `Thinking` 的状态。
 
 ## 每阶段固定复核与推送规则
 
