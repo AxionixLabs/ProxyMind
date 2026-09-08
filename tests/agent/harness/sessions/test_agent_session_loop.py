@@ -409,6 +409,74 @@ def test_run_result_projection_rejects_inconsistent_exit_code() -> None:
         project_run_result((terminal,))
 
 
+def test_run_result_projection_accepts_reconciled_redispatch() -> None:
+    """确保权威确认未创建后的原身份重派只保留最终终态。"""
+    kinds_and_payloads = (
+        ("run_queued", {"status": "queued"}),
+        ("run_started", {"status": "running"}),
+        (
+            "run_reconciliation_required",
+            {"status": "reconciliation_required"},
+        ),
+        ("run_redispatch_queued", {"status": "queued"}),
+        ("run_started", {"status": "running"}),
+        (
+            "run_completed",
+            {
+                "status": "completed",
+                "result": {"status": "completed", "exit_code": 0},
+            },
+        ),
+    )
+    events = tuple(
+        RunEvent.create(
+            sequence=sequence,
+            session_id="session-local",
+            run_id="run-reconciled",
+            kind=kind,
+            payload=payload,
+            causation_id="command-local",
+        )
+        for sequence, (kind, payload) in enumerate(kinds_and_payloads, start=1)
+    )
+
+    projection = project_run_result(events)
+
+    assert projection.status == "completed"
+    assert projection.exit_code == 0
+
+
+def test_run_result_projection_rejects_redispatch_after_final_terminal() -> None:
+    """确保只有 reconciliation_required 可以被重派事件覆盖。"""
+    events = (
+        RunEvent.create(
+            sequence=1,
+            session_id="session-local",
+            run_id="run-invalid-redispatch",
+            kind="run_completed",
+            payload={
+                "status": "completed",
+                "result": {"status": "completed", "exit_code": 0},
+            },
+            causation_id="command-local",
+        ),
+        RunEvent.create(
+            sequence=2,
+            session_id="session-local",
+            run_id="run-invalid-redispatch",
+            kind="run_redispatch_queued",
+            payload={"status": "queued"},
+            causation_id="command-local",
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="redispatch must supersede one reconciliation event",
+    ):
+        project_run_result(events)
+
+
 @pytest.mark.anyio
 async def test_session_loop_cancellation_closes_active_run() -> None:
     command = _command("wait", run_id="run-cancelled")

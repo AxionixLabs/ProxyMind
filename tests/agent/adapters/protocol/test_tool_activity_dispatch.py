@@ -38,6 +38,13 @@ class _Activity:
     ) -> None:
         self.events.append(("tool.started", tool_id, tool_kind, name))
 
+    async def transport_recovery_changed(
+        self,
+        phase: str,
+        event_seq: int,
+    ) -> None:
+        self.events.append(("recovery", phase, event_seq))
+
 
 class _Handler:
     """记录批次完整后释放的工具调用。"""
@@ -48,6 +55,13 @@ class _Handler:
     async def handle_call(self, event: ToolCallEvent) -> ToolCallHandlingResult:
         self.events.append(("tool.handle", event.call_id))
         return ToolCallHandlingResult.handled()
+
+    async def classify_replayed_call(self, event: ToolCallEvent) -> str:
+        self.events.append(("tool.classify", event.call_id))
+        return "skip"
+
+    async def complete_replayed_call(self, event: ToolCallEvent) -> None:
+        self.events.append(("tool.replayed", event.call_id))
 
 
 def _scope() -> dict[str, typing.Any]:
@@ -113,6 +127,59 @@ async def test_tool_batch_starts_every_lease_before_execution() -> None:
         ("tool.handle", "call_1"),
         ("tool.handle", "call_2"),
     ]
+
+
+@pytest.mark.anyio
+async def test_historical_tool_batch_is_classified_without_reexecution() -> None:
+    """验证恢复水位内的工具只归约，追平后的新调用才执行。"""
+    events: list[tuple[typing.Any, ...]] = []
+    dispatcher = StreamToolDispatcher(
+        handler=_Handler(events),
+        activity=_Activity(events),
+        record_recovery_interrupt=lambda _error: None,
+        replay_target_seq=3,
+    )
+
+    async def dispatch_batch(
+        batch_id: str,
+        call_id: str,
+        *,
+        first_event_seq: int,
+    ) -> None:
+        await dispatcher.dispatch(ToolCallsStartEvent(
+            type="tool.calls.start",
+            **_scope(),
+            event_seq=first_event_seq,
+            batch_id=batch_id,
+            call_ids=(call_id,),
+            count=1,
+        ))
+        await dispatcher.dispatch(ToolCallEvent(
+            type="tool.call",
+            **_scope(),
+            event_seq=first_event_seq + 1,
+            call_id=call_id,
+            name="read_repository",
+        ))
+        await dispatcher.dispatch(ToolCallsDoneEvent(
+            type="tool.calls.done",
+            **_scope(),
+            event_seq=first_event_seq + 2,
+            batch_id=batch_id,
+            call_ids=(call_id,),
+            count=1,
+        ))
+
+    await dispatch_batch("batch_replayed", "call_replayed", first_event_seq=1)
+    assert ("tool.handle", "call_replayed") not in events
+
+    await dispatcher.transport_recovery_changed("caught_up", 3)
+    assert ("tool.classify", "call_replayed") in events
+    assert ("tool.replayed", "call_replayed") in events
+    assert ("tool.handle", "call_replayed") not in events
+
+    await dispatch_batch("batch_live", "call_live", first_event_seq=4)
+    assert ("tool.handle", "call_live") in events
 
 
 if __name__ == '__main__':

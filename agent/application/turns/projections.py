@@ -58,11 +58,20 @@ def project_run_result(events: Sequence[RunEvent]) -> RunResultProjection:
     if sequences != list(range(1, len(events) + 1)):
         raise ValueError("run event sequence is not contiguous")
 
-    terminal_events = [
-        event
-        for event in events
-        if event.kind in _TERMINAL_EVENT_STATUS
-    ]
+    terminal_events: list[RunEvent] = []
+    for event in events:
+        if event.kind == "run_redispatch_queued":
+            if (
+                len(terminal_events) != 1
+                or terminal_events[0].kind != "run_reconciliation_required"
+            ):
+                raise ValueError(
+                    "run redispatch must supersede one reconciliation event"
+                )
+            terminal_events.clear()
+            continue
+        if event.kind in _TERMINAL_EVENT_STATUS:
+            terminal_events.append(event)
     if len(terminal_events) != 1 or terminal_events[0] is not events[-1]:
         raise ValueError("run events require one final terminal event")
 

@@ -49,8 +49,10 @@ def _review_tools():
     """返回恢复测试使用的冻结只读工具目录。"""
     return tuple({
         "name": name,
+        "description": f"Run the frozen read-only {name} tool.",
+        "inputSchema": {"type": "object"},
         "annotations": {"readOnlyHint": True},
-    } for name in ("shell_command", "exec_command", "write_stdin"))
+    } for name in ("read_file", "read_repository"))
 
 
 def _request() -> ModelStreamRequest:

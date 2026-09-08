@@ -10,6 +10,7 @@ import pytest
 
 import mind as application_composition
 from agent.adapters.protocol.review_events import ReviewEventProjector
+from agent.adapters.protocol.turn_source import ObservingReviewTurnStreamSource
 from agent.adapters.protocol.turn_source import SubmittingReviewTurnStreamSource
 from agent.application.turns.reviews import (
     create_review_command,
@@ -231,6 +232,63 @@ async def test_review_runner_uses_standard_harness_and_foreground_lifecycle(
         "end",
     ]
     assert runtime.handle.released == [False]
+
+
+@pytest.mark.anyio
+async def test_review_recovery_rebuilds_only_the_frozen_tool_set(
+    monkeypatch,
+) -> None:
+    """证明冷恢复忽略新增工具并只 attach 冻结的只读能力。"""
+    command = _command()
+    lifecycle = _Lifecycle(_ApplicationSink())
+    runtime = _ExecutionRuntime(_catalog())
+    session = SimpleNamespace(
+        workspace_root="D:/workspace",
+        permission_grants=None,
+        approval_ledger=None,
+        output_record_path="D:/logs/output.log",
+        snapshot=Mock(return_value={"cid": CID, "sid": SID}),
+        begin_turn=AsyncMock(),
+        transcript_path_for_session=(
+            lambda _sid: "D:/sessions/session.jsonl"
+        ),
+    )
+    captured = {}
+
+    async def stream_turn(*_args, **kwargs):
+        captured.update(kwargs)
+        return RunResult(status="completed", assistant_text="No findings.")
+
+    monkeypatch.setattr(review_turns, "stream_turn", stream_turn)
+    protocol_client = _ReviewProtocolClient()
+
+    result = await review_turns.run_review_turn(
+        session,
+        {"primary": {"model": "test-model"}},
+        command.request,
+        command.environment_snapshot_value(),
+        hint="current changes",
+        review_capability=protocol_client,
+        review_observer=protocol_client,
+        protocol_client=protocol_client,
+        effect_journal_factory=Mock(),
+        tool_execution=SimpleNamespace(),
+        execution_runtime=runtime,
+        lifecycle=lifecycle,
+        replay_target_seq=7,
+    )
+
+    assert result.status == "completed"
+    session.begin_turn.assert_not_awaited()
+    assert isinstance(
+        captured["turn_source"],
+        ObservingReviewTurnStreamSource,
+    )
+    assert captured["turn_source"].historical_replay_target_seq == 7
+    assert {tool["name"] for tool in captured["tools"]} == {
+        "read_file",
+        "read_repository",
+    }
 
 
 @pytest.mark.anyio

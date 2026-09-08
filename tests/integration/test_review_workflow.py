@@ -57,6 +57,7 @@ from protocol.schema.json_value import JsonObject
 from protocol.schema.review import (
     ClientReviewWorkspace,
     MindReviewReceipt,
+    MindReviewRequest,
     ReviewBaseBranchTarget,
     ReviewCommitTarget,
     ReviewCustomTarget,
@@ -72,6 +73,7 @@ from protocol.schema.stream_events import (
     StreamEvent,
     TurnCompletedEvent,
 )
+from protocol.transport.reliable import post_json_reliably
 
 CID = "cid_demo_12345678"
 SID = "sid_demo_x_abcdef"
@@ -463,6 +465,148 @@ async def test_controllable_protocol_accepts_all_empty_workspace_targets(
     ]
 
 
+@pytest.mark.runtime_p0
+@pytest.mark.anyio
+async def test_review_response_loss_retries_the_same_frozen_identity(
+    monkeypatch,
+) -> None:
+    """验证登记响应丢失后只以相同载荷取得幂等回执。"""
+    target = ReviewCustomTarget("Focus on lifecycle boundaries")
+    workspace = ClientReviewWorkspace.create()
+    command = create_review_command(
+        local_session_id="session_review_response_loss",
+        cid=CID,
+        sid=SID,
+        turn_id=TURN_ID,
+        target=target,
+        workspace=workspace,
+        pref_config={"primary": {"model": "test-model"}},
+        environment_snapshot=None,
+        tools=_review_tools(),
+    )
+    attempts: list[JsonObject] = []
+    committed_requests: dict[str, MindReviewRequest] = {}
+
+    class ResponseLostClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc_value, _traceback):
+            return None
+
+        async def post(
+            self,
+            url: str,
+            *,
+            params: dict[str, str] | None,
+            headers: dict[str, str],
+            json: JsonObject,
+        ) -> httpx.Response:
+            assert url.endswith("/mind-review")
+            assert params is None
+            assert headers == {"authorization": "test"}
+            payload = dict(json)
+            attempts.append(payload)
+            parsed = parse_mind_review_request(payload)
+            existing = committed_requests.setdefault(parsed.request_id, parsed)
+            assert existing == parsed
+            if len(attempts) == 1:
+                raise httpx.ReadError(
+                    "response lost after commit",
+                    request=httpx.Request("POST", url),
+                )
+            return httpx.Response(
+                202,
+                json={
+                    "ok": True,
+                    "data": {
+                        "request_id": parsed.request_id,
+                        "status": "idempotent",
+                        "cid": parsed.cid,
+                        "sid": parsed.sid,
+                        "turn_id": parsed.turn_id,
+                        "review_session": {
+                            "cid": parsed.cid,
+                            "sid": parsed.sid,
+                        },
+                        "delivery": "inline",
+                    },
+                },
+                request=httpx.Request("POST", url),
+            )
+
+    response_lost_client = ResponseLostClient()
+
+    def client_factory(*, timeout: float) -> ResponseLostClient:
+        assert timeout == 60.0
+        return response_lost_client
+
+    async def register(
+        url: str,
+        *,
+        headers: dict[str, str],
+        payload: JsonObject,
+        timeout: float,
+    ) -> httpx.Response:
+        return await post_json_reliably(
+            url,
+            headers=headers,
+            payload=payload,
+            timeout=timeout,
+            client_factory=client_factory,
+            retry_delays=(0.0, 0.0),
+        )
+
+    async def streaming(
+        _url: str,
+        _headers: dict[str, str],
+        _payload: JsonObject,
+        _timeout: float,
+    ) -> AsyncIterator[JsonObject]:
+        for payload in _review_payloads(target, workspace):
+            yield payload
+
+    monkeypatch.setattr(review_client, "post_json_reliably", register)
+    monkeypatch.setattr(
+        review_client,
+        "build_service_headers",
+        lambda: {"authorization": "test"},
+    )
+    monkeypatch.setattr(
+        review_client.service_endpoints,
+        "endpoint",
+        lambda path: f"https://example.test{path}",
+    )
+    monkeypatch.setattr(chat, "streaming", streaming)
+    monkeypatch.setattr(
+        chat,
+        "build_service_headers",
+        lambda: {"authorization": "test"},
+    )
+    monkeypatch.setattr(
+        chat.service_endpoints,
+        "endpoint",
+        lambda path: f"https://example.test{path}",
+    )
+
+    sink = _Sink()
+    result = await _consume_review_stream(
+        MindChatProtocolClient(),
+        command.request,
+        sink,
+        hint="Focus on lifecycle boundaries",
+    )
+
+    assert result.status == "completed"
+    assert attempts == [command.request.to_dict(), command.request.to_dict()]
+    assert tuple(committed_requests) == (command.request.request_id,)
+    assert [view.type for view in sink.views] == [
+        "review.started",
+        "review.finished",
+        "review.completed",
+    ]
+
+
 def _interrupt_events(
     target: ReviewCustomTarget,
     workspace: ClientReviewWorkspace,
@@ -515,9 +659,15 @@ def _interrupt_events(
 
 @pytest.mark.runtime_p0
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "disconnect_type",
+    (OSError, TimeoutError),
+    ids=("connection_lost", "attach_timeout"),
+)
 async def test_review_full_chain_reconnects_without_duplicate_projection(
     monkeypatch,
     tmp_path: Path,
+    disconnect_type: type[OSError],
 ) -> None:
     """验证持久提交、attach、断线 replay 和唯一终态的完整链路。"""
     target = ReviewCustomTarget("Focus on lifecycle boundaries")
@@ -580,7 +730,7 @@ async def test_review_full_chain_reconnects_without_duplicate_projection(
         operations.append(f"attach:{payload['after_seq']}")
         if len(attach_payloads) == 1:
             yield started
-            raise OSError("connection lost after review.started")
+            raise disconnect_type("attach failed after review.started")
         yield started
         yield completed
         yield terminal

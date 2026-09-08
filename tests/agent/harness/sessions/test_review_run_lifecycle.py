@@ -14,6 +14,7 @@ from agent.harness.sessions.owner import SessionRuntimeOwner
 from agent.ports import (
     ModelCapabilityError,
     ProtocolCommandClient,
+    ProtocolCommandError,
     RunPersistenceConflict,
 )
 from agent.protocol import (
@@ -21,6 +22,7 @@ from agent.protocol import (
     ReviewStreamRequest,
     RunEvent,
     SubmitReviewCommand,
+    TurnStatusSnapshot,
     parse_run_command,
 )
 from agent.stores import SQLiteRunStore
@@ -222,6 +224,208 @@ async def test_review_unknown_submission_survives_restart_for_recovery(
     assert persisted is not None
     assert persisted.request == command.request
     assert persisted.revision == 1
+
+
+@pytest.mark.anyio
+async def test_review_worker_restart_attaches_frozen_remote_turn(
+    tmp_path: Path,
+) -> None:
+    """确保 Worker 重启后只按权威水位观察原 Review Turn。"""
+    db_path = tmp_path / "runtime.db"
+    command = _command()
+    first_store = SQLiteRunStore(db_path)
+    first_application: TurnApplication[RunResult] = TurnApplication(
+        first_store,
+        runtime_factory=SessionRuntimeOwner,
+    )
+
+    async def unknown_operation(_request, _environment_snapshot) -> RunResult:
+        raise ModelCapabilityError(
+            "review_submission_unknown",
+            "worker stopped after remote submission",
+            retryable=True,
+            details={"submission_unknown": True},
+        )
+
+    with pytest.raises(ModelCapabilityError):
+        await first_application.submit(
+            command,
+            ReviewCommandExecutor(
+                unknown_operation,
+                request_recorder=first_application,
+            ),
+        )
+    await first_application.close()
+
+    restarted_store = SQLiteRunStore(db_path)
+    restarted: TurnApplication[RunResult] = TurnApplication(
+        restarted_store,
+        runtime_factory=SessionRuntimeOwner,
+    )
+    protocol_client = AsyncMock(spec=ProtocolCommandClient)
+    protocol_client.get_turn_status.return_value = TurnStatusSnapshot(
+        cid=CID,
+        sid=SID,
+        turn_id=TURN_ID,
+        run_id="remote-review-run",
+        status="running",
+        terminal=None,
+        attempt=1,
+        version=2,
+        last_event_seq=9,
+        created_at=1.0,
+        updated_at=2.0,
+    )
+
+    recovery = await restarted.reconcile_remote_session(
+        command.session_id,
+        protocol_client,
+    )
+
+    assert recovery.redispatch_reviews == ()
+    assert recovery.restore_commands == ()
+    assert recovery.resolved_run_ids == ()
+    assert len(recovery.observe_turns) == 1
+    observed = recovery.observe_turns[0]
+    assert observed.snapshot.command == command
+    assert observed.request == command.request
+    assert observed.replay_target_seq == 9
+    protocol_client.get_turn_status.assert_awaited_once_with(
+        cid=CID,
+        sid=SID,
+        turn_id=TURN_ID,
+    )
+    persisted = await restarted_store.load_remote_request(command.run_id)
+    assert persisted is not None
+    assert persisted.request == command.request
+    await restarted.close()
+
+
+@pytest.mark.anyio
+async def test_review_client_exit_preserves_frozen_recovery_after_restart(
+    tmp_path: Path,
+) -> None:
+    """确保远端登记后的客户端退出不会丢失 Review 恢复身份。"""
+    db_path = tmp_path / "runtime.db"
+    store = SQLiteRunStore(db_path)
+    application: TurnApplication[RunResult] = TurnApplication(
+        store,
+        runtime_factory=SessionRuntimeOwner,
+    )
+    command = _command()
+    remote_started = asyncio.Event()
+
+    async def operation(_request, _environment_snapshot) -> RunResult:
+        remote_started.set()
+        await asyncio.Future()
+        raise AssertionError("unreachable")
+
+    running = asyncio.create_task(application.submit(
+        command,
+        ReviewCommandExecutor(
+            operation,
+            request_recorder=application,
+        ),
+    ))
+    await remote_started.wait()
+    running.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await running
+    await application.close()
+
+    restarted = SQLiteRunStore(db_path)
+    recoveries = await restarted.recover_session(command.session_id)
+    persisted = await restarted.load_remote_request(command.run_id)
+
+    assert len(recoveries) == 1
+    assert recoveries[0].status.value == "reconciliation_required"
+    assert recoveries[0].command == command
+    assert persisted is not None
+    assert persisted.request == command.request
+
+
+@pytest.mark.anyio
+async def test_missing_remote_review_requeues_the_exact_frozen_command(
+    tmp_path: Path,
+) -> None:
+    """确保权威 404 把未知 Review 恢复为可持久重派的原命令。"""
+    db_path = tmp_path / "runtime.db"
+    command = _command()
+    first_store = SQLiteRunStore(db_path)
+    first_application: TurnApplication[RunResult] = TurnApplication(
+        first_store,
+        runtime_factory=SessionRuntimeOwner,
+    )
+
+    async def unknown_operation(_request, _environment_snapshot) -> RunResult:
+        raise ModelCapabilityError(
+            "review_submission_unknown",
+            "response lost",
+            retryable=True,
+            details={"submission_unknown": True},
+        )
+
+    with pytest.raises(ModelCapabilityError):
+        await first_application.submit(
+            command,
+            ReviewCommandExecutor(
+                unknown_operation,
+                request_recorder=first_application,
+            ),
+        )
+    await first_application.close()
+
+    restarted_store = SQLiteRunStore(db_path)
+    restarted: TurnApplication[RunResult] = TurnApplication(
+        restarted_store,
+        runtime_factory=SessionRuntimeOwner,
+    )
+    protocol_client = AsyncMock(spec=ProtocolCommandClient)
+    protocol_client.get_turn_status.side_effect = ProtocolCommandError(
+        "turn_status_request_failed",
+        "remote turn does not exist",
+        details={"status_code": 404},
+    )
+
+    recovery = await restarted.reconcile_remote_session(
+        command.session_id,
+        protocol_client,
+    )
+
+    assert recovery.redispatch_reviews == (command,)
+    assert recovery.restore_commands == ()
+    assert recovery.resolved_run_ids == ()
+    assert len(recovery.pending) == 1
+    assert recovery.pending[0].status.value == "queued"
+    assert recovery.pending[0].recovery_action.value == "redispatch"
+    events = await restarted_store.load_events(command.run_id)
+    assert [event.kind for event in events] == [
+        "run_queued",
+        "run_started",
+        "run_reconciliation_required",
+        "run_redispatch_queued",
+    ]
+    assert events[-1].payload["recovery"] == {
+        "resolution": "not_executed",
+        "authority": "remote_turn_status_404",
+    }
+
+    async def complete_operation(request, environment_snapshot) -> RunResult:
+        assert request == command.request
+        assert environment_snapshot == command.environment_snapshot_value()
+        return RunResult(status="completed", assistant_text="No findings.")
+
+    result = await restarted.submit(
+        command,
+        ReviewCommandExecutor(
+            complete_operation,
+            request_recorder=restarted,
+        ),
+    )
+    assert result.projection.status == "completed"
+    assert await restarted.recover_session(command.session_id) == ()
+    assert (await restarted_store.load_remote_request(command.run_id)) is not None
+    await restarted.close()
 
 
 @pytest.mark.anyio

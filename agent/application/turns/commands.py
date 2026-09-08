@@ -146,6 +146,34 @@ class TurnApplication(typing.Generic[ResultValue]):
             raise RuntimeError("run persistence is unavailable")
         await self._persistence.save_remote_request(command, request)
 
+    async def _requeue_missing_review(
+        self,
+        snapshot: RunSnapshot,
+    ) -> SubmitReviewCommand:
+        """在远端确认未创建后持久恢复原 Review 的可重派状态。"""
+        if self._persistence is None:
+            raise RuntimeError("run persistence is unavailable")
+        command = snapshot.command
+        if not isinstance(command, SubmitReviewCommand):
+            raise TypeError("review recovery requires SubmitReviewCommand")
+        event = RunEvent.create(
+            sequence=snapshot.sequence + 1,
+            session_id=command.session_id,
+            run_id=command.run_id,
+            kind="run_redispatch_queued",
+            payload={
+                "status": "queued",
+                "recovery": {
+                    "resolution": "not_executed",
+                    "authority": "remote_turn_status_404",
+                },
+            },
+            causation_id=command.command_id,
+        )
+        await self._persistence.append_event(command, event)
+        await self._runtime.recover_session(command.session_id)
+        return command
+
     async def reconcile_remote_session(
         self,
         session_id: str,
@@ -221,6 +249,11 @@ class TurnApplication(typing.Generic[ResultValue]):
                         error="remote continuation was not created",
                     )
                     resolved_run_ids.append(snapshot.command.run_id)
+                    continue
+                if isinstance(snapshot.command, SubmitReviewCommand):
+                    redispatch_reviews.append(
+                        await self._requeue_missing_review(snapshot)
+                    )
                     continue
                 await self.resolve_recovery(
                     snapshot.command.run_id,

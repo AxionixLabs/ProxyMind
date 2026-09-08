@@ -21,6 +21,7 @@ from .schema import RUN_SNAPSHOT_VERSION
 
 _EVENT_STATUSES = {
     "run_queued": RunStatus.QUEUED,
+    "run_redispatch_queued": RunStatus.QUEUED,
     "run_started": RunStatus.RUNNING,
     "run_waiting_approval": RunStatus.WAITING_APPROVAL,
     "run_waiting_effect": RunStatus.WAITING_EFFECT,

@@ -101,6 +101,7 @@ def validate_model_event(event: ModelEvent) -> ModelEvent:
 
 RunEventKind = typing.Literal[
     "run_queued",
+    "run_redispatch_queued",
     "run_started",
     "run_waiting_approval",
     "run_waiting_effect",

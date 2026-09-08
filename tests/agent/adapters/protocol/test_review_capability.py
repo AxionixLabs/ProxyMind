@@ -31,6 +31,7 @@ from protocol.schema.review import (
     ReviewSession,
 )
 from protocol.schema.stream_events import (
+    ReviewCancelledEvent,
     ReviewCompletedEvent,
     ReviewStartedEvent,
     TurnCompletedEvent,
@@ -341,6 +342,57 @@ async def test_review_stream_rejects_conflicting_turn_terminal(
 
     assert raised.value.code == "review_protocol_error"
     assert raised.value.details["reconciliation_required"] is True
+    assert cursors.current(cid=CID, sid=SID) == 0
+
+
+@pytest.mark.anyio
+async def test_review_stream_rejects_a_second_terminal_from_interrupt_race(
+    monkeypatch,
+) -> None:
+    """确保中断与重连竞争不能提交两个 Review Item 终态。"""
+    request = build_review_stream_request(_wire_request())
+    started = _events()[0]
+    cancelled = ReviewCancelledEvent(
+        type="review.cancelled",
+        proto="mind.chat",
+        cid=CID,
+        sid=SID,
+        turn_id=TURN_ID,
+        event_seq=2,
+        item_id=REVIEW_ITEM_ID,
+        item_kind="review",
+        item_status="cancelled",
+        review_item_id=REVIEW_ITEM_ID,
+        status="cancelled",
+        reason="interrupted",
+    )
+    duplicate = ReviewCancelledEvent(
+        type="review.cancelled",
+        proto="mind.chat",
+        cid=CID,
+        sid=SID,
+        turn_id=TURN_ID,
+        event_seq=3,
+        item_id=REVIEW_ITEM_ID,
+        item_kind="review",
+        item_status="cancelled",
+        review_item_id=REVIEW_ITEM_ID,
+        status="cancelled",
+        reason="interrupt replay race",
+    )
+    monkeypatch.setattr(
+        review_adapter,
+        "_submit_review",
+        AsyncMock(return_value=_submission((started, cancelled, duplicate))),
+    )
+    cursors = ProtocolEventCursorStore()
+    stream = await MindChatProtocolClient(cursors).review(request)
+
+    with pytest.raises(ModelCapabilityError) as raised:
+        _ = [event async for event in stream]
+
+    assert raised.value.code == "review_protocol_error"
+    assert "unique" in str(raised.value)
     assert cursors.current(cid=CID, sid=SID) == 0
 
 
