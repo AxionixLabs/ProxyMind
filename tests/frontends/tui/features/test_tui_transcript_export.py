@@ -21,6 +21,7 @@ from frontends.tui.features.transcript_export import (
     _filename_prompt,
     export_conversation,
 )
+from frontends.tui.core.models import MenuTextInputMode
 from frontends.tui.rendering.fragments import fragments_text
 
 
@@ -244,7 +245,7 @@ async def test_export_conversation_matches_codex_file_menu_and_workspace(
     assert filename.text_input_gutter == "▌"
     assert filename.surface_horizontal_inset == 0
     assert filename.initial_query == "mind-session-sid_export_123.md"
-    assert filename.text_input
+    assert filename.text_input_mode is MenuTextInputMode.SINGLE_LINE
     assert (tmp_path / "custom.md").read_text(encoding="utf-8") == (
         "# Mind conversation\n\n"
         "## User\n\n**question**\n\n"

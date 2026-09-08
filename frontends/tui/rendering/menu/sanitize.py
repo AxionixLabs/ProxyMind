@@ -13,10 +13,13 @@ from frontends.tui.contracts.menu import (
     MenuEmptyAcceptAction,
     MenuFooterCommand,
     MenuFooterHint,
+    MenuFooterTone,
     MenuFooterValue,
     MenuOption,
     MenuRequest,
-    MenuTab
+    MenuRowDisplay,
+    MenuTab,
+    MenuTextInputMode,
 )
 
 
@@ -40,8 +43,14 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         view_id=sanitize_terminal_line(request.view_id or "") or None,
         generation=max(0, int(request.generation)),
         searchable=request.searchable,
-        text_input=bool(request.text_input),
-        initial_query=sanitize_terminal_line(request.initial_query),
+        text_input_mode=sanitize_text_input_mode(request.text_input_mode),
+        text_input_max_rows=max(1, int(request.text_input_max_rows)),
+        text_input_result_factory=request.text_input_result_factory,
+        initial_query=(
+            sanitize_terminal_text(request.initial_query)
+            if request.text_input_mode is MenuTextInputMode.MULTILINE
+            else sanitize_terminal_line(request.initial_query)
+        ),
         text_input_gutter=sanitize_terminal_line(request.text_input_gutter),
         text_input_gutter_style=sanitize_terminal_line(
             request.text_input_gutter_style
@@ -59,6 +68,7 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         ),
         footer_note=sanitize_terminal_line(request.footer_note),
         footer_hint=sanitize_footer_hint(request.footer_hint),
+        footer_tone=sanitize_footer_tone(request.footer_tone),
         footer_right=sanitize_inline_text(request.footer_right),
         footer_right_active=sanitize_inline_text(request.footer_right_active),
         allow_cancel=request.allow_cancel,
@@ -70,6 +80,7 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         tabs_in_header=bool(request.tabs_in_header),
         surface_style=sanitize_inline_text(request.surface_style),
         column_width_mode=sanitize_column_width_mode(request.column_width_mode),
+        row_display=sanitize_row_display(request.row_display),
         name_column_width=(
             max(1, int(request.name_column_width))
             if request.name_column_width is not None
@@ -140,6 +151,30 @@ def sanitize_column_width_mode(value: typing.Any) -> MenuColumnWidthMode:
         return MenuColumnWidthMode(value)
     except (TypeError, ValueError):
         return MenuColumnWidthMode.AUTO_ALL_ROWS
+
+
+def sanitize_row_display(value: typing.Any) -> MenuRowDisplay:
+    """清理候选行展示策略并回退到截断模式。"""
+    try:
+        return MenuRowDisplay(value)
+    except (TypeError, ValueError):
+        return MenuRowDisplay.CLIPPED
+
+
+def sanitize_footer_tone(value: typing.Any) -> MenuFooterTone:
+    """清理菜单页脚语义层级并回退到默认层级。"""
+    try:
+        return MenuFooterTone(value)
+    except (TypeError, ValueError):
+        return MenuFooterTone.DEFAULT
+
+
+def sanitize_text_input_mode(value: typing.Any) -> MenuTextInputMode:
+    """清理菜单文本输入模式并回退到无编辑状态。"""
+    try:
+        return MenuTextInputMode(value)
+    except (TypeError, ValueError):
+        return MenuTextInputMode.NONE
 
 
 def sanitize_menu_tab(tab: MenuTab) -> MenuTab:

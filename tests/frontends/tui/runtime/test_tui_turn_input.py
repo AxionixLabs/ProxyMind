@@ -128,6 +128,36 @@ def _completed(
 
 
 @pytest.mark.anyio
+async def test_review_turn_defers_plain_input_without_sending_steer(
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()),
+        runtime,
+        _State(),
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        protocol_client=protocol_client,
+        allow_steer=False,
+    )
+    _mark_started(control)
+    submission = _submission("next turn")
+
+    assert control.submit(submission, False)
+    await asyncio.sleep(0)
+
+    protocol_client.steer_turn.assert_not_awaited()
+    queued = runtime.submissions.queued_messages.pop_next()
+    assert queued is not None
+    assert queued.value == submission.value
+    assert queued.client_message_id == submission.client_message_id
+    assert queued.payload_bound
+    await control.close()
+
+
+@pytest.mark.anyio
 async def test_interrupt_phase_stops_queued_steers_before_terminal(
     protocol_client: ProtocolCommandClient,
 ) -> None:

@@ -31,6 +31,7 @@ from frontends.tui.core.models import (
     MenuShortcutAction,
     STANDARD_MENU_FOOTER_HINT,
     MenuTab,
+    MenuTextInputMode,
     ViewCompletion,
 )
 
@@ -226,7 +227,7 @@ async def test_selected_menu_option_highlights_only_prefix_and_label() -> None:
     first_row_start = next(
         index
         for index, (style, _text) in enumerate(fragments)
-        if style == "class:tui-menu.index.active"
+        if style == "class:tui-menu.selection-marker"
     )
     first_row_end = next(
         index
@@ -240,6 +241,7 @@ async def test_selected_menu_option_highlights_only_prefix_and_label() -> None:
 
     assert sum(get_cwidth(text) for _style, text in active_row) < width
     assert [style for style, _text in active_row] == [
+        "class:tui-menu.selection-marker",
         "class:tui-menu.index.active",
         "class:tui-menu.label.active",
         "class:tui-menu.detail-selected",
@@ -259,6 +261,10 @@ async def test_selected_menu_option_highlights_only_prefix_and_label() -> None:
     assert TUI_MENU_STYLE.get_attrs_for_style_str(
         "class:tui-menu.label.active"
     ).bold
+    marker = TUI_MENU_STYLE.get_attrs_for_style_str(
+        "class:tui-menu.selection-marker"
+    )
+    assert marker.bold and not marker.dim
 
 
 @pytest.mark.anyio
@@ -443,6 +449,69 @@ async def test_menu_height_caps_visible_options_at_eight_rows() -> None:
 
     menu.finish(None)
     await task
+
+
+@pytest.mark.anyio
+async def test_searchable_menu_matches_codex_spacing_and_scroll_boundary() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 100,
+    )
+    subjects = (
+        "客服中台技能skills： 1、新增页面布局格式 2、调整SKILL.md索引结构",
+        "docs: optimize app-qa skill",
+        "调整技能结构 将页面和操作合并为一个技能文件",
+        "Remove AGENTS guide",
+        "bug fixes",
+        "bug fixes",
+        "bug fixes",
+        "Initial commit",
+        "older commit",
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Select a commit to review",
+        searchable=True,
+        search_prompt_prefix="",
+        search_placeholder="Type to search commits",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        options=tuple(
+            MenuOption(index, subject, search_value=subject)
+            for index, subject in enumerate(subjects)
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    for _ in range(7):
+        menu._move(1)
+    assert menu.state is not None
+    assert menu.state.selected == 7
+    assert menu.state.scroll_top == 0
+
+    lines = [
+        line.rstrip()
+        for line in _fragments_text(menu.fragments()).splitlines()
+    ]
+    assert lines[:3] == [
+        "  Select a commit to review",
+        "",
+        "  Type to search commits",
+    ]
+    assert lines[3:11] == [
+        f"  {subject}"
+        for subject in subjects[:7]
+    ] + ["› Initial commit"]
+
+    menu._move(1)
+    assert menu.state.selected == 8
+    assert menu.state.scroll_top == 1
+    menu._move(-1)
+    assert menu.state.selected == 7
+    assert menu.state.scroll_top == 1
+
+    menu.cancel()
+    assert await task is None
 
 
 @pytest.mark.anyio
@@ -1630,7 +1699,7 @@ async def test_text_input_menu_prefills_edits_and_submits_filename() -> None:
     )
     task = asyncio.create_task(menu.request(MenuRequest(
         title="Save conversation",
-        text_input=True,
+        text_input_mode=MenuTextInputMode.SINGLE_LINE,
         initial_query="mind-session.md",
         text_input_gutter="▌",
         search_placeholder="",

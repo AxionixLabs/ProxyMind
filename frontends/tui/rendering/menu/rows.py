@@ -7,7 +7,8 @@ from prompt_toolkit.utils import get_cwidth
 from frontends.tui.contracts.menu import (
     MenuColumnWidthMode,
     MenuOption,
-    MenuRequest
+    MenuRequest,
+    MenuRowDisplay,
 )
 from .layout import (
     prefix_width,
@@ -60,6 +61,13 @@ def option_fragments(
             "class:tui-menu.detail-selected" if active else "class:tui-menu.detail"
         )
 
+    prefix_fragments = _option_prefix_fragments(
+        prefix,
+        active=active,
+        marker=request.selection_marker,
+        index_style=index_style,
+    )
+
     if option.columns and request.table_column_widths:
         widths = list(request.table_column_widths)
         values = list(option.columns)
@@ -90,7 +98,7 @@ def option_fragments(
                 cell_style = option.column_styles[index] or label_style
             cells.append((cell_style, cell))
 
-        row: StyleAndTextTuples = [(index_style, prefix)]
+        row: StyleAndTextTuples = list(prefix_fragments)
         for index, (cell_style, cell) in enumerate(cells):
             if index:
                 row.append((label_style, separator))
@@ -98,6 +106,29 @@ def option_fragments(
         return [row]
 
     detail = option_detail(option, active=active)
+    if request.row_display is MenuRowDisplay.WRAPPED:
+        content: StyleAndTextTuples = [
+            (label_style, option_label(option)),
+        ]
+        if detail:
+            content.extend((
+                (detail_style, request.description_separator),
+                (detail_style, detail),
+            ))
+        wrapped = wrap_formatted_lines(content, width=max(1, available))
+        continuation = " " * get_cwidth(prefix)
+        return [
+            [
+                *(
+                    prefix_fragments
+                    if index == 0
+                    else [(index_style, continuation)]
+                ),
+                *strip_leading_spaces(row),
+            ]
+            for index, row in enumerate(wrapped)
+        ]
+
     if detail and should_stack_description(
         request,
         detail=detail,
@@ -106,7 +137,7 @@ def option_fragments(
     ):
         label = clip_text(option_label(option), width=available)
         rows: list[StyleAndTextTuples] = [[
-            (index_style, prefix),
+            *prefix_fragments,
             (label_style, label),
         ]]
         detail_width = max(1, width - row_prefix_width)
@@ -122,7 +153,7 @@ def option_fragments(
 
     if not detail or label_width is None:
         return [[
-            (index_style, prefix),
+            *prefix_fragments,
             (label_style, clip_text(option_label(option), width=available)),
         ]]
 
@@ -154,7 +185,7 @@ def option_fragments(
         )
 
         return [[
-            (index_style, prefix),
+            *prefix_fragments,
             (label_style, f"{label}{padding}"),
             (detail_style, separator),
             (detail_style, f"{detail_text}{detail_padding}"),
@@ -164,10 +195,26 @@ def option_fragments(
 
     detail_width = available - label_width - separator_width
     return [[
-        (index_style, prefix),
+        *prefix_fragments,
         (label_style, f"{label}{padding}"),
         (detail_style, f"{separator}{clip_text(detail, width=detail_width)}"),
     ]]
+
+
+def _option_prefix_fragments(
+    prefix: str,
+    *,
+    active: bool,
+    marker: str,
+    index_style: str,
+) -> StyleAndTextTuples:
+    """把选择箭头与序号 gutter 分离，避免箭头继承弱化样式。"""
+    if active and marker and prefix.startswith(marker):
+        return [
+            ("class:tui-menu.selection-marker", marker),
+            (index_style, prefix[len(marker):]),
+        ]
+    return [(index_style, prefix)]
 
 
 def row_layout(

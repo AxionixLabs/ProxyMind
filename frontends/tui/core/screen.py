@@ -107,6 +107,7 @@ from .menu import (
 from .models import (
     FormattedText,
     FragmentBlock,
+    MenuTextInputMode,
     TranscriptBacktrackRequest,
 )
 from .process_status import TuiProcessStatus
@@ -3426,7 +3427,10 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
     def _menu_cursor_hidden(self) -> bool:
         """仅在菜单不接收文本编辑时隐藏终端光标。"""
         state = self.menu.state
-        return state is None or not state.request.text_input
+        return bool(
+            state is None
+            or state.request.text_input_mode is MenuTextInputMode.NONE
+        )
 
     def _menu_surface_style(self) -> str:
         """返回当前菜单窗口使用的 surface 样式。"""

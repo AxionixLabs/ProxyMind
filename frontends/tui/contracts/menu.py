@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from collections.abc import Hashable
 from dataclasses import dataclass
 from enum import Enum
 
@@ -19,6 +20,25 @@ class MenuColumnWidthMode(str, Enum):
     AUTO_VISIBLE = "auto_visible"
     AUTO_ALL_ROWS = "auto_all_rows"
     FIXED = "fixed"
+
+
+class MenuRowDisplay(str, Enum):
+    """描述菜单候选行超出可用宽度时的展示方式。"""
+    CLIPPED = "clipped"
+    WRAPPED = "wrapped"
+
+
+class MenuFooterTone(str, Enum):
+    """描述菜单页脚说明文字的语义层级。"""
+    DEFAULT = "default"
+    SECONDARY = "secondary"
+
+
+class MenuTextInputMode(str, Enum):
+    """描述菜单是否拥有单行或多行文本编辑状态。"""
+    NONE = "none"
+    SINGLE_LINE = "single_line"
+    MULTILINE = "multiline"
 
 
 class MenuActionKind(str, Enum):
@@ -138,7 +158,9 @@ class MenuRequest(object):
     view_id: str | None = None
     generation: int = 0
     searchable: bool = False
-    text_input: bool = False
+    text_input_mode: MenuTextInputMode = MenuTextInputMode.NONE
+    text_input_max_rows: int = 1
+    text_input_result_factory: typing.Callable[[str], Hashable] | None = None
     initial_query: str = ""
     text_input_gutter: str = ""
     text_input_gutter_style: str = ""
@@ -156,6 +178,7 @@ class MenuRequest(object):
     empty_accept_action: MenuEmptyAcceptAction = MenuEmptyAcceptAction.CANCEL
     footer_note: str = ""
     footer_hint: MenuFooterValue = ""
+    footer_tone: MenuFooterTone = MenuFooterTone.DEFAULT
     footer_right: str = ""
     footer_right_active: str = ""
     allow_cancel: bool = True
@@ -167,6 +190,7 @@ class MenuRequest(object):
     tabs_in_header: bool = True
     surface_style: str = "class:menu-card"
     column_width_mode: MenuColumnWidthMode = MenuColumnWidthMode.AUTO_ALL_ROWS
+    row_display: MenuRowDisplay = MenuRowDisplay.CLIPPED
     name_column_width: int | None = None
     title_accent_suffix: str = ""
     body_warning: str = ""

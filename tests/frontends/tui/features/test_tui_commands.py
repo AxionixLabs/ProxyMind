@@ -117,6 +117,7 @@ def test_root_command_completion_order_is_stable() -> None:
         "/compact",
         "/tools",
         "/hooks",
+        "/review",
         "/agent",
         "/listen",
         "/mailbox",
@@ -463,6 +464,7 @@ def test_command_matching_distinguishes_empty_and_argument_states() -> None:
         "/effort",
         "/resume",
         "/hooks",
+        "/review",
         "/agent",
         "/listen",
         "/mailbox",
@@ -486,6 +488,8 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     assert parameterized_command_texts() == ("/model ", "/queue ")
     assert stream_command_policy("hello") is None
     assert stream_command_policy("$review") is None
+    assert stream_command_policy("/review") == "reject"
+    assert stream_command_policy("/review focus on auth") == "reject"
     assert stream_command_label("/mcp restart now") == "/mcp restart"
 
 
@@ -531,6 +535,8 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
         ("/archive", "reject"),
         ("/fork", "reject"),
         ("/compact", "reject"),
+        ("/review", "reject"),
+        ("/review focus on auth", "reject"),
         ("/mcp stop", "reject"),
         ("/mcp restart", "reject"),
         ("/helix-unlink", "reject"),
@@ -549,10 +555,15 @@ def test_command_specs_expose_task_availability() -> None:
     assert command_spec("permissions").available_during_task
     assert command_spec("mcp").available_during_task
     assert not command_spec("resume").available_during_task
+    assert not command_spec("review").available_during_task
     assert command_spec("permissions").requires_stream_action
     assert command_spec("mcp").requires_stream_action
     assert not command_spec("quit").requires_stream_action
     assert not command_spec("resume").requires_stream_action
+    assert command_spec("review").completion_meta == (
+        "review my current changes and find issues"
+    )
+    assert command_spec("review").accepts_arguments
 
 
 def test_new_command_accepts_an_optional_session_name() -> None:
@@ -570,6 +581,8 @@ def test_new_command_accepts_an_optional_session_name() -> None:
         "/listen stop",
         "/listen status",
         "/mailbox",
+        "/review",
+        "/review focus on auth",
         "/q",
     ],
 )

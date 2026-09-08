@@ -1,6 +1,6 @@
 # `/review` 分阶段对齐计划
 
-> 状态：实施中；阶段 0、1、2、3 门禁已通过。
+> 状态：实施中；阶段 0、1、2、3、4 门禁已通过。
 > 基准日期：2026-09-08。
 > 客户端基准：当前仓库 `codex-main/` 中的 `/review` 实现。
 > 服务端基准：`D:\PycharmProjects\AppServer` 当前提交
@@ -521,20 +521,26 @@ allowlist；空快照 custom 在 HTTP 前稳定返回 `review_code_context_unava
 
 责任目录：`frontends/tui/prompting/`、`frontends/tui/features/`、`frontends/tui/session/`。
 
-- [ ] 按第 2.1 至 2.5 节精确加入命令目录和四项预设菜单。
-- [ ] 按第 2.7 节实现共享表面、语义样式、线框和窄终端布局。
-- [ ] 补齐 `MenuRowDisplay`、footer tone 和 multiline text input 三项通用菜单能力；不得用 Review 私有 renderer 绕过现有 view stack。
-- [ ] 按第 2.8 节组装 `ReviewMenuController` 与 catalog/snapshot 窄契约。
-- [ ] 按第 2.9 节实现父子完成传播、异步 generation guard 和全部取消路径。
-- [ ] 分支、提交查询异步执行时保持输入响应；失败 child 可返回稳定父视图。
-- [ ] 裸命令、行内 custom、Enter、Esc、搜索、空输入和活动 Turn 拒绝均有行为测试。
-- [ ] 提交前显示的目标摘要与最终 `review.started` hint 使用同一类型化来源。
-- [ ] 对 40/80/120 列及长分支名、长提交 subject、宽字符进行渲染快照验证。
-- [ ] 对 root、branch、commit、custom、no matches、catalog failure 分别建立 golden snapshot。
-- [ ] 样式测试检查语义 token，而不只比较去除 ANSI 后的纯文本。
+- [x] 按第 2.1 至 2.5 节精确加入命令目录和四项预设菜单。
+- [x] 按第 2.7 节实现共享表面、语义样式、线框和窄终端布局。
+- [x] 补齐 `MenuRowDisplay`、footer tone 和 multiline text input 三项通用菜单能力；不得用 Review 私有 renderer 绕过现有 view stack。
+- [x] 按第 2.8 节组装 `ReviewMenuController` 与 catalog/snapshot 窄契约。
+- [x] 按第 2.9 节实现父子完成传播、异步 generation guard 和全部取消路径。
+- [x] 分支、提交查询异步执行时保持输入响应；失败 child 可返回稳定父视图。
+- [x] 裸命令、行内 custom、Enter、Esc、搜索、空输入和活动 Turn 拒绝均有行为测试。
+- [x] 提交前显示的目标摘要与最终 `review.started` hint 使用同一类型化来源。
+- [x] 对 40/80/120 列及长分支名、长提交 subject、宽字符进行渲染快照验证。
+- [x] 对 root、branch、commit、custom、no matches、catalog failure 分别建立 golden snapshot。
+- [x] 样式测试检查语义 token，而不只比较去除 ANSI 后的纯文本。
 
 阶段门槛：第 2.7 至 2.9 节的视觉与状态转换契约全部通过，TUI 层不包含 HTTP 字段拼装或
 Git 命令字符串。
+
+阶段 4 复核证据：`tests/frontends/tui` 1826 项通过、1 项按环境跳过；Review 持久执行相关
+13 项通过；架构边界 138 项通过。共享菜单以持久 `scroll_top` 对齐 Codex
+`ScrollState.ensure_visible`：前 8 项保持起始窗口，第 9 项才推动滚动；选择 marker 使用独立
+`tui-menu.selection-marker` 语义并断言 `bold + nodim`。commit picker 的标题后空行、搜索行、
+8 项可见窗口和 footer 间隔均有精确文本测试。
 
 ### 阶段 5：事件归约与结果呈现
 

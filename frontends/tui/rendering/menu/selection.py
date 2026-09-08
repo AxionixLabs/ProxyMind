@@ -238,12 +238,38 @@ def visible_window(
         if state.selected in indices
         else 0
     )
-    half = limit // 2
-    start = max(
-        0,
-        min(selected_position - half, len(indices) - limit),
-    )
+    maximum_start = len(indices) - limit
+    start = min(max(0, state.scroll_top), maximum_start)
+    if selected_position < start:
+        start = selected_position
+    elif selected_position >= start + limit:
+        start = selected_position + 1 - limit
     return start, indices[start:start + limit]
+
+
+def ensure_selection_visible(
+    state: MenuState,
+    *,
+    visible_rows: int,
+) -> None:
+    """调整持久滚动位置，使选择仅在越过视窗边界时推动列表。"""
+    indices = filtered_indices(state)
+    limit = max(1, int(visible_rows))
+    if state.request.show_all_options or len(indices) <= limit:
+        state.scroll_top = 0
+        return None
+    if state.selected not in indices:
+        state.scroll_top = 0
+        return None
+
+    selected_position = indices.index(state.selected)
+    maximum_start = len(indices) - limit
+    scroll_top = min(max(0, state.scroll_top), maximum_start)
+    if selected_position < scroll_top:
+        scroll_top = selected_position
+    elif selected_position >= scroll_top + limit:
+        scroll_top = selected_position + 1 - limit
+    state.scroll_top = min(scroll_top, maximum_start)
 
 
 def visible_options(

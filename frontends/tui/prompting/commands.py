@@ -153,6 +153,11 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
+        "review", "/review", "review my current changes and find issues",
+        accepts_arguments=True,
+        surface_on_bare=True,
+    ),
+    TuiCommandSpec(
         "agent", "/agent", "Manage sub-agents",
         surface_on_bare=True,
         stream_policy="interactive_panel",

@@ -479,6 +479,7 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
                 "tui-menu.label.active",
                 "tui-menu.review-selected",
                 "tui-menu.detail-selected",
+                "tui-menu.selection-marker",
                 "tui-menu.footer.right.current",
             ),
         ),
@@ -499,6 +500,18 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
         styles[style_class] = separator_style
     for style_class in ("transcript.overlay.selection",):
         styles[style_class] = _terminal_surface_style(semantics.selected_surface)
+
+    styles["tui-menu.title"] = _terminal_text_style(
+        semantics.primary,
+        "bold",
+    )
+    styles["tui-menu.footer.secondary"] = _terminal_text_style(
+        semantics.secondary,
+    )
+    styles["tui-menu.selection-marker"] = _terminal_text_style(
+        semantics.selected,
+        "nodim",
+    )
 
     return Style.from_dict(styles)
 

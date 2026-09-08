@@ -21,6 +21,7 @@ from ..contracts.menu import (
     MenuEmptyAcceptAction,
     MenuOption,
     MenuRequest,
+    MenuTextInputMode,
 )
 from ..core.document import TranscriptBlock
 from ..core.models import TranscriptExportResult
@@ -142,7 +143,7 @@ def _filename_prompt(session_id: str | None) -> MenuRequest:
     return MenuRequest(
         title="Save conversation",
         view_id="conversation:export-filename",
-        text_input=True,
+        text_input_mode=MenuTextInputMode.SINGLE_LINE,
         initial_query=filename,
         text_input_gutter="▌",
         search_placeholder="",

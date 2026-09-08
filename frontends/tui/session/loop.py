@@ -5,6 +5,7 @@ import asyncio
 import typing
 from dataclasses import dataclass
 
+from agent.adapters.turns.review import ReviewCommandExecutor
 from agent.application.config.session_identity import derive_local_session_id
 from agent.application.services import TurnApplicationFactory
 from agent.application.turns.commands import (
@@ -15,17 +16,27 @@ from agent.application.turns.commands import (
 )
 from agent.application.turns.observation import TurnObservationCallbacks
 from agent.application.turns.run_result import RunResult
+from agent.application.turns.reviews import (
+    create_review_command,
+    run_review_turn,
+)
+from agent.application.views.builders.review import build_review_failed_view
 from agent.ports import (
     AttachmentStatePort,
     ProtocolCommandClient,
     ProtocolCommandError,
+    ReviewCapability,
     RunRecoveryRequired,
 )
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,
 )
-from agent.protocol import LocalDurableQueueSnapshot
+from agent.protocol import (
+    LocalDurableQueueSnapshot,
+    ReviewStreamRequest,
+)
+from agent.protocol.json_value import ThawedJsonValue
 from infrastructure.config.runtime_paths import agent_runtime_db_path
 from infrastructure.services.turn_environment import (
     capture_active_turn_environment,
@@ -461,6 +472,7 @@ async def run_tui_loop(
     initial_images: tuple[str, ...] = (),
     initial_model: str | None = None,
     turn_application_factory: TurnApplicationFactory | None = None,
+    review_capability: ReviewCapability | None = None,
 ) -> None:
     """运行 TUI 会话，并统一关闭其主动 Turn application。"""
     durable_runtime = getattr(host, "application_layout", None) is not None
@@ -479,6 +491,12 @@ async def run_tui_loop(
             turn_runner=turn_runner,
             conversation_compactor=conversation_compactor,
             protocol_client=protocol_client,
+            review_capability=(
+                protocol_client
+                if review_capability is None
+                and isinstance(protocol_client, ReviewCapability)
+                else review_capability
+            ),
             local_session_id=(
                 None
                 if durable_runtime
@@ -499,6 +517,7 @@ async def _run_tui_loop(
     turn_runner: TuiRootTurnRunner,
     conversation_compactor: ConversationCompactor | None,
     protocol_client: ProtocolCommandClient,
+    review_capability: ReviewCapability | None,
     local_session_id: str | None,
     initial_prompt: str | None,
     initial_images: tuple[str, ...],
@@ -718,6 +737,28 @@ async def _run_tui_loop(
             if not outcome.settled:
                 reconciled_queue_sessions.discard(queue_coordinates)
             continue
+        if action is DispatchAction.REVIEW_TURN:
+            runtime.cancel_command_layout()
+            if review_capability is None:
+                dispatcher.take_prepared_review()
+                application.emit(build_review_failed_view(
+                    "Review capability is unavailable.",
+                ))
+                runtime.set_turn_start_pending(False)
+                continue
+            exit_requested = await _execute_tui_review_turn(
+                host,
+                runtime,
+                state,
+                dispatcher,
+                turn_application,
+                protocol_client,
+                review_capability,
+                local_session_id=local_session_id,
+            )
+            if exit_requested:
+                break
+            continue
 
         runtime.cancel_command_layout()
         runtime.set_turn_start_pending(True)
@@ -841,6 +882,85 @@ async def _run_tui_loop(
         runtime.set_turn_start_pending(False)
         if _apply_turn_exit_request(host, runtime):
             break
+
+
+async def _execute_tui_review_turn(
+    host: "TuiApplicationHost",
+    runtime: TuiRuntime,
+    state: TuiSessionState,
+    dispatcher: TuiCommandDispatcher,
+    turn_application: TurnApplication["RunResult"],
+    protocol_client: ProtocolCommandClient,
+    review_capability: ReviewCapability,
+    *,
+    local_session_id: str | None,
+) -> bool:
+    """提交菜单已冻结的 Review，并保持普通输入属于下一轮。"""
+    prepared = dispatcher.take_prepared_review()
+    runtime.set_turn_start_pending(True)
+    try:
+        await state.refresh_preferences(host, ttl_sec=0.0)
+        remote_session = host.conversation.snapshot()
+        turn_id = short_uid(12)
+        resolved_local_session_id = local_session_id or derive_local_session_id(
+            "tui",
+            remote_session,
+        )
+        command = create_review_command(
+            local_session_id=resolved_local_session_id,
+            cid=remote_session["cid"],
+            sid=remote_session["sid"],
+            turn_id=turn_id,
+            target=prepared.target,
+            workspace=prepared.workspace,
+            llm_conf=state.pref_config,
+            environment_snapshot=capture_active_turn_environment(host),
+        )
+        turn_input_control = TuiTurnInputControl(
+            host,
+            runtime,
+            state,
+            cid=remote_session["cid"],
+            sid=remote_session["sid"],
+            turn_id=turn_id,
+            protocol_client=protocol_client,
+            allow_steer=False,
+        )
+
+        async def execute_review(
+            request: ReviewStreamRequest,
+            environment_snapshot: dict[str, ThawedJsonValue] | None,
+        ) -> RunResult:
+            """把持久化 Review Command 适配到 Review 能力。"""
+            return await run_review_turn(
+                request,
+                environment_snapshot,
+                capability=review_capability,
+                application=dispatcher.application,
+                hint=prepared.hint,
+                on_event=turn_input_control.handle_event,
+                on_stream_end=turn_input_control.handle_stream_end,
+            )
+
+        executor = ReviewCommandExecutor(
+            execute_review,
+            request_recorder=turn_application,
+        )
+        await execute_tui_model_turn(
+            dispatcher.application,
+            runtime,
+            turn_application.submit(command, executor),
+            turn_input_control=turn_input_control,
+            stream_command_handler=dispatcher.handle_stream_command,
+            show_interrupt_notice=lambda: not host.lifecycle.stop_event.is_set(),
+        )
+    except (TypeError, ValueError) as error:
+        dispatcher.application.emit(build_review_failed_view(
+            str(error).strip() or type(error).__name__,
+        ))
+    finally:
+        runtime.set_turn_start_pending(False)
+    return _apply_turn_exit_request(host, runtime)
 
 
 async def _handle_mailbox_run(

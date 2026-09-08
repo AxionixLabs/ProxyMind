@@ -6,11 +6,9 @@ import asyncio
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView,
-    Viewport,
-)
-from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
+    Viewport,
 )
 from frontends.terminal.intro import (
     IntroFrame,
@@ -27,8 +25,11 @@ from ..core.models import (
     LineFill,
 )
 from ..core.runtime import TuiRuntime
-from ..core.styles import styled_block_fragments
-from ..core.styles import text_block
+from ..core.styles import (
+    assistant_block,
+    styled_block_fragments,
+    text_block,
+)
 
 MUTED = semantic_text_style(TerminalSemanticRole.SECONDARY)
 ACCENT = semantic_text_style(TerminalSemanticRole.ACCENT, bold=True)
@@ -116,7 +117,16 @@ class TuiApplicationSink(ApplicationSink):
             self.runtime.queue_background_block(block)
             return None
         block_kind: TuiBlockKind = (
-            "notice" if view.type == "tui.interrupted" else "system"
+            "assistant"
+            if view.type == "review.completed"
+            else "notice"
+            if view.type in {
+                "review.cancelled",
+                "review.failed",
+                "review.reconciliation_required",
+                "tui.interrupted",
+            }
+            else "system"
         )
         if isinstance(view.renderable, FragmentBlock):
             self._commit_block(view.type, view.renderable, block_kind)
@@ -131,12 +141,13 @@ class TuiApplicationSink(ApplicationSink):
                 if fill_character
                 else None
             )
+            block = FragmentBlock(
+                styled_block_fragments(view.renderable),
+                line_fill=line_fill,
+            )
             self._commit_block(
                 view.type,
-                FragmentBlock(
-                    styled_block_fragments(view.renderable),
-                    line_fill=line_fill,
-                ),
+                assistant_block(block) if block_kind == "assistant" else block,
                 block_kind,
             )
             return None

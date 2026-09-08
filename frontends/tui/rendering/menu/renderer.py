@@ -4,7 +4,10 @@
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.utils import get_cwidth
 
-from frontends.tui.contracts.menu import MenuRequest
+from frontends.tui.contracts.menu import (
+    MenuRequest,
+    MenuTextInputMode,
+)
 from ..fragments import (
     clip_fragments,
     clip_text,
@@ -137,7 +140,10 @@ def header_fragments(request: MenuRequest, *, width: int) -> StyleAndTextTuples:
     """生成标题和辅助状态的分层菜单头部。"""
     gutter = (
         f"{request.text_input_gutter} "
-        if request.text_input and request.text_input_gutter
+        if (
+            request.text_input_mode is not MenuTextInputMode.NONE
+            and request.text_input_gutter
+        )
         else ""
     )
     gutter_style = (

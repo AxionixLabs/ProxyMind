@@ -186,6 +186,7 @@ class TuiTurnInputControl(object):
         sid: str,
         turn_id: str,
         protocol_client: ProtocolCommandClient,
+        allow_steer: bool = True,
     ) -> None:
         """绑定当前会话坐标并初始化输入对账状态。"""
         self._controller = controller
@@ -197,6 +198,7 @@ class TuiTurnInputControl(object):
             raise TypeError("TUI turn input requires ProtocolCommandClient")
 
         self._protocol_client = protocol_client
+        self._allow_steer = bool(allow_steer)
         self._lifecycle = _TurnInputLifecycle()
         self._stream_end_reason: ModelStreamEndReason = "cancelled"
         self._steer_ids: list[str] = []
@@ -257,7 +259,11 @@ class TuiTurnInputControl(object):
     def submit(self, submission: TuiSubmission, queue_only: bool) -> bool:
         """按按键意图接管执行期间提交的输入。"""
         captured = self._capture_payload(submission)
-        if queue_only or not self._lifecycle.accepts_steer:
+        if (
+            not self._allow_steer
+            or queue_only
+            or not self._lifecycle.accepts_steer
+        ):
             self._runtime.defer_submission(captured)
             return True
 
@@ -287,7 +293,8 @@ class TuiTurnInputControl(object):
                 self._interrupt_waiting_for_start = False
                 self._start_interrupt_worker()
                 return None
-            self._start_steer_worker()
+            if self._allow_steer:
+                self._start_steer_worker()
             return None
 
         if isinstance(event, TurnInputAcceptedEvent):

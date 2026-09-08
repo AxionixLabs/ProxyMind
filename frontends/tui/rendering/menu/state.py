@@ -68,6 +68,7 @@ class MenuState(object):
         "query",
         "query_cursor",
         "base_footer_hint",
+        "scroll_top",
     )
 
     request: MenuRequest
@@ -80,6 +81,7 @@ class MenuState(object):
     query: str
     query_cursor: int
     base_footer_hint: MenuFooterValue
+    scroll_top: int
 
 
 @dataclass(slots=True)

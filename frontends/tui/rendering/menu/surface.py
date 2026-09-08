@@ -11,9 +11,11 @@ from prompt_toolkit.utils import get_cwidth
 
 from frontends.tui.contracts.menu import (
     MenuFooterHint,
+    MenuFooterTone,
     MenuFooterValue,
     MenuOption,
-    MenuRequest
+    MenuRequest,
+    MenuTextInputMode,
 )
 from .layout import (
     rows_width,
@@ -97,6 +99,96 @@ def _text_input_fragments(
     ]
 
 
+def _multiline_input_rows(
+    query: str,
+    *,
+    width: int,
+) -> tuple[tuple[int, int, str], ...]:
+    """按终端单元格宽度把多行输入拆成稳定可定位的视觉行。"""
+    limit = max(1, int(width))
+    rows: list[tuple[int, int, str]] = []
+    line_start = 0
+    logical_lines = query.split("\n")
+    for line_index, line in enumerate(logical_lines):
+        if not line:
+            rows.append((line_start, line_start, ""))
+        else:
+            segment_start = 0
+            segment_end = 0
+            segment_width = 0
+            for unit_start, unit_end, unit in iter_text_unit_ranges(line):
+                unit_width = get_cwidth(unit)
+                if segment_end > segment_start and segment_width + unit_width > limit:
+                    rows.append((
+                        line_start + segment_start,
+                        line_start + segment_end,
+                        line[segment_start:segment_end],
+                    ))
+                    segment_start = unit_start
+                    segment_width = 0
+                segment_end = unit_end
+                segment_width += unit_width
+            rows.append((
+                line_start + segment_start,
+                line_start + segment_end,
+                line[segment_start:segment_end],
+            ))
+        line_start += len(line)
+        if line_index < len(logical_lines) - 1:
+            line_start += 1
+    return tuple(rows)
+
+
+def _multiline_text_input_fragments(
+    state: MenuState,
+    *,
+    gutter: str,
+    gutter_style: str,
+    query_style: str,
+    placeholder_style: str,
+    width: int,
+) -> StyleAndTextTuples:
+    """生成保持光标可见且每行带 gutter 的多行编辑表面。"""
+    request = state.request
+    available = max(1, int(width) - get_cwidth(gutter))
+    if not state.query:
+        return [
+            (gutter_style, gutter),
+            ("[SetCursorPosition]", ""),
+            (placeholder_style, request.search_placeholder or " "),
+            ("", "\n"),
+        ]
+
+    rows = _multiline_input_rows(state.query, width=available)
+    cursor = max(0, min(state.query_cursor, len(state.query)))
+    cursor_rows = tuple(
+        index
+        for index, (start, end, _text) in enumerate(rows)
+        if start <= cursor <= end
+    )
+    cursor_row = cursor_rows[-1] if cursor_rows else len(rows) - 1
+    max_rows = max(1, request.text_input_max_rows)
+    window_start = max(0, cursor_row - max_rows + 1)
+    visible = rows[window_start:window_start + max_rows]
+
+    out: StyleAndTextTuples = []
+    for offset, (start, end, text) in enumerate(visible):
+        row_index = window_start + offset
+        out.append((gutter_style, gutter))
+        if row_index == cursor_row:
+            local_cursor = max(start, min(cursor, end))
+            trailing = state.query[local_cursor:end] or " "
+            out.extend((
+                (query_style, state.query[start:local_cursor]),
+                ("[SetCursorPosition]", ""),
+                (query_style, trailing),
+            ))
+        else:
+            out.append((query_style, text or " "))
+        out.append(("", "\n"))
+    return out
+
+
 def surface_fragments(
     state: MenuState,
     *,
@@ -155,7 +247,8 @@ def surface_fragments(
             ("", "\n"),
         ])
     header.extend(body_fragments(request, width=content_width))
-    if request.text_input and request.text_input_gutter:
+    text_input = request.text_input_mode is not MenuTextInputMode.NONE
+    if text_input and request.text_input_gutter:
         gutter_style = (
             request.text_input_gutter_style
             or "class:tui-menu.input-gutter"
@@ -164,7 +257,7 @@ def surface_fragments(
             (gutter_style, request.text_input_gutter.rstrip()),
             ("", "\n"),
         ])
-    if request.searchable or request.text_input:
+    if request.searchable or text_input:
         if request.search_help_text:
             if header:
                 header.append(("", "\n"))
@@ -175,6 +268,8 @@ def surface_fragments(
                 ),
                 ("", "\n"),
             ])
+        elif request.searchable and header:
+            header.append(("", "\n"))
         query = state.query or request.search_placeholder
 
         query_style = (
@@ -185,10 +280,10 @@ def surface_fragments(
 
         prompt_prefix = (
             f"{request.text_input_gutter} "
-            if request.text_input and request.text_input_gutter
+            if text_input and request.text_input_gutter
             else request.search_prompt_prefix
         )
-        if request.text_input and request.text_input_gutter:
+        if text_input and request.text_input_gutter:
             prompt_style = (
                 request.text_input_gutter_style
                 or "class:tui-menu.input-gutter"
@@ -200,7 +295,19 @@ def surface_fragments(
             1,
             content_width - get_cwidth(prompt_prefix),
         )
-        if request.text_input:
+        if request.text_input_mode is MenuTextInputMode.MULTILINE:
+            header.extend(_multiline_text_input_fragments(
+                state,
+                gutter=prompt_prefix,
+                gutter_style=prompt_style,
+                query_style=(
+                    request.search_query_style or "class:tui-menu.search"
+                ),
+                placeholder_style="class:tui-menu.search.placeholder",
+                width=content_width,
+            ))
+            query_fragments = []
+        elif request.text_input_mode is MenuTextInputMode.SINGLE_LINE:
             query_fragments = _text_input_fragments(
                 state.query,
                 state.query_cursor,
@@ -213,11 +320,12 @@ def surface_fragments(
                 width=available_query_width,
             )
 
-        header.extend([
-            (prompt_style, prompt_prefix),
-            *query_fragments,
-            ("", "\n"),
-        ])
+        if request.text_input_mode is not MenuTextInputMode.MULTILINE:
+            header.extend([
+                (prompt_style, prompt_prefix),
+                *query_fragments,
+                ("", "\n"),
+            ])
 
     rows_out: StyleAndTextTuples = []
 
@@ -294,7 +402,11 @@ def surface_fragments(
             inset=surface_inset,
         ),
         rows_out,
-        separate=not request.body_as_table_header and request.separate_options,
+        separate=(
+            not request.body_as_table_header
+            and request.separate_options
+            and not (request.searchable or text_input)
+        ),
     )
 
 
@@ -383,7 +495,10 @@ def _request_footer_fragments(
         ))
 
     if request.footer_hint and request.allow_cancel:
-        hint_fragments = _footer_hint_fragments(request.footer_hint)
+        hint_fragments = _footer_hint_fragments(
+            request.footer_hint,
+            tone=request.footer_tone,
+        )
         right_text, right_active = _footer_right_content(request)
         if right_text:
 
@@ -414,24 +529,38 @@ def _request_footer_fragments(
     return out
 
 
-def _footer_hint_fragments(hint: MenuFooterValue) -> StyleAndTextTuples:
+def _footer_hint_fragments(
+    hint: MenuFooterValue,
+    *,
+    tone: MenuFooterTone,
+) -> StyleAndTextTuples:
     """保留 footer 说明文字与按键标签的独立样式。"""
+    hint_style = (
+        "class:tui-menu.footer.secondary"
+        if tone is MenuFooterTone.SECONDARY
+        else "class:tui-menu.footer.hint"
+    )
+    key_style = (
+        "class:tui-menu.footer.secondary"
+        if tone is MenuFooterTone.SECONDARY
+        else "class:tui-menu.footer.key"
+    )
     if not isinstance(hint, MenuFooterHint):
-        return [("class:tui-menu.footer.hint", hint)]
+        return [(hint_style, hint)]
 
     out: StyleAndTextTuples = [
-        ("class:tui-menu.footer.hint", hint.prefix),
+        (hint_style, hint.prefix),
     ]
     for command_index, command in enumerate(hint.commands):
         if command_index:
-            out.append(("class:tui-menu.footer.hint", hint.separator))
+            out.append((hint_style, hint.separator))
         for label_index, label in enumerate(command.key_labels):
             if label_index:
-                out.append(("class:tui-menu.footer.hint", " or "))
-            out.append(("class:tui-menu.footer.key", label))
+                out.append((hint_style, " or "))
+            out.append((key_style, label))
         if command.description:
             out.append((
-                "class:tui-menu.footer.hint",
+                hint_style,
                 f" {command.description}",
             ))
     return out

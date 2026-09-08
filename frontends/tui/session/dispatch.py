@@ -11,11 +11,12 @@ from dataclasses import (
 )
 from pathlib import Path
 
+from agent.application.turns.reviews import review_target_hint
 from agent.ports import ProtocolCommandClient
-from agent.ports.presentation import ApplicationView
 from agent.ports.presentation import (
+    ApplicationView,
     StyledBlock,
-    TextSpan
+    TextSpan,
 )
 from agent.protocol import LocalDurableQueueSnapshot
 from agent.stores.sessions import INTERACTIVE_HISTORY_SOURCES
@@ -25,6 +26,7 @@ from frontends.tui.contracts.resume import (
 )
 from infrastructure.config.store import ConfigStoreError
 from infrastructure.platform.file_assist import FileAssist
+from infrastructure.platform.git_review import WorkspaceReviewGitService
 from infrastructure.services.runtime_setup import service_runtime_asset_missing
 from .barriers import TuiForegroundTasks
 from .state import TuiSessionState
@@ -117,6 +119,12 @@ from ..features.processes import (
     manage_exec_sessions,
     stop_all_exec_sessions
 )
+from ..features.review import (
+    PreparedReview,
+    ReviewMenuController,
+    WorkspaceReviewCatalogPort,
+    WorkspaceReviewSnapshotPort,
+)
 from ..features.shell import run_shell_escape
 from ..features.skills import choose_skill
 from ..features.tools import print_available_tools
@@ -188,6 +196,7 @@ class DispatchAction(enum.Enum):
     HANDLED = "handled"
     DURABLE_QUEUE_TURN = "durable_queue_turn"
     MODEL_TURN = "model_turn"
+    REVIEW_TURN = "review_turn"
     EXIT = "exit"
 
 
@@ -204,6 +213,8 @@ class TuiCommandDispatcher(object):
         protocol_client: ProtocolCommandClient,
         conversation_compactor: ConversationCompactor | None = None,
         configuration_service_url: typing.Callable[[], str] | None = None,
+        review_catalog: WorkspaceReviewCatalogPort | None = None,
+        review_snapshot: WorkspaceReviewSnapshotPort | None = None,
     ) -> None:
         self.host = host
         self.runtime = runtime
@@ -212,13 +223,25 @@ class TuiCommandDispatcher(object):
         self.protocol_client = protocol_client
         self.conversation_compactor = conversation_compactor
         self.configuration_service_url = configuration_service_url
+        review_git = WorkspaceReviewGitService()
+        self.review_catalog = review_catalog or review_git
+        self.review_snapshot = review_snapshot or review_git
         self.application = host.frontend.application
         self.durable_queue = TuiDurableQueueFeature(host, runtime, state)
         self.mailbox = TuiMailboxFeature(runtime, host)
         self._started_durable_queue_turn: LocalDurableQueueSnapshot | None = None
+        self._prepared_review: PreparedReview | None = None
         self._local_tasks: dict[str, asyncio.Task[None]] = {}
         self._stream_action_resolvers = self._build_stream_action_resolvers()
         self._validate_stream_action_resolvers()
+
+    def take_prepared_review(self) -> PreparedReview:
+        """取出一次命令分派已冻结且尚未执行的 Review。"""
+        prepared = self._prepared_review
+        if prepared is None:
+            raise RuntimeError("a prepared Review is not available")
+        self._prepared_review = None
+        return prepared
 
     def _build_stream_action_resolvers(
         self,
@@ -471,6 +494,39 @@ class TuiCommandDispatcher(object):
         """返回命令名之后保留大小写的完整参数。"""
         parts = str(value or "").strip().split(maxsplit=1)
         return parts[1].strip() if len(parts) == 2 else ""
+
+    async def _prepare_review(self, value: str) -> bool:
+        """选择 Review 目标并在创建远端身份前冻结工作区。"""
+        controller = ReviewMenuController(
+            self.runtime,
+            self.review_catalog,
+            workspace=self.host.history_workspace,
+        )
+        target = await controller.choose(
+            instructions=self._command_argument(value),
+        )
+        if target is None:
+            return False
+        try:
+            workspace = await self.review_snapshot.freeze(
+                self.host.history_workspace,
+                target,
+            )
+        except Exception as error:
+            message = str(error).strip() or type(error).__name__
+            self._present(failure_text_block(
+                f"Unable to prepare review: {message}",
+            ))
+            self._present()
+            return False
+        if self._prepared_review is not None:
+            raise RuntimeError("a prepared Review is already pending")
+        self._prepared_review = PreparedReview(
+            target=target,
+            workspace=workspace,
+            hint=review_target_hint(target),
+        )
+        return True
 
     def _apply_raw_command(self, value: str) -> None:
         """执行 `/raw [on|off]` 并展示 Codex 同构反馈。"""
@@ -1221,6 +1277,11 @@ class TuiCommandDispatcher(object):
 
         if matches_command(command, "hooks"):
             await manage_hooks(self.runtime, self.host)
+            return DispatchAction.HANDLED
+
+        if new_command is not None and new_command.key == "review":
+            if await self._prepare_review(prompt_text):
+                return DispatchAction.REVIEW_TURN
             return DispatchAction.HANDLED
 
         if matches_command(command, "agent"):
