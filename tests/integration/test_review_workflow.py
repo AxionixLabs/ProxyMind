@@ -359,7 +359,7 @@ async def test_review_full_chain_reconnects_without_duplicate_projection(
         turn_id=TURN_ID,
         target=target,
         workspace=workspace,
-        llm_conf={"primary": {"model": "test-model"}},
+        pref_config={"primary": {"model": "test-model"}},
         environment_snapshot={"workspace": {"root": str(tmp_path)}},
     )
     started, completed, terminal = _review_payloads(target, workspace)
@@ -499,7 +499,7 @@ async def test_review_interrupt_waits_for_cancelled_then_turn_terminal(
         turn_id=TURN_ID,
         target=target,
         workspace=workspace,
-        llm_conf={},
+        pref_config={},
         environment_snapshot=None,
     )
     wire_stream = _InterruptibleReviewStream(

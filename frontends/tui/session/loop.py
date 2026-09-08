@@ -967,7 +967,7 @@ async def _execute_tui_review_turn(
             turn_id=turn_id,
             target=prepared.target,
             workspace=prepared.workspace,
-            llm_conf=state.pref_config,
+            pref_config=state.pref_config,
             environment_snapshot=capture_active_turn_environment(host),
         )
     except (TypeError, ValueError) as error:

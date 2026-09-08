@@ -458,7 +458,7 @@ async def test_cold_review_recovery_uses_review_observer_without_resubmit(
         turn_id="turn_review_01",
         target=ReviewCustomTarget("Focus on lifecycle correctness."),
         workspace=ClientReviewWorkspace.create(),
-        llm_conf={},
+        pref_config={},
         environment_snapshot=None,
     )
     snapshot = RunSnapshot(
@@ -554,7 +554,7 @@ async def test_queued_review_recovery_redispatches_exact_frozen_command(
         turn_id="turn_review_01",
         target=ReviewCustomTarget("Focus on lifecycle correctness."),
         workspace=ClientReviewWorkspace.create(),
-        llm_conf={},
+        pref_config={},
         environment_snapshot=None,
     )
     pending = RunSnapshot(

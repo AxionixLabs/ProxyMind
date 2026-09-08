@@ -250,6 +250,48 @@ def _events(*, include_turn_terminal: bool) -> tuple[StreamEvent, ...]:
     ),)
 
 
+def test_create_review_command_projects_local_preferences_to_wire_llm_conf() -> None:
+    command = create_review_command(
+        local_session_id="tui_session_01",
+        cid=CID,
+        sid=SID,
+        turn_id=TURN_ID,
+        target=ReviewCustomTarget("Focus on lifecycle correctness."),
+        workspace=ClientReviewWorkspace.create(),
+        pref_config={
+            "primary": {
+                "name": "OpenAI",
+                "kind": "openai_compatible",
+                "enabled": True,
+                "route": "responses",
+                "model": "gpt-test",
+                "apikey": "test-key",
+                "base_url": "https://example.test/v1",
+                "reasoning_effort": "xhigh",
+            },
+            "hosted_tools": {
+                "groups": {
+                    "perf_engine": False,
+                    "sandbox_cloud": False,
+                },
+            },
+        },
+        environment_snapshot=None,
+    )
+
+    execution = command.request.to_dict()["execution"]
+    assert execution["llm_conf"] == {
+        "primary": {
+            "provider": "openai_compatible",
+            "route": "responses",
+            "model": "gpt-test",
+            "apikey": "test-key",
+            "base_url": "https://example.test/v1",
+            "reasoning_effort": "xhigh",
+        },
+    }
+
+
 @pytest.mark.anyio
 async def test_review_turn_uses_canonical_output_and_turn_terminal() -> None:
     stream = _Stream(_events(include_turn_terminal=True))
@@ -263,7 +305,7 @@ async def test_review_turn_uses_canonical_output_and_turn_terminal() -> None:
         turn_id=TURN_ID,
         target=ReviewCustomTarget("Focus on lifecycle correctness."),
         workspace=ClientReviewWorkspace.create(),
-        llm_conf={"primary": {"model": "test-model"}},
+        pref_config={"primary": {"model": "test-model"}},
         environment_snapshot={"platform": "test"},
     )
 
@@ -305,7 +347,7 @@ async def test_review_turn_without_turn_terminal_requires_reconciliation() -> No
         turn_id=TURN_ID,
         target=ReviewCustomTarget("Focus on lifecycle correctness."),
         workspace=ClientReviewWorkspace.create(),
-        llm_conf={},
+        pref_config={},
         environment_snapshot=None,
     )
 
@@ -335,7 +377,7 @@ async def test_review_explicit_retryable_rejection_is_visible_failure() -> None:
         turn_id=TURN_ID,
         target=ReviewCustomTarget("Focus on lifecycle correctness."),
         workspace=ClientReviewWorkspace.create(),
-        llm_conf={},
+        pref_config={},
         environment_snapshot=None,
     ).request
 
@@ -364,7 +406,7 @@ async def test_review_disconnect_after_receipt_requires_reconciliation() -> None
         turn_id=TURN_ID,
         target=ReviewCustomTarget("Focus on lifecycle correctness."),
         workspace=ClientReviewWorkspace.create(),
-        llm_conf={},
+        pref_config={},
         environment_snapshot=None,
     ).request
 
@@ -396,7 +438,7 @@ async def test_observed_review_reuses_projection_and_replay_identity() -> None:
         turn_id=TURN_ID,
         target=ReviewCustomTarget("Focus on lifecycle correctness."),
         workspace=ClientReviewWorkspace.create(),
-        llm_conf={},
+        pref_config={},
         environment_snapshot=None,
     ).request
 
@@ -465,7 +507,7 @@ async def test_review_reconciliation_terminal_is_presented_once() -> None:
         turn_id=TURN_ID,
         target=target,
         workspace=workspace,
-        llm_conf={},
+        pref_config={},
         environment_snapshot=None,
     ).request
 
@@ -577,7 +619,7 @@ async def test_review_terminal_events_keep_distinct_presentations(
         turn_id=TURN_ID,
         target=target,
         workspace=workspace,
-        llm_conf={},
+        pref_config={},
         environment_snapshot=None,
     ).request
     sink = _Sink()

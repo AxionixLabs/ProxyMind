@@ -34,6 +34,7 @@ from agent.protocol.json_value import (
     JsonValue as FrozenJsonValue,
     ThawedJsonValue,
 )
+from protocol.client.payload import request_llm_conf
 from protocol.schema.json_value import JsonValue
 from protocol.schema.identifiers import new_request_id
 from protocol.schema.review import (
@@ -72,7 +73,7 @@ def create_review_command(
     turn_id: str,
     target: ReviewTarget,
     workspace: ClientReviewWorkspace,
-    llm_conf: Mapping[str, JsonValue],
+    pref_config: Mapping[str, JsonValue],
     environment_snapshot: Mapping[str, FrozenJsonValue] | None,
 ) -> SubmitReviewCommand:
     """从类型化本地输入创建完整冻结且可持久化的 Review 命令。"""
@@ -84,7 +85,7 @@ def create_review_command(
         target=target,
         workspace=workspace,
         execution=ReviewExecutionOptions(
-            llm_conf=dict(llm_conf),
+            llm_conf=request_llm_conf(dict(pref_config)),
             metadata={"cid": cid, "sid": sid},
         ),
     )
