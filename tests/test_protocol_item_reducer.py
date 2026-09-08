@@ -4,6 +4,7 @@ import pytest
 
 from agent.adapters.protocol.items import CanonicalItemReducer
 from protocol.schema.stream_events import (
+    ContextCompactionEvent,
     ToolApprovalRequiredEvent,
     parse_stream_event,
 )
@@ -50,6 +51,108 @@ def _reducer() -> CanonicalItemReducer:
         sid="sid_test",
         turn_id="turn_test",
     )
+
+
+def _compaction_payload(
+    event_type: str,
+    *,
+    event_seq: int,
+    **values,
+) -> dict:
+    status = {
+        "context.compaction.started": "in_progress",
+        "context.compaction.completed": "completed",
+        "context.compaction.failed": "failed",
+    }[event_type]
+    return _payload(
+        event_type,
+        event_seq=event_seq,
+        item_id="compaction_test",
+        item_kind="context_compaction",
+        item_status=status,
+        phase="mid_turn",
+        trigger="automatic",
+        reason="context_limit",
+        **values,
+    )
+
+
+def test_context_compaction_events_parse_and_reduce_as_one_item() -> None:
+    reducer = _reducer()
+    started = parse_stream_event(_compaction_payload(
+        "context.compaction.started",
+        event_seq=2,
+    ))
+    completed = parse_stream_event(_compaction_payload(
+        "context.compaction.completed",
+        event_seq=3,
+        before_items=18,
+        after_items=7,
+        before_chars=4200,
+        after_chars=1700,
+        dropped_items=11,
+        reduction_ratio=0.6,
+        latency_ms=25,
+        replacement_version=4,
+    ))
+
+    assert isinstance(started, ContextCompactionEvent)
+    assert isinstance(completed, ContextCompactionEvent)
+    in_progress = reducer.apply(started)
+    compacted = reducer.apply(completed)
+
+    assert in_progress is not None
+    assert in_progress.item_status == "in_progress"
+    assert compacted is not None
+    assert compacted.item_kind == "context_compaction"
+    assert compacted.item_status == "completed"
+    assert compacted.first_event_seq == 2
+    assert compacted.last_event_seq == 3
+    assert compacted.payload_value() == {
+        "trigger": "automatic",
+        "reason": "context_limit",
+        "before_items": 18,
+        "after_items": 7,
+        "before_chars": 4200,
+        "after_chars": 1700,
+        "dropped_items": 11,
+        "reduction_ratio": 0.6,
+        "latency_ms": 25,
+        "replacement_version": 4,
+    }
+
+
+def test_context_compaction_failure_requires_terminal_metadata() -> None:
+    payload = _compaction_payload(
+        "context.compaction.failed",
+        event_seq=3,
+    )
+
+    with pytest.raises(ValueError, match="error_type is required"):
+        parse_stream_event(payload)
+
+    event = parse_stream_event({
+        **payload,
+        "error_type": "summary_failed",
+        "retryable": True,
+    })
+    assert isinstance(event, ContextCompactionEvent)
+    assert event.error_type == "summary_failed"
+    assert event.retryable is True
+
+
+@pytest.mark.parametrize("removed_field", ["summary", "compaction_generation"])
+def test_context_compaction_rejects_removed_payload_fields(
+    removed_field: str,
+) -> None:
+    payload = _compaction_payload(
+        "context.compaction.completed",
+        event_seq=3,
+    )
+    payload[removed_field] = "must-not-cross-the-wire"
+
+    with pytest.raises(ValueError, match="removed protocol fields"):
+        parse_stream_event(payload)
 
 
 def _approval_snapshot(

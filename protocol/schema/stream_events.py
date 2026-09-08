@@ -65,6 +65,17 @@ ApprovalReviewUserAuthorization: typing.TypeAlias = typing.Literal[
 
 ApprovalReviewDecisionSource: typing.TypeAlias = typing.Literal["agent"]
 
+ContextCompactionPhase: typing.TypeAlias = typing.Literal[
+    "pre_turn",
+    "mid_turn",
+    "standalone",
+]
+
+ContextCompactionTrigger: typing.TypeAlias = typing.Literal[
+    "automatic",
+    "manual",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionEffect:
@@ -177,6 +188,24 @@ class PresentationSupersededEvent(StreamEvent):
     """描述旧 Attempt 展示已经被新的 presentation epoch 取代。"""
     superseded_epoch: int = 0
     reason: str = "attempt_restarted"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ContextCompactionEvent(ItemStreamEvent):
+    """描述服务端上下文压缩尝试的权威 Item 生命周期。"""
+    phase: ContextCompactionPhase
+    trigger: ContextCompactionTrigger
+    reason: str
+    error_type: str | None = None
+    retryable: bool | None = None
+    before_items: int | None = None
+    after_items: int | None = None
+    before_chars: int | None = None
+    after_chars: int | None = None
+    dropped_items: int | None = None
+    reduction_ratio: float | None = None
+    latency_ms: int | None = None
+    replacement_version: int | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -466,6 +495,7 @@ ChatStreamEvent: typing.TypeAlias = (
     | TurnInputAcceptedEvent
     | TurnReconciliationRequiredEvent
     | PresentationSupersededEvent
+    | ContextCompactionEvent
     | TextDeltaEvent
     | TextDoneEvent
     | TextMetaEvent
@@ -495,6 +525,9 @@ _REMOVED_EVENT_TYPES = frozenset({
 })
 
 _ITEM_EVENT_TYPES = frozenset({
+    "context.compaction.started",
+    "context.compaction.completed",
+    "context.compaction.failed",
     "text.delta",
     "text.done",
     "text.meta",
@@ -613,6 +646,16 @@ def parse_stream_event(
             **common,
             superseded_epoch=superseded_epoch,
             reason=_text(raw.get("reason")) or "attempt_restarted",
+        )
+    if event_type in {
+        "context.compaction.started",
+        "context.compaction.completed",
+        "context.compaction.failed",
+    }:
+        return _context_compaction_event(
+            raw,
+            common,
+            event_type=event_type,
         )
     if event_type == "text.delta":
         segment_id = _required_text(
@@ -906,6 +949,107 @@ def parse_stream_event(
 
     _reject_item_projection(raw, event_type=event_type)
     return UnknownStreamEvent(**common, payload=raw)
+
+
+def _context_compaction_event(
+    payload: dict[str, typing.Any],
+    common: dict[str, typing.Any],
+    *,
+    event_type: str,
+) -> ContextCompactionEvent:
+    """校验上下文压缩 Item 的阶段、来源和终态载荷。"""
+    removed_fields = sorted(
+        field_name
+        for field_name in ("summary", "compaction_generation")
+        if field_name in payload
+    )
+    if removed_fields:
+        raise ValueError(
+            f"{event_type} contains removed protocol fields: "
+            + ", ".join(removed_fields)
+        )
+
+    expected_status: ItemStatus = {
+        "context.compaction.started": "in_progress",
+        "context.compaction.completed": "completed",
+        "context.compaction.failed": "failed",
+    }[event_type]
+    item_fields = _item_fields(
+        payload,
+        event_type=event_type,
+        source_id="",
+        expected_kind="context_compaction",
+        expected_status=expected_status,
+    )
+
+    raw_phase = _required_text(payload.get("phase"), f"{event_type} phase")
+    if raw_phase not in {"pre_turn", "mid_turn", "standalone"}:
+        raise ValueError(f"{event_type} phase is invalid")
+    phase: ContextCompactionPhase = raw_phase
+
+    raw_trigger = _required_text(
+        payload.get("trigger"),
+        f"{event_type} trigger",
+    )
+    if raw_trigger not in {"automatic", "manual"}:
+        raise ValueError(f"{event_type} trigger is invalid")
+    trigger: ContextCompactionTrigger = raw_trigger
+
+    error_type = _optional_text(payload.get("error_type"))
+    retryable = payload.get("retryable")
+    if retryable is not None and not isinstance(retryable, bool):
+        raise ValueError(f"{event_type} retryable must be a boolean")
+    if event_type == "context.compaction.failed":
+        error_type = _required_text(
+            payload.get("error_type"),
+            "context.compaction.failed error_type",
+        )
+        retryable = _required_bool(
+            payload.get("retryable"),
+            "context.compaction.failed retryable",
+        )
+
+    return ContextCompactionEvent(
+        **common,
+        **item_fields,
+        phase=phase,
+        trigger=trigger,
+        reason=_required_text(payload.get("reason"), f"{event_type} reason"),
+        error_type=error_type,
+        retryable=retryable,
+        before_items=_optional_nonnegative_int(
+            payload.get("before_items"),
+            f"{event_type} before_items",
+        ),
+        after_items=_optional_nonnegative_int(
+            payload.get("after_items"),
+            f"{event_type} after_items",
+        ),
+        before_chars=_optional_nonnegative_int(
+            payload.get("before_chars"),
+            f"{event_type} before_chars",
+        ),
+        after_chars=_optional_nonnegative_int(
+            payload.get("after_chars"),
+            f"{event_type} after_chars",
+        ),
+        dropped_items=_optional_nonnegative_int(
+            payload.get("dropped_items"),
+            f"{event_type} dropped_items",
+        ),
+        reduction_ratio=_optional_ratio(
+            payload.get("reduction_ratio"),
+            f"{event_type} reduction_ratio",
+        ),
+        latency_ms=_optional_nonnegative_int(
+            payload.get("latency_ms"),
+            f"{event_type} latency_ms",
+        ),
+        replacement_version=_optional_nonnegative_int(
+            payload.get("replacement_version"),
+            f"{event_type} replacement_version",
+        ),
+    )
 
 
 def _approval_review_event(
@@ -1337,6 +1481,31 @@ def _required_bool(value: typing.Any, field_name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{field_name} must be a boolean")
     return value
+
+
+def _optional_nonnegative_int(
+    value: typing.Any,
+    field_name: str,
+) -> int | None:
+    """读取可选非负整数并保留缺失值。"""
+    if value is None:
+        return None
+    parsed = _nonnegative_int(value)
+    if parsed is None:
+        raise ValueError(f"{field_name} must be a non-negative integer")
+    return parsed
+
+
+def _optional_ratio(value: typing.Any, field_name: str) -> float | None:
+    """读取可选的零到一压缩比例。"""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a number between zero and one")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0 or parsed > 1:
+        raise ValueError(f"{field_name} must be a number between zero and one")
+    return parsed
 
 
 def _turn_completed_status(value: typing.Any) -> TurnCompletedStatus:

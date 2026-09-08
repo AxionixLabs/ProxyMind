@@ -4,6 +4,7 @@
 import typing
 
 ItemKind: typing.TypeAlias = typing.Literal[
+    "context_compaction",
     "message",
     "text",
     "reasoning",

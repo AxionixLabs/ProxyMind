@@ -616,6 +616,8 @@ def _event_text_phase(
 ) -> AssistantTextPhase | None:
     """从已解析协议事件提取严格的 assistant text phase。"""
     value = getattr(event, "phase", None)
+    if item_kind == "context_compaction":
+        return None
     if item_kind != "text":
         if value is not None:
             raise ValueError("non-text canonical item cannot carry assistant phase")
