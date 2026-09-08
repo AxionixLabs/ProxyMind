@@ -13,8 +13,8 @@
 6. `test_package_architecture.py` 是稳定的根级架构审计入口，不移动、不删除。
 7. 客户端测试不直接验证独立 `backend/` 服务包，但保留客户端禁止依赖 backend 的边界审计。
 
-目录不用于表达 unit、integration、slow 或平台属性。新增 marker 前必须先有实际的测试选择命令
-或 CI 消费者。
+目录不用于表达 unit、integration、slow 或平台属性。新增 marker 前必须先有维护者实际使用的
+测试选择命令。
 
 责任目录迁移已经完成。`tests/` 根目录只保留全树配置、本文和稳定架构审计入口；测试分别归入
 `agent/`、`protocol/`、`frontends/`、`infrastructure/`、`observability/`、`distribution/`、
@@ -87,22 +87,23 @@ python -m pytest tests/test_package_architecture.py tests/architecture -q
 `-m runtime_frame`，固定 seed 的状态长序列使用 `-m runtime_stateful`。平台测试必须在对应平台
 执行，缺少平台不能视为该门禁通过。
 
-## CI 门禁
+## 本地分层验证
 
-`.github/workflows/tests.yml` 使用 Python 3.11，并把责任目录与执行属性保持正交：
+仓库不配置自动化测试 CI。维护者按改动风险在本地执行以下层级，责任目录与执行属性保持正交：
 
-| job               | 触发                 | 选择                                                   | 职责                           |
-|-------------------|----------------------|--------------------------------------------------------|--------------------------------|
-| `fast`            | PR、main             | `-m "not pty_acceptance"`                              | 快速全量合并门禁               |
-| `runtime-p0`      | PR、main             | `-m runtime_p0`                                        | Runtime 核心风险独立门禁       |
-| `platform`        | 全部                 | 三平台的 `infrastructure/platform` 与 `pty_acceptance` | 平台 adapter 和真实终端        |
-| `full-regression` | 夜间、手动、版本标签 | 完整测试树                                             | 完整回归、最慢 50 项和 JUnit   |
-| `release-gate`    | 版本标签             | 架构审计、compileall、差异检查                         | 汇总完整回归与三平台结果后收口 |
+| 层级         | 选择                                                   | 执行时机               | 职责                         |
+|--------------|--------------------------------------------------------|------------------------|------------------------------|
+| 定向验证     | 受影响的测试文件或责任目录                             | 每次相关修改           | 最短反馈并定位责任所有者     |
+| 快速全量     | `-m "not pty_acceptance"`                              | 阶段收口和发布前       | 排除真实终端的客户端回归     |
+| Runtime P0   | `-m runtime_p0`                                        | Runtime 相关修改和发布前 | 核心风险独立复核             |
+| 平台验收     | 对应平台的 `infrastructure/platform` 与 `pty_acceptance` | 平台边界修改和发布前   | 平台 adapter 和真实终端      |
+| 完整回归     | 完整测试树                                             | 测试架构阶段和发布收口 | 全面回归并复核最慢测试       |
+| 静态收口     | 架构审计、compileall、差异检查                         | 测试架构阶段和发布收口 | 验证目录、依赖和源码完整性   |
 
-每个 pytest job 都上传 JUnit；PR 报告保留 14 天，完整回归保留 30 天。`runtime_p0` 与快速全量
-有意重叠，因为前者是可单独要求的风险门禁。源码仓不包含 macOS sandbox 可执行产物；对应的
-sidecar 集成测试只在外部产物流水线提供 `MIND_SANDBOX_SERVER` 时成立，不计入源码 CI 的 macOS
-通过结论。当前不启用 pytest-xdist：进程环境、固定端口和跨进程资产尚未完成并行隔离证明。
+`runtime_p0` 与快速全量有意重叠，因为前者是可单独要求的风险集合。平台验收必须在对应系统上
+手动执行并记录结果，其他平台的 skip 不能替代该结论。源码仓不包含 macOS sandbox 可执行产物；
+对应的 sidecar 集成测试只在本地提供 `MIND_SANDBOX_SERVER` 时成立。当前不启用 pytest-xdist：
+进程环境、固定端口和跨进程资产尚未完成并行隔离证明。
 
 ## 核心风险证据
 
@@ -123,9 +124,9 @@ sidecar 集成测试只在外部产物流水线提供 `MIND_SANDBOX_SERVER` 时�
 
 ## 覆盖率与变异评估
 
-覆盖率用于发现未执行分支，不作为脱离风险的总百分比门槛。夜间和版本标签的完整回归使用
-`pytest-cov` 对 `agent`、`protocol`、`frontends`、`infrastructure`、`observability`、`metadata`
-统计 branch coverage，并上传 `coverage.xml`。本地复现命令如下：
+覆盖率用于发现未执行分支，不作为脱离风险的总百分比门槛。风险审阅时使用 `pytest-cov` 对
+`agent`、`protocol`、`frontends`、`infrastructure`、`observability`、`metadata` 统计 branch
+coverage；结果只服务于本次本地审阅，不要求上传或长期保留。命令如下：
 
 ```shell
 python -m pytest -q --cov=agent --cov=protocol --cov=frontends --cov=infrastructure --cov=observability --cov=metadata --cov-branch --cov-report=term-missing
@@ -135,7 +136,7 @@ python -m pytest -q --cov=agent --cov=protocol --cov=frontends --cov=infrastruct
 证据判断，不把 marker 数量折算为百分比。定向 mutation 只考虑
 `protocol/schema/stream_events.py`、`agent/adapters/protocol/items.py`、
 `agent/domain/approvals/rules.py` 和 `agent/stores/effects/journal.py`。mutation 工具暂不进入默认依赖
-或 CI；先审阅 branch gap，再以单模块试点验证 survivor 是否对应真实风险缺口。
+或日常验证；先审阅 branch gap，再以单模块试点验证 survivor 是否对应真实风险缺口。
 
 ## 确定性与隔离
 
@@ -149,7 +150,25 @@ python -m pytest -q --cov=agent --cov=protocol --cov=frontends --cov=infrastruct
 fake 重复出现的 wire 字典仅在内容完全相同且共享不会掩盖未知字段时提取；不同边界的独立严格向量
 继续留在各自 owner。
 
-## 新增测试检查
+## 测试变更评审
+
+新增或重构测试时，在 PR 描述或评审记录中填写以下最小模板；不适用项写明原因，不新增独立模板
+文档：
+
+```text
+责任所有者：<生产包和最近稳定职责>
+主要不变量：<本测试唯一的主要失败原因>
+验证深度：<规则/契约 | 组件/生命周期 | adapter 集成 | 客户端验收>
+核心成功路径：<node id 或不适用原因>
+关键失败路径：<node id 或不适用原因>
+替身边界：<正式 port/fake/transport；说明为何不复制生产决策>
+确定性来源：<clock/event/固定 seed/有界平台等待>
+资源关闭：<task/socket/process/PTY/sidecar/临时文件的 owner>
+最小命令：python -m pytest <targets> -q
+重复处置：<替代的旧用例、保留重复的独立价值或不适用>
+```
+
+评审同时检查：
 
 - 主要断言是否属于唯一责任所有者和同一稳定不变量；
 - 是否覆盖核心成功路径和关键失败路径，而不是只验证 mock 调用；
@@ -157,5 +176,26 @@ fake 重复出现的 wire 字典仅在内容完全相同且共享不会掩盖未
 - clock、transport、路径和进程能力是否从边界注入；
 - task、socket、进程、PTY、sidecar 和临时资源是否由创建方完整关闭；
 - 失败信息是否包含必要的身份、序号、阶段、seed 和观察事实；
-- 是否可以通过稳定的最小 pytest 命令独立运行。
+- 是否可以通过稳定的最小 pytest 命令独立运行；
 - 超过约 1500 行时是否仍只覆盖一个状态机或不变量矩阵，并在模块顶部说明保持整体的原因。
+
+## 季度健康检查
+
+每季度从主分支执行以下检查，结论进入正常 issue 或评审记录，不把数量快照追加到本文：
+
+```shell
+python -m pytest -q --durations=50 -rs
+python -m pytest --collect-only -q
+python -m pytest -m pty_acceptance --collect-only -q
+python -m pytest -m runtime_p0 --collect-only -q
+python -m pytest -m runtime_fault --collect-only -q
+python -m pytest -m runtime_frame --collect-only -q
+python -m pytest -m runtime_stateful --collect-only -q
+python -m pytest tests/test_package_architecture.py tests/architecture -q
+```
+
+检查最近一个季度的本地回归记录和 skip reason：重复失败必须分配责任 owner 并修复同步、隔离或
+生命周期，不能增加 rerun 或长期 quarantine。复核最慢 50 项是否仍提供快速层无法替代的证据；检查
+最大测试模块，超过约 1500 行且混合多个稳定职责时按 owner 拆分。marker 数量发生变化时，同一提交
+必须更新 `pytest.ini`、实际选择命令和本文；目录职责变化时先更新 `ARCHITECTURE.md`
+中的架构事实，再同步本文及架构审计。协议字段和端点仍只以正式 schema/client 契约为准，本文不复制。

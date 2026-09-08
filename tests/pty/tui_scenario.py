@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+
+"""驱动真实 TUI 子进程场景并输出统一的可核对事实。
+
+这些场景共享同一 PTY 子进程协议、Controller 替身和 ScenarioFacts 生命周期；保持整体可以避免
+父进程验收与子进程事实格式漂移。只有出现独立协议或资源 owner 时才按该职责拆分。
+"""
+
 import argparse
 import asyncio
 import json

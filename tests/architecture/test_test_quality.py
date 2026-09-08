@@ -10,6 +10,15 @@ from tests.architecture.source_inventory import TESTS_ROOT
 from tests.architecture.source_inventory import parsed_source
 
 
+PROJECT_MARKERS = frozenset({
+    "pty_acceptance",
+    "runtime_fault",
+    "runtime_frame",
+    "runtime_p0",
+    "runtime_stateful",
+})
+
+
 def _automated_test_sources() -> tuple[Path, ...]:
     """返回排除人工联调入口后的自动化测试源码。"""
     return tuple(
@@ -164,6 +173,38 @@ def test_automated_tests_do_not_use_retry_or_quarantine_markers() -> None:
     assert violations == [], (
         "tests use retry or quarantine mechanisms:\n" + "\n".join(violations)
     )
+
+
+def test_project_markers_are_registered_used_and_documented() -> None:
+    """确保项目 marker 具有稳定选择命令和实际测试集合。"""
+    pytest_config = (PROJECT_ROOT / "pytest.ini").read_text(encoding="utf-8")
+    registered = {
+        line.strip().partition(":")[0]
+        for line in pytest_config.splitlines()
+        if line.startswith("    ") and ":" in line
+    }
+    used: set[str] = set()
+
+    for path in _automated_test_sources():
+        tree = parsed_source(path)
+        aliases = _import_aliases(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Attribute):
+                continue
+            path_name = _canonical_path(node, aliases)
+            if path_name.startswith("pytest.mark."):
+                used.add(node.attr)
+
+    test_readme = (TESTS_ROOT / "README.md").read_text(encoding="utf-8")
+    undocumented = sorted(
+        marker
+        for marker in PROJECT_MARKERS
+        if f"-m {marker}" not in test_readme
+    )
+
+    assert registered == PROJECT_MARKERS
+    assert PROJECT_MARKERS <= used
+    assert undocumented == []
 
 
 def test_scenario_and_fake_facilities_do_not_wait_for_real_time() -> None:
