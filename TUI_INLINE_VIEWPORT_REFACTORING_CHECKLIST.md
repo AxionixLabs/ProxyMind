@@ -1,6 +1,6 @@
 # TUI Inline Viewport 分阶段改造清单
 
-> 状态：阶段 3 已完成；阶段 4 待实施。
+> 状态：阶段 4 已完成；阶段 5 待实施。
 > 基准日期：2026-09-09。
 > 性质：临时实施与验收清单，不定义长期架构事实。
 > 完成后处理：全部阶段验收通过后，由用户手动删除本文档。
@@ -202,13 +202,13 @@ prompt_toolkit Buffer / KeyBindings / Completer
 
 ### 改造项
 
-- [ ] `TuiTranscriptViewport` 继续拥有正文分页和稳定提交范围，但通过新 renderer 请求物理插入。
-- [ ] 删除 transcript viewport、prompt_toolkit renderer 对物理 cursor/viewport 的重复推断。
-- [ ] history 插入前保存 inline viewport，插入后按明确行数更新物理起点并使受影响 raster 失效。
-- [ ] resize reflow 使用一次终端尺寸 generation 重建 scrollback 和 inline frame，不交叉使用旧坐标。
-- [ ] 流式正文批量提交、状态行交接和 composer 重绘在同一视觉事务中保持顺序。
-- [ ] 终端高度缩小时不先隐式滚动再 replay，终端增长时仅在原 viewport 底部对齐时重新对齐。
-- [ ] 超链接 metadata 随内容重排，不通过不可见转义序列污染宽度和物理列计算。
+- [x] `TuiTranscriptViewport` 继续拥有正文分页和稳定提交范围，但通过新 renderer 请求物理插入。
+- [x] 删除 transcript viewport、prompt_toolkit renderer 对物理 cursor/viewport 的重复推断。
+- [x] history 插入前保存 inline viewport，插入后按明确行数更新物理起点并使受影响 raster 失效。
+- [x] resize reflow 使用一次终端尺寸 generation 重建 scrollback 和 inline frame，不交叉使用旧坐标。
+- [x] 流式正文批量提交、状态行交接和 composer 重绘在同一视觉事务中保持顺序。
+- [x] 终端高度缩小时不先隐式滚动再 replay，终端增长时仅在原 viewport 底部对齐时重新对齐。
+- [x] 超链接 metadata 随内容重排，不通过不可见转义序列污染宽度和物理列计算。
 
 ### Codex 源码对照
 
@@ -220,12 +220,12 @@ prompt_toolkit Buffer / KeyBindings / Completer
 
 ### 阶段 4 验收
 
-- [ ] 流式输出期间输入内容、光标和 footer 不抖动、不丢失、不重复绘制。
-- [ ] 宽度 resize storm 最终只按最后稳定尺寸完成一次权威 reflow。
-- [ ] 高度缩小和增长后，viewport 不越界，footer 可见性符合逻辑预算。
-- [ ] history 插入数量、scrollback 内容和 viewport 起点变化可以逐项对账。
-- [ ] resize 后不存在旧宽度残留、重复 transcript 行或超链接错位。
-- [ ] 既有 document scrollback、resize reflow、stream rendering 和 hyperlink 测试全部通过。
+- [x] 流式输出期间输入内容、光标和 footer 不抖动、不丢失、不重复绘制。
+- [x] 宽度 resize storm 最终只按最后稳定尺寸完成一次权威 reflow。
+- [x] 高度缩小和增长后，viewport 不越界，footer 可见性符合逻辑预算。
+- [x] history 插入数量、scrollback 内容和 viewport 起点变化可以逐项对账。
+- [x] resize 后不存在旧宽度残留、重复 transcript 行或超链接错位。
+- [x] 既有 document scrollback、resize reflow、stream rendering 和 hyperlink 测试全部通过。
 
 ## 8. 阶段 5：Overlay、挂起和关闭生命周期
 
@@ -321,7 +321,7 @@ prompt_toolkit Buffer / KeyBindings / Completer
 | 1 能力契约          | 已完成 | `2629d349` | 178 passed | 未涉及 | 通过 |
 | 2 Inline Renderer   | 已完成 | `4d9274f7` | 11 passed | 未涉及 | 通过 |
 | 3 主输入接管        | 已完成 | `9646c596` | 283 passed | 未涉及 | 通过 |
-| 4 Scrollback/Resize | 待开始 | -    | -        | -        | -        |
+| 4 Scrollback/Resize | 已完成 | `e27fb0a4` | 154 passed; PTY 11 passed | 未涉及 | 通过 |
 | 5 Overlay/Lifecycle | 待开始 | -    | -        | -        | -        |
 | 6 平台与 IME        | 待开始 | -    | -        | -        | -        |
 | 7 发布收口          | 待开始 | -    | -        | -        | -        |
@@ -338,6 +338,11 @@ prompt_toolkit Buffer / KeyBindings / Completer
 renderer，输入、completion、menu、footer 与 overlay 均由同一 Screen raster 提交；输入与布局
 定向测试为 `283 passed`，并通过架构审计 `138 passed`。不具备 VT 控制或绝对寻址的输出继续由
 能力边界保护，Windows 原生 Console 滚动 adapter 与真实 IME 交互留在阶段 6。
+
+阶段 4 提交后复核：`e27fb0a4` 已推送到 `origin/main`。scrollback 与 resize replay 在终端写入
+后显式使 inline raster 失效，继续沿用稳定行批处理、尺寸 generation、reflow debounce、同步
+输出和超链接 metadata；document scrollback、resize、stream、hyperlink 契约测试为 `154 passed`，
+真实 PTY 渲染为 `11 passed`。真实 IME 预编辑和 Windows 原生 Console adapter 仍留在阶段 6。
 
 ## 12. 最终完成定义
 
