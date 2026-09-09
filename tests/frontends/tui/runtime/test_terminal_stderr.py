@@ -3,6 +3,7 @@
 import io
 
 from frontends.tui.runtime import terminal_stderr
+from frontends.tui.core import runtime as tui_runtime
 
 
 def test_stderr_targets_terminal_requires_both_interactive_streams(
@@ -29,3 +30,23 @@ def test_stderr_guard_is_inert_when_output_is_redirected(monkeypatch) -> None:
         assert guard._saved_fd is None
     finally:
         guard.close()
+
+
+def test_tui_runtime_installs_guard_before_application_creation(monkeypatch) -> None:
+    installed = []
+
+    class FakeGuard(object):
+        @classmethod
+        def install(cls) -> "FakeGuard":
+            guard = cls()
+            installed.append(guard)
+            return guard
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(tui_runtime, "TerminalStderrGuard", FakeGuard)
+
+    runtime = tui_runtime.TuiRuntime()
+
+    assert installed == [runtime._terminal_stderr_guard]

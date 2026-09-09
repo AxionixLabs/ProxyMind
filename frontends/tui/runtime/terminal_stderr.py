@@ -127,5 +127,5 @@ def _sync_windows_standard_error_handle() -> None:
         raise OSError("SetStdHandle(STD_ERROR_HANDLE) failed")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

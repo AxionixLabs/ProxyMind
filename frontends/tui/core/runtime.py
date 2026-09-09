@@ -41,6 +41,7 @@ from frontends.tui.contracts.resume import (
     ResumeRow,
 )
 from frontends.tui.contracts.keyboard import TerminalKeyboardBindable
+from ..runtime.terminal_stderr import TerminalStderrGuard
 from .activity import (
     ActivityLease,
     TuiActivity
@@ -156,6 +157,9 @@ class TuiRuntime(object):
         ),
         keymap: TuiRuntimeKeymap | None = None,
     ) -> None:
+        # 外接 MCP 进程可能在输入 Application 启动前创建，并在之后再派生
+        # Chromium。隔离必须覆盖整个 TUI runtime，才能让这些后代继承空设备。
+        self._terminal_stderr_guard = TerminalStderrGuard.install()
         self.context = PromptContext(model="")
         self.keymap = keymap or TuiRuntimeKeymap.defaults()
         self.input_model = input_model or TuiInputModel(keymap=self.keymap)
@@ -2365,6 +2369,7 @@ class TuiRuntime(object):
         self.screen.directory_trust.close()
         self.screen.set_startup_gate(False)
         self._directory_trust_preserved_startup_gate = False
+        self._terminal_stderr_guard.close()
 
     async def view_resume_picker(
         self,
