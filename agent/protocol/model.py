@@ -329,16 +329,6 @@ class ReviewStreamRequest:
         object.__setattr__(self, "execution", execution)
 
     @property
-    def has_workspace_content(self) -> bool:
-        """返回冻结工作区是否携带补丁或文件内容。"""
-        patch = self.workspace.get("patch")
-        files = self.workspace.get("files")
-        return bool(
-            isinstance(patch, str) and patch
-            or isinstance(files, tuple) and files
-        )
-
-    @property
     def has_read_only_tools(self) -> bool:
         """返回执行快照是否声明至少一个只读客户端工具。"""
         tools = self.execution.get("tools")

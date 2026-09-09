@@ -163,6 +163,8 @@ class TuiActivity(object):
         self._generation: int = 0
         self._wait_elapsed_sec: float = 0.0
         self._wait_started_at: float | None = None
+        self._wait_paused: bool = False
+        self._completed_wait_elapsed_sec: float | None = None
         self._wait_phase: float = 0.0
         self._turn_surface_indicator: TurnSurfaceIndicator = "thinking"
         self._turn_surface_title: str = "Thinking"
@@ -178,22 +180,21 @@ class TuiActivity(object):
     async def begin_wait(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""
         await self._discard("wait")
-        self._wait_elapsed_sec = 0.0
-        self._wait_phase = 0.0
-        self._turn_surface_indicator = "thinking"
-        self._turn_surface_title = "Thinking"
-        self._turn_surface_detail = ""
+        self._reset_wait()
         self._wait_started_at = time.perf_counter()
-
-        await self._set_slot(_ActivitySlot(
-            key="foreground",
-            kind="wait",
-            render=self._wait_block,
-        ))
+        await self._activate_wait_slot()
 
     async def ensure_wait(self) -> None:
         """在模型轮次已接管前台时确保等待动画槽存在。"""
         if self.lease("wait") is not None:
+            return None
+        if self._wait_paused:
+            self._wait_paused = False
+            self._wait_started_at = time.perf_counter()
+            await self._activate_wait_slot()
+            return None
+        if self._wait_started_at is not None:
+            await self._activate_wait_slot()
             return None
         await self.begin_wait()
 
@@ -408,16 +409,55 @@ class TuiActivity(object):
         if slot is None:
             return False
 
+        if slot.kind == "wait":
+            self._complete_wait()
+        self._remove_slot(slot)
+
+        return True
+
+    def pause_wait(self) -> bool:
+        """暂停并撤下等待槽位，同时保留已经累计的运行耗时。"""
+        lease = self.lease("wait")
+        slot = self._leased_slot(lease) if lease is not None else None
+        if self._wait_started_at is None:
+            return False
+        self._wait_elapsed_sec += max(
+            0.0,
+            time.perf_counter() - self._wait_started_at,
+        )
+        self._wait_started_at = None
+        self._wait_paused = True
+        if slot is not None:
+            self._wait_phase = slot.phase
+            self._remove_slot(slot)
+
+        return True
+
+    def hide_wait(self) -> bool:
+        """撤下等待槽位并让当前轮次耗时在后台继续累计。"""
+        changed = False
+        if self._wait_paused:
+            self._wait_paused = False
+            self._wait_started_at = time.perf_counter()
+            changed = True
+        lease = self.lease("wait")
+        slot = self._leased_slot(lease) if lease is not None else None
+        if slot is not None:
+            self._wait_phase = slot.phase
+            self._remove_slot(slot)
+            changed = True
+        return changed
+
+    def _remove_slot(self, slot: _ActivitySlot) -> None:
+        """撤下指定槽位并同步剩余活动的渲染任务。"""
         self._slots.pop(slot.key, None)
         self._settle_deadlines.pop(slot.key, None)
-        if slot.kind == "wait":
-            self._reset_wait()
 
         if not self._slots:
             self._retire_task()
             self._cancel_settle_expiry()
             self.clear_renderable()
-            return True
+            return None
 
         self._render_slots()
         self._schedule_settle_expiry()
@@ -427,16 +467,22 @@ class TuiActivity(object):
         else:
             self._retire_task()
 
-        return True
-
     def finish_wait(self) -> bool:
         """结束当前轮次等待槽位且不影响其他活动。"""
         lease = self.lease("wait")
         if lease is not None:
             return self.release(lease)
 
-        self._reset_wait()
-        return False
+        if self._wait_started_at is None and not self._wait_paused:
+            return False
+        self._complete_wait()
+        return True
+
+    def wait_elapsed_seconds(self) -> float | None:
+        """返回当前或最近完成轮次不包含暂停时段的累计秒数。"""
+        if self._wait_started_at is not None or self._wait_paused:
+            return self._wait_elapsed()
+        return self._completed_wait_elapsed_sec
 
     def refresh(self, kind: ActivityStatusKind) -> bool:
         """按最新快照同步刷新指定活动槽位。"""
@@ -709,10 +755,27 @@ class TuiActivity(object):
             return self._wait_elapsed_sec
         return self._wait_elapsed_sec + max(0.0, time.perf_counter() - started_at)
 
+    def _complete_wait(self) -> None:
+        """保存当前轮次累计耗时并清空活动计时状态。"""
+        elapsed_sec = self._wait_elapsed()
+        self._reset_wait()
+        self._completed_wait_elapsed_sec = elapsed_sec
+
+    async def _activate_wait_slot(self) -> None:
+        """用当前累计状态恢复前景等待槽位。"""
+        await self._set_slot(_ActivitySlot(
+            key="foreground",
+            kind="wait",
+            render=self._wait_block,
+            phase=self._wait_phase,
+        ))
+
     def _reset_wait(self) -> None:
         """清空等待动画和耗时统计。"""
         self._wait_elapsed_sec = 0.0
         self._wait_started_at = None
+        self._wait_paused = False
+        self._completed_wait_elapsed_sec = None
         self._wait_phase = 0.0
         self._turn_surface_indicator = "thinking"
         self._turn_surface_title = "Thinking"

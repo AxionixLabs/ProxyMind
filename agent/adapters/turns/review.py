@@ -14,11 +14,10 @@ from agent.protocol.json_value import ThawedJsonValue
 
 __all__ = (
     "ReviewCommandExecutor",
-    "ReviewTurnOperation",
 )
 
 
-class ReviewTurnOperation(typing.Protocol):
+class _ReviewTurnOperation(typing.Protocol):
     """执行一次已持久化 Review 请求且不拥有本地 Run 状态。"""
 
     async def __call__(
@@ -35,7 +34,7 @@ class ReviewCommandExecutor:
 
     def __init__(
         self,
-        operation: ReviewTurnOperation,
+        operation: _ReviewTurnOperation,
         *,
         request_recorder: RemoteTurnRequestRecorder,
     ) -> None:

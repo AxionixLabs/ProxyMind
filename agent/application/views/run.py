@@ -55,6 +55,7 @@ class RunCompletedView:
     service_tier: str = ""
     stop_reason: str | None = None
     stop_sequence: str | None = None
+    duration_ms: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -110,7 +110,6 @@ class TuiOutputControl(OutputControlPort):
         self._stream_chunking = StreamChunkingPolicy()
         self._before_render_registered: bool = True
         self._final_render_active: bool = False
-        self._turn_started_at: float | None = None
         self._had_work_activity: bool = False
         self._needs_final_message_separator: bool = False
         self.runtime.screen.application.before_render += (
@@ -743,20 +742,19 @@ class TuiOutputControl(OutputControlPort):
 
     async def open(self) -> None:
         """打开当前输出记录。"""
-        self._turn_started_at = time.perf_counter()
         self._had_work_activity = False
         self._needs_final_message_separator = False
         await self.record_writer.open()
 
-    async def complete_turn(self) -> None:
+    async def complete_turn(self, *, duration_ms: int | None = None) -> None:
+        """按服务端权威耗时或本地兜底耗时提交完成分隔线。"""
         if self.runtime.turn_output_suppressed:
             self._discard_visible_output_state()
             return None
-        elapsed_sec = (
-            max(0.0, time.perf_counter() - self._turn_started_at)
-            if self._turn_started_at is not None
-            else None
-        )
+        if duration_ms is not None:
+            elapsed_sec = max(0, duration_ms) / 1000
+        else:
+            elapsed_sec = self.runtime.activity.wait_elapsed_seconds()
         await self._append_pending_separator(elapsed_sec=elapsed_sec)
 
     async def stop(self, *, blink: bool = True) -> None:

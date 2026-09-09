@@ -195,6 +195,7 @@ class TurnEventStream(object):
             "error": terminal.error,
             "last_event_seq": terminal.last_event_seq,
             "completed_at": terminal.completed_at,
+            "duration_ms": terminal.duration_ms,
         }
 
     def _attach_delay(self) -> float:

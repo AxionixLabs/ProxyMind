@@ -7,7 +7,6 @@ import typing
 from collections.abc import Coroutine
 from dataclasses import dataclass
 
-from agent.application.turns.reviews import review_target_hint
 from frontends.tui.contracts.menu import (
     CLOSE_MENU_FOOTER_HINT,
     STANDARD_MENU_FOOTER_HINT,
@@ -132,7 +131,6 @@ class PreparedReview:
 
     target: ReviewTarget
     workspace: ClientReviewWorkspace
-    hint: str
 
 
 class ReviewMenuController:

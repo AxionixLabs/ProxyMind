@@ -124,6 +124,7 @@ class TurnCompletedSnapshot:
     error: str | None
     last_event_seq: int
     completed_at: float
+    duration_ms: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -155,6 +155,7 @@ class TurnCompletedEvent(TurnTerminalEvent):
     status: TurnCompletedStatus
     last_event_seq: int
     completed_at: float
+    duration_ms: int | None = None
     error: str = ""
     error_type: str = ""
     error_source: str = ""
@@ -1794,7 +1795,7 @@ def _turn_completed_fields(
     *,
     event_seq: int,
 ) -> dict[str, typing.Any]:
-    """校验唯一终态的状态、水位、时间和错误信封。"""
+    """校验唯一终态的状态、水位、时间、耗时和错误信封。"""
     last_event_seq = _required_positive_int(
         payload.get("last_event_seq"),
         "turn.completed last_event_seq",
@@ -1810,6 +1811,14 @@ def _turn_completed_fields(
         or float(completed_at) <= 0
     ):
         raise ValueError("turn.completed completed_at must be positive")
+    duration_value = payload.get("duration_ms")
+    duration_ms = (
+        None
+        if duration_value is None
+        else _nonnegative_int(duration_value)
+    )
+    if duration_value is not None and duration_ms is None:
+        raise ValueError("turn.completed duration_ms must be non-negative")
 
     status = _turn_completed_status(payload.get("status"))
     error_value = payload.get("error")
@@ -1821,6 +1830,7 @@ def _turn_completed_fields(
         "status": status,
         "last_event_seq": last_event_seq,
         "completed_at": float(completed_at),
+        "duration_ms": duration_ms,
         "error": error,
         **_failure_fields(payload),
     }

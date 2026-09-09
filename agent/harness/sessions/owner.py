@@ -73,6 +73,16 @@ class SessionRuntimeOwner(typing.Generic[ResultValue]):
             return await session.refresh_recoveries()
         return await self._persistence.recover_session(normalized_session_id)
 
+    async def requeue_recovery(
+        self,
+        snapshot: RunSnapshot,
+        *,
+        authority: str,
+    ) -> None:
+        """把恢复状态转移交给命令所属 Session 的唯一写入者。"""
+        session = await self._session_for(snapshot.command.session_id)
+        await session.requeue_recovery(snapshot, authority=authority)
+
     async def close(self, *, cancel_running: bool = False) -> None:
         """停止全部 Session，并按调用方选择等待或取消活动 Run。"""
         async with self._lock:

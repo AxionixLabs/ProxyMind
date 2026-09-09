@@ -63,7 +63,6 @@ from agent.application.views.builders.tools import (
     build_tool_start_view,
 )
 from frontends.tui.adapters.application import TuiApplicationSink
-from frontends.tui.adapters import output as tui_output_module
 from frontends.tui.adapters.output import TuiOutputControl
 from frontends.tui.adapters.presentation import TuiPresentationSink
 from frontends.tui.adapters.session import create_tui_output_session
@@ -237,16 +236,49 @@ async def test_completed_work_adds_finished_label_only_at_turn_tail() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
     presentation = TuiPresentationSink(output)
-    output._turn_started_at = 0.0
+    clock = [0.0]
 
-    with patch.object(tui_output_module.time, "perf_counter", return_value=61.0):
+    with patch(
+        "frontends.tui.core.activity.time.perf_counter",
+        side_effect=lambda: clock[0],
+    ):
+        await runtime.activity.begin_wait()
+        clock[0] = 61.0
+        assert runtime.activity.pause_wait()
+        clock[0] = 120.0
+        await runtime.activity.ensure_wait()
+        clock[0] = 121.0
+        assert runtime.activity.finish_wait()
         output.note_work_activity()
         await presentation.emit(RunCompletedView(usage={}))
 
     assert [item.kind for item in runtime.document.blocks] == ["system"]
     rendered = fragments_text(runtime.document.fragments(width=60))
-    assert "Finished in 1m 01s" in rendered
+    assert "Finished in 1m 02s" in rendered
+    assert "Finished in 2m 01s" not in rendered
     assert get_cwidth(rendered) == 60
+
+
+@pytest.mark.anyio
+async def test_completed_work_prefers_authoritative_server_duration() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    with patch.object(
+        runtime.activity,
+        "wait_elapsed_seconds",
+        return_value=61.0,
+    ):
+        output.note_work_activity()
+        await presentation.emit(RunCompletedView(
+            usage={},
+            duration_ms=125_000,
+        ))
+
+    rendered = fragments_text(runtime.document.fragments(width=60))
+    assert "Finished in 2m 05s" in rendered
+    assert "Finished in 1m 01s" not in rendered
 
 
 @pytest.mark.anyio

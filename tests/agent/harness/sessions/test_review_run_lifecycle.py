@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agent.adapters.protocol.review_request import build_review_stream_request
 from agent.adapters.turns.review import ReviewCommandExecutor
 from agent.application.turns.commands import TurnApplication
 from agent.application.turns.run_result import RunResult
@@ -67,7 +66,7 @@ def _request(
             metadata={"cid": CID, "sid": SID},
         ),
     )
-    return build_review_stream_request(wire_request)
+    return ReviewStreamRequest.from_dict(wire_request.request_payload())
 
 
 def _command(
@@ -426,6 +425,47 @@ async def test_missing_remote_review_requeues_the_exact_frozen_command(
     assert await restarted.recover_session(command.session_id) == ()
     assert (await restarted_store.load_remote_request(command.run_id)) is not None
     await restarted.close()
+
+
+@pytest.mark.anyio
+async def test_review_requeue_is_serialized_by_the_session_owner(
+    tmp_path: Path,
+) -> None:
+    """确保恢复重派只能由 Session 单写者提交一次。"""
+    store = SQLiteRunStore(tmp_path / "runtime.db")
+    command = _command()
+    await _append_started(store, command)
+    await store.append_event(
+        command,
+        _event(
+            command,
+            3,
+            "run_reconciliation_required",
+            "reconciliation_required",
+        ),
+    )
+    snapshot = (await store.recover_session(command.session_id))[0]
+    owner: SessionRuntimeOwner[RunResult] = SessionRuntimeOwner(store)
+
+    await owner.requeue_recovery(snapshot, authority="remote_turn_status_404")
+
+    with pytest.raises(
+        RunPersistenceConflict,
+        match="recovery snapshot cannot be requeued",
+    ):
+        await owner.requeue_recovery(
+            snapshot,
+            authority="remote_turn_status_404",
+        )
+
+    events = await store.load_events(command.run_id)
+    assert [event.kind for event in events] == [
+        "run_queued",
+        "run_started",
+        "run_reconciliation_required",
+        "run_redispatch_queued",
+    ]
+    await owner.close()
 
 
 @pytest.mark.anyio

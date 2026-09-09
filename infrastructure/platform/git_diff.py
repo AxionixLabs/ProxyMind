@@ -14,12 +14,15 @@ from .workspace import (
     WorkspaceCommandOutput,
     WorkspaceCommandRunner
 )
+from .git_safety import (
+    EXECUTABLE_FILTER_CONFIG_PATTERN,
+    SAFE_BARE_REPOSITORY_CONFIG,
+    disabled_git_hooks_config,
+)
 
-SAFE_BARE_REPOSITORY_CONFIG = "safe.bareRepository=explicit"
 DIFF_COMMAND_TIMEOUT_SEC = 30.0
 PROBE_COMMAND_TIMEOUT_SEC = 5.0
 PROBE_OUTPUT_BYTES_CAP = 64 * 1024
-EXECUTABLE_FILTER_CONFIG_PATTERN = r"^filter\..*\.(clean|process)$"
 
 
 class WorkspaceDiffState(enum.Enum):
@@ -145,7 +148,7 @@ class WorkspaceDiffService(object):
                     "-c",
                     FsmonitorOverride.DISABLED.value,
                     "-c",
-                    _disable_hooks_config(),
+                    disabled_git_hooks_config(),
                     "rev-parse",
                     "--is-inside-work-tree",
                 ),
@@ -319,7 +322,7 @@ class WorkspaceDiffService(object):
                 "-c",
                 fsmonitor.value,
                 "-c",
-                _disable_hooks_config(),
+                disabled_git_hooks_config(),
                 *args,
             ),
             cwd=cwd,
@@ -337,11 +340,6 @@ class WorkspaceDiffService(object):
             return await self._runner.run(command)
         except WorkspaceCommandError as error:
             raise WorkspaceDiffError(str(error)) from error
-
-
-def _disable_hooks_config() -> str:
-    """返回当前平台禁用 Git hooks 的临时配置。"""
-    return "core.hooksPath=NUL" if os.name == "nt" else "core.hooksPath=/dev/null"
 
 
 def _status_error(

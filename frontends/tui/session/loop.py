@@ -1015,7 +1015,7 @@ async def _execute_tui_review_turn(
         turn_application,
         protocol_client,
         command,
-        hint=prepared.hint,
+        hint=review_target_hint(prepared.target),
         dispatcher=dispatcher,
         review_turn_runner=review_turn_runner,
     )

@@ -1747,7 +1747,7 @@ class TuiRuntime(object):
     ) -> bool:
         """替换当前流式展示块，并让可见助手正文原子接管等待区域。"""
         with self.screen.visual_update():
-            if kind == "assistant" and self.activity.finish_wait():
+            if kind == "assistant" and self.activity.hide_wait():
                 self.screen.synchronize_next_render()
             return self._transcript.set_active(
                 block,

@@ -203,6 +203,7 @@ async def test_presentation_projects_sources_and_normal_terminal_view(
         status="completed",
         last_event_seq=3,
         completed_at=1.0,
+        duration_ms=12_345,
         usage={"output_tokens": 3},
         response_id="response-test",
     ))
@@ -216,5 +217,6 @@ async def test_presentation_projects_sources_and_normal_terminal_view(
     assert views.items == [RunCompletedView(
         usage={"output_tokens": 3},
         response_id="response-test",
+        duration_ms=12_345,
     )]
     assert report.events == []

@@ -674,6 +674,7 @@ class MindChatProtocolClient:
                     error=response.terminal.error,
                     last_event_seq=response.terminal.last_event_seq,
                     completed_at=response.terminal.completed_at,
+                    duration_ms=response.terminal.duration_ms,
                 )
                 if response.terminal is not None
                 else None
@@ -737,6 +738,7 @@ class MindChatProtocolClient:
                     error=response.terminal.error,
                     last_event_seq=response.terminal.last_event_seq,
                     completed_at=response.terminal.completed_at,
+                    duration_ms=response.terminal.duration_ms,
                 )
                 if response.terminal is not None
                 else None

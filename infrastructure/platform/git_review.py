@@ -12,7 +12,10 @@ from protocol.schema.review import (
     ReviewTarget,
 )
 
-from .git_diff import SAFE_BARE_REPOSITORY_CONFIG
+from .git_safety import (
+    SAFE_BARE_REPOSITORY_CONFIG,
+    disabled_git_hooks_config,
+)
 from .workspace import (
     LocalWorkspaceCommandRunner,
     WorkspaceCommand,
@@ -311,7 +314,7 @@ class WorkspaceReviewGitService:
                 "-c",
                 "core.fsmonitor=false",
                 "-c",
-                _disable_hooks_config(),
+                disabled_git_hooks_config(),
                 "-c",
                 "core.pager=cat",
                 "-c",
@@ -362,11 +365,6 @@ def _git_object_id(value: str) -> str | None:
     if any(char not in "0123456789abcdef" for char in normalized):
         return None
     return normalized
-
-
-def _disable_hooks_config() -> str:
-    """返回当前平台禁用 Git hooks 的临时配置。"""
-    return "core.hooksPath=NUL" if os.name == "nt" else "core.hooksPath=/dev/null"
 
 
 if __name__ == '__main__':

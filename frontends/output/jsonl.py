@@ -97,6 +97,9 @@ def _terminal_payload(
         if view.can_continue is not None:
             payload["can_continue"] = view.can_continue
 
+    if isinstance(view, RunCompletedView) and view.duration_ms is not None:
+        payload["duration_ms"] = view.duration_ms
+
     return payload
 
 

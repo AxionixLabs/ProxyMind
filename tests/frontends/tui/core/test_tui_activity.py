@@ -197,6 +197,100 @@ async def test_turn_wait_uses_codex_interrupt_status_copy() -> None:
 
 
 @pytest.mark.anyio
+async def test_wait_timer_excludes_paused_approval_time() -> None:
+    rendered = []
+    activity = TuiActivity(
+        set_renderable=rendered.append,
+        clear_renderable=lambda: None,
+    )
+    clock = [10.0]
+
+    with patch(
+        "frontends.tui.core.activity.time.perf_counter",
+        side_effect=lambda: clock[0],
+    ):
+        assert activity.wait_elapsed_seconds() is None
+        await activity.begin_wait()
+        clock[0] = 12.0
+        assert activity.pause_wait()
+        assert activity.lease("wait") is None
+        assert activity.wait_elapsed_seconds() == 2.0
+
+        clock[0] = 50.0
+        assert activity.wait_elapsed_seconds() == 2.0
+        await activity.ensure_wait()
+        clock[0] = 53.0
+        assert activity.wait_elapsed_seconds() == 5.0
+
+        assert activity.finish_wait()
+        assert activity._wait_elapsed() == 0.0
+        assert activity.wait_elapsed_seconds() == 5.0
+
+    await activity.clear()
+
+
+@pytest.mark.anyio
+async def test_wait_timer_continues_while_assistant_owns_canvas() -> None:
+    rendered = []
+    activity = TuiActivity(
+        set_renderable=rendered.append,
+        clear_renderable=lambda: None,
+    )
+    clock = [10.0]
+
+    with patch(
+        "frontends.tui.core.activity.time.perf_counter",
+        side_effect=lambda: clock[0],
+    ):
+        await activity.begin_wait()
+        clock[0] = 12.0
+        assert activity.hide_wait()
+        assert activity.lease("wait") is None
+
+        clock[0] = 50.0
+        assert activity.wait_elapsed_seconds() == 40.0
+        await activity.ensure_wait()
+        clock[0] = 53.0
+        assert activity.wait_elapsed_seconds() == 43.0
+
+        assert activity.finish_wait()
+        assert activity.wait_elapsed_seconds() == 43.0
+
+    await activity.clear()
+
+
+@pytest.mark.anyio
+async def test_hidden_wait_timer_pauses_for_approval_and_resumes_hidden() -> None:
+    activity = TuiActivity(
+        set_renderable=lambda _block: None,
+        clear_renderable=lambda: None,
+    )
+    clock = [10.0]
+
+    with patch(
+        "frontends.tui.core.activity.time.perf_counter",
+        side_effect=lambda: clock[0],
+    ):
+        await activity.begin_wait()
+        clock[0] = 12.0
+        assert activity.hide_wait()
+        clock[0] = 50.0
+        assert activity.pause_wait()
+        assert activity.wait_elapsed_seconds() == 40.0
+
+        clock[0] = 80.0
+        assert activity.wait_elapsed_seconds() == 40.0
+        assert activity.hide_wait()
+        clock[0] = 83.0
+        assert activity.wait_elapsed_seconds() == 43.0
+
+        await activity.ensure_wait()
+        assert activity.wait_elapsed_seconds() == 43.0
+
+    await activity.clear()
+
+
+@pytest.mark.anyio
 async def test_execution_deactivation_clears_wait_without_touching_auxiliary(
 ) -> None:
     runtime = TuiRuntime()

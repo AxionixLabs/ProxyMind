@@ -28,7 +28,7 @@ TurnCompletedStatus: typing.TypeAlias = typing.Literal[
     "cancelled",
 ]
 
-_TURN_COMPLETED_FIELDS: typing.Final[frozenset[str]] = frozenset({
+_TURN_COMPLETED_REQUIRED_FIELDS: typing.Final[frozenset[str]] = frozenset({
     "type",
     "turn_id",
     "status",
@@ -36,6 +36,9 @@ _TURN_COMPLETED_FIELDS: typing.Final[frozenset[str]] = frozenset({
     "last_event_seq",
     "completed_at",
 })
+_TURN_COMPLETED_FIELDS: typing.Final[frozenset[str]] = (
+    _TURN_COMPLETED_REQUIRED_FIELDS | {"duration_ms"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +50,7 @@ class TurnCompletedSnapshot:
     error: str | None
     last_event_seq: int
     completed_at: float
+    duration_ms: int | None = None
 
 
 def parse_turn_runtime_status(value: JsonValue) -> TurnRuntimeStatus:
@@ -104,7 +108,11 @@ def parse_turn_completed_snapshot(
     """严格校验并构建 `turn.completed` 的同构终态快照。"""
     if value is None:
         return None
-    if not isinstance(value, dict) or set(value) != _TURN_COMPLETED_FIELDS:
+    if (
+        not isinstance(value, dict)
+        or not _TURN_COMPLETED_REQUIRED_FIELDS.issubset(value)
+        or not set(value).issubset(_TURN_COMPLETED_FIELDS)
+    ):
         raise ValueError("turn completed snapshot is invalid")
 
     type_value = value.get("type")
@@ -113,6 +121,7 @@ def parse_turn_completed_snapshot(
     error = value.get("error")
     event_seq = value.get("last_event_seq")
     completed_at = value.get("completed_at")
+    duration_ms = value.get("duration_ms")
 
     if (
         type_value != "turn.completed"
@@ -126,6 +135,11 @@ def parse_turn_completed_snapshot(
         or not isinstance(completed_at, (int, float))
         or not math.isfinite(float(completed_at))
         or float(completed_at) <= 0
+        or duration_ms is not None and (
+            isinstance(duration_ms, bool)
+            or not isinstance(duration_ms, int)
+            or duration_ms < 0
+        )
     ):
         raise ValueError("turn completed snapshot is invalid")
 
@@ -142,6 +156,7 @@ def parse_turn_completed_snapshot(
         error=error,
         last_event_seq=event_seq,
         completed_at=float(completed_at),
+        duration_ms=duration_ms,
     )
 
 

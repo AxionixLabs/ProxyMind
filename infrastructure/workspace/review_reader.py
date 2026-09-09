@@ -12,9 +12,10 @@ from agent.ports.review_workspace import (
     ReviewRepositoryRead,
     ReviewWorkspaceReadError,
 )
-from infrastructure.platform.git_diff import (
+from infrastructure.platform.git_safety import (
     EXECUTABLE_FILTER_CONFIG_PATTERN,
     SAFE_BARE_REPOSITORY_CONFIG,
+    disabled_git_hooks_config,
 )
 from infrastructure.platform.workspace import (
     LocalWorkspaceCommandRunner,
@@ -145,7 +146,7 @@ class ReviewWorkspaceReader(WorkspaceContext):
                 "-c",
                 "core.fsmonitor=false",
                 "-c",
-                _disable_hooks_config(),
+                disabled_git_hooks_config(),
                 "-c",
                 "core.pager=cat",
                 "-c",
@@ -444,11 +445,6 @@ def _display_repository_command(
     if paths:
         command.extend(("--", *paths))
     return _display_command(tuple(command))
-
-
-def _disable_hooks_config() -> str:
-    """返回当前平台禁用 Git hooks 的临时配置。"""
-    return "core.hooksPath=NUL" if os.name == "nt" else "core.hooksPath=/dev/null"
 
 
 if __name__ == '__main__':

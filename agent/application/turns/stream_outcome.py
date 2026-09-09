@@ -45,6 +45,7 @@ class _CompletedEvent(_TerminalEvent, typing.Protocol):
     error_source: str
     status_code: int | None
     retryable: bool | None
+    duration_ms: int | None
 
 
 @dataclass(slots=True)
@@ -129,6 +130,8 @@ class StreamTurnOutcome:
         self._terminal_statuses.add(resolved_status)
         if resolved_status == "incomplete":
             self._record_terminal(event)
+            if event.duration_ms is not None:
+                self.terminal_meta["duration_ms"] = event.duration_ms
             return None
         self.error = event.error or None
         self.error_code = event.error_type or None
@@ -142,6 +145,8 @@ class StreamTurnOutcome:
             if value not in {None, ""}
         }
         self._record_terminal(event)
+        if event.duration_ms is not None:
+            self.terminal_meta["duration_ms"] = event.duration_ms
 
     def mark_delivery_incomplete(
         self,

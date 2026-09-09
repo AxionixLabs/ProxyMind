@@ -7,7 +7,6 @@ from unittest.mock import Mock
 import pytest
 
 from agent.adapters.protocol import client as review_adapter
-from agent.adapters.protocol.review_request import build_review_stream_request
 from agent.adapters.protocol.client import (
     MindChatProtocolClient,
     ProtocolEventCursorStore,
@@ -17,6 +16,7 @@ from agent.ports import (
     ReviewCapability,
     ReviewObservationCapability,
 )
+from agent.protocol import ReviewStreamRequest
 from protocol.client.review import (
     ReviewRequestError,
     ReviewSubmission,
@@ -100,6 +100,13 @@ def _wire_request(*, patch: str = "") -> MindReviewRequest:
     )
 
 
+def _stream_request(*, patch: str = "") -> ReviewStreamRequest:
+    """从正式 wire 载荷构造本地冻结 Review 请求。"""
+    return ReviewStreamRequest.from_dict(
+        _wire_request(patch=patch).request_payload()
+    )
+
+
 def _submission(events: tuple) -> ReviewSubmission:
     """构造已确认登记的 Review 回执和观察流。"""
     return ReviewSubmission(
@@ -178,7 +185,7 @@ async def test_review_capability_submits_then_validates_terminal_stream(
     monkeypatch,
 ) -> None:
     """确保 Review 回执确认后才交付已对账的模型流。"""
-    local_request = build_review_stream_request(_wire_request())
+    local_request = _stream_request()
     submit = AsyncMock(return_value=_submission(_events()))
     monkeypatch.setattr(review_adapter, "_submit_review", submit)
     cursors = ProtocolEventCursorStore()
@@ -206,7 +213,7 @@ async def test_review_observation_replays_without_resubmitting(
     monkeypatch,
 ) -> None:
     """确保冷恢复只 attach/replay，并继续归约 Review Canonical Item。"""
-    local_request = build_review_stream_request(_wire_request())
+    local_request = _stream_request()
     observe = Mock(return_value=_ReviewWireStream(_events()))
     submit = AsyncMock()
     monkeypatch.setattr(review_adapter, "_observe_turn", observe)
@@ -250,7 +257,7 @@ async def test_review_capability_submits_empty_workspace_with_read_only_tools(
     """确保规范空 workspace 由冻结只读工具提供代码观察能力。"""
     submit = AsyncMock(return_value=_submission(_events()))
     monkeypatch.setattr(review_adapter, "_submit_review", submit)
-    request = build_review_stream_request(_wire_request())
+    request = _stream_request()
 
     stream = await MindChatProtocolClient().review(request)
     delivered = [event async for event in stream]
@@ -276,7 +283,7 @@ async def test_review_capability_maps_unknown_submission_to_recovery(
 
     with pytest.raises(ModelCapabilityError) as raised:
         await MindChatProtocolClient().review(
-            build_review_stream_request(_wire_request())
+            _stream_request()
         )
 
     assert raised.value.code == "review_submission_unknown"
@@ -289,7 +296,7 @@ async def test_review_stream_eof_before_turn_terminal_requires_recovery(
     monkeypatch,
 ) -> None:
     """确保 Review Item 完成不会单独解除 Turn 结算门禁。"""
-    request = build_review_stream_request(_wire_request())
+    request = _stream_request()
     monkeypatch.setattr(
         review_adapter,
         "_submit_review",
@@ -334,7 +341,7 @@ async def test_review_stream_rejects_conflicting_turn_terminal(
     )
     cursors = ProtocolEventCursorStore()
     stream = await MindChatProtocolClient(cursors).review(
-        build_review_stream_request(_wire_request())
+        _stream_request()
     )
 
     with pytest.raises(ModelCapabilityError) as raised:
@@ -350,7 +357,7 @@ async def test_review_stream_rejects_a_second_terminal_from_interrupt_race(
     monkeypatch,
 ) -> None:
     """确保中断与重连竞争不能提交两个 Review Item 终态。"""
-    request = build_review_stream_request(_wire_request())
+    request = _stream_request()
     started = _events()[0]
     cancelled = ReviewCancelledEvent(
         type="review.cancelled",
@@ -419,7 +426,7 @@ async def test_review_interrupt_probes_active_observation(monkeypatch) -> None:
     monkeypatch.setattr(review_adapter, "_interrupt_turn", interrupt)
     client = MindChatProtocolClient()
     stream = await client.review(
-        build_review_stream_request(_wire_request())
+        _stream_request()
     )
 
     receipt = await client.interrupt_turn(

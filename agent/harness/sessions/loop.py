@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from agent.domain import (
     RecoveryAction,
     RunState,
+    RunStatus,
 )
 from agent.ports import (
     RunExecution,
@@ -389,6 +390,53 @@ class SessionLoop(typing.Generic[ResultValue]):
         async with self._submit_lock:
             await self._refresh_recoveries()
             return self._recoveries
+
+    async def requeue_recovery(
+        self,
+        snapshot: RunSnapshot,
+        *,
+        authority: str,
+    ) -> None:
+        """原子记录权威未执行决议并刷新当前 Session 恢复门禁。"""
+        if not isinstance(snapshot, RunSnapshot):
+            raise TypeError("run recovery snapshot is required")
+        command = snapshot.command
+        if command.session_id != self.session_id:
+            raise ValueError("recovery belongs to another session")
+        if not isinstance(authority, str) or not authority.strip():
+            raise ValueError("recovery authority is required")
+        normalized_authority = authority.strip()
+        if self._persistence is None:
+            raise RuntimeError("run persistence is unavailable")
+
+        await self._initialize()
+        async with self._submit_lock:
+            current = await self._persistence.find_run(command)
+            if (
+                current is None
+                or current.sequence != snapshot.sequence
+                or snapshot.status is not RunStatus.RECONCILIATION_REQUIRED
+                or current.status is not RunStatus.RECONCILIATION_REQUIRED
+            ):
+                raise RunPersistenceConflict(
+                    "recovery snapshot cannot be requeued"
+                )
+            event = RunEvent.create(
+                sequence=current.sequence + 1,
+                session_id=command.session_id,
+                run_id=command.run_id,
+                kind="run_redispatch_queued",
+                payload={
+                    "status": "queued",
+                    "recovery": {
+                        "resolution": "not_executed",
+                        "authority": normalized_authority,
+                    },
+                },
+                causation_id=command.command_id,
+            )
+            await self._event_sink_for(command)(event)
+            await self._refresh_recoveries()
 
     def _event_sink_for(
         self,

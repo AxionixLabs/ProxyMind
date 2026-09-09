@@ -255,6 +255,7 @@ async def test_reconcile_request_validates_complete_classification(
                 "error": None,
                 "last_event_seq": 18,
                 "completed_at": 12.5,
+                "duration_ms": 12_345,
             },
             "committed_ids": ["message_1"],
             "pending_ids": [],
@@ -305,6 +306,7 @@ async def test_reconcile_request_validates_complete_classification(
     assert result.terminal is not None
     assert result.terminal.status == "interrupted"
     assert result.terminal.last_event_seq == 18
+    assert result.terminal.duration_ms == 12_345
     assert captured["url"] == "https://example.com/turn/reconcile"
     assert captured["params"] == {"cid": "cid_1", "sid": "sid_1"}
     assert captured["headers"] == {"authorization": "test"}
@@ -408,6 +410,15 @@ async def test_reconcile_accepts_active_or_missing_turn_without_terminal(
             "error": None,
             "last_event_seq": 18,
             "completed_at": True,
+        },
+        {
+            "type": "turn.completed",
+            "turn_id": "turn_001",
+            "status": "interrupted",
+            "error": None,
+            "last_event_seq": 18,
+            "completed_at": 12.5,
+            "duration_ms": -1,
         },
     ),
 )

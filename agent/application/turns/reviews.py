@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from collections.abc import (
-    Mapping,
-)
+from collections.abc import Mapping
 
 from agent.domain.tool_policy import (
     REVIEW_TOOL_NAMES,
@@ -80,8 +78,6 @@ def create_review_command(
 async def discover_review_tools(
     runtime: TurnExecutionRuntimePort,
     pref_config: dict[str, JsonValue],
-    *,
-    require_all: bool = True,
 ) -> tuple[JsonObject, ...]:
     """在短期 MCP 会话中冻结 Review 唯一允许的本地只读工具。"""
 
@@ -91,7 +87,7 @@ async def discover_review_tools(
     ) -> tuple[JsonObject, ...]:
         """把当前工具目录收窄为可持久化的 Review wire 描述。"""
         del session
-        return review_wire_tools(tools, require_all=require_all)
+        return review_wire_tools(tools)
 
     result = await runtime.with_mcp_session(pref_config, freeze_catalog)
     if not isinstance(result, tuple):
@@ -101,8 +97,6 @@ async def discover_review_tools(
 
 def review_wire_tools(
     tools: list[JsonObject],
-    *,
-    require_all: bool = True,
 ) -> tuple[JsonObject, ...]:
     """从真实工具目录构造严格、只读且可持久化的 Review 工具集合。"""
     visible = filter_mode_tools("review", tools)
@@ -111,7 +105,7 @@ def review_wire_tools(
         for tool in visible
     }
     missing = REVIEW_TOOL_NAMES.difference(by_name)
-    if require_all and missing:
+    if missing:
         names = ", ".join(sorted(missing))
         raise RuntimeError(f"review tools are unavailable: {names}")
 

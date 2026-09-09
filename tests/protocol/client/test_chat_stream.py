@@ -430,6 +430,7 @@ async def test_internal_gap_waits_for_terminal_snapshot(monkeypatch) -> None:
             error="",
             last_event_seq=4,
             completed_at=1.0,
+            duration_ms=4_000,
         ),
     )))
     event_stream = chat.stream_chat(
@@ -657,6 +658,7 @@ async def test_recovery_probe_observes_terminal_without_silence_timeout(
         error=None,
         last_event_seq=2,
         completed_at=10.0,
+        duration_ms=2_000,
     )
     _install_reconnect_stream(monkeypatch, streaming)
     status_probe = AsyncMock(return_value=SimpleNamespace(
@@ -702,6 +704,7 @@ async def test_control_probe_closes_existing_transport_retry(
         error=None,
         last_event_seq=2,
         completed_at=10.0,
+        duration_ms=2_000,
     )
     _install_reconnect_stream(monkeypatch, AsyncMock())
     monkeypatch.setattr(
@@ -762,6 +765,7 @@ async def test_control_probe_waits_for_terminal_after_active_snapshot(
         error=None,
         last_event_seq=2,
         completed_at=10.0,
+        duration_ms=2_000,
     )
     settled = SimpleNamespace(last_event_seq=2, terminal=terminal)
     _install_reconnect_stream(monkeypatch, streaming)
@@ -817,6 +821,7 @@ async def test_control_settlement_reprobes_while_source_events_continue(
         error=None,
         last_event_seq=9,
         completed_at=10.0,
+        duration_ms=9_000,
     )
     active = SimpleNamespace(last_event_seq=1, terminal=None)
     settled = SimpleNamespace(last_event_seq=9, terminal=terminal)
@@ -869,6 +874,7 @@ async def test_control_probe_accepts_terminal_snapshot_past_suppressed_events(
         error=None,
         last_event_seq=7,
         completed_at=10.0,
+        duration_ms=7_000,
     )
     _install_reconnect_stream(monkeypatch, streaming)
     status_probe = AsyncMock(return_value=SimpleNamespace(
@@ -1004,6 +1010,7 @@ async def test_ping_cannot_mask_a_missing_terminal_event(monkeypatch) -> None:
         error=None,
         last_event_seq=1,
         completed_at=10.0,
+        duration_ms=1_000,
     )
     _install_reconnect_stream(monkeypatch, streaming)
     monkeypatch.setattr(chat, "STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC", 0.01)
@@ -1880,6 +1887,7 @@ async def test_control_probe_interrupts_snapshot_retry_backoff(monkeypatch) -> N
             error=None,
             last_event_seq=2,
             completed_at=12.5,
+            duration_ms=2_500,
         ),
     )
     _install_reconnect_stream(monkeypatch, streaming)

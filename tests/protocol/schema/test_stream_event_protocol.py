@@ -1169,6 +1169,7 @@ def test_turn_control_events_preserve_stable_input_identity() -> None:
         "status": "interrupted",
         "last_event_seq": 1,
         "completed_at": 10.0,
+        "duration_ms": 12_345,
     })
 
     assert isinstance(accepted, TurnInputAcceptedEvent)
@@ -1177,6 +1178,19 @@ def test_turn_control_events_preserve_stable_input_identity() -> None:
     assert isinstance(completed, TurnCompletedEvent)
     assert completed.status == "interrupted"
     assert completed.last_event_seq == 1
+    assert completed.duration_ms == 12_345
+
+
+@pytest.mark.parametrize("duration_ms", (-1, True, 1.5, "1000"))
+def test_turn_completed_rejects_invalid_duration(duration_ms) -> None:
+    with pytest.raises(ValueError, match="duration_ms"):
+        parse_stream_event({
+            "type": "turn.completed",
+            "status": "completed",
+            "last_event_seq": 1,
+            "completed_at": 10.0,
+            "duration_ms": duration_ms,
+        })
 
 
 def test_turn_terminal_events_preserve_response_metadata() -> None:

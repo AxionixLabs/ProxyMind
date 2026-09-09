@@ -399,6 +399,7 @@ async def test_json_output_emits_terminal_status_and_metadata() -> None:
         request_id="req_completed",
         service_tier="standard",
         stop_reason="end_turn",
+        duration_ms=12_345,
     ))
     await presentation.emit(RunIncompleteView(
         usage={"output_tokens": 7},
@@ -429,6 +430,7 @@ async def test_json_output_emits_terminal_status_and_metadata() -> None:
             "request_id": "req_completed",
             "service_tier": "standard",
             "stop_reason": "end_turn",
+            "duration_ms": 12_345,
         },
         {
             "type": "turn.incomplete",

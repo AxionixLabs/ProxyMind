@@ -67,6 +67,15 @@ class SessionRuntime(typing.Protocol[ResultValue]):
         """读取指定 Session 的未终结执行快照。"""
         ...
 
+    async def requeue_recovery(
+        self,
+        snapshot: RunSnapshot,
+        *,
+        authority: str,
+    ) -> None:
+        """由 Session 单写者把确认未执行的恢复项转回排队状态。"""
+        ...
+
     async def close(self, *, cancel_running: bool = False) -> None:
         """关闭所有 Session。"""
         ...

@@ -13,6 +13,7 @@ import pytest
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.utils import get_cwidth
 
+from agent.application.turns.reviews import review_target_hint
 from agent.ports import ProtocolCommandClient
 from frontends.tui.core.menu import TuiMenu
 from frontends.tui.core.models import (
@@ -31,7 +32,6 @@ from frontends.tui.features.review import (
     ReviewCommitValue,
     ReviewMenuController,
     ReviewMenuResult,
-    review_target_hint,
 )
 from frontends.tui.session.dispatch import (
     DispatchAction,
@@ -467,7 +467,6 @@ async def test_inline_review_dispatch_freezes_typed_input_without_menu() -> None
     assert action is DispatchAction.REVIEW_TURN
     assert prepared.target == ReviewCustomTarget("focus on races")
     assert prepared.workspace == workspace
-    assert prepared.hint == "focus on races"
     snapshot.assert_awaited_once_with(
         "D:/workspace",
         ReviewCustomTarget("focus on races"),

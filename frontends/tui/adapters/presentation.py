@@ -382,7 +382,7 @@ class TuiPresentationSink(PresentationSink):
         """渲染并发送不需要生命周期归并的一项展示数据。"""
         if isinstance(view, RunCompletedView):
             self._stable_patch_call_ids.clear()
-            await self.output.complete_turn()
+            await self.output.complete_turn(duration_ms=view.duration_ms)
             return None
         if isinstance(view, (RunIncompleteView, FailureView)):
             self._stable_patch_call_ids.clear()

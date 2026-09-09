@@ -61,6 +61,7 @@ SurfaceIndicatorKind = typing.Literal[
     "retrying",
     "terminal",
 ]
+HiddenWaitTiming = typing.Literal["finish", "continue", "pause"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +168,7 @@ class SurfaceProjection:
     indicator: SurfaceIndicatorKind
     title: str = ""
     detail: str = ""
+    hidden_wait_timing: HiddenWaitTiming = "finish"
     revision: int = 0
 
     @property
@@ -183,10 +185,12 @@ class SurfaceProjection:
             self.indicator,
             self.title,
             self.detail,
+            self.hidden_wait_timing,
         ) == (
             other.indicator,
             other.title,
             other.detail,
+            other.hidden_wait_timing,
         )
 
 
@@ -255,7 +259,11 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
     if state.recovery in {"replaying", "gap"}:
         return SurfaceProjection("hidden", revision=revision)
     if state.approvals:
-        return SurfaceProjection("hidden", revision=revision)
+        return SurfaceProjection(
+            "hidden",
+            hidden_wait_timing="pause",
+            revision=revision,
+        )
     if any(item.source == "transport" for item in state.retries):
         return SurfaceProjection(
             "retrying",
@@ -264,7 +272,11 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
             revision=revision,
         )
     if state.content == "visible":
-        return SurfaceProjection("hidden", revision=revision)
+        return SurfaceProjection(
+            "hidden",
+            hidden_wait_timing="continue",
+            revision=revision,
+        )
     if state.retries:
         return SurfaceProjection(
             "retrying",
@@ -312,7 +324,11 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
             title="Thinking",
             revision=revision,
         )
-    return SurfaceProjection("hidden", revision=revision)
+    return SurfaceProjection(
+        "hidden",
+        hidden_wait_timing="continue",
+        revision=revision,
+    )
 
 
 ApplySurfaceProjection = typing.Callable[

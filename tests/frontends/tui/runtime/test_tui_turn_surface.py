@@ -223,7 +223,9 @@ def test_turn_running_and_status_visibility_are_independent() -> None:
     ))
     assert state.lifecycle == "active"
     assert state.status_requested
-    assert not project_turn_surface(state).visible
+    approval_projection = project_turn_surface(state)
+    assert not approval_projection.visible
+    assert approval_projection.hidden_wait_timing == "pause"
     state = reduce_turn_surface(state, ApprovalCompleted(
         **_scope(context),
         approval_id="approval_1",
@@ -1156,6 +1158,63 @@ async def test_tui_visible_content_atomically_replaces_activity_surface() -> Non
     assert coordinator.state.content == "visible"
     assert runtime.activity.lease("wait") is None
     assert runtime.document.active_kind == "assistant"
+
+    await session.close()
+    runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_tui_approval_pauses_and_resumes_same_wait_timer() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context(surface_id="surface_approval_timer")
+    session = create_tui_output_session(
+        "",
+        context=context,
+        runtime=runtime,
+        animate=False,
+    )
+    coordinator = session.activity
+    assert isinstance(coordinator, TuiTurnSurfaceCoordinator)
+    clock = [10.0]
+
+    with patch(
+        "frontends.tui.core.activity.time.perf_counter",
+        side_effect=lambda: clock[0],
+    ):
+        await runtime.begin_wait_status()
+        await session.open()
+        await coordinator.emit(ModelWaitRequested(
+            **_scope(context),
+            revision=1,
+            reason="initial",
+        ))
+
+        clock[0] = 12.0
+        await coordinator.emit(ApprovalStarted(
+            **_scope(context),
+            approval_id="approval_timer",
+            call_id="call_timer",
+        ))
+        assert runtime.activity.lease("wait") is None
+        assert runtime.activity.wait_elapsed_seconds() == 2.0
+
+        clock[0] = 50.0
+        await coordinator.emit(ApprovalCompleted(
+            **_scope(context),
+            approval_id="approval_timer",
+            call_id="call_timer",
+        ))
+        clock[0] = 53.0
+        assert runtime.activity.lease("wait") is not None
+        assert runtime.activity.wait_elapsed_seconds() == 5.0
+
+        await coordinator.emit(TurnTerminal(
+            **_scope(context),
+            status="completed",
+        ))
+        assert runtime.activity.lease("wait") is None
+        assert runtime.activity.wait_elapsed_seconds() == 5.0
 
     await session.close()
     runtime.set_execution_active(False)

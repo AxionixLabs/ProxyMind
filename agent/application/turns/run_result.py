@@ -33,6 +33,7 @@ class RunResult(object):
     service_tier: str = ""
     stop_reason: str | None = None
     stop_sequence: str | None = None
+    duration_ms: int | None = None
     reason: str = ""
     can_continue: bool = False
     error_code: str | None = None
@@ -93,6 +94,8 @@ class RunResult(object):
 
         if self.status == "incomplete":
             result["can_continue"] = self.can_continue
+        if self.duration_ms is not None:
+            result["duration_ms"] = self.duration_ms
         if self.error_code not in {None, ""}:
             result["error_code"] = self.error_code
         if self.error_details:

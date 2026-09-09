@@ -62,8 +62,16 @@ async def _apply_surface_projection(
     projection: SurfaceProjection,
 ) -> None:
     """把单一 Turn 表面投影提交给现有前景活动槽。"""
-    if runtime.turn_output_suppressed or not projection.visible:
+    if runtime.turn_output_suppressed:
         runtime.activity.finish_wait()
+        return None
+    if not projection.visible:
+        if projection.hidden_wait_timing == "pause":
+            runtime.activity.pause_wait()
+        elif projection.hidden_wait_timing == "continue":
+            runtime.activity.hide_wait()
+        else:
+            runtime.activity.finish_wait()
         return None
 
     await runtime.activity.show_turn_surface(
@@ -80,7 +88,13 @@ def _apply_immediate_surface_projection(
     """在正文画布事务内同步释放活动区域。"""
     if projection.visible:
         raise ValueError("immediate surface projection must be hidden")
-    if runtime.activity.finish_wait():
+    if projection.hidden_wait_timing == "pause":
+        changed = runtime.activity.pause_wait()
+    elif projection.hidden_wait_timing == "continue":
+        changed = runtime.activity.hide_wait()
+    else:
+        changed = runtime.activity.finish_wait()
+    if changed:
         runtime.screen.synchronize_next_render()
 
 

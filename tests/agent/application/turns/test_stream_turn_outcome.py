@@ -12,6 +12,7 @@ def test_outcome_builds_completed_result_from_single_terminal() -> None:
         status="completed",
         last_event_seq=7,
         completed_at=1.0,
+        duration_ms=12_345,
         usage={"output_tokens": 7},
         response_id="msg_1",
         route="messages",
@@ -23,6 +24,7 @@ def test_outcome_builds_completed_result_from_single_terminal() -> None:
         usage={"output_tokens": 7},
         response_id="msg_1",
         route="messages",
+        duration_ms=12_345,
     )
     assert outcome.has_terminal_status is True
     assert outcome.continuation_allowed is True

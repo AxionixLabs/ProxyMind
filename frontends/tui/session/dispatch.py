@@ -11,7 +11,6 @@ from dataclasses import (
 )
 from pathlib import Path
 
-from agent.application.turns.reviews import review_target_hint
 from agent.ports import ProtocolCommandClient
 from agent.ports.presentation import (
     ApplicationView,
@@ -524,7 +523,6 @@ class TuiCommandDispatcher(object):
         self._prepared_review = PreparedReview(
             target=resolved.target,
             workspace=resolved.workspace,
-            hint=review_target_hint(resolved.target),
         )
         return True
 

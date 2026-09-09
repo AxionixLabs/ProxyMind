@@ -9,20 +9,9 @@ from protocol.schema.review import (
 )
 
 __all__ = (
-    "build_review_stream_request",
     "require_review_tools",
     "wire_review_request",
 )
-
-
-def build_review_stream_request(
-    request: MindReviewRequest,
-) -> ReviewStreamRequest:
-    """把已校验 wire 请求转换为传输无关的本地冻结请求。"""
-    if not isinstance(request, MindReviewRequest):
-        raise TypeError("mind review request is required")
-    payload = request.request_payload()
-    return ReviewStreamRequest.from_dict(payload)
 
 
 def wire_review_request(request: ReviewStreamRequest) -> MindReviewRequest:

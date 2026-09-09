@@ -72,6 +72,14 @@ def build_run_completed_view(
 ) -> RunCompletedView:
     """构建一次运行的完成展示数据。"""
     meta = terminal_meta if isinstance(terminal_meta, dict) else {}
+    raw_duration_ms = meta.get("duration_ms")
+    duration_ms = (
+        raw_duration_ms
+        if isinstance(raw_duration_ms, int)
+        and not isinstance(raw_duration_ms, bool)
+        and raw_duration_ms >= 0
+        else None
+    )
 
     return RunCompletedView(
         usage=copy.deepcopy(usage) if isinstance(usage, dict) else {},
@@ -82,6 +90,7 @@ def build_run_completed_view(
         service_tier=str(meta.get("service_tier") or ""),
         stop_reason=meta.get("stop_reason"),
         stop_sequence=meta.get("stop_sequence"),
+        duration_ms=duration_ms,
     )
 
 
