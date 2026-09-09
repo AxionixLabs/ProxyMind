@@ -143,10 +143,9 @@ from .media import (
     ImageReaderPort,
 )
 from .output import (
-    ApprovalCompleted,
+    ApprovalPresentationChanged,
     ApprovalReviewCompleted,
     ApprovalReviewStarted,
-    ApprovalStarted,
     AssistantBuffered,
     AssistantSettled,
     AssistantVisible,
@@ -436,8 +435,7 @@ __all__ = (
     "TurnResultValue",
     "TranscriptLifecyclePort",
     "TranscriptSessionPort",
-    "ApprovalCompleted",
-    "ApprovalStarted",
+    "ApprovalPresentationChanged",
     "AssistantBuffered",
     "AssistantSettled",
     "AssistantVisible",

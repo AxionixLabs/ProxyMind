@@ -9,10 +9,9 @@ from dataclasses import (
 )
 
 from agent.ports import (
-    ApprovalCompleted,
+    ApprovalPresentationChanged,
     ApprovalReviewCompleted,
     ApprovalReviewStarted,
-    ApprovalStarted,
     AssistantBuffered,
     AssistantSettled,
     AssistantTextPhase,
@@ -92,14 +91,6 @@ class TerminalWaitActivity:
 
 
 @dataclass(frozen=True, slots=True)
-class ApprovalActivity:
-    """保存一个独占审批表面的稳定身份。"""
-
-    approval_id: str
-    call_id: str
-
-
-@dataclass(frozen=True, slots=True)
 class ApprovalReviewActivity:
     """保存一个自动评审 lease 的身份、代次和动作摘要。"""
 
@@ -149,8 +140,7 @@ class TurnSurfaceState:
     completed_tools: tuple[ToolActivity, ...] = ()
     terminal_waits: tuple[TerminalWaitActivity, ...] = ()
     completed_terminal_waits: tuple[TerminalWaitActivity, ...] = ()
-    approvals: tuple[ApprovalActivity, ...] = ()
-    completed_approvals: tuple[ApprovalActivity, ...] = ()
+    approval_presentation_active: bool = False
     approval_reviews: tuple[ApprovalReviewActivity, ...] = ()
     completed_approval_reviews: tuple[ApprovalReviewActivity, ...] = ()
     retries: tuple[RetryActivity, ...] = ()
@@ -200,7 +190,7 @@ class TurnSurfaceTiming:
 
     tool_result_sec: float = 0.15
     lifecycle_sec: float = 0.15
-    transport_retry_min_visible_sec: float = 0.8
+    retry_min_visible_sec: float = 0.8
 
     def delay_for(self, reason: ModelWaitReason | None) -> float:
         """返回指定等待来源的非负本地延时。"""
@@ -256,17 +246,17 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
     revision = state.revision
     if state.lifecycle != "active":
         return SurfaceProjection("hidden", revision=revision)
+    if state.approval_presentation_active:
+        return SurfaceProjection(
+            "hidden",
+            hidden_wait_timing="pause",
+            revision=revision,
+        )
     if state.recovery in {"replaying", "gap"}:
         return SurfaceProjection(
             "retrying",
             title="Recovering",
             detail="Restoring conversation",
-            revision=revision,
-        )
-    if state.approvals:
-        return SurfaceProjection(
-            "hidden",
-            hidden_wait_timing="pause",
             revision=revision,
         )
     if any(item.source == "transport" for item in state.retries):
@@ -366,8 +356,9 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         self.timing = timing
         self._applied: SurfaceProjection | None = None
         self._timer: asyncio.Task[None] | None = None
+        self._pending_projection: SurfaceProjection | None = None
         self._timer_error: BaseException | None = None
-        self._transport_retry_visible_until: float = 0.0
+        self._retry_visible_until: float = 0.0
         self._opened: bool = False
         self._closed: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
@@ -414,47 +405,55 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             next_state = self.state
             for event in events:
                 next_state = reduce_turn_surface(next_state, event)
-            self._cancel_timer()
+            if next_state is self.state:
+                return None
             self.state = next_state
             projection = project_turn_surface(self.state)
+            if projection.visually_matches(self._pending_projection):
+                return None
+            self._cancel_timer()
             delay = self.timing.delay_for_projection(
                 projection,
                 state=self.state,
             )
             if any(
-                isinstance(event, (ApprovalStarted, TurnTerminal, SurfaceClosed))
-                or (
-                    isinstance(event, RecoveryChanged)
-                    and event.mode in {"replaying", "gap"}
-                )
+                isinstance(event, (TurnTerminal, SurfaceClosed))
+                or (isinstance(event, ApprovalPresentationChanged) and event.active)
                 for event in events
             ):
-                self._transport_retry_visible_until = 0.0
+                self._retry_visible_until = 0.0
             if projection.visually_matches(self._applied):
                 self._applied = projection
                 return None
-            elif not (
-                projection.indicator == "retrying"
-                and projection.detail == "transport"
-            ):
-                delay = max(delay, self._transport_retry_remaining())
+            delay = max(delay, self._retry_remaining())
             if (
                 projection.indicator == "thinking"
                 and (self.state.tools or self.state.batches)
                 and any(
                     isinstance(
                         event,
-                        (ApprovalCompleted, TerminalWaitCompleted, ToolCompleted),
+                        (
+                            ApprovalPresentationChanged,
+                            TerminalWaitCompleted,
+                            ToolCompleted,
+                        ),
                     )
                     for event in events
                 )
             ):
-                delay = 0.0
+                delay = self._retry_remaining()
+            if (
+                projection.indicator == "thinking"
+                and self._applied is not None
+                and self._applied.indicator == "retrying"
+            ):
+                # 追平与正文首帧可能分属相邻提交，沿用生命周期延时合并交接。
+                delay = max(delay, self.timing.delay_for("lifecycle"))
             if delay > 0:
+                self._pending_projection = projection
                 self._timer = asyncio.create_task(
                     self._apply_after(
                         projection,
-                        expected_revision=self.state.revision,
                         delay=delay,
                     ),
                     name=f"tui surface {self.context.surface_id}",
@@ -484,7 +483,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
                 self._applied = projection
             return None
         self._cancel_timer()
-        self._transport_retry_visible_until = 0.0
+        self._retry_visible_until = 0.0
         self.apply_immediate_projection(projection)
         self._applied = projection
 
@@ -521,21 +520,17 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         self,
         projection: SurfaceProjection,
         *,
-        expected_revision: int,
         delay: float,
     ) -> None:
-        """仅在 reducer revision 未变化时提交延迟投影。"""
+        """在待展示内容仍匹配时按原定截止时间提交最新投影。"""
         task = asyncio.current_task()
         try:
             await asyncio.sleep(delay)
             async with self._lock:
-                if (
-                    self._closed
-                    or self.state.revision != expected_revision
-                    or project_turn_surface(self.state) != projection
-                ):
+                current = project_turn_surface(self.state)
+                if self._closed or not current.visually_matches(projection):
                     return None
-                await self._apply(projection)
+                await self._apply(current)
         except asyncio.CancelledError:
             raise
         except BaseException as error:
@@ -543,6 +538,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         finally:
             if self._timer is task:
                 self._timer = None
+                self._pending_projection = None
 
     async def _apply(self, projection: SurfaceProjection) -> None:
         """提交投影，并在同步正文交接抢占后恢复最新 reducer 结果。"""
@@ -564,23 +560,18 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             self._applied = candidate
             if (
                 candidate.indicator == "retrying"
-                and candidate.detail == "transport"
-                and not (
-                    previous is not None
-                    and previous.indicator == "retrying"
-                    and previous.detail == "transport"
-                )
+                and not candidate.visually_matches(previous)
             ):
-                self._transport_retry_visible_until = (
+                self._retry_visible_until = (
                     asyncio.get_running_loop().time()
-                    + max(0.0, self.timing.transport_retry_min_visible_sec)
+                    + max(0.0, self.timing.retry_min_visible_sec)
                 )
 
-    def _transport_retry_remaining(self) -> float:
-        """返回 transport retry 已展示帧的剩余最短可见时间。"""
+    def _retry_remaining(self) -> float:
+        """返回当前重试或恢复提示尚需保留的最短可见时间。"""
         return max(
             0.0,
-            self._transport_retry_visible_until
+            self._retry_visible_until
             - asyncio.get_running_loop().time(),
         )
 
@@ -588,6 +579,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         """同步取消当前 generation timer。"""
         timer = self._timer
         self._timer = None
+        self._pending_projection = None
         if timer is not None and not timer.done():
             timer.cancel()
 
@@ -678,7 +670,7 @@ def _reduce_active_surface(
         return replace(
             state,
             status_requested=(
-                state.status_requested or event.phase == "commentary"
+                event.phase == "commentary" or _status_sources_active(state)
             ),
             content="settled",
             settled_items=(*state.settled_items, item),
@@ -839,25 +831,11 @@ def _reduce_active_surface(
                 existing,
             ),
         )
-    if isinstance(event, ApprovalStarted):
-        approval = ApprovalActivity(event.approval_id, event.call_id)
-        if approval in state.approvals or approval in state.completed_approvals:
-            return state
+    if isinstance(event, ApprovalPresentationChanged):
         return replace(
             state,
-            status_requested=True,
-            approvals=(*state.approvals, approval),
-        )
-    if isinstance(event, ApprovalCompleted):
-        approval = ApprovalActivity(event.approval_id, event.call_id)
-        if approval not in state.approvals:
-            if approval in state.completed_approvals:
-                return state
-            raise ValueError("approval completion does not match active approval")
-        return replace(
-            state,
-            approvals=tuple(item for item in state.approvals if item != approval),
-            completed_approvals=(*state.completed_approvals, approval),
+            status_requested=state.status_requested or event.active,
+            approval_presentation_active=event.active,
         )
     if isinstance(event, ApprovalReviewStarted):
         review = _approval_review_activity(event)
@@ -1035,7 +1013,7 @@ def _reduce_active_surface(
             batches=(),
             tools=(),
             terminal_waits=(),
-            approvals=(),
+            approval_presentation_active=False,
             approval_reviews=(),
             retries=(),
             terminal_status=event.status,
@@ -1050,7 +1028,7 @@ def _reduce_active_surface(
             batches=(),
             tools=(),
             terminal_waits=(),
-            approvals=(),
+            approval_presentation_active=False,
             approval_reviews=(),
             retries=(),
         )
@@ -1064,7 +1042,7 @@ def _status_sources_active(state: TurnSurfaceState) -> bool:
         or state.batches
         or state.tools
         or state.terminal_waits
-        or state.approvals
+        or state.approval_presentation_active
         or state.approval_reviews
         or state.retries
     )

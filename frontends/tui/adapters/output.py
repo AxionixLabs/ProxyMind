@@ -8,6 +8,7 @@ import typing
 from functools import partial
 
 from agent.ports import (
+    ApprovalPresentationChanged,
     AssistantVisible,
     OutputActivityPort,
     OutputControlPort,
@@ -701,6 +702,26 @@ class TuiOutputControl(OutputControlPort):
         self._had_work_activity = False
         self._needs_final_message_separator = False
         await self.record_writer.open()
+        if self.activity is not None:
+            try:
+                await self.runtime.bind_approval_activity(
+                    self._approval_presentation_changed,
+                )
+            except BaseException:
+                await self.record_writer.close()
+                raise
+
+    async def _approval_presentation_changed(self, active: bool) -> None:
+        """把真实人工审批批次的占用交给当前会话的唯一活动所有者。"""
+        activity = self.activity
+        context = self.surface_context
+        if activity is None or context is None:
+            raise RuntimeError("approval presentation requires an output surface")
+        await activity.emit(ApprovalPresentationChanged(
+            surface_id=context.surface_id,
+            turn_id=context.turn_id,
+            active=active,
+        ))
 
     async def complete_turn(self, *, duration_ms: int | None = None) -> None:
         """按服务端权威耗时或本地兜底耗时提交完成分隔线。"""
@@ -720,12 +741,17 @@ class TuiOutputControl(OutputControlPort):
             await self._commit_current()
             await self.record_writer.close()
         finally:
+            self.runtime.unbind_approval_activity(
+                self._approval_presentation_changed,
+            )
             self._cancel_stream_resize()
             self._unregister_before_render()
 
     async def append_assistant_delta(
         self,
         chunk: typing.Optional[str],
+        *,
+        visible: AssistantVisible | None = None,
     ) -> None:
         """向当前 TUI assistant 正文追加一段原始增量。"""
         if not chunk:
@@ -736,13 +762,15 @@ class TuiOutputControl(OutputControlPort):
             self.record_writer.write(sanitize_terminal_text(str(chunk)))
             return None
 
+        await self.prepare_assistant_output()
+        if visible is not None:
+            self.bind_assistant_visibility(visible)
         raw_text = self.assistant.prepare_delta(str(chunk))
 
         text = self._assistant_filter.feed(raw_text)
         if not text:
             return None
 
-        await self._append_pending_separator(elapsed_sec=None)
         self.record_writer.write(text)
 
         if self.animate:
@@ -754,6 +782,10 @@ class TuiOutputControl(OutputControlPort):
         self.assistant.append(text)
         if self._collect_complete_source_lines():
             self._reveal_all_stream_rows()
+
+    async def prepare_assistant_output(self) -> None:
+        """先提交前段正文和工作分隔线，避免清除下一 Item 的可见性绑定。"""
+        await self._append_pending_separator(elapsed_sec=None)
 
     async def prepare_external_output(self) -> None:
         """在外部展示前提交当前流式内容。"""

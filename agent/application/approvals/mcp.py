@@ -21,7 +21,6 @@ from agent.domain.approvals import (
     mcp_requires_approval,
 )
 from agent.ports.approval_core import ApprovalActionCoordinatorPort
-from agent.ports.output import ToolInteractionActivityPort
 
 __all__ = (
     "McpApprovalAuthorization",
@@ -160,7 +159,6 @@ async def authorize_mcp_tool_call(
     turn: TurnContext,
     *,
     coordinator: ApprovalActionCoordinatorPort | None,
-    activity: ToolInteractionActivityPort,
     call_id: str,
     descriptor: McpToolDescriptor,
     arguments: dict[str, typing.Any],
@@ -198,17 +196,7 @@ async def authorize_mcp_tool_call(
         )
 
     presentation = mcp_approval_payload(action, arguments, agent=turn.agent)
-    await activity.approval_started(
-        action.identity.approval_id,
-        action.execution.tool_call_id,
-    )
-    try:
-        outcome = await coordinator.request_action_outcome(action, presentation)
-    finally:
-        await activity.approval_completed(
-            action.identity.approval_id,
-            action.execution.tool_call_id,
-        )
+    outcome = await coordinator.request_action_outcome(action, presentation)
     allowed = outcome.decision in {
         "accept",
         "acceptForSession",

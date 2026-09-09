@@ -13,10 +13,9 @@ import pytest
 
 from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.ports import (
-    ApprovalCompleted,
+    ApprovalPresentationChanged,
     ApprovalReviewCompleted,
     ApprovalReviewStarted,
-    ApprovalStarted,
     AssistantBuffered,
     AssistantSegmentCompleted,
     AssistantSettled,
@@ -218,20 +217,18 @@ def test_turn_running_and_status_visibility_are_independent() -> None:
     assert state.status_requested
     assert project_turn_surface(state).visible
 
-    state = reduce_turn_surface(state, ApprovalStarted(
+    state = reduce_turn_surface(state, ApprovalPresentationChanged(
         **_scope(context),
-        approval_id="approval_1",
-        call_id="call_approval",
+        active=True,
     ))
     assert state.lifecycle == "active"
     assert state.status_requested
     approval_projection = project_turn_surface(state)
     assert not approval_projection.visible
     assert approval_projection.hidden_wait_timing == "pause"
-    state = reduce_turn_surface(state, ApprovalCompleted(
+    state = reduce_turn_surface(state, ApprovalPresentationChanged(
         **_scope(context),
-        approval_id="approval_1",
-        call_id="call_approval",
+        active=False,
     ))
     assert project_turn_surface(state).visible
 
@@ -711,7 +708,7 @@ async def test_transport_retry_restores_indicator_after_content_is_visible() -> 
         context,
         apply,
         apply_immediate_projection=apply_immediate,
-        timing=TurnSurfaceTiming(transport_retry_min_visible_sec=0.0),
+        timing=TurnSurfaceTiming(retry_min_visible_sec=0.0),
     )
     identity = _identity()
     await coordinator.open()
@@ -803,7 +800,7 @@ async def test_coordinator_owns_transport_retry_minimum_visibility() -> None:
     coordinator = TuiTurnSurfaceCoordinator(
         context,
         apply,
-        timing=TurnSurfaceTiming(transport_retry_min_visible_sec=0.02),
+        timing=TurnSurfaceTiming(lifecycle_sec=0.0, retry_min_visible_sec=0.02),
     )
     await coordinator.open()
     await coordinator.emit(ModelWaitRequested(
@@ -866,21 +863,256 @@ async def test_tui_transport_retry_uses_typed_surface_until_terminal() -> None:
         runtime=runtime,
         animate=False,
     )
+    coordinator = session.activity
+    assert isinstance(coordinator, TuiTurnSurfaceCoordinator)
+    coordinator.timing = TurnSurfaceTiming(retry_min_visible_sec=0.02)
     await session.open()
     activity = TurnActivityProjector(context, session.activity)
     await activity.request_model_wait("initial")
+    lease = runtime.activity.lease("wait")
+    started_at = runtime.activity._wait_started_at
 
     await activity.transport_recovery_changed("reconnecting", 3)
     assert "Retrying" in _activity_text(runtime)
     await activity.transport_recovery_changed("replaying", 3)
+    assert "Retrying" in _activity_text(runtime)
+    timer = coordinator._timer
+    assert timer is not None
+    await timer
     assert "Recovering" in _activity_text(runtime)
     await activity.transport_recovery_changed("caught_up", 5)
+    assert "Recovering" in _activity_text(runtime)
+    timer = coordinator._timer
+    assert timer is not None
+    await timer
     assert "Thinking" in _activity_text(runtime)
+    assert runtime.activity.lease("wait") == lease
+    assert runtime.activity._wait_started_at == started_at
 
     await activity.turn_terminal("interrupted")
     assert runtime.screen.activity_block is None
     await session.close()
     runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_retry_replacement_does_not_expose_thinking_between_attempts() -> None:
+    context = _context(surface_id="surface_retry_replace")
+    projections = []
+
+    async def apply(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(context, apply)
+    await coordinator.open()
+    activity = TurnActivityProjector(context, coordinator)
+    try:
+        await activity.provider_retry_started(
+            presentation_epoch=1, round_no=1, attempt=2,
+        )
+        projections.clear()
+        await activity.provider_retry_started(
+            presentation_epoch=1, round_no=1, attempt=3,
+        )
+        assert projections == []
+        assert len(coordinator.state.retries) == 1
+        assert coordinator.state.retries[0].attempt == 3
+    finally:
+        await coordinator.close()
+
+
+@pytest.mark.anyio
+async def test_fast_replay_keeps_retry_until_latest_wait_projection() -> None:
+    context = _context(surface_id="surface_fast_replay")
+    projections = []
+
+    async def apply(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(
+        context, apply, timing=TurnSurfaceTiming(retry_min_visible_sec=0.03),
+    )
+    await coordinator.open()
+    activity = TurnActivityProjector(context, coordinator)
+    try:
+        await activity.request_model_wait("initial")
+        await activity.transport_recovery_changed("reconnecting", 1)
+        projections.clear()
+        await activity.transport_recovery_changed("replaying", 1)
+        await activity.transport_recovery_changed("caught_up", 1)
+        assert projections == []
+        timer = coordinator._timer
+        assert timer is not None
+        await timer
+        assert [projection.title for projection in projections] == ["Thinking"]
+    finally:
+        await coordinator.close()
+
+
+@pytest.mark.anyio
+async def test_disconnect_during_replay_returns_to_retry_without_hiding() -> None:
+    context = _context(surface_id="surface_replay_disconnect")
+    projections = []
+
+    async def apply(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(
+        context, apply, timing=TurnSurfaceTiming(retry_min_visible_sec=0.0),
+    )
+    await coordinator.open()
+    activity = TurnActivityProjector(context, coordinator)
+    try:
+        await activity.transport_recovery_changed("reconnecting", 1)
+        await activity.transport_recovery_changed("replaying", 2)
+        await activity.transport_recovery_changed("reconnecting", 2)
+        await activity.transport_recovery_changed("replaying", 3)
+        assert [projection.title for projection in projections] == [
+            "Retrying", "Recovering", "Retrying", "Recovering",
+        ]
+        assert all(projection.visible for projection in projections)
+        assert coordinator.state.retries == ()
+    finally:
+        await coordinator.close()
+
+
+@pytest.mark.anyio
+async def test_tool_completion_cannot_cut_short_transport_retry_display() -> None:
+    context = _context(surface_id="surface_retry_tool_completion")
+    projections = []
+
+    async def apply(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(
+        context, apply,
+        timing=TurnSurfaceTiming(retry_min_visible_sec=0.03),
+    )
+    await coordinator.open()
+    activity = TurnActivityProjector(context, coordinator)
+    try:
+        await activity.tool_started("one", "client")
+        await activity.tool_started("two", "client")
+        await activity.transport_recovery_changed("reconnecting", 1)
+        await coordinator.emit_batch((
+            RetryChanged(
+                **_scope(context), source="transport", state="completed",
+                presentation_epoch=1, round=1, attempt=1,
+            ),
+            ToolCompleted(**_scope(context), tool_id="one", tool_kind="client"),
+        ))
+        assert projections[-1].title == "Retrying"
+        timer = coordinator._timer
+        assert timer is not None
+        await timer
+        assert projections[-1].title == "Thinking"
+    finally:
+        await coordinator.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("recovery", ["replaying", "gap"])
+async def test_manual_approval_pauses_recovery_until_batch_ends(recovery) -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context(surface_id="surface_recovery_approval")
+    session = create_tui_output_session("", context=context, runtime=runtime)
+    await session.open()
+    activity = TurnActivityProjector(context, session.activity)
+    try:
+        await activity.request_model_wait("initial")
+        await activity.recovery_changed(recovery, event_seq=1)
+        assert "Recovering" in _activity_text(runtime)
+        await runtime.begin_approval_session()
+        assert runtime.activity.lease("wait") is None
+        assert runtime.activity._wait_paused
+        await activity.recovery_changed(recovery, event_seq=2)
+        assert runtime.activity.lease("wait") is None
+        await runtime.end_approval_session()
+        assert "Recovering" in _activity_text(runtime)
+    finally:
+        await runtime.end_approval_session()
+        await session.close()
+        runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("source", ("provider", "transport", "replaying"))
+async def test_recovered_buffered_body_takes_surface_without_thinking_flash(
+    source: typing.Literal["provider", "transport", "replaying"],
+) -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context(surface_id="surface_recovery_buffered")
+    session = create_tui_output_session("", context=context, runtime=runtime, animate=False)
+    coordinator = session.activity
+    assert isinstance(coordinator, TuiTurnSurfaceCoordinator)
+    coordinator.timing = TurnSurfaceTiming(retry_min_visible_sec=0.0)
+    await session.open()
+    activity = TurnActivityProjector(context, coordinator)
+    identity = _identity()
+    try:
+        await activity.request_model_wait("initial")
+        if source == "provider":
+            await activity.provider_retry_started(
+                presentation_epoch=1, round_no=1, attempt=1,
+            )
+        else:
+            await activity.transport_recovery_changed("reconnecting", 1)
+            if source == "replaying":
+                await activity.transport_recovery_changed("replaying", 1)
+        await activity.assistant_buffered(identity, "final", phase="final_answer")
+        lease = runtime.activity.lease("wait")
+        title = "Recovering" if source == "replaying" else "Retrying"
+        assert title in _activity_text(runtime)
+
+        if source == "provider":
+            await activity.provider_retry_completed()
+        else:
+            await activity.transport_recovery_changed("caught_up", 2)
+
+        assert title in _activity_text(runtime)
+        assert runtime.activity.lease("wait") == lease
+        assert coordinator.pending_timer
+        await session.content.emit(AssistantTextDelta(
+            "Recovered response\n", identity, item_id="final", phase="final_answer",
+        ))
+        assert runtime.activity.lease("wait") is None
+        assert not coordinator.pending_timer
+    finally:
+        await session.close()
+        runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_final_text_settling_after_recovery_does_not_revive_thinking() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context(surface_id="surface_recovery_final")
+    session = create_tui_output_session("", context=context, runtime=runtime, animate=False)
+    coordinator = session.activity
+    assert isinstance(coordinator, TuiTurnSurfaceCoordinator)
+    coordinator.timing = TurnSurfaceTiming(retry_min_visible_sec=0.0)
+    await session.open()
+    activity = TurnActivityProjector(context, coordinator)
+    identity = _identity()
+    try:
+        await activity.assistant_buffered(identity, "final", phase="final_answer")
+        await session.content.emit(AssistantTextDelta(
+            "Final response\n", identity, item_id="final", phase="final_answer",
+        ))
+        await activity.transport_recovery_changed("reconnecting", 1)
+        await activity.transport_recovery_changed("replaying", 1)
+        await activity.transport_recovery_changed("caught_up", 2)
+        await session.content.emit(AssistantSegmentCompleted(
+            identity, item_id="final", phase="final_answer",
+        ))
+        await activity.assistant_settled(identity, "final", phase="final_answer")
+        assert project_turn_surface(coordinator.state).indicator == "hidden"
+        assert runtime.activity.lease("wait") is None
+    finally:
+        await session.close()
+        runtime.set_execution_active(False)
 
 
 @pytest.mark.anyio
@@ -904,6 +1136,8 @@ async def test_tui_review_activity_uses_wait_family_and_parallel_details() -> No
         action_summary="run git status",
         presentation_epoch=1,
     )
+    wait_lease = runtime.activity.lease("wait")
+    wait_started_at = runtime.activity._wait_started_at
     await activity.approval_review_started(
         "review-2",
         "approval-2",
@@ -927,10 +1161,49 @@ async def test_tui_review_activity_uses_wait_family_and_parallel_details() -> No
     )
     assert "Reviewing approval request" in _activity_text(runtime)
 
+    await activity.approval_review_completed(
+        "review-2", "approval-2", "call-2",
+        action_summary="access https://example.com",
+        presentation_epoch=1,
+    )
+    assert "Thinking" in _activity_text(runtime)
+    assert runtime.activity.lease("wait") == wait_lease
+    assert runtime.activity._wait_started_at == wait_started_at
+
     await activity.turn_terminal("interrupted")
     assert runtime.screen.activity_block is None
     await session.close()
     runtime.set_execution_active(False)
+
+
+@pytest.mark.anyio
+async def test_same_pending_projection_keeps_deadline_and_latest_revision() -> None:
+    context = _context(surface_id="surface_pending_deadline")
+    projections = []
+
+    async def apply(projection: SurfaceProjection) -> None:
+        projections.append(projection)
+
+    coordinator = TuiTurnSurfaceCoordinator(
+        context, apply, timing=TurnSurfaceTiming(lifecycle_sec=0.02),
+    )
+    await coordinator.open()
+    waiting = ModelWaitRequested(**_scope(context), revision=1, reason="lifecycle")
+    try:
+        await coordinator.emit(waiting)
+        timer = coordinator._timer
+        assert timer is not None
+        await coordinator.emit(waiting)
+        assert coordinator._timer is timer
+        await coordinator.emit(AssistantBuffered(
+            **_scope(context), identity=_identity(), item_id="buffered",
+        ))
+        assert coordinator._timer is timer
+        await timer
+        assert projections == [project_turn_surface(coordinator.state)]
+        assert not coordinator.pending_timer
+    finally:
+        await coordinator.close()
 
 
 @pytest.mark.anyio
@@ -1181,7 +1454,7 @@ async def test_tui_content_preserves_recovery_surface_until_caught_up(
     )
     coordinator = session.activity
     assert isinstance(coordinator, TuiTurnSurfaceCoordinator)
-    coordinator.timing = TurnSurfaceTiming(transport_retry_min_visible_sec=0.0)
+    coordinator.timing = TurnSurfaceTiming(retry_min_visible_sec=0.0)
     identity = _identity()
 
     await session.open()
@@ -1276,20 +1549,12 @@ async def test_tui_approval_pauses_and_resumes_same_wait_timer() -> None:
         ))
 
         clock[0] = 12.0
-        await coordinator.emit(ApprovalStarted(
-            **_scope(context),
-            approval_id="approval_timer",
-            call_id="call_timer",
-        ))
+        await runtime.begin_approval_session()
         assert runtime.activity.lease("wait") is None
         assert runtime.activity.wait_elapsed_seconds() == 2.0
 
         clock[0] = 50.0
-        await coordinator.emit(ApprovalCompleted(
-            **_scope(context),
-            approval_id="approval_timer",
-            call_id="call_timer",
-        ))
+        await runtime.end_approval_session()
         clock[0] = 53.0
         assert runtime.activity.lease("wait") is not None
         assert runtime.activity.wait_elapsed_seconds() == 5.0
@@ -1424,9 +1689,9 @@ async def test_tui_tool_approval_and_terminal_leases_restore_parent_surface() ->
     await activity.tool_completed("call_1", "client", name="read_file")
     assert "Thinking" in _activity_text(runtime)
 
-    await activity.approval_started("approval_2", "call_2")
+    await runtime.begin_approval_session()
     assert runtime.screen.activity_block is None
-    await activity.approval_completed("approval_2", "call_2")
+    await runtime.end_approval_session()
     assert "Thinking" in _activity_text(runtime)
 
     await activity.terminal_wait_started(

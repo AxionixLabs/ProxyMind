@@ -145,8 +145,6 @@ def _runtime(
         activity=SimpleNamespace(
             tool_started=AsyncMock(),
             tool_completed=AsyncMock(),
-            approval_started=AsyncMock(),
-            approval_completed=AsyncMock(),
         ),
         effect_journal=SimpleNamespace(),
     )

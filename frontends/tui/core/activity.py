@@ -179,7 +179,6 @@ class TuiActivity(object):
 
     async def begin_wait(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""
-        await self._discard("wait")
         self._reset_wait()
         self._wait_started_at = time.perf_counter()
         await self._activate_wait_slot()
@@ -188,15 +187,17 @@ class TuiActivity(object):
         """在模型轮次已接管前台时确保等待动画槽存在。"""
         if self.lease("wait") is not None:
             return None
+        self._prepare_wait()
+        await self._activate_wait_slot()
+
+    def _prepare_wait(self) -> None:
+        """准备计时状态，保持暂停前的累计耗时和动画相位。"""
         if self._wait_paused:
             self._wait_paused = False
             self._wait_started_at = time.perf_counter()
-            await self._activate_wait_slot()
-            return None
-        if self._wait_started_at is not None:
-            await self._activate_wait_slot()
-            return None
-        await self.begin_wait()
+        elif self._wait_started_at is None:
+            self._reset_wait()
+            self._wait_started_at = time.perf_counter()
 
     async def show_turn_surface(
         self,
@@ -213,12 +214,14 @@ class TuiActivity(object):
             "terminal",
         }:
             raise ValueError(f"unsupported turn surface indicator: {indicator}")
-        await self.ensure_wait()
+        self._prepare_wait()
         self._turn_surface_indicator = indicator
         self._turn_surface_title = " ".join(str(title or "").split())
         self._turn_surface_detail = _normalize_status_detail(detail)
         slot = self._slots.get("foreground")
-        if slot is not None and slot.kind == "wait" and not slot.frozen:
+        if slot is None:
+            await self._activate_wait_slot()
+        elif slot.kind == "wait" and not slot.frozen:
             self._render_slots()
 
     async def begin_upload(

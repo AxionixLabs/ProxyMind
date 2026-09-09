@@ -353,7 +353,6 @@ class ClientToolCallRunner:
         authorization = await authorize_mcp_tool_call(
             invocation.turn,
             coordinator=typed_coordinator,
-            activity=self.activity,
             call_id=invocation.call_id,
             descriptor=descriptor,
             arguments=invocation.arguments,

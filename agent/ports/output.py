@@ -23,10 +23,9 @@ from .presentation import (
 )
 
 __all__ = (
-    "ApprovalCompleted",
+    "ApprovalPresentationChanged",
     "ApprovalReviewCompleted",
     "ApprovalReviewStarted",
-    "ApprovalStarted",
     "AssistantBuffered",
     "AssistantSettled",
     "AssistantVisible",
@@ -310,30 +309,20 @@ class TerminalWaitCompleted(_TerminalWaitActivityEvent):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class _ApprovalActivityEvent(_ScopedActivityEvent):
-    """保存审批展示事实的审批和调用身份。"""
+class ApprovalPresentationChanged(_ScopedActivityEvent):
+    """描述前端连续人工审批批次的占用状态。
 
-    approval_id: str
-    call_id: str
+    由审批展示端在批次开始和结束时顺序发布；自动决定和队列内换卡不发布此事实。
+    绑定的 OutputSession 关闭时解除发布端，事实不得跨表面复用。
+    """
+
+    active: bool
 
     def __post_init__(self) -> None:
-        """校验审批身份。"""
+        """校验展示批次的占用值。"""
         _ScopedActivityEvent.__post_init__(self)
-        for field_name in ("approval_id", "call_id"):
-            value = getattr(self, field_name)
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError(f"approval activity {field_name} is required")
-            object.__setattr__(self, field_name, value.strip())
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ApprovalStarted(_ApprovalActivityEvent):
-    """描述审批表面取得独占交互权。"""
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ApprovalCompleted(_ApprovalActivityEvent):
-    """描述审批表面释放独占交互权。"""
+        if not isinstance(self.active, bool):
+            raise ValueError("approval presentation active must be boolean")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -457,8 +446,7 @@ OutputActivityEvent: typing.TypeAlias = (
     | ToolCompleted
     | TerminalWaitStarted
     | TerminalWaitCompleted
-    | ApprovalStarted
-    | ApprovalCompleted
+    | ApprovalPresentationChanged
     | ApprovalReviewStarted
     | ApprovalReviewCompleted
     | RetryChanged
@@ -492,7 +480,7 @@ class OutputActivityPort(typing.Protocol):
 
 
 class ToolInteractionActivityPort(typing.Protocol):
-    """投影 Harness 的工具和审批活动；实现方按调用身份配对取得与释放。"""
+    """投影 Harness 的工具活动；实现方按调用身份配对取得与释放。"""
 
     async def tool_started(
         self,
@@ -521,15 +509,6 @@ class ToolInteractionActivityPort(typing.Protocol):
     async def terminal_wait_completed(self, call_id: str, session_id: str) -> None:
         """在终端轮询返回、失败或取消时释放等待活动。"""
         ...
-
-    async def approval_started(self, approval_id: str, call_id: str) -> None:
-        """为审批取得独占交互权。"""
-        ...
-
-    async def approval_completed(self, approval_id: str, call_id: str) -> None:
-        """释放匹配的审批交互权。"""
-        ...
-
 
 class PassiveOutputActivity(OutputActivityPort):
     """为没有活动展示表面的输出模式提供显式空实现。"""
