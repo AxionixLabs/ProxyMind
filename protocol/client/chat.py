@@ -750,22 +750,23 @@ class TurnEventStream(object):
             if (
                 status is not None
                 and status.terminal is not None
-                and (
-                    status.last_event_seq == self.last_event_seq + 1
-                    or control_settlement
-                    or (
-                        self._internal_gap_detected
-                        and status.last_event_seq > self.last_event_seq
-                    )
-                )
             ):
                 self._control_settlement_probe_active = False
                 self._control_settlement_probe_due_at = None
                 await self._begin_replay(status.last_event_seq)
-                self._terminal_snapshot_payload = self._terminal_payload(
-                    status,
-                    attach_target=attach_target,
-                )
+                if (
+                    status.last_event_seq == self.last_event_seq + 1
+                    or (
+                        self._internal_gap_detected
+                        and status.last_event_seq > self.last_event_seq
+                    )
+                ):
+                    self._terminal_snapshot_payload = self._terminal_payload(
+                        status,
+                        attach_target=attach_target,
+                    )
+                else:
+                    self._payload_stream = self._open_attach_stream()
                 self._reset_event_progress_deadline()
                 return True
 

@@ -706,7 +706,7 @@ async def test_control_probe_closes_existing_transport_retry(
         completed_at=10.0,
         duration_ms=2_000,
     )
-    _install_reconnect_stream(monkeypatch, AsyncMock())
+    _install_reconnect_stream(monkeypatch, Mock())
     monkeypatch.setattr(
         chat,
         "get_turn_status",
@@ -800,10 +800,15 @@ async def test_control_settlement_reprobes_while_source_events_continue(
 
     async def streaming(url, _headers, _payload, _timeout):
         calls.append(url)
-        if not url.endswith("/mind-chat"):
-            raise AssertionError(
-                "control settlement must not open an attach stream"
-            )
+        if url.endswith("/mind-attach"):
+            assert _payload["after_seq"] == 1
+            yield {
+                "type": "turn.completed",
+                "turn_id": "turn_001",
+                "event_seq": 9,
+                "status": "interrupted",
+            }
+            return
         yield {
             "type": "turn.started",
             "turn_id": "turn_001",
@@ -846,12 +851,15 @@ async def test_control_settlement_reprobes_while_source_events_continue(
     ]
     assert events[-1].last_event_seq == 9
     assert event_stream.last_event_seq == 9
-    assert calls == ["https://example.com/mind-chat"]
+    assert calls == [
+        "https://example.com/mind-chat",
+        "https://example.com/mind-attach",
+    ]
     assert status_probe.await_count == 2
 
 
 @pytest.mark.anyio
-async def test_control_probe_accepts_terminal_snapshot_past_suppressed_events(
+async def test_control_probe_replays_unseen_events_before_terminal(
     monkeypatch,
 ) -> None:
     first_event_sent = asyncio.Event()
@@ -859,6 +867,22 @@ async def test_control_probe_accepts_terminal_snapshot_past_suppressed_events(
 
     async def streaming(url, _headers, _payload, _timeout):
         calls.append(url)
+        if url.endswith("/mind-attach"):
+            assert _payload["after_seq"] == 1
+            yield {
+                "type": "text.delta",
+                "turn_id": "turn_001",
+                "event_seq": 6,
+                "text": "persisted before interrupt",
+            }
+            yield {
+                "type": "turn.completed",
+                "turn_id": "turn_001",
+                "event_seq": 7,
+                "status": "interrupted",
+                "presentation_epoch": 2,
+            }
+            return
         yield {
             "type": "turn.started",
             "turn_id": "turn_001",
@@ -891,11 +915,16 @@ async def test_control_probe_accepts_terminal_snapshot_past_suppressed_events(
 
     assert [event.type for event in events] == [
         "turn.started",
+        "text.delta",
         "turn.completed",
     ]
+    assert events[-1].presentation_epoch == 2
     assert events[-1].last_event_seq == 7
     assert event_stream.last_event_seq == 7
-    assert calls == ["https://example.com/mind-chat"]
+    assert calls == [
+        "https://example.com/mind-chat",
+        "https://example.com/mind-attach",
+    ]
 
 
 @pytest.mark.anyio

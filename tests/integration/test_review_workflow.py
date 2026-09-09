@@ -68,8 +68,6 @@ from protocol.schema.review import (
     parse_mind_review_request,
 )
 from protocol.schema.stream_events import (
-    ReviewCancelledEvent,
-    ReviewStartedEvent,
     StreamEvent,
     TurnCompletedEvent,
 )
@@ -192,43 +190,6 @@ class _MenuRuntime:
     def menu_session_is_active(self, session_id: int) -> bool:
         """返回指定菜单会话是否仍活动。"""
         return self.menu.session_is_active(session_id)
-
-
-class _InterruptibleReviewStream:
-    """在 Review 启动后等待测试触发远端中断。"""
-
-    def __init__(self, events: tuple[StreamEvent, ...]) -> None:
-        self._events = events
-        self.started = asyncio.Event()
-        self.release_terminal = asyncio.Event()
-        self.end_reason: str | None = None
-        self.last_event_seq = 0
-        self.recovery_probe_count = 0
-        self.closed = False
-
-    def __aiter__(self) -> AsyncIterator[StreamEvent]:
-        """返回可等待中断回执的事件迭代器。"""
-        return self._iterate()
-
-    async def _iterate(self) -> AsyncIterator[StreamEvent]:
-        """先交付开始事件，再按服务端顺序交付两个终态事件。"""
-        first, *terminal = self._events
-        self.last_event_seq = first.event_seq or 0
-        yield first
-        self.started.set()
-        await self.release_terminal.wait()
-        for event in terminal:
-            self.last_event_seq = event.event_seq or self.last_event_seq
-            yield event
-        self.end_reason = "settled"
-
-    def request_recovery_probe(self) -> None:
-        """记录中断命令要求立即核对远端状态。"""
-        self.recovery_probe_count += 1
-
-    async def aclose(self) -> None:
-        """记录观察流已关闭。"""
-        self.closed = True
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -607,56 +568,6 @@ async def test_review_response_loss_retries_the_same_frozen_identity(
     ]
 
 
-def _interrupt_events(
-    target: ReviewCustomTarget,
-    workspace: ClientReviewWorkspace,
-) -> tuple[StreamEvent, ...]:
-    """构造 Review 中断要求的严格事件顺序。"""
-    return (
-        ReviewStartedEvent(
-            type="review.started",
-            proto="mind.chat",
-            cid=CID,
-            sid=SID,
-            turn_id=TURN_ID,
-            event_seq=1,
-            item_id=REVIEW_ITEM_ID,
-            item_kind="review",
-            item_status="in_progress",
-            review_item_id=REVIEW_ITEM_ID,
-            status="in_progress",
-            target=target,
-            workspace_revision=workspace.revision,
-            prompt_version="mind-review/1",
-        ),
-        ReviewCancelledEvent(
-            type="review.cancelled",
-            proto="mind.chat",
-            cid=CID,
-            sid=SID,
-            turn_id=TURN_ID,
-            event_seq=2,
-            item_id=REVIEW_ITEM_ID,
-            item_kind="review",
-            item_status="cancelled",
-            review_item_id=REVIEW_ITEM_ID,
-            status="cancelled",
-            reason="interrupted",
-        ),
-        TurnCompletedEvent(
-            type="turn.completed",
-            proto="mind.chat",
-            cid=CID,
-            sid=SID,
-            turn_id=TURN_ID,
-            event_seq=3,
-            status="interrupted",
-            last_event_seq=3,
-            completed_at=1.0,
-        ),
-    )
-
-
 @pytest.mark.runtime_p0
 @pytest.mark.anyio
 @pytest.mark.parametrize(
@@ -808,8 +719,10 @@ async def test_review_full_chain_reconnects_without_duplicate_projection(
 
 @pytest.mark.runtime_p0
 @pytest.mark.anyio
+@pytest.mark.parametrize("active_probe_first", (False, True))
 async def test_review_interrupt_waits_for_cancelled_then_turn_terminal(
     monkeypatch,
+    active_probe_first: bool,
 ) -> None:
     """验证运行中中断仍按 Review Item 后 Turn 的顺序结算。"""
     target = ReviewCustomTarget("Focus on lifecycle boundaries")
@@ -827,8 +740,62 @@ async def test_review_interrupt_waits_for_cancelled_then_turn_terminal(
         environment_snapshot=None,
         tools=_review_tools(),
     )
-    wire_stream = _InterruptibleReviewStream(
-        _interrupt_events(target, workspace),
+    started = asyncio.Event()
+    event_payloads = _review_payloads(target, workspace)
+    cancelled = {
+        "proto": "mind.chat",
+        "cid": CID,
+        "sid": SID,
+        "turn_id": TURN_ID,
+        "presentation_epoch": 1,
+        "type": "review.cancelled",
+        "event_seq": 2,
+        "item_id": REVIEW_ITEM_ID,
+        "item_kind": "review",
+        "review_item_id": REVIEW_ITEM_ID,
+        "status": "cancelled",
+        "item_status": "cancelled",
+        "reason": "interrupted",
+    }
+    terminal = {**event_payloads[2], "status": "interrupted"}
+    attach_cursors: list[int] = []
+
+    async def streaming(url, _headers, payload, _timeout):
+        assert url.endswith("/mind-attach")
+        attach_cursors.append(payload["after_seq"])
+        if len(attach_cursors) == 1:
+            yield event_payloads[0]
+            started.set()
+            await asyncio.Event().wait()
+        else:
+            assert payload["after_seq"] == 1
+            yield cancelled
+            yield terminal
+
+    settled = SimpleNamespace(
+        last_event_seq=3,
+        terminal=SimpleNamespace(**terminal, duration_ms=1_000),
+    )
+    status_results = [settled]
+    if active_probe_first:
+        status_results.insert(0, SimpleNamespace(last_event_seq=1, terminal=None))
+    status_probe = AsyncMock(side_effect=status_results)
+    monkeypatch.setattr(chat, "streaming", streaming)
+    monkeypatch.setattr(chat, "build_service_headers", lambda: {})
+    monkeypatch.setattr(
+        chat.service_endpoints, "endpoint", lambda path: f"https://example.test{path}",
+    )
+    monkeypatch.setattr(chat, "get_turn_status", status_probe)
+    monkeypatch.setattr(chat, "CONTROL_SETTLEMENT_PROBE_INTERVAL_SEC", 0.01)
+    approval_probe = AsyncMock(side_effect=AssertionError(
+        "a settled turn must replay without restoring live approvals",
+    ))
+    monkeypatch.setattr(chat, "reconcile_tool_approval_snapshot", approval_probe)
+    wire_stream = chat.observe_turn(
+        cid=CID,
+        sid=SID,
+        turn_id=TURN_ID,
+        on_approval_snapshot=AsyncMock(),
     )
     submission = ReviewSubmission(
         receipt=MindReviewReceipt(
@@ -858,7 +825,6 @@ async def test_review_interrupt_waits_for_cancelled_then_turn_terminal(
         assert isinstance(sid, str)
         assert isinstance(turn_id, str)
         interrupt_calls.append((cid, sid, turn_id))
-        wire_stream.release_terminal.set()
         return SimpleNamespace(
             status="accepted",
             request_id="interrupt_review_integration",
@@ -897,11 +863,11 @@ async def test_review_interrupt_waits_for_cancelled_then_turn_terminal(
         turn_input_control=control,
     ))
 
-    await wire_stream.started.wait()
+    await asyncio.wait_for(started.wait(), timeout=1.0)
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.CONSUMED
     )
-    result = await running
+    result = await asyncio.wait_for(running, timeout=1.0)
 
     assert result is not None
     assert interrupt_calls == [(CID, SID, TURN_ID)]
@@ -925,8 +891,10 @@ async def test_review_interrupt_waits_for_cancelled_then_turn_terminal(
     assert runtime.submissions.accept_input(buffer)
     next_submission = await runtime.submissions.read_submission()
     assert next_submission.value == "next message"
-    assert wire_stream.recovery_probe_count == 2
-    assert wire_stream.closed
+    assert attach_cursors == [0, 1]
+    assert status_probe.await_count == len(status_results)
+    approval_probe.assert_not_awaited()
+    assert wire_stream.end_reason == "settled"
     await runtime.close()
 
 

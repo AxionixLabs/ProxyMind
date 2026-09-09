@@ -1104,20 +1104,31 @@ async def test_stream_projects_deduplicated_canonical_sources(monkeypatch) -> No
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error_code", "observed"),
+    (("model_transport_timeout", False), ("review_protocol_error", True)),
+)
 async def test_stream_requires_reconciliation_after_uncertain_transport(
     monkeypatch,
+    error_code: str,
+    observed: bool,
 ) -> None:
+    report_failure = AsyncMock()
+    monkeypatch.setattr(
+        stream.StreamTurnPresentation, "_report_failure", report_failure,
+    )
+
     async def failed_stream(*_args, **_kwargs):
-        if False:
-            yield None
+        if observed:
+            yield parse_stream_event({"type": "turn.started"})
         raise ModelCapabilityError(
-            "model_transport_timeout",
-            "model transport timed out",
-            retryable=True,
-            details={"exception_type": "TimeoutError"},
+            error_code,
+            "remote outcome requires reconciliation",
+            retryable=not observed,
+            details={"reconciliation_required": True},
         )
 
-    result, _host = await _run_stream(
+    result, host = await _run_stream(
         monkeypatch,
         [],
         stream_factory=failed_stream,
@@ -1125,9 +1136,15 @@ async def test_stream_requires_reconciliation_after_uncertain_transport(
 
     assert result == RunResult(
         status="reconciliation_required",
-        error="model transport timed out",
-        error_code="model_transport_timeout",
-        error_details={"exception_type": "TimeoutError"},
+        error="remote outcome requires reconciliation",
+        error_code=error_code,
+        error_details={"reconciliation_required": True},
+    )
+    report_failure.assert_not_awaited()
+    assert any(
+        isinstance(view, FailureView)
+        and view.phase == "turn.reconciliation_required"
+        for view in host.output_session.presentation.items
     )
 
 
@@ -1135,6 +1152,10 @@ async def test_stream_requires_reconciliation_after_uncertain_transport(
 async def test_stream_treats_rejected_start_as_deterministic_failure(
     monkeypatch,
 ) -> None:
+    report_failure = AsyncMock()
+    monkeypatch.setattr(
+        stream.StreamTurnPresentation, "_report_failure", report_failure,
+    )
     async def failed_stream(*_args, **_kwargs):
         if False:
             yield None
@@ -1164,6 +1185,7 @@ async def test_stream_treats_rejected_start_as_deterministic_failure(
             "active_status": "running",
         },
     )
+    report_failure.assert_not_awaited()
 
 
 @pytest.mark.anyio

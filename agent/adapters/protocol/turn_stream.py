@@ -678,7 +678,10 @@ async def stream_turn(
 
         if output_session.is_open:
             await project_terminal_activity()
-            await run_presentation.emit_failure(failure_phase)
+            await run_presentation.emit_failure(
+                failure_phase,
+                mode=FailureProjectionMode.PROJECTION_ONLY,
+            )
             await command_projection.failure(outcome)
 
     except asyncio.CancelledError:
