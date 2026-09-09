@@ -525,7 +525,9 @@ class ToolEventHandler:
             )
             return ToolCallHandlingResult.handled()
         else:
-            patch_outcome = await self._request_local_approval(patch_approval)
+            patch_outcome = await self.approval_coordinator.request_outcome(
+                patch_approval,
+            )
             await self.presentation.emit(build_approval_view(
                 patch_approval,
                 decision=patch_outcome.decision,
@@ -602,7 +604,9 @@ class ToolEventHandler:
             invocation=invocation,
             requirement=requirement,
         )
-        local_outcome = await self._request_local_approval(local_approval)
+        local_outcome = await self.approval_coordinator.request_outcome(
+            local_approval,
+        )
         await self.presentation.emit(build_approval_view(
             local_approval,
             decision=local_outcome.decision,
@@ -660,26 +664,6 @@ class ToolEventHandler:
             )
             return ToolCallHandlingResult.handled()
         return None
-
-    async def _request_local_approval(
-        self,
-        approval: dict[str, typing.Any],
-    ) -> ApprovalOutcome:
-        """在 typed 审批表面生命周期内请求本地决定。"""
-        approval_id = str(
-            approval.get("approval_id")
-            or approval.get("id")
-            or approval.get("request_id")
-            or ""
-        ).strip()
-        call_id = str(approval.get("call_id") or "").strip()
-        if not approval_id or not call_id:
-            raise ValueError("local approval identity is required")
-        await self.activity.approval_started(approval_id, call_id)
-        try:
-            return await self.approval_coordinator.request_outcome(approval)
-        finally:
-            await self.activity.approval_completed(approval_id, call_id)
 
     async def _post_tool_outcome(
         self,

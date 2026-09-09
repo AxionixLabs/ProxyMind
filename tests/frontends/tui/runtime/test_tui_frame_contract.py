@@ -18,8 +18,7 @@ from agent.application.views.builders.tools import (
     build_tool_start_view,
 )
 from agent.ports import (
-    ApprovalCompleted,
-    ApprovalStarted,
+    ApprovalPresentationChanged,
     AssistantBuffered,
     AssistantSegmentCompleted,
     AssistantSettled,
@@ -219,7 +218,7 @@ def _indicator(
     projection: SurfaceProjection,
 ) -> FrameIndicator:
     """把生产活动投影转换为与具体终端无关的逻辑指示器。"""
-    if state.approvals:
+    if state.approval_presentation_active:
         return FrameIndicator.APPROVAL
     if projection.indicator == "thinking":
         return (
@@ -261,15 +260,13 @@ def test_typed_event_trace_satisfies_frame_contract() -> None:
             name="network",
         ),
         ModelWaitRequested(**_scope(), revision=2, reason="lifecycle"),
-        ApprovalStarted(
+        ApprovalPresentationChanged(
             **_scope(),
-            approval_id="approval-network",
-            call_id="call-network",
+            active=True,
         ),
-        ApprovalCompleted(
+        ApprovalPresentationChanged(
             **_scope(),
-            approval_id="approval-network",
-            call_id="call-network",
+            active=False,
         ),
         ToolCompleted(
             **_scope(),
@@ -305,7 +302,7 @@ def test_typed_event_trace_satisfies_frame_contract() -> None:
             kind = FrameKind.ASSISTANT_HANDOFF
         elif isinstance(event, AssistantSettled):
             active_assistant = ""
-        elif isinstance(event, ApprovalCompleted):
+        elif isinstance(event, ApprovalPresentationChanged) and not event.active:
             kind = FrameKind.APPROVAL_COMPLETED
         elif isinstance(event, TurnTerminal):
             kind = FrameKind.TERMINAL
@@ -315,7 +312,7 @@ def test_typed_event_trace_satisfies_frame_contract() -> None:
             assistant_text=active_assistant,
             kind=kind,
             tool_leases=len(state.tools),
-            approval_leases=len(state.approvals),
+            approval_leases=int(state.approval_presentation_active),
         ))
 
     trace.assert_contract()
@@ -526,7 +523,10 @@ async def test_real_renderer_preserves_shell_handoff_frame_contract(
                     }
                 )
                 assert final_frames
-                assert all(not frame.status_visible for frame in final_frames)
+                assert all(not frame.status_visible for frame in final_frames), [
+                    (frame.stage, frame.content, frame.indicator, frame.status_visible)
+                    for frame in final_frames
+                ]
                 assert "Final OK" in final_frames[-1].text
             finally:
                 if trace_registered:
@@ -586,10 +586,9 @@ def test_terminal_surface_ignores_late_content_and_activity() -> None:
             tool_kind="client",
             name="network",
         ),
-        ApprovalStarted(
+        ApprovalPresentationChanged(
             **_scope(),
-            approval_id="late-approval",
-            call_id="late-tool",
+            active=True,
         ),
         ModelWaitRequested(**_scope(), revision=99, reason="lifecycle"),
     )
@@ -600,7 +599,7 @@ def test_terminal_surface_ignores_late_content_and_activity() -> None:
     projection = project_turn_surface(state)
     assert projection.indicator == "hidden"
     assert state.tools == ()
-    assert state.approvals == ()
+    assert not state.approval_presentation_active
 
 
 @pytest.mark.runtime_frame

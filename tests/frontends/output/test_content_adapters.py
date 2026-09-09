@@ -23,6 +23,7 @@ def _output() -> SimpleNamespace:
     return SimpleNamespace(
         settle_stream=AsyncMock(),
         mark_stream_boundary=Mock(),
+        prepare_assistant_output=AsyncMock(),
         prepare_external_output=AsyncMock(),
     )
 

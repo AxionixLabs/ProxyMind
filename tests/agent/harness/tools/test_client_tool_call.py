@@ -113,8 +113,6 @@ def _runner(
             tool_completed=AsyncMock(),
             terminal_wait_started=AsyncMock(),
             terminal_wait_completed=AsyncMock(),
-            approval_started=AsyncMock(),
-            approval_completed=AsyncMock(),
         ),
         effect_journal=effect_journal,
         effect_reconciler=effect_reconciler,

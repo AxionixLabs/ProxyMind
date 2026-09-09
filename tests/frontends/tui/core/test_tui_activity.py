@@ -197,6 +197,37 @@ async def test_turn_wait_uses_codex_interrupt_status_copy() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("hidden", ["initial", "pause", "content"])
+@pytest.mark.parametrize("indicator,title", [
+    ("reviewing", "Reviewing approval request"),
+    ("retrying", "Retrying"),
+    ("terminal", "Waiting for background terminal"),
+])
+async def test_restored_surface_commits_only_its_new_title(
+    hidden, indicator, title,
+) -> None:
+    frames = []
+    activity = TuiActivity(
+        set_renderable=lambda block: frames.append(fragments_text(block.fragments)),
+        clear_renderable=lambda: frames.append(""),
+    )
+    if hidden != "initial":
+        await activity.show_turn_surface("thinking", title="Old title")
+        if hidden == "pause":
+            activity.pause_wait()
+        else:
+            activity.hide_wait()
+    frames.clear()
+    try:
+        await activity.show_turn_surface(indicator, title=title, detail="action")
+        assert len(frames) == 1
+        assert title in frames[0]
+        assert "Old title" not in frames[0]
+    finally:
+        await activity.clear()
+
+
+@pytest.mark.anyio
 async def test_wait_timer_excludes_paused_approval_time() -> None:
     rendered = []
     activity = TuiActivity(
@@ -407,7 +438,16 @@ def test_visual_update_merges_nested_invalidation_requests() -> None:
 async def test_final_separator_preserves_input_after_assistant_wait_handoff() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
-        output = TuiOutputControl("", runtime=runtime, animate=False)
+        context = OutputSurfaceContext(
+            surface_id="surface_separator", cid="cid_test", sid="sid_test",
+            turn_id="turn_test", agent_id="root",
+        )
+        identity = ResponseIdentity("turn_test", 1, 1, 1)
+        session = create_tui_output_session(
+            "", context=context, runtime=runtime, animate=False,
+        )
+        output = session.control
+        assert isinstance(output, TuiOutputControl)
 
         with patch.object(
             runtime.screen.application.output,
@@ -418,7 +458,14 @@ async def test_final_separator_preserves_input_after_assistant_wait_handoff() ->
             try:
                 runtime.set_execution_active(True)
                 await runtime.begin_wait_status()
-                await output.append_assistant_delta("answer\n")
+                await session.open()
+                await session.activity.emit(AssistantBuffered(
+                    surface_id=context.surface_id, turn_id=context.turn_id,
+                    identity=identity, item_id="answer", phase="final_answer",
+                ))
+                await session.content.emit(AssistantTextDelta(
+                    "answer\n", identity, item_id="answer", phase="final_answer",
+                ))
                 screen = await _render_next_frame(runtime)
                 assert runtime.activity.lease("wait") is None
 
@@ -487,6 +534,7 @@ async def test_final_separator_preserves_input_after_assistant_wait_handoff() ->
                     "system",
                 ]
             finally:
+                await session.close()
                 runtime.set_execution_active(False)
                 await runtime.close()
 
@@ -876,11 +924,8 @@ async def test_request_approval_restores_terminal_progress_after_failure() -> No
         async def end_session(self):
             calls.append("approval.end")
 
-    runtime = TuiRuntime.__new__(TuiRuntime)
-    runtime.screen = SimpleNamespace(approval=ApprovalStub())
-    runtime._approval_session_lock = asyncio.Lock()
-    runtime._approval_session_active = False
-    runtime._closing = False
+    runtime = TuiRuntime()
+    runtime.screen.approval = ApprovalStub()
     runtime._turn_progress_active = True
     runtime.terminal_progress = SimpleNamespace(
         warning=lambda: calls.append("warning"),

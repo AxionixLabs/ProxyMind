@@ -11,8 +11,6 @@ from agent.application.views.builders.tools import build_native_tool_result_view
 from agent.application.views.builders.tools import build_tool_start_view
 from agent.protocol.json_value import ThawedJsonValue
 from agent.harness.process_lifecycle import ProcessLifecycle
-from agent.ports import ApprovalCompleted
-from agent.ports import ApprovalStarted
 from agent.ports import OutputSurfaceContext
 from agent.ports import RetryChanged
 from agent.ports import TerminalWaitCompleted
@@ -330,12 +328,7 @@ async def _run_operations(
             {"command": "echo PTY SHELL"},
             call_id="tool-1",
         ))
-        await session.activity.emit(ApprovalStarted(
-            surface_id=_SURFACE.surface_id,
-            turn_id=_SURFACE.turn_id,
-            approval_id="approval-1",
-            call_id="tool-1",
-        ))
+        await runtime.begin_approval_session()
         await session.presentation.emit(build_approval_view(
             {
                 "tool": "exec_command",
@@ -343,12 +336,7 @@ async def _run_operations(
             },
             decision="accept",
         ))
-        await session.activity.emit(ApprovalCompleted(
-            surface_id=_SURFACE.surface_id,
-            turn_id=_SURFACE.turn_id,
-            approval_id="approval-1",
-            call_id="tool-1",
-        ))
+        await runtime.end_approval_session()
         await _checkpoint(facts, "approval_settled")
 
         await session.activity.emit(TerminalWaitStarted(

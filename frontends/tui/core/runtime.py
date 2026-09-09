@@ -203,6 +203,9 @@ class TuiRuntime(object):
         self._turn_output_suppressed: bool = False
         self._approval_session_lock: asyncio.Lock = asyncio.Lock()
         self._approval_session_active: bool = False
+        self._approval_activity_sink: (
+            typing.Callable[[bool], typing.Awaitable[None]] | None
+        ) = None
         self.terminal_progress = (
             terminal_progress or PassiveTerminalProgress()
         )
@@ -2162,6 +2165,8 @@ class TuiRuntime(object):
             return None
 
         self._approval_session_active = False
+        if self._approval_activity_sink is not None:
+            await self._approval_activity_sink(False)
         if self._closing:
             return None
         if self._turn_progress_active:
@@ -2506,8 +2511,11 @@ class TuiRuntime(object):
             if self._closing or self._approval_session_active:
                 return None
             self._approval_session_active = True
-            self.screen.approval.begin_session()
             try:
+                with self.screen.visual_update():
+                    if self._approval_activity_sink is not None:
+                        await self._approval_activity_sink(True)
+                    self.screen.approval.begin_session()
                 self.terminal_progress.warning()
             except BaseException:
                 await self.screen.approval.end_session()
@@ -2517,8 +2525,30 @@ class TuiRuntime(object):
     async def end_approval_session(self) -> None:
         """关闭连续审批表面并恢复整批 activity。"""
         async with self._approval_session_lock:
-            await self.screen.approval.end_session()
-            await self._finish_approval_session()
+            with self.screen.visual_update():
+                try:
+                    await self.screen.approval.end_session()
+                finally:
+                    await self._finish_approval_session()
+
+    async def bind_approval_activity(
+        self,
+        sink: typing.Callable[[bool], typing.Awaitable[None]],
+    ) -> None:
+        """为前台输出会话绑定审批批次事实出口，并同步现有占用。"""
+        if self._approval_activity_sink is not None:
+            raise RuntimeError("approval activity is already bound")
+        if self._approval_session_active:
+            await sink(True)
+        self._approval_activity_sink = sink
+
+    def unbind_approval_activity(
+        self,
+        sink: typing.Callable[[bool], typing.Awaitable[None]],
+    ) -> None:
+        """只解除当前输出会话持有的出口，避免旧会话清理影响新表面。"""
+        if self._approval_activity_sink == sink:
+            self._approval_activity_sink = None
 
     async def begin_wait_status(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""

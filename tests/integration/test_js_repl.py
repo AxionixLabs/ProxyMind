@@ -1321,8 +1321,6 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
         activity=SimpleNamespace(
             tool_started=AsyncMock(),
             tool_completed=AsyncMock(),
-            approval_started=AsyncMock(),
-            approval_completed=AsyncMock(),
         ),
         effect_journal=open_effect_journal(tmp_path / "effects.db"),
     )

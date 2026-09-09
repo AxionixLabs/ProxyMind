@@ -1339,10 +1339,9 @@ def test_presentation_output_has_no_legacy_package_or_imports() -> None:
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
     }
     assert output_definitions == {
-        "ApprovalCompleted",
+        "ApprovalPresentationChanged",
         "ApprovalReviewCompleted",
         "ApprovalReviewStarted",
-        "ApprovalStarted",
             "AssistantBuffered",
             "AssistantSettled",
             "AssistantVisible",
@@ -1368,7 +1367,6 @@ def test_presentation_output_has_no_legacy_package_or_imports() -> None:
         "ToolInteractionActivityPort",
         "ToolStarted",
         "TurnTerminal",
-        "_ApprovalActivityEvent",
         "_ApprovalReviewActivityEvent",
         "_AssistantActivityEvent",
         "_BatchActivityEvent",

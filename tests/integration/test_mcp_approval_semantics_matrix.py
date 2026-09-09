@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -97,10 +96,6 @@ async def test_mcp_authorization_matrix_controls_approval_and_execution_gate(
 ) -> None:
     """验证全局权限、工具模式和用户决定的组合边界。"""
     coordinator = _Coordinator(decision)
-    activity = SimpleNamespace(
-        approval_started=AsyncMock(),
-        approval_completed=AsyncMock(),
-    )
     turn = TurnContext.create(
         agent=AgentContext.root("sid-matrix"),
         cid="cid-matrix",
@@ -118,7 +113,6 @@ async def test_mcp_authorization_matrix_controls_approval_and_execution_gate(
     result = await authorize_mcp_tool_call(
         turn,
         coordinator=coordinator,
-        activity=activity,
         call_id="call-matrix",
         descriptor=_descriptor(
             mode,
@@ -132,16 +126,5 @@ async def test_mcp_authorization_matrix_controls_approval_and_execution_gate(
     assert result.allowed is expected_allowed
     assert coordinator.request_action_outcome.await_count == expected_requests
     if expected_requests:
-        activity.approval_started.assert_awaited_once_with(
-            result.action.identity.approval_id,
-            "call-matrix",
-        )
-        activity.approval_completed.assert_awaited_once_with(
-            result.action.identity.approval_id,
-            "call-matrix",
-        )
         assert result.presentation is not None
         assert result.presentation["kind"] == "mcp_tool_call"
-    else:
-        activity.approval_started.assert_not_awaited()
-        activity.approval_completed.assert_not_awaited()

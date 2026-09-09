@@ -2,15 +2,14 @@
 # Notes: ==== Mind™ ====
 
 from agent.ports import (
-    ApprovalCompleted,
     ApprovalReviewCompleted,
     ApprovalReviewStarted,
-    ApprovalStarted,
     AssistantBuffered,
     AssistantSettled,
     AssistantTextPhase,
     ModelWaitReason,
     ModelWaitRequested,
+    OutputActivityEvent,
     OutputActivityPort,
     OutputSurfaceContext,
     PresentationSuperseded,
@@ -249,22 +248,6 @@ class TurnActivityProjector:
             command=command,
         ))
 
-    async def approval_started(self, approval_id: str, call_id: str) -> None:
-        """登记一个获得独占交互权的审批。"""
-        await self.activity.emit(ApprovalStarted(
-            **self._scope(),
-            approval_id=approval_id,
-            call_id=call_id,
-        ))
-
-    async def approval_completed(self, approval_id: str, call_id: str) -> None:
-        """释放匹配的审批交互权。"""
-        await self.activity.emit(ApprovalCompleted(
-            **self._scope(),
-            approval_id=approval_id,
-            call_id=call_id,
-        ))
-
     async def approval_review_started(
         self,
         review_id: str,
@@ -362,21 +345,20 @@ class TurnActivityProjector:
                 presentation_epoch=self._presentation_epoch,
                 round_no=self._round,
                 attempt=self._transport_retry_generation,
+                recovery=RecoveryChanged(
+                    **self._scope(), mode="live", event_seq=self._event_seq,
+                ),
             )
             return None
         if phase == "replaying":
-            await self.recovery_changed(
-                "replaying",
-                event_seq=self._event_seq,
-            )
-            await self._complete_retry("transport")
+            await self._complete_retry("transport", recovery=RecoveryChanged(
+                **self._scope(), mode="replaying", event_seq=self._event_seq,
+            ))
             return None
         if phase == "caught_up":
-            await self._complete_retry("transport")
-            await self.recovery_changed(
-                "caught_up",
-                event_seq=self._event_seq,
-            )
+            await self._complete_retry("transport", recovery=RecoveryChanged(
+                **self._scope(), mode="caught_up", event_seq=self._event_seq,
+            ))
             return None
         if phase == "closed":
             await self._complete_retry("transport")
@@ -385,8 +367,14 @@ class TurnActivityProjector:
 
     async def close_retries(self) -> None:
         """幂等释放当前输出会话的全部 retry lease。"""
-        await self._complete_retry("transport")
-        await self._complete_retry("provider")
+        events = tuple(
+            event
+            for source in tuple(self._active_retries)
+            if (event := self._retry_completion(source)) is not None
+        )
+        if events:
+            await self.activity.emit_batch(events)
+            self._active_retries.clear()
 
     async def _start_retry(
         self,
@@ -395,34 +383,61 @@ class TurnActivityProjector:
         presentation_epoch: int,
         round_no: int,
         attempt: int,
+        recovery: RecoveryChanged | None = None,
     ) -> None:
         """替换同来源的旧 retry lease 并登记新身份。"""
         identity = (presentation_epoch, round_no, attempt)
         if self._active_retries.get(source) == identity:
             return None
-        await self._complete_retry(source)
-        await self.retry_changed(
-            source,
-            "started",
+        started = RetryChanged(
+            **self._scope(),
+            source=source,
+            state="started",
             presentation_epoch=presentation_epoch,
-            round_no=round_no,
+            round=round_no,
             attempt=attempt,
         )
+        completed = self._retry_completion(source)
+        events: list[OutputActivityEvent] = []
+        if recovery is not None:
+            events.append(recovery)
+        if completed is not None:
+            events.append(completed)
+        events.append(started)
+        await self.activity.emit_batch(tuple(events))
         self._active_retries[source] = identity
 
-    async def _complete_retry(self, source: RetryActivitySource) -> None:
-        """释放指定来源当前活动的 retry lease。"""
-        identity = self._active_retries.pop(source, None)
+    def _retry_completion(self, source: RetryActivitySource) -> RetryChanged | None:
+        """构造当前 retry 的释放事实，提交成功前保留原身份。"""
+        identity = self._active_retries.get(source)
         if identity is None:
             return None
         presentation_epoch, round_no, attempt = identity
-        await self.retry_changed(
-            source,
-            "completed",
+        return RetryChanged(
+            **self._scope(),
+            source=source,
+            state="completed",
             presentation_epoch=presentation_epoch,
-            round_no=round_no,
+            round=round_no,
             attempt=attempt,
         )
+
+    async def _complete_retry(
+        self,
+        source: RetryActivitySource,
+        *,
+        recovery: RecoveryChanged | None = None,
+    ) -> None:
+        """原子释放 retry 并提交同一传输边界的恢复状态。"""
+        events: list[OutputActivityEvent] = []
+        completed = self._retry_completion(source)
+        if completed is not None:
+            events.append(completed)
+        if recovery is not None:
+            events.append(recovery)
+        if events:
+            await self.activity.emit_batch(tuple(events))
+            self._active_retries.pop(source, None)
 
     async def recovery_changed(
         self,

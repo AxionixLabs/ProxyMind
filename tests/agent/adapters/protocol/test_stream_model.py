@@ -61,6 +61,9 @@ class _Activity:
     async def emit(self, item: object) -> None:
         self.items.append(item)
 
+    async def emit_batch(self, events) -> None:
+        self.items.extend(events)
+
     async def close(self) -> None:
         return None
 

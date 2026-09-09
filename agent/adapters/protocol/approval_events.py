@@ -15,7 +15,6 @@ from agent.application.approvals.local_policy import (
 )
 from agent.application.approvals.models import (
     ApprovalDecisionValue,
-    ApprovalOutcome,
     normalize_approval_decision,
 )
 from agent.application.approvals.policy import (
@@ -215,10 +214,8 @@ class ApprovalEventHandler:
             restored_approval = approval_from_snapshot(item.approval)
             self._add_agent_identity(restored_approval)
 
-            restored_outcome = await self._request_approval(
+            restored_outcome = await self.approval_coordinator.request_outcome(
                 restored_approval,
-                approval_id=item.approval_id,
-                call_id=item.call_id,
             )
             restored_decision = restored_outcome.decision
             if (
@@ -411,11 +408,7 @@ class ApprovalEventHandler:
         ):
             decision, decision_source = "decline", "policy"
         else:
-            outcome = await self._request_approval(
-                approval,
-                approval_id=approval_id,
-                call_id=approval_call_id,
-            )
+            outcome = await self.approval_coordinator.request_outcome(approval)
             decision, decision_source = outcome.decision, outcome.source
 
         allowed_decisions = approval_decisions(approval)
@@ -536,20 +529,6 @@ class ApprovalEventHandler:
                 turn_id=turn_context.turn_id,
                 call_id=approval_call_id,
             )
-
-    async def _request_approval(
-        self,
-        approval: dict[str, typing.Any],
-        *,
-        approval_id: str,
-        call_id: str,
-    ) -> ApprovalOutcome:
-        """在 typed 审批表面生命周期内请求决定。"""
-        await self.activity.approval_started(approval_id, call_id)
-        try:
-            return await self.approval_coordinator.request_outcome(approval)
-        finally:
-            await self.activity.approval_completed(approval_id, call_id)
 
     def _add_agent_identity(self, approval: dict[str, typing.Any]) -> None:
         """为子执行主体的审批附加当前身份。"""
