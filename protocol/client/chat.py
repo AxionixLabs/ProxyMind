@@ -119,7 +119,7 @@ class TurnEventStream(object):
         self._payload_stream: typing.AsyncGenerator[dict, None] | None = None
         self._chat_payload: dict[str, typing.Any] | None = None
         self._attach_target = attach_target
-        self._response_observed: bool = attach_target is not None
+        self._turn_observed: bool = attach_target is not None
         self._close_after_yield: bool = False
         self._reconnect_failures: int = 0
         self._recovery_phase: TransportRecoveryPhase | None = None
@@ -574,7 +574,7 @@ class TurnEventStream(object):
                 event = parsed_event
                 continue
             self._validate_turn_identity(parsed_event)
-            self._response_observed = True
+            self._turn_observed = True
             if (
                 self._internal_gap_detected
                 and not isinstance(parsed_event, TurnCompletedEvent)
@@ -765,7 +765,7 @@ class TurnEventStream(object):
             control_settlement = self._control_settlement_probe_active
             recovery_status = await self._turn_status_for_recovery(attach_target)
             status = recovery_status.snapshot
-            if not self._response_observed and recovery_status.turn_missing:
+            if not self._turn_observed and recovery_status.turn_missing:
                 self._control_settlement_probe_active = False
                 self._control_settlement_probe_due_at = None
                 self._replay_target_seq = self.last_event_seq
@@ -850,6 +850,7 @@ class TurnEventStream(object):
             return None
 
         snapshot = await reconcile_tool_approval_snapshot(**attach_target)
+        self._turn_observed = True
 
         result = callback(snapshot)
         if result is not None:
@@ -869,6 +870,7 @@ class TurnEventStream(object):
             if self._status_probe_is_transient(error):
                 return _TurnRecoveryStatus(None, turn_missing=False)
             raise
+        self._turn_observed = True
         return _TurnRecoveryStatus(snapshot, turn_missing=False)
 
     async def aclose(self) -> None:

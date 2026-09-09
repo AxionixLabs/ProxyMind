@@ -726,7 +726,7 @@ async def test_control_probe_closes_existing_transport_retry(
         "sid": "sid_1",
         "turn_id": "turn_001",
     }
-    event_stream._response_observed = True
+    event_stream._turn_observed = True
     event_stream._recovery_phase = "reconnecting"
     event_stream.request_recovery_probe()
 
@@ -1070,6 +1070,88 @@ async def test_missing_observed_turn_stops_recovery_without_resubmission(monkeyp
         await asyncio.wait_for(_collect(stream), timeout=1.0)
     assert calls == ["https://example.com/mind-chat"]
     assert stream.end_reason == "fatal"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("last_event_seq", [0, 4])
+@pytest.mark.parametrize("observation_source", ["status", "approval_snapshot"])
+async def test_missing_turn_confirmed_without_stream_events_is_not_resubmitted(
+    monkeypatch,
+    last_event_seq: int,
+    observation_source: str,
+) -> None:
+    calls: list[str] = []
+    recovery: list[tuple[str, int]] = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        if url.endswith("/mind-chat"):
+            if len(calls) > 1:
+                yield {
+                    "type": "turn.completed",
+                    "turn_id": "turn_001",
+                    "event_seq": 1,
+                }
+            return
+        request = httpx.Request("POST", url)
+        response = httpx.Response(500, request=request)
+        response.raise_for_status()
+
+    status = chat.TurnStatusSnapshot(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        run_id="run_001",
+        status="running",
+        terminal=None,
+        attempt=1,
+        version=1,
+        last_event_seq=last_event_seq,
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    snapshot = ToolApprovalSnapshot(
+        cid="cid_1",
+        sid="sid_1",
+        turn_id="turn_001",
+        turn_status="running",
+        terminal=None,
+        last_event_seq=last_event_seq,
+        approvals=(),
+    )
+    snapshot_only = observation_source == "approval_snapshot"
+    restore = AsyncMock() if snapshot_only else None
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(chat, "get_turn_status", AsyncMock(side_effect=(
+        chat.TurnStatusRequestError("temporarily unavailable", status_code=503)
+        if snapshot_only else status,
+        chat.TurnStatusRequestError("turn missing", status_code=404),
+    )))
+    snapshot_probe = AsyncMock(return_value=snapshot)
+    monkeypatch.setattr(chat, "reconcile_tool_approval_snapshot", snapshot_probe)
+    monkeypatch.setattr(chat.TurnEventStream, "_wait_before_attach", AsyncMock())
+    stream = chat.stream_chat(
+        {},
+        "hello",
+        [],
+        on_recovery_status=_recovery_recorder(recovery),
+        on_approval_snapshot=restore,
+    )
+
+    with pytest.raises(chat.TurnStatusRequestError, match="no longer exists"):
+        await asyncio.wait_for(_collect(stream), timeout=1.0)
+
+    assert calls == [
+        "https://example.com/mind-chat",
+        "https://example.com/mind-attach",
+    ]
+    assert stream.last_event_seq == 0
+    assert stream.end_reason == "fatal"
+    assert recovery[-1] == ("closed", 0)
+    if restore is not None:
+        restore.assert_awaited_once_with(snapshot)
+    else:
+        snapshot_probe.assert_not_awaited()
 
 
 @pytest.mark.anyio
