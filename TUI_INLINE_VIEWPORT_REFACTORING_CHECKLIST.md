@@ -1,6 +1,6 @@
 # TUI Inline Viewport 分阶段改造清单
 
-> 状态：阶段 2 已完成；阶段 3 待实施。
+> 状态：阶段 3 已完成；阶段 4 待实施。
 > 基准日期：2026-09-09。
 > 性质：临时实施与验收清单，不定义长期架构事实。
 > 完成后处理：全部阶段验收通过后，由用户手动删除本文档。
@@ -174,13 +174,13 @@ prompt_toolkit Buffer / KeyBindings / Completer
 
 ### 改造项
 
-- [ ] 在唯一 TUI 组合位置安装新 renderer，保持 prompt_toolkit Application、Buffer 和 Layout 生命周期。
-- [ ] composer、completion、menu 和 footer 全部进入同一个 raster 与 viewport，不单独移动 footer。
-- [ ] 输入文本变化只改变逻辑 raster；物理 viewport 高度只依据稳定布局结果调整。
-- [ ] 删除被替代的相对 inline 光标/高度推断路径，不保留 JetBrains 专用旁路。
-- [ ] 收敛当前对 prompt_toolkit renderer 私有位置状态的直接依赖；保留确有必要的固定版本边界时，
+- [x] 在唯一 TUI 组合位置安装新 renderer，保持 prompt_toolkit Application、Buffer 和 Layout 生命周期。
+- [x] composer、completion、menu 和 footer 全部进入同一个 raster 与 viewport，不单独移动 footer。
+- [x] 输入文本变化只改变逻辑 raster；物理 viewport 高度只依据稳定布局结果调整。
+- [x] 删除被替代的相对 inline 光标/高度推断路径，不保留 JetBrains 专用旁路。
+- [x] 收敛当前对 prompt_toolkit renderer 私有位置状态的直接依赖；保留确有必要的固定版本边界时，
       由新 renderer 内部集中隔离并写明删除条件。
-- [ ] footer 的显示规则、输入表面 padding 和补全布局保持原有产品语义。
+- [x] footer 的显示规则、输入表面 padding 和补全布局保持原有产品语义。
 
 ### Codex 源码对照
 
@@ -191,12 +191,12 @@ prompt_toolkit Buffer / KeyBindings / Completer
 
 ### 阶段 3 验收
 
-- [ ] 单行与多行输入、左右移动、Home/End、删除、历史输入和撤销行为保持不变。
-- [ ] 中文、日文、韩文以及 emoji 已提交文本的宽度、换行和光标位置正确。
-- [ ] slash、文件、skill 和 mention popup 打开、过滤、选择、关闭时不改变 footer 之外的无关行。
-- [ ] popup 隐藏时 footer 恢复到确定物理行，不出现残留或额外空行。
-- [ ] 输入达到软换行阈值时 viewport 只增长一次，删除回单行时正确清除旧行。
-- [ ] 既有 TUI 输入、completion、menu 和布局定向测试全部通过。
+- [x] 单行与多行输入、左右移动、Home/End、删除、历史输入和撤销行为保持不变。
+- [x] 中文、日文、韩文以及 emoji 已提交文本的宽度、换行和光标位置正确。
+- [x] slash、文件、skill 和 mention popup 打开、过滤、选择、关闭时不改变 footer 之外的无关行。
+- [x] popup 隐藏时 footer 恢复到确定物理行，不出现残留或额外空行。
+- [x] 输入达到软换行阈值时 viewport 只增长一次，删除回单行时正确清除旧行。
+- [x] 既有 TUI 输入、completion、menu 和布局定向测试全部通过。
 
 ## 7. 阶段 4：Scrollback、流式输出与 Resize Reflow 统一
 
@@ -320,7 +320,7 @@ prompt_toolkit Buffer / KeyBindings / Completer
 | 0 证据冻结          | 已完成 | `0f6ce987` | 289 passed | 已记录 | 通过 |
 | 1 能力契约          | 已完成 | `2629d349` | 178 passed | 未涉及 | 通过 |
 | 2 Inline Renderer   | 已完成 | `4d9274f7` | 11 passed | 未涉及 | 通过 |
-| 3 主输入接管        | 待开始 | -    | -        | -        | -        |
+| 3 主输入接管        | 已完成 | `9646c596` | 283 passed | 未涉及 | 通过 |
 | 4 Scrollback/Resize | 待开始 | -    | -        | -        | -        |
 | 5 Overlay/Lifecycle | 待开始 | -    | -        | -        | -        |
 | 6 平台与 IME        | 待开始 | -    | -        | -        | -        |
@@ -332,7 +332,12 @@ prompt_toolkit Buffer / KeyBindings / Completer
 
 阶段 2 提交后复核：`4d9274f7` 已推送到 `origin/main`。renderer 的绝对坐标、viewport 滚动、
 尺寸 generation、宽字符清理和同步事务均由内存 Output 契约测试覆盖；真实终端接入和 IME 交互
-仍留在阶段 3 与阶段 6。
+仍留在阶段 6。
+
+阶段 3 提交后复核：`9646c596` 已推送到 `origin/main`。主 Application 组合点已安装自有
+renderer，输入、completion、menu、footer 与 overlay 均由同一 Screen raster 提交；输入与布局
+定向测试为 `283 passed`，并通过架构审计 `138 passed`。不具备 VT 控制或绝对寻址的输出继续由
+能力边界保护，Windows 原生 Console 滚动 adapter 与真实 IME 交互留在阶段 6。
 
 ## 12. 最终完成定义
 
