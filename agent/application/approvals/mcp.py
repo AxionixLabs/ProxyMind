@@ -179,6 +179,12 @@ async def authorize_mcp_tool_call(
             action=action,
         )
     if turn.permissions.approval_policy == "never":
+        if turn.permissions.sandbox_mode == "danger-full-access":
+            return McpApprovalAuthorization(
+                True,
+                "MCP tool auto-approved by full access",
+                action=action,
+            )
         return McpApprovalAuthorization(
             False,
             "MCP tool requires approval but approval policy is never",

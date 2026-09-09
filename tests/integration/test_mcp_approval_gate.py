@@ -21,7 +21,10 @@ from agent.application.turns.context import (
     TurnContext,
 )
 from agent.domain.approvals import McpApprovalAction
-from agent.domain.policies import preset_permissions
+from agent.domain.policies import (
+    PermissionSettings,
+    preset_permissions,
+)
 from agent.harness.tools.client_calls import ClientToolCallRunner
 from agent.ports.persistence import EffectJournalDecision
 from infrastructure.mcp.composite_session import CompositeToolSession
@@ -206,13 +209,36 @@ async def test_declined_external_mcp_call_never_reaches_sdk() -> None:
 
 
 @pytest.mark.anyio
-async def test_never_policy_fails_closed_when_mcp_requires_approval() -> None:
+async def test_full_access_auto_approves_mcp_when_policy_is_never() -> None:
     runner, invocation, approval, external, _presentation = _runtime(
         "prompt",
         full_access=True,
     )
 
     outcome = await runner.execute(invocation, use_coding_trace=False, display=False)
+
+    assert outcome.result.ok is True
+    assert approval.actions == []
+    external.call_tool.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_never_policy_still_fails_closed_in_restricted_sandbox() -> None:
+    runner, invocation, approval, external, _presentation = _runtime("prompt")
+    restricted_turn = replace(
+        invocation.turn,
+        permissions=PermissionSettings(
+            sandbox_mode="read-only",
+            approval_policy="never",
+        ),
+    )
+    restricted_invocation = replace(invocation, turn=restricted_turn)
+
+    outcome = await runner.execute(
+        restricted_invocation,
+        use_coding_trace=False,
+        display=False,
+    )
 
     assert outcome.result.ok is False
     assert "policy is never" in outcome.result.text
