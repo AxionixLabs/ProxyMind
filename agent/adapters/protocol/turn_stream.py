@@ -178,6 +178,7 @@ async def stream_turn(
     prompt_blocked: bool = False
     turn_hook_events: TurnHookEvents | None = None
     event_stream = None
+    tool_dispatcher: StreamToolDispatcher | None = None
     assistant_text: str = ""
     transcript_factory = turn_context.transcript_factory
     if not callable(transcript_factory):
@@ -369,7 +370,6 @@ async def stream_turn(
         tool_dispatcher = StreamToolDispatcher(
             handler=tool_event_handler,
             activity=activity_projector,
-            record_recovery_interrupt=outcome.interrupt,
             replay_target_seq=source.historical_replay_target_seq,
         )
         tool_turn_boundary = ToolTurnBoundary(turn_context, outcome, approval_handler, tool_dispatcher)
@@ -386,7 +386,12 @@ async def stream_turn(
         if not isinstance(event_stream, ModelEventStream):
             raise TypeError("model capability returned an invalid event stream")
 
-        async for event in event_stream:
+        event_iterator = aiter(event_stream)
+        while True:
+            try:
+                event = await tool_turn_boundary.read_event(event_iterator)
+            except StopAsyncIteration:
+                break
             event_count += 1
             review_event_is_current = True
             if approval_review_handler is not None:
@@ -499,6 +504,7 @@ async def stream_turn(
                         "turn.completed arrived before tool.calls.done"
                     )
                 outcome.record_completed_event(event)
+                await tool_dispatcher.aclose()
                 await activity_projector.turn_terminal(
                     normalize_turn_terminal_status(outcome.status)
                 )
@@ -544,10 +550,6 @@ async def stream_turn(
                 await tool_turn_boundary.handle_approval(event)
                 continue
             tool_dispatch = await tool_turn_boundary.dispatch(event)
-            if tool_dispatch.status == "interrupted":
-                outcome.interrupt(tool_dispatch.error)
-                outcome.confirm_interrupt()
-                break
             if tool_dispatch.status == "handled":
                 continue
 
@@ -691,6 +693,8 @@ async def stream_turn(
             usage=outcome.usage or None,
         )
     finally:
+        if tool_dispatcher is not None:
+            await cleanup.await_cleanup(tool_dispatcher.aclose())
         if approval_review_handler is not None:
             try:
                 await cleanup.await_cleanup(approval_review_handler.close())

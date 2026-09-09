@@ -19,6 +19,7 @@ from agent.ports import (
     ProcessSpec,
     TerminalSize,
 )
+from agent.ports.process_tools import ProcessSessionSnapshot
 from infrastructure.platform.encoding import decode_process_output
 from infrastructure.platform.output_decoder import StreamingProcessOutputDecoder
 from infrastructure.platform.process_capture import (
@@ -122,6 +123,8 @@ class ProcessSessionSpec(object):
     owner_cid: str = ""
     owner_sid: str = ""
     owner_run_id: str = ""
+    owner_turn_id: str = ""
+    call_id: str = ""
     environment_id: str = ""
     execution_id: str = ""
     audit_mode: str = "off"
@@ -224,6 +227,8 @@ class ProcessSession(object):
         self.owner_cid = spec.owner_cid
         self.owner_sid = spec.owner_sid
         self.owner_run_id = spec.owner_run_id
+        self.owner_turn_id = spec.owner_turn_id
+        self.call_id = spec.call_id
         self.environment_id = spec.environment_id
         self.network_proxy = network_proxy
         self.started_at = time.time()
@@ -259,6 +264,7 @@ class ProcessSession(object):
         }
 
         self.finalized: bool = False
+        self.completed_elapsed_ms: int | None = None
         self.termination_reason: typing.Literal["expired", "idle"] | None = None
 
         self.stdout_task: asyncio.Task[None] | None = None
@@ -294,6 +300,9 @@ class ProcessSessionManager(object):
     ) -> None:
         """初始化进程会话表。"""
         self.sessions: dict[str, ProcessSession] = {}
+        self._completed_executions: deque[ProcessSessionSnapshot] = deque(
+            maxlen=self.MAX_SESSIONS,
+        )
         self._change_revision: int = 0
         self._change_event = asyncio.Event()
         self._admission_lock = asyncio.Lock()
@@ -591,6 +600,40 @@ class ProcessSessionManager(object):
                 if item.get("origin") == "tui_shell" and not item.get("background")
             ],
         }
+
+    async def execution_snapshots(self) -> tuple[ProcessSessionSnapshot, ...]:
+        """读取具备原始调用身份的进程展示事实，完成仅在输出收束后发布。"""
+        snapshots = list(self._completed_executions)
+        for session in tuple(self.sessions.values()):
+            if not session.call_id or session.finalized:
+                continue
+            snapshots.append(await self._execution_snapshot(session))
+        return tuple(snapshots)
+
+    @staticmethod
+    async def _execution_snapshot(session: ProcessSession) -> ProcessSessionSnapshot:
+        """从展示缓冲构造具名快照，不读取或消耗模型的增量输出。"""
+        completed = session.finalized
+        lines = await session.display_output_buffer.snapshot()
+        elapsed_ms = session.completed_elapsed_ms
+        return ProcessSessionSnapshot(
+            session_id=session.session_id,
+            cid=session.owner_cid,
+            sid=session.owner_sid,
+            turn_id=session.owner_turn_id,
+            call_id=session.call_id,
+            command=session.command,
+            cwd=session.cwd,
+            revision=session.output_revision,
+            output_lines=tuple(lines),
+            dropped_lines=session.display_output_buffer.dropped_lines,
+            exit_code=session.process.returncode if completed else None,
+            completed=completed,
+            elapsed_ms=(
+                elapsed_ms if completed and elapsed_ms is not None
+                else int(max(0.0, time.monotonic() - session.started_monotonic) * 1000)
+            ),
+        )
 
     async def mark_background(self, session_id: str) -> bool:
         """把指定会话标记为可由后台终端集合管理。"""
@@ -1221,9 +1264,14 @@ class ProcessSessionManager(object):
         if session.network_proxy is not None:
             await session.network_proxy.close()
 
+        session.completed_elapsed_ms = int(
+            max(0.0, time.monotonic() - session.started_monotonic) * 1000
+        )
         session.finalized = True
         self._reaper_wakeup.set()
         session.output_revision += 1
+        if session.call_id:
+            self._completed_executions.append(await self._execution_snapshot(session))
         session.update_event.set()
         self._notify_change()
 

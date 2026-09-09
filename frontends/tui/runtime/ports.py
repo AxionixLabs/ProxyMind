@@ -6,6 +6,7 @@ import contextlib
 import typing
 
 from agent.ports.frontend import ActivityStatusKind
+from agent.application.views.contracts import PresentationView
 from frontends.tui.contracts.menu import MenuRequest
 from frontends.tui.contracts.pager import StaticPagerRequest
 from frontends.tui.contracts.resume import (
@@ -14,7 +15,10 @@ from frontends.tui.contracts.resume import (
 )
 from frontends.tui.contracts.text import FragmentBlock
 from infrastructure.skills import SkillSpec
-from ..core.document import TuiBlockKind
+from ..core.document import (
+    TuiBlockKind,
+    WidthBlockRenderer,
+)
 from ..core.interrupt import InterruptDisposition
 from ..core.queued import (
     SteerResolution,
@@ -430,7 +434,11 @@ class ProcessRuntimePort(typing.Protocol):
         block: FragmentBlock,
         *,
         kind: TuiBlockKind = "operation",
-        transcript_block: FragmentBlock | None = None
+        transcript_block: FragmentBlock | None = None,
+        source: PresentationView | None = None,
+        raw_text: str | None = None,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None,
     ) -> None:
         """追加后台命令完成历史，不修改原稳定块。"""
         ...

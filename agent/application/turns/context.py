@@ -182,6 +182,7 @@ class TurnContext:
     transcript_path: str = ""
     parent_transcript_path: str = ""
     session_started: bool = False
+    session_mode: typing.Literal["create", "existing"] = "existing"
     session_start_reason: str = ""
 
     @classmethod
@@ -209,6 +210,7 @@ class TurnContext:
         parent_transcript_path: str = "",
         turn_id: str | None = None,
         session_started: bool = False,
+        session_mode: typing.Literal["create", "existing"] = "existing",
         session_start_reason: str = ""
     ) -> "TurnContext":
         """从会话与运行配置创建轮次上下文。"""
@@ -221,6 +223,8 @@ class TurnContext:
 
         if not normalized_cid or not normalized_sid:
             raise ValueError("cid and sid are required")
+        if session_mode != "create" and session_mode != "existing":
+            raise ValueError("session mode is invalid")
 
         if agent.depth == 0 and agent.root_session_id != normalized_sid:
             raise ValueError("agent root session does not match turn session")
@@ -250,6 +254,7 @@ class TurnContext:
             transcript_path=str(transcript_path or "").strip(),
             parent_transcript_path=str(parent_transcript_path or "").strip(),
             session_started=bool(session_started),
+            session_mode=session_mode,
             session_start_reason=(
                 str(session_start_reason or "").strip()
                 if session_started

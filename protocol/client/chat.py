@@ -133,6 +133,8 @@ class TurnEventStream(object):
         self._recovery_probe_requested: asyncio.Event = asyncio.Event()
         self._reconnect_started_at: float | None = None
         self._last_event_progress_at: float = time.monotonic()
+        self._last_transport_payload_at = self._last_event_progress_at
+        self._last_progress_probe_at = self._last_event_progress_at
         self._on_recovery_status = on_recovery_status
         self._on_approval_snapshot = on_approval_snapshot
         self.end_reason: TurnStreamEndReason | None = None
@@ -240,13 +242,13 @@ class TurnEventStream(object):
             raise ValueError("stream gap does not match the confirmed event cursor")
 
     def _event_progress_timeout(self) -> float:
-        """返回距离下一次权威事件活性检查的剩余时间。"""
+        """返回传输静默或显式控制探测的剩余时间。"""
         now = time.monotonic()
         timeout = max(
             0.01,
             min(float(self._timeout), STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC),
         )
-        elapsed = now - self._last_event_progress_at
+        elapsed = now - self._last_transport_payload_at
         remaining = max(0.0, timeout - elapsed)
         control_due_at = self._control_settlement_probe_due_at
         if self._control_settlement_probe_active and control_due_at is not None:
@@ -256,6 +258,8 @@ class TurnEventStream(object):
     def _reset_event_progress_deadline(self) -> None:
         """为新建立的传输连接开启一个完整的事件推进窗口。"""
         self._last_event_progress_at = time.monotonic()
+        self._last_transport_payload_at = self._last_event_progress_at
+        self._last_progress_probe_at = self._last_event_progress_at
 
     def _open_chat_stream(self) -> typing.AsyncGenerator[dict, None]:
         """使用缓存的原始请求创建对话事件传输。"""
@@ -406,6 +410,25 @@ class TurnEventStream(object):
         """在收到有效载荷后重置连续重连预算。"""
         self._reconnect_failures = 0
         self._reconnect_started_at = None
+        self._last_transport_payload_at = time.monotonic()
+
+    async def _probe_event_progress(self) -> None:
+        """在健康心跳期间核对业务水位，只对缺失事实启动恢复。"""
+        now = time.monotonic()
+        interval = max(0.01, min(float(self._timeout), STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC))
+        if now - max(self._last_event_progress_at, self._last_progress_probe_at) < interval:
+            return
+        self._last_progress_probe_at = now
+        target = self._attach_target
+        if target is None:
+            return
+        authority = await self._turn_status_for_recovery(target)
+        status = authority.snapshot
+        if authority.turn_missing or (
+            status is not None
+            and (status.terminal is not None or status.last_event_seq != self.last_event_seq)
+        ):
+            await self._resume_stream()
 
     async def _mark_event_progress(self) -> None:
         """在权威事件水位推进后刷新活性截止时间。"""
@@ -518,6 +541,7 @@ class TurnEventStream(object):
 
             if parsed_event.type == "ping":
                 await self._mark_transport_healthy()
+                await self._probe_event_progress()
                 continue
             if isinstance(parsed_event, StreamGapEvent):
                 self._validate_gap_identity(parsed_event)
@@ -575,6 +599,8 @@ class TurnEventStream(object):
     async def _next_payload(self) -> dict:
         """读取下一项载荷或以内部结束信号完成当前流。"""
         while True:
+            if self._recovery_catch_up_pending:
+                await self._complete_replay()
             terminal_payload = self._terminal_snapshot_payload
             if terminal_payload is not None:
                 self._terminal_snapshot_payload = None
@@ -746,6 +772,13 @@ class TurnEventStream(object):
                 self._payload_stream = self._open_chat_stream()
                 self._reset_event_progress_deadline()
                 return True
+
+            if recovery_status.turn_missing:
+                raise TurnStatusRequestError(
+                    "The observed turn no longer exists in the authoritative session; "
+                    "its request will not be submitted again.",
+                    status_code=404,
+                )
 
             if (
                 status is not None

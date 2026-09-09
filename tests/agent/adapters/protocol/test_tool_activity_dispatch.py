@@ -82,7 +82,6 @@ async def test_tool_batch_starts_every_lease_before_execution() -> None:
     dispatcher = StreamToolDispatcher(
         handler=_Handler(events),
         activity=_Activity(events),
-        record_recovery_interrupt=lambda _error: None,
     )
     start = ToolCallsStartEvent(
         type="tool.calls.start",
@@ -117,6 +116,8 @@ async def test_tool_batch_starts_every_lease_before_execution() -> None:
     assert not any(event[0] == "tool.handle" for event in events)
 
     result = await dispatcher.dispatch(done)
+    assert await dispatcher.next_completion() == ToolDispatchResult("handled")
+    await dispatcher.aclose()
 
     assert result == ToolDispatchResult("handled")
     assert events == [
@@ -136,7 +137,6 @@ async def test_historical_tool_batch_is_classified_without_reexecution() -> None
     dispatcher = StreamToolDispatcher(
         handler=_Handler(events),
         activity=_Activity(events),
-        record_recovery_interrupt=lambda _error: None,
         replay_target_seq=3,
     )
 
@@ -179,6 +179,8 @@ async def test_historical_tool_batch_is_classified_without_reexecution() -> None
     assert ("tool.handle", "call_replayed") not in events
 
     await dispatch_batch("batch_live", "call_live", first_event_seq=4)
+    await dispatcher.next_completion()
+    await dispatcher.aclose()
     assert ("tool.handle", "call_live") in events
 
 

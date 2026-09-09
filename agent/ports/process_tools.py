@@ -3,6 +3,7 @@
 
 import typing
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from agent.domain.execution_policy import SandboxPermission
 from agent.domain.permission_profiles import PermissionProfile
@@ -20,6 +21,7 @@ __all__ = (
     "WRITE_STDIN_MIN_WAIT_MS",
     "UserShellPort",
     "WorkspaceProcessPort",
+    "ProcessSessionSnapshot",
 )
 
 
@@ -32,6 +34,25 @@ WRITE_STDIN_MIN_WAIT_MS = 250
 WRITE_STDIN_MAX_WAIT_MS = 30_000
 WRITE_STDIN_EMPTY_MIN_WAIT_MS = 5_000
 WRITE_STDIN_EMPTY_MAX_WAIT_MS = 300_000
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessSessionSnapshot:
+    """由进程管理器持有的只读展示事实；观察者不得消费模型输出或改变进程生命周期。"""
+
+    session_id: str
+    cid: str
+    sid: str
+    turn_id: str
+    call_id: str
+    command: str
+    cwd: str
+    revision: int
+    output_lines: tuple[str, ...]
+    dropped_lines: int
+    exit_code: int | None
+    completed: bool
+    elapsed_ms: int
 
 
 class WorkspaceProcessPort(typing.Protocol):
@@ -73,6 +94,8 @@ class WorkspaceProcessPort(typing.Protocol):
         cid: str = "",
         sid: str = "",
         run_id: str = "",
+        turn_id: str = "",
+        call_id: str = "",
         environment_id: str = "",
         sandbox_mode: SandboxMode = "danger-full-access",
         sandbox_permissions: SandboxPermission = "use_default",
@@ -100,6 +123,10 @@ class WorkspaceProcessPort(typing.Protocol):
 
     async def running_exec_sessions(self) -> dict[str, typing.Any]:
         """返回工作区全部持续命令会话的权威快照。"""
+        ...
+
+    async def exec_session_snapshots(self) -> tuple[ProcessSessionSnapshot, ...]:
+        """读取原始工具调用的开始、输出和完成事实，不消费工具轮询缓冲。"""
         ...
 
     async def stop_exec_sessions(

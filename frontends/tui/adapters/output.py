@@ -12,8 +12,6 @@ from agent.ports import (
     OutputActivityPort,
     OutputControlPort,
     OutputSurfaceContext,
-    TerminalWaitCompleted,
-    TerminalWaitStarted,
 )
 from agent.ports.presentation import StyledBlock
 from frontends.output.recording import StreamRecordWriter
@@ -115,48 +113,6 @@ class TuiOutputControl(OutputControlPort):
         self.runtime.screen.application.before_render += (
             self._sync_stream_width
         )
-
-    async def start_terminal_wait(
-        self,
-        *,
-        call_id: str,
-        session_id: str,
-        command: str,
-    ) -> None:
-        """把后台终端等待投影到当前 OutputSession。"""
-        activity, context = self._terminal_activity_scope()
-        await activity.emit(TerminalWaitStarted(
-            surface_id=context.surface_id,
-            turn_id=context.turn_id,
-            call_id=call_id,
-            session_id=session_id,
-            command=command,
-        ))
-
-    async def complete_terminal_wait(
-        self,
-        *,
-        call_id: str,
-        session_id: str,
-        command: str,
-    ) -> None:
-        """释放当前 OutputSession 内匹配的终端等待。"""
-        activity, context = self._terminal_activity_scope()
-        await activity.emit(TerminalWaitCompleted(
-            surface_id=context.surface_id,
-            turn_id=context.turn_id,
-            call_id=call_id,
-            session_id=session_id,
-            command=command,
-        ))
-
-    def _terminal_activity_scope(
-        self,
-    ) -> tuple[OutputActivityPort, OutputSurfaceContext]:
-        """返回终端等待所属的严格输出 scope。"""
-        if self.activity is None or self.surface_context is None:
-            raise RuntimeError("terminal activity scope is required")
-        return self.activity, self.surface_context
 
     @property
     def terminal_width(self) -> int:

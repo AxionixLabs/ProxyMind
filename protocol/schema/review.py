@@ -853,6 +853,7 @@ class MindReviewRequest:
     target: ReviewTarget
     workspace: ReviewWorkspace
     execution: ReviewExecutionOptions
+    session_mode: typing.Literal["create", "existing"]
     delivery: ReviewDelivery = "inline"
 
     def __post_init__(self) -> None:
@@ -865,6 +866,8 @@ class MindReviewRequest:
             raise ValueError("cid and sid must be valid related session identifiers")
         if self.delivery not in {"inline", "detached"}:
             raise ValueError("review delivery is invalid")
+        if self.session_mode not in {"create", "existing"}:
+            raise ValueError("review session mode is invalid")
         metadata = self.execution.metadata or {}
         for key, expected in (("cid", normalized_cid), ("sid", normalized_sid)):
             supplied = metadata.get(key)
@@ -884,6 +887,7 @@ class MindReviewRequest:
             "turn_id": self.turn_id,
             "target": self.target.request_payload(),
             "delivery": self.delivery,
+            "session_mode": self.session_mode,
             "workspace": self.workspace.request_payload(),
             "execution": self.execution.request_payload(),
         }
@@ -935,6 +939,7 @@ def parse_mind_review_request(value: JsonValue) -> MindReviewRequest:
             "delivery",
             "workspace",
             "execution",
+            "session_mode",
         }),
         "mind review request",
     )
@@ -943,10 +948,13 @@ def parse_mind_review_request(value: JsonValue) -> MindReviewRequest:
     sid = payload["sid"]
     turn_id = payload["turn_id"]
     delivery = payload["delivery"]
+    session_mode = payload["session_mode"]
     if not all(isinstance(item, str) for item in (request_id, cid, sid, turn_id)):
         raise TypeError("mind review request identity fields must be text")
     if delivery not in {"inline", "detached"}:
         raise ValueError("review delivery is invalid")
+    if session_mode != "create" and session_mode != "existing":
+        raise ValueError("review session mode is invalid")
     return MindReviewRequest(
         request_id=request_id,
         cid=cid,
@@ -956,6 +964,7 @@ def parse_mind_review_request(value: JsonValue) -> MindReviewRequest:
         workspace=parse_review_workspace(payload["workspace"]),
         execution=parse_review_execution(payload["execution"]),
         delivery=delivery,
+        session_mode=session_mode,
     )
 
 

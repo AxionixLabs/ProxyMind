@@ -619,12 +619,18 @@ async def _run_stream(
     output_control: _OutputControl | None = None,
     observe_only: bool = False,
     observation_replay_target_seq: int | None = None,
+    terminal_ready: asyncio.Event | None = None,
+    keep_open: bool = False,
 ) -> tuple[RunResult, SimpleNamespace]:
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
             for payload in events:
+                if payload.get("type") == "turn.completed" and terminal_ready is not None:
+                    await terminal_ready.wait()
                 for batched_payload in _batched_stream_payloads(payload):
                     yield parse_stream_event(batched_payload)
+            if keep_open:
+                await asyncio.Event().wait()
     else:
         stream_chat = stream_factory
 
@@ -1269,6 +1275,7 @@ async def test_stream_reconciles_uncertain_tool_result_before_failing(
     posted = 0
     reconciled = []
     effect_posts = []
+    terminal_ready = asyncio.Event()
 
     async def execute(_runner, invocation, *, use_coding_trace, display=True):
         _ = use_coding_trace, display
@@ -1315,6 +1322,7 @@ async def test_stream_reconciles_uncertain_tool_result_before_failing(
 
     async def post_effect_reconciliation(**kwargs):
         effect_posts.append(kwargs)
+        terminal_ready.set()
         return {"ok": True, "status": "reconciled", "effect": {}}
 
     monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
@@ -1335,7 +1343,7 @@ async def test_stream_reconciles_uncertain_tool_result_before_failing(
             "arguments": {"value": 1},
         }),
         {"type": "turn.completed"},
-    ])
+    ], terminal_ready=terminal_ready)
 
     assert result.status == "completed"
     assert posted == 1
@@ -1349,6 +1357,7 @@ async def test_stream_reconciles_uncertain_tool_result_before_failing(
 async def test_stream_retries_unknown_ack_with_same_request_id(monkeypatch) -> None:
     request_ids = []
     statuses = 0
+    terminal_ready = asyncio.Event()
 
     async def execute(_runner, invocation, *, use_coding_trace, display=True):
         _ = use_coding_trace, display
@@ -1371,6 +1380,7 @@ async def test_stream_retries_unknown_ack_with_same_request_id(monkeypatch) -> N
                 "tool result acknowledgement is invalid",
                 status_code=200,
             )
+        terminal_ready.set()
         return {}
 
     async def get_status(**_kwargs):
@@ -1401,7 +1411,7 @@ async def test_stream_retries_unknown_ack_with_same_request_id(monkeypatch) -> N
             "arguments": {},
         }),
         {"type": "turn.completed"},
-    ])
+    ], terminal_ready=terminal_ready)
 
     assert result.status == "completed"
     assert statuses == 1
@@ -1759,11 +1769,48 @@ async def test_stream_queues_pre_tool_context_after_operation_error(
         })],
         hooks=HookRuntime(definitions, command_runner=CommandRunner()),
         effect_journal=effect_journal,
+        keep_open=True,
     )
 
     assert result.status == "failed"
     assert result.additional_context == ("inspect protected paths",)
     assert host_state.queued_context == [("inspect protected paths",)]
+
+
+@pytest.mark.anyio
+async def test_stream_consumes_input_and_terminal_during_long_tool(monkeypatch) -> None:
+    started = asyncio.Event()
+    released = asyncio.Event()
+    observed = []
+
+    async def execute(_runner, _invocation, **_kwargs):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            released.set()
+
+    async def stream_chat(*_args, **_kwargs):
+        call = _durable_tool_call({
+            "type": "tool.call", "call_id": "call-long", "name": "test_tool",
+            "arguments": {},
+        })
+        for payload in _batched_stream_payloads(call):
+            yield parse_stream_event(payload)
+        await started.wait()
+        yield parse_stream_event({
+            "type": "turn.input.accepted", "client_message_id": "message_queued_01",
+        })
+        yield parse_stream_event({"type": "turn.completed", "status": "interrupted"})
+
+    monkeypatch.setattr(stream.ClientToolCallRunner, "execute", execute)
+    result, _host_state = await asyncio.wait_for(_run_stream(
+        monkeypatch, [], stream_factory=stream_chat,
+        on_turn_input_event=observed.append,
+    ), timeout=2.0)
+    assert result.status == "interrupted"
+    assert [event.type for event in observed] == ["turn.input.accepted", "turn.completed"]
+    assert released.is_set()
 
 
 @pytest.mark.anyio

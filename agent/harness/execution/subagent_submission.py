@@ -124,6 +124,7 @@ class SubagentSubmissionExecutor:
                 transcript_path=thread.transcript_path,
                 parent_transcript_path=thread.parent_transcript_path,
                 session_started=turn.turn_index == 1,
+                session_mode="create" if turn.turn_index == 1 else "existing",
                 session_start_reason="subagent",
             )
 

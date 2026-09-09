@@ -328,6 +328,7 @@ async def test_controllable_protocol_accepts_all_empty_workspace_targets(
     """验证四类正式 wire 请求均可登记并完成同一 Review 事件链。"""
     workspace = ClientReviewWorkspace.create()
     command = create_review_command(
+        session_mode="existing",
         local_session_id="session_review_target_matrix",
         cid=CID,
         sid=SID,
@@ -434,6 +435,7 @@ async def test_review_response_loss_retries_the_same_frozen_identity(
     target = ReviewCustomTarget("Focus on lifecycle boundaries")
     workspace = ClientReviewWorkspace.create()
     command = create_review_command(
+        session_mode="existing",
         local_session_id="session_review_response_loss",
         cid=CID,
         sid=SID,
@@ -585,6 +587,7 @@ async def test_review_full_chain_reconnects_without_duplicate_projection(
         patch="diff --git a/a.py b/a.py\n",
     )
     command = create_review_command(
+        session_mode="existing",
         local_session_id="session_review_integration",
         cid=CID,
         sid=SID,
@@ -729,6 +732,7 @@ async def test_review_interrupt_waits_for_cancelled_then_turn_terminal(
         patch="diff --git a/a.py b/a.py\n",
     )
     command = create_review_command(
+        session_mode="existing",
         local_session_id="session_review_interrupt",
         cid=CID,
         sid=SID,

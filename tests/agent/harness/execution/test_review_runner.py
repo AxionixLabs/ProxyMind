@@ -139,9 +139,10 @@ def _catalog() -> list[dict]:
     ]
 
 
-def _command():
+def _command(session_mode="existing"):
     tools = review_wire_tools(_catalog())
     return create_review_command(
+        session_mode=session_mode,
         local_session_id="review_harness_session",
         cid=CID,
         sid=SID,
@@ -155,11 +156,13 @@ def _command():
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("session_mode", ["create", "existing"])
 async def test_review_runner_uses_standard_harness_and_foreground_lifecycle(
     monkeypatch,
+    session_mode,
 ) -> None:
     """证明 Review 生产入口复用标准 MCP、前台和 stream_turn 生命周期。"""
-    command = _command()
+    command = _command(session_mode)
     lifecycle = _Lifecycle(_ApplicationSink())
     runtime = _ExecutionRuntime(_catalog())
     session = SimpleNamespace(
@@ -212,6 +215,7 @@ async def test_review_runner_uses_standard_harness_and_foreground_lifecycle(
         source="review",
     )
     execution = captured["turn_execution"]
+    assert execution.context.session_mode == session_mode
     assert execution.context.permissions.sandbox_mode == "read-only"
     assert execution.context.permissions.approval_policy == "never"
     assert execution.hook_scope.has_matching("UserPromptSubmit") is False
@@ -234,11 +238,13 @@ async def test_review_runner_uses_standard_harness_and_foreground_lifecycle(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("session_mode", ["create", "existing"])
 async def test_review_recovery_rebuilds_only_the_frozen_tool_set(
     monkeypatch,
+    session_mode,
 ) -> None:
     """证明冷恢复忽略新增工具并只 attach 冻结的只读能力。"""
-    command = _command()
+    command = _command(session_mode)
     lifecycle = _Lifecycle(_ApplicationSink())
     runtime = _ExecutionRuntime(_catalog())
     session = SimpleNamespace(
@@ -279,6 +285,7 @@ async def test_review_recovery_rebuilds_only_the_frozen_tool_set(
 
     assert result.status == "completed"
     session.begin_turn.assert_not_awaited()
+    assert captured["turn_execution"].context.session_mode == session_mode
     assert isinstance(
         captured["turn_source"],
         ObservingReviewTurnStreamSource,

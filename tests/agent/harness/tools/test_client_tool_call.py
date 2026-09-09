@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 import typing
 from dataclasses import replace
 from pathlib import Path
@@ -110,6 +111,8 @@ def _runner(
         activity=SimpleNamespace(
             tool_started=AsyncMock(),
             tool_completed=AsyncMock(),
+            terminal_wait_started=AsyncMock(),
+            terminal_wait_completed=AsyncMock(),
             approval_started=AsyncMock(),
             approval_completed=AsyncMock(),
         ),
@@ -199,6 +202,32 @@ async def test_client_tool_call_executes_invocation_arguments(monkeypatch) -> No
         call_id="call-1",
     )
     assert run_tool_step.await_args.kwargs["invocation"].arguments == {"value": 1}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("display", (True, False))
+async def test_empty_terminal_poll_waits_from_start_and_releases_on_cancel(display) -> None:
+    runner, _ports = _runner(SimpleNamespace())
+    started = asyncio.Event()
+    async def execute(*_args, **_kwargs):
+        started.set()
+        await asyncio.Event().wait()
+    runner.tool_execution.execute = execute
+    invocation = replace(
+        _invocation(), name="write_stdin", arguments={"session_id": "exec-original"},
+    )
+    task = asyncio.create_task(runner._execute_allowed_call(
+        invocation, use_coding_trace=False, display=display,
+    ))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        runner.activity.terminal_wait_started.assert_awaited_once_with("call-1", "exec-original")
+        runner.activity.terminal_wait_completed.assert_not_awaited()
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    runner.activity.terminal_wait_completed.assert_awaited_once_with("call-1", "exec-original")
 
 
 @pytest.mark.anyio

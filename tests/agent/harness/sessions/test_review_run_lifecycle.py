@@ -54,6 +54,7 @@ def _request(
 ) -> ReviewStreamRequest:
     """构造经过 wire 契约校验的本地 Review 请求。"""
     wire_request = MindReviewRequest(
+        session_mode="existing",
         request_id=REQUEST_ID,
         cid=CID,
         sid=SID,

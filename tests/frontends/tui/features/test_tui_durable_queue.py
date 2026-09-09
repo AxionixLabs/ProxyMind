@@ -462,6 +462,7 @@ async def test_cold_review_recovery_uses_review_observer_without_resubmit(
 ) -> None:
     """确保 Review 冷恢复不进入只接受聊天请求的普通恢复器。"""
     command = create_review_command(
+        session_mode="existing",
         local_session_id="tui_review_session_0001",
         cid="cid_demo_12345678",
         sid="sid_demo_x_abcdef",
@@ -558,6 +559,7 @@ async def test_queued_review_recovery_redispatches_exact_frozen_command(
 ) -> None:
     """确保网络前退出后由原 Review Command 继续执行。"""
     command = create_review_command(
+        session_mode="existing",
         local_session_id="tui_review_session_0001",
         cid="cid_demo_12345678",
         sid="sid_demo_x_abcdef",

@@ -492,7 +492,7 @@ class OutputActivityPort(typing.Protocol):
 
 
 class ToolInteractionActivityPort(typing.Protocol):
-    """投影 Harness 内嵌套工具和审批的具名活动生命周期。"""
+    """投影 Harness 的工具和审批活动；实现方按调用身份配对取得与释放。"""
 
     async def tool_started(
         self,
@@ -512,6 +512,14 @@ class ToolInteractionActivityPort(typing.Protocol):
         name: str = "",
     ) -> None:
         """释放匹配的工具活动 lease。"""
+        ...
+
+    async def terminal_wait_started(self, call_id: str, session_id: str) -> None:
+        """在空终端轮询开始时取得等待活动。"""
+        ...
+
+    async def terminal_wait_completed(self, call_id: str, session_id: str) -> None:
+        """在终端轮询返回、失败或取消时释放等待活动。"""
         ...
 
     async def approval_started(self, approval_id: str, call_id: str) -> None:

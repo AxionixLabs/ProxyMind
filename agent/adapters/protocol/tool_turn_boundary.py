@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import replace
 
 from agent.adapters.protocol.approval_events import ApprovalEventHandler
@@ -111,6 +113,34 @@ class ToolTurnBoundary:
             if not self._record_closed_delivery(error, call_id=call_id):
                 raise
             return ToolDispatchResult("handled")
+
+    async def read_event(self, events: AsyncIterator[StreamEvent]) -> StreamEvent:
+        """在工具运行期间消费远端事件，并在同一所有者内归约工具完成。"""
+        event_task = asyncio.create_task(anext(events))
+        completion_task = asyncio.create_task(self._dispatcher.next_completion())
+        try:
+            while True:
+                await asyncio.wait(
+                    (event_task, completion_task),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if completion_task.done():
+                    try:
+                        result = await completion_task
+                    except (ToolResultRequestError, ProtocolCommandError) as error:
+                        if not self._record_closed_delivery(error):
+                            raise
+                    else:
+                        if result.status == "interrupted":
+                            self._outcome.interrupt(result.error)
+                    completion_task = asyncio.create_task(self._dispatcher.next_completion())
+                if event_task.done():
+                    return event_task.result()
+        finally:
+            for task in (event_task, completion_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(event_task, completion_task, return_exceptions=True)
 
     def _record_closed_delivery(
         self,

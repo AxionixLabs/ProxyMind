@@ -228,6 +228,7 @@ async def _prepare_review_execution(
         transcript_path=session.transcript_path_for_session(request.sid),
         turn_id=request.turn_id,
         session_started=session_started,
+        session_mode=request.session_mode,
         session_start_reason=session_start_reason,
     )
     return TurnExecution(

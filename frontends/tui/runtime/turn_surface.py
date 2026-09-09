@@ -257,7 +257,12 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
     if state.lifecycle != "active":
         return SurfaceProjection("hidden", revision=revision)
     if state.recovery in {"replaying", "gap"}:
-        return SurfaceProjection("hidden", revision=revision)
+        return SurfaceProjection(
+            "retrying",
+            title="Recovering",
+            detail="Restoring conversation",
+            revision=revision,
+        )
     if state.approvals:
         return SurfaceProjection(
             "hidden",

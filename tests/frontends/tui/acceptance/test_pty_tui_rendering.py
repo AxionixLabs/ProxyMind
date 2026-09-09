@@ -42,6 +42,26 @@ def _spawn_render_scenario(
     )
 
 
+def test_background_process_finishes_on_screen_without_model_polling(tmp_path: Path) -> None:
+    facts_path = tmp_path / "facts.json"
+    with _spawn_render_scenario("process_completion", facts_path) as terminal:
+        _wait_for_stage(facts_path, "process_running")
+        terminal.wait_for_screen_text("1 background terminal running", timeout=5)
+        assert "Ran PTY background command" not in _screen_archive(terminal.screen.snapshot())
+        _acknowledge(facts_path, "process_running")
+        facts = _wait_for_stage(facts_path, "process_completed")
+        terminal.wait_for_screen_text("PTY OUTPUT last", timeout=5)
+        screen = _screen_archive(terminal.screen.snapshot())
+        assert screen.count("Ran PTY background command") == 1
+        assert "PTY OUTPUT first" in screen
+        assert "1 background terminal running" not in terminal.screen.snapshot().visible_text
+        document = _detail(facts, "document_text")
+        assert isinstance(document, str)
+        assert document.count("Ran PTY background command") == 1
+        _acknowledge(facts_path, "process_completed")
+        assert terminal.wait_for_exit(timeout=10) == 0
+
+
 def _read_facts(path: Path) -> dict[str, ThawedJsonValue]:
     """读取并验证子进程发布的渲染事实。"""
     loaded = json.loads(path.read_text(encoding="utf-8"))

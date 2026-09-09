@@ -112,6 +112,8 @@ def process_tools(
             cid=runtime.turn_context.cid,
             sid=runtime.turn_context.sid,
             run_id=runtime.turn_context.turn_id,
+            turn_id=runtime.turn_context.turn_id,
+            call_id=runtime.call_id,
             environment_id="local",
             sandbox_mode=runtime.turn_context.permissions.sandbox_mode,
         )

@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from agent.harness.process_lifecycle import ProcessLifecycle
+from agent.ports.process_tools import ProcessSessionSnapshot
 from prompt_toolkit.utils import get_cwidth
 
 from frontends.tui.core.process_status import TuiProcessStatus
@@ -269,6 +271,7 @@ async def test_process_status_monitor_updates_and_clears_runtime() -> None:
         lifecycle=ProcessLifecycle(),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(
+                exec_session_snapshots=AsyncMock(return_value=()),
                 running_exec_sessions=AsyncMock(return_value={
                     "count": 1,
                     "items": [{"command": "pytest -q"}],
@@ -310,6 +313,7 @@ async def test_process_status_monitor_splits_model_and_user_shell_sources() -> N
         lifecycle=ProcessLifecycle(),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(
+                exec_session_snapshots=AsyncMock(return_value=()),
                 running_exec_sessions=AsyncMock(return_value={
                     "count": 2,
                     "items": [
@@ -359,6 +363,50 @@ async def test_process_status_monitor_splits_model_and_user_shell_sources() -> N
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("exit_code", (0, 3))
+async def test_process_completion_projects_once_without_tool_polling(exit_code) -> None:
+    runtime = TuiRuntime()
+    lifecycle = ProcessLifecycle()
+    execution = ProcessSessionSnapshot(
+        session_id="exec-original", cid="cid", sid="sid", turn_id="turn-old",
+        call_id="call-original", command="print first and last", cwd=".",
+        revision=1, output_lines=("first", "last"), dropped_lines=0,
+        exit_code=exit_code, completed=True, elapsed_ms=100,
+    )
+    foreign = replace(execution, session_id="exec-foreign", sid="another-session")
+    executions = AsyncMock(side_effect=[
+        (replace(execution, completed=False, exit_code=None),),
+        (execution, foreign),
+        (execution, foreign),
+    ])
+    async def changed(**_kwargs):
+        if executions.await_count == 3:
+            lifecycle.stop_event.set()
+        return {"changed": True, "revision": executions.await_count}
+
+    wait_update = AsyncMock(side_effect=changed)
+    host = SimpleNamespace(
+        lifecycle=lifecycle,
+        conversation=SimpleNamespace(cid="cid", sid="sid"),
+        workspace_runtime=SimpleNamespace(coding=SimpleNamespace(
+            running_exec_sessions=AsyncMock(return_value={"revision": 0, "items": []}),
+            exec_session_snapshots=executions,
+            wait_exec_sessions_update=wait_update,
+        )),
+    )
+    with patch.object(runtime, "append_history_block", wraps=runtime.append_history_block) as append:
+        await asyncio.wait_for(monitor_exec_status(runtime, host), timeout=2)
+    append.assert_called_once()
+    entry = append.call_args
+    assert "Ran" in fragments_text(entry.args[0].fragments)
+    assert "first" in entry.kwargs["raw_text"]
+    assert "last" in entry.kwargs["raw_text"]
+    assert entry.kwargs["source"].call_id == "call-original"
+    assert entry.kwargs["source"].ok is (exit_code == 0)
+    assert wait_update.await_args_list[0].kwargs["revision"] == 0
+
+
+@pytest.mark.anyio
 async def test_process_status_excludes_inline_shell_and_shows_background(
 ) -> None:
     runtime = TuiRuntime()
@@ -370,6 +418,7 @@ async def test_process_status_excludes_inline_shell_and_shows_background(
         lifecycle=ProcessLifecycle(),
         workspace_runtime=SimpleNamespace(
             coding=SimpleNamespace(
+                exec_session_snapshots=AsyncMock(return_value=()),
                 running_exec_sessions=AsyncMock(return_value={
                     "count": 2,
                     "items": [

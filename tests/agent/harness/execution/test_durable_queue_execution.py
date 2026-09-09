@@ -207,6 +207,7 @@ async def test_enqueue_freezes_session_hooks_tools_and_request_before_add() -> N
         {"name": "read_file", "type": "function"},
     ]
     assert frozen.option_values() == {
+        "session_mode": "existing",
         "extras": {"priority": "normal"},
         "skills": [{"name": "queue-skill"}],
         "permissions": {

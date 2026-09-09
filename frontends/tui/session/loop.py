@@ -997,6 +997,9 @@ async def _execute_tui_review_turn(
             sid=remote_session["sid"],
             turn_id=turn_id,
             target=prepared.target,
+            session_mode=(
+                "existing" if host.conversation.fork_source_available else "create"
+            ),
             workspace=prepared.workspace,
             pref_config=state.pref_config,
             environment_snapshot=capture_active_turn_environment(host),

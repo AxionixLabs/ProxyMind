@@ -71,6 +71,7 @@ def _request(
 ) -> MindReviewRequest:
     """构造严格 Review 请求。"""
     return MindReviewRequest(
+        session_mode="existing",
         request_id=REQUEST_ID,
         cid=CID,
         sid=SID,

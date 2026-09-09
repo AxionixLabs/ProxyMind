@@ -105,6 +105,7 @@ def create_continuation_execution(
         execution.context,
         turn_id=short_uid(12),
         session_started=False,
+        session_mode="existing",
         session_start_reason="",
     )
     metadata = dict(execution.metadata)

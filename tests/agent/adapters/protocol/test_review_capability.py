@@ -86,6 +86,7 @@ class _ReviewWireStream:
 def _wire_request(*, patch: str = "") -> MindReviewRequest:
     """构造可由客户端持久化的 inline Review 请求。"""
     return MindReviewRequest(
+        session_mode="existing",
         request_id=REQUEST_ID,
         cid=CID,
         sid=SID,

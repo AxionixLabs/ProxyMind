@@ -16,6 +16,7 @@ _AGENT_REQUEST_OPTION_FIELDS = frozenset({
     "metadata",
     "skills",
     "streaming",
+    "session_mode",
     "tool_choice",
 })
 
@@ -133,6 +134,9 @@ async def build_chat_payload(
     )
 
     permissions = permission_payload(kwargs.pop("permissions", None))
+    session_mode = kwargs.get("session_mode")
+    if session_mode != "create" and session_mode != "existing":
+        raise ValueError("session_mode must explicitly select create or existing")
 
     unknown_fields = sorted(set(kwargs).difference(_AGENT_REQUEST_OPTION_FIELDS))
     if unknown_fields:

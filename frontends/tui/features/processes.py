@@ -5,17 +5,26 @@ import asyncio
 import shutil
 import time
 import typing
+from functools import partial
 
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.utils import get_cwidth
 
+from agent.application.views.tools import NativeToolResultView
 from agent.ports import UserShellPort
+from agent.ports.process_tools import ProcessSessionSnapshot
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
 )
 from agent.ports.presentation import TextSpan
 from frontends.terminal.text import sanitize_terminal_text
+from frontends.terminal.renderers.dispatch import (
+    render_presentation_raw_view,
+    render_presentation_transcript_view,
+    render_presentation_view,
+)
+from ..adapters.presentation import render_presentation_fragment_block
 from .context import (
     exec_status_display_label,
     split_exec_snapshot_by_origin
@@ -31,6 +40,7 @@ from ..core.styles import (
     BODY_STYLE,
     BRIGHT_STYLE,
     fragment_block,
+    styled_fragment_block,
 )
 from ..rendering.fragments import clip_text
 
@@ -71,26 +81,35 @@ async def monitor_exec_status(
 ) -> None:
     """同步后台命令会话摘要到 TUI 专属状态行。"""
     revision = -1
+    completed_sessions: set[str] = set()
     try:
         while not host.lifecycle.stop_event.is_set():
-            try:
-                snapshot = await (
-                    host.workspace_runtime.coding.running_exec_sessions()
-                )
-                filtered = _without_running_session(
-                    snapshot,
-                    runtime.inline_process_session_id,
-                    runtime=runtime,
-                )
-                model_snapshot, user_shell_snapshot = (
-                    split_exec_snapshot_by_origin(filtered)
-                )
-                _set_exec_status(runtime, model_snapshot)
-                _set_user_shell_status(runtime, user_shell_snapshot)
-                _set_background_shell_status(runtime, filtered)
-                revision = int(snapshot.get("revision") or revision)
-            except (OSError, RuntimeError, TypeError, ValueError):
-                revision = -1
+            snapshot = await host.workspace_runtime.coding.running_exec_sessions()
+            executions = await host.workspace_runtime.coding.exec_session_snapshots()
+            completed_sessions.intersection_update(
+                execution.session_id for execution in executions
+            )
+            for execution in executions:
+                if (
+                    not execution.completed
+                    or execution.session_id in completed_sessions
+                    or (execution.cid, execution.sid) != (
+                        host.conversation.cid, host.conversation.sid,
+                    )
+                ):
+                    continue
+                _append_exec_completion(runtime, execution)
+                completed_sessions.add(execution.session_id)
+            filtered = _without_running_session(
+                snapshot,
+                runtime.inline_process_session_id,
+                runtime=runtime,
+            )
+            model_snapshot, user_shell_snapshot = split_exec_snapshot_by_origin(filtered)
+            _set_exec_status(runtime, model_snapshot)
+            _set_user_shell_status(runtime, user_shell_snapshot)
+            _set_background_shell_status(runtime, filtered)
+            revision = int(snapshot.get("revision", revision))
 
             change_task = asyncio.create_task(
                 host.workspace_runtime.coding.wait_exec_sessions_update(
@@ -120,12 +139,58 @@ async def monitor_exec_status(
 
             change = change_task.result()
             if isinstance(change, dict) and change.get("changed"):
-                revision = int(change.get("revision") or revision)
+                revision = int(change.get("revision", revision))
 
     finally:
         runtime.set_process_status_label("")
         runtime.set_user_shell_status_label("")
         runtime.set_background_shell_status_label("")
+
+
+def _append_exec_completion(
+    runtime: "ProcessRuntimePort",
+    execution: ProcessSessionSnapshot,
+) -> None:
+    """从独立进程完成事实提交原始命令及完整保留输出。"""
+    if not execution.completed or execution.exit_code is None:
+        raise ValueError("process completion requires a drained exit result")
+    view = NativeToolResultView(
+        name="exec_command",
+        call_id=execution.call_id,
+        arguments={"command": execution.command, "cwd": execution.cwd},
+        ok=execution.exit_code == 0,
+        cost_ms=execution.elapsed_ms,
+        data={
+            "command": execution.command,
+            "cwd": execution.cwd,
+            "session_id": execution.session_id,
+            "status": "exited",
+            "exit_code": execution.exit_code,
+            "output": "\n".join(execution.output_lines),
+            "output_lines": list(execution.output_lines),
+            "output_lines_dropped": execution.dropped_lines,
+            "truncated": execution.dropped_lines > 0,
+        },
+    )
+    blocks = render_presentation_view(
+        view, terminal_width=runtime.terminal_width, measure_width=get_cwidth,
+    )
+    transcripts = render_presentation_transcript_view(view)
+    raw = render_presentation_raw_view(view)
+    for index, (block, transcript, raw_text) in enumerate(zip(
+        blocks, transcripts, raw, strict=True,
+    )):
+        runtime.append_history_block(
+            styled_fragment_block(block),
+            kind="operation",
+            transcript_block=styled_fragment_block(transcript),
+            source=view,
+            raw_text=raw_text,
+            display_renderer=partial(
+                render_presentation_fragment_block, view, index, block_count=len(blocks),
+            ),
+            display_render_width=runtime.terminal_width,
+        )
 
 
 def _set_exec_status(

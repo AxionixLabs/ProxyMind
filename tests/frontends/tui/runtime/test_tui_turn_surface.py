@@ -240,7 +240,7 @@ def test_turn_running_and_status_visibility_are_independent() -> None:
     ))
     assert state.lifecycle == "active"
     assert state.status_requested
-    assert not project_turn_surface(state).visible
+    assert project_turn_surface(state).title == "Recovering"
     state = reduce_turn_surface(state, RecoveryChanged(
         **_scope(context),
         mode="caught_up",
@@ -435,7 +435,7 @@ def test_reducer_suppresses_replay_and_restores_latest_projection() -> None:
     )
     state = reduce_turn_surface(state, retry_started)
 
-    assert project_turn_surface(state).indicator == "hidden"
+    assert project_turn_surface(state).title == "Recovering"
 
     state = reduce_turn_surface(state, RecoveryChanged(
         **_scope(context),
@@ -502,7 +502,7 @@ def test_transport_retry_overlays_visible_content_without_replacing_it() -> None
         mode="replaying",
         event_seq=8,
     ))
-    assert project_turn_surface(state).indicator == "hidden"
+    assert project_turn_surface(state).title == "Recovering"
     state = reduce_turn_surface(state, retry_completed)
     state = reduce_turn_surface(state, RecoveryChanged(
         **_scope(context),
@@ -748,7 +748,7 @@ async def test_transport_retry_restores_indicator_after_content_is_visible() -> 
         event_seq=8,
     ))
     assert coordinator.state.content == "visible"
-    assert projections[-1].indicator == "hidden"
+    assert projections[-1].title == "Recovering"
     await coordinator.close()
 
 
@@ -871,7 +871,7 @@ async def test_tui_transport_retry_uses_typed_surface_until_terminal() -> None:
     await activity.transport_recovery_changed("reconnecting", 3)
     assert "Retrying" in _activity_text(runtime)
     await activity.transport_recovery_changed("replaying", 3)
-    assert runtime.screen.activity_block is None
+    assert "Recovering" in _activity_text(runtime)
     await activity.transport_recovery_changed("caught_up", 5)
     assert "Thinking" in _activity_text(runtime)
 

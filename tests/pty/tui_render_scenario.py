@@ -3,12 +3,14 @@ import asyncio
 import sys
 import typing
 from pathlib import Path
+from types import SimpleNamespace
 
 from agent.application.views.builders.approval import build_approval_view
 from agent.application.views.builders.tools import build_generic_tool_result_view
 from agent.application.views.builders.tools import build_native_tool_result_view
 from agent.application.views.builders.tools import build_tool_start_view
 from agent.protocol.json_value import ThawedJsonValue
+from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.ports import ApprovalCompleted
 from agent.ports import ApprovalStarted
 from agent.ports import OutputSurfaceContext
@@ -24,6 +26,11 @@ from frontends.tui.adapters.session import create_tui_output_session
 from frontends.tui.contracts.text import FragmentBlock
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.features.processes import monitor_exec_status
+from infrastructure.platform.process_sessions import (
+    ProcessSessionManager,
+    ProcessSessionSpec,
+)
 from observability import reset_sinks
 from tests.pty.tui_scenario import ScenarioFacts
 
@@ -133,6 +140,52 @@ def _patch_payload() -> dict[str, ThawedJsonValue]:
             }],
         },
     }
+
+
+async def _run_process_completion(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """通过真实子进程和后台观察器验证等待与独立完成上屏。"""
+    manager = ProcessSessionManager()
+    lifecycle = ProcessLifecycle()
+    host = SimpleNamespace(
+        lifecycle=lifecycle,
+        conversation=SimpleNamespace(cid=_SURFACE.cid, sid=_SURFACE.sid),
+        workspace_runtime=SimpleNamespace(coding=SimpleNamespace(
+            running_exec_sessions=manager.running_snapshot,
+            exec_session_snapshots=manager.execution_snapshots,
+            wait_exec_sessions_update=manager.wait_for_change,
+        )),
+    )
+    monitor = asyncio.create_task(monitor_exec_status(runtime, host))
+    try:
+        session = await manager.start(ProcessSessionSpec(
+            command="PTY background command",
+            args=(
+                sys.executable, "-u", "-c",
+                "import sys; print('PTY OUTPUT first', flush=True); "
+                "sys.stdin.readline(); print('PTY OUTPUT last', flush=True)",
+            ),
+            cwd=str(facts.path.parent), display_cwd=str(facts.path.parent),
+            runtime={}, origin="tool", timeout_sec=30, idle_timeout_sec=30,
+            owner_cid=_SURFACE.cid, owner_sid=_SURFACE.sid,
+            owner_turn_id=_SURFACE.turn_id, call_id="exec-pty-original",
+        ))
+        await _wait_until(
+            lambda: "background terminal" in runtime.screen.process_status.label,
+            "background process status",
+        )
+        await _checkpoint(facts, "process_running")
+        await manager.drain(session)
+        await manager.apply(session, input_text="\n")
+        await _wait_until(
+            lambda: "PTY OUTPUT last" in _document_text(runtime),
+            "independent process completion",
+        )
+        _record_document(facts, runtime)
+        await _checkpoint(facts, "process_completed")
+    finally:
+        lifecycle.stop_event.set()
+        await monitor
+        await manager.close()
 
 
 async def _run_first_frame(
@@ -489,7 +542,9 @@ async def _run(scenario: str, facts_path: Path) -> None:
     ))
     await runtime.open()
     try:
-        if scenario == "first_frame":
+        if scenario == "process_completion":
+            await _run_process_completion(runtime, facts)
+        elif scenario == "first_frame":
             await _run_first_frame(runtime, facts)
         elif scenario == "layout":
             await _run_layout(runtime, facts)

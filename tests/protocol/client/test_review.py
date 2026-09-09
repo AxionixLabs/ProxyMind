@@ -35,6 +35,7 @@ def _tools() -> tuple[dict, ...]:
 def _request() -> MindReviewRequest:
     """构造最小 inline Review 请求。"""
     return MindReviewRequest(
+        session_mode="existing",
         request_id=REQUEST_ID,
         cid=CID,
         sid=SID,

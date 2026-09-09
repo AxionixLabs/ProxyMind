@@ -302,6 +302,7 @@ class ReviewStreamRequest:
     target: Mapping[str, JsonValue]
     workspace: Mapping[str, JsonValue]
     execution: Mapping[str, JsonValue]
+    session_mode: typing.Literal["create", "existing"]
     delivery: typing.Literal["inline"] = "inline"
 
     def __post_init__(self) -> None:
@@ -313,6 +314,8 @@ class ReviewStreamRequest:
             object.__setattr__(self, field_name, value.strip())
         if self.delivery != "inline":
             raise ValueError("local review delivery must be inline")
+        if self.session_mode not in {"create", "existing"}:
+            raise ValueError("review session mode is invalid")
 
         target = _freeze_object(self.target, field_name="review target")
         workspace = _freeze_object(
@@ -345,6 +348,7 @@ class ReviewStreamRequest:
             "delivery": self.delivery,
             "workspace": thaw_json(self.workspace),
             "execution": thaw_json(self.execution),
+            "session_mode": self.session_mode,
         }
 
     @classmethod
@@ -362,6 +366,7 @@ class ReviewStreamRequest:
             "delivery",
             "workspace",
             "execution",
+            "session_mode",
         }
         if set(value) != expected:
             raise ValueError("persisted review request fields are invalid")
@@ -383,6 +388,9 @@ class ReviewStreamRequest:
         if not isinstance(execution, dict):
             raise TypeError("persisted review execution must be an object")
         delivery = value.get("delivery")
+        session_mode = value.get("session_mode")
+        if session_mode != "create" and session_mode != "existing":
+            raise ValueError("persisted review session mode is invalid")
         if delivery != "inline":
             raise ValueError("persisted review delivery must be inline")
         return cls(
@@ -394,6 +402,7 @@ class ReviewStreamRequest:
             workspace=workspace,
             execution=execution,
             delivery="inline",
+            session_mode=session_mode,
         )
 
 

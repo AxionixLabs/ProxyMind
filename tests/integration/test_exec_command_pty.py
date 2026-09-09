@@ -17,6 +17,8 @@ from agent.application.views.builders.tools import build_native_tool_result_view
 from agent.ports import CapabilityError
 from agent.ports import InteractiveProcessSpec
 from agent.ports import OutputSurfaceContext
+from agent.ports import TerminalWaitCompleted
+from agent.ports import TerminalWaitStarted
 from agent.ports import TerminalSize
 from frontends.tui.adapters.session import create_tui_output_session
 from frontends.tui.core.runtime import TuiRuntime
@@ -474,6 +476,14 @@ async def test_exec_command_pty_projects_background_lifecycle_to_tui(
             call_id="exec-1",
         ))
 
+        await output_session.activity.emit(TerminalWaitStarted(
+            surface_id=context.surface_id, turn_id=context.turn_id,
+            call_id="wait-1", session_id=session_id, command=command,
+        ))
+        activity = "".join(
+            text for _style, text in runtime.screen.activity_block.fragments
+        )
+        assert activity.startswith("• Waiting for background terminal")
         waiting = await coding.write_stdin(
             session_id=session_id,
             wait_ms=0,
@@ -487,10 +497,10 @@ async def test_exec_command_pty_projects_background_lifecycle_to_tui(
             data=waiting["data"],
             call_id="wait-1",
         ))
-        activity = "".join(
-            text for _style, text in runtime.screen.activity_block.fragments
-        )
-        assert activity.startswith("• Waiting for background terminal")
+        await output_session.activity.emit(TerminalWaitCompleted(
+            surface_id=context.surface_id, turn_id=context.turn_id,
+            call_id="wait-1", session_id=session_id, command=command,
+        ))
 
         completed = await coding.write_stdin(
             session_id=session_id,

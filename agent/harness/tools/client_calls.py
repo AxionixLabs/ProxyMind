@@ -632,14 +632,29 @@ class ClientToolCallRunner:
                         **start_kwargs,
                     )
 
-            tool_run = await self.tool_execution.execute(
-                self.session,
-                presentation=self.presentation,
-                tools=self.tools,
-                invocation=invocation,
-                pref_config=self.pref_config,
-                enable_progress_notify=True,
+            session_id = arguments.get("session_id")
+            terminal_session_id = (
+                session_id
+                if name == "write_stdin"
+                and isinstance(session_id, str)
+                and not arguments.get("stdin")
+                and arguments.get("control", "none") == "none"
+                else ""
             )
+            if terminal_session_id:
+                await self.activity.terminal_wait_started(call_id, terminal_session_id)
+            try:
+                tool_run = await self.tool_execution.execute(
+                    self.session,
+                    presentation=self.presentation,
+                    tools=self.tools,
+                    invocation=invocation,
+                    pref_config=self.pref_config,
+                    enable_progress_notify=True,
+                )
+            finally:
+                if terminal_session_id:
+                    await self.activity.terminal_wait_completed(call_id, terminal_session_id)
 
             ok = tool_run.ok
             fields = tool_run.fields

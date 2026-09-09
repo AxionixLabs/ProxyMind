@@ -6,8 +6,11 @@ import typing
 
 from agent.domain.patches.parsing import PatchParser
 from agent.ports.capabilities import SandboxMode
-from agent.ports.process_tools import EXEC_COMMAND_DEFAULT_YIELD_MS
-from agent.ports.process_tools import WRITE_STDIN_DEFAULT_WAIT_MS
+from agent.ports.process_tools import (
+    EXEC_COMMAND_DEFAULT_YIELD_MS,
+    WRITE_STDIN_DEFAULT_WAIT_MS,
+    ProcessSessionSnapshot,
+)
 from infrastructure.platform.process_sessions import ProcessSessionManager
 from infrastructure.workspace.commands.audit import WorkspaceFileAudit
 from infrastructure.workspace.commands.process import ProcessCommandExecutor
@@ -124,6 +127,8 @@ class WorkspaceCoding(WorkspaceContext):
         cid: str = "",
         sid: str = "",
         run_id: str = "",
+        turn_id: str = "",
+        call_id: str = "",
         environment_id: str = "",
         sandbox_mode: SandboxMode = "danger-full-access",
         sandbox_permissions: object = "use_default",
@@ -144,6 +149,8 @@ class WorkspaceCoding(WorkspaceContext):
             cid=cid,
             sid=sid,
             run_id=run_id,
+            turn_id=turn_id,
+            call_id=call_id,
             environment_id=environment_id,
             sandbox_mode=sandbox_mode,
             sandbox_permissions=sandbox_permissions,
@@ -183,6 +190,10 @@ class WorkspaceCoding(WorkspaceContext):
         snapshot = await self._process_sessions.running_snapshot()
         snapshot["revision"] = self._process_sessions.change_revision
         return snapshot
+
+    async def exec_session_snapshots(self) -> tuple[ProcessSessionSnapshot, ...]:
+        """返回不消费工具输出的进程调用生命周期快照。"""
+        return await self._process_sessions.execution_snapshots()
 
     async def wait_exec_sessions_update(
         self,

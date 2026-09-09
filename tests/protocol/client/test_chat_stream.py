@@ -1022,6 +1022,77 @@ async def test_silent_stream_timeout_attaches_and_reports_reconnecting(
 
 
 @pytest.mark.anyio
+async def test_replay_catches_up_before_waiting_for_the_next_live_event(monkeypatch) -> None:
+    caught_up = asyncio.Event()
+    release = asyncio.Event()
+
+    async def recovery(phase, _seq):
+        if phase == "caught_up":
+            caught_up.set()
+
+    async def streaming(url, _headers, _payload, _timeout):
+        if url.endswith("/mind-chat"):
+            yield {"type": "turn.started", "turn_id": "turn_001", "event_seq": 1}
+            raise httpx.ReadError("connection closed")
+        await release.wait()
+        yield {"type": "turn.completed", "turn_id": "turn_001", "event_seq": 2}
+
+    _install_reconnect_stream(monkeypatch, streaming, replay_target_seq=1)
+    stream = chat.stream_chat({}, "hello", [], on_recovery_status=recovery)
+    collecting = asyncio.create_task(_collect(stream))
+    try:
+        await asyncio.wait_for(caught_up.wait(), timeout=1.0)
+        assert not collecting.done()
+        release.set()
+        events = await asyncio.wait_for(collecting, timeout=1.0)
+        assert [event.type for event in events] == ["turn.started", "turn.completed"]
+    finally:
+        if not collecting.done():
+            collecting.cancel()
+        await asyncio.gather(collecting, return_exceptions=True)
+
+
+@pytest.mark.anyio
+async def test_missing_observed_turn_stops_recovery_without_resubmission(monkeypatch) -> None:
+    calls = []
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        yield {"type": "turn.started", "turn_id": "turn_001", "event_seq": 1}
+        raise httpx.ReadError("connection closed")
+
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(chat, "get_turn_status", AsyncMock(side_effect=
+        chat.TurnStatusRequestError("turn missing", status_code=404),
+    ))
+    stream = chat.stream_chat({}, "hello", [])
+    with pytest.raises(chat.TurnStatusRequestError, match="no longer exists"):
+        await asyncio.wait_for(_collect(stream), timeout=1.0)
+    assert calls == ["https://example.com/mind-chat"]
+    assert stream.end_reason == "fatal"
+
+
+@pytest.mark.anyio
+async def test_cursor_conflict_stops_attach_without_resetting_cursor(monkeypatch) -> None:
+    async def streaming(url, _headers, _payload, _timeout):
+        if url.endswith("/mind-chat"):
+            raise httpx.ReadError("connection closed")
+        request = httpx.Request("POST", url)
+        response = httpx.Response(409, request=request, json={
+            "details": {"code": "event_cursor_ahead", "last_event_seq": 21},
+        })
+        response.raise_for_status()
+        yield {}
+
+    _install_reconnect_stream(monkeypatch, streaming, replay_target_seq=21)
+    stream = chat.stream_chat({}, "hello", [], initial_event_seq=236)
+    with pytest.raises(httpx.HTTPStatusError):
+        await asyncio.wait_for(_collect(stream), timeout=1.0)
+    assert stream.last_event_seq == 236
+    assert stream.end_reason == "fatal"
+
+
+@pytest.mark.anyio
 async def test_ping_cannot_mask_a_missing_terminal_event(monkeypatch) -> None:
     calls = []
     recovery = []
@@ -1070,6 +1141,40 @@ async def test_ping_cannot_mask_a_missing_terminal_event(monkeypatch) -> None:
         ("replaying", 0),
         ("caught_up", 1),
     ]
+
+
+@pytest.mark.anyio
+async def test_healthy_ping_keeps_long_tool_connection_open(monkeypatch) -> None:
+    calls = []
+    recovery = []
+    queried = asyncio.Event()
+
+    async def status(**_kwargs):
+        queried.set()
+        return SimpleNamespace(last_event_seq=0, terminal=None)
+
+    async def streaming(url, _headers, _payload, _timeout):
+        calls.append(url)
+        while not queried.is_set():
+            yield {"type": "ping"}
+            await asyncio.sleep(0.001)
+        yield {
+            "type": "turn.completed", "turn_id": "turn_001", "event_seq": 1,
+            "last_event_seq": 1, "status": "completed", "completed_at": 10.0,
+        }
+
+    _install_reconnect_stream(monkeypatch, streaming)
+    monkeypatch.setattr(chat, "STREAM_PAYLOAD_SILENCE_TIMEOUT_SEC", 0.1)
+    monkeypatch.setattr(chat, "get_turn_status", status)
+    event_stream = chat.stream_chat(
+        {}, "hello", [], timeout=1.0,
+        on_recovery_status=_recovery_recorder(recovery),
+    )
+    events = await asyncio.wait_for(_collect(event_stream), timeout=1.0)
+    assert queried.is_set()
+    assert len(events) == 1
+    assert calls == ["https://example.com/mind-chat"]
+    assert recovery == []
 
 
 @pytest.mark.anyio

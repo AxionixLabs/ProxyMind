@@ -129,6 +129,7 @@ def _command(*, target=None):
         "Focus on lifecycle correctness."
     )
     return create_review_command(
+        session_mode="existing",
         local_session_id="tui_session_01",
         cid=CID,
         sid=SID,
@@ -213,6 +214,7 @@ def _review_event(event_type: str):
 
 def test_create_review_command_projects_only_wire_llm_fields_and_tools() -> None:
     command = create_review_command(
+        session_mode="existing",
         local_session_id="tui_session_01",
         cid=CID,
         sid=SID,

@@ -19,6 +19,7 @@ class ConversationTurn:
     sid: str
     turn_index: int
     session_started: bool
+    session_mode: typing.Literal["create", "existing"] = "existing"
     start_reason: str = ""
     additional_context: tuple[str, ...] = ()
     system_message: str = ""
@@ -87,6 +88,9 @@ class ConversationState(object):
         elif not self.cid or not self.sid:
             self.reset(reason="initial")
 
+        session_mode: typing.Literal["create", "existing"] = (
+            "existing" if self.fork_source_available else "create"
+        )
         session_started = self.turn_count == 0
         boundary_reason = ""
         if session_started:
@@ -107,6 +111,7 @@ class ConversationState(object):
             sid=metadata["sid"],
             turn_index=self.turn_count,
             session_started=session_started,
+            session_mode=session_mode,
             start_reason=boundary_reason,
             additional_context=additional_context,
             system_message=system_message,

@@ -219,6 +219,7 @@ async def test_chat_payload_omits_unavailable_environment_snapshot() -> None:
         {},
         "inspect",
         [],
+        session_mode="existing",
         exec_env=None,
     )
 

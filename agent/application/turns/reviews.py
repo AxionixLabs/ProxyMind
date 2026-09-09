@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import typing
+
 from collections.abc import Mapping
 
 from agent.domain.tool_policy import (
@@ -46,6 +48,7 @@ def create_review_command(
     pref_config: Mapping[str, JsonValue],
     environment_snapshot: Mapping[str, FrozenJsonValue] | None,
     tools: tuple[JsonObject, ...],
+    session_mode: typing.Literal["create", "existing"],
 ) -> SubmitReviewCommand:
     """从类型化本地输入创建完整冻结且可持久化的 Review 命令。"""
     request = MindReviewRequest(
@@ -53,6 +56,7 @@ def create_review_command(
         cid=cid,
         sid=sid,
         turn_id=turn_id,
+        session_mode=session_mode,
         target=target,
         workspace=workspace,
         execution=ReviewExecutionOptions(

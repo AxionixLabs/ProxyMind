@@ -198,7 +198,6 @@ class TuiPresentationSink(PresentationSink):
         self.output = output
         self._stable_patch_call_ids: set[str] = set()
         self._pending_terminal_waits: dict[str, list[NativeToolResultView]] = {}
-        self._active_terminal_waits: set[tuple[str, str]] = set()
 
     @staticmethod
     def _native_payload(view: NativeToolResultView) -> dict[str, typing.Any]:
@@ -248,25 +247,6 @@ class TuiPresentationSink(PresentationSink):
         return str(cls._native_payload(view).get("status") or "").strip().lower()
 
     @classmethod
-    def _terminal_command(cls, view: NativeToolResultView) -> str:
-        """返回终端等待状态使用的命令摘要。"""
-        payload = cls._native_payload(view)
-        return str(
-            payload.get("command")
-            or view.arguments.get("command")
-            or view.arguments.get("session_id")
-            or ""
-        ).strip()
-
-    @classmethod
-    def _is_running_exec_start(cls, view: NativeToolResultView) -> bool:
-        """判断结果是否只是后台终端的启动确认。"""
-        return (
-            view.name == "exec_command"
-            and cls._terminal_status(view) == "running"
-        )
-
-    @classmethod
     def _is_empty_terminal_wait(cls, view: NativeToolResultView) -> bool:
         """判断结果是否为空输入的后台终端轮询。"""
         return (
@@ -279,21 +259,6 @@ class TuiPresentationSink(PresentationSink):
         """提交指定会话合并后的等待记录。"""
         views = self._pending_terminal_waits.pop(session_id, None)
         if views:
-            completed: set[tuple[str, str]] = set()
-            for view in views:
-                identity = (view.call_id, session_id)
-                if (
-                    identity not in self._active_terminal_waits
-                    or identity in completed
-                ):
-                    continue
-                await self.output.complete_terminal_wait(
-                    call_id=view.call_id,
-                    session_id=session_id,
-                    command=self._terminal_command(view),
-                )
-                self._active_terminal_waits.discard(identity)
-                completed.add(identity)
             await self._emit_view(views[-1])
 
     async def _flush_all_terminal_waits(self) -> None:
@@ -463,7 +428,7 @@ class TuiPresentationSink(PresentationSink):
     async def emit(self, view: PresentationView) -> None:
         """渲染并发送一项结构化展示数据。"""
         if isinstance(view, NativeToolResultView):
-            if self._is_running_exec_start(view):
+            if view.name == "exec_command" and self._terminal_session_id(view):
                 return None
 
             if self._is_empty_terminal_wait(view):
@@ -478,17 +443,6 @@ class TuiPresentationSink(PresentationSink):
                     if pending_session_id != session_id:
                         await self._flush_terminal_wait(pending_session_id)
                 self._pending_terminal_waits.setdefault(session_id, []).append(view)
-                identity = (view.call_id, session_id)
-                if (
-                    self._terminal_status(view) == "running"
-                    and identity not in self._active_terminal_waits
-                ):
-                    await self.output.start_terminal_wait(
-                        call_id=view.call_id,
-                        session_id=session_id,
-                        command=self._terminal_command(view),
-                    )
-                    self._active_terminal_waits.add(identity)
                 if self._terminal_status(view) == "exited":
                     await self._flush_terminal_wait(session_id)
                 return None

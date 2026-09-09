@@ -3,8 +3,9 @@
   "cases": [
     {
       "name": "uncommitted_empty_workspace",
-      "expected_fingerprint": "0866d374597b7abb45a76e1e5b3fb27c8c0b7f03b71fb73d24fe4d36691a1edd",
+      "expected_fingerprint": "5cd7b675511a27dc95b09f4731ddc2a2c456a1ae83580d682448f9cde49eb51b",
       "request": {
+        "session_mode": "existing",
         "request_id": "review_fixture_uncommitted",
         "cid": "cid_fixture_12345678",
         "sid": "sid_fixture_x_abcdef",
@@ -43,8 +44,9 @@
     },
     {
       "name": "base_branch_empty_workspace",
-      "expected_fingerprint": "aa897c0733aac9ff97c1d010c51e4302ff3b8e18a8fb1128b28a9edd0df9e892",
+      "expected_fingerprint": "fec3047daf67e86d1bb4500a78ded84ecf13e08f1e26b21cc5e3e7fda90a44e6",
       "request": {
+        "session_mode": "existing",
         "request_id": "review_fixture_base",
         "cid": "cid_fixture_12345678",
         "sid": "sid_fixture_x_abcdef",
@@ -83,8 +85,9 @@
     },
     {
       "name": "commit_empty_workspace",
-      "expected_fingerprint": "688a304f238b3b7ea6d42a9909203a59fc5f7a579bf9e567d0bc50c676e29f17",
+      "expected_fingerprint": "795b10976e9af88f423419cd9f95fbe7182255cf10cffa10c9bd2a9c90eec85c",
       "request": {
+        "session_mode": "existing",
         "request_id": "review_fixture_commit",
         "cid": "cid_fixture_12345678",
         "sid": "sid_fixture_x_abcdef",
@@ -123,8 +126,9 @@
     },
     {
       "name": "custom_empty_workspace",
-      "expected_fingerprint": "c53cbaf375017332bfd8d4195c52b500bdf92cf99179678edf5f8b7e4401c4db",
+      "expected_fingerprint": "86cd1486a4f34a738147cffb315caf8aa2ddcb4cc9cd3e2d8af1c4480f12757f",
       "request": {
+        "session_mode": "existing",
         "request_id": "review_fixture_custom",
         "cid": "cid_fixture_12345678",
         "sid": "sid_fixture_x_abcdef",

@@ -1281,7 +1281,11 @@ class TuiRuntime(object):
         block: FragmentBlock,
         *,
         kind: TuiBlockKind = "operation",
-        transcript_block: FragmentBlock | None = None
+        transcript_block: FragmentBlock | None = None,
+        source: TranscriptCellSource | None = None,
+        raw_text: str | None = None,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None,
     ) -> None:
         """追加后台完成历史，不改写已经进入原生滚屏的稳定块。"""
         with self.screen.visual_update():
@@ -1289,6 +1293,10 @@ class TuiRuntime(object):
                 block,
                 kind=kind,
                 transcript_block=transcript_block,
+                source=source,
+                raw_text=raw_text,
+                display_renderer=display_renderer,
+                display_render_width=display_render_width,
             )
             self.screen.transcript_overlay.content_changed()
             self.viewport.stable_content_changed()

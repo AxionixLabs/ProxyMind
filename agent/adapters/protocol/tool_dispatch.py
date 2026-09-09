@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import typing
 from dataclasses import dataclass
 
@@ -50,12 +51,9 @@ class StreamToolDispatcher:
         *,
         handler: ToolEventHandler,
         activity: TurnActivityProjector,
-        record_recovery_interrupt: typing.Callable[[str | None], None],
         replay_target_seq: int | None = None,
     ) -> None:
         """绑定工具处理器、活动投影器和输出状态端口。"""
-        if not callable(record_recovery_interrupt):
-            raise TypeError("tool recovery interrupt recorder must be callable")
         if replay_target_seq is not None and (
             not isinstance(replay_target_seq, int)
             or isinstance(replay_target_seq, bool)
@@ -64,11 +62,14 @@ class StreamToolDispatcher:
             raise ValueError("tool replay target must be non-negative")
         self.handler = handler
         self.activity = activity
-        self._record_recovery_interrupt = record_recovery_interrupt
         self.batch: ToolCallBatchBuffer = ToolCallBatchBuffer()
         self._replay_target_seq = replay_target_seq
         self._replayed_calls: list[ToolCallEvent] = []
         self._recovery_calls: list[ToolCallEvent] = []
+        self._calls: asyncio.Queue[tuple[ToolCallEvent, ...]] = asyncio.Queue()
+        self._completions: asyncio.Queue[ToolDispatchResult | Exception] = asyncio.Queue()
+        self._worker: asyncio.Task[None] | None = None
+        self._closed = False
 
     @property
     def batch_active(self) -> bool:
@@ -120,10 +121,10 @@ class StreamToolDispatcher:
             if self._is_historical(event):
                 self._replayed_calls.extend(ready_calls)
                 return ToolDispatchResult("handled")
-            return await self._execute_calls(ready_calls)
+            return self._enqueue_calls(ready_calls)
 
         if isinstance(event, ToolCallEvent):
-            return await self._execute_calls(self.batch.accept(event))
+            return self._enqueue_calls(self.batch.accept(event))
 
         if isinstance(event, ToolOutputEvent):
             await self.handler.handle_output(event)
@@ -149,7 +150,7 @@ class StreamToolDispatcher:
         """追平权威水位后接管仍等待结果的工具调用。"""
         recovery_calls = tuple(self._recovery_calls)
         self._recovery_calls.clear()
-        return await self._execute_calls(recovery_calls)
+        return self._enqueue_calls(recovery_calls)
 
     async def transport_recovery_changed(
         self,
@@ -162,9 +163,57 @@ class StreamToolDispatcher:
         await self.activity.transport_recovery_changed(phase, event_seq)
         if phase != "caught_up":
             return
-        recovery_result = await self.execute_recovery_calls()
-        if recovery_result.status == "interrupted":
-            self._record_recovery_interrupt(recovery_result.error)
+        await self.execute_recovery_calls()
+
+    def _enqueue_calls(self, calls: tuple[ToolCallEvent, ...]) -> ToolDispatchResult:
+        """将已验证调用交给本 Turn 唯一的顺序执行任务。"""
+        if not calls:
+            return ToolDispatchResult("handled")
+        if self._closed:
+            raise RuntimeError("tool dispatcher is closed")
+        self._calls.put_nowait(calls)
+        if self._worker is None:
+            self._worker = asyncio.create_task(self._run_calls())
+        return ToolDispatchResult("handled")
+
+    async def _run_calls(self) -> None:
+        """顺序执行工具并把完成或失败交回事件消费所有者。"""
+        while True:
+            calls = await self._calls.get()
+            try:
+                result = await self._execute_calls(calls)
+            except asyncio.CancelledError:
+                if not self._closed:
+                    self._completions.put_nowait(ToolDispatchResult("interrupted"))
+                raise
+            except Exception as error:
+                self._completions.put_nowait(error)
+                return
+            else:
+                self._completions.put_nowait(result)
+                if result.status == "interrupted":
+                    return
+            finally:
+                self._calls.task_done()
+
+    async def next_completion(self) -> ToolDispatchResult:
+        """向事件消费所有者交付一次工具批次的结果或异常。"""
+        result = await self._completions.get()
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    async def aclose(self) -> None:
+        """取消并回收当前工具等待，底层后台进程仍由进程管理器持有。"""
+        self._closed = True
+        worker = self._worker
+        self._worker = None
+        if worker is not None:
+            worker.cancel()
+            try:
+                await worker
+            except asyncio.CancelledError:
+                pass
 
     async def _execute_calls(
         self,

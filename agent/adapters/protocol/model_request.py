@@ -50,6 +50,7 @@ def build_model_stream_request(
 ) -> ModelStreamRequest:
     """校验单轮坐标和环境后构建冻结的模型流请求。"""
     request_options = dict(options)
+    request_options["session_mode"] = context.session_mode
     raw_attachments = request_options.pop("attachments", ())
     attachments = (
         tuple(raw_attachments)

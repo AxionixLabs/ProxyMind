@@ -14,11 +14,13 @@ def test_conversation_turn_marks_only_initial_boundary() -> None:
 
     assert first.turn_index == 1
     assert first.session_started is True
+    assert first.session_mode == "create"
     assert first.start_reason == "initial"
     assert state.fork_source_available is True
     assert first.metadata() == {"cid": first.cid, "sid": first.sid}
     assert second.turn_index == 2
     assert second.session_started is False
+    assert second.session_mode == "existing"
     assert second.start_reason == ""
     assert second.metadata() == first.metadata()
 
@@ -57,6 +59,7 @@ def test_bound_conversation_starts_on_first_model_turn() -> None:
         cid=cid,
         sid=sid,
         start_reason="tui:resume",
+        fork_source_available=True,
     )
 
     assert state.session_bound is True
@@ -66,6 +69,7 @@ def test_bound_conversation_starts_on_first_model_turn() -> None:
     assert started.turn_index == 1
     assert started.session_started is True
     assert started.start_reason == "tui:resume"
+    assert started.session_mode == "existing"
 
 
 def test_changed_external_session_creates_new_boundary() -> None:

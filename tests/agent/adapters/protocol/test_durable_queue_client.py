@@ -92,7 +92,7 @@ def _model_request() -> ModelStreamRequest:
         message="queued input",
         tools=(),
         metadata={"origin": "queue-test"},
-        options={"streaming": True},
+        options={"streaming": True, "session_mode": "existing"},
     )
 
 

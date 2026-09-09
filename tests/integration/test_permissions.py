@@ -201,6 +201,7 @@ async def test_request_payload_uses_sandbox_and_approval_fields() -> None:
         {},
         "inspect",
         [],
+        session_mode="existing",
         permissions=preset_permissions("auto"),
     )
 
@@ -227,6 +228,7 @@ async def test_request_payload_preserves_granular_approval_policy() -> None:
         {},
         "inspect",
         [],
+        session_mode="existing",
         permissions={
             "sandbox_mode": "workspace-write",
             "approval_policy": policy,
@@ -246,6 +248,7 @@ async def test_request_payload_rejects_invalid_network_access() -> None:
             {},
             "inspect",
             [],
+            session_mode="existing",
             permissions={"network_access": "open"},
         )
 
@@ -264,6 +267,7 @@ async def test_request_payload_enables_only_explicit_hosted_tool_groups() -> Non
         },
         "inspect",
         [],
+        session_mode="existing",
         permissions=preset_permissions("auto"),
     )
 
@@ -278,6 +282,7 @@ async def test_approve_for_me_payload_selects_auto_reviewer() -> None:
         {},
         "inspect",
         [],
+        session_mode="existing",
         permissions=PermissionSettings(
             "workspace-write",
             "on-request",
@@ -295,6 +300,7 @@ async def test_request_payload_rejects_invalid_explicit_turn_id() -> None:
             {},
             "inspect",
             [],
+            session_mode="existing",
             turn_id="invalid id",
         )
 
@@ -305,6 +311,7 @@ async def test_request_payload_normalizes_additional_context() -> None:
         {},
         "inspect",
         [],
+        session_mode="existing",
         permissions=preset_permissions("auto"),
         additional_context=[" first ", "", "second"],
     )
@@ -318,6 +325,7 @@ async def test_request_payload_normalizes_system_message() -> None:
         {},
         "inspect",
         [],
+        session_mode="existing",
         permissions=preset_permissions("auto"),
         system_message=" keep this focused ",
     )
@@ -332,6 +340,7 @@ async def test_request_payload_rejects_removed_system_message_alias() -> None:
             {},
             "inspect",
             [],
+            session_mode="existing",
             permissions=preset_permissions("auto"),
             systemMessage="removed alias",
         )

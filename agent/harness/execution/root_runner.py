@@ -95,6 +95,7 @@ async def prepare_root_turn(
         transcript_path=session.transcript_path_for_session(sid),
         turn_id=turn_id,
         session_started=conversation_turn.session_started,
+        session_mode=conversation_turn.session_mode,
         session_start_reason=conversation_turn.start_reason,
     )
     return TurnExecution(

@@ -399,6 +399,7 @@ async def test_review_reuses_standard_activity_and_tool_event_pump(
 ) -> None:
     tools = review_wire_tools(_catalog())
     command = create_review_command(
+        session_mode="existing",
         local_session_id="review_stream_session",
         cid=CID,
         sid=SID,

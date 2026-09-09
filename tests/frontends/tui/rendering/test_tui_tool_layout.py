@@ -43,6 +43,8 @@ from agent.ports import (
     OutputSurfaceContext,
     ResponseIdentity,
     SourcesOutput,
+    TerminalWaitStarted,
+    TerminalWaitCompleted,
 )
 from agent.application.views.builders.approval import build_approval_view
 from agent.application.views.builders.batch import (
@@ -375,6 +377,14 @@ async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
     presentation = session.presentation
     command = "python -m pytest tests/frontends/tui/features/test_tui_shell.py -q"
 
+    await session.activity.emit(TerminalWaitStarted(
+        surface_id=OUTPUT_SURFACE_CONTEXT.surface_id,
+        turn_id=OUTPUT_SURFACE_CONTEXT.turn_id,
+        call_id="poll-1",
+        session_id="session-1",
+        command=command,
+    ))
+
     await presentation.emit(build_native_tool_result_view(
         "exec_command",
         {"command": command},
@@ -405,6 +415,13 @@ async def test_tui_exec_lifecycle_uses_one_codex_terminal_projection() -> None:
         "• Waiting for background terminal (0s • esc to interrupt)"
     )
     assert f"\n  └ {command}" in activity_text
+    await session.activity.emit(TerminalWaitCompleted(
+        surface_id=OUTPUT_SURFACE_CONTEXT.surface_id,
+        turn_id=OUTPUT_SURFACE_CONTEXT.turn_id,
+        call_id="poll-1",
+        session_id="session-1",
+        command=command,
+    ))
     await presentation.emit(build_native_tool_result_view(
         "write_stdin",
         {"session_id": "session-1", "stdin": ""},
