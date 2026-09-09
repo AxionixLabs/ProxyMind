@@ -67,6 +67,7 @@ class ConfigSession(object):
         values: dict[tuple[str, ...], object],
         *,
         ensure_effective: dict[tuple[str, ...], object] | None = None,
+        delete_paths: typing.Iterable[tuple[str, ...]] = (),
     ) -> dict[str, typing.Any]:
         """完整校验后更新用户级配置并返回有效快照。"""
         validated = {
@@ -75,6 +76,7 @@ class ConfigSession(object):
         }
         self.store.update(
             validated,
+            delete_paths=delete_paths,
             validate=lambda candidate: self._validate_user_candidate(
                 candidate,
                 expected_effective=ensure_effective,

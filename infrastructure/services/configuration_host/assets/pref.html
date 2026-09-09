@@ -1824,6 +1824,14 @@
             <button class="field-clear-button" type="button" data-clear-target="provider-base-url" aria-label="Clear base URL" title="Clear base URL"><span aria-hidden="true">&times;</span></button>
           </div>
         </div>
+        <div class="field">
+          <div class="label-row"><label for="provider-context-window">Context window</label><span class="hint">tokens · blank uses server model setting</span></div>
+          <input id="provider-context-window" type="number" min="2" step="1" placeholder="e.g. 128000" />
+        </div>
+        <div class="field">
+          <div class="label-row"><label for="provider-compact-limit">Auto-compaction threshold</label><span class="hint">input tokens · optional</span></div>
+          <input id="provider-compact-limit" type="number" min="1" step="1" placeholder="e.g. 90000" />
+        </div>
       </div>
       <div class="dialog-actions">
         <button class="provider-button danger" type="button" id="delete-provider">Delete</button>
@@ -2306,6 +2314,8 @@
       fieldValue("provider-effort", provider?.reasoning_effort || "medium");
       fieldValue("provider-api-key", providerEditor.apiKeyMaskActive ? "********" : "");
       fieldValue("provider-base-url", provider?.base_url || "");
+      fieldValue("provider-context-window", provider?.model_context_window ?? "");
+      fieldValue("provider-compact-limit", provider?.model_auto_compact_token_limit ?? "");
       ui.deleteProviderButton.hidden = !provider;
       ui.providerDialog.showModal();
       syncSelectStates();
@@ -2327,7 +2337,9 @@
         reasoning_effort: fieldSelectValue("provider-effort", "medium"),
         api_key: providerEditor.apiKeyMaskActive ? "" : fieldInputValue("provider-api-key"),
         clear_api_key: providerEditor.clearApiKey,
-        base_url: fieldInputValue("provider-base-url")
+        base_url: fieldInputValue("provider-base-url"),
+        model_context_window: fieldInputValue("provider-context-window") === "" ? null : Number(fieldInputValue("provider-context-window")),
+        model_auto_compact_token_limit: fieldInputValue("provider-compact-limit") === "" ? null : Number(fieldInputValue("provider-compact-limit"))
       };
     }
 

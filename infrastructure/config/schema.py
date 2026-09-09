@@ -31,6 +31,10 @@ from infrastructure.config.providers import (
     supported_routes_for_kind
 )
 from infrastructure.hooks.discovery import normalize_hook_table
+from protocol.schema.model_config import (
+    MODEL_CONTEXT_FIELDS,
+    parse_model_context_config,
+)
 
 DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT: typing.Final[int] = 10_000
 
@@ -132,7 +136,8 @@ def _normalize_model_slot(data: dict[str, typing.Any]) -> dict[str, typing.Any]:
             provider_config.get("reasoning_effort"),
             default=DEFAULT_REASONING_EFFORT,
         ),
-        "enabled": bool(provider_config and model and kind)
+        "enabled": bool(provider_config and model and kind),
+        **parse_model_context_config(provider_config),
     }
 
 
@@ -642,6 +647,13 @@ def validate_config_value(
             )
         return None
 
+    if len(path) == 3 and path[0] == "model_providers" and path[2] in MODEL_CONTEXT_FIELDS:
+        try:
+            parse_model_context_config({path[2]: value})
+        except ValueError as error:
+            raise ConfigValidationError(f"{dotted}: {error}") from error
+        return None
+
     if (
         len(path) == 3
         and path[0] == "model_providers"
@@ -786,15 +798,19 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
                 )
             _validate_known_fields(
                 provider,
-                MODEL_PROVIDER_STRING_FIELDS,
+                MODEL_PROVIDER_STRING_FIELDS | MODEL_CONTEXT_FIELDS,
                 f"model_providers.{name}",
             )
-            for field in MODEL_PROVIDER_STRING_FIELDS:
+            for field in MODEL_PROVIDER_STRING_FIELDS | MODEL_CONTEXT_FIELDS:
                 if field in provider:
                     validate_config_value(
                         ("model_providers", name, field),
                         provider[field],
                     )
+            try:
+                parse_model_context_config(provider)
+            except ValueError as error:
+                raise ConfigValidationError(f"model_providers.{name}: {error}") from error
 
             kind = str(provider.get("kind") or "").strip().lower()
             route = str(provider.get("route") or "").strip().lower()
@@ -1187,6 +1203,10 @@ def provider_profile_values(
         ("model_providers", normalized_id, "base_url"): (
             _as_str(profile.get("base_url")).strip()
         ),
+        **{
+            ("model_providers", normalized_id, field): value
+            for field, value in parse_model_context_config(profile).items()
+        },
     }
 
 

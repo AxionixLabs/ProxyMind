@@ -13,7 +13,7 @@ from protocol.schema.review import (
     parse_mind_review_request,
 )
 
-FIXTURE_SHA256 = "10085dd8a34d4932886c3d5087b0fdcf5eded2c6ed185e94fb81752ec2730c10"
+FIXTURE_SHA256 = "c9c0f7ce3169173dd62b2b3e5f48a5053b24b878970f545bfa44424be8a2b7e5"
 
 
 def test_review_v1_shared_fixture_hash_matches_appserver_contract(

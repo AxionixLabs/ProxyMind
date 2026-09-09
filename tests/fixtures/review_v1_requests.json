@@ -3,7 +3,7 @@
   "cases": [
     {
       "name": "uncommitted_empty_workspace",
-      "expected_fingerprint": "5cd7b675511a27dc95b09f4731ddc2a2c456a1ae83580d682448f9cde49eb51b",
+      "expected_fingerprint": "7fb990cd0459e1931ec242938118c28bbabe104edb7c5b3c6236da180bbc5ae3",
       "request": {
         "session_mode": "existing",
         "request_id": "review_fixture_uncommitted",
@@ -19,7 +19,7 @@
           "files": []
         },
         "execution": {
-          "llm_conf": {"primary": {"provider": "openai", "route": "responses", "model": "gpt-test", "apikey": "", "base_url": "", "reasoning_effort": ""}},
+          "llm_conf": {"primary": {"provider": "openai", "route": "responses", "model": "gpt-test", "apikey": "", "base_url": "", "reasoning_effort": "", "model_context_window": 128000, "model_auto_compact_token_limit": 90000}},
           "additional_context": [],
           "system_message": "",
           "attachments": null,
@@ -44,7 +44,7 @@
     },
     {
       "name": "base_branch_empty_workspace",
-      "expected_fingerprint": "fec3047daf67e86d1bb4500a78ded84ecf13e08f1e26b21cc5e3e7fda90a44e6",
+      "expected_fingerprint": "b60ccd6c3f5c86ffbdee1588da24116d51db603ec72ff2f0d8c9faaca220a100",
       "request": {
         "session_mode": "existing",
         "request_id": "review_fixture_base",
@@ -85,7 +85,7 @@
     },
     {
       "name": "commit_empty_workspace",
-      "expected_fingerprint": "795b10976e9af88f423419cd9f95fbe7182255cf10cffa10c9bd2a9c90eec85c",
+      "expected_fingerprint": "18aa27b052d05b52ec6dccfd09a1591e6f64fdbb61a597c83941e1245618fef8",
       "request": {
         "session_mode": "existing",
         "request_id": "review_fixture_commit",
@@ -126,7 +126,7 @@
     },
     {
       "name": "custom_empty_workspace",
-      "expected_fingerprint": "86cd1486a4f34a738147cffb315caf8aa2ddcb4cc9cd3e2d8af1c4480f12757f",
+      "expected_fingerprint": "438b4d27572b1a6d2e3397b2103e4952848ee4132b1c0c8e9f6c0d26c622d41b",
       "request": {
         "session_mode": "existing",
         "request_id": "review_fixture_custom",

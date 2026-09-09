@@ -17,6 +17,7 @@ from observability import (
     observe,
     observe_exception
 )
+from protocol.schema.model_config import parse_model_context_config
 from protocol.transport import config
 
 
@@ -81,6 +82,7 @@ def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any
                 slot.get("reasoning_effort")
             ),
             "enabled": _as_bool(slot.get("enabled"), False),
+            **parse_model_context_config(slot),
         }
 
     primary = _as_dict(model.get("primary"))
@@ -258,7 +260,8 @@ class Preferences(object):
             "apikey": str(slot.get("apikey", "")),
             "base_url": str(slot.get("base_url", "")),
             "reasoning_effort": _normalize_reasoning_effort(slot.get("reasoning_effort")),
-            "enabled": _as_bool(slot.get("enabled"), False)
+            "enabled": _as_bool(slot.get("enabled"), False),
+            **parse_model_context_config(slot),
         }
 
     @classmethod

@@ -15,6 +15,10 @@ from infrastructure.config.providers import (
 from infrastructure.config.schema import provider_profile_values
 from infrastructure.config.session import ConfigSession
 from infrastructure.services.service_config import normalize_domain
+from protocol.schema.model_config import (
+    MODEL_CONTEXT_FIELDS,
+    parse_model_context_config,
+)
 
 HOSTED_TOOL_GROUPS = ("perf_engine", "sandbox_cloud")
 
@@ -72,7 +76,7 @@ def create_provider(
         raise ValueError(f"provider already exists: {provider_id}")
 
     profile = normalize_provider_profile(provider_id, payload)
-    _validate_unique_provider_name(profiles, profile["name"])
+    _validate_unique_provider_name(profiles, clean_text(profile["name"]))
     config_session.update_user(provider_profile_values(provider_id, profile))
     return load_pref(config_session)
 
@@ -94,6 +98,9 @@ def update_provider(
     for field in ("name", "kind", "model", "route", "reasoning_effort", "base_url"):
         if field in payload:
             merged[field] = payload[field]
+    for field in MODEL_CONTEXT_FIELDS:
+        if field in payload:
+            merged[field] = payload[field]
     if payload.get("clear_api_key"):
         merged["api_key"] = ""
     elif clean_text(payload.get("api_key")):
@@ -102,10 +109,17 @@ def update_provider(
     profile = normalize_provider_profile(normalized_id, merged)
     _validate_unique_provider_name(
         profiles,
-        profile["name"],
+        clean_text(profile["name"]),
         excluded_id=normalized_id,
     )
-    config_session.update_user(provider_profile_values(normalized_id, profile))
+    cleared_paths = [
+        ("model_providers", normalized_id, field)
+        for field in MODEL_CONTEXT_FIELDS
+        if field in current and field in payload and payload[field] is None
+    ]
+    config_session.update_user(
+        provider_profile_values(normalized_id, profile), delete_paths=cleared_paths,
+    )
     return load_pref(config_session)
 
 
@@ -205,6 +219,7 @@ def provider_profile_to_pref(
         "api_key_configured": bool(profile["api_key"]),
         "active": provider_id == active_id,
         "ready": bool(profile["model"]),
+        **parse_model_context_config(profile),
     }
 
 
@@ -216,7 +231,7 @@ def normalize_provider_id(value: object) -> str:
     return provider_id
 
 
-def normalize_provider_profile(provider_id: str, raw: typing.Any) -> dict[str, str]:
+def normalize_provider_profile(provider_id: str, raw: typing.Any) -> dict[str, str | int]:
     """规范化并校验一个 Provider Profile。"""
     data = raw if isinstance(raw, dict) else {}
     name = clean_text(data.get("name"), provider_id)
@@ -240,6 +255,7 @@ def normalize_provider_profile(provider_id: str, raw: typing.Any) -> dict[str, s
         "reasoning_effort": raw_effort,
         "api_key": clean_text(data.get("api_key", data.get("apikey"))),
         "base_url": clean_text(data.get("base_url")),
+        **parse_model_context_config(data),
     }
 
 

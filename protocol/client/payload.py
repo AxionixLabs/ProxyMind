@@ -8,6 +8,7 @@ from protocol.schema.identifiers import (
     normalize_turn_id,
     short_uid,
 )
+from protocol.schema.model_config import parse_model_context_config
 from protocol.schema.permissions import permission_payload
 
 _AGENT_REQUEST_OPTION_FIELDS = frozenset({
@@ -57,7 +58,7 @@ def normalize_request_slot(
         for key in empty_slot
     })
 
-    return empty_slot
+    return {**empty_slot, **parse_model_context_config(slot)}
 
 
 def request_llm_conf(pref_config: typing.Any) -> dict[str, typing.Any]:

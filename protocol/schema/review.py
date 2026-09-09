@@ -20,6 +20,10 @@ from protocol.schema.json_value import (
     JsonObject,
     JsonValue,
 )
+from protocol.schema.model_config import (
+    MODEL_CONTEXT_FIELDS,
+    parse_model_context_config,
+)
 
 ReviewDelivery: typing.TypeAlias = typing.Literal["inline", "detached"]
 ReviewCorrectness: typing.TypeAlias = typing.Literal[
@@ -268,7 +272,7 @@ def _validate_review_llm_conf(value: JsonObject) -> JsonObject:
     payload = _mapping(value, "review llm_conf")
     _exact_fields(payload, frozenset({"primary"}), "review llm_conf")
     primary = _mapping(payload["primary"], "review llm_conf primary")
-    allowed = frozenset({
+    text_fields = frozenset({
         "provider",
         "route",
         "model",
@@ -276,14 +280,15 @@ def _validate_review_llm_conf(value: JsonObject) -> JsonObject:
         "base_url",
         "reasoning_effort",
     })
-    unknown = sorted(set(primary).difference(allowed))
+    unknown = sorted(set(primary).difference(text_fields | MODEL_CONTEXT_FIELDS))
     if unknown:
         raise ValueError(
             "review llm_conf primary contains unknown fields: "
             + ", ".join(unknown)
         )
-    if any(not isinstance(value, str) for value in primary.values()):
+    if any(not isinstance(value, str) for key, value in primary.items() if key in text_fields):
         raise TypeError("review llm_conf primary fields must be text")
+    parse_model_context_config(primary)
     route = primary.get("route", "")
     if route not in {"", "responses", "chat_completions", "messages"}:
         raise ValueError("review llm_conf primary route is invalid")
@@ -911,6 +916,8 @@ class MindReviewRequest:
                         "reasoning_effort",
                     ):
                         primary.setdefault(field_name, "")
+                    for field_name in MODEL_CONTEXT_FIELDS:
+                        primary.setdefault(field_name, None)
             tools = execution.get("tools")
             if isinstance(tools, list):
                 for tool in tools:

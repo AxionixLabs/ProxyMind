@@ -124,11 +124,14 @@ class ConfigStore(object):
         self,
         values: dict[tuple[str, ...], object],
         *,
+        delete_paths: typing.Iterable[tuple[str, ...]] = (),
         validate: Callable[[dict[str, object]], None] | None = None
     ) -> dict[str, object]:
         """校验候选文档后更新指定点路径并保留其他格式。"""
         document = self.read_document()
 
+        for path in delete_paths:
+            self._delete_path(document, path)
         for path, value in values.items():
             self._set_path(document, path, value)
 
