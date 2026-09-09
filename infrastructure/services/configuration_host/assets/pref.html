@@ -1792,22 +1792,24 @@
             <div class="select-wrap"><select id="provider-route"></select></div>
           </div>
         </div>
-        <div class="field">
-          <div class="label-row"><label for="provider-model">Model</label><span class="hint">required before activation</span></div>
-          <div class="clearable-input">
-            <input id="provider-model" placeholder="model-id" />
-            <button class="field-clear-button" type="button" data-clear-target="provider-model" aria-label="Clear model" title="Clear model"><span aria-hidden="true">&times;</span></button>
+        <div class="dialog-grid">
+          <div class="pair-item">
+            <div class="label-row"><label for="provider-model">Model</label><span class="hint">required before activation</span></div>
+            <div class="clearable-input">
+              <input id="provider-model" placeholder="model-id" />
+              <button class="field-clear-button" type="button" data-clear-target="provider-model" aria-label="Clear model" title="Clear model"><span aria-hidden="true">&times;</span></button>
+            </div>
           </div>
-        </div>
-        <div class="pair-item">
-          <div class="label-row"><label for="provider-effort">Reasoning Effort</label><span class="hint">profile default</span></div>
-          <div class="select-wrap">
-            <select id="provider-effort">
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="xhigh">xhigh</option>
-            </select>
+          <div class="pair-item">
+            <div class="label-row"><label for="provider-effort">Reasoning Effort</label><span class="hint">profile default</span></div>
+            <div class="select-wrap">
+              <select id="provider-effort">
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="xhigh">xhigh</option>
+              </select>
+            </div>
           </div>
         </div>
         <div class="field">
@@ -1824,13 +1826,15 @@
             <button class="field-clear-button" type="button" data-clear-target="provider-base-url" aria-label="Clear base URL" title="Clear base URL"><span aria-hidden="true">&times;</span></button>
           </div>
         </div>
-        <div class="field">
-          <div class="label-row"><label for="provider-context-window">Context window</label><span class="hint">tokens · blank uses server model setting</span></div>
-          <input id="provider-context-window" type="number" min="2" step="1" placeholder="e.g. 128000" />
-        </div>
-        <div class="field">
-          <div class="label-row"><label for="provider-compact-limit">Auto-compaction threshold</label><span class="hint">input tokens · optional</span></div>
-          <input id="provider-compact-limit" type="number" min="1" step="1" placeholder="e.g. 90000" />
+        <div class="dialog-grid">
+          <div class="pair-item">
+            <div class="label-row"><label for="provider-context-window">Context window</label><span class="hint">tokens · blank uses server model setting</span></div>
+            <input id="provider-context-window" type="number" min="2" step="1" placeholder="e.g. 128000" />
+          </div>
+          <div class="pair-item">
+            <div class="label-row"><label for="provider-compact-limit">Auto-compaction threshold</label><span class="hint">input tokens · optional</span></div>
+            <input id="provider-compact-limit" type="number" min="1" step="1" placeholder="e.g. 90000" />
+          </div>
         </div>
       </div>
       <div class="dialog-actions">
