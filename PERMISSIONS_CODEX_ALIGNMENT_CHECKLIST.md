@@ -52,3 +52,11 @@
 ## TTY 观察
 
 - MCP 启动期间首个请求可能早于 `External MCP ready`，此时模型会报告工具尚未接入；等待 `1/1 servers · 24 tools` 后重试即可正常调用。这是启动时序问题，不是权限判定偏差，后续应单独治理。
+
+## 审批语义回归入口
+
+- 域层全矩阵：[test_mcp_semantics_matrix.py](tests/agent/domain/approvals/test_mcp_semantics_matrix.py)，覆盖四种 MCP 模式与 27 种注解组合，并锁定风险投影优先级。
+- 集成层矩阵：[test_mcp_approval_semantics_matrix.py](tests/integration/test_mcp_approval_semantics_matrix.py)，覆盖 Full Access、受限 `never`、`on-request`、批准/拒绝、只读注解和活动生命周期。
+- 既有生命周期与故障回归继续由 `tests/agent/application/approvals/`、`tests/integration/test_mcp_approval_gate.py`、`tests/integration/test_turn_fault_injection.py` 和 TTY/PTY acceptance 测试负责。
+- 标准门槛：`venv\Scripts\python.exe -m pytest tests/agent/domain/approvals/test_mcp_semantics_matrix.py tests/integration/test_mcp_approval_semantics_matrix.py tests/integration/test_mcp_approval_gate.py tests/integration/test_turn_fault_injection.py -q`。
+- 本次新增矩阵已验证：122 passed；后续 P14/P16 每个阶段必须先通过该门槛，再进行 TTY 验收。
