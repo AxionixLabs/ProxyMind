@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+from metadata import const
 from agent.application.views.builders.review import (
     build_review_cancelled_view,
     build_review_finished_view,
@@ -58,8 +59,7 @@ def test_review_status_title_and_interrupt_keep_codex_layout_order() -> None:
         "<< Code review finished >>",
         "• Review was interrupted. Please re-run /review and wait for it to "
         "complete.",
-        "■ Conversation interrupted - tell the model what to do differently. "
-        "Something went wrong? Hit `/feedback` to report the issue.",
+        f"■ Conversation interrupted · Tell {const.APP_DESC} what to do differently.",
     ]
     assert [block.gap_before for block in blocks] == [0, 1, 1, 1, 1]
     assert [block.kind for block in blocks] == [

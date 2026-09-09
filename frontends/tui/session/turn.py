@@ -16,12 +16,14 @@ from agent.ports.presentation import (
     ApplicationView,
 )
 from agent.ports.presentation import TextSpan
+from metadata import const
 from observability import observe
 from .turn_input import TuiTurnInputControl
 from ..core.interrupt import InterruptDisposition
 from ..core.styles import (
     BODY_STYLE,
     FAILURE_STYLE,
+    MUTED_STYLE,
     fragment_block,
 )
 from ..runtime.ports import TurnRuntimePort
@@ -100,11 +102,11 @@ def emit_tui_interrupt_notice(
     application.emit(ApplicationView(
         type="tui.interrupted",
         renderable=fragment_block(
+            TextSpan("■", FAILURE_STYLE),
+            TextSpan(" Conversation interrupted", BODY_STYLE),
             TextSpan(
-                "■ Conversation interrupted - tell the model what to do "
-                "differently. Something went wrong? Hit `/feedback` to report "
-                "the issue.",
-                FAILURE_STYLE,
+                f" · Tell {const.APP_DESC} what to do differently.",
+                MUTED_STYLE,
             ),
         ),
     ))
