@@ -19,6 +19,7 @@ TITLE_MAX_CHARS = 80
 HISTORY_MENU_LIMIT = 10
 
 INTERACTIVE_HISTORY_SOURCES = (
+    "review",
     "tui",
     "tui:resume",
 )

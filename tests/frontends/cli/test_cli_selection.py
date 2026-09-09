@@ -735,7 +735,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
     assert result is None
     recent.assert_called_once_with(
         workspace=r"D:\workspace",
-        sources=("tui", "tui:resume"),
+        sources=("review", "tui", "tui:resume"),
         limit=1,
         status="active",
     )
@@ -855,7 +855,7 @@ async def test_interactive_cli_resume_opens_picker_for_empty_snapshot(
     assert selected is None
     recent.assert_called_once_with(
         workspace=r"D:\workspace",
-        sources=("tui", "tui:resume"),
+        sources=("review", "tui", "tui:resume"),
         limit=200,
     )
     call = choose.await_args

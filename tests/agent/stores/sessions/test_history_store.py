@@ -20,6 +20,13 @@ def test_history_queries_filter_workspace_source_and_session_id(tmp_path) -> Non
         source="tui",
         now_ms=100,
     )
+    review = store.touch_session(
+        cid="cid_review_12345678",
+        sid="sid_review_1_abcdef",
+        workspace=r"D:\workspace\alpha",
+        source="review",
+        now_ms=150,
+    )
     store.touch_session(
         cid="cid_beta_12345678",
         sid="sid_beta_1_abcdef",
@@ -40,7 +47,10 @@ def test_history_queries_filter_workspace_source_and_session_id(tmp_path) -> Non
         now_ms=300,
     )
 
-    assert [record["sid"] for record in records] == [interactive["sid"]]
+    assert [record["sid"] for record in records] == [
+        review["sid"],
+        interactive["sid"],
+    ]
     assert found is not None
     assert found["cid"] == interactive["cid"]
 
