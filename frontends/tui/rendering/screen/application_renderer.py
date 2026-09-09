@@ -226,6 +226,10 @@ class TuiApplicationRenderer(Renderer):
             raise RuntimeError("style cache is not initialized")
         return attrs_for_style[style]
 
+    def invalidate_inline_viewport(self) -> None:
+        """标记外部 scrollback 写入已使当前 inline 栅格失效。"""
+        self.inline_viewport.reset()
+
 
 
 if __name__ == '__main__':

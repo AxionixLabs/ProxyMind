@@ -1701,6 +1701,12 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         """在尺寸重排事务中清除可见画面和原生滚屏。"""
         _clear_terminal_for_resize_replay(self.application.output)
 
+    def invalidate_inline_viewport(self) -> None:
+        """通知自有 renderer 外部 scrollback 写入已改变物理画面。"""
+        renderer = self.application.renderer
+        if isinstance(renderer, TuiApplicationRenderer):
+            renderer.invalidate_inline_viewport()
+
     def begin_synchronized_output(self) -> bool:
         """开始终端同步输出更新并返回是否已启用。"""
         if self._synchronized_output_depth:

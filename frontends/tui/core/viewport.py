@@ -67,6 +67,7 @@ class TuiTranscriptViewport(object):
         get_open_transcript_label: typing.Callable[[], str],
         clear_terminal_scrollback: typing.Callable[[], None],
         clear_terminal_for_resize_replay: typing.Callable[[], None],
+        invalidate_inline_viewport: typing.Callable[[], None] | None = None,
         begin_synchronized_output: typing.Callable[[], bool],
         end_synchronized_output: typing.Callable[[], None],
         report_error: typing.Callable[[BaseException], None],
@@ -91,6 +92,9 @@ class TuiTranscriptViewport(object):
         self._clear_terminal_scrollback = clear_terminal_scrollback
         self._clear_terminal_for_resize_replay = (
             clear_terminal_for_resize_replay
+        )
+        self._invalidate_inline_viewport = (
+            invalidate_inline_viewport or (lambda: None)
         )
         self._begin_synchronized_output = begin_synchronized_output
         self._end_synchronized_output = end_synchronized_output
@@ -877,6 +881,7 @@ class TuiTranscriptViewport(object):
                     )
 
                     self._print_scrollback_fragments(fragments)
+                    self._invalidate_inline_viewport()
 
                     if not self.document.commit_scrollback_prefix(
                         candidate.line_count,
@@ -1028,6 +1033,7 @@ class TuiTranscriptViewport(object):
                         )
 
                         self._print_scrollback_fragments(fragments)
+                        self._invalidate_inline_viewport()
 
                         if not self.document.commit_scrollback_prefix(
                             line_count,

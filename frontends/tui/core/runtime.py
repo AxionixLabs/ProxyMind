@@ -249,6 +249,9 @@ class TuiRuntime(object):
             clear_terminal_for_resize_replay=(
                 lambda: self.screen.clear_terminal_for_resize_replay()
             ),
+            invalidate_inline_viewport=(
+                lambda: self.screen.invalidate_inline_viewport()
+            ),
             begin_synchronized_output=(
                 lambda: self.screen.begin_synchronized_output()
             ),
