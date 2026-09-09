@@ -111,5 +111,14 @@ def set_alternate_scroll_mode(output: Output, active: bool) -> bool:
     return True
 
 
+def scroll_inline_viewport(output: Output, lines: int) -> None:
+    """按指定行数向上滚动当前 VT 物理视口。"""
+    if lines <= 0:
+        return None
+    if not supports_vt_control(output):
+        raise RuntimeError("inline viewport scrolling requires VT output")
+    output.write_raw(f"\x1b[{lines}S")
+
+
 if __name__ == '__main__':
     pass

@@ -12,10 +12,12 @@ from .layout import (
     measure_composer_layout,
     measure_overlay_layout,
 )
+from .application_renderer import TuiApplicationRenderer
 
 __all__ = [
     "AuxiliaryPaneLayout",
     "OverlayLayout",
+    "TuiApplicationRenderer",
     "allocate_approval_view_layout",
     "allocate_auxiliary_pane_layout",
     "allocate_menu_view_layout",

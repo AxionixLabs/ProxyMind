@@ -53,6 +53,7 @@ from prompt_toolkit.widgets import TextArea
 from frontends.interaction.contracts import PromptContext
 from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilityState,
     TerminalCapabilities,
 )
 from frontends.terminal.color_support import TerminalColorLevel
@@ -154,6 +155,7 @@ from ..rendering.screen.geometry import (
     InlineRendererState as _InlineRendererState,
     OverlayLayout
 )
+from ..rendering.screen.application_renderer import TuiApplicationRenderer
 from ..rendering.screen.layout import (
     allocate_approval_view_layout,
     allocate_auxiliary_pane_layout,
@@ -189,7 +191,8 @@ from ..rendering.screen.terminal import (
     set_alternate_scroll_mode as _set_alternate_scroll_mode,
     set_synchronized_output as _set_synchronized_output,
     supports_terminal_hyperlinks as _supports_terminal_hyperlinks,
-    supports_vt_control as _supports_vt_control
+    supports_vt_control as _supports_vt_control,
+    scroll_inline_viewport as _scroll_inline_viewport,
 )
 
 
@@ -1208,6 +1211,8 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             self.application.output = hyperlink_output
             self.application.renderer.output = hyperlink_output
 
+        self._install_inline_renderer(terminal_capabilities)
+
         self.application.ttimeoutlen = self.ESCAPE_SEQUENCE_TIMEOUT_SEC
         # Prompt Toolkit 的 Esc 空 flush 会重启 timeoutlen，需扣除该等待。
         self.application.timeoutlen = max(
@@ -1216,6 +1221,33 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         )
 
         self._inline_renderer_state: _InlineRendererState | None = None
+
+    def _install_inline_renderer(
+        self,
+        terminal_capabilities: TerminalCapabilities,
+    ) -> None:
+        """在唯一 Application 组合位置安装绝对坐标 inline renderer。"""
+        output_capabilities = terminal_capabilities.output_capabilities
+        if (
+            output_capabilities.absolute_cursor_addressing
+            is not TerminalCapabilityState.SUPPORTED
+            or not _supports_vt_control(self.application.output)
+        ):
+            return None
+
+        self.application.renderer = TuiApplicationRenderer(
+            style=self.application.style,
+            output=self.application.output,
+            capabilities=output_capabilities,
+            color_depth=self.application.color_depth,
+            viewport_origin=Point(x=0, y=0),
+            scroll_lines=lambda lines: _scroll_inline_viewport(
+                self.application.output,
+                lines,
+            ),
+            full_screen=False,
+            mouse_support=False,
+        )
 
     @property
     def terminal_width(self) -> int:
@@ -1936,6 +1968,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         if self._inline_renderer_state is not None:
             return None
 
+        if isinstance(renderer, TuiApplicationRenderer):
+            renderer.inline_viewport.reset()
+
         terminal_height = self.terminal_height
 
         # prompt_toolkit 没有运行中切换全屏的公开接口；固定版本下保留
@@ -1993,6 +2028,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 renderer._last_style = state.last_style
                 renderer._last_cursor_shape = state.last_cursor_shape
                 renderer._min_available_height = state.min_available_height
+
+            if isinstance(renderer, TuiApplicationRenderer):
+                renderer.inline_viewport.reset()
 
             self._inline_renderer_state = None
 

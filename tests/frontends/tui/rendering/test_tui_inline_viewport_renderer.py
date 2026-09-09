@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import dataclasses
+from io import StringIO
 
 import pytest
 from prompt_toolkit.data_structures import Point
@@ -9,11 +10,18 @@ from prompt_toolkit.layout.screen import Char
 from prompt_toolkit.layout.screen import Screen
 from prompt_toolkit.output import ColorDepth
 from prompt_toolkit.output import DummyOutput
+from prompt_toolkit.output.vt100 import Vt100_Output
+from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.styles import Attrs
 from prompt_toolkit.styles import DEFAULT_ATTRS
 
 from frontends.terminal.capabilities import TerminalCapabilityState
 from frontends.terminal.capabilities import TerminalOutputCapabilities
+from frontends.terminal.capabilities import detect_terminal_capabilities
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.rendering.screen.application_renderer import (
+    TuiApplicationRenderer,
+)
 from frontends.tui.rendering.screen.inline_viewport import (
     TuiInlineViewportRenderer,
 )
@@ -475,6 +483,34 @@ def test_renderer_rejects_missing_absolute_cursor_capability() -> None:
             scroll_lines=lambda _amount: None,
             style_resolver=lambda _style: DEFAULT_ATTRS,
         )
+
+
+@pytest.mark.anyio
+async def test_runtime_installs_absolute_renderer_for_vt_output() -> None:
+    """验证 TuiScreen 在唯一 Application 组合点安装自有 renderer。"""
+    with create_pipe_input() as pipe_input:
+        output = Vt100_Output(
+            StringIO(),
+            get_size=lambda: Size(rows=12, columns=40),
+            default_color_depth=ColorDepth.DEPTH_4_BIT,
+        )
+        capabilities = detect_terminal_capabilities(output_obj=output)
+        runtime = TuiRuntime(
+            input_obj=pipe_input,
+            output_obj=output,
+            terminal_capabilities=capabilities,
+        )
+
+        assert isinstance(
+            runtime.screen.application.renderer,
+            TuiApplicationRenderer,
+        )
+
+        await runtime.open()
+        try:
+            assert runtime.screen.application.renderer.last_rendered_screen is not None
+        finally:
+            await runtime.close()
 
 
 if __name__ == '__main__':

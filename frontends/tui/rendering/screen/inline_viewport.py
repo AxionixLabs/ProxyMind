@@ -223,6 +223,15 @@ class TuiInlineViewportRenderer:
         self._terminal_size_generation = None
         self._terminal_size = None
 
+    def set_viewport_origin(self, origin: Point) -> None:
+        """更新物理 viewport 起点并使旧坐标栅格失效。"""
+        if origin.x < 0 or origin.y < 0:
+            raise ValueError("viewport origin must be non-negative")
+        if origin == self._viewport_origin:
+            return None
+        self._viewport_origin = origin
+        self.reset()
+
     def _fit_viewport_origin(
         self,
         terminal_size: Size,
