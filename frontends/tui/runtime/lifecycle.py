@@ -8,6 +8,8 @@ import typing
 from prompt_toolkit.application.current import create_app_session
 from prompt_toolkit.patch_stdout import patch_stdout
 
+from .terminal_stderr import TerminalStderrGuard
+
 
 class ApplicationLifecycle(object):
     """拥有输入 Application 任务，并把异常收束为可等待的失败事件。"""
@@ -113,6 +115,7 @@ class ApplicationLifecycle(object):
         previous_exception_handler = loop.get_exception_handler()
         exception_handler = self._handle_event_loop_exception
         loop.set_exception_handler(exception_handler)
+        stderr_guard = TerminalStderrGuard.install()
 
         try:
             with create_app_session(
@@ -129,6 +132,7 @@ class ApplicationLifecycle(object):
         except (EOFError, KeyboardInterrupt) as error:
             self._error = error
         finally:
+            stderr_guard.close()
             if loop.get_exception_handler() is exception_handler:
                 loop.set_exception_handler(previous_exception_handler)
 
