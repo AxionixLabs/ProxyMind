@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import contextlib
 import typing
+
+import httpx
 
 from agent.application.turns.compact_result import CompactEvent
 from protocol.client.compact import (
     build_compact_payload,
     stream_compact_events,
 )
+from protocol.schema.json_value import JsonObject
 
 __all__ = ("ProtocolCompactionClient",)
 
@@ -20,7 +24,7 @@ class ProtocolCompactionClient:
         *,
         cid: str,
         sid: str,
-        pref_config: dict[str, typing.Any],
+        pref_config: JsonObject,
     ) -> typing.AsyncIterator[CompactEvent]:
         """提交 memento 压缩并归一化受支持的进度与终态。"""
         payload = build_compact_payload({
@@ -29,38 +33,50 @@ class ProtocolCompactionClient:
             "llm_conf": pref_config,
             "strategy": "memento",
         })
-        async for event in stream_compact_events(payload):
-            event_type = str(event.get("type") or "")
-            message = str(event.get("message") or "").strip()
-            if event_type == "conversation.compact.started":
-                yield CompactEvent(status="started", message=message)
-                continue
-            if event_type == "conversation.compact.failed":
-                yield CompactEvent(
-                    status="failed",
-                    message=message,
-                    summary=str(
-                        event.get("summary") or message or ""
-                    ).strip(),
-                )
-                continue
-            if event_type == "conversation.compact":
-                yield CompactEvent(
-                    status="completed",
-                    message=message,
-                    summary=str(
-                        event.get("summary") or message or "Context compacted."
-                    ).strip(),
-                    before_items=_optional_int(event.get("before_items")),
-                    after_items=_optional_int(event.get("after_items")),
-                )
+        try:
+            async with contextlib.aclosing(stream_compact_events(payload)) as events:
+                async for event in events:
+                    if event.item_status == "in_progress":
+                        yield CompactEvent(status="started", message="Context compacting...")
+                    elif event.item_status == "completed":
+                        yield CompactEvent(
+                            status="completed",
+                            message="Context compacted.",
+                            before_items=event.before_items,
+                            after_items=event.after_items,
+                        )
+                        return
+                    else:
+                        yield CompactEvent(
+                            status="failed",
+                            message=_compact_failure_message(event.error_type or ""),
+                        )
+                        return
+        except httpx.HTTPStatusError as error:
+            yield CompactEvent(
+                status="failed",
+                message=_compact_failure_message(status_code=error.response.status_code),
+            )
+        except httpx.HTTPError:
+            yield CompactEvent(
+                status="failed",
+                message="Context compaction failed. Please try again.",
+            )
 
 
-def _optional_int(value: typing.Any) -> int | None:
-    """将 wire 统计值规范化为可选整数。"""
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value
+def _compact_failure_message(error_type: str = "", *, status_code: int = 0) -> str:
+    """把服务端错误类别或 HTTP 状态转换为本地压缩提示。"""
+    if error_type == "empty_history" or status_code == 404:
+        return "There is no conversation history to compact."
+    if error_type == "not_compactable":
+        return "A tool call is still running. Try again after it finishes."
+    if error_type == "cas_conflict":
+        return "Conversation changed while compacting. Please try again."
+    if error_type == "persist_failed":
+        return "Failed to save the compacted context. Please try again."
+    if status_code == 409:
+        return "Conversation is busy or changed. Try /compact again after the current operation finishes."
+    return "Context compaction failed. Please try again."
 
 
 if __name__ == '__main__':

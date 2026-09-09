@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import typing
 from unittest.mock import patch
 
 import pytest
@@ -26,6 +27,7 @@ from agent.ports import (
     OutputSurfaceContext,
     PassiveOutputActivity,
     PresentationSuperseded,
+    RecoveryActivityMode,
     RecoveryChanged,
     ResponseIdentity,
     RetryChanged,
@@ -1164,6 +1166,89 @@ async def test_tui_visible_content_atomically_replaces_activity_surface() -> Non
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("overlay", ("replaying", "gap", "transport"))
+async def test_tui_content_preserves_recovery_surface_until_caught_up(
+    overlay: typing.Literal["replaying", "gap", "transport"],
+) -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    context = _context(surface_id="surface_recovered_content")
+    session = create_tui_output_session(
+        "",
+        context=context,
+        runtime=runtime,
+        animate=False,
+    )
+    coordinator = session.activity
+    assert isinstance(coordinator, TuiTurnSurfaceCoordinator)
+    coordinator.timing = TurnSurfaceTiming(transport_retry_min_visible_sec=0.0)
+    identity = _identity()
+
+    await session.open()
+    try:
+        if overlay == "transport":
+            await coordinator.emit(RetryChanged(
+                **_scope(context),
+                source="transport",
+                state="started",
+                presentation_epoch=1,
+                round=1,
+                attempt=1,
+            ))
+        else:
+            await coordinator.emit(RecoveryChanged(
+                **_scope(context),
+                mode=overlay,
+                event_seq=1,
+            ))
+        activity_text = _activity_text(runtime)
+        lease = runtime.activity.lease("wait")
+        assert lease is not None
+        assert ("Retrying" if overlay == "transport" else "Recovering") in activity_text
+
+        await coordinator.emit(AssistantBuffered(
+            **_scope(context),
+            identity=identity,
+            item_id="item_recovered",
+        ))
+        await session.content.emit(AssistantTextDelta(
+            "recovered answer\n",
+            identity,
+            item_id="item_recovered",
+        ))
+
+        assert coordinator.state.content == "visible"
+        assert coordinator.state.lifecycle == "active"
+        assert _activity_text(runtime) == activity_text
+        assert runtime.activity.lease("wait") == lease
+
+        if overlay == "transport":
+            await coordinator.emit(RetryChanged(
+                **_scope(context),
+                source="transport",
+                state="completed",
+                presentation_epoch=1,
+                round=1,
+                attempt=1,
+            ))
+        else:
+            await coordinator.emit(RecoveryChanged(
+                **_scope(context),
+                mode="caught_up",
+                event_seq=2,
+            ))
+        assert coordinator.state.lifecycle == "active"
+        assert runtime.activity.lease("wait") is None
+    finally:
+        await session.close()
+        runtime.set_execution_active(False)
+
+    assert [block.raw_text for block in runtime.document.blocks] == [
+        "recovered answer\n",
+    ]
+
+
+@pytest.mark.anyio
 async def test_tui_approval_pauses_and_resumes_same_wait_timer() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
@@ -1634,7 +1719,10 @@ async def test_tui_unterminated_tail_hides_wait_after_text_done() -> None:
 
 
 @pytest.mark.anyio
-async def test_output_close_flushes_partial_text_before_surface_closes() -> None:
+@pytest.mark.parametrize("recovery", ("live", "replaying", "gap"))
+async def test_output_close_flushes_partial_text_before_surface_closes(
+    recovery: RecoveryActivityMode,
+) -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
     context = _context(surface_id="surface_partial_close")
@@ -1654,6 +1742,11 @@ async def test_output_close_flushes_partial_text_before_surface_closes() -> None
         **_scope(context),
         revision=1,
         reason="initial",
+    ))
+    await coordinator.emit(RecoveryChanged(
+        **_scope(context),
+        mode=recovery,
+        event_seq=1,
     ))
     await coordinator.emit(AssistantBuffered(
         **_scope(context),

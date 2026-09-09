@@ -20,6 +20,7 @@ from protocol.schema.item_projection import (
     tool_output_item_status as _tool_output_item_status,
     validate_item_fields as _item_fields,
 )
+from protocol.schema.json_value import JsonValue
 from protocol.schema.review import (
     ReviewOutput,
     ReviewTarget,
@@ -1030,6 +1031,39 @@ def parse_stream_event(
     return UnknownStreamEvent(**common, payload=raw)
 
 
+def parse_compact_event(payload: Mapping[str, JsonValue]) -> ContextCompactionEvent:
+    """校验手动压缩端点的 Item；操作失败事件允许没有持久化序号。"""
+    raw = dict(payload)
+    event_type = _required_text(raw.get("type"), "compact event type")
+    if event_type not in {
+        "context.compaction.started",
+        "context.compaction.completed",
+        "context.compaction.failed",
+    }:
+        raise ValueError("unexpected compact event type")
+    proto = _required_text(raw.get("proto"), "proto")
+    if proto != "mind.chat":
+        raise ValueError("compact event proto must be mind.chat")
+    event = _context_compaction_event(
+        raw,
+        {
+            "type": event_type,
+            "proto": proto,
+            "cid": _required_text(raw.get("cid"), "cid"),
+            "sid": _required_text(raw.get("sid"), "sid"),
+            "turn_id": _required_text(raw.get("turn_id"), "turn_id"),
+            "event_seq": _event_sequence(raw),
+            "presentation_epoch": _required_positive_int(
+                raw.get("presentation_epoch"), "presentation_epoch",
+            ),
+        },
+        event_type=event_type,
+    )
+    if event.phase != "standalone" or event.trigger != "manual":
+        raise ValueError("compact endpoint requires a standalone manual event")
+    return event
+
+
 def _context_compaction_event(
     payload: dict[str, typing.Any],
     common: dict[str, typing.Any],
@@ -1131,7 +1165,7 @@ def _context_compaction_event(
     )
 
 
-_REVIEW_COMMON_FIELDS = frozenset({
+_STREAM_EVENT_FIELDS = frozenset({
     "type",
     "proto",
     "cid",
@@ -1141,9 +1175,6 @@ _REVIEW_COMMON_FIELDS = frozenset({
     "round",
     "presentation_epoch",
     "display",
-    "item_id",
-    "item_kind",
-    "item_status",
     "event_id",
     "correlation_id",
     "causation_id",
@@ -1153,25 +1184,13 @@ _REVIEW_COMMON_FIELDS = frozenset({
     "ts",
 })
 
-_SESSION_TITLE_UPDATED_FIELDS = frozenset({
-    "type",
-    "proto",
-    "cid",
-    "sid",
-    "turn_id",
-    "event_seq",
-    "round",
-    "presentation_epoch",
-    "display",
-    "event_id",
-    "correlation_id",
-    "causation_id",
-    "occurred_at",
-    "created_at",
-    "idempotency_key",
-    "ts",
-    "title",
+_ITEM_EVENT_FIELDS = _STREAM_EVENT_FIELDS | frozenset({
+    "item_id",
+    "item_kind",
+    "item_status",
 })
+
+_SESSION_TITLE_UPDATED_FIELDS = _STREAM_EVENT_FIELDS | {"title"}
 
 
 def _session_title_updated_event(
@@ -1244,7 +1263,7 @@ def _review_event(
         event_fields.add("reason")
     else:
         event_fields.update({"effect_id", "error"})
-    unknown = sorted(set(payload).difference(_REVIEW_COMMON_FIELDS | event_fields))
+    unknown = sorted(set(payload).difference(_ITEM_EVENT_FIELDS | event_fields))
     if unknown:
         raise ValueError(
             f"{event_type} contains unknown fields: " + ", ".join(unknown)
@@ -1332,19 +1351,7 @@ def _approval_review_event(
     event_type: str,
 ) -> ToolApprovalReviewStartedEvent | ToolApprovalReviewCompletedEvent:
     """校验自动审批评审事件及其状态组合。"""
-    allowed_fields = {
-        "type",
-        "proto",
-        "cid",
-        "sid",
-        "turn_id",
-        "event_seq",
-        "presentation_epoch",
-        "round",
-        "display",
-        "item_id",
-        "item_kind",
-        "item_status",
+    allowed_fields = _ITEM_EVENT_FIELDS | {
         "review_id",
         "approval_id",
         "call_id",

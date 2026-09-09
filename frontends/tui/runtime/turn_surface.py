@@ -463,7 +463,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             await self._apply(projection)
 
     def emit_assistant_visible(self, event: AssistantVisible) -> None:
-        """在正文画布事务内同步取消 timer 并提交可见性投影。"""
+        """在正文画布事务内归约可见性，并在正文取得活动区时撤下状态行。"""
         self._raise_timer_error()
         if not self._opened:
             raise RuntimeError("turn surface coordinator is not open")
@@ -472,16 +472,19 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         if self.apply_immediate_projection is None:
             raise RuntimeError("immediate turn surface projection sink is required")
 
-        self._cancel_timer()
-        self._transport_retry_visible_until = 0.0
         previous = self.state
         self.state = reduce_turn_surface(self.state, event)
         if self.state is previous:
             return None
 
         projection = project_turn_surface(self.state)
-        if projection.indicator != "hidden":
-            raise RuntimeError("visible assistant must own the activity surface")
+        if projection.visible:
+            # 恢复和传输重试继续拥有活动区，正文上屏不重置其投影或计时。
+            if projection.visually_matches(self._applied):
+                self._applied = projection
+            return None
+        self._cancel_timer()
+        self._transport_retry_visible_until = 0.0
         self.apply_immediate_projection(projection)
         self._applied = projection
 

@@ -792,6 +792,13 @@ def _approval_review_payload(status: str, *, event_seq: int = 1) -> dict:
         "event_seq": event_seq,
         "presentation_epoch": 1,
         "review_id": "review-1",
+        "event_id": f"evt_review_{event_seq}",
+        "correlation_id": "conversation-1:session-1:turn-1",
+        "causation_id": None,
+        "occurred_at": "2026-09-09T08:00:00+00:00",
+        "created_at": "2026-09-09T08:00:00+00:00",
+        "idempotency_key": f"review-1:{status}",
+        "ts": 1788940800.0,
         "approval_id": "approval-1",
         "call_id": "call-1",
         "target_item_id": "call-1",
@@ -829,7 +836,7 @@ def _approval_review_payload(status: str, *, event_seq: int = 1) -> dict:
     return payload
 
 
-def test_approval_review_events_are_strictly_typed_and_copy_action() -> None:
+def test_approval_review_events_accept_server_envelope_and_copy_action() -> None:
     started_payload = _approval_review_payload("in_progress")
     completed_payload = _approval_review_payload("denied", event_seq=2)
 
@@ -852,6 +859,15 @@ def test_approval_review_requires_target_item_id() -> None:
     del payload["target_item_id"]
 
     with pytest.raises(ValueError, match="target_item_id"):
+        _parse_stream_event(payload)
+
+
+@pytest.mark.parametrize("status", ("in_progress", "approved"))
+def test_approval_review_rejects_undeclared_envelope_fields(status: str) -> None:
+    payload = _approval_review_payload(status)
+    payload["unexpected"] = True
+
+    with pytest.raises(ValueError, match="contains unknown fields: unexpected"):
         _parse_stream_event(payload)
 
 

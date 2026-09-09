@@ -14,6 +14,29 @@ from frontends.tui.features import conversation
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from infrastructure.platform.hook_command import HookCommandOutput
 from agent.domain.policies import preset_permissions
+from protocol.schema.stream_events import parse_compact_event
+
+
+def _compact_event(status="completed", *, before_items=None, after_items=None):
+    payload = {
+        "proto": "mind.chat",
+        "type": f"context.compaction.{status}",
+        "cid": "cid",
+        "sid": "sid",
+        "turn_id": "compact-turn-1",
+        "item_id": "compaction-1",
+        "item_kind": "context_compaction",
+        "item_status": status,
+        "phase": "standalone",
+        "trigger": "manual",
+        "reason": "summary_failed" if status == "failed" else "user_requested",
+        "presentation_epoch": 1,
+        "before_items": before_items,
+        "after_items": after_items,
+    }
+    if status == "failed":
+        payload.update(error_type="summary_failed", retryable=True)
+    return parse_compact_event(payload)
 
 
 def _compact_hooks():
@@ -191,12 +214,7 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
 @pytest.mark.anyio
 async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
     async def completed_stream(_payload):
-        yield {
-            "type": "conversation.compact",
-            "message": "Context compacted.",
-            "before_items": 18,
-            "after_items": 6,
-        }
+        yield _compact_event(before_items=18, after_items=6)
 
     class ApplicationHostStub(object):
         transcripts = _TranscriptStore()
@@ -390,10 +408,7 @@ async def test_pre_compact_hook_failure_does_not_block(monkeypatch, tmp_path) ->
 
     async def remote_stream(_payload):
         remote_calls.append(True)
-        yield {
-            "type": "conversation.compact",
-            "message": "Context compacted.",
-        }
+        yield _compact_event()
 
     class Runner(object):
         def __init__(self) -> None:
@@ -427,12 +442,7 @@ async def test_pre_compact_hook_failure_does_not_block(monkeypatch, tmp_path) ->
 @pytest.mark.anyio
 async def test_compact_hooks_share_operation_scope(monkeypatch, tmp_path) -> None:
     async def remote_stream(_payload):
-        yield {
-            "type": "conversation.compact",
-            "message": "Context compacted.",
-            "before_items": 12,
-            "after_items": 4,
-        }
+        yield _compact_event(before_items=12, after_items=4)
 
     definitions = resolve_hook_definitions(
         _compact_hooks(),
@@ -501,10 +511,7 @@ async def test_compact_failure_skips_post_hook(
     tmp_path,
 ) -> None:
     async def failed_stream(_payload):
-        yield {
-            "type": "conversation.compact.failed",
-            "message": "remote compact failed",
-        }
+        yield _compact_event("failed")
 
     runner = _RecordingHookRunner()
     host = _HookedCompactHost(
@@ -520,7 +527,7 @@ async def test_compact_failure_skips_post_hook(
     )
 
     assert result.outcome == "failed"
-    assert result.message == "remote compact failed"
+    assert result.message == "Context compaction failed. Please try again."
     assert [event for event, _payload in runner.calls] == ["PreCompact"]
 
 
@@ -560,13 +567,7 @@ async def test_compact_cancellation_skips_post_hook(
 @pytest.mark.anyio
 async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> None:
     async def completed_stream(_payload):
-        yield {
-            "type": "conversation.compact",
-            "message": "Context compacted.",
-            "summary": "Earlier work was summarized.",
-            "before_items": 20,
-            "after_items": 5,
-        }
+        yield _compact_event(before_items=20, after_items=5)
 
     queued = []
     runner = _RecordingHookRunner({
@@ -604,7 +605,7 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
     assert result.outcome == "completed"
     assert not result.ok
     assert not result.continue_execution
-    assert result.summary == "Earlier work was summarized."
+    assert result.summary == "Context compacted."
     assert result.message == (
         "Context compacted. Post-compact continuation blocked: "
         "review compacted state"
@@ -623,10 +624,7 @@ async def test_compact_session_start_queues_next_turn_context(
     tmp_path,
 ) -> None:
     async def completed_stream(_payload):
-        yield {
-            "type": "conversation.compact",
-            "message": "Context compacted.",
-        }
+        yield _compact_event()
 
     hooks = {
         **_compact_hooks(),
@@ -675,10 +673,7 @@ async def test_compact_session_start_can_block_continuation(
     tmp_path,
 ) -> None:
     async def completed_stream(_payload):
-        yield {
-            "type": "conversation.compact",
-            "message": "Context compacted.",
-        }
+        yield _compact_event()
 
     hooks = {
         **_compact_hooks(),

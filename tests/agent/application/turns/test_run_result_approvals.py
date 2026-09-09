@@ -973,8 +973,10 @@ async def _run_stream(
 
 @pytest.mark.anyio
 @pytest.mark.runtime_p0
+@pytest.mark.parametrize("tool_name", ("exec_command", "shell_command"))
 async def test_stream_registers_review_before_approval_core_decides(
     monkeypatch,
+    tool_name: str,
 ) -> None:
     approval_posts = []
     executions = []
@@ -1022,6 +1024,11 @@ async def test_stream_registers_review_before_approval_core_decides(
             {
                 "type": "tool.approval_review.started",
                 "event_seq": 1,
+                "event_id": "evt_review_started",
+                "correlation_id": "cid_test:sid_test:turn_test",
+                "causation_id": None,
+                "occurred_at": "2026-09-09T08:00:00+00:00",
+                "ts": 1788940800.0,
                 "review_id": "review-stream",
                 "approval_id": "approval-stream",
                 "call_id": "call-stream",
@@ -1034,6 +1041,11 @@ async def test_stream_registers_review_before_approval_core_decides(
             {
                 "type": "tool.approval_review.completed",
                 "event_seq": 2,
+                "event_id": "evt_review_completed",
+                "correlation_id": "cid_test:sid_test:turn_test",
+                "causation_id": "evt_review_started",
+                "occurred_at": "2026-09-09T08:00:01+00:00",
+                "ts": 1788940801.0,
                 "review_id": "review-stream",
                 "approval_id": "approval-stream",
                 "call_id": "call-stream",
@@ -1064,7 +1076,7 @@ async def test_stream_registers_review_before_approval_core_decides(
                 "type": "tool.call",
                 "event_seq": 4,
                 "call_id": "call-stream",
-                "name": "exec_command",
+                "name": tool_name,
                 "arguments": {"command": "echo reviewed"},
             },
             {
@@ -1087,14 +1099,14 @@ async def test_stream_registers_review_before_approval_core_decides(
     )
     assert approval_posts[0][1]["decision"] == "accept"
     assert len(executions) == 1
-    assert executions[0].name == "exec_command"
+    assert executions[0].name == tool_name
     assert executions[0].arguments["command"] == "echo reviewed"
     assert len(result_posts) == 1
     assert result_posts[0][0][:5] == (
         "cid_test",
         "sid_test",
         "call-stream",
-        "exec_command",
+        tool_name,
         True,
     )
     review_views = [
@@ -1462,7 +1474,11 @@ async def test_approval_request_event_is_presented_without_nested_metadata(
 
 
 @pytest.mark.anyio
-async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -> None:
+@pytest.mark.parametrize("tool_name", ("exec_command", "shell_command"))
+async def test_stream_uses_typed_approval_before_client_tool_call(
+    monkeypatch,
+    tool_name: str,
+) -> None:
     approval_posts = []
     result_posts = []
 
@@ -1503,7 +1519,7 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
         _durable_tool_call({
             "type": "tool.call",
             "call_id": "call-approved",
-            "name": "exec_command",
+            "name": tool_name,
             "arguments": {"command": "pytest -q", "cwd": "."},
         }),
         {"type": "turn.completed"},
@@ -1529,7 +1545,7 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
         "cid_test",
         "sid_test",
         "call-approved",
-        "exec_command",
+        tool_name,
         True,
     )
 
@@ -1541,6 +1557,8 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
     (
         {"command": "pytest tests -q", "cwd": "."},
         {"command": "pytest -q", "cwd": "tests"},
+        {"command": "pytest -q", "cwd": ".", "shell": "other-shell"},
+        {"command": "pytest -q", "cwd": ".", "tty": True},
         {
             "command": "pytest -q",
             "cwd": ".",
@@ -1548,9 +1566,11 @@ async def test_stream_uses_typed_approval_before_client_tool_call(monkeypatch) -
         },
     ),
 )
+@pytest.mark.parametrize("tool_name", ("exec_command", "shell_command"))
 async def test_approved_command_cannot_authorize_changed_action(
     monkeypatch,
-    changed_arguments: dict[str, str],
+    tool_name: str,
+    changed_arguments: dict[str, str | bool],
 ) -> None:
     executions = []
     result_posts = []
@@ -1582,7 +1602,7 @@ async def test_approved_command_cannot_authorize_changed_action(
         _durable_tool_call({
             "type": "tool.call",
             "call_id": "call-frozen",
-            "name": "exec_command",
+            "name": tool_name,
             "arguments": changed_arguments,
         }),
         {"type": "turn.completed"},
@@ -1597,7 +1617,7 @@ async def test_approved_command_cannot_authorize_changed_action(
         "cid_test",
         "sid_test",
         "call-frozen",
-        "exec_command",
+        tool_name,
         False,
     )
     assert posted[5]["data"]["reason"] == "approval_action_mismatch"

@@ -129,7 +129,7 @@ def approval_execution_fingerprint(
         cwd_value = arguments.get("cwd")
         cwd = cwd_value if isinstance(cwd_value, str) else cwd_default
         fields: dict[str, JsonValue] = {
-            "tool": normalized_tool,
+            "kind": "command",
             "command": arguments.get("command"),
             "cwd": _normalize_execution_cwd(cwd),
             "shell": arguments.get("shell"),
