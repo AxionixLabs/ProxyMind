@@ -1,6 +1,6 @@
 # TUI Inline Viewport 分阶段改造清单
 
-> 状态：阶段 1 已完成；阶段 2 待实施。
+> 状态：阶段 2 已完成；阶段 3 待实施。
 > 基准日期：2026-09-09。
 > 性质：临时实施与验收清单，不定义长期架构事实。
 > 完成后处理：全部阶段验收通过后，由用户手动删除本文档。
@@ -141,16 +141,16 @@ prompt_toolkit Buffer / KeyBindings / Completer
 
 ### 改造项
 
-- [ ] 在 `frontends/tui/rendering/screen/` 下建立职责明确的具体 inline renderer，不建立通用
+- [x] 在 `frontends/tui/rendering/screen/` 下建立职责明确的具体 inline renderer，不建立通用
       `support` 模块。
-- [ ] renderer 接收 prompt_toolkit 已完成布局的 `Screen` raster，不接收业务事件或 Turn 状态。
-- [ ] renderer 显式保存 viewport 起点、宽高、上一帧 raster、最终光标和终端尺寸 generation。
-- [ ] viewport 高度增长超过可见终端底部时，仅滚动所需行数，然后重新固定物理起点。
-- [ ] viewport 缩小、宽度变化和 generation 变化时明确清理失效区域，不依赖残留终端内容。
-- [ ] diff 对每个变化单元使用绝对坐标；帧内向下移动不得使用 `CRLF` 创建隐式行。
-- [ ] 正确处理双宽字符、组合字符、尾随空白清理、背景色、超链接和 autowrap 边界。
-- [ ] 内容 diff、viewport 调整和最终光标在一次 synchronized output 事务中提交。
-- [ ] 同步输出不受支持时使用同一绝对坐标语义，只失去原子可见性，不切回相对 renderer。
+- [x] renderer 接收 prompt_toolkit 已完成布局的 `Screen` raster，不接收业务事件或 Turn 状态。
+- [x] renderer 显式保存 viewport 起点、宽高、上一帧 raster、最终光标和终端尺寸 generation。
+- [x] viewport 高度增长超过可见终端底部时，仅滚动所需行数，然后重新固定物理起点。
+- [x] viewport 缩小、宽度变化和 generation 变化时明确清理失效区域，不依赖残留终端内容。
+- [x] diff 对每个变化单元使用绝对坐标；帧内向下移动不得使用 `CRLF` 创建隐式行。
+- [x] 正确处理双宽字符、组合字符、尾随空白清理、背景色、超链接和 autowrap 边界。
+- [x] 内容 diff、viewport 调整和最终光标在一次 synchronized output 事务中提交。
+- [x] 同步输出不受支持时使用同一绝对坐标语义，只失去原子可见性，不切回相对 renderer。
 
 ### Codex 源码对照
 
@@ -163,12 +163,12 @@ prompt_toolkit Buffer / KeyBindings / Completer
 
 ### 阶段 2 验收
 
-- [ ] 稳定 viewport 内的普通帧输出不包含用于纵向寻址的 `CRLF`。
-- [ ] 模拟外部视觉行插入后，下一次 diff 和最终光标仍落在原 viewport 的绝对坐标。
-- [ ] viewport 只有在明确扩容时滚动，扩容行数与新增高度完全一致。
-- [ ] 单宽、双宽、组合字符和行尾宽字符缩短测试均无陈旧单元。
-- [ ] 连续相同帧不产生内容写入；单单元变化只提交必要 diff。
-- [ ] 同步输出开始、内容/坐标命令、最终光标和同步输出结束的顺序可由测试证明。
+- [x] 稳定 viewport 内的普通帧输出不包含用于纵向寻址的 `CRLF`。
+- [x] 模拟外部视觉行插入后，下一次 diff 和最终光标仍落在原 viewport 的绝对坐标。
+- [x] viewport 只有在明确扩容时滚动，扩容行数与新增高度完全一致。
+- [x] 单宽、双宽、组合字符和行尾宽字符缩短测试均无陈旧单元。
+- [x] 连续相同帧不产生内容写入；单单元变化只提交必要 diff。
+- [x] 同步输出开始、内容/坐标命令、最终光标和同步输出结束的顺序可由测试证明。
 
 ## 6. 阶段 3：主输入与 Footer 接管
 
@@ -319,7 +319,7 @@ prompt_toolkit Buffer / KeyBindings / Completer
 |---------------------|--------|------|----------|----------|----------|
 | 0 证据冻结          | 已完成 | `0f6ce987` | 289 passed | 已记录 | 通过 |
 | 1 能力契约          | 已完成 | `2629d349` | 178 passed | 未涉及 | 通过 |
-| 2 Inline Renderer   | 待开始 | -    | -        | -        | -        |
+| 2 Inline Renderer   | 已完成 | `4d9274f7` | 11 passed | 未涉及 | 通过 |
 | 3 主输入接管        | 待开始 | -    | -        | -        | -        |
 | 4 Scrollback/Resize | 待开始 | -    | -        | -        | -        |
 | 5 Overlay/Lifecycle | 待开始 | -    | -        | -        | -        |
@@ -329,6 +329,10 @@ prompt_toolkit Buffer / KeyBindings / Completer
 阶段 1 提交后复核：`2629d349` 已推送到 `origin/main`。自动验证还包括架构审计 `138 passed`、
 `compileall` 和 `git diff --check`；真实 PyCharm Reworked/Classic、ConPTY 和 IME 交互仍留在
 阶段 6 准出，不在本阶段声称已验证。
+
+阶段 2 提交后复核：`4d9274f7` 已推送到 `origin/main`。renderer 的绝对坐标、viewport 滚动、
+尺寸 generation、宽字符清理和同步事务均由内存 Output 契约测试覆盖；真实终端接入和 IME 交互
+仍留在阶段 3 与阶段 6。
 
 ## 12. 最终完成定义
 
