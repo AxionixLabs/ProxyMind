@@ -735,6 +735,7 @@ async def test_protocol_client_reconciles_terminal_status_cursor(
             error=None,
             last_event_seq=8,
             completed_at=2.0,
+            duration_ms=1_000,
         )
         if terminal
         else None
@@ -794,6 +795,7 @@ async def test_protocol_client_reconciles_terminal_input_cursor(monkeypatch) -> 
             error=None,
             last_event_seq=11,
             completed_at=2.0,
+            duration_ms=1_000,
         ),
         committed_ids=(),
         pending_ids=(),
