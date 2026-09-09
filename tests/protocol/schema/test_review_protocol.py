@@ -37,8 +37,8 @@ REQUEST_ID = "review_request_01"
 FULL_SHA = "a" * 40
 
 
-def _tool(name: str = "read_file") -> dict:
-    """构造服务端严格契约接受的只读工具。"""
+def _tool(name: str = "exec_command") -> dict:
+    """构造服务端严格契约接受的 Review 命令工具。"""
     return {
         "name": name,
         "description": f"Read repository data with {name}.",
@@ -252,11 +252,12 @@ def test_review_tools_must_explicitly_declare_read_only_hint() -> None:
     assert execution.request_payload()["tools"] == [_tool()]
 
 
-def test_review_tools_reject_forbidden_names_and_unknown_wire_fields() -> None:
+@pytest.mark.parametrize("name", ["shell_command", "read_file", "read_repository", "apply_patch"])
+def test_review_tools_reject_forbidden_names_and_unknown_wire_fields(name: str) -> None:
     with pytest.raises(ValueError, match="not permitted"):
         ReviewExecutionOptions(
             llm_conf={"primary": {}},
-            tools=(_tool("shell_command"),),
+            tools=(_tool(name),),
         )
 
     with pytest.raises(ValueError, match="unknown fields"):

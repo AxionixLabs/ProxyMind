@@ -79,7 +79,7 @@ async def discover_review_tools(
     runtime: TurnExecutionRuntimePort,
     pref_config: dict[str, JsonValue],
 ) -> tuple[JsonObject, ...]:
-    """在短期 MCP 会话中冻结 Review 唯一允许的本地只读工具。"""
+    """在短期 MCP 会话中冻结 Review 可用的本地命令工具。"""
 
     async def freeze_catalog(
         session: McpSessionPort,
@@ -98,7 +98,7 @@ async def discover_review_tools(
 def review_wire_tools(
     tools: list[JsonObject],
 ) -> tuple[JsonObject, ...]:
-    """从真实工具目录构造严格、只读且可持久化的 Review 工具集合。"""
+    """从真实工具目录冻结在 Review 只读沙箱中执行的命令工具。"""
     visible = filter_mode_tools("review", tools)
     by_name = {
         str(tool.get("name") or "").strip(): tool
@@ -114,11 +114,6 @@ def review_wire_tools(
         tool = by_name.get(name)
         if tool is None:
             continue
-        meta = tool.get("meta")
-        if not isinstance(meta, dict) or meta.get("review_read_only") is not True:
-            raise RuntimeError(
-                f"review tool does not have a read-only policy proof: {name}"
-            )
         description = tool.get("description")
         input_schema = tool.get("inputSchema")
         if not isinstance(description, str) or not isinstance(input_schema, dict):

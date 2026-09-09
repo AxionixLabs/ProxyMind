@@ -105,11 +105,10 @@ def _review_tools():
             "meta": {
                 "client_builtin": True,
                 "domain": "coding",
-                "class": "review_read",
-                "review_read_only": True,
+                "class": "shell",
             },
         }
-        for name in ("read_file", "read_repository")
+        for name in ("exec_command", "write_stdin")
     ]
     return review_wire_tools(catalog)
 

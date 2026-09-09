@@ -36,10 +36,6 @@ _TOOL_DISPLAY_SPECS = {
         two_stage=True,
     ),
     "exec_command": ToolDisplaySpec(ToolDisplayKind.SHELL),
-    "read_repository": ToolDisplaySpec(
-        ToolDisplayKind.SHELL,
-        two_stage=True,
-    ),
     "write_stdin": ToolDisplaySpec(ToolDisplayKind.STDIN),
     "apply_patch": ToolDisplaySpec(
         ToolDisplayKind.PATCH,

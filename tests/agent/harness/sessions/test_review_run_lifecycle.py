@@ -41,8 +41,8 @@ REQUEST_ID = "review_request_01"
 def _tools() -> tuple[dict, ...]:
     """构造最小严格只读工具目录。"""
     return ({
-        "name": "read_file",
-        "description": "Read a UTF-8 repository file.",
+        "name": "exec_command",
+        "description": "Run a command in the review sandbox.",
         "inputSchema": {"type": "object"},
         "annotations": {"readOnlyHint": True},
     },)

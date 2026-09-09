@@ -50,25 +50,8 @@ _WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 _REFERENCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
-_REVIEW_FORBIDDEN_TOOL_NAMES: typing.Final[frozenset[str]] = frozenset({
-    "apply_patch",
-    "create_goal",
+_REVIEW_ALLOWED_TOOL_NAMES: typing.Final[frozenset[str]] = frozenset({
     "exec_command",
-    "followup_task",
-    "get_goal",
-    "image_query",
-    "interrupt_agent",
-    "list_agents",
-    "network_access",
-    "request_permissions",
-    "search_query",
-    "send_message",
-    "shell_command",
-    "spawn_agent",
-    "update_goal",
-    "view_image",
-    "wait_agent",
-    "web_search",
     "write_stdin",
 })
 
@@ -213,8 +196,8 @@ def _validate_review_tool(value: JsonObject) -> JsonObject:
         or _TOOL_NAME_PATTERN.fullmatch(name) is None
     ):
         raise ValueError("review tool name is invalid")
-    if name in _REVIEW_FORBIDDEN_TOOL_NAMES:
-        raise ValueError("review tool is not permitted by the read-only contract")
+    if name not in _REVIEW_ALLOWED_TOOL_NAMES:
+        raise ValueError("review tool is not permitted by the command tool contract")
     if not isinstance(description, str) or not 1 <= len(description) <= 4_000:
         raise ValueError("review tool description is invalid")
 

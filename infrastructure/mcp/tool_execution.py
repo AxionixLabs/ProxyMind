@@ -417,7 +417,6 @@ def hook_tool_response(
     if client_builtin and name in {
         "shell_command",
         "exec_command",
-        "read_repository",
         "write_stdin",
     }:
         return _shell_hook_response(fields, fallback=text)

@@ -22,6 +22,7 @@ from agent.application.approvals.local_policy import (
 )
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.application.tools.coding import coding_tools
+from agent.application.turns.reviews import review_wire_tools
 from agent.application.turns.context import (
     AgentContext,
     ToolInvocation,
@@ -108,6 +109,45 @@ def _coding_stub() -> SimpleNamespace:
         exec_command=AsyncMock(return_value=result),
         write_stdin=AsyncMock(return_value=result),
     )
+
+
+@pytest.mark.anyio
+async def test_review_uses_native_commands_with_read_only_context() -> None:
+    coding = _coding_stub()
+    definitions = {tool.name: tool for tool in coding_tools(coding)}
+    catalog = [
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "inputSchema": dict(tool.input_schema),
+            "meta": {**tool.meta, "client_builtin": True},
+        }
+        for tool in definitions.values()
+    ]
+
+    frozen = review_wire_tools(catalog)
+
+    assert [tool["name"] for tool in frozen] == ["exec_command", "write_stdin"]
+    assert not {"read_file", "read_repository"}.intersection(definitions)
+    for tool in frozen:
+        assert tool["inputSchema"] == definitions[tool["name"]].input_schema
+
+    runtime = _client_runtime(PermissionSettings(
+        sandbox_mode="read-only",
+        approval_policy="never",
+    ))
+    started = await definitions["exec_command"].handler(
+        {"command": "git diff"},
+        runtime,
+    )
+    assert started.ok
+    assert coding.exec_command.await_args.kwargs["sandbox_mode"] == "read-only"
+    polled = await definitions["write_stdin"].handler(
+        {"session_id": "exec_review_01", "stdin": ""},
+        runtime,
+    )
+    assert polled.ok
+    assert coding.write_stdin.await_args.kwargs["session_id"] == "exec_review_01"
 
 
 @pytest.mark.parametrize(

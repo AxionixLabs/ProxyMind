@@ -159,7 +159,7 @@ async def test_historical_tool_batch_is_classified_without_reexecution() -> None
             **_scope(),
             event_seq=first_event_seq + 1,
             call_id=call_id,
-            name="read_repository",
+            name="exec_command",
         ))
         await dispatcher.dispatch(ToolCallsDoneEvent(
             type="tool.calls.done",

@@ -3,7 +3,7 @@
   "cases": [
     {
       "name": "uncommitted_empty_workspace",
-      "expected_fingerprint": "b31e264c7171ca23430f4e067f90fb812d7041498fa48315cd82d915e856748e",
+      "expected_fingerprint": "0866d374597b7abb45a76e1e5b3fb27c8c0b7f03b71fb73d24fe4d36691a1edd",
       "request": {
         "request_id": "review_fixture_uncommitted",
         "cid": "cid_fixture_12345678",
@@ -24,9 +24,14 @@
           "attachments": null,
           "streaming": false,
           "tools": [{
-            "name": "read_file",
-            "description": "Read a UTF-8 repository file.",
-            "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"], "additionalProperties": false},
+            "name": "exec_command",
+            "description": "Run a command in the review sandbox.",
+            "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"], "additionalProperties": false},
+            "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
+          }, {
+            "name": "write_stdin",
+            "description": "Read or send input to a review command session.",
+            "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}, "stdin": {"type": "string"}}, "required": ["session_id"], "additionalProperties": false},
             "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
           }],
           "hosted_tools": null,
@@ -38,7 +43,7 @@
     },
     {
       "name": "base_branch_empty_workspace",
-      "expected_fingerprint": "ab7259a16a5756f7800155a02e614ae890b5fbba38edbcb071f45239ca5ad153",
+      "expected_fingerprint": "aa897c0733aac9ff97c1d010c51e4302ff3b8e18a8fb1128b28a9edd0df9e892",
       "request": {
         "request_id": "review_fixture_base",
         "cid": "cid_fixture_12345678",
@@ -59,9 +64,14 @@
           "attachments": null,
           "streaming": false,
           "tools": [{
-            "name": "read_file",
-            "description": "Read a UTF-8 repository file.",
-            "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"], "additionalProperties": false},
+            "name": "exec_command",
+            "description": "Run a command in the review sandbox.",
+            "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"], "additionalProperties": false},
+            "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
+          }, {
+            "name": "write_stdin",
+            "description": "Read or send input to a review command session.",
+            "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}, "stdin": {"type": "string"}}, "required": ["session_id"], "additionalProperties": false},
             "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
           }],
           "hosted_tools": null,
@@ -73,7 +83,7 @@
     },
     {
       "name": "commit_empty_workspace",
-      "expected_fingerprint": "13ebc3da1bca921bf76fd6d9a51d50a5c49c4159c076a21a467543f55530d37c",
+      "expected_fingerprint": "688a304f238b3b7ea6d42a9909203a59fc5f7a579bf9e567d0bc50c676e29f17",
       "request": {
         "request_id": "review_fixture_commit",
         "cid": "cid_fixture_12345678",
@@ -94,9 +104,14 @@
           "attachments": null,
           "streaming": false,
           "tools": [{
-            "name": "read_file",
-            "description": "Read a UTF-8 repository file.",
-            "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"], "additionalProperties": false},
+            "name": "exec_command",
+            "description": "Run a command in the review sandbox.",
+            "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"], "additionalProperties": false},
+            "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
+          }, {
+            "name": "write_stdin",
+            "description": "Read or send input to a review command session.",
+            "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}, "stdin": {"type": "string"}}, "required": ["session_id"], "additionalProperties": false},
             "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
           }],
           "hosted_tools": null,
@@ -108,7 +123,7 @@
     },
     {
       "name": "custom_empty_workspace",
-      "expected_fingerprint": "2210251b261e29de7490b938d9c542d6ba7de6beb645e25b220828a301e029fa",
+      "expected_fingerprint": "c53cbaf375017332bfd8d4195c52b500bdf92cf99179678edf5f8b7e4401c4db",
       "request": {
         "request_id": "review_fixture_custom",
         "cid": "cid_fixture_12345678",
@@ -129,9 +144,14 @@
           "attachments": null,
           "streaming": false,
           "tools": [{
-            "name": "read_file",
-            "description": "Read a UTF-8 repository file.",
-            "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"], "additionalProperties": false},
+            "name": "exec_command",
+            "description": "Run a command in the review sandbox.",
+            "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"], "additionalProperties": false},
+            "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
+          }, {
+            "name": "write_stdin",
+            "description": "Read or send input to a review command session.",
+            "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}, "stdin": {"type": "string"}}, "required": ["session_id"], "additionalProperties": false},
             "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
           }],
           "hosted_tools": null,

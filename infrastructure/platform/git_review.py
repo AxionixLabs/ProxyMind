@@ -168,7 +168,7 @@ class WorkspaceReviewGitService:
         cwd: str | os.PathLike[str],
         target: ReviewTarget,
     ) -> ResolvedReviewInput:
-        """冻结 target 派生事实；仓库内容由 Review 只读工具按需观察。"""
+        """冻结 target 派生事实；仓库内容由 Review 命令工具按需观察。"""
         workdir = await self._repository(cwd)
         resolved_target = target
         if isinstance(target, ReviewBaseBranchTarget):

@@ -9,8 +9,8 @@ ToolFilterMode = typing.Literal["app", "api", "review"]
 ModeToolPolicy = dict[str, tuple[Rule, ...] | None]
 
 REVIEW_TOOL_NAMES: typing.Final[frozenset[str]] = frozenset({
-    "read_file",
-    "read_repository",
+    "exec_command",
+    "write_stdin",
 })
 
 MODE_TOOL_POLICIES: dict[ToolFilterMode, ModeToolPolicy] = {

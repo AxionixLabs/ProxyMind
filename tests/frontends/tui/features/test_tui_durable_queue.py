@@ -52,7 +52,7 @@ def _review_tools():
         "description": f"Run the frozen read-only {name} tool.",
         "inputSchema": {"type": "object"},
         "annotations": {"readOnlyHint": True},
-    } for name in ("read_file", "read_repository"))
+    } for name in ("exec_command", "write_stdin"))
 
 
 def _request() -> ModelStreamRequest:

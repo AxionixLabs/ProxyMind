@@ -143,29 +143,30 @@ def test_filter_mode_tools_default_only_removes_plan_steps() -> None:
     ]
 
 
-def test_review_mode_only_exposes_dedicated_local_read_capabilities() -> None:
+def test_review_mode_only_exposes_local_command_capabilities() -> None:
     tools = [
         _tool(
             name,
             client_builtin=True,
             domain="coding",
-            review_read_only=True,
-            **{"class": "review_read"},
+            **{"class": "shell"},
         )
-        for name in ("read_file", "read_repository")
+        for name in ("exec_command", "write_stdin")
     ]
     tools.extend((
         _tool("apply_patch", client_builtin=True, domain="coding"),
         _tool("exec_command", external=True, domain="foreign"),
         _tool("shell_command", client_builtin=True, domain="coding"),
         _tool("view_image", client_builtin=True, domain="client"),
+        _tool("read_file", client_builtin=True, domain="coding"),
+        _tool("read_repository", client_builtin=True, domain="coding"),
     ))
 
     filtered = filter_mode_tools("review", tools)
 
     assert [tool["name"] for tool in filtered] == [
-        "read_file",
-        "read_repository",
+        "exec_command",
+        "write_stdin",
     ]
 
 

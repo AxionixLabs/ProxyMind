@@ -128,13 +128,12 @@ def _catalog() -> list[dict]:
             "meta": {
                 "client_builtin": True,
                 "domain": "coding",
-                "class": "review_read",
-                "review_read_only": True,
+                "class": "shell",
             },
         }
         for name in (
-            "read_file",
-            "read_repository",
+            "exec_command",
+            "write_stdin",
             "apply_patch",
         )
     ]
@@ -219,8 +218,8 @@ async def test_review_runner_uses_standard_harness_and_foreground_lifecycle(
     assert isinstance(captured["turn_source"], SubmittingReviewTurnStreamSource)
     assert isinstance(captured["event_projection"], ReviewEventProjector)
     assert {tool["name"] for tool in captured["tools"]} == {
-        "read_file",
-        "read_repository",
+        "exec_command",
+        "write_stdin",
     }
     assert captured["exec_env"] == {"PATH": "D:/tools"}
     assert lifecycle.actions == [
@@ -286,8 +285,8 @@ async def test_review_recovery_rebuilds_only_the_frozen_tool_set(
     )
     assert captured["turn_source"].historical_replay_target_seq == 7
     assert {tool["name"] for tool in captured["tools"]} == {
-        "read_file",
-        "read_repository",
+        "exec_command",
+        "write_stdin",
     }
 
 
