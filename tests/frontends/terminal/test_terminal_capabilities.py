@@ -1,12 +1,25 @@
 # -*- coding: utf-8 -*-
 
 import types
+import typing
+from types import SimpleNamespace
 
 import pytest
+from prompt_toolkit.data_structures import Size
+from prompt_toolkit.output import DummyOutput
+from prompt_toolkit.output.plain_text import PlainTextOutput
+from prompt_toolkit.output.vt100 import Vt100_Output
+from prompt_toolkit.output.win32 import (
+    NoConsoleScreenBufferError,
+    Win32Output,
+)
 
 from frontends.terminal import probe_windows as terminal_probe_windows
 from frontends.terminal.capabilities import (
+    TerminalCapabilityState,
     TerminalCapabilities,
+    TerminalOutputCapabilities,
+    detect_terminal_output_capabilities,
     detect_terminal_capabilities,
 )
 from frontends.terminal.color_support import (
@@ -36,6 +49,231 @@ from frontends.tui.rendering.screen.terminal import supports_terminal_hyperlinks
 class _InteractiveStream(object):
     def isatty(self) -> bool:
         return True
+
+
+class _OutputStream(_InteractiveStream):
+    encoding = "utf-8"
+
+    def write(self, _data: str) -> int:
+        return 0
+
+    def flush(self) -> None:
+        return None
+
+
+class _CprVt100Output(Vt100_Output):
+    def __init__(
+        self,
+        *,
+        responds_to_cpr: bool,
+        get_size: typing.Callable[[], Size],
+    ) -> None:
+        super().__init__(
+            _OutputStream(),
+            get_size,
+            term="xterm-256color",
+        )
+        self._responds_to_cpr = responds_to_cpr
+
+    @property
+    def responds_to_cpr(self) -> bool:
+        return self._responds_to_cpr
+
+
+class _WindowsConsoleOutput(Win32Output):
+    def get_size(self) -> Size:
+        return Size(rows=30, columns=120)
+
+    def get_win32_screen_buffer_info(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            dwCursorPosition=SimpleNamespace(X=12, Y=7),
+        )
+
+
+class _BrokenWindowsConsoleOutput(_WindowsConsoleOutput):
+    def get_size(self) -> Size:
+        raise OSError("console size unavailable")
+
+    def get_win32_screen_buffer_info(self) -> SimpleNamespace:
+        raise NoConsoleScreenBufferError()
+
+
+class _ConPtyOutput(_WindowsConsoleOutput):
+    @property
+    def vt100_output(self) -> Vt100_Output:
+        return _CprVt100Output(
+            responds_to_cpr=False,
+            get_size=lambda: Size(rows=24, columns=80),
+        )
+
+
+def test_output_capabilities_are_immutable_named_facts() -> None:
+    capabilities = TerminalOutputCapabilities(
+        absolute_cursor_addressing=TerminalCapabilityState.SUPPORTED,
+    )
+
+    assert capabilities.absolute_cursor_addressing is (
+        TerminalCapabilityState.SUPPORTED
+    )
+    with pytest.raises(AttributeError):
+        capabilities.absolute_cursor_addressing = (
+            TerminalCapabilityState.UNSUPPORTED
+        )
+
+
+def test_vt_output_capabilities_are_detected_without_terminal_identity() -> None:
+    output = _CprVt100Output(
+        responds_to_cpr=True,
+        get_size=lambda: Size(rows=24, columns=80),
+    )
+
+    capabilities = detect_terminal_output_capabilities(output)
+
+    assert capabilities == TerminalOutputCapabilities(
+        absolute_cursor_addressing=TerminalCapabilityState.SUPPORTED,
+        synchronized_output=TerminalCapabilityState.SUPPORTED,
+        viewport_size=TerminalCapabilityState.SUPPORTED,
+        startup_cursor_position=TerminalCapabilityState.SUPPORTED,
+    )
+
+
+def test_vt_output_cpr_rejection_is_not_promoted_to_startup_position() -> None:
+    output = _CprVt100Output(
+        responds_to_cpr=False,
+        get_size=lambda: Size(rows=24, columns=80),
+    )
+
+    capabilities = detect_terminal_output_capabilities(output)
+
+    assert capabilities.absolute_cursor_addressing is (
+        TerminalCapabilityState.SUPPORTED
+    )
+    assert capabilities.startup_cursor_position is (
+        TerminalCapabilityState.UNSUPPORTED
+    )
+
+
+def test_output_probe_failure_is_explicitly_unknown() -> None:
+    output = _CprVt100Output(
+        responds_to_cpr=True,
+        get_size=lambda: (_raise_size_probe_error()),
+    )
+
+    capabilities = detect_terminal_output_capabilities(output)
+
+    assert capabilities.absolute_cursor_addressing is (
+        TerminalCapabilityState.SUPPORTED
+    )
+    assert capabilities.viewport_size is TerminalCapabilityState.UNKNOWN
+    assert capabilities.startup_cursor_position is (
+        TerminalCapabilityState.SUPPORTED
+    )
+
+
+def test_windows_console_output_uses_console_cursor_and_size_adapters() -> None:
+    capabilities = detect_terminal_output_capabilities(
+        _WindowsConsoleOutput.__new__(_WindowsConsoleOutput),
+    )
+
+    assert capabilities == TerminalOutputCapabilities(
+        absolute_cursor_addressing=TerminalCapabilityState.SUPPORTED,
+        synchronized_output=TerminalCapabilityState.UNSUPPORTED,
+        viewport_size=TerminalCapabilityState.SUPPORTED,
+        startup_cursor_position=TerminalCapabilityState.SUPPORTED,
+    )
+
+
+def test_windows_console_probe_failure_does_not_claim_position_or_size() -> None:
+    capabilities = detect_terminal_output_capabilities(
+        _BrokenWindowsConsoleOutput.__new__(_BrokenWindowsConsoleOutput),
+    )
+
+    assert capabilities.absolute_cursor_addressing is (
+        TerminalCapabilityState.SUPPORTED
+    )
+    assert capabilities.synchronized_output is (
+        TerminalCapabilityState.UNSUPPORTED
+    )
+    assert capabilities.viewport_size is TerminalCapabilityState.UNKNOWN
+    assert capabilities.startup_cursor_position is (
+        TerminalCapabilityState.UNKNOWN
+    )
+
+
+def test_conpty_output_combines_vt_writes_with_console_position_probe() -> None:
+    capabilities = detect_terminal_output_capabilities(
+        _ConPtyOutput.__new__(_ConPtyOutput),
+    )
+
+    assert capabilities.absolute_cursor_addressing is (
+        TerminalCapabilityState.SUPPORTED
+    )
+    assert capabilities.synchronized_output is (
+        TerminalCapabilityState.SUPPORTED
+    )
+    assert capabilities.viewport_size is TerminalCapabilityState.SUPPORTED
+    assert capabilities.startup_cursor_position is (
+        TerminalCapabilityState.SUPPORTED
+    )
+
+
+def test_dummy_and_plain_text_outputs_are_explicitly_unsupported() -> None:
+    assert detect_terminal_output_capabilities(DummyOutput()) == (
+        TerminalOutputCapabilities(
+            absolute_cursor_addressing=TerminalCapabilityState.UNSUPPORTED,
+            synchronized_output=TerminalCapabilityState.UNSUPPORTED,
+            viewport_size=TerminalCapabilityState.UNSUPPORTED,
+            startup_cursor_position=TerminalCapabilityState.UNSUPPORTED,
+        )
+    )
+    assert detect_terminal_output_capabilities(
+        PlainTextOutput(_OutputStream()),
+    ).viewport_size is TerminalCapabilityState.UNSUPPORTED
+
+
+def test_missing_output_probe_is_unknown_instead_of_inferred_from_identity() -> None:
+    assert detect_terminal_output_capabilities(None) == (
+        TerminalOutputCapabilities()
+    )
+
+
+def _raise_size_probe_error() -> Size:
+    raise OSError("size probe failed")
+
+
+def test_terminal_capability_snapshot_keeps_output_facts_separate_from_identity() -> None:
+    stream = _InteractiveStream()
+    output = _CprVt100Output(
+        responds_to_cpr=True,
+        get_size=lambda: Size(rows=24, columns=80),
+    )
+
+    def probe(_input, _output, _timeout) -> TerminalDefaultColors:
+        return TerminalDefaultColors(
+            foreground=(240, 240, 240),
+            background=(10, 20, 30),
+            attempted=True,
+            method=TerminalProbeMethod.CUSTOM,
+        )
+
+    capabilities = detect_terminal_capabilities(
+        input_stream=stream,
+        output_stream=stream,
+        output_obj=output,
+        environ={
+            "TERMINAL_EMULATOR": "JetBrains-JediTerm",
+            "TERM": "xterm-256color",
+        },
+        color_probe=probe,
+    )
+
+    assert capabilities.identity.kind is TerminalKind.JETBRAINS_JEDITERM
+    assert capabilities.output_capabilities.absolute_cursor_addressing is (
+        TerminalCapabilityState.SUPPORTED
+    )
+    assert capabilities.output_capabilities.synchronized_output is (
+        TerminalCapabilityState.SUPPORTED
+    )
 
 
 @pytest.mark.parametrize(
