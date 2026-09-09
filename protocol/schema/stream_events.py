@@ -1189,9 +1189,9 @@ def _session_title_updated_event(
         payload.get("title"),
         "session.title.updated title",
     )
-    if len(title) > 80:
+    if len(title) > 500:
         raise ValueError(
-            "session.title.updated title must contain at most 80 characters"
+            "session.title.updated title must contain at most 500 characters"
         )
     if not title.isprintable():
         raise ValueError("session.title.updated title must be printable")

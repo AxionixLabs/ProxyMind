@@ -177,7 +177,16 @@ def test_session_title_update_is_typed_and_strict() -> None:
     assert isinstance(event, SessionTitleUpdatedEvent)
     assert event.title == "Review the code changes against main"
 
-    for title in ("", "two\nlines", "x" * 81):
+    for length in (81, 500):
+        title = "审" * length
+        long_title_event = parse_stream_event({
+            "type": "session.title.updated",
+            "title": title,
+        })
+        assert isinstance(long_title_event, SessionTitleUpdatedEvent)
+        assert long_title_event.title == title
+
+    for title in ("", "two\nlines", "x" * 501):
         with pytest.raises(ValueError, match="session.title.updated title"):
             parse_stream_event({
                 "type": "session.title.updated",

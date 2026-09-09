@@ -113,10 +113,18 @@ def test_history_renames_only_an_existing_session(tmp_path) -> None:
             now_ms=300,
         )
 
-    with pytest.raises(ValueError, match="at most 80"):
+    for length in (81, 500):
+        title = "审" * length
+        store.rename_session(**session, title=title, now_ms=250)
+        reopened = ConversationHistoryStore(tmp_path / "history.db", ttl_ms=10_000)
+        record = reopened.find_session(session["sid"], now_ms=260)
+        assert record is not None
+        assert record["title"] == title
+
+    with pytest.raises(ValueError, match="at most 500"):
         store.rename_session(
             **session,
-            title="x" * 81,
+            title="x" * 501,
             now_ms=300,
         )
 
