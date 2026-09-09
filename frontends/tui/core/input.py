@@ -11,7 +11,10 @@ from prompt_toolkit.application.current import (
     get_app_or_none,
 )
 from prompt_toolkit.auto_suggest import AutoSuggest
-from prompt_toolkit.buffer import CompletionState
+from prompt_toolkit.buffer import (
+    Buffer,
+    CompletionState,
+)
 from prompt_toolkit.completion import (
     CompleteEvent,
     Completion,
@@ -23,7 +26,6 @@ from prompt_toolkit.filters import (
 )
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.key_binding.bindings.named_commands import get_by_name
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 
@@ -35,7 +37,6 @@ from .keymap import (
     bind_key_action,
 )
 from .token_menu import (
-    CommittedTokenQuery,
     DismissedToken,
     TokenMenuItem,
     TokenMenuKind,
@@ -98,6 +99,14 @@ def _ignore_buffer_action(_buffer: typing.Any) -> None:
 def _deny_action() -> bool:
     """拒绝尚未绑定的输入条件。"""
     return False
+
+
+@dataclass(frozen=True, slots=True)
+class _SelectedSkillToken:
+    """保存当前草稿中一次已确认 skill 补全的整体编辑范围。"""
+
+    start: int
+    end: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,6 +362,8 @@ class TuiInputModel(object):
         self._history_index: int | None = None
         self._history_completion_dismissed: bool = False
         self._token_menu_state: TokenMenuState = TokenMenuState()
+        self._selected_skill_tokens: tuple[_SelectedSkillToken, ...] = ()
+        self._selected_skill_document: str = ""
         self._skill_search_mode_index: int = 0
         self._mention_popup_active: bool = False
         self._history_search: _TuiHistorySearchSession | None = None
@@ -512,15 +523,52 @@ class TuiInputModel(object):
             return None
         return token_start, token
 
-    @staticmethod
-    def _delete_to_line_start(buffer) -> str:
+    def _delete_to_line_start(self, buffer: Buffer) -> str:
         """删除当前逻辑行中光标之前的文本并返回被删内容。"""
         count = len(buffer.document.current_line_before_cursor)
         if count:
-            return buffer.delete_before_cursor(count=count)
+            return self._delete_input_range(
+                buffer, buffer.cursor_position - count, buffer.cursor_position,
+            )
         if buffer.cursor_position > 0:
-            return buffer.delete_before_cursor(count=1)
+            return self._delete_input_range(
+                buffer, buffer.cursor_position - 1, buffer.cursor_position,
+            )
         return ""
+
+    def _delete_input_range(self, buffer: Buffer, start: int, end: int) -> str:
+        """把删除范围扩展到已选 skill 的边界后一次提交文本和光标。"""
+        if start >= end:
+            return ""
+        for token in self._selected_skill_tokens:
+            if token.start < end and token.end > start:
+                start = min(start, token.start)
+                end = max(end, token.end)
+        text = buffer.text
+        deleted = text[start:end]
+        buffer.document = Document(text[:start] + text[end:], cursor_position=start)
+        return deleted
+
+    def _delete_input_characters(
+        self, buffer: Buffer, count: int, *, backward: bool,
+    ) -> str:
+        """按普通字符或完整 skill 元素计数，支持连续向前或向后删除。"""
+        cursor = buffer.cursor_position
+        target = cursor
+        for _ in range(max(0, count)):
+            if backward:
+                if target == 0:
+                    break
+                target -= 1
+            else:
+                if target == len(buffer.text):
+                    break
+                target += 1
+            for token in self._selected_skill_tokens:
+                if token.start < target < token.end:
+                    target = token.start if backward else token.end
+                    break
+        return self._delete_input_range(buffer, min(cursor, target), max(cursor, target))
 
     @staticmethod
     def _history_cursor_at_boundary(buffer) -> bool:
@@ -704,7 +752,7 @@ class TuiInputModel(object):
         popup_available = bool(
             mention_query
             and not self._skill_completion_menu_dismissed(document)
-            and not self._committed_skill_completion_dismissed(document)
+            and not self._selected_skill_completion_dismissed(document)
         )
 
         if not popup_available:
@@ -724,13 +772,14 @@ class TuiInputModel(object):
         self._skill_search_mode_index = 0
         self.file_search.cancel()
 
-    def _update_committed_skill(self, text: str) -> None:
-        """根据文本变化平移或撤销已确认的 skill 查询锚点。"""
-        committed = self._token_menu_state.committed_skill()
-        if committed is None or committed.document_text == text:
+    def _update_selected_skills(self, text: str) -> None:
+        """平移未触及的 skill 范围，并撤销正文已被编辑的引用。"""
+        previous = self._selected_skill_document
+        if previous == text:
             return None
-
-        previous: str = committed.document_text
+        self._selected_skill_document = text
+        if not self._selected_skill_tokens:
+            return None
         prefix: int = 0
         prefix_limit: int = min(len(previous), len(text))
 
@@ -750,27 +799,18 @@ class TuiInputModel(object):
         previous_change_end = len(previous) - suffix
         current_change_end = len(text) - suffix
 
-        if previous_change_end <= committed.start:
-            start = committed.start + current_change_end - previous_change_end
-        elif prefix > committed.start:
-            start = committed.start
-        else:
-            self._token_menu_state.set_committed_skill(None)
-            return None
+        updated: list[_SelectedSkillToken] = []
+        for token in self._selected_skill_tokens:
+            if previous_change_end <= token.start:
+                shift = current_change_end - previous_change_end
+                updated.append(_SelectedSkillToken(token.start + shift, token.end + shift))
+            elif prefix >= token.end:
+                updated.append(token)
+        self._selected_skill_tokens = tuple(updated)
 
-        if start < 0 or start >= len(text) or text[start] not in SKILL_SIGILS:
-            self._token_menu_state.set_committed_skill(None)
-            return None
-
-        self._token_menu_state.set_committed_skill(CommittedTokenQuery(
-            start=start,
-            document_text=text,
-        ))
-
-    def _committed_skill_completion_dismissed(self, document: Document) -> bool:
-        """判断当前查询是否属于已确认的 skill 补全会话。"""
-        committed = self._token_menu_state.committed_skill()
-        if committed is None or committed.document_text != document.text:
+    def _selected_skill_completion_dismissed(self, document: Document) -> bool:
+        """仅在光标查询仍属于完整的已选 skill 元素时抑制菜单。"""
+        if self._selected_skill_document != document.text:
             return False
 
         query = skill_query_token(document.text_before_cursor)
@@ -778,7 +818,11 @@ class TuiInputModel(object):
             return False
 
         query_start = document.cursor_position - len(query)
-        return query_start == committed.start
+        return any(
+            query_start == token.start
+            and token.start < document.cursor_position <= token.end
+            for token in self._selected_skill_tokens
+        )
 
     def _active_paste_placeholders(self) -> tuple[str, ...]:
         """返回输入框中仍然有效的折叠粘贴占位符。"""
@@ -1254,9 +1298,9 @@ class TuiInputModel(object):
             )
 
             if event.arg < 0:
-                deleted = buffer.delete(count=-event.arg)
+                deleted = self._delete_input_characters(buffer, -event.arg, backward=False)
             else:
-                deleted = buffer.delete_before_cursor(count=event.arg)
+                deleted = self._delete_input_characters(buffer, event.arg, backward=True)
 
             if not deleted:
                 event.app.output.bell()
@@ -1275,7 +1319,7 @@ class TuiInputModel(object):
         )
         def _(event) -> None:
             buffer = event.app.current_buffer
-            deleted = buffer.delete(count=event.arg)
+            deleted = self._delete_input_characters(buffer, event.arg, backward=False)
 
             if not deleted:
                 event.app.output.bell()
@@ -1298,7 +1342,16 @@ class TuiInputModel(object):
             if buffer.selection_state:
                 event.app.clipboard.set_data(buffer.cut_selection())
             else:
-                get_by_name("unix-word-rubout").call(event)
+                offset = buffer.document.find_start_of_previous_word(count=event.arg, WORD=True)
+                start = buffer.cursor_position + offset if offset is not None else 0
+                deleted = self._delete_input_range(buffer, start, buffer.cursor_position)
+                if deleted:
+                    clipboard_text = deleted
+                    if event.is_repeat:
+                        clipboard_text += event.app.clipboard.get_data().text
+                    event.app.clipboard.set_text(clipboard_text)
+                else:
+                    event.app.output.bell()
 
             if buffer.text == previous_text:
                 return None
@@ -1448,7 +1501,9 @@ class TuiInputModel(object):
             offset = buffer.document.find_next_word_ending(
                 count=max(1, event.arg),
             )
-            deleted = buffer.delete(count=offset or 0)
+            deleted = self._delete_input_range(
+                buffer, buffer.cursor_position, buffer.cursor_position + (offset or 0),
+            )
             if deleted:
                 self._store_kill(deleted)
                 self._finish_destructive_edit(
@@ -1465,9 +1520,11 @@ class TuiInputModel(object):
             buffer = event.app.current_buffer
             count = len(buffer.document.current_line_after_cursor)
             if count:
-                deleted = buffer.delete(count=count)
+                deleted = self._delete_input_range(
+                    buffer, buffer.cursor_position, buffer.cursor_position + count,
+                )
             elif buffer.cursor_position < len(buffer.text):
-                deleted = buffer.delete(count=1)
+                deleted = self._delete_input_characters(buffer, 1, backward=False)
             else:
                 deleted = ""
             if deleted:
@@ -1937,7 +1994,15 @@ class TuiInputModel(object):
     ) -> None:
         """移动光标并同步补全菜单。"""
         previous_position = buffer.cursor_position
-        move_cursor(count)
+        for _ in range(count):
+            before_step = buffer.cursor_position
+            move_cursor(1)
+            for token in self._selected_skill_tokens:
+                if token.start < buffer.cursor_position < token.end:
+                    buffer.cursor_position = (
+                        token.start if buffer.cursor_position < before_step else token.end
+                    )
+                    break
 
         if buffer.cursor_position != previous_position:
             if (
@@ -2134,7 +2199,7 @@ class TuiInputModel(object):
         if (
             self._slash_completion_menu_dismissed(document)
             or self._skill_completion_menu_dismissed(document)
-            or self._committed_skill_completion_dismissed(document)
+            or self._selected_skill_completion_dismissed(document)
         ):
             return None
         completions = self.completer.menu_completions(document)
@@ -2176,7 +2241,7 @@ class TuiInputModel(object):
         """在输入内容变化后允许补全菜单重新显示。"""
         history_dismissed = self._history_completion_dismissed
         self._history_completion_dismissed = False
-        self._update_committed_skill(buffer.text)
+        self._update_selected_skills(buffer.text)
         query = skill_query_token(buffer.document.text_before_cursor)
         if not query or not query.startswith("@"):
             self._mention_popup_active = False
@@ -2188,28 +2253,28 @@ class TuiInputModel(object):
         elif token != self._token_menu_state.command_dismissal_token():
             self._token_menu_state.clear_command_dismissal()
 
-    def confirm_selected_skill(self, buffer) -> None:
-        """确认光标前最后一个已知 skill 查询锚点。"""
+    def confirm_selected_skill(self, buffer: Buffer) -> None:
+        """把刚补全到光标前的已知 skill 登记为独立的整体编辑范围。"""
         document = buffer.document
-
-        committed: CommittedTokenQuery | None = None
-
+        self._update_selected_skills(document.text)
         for start, end, _name in iter_known_skill_tokens(
             document.text,
             skills=self.skills,
         ):
             if end > document.cursor_position:
                 break
-            committed = CommittedTokenQuery(
-                start=start,
-                document_text=document.text,
-            )
-
-        self._token_menu_state.set_committed_skill(committed)
+            if document.text[end:document.cursor_position].strip():
+                continue
+            token = _SelectedSkillToken(start, end)
+            if token not in self._selected_skill_tokens:
+                self._selected_skill_tokens = tuple(sorted(
+                    (*self._selected_skill_tokens, token), key=lambda item: item.start,
+                ))
 
     def clear_selected_skill(self) -> None:
-        """清除已确认的 skill 查询状态。"""
-        self._token_menu_state.set_committed_skill(None)
+        """在替换整份草稿时清除原有 skill 元素。"""
+        self._selected_skill_tokens = ()
+        self._selected_skill_document = ""
 
     def dismiss_completion_menu(self, buffer) -> None:
         """关闭当前补全菜单并保留输入内容。"""

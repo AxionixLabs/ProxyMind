@@ -174,7 +174,7 @@ async def test_complete_skill_remains_selected_until_it_is_accepted() -> None:
 
 
 @pytest.mark.anyio
-async def test_selected_skill_stays_dismissed_while_its_anchor_remains() -> None:
+async def test_selected_skill_moves_and_deletes_as_one_element() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         runtime.input_model.set_skills((skill_spec("alpha"),))
@@ -191,7 +191,7 @@ async def test_selected_skill_stays_dismissed_while_its_anchor_remains() -> None
 
             for key, position in (
                 ("\x1b[D", 6),
-                ("\x1b[D", 5),
+                ("\x1b[D", 0),
                 ("\x1b[C", 6),
                 ("\x1b[C", 7),
             ):
@@ -209,45 +209,66 @@ async def test_selected_skill_stays_dismissed_while_its_anchor_remains() -> None
             assert not runtime.screen._completion_visible()
             assert runtime.screen._footer_visible()
 
-            pipe_input.send_text("\x1b[D\x1b[D")
-            await wait_for_cursor_position(runtime, 4)
             pipe_input.send_text("\x7f")
-            await wait_for_input_text(runtime, "$alha")
-
-            assert buffer.complete_state is None
-            assert runtime.input_model.completion_menu_completions(
-                buffer.document
-            ) is None
-
-            pipe_input.send_text("\x1b[3~")
-            await wait_for_input_text(runtime, "$ala")
-
-            assert buffer.complete_state is None
-            assert runtime.input_model.completion_menu_completions(
-                buffer.document
-            ) is None
-
-            pipe_input.send_text("z")
-            await wait_for_input_text(runtime, "$alza")
-
-            assert buffer.complete_state is None
-            assert runtime.input_model.completion_menu_completions(
-                buffer.document
-            ) is None
-
-            screen = await render_next_frame(runtime)
-            assert runtime.screen.footer_window in (
-                screen.visible_windows_to_write_positions
-            )
-
-            buffer.cursor_position = 1
-            pipe_input.send_text("\x7f$a")
-            await wait_for_input_text(runtime, "$aalza")
+            await wait_for_input_text(runtime, "")
+            pipe_input.send_text("$")
             await wait_for_completion(runtime)
+            pipe_input.send_text("\r")
+            await wait_for_input_text(runtime, "$alpha ")
+            assert runtime.submissions.message_queue.empty()
+        finally:
+            await runtime.close()
 
-            assert runtime.input_model.completion_menu_completions(
-                buffer.document
-            ) is not None
+
+@pytest.mark.anyio
+async def test_shortened_selected_skill_reopens_bare_sigil_completion() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((skill_spec("alpha"),))
+        await runtime.open()
+        try:
+            pipe_input.send_text("$")
+            await wait_for_completion(runtime)
+            pipe_input.send_text("\r")
+            await wait_for_input_text(runtime, "$alpha ")
+
+            buffer = runtime.screen.input.buffer
+            buffer.document = Document("$", cursor_position=1)
+            assert runtime.input_model.completion_menu_completions(buffer.document)
+            pipe_input.send_text("\r")
+            await wait_for_input_text(runtime, "$alpha ")
+            assert runtime.submissions.message_queue.empty()
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_multiple_selected_skills_keep_independent_atomic_ranges() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        runtime.input_model.set_skills((skill_spec("alpha"), skill_spec("beta")))
+        await runtime.open()
+        try:
+            for query, expected in (("$a", "$alpha "), ("$b", "$alpha $beta ")):
+                pipe_input.send_text(query)
+                await wait_for_completion(runtime)
+                pipe_input.send_text("\r")
+                await wait_for_input_text(runtime, expected)
+
+            buffer = runtime.screen.input.buffer
+            buffer.cursor_position = 0
+            pipe_input.send_text("ask ")
+            await wait_for_input_text(runtime, "ask $alpha $beta ")
+            pipe_input.send_text("\x1b[3~")
+            await wait_for_input_text(runtime, "ask  $beta ")
+            buffer.cursor_position = len(buffer.text)
+            pipe_input.send_text("\x7f\x7f")
+            await wait_for_input_text(runtime, "ask  ")
+            pipe_input.send_text("$")
+            await wait_for_completion(runtime)
+            pipe_input.send_text("\r")
+            await wait_for_input_text(runtime, "ask  $alpha ")
+            assert runtime.submissions.message_queue.empty()
         finally:
             await runtime.close()
 

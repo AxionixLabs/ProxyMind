@@ -58,13 +58,6 @@ class TokenMenuSnapshot(object):
 
 
 @dataclass(frozen=True, slots=True)
-class CommittedTokenQuery(object):
-    """记录一次已确认补全的 token 锚点。"""
-    start: int
-    document_text: str
-
-
-@dataclass(frozen=True, slots=True)
 class DismissedToken(object):
     """记录一次已关闭补全的 token 身份。"""
     token: str
@@ -93,15 +86,13 @@ class DismissedToken(object):
 
 
 class TokenMenuState(object):
-    """保存输入 token 菜单的关闭和确认状态。"""
+    """保存输入 token 菜单的主动关闭状态。"""
     _dismissed_command_token: str | None
     _dismissed_skill_token: DismissedToken | None
-    _committed_skill_query: CommittedTokenQuery | None
 
     def __init__(self) -> None:
         self._dismissed_command_token = None
         self._dismissed_skill_token = None
-        self._committed_skill_query = None
 
     def command_dismissal_token(self) -> str | None:
         """返回已关闭的命令 token。"""
@@ -122,14 +113,6 @@ class TokenMenuState(object):
     def dismiss_skill(self, token: DismissedToken) -> None:
         """记录已关闭的 skill token。"""
         self._dismissed_skill_token = token
-
-    def committed_skill(self) -> CommittedTokenQuery | None:
-        """返回已确认的 skill 查询。"""
-        return self._committed_skill_query
-
-    def set_committed_skill(self, query: CommittedTokenQuery | None) -> None:
-        """更新已确认的 skill 查询。"""
-        self._committed_skill_query = query
 
 
 def _token_occurrences_before(text: str, token: str, before: int) -> int:
