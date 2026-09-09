@@ -1,6 +1,6 @@
 # TUI Inline Viewport 分阶段改造清单
 
-> 状态：阶段 0 已完成；阶段 1 待实施。
+> 状态：阶段 1 已完成；阶段 2 待实施。
 > 基准日期：2026-09-09。
 > 性质：临时实施与验收清单，不定义长期架构事实。
 > 完成后处理：全部阶段验收通过后，由用户手动删除本文档。
@@ -111,12 +111,12 @@ prompt_toolkit Buffer / KeyBindings / Completer
 
 ### 改造项
 
-- [ ] 在现有不可变终端能力快照中表达本改造实际需要的输出事实：绝对光标寻址、同步输出、视口尺寸和启动光标位置是否可获得。
-- [ ] 由 platform adapter 在读取用户输入前完成探测；renderer 不读取环境变量或识别终端品牌。
-- [ ] Windows Console/ConPTY、VT/PTY 和无交互 Output 分别在 adapter 边界转换为同一具名能力。
-- [ ] 明确探测失败语义，不把未知能力静默提升为已支持，也不从颜色能力推断光标能力。
-- [ ] 保持现有颜色、主题和终端身份字段职责不变。
-- [ ] 为测试 Output 提供显式能力 fixture，不让测试替身扩大生产公开面。
+- [x] 在现有不可变终端能力快照中表达本改造实际需要的输出事实：绝对光标寻址、同步输出、视口尺寸和启动光标位置是否可获得。
+- [x] 由 platform adapter 在读取用户输入前完成探测；renderer 不读取环境变量或识别终端品牌。
+- [x] Windows Console/ConPTY、VT/PTY 和无交互 Output 分别在 adapter 边界转换为同一具名能力。
+- [x] 明确探测失败语义，不把未知能力静默提升为已支持，也不从颜色能力推断光标能力。
+- [x] 保持现有颜色、主题和终端身份字段职责不变。
+- [x] 为测试 Output 提供显式能力 fixture，不让测试替身扩大生产公开面。
 
 ### Codex 源码对照
 
@@ -127,11 +127,15 @@ prompt_toolkit Buffer / KeyBindings / Completer
 
 ### 阶段 1 验收
 
-- [ ] capability 测试覆盖支持、明确不支持和探测失败三种结果。
-- [ ] JetBrains 身份不会自动等价于某项输出能力，Windows Terminal 身份也不会被误用为能力证明。
-- [ ] renderer 和逻辑布局中不存在新增的 `os.environ`、平台字符串或终端品牌判断。
-- [ ] Windows、Unix 和 Dummy Output 的契约测试通过。
-- [ ] 现有终端身份、颜色与主题测试无回归。
+- [x] capability 测试覆盖支持、明确不支持和探测失败三种结果。
+- [x] JetBrains 身份不会自动等价于某项输出能力，Windows Terminal 身份也不会被误用为能力证明。
+- [x] renderer 和逻辑布局中不存在新增的 `os.environ`、平台字符串或终端品牌判断。
+- [x] Windows、Unix 和 Dummy Output 的契约测试通过。
+- [x] 现有终端身份、颜色与主题测试无回归。
+
+阶段 1 复核结果：`tests/frontends/terminal/test_terminal_capabilities.py` 为 `56 passed`；CLI
+定向测试为 `98 passed`；运行时类型与阶段 0 基线为 `24 passed`；架构审计为 `138 passed`；
+`compileall` 与 `git diff --check` 通过。
 
 ## 5. 阶段 2：自有绝对坐标 Inline Renderer
 
@@ -314,13 +318,17 @@ prompt_toolkit Buffer / KeyBindings / Completer
 | 阶段                | 状态   | 提交 | 自动验证 | 手工验证 | 复核结论 |
 |---------------------|--------|------|----------|----------|----------|
 | 0 证据冻结          | 已完成 | `0f6ce987` | 289 passed | 已记录 | 通过 |
-| 1 能力契约          | 待开始 | -    | -        | -        | -        |
+| 1 能力契约          | 已完成 | `2629d349` | 178 passed | 未涉及 | 通过 |
 | 2 Inline Renderer   | 待开始 | -    | -        | -        | -        |
 | 3 主输入接管        | 待开始 | -    | -        | -        | -        |
 | 4 Scrollback/Resize | 待开始 | -    | -        | -        | -        |
 | 5 Overlay/Lifecycle | 待开始 | -    | -        | -        | -        |
 | 6 平台与 IME        | 待开始 | -    | -        | -        | -        |
 | 7 发布收口          | 待开始 | -    | -        | -        | -        |
+
+阶段 1 提交后复核：`2629d349` 已推送到 `origin/main`。自动验证还包括架构审计 `138 passed`、
+`compileall` 和 `git diff --check`；真实 PyCharm Reworked/Classic、ConPTY 和 IME 交互仍留在
+阶段 6 准出，不在本阶段声称已验证。
 
 ## 12. 最终完成定义
 
