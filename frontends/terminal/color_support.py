@@ -46,6 +46,11 @@ class TerminalColorSupport:
     output_is_tty: bool | None
     explicitly_disabled: bool = False
 
+    @property
+    def render_level(self) -> TerminalColorLevel:
+        """保留探测事实，并把未知色深降为基础 ANSI 渲染。"""
+        return resolve_color_render_level(self.effective_level)
+
     @classmethod
     def fixed(cls, level: TerminalColorLevel) -> "TerminalColorSupport":
         """为测试或无探测前端构造明确的固定色深。"""
@@ -61,6 +66,11 @@ class TerminalColorSupport:
 
 
 DEGRADED_COLOR_SUPPORT = TerminalColorSupport.fixed(TerminalColorLevel.UNKNOWN)
+
+
+def resolve_color_render_level(level: TerminalColorLevel) -> TerminalColorLevel:
+    """统一解析渲染目标色深，明确无色不启用降级颜色。"""
+    return TerminalColorLevel.ANSI16 if level is TerminalColorLevel.UNKNOWN else level
 
 
 def detect_terminal_color_support(

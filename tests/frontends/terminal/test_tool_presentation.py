@@ -895,10 +895,10 @@ def test_patch_failure_matches_codex_title_and_diagnostics() -> None:
     assert "reason: patch_context_mismatch" in block.plain_text
     assert "file: sample.py" in block.plain_text
     assert "actual: other" in block.plain_text
-    assert _containing_span_style(block, "✘ ") == TextStyle(bold=True)
+    assert _containing_span_style(block, "✘ ") == TextStyle(foreground="ansimagenta", bold=True)
 
 
-def test_patch_degraded_context_does_not_emit_colors() -> None:
+def test_patch_degraded_context_preserves_basic_diff_colors() -> None:
     patch = "*** Begin Patch\n*** Update File: file.txt\n@@\n-old\n+new\n*** End Patch"
     start = render_presentation_view(build_tool_start_view(
         "apply_patch",
@@ -927,10 +927,10 @@ def test_patch_degraded_context_does_not_emit_colors() -> None:
     ))[0]
 
     assert "• Edited file.txt" in start.plain_text
-    assert all(
-        span.style.foreground is None and span.style.background is None
-        for span in result.spans
-    )
+    for block in (start, result):
+        assert all(span.style.background is None for span in block.spans)
+        assert _containing_span_style(block, "old").foreground == "ansired"
+        assert _containing_span_style(block, "new").foreground == "ansigreen"
 
 
 def test_patch_dark_truecolor_uses_full_line_backgrounds() -> None:
@@ -1069,7 +1069,8 @@ def test_patch_ansi256_uses_codex_palette_indices() -> None:
     assert add_line[1].style.foreground == "#303030"
 
 
-def test_patch_ansi16_uses_foregrounds_without_backgrounds() -> None:
+@pytest.mark.parametrize("level", (TerminalColorLevel.ANSI16, TerminalColorLevel.UNKNOWN))
+def test_patch_basic_colors_use_foregrounds_without_backgrounds(level) -> None:
     view = build_native_tool_result_view(
         "apply_patch",
         {"patch": "patch"},
@@ -1087,7 +1088,7 @@ def test_patch_ansi16_uses_foregrounds_without_backgrounds() -> None:
         view,
         terminal_width=80,
         terminal_capabilities=_terminal_capabilities(
-            TerminalColorLevel.ANSI16,
+            level,
             background=(0, 0, 0),
         ),
     )[0]
@@ -1104,13 +1105,7 @@ def test_patch_ansi16_uses_foregrounds_without_backgrounds() -> None:
     } <= {None, "ansigreen", "ansired"}
 
 
-@pytest.mark.parametrize(
-    "level",
-    (TerminalColorLevel.NONE, TerminalColorLevel.UNKNOWN),
-)
-def test_patch_no_color_levels_suppress_diff_and_syntax_colors(
-    level: TerminalColorLevel,
-) -> None:
+def test_patch_no_color_suppresses_diff_and_syntax_colors() -> None:
     view = build_native_tool_result_view(
         "apply_patch",
         {"patch": "patch"},
@@ -1127,7 +1122,7 @@ def test_patch_no_color_levels_suppress_diff_and_syntax_colors(
     block = render_presentation_view(
         view,
         terminal_capabilities=_terminal_capabilities(
-            level,
+            TerminalColorLevel.NONE,
             background=(255, 255, 255),
         ),
     )[0]

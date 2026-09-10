@@ -25,6 +25,7 @@ from frontends.terminal.palette import (
     is_light_color,
 )
 from frontends.terminal.probe import RgbColor
+from frontends.terminal.semantic_styles import resolve_terminal_render_policy
 from frontends.terminal.text_layout import (
     wrap_styled_line,
     wrap_styled_lines,
@@ -48,7 +49,7 @@ class DiffRenderStyleContext(object):
     """保存一次 patch 渲染所需的全部已解析样式。"""
 
     light: bool
-    rich: bool
+    syntax_enabled: bool
     add_foreground: str | None
     remove_foreground: str | None
     failure_foreground: str | None
@@ -181,7 +182,7 @@ def _file_line_spans(
                 path=syntax_path,
                 light_theme=context.light,
             )
-            if context.rich
+            if context.syntax_enabled
             else None
         )
         if hunk_index:
@@ -330,7 +331,8 @@ def create_diff_render_style_context(
     """为一次 patch 渲染解析终端能力和可选 syntax scope。"""
 
     light = _is_light_color(capabilities.theme.background)
-    level = capabilities.color_support.effective_level
+    policy = resolve_terminal_render_policy(capabilities)
+    level = policy.color_level
     colors_enabled = level in {
         TerminalColorLevel.TRUECOLOR,
         TerminalColorLevel.ANSI256,
@@ -339,6 +341,21 @@ def create_diff_render_style_context(
     add_foreground = "ansigreen" if colors_enabled else None
     remove_foreground = "ansired" if colors_enabled else None
     failure_foreground = "ansimagenta" if colors_enabled else None
+    syntax_enabled = level in {TerminalColorLevel.TRUECOLOR, TerminalColorLevel.ANSI256}
+
+    if not policy.backgrounds_allowed:
+        return DiffRenderStyleContext(
+            light=light,
+            syntax_enabled=syntax_enabled,
+            add_foreground=add_foreground,
+            remove_foreground=remove_foreground,
+            failure_foreground=failure_foreground,
+            add_background=None,
+            remove_background=None,
+            add_gutter_background=None,
+            remove_gutter_background=None,
+            gutter_foreground=None,
+        )
 
     add_scope = _scope_background_color(
         scope_backgrounds,
@@ -357,7 +374,7 @@ def create_diff_render_style_context(
     if level is TerminalColorLevel.TRUECOLOR:
         return DiffRenderStyleContext(
             light=light,
-            rich=True,
+            syntax_enabled=syntax_enabled,
             add_foreground=add_foreground,
             remove_foreground=remove_foreground,
             failure_foreground=failure_foreground,
@@ -382,7 +399,7 @@ def create_diff_render_style_context(
     if level is TerminalColorLevel.ANSI256:
         return DiffRenderStyleContext(
             light=light,
-            rich=True,
+            syntax_enabled=syntax_enabled,
             add_foreground=add_foreground,
             remove_foreground=remove_foreground,
             failure_foreground=failure_foreground,
@@ -406,7 +423,7 @@ def create_diff_render_style_context(
         )
     return DiffRenderStyleContext(
         light=light,
-        rich=False,
+        syntax_enabled=syntax_enabled,
         add_foreground=add_foreground,
         remove_foreground=remove_foreground,
         failure_foreground=failure_foreground,
@@ -462,7 +479,7 @@ def _gutter_style(
     line_background: str | None
 ) -> TextStyle:
     """返回行号区域在当前主题下的样式。"""
-    if line.kind == "context" or not context.light:
+    if line.kind == "context" or not context.light or line_background is None:
         return TextStyle(background=line_background, dim=True)
     gutter_background = (
         context.add_gutter_background
@@ -502,7 +519,7 @@ def _content_style(
     if line.kind == "context":
         return TextStyle()
     foreground = None
-    if not context.light or not context.rich:
+    if not context.light or line_background is None:
         foreground = (
             context.add_foreground
             if line.kind == "add"

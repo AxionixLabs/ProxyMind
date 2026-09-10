@@ -25,6 +25,7 @@ from frontends.terminal.semantic_styles import (
     TerminalSemanticRole,
     TerminalSemanticStyles,
     TerminalStyle,
+    resolve_terminal_render_policy,
     resolve_terminal_semantic_styles,
     semantic_role_for_ansi_color,
     semantic_text_style,
@@ -615,7 +616,7 @@ def build_tui_style_transformation(
     capabilities: TerminalCapabilities,
 ) -> StyleTransformation:
     """为会话冻结 IDE 背景策略，供画布和原生滚屏输出共同使用。"""
-    if capabilities.identity.is_ide_terminal:
+    if not resolve_terminal_render_policy(capabilities).backgrounds_allowed:
         return _BackgroundlessStyleTransformation()
     return DummyStyleTransformation()
 

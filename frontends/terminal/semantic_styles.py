@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from agent.ports.presentation import TextStyle
+from .capabilities import TerminalCapabilities
 from .color_support import (
     TerminalColorLevel,
     TerminalColorSupport,
@@ -118,6 +119,22 @@ class TerminalThemeTone(str, Enum):
 
 
 @dataclass(frozen=True)
+class TerminalRenderPolicy:
+    """描述由冻结能力派生的前端样式策略，不拥有终端探测或业务状态。"""
+
+    color_level: TerminalColorLevel
+    backgrounds_allowed: bool
+
+
+def resolve_terminal_render_policy(capabilities: TerminalCapabilities) -> TerminalRenderPolicy:
+    """为组件和输出边界解析相同的颜色及背景策略。"""
+    return TerminalRenderPolicy(
+        color_level=capabilities.color_support.render_level,
+        backgrounds_allowed=not capabilities.identity.is_ide_terminal,
+    )
+
+
+@dataclass(frozen=True)
 class TerminalStyle:
     """描述与具体 TUI 组件无关的终端语义样式。"""
 
@@ -157,7 +174,7 @@ def resolve_terminal_semantic_styles(
 ) -> TerminalSemanticStyles:
     """按色深和默认颜色一次性解析全部终端语义 token。"""
 
-    level = color_support.effective_level
+    level = color_support.render_level
     colors_enabled = level is not TerminalColorLevel.NONE
     tone = _theme_tone(background)
 

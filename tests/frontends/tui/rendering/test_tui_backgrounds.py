@@ -9,6 +9,12 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.styles import Style
 
+from agent.application.views import (
+    PatchFileView,
+    PatchHunkView,
+    PatchLineView,
+    PatchView,
+)
 from frontends.interaction.contracts import PromptContext
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
@@ -22,12 +28,14 @@ from frontends.terminal.identity import (
     TerminalIdentity,
     TerminalKind,
 )
+from frontends.terminal.renderers.dispatch import render_presentation_view
 from frontends.tui.core.approval_render import TUI_APPROVAL_STYLE
 from frontends.tui.core.menu import TUI_MENU_STYLE
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.styles import (
     build_tui_application_style,
     build_tui_style_transformation,
+    styled_block_fragments,
 )
 from tests.frontends.tui.rendering.frame_scenarios import render_next_frame
 from tests.pty.contract import TerminalSize
@@ -174,5 +182,54 @@ async def test_native_scrollback_applies_same_background_policy(kind: TerminalKi
             assert terminal.cell(0, 0).background != "default"
             assert terminal.cell(1, 0).background == "red"
             assert terminal.cell(2, 0).reverse
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("level", (
+    TerminalColorLevel.UNKNOWN,
+    TerminalColorLevel.ANSI16,
+    TerminalColorLevel.ANSI256,
+    TerminalColorLevel.TRUECOLOR,
+    TerminalColorLevel.NONE,
+))
+@pytest.mark.parametrize("background", ((0, 0, 0), (255, 255, 255)))
+async def test_ide_patch_fallback_keeps_foregrounds_in_final_output(level, background) -> None:
+    capabilities = TerminalCapabilities(
+        identity=TerminalIdentity(TerminalKind.JETBRAINS_JEDITERM, "test"),
+        color_support=TerminalColorSupport.fixed(level),
+        theme=TerminalTheme(background=background),
+    )
+    view = PatchView("patch-colors", "applied", "", files=(PatchFileView(
+        "update", ".gitignore", ".gitignore",
+        (PatchHunkView((
+            PatchLineView("remove", "old-pattern/", old_line=1),
+            PatchLineView("add", "new-pattern/", new_line=1),
+        )),),
+        added=1, removed=1,
+    ),))
+    block = render_presentation_view(view, terminal_capabilities=capabilities)[0]
+    assert all(span.style.background is None for span in block.spans)
+    assert all(fill is None for fill in block.line_fill_styles)
+    stream = io.StringIO()
+    output = _FrameOutput(stream, lambda: Size(rows=16, columns=80), enable_cpr=False)
+    runtime = TuiRuntime(output_obj=output, terminal_capabilities=capabilities)
+    try:
+        runtime.screen.application.print_text(list(styled_block_fragments(block)))
+        terminal = TerminalScreen(TerminalSize(rows=16, columns=80))
+        terminal.feed(stream.getvalue().encode("utf-8"))
+        snapshot = terminal.snapshot()
+        for text, color in (("old-pattern/", "red"), ("new-pattern/", "green")):
+            row = next(i for i, line in enumerate(snapshot.visible_lines) if text in line)
+            column = snapshot.visible_lines[row].index(text)
+            expected = "default" if level is TerminalColorLevel.NONE else color
+            assert terminal.cell(row, column - 1).foreground == expected
+            assert terminal.cell(row, column).foreground == expected
+        assert all(
+            terminal.cell(row, column).background == "default"
+            for row in range(3) for column in range(80)
+        )
+        assert capabilities.color_support.effective_level is level
     finally:
         await runtime.close()

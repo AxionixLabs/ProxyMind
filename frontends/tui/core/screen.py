@@ -55,7 +55,10 @@ from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
 )
-from frontends.terminal.color_support import TerminalColorLevel
+from frontends.terminal.color_support import (
+    TerminalColorLevel,
+    resolve_color_render_level,
+)
 from frontends.tui.contracts.pager import StaticPagerRequest
 from frontends.tui.contracts.resume import (
     ResumePickerRequest,
@@ -193,6 +196,7 @@ from ..rendering.screen.terminal import (
 
 def _prompt_color_depth(level: TerminalColorLevel) -> ColorDepth:
     """把冻结的终端色深映射为 prompt_toolkit 输出契约。"""
+    level = resolve_color_render_level(level)
     if level is TerminalColorLevel.TRUECOLOR:
         return ColorDepth.DEPTH_24_BIT
     if level is TerminalColorLevel.ANSI256:
