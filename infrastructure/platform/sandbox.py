@@ -1128,8 +1128,9 @@ class SandboxClient(object):
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                    # 子进程可能另开 CONOUT$，因此仅重定向标准流不足以隔离前端控制台。
+                    # 子进程可另开 CONOUT$ 或 /dev/tty；标准流捕获之外还需解除父终端继承。
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                    start_new_session=os.name == "posix",
                     limit=self.FRAME_LIMIT_BYTES + 1,
                 )
             except OSError as exc:

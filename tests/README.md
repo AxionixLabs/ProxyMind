@@ -87,6 +87,14 @@ python -m pytest tests/test_package_architecture.py tests/architecture -q
 `-m runtime_frame`，固定 seed 的状态长序列使用 `-m runtime_stateful`。平台测试必须在对应平台
 执行，缺少平台不能视为该门禁通过。
 
+Sandbox 父终端隔离验收使用以下命令；`importlib` 模式避免 `tests/pty` 遮蔽 POSIX 标准库
+`pty`。测试包含恢复终端继承的对照场景，必须能访问当前平台的控制终端，不能在禁止访问
+`/dev/tty` 的外层沙箱内作为通过证据。
+
+```shell
+python -m pytest tests/integration/test_sandbox_console.py --import-mode=importlib -q
+```
+
 ## 本地分层验证
 
 仓库不配置自动化测试 CI。维护者按改动风险在本地执行以下层级，责任目录与执行属性保持正交：

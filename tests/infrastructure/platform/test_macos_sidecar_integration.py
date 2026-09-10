@@ -2,9 +2,12 @@
 
 import asyncio
 import os
+import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -50,6 +53,35 @@ def _new_client(
         executable=sidecar,
         platform="darwin",
     )
+
+
+def _assert_processes_exit(process_ids: tuple[int, ...]) -> None:
+    """有界检查本测试启动的进程退出，并清理失败时仍运行的进程。"""
+    assert process_ids and all(process_id > 1 for process_id in process_ids)
+    remaining = process_ids
+    deadline = time.monotonic() + 5
+    while remaining and time.monotonic() < deadline:
+        running: list[int] = []
+        for process_id in remaining:
+            status = subprocess.run(
+                ["/bin/ps", "-p", str(process_id), "-o", "stat="],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            assert status.returncode in (0, 1), status.stderr
+            if status.returncode == 0 and not status.stdout.strip().startswith("Z"):
+                running.append(process_id)
+        remaining = tuple(running)
+        if remaining:
+            time.sleep(0.05)
+    for process_id in remaining:
+        try:
+            os.kill(process_id, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    assert not remaining, f"processes survived sidecar shutdown: {remaining}"
 
 
 async def _run_process(
@@ -345,28 +377,131 @@ def test_sidecar_stdin_eof_and_terminate(
     asyncio.run(run())
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize("tty", (False, True), ids=("pipe", "pty"))
+async def test_sidecar_interrupts_running_command(
+    sidecar_path: Path,
+    tmp_path: Path,
+    repository_root: Path,
+    tty: bool,
+) -> None:
+    client = _new_client(sidecar_path, tmp_path, repository_root)
+    try:
+        process = await client.spawn(
+            argv=("/bin/sh", "-c", "printf 'ready\\n'; exec /bin/sleep 30"),
+            cwd=tmp_path,
+            env={},
+            sandbox_mode="read-only",
+            stdin_open=True,
+            tty=tty,
+            timeout_ms=15000,
+        )
+        async with asyncio.timeout(5):
+            ready = bytearray()
+            while not ready.endswith(b"\n"):
+                chunk = await process.stdout.read(1)
+                assert chunk, "command exited before it was ready for interrupt"
+                ready.extend(chunk)
+            assert bytes(ready).strip() == b"ready"
+            await client.interrupt(process.process_id, tty=tty)
+            assert await process.wait() != 0
+    finally:
+        await client.close()
+
+
 def test_sidecar_close_finishes_running_processes(
     sidecar_path: Path,
     tmp_path: Path,
     repository_root: Path,
 ) -> None:
-    """验证关闭 sidecar 时不会留下逻辑进程。"""
+    """验证关闭 sidecar 时同时收束逻辑进程和实际 OS 进程。"""
 
-    async def run() -> None:
+    async def run() -> tuple[int, int]:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
         client = _new_client(sidecar_path, workspace, repository_root)
-        process = await client.spawn(
-            argv=("/bin/sleep", "30"),
-            cwd=workspace,
-            env={},
-            sandbox_mode="read-only",
-            stdin_open=False,
-        )
-        await client.close()
-        assert await process.wait() != 0
+        try:
+            process = await client.spawn(
+                argv=("/bin/sh", "-c", "printf '%s\\n' $$; exec /bin/sleep 30"),
+                cwd=workspace,
+                env={},
+                sandbox_mode="read-only",
+                stdin_open=False,
+                timeout_ms=15000,
+            )
+            async with asyncio.timeout(5):
+                process_id_bytes = bytearray()
+                while not process_id_bytes.endswith(b"\n"):
+                    chunk = await process.stdout.read(1)
+                    assert chunk, "command exited before reporting its PID"
+                    process_id_bytes.extend(chunk)
+            command_pid = int(process_id_bytes.strip())
+            sidecar = client._sidecar
+            assert sidecar is not None
+            await client.close()
+            assert await asyncio.wait_for(process.wait(), timeout=5) != 0
+            return sidecar.pid, command_pid
+        finally:
+            await client.close()
 
-    asyncio.run(run())
+    _assert_processes_exit(asyncio.run(run()))
+
+
+def test_sidecar_exits_when_parent_dies_without_close(
+    sidecar_path: Path,
+    tmp_path: Path,
+    repository_root: Path,
+) -> None:
+    driver = tmp_path / "parent.py"
+    driver.write_text(textwrap.dedent('''\
+        import asyncio
+        import os
+        import sys
+        from pathlib import Path
+
+        from infrastructure.platform.sandbox import SandboxClient
+
+        async def main() -> None:
+            """在父进程未执行资源关闭时触发真实 sidecar 的 IPC 断开。"""
+            client = SandboxClient(
+                workspace_root=Path.cwd(), executable=Path(sys.argv[1]), platform=sys.platform,
+            )
+            try:
+                process = await client.spawn(
+                    argv=("/bin/sh", "-c", "printf '%s\\\\n' $$; exec /bin/sleep 30"),
+                    cwd=Path.cwd(), env={}, sandbox_mode="read-only",
+                    stdin_open=False, timeout_ms=15000,
+                )
+                async with asyncio.timeout(5):
+                    process_id_bytes = bytearray()
+                    while not process_id_bytes.endswith(b"\\n"):
+                        chunk = await process.stdout.read(1)
+                        assert chunk, "command exited before reporting its PID"
+                        process_id_bytes.extend(chunk)
+                sidecar = client._sidecar
+                assert sidecar is not None
+                print(sidecar.pid, int(process_id_bytes.strip()), flush=True)
+                os._exit(0)
+            finally:
+                await client.close()
+
+        asyncio.run(main())
+    '''), encoding="utf-8")
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(repository_root)
+    result = subprocess.run(
+        [sys.executable, str(driver), str(sidecar_path)],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    process_ids = tuple(int(value) for value in result.stdout.split())
+    assert len(process_ids) == 2, result.stdout
+    _assert_processes_exit(process_ids)
 
 
 def test_sidecar_artifact_is_macos_arm64_or_universal(sidecar_path: Path) -> None:
