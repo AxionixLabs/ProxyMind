@@ -8,6 +8,7 @@ import collections
 import dataclasses
 import json
 import os
+import subprocess
 import sys
 import typing
 from pathlib import Path
@@ -1127,6 +1128,8 @@ class SandboxClient(object):
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    # 子进程可能另开 CONOUT$，因此仅重定向标准流不足以隔离前端控制台。
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                     limit=self.FRAME_LIMIT_BYTES + 1,
                 )
             except OSError as exc:
