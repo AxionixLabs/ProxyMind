@@ -9,6 +9,7 @@ from dataclasses import (
 
 from agent.application.views import (
     PatchFileView,
+    PatchHunkView,
     PatchLineView,
     PatchView,
 )
@@ -176,22 +177,18 @@ def _file_line_spans(
 
     number_width = max(1, len(str(max_line)))
     syntax_path = file.new_path or file.old_path
+    old_first_line = next((line.text for line in lines if line.old_line == 1), None)
+    new_first_line = next((line.text for line in lines if line.new_line == 1), None)
 
     spans: list[TextSpan] = []
 
     for hunk_index, hunk in enumerate(file.hunks):
-        syntax_lines = (
-            highlight_code_lines(
-                "\n".join(line.text for line in hunk.lines),
-                path=syntax_path,
-                first_line=next((
-                    line.text for line in lines
-                    if (line.old_line if file.action == "delete" else line.new_line) == 1
-                ), None),
-                theme=context.syntax_theme,
-            )
-            if context.syntax_theme is not SyntaxTheme.NONE
-            else None
+        syntax_lines = _hunk_syntax_lines(
+            hunk,
+            path=syntax_path,
+            old_first_line=old_first_line,
+            new_first_line=new_first_line,
+            theme=context.syntax_theme,
         )
         if hunk_index:
             spans.extend((
@@ -203,17 +200,45 @@ def _file_line_spans(
             spans.append(TextSpan("\n"))
             spans.extend(_diff_line_spans(
                 line,
-                syntax_spans=(
-                    list(syntax_lines[line_index])
-                    if syntax_lines is not None
-                    else None
-                ),
+                syntax_spans=syntax_lines[line_index],
                 context=context,
                 number_width=number_width,
                 terminal_width=terminal_width,
                 measure_width=measure_width,
             ))
     return spans
+
+
+def _hunk_syntax_lines(
+    hunk: PatchHunkView,
+    *,
+    path: str,
+    old_first_line: str | None,
+    new_first_line: str | None,
+    theme: SyntaxTheme,
+) -> list[list[TextSpan] | None]:
+    """独立解析 hunk 两侧并映射回差异行，上下文采用新侧状态。"""
+    syntax_lines: list[list[TextSpan] | None] = [None] * len(hunk.lines)
+    if theme is SyntaxTheme.NONE:
+        return syntax_lines
+
+    for removed, first_line in ((True, old_first_line), (False, new_first_line)):
+        side = [
+            (index, line) for index, line in enumerate(hunk.lines)
+            if line.kind != ("add" if removed else "remove")
+        ]
+        highlighted = highlight_code_lines(
+            "\n".join(line.text for _index, line in side),
+            path=path,
+            first_line=first_line,
+            theme=theme,
+        )
+        if highlighted is None:
+            continue
+        for (index, line), spans in zip(side, highlighted, strict=True):
+            if not removed or line.kind == "remove":
+                syntax_lines[index] = list(spans)
+    return syntax_lines
 
 
 def _diff_line_spans(
