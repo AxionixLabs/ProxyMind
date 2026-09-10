@@ -19,6 +19,7 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
+from frontends.terminal.highlighting import SyntaxTheme
 from frontends.terminal.text import sanitize_terminal_line
 from frontends.terminal.semantic_styles import (
     TerminalSemanticRole,
@@ -57,7 +58,8 @@ def render_tool_start_view(
     view: ToolStartView,
     *,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None
+    measure_width: typing.Callable[[str], int] | None = None,
+    syntax_theme: SyntaxTheme = SyntaxTheme.ANSI,
 ) -> StyledBlock:
     """把普通工具开始视图转换为中立展示块。"""
     spec = tool_display_spec(view.name)
@@ -82,6 +84,7 @@ def render_tool_start_view(
         ok=None,
         terminal_width=terminal_width,
         measure_width=measure_width,
+        syntax_theme=syntax_theme,
     ))
 
     return StyledBlock(
@@ -99,6 +102,7 @@ def render_generic_tool_result_view(
     *,
     terminal_width: int | None = None,
     measure_width: typing.Callable[[str], int] | None = None,
+    syntax_theme: SyntaxTheme = SyntaxTheme.ANSI,
 ) -> StyledBlock:
     """把普通工具结果视图转换为中立展示块。"""
     preview = render_generic_tool_result_preview(view.text)
@@ -113,6 +117,7 @@ def render_generic_tool_result_view(
         ok=view.ok,
         terminal_width=terminal_width,
         measure_width=measure_width,
+        syntax_theme=syntax_theme,
     ))
     return StyledBlock(
         plain_text=(
@@ -129,7 +134,8 @@ def render_native_tool_result_view(
     view: NativeToolResultView,
     *,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None
+    measure_width: typing.Callable[[str], int] | None = None,
+    syntax_theme: SyntaxTheme = SyntaxTheme.ANSI,
 ) -> tuple[StyledBlock, ...]:
     """把原生编码工具结果视图转换为中立展示块。"""
     spec = tool_display_spec(view.name)
@@ -138,6 +144,7 @@ def render_native_tool_result_view(
             view,
             terminal_width=terminal_width,
             measure_width=measure_width,
+            syntax_theme=syntax_theme,
         ),)
 
     blocks: list[StyledBlock] = []
@@ -158,6 +165,7 @@ def render_native_tool_result_view(
                 title,
                 preview=entry.preview,
                 ok=entry.ok,
+                syntax_theme=syntax_theme,
                 terminal_width=(terminal_width if spec.kind in {
                     ToolDisplayKind.SHELL,
                     ToolDisplayKind.STDIN,
@@ -173,7 +181,8 @@ def render_javascript_result_view(
     view: NativeToolResultView,
     *,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None
+    measure_width: typing.Callable[[str], int] | None = None,
+    syntax_theme: SyntaxTheme = SyntaxTheme.ANSI,
 ) -> StyledBlock:
     """把 JavaScript 执行结果转换为完成态展示块。"""
     entries = _native_entries(view)
@@ -187,6 +196,7 @@ def render_javascript_result_view(
             title,
             preview=result_preview,
             ok=view.ok,
+            syntax_theme=syntax_theme,
             terminal_width=terminal_width,
             measure_width=measure_width,
         )),

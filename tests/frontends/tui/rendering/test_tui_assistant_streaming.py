@@ -33,6 +33,7 @@ from agent.application.views.builders.tools import (
     build_native_tool_result_view,
     build_tool_start_view,
 )
+from frontends.terminal.capabilities import TerminalCapabilities
 from frontends.tui.adapters.content import TuiContentSink
 from frontends.tui.adapters import output as tui_output_module
 from frontends.tui.adapters.markdown import (
@@ -562,6 +563,7 @@ async def test_animated_stream_waits_for_complete_source_line() -> None:
             "**first second third**",
             hyperlinks=runtime.hyperlinks_enabled,
             width=max(1, runtime.terminal_width - 2),
+            terminal_capabilities=runtime.terminal_capabilities,
         )
 
     assert _document_text(runtime.document) == "• first second third"
@@ -684,6 +686,7 @@ async def test_live_stream_tail_is_rendered_before_it_appears() -> None:
             source,
             hyperlinks=runtime.hyperlinks_enabled,
             width=max(1, runtime.terminal_width - 2),
+            terminal_capabilities=runtime.terminal_capabilities,
         )
 
     settled = runtime.document.blocks[-1].display_block
@@ -869,8 +872,10 @@ async def test_large_final_stream_render_yields_the_event_loop(
         *,
         hyperlinks: bool,
         continuation: bool,
+        terminal_capabilities: TerminalCapabilities,
     ) -> FragmentBlock:
         _ = hyperlinks, continuation
+        assert terminal_capabilities is runtime.terminal_capabilities
         render_thread.append(threading.get_ident())
         started.set()
         if not release.wait(timeout=1.0):
@@ -1237,6 +1242,7 @@ async def test_segment_completion_keeps_rendered_markdown_stable() -> None:
             "**bold**\n and `code`",
             hyperlinks=runtime.hyperlinks_enabled,
             width=max(1, runtime.terminal_width - 2),
+            terminal_capabilities=runtime.terminal_capabilities,
         )
 
     fragments = runtime.document.blocks[-1].display_block.fragments

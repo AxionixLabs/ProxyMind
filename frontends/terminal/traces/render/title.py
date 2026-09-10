@@ -8,7 +8,10 @@ from agent.ports.presentation import (
     TextSpan,
     TextStyle,
 )
-from frontends.terminal.highlighting import code_parts
+from frontends.terminal.highlighting import (
+    SyntaxTheme,
+    code_parts,
+)
 from frontends.terminal.styles import (
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
@@ -45,7 +48,8 @@ def render_tool_trace_parts(
     preview: typing.Optional[typing.Union[str, TracePreview]] = None,
     ok: bool | None = True,
     terminal_width: int | None = None,
-    measure_width: typing.Callable[[str], int] | None = None
+    measure_width: typing.Callable[[str], int] | None = None,
+    syntax_theme: SyntaxTheme = SyntaxTheme.ANSI,
 ) -> list[TextSpan]:
     """把轨迹标题和预览内容转换为带样式的文本片段。"""
     parts = title_parts(title, ok=ok, part=_part)
@@ -80,6 +84,7 @@ def render_tool_trace_parts(
                         preview_text,
                         ok=ok,
                         indent_prefix=indent_prefix,
+                        syntax_theme=syntax_theme,
                     )
                 ]
             )
@@ -154,7 +159,8 @@ def _preview_parts(
     preview_text: str,
     *,
     ok: bool | None,
-    indent_prefix: str = "    "
+    indent_prefix: str = "    ",
+    syntax_theme: SyntaxTheme,
 ) -> list[TextSpan]:
     """把预览摘要拆成路径、行号、内容和省略提示片段。"""
     lines = str(preview_text or "").split("\n")
@@ -170,6 +176,7 @@ def _preview_parts(
             line,
             current_path=current_path,
             ok=ok,
+            syntax_theme=syntax_theme,
         )
 
         if path:
@@ -184,6 +191,7 @@ def _preview_line_parts(
     *,
     current_path: str = "",
     ok: bool | None = True,
+    syntax_theme: SyntaxTheme = SyntaxTheme.ANSI,
 ) -> tuple[list[TextSpan], str]:
     """拆分单行预览摘要。"""
     if ok is False:
@@ -210,7 +218,13 @@ def _preview_line_parts(
             _part(line_no, PREVIEW_LINE_STYLE),
             _part(sep, PREVIEW_STYLE),
             _part(marker, _diff_marker_style(marker)),
-            *code_parts(code, current_path=current_path, deleted=marker == "-", part=_part)
+            *code_parts(
+                code,
+                current_path=current_path,
+                deleted=marker == "-",
+                part=_part,
+                theme=syntax_theme,
+            ),
         ], ""
 
     file_delta = re.match(r"^(.+?) \(\+(\d+) -(\d+)\)$", line)

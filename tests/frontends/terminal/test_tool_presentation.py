@@ -1076,7 +1076,7 @@ def test_patch_basic_colors_use_foregrounds_without_backgrounds(level) -> None:
         {"patch": "patch"},
         ok=True,
         data=_patch_delta({
-            "path": "sample.py",
+            "path": "sample.unknownxyz",
             "action": "modify",
             "old_content": "before\n",
             "new_content": "after\n",
@@ -1189,7 +1189,7 @@ def test_patch_highlighting_preserves_multiline_hunk_state() -> None:
 
     changed = [span for span in block.spans if span.text in {"old", "new"}]
     assert len(changed) == 2
-    assert all(span.style.foreground == "#A9CDBB" for span in changed)
+    assert all(span.style.foreground == "#A6E3A1" for span in changed)
 
 
 def test_patch_rename_highlighting_uses_destination_extension() -> None:

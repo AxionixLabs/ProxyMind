@@ -29,6 +29,7 @@ from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
 )
+from frontends.terminal.highlighting import resolve_syntax_theme
 from frontends.terminal.text import (
     sanitize_styled_block,
     sanitize_terminal_text,
@@ -187,18 +188,21 @@ def _render_presentation_view(
             view,
             terminal_width=terminal_width,
             measure_width=measure_width,
+            syntax_theme=resolve_syntax_theme(terminal_capabilities),
         ),)
     if isinstance(view, GenericToolResultView):
         return (render_generic_tool_result_view(
             view,
             terminal_width=terminal_width,
             measure_width=measure_width,
+            syntax_theme=resolve_syntax_theme(terminal_capabilities),
         ),)
     if isinstance(view, NativeToolResultView):
         return render_native_tool_result_view(
             view,
             terminal_width=terminal_width,
             measure_width=measure_width,
+            syntax_theme=resolve_syntax_theme(terminal_capabilities),
         )
     if isinstance(view, PatchView):
         return (render_patch_view(

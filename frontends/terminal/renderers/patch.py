@@ -19,7 +19,11 @@ from agent.ports.presentation import (
 )
 from frontends.terminal.capabilities import TerminalCapabilities
 from frontends.terminal.color_support import TerminalColorLevel
-from frontends.terminal.highlighting import highlight_code_lines
+from frontends.terminal.highlighting import (
+    SyntaxTheme,
+    highlight_code_lines,
+    resolve_syntax_theme,
+)
 from frontends.terminal.palette import (
     best_color,
     is_light_color,
@@ -49,7 +53,7 @@ class DiffRenderStyleContext(object):
     """保存一次 patch 渲染所需的全部已解析样式。"""
 
     light: bool
-    syntax_enabled: bool
+    syntax_theme: SyntaxTheme
     add_foreground: str | None
     remove_foreground: str | None
     failure_foreground: str | None
@@ -180,9 +184,13 @@ def _file_line_spans(
             highlight_code_lines(
                 "\n".join(line.text for line in hunk.lines),
                 path=syntax_path,
-                light_theme=context.light,
+                first_line=next((
+                    line.text for line in lines
+                    if (line.old_line if file.action == "delete" else line.new_line) == 1
+                ), None),
+                theme=context.syntax_theme,
             )
-            if context.syntax_enabled
+            if context.syntax_theme is not SyntaxTheme.NONE
             else None
         )
         if hunk_index:
@@ -341,12 +349,12 @@ def create_diff_render_style_context(
     add_foreground = "ansigreen" if colors_enabled else None
     remove_foreground = "ansired" if colors_enabled else None
     failure_foreground = "ansimagenta" if colors_enabled else None
-    syntax_enabled = level in {TerminalColorLevel.TRUECOLOR, TerminalColorLevel.ANSI256}
+    syntax_theme = resolve_syntax_theme(capabilities)
 
     if not policy.backgrounds_allowed:
         return DiffRenderStyleContext(
             light=light,
-            syntax_enabled=syntax_enabled,
+            syntax_theme=syntax_theme,
             add_foreground=add_foreground,
             remove_foreground=remove_foreground,
             failure_foreground=failure_foreground,
@@ -374,7 +382,7 @@ def create_diff_render_style_context(
     if level is TerminalColorLevel.TRUECOLOR:
         return DiffRenderStyleContext(
             light=light,
-            syntax_enabled=syntax_enabled,
+            syntax_theme=syntax_theme,
             add_foreground=add_foreground,
             remove_foreground=remove_foreground,
             failure_foreground=failure_foreground,
@@ -399,7 +407,7 @@ def create_diff_render_style_context(
     if level is TerminalColorLevel.ANSI256:
         return DiffRenderStyleContext(
             light=light,
-            syntax_enabled=syntax_enabled,
+            syntax_theme=syntax_theme,
             add_foreground=add_foreground,
             remove_foreground=remove_foreground,
             failure_foreground=failure_foreground,
@@ -423,7 +431,7 @@ def create_diff_render_style_context(
         )
     return DiffRenderStyleContext(
         light=light,
-        syntax_enabled=syntax_enabled,
+        syntax_theme=syntax_theme,
         add_foreground=add_foreground,
         remove_foreground=remove_foreground,
         failure_foreground=failure_foreground,

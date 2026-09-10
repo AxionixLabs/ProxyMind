@@ -92,7 +92,9 @@ class TuiOutputControl(OutputControlPort):
         self.assistant = TuiAssistantStream()
         self.record_writer = StreamRecordWriter(log_file)
         self._assistant_filter = TerminalTextFilter()
-        self._markdown_stream = TuiMarkdownStreamRenderer()
+        self._markdown_stream = TuiMarkdownStreamRenderer(
+            terminal_capabilities=runtime.terminal_capabilities,
+        )
         self._stream_render_handle: asyncio.TimerHandle | None = None
         self._stream_resize_handle: asyncio.TimerHandle | None = None
         self._stream_rendered_at: float = 0.0
@@ -156,6 +158,7 @@ class TuiOutputControl(OutputControlPort):
             self.terminal_width,
             hyperlinks=self.runtime.hyperlinks_enabled,
             continuation=continuation,
+            terminal_capabilities=self.runtime.terminal_capabilities,
         )
 
     def _source_renderer(
@@ -168,6 +171,7 @@ class TuiOutputControl(OutputControlPort):
             render_tui_assistant_markdown,
             hyperlinks=self.runtime.hyperlinks_enabled,
             continuation=continuation,
+            terminal_capabilities=self.runtime.terminal_capabilities,
         )
 
     def _finish_assistant_filter(self, *, render: bool) -> None:
@@ -1049,6 +1053,7 @@ class TuiOutputControl(OutputControlPort):
                 width,
                 hyperlinks=self.runtime.hyperlinks_enabled,
                 continuation=continuation,
+                terminal_capabilities=self.runtime.terminal_capabilities,
             )
 
         return await asyncio.to_thread(
@@ -1057,6 +1062,7 @@ class TuiOutputControl(OutputControlPort):
             width,
             hyperlinks=self.runtime.hyperlinks_enabled,
             continuation=continuation,
+            terminal_capabilities=self.runtime.terminal_capabilities,
         )
 
 

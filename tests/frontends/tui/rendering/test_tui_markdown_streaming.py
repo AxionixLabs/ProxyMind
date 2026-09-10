@@ -104,6 +104,7 @@ async def test_continuous_markdown_stream_renders_only_complete_source_lines() -
                         source,
                         hyperlinks=runtime.hyperlinks_enabled,
                         width=max(1, runtime.terminal_width - 2),
+                        terminal_capabilities=runtime.terminal_capabilities,
                     )
                     settled = runtime.document.blocks[-1].display_block
                     settled_text = fragments_text(settled.fragments)
@@ -447,7 +448,8 @@ async def test_streaming_fence_never_displays_raw_fence_markers() -> None:
     assert active is not None
     assert fragments_text(active.fragments) == "• print('ok')"
     assert any(
-        "fg:" in style
+        runtime.screen.application.style.get_attrs_for_style_str(style).color
+        not in {"", "default"}
         for style, text in active.fragments
         if "print" in text
     )

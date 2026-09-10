@@ -341,6 +341,7 @@ def _render_replay_blocks(
                 entry,
                 terminal_width=terminal_width,
                 hyperlinks=hyperlinks,
+                terminal_capabilities=terminal_capabilities,
             )
             if block is not None:
                 blocks.append(block)
@@ -404,7 +405,8 @@ def _message_block(
     entry: TranscriptEntry,
     *,
     terminal_width: int,
-    hyperlinks: bool = False
+    hyperlinks: bool = False,
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
 ) -> TranscriptBlock | None:
     """把用户或助手消息转换为正文块。"""
     content = entry.payload.get("content")
@@ -439,6 +441,7 @@ def _message_block(
         content,
         terminal_width,
         hyperlinks=hyperlinks,
+        terminal_capabilities=terminal_capabilities,
     )
 
     return TranscriptBlock(
@@ -450,6 +453,7 @@ def _message_block(
         source_renderer=partial(
             render_tui_assistant_markdown,
             hyperlinks=hyperlinks,
+            terminal_capabilities=terminal_capabilities,
         ),
         source_render_width=terminal_width,
     )

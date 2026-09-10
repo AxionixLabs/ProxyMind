@@ -11,18 +11,21 @@ from dataclasses import (
 from markdown_it import MarkdownIt
 from markdown_it.tree import SyntaxTreeNode
 from prompt_toolkit.utils import get_cwidth
-from pygments import lex
-from pygments.lexers import get_lexer_by_name
-from pygments.util import ClassNotFound
 
 from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
     TextStyle,
 )
+from frontends.terminal.capabilities import (
+    DEGRADED_TERMINAL_CAPABILITIES,
+    TerminalCapabilities,
+)
 from frontends.terminal.highlighting import (
     StreamingCodeHighlighter,
-    code_token_style,
+    SyntaxTheme,
+    highlight_code_lines,
+    resolve_syntax_theme,
 )
 from frontends.terminal.semantic_styles import (
     TerminalSemanticRole,
@@ -123,7 +126,12 @@ class _StreamingTableState:
 class TuiMarkdownStreamRenderer(object):
     """增量渲染完整源码行并缓存已经稳定的顶层块。"""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
+    ) -> None:
+        self._syntax_theme = resolve_syntax_theme(terminal_capabilities)
         self._width: int | None = None
         self._source: str = ""
         self._stable_source_len: int = 0
@@ -133,7 +141,7 @@ class TuiMarkdownStreamRenderer(object):
         self._stable_source_compatible: bool = True
         self._has_reference_definitions: bool = False
         self._streaming_table: _StreamingTableState | None = None
-        self._streaming_code = StreamingCodeHighlighter()
+        self._streaming_code = StreamingCodeHighlighter(theme=self._syntax_theme)
 
     def reset(self) -> None:
         """清空稳定块缓存。"""
@@ -282,6 +290,7 @@ class TuiMarkdownStreamRenderer(object):
             newly_stable = _render_blocks(
                 nodes[:stable_count],
                 width=render_width,
+                syntax_theme=self._syntax_theme,
             )
             _extend_rendered_lines(self._stable_lines, newly_stable)
             self._stable_source_len += stable_end
@@ -303,6 +312,7 @@ class TuiMarkdownStreamRenderer(object):
                         else _render_blocks(
                             nodes[:committable_count],
                             width=render_width,
+                            syntax_theme=self._syntax_theme,
                         )
                     )
                     _extend_rendered_lines(
@@ -323,7 +333,9 @@ class TuiMarkdownStreamRenderer(object):
             lines,
             streaming_code_lines
             if streaming_code_lines is not None
-            else _render_blocks(mutable_nodes, width=render_width),
+            else _render_blocks(
+                mutable_nodes, width=render_width, syntax_theme=self._syntax_theme,
+            ),
         )
 
         return _fragment_block_from_lines(
@@ -360,6 +372,7 @@ class TuiMarkdownStreamRenderer(object):
         self._committable_lines = _render_blocks(
             nodes[:committable_count],
             width=width,
+            syntax_theme=self._syntax_theme,
         )
 
         self._streaming_table = None
@@ -367,7 +380,7 @@ class TuiMarkdownStreamRenderer(object):
         self._has_reference_definitions = bool(env.get("references"))
 
         return _fragment_block_from_lines(
-            _render_blocks(nodes, width=width),
+            _render_blocks(nodes, width=width, syntax_theme=self._syntax_theme),
             hyperlinks=hyperlinks,
             sanitize=False,
         )
@@ -551,12 +564,14 @@ def render_tui_markdown(
     text: str,
     *,
     hyperlinks: bool = False,
-    width: int | None = None
+    width: int | None = None,
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
 ) -> FragmentBlock:
     """把完整 assistant Markdown 原文转换为 TUI 文本片段。"""
     spans = _markdown_spans(
         _normalize_markdown_table_fences(str(text or "")),
         width=width,
+        syntax_theme=resolve_syntax_theme(terminal_capabilities),
     )
     return _fragment_block_from_spans(spans, hyperlinks=hyperlinks)
 
@@ -566,7 +581,8 @@ def render_tui_assistant_markdown(
     width: int,
     *,
     hyperlinks: bool = False,
-    continuation: bool = False
+    continuation: bool = False,
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
 ) -> FragmentBlock:
     """按完整终端宽度渲染可重排的助手 Markdown 正文或续块。"""
     try:
@@ -574,6 +590,7 @@ def render_tui_assistant_markdown(
             text,
             hyperlinks=hyperlinks,
             width=max(1, int(width) - 2),
+            terminal_capabilities=terminal_capabilities,
         )
     except (AttributeError, IndexError, KeyError, TypeError, ValueError):
         rendered = FragmentBlock(styled_block_fragments(
@@ -738,12 +755,13 @@ def _fragment_block_from_spans(
 def _markdown_spans(
     text: str,
     *,
-    width: int | None = None
+    width: int | None = None,
+    syntax_theme: SyntaxTheme,
 ) -> list[TextSpan]:
     """把 Markdown 文本解析为中立样式片段。"""
     root = SyntaxTreeNode(_MARKDOWN.parse(str(text or "")))
 
-    lines = _render_blocks(root.children, width=width)
+    lines = _render_blocks(root.children, width=width, syntax_theme=syntax_theme)
     while lines and not lines[-1]:
         lines.pop()
 
@@ -953,7 +971,8 @@ def _render_blocks(
     nodes: list[SyntaxTreeNode],
     *,
     list_depth: int = 0,
-    width: int | None = None
+    width: int | None = None,
+    syntax_theme: SyntaxTheme,
 ) -> list[list[TextSpan]]:
     """渲染一组块级 Markdown 节点。"""
     lines: list[list[TextSpan]] = []
@@ -963,6 +982,7 @@ def _render_blocks(
             node,
             list_depth=list_depth,
             width=width,
+            syntax_theme=syntax_theme,
         )
         if not rendered:
             continue
@@ -978,6 +998,7 @@ def _render_block(
     *,
     list_depth: int,
     width: int | None = None,
+    syntax_theme: SyntaxTheme,
 ) -> list[list[TextSpan]]:
     """渲染一个块级 Markdown 节点。"""
     if node.type == "paragraph":
@@ -995,13 +1016,14 @@ def _render_block(
     if node.type == "heading":
         return _heading_lines(node)
     if node.type in {"fence", "code_block"}:
-        return _code_lines(node.content, language=node.info)
+        return _code_lines(node.content, language=node.info, theme=syntax_theme)
     if node.type == "bullet_list":
         return _list_lines(
             node,
             ordered=False,
             depth=list_depth,
             width=width,
+            syntax_theme=syntax_theme,
         )
     if node.type == "ordered_list":
         return _list_lines(
@@ -1009,12 +1031,14 @@ def _render_block(
             ordered=True,
             depth=list_depth,
             width=width,
+            syntax_theme=syntax_theme,
         )
     if node.type == "blockquote":
         return _blockquote_lines(
             node,
             list_depth=list_depth,
             width=width,
+            syntax_theme=syntax_theme,
         )
     if node.type == "table":
         return _table_lines(node, width=width)
@@ -1029,6 +1053,7 @@ def _render_block(
         node.children,
         list_depth=list_depth,
         width=width,
+        syntax_theme=syntax_theme,
     )
 
 
@@ -1066,7 +1091,8 @@ def _list_lines(
     *,
     ordered: bool,
     depth: int,
-    width: int | None
+    width: int | None,
+    syntax_theme: SyntaxTheme,
 ) -> list[list[TextSpan]]:
     """渲染有序或无序列表。"""
     lines: list[list[TextSpan]] = []
@@ -1093,12 +1119,14 @@ def _list_lines(
                     child,
                     list_depth=depth + 1,
                     width=width,
+                    syntax_theme=syntax_theme,
                 ))
                 continue
             rendered = _render_block(
                 child,
                 list_depth=depth + 1,
                 width=width,
+                syntax_theme=syntax_theme,
             )
             if item_lines and item_lines[-1] and rendered and rendered[0]:
                 item_lines.append([])
@@ -1172,13 +1200,15 @@ def _blockquote_lines(
     node: SyntaxTreeNode,
     *,
     list_depth: int,
-    width: int | None
+    width: int | None,
+    syntax_theme: SyntaxTheme,
 ) -> list[list[TextSpan]]:
     """渲染引用块并保留引用内换行。"""
     content = _render_blocks(
         node.children,
         list_depth=list_depth,
         width=(max(1, width - 2) if width is not None else None),
+        syntax_theme=syntax_theme,
     )
 
     return [
@@ -2006,38 +2036,19 @@ def _inline_spans(
     return spans
 
 
-def _code_lines(text: str, *, language: str) -> list[list[TextSpan]]:
-    """使用 Pygments 渲染代码块。"""
+def _code_lines(
+    text: str,
+    *,
+    language: str,
+    theme: SyntaxTheme,
+) -> list[list[TextSpan]]:
+    """使用共享语法边界渲染代码块。"""
     code = str(text or "").rstrip("\n")
     if not code:
         return [[]]
 
-    lexer = None
-    language_info = str(language or "").strip()
-    lexer_name = language_info.split(maxsplit=1)[0] if language_info else ""
-
-    if lexer_name:
-        try:
-            lexer = get_lexer_by_name(lexer_name)
-        except ClassNotFound:
-            lexer = None
-
-    if lexer is None:
-        return _plain_lines(code)
-
-    spans: list[TextSpan] = []
-
-    try:
-        for token_type, value in lex(code, lexer):
-            _append_span(
-                spans,
-                value,
-                code_token_style(token_type, light_theme=False),
-            )
-    except (TypeError, ValueError):
-        return _plain_lines(code)
-
-    return _split_lines(spans)
+    highlighted = highlight_code_lines(code, language=language, theme=theme)
+    return _plain_lines(code) if highlighted is None else [list(line) for line in highlighted]
 
 
 def _plain_lines(text: str) -> list[list[TextSpan]]:
