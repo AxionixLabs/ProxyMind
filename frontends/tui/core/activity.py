@@ -972,13 +972,9 @@ def _status_block(
             else max(0.0, time.perf_counter() - started_at)
         )
         if interrupt_binding is not None:
-            fragments.extend((
-                (
-                    prompt_style(STATUS_MUTED),
-                    f" ({_compact_elapsed_label(elapsed)} • ",
-                ),
-                (prompt_style(BODY_STYLE), interrupt_binding),
-                (prompt_style(STATUS_MUTED), " to interrupt)"),
+            fragments.append((
+                f"{prompt_style(STATUS_MUTED)} nobold",
+                f" ({_compact_elapsed_label(elapsed)} • {interrupt_binding} to interrupt)",
             ))
         elif elapsed >= max(0.0, float(elapsed_min_sec)):
             fragments.append((prompt_style(STATUS_MUTED), f" · {_elapsed_label(elapsed)}"))
