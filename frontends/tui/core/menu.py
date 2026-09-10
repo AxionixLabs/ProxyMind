@@ -56,7 +56,6 @@ from ..rendering.menu.selection import (
     selected_value,
     selection_for_request,
     visible_options,
-    visible_window
 )
 from ..rendering.menu.state import (
     MenuState,
@@ -1265,13 +1264,6 @@ class TuiMenu(object):
         ensure_selection_visible(state, visible_rows=self.VISIBLE_ROWS)
         self.invalidate()
 
-    def _visible_indices(
-        self,
-        state: MenuState,
-    ) -> tuple[int, tuple[int, ...]]:
-        """返回当前查询下可见窗口对应的原始索引。"""
-        return visible_window(state, visible_rows=self.VISIBLE_ROWS)
-
     def _choose_index(self, index: int) -> None:
         """按绝对索引提交菜单选项。"""
         state = self.state
@@ -1719,7 +1711,6 @@ class TuiMenu(object):
             binding_filter=list_navigation,
         )
         def _(_event) -> None:
-            state = self.state
             self._update_query("")
 
         @bind_key_action(

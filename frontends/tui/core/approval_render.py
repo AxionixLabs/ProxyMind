@@ -28,7 +28,6 @@ from frontends.terminal.renderers.patch import (
     render_patch_view,
 )
 from frontends.terminal.styles import (
-    COMMAND_STYLE,
     COMMAND_FLAG_STYLE,
     COMMAND_HEAD_STYLE,
     COMMAND_NUMBER_STYLE,

@@ -86,7 +86,6 @@ async def observe_frozen_root_turn(
     additional_context, system_message = _request_turn_context(options)
     execution = _observed_execution(
         session,
-        command,
         request,
         source=source,
         permissions=permissions,
@@ -165,7 +164,6 @@ async def observe_frozen_root_turn(
 
 def _observed_execution(
     session: RootTurnSessionPort,
-    command: SubmitTurnCommand,
     request: ModelStreamRequest,
     *,
     source: str,

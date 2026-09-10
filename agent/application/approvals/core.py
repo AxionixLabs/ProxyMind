@@ -3,7 +3,6 @@
 
 import asyncio
 import time
-import typing
 from collections.abc import (
     Awaitable,
     Callable,
@@ -20,7 +19,6 @@ from agent.domain.approvals import (
     ApprovalDecisionSource,
     ApprovalFact,
     ApprovalFactState,
-    ApprovalIdentity,
     ApprovalResolutionReason,
     ApprovalReviewConflict,
     SessionGrant,

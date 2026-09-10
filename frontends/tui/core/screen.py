@@ -75,10 +75,7 @@ from .bottom_pane import (
     TuiBottomPane,
 )
 from .directory_trust import TuiDirectoryTrust
-from .document import (
-    TranscriptBlock,
-    TuiDocument
-)
+from .document import TuiDocument
 from .hyperlinks import (
     TerminalHyperlinkOutput,
     TerminalHyperlinkWindow
@@ -3125,15 +3122,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             self.pending_steers.active
             or self.rejected_steers.active
             or self.queued_messages.active
-        )
-
-    def _overlay_active(self) -> bool:
-        """判断补全、选择菜单或审批层是否正在显示。"""
-        return bool(
-            self._startup_gate_active
-            or self.directory_trust.active
-            or self.bottom_pane.transient_active
-            or self._completion_visible()
         )
 
     def _full_screen_overlay_active(self) -> bool:

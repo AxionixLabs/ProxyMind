@@ -420,14 +420,12 @@ async def _append_exec_snapshot(
                 snapshots,
                 omitted_count=max(0, len(sessions) - len(visible_sessions)),
                 terminal_width=runtime.terminal_width,
-                mode=mode,
             )
 
     except Exception as exc:
         block = _exec_stream_snapshot_error_block(
             exc,
             terminal_width=runtime.terminal_width,
-            mode=mode,
         )
 
     runtime.append_block(block, kind="operation")
@@ -468,7 +466,6 @@ def exec_stream_snapshots_block(
     *,
     omitted_count: int = 0,
     terminal_width: int | None = None,
-    mode: ExecSnapshotMode = "stream",
 ) -> FragmentBlock:
     """生成流式或历史状态使用的后台终端摘要。"""
     width = _terminal_width(terminal_width)
@@ -555,7 +552,6 @@ def _exec_stream_snapshot_error_block(
     error: BaseException,
     *,
     terminal_width: int,
-    mode: ExecSnapshotMode = "stream",
 ) -> FragmentBlock:
     """生成后台终端快照读取失败状态块。"""
     detail = _clip_inline(error, max(1, terminal_width - 4))

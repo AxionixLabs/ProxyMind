@@ -65,16 +65,6 @@ def show_build_result(state: str, color: str) -> None:
     CONSOLE.print(result)
 
 
-async def is_virtual_env() -> None:
-    """
-    检查当前 Python 运行环境是否为虚拟环境。
-    """
-    if sys.prefix != sys.base_prefix:
-        return compile_log("[✓] 当前运行在虚拟环境中")
-
-    raise AppError("[!] 当前不是虚拟环境")
-
-
 async def check_architecture(ops: str) -> None:
     """
     仅在 Windows 下检测 Python 是否为 64 位。

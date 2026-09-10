@@ -12,12 +12,12 @@ from collections.abc import (
 
 from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application.turns.commands import (
-    SubmitTurnCommand,
     SubmitTurnResult,
     TurnApplication,
 )
 from agent.application.turns.run_result import RunResult
 from agent.ports import SubscriptionHost
+from agent.protocol import SubmitTurnCommand
 from infrastructure.errors import AppError
 from observability import observe
 from .client import AgentClient

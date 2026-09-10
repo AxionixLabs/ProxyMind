@@ -12,7 +12,6 @@ from agent.application.services import TurnApplicationFactory
 from agent.application.turns.commands import (
     RemoteTurnRecovery,
     SessionRecoveryResult,
-    SubmitTurnCommand,
     TurnApplication,
 )
 from agent.application.turns.observation import TurnObservationCallbacks
@@ -39,6 +38,7 @@ from agent.ports.presentation import (
 from agent.protocol import (
     ReviewStreamRequest,
     SubmitReviewCommand,
+    SubmitTurnCommand,
 )
 from agent.protocol.json_value import ThawedJsonValue
 from infrastructure.config.runtime_paths import agent_runtime_db_path

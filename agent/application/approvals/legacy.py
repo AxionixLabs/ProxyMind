@@ -35,7 +35,6 @@ from agent.domain.approvals import (
     ApprovalDecisionKind,
     ApprovalDecisionSource,
     ApprovalFact,
-    ApprovalFactState,
     ApprovalIdentity,
     ApprovalResolutionReason,
     ApprovalReviewRecord,

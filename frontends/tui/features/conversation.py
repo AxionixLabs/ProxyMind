@@ -44,8 +44,6 @@ from ..core.models import (
 from ..core.styles import (
     BODY_STYLE,
     BRIGHT_STYLE,
-    FAILURE_STYLE,
-    command_result_block,
     failure_text_block,
     fragment_block,
     interrupted_status_block,

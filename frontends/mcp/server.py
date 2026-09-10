@@ -18,10 +18,7 @@ from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application import RuntimeServices
 from agent.application.config.settings import AgentSettings
 from agent.application.config.settings import FeatureSettings
-from agent.application.turns.commands import (
-    SubmitTurnCommand,
-    TurnApplication,
-)
+from agent.application.turns.commands import TurnApplication
 from agent.application.turns.projections import RunResultProjection
 from agent.application.turns.run_result import RunResult
 from agent.domain.policies import (
@@ -34,6 +31,7 @@ from agent.ports import (
     RootConversationPort,
     RunRecoveryRequired,
 )
+from agent.protocol import SubmitTurnCommand
 from frontends.interaction import NonInteractiveInteraction
 from frontends.output.application import NullApplicationSink
 from frontends.output.silent import create_silent_output_session

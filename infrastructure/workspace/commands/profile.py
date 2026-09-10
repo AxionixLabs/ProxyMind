@@ -53,21 +53,6 @@ class CommandExecutionProfile(WorkspaceComponent):
         payload.setdefault("execution_target", "local")
         return payload
 
-    @staticmethod
-    def _deny(
-        reason: str,
-        *,
-        risk: str,
-        **data: typing.Any
-    ) -> dict[str, typing.Any]:
-        """构造拒绝执行的策略结果。"""
-        payload: dict[str, typing.Any] = {
-            "ok": False, "reason": reason, "risk": risk, **data
-        }
-
-        payload.setdefault("execution_target", "blocked")
-        return payload
-
 
 if __name__ == '__main__':
     pass

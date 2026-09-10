@@ -24,7 +24,6 @@ from agent.protocol import (
     RunCommand,
     RunEvent,
     SubmitReviewCommand,
-    SubmitTurnCommand,
 )
 from agent.protocol.json_value import ThawedJsonValue
 from .projections import (

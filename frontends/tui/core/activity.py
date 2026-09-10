@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
 
 from agent.ports import ActivityStatusKind
-from agent.ports.presentation import TextStyle
 from frontends.terminal.color_support import TerminalColorLevel
 from frontends.terminal.mcp_status import (
     McpStatusView,
@@ -571,15 +570,6 @@ class TuiActivity(object):
         self._render_slots()
         self._schedule_settle_expiry()
         self._ensure_task()
-
-    async def _discard(self, kind: ActivityStatusKind) -> None:
-        """移除一项活动动画但不生成最终状态。"""
-        key = _SLOT_KEYS[kind]
-        slot = self._slots.get(key)
-        if slot is not None and slot.kind == kind:
-            self._slots.pop(key, None)
-            self._settle_deadlines.pop(key, None)
-        await self._refresh_task()
 
     async def _refresh_task(self) -> None:
         """根据剩余槽位刷新合成任务和活动区域。"""

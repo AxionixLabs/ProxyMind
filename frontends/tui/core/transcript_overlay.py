@@ -86,7 +86,6 @@ class TuiTranscriptOverlay(object):
         self._stable_cell_line_counts: dict[int, int] = {}
         self._stable_cell_rows: list[_CellRows] = []
         self._stable_cell_row_stops: list[int] = []
-        self._stable_cell_rows_by_id: dict[int, _CellRows] = {}
         self._stable_line_count: int = 0
 
     @property
@@ -179,7 +178,6 @@ class TuiTranscriptOverlay(object):
         self._stable_cell_line_counts.clear()
         self._stable_cell_rows.clear()
         self._stable_cell_row_stops.clear()
-        self._stable_cell_rows_by_id.clear()
         self._stable_line_count = 0
 
     def scroll_line(self, direction: int) -> None:
@@ -322,18 +320,6 @@ class TuiTranscriptOverlay(object):
                 return rows.content_start, rows.stop
 
         return None
-
-    def _cell_line_range(
-        self,
-        cell: TranscriptBlock | None
-    ) -> tuple[int, int] | None:
-        """返回指定 cell 内容在稳定视觉行索引中的半开区间。"""
-        if cell is None:
-            return None
-        rows = self._stable_cell_rows_by_id.get(id(cell))
-        if rows is None or rows.cell is not cell:
-            return None
-        return rows.content_start, rows.stop
 
     def _highlight_selection(
         self,
@@ -537,7 +523,6 @@ class TuiTranscriptOverlay(object):
         self._stable_cell_line_counts = {}
         self._stable_cell_rows = []
         self._stable_cell_row_stops = []
-        self._stable_cell_rows_by_id = {}
         self._stable_line_count = 0
 
         for cell in cells:
@@ -586,7 +571,6 @@ class TuiTranscriptOverlay(object):
         )
         self._stable_cell_rows.append(rows)
         self._stable_cell_row_stops.append(stop)
-        self._stable_cell_rows_by_id[id(cell)] = rows
         self._stable_line_count = stop
 
     def _stable_cell_render(

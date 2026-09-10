@@ -13,7 +13,6 @@ from collections.abc import (
 
 from agent.ports import (
     CapabilityError,
-    ProcessCapability,
     ProcessHandle,
     ProcessSpec,
 )

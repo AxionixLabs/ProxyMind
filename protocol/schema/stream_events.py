@@ -1917,11 +1917,6 @@ def _text_tuple_or_none(value: typing.Any) -> tuple[str, ...] | None:
     )
 
 
-def _tuple_or_empty(value: typing.Any) -> tuple[typing.Any, ...]:
-    """读取可选列表并在缺省时返回空元组。"""
-    return tuple(copy.deepcopy(value)) if isinstance(value, list) else ()
-
-
 def _approval_kind(
     value: typing.Any,
 ) -> ToolApprovalKind:

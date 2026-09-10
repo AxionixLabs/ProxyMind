@@ -109,7 +109,6 @@ def normalize_reasoning_effort(value: typing.Any) -> str:
 def exec_status_display_label(
     snapshot: typing.Any,
     *,
-    command_limit: int | None = None,
     line_width: int | None = None
 ) -> str:
     """生成后台终端数量和操作入口组成的状态摘要。"""

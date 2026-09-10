@@ -4,8 +4,6 @@
 import copy
 import typing
 
-import httpx
-
 from infrastructure.config.providers import (
     DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,
@@ -18,7 +16,6 @@ from observability import (
     observe_exception
 )
 from protocol.schema.model_config import parse_model_context_config
-from protocol.transport import config
 
 
 class ConfigReader(typing.Protocol):
@@ -207,31 +204,6 @@ class Preferences(object):
 
         return payload
 
-    @property
-    def pref_api(self) -> str:
-        """返回偏好配置接口地址。"""
-        return config.BASE_URL.rstrip("/") + "/api/pref"
-
-    @staticmethod
-    def _merge_missing_slot(
-        base: dict[str, typing.Any],
-        supplement: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
-        """使用补充配置填充空字段，不覆盖已有值。"""
-        merged = dict(base or {})
-
-        for key in (
-                "provider", "name", "kind", "route", "model", "apikey",
-                "base_url", "reasoning_effort",
-        ):
-            current = str(merged.get(key) or "").strip()
-            incoming = str(supplement.get(key) or "").strip()
-
-            if not current and incoming:
-                merged[key] = incoming
-
-        return merged
-
     @classmethod
     def _normalize_slot(
         cls,
@@ -278,42 +250,6 @@ class Preferences(object):
         }
 
         return prefs
-
-    @classmethod
-    def _merge_remote_supplement(
-        cls,
-        base: dict[str, typing.Any],
-        remote: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
-        """以本地配置为主，使用补充配置填充空字段。"""
-        normalized_remote = cls._normalize_pref_payload(remote)
-
-        merged = copy.deepcopy(base or _default_prefs())
-
-        merged["primary"] = cls._merge_missing_slot(
-            dict(merged.get("primary") or {}),
-            dict(normalized_remote.get("primary") or {})
-        )
-        merged["hosted_tools"] = _normalize_hosted_tools(
-            merged.get("hosted_tools") or normalized_remote.get("hosted_tools")
-        )
-
-        return merged
-
-    def _apply_primary_slot(self, payload: dict[str, typing.Any]) -> None:
-        """将输入配置规范化为内部使用的偏好结构。"""
-        self.prefs = self._normalize_pref_payload(payload)
-
-    async def _fetch_remote_pref(self) -> dict[str, typing.Any]:
-        """从配置接口读取偏好配置。"""
-        async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
-            resp = await client.get(self.pref_api)
-            resp.raise_for_status()
-            payload = resp.json()
-
-        if not isinstance(payload, dict):
-            return {}
-        return payload.get("data") or {}
 
     async def _load_config_pref(self) -> dict[str, typing.Any]:
         """读取本地 config.toml 并转换为运行时偏好结构。"""

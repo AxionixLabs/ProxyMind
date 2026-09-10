@@ -9,16 +9,14 @@ import typing
 from agent.adapters.turns.root import RootTurnCommandExecutor
 from agent.application.config.session_identity import derive_local_session_id
 from agent.application.services import TurnApplicationFactory
-from agent.application.turns.commands import (
-    SubmitTurnCommand,
-    TurnApplication,
-)
+from agent.application.turns.commands import TurnApplication
 from agent.application.turns.run_result import RunResult
 from agent.ports import (
     ProcessLifecyclePort,
     ProtocolCommandClient,
     RootConversationPort,
 )
+from agent.protocol import SubmitTurnCommand
 from agent.stores.sessions import (
     HISTORY_LIMIT,
     INTERACTIVE_HISTORY_SOURCES,

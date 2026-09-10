@@ -27,7 +27,6 @@ from agent.ports.presentation import (
     ApplicationView,
     StyledBlock,
     TextSpan,
-    TextStyle,
 )
 from frontends.terminal.semantic_styles import (
     TerminalSemanticRole,

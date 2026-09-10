@@ -670,8 +670,6 @@ class TurnEventStream(object):
                 await self._finish("fatal")
                 raise
 
-        raise RuntimeError("event payload loop exited unexpectedly")
-
     async def _ensure_open(self) -> typing.AsyncGenerator[dict, None]:
         """按首次读取延迟创建并返回底层事件传输。"""
         if self._payload_stream is not None:
