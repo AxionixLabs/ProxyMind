@@ -96,6 +96,7 @@ def test_every_declared_terminal_kind_is_reachable() -> None:
         detect_terminal_identity({"TERM_PROGRAM": "Apple_Terminal"}),
         detect_terminal_identity({"GNOME_TERMINAL_SCREEN": "screen"}),
         detect_terminal_identity({"TERM_PROGRAM": "vscode"}),
+        detect_terminal_identity({"TERM_PROGRAM": "zed"}),
         detect_terminal_identity({"VTE_VERSION": "7600"}),
         detect_terminal_identity(
             {"TMUX": "/tmp/tmux"},
@@ -113,6 +114,37 @@ def test_every_declared_terminal_kind_is_reachable() -> None:
     )
 
     assert reachable == set(TerminalKind)
+
+
+@pytest.mark.parametrize(
+    ("environ", "expected"),
+    (
+        ({"TERMINAL_EMULATOR": "JetBrains-JediTerm", "WT_SESSION": "inherited"}, True),
+        ({"TERM_PROGRAM": "JetBrains-JediTerm"}, True),
+        ({"TERM_PROGRAM": "vscode", "WT_SESSION": "inherited"}, True),
+        ({"TERM_PROGRAM": "vscode-insiders"}, True),
+        ({"TERM_PROGRAM": "Zed", "TERM": "xterm-256color"}, True),
+        ({"WT_SESSION": "session"}, False),
+        ({"TERM_PROGRAM": "WezTerm"}, False),
+        ({"TERM_PROGRAM": "unrecognized-editor"}, False),
+        ({"TERM": "xterm-256color"}, False),
+    ),
+)
+def test_ide_terminal_classification_uses_detected_host(
+    environ: dict[str, str],
+    expected: bool,
+) -> None:
+    assert detect_terminal_identity(environ).is_ide_terminal is expected
+
+
+def test_ide_terminal_classification_follows_tmux_client() -> None:
+    identity = detect_terminal_identity(
+        {"TMUX": "/tmp/tmux", "TERM_PROGRAM": "tmux"},
+        tmux_probe=lambda: ("vscode", "xterm-256color"),
+    )
+
+    assert identity.is_ide_terminal
+    assert identity.multiplexer is TerminalKind.TMUX
 
 
 @pytest.mark.parametrize(

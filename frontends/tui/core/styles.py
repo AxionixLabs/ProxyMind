@@ -4,8 +4,11 @@
 import typing
 
 from prompt_toolkit.styles import (
+    Attrs,
     BaseStyle,
+    DummyStyleTransformation,
     Style,
+    StyleTransformation,
     merge_styles,
 )
 
@@ -130,6 +133,21 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
 })
 
 
+class _BackgroundlessStyleTransformation(StyleTransformation):
+    """在当前 Application 输出边界移除背景，覆盖组件和内联片段样式。"""
+
+    def transform_attrs(self, attrs: Attrs) -> Attrs:
+        """保留文字语义并把反色强调转换为加粗。"""
+        # 显式 default 仍会被 renderer 判为有样式并填充行尾，须归一为空值。
+        color = "" if attrs.color in {"default", "ansidefault"} else attrs.color
+        return attrs._replace(
+            color=color,
+            bgcolor="",
+            reverse=False,
+            bold=attrs.bold or attrs.reverse,
+        )
+
+
 def _surface_style(semantics: TerminalSemanticStyles) -> BaseStyle:
     """根据已解析语义 token 创建动态表面。"""
 
@@ -156,60 +174,6 @@ def _surface_style(semantics: TerminalSemanticStyles) -> BaseStyle:
     }
 
     return Style.from_dict(styles)
-
-
-def prompt_style(style: TextStyle) -> str:
-    """把中立文本样式转换为 prompt_toolkit 样式字符串。"""
-    role = semantic_role_for_ansi_color(style.foreground)
-    role_class = (
-        "terminal.attention.plain"
-        if role is TerminalSemanticRole.ATTENTION
-        else f"terminal.{role.value}" if role is not None else ""
-    )
-    parts = [f"class:{role_class}"] if role_class else []
-    parts.extend(
-        name
-        for enabled, name in (
-            (style.bold, "bold"),
-            (style.dim, "dim"),
-            (style.italic, "italic"),
-            (style.underline, "underline"),
-            (style.reverse, "reverse"),
-            (style.strikethrough, "strike"),
-        )
-        if enabled
-    )
-
-    if style.foreground and role is None:
-        parts.append(f"fg:{style.foreground}")
-    if style.background:
-        parts.append(f"bg:{style.background}")
-
-    return " ".join(parts)
-
-
-def build_tui_application_style(
-    input_style: BaseStyle,
-    approval_style: BaseStyle,
-    menu_style: BaseStyle,
-    *,
-    capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
-) -> BaseStyle:
-    """组合 TUI 输入、审批、菜单和主画布样式。"""
-
-    semantics = resolve_terminal_semantic_styles(
-        capabilities.color_support,
-        foreground=capabilities.theme.foreground,
-        background=capabilities.theme.background,
-    )
-    return merge_styles([
-        input_style,
-        approval_style,
-        menu_style,
-        TUI_APPLICATION_OVERRIDES,
-        _surface_style(semantics),
-        _terminal_semantic_style(semantics),
-    ])
 
 
 def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
@@ -541,6 +505,121 @@ def _terminal_surface_style(style: TerminalStyle) -> str:
     return "bg:default fg:default reverse" if style.reverse else "bg:default fg:default"
 
 
+def _normalize_whitespace_only_fragments(
+    fragments: tuple[tuple[str, str], ...]
+) -> tuple[tuple[str, str], ...]:
+    """把只含空白和终端链接控制符的显示行转换为空行。"""
+    lines = split_formatted_lines(list(fragments))
+
+    normalized = []
+
+    for line in lines:
+        visible = "".join(
+            text
+            for style, text in line
+            if ZERO_WIDTH_ESCAPE_STYLE not in style
+        )
+        normalized.append([] if not visible.strip() else line)
+
+    return tuple(join_formatted_lines(normalized))
+
+
+def _assistant_continuation_fragments(
+    fragments: list[tuple[str, str]],
+    *,
+    indent_style: str
+) -> tuple[tuple[str, str], ...]:
+    """在助手正文每个显式续行前补充两个空格。"""
+    out: list[tuple[str, str]] = []
+
+    continuation: bool = False
+
+    for style, text in fragments:
+        lines = text.split("\n")
+        last_index = len(lines) - 1
+
+        for index, line in enumerate(lines):
+            has_newline = index < last_index
+            if continuation and line:
+                out.append((indent_style, "  "))
+                continuation = False
+            if line:
+                out.append((style, line))
+            if has_newline:
+                out.append((style, "\n"))
+                continuation = True
+
+    return tuple(out)
+
+
+def prompt_style(style: TextStyle) -> str:
+    """把中立文本样式转换为 prompt_toolkit 样式字符串。"""
+    role = semantic_role_for_ansi_color(style.foreground)
+    role_class = (
+        "terminal.attention.plain"
+        if role is TerminalSemanticRole.ATTENTION
+        else f"terminal.{role.value}" if role is not None else ""
+    )
+    parts = [f"class:{role_class}"] if role_class else []
+    parts.extend(
+        name
+        for enabled, name in (
+            (style.bold, "bold"),
+            (style.dim, "dim"),
+            (style.italic, "italic"),
+            (style.underline, "underline"),
+            (style.reverse, "reverse"),
+            (style.strikethrough, "strike"),
+        )
+        if enabled
+    )
+
+    if style.foreground and role is None:
+        parts.append(f"fg:{style.foreground}")
+    if style.background:
+        parts.append(f"bg:{style.background}")
+
+    return " ".join(parts)
+
+
+def build_tui_application_style(
+    input_style: BaseStyle,
+    approval_style: BaseStyle,
+    menu_style: BaseStyle,
+    *,
+    capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
+) -> BaseStyle:
+    """组合 TUI 输入、审批、菜单和主画布样式。"""
+
+    semantics = resolve_terminal_semantic_styles(
+        capabilities.color_support,
+        foreground=capabilities.theme.foreground,
+        background=capabilities.theme.background,
+    )
+    styles = [
+        input_style,
+        approval_style,
+        menu_style,
+        TUI_APPLICATION_OVERRIDES,
+        _surface_style(semantics),
+        _terminal_semantic_style(semantics),
+    ]
+    if capabilities.identity.is_ide_terminal:
+        styles.append(Style.from_dict({
+            "transcript.overlay.selection": "bold underline",
+        }))
+    return merge_styles(styles)
+
+
+def build_tui_style_transformation(
+    capabilities: TerminalCapabilities,
+) -> StyleTransformation:
+    """为会话冻结 IDE 背景策略，供画布和原生滚屏输出共同使用。"""
+    if capabilities.identity.is_ide_terminal:
+        return _BackgroundlessStyleTransformation()
+    return DummyStyleTransformation()
+
+
 def exit_summary_fragments(session_id: str) -> tuple[tuple[str, str], ...]:
     """生成 TUI 释放终端后的会话恢复提示。"""
     command = f"{const.APP_NAME} resume {session_id}"
@@ -642,53 +721,6 @@ def assistant_fragments(
         ),
     )
     return _normalize_whitespace_only_fragments(prefixed)
-
-
-def _normalize_whitespace_only_fragments(
-    fragments: tuple[tuple[str, str], ...]
-) -> tuple[tuple[str, str], ...]:
-    """把只含空白和终端链接控制符的显示行转换为空行。"""
-    lines = split_formatted_lines(list(fragments))
-
-    normalized = []
-
-    for line in lines:
-        visible = "".join(
-            text
-            for style, text in line
-            if ZERO_WIDTH_ESCAPE_STYLE not in style
-        )
-        normalized.append([] if not visible.strip() else line)
-
-    return tuple(join_formatted_lines(normalized))
-
-
-def _assistant_continuation_fragments(
-    fragments: list[tuple[str, str]],
-    *,
-    indent_style: str
-) -> tuple[tuple[str, str], ...]:
-    """在助手正文每个显式续行前补充两个空格。"""
-    out: list[tuple[str, str]] = []
-
-    continuation: bool = False
-
-    for style, text in fragments:
-        lines = text.split("\n")
-        last_index = len(lines) - 1
-
-        for index, line in enumerate(lines):
-            has_newline = index < last_index
-            if continuation and line:
-                out.append((indent_style, "  "))
-                continuation = False
-            if line:
-                out.append((style, line))
-            if has_newline:
-                out.append((style, "\n"))
-                continuation = True
-
-    return tuple(out)
 
 
 def fragment_block(*parts: str | TextSpan) -> FragmentBlock:

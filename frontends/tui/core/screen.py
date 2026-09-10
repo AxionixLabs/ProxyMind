@@ -120,6 +120,7 @@ from .styles import (
     QUERY_PREFIX_WIDTH,
     QUERY_RIGHT_MARGIN_WIDTH,
     build_tui_application_style,
+    build_tui_style_transformation,
     exit_summary_fragments,
 )
 from .token_menu import (
@@ -1175,6 +1176,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 TUI_MENU_STYLE,
                 capabilities=terminal_capabilities,
             ),
+            style_transformation=build_tui_style_transformation(
+                terminal_capabilities,
+            ),
             color_depth=_prompt_color_depth(
                 terminal_capabilities.color_support.effective_level
             ),
@@ -1715,6 +1719,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 ),
                 output=self.application.output,
                 style=self.application.style,
+                style_transformation=self.application.style_transformation,
                 color_depth=self.application.color_depth,
                 include_default_pygments_style=False,
             )

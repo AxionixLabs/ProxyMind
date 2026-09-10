@@ -28,6 +28,7 @@ class TerminalKind(str, Enum):
     APPLE_TERMINAL = "apple_terminal"
     GNOME_TERMINAL = "gnome_terminal"
     VSCODE = "vscode"
+    ZED = "zed"
     VTE = "vte"
     TMUX = "tmux"
     ZELLIJ = "zellij"
@@ -59,6 +60,15 @@ class TerminalIdentity:
     multiplexer_version: str | None = None
     source: TerminalIdentitySource = TerminalIdentitySource.UNKNOWN
     source_variable: str | None = None
+
+    @property
+    def is_ide_terminal(self) -> bool:
+        """根据已解析的宿主身份判断是否属于已知 IDE 集成终端。"""
+        return self.kind in {
+            TerminalKind.JETBRAINS_JEDITERM,
+            TerminalKind.VSCODE,
+            TerminalKind.ZED,
+        }
 
 
 TmuxProbe: typing.TypeAlias = typing.Callable[[], tuple[str, str] | None]
@@ -233,6 +243,7 @@ def _kind_and_version_from_program(value: str) -> tuple[TerminalKind, str | None
         "gnometerminal": TerminalKind.GNOME_TERMINAL,
         "vscode": TerminalKind.VSCODE,
         "vscodeinsiders": TerminalKind.VSCODE,
+        "zed": TerminalKind.ZED,
         "wezterm": TerminalKind.WEZTERM,
         "windowsterminal": TerminalKind.WINDOWS_TERMINAL,
         "jetbrainsjediterm": TerminalKind.JETBRAINS_JEDITERM,
