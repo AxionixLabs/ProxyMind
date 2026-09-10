@@ -16,12 +16,6 @@ from agent.ports import (
 from agent.protocol import (
     CanonicalItem,
     ConversationForkReceipt,
-    DurableQueueInput,
-    DurableQueueItem,
-    DurableQueueMutationReceipt,
-    DurableQueueReorderReceipt,
-    DurableQueueSnapshot,
-    DurableQueueStartReceipt,
     ForkPrompt,
     ModelEvent,
     ModelStreamEndReason,
@@ -49,15 +43,6 @@ from protocol.client.fork import (
     ResubmittablePrompt as _WireResubmittablePrompt,
     request_conversation_fork as _request_conversation_fork,
 )
-from protocol.client.durable_queue import (
-    DurableQueueRequestError,
-    add_queue_submission as _add_queue_submission,
-    delete_queue_submission as _delete_queue_submission,
-    list_queue_submissions as _list_queue_submissions,
-    reorder_queue_submissions as _reorder_queue_submissions,
-    start_queue_submission as _start_queue_submission,
-    update_queue_submission as _update_queue_submission,
-)
 from protocol.client.tools import (
     ToolApprovalRequestError,
     ToolResultRequestError,
@@ -75,7 +60,6 @@ from protocol.client.turn_control import (
     steer_turn as _steer_turn,
 )
 from protocol.schema.turn_inputs import TurnInput as _WireTurnInput
-from protocol.schema.durable_queue import DurableQueueItem as _WireQueueItem
 from protocol.schema.tool_approval import ToolApprovalSnapshot as _WireApprovalSnapshot
 from .items import CanonicalItemReducer
 from .review_request import (
@@ -86,21 +70,6 @@ from .review_stream import ReviewStreamValidator
 
 SessionIdentity: typing.TypeAlias = tuple[str, str]
 SessionTurnIdentity: typing.TypeAlias = tuple[str, str, str]
-
-
-class _QueueRequestValues(typing.TypedDict):
-    """描述 ModelStreamRequest 到 Queue wire builder 的参数。"""
-
-    cid: str
-    sid: str
-    turn_id: str
-    pref_config: dict[str, ThawedJsonValue]
-    message: str
-    tools: list[dict[str, ThawedJsonValue]]
-    attachments: list[dict[str, ThawedJsonValue]]
-    environment_snapshot: dict[str, ThawedJsonValue] | None
-    metadata: dict[str, ThawedJsonValue]
-    options: dict[str, ThawedJsonValue]
 
 
 class _WireEventStream(typing.Protocol):
@@ -757,173 +726,6 @@ class MindChatProtocolClient:
             )
         return snapshot
 
-    async def add_queue_submission(
-        self,
-        request: ModelStreamRequest,
-        *,
-        submission_id: str,
-        client_message_id: str,
-        request_id: str | None = None,
-    ) -> DurableQueueMutationReceipt:
-        """显式添加一个服务端持久队列提交。"""
-        try:
-            response = await _add_queue_submission(
-                **_queue_request_values(request),
-                client_message_id=client_message_id,
-                submission_id=submission_id,
-                request_id=request_id,
-            )
-        except DurableQueueRequestError as error:
-            raise _queue_command_error(error) from error
-        except (TypeError, ValueError) as error:
-            raise ProtocolCommandError(
-                "protocol_command_validation_error",
-                str(error) or "durable queue add is invalid",
-            ) from error
-        return DurableQueueMutationReceipt(
-            request_id=response.request_id,
-            queue_version=response.queue_version,
-            item=_queue_item(response.item),
-        )
-
-    async def list_queue_submissions(
-        self,
-        *,
-        cid: str,
-        sid: str,
-    ) -> DurableQueueSnapshot:
-        """读取服务端权威持久队列快照。"""
-        try:
-            response = await _list_queue_submissions(cid=cid, sid=sid)
-        except DurableQueueRequestError as error:
-            raise _queue_command_error(error) from error
-        except (TypeError, ValueError) as error:
-            raise ProtocolCommandError(
-                "protocol_command_validation_error",
-                str(error) or "durable queue list is invalid",
-            ) from error
-        return DurableQueueSnapshot(
-            cid=response.cid,
-            sid=response.sid,
-            queue_version=response.queue_version,
-            items=tuple(_queue_item(item) for item in response.items),
-        )
-
-    async def update_queue_submission(
-        self,
-        request: ModelStreamRequest,
-        *,
-        submission_id: str,
-        request_id: str | None = None,
-    ) -> DurableQueueMutationReceipt:
-        """替换尚未启动提交的冻结执行请求。"""
-        try:
-            response = await _update_queue_submission(
-                **_queue_request_values(request),
-                submission_id=submission_id,
-                request_id=request_id,
-            )
-        except DurableQueueRequestError as error:
-            raise _queue_command_error(error) from error
-        except (TypeError, ValueError) as error:
-            raise ProtocolCommandError(
-                "protocol_command_validation_error",
-                str(error) or "durable queue update is invalid",
-            ) from error
-        return DurableQueueMutationReceipt(
-            request_id=response.request_id,
-            queue_version=response.queue_version,
-            item=_queue_item(response.item),
-        )
-
-    async def delete_queue_submission(
-        self,
-        *,
-        cid: str,
-        sid: str,
-        submission_id: str,
-        request_id: str | None = None,
-    ) -> DurableQueueMutationReceipt:
-        """删除尚未启动的持久队列提交。"""
-        try:
-            response = await _delete_queue_submission(
-                cid=cid,
-                sid=sid,
-                submission_id=submission_id,
-                request_id=request_id,
-            )
-        except DurableQueueRequestError as error:
-            raise _queue_command_error(error) from error
-        except (TypeError, ValueError) as error:
-            raise ProtocolCommandError(
-                "protocol_command_validation_error",
-                str(error) or "durable queue delete is invalid",
-            ) from error
-        return DurableQueueMutationReceipt(
-            request_id=response.request_id,
-            queue_version=response.queue_version,
-            item=_queue_item(response.item),
-        )
-
-    async def reorder_queue_submissions(
-        self,
-        *,
-        cid: str,
-        sid: str,
-        submission_ids: typing.Sequence[str],
-        request_id: str | None = None,
-    ) -> DurableQueueReorderReceipt:
-        """原子替换服务端持久队列的完整 FIFO 顺序。"""
-        try:
-            response = await _reorder_queue_submissions(
-                cid=cid,
-                sid=sid,
-                submission_ids=submission_ids,
-                request_id=request_id,
-            )
-        except DurableQueueRequestError as error:
-            raise _queue_command_error(error) from error
-        except (TypeError, ValueError) as error:
-            raise ProtocolCommandError(
-                "protocol_command_validation_error",
-                str(error) or "durable queue reorder is invalid",
-            ) from error
-        return DurableQueueReorderReceipt(
-            request_id=response.request_id,
-            queue_version=response.queue_version,
-            submission_ids=response.submission_ids,
-        )
-
-    async def start_queue_submission(
-        self,
-        *,
-        cid: str,
-        sid: str,
-        submission_id: str,
-        request_id: str | None = None,
-    ) -> DurableQueueStartReceipt:
-        """在 Session idle 时原子启动 FIFO 队首。"""
-        try:
-            response = await _start_queue_submission(
-                cid=cid,
-                sid=sid,
-                submission_id=submission_id,
-                request_id=request_id,
-            )
-        except DurableQueueRequestError as error:
-            raise _queue_command_error(error) from error
-        except (TypeError, ValueError) as error:
-            raise ProtocolCommandError(
-                "protocol_command_validation_error",
-                str(error) or "durable queue start is invalid",
-            ) from error
-        return DurableQueueStartReceipt(
-            request_id=response.request_id,
-            queue_version=response.queue_version,
-            submission_id=response.submission_id,
-            turn_id=response.turn_id,
-        )
-
     async def fork_session(
         self,
         *,
@@ -1207,62 +1009,6 @@ class MindChatProtocolClient:
                 "effect_reconciliation_error",
                 str(error) or "effect reconciliation failed",
             ) from error
-
-
-def _queue_request_values(request: ModelStreamRequest) -> _QueueRequestValues:
-    """把冻结模型请求复制为 Queue wire builder 参数。"""
-    if not isinstance(request, ModelStreamRequest):
-        raise TypeError("durable queue requires ModelStreamRequest")
-    return {
-        "cid": request.cid,
-        "sid": request.sid,
-        "turn_id": request.turn_id,
-        "pref_config": request.pref_config_value(),
-        "message": request.message,
-        "tools": request.tool_values(),
-        "attachments": request.attachment_values(),
-        "environment_snapshot": request.environment_snapshot_value(),
-        "metadata": request.metadata_value(),
-        "options": request.option_values(),
-    }
-
-
-def _queue_item(item: _WireQueueItem) -> DurableQueueItem:
-    """把已校验 wire Queue item 转换为 Agent 稳定投影。"""
-    return DurableQueueItem(
-        queue_seq=item.queue_seq,
-        cid=item.cid,
-        sid=item.sid,
-        submission_id=item.submission_id,
-        client_message_id=item.client_message_id,
-        turn_id=item.turn_id,
-        position=item.position,
-        status=item.status,
-        input=DurableQueueInput(
-            text=item.input.text,
-            attachments=item.input.attachments,
-            extras=item.input.extras,
-        ),
-        created_at=item.created_at,
-        updated_at=item.updated_at,
-        started_at=item.started_at,
-        deleted_at=item.deleted_at,
-    )
-
-
-def _queue_command_error(error: DurableQueueRequestError) -> ProtocolCommandError:
-    """把 Queue wire 错误映射为稳定协议能力错误。"""
-    details: dict[str, JsonValue] = {}
-    if error.status_code is not None:
-        details["status_code"] = error.status_code
-    if error.code:
-        details["server_code"] = error.code
-    return ProtocolCommandError(
-        error.code or "durable_queue_request_failed",
-        str(error) or "durable queue request failed",
-        retryable=error.retryable,
-        details=details,
-    )
 
 
 def _turn_control_command_error(

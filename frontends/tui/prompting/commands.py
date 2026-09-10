@@ -179,22 +179,6 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
-        "queue", "/queue", "Manage durable queue",
-        completion_text="/queue ",
-        parameterized=True,
-        accepts_arguments=True,
-        subcommands=("list", "add", "retry", "delete", "move", "start"),
-        stream_policy="local_snapshot",
-        stream_subcommand_policies=(
-            ("list", "local_snapshot"),
-            ("add", "background_barrier"),
-            ("retry", "background_barrier"),
-            ("delete", "background_barrier"),
-            ("move", "background_barrier"),
-            ("start", "reject"),
-        ),
-    ),
-    TuiCommandSpec(
         "diff", "/diff", "View Git changes",
         stream_policy="local_snapshot",
     ),

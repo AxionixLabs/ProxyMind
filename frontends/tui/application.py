@@ -9,18 +9,10 @@ from collections.abc import (
 from pathlib import Path
 
 from agent.application.agents.views import AgentSnapshot
-from agent.application.turns.durable_queue import (
-    DurableQueueApplication,
-    DurableQueueSubmissionResult,
-)
 from agent.application.turns.commands import RemoteTurnRecovery
 from agent.application.turns.observation import TurnObservationCallbacks
 from agent.application.turns.run_result import RunResult
 from agent.domain.policies import PermissionSettings
-from agent.protocol import (
-    LocalDurableQueueSnapshot,
-    SubmitTurnCommand,
-)
 from agent.domain.tool_policy import ToolFilterMode
 from agent.ports import (
     AttachmentStatePort,
@@ -254,34 +246,12 @@ class TuiApplicationHost(typing.Protocol):
     activity: FrontendActivityPort
     attach: AttachmentStatePort
     conversation: RootConversationPort
-    durable_queue: DurableQueueApplication
     turn_observer: TurnObservationCapability
     execution: TuiExecutionResourcesPort
     frontend: Frontend
     history_workspace: str
     lifecycle: ProcessLifecyclePort
     turn_foreground_lifecycle: TurnForegroundLifecyclePort
-
-    async def enqueue_durable_turn(
-        self,
-        command: SubmitTurnCommand,
-        *,
-        permissions: PermissionSettings,
-        submission_id: str,
-        client_message_id: str,
-        request_id: str,
-    ) -> DurableQueueSubmissionResult:
-        """冻结并提交显式持久 Queue 输入。"""
-        ...
-
-    async def observe_durable_turn(
-        self,
-        local: LocalDurableQueueSnapshot,
-        *,
-        callbacks: TurnObservationCallbacks,
-    ) -> RunResult:
-        """观察 Queue start 已创建的远端 Turn。"""
-        ...
 
     async def observe_recovered_turn(
         self,

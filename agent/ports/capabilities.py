@@ -16,10 +16,6 @@ from agent.domain.execution_policy import SandboxPermission
 from agent.protocol import (
     CanonicalItem,
     ConversationForkReceipt,
-    DurableQueueMutationReceipt,
-    DurableQueueReorderReceipt,
-    DurableQueueSnapshot,
-    DurableQueueStartReceipt,
     McpToolDefinition,
     McpToolResult,
     ModelEvent,
@@ -641,79 +637,6 @@ class ProtocolCommandClient(typing.Protocol):
         metadata: Mapping[str, typing.Any] | None = None,
     ) -> None:
         """提交外部效果的确定核对结论。"""
-        ...
-
-
-@typing.runtime_checkable
-class DurableQueueClient(typing.Protocol):
-    """提供显式服务端持久队列命令与权威快照。
-
-    实现方只映射服务端 Queue receipt/snapshot，不拥有队列状态，也不得把普通
-    TUI pending input 自动转换为持久队列项。所有 mutation 必须复用调用方冻结的
-    request、submission 和 client message identity。
-    """
-
-    async def add_queue_submission(
-        self,
-        request: ModelStreamRequest,
-        *,
-        submission_id: str,
-        client_message_id: str,
-        request_id: str | None = None,
-    ) -> DurableQueueMutationReceipt:
-        """显式添加一个持久队列提交。"""
-        ...
-
-    async def list_queue_submissions(
-        self,
-        *,
-        cid: str,
-        sid: str,
-    ) -> DurableQueueSnapshot:
-        """读取服务端权威持久队列快照。"""
-        ...
-
-    async def update_queue_submission(
-        self,
-        request: ModelStreamRequest,
-        *,
-        submission_id: str,
-        request_id: str | None = None,
-    ) -> DurableQueueMutationReceipt:
-        """替换尚未启动提交的冻结请求。"""
-        ...
-
-    async def delete_queue_submission(
-        self,
-        *,
-        cid: str,
-        sid: str,
-        submission_id: str,
-        request_id: str | None = None,
-    ) -> DurableQueueMutationReceipt:
-        """删除尚未启动的持久队列提交。"""
-        ...
-
-    async def reorder_queue_submissions(
-        self,
-        *,
-        cid: str,
-        sid: str,
-        submission_ids: typing.Sequence[str],
-        request_id: str | None = None,
-    ) -> DurableQueueReorderReceipt:
-        """原子替换服务端持久队列的完整 FIFO 顺序。"""
-        ...
-
-    async def start_queue_submission(
-        self,
-        *,
-        cid: str,
-        sid: str,
-        submission_id: str,
-        request_id: str | None = None,
-    ) -> DurableQueueStartReceipt:
-        """在 Session idle 时原子启动 FIFO 队首。"""
         ...
 
 

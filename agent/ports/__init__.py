@@ -23,7 +23,6 @@ from .approval_core import (
 from .capabilities import (
     ApprovalSnapshotCallback,
     CapabilityError,
-    DurableQueueClient,
     EnvironmentSnapshotCapability,
     FilesystemCapability,
     HelixCapability,
@@ -69,10 +68,6 @@ from .content import (
 from .conversation import (
     ConversationHistoryPort,
     RootConversationPort,
-)
-from .durable_queue import (
-    DurableQueuePersistence,
-    DurableQueuePersistenceConflict,
 )
 from .frontend import (
     ActivityRuntimePort,
@@ -322,7 +317,6 @@ __all__ = (
     "ApprovalSnapshotCallback",
     "ConversationHistoryPort",
     "CapabilityError",
-    "DurableQueueClient",
     "EnvironmentSnapshotCapability",
     "FilesystemCapability",
     "HelixCapability",
@@ -333,6 +327,7 @@ __all__ = (
     "ModelEventStream",
     "ModelRequestFrozenCallback",
     "ReviewCapability",
+    "ReviewObservationCapability",
     "ReviewRequestFrozenCallback",
     "ProtocolCommandClient",
     "ProtocolCommandError",

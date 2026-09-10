@@ -17,7 +17,6 @@ from agent.ports.presentation import (
     StyledBlock,
     TextSpan,
 )
-from agent.protocol import LocalDurableQueueSnapshot
 from agent.stores.sessions import INTERACTIVE_HISTORY_SOURCES
 from frontends.tui.contracts.resume import (
     ResumeRow,
@@ -43,7 +42,6 @@ from ..core.styles import (
 )
 from ..features.agents import manage_agents
 from ..features.context import ignored_tui_input
-from ..features.durable_queue import TuiDurableQueueFeature
 from ..features.conversation import (
     ConversationCompactor,
     ForkLiveStatus,
@@ -193,7 +191,6 @@ StreamActionResolver = typing.Callable[
 class DispatchAction(enum.Enum):
     """描述一项输入完成命令分派后的下一步。"""
     HANDLED = "handled"
-    DURABLE_QUEUE_TURN = "durable_queue_turn"
     MODEL_TURN = "model_turn"
     REVIEW_TURN = "review_turn"
     EXIT = "exit"
@@ -226,9 +223,7 @@ class TuiCommandDispatcher(object):
         self.review_catalog = review_catalog or review_git
         self.review_preparation = review_preparation or review_git
         self.application = host.frontend.application
-        self.durable_queue = TuiDurableQueueFeature(host, runtime, state)
         self.mailbox = TuiMailboxFeature(runtime, host)
-        self._started_durable_queue_turn: LocalDurableQueueSnapshot | None = None
         self._prepared_review: PreparedReview | None = None
         self._local_tasks: dict[str, asyncio.Task[None]] = {}
         self._stream_action_resolvers = self._build_stream_action_resolvers()
@@ -306,7 +301,6 @@ class TuiCommandDispatcher(object):
                     self.mailbox.open,
                 )
             ),
-            "queue": self._resolve_stream_queue_action,
             "diff": lambda _request: self._diff_local_action(),
             "export": lambda request: StreamBarrierAction(
                 lambda: self.foreground_tasks.start(
@@ -373,35 +367,6 @@ class TuiCommandDispatcher(object):
                 )
             ),
         }
-
-    def _resolve_stream_queue_action(
-        self,
-        request: StreamCommandRequest,
-    ) -> StreamResolvedAction:
-        """把运行中 Queue 查询与变更映射到各自的并发策略。"""
-        parts = request.normalized.split()
-        subcommand = parts[1] if len(parts) > 1 else "list"
-        if subcommand == "list":
-            return StreamLocalAction(
-                key="durable_queue:list",
-                name="tui durable queue snapshot",
-                factory=lambda: self.durable_queue.dispatch_background(
-                    request.value
-                ),
-            )
-        return StreamBarrierAction(lambda: self.foreground_tasks.start(
-            "Durable Queue",
-            lambda: self.durable_queue.dispatch_background(request.value),
-            activity_kind="operation",
-        ))
-
-    def take_started_durable_queue_turn(self) -> LocalDurableQueueSnapshot:
-        """消费一次由 `/queue start` 创建的待观察 Turn 快照。"""
-        local = self._started_durable_queue_turn
-        self._started_durable_queue_turn = None
-        if local is None:
-            raise RuntimeError("durable queue start did not produce a turn")
-        return local
 
     def _validate_stream_action_resolvers(self) -> None:
         """校验命令目录与会话层流式动作注册表完全一致。"""
@@ -1233,15 +1198,6 @@ class TuiCommandDispatcher(object):
             ))
             self._present()
             return DispatchAction.HANDLED
-
-        if new_command is not None and new_command.key == "queue":
-            result = await self.durable_queue.dispatch(prompt_text)
-            if result.started is None:
-                return DispatchAction.HANDLED
-            if self._started_durable_queue_turn is not None:
-                raise RuntimeError("a durable queue turn is already pending")
-            self._started_durable_queue_turn = result.started
-            return DispatchAction.DURABLE_QUEUE_TURN
 
         if new_command is not None and new_command.key == "raw":
             self._apply_raw_command(prompt_text)

@@ -232,7 +232,7 @@ class ObservingTurnStreamSource:
         message: str,
         options: dict[str, typing.Any],
     ) -> str:
-        """跳过已经在 Queue add 前执行过的提交 Hook。"""
+        """观察已有 Turn 时跳过已经执行过的提交 Hook。"""
         del hook_events, transcript, options
         return message
 

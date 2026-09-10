@@ -24,7 +24,6 @@ from .approvals.permissions import (
     PermissionGrantStore,
 )
 from .effects.journal import LocalEffectJournal
-from .queues.store import SQLiteDurableQueueStore
 from .runs.store import SQLiteRunStore
 
 __all__ = (
@@ -45,6 +44,5 @@ __all__ = (
     "PermissionGrant",
     "PermissionGrantStore",
     "SQLiteRunStore",
-    "SQLiteDurableQueueStore",
     "format_mailbox_context",
 )

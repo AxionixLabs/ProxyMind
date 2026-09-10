@@ -40,9 +40,6 @@ def test_runtime_directories_are_owned_by_state_home(
     assert runtime_paths.agent_runtime_db_path() == (
         state_root / "history" / "runtime.db"
     )
-    assert runtime_paths.durable_queue_db_path() == (
-        state_root / "history" / "durable_queue.db"
-    )
 
 
 def test_process_environment_propagates_config_state_and_helix_roots(

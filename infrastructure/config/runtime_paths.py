@@ -101,11 +101,6 @@ def agent_runtime_db_path() -> Path:
     return history_dir() / "runtime.db"
 
 
-def durable_queue_db_path() -> Path:
-    """返回 Durable Queue 本地执行快照账本路径。"""
-    return history_dir() / "durable_queue.db"
-
-
 def ensure_writable_dir(path: Path) -> Path:
     """确保目录存在且可写。"""
     target = Path(path).expanduser()

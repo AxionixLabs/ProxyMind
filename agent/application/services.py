@@ -8,7 +8,6 @@ from pathlib import Path
 
 from agent.ports import (
     ApprovalCoordinatorPort,
-    DurableQueueClient,
     EffectJournalFactory,
     EnvironmentSnapshotCapability,
     HelixCapability,
@@ -109,7 +108,6 @@ class RuntimeServices:
     review_capability: ReviewCapability
     turn_observer: TurnObservationCapability
     protocol_client: ProtocolCommandClient
-    durable_queue_client: DurableQueueClient
     environment_capability: EnvironmentSnapshotCapability
     create_turn_application: TurnApplicationFactory
     create_effect_journal: EffectJournalFactory
@@ -140,10 +138,6 @@ class RuntimeServices:
             )
         if not isinstance(self.protocol_client, ProtocolCommandClient):
             raise TypeError("protocol client does not implement ProtocolCommandClient")
-        if not isinstance(self.durable_queue_client, DurableQueueClient):
-            raise TypeError(
-                "durable queue client does not implement DurableQueueClient"
-            )
         if not isinstance(
             self.environment_capability,
             EnvironmentSnapshotCapability,

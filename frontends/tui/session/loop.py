@@ -37,15 +37,12 @@ from agent.ports.presentation import (
     ApplicationView,
 )
 from agent.protocol import (
-    LocalDurableQueueSnapshot,
     ReviewStreamRequest,
     SubmitReviewCommand,
 )
 from agent.protocol.json_value import ThawedJsonValue
 from infrastructure.config.runtime_paths import agent_runtime_db_path
-from infrastructure.services.turn_environment import (
-    capture_active_turn_environment,
-)
+from infrastructure.services.turn_environment import capture_active_turn_environment
 from protocol.client.fork import ResubmittablePrompt
 from protocol.schema.identifiers import short_uid
 from protocol.schema.stream_events import StreamEvent
@@ -282,55 +279,6 @@ async def _await_durable_session_recovery(
         )
 
 
-async def _await_durable_queue_recovery(
-    host: "TuiApplicationHost",
-    runtime: TuiRuntime,
-    dispatcher: TuiCommandDispatcher,
-) -> tuple[bool, LocalDurableQueueSnapshot | None]:
-    """有界探测冷恢复 Queue，并在不确定时保持 Session 执行门。"""
-    notice_shown = False
-    retry_delays: typing.Iterator[float | int] = iter(RECOVERY_RETRY_DELAYS_SEC)
-    submit_draft = False
-    recovery_ready = False
-    runtime.begin_recovery_gate()
-    try:
-        while not host.lifecycle.stop_event.is_set():
-            try:
-                local = await dispatcher.durable_queue.recover_started()
-            except (
-                LookupError,
-                OSError,
-                ProtocolCommandError,
-                RuntimeError,
-                TypeError,
-                ValueError,
-            ) as error:
-                if not notice_shown:
-                    runtime.queue_background_block(failure_text_block(
-                        "Durable queue recovery is required before the next "
-                        f"turn: {str(error).strip() or type(error).__name__}",
-                    ))
-                    notice_shown = True
-            else:
-                recovery_ready = True
-                return True, local
-
-            delay = next(retry_delays, None)
-            action = await _wait_for_recovery_action(
-                host.lifecycle.stop_event,
-                runtime,
-                timeout=delay,
-            )
-            if action == "stop":
-                return False, None
-            submit_draft = action == "submit"
-        return False, None
-    finally:
-        runtime.finish_recovery_gate(
-            submit_draft=recovery_ready and submit_draft,
-        )
-
-
 async def _wait_for_recovery_action(
     stop_event: asyncio.Event,
     runtime: TuiRuntime,
@@ -369,63 +317,6 @@ def _pending_attachment_snapshot(
     return tuple(
         item.copy()
         for item in attachment_state.pending_attachments_snapshot()
-    )
-
-
-async def _execute_tui_durable_queue_turn(
-    host: "TuiApplicationHost",
-    runtime: TuiRuntime,
-    state: TuiSessionState,
-    dispatcher: TuiCommandDispatcher,
-    protocol_client: ProtocolCommandClient,
-    local: LocalDurableQueueSnapshot,
-) -> _TurnExecutionOutcome:
-    """以前台交互生命周期观察 queue.start 已创建的远端 Turn。"""
-    application = host.frontend.application
-    request = local.request
-    command = local.command
-    runtime.set_turn_start_pending(True)
-    application.emit(ApplicationView(type="tui.gap"))
-    host.workspace_runtime.coding.reset_patch_diff()
-    runtime.append_submitted_query(
-        command.message,
-        request.turn_id,
-        attachments=command.attachment_values(),
-        extras=command.extras_value(),
-    )
-    turn_input_control = TuiTurnInputControl(
-        host,
-        runtime,
-        state,
-        cid=request.cid,
-        sid=request.sid,
-        turn_id=request.turn_id,
-        protocol_client=protocol_client,
-    )
-    terminal_authority = _ObservedTurnAuthority(turn_input_control)
-    callbacks = TurnObservationCallbacks(
-        input_context=turn_input_control.activate,
-        input_event=terminal_authority.handle_event,
-        stream_end=turn_input_control.handle_stream_end,
-    )
-    try:
-        await execute_tui_model_turn(
-            application,
-            runtime,
-            host.observe_durable_turn(local, callbacks=callbacks),
-            turn_input_control=turn_input_control,
-            stream_command_handler=dispatcher.handle_stream_command,
-            show_interrupt_notice=lambda: not host.lifecycle.stop_event.is_set(),
-        )
-        settled = terminal_authority.terminal_received
-        if settled:
-            await host.durable_queue.settle(local.submission_id)
-    finally:
-        runtime.set_turn_start_pending(False)
-
-    return _TurnExecutionOutcome(
-        settled=settled,
-        exit_requested=_apply_turn_exit_request(host, runtime),
     )
 
 
@@ -634,7 +525,6 @@ async def _run_tui_loop(
     if initial_prompt is not None:
         runtime.submissions.enqueue_message(initial_prompt)
     attachment_start_pending = initial_prompt is None and bool(initial_images)
-    reconciled_queue_sessions: set[tuple[str, str]] = set()
 
     while not host.lifecycle.stop_event.is_set():
         await foreground_tasks.wait()
@@ -667,43 +557,6 @@ async def _run_tui_loop(
                 break
             if not recovery_ready:
                 break
-
-            queue_coordinates = (
-                recovery_session["cid"],
-                recovery_session["sid"],
-            )
-            if queue_coordinates not in reconciled_queue_sessions:
-                try:
-                    queue_ready, recovered_queue_turn = (
-                        await _await_durable_queue_recovery(
-                            host,
-                            runtime,
-                            dispatcher,
-                        )
-                    )
-                except TuiInterruptRequested:
-                    host.lifecycle.request_stop(exit_code=130)
-                    break
-                except EOFError:
-                    host.lifecycle.request_stop()
-                    break
-                if not queue_ready:
-                    break
-                reconciled_queue_sessions.add(queue_coordinates)
-                if recovered_queue_turn is not None:
-                    outcome = await _execute_tui_durable_queue_turn(
-                        host,
-                        runtime,
-                        state,
-                        dispatcher,
-                        protocol_client,
-                        recovered_queue_turn,
-                    )
-                    if outcome.exit_requested:
-                        break
-                    if not outcome.settled:
-                        reconciled_queue_sessions.discard(queue_coordinates)
-                    continue
 
         if attachment_start_pending:
             attachment_start_pending = False
@@ -790,27 +643,6 @@ async def _run_tui_loop(
         if action is DispatchAction.HANDLED:
             runtime.set_turn_start_pending(False)
             runtime.finish_command_layout()
-            continue
-        if action is DispatchAction.DURABLE_QUEUE_TURN:
-            runtime.set_turn_start_pending(False)
-            runtime.finish_command_layout()
-            durable_queue_turn = dispatcher.take_started_durable_queue_turn()
-            queue_coordinates = (
-                durable_queue_turn.request.cid,
-                durable_queue_turn.request.sid,
-            )
-            outcome = await _execute_tui_durable_queue_turn(
-                host,
-                runtime,
-                state,
-                dispatcher,
-                protocol_client,
-                durable_queue_turn,
-            )
-            if outcome.exit_requested:
-                break
-            if not outcome.settled:
-                reconciled_queue_sessions.discard(queue_coordinates)
             continue
         if action is DispatchAction.REVIEW_TURN:
             runtime.cancel_command_layout()

@@ -644,7 +644,6 @@ def test_running_enter_steers_and_tab_explicitly_queues() -> None:
     (
         ("/compact", "/compact", "/compact", True),
         ("/model", "/model", "/model", True),
-        ("/queue", "/queue", "/queue", True),
         ("/mcp start ", "/mcp start ", "/mcp start", False),
         ("!echo hello", "echo hello", "! echo hello", False),
     ),
