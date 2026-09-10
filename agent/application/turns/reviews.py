@@ -90,7 +90,6 @@ async def discover_review_tools(
         tools: list[JsonObject],
     ) -> tuple[JsonObject, ...]:
         """把当前工具目录收窄为可持久化的 Review wire 描述。"""
-        del session
         return review_wire_tools(tools)
 
     result = await runtime.with_mcp_session(pref_config, freeze_catalog)

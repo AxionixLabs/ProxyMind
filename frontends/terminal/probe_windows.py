@@ -52,7 +52,6 @@ def query_windows_default_colors(
 ) -> TerminalDefaultColors:
     """通过 Windows Console API 查询颜色且不读取 stdin。"""
 
-    del input_stream, timeout
     return _windows_palette_colors(output_stream)
 
 

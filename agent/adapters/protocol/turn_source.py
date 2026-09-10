@@ -32,6 +32,8 @@ class TurnStreamSource(typing.Protocol):
 
     实现方必须明确区分新提交和既有 Turn 观察；观察源不得调用模型提交入口，
     但必须保留 Stop continuation 创建新 Turn 所需的提交能力。
+    共享生命周期按统一签名调用，实现方仅使用其职责所需的参数；观察与 Review
+    来源不得用当前提交内容重建已有或冻结的请求。
     """
 
     @property
@@ -79,7 +81,7 @@ class TurnStreamSource(typing.Protocol):
         ...
 
 
-class SubmittingTurnStreamSource:
+class SubmittingTurnStreamSource(TurnStreamSource):
     """运行提交 Hook 并为一条新 Turn 创建模型事件流。"""
 
     def __init__(
@@ -163,7 +165,7 @@ class SubmittingTurnStreamSource:
         )
 
 
-class ObservingTurnStreamSource:
+class ObservingTurnStreamSource(TurnStreamSource):
     """只 attach 已由其他提交路径创建的既有远端 Turn。"""
 
     def __init__(
@@ -233,7 +235,6 @@ class ObservingTurnStreamSource:
         options: dict[str, typing.Any],
     ) -> str:
         """观察已有 Turn 时跳过已经执行过的提交 Hook。"""
-        del hook_events, transcript, options
         return message
 
     async def open(
@@ -248,7 +249,6 @@ class ObservingTurnStreamSource:
         on_approval_snapshot: ApprovalSnapshotCallback,
     ) -> ModelEventStream:
         """只使用服务端确认坐标建立 attach/replay 观察流。"""
-        del pref_config, message, tools
         timeout = options.pop("timeout", 60.0)
         return self._observer.observe(
             TurnObservationRequest(
@@ -264,7 +264,7 @@ class ObservingTurnStreamSource:
         )
 
 
-class SubmittingReviewTurnStreamSource:
+class SubmittingReviewTurnStreamSource(TurnStreamSource):
     """登记冻结 Review 请求并把确认后的事件流交给共享 Turn 生命周期。"""
 
     def __init__(
@@ -308,7 +308,6 @@ class SubmittingReviewTurnStreamSource:
         options: dict[str, typing.Any],
     ) -> str:
         """Review 请求已冻结，不运行普通 UserPromptSubmit Hook。"""
-        del hook_events, transcript, options
         return message
 
     async def open(
@@ -323,7 +322,6 @@ class SubmittingReviewTurnStreamSource:
         on_approval_snapshot: ApprovalSnapshotCallback,
     ) -> ModelEventStream:
         """登记同一坐标的 Review 并返回服务端确认后的事件流。"""
-        del pref_config, message, tools, options
         _require_review_context(context, self._request)
         return await self._capability.review(
             self._request,
@@ -332,7 +330,7 @@ class SubmittingReviewTurnStreamSource:
         )
 
 
-class ObservingReviewTurnStreamSource:
+class ObservingReviewTurnStreamSource(TurnStreamSource):
     """只 attach 已登记 Review，并保留共享事件泵的历史水位语义。"""
 
     def __init__(
@@ -397,7 +395,6 @@ class ObservingReviewTurnStreamSource:
         options: dict[str, typing.Any],
     ) -> str:
         """恢复路径不重复运行普通提交 Hook。"""
-        del hook_events, transcript, options
         return message
 
     async def open(
@@ -412,7 +409,6 @@ class ObservingReviewTurnStreamSource:
         on_approval_snapshot: ApprovalSnapshotCallback,
     ) -> ModelEventStream:
         """只按冻结身份和水位打开 Review attach/replay 流。"""
-        del pref_config, message, tools, options, on_approval_snapshot
         _require_review_context(context, self._request)
         return self._capability.observe_review(
             self._request,

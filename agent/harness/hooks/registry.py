@@ -173,14 +173,6 @@ class HookRegistry(HookMcpRunnerBinder):
             display_order=display_order,
         )
 
-    @staticmethod
-    def _unsupported_warnings(
-        resolved: typing.Iterable[_ResolvedHook]
-    ) -> tuple[str, ...]:
-        """返回当前可执行 handler 不需要的兼容告警。"""
-        del resolved
-        return ()
-
     def _observe_warnings(self, warnings: tuple[str, ...]) -> None:
         """记录当前进程中尚未报告过的 discovery warning。"""
         for warning in warnings:
@@ -222,15 +214,8 @@ class HookRegistry(HookMcpRunnerBinder):
         hook_states: HookStateTable | None = None,
         warnings: typing.Iterable[str] = (),
     ) -> tuple[str, ...]:
-        """返回当前非交互 Hook 初始化需要报告的告警。"""
-        resolved = self._resolve(definitions, hook_states or {})
-        warning_items = list(warnings)
-        warning_items.extend(
-            warning
-            for warning in self._unsupported_warnings(resolved)
-            if warning not in warning_items
-        )
-        result = tuple(warning_items)
+        """记录并返回 Hook 配置发现阶段产生的启动告警。"""
+        result = tuple(warnings)
         self._observe_warnings(result)
         return result
 
@@ -244,15 +229,7 @@ class HookRegistry(HookMcpRunnerBinder):
     ) -> HookDispatcherPort:
         """按当前信任状态构建一个独立运行时。"""
         resolved = self._resolve(definitions, hook_states or {})
-        warning_items = list(warnings)
-
-        warning_items.extend(
-            warning
-            for warning in self._unsupported_warnings(resolved)
-            if warning not in warning_items
-        )
-
-        warning_items = tuple(warning_items)
+        warning_items = tuple(warnings)
         self._observe_warnings(warning_items)
 
         active = tuple(
