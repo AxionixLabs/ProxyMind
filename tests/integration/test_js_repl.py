@@ -1093,6 +1093,76 @@ async def test_js_repl_client_tool_executes_without_shell_metadata(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("tool_name", ("shell_command", "exec_command"))
+@pytest.mark.parametrize(
+    ("sandbox_permissions", "justification"),
+    [(None, "需要运行诊断命令"), ("use_default", ""), ("use_default", "需要运行诊断命令")],
+)
+async def test_js_repl_full_access_nested_command_accepts_justification(
+    tmp_path: Path,
+    tool_name: str,
+    sandbox_permissions: str | None,
+    justification: str,
+) -> None:
+    _require_node()
+    coding = create_workspace_coding(root=tmp_path, application_layout=None)
+    javascript = create_javascript_provider(
+        workspace_root=tmp_path,
+        application_layout=None,
+    )
+    coordinator = SimpleNamespace(request_outcome=AsyncMock())
+    manager = ExecPolicyManager(workspace_root=tmp_path, rules_paths=())
+    registry = ToolRegistry([
+        *javascript_tools(
+            javascript,
+            approval_coordinator=coordinator,
+            execution_policy=manager,
+        ),
+        *coding_tools(coding),
+    ])
+    session = CompositeToolSession(client_registry=registry)
+    turn = TurnContext.create(
+        agent=AgentContext.root("sid_justification"),
+        cid="cid_justification",
+        sid="sid_justification",
+        source="test",
+        pref_config={},
+        cwd=str(tmp_path),
+        permissions=preset_permissions("full-access"),
+        turn_id="turn_justification",
+    )
+    arguments = {
+        "command": "echo sandbox-justification-ok",
+        "justification": justification,
+    }
+    if sandbox_permissions is not None:
+        arguments["sandbox_permissions"] = sandbox_permissions
+    code = (
+        f"const result = await host.tool({json.dumps(tool_name)}, {json.dumps(arguments)}); "
+        "console.log(JSON.stringify(result.output));"
+    )
+    try:
+        result = await session.call_tool(
+            "js_repl",
+            {"code": code, "timeout_ms": 30_000},
+            call_id="call_justification",
+            turn_context=turn,
+            pref_config={},
+        )
+    finally:
+        await javascript.close()
+        await coding.close()
+
+    assert result.isError is False, result.structuredContent
+    command_result = json.loads(result.structuredContent["data"]["output"])
+    assert command_result["exit_code"] == 0
+    assert command_result["sandbox_mode"] == "danger-full-access"
+    assert command_result["execution_backend"] == "local"
+    assert command_result["stdout"].strip() == "sandbox-justification-ok"
+    coordinator.request_outcome.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_js_repl_nested_shell_uses_local_approval(tmp_path: Path) -> None:
     _require_node()
     events = []

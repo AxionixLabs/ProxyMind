@@ -66,8 +66,9 @@ SHELL_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
             ],
             "default": "use_default",
             "description": (
-                "单条命令的沙箱覆盖；with_additional_permissions 必须同时提供 "
-                "additional_permissions，require_escalated 需用户审批后使用宿主 shell。"
+                "单条命令的沙箱覆盖；use_default 沿用当前会话权限，包括 Full Access；"
+                "with_additional_permissions 必须同时提供 additional_permissions；"
+                "require_escalated 请求宿主 shell，是否审批由当前策略决定。"
             ),
         },
         "additional_permissions": {
@@ -79,7 +80,7 @@ SHELL_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
         },
         "justification": {
             "type": "string",
-            "description": "请求 require_escalated 时展示给用户的审批理由。",
+            "description": "可选的命令审批说明；仅在需要审批时展示，不改变 sandbox_permissions。",
         },
     },
     "required": ["command"],
@@ -161,8 +162,9 @@ EXEC_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
             ],
             "default": "use_default",
             "description": (
-                "单条命令的沙箱覆盖；with_additional_permissions 必须同时提供 "
-                "additional_permissions，require_escalated 需用户审批后使用宿主 shell。"
+                "单条命令的沙箱覆盖；use_default 沿用当前会话权限，包括 Full Access；"
+                "with_additional_permissions 必须同时提供 additional_permissions；"
+                "require_escalated 请求宿主 shell，是否审批由当前策略决定。"
             ),
         },
         "additional_permissions": {
@@ -174,7 +176,7 @@ EXEC_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
         },
         "justification": {
             "type": "string",
-            "description": "请求 require_escalated 时展示给用户的审批理由。",
+            "description": "可选的命令审批说明；仅在需要审批时展示，不改变 sandbox_permissions。",
         },
     },
     "required": ["command"],

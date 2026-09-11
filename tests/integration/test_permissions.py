@@ -18,8 +18,10 @@ from agent.application.approvals.policy import (
 )
 from agent.application.approvals.local_policy import (
     apply_local_patch_approval,
+    local_exec_policy_requirement,
     local_patch_approval,
 )
+from infrastructure.config.execution_policy import PolicyParser
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from agent.application.tools.coding import coding_tools
 from agent.application.turns.reviews import review_wire_tools
@@ -527,28 +529,133 @@ def test_justification_is_only_exposed_by_process_start_tools() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("tool_name", ("shell_command", "exec_command"))
+@pytest.mark.parametrize("permissions", (
+    preset_permissions("full-access"),
+    preset_permissions("auto"),
+    preset_permissions("read-only"),
+))
+@pytest.mark.parametrize("sandbox_permissions", (None, "use_default", "require_escalated"))
+@pytest.mark.parametrize("justification", ("", "需要运行诊断命令"))
 async def test_command_justification_is_not_passed_to_native_executor(
-    tool_name,
+    tool_name: str,
+    permissions: PermissionSettings,
+    sandbox_permissions: str | None,
+    justification: str,
 ) -> None:
     coding = _coding_stub()
     tool = next(item for item in coding_tools(coding) if item.name == tool_name)
-    runtime = _client_runtime(preset_permissions("full-access"))
+    runtime = _client_runtime(permissions)
+    expected_arguments = {"command": "echo ready"}
+    if sandbox_permissions is not None:
+        expected_arguments["sandbox_permissions"] = sandbox_permissions
     arguments = {
-        "command": "echo ready",
-        "sandbox_permissions": "require_escalated",
-        "justification": "需要使用宿主 shell",
+        **expected_arguments,
+        "justification": justification,
     }
 
     result = await tool.handler(arguments, runtime)
 
     assert result.ok is True
-    assert result.args == {
-        "command": "echo ready",
-        "sandbox_permissions": "require_escalated",
-    }
+    assert result.args == expected_arguments
     native_arguments = getattr(coding, tool_name).await_args.kwargs
     assert "justification" not in native_arguments
-    assert arguments["justification"] == "需要使用宿主 shell"
+    assert native_arguments["sandbox_mode"] == permissions.sandbox_mode
+    assert native_arguments.get("sandbox_permissions") == sandbox_permissions
+    assert arguments == {**expected_arguments, "justification": justification}
+
+
+@pytest.mark.parametrize("tool_name", ("shell_command", "exec_command"))
+@pytest.mark.parametrize(
+    ("permissions", "command", "sandbox_permissions", "state"),
+    [
+        (preset_permissions("full-access"), "git status", None, "skip"),
+        (preset_permissions("full-access"), "git status", "use_default", "skip"),
+        (preset_permissions("full-access"), "echo blocked", "use_default", "forbidden"),
+        (preset_permissions("full-access"), "git push", "use_default", "forbidden"),
+        (preset_permissions("auto"), "git push", "use_default", "needs_approval"),
+        (preset_permissions("read-only"), "echo blocked", "use_default", "forbidden"),
+        (preset_permissions("read-only"), "git status", "require_escalated", "needs_approval"),
+        (PermissionSettings("read-only", "never"), "git status", "require_escalated", "forbidden"),
+    ],
+)
+def test_command_justification_preserves_local_policy(
+    tmp_path: Path,
+    tool_name: str,
+    permissions: PermissionSettings,
+    command: str,
+    sandbox_permissions: str | None,
+    state: str,
+) -> None:
+    manager = ExecPolicyManager(
+        workspace_root=tmp_path,
+        rules_paths=(),
+        policy=PolicyParser.new(
+            'prefix_rule(pattern=["echo"], decision="forbidden")\n'
+            'prefix_rule(pattern=["git", "push"], decision="prompt")\n'
+        ).build(),
+    )
+    runtime = _client_runtime(permissions)
+    assert runtime.call_id is not None
+    arguments = {"command": command, "cwd": str(tmp_path)}
+    if sandbox_permissions is not None:
+        arguments["sandbox_permissions"] = sandbox_permissions
+    expected = local_exec_policy_requirement(
+        manager,
+        runtime.turn_context,
+        tool=tool_name,
+        arguments=arguments,
+        call_id=runtime.call_id,
+    )
+
+    actual = local_exec_policy_requirement(
+        manager,
+        runtime.turn_context,
+        tool=tool_name,
+        arguments={**arguments, "justification": "需要运行诊断命令"},
+        call_id=runtime.call_id,
+    )
+
+    assert actual is not None
+    assert actual.state == state
+    assert actual == expected
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tool_name", ("shell_command", "exec_command"))
+@pytest.mark.parametrize(
+    ("sandbox_permissions", "additional_permissions", "detail"),
+    [
+        ("invalid", None, "sandbox_permissions must be"),
+        ("use_default", {}, "additional permissions require with_additional_permissions"),
+        ("require_escalated", {}, "additional permissions require with_additional_permissions"),
+        ("with_additional_permissions", None, "additional permissions are required"),
+    ],
+)
+async def test_full_access_justification_preserves_permission_argument_validation(
+    tool_name: str,
+    sandbox_permissions: str,
+    additional_permissions: dict[str, str] | None,
+    detail: str,
+) -> None:
+    coding = _coding_stub()
+    tool = next(
+        item for item in coding_tools(coding, exec_permission_approvals_enabled=True)
+        if item.name == tool_name
+    )
+    result = await tool.handler(
+        {
+            "command": "echo ready",
+            "sandbox_permissions": sandbox_permissions,
+            "additional_permissions": additional_permissions,
+            "justification": "需要运行诊断命令",
+        },
+        _client_runtime(preset_permissions("full-access")),
+    )
+
+    assert result.ok is False
+    assert result.data["reason"] == "sandbox_permissions_invalid"
+    assert detail in result.data["detail"]
+    getattr(coding, tool_name).assert_not_awaited()
 
 
 @pytest.mark.anyio

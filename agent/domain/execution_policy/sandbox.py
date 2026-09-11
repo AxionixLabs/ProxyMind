@@ -37,7 +37,7 @@ def normalize_sandbox_permission(value: object) -> SandboxPermission:
 def validate_sandbox_permission_arguments(
     arguments: Mapping[str, object],
 ) -> SandboxPermission:
-    """校验本地执行参数中的权限覆盖、附加权限和理由组合。"""
+    """校验权限覆盖与附加权限的配对，审批说明不参与权限判定。"""
     permission = normalize_sandbox_permission(arguments.get("sandbox_permissions"))
     additional = arguments.get("additional_permissions")
     if permission == "with_additional_permissions":
@@ -48,10 +48,6 @@ def validate_sandbox_permission_arguments(
     elif additional is not None:
         raise ValueError(
             "additional permissions require with_additional_permissions"
-        )
-    if "justification" in arguments and permission == "use_default":
-        raise ValueError(
-            "justification requires an explicit sandbox_permissions value"
         )
     return permission
 
