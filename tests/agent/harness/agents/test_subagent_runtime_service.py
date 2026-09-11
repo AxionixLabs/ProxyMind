@@ -175,6 +175,27 @@ def _parent_turn(*, transcript_path: str = "") -> TurnContext:
 
 
 @pytest.mark.anyio
+async def test_restored_thread_cannot_execute_with_another_workspace_dependencies():
+    controller = _Controller()
+    runtime = SubagentRuntime(controller, workspace_root="D:/workspace")
+    parent = _parent_turn()
+    spawned = await runtime.spawn(parent, "first", {}, agent_type="review", task_name="review")
+    await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+    assert len(controller.stream_calls) == 1
+    runtime.bind_workspace(
+        settings=AgentSettings(), enabled=True,
+        execution_policy=SimpleNamespace(), patch_preview=lambda **kw: {}, workspace_root="D:/another",
+    )
+    await runtime.followup_task(parent.sid, spawned.agent_id, "continue")
+    result = await runtime.wait(parent.sid, [spawned.agent_id], timeout_sec=1)
+    assert len(controller.stream_calls) == 1
+    snapshot = await runtime.get(parent.sid, spawned.agent_id)
+    assert snapshot.status == "failed"
+    assert snapshot.thread.cwd == "D:/workspace"
+    await runtime.shutdown()
+
+
+@pytest.mark.anyio
 async def test_runtime_keeps_thread_context_across_submissions() -> None:
     controller = _Controller()
     parent = _parent_turn()

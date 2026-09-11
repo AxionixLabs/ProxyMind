@@ -20,6 +20,7 @@ from agent.domain.policies import (
     resolve_permissions,
 )
 from agent.harness.execution.turn_runner import execute_turn
+from agent.domain.workspaces import workspace_path_key
 from agent.harness.hooks.scope import resolve_hook_scope
 from agent.ports import (
     ApprovalCoordinatorPort,
@@ -81,6 +82,11 @@ async def observe_frozen_root_turn(
     if not isinstance(request, ModelStreamRequest):
         raise TypeError("observed turn request is invalid")
     _require_current_session(session, request.cid, request.sid)
+    environment = request.environment_snapshot
+    if environment is not None:
+        recorded_cwd = environment.get("cwd")
+        if isinstance(recorded_cwd, str) and workspace_path_key(recorded_cwd) != workspace_path_key(session.workspace_root):
+            raise ValueError(f"The pending turn belongs to working directory {recorded_cwd}; resume the session there before recovering it.")
     options = request.option_values()
     permissions = _request_permissions(options)
     additional_context, system_message = _request_turn_context(options)

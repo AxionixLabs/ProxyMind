@@ -124,7 +124,7 @@ class FeatureConfigError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class FeatureSettings:
-    """保存启动时固定的本地能力开关。"""
+    """保存当前工作区生效的本地能力开关快照。"""
 
     js_repl: bool = DEFAULT_JS_REPL_ENABLED
     subagents: bool = DEFAULT_SUBAGENTS_ENABLED

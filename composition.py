@@ -390,6 +390,7 @@ class ApplicationHost:
         self.subagent_cleanup = self.conversation
         self.subagents = SubagentRuntime(
             self,
+            workspace_root=self.history_workspace,
             enabled=self.features.subagents,
             settings=agent_settings or AgentSettings(),
             execution_policy=self.workspace_runtime.execution_policy,
@@ -568,11 +569,13 @@ class ApplicationHost:
             settings.commit()
             self.history_workspace = normalized
             self.features = features
+            self.hook_startup_warnings = resolution.hook_warnings
             self.subagents.bind_workspace(
                 settings=agents,
                 enabled=features.subagents,
                 execution_policy=resources.execution_policy,
                 patch_preview=resources.coding.preview_patch,
+                workspace_root=normalized,
             )
             self.command_hook_sessions.clear()
             self.execution.activate_registries(client, builtin)

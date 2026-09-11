@@ -7,6 +7,7 @@ from collections.abc import (
     Callable,
 )
 from dataclasses import dataclass
+from pathlib import Path
 
 from .tool_runtime import ExternalToolGroupPort
 
@@ -81,6 +82,11 @@ class McpToolGroupSnapshot:
 
 class McpConfigReader(typing.Protocol):
     """定义 MCP 运行时读取有效配置所需的端口。"""
+
+    @property
+    def workspace(self) -> Path:
+        """返回与配置同属一个活动上下文的工作目录。"""
+        ...
 
     def load(self) -> dict[str, typing.Any]:
         """返回当前有效配置快照。"""

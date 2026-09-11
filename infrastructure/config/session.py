@@ -36,14 +36,24 @@ class ConfigSession(object):
         directory_override: bool = False,
     ) -> None:
         self.store = store
-        self.launch_directory = (workspace if workspace is not None else Path.cwd()).resolve()
-        self.directory_override = directory_override
+        self._launch_directory = (workspace if workspace is not None else Path.cwd()).resolve()
+        self._directory_override = directory_override
         self.resolver = ConfigResolver(
             store,
             overrides,
             profile=profile,
             workspace=self.launch_directory,
         )
+
+    @property
+    def launch_directory(self) -> Path:
+        """返回本次启动时固定的目录锚点。"""
+        return self._launch_directory
+
+    @property
+    def directory_override(self) -> bool:
+        """返回本次启动是否显式指定了工作目录。"""
+        return self._directory_override
 
     @property
     def workspace(self) -> Path:

@@ -960,6 +960,7 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
 
     cancel_startup = AsyncMock(side_effect=cancel_startup_cleanup)
     host = SimpleNamespace(
+        history_workspace="D:/workspace",
         configuration_service_url=_configuration_service_url,
         attach=_attachments(),
         subscription=SimpleNamespace(current=None),

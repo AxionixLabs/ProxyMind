@@ -591,7 +591,7 @@ def test_at_file_search_does_not_scan_on_input_thread(
         release.wait(timeout=1.0)
         return FakeProcess()
 
-    monkeypatch.setattr(file_search_module.shutil, "which", lambda _name: "rg")
+    monkeypatch.setattr(file_search_module.shutil, "which", lambda name: "rg" if name == "rg" else None)
     monkeypatch.setattr(file_search_module.subprocess, "Popen", open_search_process)
 
     search = FileSearchManager()

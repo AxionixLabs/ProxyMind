@@ -205,6 +205,25 @@ mind resume --helix api
 
 根命令上的 `-i/--image` 和 `-m/--model` 同样会传播给 `resume`；子命令模型优先，图片按顺序合并。
 
+当历史会话的工作目录与活动目录不同，CLI 恢复及应用内 `/resume` 都显示四项选择：
+使用会话目录、使用当前目录、始终使用会话目录、始终使用当前目录。默认选中会话目录；
+Enter 确认，数字直接选择，Esc 使用会话目录，Ctrl+C/Ctrl+D 退出。
+
+“始终”保存用户配置 `tui.resume_cwd = "session"` 或 `"current"`，不保存固定目录。
+单次 Current 使用活动目录，记忆 Current 使用本次启动目录。显式 `-C/--cd` 优先于记忆策略：
+
+```powershell
+mind resume <SESSION_ID> --cd D:\Projects\Current
+mind -c 'tui.resume_cwd="session"' resume --last --all
+```
+
+未配置策略且历史没有目录元数据时沿用活动目录；明确使用 Session 却缺少元数据时报告错误。
+目标目录必须存在，目标项目配置按其信任状态重新解析，Profile 和 CLI 覆盖继续生效。
+选择相同活动会话时保持当前画面与草稿。未完成的冻结 Turn 和旧子代理必须在其原目录继续，
+不能套用另一工作区的工具；报错会显示所需目录。
+工作区切换会重新加载项目 Skills 和外部 MCP。stdio MCP 未指定 `cwd` 时使用活动工作区；
+相对 `cwd` 相对于活动工作区解析，带路径的相对 `command` 相对于该 MCP 目录解析。
+
 指定会话 ID 时按 ID 查找，不按当前工作区或会话来源过滤。普通选择器默认显示当前工作区，
 可以切换到 All 查看其他工作区；`--all` 直接以 All 打开。`--last` 默认只查当前工作区，
 与 `--all` 一起使用时查找所有工作区的最近会话。

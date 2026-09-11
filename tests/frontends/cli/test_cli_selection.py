@@ -555,6 +555,8 @@ def test_process_entry_parses_command_once(monkeypatch, tmp_path) -> None:
     ["-C", "D:/target", "resume", "--last"],
     ["resume", "--last", "--cd", "D:/target"],
     ["--cd=D:/target", "resume", "--last"],
+    ["-CD:/target", "resume", "--last"],
+    ["resume", "--last", "-C=D:/target"],
 ])
 def test_resume_explicit_directory_is_a_process_option(arguments) -> None:
     invocation = parse_cli_invocation(arguments)

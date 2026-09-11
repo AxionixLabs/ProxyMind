@@ -1268,7 +1268,10 @@ def test_frontends_use_injected_application_hosts() -> None:
     assert "class CliApplicationHost(CliCommandHost, typing.Protocol)" in (
         cli_bootstrap
     )
-    assert "class CliCommandHost(typing.Protocol)" in cli_dispatch
+    assert "class CliCommandHost(ResumeApplicationHost, typing.Protocol)" in cli_dispatch
+    tui_host = (frontend_root / "tui" / "application.py").read_text(encoding="utf-8-sig")
+    assert "class ResumeApplicationHost(typing.Protocol)" in tui_host
+    assert "async def prepare_workspace(" in tui_host
     assert "class McpApplicationHost(typing.Protocol)" in mcp_server
     assert "application_host_factory=create_application_host" in composition
     reverse_violations = _forbidden_imports("mind_app", {"frontends"})

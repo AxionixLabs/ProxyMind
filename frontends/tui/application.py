@@ -291,10 +291,6 @@ class TuiApplicationHost(ResumeApplicationHost, typing.Protocol):
     subscription: TuiSubscriptionOwnerPort
     workspace_runtime: WorkspaceRuntime
 
-    def set_history_workspace(self, workspace: str | Path) -> str:
-        """切换后续 Turn 使用的工作区资源。"""
-        ...
-
 
 if __name__ == '__main__':
     pass

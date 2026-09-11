@@ -150,6 +150,8 @@ def _option_value(
 ) -> tuple[str | None, str | None, int]:
     """读取当前位置的全局选项、参数值和消费长度。"""
     token = arguments[index]
+    if token.startswith("-C") and len(token) > 2:
+        return "-C", token[2:].removeprefix("="), 1
     if token in VALUE_OPTIONS:
         if index + 1 >= len(arguments):
             return token, None, 1

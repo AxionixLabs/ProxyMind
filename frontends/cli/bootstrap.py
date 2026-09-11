@@ -156,11 +156,6 @@ class CliApplicationHost(CliCommandHost, typing.Protocol):
     resources: ProcessResourcePort
     service_runtime: _ServiceRuntimeBinding
 
-    def set_history_workspace(self, workspace: str | Path) -> None:
-        """切换历史记录使用的工作区。"""
-        ...
-
-
 class _CliExecutionResources(typing.Protocol):
     """描述 CLI 启动和观测工具执行资源所需的能力。"""
 

@@ -12,6 +12,7 @@ from agent.application.turns.context import TurnContext
 from agent.application.turns.execution import TurnExecution
 from agent.application.turns.run_result import RunResult
 from agent.domain.agents import AgentSubmission
+from agent.domain.workspaces import workspace_path_key
 from agent.harness.agents.control import AgentControl
 from agent.harness.agents.delivery import (
     AgentActiveTurn,
@@ -73,6 +74,7 @@ class SubagentSubmissionExecutor:
         transcript_factory: TranscriptFactory | None = None,
         cleanup: TurnCleanupPort | None = None,
         patch_preview: PatchPreviewPort | None = None,
+        workspace_root: str | None = None,
     ) -> None:
         """绑定 Harness 所需端口，不依赖具体 Controller。"""
         self._control_for = control_for
@@ -88,13 +90,15 @@ class SubagentSubmissionExecutor:
         self._transcript_factory = transcript_factory
         self._cleanup = cleanup
         self._patch_preview = patch_preview
+        self._workspace_root = workspace_root
 
     def bind_workspace(
-        self, execution_policy: ExecutionPolicy, patch_preview: PatchPreviewPort,
+        self, execution_policy: ExecutionPolicy, patch_preview: PatchPreviewPort, workspace_root: str,
     ) -> None:
         """更新后续提交的工作区依赖；已有 Turn 保留冻结上下文。"""
         self._execution_policy = execution_policy
         self._patch_preview = patch_preview
+        self._workspace_root = workspace_root
 
     async def execute(
         self,
@@ -103,6 +107,9 @@ class SubagentSubmissionExecutor:
     ) -> RunResult:
         """执行控制器已经分配的结构化任务。"""
         thread = turn.thread
+        workspace = self._workspace_root
+        if workspace is not None and workspace_path_key(thread.cwd) != workspace_path_key(workspace):
+            raise ValueError(f"This agent belongs to working directory {thread.cwd}; resume the session there before continuing it.")
         pref_config = thread.config_snapshot()
         control = await self._control_for(thread.agent.root_session_id)
         mailbox_events = await control.claim_messages(

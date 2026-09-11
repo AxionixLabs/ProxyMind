@@ -23,6 +23,7 @@ def main() -> None:
     """转发真实 CLI 参数并把状态交接帧写入指定 JSONL。"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--trace", type=Path, required=True)
+    parser.add_argument("--entry", type=Path, required=True)
     parser.add_argument("--disconnect-stream-once", action="store_true")
     parser.add_argument(
         "--disconnect-event", choices=("turn.started", "text.delta"),
@@ -35,7 +36,7 @@ def main() -> None:
         parser.error("stream delays must be non-negative")
     if arguments[:1] == ["--"]:
         arguments = arguments[1:]
-    entry = Path(__file__).resolve().parents[2] / "mind.py"
+    entry = options.entry.resolve(strict=True)
     original_open = TuiRuntime.open
     attached: set[TuiRuntime] = set()
     previous: dict[TuiRuntime, str] = {}

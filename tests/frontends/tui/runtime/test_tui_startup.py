@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, call
 
@@ -43,10 +44,9 @@ def _mcp_runtime_context(host: object) -> McpRuntimeContext:
     lifecycle = getattr(host, "lifecycle", None)
 
     return McpRuntimeContext(
-        config=getattr(
-            host,
-            "config_session",
-            SimpleNamespace(load=lambda: {}),
+        config=SimpleNamespace(
+            load=getattr(host, "config_session", SimpleNamespace(load=lambda: {})).load,
+            workspace=Path("D:/workspace"),
         ),
         start_activity=getattr(activity, "start_external_mcp", no_activity),
         stop_activity=getattr(activity, "stop", no_stop),
@@ -76,6 +76,32 @@ def injected_turn_application(monkeypatch) -> None:
         "TurnApplication",
         lambda: TurnApplication(runtime_factory=SessionRuntimeOwner),
     )
+
+
+@pytest.mark.anyio
+async def test_external_mcp_resolves_stdio_paths_from_configuration_workspace(tmp_path, monkeypatch):
+    from infrastructure.config.session import ConfigSession
+    from infrastructure.config.store import ConfigStore
+
+    session = ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path / "launch")
+    session.update_user({
+        ("mcp_servers", "default"): {"command": "python"},
+        ("mcp_servers", "relative"): {"command": "./server.py", "cwd": "tools"},
+    })
+    target = tmp_path / "target"
+    session.bind_workspace(target)
+    group = SimpleNamespace(start=AsyncMock(return_value=0), close=AsyncMock())
+    monkeypatch.setattr(external, "ExternalMcpGroup", lambda: group)
+    runtime = ExternalMcpRuntime(McpRuntimeContext(
+        config=session, start_activity=AsyncMock(), stop_activity=AsyncMock(),
+        await_cleanup=ProcessLifecycle().await_cleanup,
+    ))
+    await runtime.start()
+    servers = {item["name"]: item for item in group.start.call_args.args[0]}
+    assert servers["default"]["cwd"] == str(target)
+    assert servers["relative"]["cwd"] == str(target / "tools")
+    assert servers["relative"]["command"] == str(target / "tools" / "server.py")
+    await runtime.stop()
 
 
 @pytest.mark.anyio

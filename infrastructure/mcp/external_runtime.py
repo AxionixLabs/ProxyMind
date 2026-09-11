@@ -4,6 +4,7 @@
 import asyncio
 import typing
 from collections import defaultdict
+from pathlib import Path
 
 from agent.ports import (
     McpRuntimeContext,
@@ -139,6 +140,18 @@ class ExternalMcpRuntime(object):
 
         config = self._context.config.load()
         servers = normalize_mcp_servers(config.get("mcp_servers"))
+        for server in servers:
+            if server.get("transport") != "stdio":
+                continue
+            raw_directory = server.get("cwd")
+            directory = Path(raw_directory).expanduser() if isinstance(raw_directory, str) and raw_directory else Path(".")
+            cwd = (self._context.config.workspace / directory).resolve()
+            server["cwd"] = str(cwd)
+            command = server.get("command")
+            if isinstance(command, str):
+                command_path = Path(command).expanduser()
+                if command_path.parent != Path(".") or command.startswith(("./", ".\\")):
+                    server["command"] = str((cwd / command_path).resolve())
 
         if include_disabled:
             servers = [

@@ -82,6 +82,7 @@ class SubagentRuntime:
         transcript_factory: TranscriptFactory | None = None,
         cleanup: TurnCleanupPort | None = None,
         patch_preview: PatchPreviewPort | None = None,
+        workspace_root: str | None = None,
     ) -> None:
         if not isinstance(enabled, bool):
             raise TypeError("subagent runtime enabled state must be a boolean")
@@ -135,6 +136,7 @@ class SubagentRuntime:
             transcript_factory=transcript_factory,
             cleanup=cleanup,
             patch_preview=patch_preview,
+            workspace_root=workspace_root,
         )
 
     @property
@@ -149,13 +151,14 @@ class SubagentRuntime:
         enabled: bool,
         execution_policy: ExecutionPolicy,
         patch_preview: PatchPreviewPort,
+        workspace_root: str,
     ) -> None:
         """在旧根会话结束后更新后续子代理的配置及工作区依赖。"""
         self._settings = settings
         self._control_registry.configure(enabled=enabled)
         self._execution_policy = execution_policy
         self._patch_preview = patch_preview
-        self._submission_executor.bind_workspace(execution_policy, patch_preview)
+        self._submission_executor.bind_workspace(execution_policy, patch_preview, workspace_root)
 
     @property
     def enabled(self) -> bool:

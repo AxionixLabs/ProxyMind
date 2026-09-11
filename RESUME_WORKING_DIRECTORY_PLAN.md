@@ -15,6 +15,11 @@
 - [恢复策略配置](codex-main/codex-rs/config/src/types.rs)
 - [恢复菜单及目录行为测试](codex-main/codex-rs/tui/src/app/tests.rs)
 
+上游入口：[openai/codex](https://github.com/openai/codex)、
+[目录决策源码](https://github.com/openai/codex/blob/main/codex-rs/tui/src/session_resume.rs)、
+[目录菜单源码](https://github.com/openai/codex/blob/main/codex-rs/tui/src/cwd_prompt.rs)。
+本次逐项对照以仓库根目录 `codex-main` 中的本地副本为准，上游 main 可能继续变化。
+
 固定验收语义：显式 `-C/--cd` 优先于记忆策略；没有策略且目录不同时询问。
 单次 Current 使用活动目录，记忆 Current 使用本次启动目录或显式目录。
 Session 使用选中记录的工作区；缺失目录且没有策略时沿用当前目录，明确选择 Session
@@ -57,10 +62,10 @@ Session 使用选中记录的工作区；缺失目录且没有策略时沿用当
 
 ## 阶段 5：收口复核
 
-- [ ] 对照本清单及 Codex 参考逐项复查入口、状态所有者与失败路径。
-- [ ] 同步稳定架构/操作文档与契约测试，删除被替代路径及临时兼容实现。
-- [ ] 运行受影响测试、完整架构审计、compileall 和 `git diff --check`。
-- [ ] 检查提交仅包含本任务文件，提交并推送通过复核的结果。
+- [x] 对照本清单及 Codex 参考逐项复查入口、状态所有者与失败路径。
+- [x] 同步稳定架构/操作文档与契约测试，删除被替代路径及临时兼容实现。
+- [x] 运行受影响测试、完整架构审计、compileall 和 `git diff --check`。
+- [x] 检查提交仅包含本任务文件，提交并推送通过复核的结果。
 
 ## 阶段 6：实施完成后的真机实测
 
@@ -92,3 +97,9 @@ Session 使用选中记录的工作区；缺失目录且没有策略时沿用当
 - 阶段 4：CLI、应用内命令、目录菜单、输入与渲染回归 856 项通过。四项菜单保存
   策略值；单次与记忆 Current 分别使用活动目录和启动锚点。菜单新增明确的 Esc 结果
   及可选 Ctrl+D 中断语义，普通菜单保持原取消行为；选择当前会话保持草稿且不重复恢复。
+- 阶段 5 校准：补充冻结 Run/子代理的目录一致性检查，防止恢复时采用另一目录的工具；
+  补齐 stdio MCP 的默认和相对目录解析。为了在实施完成前通过完整审计，将真机辅助入口
+  的显式 `--entry` 参数准备提前到本阶段，实际 ConPTY 启动仍留在阶段 6。
+- 阶段 5 收口：2436 项受影响回归通过、2 项跳过；完整架构审计 138 项通过。
+  `compileall` 与 `git diff --check` 通过。保留既有第三方 Nuitka 转义弃用提示，
+  测试未修改当前进程环境；工具 PATH 仅由验证命令注入。
