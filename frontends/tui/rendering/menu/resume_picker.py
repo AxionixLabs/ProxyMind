@@ -11,6 +11,7 @@ from enum import Enum
 
 from prompt_toolkit.utils import get_cwidth
 
+from agent.domain.workspaces import workspace_path_key
 from frontends.tui.contracts.resume import (
     ResumeArchiveStatus,
     ResumeDensity,
@@ -1381,12 +1382,8 @@ def _clamp_selection(state: ResumePickerState) -> ResumePickerState:
 
 
 def _workspace_key(value: typing.Any) -> str:
-    text = str(value or "").strip().replace("\\", "/").rstrip("/")
-    if len(text) == 2 and text[1] == ":":
-        text += "/"
-    if len(text) >= 2 and text[1] == ":":
-        return text.casefold()
-    return text
+    """与历史查询使用同一目录身份，避免筛选范围不一致。"""
+    return workspace_path_key(str(value or ""))
 
 
 def _relative_time(state: ResumePickerState, value: int | None) -> str:

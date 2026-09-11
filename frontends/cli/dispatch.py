@@ -405,18 +405,18 @@ async def _select_resume_session(
     if command.session_id is not None:
         record = host.conversation.history.find(
             command.session_id,
-            workspace=workspace,
-            sources=sources,
+            workspace=None,
+            sources=None,
             status="active",
         )
         if record is None:
             raise AppError(
-                "Session is unavailable for the selected working directory."
+                "Session is unavailable."
             )
         return record
 
     history_kwargs: dict[str, typing.Any] = {
-        "workspace": workspace,
+        "workspace": workspace if command.last else None,
         "sources": sources,
         "limit": 1 if command.last else HISTORY_LIMIT,
     }

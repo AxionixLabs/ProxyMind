@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import ntpath
 import os
 import re
 import sqlite3
@@ -8,6 +9,7 @@ import time
 import typing
 from pathlib import Path
 
+from agent.domain.workspaces import workspace_path_key
 from protocol.schema.identifiers import valid_session_ids
 
 TABLE_SESSION_CURSORS = "conversation_session_cursors"
@@ -437,8 +439,8 @@ class ConversationHistoryStore(object):
             params.append(session_id)
 
         if workspace is not None:
-            clauses.append("workspace = ?")
-            params.append(normalize_workspace(workspace))
+            clauses.append("workspace_identity(workspace) = ?")
+            params.append(workspace_identity(workspace))
 
         if status is not None:
             clauses.append("status = ?")
@@ -553,6 +555,7 @@ class ConversationHistoryStore(object):
         os.makedirs(self.db_path.parent, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        conn.create_function("workspace_identity", 1, workspace_identity)
         return conn
 
     @staticmethod
@@ -612,30 +615,34 @@ def normalize_workspace(workspace: typing.Any) -> str:
     if not workspace_text:
         return ""
 
-    if _looks_like_windows_path(workspace_text):
-        normalized = workspace_text.replace("\\", "/").rstrip("/")
-        if re.match(r"^[a-zA-Z]:$", normalized):
-            normalized += "/"
-        if re.match(r"^[a-zA-Z]:/", normalized):
-            normalized = normalized[0].lower() + normalized[1:]
-        return normalized
+    normalized = workspace_text
+    if os.name == "nt" or not _looks_like_windows_path(workspace_text):
+        try:
+            normalized = str(Path(workspace_text).expanduser().resolve())
+        except (OSError, RuntimeError, ValueError):
+            pass
 
-    try:
-        path = Path(workspace_text).expanduser()
-        resolved = path.resolve(strict=False)
-    except (OSError, RuntimeError, ValueError):
-        normalized = workspace_text
-    else:
-        normalized = str(resolved)
-
-    normalized = normalized.replace("\\", "/").rstrip("/")
+    if _looks_like_windows_path(normalized):
+        normalized = normalized.replace("/", "\\")
+        if normalized.startswith("\\\\?\\UNC\\"):
+            normalized = "\\\\" + normalized[8:]
+        elif normalized.startswith("\\\\?\\"):
+            normalized = normalized[4:]
+        normalized = ntpath.normpath(normalized)
+    normalized = normalized.replace("\\", "/").rstrip("/") or "/"
     if len(normalized) == 2 and normalized[1] == ":":
         normalized += "/"
 
-    if os.name == "nt":
-        normalized = normalized.lower()
+    if re.match(r"^[a-zA-Z]:/", normalized):
+        normalized = normalized[0].lower() + normalized[1:]
 
     return normalized
+
+
+def workspace_identity(workspace: str | os.PathLike[str] | None) -> str:
+    """返回目录比较键，保留 POSIX 大小写并统一 Windows 路径身份。"""
+    normalized = normalize_workspace(workspace)
+    return workspace_path_key(normalized)
 
 
 def _looks_like_windows_path(value: str) -> bool:

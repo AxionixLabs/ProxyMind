@@ -4,10 +4,50 @@ import sqlite3
 
 import pytest
 
+from agent.domain.workspaces import workspace_path_key
 from agent.stores.sessions import (
     ConversationHistoryStore,
     INTERACTIVE_HISTORY_SOURCES,
 )
+from agent.stores.sessions.history import workspace_identity
+
+
+@pytest.mark.parametrize("variant", [
+    r"\\?\D:\Projects\ProxyMind",
+    r"d:\projects\proxymind",
+    r"D:\Projects\Other\..\ProxyMind",
+])
+def test_history_workspace_identity_matches_path_variants(tmp_path, variant) -> None:
+    store = ConversationHistoryStore(tmp_path / "history.db")
+    saved = store.touch_session(
+        cid="cid_alpha_12345678",
+        sid="sid_alpha_1_abcdef",
+        workspace=r"D:\Projects\ProxyMind",
+        source="tui",
+    )
+    assert store.list_sessions(workspace=variant) == [saved]
+    assert workspace_identity(variant) == workspace_identity(saved["workspace"])
+
+
+def test_history_workspace_filter_applies_before_limit(tmp_path) -> None:
+    store = ConversationHistoryStore(tmp_path / "history.db")
+    first = store.touch_session(
+        cid="cid_alpha_12345678", sid="sid_alpha_1_abcdef",
+        workspace=r"D:\Projects\Alpha", source="tui", now_ms=100,
+    )
+    store.touch_session(
+        cid="cid_beta_12345678", sid="sid_beta_1_abcdef",
+        workspace=r"D:\Projects\Beta", source="tui", now_ms=200,
+    )
+    assert store.list_sessions(
+        workspace=r"d:\projects\alpha", limit=1, now_ms=300,
+    ) == [first]
+
+
+def test_workspace_path_key_preserves_posix_case_and_root() -> None:
+    assert workspace_path_key("/Projects/Repo") != workspace_path_key("/projects/repo")
+    assert workspace_path_key("/") == "/"
+    assert workspace_path_key(r"\\?\UNC\Server\Share\Repo") == workspace_path_key("//server/share/repo")
 
 
 def test_history_queries_filter_workspace_source_and_session_id(tmp_path) -> None:

@@ -943,7 +943,7 @@ class TuiCommandDispatcher(object):
     async def _resume_conversation(self) -> None:
         """选择并恢复最近的会话。"""
         records = self.host.conversation.history.recent(
-            workspace=self.host.history_workspace,
+            workspace=None,
             sources=INTERACTIVE_HISTORY_SOURCES,
         )
         selected = await choose_history_session(

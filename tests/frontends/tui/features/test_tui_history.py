@@ -63,7 +63,7 @@ async def test_history_session_builds_resume_request_and_maps_row() -> None:
     assert request.rows[0].cid == record["cid"]
     assert request.rows[0].sid == record["sid"]
     assert request.rows[0].title == record["title"]
-    assert request.rows[0].workspace == record["workspace"]
+    assert request.rows[0].workspace == "d:/PycharmProjects/ProxyMind"
     assert request.rows[0].source == "tui"
     assert request.rows[0].created_at_ms == 1
     assert request.rows[0].updated_at_ms == 1
@@ -98,6 +98,22 @@ async def test_history_session_empty_and_invalid_records_still_open_picker() -> 
     assert requests[0].rows == ()
     assert requests[0].show_workspace
     assert requests[0].initial_filter is ResumeFilterMode.ALL
+
+
+@pytest.mark.anyio
+async def test_history_all_workspaces_starts_with_all_filter() -> None:
+    requests = []
+
+    class Runtime:
+        async def view_resume_picker(self, request):
+            requests.append(request)
+            return None
+
+    await history.choose_history_session(
+        Runtime(), [], filter_workspace=r"D:\Projects\ProxyMind", show_workspace=True,
+    )
+    assert requests[0].initial_filter is ResumeFilterMode.ALL
+    assert requests[0].filter_workspace is not None
 
 
 @pytest.mark.anyio

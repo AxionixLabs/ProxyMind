@@ -854,7 +854,7 @@ async def test_interactive_cli_resume_opens_picker_for_empty_snapshot(
 
     assert selected is None
     recent.assert_called_once_with(
-        workspace=r"D:\workspace",
+        workspace=None,
         sources=("review", "tui", "tui:resume"),
         limit=200,
     )
@@ -885,6 +885,20 @@ async def test_resume_last_empty_snapshot_keeps_direct_error() -> None:
             host,
             ResumeCommand(last=True),
         )
+
+
+@pytest.mark.anyio
+async def test_resume_explicit_id_is_independent_of_workspace_and_source() -> None:
+    from frontends.cli.dispatch import _select_resume_session
+
+    record = {"cid": "cid_test_12345678", "sid": "sid_test_1_abcdef"}
+    find = Mock(return_value=record)
+    host = SimpleNamespace(
+        history_workspace="D:/another-project",
+        conversation=SimpleNamespace(history=SimpleNamespace(find=find)),
+    )
+    assert await _select_resume_session(host, ResumeCommand(session_id=record["sid"])) == record
+    find.assert_called_once_with(record["sid"], workspace=None, sources=None, status="active")
 
 
 @pytest.mark.anyio

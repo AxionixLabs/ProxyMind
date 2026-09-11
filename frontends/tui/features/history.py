@@ -189,7 +189,7 @@ async def choose_history_session(
             cid=cid,
             sid=sid,
             title=title,
-            workspace=sanitize_terminal_line(record.get("workspace") or ""),
+            workspace=sanitize_terminal_line(normalize_workspace(record.get("workspace"))),
             source=sanitize_terminal_line(record.get("source") or ""),
             created_at_ms=_optional_timestamp(record.get("created_at")),
             updated_at_ms=_optional_timestamp(record.get("updated_at")),
@@ -211,7 +211,7 @@ async def choose_history_session(
         show_workspace=show_workspace,
         initial_filter=(
             ResumeFilterMode.CWD
-            if normalized_workspace
+            if normalized_workspace and not show_workspace
             else ResumeFilterMode.ALL
         ),
         initial_sort=ResumeSortKey.UPDATED,
