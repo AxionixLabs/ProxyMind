@@ -366,6 +366,7 @@ HOSTED_TOOL_GROUP_FIELDS = frozenset({"perf_engine", "sandbox_cloud"})
 PROJECT_FIELDS = frozenset({"trust_level"})
 
 TUI_FIELDS = frozenset({
+    "resume_cwd",
     "keymap",
     "raw_output_mode",
     "scrollback_reflow_line_limit",
@@ -875,6 +876,7 @@ def _normalize_tui_config(value: typing.Any) -> dict[str, typing.Any]:
     keymap = _as_dict(tui.get("keymap"))
 
     return {
+        **({"resume_cwd": tui["resume_cwd"]} if "resume_cwd" in tui else {}),
         "raw_output_mode": bool(tui.get("raw_output_mode", False)),
         "scrollback_reflow_line_limit": int(tui.get(
             "scrollback_reflow_line_limit",
@@ -894,6 +896,9 @@ def _validate_tui_config(value: typing.Any) -> None:
     if not isinstance(value, dict):
         raise ConfigValidationError("tui must be a table")
     _validate_known_fields(value, TUI_FIELDS, "tui")
+
+    if "resume_cwd" in value and value["resume_cwd"] not in ("session", "current"):
+        raise ConfigValidationError("tui.resume_cwd must be session or current")
 
     line_limit = value.get("scrollback_reflow_line_limit")
     if line_limit is not None and (
@@ -942,6 +947,10 @@ def _validate_tui_config_value(
 ) -> None:
     """校验一个终端交互配置覆盖值。"""
     dotted = ".".join(path)
+
+    if path == ("tui", "resume_cwd"):
+        _validate_tui_config({"resume_cwd": value})
+        return None
 
     if path == ("tui", "scrollback_reflow_line_limit"):
         _validate_tui_config({"scrollback_reflow_line_limit": value})

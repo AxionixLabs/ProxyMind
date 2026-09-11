@@ -194,6 +194,7 @@ class CliInvocation(object):
     command: ParsedCommand
     config_overrides: tuple[ConfigOverride, ...] = ()
     profile: str | None = None
+    working_directory: str | None = None
 
 
 def command_uses_helix(command: RuntimeCommand) -> bool:

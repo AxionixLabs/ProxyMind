@@ -565,11 +565,6 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
     monkeypatch.setattr(bootstrap, "process_env", lambda: {})
     monkeypatch.setattr(
         bootstrap,
-        "fetch_runtime_workspace_root",
-        AsyncMock(return_value=None),
-    )
-    monkeypatch.setattr(
-        bootstrap,
         "ServiceConfig",
         lambda _session: SimpleNamespace(
             load_domain=AsyncMock(return_value=""),
@@ -606,7 +601,7 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
         design=None,
         animation=SimpleNamespace(),
         preference=preference,
-        config_session=SimpleNamespace(),
+        config_session=SimpleNamespace(workspace=tmp_path),
         report=SimpleNamespace(close=Mock()),
         runtime_spec=SimpleNamespace(
             launch_command=[],
@@ -663,11 +658,6 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
     monkeypatch.setattr(bootstrap, "process_env", lambda: {})
     monkeypatch.setattr(
         bootstrap,
-        "fetch_runtime_workspace_root",
-        AsyncMock(return_value=None),
-    )
-    monkeypatch.setattr(
-        bootstrap,
         "ServiceConfig",
         lambda _session: SimpleNamespace(load_domain=AsyncMock(return_value="")),
     )
@@ -718,7 +708,7 @@ async def test_tui_review_reveals_main_canvas_before_mcp_startup(
         design=None,
         animation=SimpleNamespace(),
         preference=SimpleNamespace(load_pref=AsyncMock()),
-        config_session=SimpleNamespace(),
+        config_session=SimpleNamespace(workspace=tmp_path),
         report=SimpleNamespace(close=Mock()),
         runtime_spec=SimpleNamespace(
             launch_command=[],

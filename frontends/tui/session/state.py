@@ -5,6 +5,7 @@ import asyncio
 import time
 import typing
 from copy import deepcopy
+from pathlib import Path
 
 from agent.domain.policies import (
     PermissionSettings,
@@ -12,7 +13,6 @@ from agent.domain.policies import (
 )
 from frontends.interaction import PromptContext
 from infrastructure.config.preferences import apply_primary_model_override
-from infrastructure.platform.workspace_context import fetch_runtime_workspace_root
 from infrastructure.skills import configured_skills
 from ..core.runtime import (
     TuiRuntime,
@@ -97,11 +97,9 @@ class TuiSessionState(object):
         if now - self.workspace_refreshed_at < WORKSPACE_LABEL_REFRESH:
             return None
 
-        runtime_workspace_root = await fetch_runtime_workspace_root()
-        if runtime_workspace_root is not None:
-            host.set_history_workspace(runtime_workspace_root)
-            runtime = require_tui_runtime(host.frontend.runtime)
-            runtime.input_model.set_workspace_root(runtime_workspace_root)
+        runtime_workspace_root = Path(host.history_workspace)
+        runtime = require_tui_runtime(host.frontend.runtime)
+        runtime.input_model.set_workspace_root(runtime_workspace_root)
 
         self.workspace_label = workspace_display_label(runtime_workspace_root)
         self.workspace_refreshed_at = now
@@ -226,25 +224,16 @@ async def preload_tui_prompt_context(host: "TuiApplicationHost") -> None:
     ))
     runtime.input_model.set_workspace_root(host.history_workspace)
 
-    pref_result, workspace_result, exec_result = await asyncio.gather(
+    pref_result, exec_result = await asyncio.gather(
         host.settings.fresh_preferences(ttl_sec=0.0),
-        fetch_runtime_workspace_root(),
         host.workspace_runtime.coding.running_exec_sessions(),
         return_exceptions=True,
     )
 
     pref_config = pref_result if isinstance(pref_result, dict) else {}
 
-    runtime_workspace_root = (
-        workspace_result
-        if not isinstance(workspace_result, BaseException)
-        else None
-    )
+    runtime_workspace_root = Path(host.history_workspace)
     exec_snapshot = exec_result if isinstance(exec_result, dict) else {}
-
-    if runtime_workspace_root is not None:
-        host.set_history_workspace(runtime_workspace_root)
-        runtime.input_model.set_workspace_root(runtime_workspace_root)
 
     runtime.set_prompt_context(PromptContext(
         model=primary_model_prompt_label(pref_config),

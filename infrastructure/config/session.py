@@ -32,15 +32,27 @@ class ConfigSession(object):
         overrides: tuple[ConfigOverride, ...] = (),
         *,
         profile: str | None = None,
-        workspace: Path | None = None
+        workspace: Path | None = None,
+        directory_override: bool = False,
     ) -> None:
         self.store = store
+        self.launch_directory = workspace.resolve() if workspace is not None else None
+        self.directory_override = directory_override
         self.resolver = ConfigResolver(
             store,
             overrides,
             profile=profile,
             workspace=workspace,
         )
+
+    @property
+    def workspace(self) -> Path | None:
+        """返回当前有效配置采用的工作目录。"""
+        return self.resolver.workspace
+
+    def bind_workspace(self, workspace: Path) -> None:
+        """提交已校验的配置工作目录，保持启动目录和 CLI 覆盖。"""
+        self.resolver.workspace = workspace
 
     def resolve(
         self,

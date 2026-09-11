@@ -543,8 +543,28 @@ def test_process_entry_parses_command_once(monkeypatch, tmp_path) -> None:
         entry_file=str(tmp_path / "mind.py"),
         config_overrides=(),
         config_profile=None,
+        working_directory=None,
         runtime_services=None,
     )
+
+
+@pytest.mark.parametrize("arguments", [
+    ["-C", "D:/target", "resume", "--last"],
+    ["resume", "--last", "--cd", "D:/target"],
+    ["--cd=D:/target", "resume", "--last"],
+])
+def test_resume_explicit_directory_is_a_process_option(arguments) -> None:
+    invocation = parse_cli_invocation(arguments)
+    assert invocation.command == ResumeCommand(last=True)
+    assert invocation.working_directory == "D:/target"
+
+
+@pytest.mark.parametrize("arguments", [
+    ["--cd", ""], ["--cd", "a", "--cd", "b"], ["--cd", "a", "doctor"],
+])
+def test_directory_override_rejects_invalid_invocations(arguments) -> None:
+    with pytest.raises(SystemExit):
+        parse_cli_invocation(arguments)
 
 
 def test_exec_reads_prompt_from_standard_input() -> None:
@@ -1208,7 +1228,7 @@ async def test_agent_listen_owns_config_service_lifecycle(
         lifecycle=_lifecycle(),
     )
     preference = SimpleNamespace(load_pref=AsyncMock())
-    config_session = SimpleNamespace()
+    config_session = SimpleNamespace(workspace=tmp_path)
     config_service = SimpleNamespace(
         start=AsyncMock(side_effect=start_error),
         stop=AsyncMock(),
@@ -1226,11 +1246,6 @@ async def test_agent_listen_owns_config_service_lifecycle(
         lambda *args, **kwargs: server_calls.append((args, kwargs)) or object(),
     )
     monkeypatch.setattr(bootstrap, "process_env", lambda: {})
-    monkeypatch.setattr(
-        bootstrap,
-        "fetch_runtime_workspace_root",
-        AsyncMock(return_value=None),
-    )
     monkeypatch.setattr(
         bootstrap,
         "ServiceConfig",
@@ -1317,7 +1332,7 @@ async def test_run_controller_closes_report_when_initialization_fails(
             design=None,
             animation=SimpleNamespace(),
             preference=SimpleNamespace(),
-            config_session=SimpleNamespace(),
+            config_session=SimpleNamespace(workspace=tmp_path),
             report=report,
             runtime_spec=SimpleNamespace(
                 launch_command=[],

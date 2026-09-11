@@ -410,19 +410,21 @@ def parse_cli_invocation(
 
     parser = create_cli_parser()
 
-    command_arguments, overrides, profile = extract_invocation_options(
+    command_arguments, overrides, profile, working_directory = extract_invocation_options(
         parser,
         raw_arguments,
     )
 
+    command = _parse_cli_command(parser, command_arguments, input_stream=input_stream)
+    if working_directory is not None and not isinstance(command, (
+        InteractiveCommand, ResumeCommand, ExecCommand, AgentListenCommand,
+    )):
+        parser.error("--cd is only supported for interactive, resume, exec and agent listen")
     return CliInvocation(
-        command=_parse_cli_command(
-            parser,
-            command_arguments,
-            input_stream=input_stream,
-        ),
+        command=command,
         config_overrides=overrides,
         profile=profile,
+        working_directory=working_directory,
     )
 
 

@@ -15,12 +15,14 @@ CONFIG_FLAGS = ("-c", "--config")
 PROFILE_FLAGS = ("-p", "--profile")
 SANDBOX_FLAGS = ("-s", "--sandbox")
 APPROVAL_FLAGS = ("-a", "--ask-for-approval")
+DIRECTORY_FLAGS = ("-C", "--cd")
 
 VALUE_OPTIONS = frozenset((
     *CONFIG_FLAGS,
     *PROFILE_FLAGS,
     *SANDBOX_FLAGS,
     *APPROVAL_FLAGS,
+    *DIRECTORY_FLAGS,
 ))
 
 
@@ -88,16 +90,22 @@ def add_invocation_options(container: ArgumentContainer) -> None:
             "immediately returned to the model"
         ),
     )
+    container.add_argument(
+        *DIRECTORY_FLAGS,
+        metavar="DIR",
+        help="Use DIR as the working directory for the local agent",
+    )
 
 
 def extract_invocation_options(
     parser: argparse.ArgumentParser,
     arguments: tuple[str, ...],
-) -> tuple[tuple[str, ...], tuple[ConfigOverride, ...], str | None]:
+) -> tuple[tuple[str, ...], tuple[ConfigOverride, ...], str | None, str | None]:
     """提取可出现在任意命令层级的进程级选项。"""
     remaining: list[str] = []
     overrides: list[ConfigOverride] = []
     profile: str | None = None
+    working_directory: str | None = None
 
     index: int = 0
     while index < len(arguments):
@@ -121,6 +129,10 @@ def extract_invocation_options(
                 if profile is not None:
                     raise ValueError("profile may only be specified once")
                 profile = normalize_profile_name(value)
+            elif option in DIRECTORY_FLAGS:
+                if working_directory is not None or not value.strip():
+                    raise ValueError("working directory must be non-empty and specified once")
+                working_directory = value
             elif option in SANDBOX_FLAGS:
                 overrides.append(parse_config_override(f'sandbox_mode="{value}"'))
             elif option in APPROVAL_FLAGS:
@@ -129,7 +141,7 @@ def extract_invocation_options(
             parser.error(str(error))
         index += consumed
 
-    return tuple(remaining), tuple(overrides), profile
+    return tuple(remaining), tuple(overrides), profile, working_directory
 
 
 def _option_value(
@@ -148,6 +160,7 @@ def _option_value(
             "--profile",
             "--sandbox",
             "--ask-for-approval",
+            "--cd",
     ):
         prefix = f"{option}="
         if token.startswith(prefix):

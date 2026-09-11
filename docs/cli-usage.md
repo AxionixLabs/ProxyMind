@@ -50,6 +50,7 @@ mind exec "检查当前项目" -c 'model_providers.openai-main.reasoning_effort=
 |------|------|
 | `-c, --config <key=value>` | 按点路径临时覆盖配置；值优先按 TOML 解析，可重复传入 |
 | `-p, --profile <PROFILE>` | 在基础配置之上叠加 `~/.mind/<name>.config.toml` |
+| `-C, --cd <DIR>` | 为交互、resume、exec 或 agent listen 指定本次工作目录；目录必须存在 |
 | `-s, --sandbox <MODE>` | 选择 `read-only`、`workspace-write` 或 `danger-full-access` |
 | `-a, --ask-for-approval <POLICY>` | 选择 `untrusted`、`on-request` 或 `never` |
 | `-V, --version` | 输出版本号 |

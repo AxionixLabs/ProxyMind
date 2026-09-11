@@ -9,7 +9,10 @@ from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from frontends.tui.core.runtime import TuiRuntime
-from frontends.tui.session.state import preload_tui_prompt_context
+from frontends.tui.session.state import (
+    TuiSessionState,
+    preload_tui_prompt_context,
+)
 from agent.domain.policies import preset_permissions
 
 
@@ -43,11 +46,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
         set_history_workspace=workspace_updates.append,
     )
 
-    with patch(
-        "frontends.tui.session.state.fetch_runtime_workspace_root",
-        AsyncMock(return_value=Path("D:/workspace")),
-    ):
-        await preload_tui_prompt_context(host)
+    await preload_tui_prompt_context(host)
 
     assert not runtime.active
     assert runtime.context.model == "gpt-test high"
@@ -58,7 +57,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
     assert runtime.screen.background_shell_status.label == (
         "1 background terminal running · /ps to view · /stop to close"
     )
-    assert workspace_updates == [Path("D:/workspace")]
+    assert workspace_updates == []
     host.settings.fresh_preferences.assert_awaited_once_with(ttl_sec=0.0)
 
     preloaded_placeholder = runtime.submissions.placeholder_text
@@ -118,11 +117,7 @@ async def test_first_trust_keeps_input_hidden_until_startup_finishes() -> None:
                 set_history_workspace=lambda _workspace: None,
             )
 
-            with patch(
-                "frontends.tui.session.state.fetch_runtime_workspace_root",
-                AsyncMock(return_value=workspace),
-            ):
-                await preload_tui_prompt_context(host)
+            await preload_tui_prompt_context(host)
 
             footer = "".join(
                 text for _style, text in runtime.screen._footer_fragments()
@@ -165,3 +160,21 @@ def test_successful_submission_prepares_next_placeholder() -> None:
 
     assert runtime.submissions.placeholder_text == "next placeholder"
     new_placeholder.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_prompt_refresh_keeps_selected_workspace(tmp_path: Path) -> None:
+    target = tmp_path / "resumed"
+    target.mkdir()
+    runtime = TuiRuntime()
+    host = SimpleNamespace(
+        history_workspace=str(target), frontend=SimpleNamespace(runtime=runtime),
+        settings=SimpleNamespace(fresh_preferences=AsyncMock(return_value={})),
+    )
+    state = TuiSessionState(
+        pref_config={}, model="", workspace_label="old", permissions=preset_permissions("auto"),
+    )
+    state.workspace_refreshed_at = 0
+    await state.refresh_for_prompt(host)
+    assert state.workspace_label.endswith("resumed")
+    assert host.history_workspace == str(target)

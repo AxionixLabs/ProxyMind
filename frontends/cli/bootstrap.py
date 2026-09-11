@@ -61,7 +61,6 @@ from infrastructure.config.store import ConfigStore
 from infrastructure.errors import AppError
 from infrastructure.platform.animation import AsyncAnimManager
 from infrastructure.platform.shell_tools import route_shell_tools
-from infrastructure.platform.workspace_context import fetch_runtime_workspace_root
 from infrastructure.services.helix_capability import ServerManageHelixCapability
 from infrastructure.services.configuration_host import ConfigServiceRuntime
 from infrastructure.services.runtime_context import (
@@ -332,6 +331,7 @@ async def _run_application(
     config_profile: str | None,
     runtime_services: RuntimeServices,
     *,
+    working_directory: str | None = None,
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     conversation_compactor_factory: ConversationCompactorFactory | None = None,
@@ -375,13 +375,20 @@ async def _run_application(
     reports = reports_dir()
 
     try:
-        workspace = Path.cwd()
+        workspace = (
+            Path(working_directory).expanduser().resolve()
+            if working_directory is not None
+            else Path.cwd().resolve()
+        )
+        if not workspace.is_dir():
+            raise ValueError(f"Working directory is unavailable: {workspace}")
 
         config_session = ConfigSession(
             ConfigStore(config_path),
             config_overrides,
             profile=config_profile,
             workspace=workspace,
+            directory_override=working_directory is not None,
         )
 
         config_resolution = config_session.resolve()
@@ -649,6 +656,7 @@ async def _run_controller(
             runtime_services=runtime_services,
             agent_settings=agent_settings or AgentSettings(),
             feature_settings=feature_settings or FeatureSettings(),
+            workspace_root=config_session.workspace,
         )
 
     except BaseException as error:
@@ -711,10 +719,6 @@ async def _run_controller(
                 raise RuntimeError("configuration service was not composed")
             await configuration_service.start()
             observe("config_service.started")
-
-        runtime_workspace_root = await fetch_runtime_workspace_root()
-        if runtime_workspace_root is not None:
-            controller.set_history_workspace(runtime_workspace_root)
 
         preference_task = asyncio.create_task(
             preference.load_pref(),
@@ -913,6 +917,7 @@ async def run_application(
     entry_file: str | None,
     config_overrides: tuple[ConfigOverride, ...] = (),
     config_profile: str | None = None,
+    working_directory: str | None = None,
     runtime_services: RuntimeServices,
     turn_runner: RootTurnRunner | None = None,
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
@@ -931,6 +936,7 @@ async def run_application(
             config_overrides,
             config_profile,
             runtime_services,
+            working_directory=working_directory,
             turn_runner=turn_runner,
             environment_snapshot_provider=environment_snapshot_provider,
             conversation_compactor_factory=conversation_compactor_factory,
