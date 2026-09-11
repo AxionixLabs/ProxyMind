@@ -89,6 +89,13 @@ class SubagentSubmissionExecutor:
         self._cleanup = cleanup
         self._patch_preview = patch_preview
 
+    def bind_workspace(
+        self, execution_policy: ExecutionPolicy, patch_preview: PatchPreviewPort,
+    ) -> None:
+        """更新后续提交的工作区依赖；已有 Turn 保留冻结上下文。"""
+        self._execution_policy = execution_policy
+        self._patch_preview = patch_preview
+
     async def execute(
         self,
         turn: AgentTurnContext,

@@ -3,6 +3,7 @@
 
 import os
 import typing
+from dataclasses import dataclass
 
 from agent.domain.execution_policy import (
     ExecutionPolicyAmendment,
@@ -37,6 +38,27 @@ __all__ = (
 )
 
 WorkspaceRoot: typing.TypeAlias = str | os.PathLike[str]
+
+
+@dataclass(frozen=True)
+class WorkspaceResources:
+    """保存待提交的工作区能力；创建方负责未提交资源的关闭。"""
+
+    coding: "WorkspaceCodingPort"
+    execution_policy: "ExecutionPolicy"
+    image_reader: ImageReaderPort
+
+
+class WorkspaceChangePort(typing.Protocol):
+    """由 Harness 持有一次工作区切换，根会话结束后同步提交，调用方负责收尾。"""
+
+    def commit(self) -> None:
+        """提交已准备的依赖，不执行配置解析或外部 I/O。"""
+        ...
+
+    async def finish(self) -> tuple[str, ...]:
+        """释放未采用或退役的资源，并返回可展示的清理错误。"""
+        ...
 
 
 class CodingRuntime(typing.Protocol):
@@ -170,6 +192,16 @@ class WorkspaceRuntime(typing.Protocol):
     execution_policy: ExecutionPolicy
     image_reader: ImageReaderPort
     user_shell: UserShellPort
+
+    def prepare(
+        self, workspace_root: WorkspaceRoot, *, network_access: NetworkAccess,
+    ) -> WorkspaceResources:
+        """准备新工作区资源，保留当前资源的所有权。"""
+        ...
+
+    def activate(self, resources: WorkspaceResources) -> WorkspaceResources:
+        """同步采用准备资源并移交旧资源的清理责任。"""
+        ...
 
     def replace(self, workspace_root: WorkspaceRoot) -> None:
         """切换工作区并安排旧编码资源回收。"""

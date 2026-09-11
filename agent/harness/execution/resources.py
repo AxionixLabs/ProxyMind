@@ -123,6 +123,13 @@ class ExecutionResources:
         """为后续 Turn 重建绑定当前工作区的客户端工具注册表。"""
         self._client_registry = self._client_registry_factory()
 
+    def activate_registries(
+        self, client: ToolRegistryPort, builtin: ToolRegistryPort,
+    ) -> None:
+        """采用准备阶段已构建的注册表，保持已有 Turn 的工具快照。"""
+        self._client_registry = client
+        self._builtin_registry = builtin
+
     def client_tool_count(self) -> int:
         """返回当前客户端工具目录的工具数量。"""
         return len(self.client_registry().list_tools().tools)

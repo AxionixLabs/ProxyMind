@@ -45,7 +45,10 @@ TurnApplicationFactory: typing.TypeAlias = Callable[
 
 SkillsConfigReader: typing.TypeAlias = Callable[[], dict[str, typing.Any]]
 
-SkillsProviderFactory: typing.TypeAlias = Callable[[SkillsConfigReader], SkillsProvider]
+SkillsWorkspaceProvider: typing.TypeAlias = Callable[[], Path]
+SkillsProviderFactory: typing.TypeAlias = Callable[
+    [SkillsConfigReader, SkillsWorkspaceProvider], SkillsProvider,
+]
 
 
 class SubscriptionRuntimeBuilder(typing.Protocol):

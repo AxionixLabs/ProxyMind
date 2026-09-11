@@ -10,6 +10,7 @@ from agent.application.services import (
     BuiltinToolRegistryBuilder,
     ClientToolRegistryBuilder,
     RuntimeServices,
+    SkillsWorkspaceProvider,
     SubscriptionRuntimeBuilder,
 )
 from agent.application.services import SkillsConfigReader
@@ -44,7 +45,7 @@ from observability import observe_exception
 
 ResultValue = typing.TypeVar("ResultValue", bound=TurnExecutorResult)
 SkillsPayloadBuilder: typing.TypeAlias = typing.Callable[
-    [dict[str, typing.Any]],
+    [dict[str, typing.Any], Path],
     list[dict[str, str]],
 ]
 
@@ -81,6 +82,7 @@ def open_process_capability() -> LocalProcessCapability:
 
 def open_skills_provider(
     config_reader: SkillsConfigReader,
+    workspace: SkillsWorkspaceProvider,
     *,
     payload_builder: SkillsPayloadBuilder,
 ) -> SkillsProvider:
@@ -93,7 +95,7 @@ def open_skills_provider(
     def provide() -> list[dict[str, str]]:
         """读取当前配置并转换为模型可见的 skills 描述。"""
         try:
-            return payload_builder(config_reader())
+            return payload_builder(config_reader(), workspace())
         except (OSError, TypeError, ValueError) as error:
             observe_exception(
                 "subagent.skills.resolve_failed",
@@ -155,8 +157,9 @@ def create_runtime_services(
         process_capability=open_process_capability(),
         interactive_process_capability=interactive_process_capability,
         create_skills_provider=(
-            lambda reader: open_skills_provider(
+            lambda reader, workspace: open_skills_provider(
                 reader,
+                workspace,
                 payload_builder=skills_payload_builder,
             )
         ),

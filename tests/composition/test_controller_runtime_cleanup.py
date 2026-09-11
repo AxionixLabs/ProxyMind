@@ -120,6 +120,48 @@ def test_application_host_exposes_turn_session_context_port() -> None:
     assert controller.animate is False
 
 
+@pytest.mark.anyio
+async def test_resume_commits_workspace_after_old_hook_and_before_history_touch():
+    session, resources = _root_session(ConversationState(
+        cid="cid_test_12345678", sid="sid_test_1_abcdef",
+    ))
+    workspace = ["D:/previous"]
+    session._workspace = lambda: workspace[0]
+    timeline = []
+
+    async def end_hook(*args, **kwargs):
+        timeline.append(("hook", args[1].cwd))
+
+    def commit():
+        workspace[0] = "D:/target"
+        timeline.append(("commit", workspace[0]))
+
+    resources.lifecycle.end.side_effect = end_hook
+    resources.store.touch_session.side_effect = lambda **kw: timeline.append(("touch", kw["workspace"]))
+    await session.resume(
+        {"cid": "cid_next_12345678", "sid": "sid_next_1_abcdef"},
+        workspace_change=SimpleNamespace(commit=commit),
+    )
+    assert timeline == [("hook", "D:/previous"), ("commit", "D:/target"), ("touch", "D:/target")]
+
+
+@pytest.mark.anyio
+async def test_resume_read_failure_preserves_old_session_and_workspace():
+    session, resources = _root_session(ConversationState(
+        cid="cid_test_12345678", sid="sid_test_1_abcdef",
+    ))
+    session._history.read_transcript = Mock(side_effect=OSError("unreadable transcript"))
+    change = SimpleNamespace(commit=Mock())
+    with pytest.raises(OSError, match="unreadable transcript"):
+        await session.resume(
+            {"cid": "cid_next_12345678", "sid": "sid_next_1_abcdef"},
+            workspace_change=change,
+        )
+    assert session.sid == "sid_test_1_abcdef"
+    change.commit.assert_not_called()
+    resources.lifecycle.end.assert_not_awaited()
+
+
 def test_root_session_applies_title_only_to_current_coordinates() -> None:
     session, resources = _root_session(ConversationState(
         cid="cid_test_12345678",

@@ -4,16 +4,31 @@
 import asyncio
 import time
 import typing
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 
 from agent.domain.policies import (
     PermissionSettings,
     resolve_permissions,
 )
-from infrastructure.config.preferences import Preferences
+from infrastructure.config.layers import ConfigResolution
+from infrastructure.config.preferences import (
+    Preferences,
+    config_to_preferences,
+)
 from infrastructure.config.session import ConfigSession
 from observability import observe_exception
 
 __all__ = ("SettingsSession",)
+
+
+@dataclass(frozen=True)
+class PreparedSettings:
+    """保存目标权限和同步提交配置快照的操作；由 SettingsSession 创建。"""
+
+    permissions: PermissionSettings
+    commit: Callable[[], None]
 
 
 class SettingsSession:
@@ -49,6 +64,23 @@ class SettingsSession:
     def preference_config(self) -> dict[str, typing.Any]:
         """返回当前偏好的独立运行配置。"""
         return self.preferences.to_config()
+
+    def prepare_workspace(
+        self, workspace: Path, resolution: ConfigResolution,
+    ) -> PreparedSettings:
+        """准备目标偏好和权限，提交前保留当前配置上下文。"""
+        permissions = resolve_permissions(resolution.config, interactive=True)
+        preferences = config_to_preferences(resolution.config)
+
+        def commit() -> None:
+            """同步发布准备完成的工作区配置及其派生快照。"""
+            self.config.bind_workspace(workspace)
+            self.preferences.prefs = preferences
+            self.permissions = permissions
+            self._refreshed_at = time.monotonic()
+            self._refresh_generation += 1
+
+        return PreparedSettings(permissions, commit)
 
     def apply_permissions(
         self,

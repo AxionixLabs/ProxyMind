@@ -31,6 +31,7 @@ from agent.harness.hooks.tool_lifecycle import CommandHookSessionStore
 from agent.harness.process_resources import ProcessResourceOwner
 from agent.harness.sessions.root import RootConversationSession
 from agent.harness.subscription.owner import SubscriptionRuntimeOwner
+from agent.harness.sessions.workspace_change import WorkspaceChange
 from agent.ports import (
     ApprovalLedger,
     AttachmentStatePort,
@@ -61,6 +62,7 @@ from agent.stores.sessions import (
     normalize_workspace,
 )
 from infrastructure.config.hooks import HookManager
+from infrastructure.config.layers import ConfigResolution
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.preferences import Preferences
 from infrastructure.config.runtime_paths import (
@@ -209,7 +211,7 @@ class ApplicationHost:
         self.configuration_service = configuration_service
         skills_provider_factory = runtime_services.create_skills_provider
         self._skills_provider: SkillsProvider | None = (
-            skills_provider_factory(self.settings.config.load)
+            skills_provider_factory(self.settings.config.load, lambda: Path(self.history_workspace))
             if skills_provider_factory is not None
             else None
         )
@@ -530,6 +532,57 @@ class ApplicationHost:
             self.execution.rebuild_client_registry()
             observe("workspace.changed", workspace=self.history_workspace)
         return self.history_workspace
+
+    async def prepare_workspace(
+        self, workspace: Path, resolution: ConfigResolution,
+    ) -> WorkspaceChange:
+        """组合目标配置及工具依赖，交由 Harness 在根会话边界提交。"""
+        normalized = normalize_workspace(workspace)
+        settings = self.settings.prepare_workspace(workspace, resolution)
+        features = FeatureSettings.from_config(resolution.config)
+        agents = AgentSettings.from_config(resolution.config)
+        resources = self.workspace_runtime.prepare(
+            normalized, network_access=settings.permissions.network_access,
+        )
+        try:
+            client = self.runtime_services.create_client_tool_registry(
+                resources.coding,
+                javascript=self.javascript_execution,
+                image_reader=resources.image_reader,
+                execution_policy=resources.execution_policy,
+                subagent_runtime=self.subagents,
+                approval_coordinator=self.approval_coordinator,
+                features=features,
+            )
+            builtin = self.runtime_services.create_builtin_tool_registry(
+                approval_coordinator=self.approval_coordinator,
+                permission_grants=self.permission_grants,
+                features=features,
+            )
+        except BaseException:
+            await self.lifecycle.await_cleanup(resources.coding.close())
+            raise
+
+        def publish() -> None:
+            """同步发布组合阶段已验证的工作区绑定。"""
+            settings.commit()
+            self.history_workspace = normalized
+            self.features = features
+            self.subagents.bind_workspace(
+                settings=agents,
+                enabled=features.subagents,
+                execution_policy=resources.execution_policy,
+                patch_preview=resources.coding.preview_patch,
+            )
+            self.command_hook_sessions.clear()
+            self.execution.activate_registries(client, builtin)
+
+        return WorkspaceChange(
+            self.workspace_runtime,
+            resources,
+            publish=publish,
+            external_mcp=self.execution.external_mcp,
+        )
 
     def skills_payload(self) -> list[dict[str, typing.Any]]:
         """返回当前配置对应的模型可见 skills 快照。"""

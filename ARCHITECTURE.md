@@ -78,6 +78,13 @@ agent/
 只表示真实可选能力，不作为未注入时的兼容回退。第三方对象必须在 adapter 边界转换，不能
 穿透到 application 或 domain。
 
+恢复历史会话时，`ConfigSession` 保留启动目录和 CLI/Profile 覆盖，`SettingsSession`
+准备目标目录的配置、偏好与权限。组合根先构建目标工作区能力和工具注册表，再交给
+`agent.harness.sessions.workspace_change.WorkspaceChange` 持有。`RootConversationSession`
+在旧目录结束旧会话后同步提交工作区，随后更新历史游标。切换收尾释放旧编码资源并重新
+建立外部 MCP；准备失败只释放待采用资源，提交后的清理错误不回退活动会话。
+项目 Skills 的发现及缓存以显式工作区为键，子代理只在会话边界更新后续提交的依赖。
+
 ## 依赖方向
 
 ```text

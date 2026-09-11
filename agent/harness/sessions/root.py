@@ -31,6 +31,7 @@ from agent.ports import (
     TranscriptFactory,
 )
 from agent.protocol import AssistantReplySnapshot
+from agent.ports.workspace import WorkspaceChangePort
 from observability import (
     observe,
     observe_exception,
@@ -350,6 +351,7 @@ class RootConversationSession:
         record: dict[str, typing.Any],
         *,
         source: str = "resume",
+        workspace_change: WorkspaceChangePort | None = None,
     ) -> dict[str, str] | None:
         """把当前会话绑定到 history 中选中的坐标。"""
         cid = str(record.get("cid") or "").strip()
@@ -363,7 +365,7 @@ class RootConversationSession:
                 sid=sid,
             )
             return None
-        metadata = await self.bind(cid, sid, source=source)
+        metadata = await self.bind(cid, sid, source=source, workspace_change=workspace_change)
         if metadata is not None:
             observe("history.resumed", cid=cid, sid=sid)
         return metadata
@@ -374,6 +376,7 @@ class RootConversationSession:
         sid: str,
         *,
         source: str = "bind",
+        workspace_change: WorkspaceChangePort | None = None,
     ) -> dict[str, str] | None:
         """把当前运行绑定到一组已存在的远端会话标识。"""
         if not valid_session_ids(cid, sid):
@@ -386,7 +389,7 @@ class RootConversationSession:
                 source=source,
             )
             return None
-        if self._state.cid == cid and self._state.sid == sid:
+        if self._state.cid == cid and self._state.sid == sid and workspace_change is None:
             self._state.session_bound = True
             self._state.fork_source_available = True
             metadata = self._state.snapshot()
@@ -398,7 +401,10 @@ class RootConversationSession:
             observe("conversation.reused", cid=cid, sid=sid, source=source)
             return metadata
 
+        assistant_reply = _last_copyable_assistant_reply(self._history.read_transcript(sid))
         await self.end(reason="switch")
+        if workspace_change is not None:
+            workspace_change.commit()
         self._state = ConversationState(
             cid=cid,
             sid=sid,
@@ -406,9 +412,7 @@ class RootConversationSession:
             fork_source_available=True,
         )
         self._lifecycle_id += 1
-        self._assistant_reply_snapshot = _last_copyable_assistant_reply(
-            self._history.read_transcript(sid)
-        )
+        self._assistant_reply_snapshot = assistant_reply
         metadata = self._state.snapshot()
         self._history.touch(
             metadata,

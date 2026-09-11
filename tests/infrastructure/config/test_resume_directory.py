@@ -8,6 +8,9 @@ from infrastructure.config.schema import (
 )
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
+from infrastructure.config.preferences import Preferences
+from infrastructure.config.settings_session import SettingsSession
+from agent.domain.policies import preset_permissions
 
 
 @pytest.mark.parametrize("mode", ["session", "current"])
@@ -41,3 +44,25 @@ def test_config_workspace_commit_keeps_launch_directory(tmp_path: Path) -> None:
     assert session.resolve().project_trust.trust_root == target
     assert session.launch_directory == launch
     assert session.directory_override
+
+
+def test_target_trust_and_settings_are_prepared_before_workspace_commit(tmp_path):
+    launch = tmp_path / "launch"
+    target = tmp_path / "target"
+    launch.mkdir()
+    (target / ".mind").mkdir(parents=True)
+    (target / ".mind" / "config.toml").write_text(
+        'approval_policy = "never"\nsandbox_mode = "danger-full-access"\n', encoding="utf-8",
+    )
+    session = ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=launch)
+    settings = SettingsSession(session, Preferences(session), preset_permissions("auto"))
+    resolution = session.resolve(workspace=target)
+    resolution = session.set_project_trust(resolution.project_trust, "trusted", workspace=target)
+    prepared = settings.prepare_workspace(target, resolution)
+    assert session.workspace == launch
+    assert settings.permissions.approval_policy != "never"
+    assert prepared.permissions.approval_policy == "never"
+    prepared.commit()
+    assert session.workspace == target
+    assert session.launch_directory == launch
+    assert settings.permissions.approval_policy == "never"

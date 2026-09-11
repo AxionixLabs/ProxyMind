@@ -36,19 +36,22 @@ class ConfigSession(object):
         directory_override: bool = False,
     ) -> None:
         self.store = store
-        self.launch_directory = workspace.resolve() if workspace is not None else None
+        self.launch_directory = (workspace if workspace is not None else Path.cwd()).resolve()
         self.directory_override = directory_override
         self.resolver = ConfigResolver(
             store,
             overrides,
             profile=profile,
-            workspace=workspace,
+            workspace=self.launch_directory,
         )
 
     @property
-    def workspace(self) -> Path | None:
+    def workspace(self) -> Path:
         """返回当前有效配置采用的工作目录。"""
-        return self.resolver.workspace
+        workspace = self.resolver.workspace
+        if workspace is None:
+            raise RuntimeError("configuration workspace is not bound")
+        return workspace
 
     def bind_workspace(self, workspace: Path) -> None:
         """提交已校验的配置工作目录，保持启动目录和 CLI 覆盖。"""
@@ -110,7 +113,9 @@ class ConfigSession(object):
     def set_project_trust(
         self,
         decision: ProjectTrustDecision,
-        level: ProjectTrustLevel
+        level: ProjectTrustLevel,
+        *,
+        workspace: Path | None = None,
     ) -> ConfigResolution:
         """原子保存指定项目决定并返回重新解析后的配置。"""
         self.store.update(
@@ -125,18 +130,21 @@ class ConfigSession(object):
                 candidate,
                 decision,
                 level,
+                workspace=workspace,
             ),
         )
-        return self.resolve()
+        return self.resolve(workspace=workspace)
 
     def _validate_project_trust_candidate(
         self,
         candidate: dict[str, object],
         decision: ProjectTrustDecision,
-        level: ProjectTrustLevel
+        level: ProjectTrustLevel,
+        *,
+        workspace: Path | None = None,
     ) -> None:
         """验证持久化决定未被当前 Profile 或 CLI 覆盖遮蔽。"""
-        resolution = self.resolver.resolve_user_config(dict(candidate))
+        resolution = self.resolver.resolve_user_config(dict(candidate), workspace=workspace)
         effective = resolution.project_trust
 
         if (

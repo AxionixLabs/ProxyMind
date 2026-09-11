@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
+from agent.harness.sessions.workspace_change import WorkspaceChange
+from agent.harness.mcp.owner import McpRuntimeOwner
 
 
 class _CodingRuntime:
@@ -82,6 +84,70 @@ async def test_workspace_runtime_close_is_idempotent() -> None:
     await owner.close()
 
     assert closed == ["workspace-a"]
+
+
+@pytest.mark.anyio
+async def test_prepared_workspace_can_be_discarded_without_replacing_active_tools():
+    closed = []
+    owner, _ = _runtime_owner(closed)
+    resources = owner.prepare("workspace-b", network_access="restricted")
+    change = WorkspaceChange(
+        owner, resources, publish=lambda: pytest.fail("unexpected commit"),
+        external_mcp=McpRuntimeOwner(runtime_factory=lambda: pytest.fail("unexpected MCP")),
+    )
+    assert owner.coding.root == "workspace-a"
+    assert await change.finish() == ()
+    assert closed == ["workspace-b"]
+    assert owner.coding.root == "workspace-a"
+    await owner.close()
+
+
+@pytest.mark.anyio
+async def test_repeated_workspace_changes_replace_mcp_and_release_resources():
+    closed = []
+    published = []
+    owner, _ = _runtime_owner(closed)
+    runtimes = []
+
+    def create_mcp():
+        runtime = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
+        runtimes.append(runtime)
+        return runtime
+
+    mcp = McpRuntimeOwner(runtime_factory=create_mcp)
+    await mcp.start()
+    for target in ("workspace-b", "workspace-c"):
+        change = WorkspaceChange(
+            owner, owner.prepare(target, network_access="restricted"),
+            publish=lambda: published.append(owner.coding.root), external_mcp=mcp,
+        )
+        change.commit()
+        assert mcp.current is None
+        assert await change.finish() == ()
+        assert await change.finish() == ()
+    assert published == ["workspace-b", "workspace-c"]
+    assert closed == ["workspace-a", "workspace-b"]
+    await owner.close()
+    await mcp.close()
+    assert closed == ["workspace-a", "workspace-b", "workspace-c"]
+    for runtime in runtimes:
+        runtime.stop.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_cleanup_failure_keeps_committed_workspace_and_reports_error():
+    closed = []
+    owner, _ = _runtime_owner(closed)
+    owner.coding.close = AsyncMock(side_effect=OSError("close failed"))
+    change = WorkspaceChange(
+        owner, owner.prepare("workspace-b", network_access="restricted"),
+        publish=lambda: None,
+        external_mcp=McpRuntimeOwner(runtime_factory=lambda: pytest.fail("unexpected MCP")),
+    )
+    change.commit()
+    assert await change.finish() == ("close failed",)
+    assert owner.coding.root == "workspace-b"
+    await owner.close()
 
 
 @pytest.mark.anyio

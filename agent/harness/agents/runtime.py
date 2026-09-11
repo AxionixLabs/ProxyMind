@@ -142,6 +142,21 @@ class SubagentRuntime:
         """返回运行时使用的固定配置。"""
         return self._settings
 
+    def bind_workspace(
+        self,
+        *,
+        settings: AgentSettings,
+        enabled: bool,
+        execution_policy: ExecutionPolicy,
+        patch_preview: PatchPreviewPort,
+    ) -> None:
+        """在旧根会话结束后更新后续子代理的配置及工作区依赖。"""
+        self._settings = settings
+        self._control_registry.configure(enabled=enabled)
+        self._execution_policy = execution_policy
+        self._patch_preview = patch_preview
+        self._submission_executor.bind_workspace(execution_policy, patch_preview)
+
     @property
     def enabled(self) -> bool:
         """返回运行时是否允许创建和控制子执行主体。"""

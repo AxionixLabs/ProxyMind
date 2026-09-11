@@ -61,22 +61,22 @@ def user_skills() -> tuple[SkillSpec, ...]:
     return _scan_skills(user_skills_root(), source="user")
 
 
-@lru_cache(maxsize=1)
-def project_skills() -> tuple[SkillSpec, ...]:
+@lru_cache(maxsize=16)
+def project_skills(workspace: Path) -> tuple[SkillSpec, ...]:
     """读取项目级 skills。"""
     skills: list[SkillSpec] = []
-    for root in project_skills_roots():
+    for root in project_skills_roots(workspace):
         skills.extend(_scan_skills(root, source="project"))
     return tuple(skills)
 
 
-@lru_cache(maxsize=1)
-def available_skills() -> tuple[SkillSpec, ...]:
+@lru_cache(maxsize=16)
+def available_skills(workspace: Path) -> tuple[SkillSpec, ...]:
     """返回按来源优先级去重后的可用 skills。"""
     source_order = {"project": 0, "user": 1, "bundled": 2}
     by_name: dict[str, SkillSpec] = {}
 
-    for skill in bundled_skills() + user_skills() + project_skills():
+    for skill in bundled_skills() + user_skills() + project_skills(workspace):
         key = skill.name.strip().casefold()
         current = by_name.get(key)
         if current is None or (
@@ -117,11 +117,11 @@ def _configured_skill_filters(config: dict) -> dict[str, list[str]]:
     }
 
 
-def configured_skills(config: dict) -> tuple[SkillSpec, ...]:
+def configured_skills(config: dict, workspace: Path) -> tuple[SkillSpec, ...]:
     """返回应用配置过滤后的可用 skills。"""
     filters = _configured_skill_filters(config)
     return filter_skills(
-        available_skills(),
+        available_skills(workspace),
         enabled=filters.get("enabled"),
         disabled=filters.get("disabled")
     )

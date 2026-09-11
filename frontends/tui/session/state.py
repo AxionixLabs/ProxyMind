@@ -220,7 +220,7 @@ async def preload_tui_prompt_context(host: "TuiApplicationHost") -> None:
     runtime = require_tui_runtime(host.frontend.runtime)
 
     runtime.input_model.set_skills(configured_skills(
-        host.settings.config.load()
+        host.settings.config.load(), Path(host.history_workspace),
     ))
     runtime.input_model.set_workspace_root(host.history_workspace)
 

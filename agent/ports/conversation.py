@@ -7,6 +7,7 @@ from pathlib import Path
 
 from agent.domain.hooks import SessionEndReason
 from agent.domain.transcripts import TranscriptEntry
+from agent.ports.workspace import WorkspaceChangePort
 from agent.protocol import AssistantReplySnapshot
 
 __all__ = (
@@ -165,6 +166,7 @@ class RootConversationPort(typing.Protocol):
         record: dict[str, typing.Any],
         *,
         source: str = "resume",
+        workspace_change: WorkspaceChangePort | None = None,
     ) -> dict[str, str] | None:
         """恢复指定历史会话。"""
         ...
@@ -175,6 +177,7 @@ class RootConversationPort(typing.Protocol):
         sid: str,
         *,
         source: str = "bind",
+        workspace_change: WorkspaceChangePort | None = None,
     ) -> dict[str, str] | None:
         """绑定指定远端会话坐标。"""
         ...

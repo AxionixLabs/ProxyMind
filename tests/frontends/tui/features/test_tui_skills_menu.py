@@ -67,7 +67,7 @@ async def test_skills_root_opens_list_in_main_input(
     monkeypatch,
 ) -> None:
     skill = _skill(tmp_path)
-    monkeypatch.setattr(skills_feature, "available_skills", lambda: (skill,))
+    monkeypatch.setattr(skills_feature, "available_skills", lambda workspace: (skill,))
 
     runtime = TuiRuntime()
     runtime.input_model.set_skills((skill,))
@@ -97,11 +97,11 @@ async def test_manage_skills_toggles_persist_and_refresh_input_snapshot(
     monkeypatch,
 ) -> None:
     skill = _skill(tmp_path)
-    monkeypatch.setattr(skills_feature, "available_skills", lambda: (skill,))
+    monkeypatch.setattr(skills_feature, "available_skills", lambda workspace: (skill,))
     monkeypatch.setattr(
         skills_feature,
         "configured_skills",
-        lambda config: () if config["skills"]["disabled"] else (skill,),
+        lambda config, workspace: () if config["skills"]["disabled"] else (skill,),
     )
 
     store = ConfigStore(tmp_path / "config.toml")

@@ -47,7 +47,7 @@ async def choose_skill(
     config_session: ConfigSession
 ) -> None:
     """打开 skills 动作菜单并进入原生输入或管理菜单。"""
-    all_skills = _sorted_skills(available_skills())
+    all_skills = _sorted_skills(available_skills(config_session.workspace))
 
     selected_action = await runtime.select_menu(_root_request())
     if selected_action == _LIST_ACTION:
@@ -112,7 +112,7 @@ async def _manage_skills(
             enabled=enabled,
         )
 
-        runtime.input_model.set_skills(configured_skills(saved))
+        runtime.input_model.set_skills(configured_skills(saved, config_session.workspace))
         runtime.update_menu(_manage_request(all_skills, enabled_state, toggle))
 
     await runtime.select_menu(

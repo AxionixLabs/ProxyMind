@@ -46,6 +46,10 @@ class AgentControlRegistry:
         """返回注册表是否允许取得执行树。"""
         return self._enabled
 
+    def configure(self, *, enabled: bool) -> None:
+        """在旧根会话执行树退出后更新后续执行树的启用状态。"""
+        self._enabled = enabled
+
     async def get(
         self,
         root_session_id: str,

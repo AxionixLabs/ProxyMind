@@ -59,10 +59,15 @@ class McpRuntimeOwner(object):
 
     async def close(self) -> None:
         """解除实例所有权，并在取消态下等待运行时完成清理。"""
-        runtime = self._runtime
-        self._runtime = None
+        runtime = self.detach()
         if runtime is not None:
             await self._await_cleanup(runtime.stop())
+
+    def detach(self) -> McpRuntime | None:
+        """移交旧实例所有权，使后续工具会话无法读取旧工作区工具。"""
+        runtime = self._runtime
+        self._runtime = None
+        return runtime
 
     def _create_runtime(self) -> McpRuntime:
         """使用组合根工厂创建 MCP 运行时。"""
