@@ -107,7 +107,7 @@ def body_fragments(request: MenuRequest, *, width: int) -> StyleAndTextTuples:
             continue
 
         if request.body_wrap:
-            rows = wrap_formatted_lines(list(line_fragments), width=max(1, body_width))
+            rows = wrap_formatted_lines(list(line_fragments), width=max(1, body_width)) or [[]]
             max_lines = (
                 request.body_line_limits[index]
                 if index < len(request.body_line_limits)
@@ -154,7 +154,11 @@ def header_fragments(request: MenuRequest, *, width: int) -> StyleAndTextTuples:
     if gutter:
         out.append((gutter_style, gutter))
     suffix = request.title_accent_suffix
-    if suffix:
+    if not isinstance(request.title, str):
+        out.extend(join_formatted_lines(wrap_formatted_lines(
+            list(request.title), width=max(1, title_width),
+        )))
+    elif suffix:
         title_text = (
             request.title[:-len(suffix)]
             if request.title.endswith(suffix)

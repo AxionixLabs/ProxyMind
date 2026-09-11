@@ -642,11 +642,13 @@ def _footer_hint_fragments(
     """保留 footer 说明文字与按键标签的独立样式。"""
     hint_style = (
         "class:tui-menu.footer.secondary"
-        if tone is MenuFooterTone.SECONDARY
+        if tone in {MenuFooterTone.SECONDARY, MenuFooterTone.KEY_EMPHASIS}
         else "class:tui-menu.footer.hint"
     )
     key_style = (
-        "class:tui-menu.footer.secondary"
+        "class:terminal.primary bold"
+        if tone is MenuFooterTone.KEY_EMPHASIS
+        else "class:tui-menu.footer.secondary"
         if tone is MenuFooterTone.SECONDARY
         else "class:tui-menu.footer.key"
     )

@@ -32,6 +32,7 @@ class MenuFooterTone(str, Enum):
     """描述菜单页脚说明文字的语义层级。"""
     DEFAULT = "default"
     SECONDARY = "secondary"
+    KEY_EMPHASIS = "key_emphasis"
 
 
 class MenuTextInputMode(str, Enum):
@@ -148,8 +149,8 @@ class MenuAction(object):
 
 @dataclass(frozen=True, slots=True)
 class MenuRequest(object):
-    """描述运行期内嵌选择菜单及其生命周期回调。"""
-    title: str
+    """描述运行期内嵌菜单及生命周期回调；标题可使用按宽度换行的样式片段。"""
+    title: str | FormattedLine
     options: tuple[MenuOption, ...] = ()
     body: tuple[str, ...] = ()
     selected: int = 0

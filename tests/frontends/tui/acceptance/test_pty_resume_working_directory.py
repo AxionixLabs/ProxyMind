@@ -1,10 +1,15 @@
+import json
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import (
+    asdict,
+    dataclass,
+)
 from pathlib import Path
 
 import pytest
+import tomlkit
 
 from agent.stores.sessions import (
     ConversationHistoryStore,
@@ -19,7 +24,9 @@ from protocol.schema.identifiers import (
 )
 from tests.pty import (
     PtyKey,
+    TerminalEnvironment,
     TerminalHarness,
+    TerminalReplyConfig,
     TerminalSize,
     spawn_terminal,
 )
@@ -40,14 +47,19 @@ class ResumeFixture:
     history_sid: str
     launch_sid: str
 
-    def start(self, *arguments: str) -> TerminalHarness:
+    def start(
+        self, *arguments: str,
+        size: TerminalSize = TerminalSize(rows=32, columns=180),
+        terminal_environment: TerminalEnvironment = TerminalEnvironment(),
+        replies: TerminalReplyConfig = TerminalReplyConfig(),
+    ) -> TerminalHarness:
         environment = dict(os.environ)
         environment["MIND_HOME"] = str(self.root / "config")
         environment["MIND_STATE_HOME"] = str(self.root / "state")
         return spawn_terminal(
             [sys.executable, str(self.entry), *arguments],
             cwd=self.launch, env=environment,
-            size=TerminalSize(rows=32, columns=180),
+            size=size, terminal=terminal_environment, replies=replies,
             failure_artifact_directory=self.root / "artifacts",
         )
 
@@ -81,14 +93,17 @@ def resume_fixture(tmp_path, repository_root):
     sessions = []
     for directory in (launch, history):
         directory.mkdir()
-        project = ConfigStore(directory / ".mind" / "config.toml")
-        project.update({
-            ("sandbox_mode",): "danger-full-access" if directory == history else "workspace-write",
-            ("approval_policy",): "never" if directory == history else "on-request",
-            ("mcp_servers", "cwdcheck"): {
-                "command": sys.executable, "args": [str(mcp_script)], "startup_timeout_sec": 10,
+        project_path = directory / ".mind" / "config.toml"
+        project_path.parent.mkdir()
+        project_path.write_text(tomlkit.dumps({
+            "sandbox_mode": "danger-full-access" if directory == history else "workspace-write",
+            "approval_policy": "never" if directory == history else "on-request",
+            "mcp_servers": {
+                "cwdcheck": {
+                    "command": sys.executable, "args": [str(mcp_script)], "startup_timeout_sec": 10,
+                },
             },
-        })
+        }), encoding="utf-8")
         skill = directory / ".agents" / "skills" / f"skill-{directory.name}" / "SKILL.md"
         skill.parent.mkdir(parents=True)
         skill.write_text(
@@ -116,9 +131,8 @@ def _verify_execution_directory(terminal: TerminalHarness, expected: Path, marke
     terminal.wait_for_screen_text(f"SKILL_{expected.name}", timeout=10)
     terminal.send_key(PtyKey.ESCAPE)
     terminal.write_user(b"\x15")
-    terminal.write_user_text(
-        f'!python -c "from pathlib import Path; Path(\'{marker}\').write_text(str(Path.cwd()), encoding=\'utf-8\')"'
-    )
+    command = f'python -c "from pathlib import Path; Path(\'{marker}\').write_text(str(Path.cwd()), encoding=\'utf-8\')"'
+    terminal.write_user_text(f"!{command}")
     terminal.send_key(PtyKey.ENTER)
     deadline = time.monotonic() + 15
     target = expected / marker
@@ -128,6 +142,8 @@ def _verify_execution_directory(terminal: TerminalHarness, expected: Path, marke
         time.sleep(0.05)
     assert Path(target.read_text(encoding="utf-8")) == expected
     assert Path((expected / "mcp-cwd.txt").read_text(encoding="utf-8")) == expected
+    terminal.wait_for_screen_text(f"You ran {command}", timeout=15)
+    terminal.wait_for_screen_text("resume-check-model medium", timeout=15)
 
 
 def _quit(terminal: TerminalHarness) -> None:
@@ -219,3 +235,62 @@ def test_real_directory_menu_escape_and_exit(resume_fixture, key):
         else:
             assert terminal.wait_for_exit(timeout=15) == 0
     assert fixture.config.load()["tui"].get("resume_cwd") is None
+
+
+@pytest.mark.parametrize(("width", "theme", "no_color"), [
+    (80, "dark", False), (100, "light", False), (50, "dark", True),
+])
+def test_real_directory_menu_visual_hierarchy(resume_fixture, width, theme, no_color):
+    fixture = resume_fixture
+    replies = TerminalReplyConfig(
+        foreground="rgb:1111/1111/1111" if theme == "light" else "rgb:eeee/eeee/eeee",
+        background="rgb:fafa/fafa/fafa" if theme == "light" else "rgb:1111/1111/1111",
+    )
+    with fixture.start(
+        "resume", fixture.history_sid, size=TerminalSize(rows=40, columns=width),
+        terminal_environment=TerminalEnvironment(no_color=no_color), replies=replies,
+    ) as terminal:
+        snapshot = terminal.wait_for_screen_text("Press enter to continue", timeout=20)
+        lines = snapshot.visible_lines
+        title_row = next(row for row, line in enumerate(lines) if "Choose working directory" in line)
+        option_row = next(row for row, line in enumerate(lines) if "› 1. " in line)
+        footer_row = next(row for row, line in enumerate(lines) if "Press enter to continue" in line)
+        assert not lines[option_row - 1].strip()
+        assert not lines[footer_row - 1].strip()
+        compact = "".join("".join(lines[title_row:footer_row]).split())
+        assert "Chooseworkingdirectorytoresumethissession" in compact
+        assert "Session=latestcwdrecordedintheresumedsession" in compact
+        assert os.path.normcase("".join(str(fixture.history).split())) in os.path.normcase(compact)
+        assert os.path.normcase("".join(str(fixture.launch).split())) in os.path.normcase(compact)
+        selected_column = lines[option_row].index("›")
+        selected = terminal.screen.cell(option_row, selected_column)
+        label = terminal.screen.cell(option_row, selected_column + 5)
+        assert selected.foreground == label.foreground
+        assert selected.bold and label.bold
+        assert (selected.foreground == "default") is no_color
+        assert selected.background == label.background == "default"
+        title_column = lines[title_row].index("Choose")
+        assert not terminal.screen.cell(title_row, title_column).bold
+        assert terminal.screen.cell(title_row, title_column).background == "default"
+        verb_row = next(row for row, line in enumerate(lines[title_row:option_row], title_row) if "resume" in line)
+        assert terminal.screen.cell(verb_row, lines[verb_row].index("resume")).bold
+        assert terminal.screen.cell(footer_row, lines[footer_row].index("enter")).bold
+        assert not terminal.screen.cell(footer_row, lines[footer_row].index("Press")).bold
+        visual_cells = [
+            [asdict(terminal.screen.cell(row, column)) for column in range(width)]
+            for row in range(title_row, footer_row + 1)
+        ]
+        (fixture.root / "menu-screen.json").write_text(
+            json.dumps({
+                "theme": theme, "no_color": no_color, "cells": visual_cells,
+                "ansi": terminal.session.output_text(), "columns": width, "rows": 40,
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        terminal.write_user(b"\x1b[B")
+        moved = terminal.wait_for_screen_text("› 2. ")
+        moved_row = next(row for row, line in enumerate(moved.visible_lines) if "› 2. " in line)
+        assert terminal.screen.cell(moved_row, moved.visible_lines[moved_row].index("›")).foreground == selected.foreground
+        assert not terminal.screen.cell(option_row, selected_column + 5).bold
+        terminal.send_key(PtyKey.CTRL_C)
+        assert terminal.wait_for_exit(timeout=15) == 0

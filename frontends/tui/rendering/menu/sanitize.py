@@ -26,7 +26,14 @@ from frontends.tui.contracts.menu import (
 def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
     """复制菜单请求并清理其中的显示字段。"""
     return MenuRequest(
-        title=sanitize_terminal_line(request.title),
+        title=(
+            sanitize_terminal_line(request.title)
+            if isinstance(request.title, str)
+            else tuple(
+                (sanitize_terminal_line(style), sanitize_inline_text(text))
+                for style, text in request.title
+            )
+        ),
         title_accent_suffix=sanitize_inline_text(request.title_accent_suffix),
         options=sanitize_menu_options(request.options),
         body=tuple(

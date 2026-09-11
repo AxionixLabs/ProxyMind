@@ -8,7 +8,10 @@ from unittest.mock import (
 
 import pytest
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.utils import get_cwidth
 
+from frontends.tui.core.keymap import TuiRuntimeKeymap
+from frontends.tui.core.menu import TuiMenu
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.features.resume import (
     choose_resume_directory,
@@ -38,6 +41,78 @@ async def test_four_choices_distinguish_active_and_launch_directories(tmp_path, 
     assert not warnings
     assert config.load()["tui"].get("resume_cwd") == saved
     assert len(runtime.select_menu.await_args.args[0].options) == 4
+    assert str(config.launch_directory) in runtime.select_menu.await_args.args[0].options[3].label
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("width", [50, 80, 180])
+async def test_directory_menu_layout_keeps_complete_paths_and_visual_hierarchy(tmp_path, width):
+    runtime = TuiRuntime()
+    menu = TuiMenu(
+        invalidate=lambda: None, focus_menu=lambda: None, focus_input=lambda: None,
+        get_width=lambda: width,
+    )
+    runtime.select_menu = menu.request
+    current = tmp_path / "current project"
+    config = ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=current)
+    pending = asyncio.create_task(choose_resume_directory(
+        runtime, config, current=current,
+        history_directory=str(tmp_path / "历史工作区" / "long directory name" / "project"),
+    ))
+    await asyncio.sleep(0)
+    try:
+        assert menu.state is not None
+        fragments = menu.fragments()
+        lines = "".join(text for _style, text in fragments).splitlines()
+        first_gap = next(index for index, line in enumerate(lines) if not line.strip())
+        assert "".join("".join(lines[:first_gap]).split()) == "Chooseworkingdirectorytoresumethissession"
+        assert lines[first_gap + 1].startswith("  Session =")
+        assert "  Current = your current working directory" in lines
+        first_option = next(index for index, line in enumerate(lines) if line.startswith("› 1. "))
+        assert not lines[first_option - 1].strip()
+        assert all(get_cwidth(line) <= width for line in lines)
+        rendered = "".join("".join(lines).split())
+        for option in menu.state.request.options:
+            assert "".join(option.label.split()) in rendered
+        assert menu.state.request.options[3].label == "Always use current directory"
+        style = runtime.screen.application.style
+        assert style is not None
+        assert not style.get_attrs_for_style_str(fragments[1][0]).bold
+        title_emphasis = [style.get_attrs_for_style_str(token) for token, text in fragments if text == "resume"]
+        assert len(title_emphasis) == 1 and title_emphasis[0].bold
+        body_styles = [style.get_attrs_for_style_str(token) for token, text in fragments if text.startswith("Session =")]
+        assert len(body_styles) == 1 and body_styles[0].dim
+        footer = menu.footer_fragments()
+        for token, text in footer:
+            if not text.strip():
+                continue
+            attributes = style.get_attrs_for_style_str(token)
+            assert attributes.bold is (text == "enter")
+            assert attributes.dim is (text != "enter")
+    finally:
+        menu.cancel()
+        await pending
+
+
+@pytest.mark.anyio
+async def test_directory_menu_footer_uses_configured_confirmation_key(tmp_path):
+    keymap = TuiRuntimeKeymap.from_config({"tui": {"keymap": {"list": {"accept": "f18"}}}})
+    menu = TuiMenu(
+        invalidate=lambda: None, focus_menu=lambda: None, focus_input=lambda: None,
+        get_width=lambda: 100, keymap=keymap.list,
+    )
+    runtime = TuiRuntime()
+    runtime.select_menu = menu.request
+    config = ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path)
+    pending = asyncio.create_task(choose_resume_directory(
+        runtime, config, current=tmp_path, history_directory=str(tmp_path / "history"),
+    ))
+    await asyncio.sleep(0)
+    try:
+        assert "".join(text for _style, text in menu.footer_fragments()).strip() == "Press f18 to continue"
+    finally:
+        menu.cancel()
+        await pending
 
 
 @pytest.mark.anyio

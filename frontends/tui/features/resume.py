@@ -14,8 +14,13 @@ from agent.stores.sessions.history import (
 from frontends.terminal.text import sanitize_terminal_line
 from frontends.tui.application import ResumeApplicationHost
 from frontends.tui.contracts.menu import (
+    MenuFooterCommand,
+    MenuFooterHint,
+    MenuFooterTone,
     MenuOption,
     MenuRequest,
+    MenuRowDisplay,
+    MenuShortcutAction,
 )
 from frontends.tui.core.runtime import (
     TuiRuntime,
@@ -59,10 +64,19 @@ async def choose_resume_directory(
         runtime.finish_menu(None)
         return True
 
+    remembered_current_label = "Always use current directory"
+    if workspace_identity(config.launch_directory) != workspace_identity(current):
+        remembered_current_label += f" ({sanitize_terminal_line(str(config.launch_directory))})"
+
     selection = await runtime.select_menu(MenuRequest(
-        title="Choose working directory to resume this session",
+        title=(
+            ("class:terminal.primary", "Choose working directory to "),
+            ("class:terminal.primary bold", "resume"),
+            ("class:terminal.primary", " this session"),
+        ),
         view_id="resume:directory",
         body=(
+            "",
             "Session = latest cwd recorded in the resumed session",
             "Current = your current working directory",
         ),
@@ -70,13 +84,19 @@ async def choose_resume_directory(
             MenuOption("session", f"Use session directory ({sanitize_terminal_line(str(session_directory))})"),
             MenuOption("current", f"Use current directory ({sanitize_terminal_line(str(current))})"),
             MenuOption("remember_session", "Always use session directory"),
-            MenuOption("remember_current", "Always use current directory"),
+            MenuOption("remember_current", remembered_current_label),
         ),
         selected=0,
         cancel_value="session",
         interrupt_on_eof=True,
         on_ctrl_c=interrupt,
-        footer_hint="Press enter to continue",
+        footer_hint=MenuFooterHint(commands=(
+            MenuFooterCommand((MenuShortcutAction.ACCEPT,), "to continue"),
+        )),
+        footer_tone=MenuFooterTone.KEY_EMPHASIS,
+        row_display=MenuRowDisplay.WRAPPED,
+        body_wrap=True,
+        surface_style="",
         show_all_options=True,
     ))
     if selection is None:
