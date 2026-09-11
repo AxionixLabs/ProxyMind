@@ -24,6 +24,7 @@ from frontends.terminal.capabilities import DEGRADED_TERMINAL_CAPABILITIES
 from infrastructure.skills import SkillSpec
 from metadata import const
 from agent.domain.transcripts import TranscriptEntry
+from agent.domain.policies import preset_permissions
 from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.ports import ProtocolCommandClient
 from agent.protocol import AssistantReplySnapshot
@@ -1169,7 +1170,10 @@ async def test_resume_conversation_clears_structured_prompt_draft(
     runtime.context = SimpleNamespace(workspace_label=str(tmp_path))
     host.frontend.runtime = runtime
     host.history_workspace = str(tmp_path)
-    host.settings = SimpleNamespace(config=ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path))
+    host.settings = SimpleNamespace(
+        config=ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path),
+        permissions=preset_permissions("auto"),
+    )
     monkeypatch.setattr(resume_module, "require_tui_runtime", lambda value: value)
     monkeypatch.setattr(resume_module, "preload_tui_prompt_context", AsyncMock())
     dispatcher = TuiCommandDispatcher(
@@ -1183,6 +1187,7 @@ async def test_resume_conversation_clears_structured_prompt_draft(
 
     state.clear_pending_prompt_extras.assert_called_once_with()
     attach.clear_pending_attachments.assert_called_once_with()
+    assert state.permissions == host.settings.permissions
     read_transcript.assert_called_once_with(record["sid"])
     restored = runtime.replace_transcript.call_args.args[0]
     assert len(restored) == 1
@@ -1264,7 +1269,10 @@ async def test_failed_resume_keeps_current_transcript(monkeypatch, tmp_path) -> 
     from frontends.tui.features import resume as resume_module
     host.frontend.runtime = runtime
     host.history_workspace = str(tmp_path)
-    host.settings = SimpleNamespace(config=ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path))
+    host.settings = SimpleNamespace(
+        config=ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path),
+        permissions=preset_permissions("auto"),
+    )
     monkeypatch.setattr(resume_module, "require_tui_runtime", lambda value: value)
     dispatcher = TuiCommandDispatcher(
         host,
@@ -1359,7 +1367,10 @@ async def test_resumed_transcript_supports_export_and_backtrack(
     from frontends.tui.features import resume as resume_module
     host.frontend.runtime = runtime
     host.history_workspace = str(tmp_path)
-    host.settings = SimpleNamespace(config=ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path))
+    host.settings = SimpleNamespace(
+        config=ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path),
+        permissions=preset_permissions("auto"),
+    )
     monkeypatch.setattr(resume_module, "preload_tui_prompt_context", AsyncMock())
     monkeypatch.setattr(
         dispatch_module,

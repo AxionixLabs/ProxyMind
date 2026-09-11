@@ -987,6 +987,7 @@ class TuiCommandDispatcher(object):
 
         self._clear_prompt_draft()
         await self.state.refresh_preferences(self.host, ttl_sec=0.0)
+        self.state.permissions = self.host.settings.permissions
         self.state.workspace_label = self.runtime.context.workspace_label
         self.state.apply_prompt_context(self.runtime)
 

@@ -932,6 +932,7 @@ class TuiRuntime(object):
 
     def set_prompt_context(self, context: PromptContext) -> None:
         """在首帧或输入轮次前更新输入区展示上下文。"""
+        previous = self.context
         self.context = context
         workspace_title = context.workspace_label.replace("\\", "/").rstrip("/")
         if workspace_title == "?":
@@ -939,6 +940,8 @@ class TuiRuntime(object):
         elif "/" in workspace_title:
             workspace_title = workspace_title.rsplit("/", 1)[-1]
         self.terminal_progress.set_workspace_title(workspace_title)
+        if context != previous:
+            self.screen.invalidate()
 
     def set_process_status_label(self, label: str) -> None:
         """更新动画区域下方的后台进程摘要。"""
