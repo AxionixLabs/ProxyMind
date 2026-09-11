@@ -1129,6 +1129,7 @@ async def test_named_new_conversation_persists_title_without_result_copy() -> No
 @pytest.mark.anyio
 async def test_resume_conversation_clears_structured_prompt_draft(
     monkeypatch,
+    tmp_path,
 ) -> None:
     from frontends.tui.session import dispatch as dispatch_module
 
@@ -1136,7 +1137,9 @@ async def test_resume_conversation_clears_structured_prompt_draft(
         "cid": "cid_old_12345678",
         "sid": "sid_old_1_abcdef",
     }
-    state = SimpleNamespace(clear_pending_prompt_extras=Mock())
+    state = SimpleNamespace(
+        clear_pending_prompt_extras=Mock(), refresh_preferences=AsyncMock(), apply_prompt_context=Mock(),
+    )
     attach = SimpleNamespace(clear_pending_attachments=Mock())
     read_transcript = Mock(return_value=())
     host = SimpleNamespace(
@@ -1162,6 +1165,13 @@ async def test_resume_conversation_clears_structured_prompt_draft(
         terminal_capabilities=DEGRADED_TERMINAL_CAPABILITIES,
         replace_transcript=Mock(),
     )
+    from frontends.tui.features import resume as resume_module
+    runtime.context = SimpleNamespace(workspace_label=str(tmp_path))
+    host.frontend.runtime = runtime
+    host.history_workspace = str(tmp_path)
+    host.settings = SimpleNamespace(config=ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path))
+    monkeypatch.setattr(resume_module, "require_tui_runtime", lambda value: value)
+    monkeypatch.setattr(resume_module, "preload_tui_prompt_context", AsyncMock())
     dispatcher = TuiCommandDispatcher(
         host,
         runtime,
@@ -1221,7 +1231,7 @@ async def test_resume_conversation_opens_picker_for_empty_snapshot(
 
 
 @pytest.mark.anyio
-async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
+async def test_failed_resume_keeps_current_transcript(monkeypatch, tmp_path) -> None:
     from frontends.tui.session import dispatch as dispatch_module
 
     record = {
@@ -1251,6 +1261,11 @@ async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
         "choose_history_session",
         AsyncMock(return_value=record),
     )
+    from frontends.tui.features import resume as resume_module
+    host.frontend.runtime = runtime
+    host.history_workspace = str(tmp_path)
+    host.settings = SimpleNamespace(config=ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path))
+    monkeypatch.setattr(resume_module, "require_tui_runtime", lambda value: value)
     dispatcher = TuiCommandDispatcher(
         host,
         runtime,
@@ -1261,6 +1276,7 @@ async def test_failed_resume_keeps_current_transcript(monkeypatch) -> None:
     await dispatcher._resume_conversation()
 
     runtime.replace_transcript.assert_not_called()
+    host.conversation.resume.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -1336,8 +1352,15 @@ async def test_resumed_transcript_supports_export_and_backtrack(
             resume=AsyncMock(return_value=record),
         ),
     )
-    state = SimpleNamespace(clear_pending_prompt_extras=Mock())
+    state = SimpleNamespace(
+        clear_pending_prompt_extras=Mock(), refresh_preferences=AsyncMock(), apply_prompt_context=Mock(),
+    )
     runtime = TuiRuntime()
+    from frontends.tui.features import resume as resume_module
+    host.frontend.runtime = runtime
+    host.history_workspace = str(tmp_path)
+    host.settings = SimpleNamespace(config=ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path))
+    monkeypatch.setattr(resume_module, "preload_tui_prompt_context", AsyncMock())
     monkeypatch.setattr(
         dispatch_module,
         "choose_history_session",

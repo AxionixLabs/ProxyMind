@@ -28,6 +28,7 @@ from infrastructure.platform.git_review import WorkspaceReviewGitService
 from infrastructure.services.runtime_setup import service_runtime_asset_missing
 from .barriers import TuiForegroundTasks
 from .state import TuiSessionState
+from frontends.tui.features.resume import resume_history_session
 from ..core.interrupt import InterruptDisposition
 from ..core.models import FragmentBlock
 from ..core.runtime import TuiRuntime
@@ -79,7 +80,6 @@ from ..features.history import (
     HistoryResumePreviewLoader,
     HistoryResumeTranscriptLoader,
     choose_history_session,
-    load_history_transcript
 )
 from ..features.hooks import manage_hooks
 from ..features.listener import (
@@ -967,26 +967,15 @@ class TuiCommandDispatcher(object):
 
         session_id = str(selected.get("sid") or "").strip()
 
-        replay_blocks = await asyncio.to_thread(
-            load_history_transcript,
-            self.host,
-            session_id,
-            terminal_width=self.runtime.terminal_width,
-            hyperlinks=self.runtime.hyperlinks_enabled,
-            terminal_capabilities=self.runtime.terminal_capabilities,
-            record=selected,
-        )
-
         resume_error: str | None = None
         try:
-            resumed = await self.host.conversation.resume(
-                selected,
-                source="tui:resume",
-            )
+            resumed = await resume_history_session(self.host, selected)
         except Exception as error:
             resumed = None
             resume_error = str(error).strip() or type(error).__name__
 
+        if resumed is False:
+            return None
         if resumed is None:
             target_label = str(selected.get("title") or session_id).strip()
             detail = resume_error or "invalid session cursor."
@@ -997,7 +986,9 @@ class TuiCommandDispatcher(object):
             return None
 
         self._clear_prompt_draft()
-        self.runtime.replace_transcript(replay_blocks)
+        await self.state.refresh_preferences(self.host, ttl_sec=0.0)
+        self.state.workspace_label = self.runtime.context.workspace_label
+        self.state.apply_prompt_context(self.runtime)
 
     async def _archive_resume_row(self, row: "ResumeRow") -> None:
         """归档 Resume picker 中的非当前会话。"""

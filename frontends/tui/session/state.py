@@ -29,7 +29,10 @@ from ..features.context import (
 )
 
 if typing.TYPE_CHECKING:
-    from ..application import TuiApplicationHost
+    from ..application import (
+        ResumeApplicationHost,
+        TuiApplicationHost,
+    )
 
 
 class TuiSessionState(object):
@@ -215,7 +218,7 @@ class TuiSessionState(object):
         self._pending_prompt_extras = None
 
 
-async def preload_tui_prompt_context(host: "TuiApplicationHost") -> None:
+async def preload_tui_prompt_context(host: "ResumeApplicationHost") -> None:
     """在主画布显示前加载输入上下文和后台进程状态。"""
     runtime = require_tui_runtime(host.frontend.runtime)
 

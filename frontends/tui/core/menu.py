@@ -15,6 +15,7 @@ from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text,
 )
+from frontends.tui.contracts.keyboard import enhanced_key_token
 from frontends.tui.contracts.menu import (
     MenuEmptyAcceptAction,
     MenuFooterCommand,
@@ -569,7 +570,11 @@ class TuiMenu(object):
 
     def cancel(self) -> None:
         """取消当前菜单并回到父菜单或输入区。"""
-        self._complete(self.state, None, ViewCompletion.CANCELLED)
+        state = self.state
+        if state is not None and state.request.cancel_value is not None:
+            self.finish(state.request.cancel_value)
+        else:
+            self._complete(state, None, ViewCompletion.CANCELLED)
 
     def _submit_text_input(self, state: MenuState) -> bool:
         """提交当前文本输入视图中的非空值。"""
@@ -869,6 +874,11 @@ class TuiMenu(object):
         )
         if text_input_result is not None:
             return text_input_result
+
+        if state.request.interrupt_on_eof and key in (
+            Keys.ControlD, enhanced_key_token("d", frozenset({"ctrl"})),
+        ):
+            return self.on_ctrl_c(state)
 
         if (
             key_action_matches(self.keymap.move_down, normalized_sequence)
@@ -1760,6 +1770,16 @@ class TuiMenu(object):
         @bind_key_action(bindings, self.keymap.interrupt)
         def _(_event) -> None:
             self.on_ctrl_c()
+
+        eof_interrupt = Condition(lambda: bool(
+            self.state is not None and self.state.request.interrupt_on_eof
+        ))
+        eof_keys = (Keys.ControlD, enhanced_key_token("d", frozenset({"ctrl"})))
+        for eof_key in eof_keys:
+            if eof_key is not None:
+                @bindings.add(eof_key, filter=eof_interrupt)
+                def _(_event) -> None:
+                    self.on_ctrl_c()
 
         for number in range(1, 10):
             @bindings.add(str(number))

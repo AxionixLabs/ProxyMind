@@ -7,10 +7,13 @@
 
 import asyncio
 from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from infrastructure.config.session import ConfigSession
+from infrastructure.config.store import ConfigStore
 from metadata import const
 
 from frontends.cli import (
@@ -679,9 +682,11 @@ async def test_direct_cli_command_applies_temporary_model_override(
 
 
 @pytest.mark.anyio
-async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
-    from frontends.tui.core import runtime as runtime_module
-    from frontends.tui.features import history as history_module
+async def test_resume_last_uses_existing_tui_session_loop(monkeypatch, tmp_path) -> None:
+    from frontends.tui.features import resume as runtime_module
+    from frontends.tui.features import resume as history_module
+
+    monkeypatch.setattr(runtime_module, "preload_tui_prompt_context", AsyncMock())
 
     record = {
         "cid": "cid_test_12345678",
@@ -715,8 +720,10 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
     recent = Mock(return_value=[record])
     host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=object()),
-        history_workspace=r"D:\workspace",
+        history_workspace=str(tmp_path),
+        settings=SimpleNamespace(config=ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path)),
         conversation=SimpleNamespace(
+            cid=None, sid=None,
             history=SimpleNamespace(recent=recent),
             permissions=preset_permissions("auto"),
             resume=resume_conversation,
@@ -754,7 +761,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
 
     assert result is None
     recent.assert_called_once_with(
-        workspace=r"D:\workspace",
+        workspace=str(tmp_path),
         sources=("review", "tui", "tui:resume"),
         limit=1,
         status="active",
@@ -788,9 +795,9 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> None:
-    from frontends.tui.core import runtime as runtime_module
-    from frontends.tui.features import history as history_module
+async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch, tmp_path) -> None:
+    from frontends.tui.features import resume as runtime_module
+    from frontends.tui.features import resume as history_module
 
     record = {
         "cid": "cid_test_12345678",
@@ -806,8 +813,10 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch) -> Non
     resume = AsyncMock(return_value=None)
     host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=object()),
-        history_workspace=r"D:\workspace",
+        history_workspace=str(tmp_path),
+        settings=SimpleNamespace(config=ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path)),
         conversation=SimpleNamespace(
+            cid=None, sid=None,
             history=SimpleNamespace(recent=Mock(return_value=[record])),
             permissions=preset_permissions("auto"),
             resume=resume,

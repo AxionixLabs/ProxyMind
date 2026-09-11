@@ -22,7 +22,9 @@ from agent.stores.sessions import (
     INTERACTIVE_HISTORY_SOURCES,
 )
 from frontends.runtime import Frontend
+from frontends.tui.application import ResumeApplicationHost
 from frontends.tui.features.conversation import ConversationCompactor
+from frontends.tui.features.resume import resume_history_session
 from infrastructure.config.preferences import apply_primary_model_override
 from infrastructure.config.runtime_paths import agent_runtime_db_path
 from infrastructure.errors import AppError
@@ -64,7 +66,7 @@ class _SubscriptionSession(typing.Protocol):
         ...
 
 
-class CliCommandHost(typing.Protocol):
+class CliCommandHost(ResumeApplicationHost, typing.Protocol):
     """描述 CLI 命令分发所需的最小应用宿主。"""
 
     attach: _AttachmentState
@@ -259,30 +261,12 @@ async def run_selected_command(
             if record is None:
                 host.lifecycle.request_stop()
             else:
-                from frontends.tui.core.runtime import require_tui_runtime
-                from frontends.tui.features.history import load_history_transcript
-
-                runtime = require_tui_runtime(host.frontend.runtime)
-                session_id = str(record.get("sid") or "").strip()
-
-                replay_blocks = await asyncio.to_thread(
-                    load_history_transcript,
-                    host,
-                    session_id,
-                    terminal_width=runtime.terminal_width,
-                    hyperlinks=runtime.hyperlinks_enabled,
-                    terminal_capabilities=runtime.terminal_capabilities,
-                    record=record,
-                )
-
-                resumed = await host.conversation.resume(
-                    record,
-                    source="tui:resume",
-                )
-                if resumed is None:
-                    raise AppError("Session could not be resumed.")
-                runtime.replace_transcript(replay_blocks)
-
+                try:
+                    resumed = await resume_history_session(host, record)
+                except (OSError, TypeError, ValueError) as error:
+                    raise AppError(str(error)) from error
+                if not resumed:
+                    return None
                 await _run_tui_session(
                     host,
                     prompt=command.prompt,

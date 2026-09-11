@@ -28,6 +28,8 @@ from agent.ports import (
     WorkspaceRuntime,
 )
 from frontends.runtime import Frontend
+from agent.ports.workspace import WorkspaceChangePort
+from infrastructure.config.layers import ConfigResolution
 from infrastructure.config.session import ConfigSession
 from infrastructure.services.runtime_context import ServiceRuntimeContext
 from infrastructure.services.server_manager import ServerManage
@@ -236,7 +238,24 @@ class TuiSubagentPort(typing.Protocol):
         ...
 
 
-class TuiApplicationHost(typing.Protocol):
+class ResumeApplicationHost(typing.Protocol):
+    """定义恢复会话所需的配置及工作区准备边界，由组合根实现并由 Harness 提交。"""
+
+    conversation: RootConversationPort
+    frontend: Frontend
+    history_workspace: str
+    lifecycle: ProcessLifecyclePort
+    settings: TuiSettingsPort
+    workspace_runtime: WorkspaceRuntime
+
+    async def prepare_workspace(
+        self, workspace: Path, resolution: ConfigResolution,
+    ) -> WorkspaceChangePort:
+        """准备目标工作区并移交提交、清理责任，失败时保留当前会话。"""
+        ...
+
+
+class TuiApplicationHost(ResumeApplicationHost, typing.Protocol):
     """定义 TUI 会话可消费的应用宿主端口集合。
 
     该契约属于前端适配器，不拥有任何 Harness 状态。具体组合根可以同时满足 CLI、

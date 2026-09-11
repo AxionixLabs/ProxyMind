@@ -15,7 +15,16 @@ from agent.harness.sessions.conversation import ConversationState
 from agent.harness.sessions.root import RootConversationSession
 from agent.domain.policies import preset_permissions
 from agent.ports import TurnSessionContextPort
+from agent.stores.sessions import normalize_workspace
 from infrastructure.persistence.conversation_history import LocalConversationHistory
+from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
+from agent.harness.mcp.owner import McpRuntimeOwner
+from infrastructure.config.session import ConfigSession
+from infrastructure.config.settings_session import SettingsSession
+from infrastructure.config.preferences import Preferences
+from infrastructure.config.store import ConfigStore
+from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.features.resume import resume_history_session
 
 
 def _root_session(
@@ -160,6 +169,99 @@ async def test_resume_read_failure_preserves_old_session_and_workspace():
     assert session.sid == "sid_test_1_abcdef"
     change.commit.assert_not_called()
     resources.lifecycle.end.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("fail_preparation", [False, True])
+async def test_cross_project_resume_publishes_all_prepared_dependencies(tmp_path, fail_preparation):
+    launch = tmp_path / "launch"
+    target = tmp_path / "target"
+    launch.mkdir()
+    (target / ".mind").mkdir(parents=True)
+    (target / ".mind" / "config.toml").write_text(
+        'approval_policy = "never"\n[features]\nsubagents = true\n[agents]\nmax_depth = 3\n', encoding="utf-8",
+    )
+    config = ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=launch)
+    decision = config.resolve(workspace=target).project_trust
+    config.set_project_trust(decision, "trusted", workspace=target)
+    host = ApplicationHost.__new__(ApplicationHost)
+    host.history_workspace = normalize_workspace(launch)
+    host.settings = SettingsSession(config, Preferences(config), preset_permissions("auto"))
+    host.subagents = SimpleNamespace(bind_workspace=Mock())
+    host.command_hook_sessions = SimpleNamespace(clear=Mock())
+    host.javascript_execution = SimpleNamespace()
+    host.approval_coordinator = SimpleNamespace()
+    host.permission_grants = SimpleNamespace()
+    host.runtime_services = SimpleNamespace(
+        create_client_tool_registry=Mock(side_effect=ValueError("bad registry") if fail_preparation else None),
+        create_builtin_tool_registry=Mock(),
+    )
+    host.execution = SimpleNamespace(
+        activate_registries=Mock(), external_mcp=McpRuntimeOwner(runtime_factory=Mock()),
+    )
+    codings = []
+
+    def create_coding(**kwargs):
+        coding = SimpleNamespace(
+            root=kwargs["root"], user_shell=SimpleNamespace(), close=AsyncMock(),
+            preview_patch=Mock(), running_exec_sessions=AsyncMock(return_value={"items": []}),
+        )
+        codings.append(coding)
+        return coding
+
+    host.workspace_runtime = WorkspaceRuntimeOwner(
+        launch, application_layout=None, coding_factory=create_coding,
+        execution_policy_factory=lambda **kw: SimpleNamespace(root=kw["workspace_root"]),
+        image_reader_factory=lambda root: SimpleNamespace(root=root),
+    )
+    conversation, root_resources = _root_session(ConversationState(
+        cid="cid_test_12345678", sid="sid_test_1_abcdef",
+    ))
+    conversation._workspace = lambda: host.history_workspace
+    host.conversation = conversation
+
+    async def await_cleanup(operation):
+        return await operation
+
+    host.lifecycle = SimpleNamespace(await_cleanup=await_cleanup, request_stop=Mock())
+    runtime = TuiRuntime()
+    runtime.select_menu = AsyncMock(return_value="session")
+    runtime.replace_transcript = Mock(wraps=runtime.replace_transcript)
+    host.frontend = SimpleNamespace(runtime=runtime)
+    record = {"cid": "cid_next_12345678", "sid": "sid_next_1_abcdef", "workspace": str(target)}
+    try:
+        if fail_preparation:
+            with pytest.raises(ValueError, match="bad registry"):
+                await resume_history_session(host, record)
+            assert host.history_workspace == normalize_workspace(launch)
+            assert config.workspace == launch
+            assert conversation.sid == "sid_test_1_abcdef"
+            root_resources.lifecycle.end.assert_not_awaited()
+            host.subagents.bind_workspace.assert_not_called()
+            runtime.replace_transcript.assert_not_called()
+            codings[1].close.assert_awaited_once()
+            codings[0].close.assert_not_awaited()
+        else:
+            assert await resume_history_session(host, record)
+            assert host.history_workspace == normalize_workspace(target)
+            assert config.workspace == target
+            assert config.launch_directory == launch
+            assert host.settings.permissions.approval_policy == "never"
+            assert host.features.subagents
+            assert host.workspace_runtime.coding is codings[1]
+            binding = host.subagents.bind_workspace.call_args.kwargs
+            assert binding["execution_policy"] is host.workspace_runtime.execution_policy
+            assert binding["patch_preview"] is codings[1].preview_patch
+            assert binding["settings"].max_depth == 3
+            assert binding["enabled"]
+            host.execution.activate_registries.assert_called_once()
+            assert root_resources.lifecycle.end.call_args.args[1].cwd == normalize_workspace(launch)
+            assert root_resources.store.touch_session.call_args.kwargs["workspace"] == normalize_workspace(target)
+            runtime.replace_transcript.assert_called_once()
+            codings[0].close.assert_awaited_once()
+            assert runtime.input_model.workspace_root == target
+    finally:
+        await host.workspace_runtime.close()
 
 
 def test_root_session_applies_title_only_to_current_coordinates() -> None:

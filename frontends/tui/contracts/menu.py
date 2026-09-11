@@ -182,6 +182,8 @@ class MenuRequest(object):
     footer_right: str = ""
     footer_right_active: str = ""
     allow_cancel: bool = True
+    cancel_value: Hashable | None = None
+    interrupt_on_eof: bool = False
     description_layout: MenuDescriptionLayout = MenuDescriptionLayout.COLUMNS
     description_separator: str = "  "
     min_description_width: int = 24

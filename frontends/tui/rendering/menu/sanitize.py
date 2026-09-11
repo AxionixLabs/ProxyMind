@@ -72,6 +72,8 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         footer_right=sanitize_inline_text(request.footer_right),
         footer_right_active=sanitize_inline_text(request.footer_right_active),
         allow_cancel=request.allow_cancel,
+        cancel_value=request.cancel_value,
+        interrupt_on_eof=request.interrupt_on_eof,
         description_layout=sanitize_description_layout(request.description_layout),
         description_separator=sanitize_inline_text(request.description_separator),
         min_description_width=max(1, int(request.min_description_width)),
