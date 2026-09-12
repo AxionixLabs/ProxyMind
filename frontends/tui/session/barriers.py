@@ -7,6 +7,7 @@ import time
 import typing
 
 from agent.ports.frontend import ActivityStatusKind
+from agent.ports.mcp_runtime import McpControlRequest
 from infrastructure.errors import AppError
 from infrastructure.services.runtime_setup import service_runtime_asset_missing
 from observability import (
@@ -32,7 +33,7 @@ from ..features.listener import (
     run_listener_action,
 )
 from ..features.mcp import (
-    McpAction,
+    all_mcp_request,
     parse_mcp_command,
     render_mcp_action_cancelled,
     render_mcp_action_failure,
@@ -138,31 +139,30 @@ class TuiForegroundTasks(object):
             on_cancelled=lambda: render_helix_interrupted(self.host),
         )
 
-    def start_external_mcp(self, action: McpAction) -> bool:
+    def start_external_mcp(self, request: McpControlRequest) -> bool:
         """按统一生命周期启动外部 MCP 任务。"""
         activity_kind: ActivityStatusKind
-        if action == "stop":
+        if request.action == "stop":
             activity_kind = "operation"
         else:
             activity_kind = "external_mcp"
 
         return self.start(
             "External MCP",
-            lambda: run_mcp_action(self.host, action),
+            lambda: run_mcp_action(self.host, request),
             activity_kind=activity_kind,
-            on_succeeded=lambda was_started: render_mcp_action_result(
+            on_succeeded=lambda result: render_mcp_action_result(
                 self.host,
-                action,
-                was_started,
+                result,
             ),
             on_failed=lambda error: render_mcp_action_failure(
                 self.host,
-                action,
+                request,
                 error,
             ),
             on_cancelled=lambda: render_mcp_action_cancelled(
                 self.host,
-                action,
+                request,
             ),
         )
 
@@ -233,22 +233,23 @@ class TuiForegroundTasks(object):
 
             return self.start_helix_link()
 
-        is_mcp, mcp_action = parse_mcp_command(command)
+        try:
+            is_mcp, mcp_action = parse_mcp_command(command)
+        except ValueError as error:
+            self._defer_notice(str(error))
+            return True
 
         if not is_mcp or mcp_action is None:
             return False
         if mcp_action not in {"start", "force"}:
             return False
 
-        external_mcp = self.host.execution.external_mcp.current
-
-        if external_mcp is not None and external_mcp.started:
-            if mcp_action == "start":
-                self._defer_notice("External MCP is already started.")
-                return True
-            return False
-
-        return self.start_external_mcp(mcp_action)
+        try:
+            request = all_mcp_request(self.host, mcp_action)
+        except RuntimeError as error:
+            self._defer_notice(f"External MCP unavailable: {error}")
+            return True
+        return self.start_external_mcp(request)
 
     async def wait(self) -> None:
         """持续等待派生前台任务稳定结束后再允许下一次模型调用。"""

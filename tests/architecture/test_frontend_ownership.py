@@ -1107,7 +1107,8 @@ def test_tui_runtime_exposes_only_explicit_control_and_lifecycle_ports() -> None
     mcp_feature_source = (
         PROJECT_ROOT / "frontends" / "tui" / "features" / "mcp.py"
     ).read_text(encoding="utf-8-sig")
-    assert "runtime.tool_groups" in mcp_feature_source
+    assert "runtime.snapshot" in mcp_feature_source
+    assert "runtime.tool_groups" not in mcp_feature_source
     assert "runtime.group" not in mcp_feature_source
     assert 'getattr(runtime, "group"' not in mcp_feature_source
     assert "server_stats" not in mcp_feature_source

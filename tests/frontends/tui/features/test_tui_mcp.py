@@ -1,367 +1,276 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from dataclasses import replace
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import (
+    AsyncMock,
+    Mock,
+)
 
 import pytest
 
-from agent.ports import McpToolGroupSnapshot
-from agent.ports.mcp_runtime import McpServicesBusy
-from infrastructure.errors import AppError
+from prompt_toolkit.utils import get_cwidth
+
+from agent.ports.mcp_runtime import (
+    McpAllServices,
+    McpControlRequest,
+    McpControlResult,
+    McpRuntimeSnapshot,
+    McpServiceOutcome,
+    McpServiceSnapshot,
+    McpServicesBusy,
+    McpSingleService,
+)
+from frontends.tui.core.keymap import TuiRuntimeKeymap
+from frontends.tui.core.menu import TuiMenu
 from frontends.tui.core.models import (
     MenuDescriptionLayout,
-    STANDARD_MENU_FOOTER_HINT,
 )
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.features import mcp
-
-
-class _Runtime(object):
-    def __init__(self) -> None:
-        self.request = None
-
-    async def select_menu(self, request):
-        self.request = request
-        return None
+from frontends.tui.session.barriers import TuiForegroundTasks
+from frontends.tui.session.dispatch import (
+    DispatchAction,
+    TuiCommandDispatcher,
+)
 
 
 def _external_mcp_owner(runtime=None, **operations):
-    """构造外部 MCP 所有者测试替身。"""
-    methods = {
-        "start": AsyncMock(),
-        "restart": AsyncMock(),
-        "close": AsyncMock(),
-        "stop_services": AsyncMock(),
-    }
-    methods.update(operations)
-    return SimpleNamespace(current=runtime, **methods)
+    return SimpleNamespace(current=runtime, **operations)
 
 
 def _execution(owner):
-    """构造持有外部 MCP 的执行资源测试替身。"""
     return SimpleNamespace(external_mcp=owner)
 
 
-def _application(views, *, width=None):
-    """构造具有稳定 viewport 契约的应用展示端。"""
-    return SimpleNamespace(
-        emit=views.append,
-        viewport=SimpleNamespace(width=width),
+def _application(views, *, width=120):
+    return SimpleNamespace(emit=views.append, viewport=SimpleNamespace(width=width))
+
+
+def _service(key="all", **changes):
+    return replace(McpServiceSnapshot(key, "mcp__all__", True, "stopped", "stdio"), **changes)
+
+
+def _host(services=(), *, width=120, config_error=None, control=None):
+    views = []
+    owner = _external_mcp_owner(
+        snapshot=McpRuntimeSnapshot("instance", "/workspace", tuple(services), config_error),
+        control=control or AsyncMock(),
     )
-
-
-def _activity(*, enabled: bool = False):
-    """构造 TUI 外部 MCP 操作使用的活动端口。"""
-    return SimpleNamespace(
-        enabled=enabled,
-        stop=AsyncMock(),
-    )
-
-
-@pytest.mark.anyio
-async def test_mcp_menu_keeps_complete_actions_without_configuration(monkeypatch) -> None:
-    runtime = _Runtime()
-    monkeypatch.setattr(
-        mcp,
-        "summarize_external_runtime",
-        lambda _host: {
-            "started": False,
-            "configured": [],
-            "config_error": "",
-            "tool_groups": [],
-            "tool_count": 0,
-        },
-    )
-
-    await mcp.choose_mcp_action(runtime, object())
-
-    assert [option.value for option in runtime.request.options] == [
-        "start",
-        "force",
-        "stop",
-        "restart",
-        "status",
-    ]
-    assert [option.label for option in runtime.request.options] == [
-        "start",
-        "force",
-        "stop",
-        "restart",
-        "status",
-    ]
-    assert runtime.request.selected == 4
-    assert runtime.request.view_id == "mcp:root"
-    assert runtime.request.help_text == ""
-    assert runtime.request.footer_hint == STANDARD_MENU_FOOTER_HINT
-    assert (
-        runtime.request.description_layout
-        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
-    )
-    assert "enabled=false" in runtime.request.options[1].detail
-    assert "stdio" in runtime.request.options[2].detail
-
-
-@pytest.mark.anyio
-async def test_mcp_menu_does_not_duplicate_invalid_config_marker(monkeypatch) -> None:
-    runtime = _Runtime()
-    monkeypatch.setattr(
-        mcp,
-        "summarize_external_runtime",
-        lambda _host: {
-            "started": False,
-            "configured": [],
-            "config_error": "invalid config",
-            "tool_groups": [],
-            "tool_count": 0,
-        },
-    )
-
-    await mcp.choose_mcp_action(runtime, object())
-
-    assert runtime.request.title_accent_suffix == ""
-    assert runtime.request.status == "Manage configured external MCP services."
-    assert runtime.request.body == ("invalid config",)
-
-
-def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
     host = SimpleNamespace(
-        src_opera_place=tmp_path,
-        settings=SimpleNamespace(
-            config=SimpleNamespace(load=lambda: {
-                "mcp_servers": {
-                    "zentao": {"command": "zentao-server"},
-                },
-            }),
-        ),
-        execution=_execution(_external_mcp_owner(
-            SimpleNamespace(
-                started=True,
-                tool_groups=(McpToolGroupSnapshot(
-                    server="zentao",
-                    transport="stdio",
-                    auth="Unknown",
-                    tools=(
-                        "mcp__zentao__get_bug",
-                        "mcp__zentao__list_bug",
-                    ),
-                    discovered=5,
-                    exposed=2,
-                    filtered=3,
-                ),),
-            ),
-        )),
+        execution=_execution(owner),
+        activity=SimpleNamespace(enabled=False, stop=AsyncMock()),
+        frontend=SimpleNamespace(runtime=TuiRuntime(), application=_application(views, width=width)),
     )
-
-    summary = mcp.summarize_external_runtime(host)
-
-    assert summary["tool_count"] == 2
-    assert summary["filtered_count"] == 3
-    assert summary["tool_groups"] == [{
-        "server": "zentao",
-        "transport": "stdio",
-        "auth": "Unknown",
-        "tools": ["mcp__zentao__get_bug", "mcp__zentao__list_bug"],
-        "discovered": 5,
-        "exposed": 2,
-        "filtered": 3,
-    }]
+    return host, views
 
 
-@pytest.mark.parametrize(
-    ("command", "expected"),
-    [
-        ("/mcp", (True, None)),
-        ("/MCP START", (True, "start")),
-        ("/mcp force", (True, "force")),
-        ("/mcp restart", (True, "restart")),
-        ("/mcp unknown", (False, None)),
-        ("hello", (False, None)),
-    ],
-)
-def test_parse_mcp_command(command, expected) -> None:
+def _request(host, action="status", key="all"):
+    snapshot = host.execution.external_mcp.snapshot
+    return McpControlRequest(snapshot.runtime_id, snapshot.workspace, action, McpSingleService(key))
+
+
+def _menu(width=80):
+    keymap = TuiRuntimeKeymap.from_config({"tui": {"keymap": {"list": {"accept": "f18", "cancel": "f19"}}}})
+    menu = TuiMenu(
+        invalidate=lambda: None, focus_menu=lambda: None, focus_input=lambda: None,
+        get_width=lambda: width, keymap=keymap.list,
+    )
+    return menu, SimpleNamespace(select_menu=menu.request, push_menu=menu.push)
+
+
+def _press(menu, key):
+    assert menu.handle_key_event(SimpleNamespace(key=key, data="", key_sequence=(SimpleNamespace(key=key),)))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("width", [32, 80, 120])
+async def test_service_menu_navigation_preserves_raw_key_selection_scroll_and_safe_default(width):
+    services = [_service(f"service-{i:02}") for i in range(20)] + [_service("all")]
+    host, _ = _host(services)
+    menu, runtime = _menu(width)
+    task = asyncio.create_task(mcp.choose_mcp_action(runtime, host))
+    await asyncio.sleep(0)
+    root = menu.state
+    assert [option.value.config_key for option in root.request.options] == sorted(item.config_key for item in services)
+    assert all(isinstance(option.value, McpSingleService) for option in root.request.options)
+    menu._move(17)
+    selected, scroll_top = root.selected, root.scroll_top
+    assert scroll_top > 0
+    _press(menu, "f18")
+    child = menu.state
+    assert child.request.selected == 4
+    assert [option.label for option in child.request.options] == ["start", "force", "stop", "restart", "status"]
+    assert child.request.description_layout is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    assert [item.description for item in child.request.footer_hint.commands] == ["to confirm", "to go back"]
+    assert "close its child processes" in child.request.options[2].detail
+    assert "only if enabled" in child.request.options[3].detail
+    assert "f18" in "".join(text for _, text in menu.footer_fragments())
+    assert "f19" in "".join(text for _, text in menu.footer_fragments())
+    assert all(get_cwidth(line) <= width for line in "".join(text for _, text in menu.fragments()).splitlines())
+    _press(menu, "f19")
+    assert menu.state is root
+    assert (root.selected, root.scroll_top) == (selected, scroll_top)
+    menu._choose_index(0)
+    _press(menu, "f18")
+    result = await task
+    assert result == _request(host)
+    assert not menu.active
+    host.execution.external_mcp.control.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("config_error", [None, "invalid config"])
+@pytest.mark.parametrize("key", ["f18", "f19"])
+async def test_empty_menu_closes_without_control_request(config_error, key):
+    host, _ = _host(config_error=config_error)
+    menu, runtime = _menu()
+    task = asyncio.create_task(mcp.choose_mcp_action(runtime, host))
+    await asyncio.sleep(0)
+    assert menu.state.request.options == ()
+    assert menu.state.request.footer_hint.commands[0].description == "to close"
+    assert menu.state.request.body.count("invalid config") == int(config_error is not None)
+    _press(menu, key)
+    assert await task is None
+    host.execution.external_mcp.control.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("transport", ["streamable_http", "sse"])
+async def test_remote_service_menu_stop_explains_remote_stays_running(transport):
+    host, _ = _host([_service(transport=transport, config_enabled=False, state="ready")])
+    menu, runtime = _menu()
+    task = asyncio.create_task(mcp.choose_mcp_action(runtime, host))
+    await asyncio.sleep(0)
+    _press(menu, "f18")
+    assert "temporary connection" in menu.state.request.status
+    assert menu.state.request.options[2].detail == "Disconnect this service; the remote server keeps running."
+    _press(menu, "f19")
+    _press(menu, "f19")
+    assert await task is None
+
+
+@pytest.mark.parametrize(("command", "expected"), [
+    ("/mcp", (True, None)), ("/MCP START", (True, "start")),
+    ("/mcp force", (True, "force")), ("/mcp restart", (True, "restart")),
+    ("hello", (False, None)),
+])
+def test_parse_mcp_command(command, expected):
     assert mcp.parse_mcp_command(command) == expected
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("started", [False, True])
-async def test_force_always_uses_incremental_start(started) -> None:
-    owner = _external_mcp_owner(SimpleNamespace(started=started))
-    host = SimpleNamespace(
-        execution=_execution(owner),
-    )
-    await mcp.run_mcp_action(host, "force")
-
-    owner.start.assert_awaited_once_with(
-        include_disabled=True,
-        defer_activity_stop=True,
-    )
-    owner.restart.assert_not_awaited()
+@pytest.mark.parametrize("command", ["/mcp unknown", "/mcp stop extra", "/mcp status all", "/mcp force all"])
+async def test_invalid_mcp_command_is_local_without_model_or_control(command):
+    with pytest.raises(ValueError, match="Usage:"):
+        mcp.parse_mcp_command(command)
+    host, views = _host()
+    dispatcher = TuiCommandDispatcher(host, SimpleNamespace(), SimpleNamespace(), SimpleNamespace(), protocol_client=Mock())
+    assert await dispatcher.dispatch(command) is DispatchAction.HANDLED
+    assert views[-1].renderable.fragments
+    host.execution.external_mcp.control.assert_not_awaited()
 
 
 @pytest.mark.anyio
-async def test_mcp_cancellation_is_rendered_as_interrupted() -> None:
-    views = []
+@pytest.mark.parametrize("action", ["start", "force", "stop", "restart", "status"])
+async def test_direct_request_is_explicit_all_and_menu_key_all_stays_single(action):
+    host, _ = _host([_service()])
+    for command in (mcp.all_mcp_request(host, action), _request(host, action)):
+        await mcp.run_mcp_action(host, command)
+        host.execution.external_mcp.control.assert_awaited_with(command, defer_activity_stop=True)
+    assert isinstance(mcp.all_mcp_request(host, action).target, McpAllServices)
+    assert _request(host, action).target == McpSingleService("all")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("action", ["start", "force"])
+async def test_stream_incremental_start_is_allowed_with_existing_connections(action):
+    host, _ = _host([_service(state="ready")])
+    host.execution.external_mcp.current = SimpleNamespace(started=True)
+    tasks = TuiForegroundTasks(host.frontend.runtime, host)
+    tasks.start_external_mcp = Mock(return_value=True)
+    assert tasks.handle_stream_command(f"/mcp {action}", lambda: False)
+    tasks.start_external_mcp.assert_called_once_with(mcp.all_mcp_request(host, action))
+
+
+@pytest.mark.parametrize("width", [32, 60, 120])
+def test_status_separates_connection_config_and_wraps_long_names(width):
+    services = (
+        _service("全长名称" * 15, state="ready", tools=("mcp__all__" + "unbroken" * 30,), discovered=4, filtered=3),
+        _service("temporary", state="ready", config_enabled=False),
+        _service("removed", state="ready", config_enabled=None),
+        _service("failed", state="failed", connection_error="connection lost"),
+    )
+    host, views = _host(services, width=width, config_error="invalid config")
+    mcp.render_mcp_status(host)
+    assert [view.type for view in views] == ["tui.mcp", "tui.gap"]
+    text = "".join(value for _, value in views[0].renderable.fragments)
+    compact = text.replace("\n", "")
+    for label in ("Connection: ready", "Tools (0): (none)", "disabled (temporary connection)", "removed from config", "Connection: failed", "Config error: invalid config", "Filtered: 3"):
+        assert label in compact
+    assert all(get_cwidth(line) <= width for line in text.splitlines())
+    host.execution.external_mcp.control.assert_not_awaited()
+
+
+def test_status_rejects_stale_identity_and_unknown_target():
+    host, views = _host([_service("other")])
+    for command in (_request(host), replace(_request(host), runtime_id="old")):
+        mcp.render_mcp_status(host, command)
+    statuses = [view.renderable.plain_text for view in views if view.type == "tui.external_mcp.status"]
+    assert len(statuses) == 2
+    assert "no longer exists" in statuses[0]
+    assert "no longer active" in statuses[1]
+
+
+@pytest.mark.parametrize("outcome", ["applied", "unchanged", "disabled", "busy", "failed"])
+def test_action_result_has_scope_and_exactly_one_final_block(outcome):
+    host, views = _host()
+    result = McpControlResult(_request(host, "force"), (
+        McpServiceOutcome("all", outcome, _service(state="ready", config_enabled=False)),
+    ))
+    mcp.render_mcp_action_result(host, result)
+    assert [view.type for view in views] == ["tui.external_mcp.status", "tui.gap"]
+    text = views[0].renderable.plain_text
+    assert "External MCP · all · force" in text
+    assert f"all: {outcome}" in text
+    assert "ready" in text and "temporary connection" in text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("disposition", ["success", "failure", "busy", "cancel"])
+async def test_foreground_activity_handoff_has_one_scoped_final_result(disposition):
     started = asyncio.Event()
+    host, views = _host([_service()])
+    command = _request(host, "stop")
+    result = McpControlResult(command, (McpServiceOutcome("all", "applied", _service()),))
 
-    async def start_runtime(**_kwargs) -> None:
+    async def control(_request, **_kwargs):
         started.set()
-        await asyncio.Future()
+        if disposition == "cancel":
+            await asyncio.Future()
+        if disposition == "failure":
+            raise RuntimeError("cleanup failed")
+        if disposition == "busy":
+            raise McpServicesBusy(("all",))
+        return result
 
-    owner = _external_mcp_owner(start=start_runtime)
-    host = SimpleNamespace(
-        execution=_execution(owner),
-        frontend=SimpleNamespace(
-            application=_application(views),
-        ),
-    )
-    task = asyncio.create_task(mcp.run_mcp_action(host, "start"))
+    host.execution.external_mcp.control = control
+    tasks = TuiForegroundTasks(host.frontend.runtime, host)
+    tasks.start_external_mcp(command)
     await started.wait()
-    task.cancel()
-
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    mcp.render_mcp_action_cancelled(host, "start")
-
-    status = next(
-        view for view in views
-        if view.type == "tui.external_mcp.interrupted"
+    if disposition == "cancel":
+        tasks.cancel()
+    await tasks.wait()
+    finals = [view for view in views if view.type != "tui.gap"]
+    assert len(finals) == 1
+    text = (
+        "".join(value for _, value in finals[0].renderable.fragments)
+        if disposition == "cancel" else finals[0].renderable.plain_text
     )
-    assert "".join(
-        text for _style, text in status.renderable.fragments
-    ) == "• External MCP · start interrupted"
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("started", "expected"),
-    [
-        (True, "■ External MCP stopped"),
-        (False, "■ External MCP already stopped"),
-    ],
-)
-async def test_mcp_stop_commits_compact_final_status(started, expected) -> None:
-    views = []
-    owner = _external_mcp_owner(
-        SimpleNamespace(started=True) if started else None,
-    )
-    host = SimpleNamespace(
-        activity=_activity(),
-        execution=_execution(owner),
-        frontend=SimpleNamespace(
-            runtime=TuiRuntime(),
-            application=_application(views),
-        ),
-    )
-
-    was_started = await mcp.run_mcp_action(host, "stop")
-    await mcp.finish_mcp_activity(host, "stop")
-    mcp.render_mcp_action_result(host, "stop", was_started)
-
-    status = next(
-        view for view in views
-        if view.type == "tui.external_mcp.status"
-    )
-    assert status.renderable.plain_text == expected
-    assert not any(
-        view.type == "tui.external_mcp.interrupted"
-        for view in views
-    )
-
-
-@pytest.mark.anyio
-async def test_mcp_stop_failure_has_stop_specific_status() -> None:
-    views = []
-    owner = _external_mcp_owner(
-        SimpleNamespace(started=True),
-        stop_services=AsyncMock(side_effect=AppError("cleanup failed")),
-    )
-    host = SimpleNamespace(
-        activity=_activity(),
-        execution=_execution(owner),
-        frontend=SimpleNamespace(
-            runtime=TuiRuntime(),
-            application=_application(views),
-        ),
-    )
-
-    with pytest.raises(AppError) as captured:
-        await mcp.run_mcp_action(host, "stop")
-    await mcp.finish_mcp_activity(host, "stop")
-    mcp.render_mcp_action_failure(host, "stop", captured.value)
-
-    status = next(
-        view for view in views
-        if view.type == "tui.external_mcp.status"
-    )
-    assert status.renderable.plain_text == (
-        "■ External MCP stop failed\n  └ cleanup failed"
-    )
-
-
-@pytest.mark.anyio
-async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
-    views = []
-    cleanup_started = asyncio.Event()
-    release_cleanup = asyncio.Event()
-    cleanup_finished = asyncio.Event()
-
-    async def cleanup() -> None:
-        cleanup_started.set()
-        await release_cleanup.wait()
-        cleanup_finished.set()
-
-    async def stop_runtime() -> None:
-        cleanup_task = asyncio.create_task(cleanup())
-        try:
-            await asyncio.shield(cleanup_task)
-        except asyncio.CancelledError:
-            await cleanup_task
-        owner.current = SimpleNamespace(started=False)
-
-    owner = _external_mcp_owner(
-        SimpleNamespace(started=True),
-        stop_services=stop_runtime,
-    )
-    host = SimpleNamespace(
-        activity=_activity(),
-        execution=_execution(owner),
-        frontend=SimpleNamespace(
-            runtime=TuiRuntime(),
-            application=_application(views),
-        ),
-    )
-    task = asyncio.create_task(mcp.run_mcp_action(host, "stop"))
-    await cleanup_started.wait()
-    task.cancel()
-    assert not task.done()
-    release_cleanup.set()
-
-    was_started = await task
-    await mcp.finish_mcp_activity(host, "stop")
-    mcp.render_mcp_action_result(host, "stop", was_started)
-
-    assert cleanup_finished.is_set()
-    status = next(
-        view for view in views
-        if view.type == "tui.external_mcp.status"
-    )
-    assert status.renderable.plain_text == "■ External MCP stopped"
-    assert not any(
-        view.type == "tui.external_mcp.interrupted"
-        for view in views
-    )
-
-
-@pytest.mark.parametrize("action", ["stop", "restart"])
-def test_mcp_busy_feedback_keeps_connection_status_separate(action) -> None:
-    views = []
-    host = SimpleNamespace(frontend=SimpleNamespace(application=_application(views)))
-    mcp.render_mcp_action_failure(host, action, McpServicesBusy(("A",)))
-    statuses = [view for view in views if view.type == "tui.external_mcp.status"]
-    assert len(statuses) == 1
-    assert statuses[0].renderable.plain_text == "■ External MCP busy\n  └ MCP services busy: A"
+    assert "External MCP · all · stop" in text
+    assert ("interrupted" in text) == (disposition == "cancel")
+    assert not host.frontend.runtime.foreground_active
 
 
 @pytest.mark.parametrize(
@@ -455,164 +364,3 @@ def test_partial_external_mcp_failure_is_not_bold() -> None:
         "  └ docs: timeout"
     )
     assert all(not span.style.bold for span in status.renderable.spans)
-
-
-def test_mcp_force_result_keeps_activity_prefix() -> None:
-    views = []
-    host = SimpleNamespace(
-        execution=_execution(_external_mcp_owner(SimpleNamespace(
-            last_start_snapshot={
-                "done": True,
-                "items": [{
-                    "name": "docs",
-                    "state": "ready",
-                    "tools": 4,
-                    "discovered": 4,
-                    "filtered": 0,
-                }],
-            },
-        ))),
-        frontend=SimpleNamespace(
-            application=_application(views),
-        ),
-    )
-
-    mcp.render_mcp_action_result(host, "force", was_started=False)
-
-    status = next(
-        view for view in views
-        if view.type == "tui.external_mcp.status"
-    )
-    assert status.renderable.plain_text == (
-        "■ External MCP ready · 1/1 servers · 4 tools"
-    )
-
-
-def test_external_mcp_status_is_one_compact_block(monkeypatch) -> None:
-    views = []
-    host = SimpleNamespace(
-        frontend=SimpleNamespace(
-            application=_application(views),
-        ),
-    )
-    monkeypatch.setattr(
-        mcp,
-        "summarize_external_runtime",
-        lambda _host: {
-            "started": False,
-            "configured": [
-                {"name": "playwright", "transport": "stdio", "enabled": False},
-                {"name": "docs", "transport": "streamable_http", "enabled": True},
-            ],
-            "config_error": "",
-            "tool_groups": [],
-            "tool_count": 0,
-            "filtered_count": 0,
-        },
-    )
-
-    mcp.render_mcp_status(host)
-
-    assert [view.type for view in views] == ["tui.mcp", "tui.gap"]
-    assert views[0].renderable.fragments
-    assert "".join(
-        text for _style, text in views[0].renderable.fragments
-    ) == (
-        "/mcp status\n\n"
-        "🔌  MCP Tools\n\n"
-        "  • No MCP tools available.\n\n"
-        "  • docs\n"
-        "    • Status: enabled\n"
-        "    • Auth: Unknown\n"
-        "    • Transport: streamable_http\n"
-        "    • Tools: (none)\n\n"
-        "  • playwright\n"
-        "    • Status: disabled\n"
-        "    • Auth: Unknown\n"
-        "    • Transport: stdio\n"
-        "    • Tools: (none)"
-    )
-    assert (
-        "class:terminal.success dim",
-        "enabled",
-    ) in views[0].renderable.fragments
-    assert (
-        "class:terminal.failure dim",
-        "disabled",
-    ) in views[0].renderable.fragments
-
-
-def test_mcp_status_wraps_long_tool_lists(monkeypatch) -> None:
-    views = []
-    names = [
-        "browser_click",
-        "browser_close",
-        "browser_console_messages",
-        "browser_drag",
-        "browser_drop",
-        "browser_evaluate",
-        "browser_file_upload",
-        "browser_fill_form",
-        "browser_find",
-        "browser_handle_dialog",
-        "browser_hover",
-        "browser_navigate",
-        "browser_navigate_back",
-        "browser_network_request",
-        "browser_network_requests",
-        "browser_press_key",
-        "browser_resize",
-        "browser_run_code_unsafe",
-        "browser_select_option",
-        "browser_snapshot",
-        "browser_tabs",
-        "browser_take_screenshot",
-        "browser_type",
-        "browser_wait_for",
-    ]
-    width = 60
-    host = SimpleNamespace(
-        frontend=SimpleNamespace(
-            application=SimpleNamespace(
-                emit=views.append,
-                viewport=SimpleNamespace(width=width),
-            ),
-        ),
-    )
-    monkeypatch.setattr(
-        mcp,
-        "summarize_external_runtime",
-        lambda _host: {
-            "started": True,
-            "configured": [{
-                "name": "playwright",
-                "transport": "stdio",
-                "enabled": True,
-            }],
-            "config_error": "",
-            "tool_groups": [{
-                "server": "playwright",
-                "transport": "stdio",
-                "auth": "Unknown",
-                "tools": names,
-                "filtered": 0,
-            }],
-            "tool_count": len(names),
-            "filtered_count": 0,
-        },
-    )
-
-    mcp.render_mcp_status(host)
-
-    text = "".join(
-        value for _style, value in views[0].renderable.fragments
-    )
-    assert max(map(len, text.splitlines())) <= width
-    assert all(name in text for name in names)
-    assert "    • Tools: browser_click," in text
-    assert "      browser_wait_for" in text
-    assert ("", "    • Tools: ") in views[0].renderable.fragments
-    assert (
-        "dim",
-        "browser_click, browser_close,",
-    ) in views[0].renderable.fragments

@@ -121,7 +121,6 @@ from .mcp_runtime import (
     McpRuntimeBuilder,
     McpRuntimeFactory,
     McpRuntimeContext,
-    McpToolGroupSnapshot,
 )
 from .mcp_session import McpSessionPort
 from .network import (
@@ -399,7 +398,6 @@ __all__ = (
     "McpRuntimeBuilder",
     "McpRuntimeFactory",
     "McpRuntimeContext",
-    "McpToolGroupSnapshot",
     "SubscriptionHost",
     "SubscriptionInbox",
     "SubscriptionInboxItem",

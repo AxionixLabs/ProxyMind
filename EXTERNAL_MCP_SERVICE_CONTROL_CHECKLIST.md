@@ -1,6 +1,6 @@
 # 外接 MCP 单服务控制：方案评估、设计稿与分阶段验收清单
 
-状态：P0、P1、P2 已完成。单服务连接、全量增量语义和统一工具使用门禁已接入；P3—P5 的新菜单、展示收口和完整终端验收待实施。
+状态：P0—P3 已完成。单服务控制、全量增量语义、工具使用门禁和两级菜单已接入；P4/P5 的原生终端自动化与完整人工验收待实施。
 本文件统一维护方案、菜单与交互设计、分阶段清单、验收运行说明及证据；测试目录不另设验收说明文档。
 本文的阶段、自动测试和真机验收项均须凭对应证据勾选，源码阅读、测试替身或设计截图不能代替真机通过。
 
@@ -14,17 +14,17 @@
 本功能属于客户端本地连接管理，不新增 AppServer/Fabric 端点、线上事件或远程服务器管理能力。
 本文不是新的架构权威；实现完成时将稳定行为同步进 [交互模式文档](docs/interactive-mode.md)，本清单只承担实施与验收跟踪。
 
-| 已核对的实现                                                                                           | 当前事实及设计影响                                                                    |
-|--------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
-| [MCP 菜单](frontends/tui/features/mcp.py)                                                              | 当前菜单仍列五个全量动作；force 已改为增量启动；服务选择与固定默认 status 留待 P3 |
-| [菜单契约](frontends/tui/contracts/menu.py)、[菜单行布局](frontends/tui/rendering/menu/rows.py)        | 已有标题、简短说明、编号、选择标记、标准页脚和窄屏说明换行；复用这些能力              |
-| [Review](frontends/tui/features/review.py)、[Mailbox](frontends/tui/features/mailbox.py)               | 已有压入子菜单、返回父菜单和子项确认后关闭菜单组的模式                                |
-| [MCP owner](agent/harness/mcp/owner.py)、[运行时端口](agent/ports/mcp_runtime.py)                      | Harness 持有实例；`control_service` 接收明确单目标请求，最终释放仍为全量 close |
+| 已核对的实现                                                                                           | 当前事实及设计影响                                                                       |
+|--------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| [MCP 菜单](frontends/tui/features/mcp.py)                                                              | 服务列表进入单服务五动作，二级默认 status；直接命令显式全量        |
+| [菜单契约](frontends/tui/contracts/menu.py)、[菜单行布局](frontends/tui/rendering/menu/rows.py)        | 已有标题、简短说明、编号、选择标记、标准页脚和窄屏说明换行；复用这些能力                 |
+| [Review](frontends/tui/features/review.py)、[Mailbox](frontends/tui/features/mailbox.py)               | 已有压入子菜单、返回父菜单和子项确认后关闭菜单组的模式                                   |
+| [MCP owner](agent/harness/mcp/owner.py)、[运行时端口](agent/ports/mcp_runtime.py)                      | Harness 持有实例；`control` 接收冻结身份的单服务或全量请求，最终释放仍为全量 close           |
 | [外部运行时](infrastructure/mcp/external_runtime.py)                                                   | start/force 补齐缺失服务；交互全停检查引用后释放 group，保留实例身份；最终停止禁止新引用 |
-| [连接组](infrastructure/mcp/external_group.py)                                                         | 每服务独立 owner task、资源栈及状态，单服务关闭只撤下目标的工具与路由 |
-| [工具组合](infrastructure/mcp/tool_runtime.py)、[组合会话](infrastructure/mcp/composite_session.py)    | 工具来源在进入使用范围时确定；旧工具快照和底层连接的生命周期必须协调                  |
-| [流式命令策略](frontends/tui/prompting/commands.py)、[前台任务屏障](frontends/tui/session/barriers.py) | 当前运行中 `stop/restart` 被拒绝，`status` 是本地快照，部分启动操作经屏障执行         |
-| [工作区切换](agent/harness/sessions/workspace_change.py)                                               | 切换时移交旧 MCP owner、释放旧资源并重建；旧工作区回调不能重新发布工具                |
+| [连接组](infrastructure/mcp/external_group.py)                                                         | 每服务独立 owner task、资源栈及状态，单服务关闭只撤下目标的工具与路由                    |
+| [工具组合](infrastructure/mcp/tool_runtime.py)、[组合会话](infrastructure/mcp/composite_session.py)    | 工具来源在进入使用范围时确定；旧工具快照和底层连接的生命周期必须协调                     |
+| [流式命令策略](frontends/tui/prompting/commands.py)、[前台任务屏障](frontends/tui/session/barriers.py) | 运行中 `stop/restart` 被拒绝，`status` 是本地快照，start/force 经屏障增量执行            |
+| [工作区切换](agent/harness/sessions/workspace_change.py)                                               | 切换时移交旧 MCP owner、释放旧资源并重建；旧工作区回调不能重新发布工具                   |
 
 ## 2. 整体评估与推荐取舍
 
@@ -113,12 +113,12 @@
 
 ```text
 External MCP
-Select a service; /mcp <action> manages all services.
+Select one service. Direct /mcp <action> commands apply to all services.
 
-› 1. github        ready · stdio · 8 tools
-  2. filesystem    stopped · stdio
-  3. browser       failed · streamable_http
-  4. database      stopped · disabled · stdio
+› 1. browser       failed · enabled · streamable_http · 0 tools
+  2. database      stopped · disabled · stdio · 0 tools
+  3. filesystem    stopped · enabled · stdio · 0 tools
+  4. github        ready · enabled · stdio · 8 tools
 
 Press enter to confirm or esc to go back
 ```
@@ -132,14 +132,14 @@ Press enter to confirm or esc to go back
 ### M2：二级，五个单服务动作
 
 ```text
-External MCP — github
-ready · stdio · enabled · 8 tools
+External MCP · github
+ready · enabled · stdio · 8 tools
 
-  1. start      Start this service if enabled; keep its current connection.
-  2. force      Start this service even if disabled; keep its current connection.
-  3. stop       Disconnect this service and close its child process.
-  4. restart    Reload configuration and reconnect this service if enabled.
-› 5. status     Show this service's status and tools.
+  1. start      Start this service if enabled; keep an existing connection.
+  2. force      Start this service even if disabled; keep its configuration and existing connection.
+  3. stop       Disconnect this service and close its child processes.
+  4. restart    Validate config, disconnect this service, then start it only if enabled.
+› 5. status     View this service's connection and configuration without connecting.
 
 Press enter to confirm or esc to go back
 ```
@@ -152,14 +152,14 @@ Press enter to confirm or esc to go back
 ### M3：禁用服务临时启动后的菜单
 
 ```text
-External MCP — database
-ready · stdio · disabled · temporary · 4 tools
+External MCP · database
+ready · disabled (temporary connection) · stdio · 4 tools
 
-  1. start      Start this service if enabled; keep its current connection.
-  2. force      Start this service even if disabled; keep its current connection.
-  3. stop       Disconnect this service and close its child process.
-  4. restart    Reload configuration and reconnect this service if enabled.
-› 5. status     Show this service's status and tools.
+  1. start      Start this service if enabled; keep an existing connection.
+  2. force      Start this service even if disabled; keep its configuration and existing connection.
+  3. stop       Disconnect this service and close its child processes.
+  4. restart    Validate config, disconnect this service, then start it only if enabled.
+› 5. status     View this service's connection and configuration without connecting.
 
 Press enter to confirm or esc to go back
 ```
@@ -169,8 +169,8 @@ Press enter to confirm or esc to go back
 ### M4：窄窗口与长名称
 
 ```text
-External MCP — github
-ready · stdio · enabled · 8 tools
+External MCP · github
+ready · enabled · stdio · 8 tools
 
   1. start
      Start this service if enabled;
@@ -191,9 +191,9 @@ Press enter to confirm or esc to go back
 
 ```text
 External MCP
-Select a service to manage.
+Select one service. Direct /mcp <action> commands apply to all services.
 
-No MCP services configured.
+No MCP services configured or connected.
 
 Press enter or esc to close
 ```
@@ -229,26 +229,32 @@ Press enter or esc to close
 
 ```text
 单服务进行态：
-• External MCP github starting
+• External MCP · github · starting
 
 单服务最终态：
-■ External MCP github ready · 8 tools
+■ External MCP · github · start complete
+  github: applied · ready · enabled · stdio · 8 tools
 
 已连接时重复 start/force：
-■ External MCP github already ready · 8 tools
+■ External MCP · github · start complete
+  github: unchanged · ready · enabled · stdio · 8 tools
 
 单服务停止成功：
-■ External MCP github stopped
+■ External MCP · github · stop complete
+  github: applied · stopped · enabled · stdio · 0 tools
 
 全量停止进行态：
-• External MCP stopping all services
+• External MCP · all services · stopping
 
 全量最终态：
-■ External MCP stopped · 3 services
+■ External MCP · all services · stop complete
+  browser: applied · stopped · enabled · streamable_http · 0 tools
+  filesystem: applied · stopped · enabled · stdio · 0 tools
+  github: applied · stopped · enabled · stdio · 0 tools
 
 单服务失败：
-■ External MCP browser start failed
-  └ startup timed out after 10s
+■ External MCP · browser · start failed
+  browser: failed · failed · enabled · streamable_http · 0 tools · startup timed out after 10s
 ```
 
 标记、颜色、动画、树形详情和最终块使用现有 MCP/operation 活动区与终端样式；数字来自真实结果，不能固定。
@@ -258,13 +264,13 @@ Press enter or esc to close
 ### I3：status 输出到正文
 
 ```text
-External MCP — github
-
-  • Connection: ready
-  • Config: enabled
-  • Transport: stdio
-  • Tools: 8 available · 2 filtered
-  • Last connection error: none
+External MCP · github · status
+github
+Connection: ready
+Config: enabled
+Transport: stdio
+Tools (2): search, read
+Discovered: 4 · Filtered: 2
 ```
 
 复用现有状态输出块，按目标筛选并列出工具；不增加第三层全屏状态页。
@@ -314,17 +320,17 @@ stdio 可以在脱敏诊断证据中记录 PID/启动身份；不要求 HTTP/SSE
 
 [control.schema.json](tests/fixtures/mcp/control.schema.json) 固定第 3 节的输入、状态及结果结构；
 [契约测试](tests/external_mcp/test_control_contract.py) 校验以下边界。
-这些定义是测试验收值，不是线上协议。P1 已以实际端口输出验证单服务请求、快照及结果；菜单投影仍待 P3 接入。
+这些定义是本地验收值，不是线上协议。P3 已以实际控制请求、结果及菜单选择校验同一 schema；菜单列表和默认项由共享组件测试验证。
 
-| 具名定义 | 固定约束 |
-|---|---|
-| `McpAction` | `start/force/stop/restart/status` 五动作，不接受额外参数或未知动作作为已规范化请求 |
-| `McpAllServices`、`McpSingleService`、`McpTarget` | `scope=all` 与 `scope=single + config_key` 判别联合；真实配置键 `all` 仍为单服务 |
-| `McpControlRequest` | 必须携带运行实例、工作区、动作和明确目标；不以工具别名或显示序号寻找服务 |
-| `McpMenuSelection` | 只允许 single 请求或 null 取消；null 不是管理请求，也不代表全量 |
-| `McpServerMenu`、`McpServiceMenu` | 服务列表没有全量候选，二级五动作顺序固定、默认 status |
-| `McpServiceSnapshot` | 配置启用、连接状态、工具目录和连接错误独立；允许 ready + 0 tools、disabled + ready、配置已删除 |
-| `McpControlResult` | 每服务结果包含动作结论、快照及操作错误；busy 可以带 ready 快照，单目标只能返回一项 |
+| 具名定义                                          | 固定约束                                                                                       |
+|---------------------------------------------------|------------------------------------------------------------------------------------------------|
+| `McpAction`                                       | `start/force/stop/restart/status` 五动作，不接受额外参数或未知动作作为已规范化请求             |
+| `McpAllServices`、`McpSingleService`、`McpTarget` | `scope=all` 与 `scope=single + config_key` 判别联合；真实配置键 `all` 仍为单服务               |
+| `McpControlRequest`                               | 必须携带运行实例、工作区、动作和明确目标；不以工具别名或显示序号寻找服务                       |
+| `McpMenuSelection`                                | 只允许 single 请求或 null 取消；null 不是管理请求，也不代表全量                                |
+| `McpServerMenu`、`McpServiceMenu`                 | 服务列表没有全量候选，二级五动作顺序固定、默认 status                                          |
+| `McpServiceSnapshot`                              | 配置启用、连接状态、工具目录和连接错误独立；允许 ready + 0 tools、disabled + ready、配置已删除 |
+| `McpControlResult`                                | 每服务结果包含动作结论、快照及操作错误；busy 可以带 ready 快照，单目标只能返回一项             |
 
 服务身份是运行实例及工作区中的**原始配置键**，工具前缀仅用于工具命名和路由，不是控制目标。
 契约测试通过实际 `normalize_mcp_servers` 检查 `Docs API` / `Docs/API` 的前缀冲突和删除后的身份，禁止倒推目标。
@@ -333,23 +339,23 @@ JSON Schema 只校验结构和局部约束；实例有效性、目标存在性�
 
 [control_cases.json](tests/fixtures/mcp/control_cases.json) 保存 start 补齐、force 增量、重复 force、单停隔离、禁用目标 restart 和只读 status 的前置状态及预期连接变化。
 P0 校验这些输入及目标集合；P1 四项及 P2 两项全量增量启动均已通过实际 runtime 重放，校验进程、会话身份及禁用配置。
-生产端口的 `McpServiceControlRequest` 只接受 `McpSingleService`，对应验收 schema 的 single 分支；
-`McpServiceOutcome` 和 `McpServiceSnapshot` 输出经同一 schema 校验。全量 start/restart 沿用具名生命周期方法，
-交互全停使用 `stop_services`，最终释放使用 close/stop；没有以字符串 `all` 或缺失单目标推断全量的入口。
-菜单及统一交互请求的 schema 分支由 P3 接入，不能将验收 schema 的全部类型当作已实现的菜单端口。
+生产端口 `McpControlRequest` 接受 `McpSingleService | McpAllServices`，`McpControlResult` 绑定请求与逐服务结果。
+菜单只返回 single 请求或 None，直接命令构建显式 all 目标；请求冻结实例和工作区，执行时再次校验。
+Harness owner 的 `snapshot` 提供 `McpRuntimeSnapshot`，本地读配置失败仍返回已持有连接及脱敏错误；不进行网络探测。
+前端已移除旧工具分组投影和自行读取配置的路径；启动引导仍使用既有启动活动快照，最终释放仍使用 close/stop。
 
 ### 6.2 工具消费者与关停入口复核
 
-| 消费者/入口 | 已核对的实际调用链 | P2 门禁与释放要求 |
-|---|---|---|
-| 根 Turn | [root_runner.py](agent/harness/execution/root_runner.py) → `execute_turn` → [ExecutionResources](agent/harness/execution/resources.py) 的 `with_mcp_session` → `CompositeToolRuntime.run_with_context` | 取得冻结工具目录时同时取得服务使用权，覆盖整个回调；成功、异常和取消均释放 |
-| 子代理 | [subagent_runner.py](agent/harness/execution/subagent_runner.py) 使用 composition 注入的同一 execution 资源及 TurnRunner | 复用同一使用范围；父 Turn 返回后仍存活的子代理不能绕过占用检查 |
-| Subscription | [forwarding.py](frontends/subscription/forwarding.py) 的 `DefaultForwardHandler` 经 `RootTurnCommandExecutor`、TurnApplication 使用注入的 TurnRunner | 纳入根 Turn 路径；前台输入空闲不代表后台使用权已释放 |
-| Review 工具发现与恢复 | [reviews.py](agent/application/turns/reviews.py) 通过 `with_mcp_session` 发现工具；[observed_turn.py](agent/harness/execution/observed_turn.py) 恢复执行仍经 `execute_turn` | 短发现范围结束及时释放；实际执行重新取得使用权，不重写冻结请求中的工具身份 |
-| MCP Hook | [Hook runtime](agent/harness/hooks/runtime.py) → [HookMcpRunner](infrastructure/mcp/hook_runner.py) → owner.use_tools → `call_hook_tool` | 与 Turn 使用同一 owner 门禁，按既有 Hook 服务别名取得目标引用，异常/超时/取消时释放 |
-| 异步 Hook | [async_tasks.py](agent/harness/hooks/async_tasks.py) 持有并收束 Hook 任务 | 跟随实际 MCP Hook 使用范围；退出时等待已有清理，不仅统计前台工具调用 |
-| 应用最终关闭 | [process_resources.py](agent/harness/process_resources.py) 顺序收束 Subscription、启动任务、子代理、审批、Hook 等，再关闭 execution/service | 保留现有分步关闭及失败重试语义；最终资源释放不返回交互 busy |
-| 工作区切换 | [workspace_change.py](agent/harness/sessions/workspace_change.py) 移交旧 owner、释放并重建资源 | 使用权属于原运行实例；旧连接回调不能向新工作区发布状态或工具 |
+| 消费者/入口           | 已核对的实际调用链                                                                                                                                                                                     | P2 门禁与释放要求                                                                   |
+|-----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------|
+| 根 Turn               | [root_runner.py](agent/harness/execution/root_runner.py) → `execute_turn` → [ExecutionResources](agent/harness/execution/resources.py) 的 `with_mcp_session` → `CompositeToolRuntime.run_with_context` | 取得冻结工具目录时同时取得服务使用权，覆盖整个回调；成功、异常和取消均释放          |
+| 子代理                | [subagent_runner.py](agent/harness/execution/subagent_runner.py) 使用 composition 注入的同一 execution 资源及 TurnRunner                                                                               | 复用同一使用范围；父 Turn 返回后仍存活的子代理不能绕过占用检查                      |
+| Subscription          | [forwarding.py](frontends/subscription/forwarding.py) 的 `DefaultForwardHandler` 经 `RootTurnCommandExecutor`、TurnApplication 使用注入的 TurnRunner                                                   | 纳入根 Turn 路径；前台输入空闲不代表后台使用权已释放                                |
+| Review 工具发现与恢复 | [reviews.py](agent/application/turns/reviews.py) 通过 `with_mcp_session` 发现工具；[observed_turn.py](agent/harness/execution/observed_turn.py) 恢复执行仍经 `execute_turn`                            | 短发现范围结束及时释放；实际执行重新取得使用权，不重写冻结请求中的工具身份          |
+| MCP Hook              | [Hook runtime](agent/harness/hooks/runtime.py) → [HookMcpRunner](infrastructure/mcp/hook_runner.py) → owner.use_tools → `call_hook_tool`                                                               | 与 Turn 使用同一 owner 门禁，按既有 Hook 服务别名取得目标引用，异常/超时/取消时释放 |
+| 异步 Hook             | [async_tasks.py](agent/harness/hooks/async_tasks.py) 持有并收束 Hook 任务                                                                                                                              | 跟随实际 MCP Hook 使用范围；退出时等待已有清理，不仅统计前台工具调用                |
+| 应用最终关闭          | [process_resources.py](agent/harness/process_resources.py) 顺序收束 Subscription、启动任务、子代理、审批、Hook 等，再关闭 execution/service                                                            | 保留现有分步关闭及失败重试语义；最终资源释放不返回交互 busy                         |
+| 工作区切换            | [workspace_change.py](agent/harness/sessions/workspace_change.py) 移交旧 owner、释放并重建资源                                                                                                         | 使用权属于原运行实例；旧连接回调不能向新工作区发布状态或工具                        |
 
 门禁由现有 Harness owner 与 execution 使用范围协调，底层连接记录仍归 runtime/group。
 “获得目录及使用权”和“检查占用并禁止新增使用”必须原子衔接；不能在 TUI 自建计数器，也不能只在 `call_tool` 期间加锁。
@@ -358,7 +364,7 @@ P2 已接入这些落点：Harness 持有整个使用范围，runtime 的逐服�
 
 ## 7. 分阶段改造清单
 
-每阶段完成实现后先跑受影响定向测试，缺少必要证据不得勾选完成。P0—P2 的完成不代表后续菜单或完整真机交互已验收。
+每阶段完成实现后先跑受影响定向测试，缺少必要证据不得勾选完成。P0—P3 的完成不代表原生终端或完整真机交互已验收。
 
 ### P0：固定边界与可复现验收输入
 
@@ -409,15 +415,25 @@ P2 证据见 [test_batch_lifecycle.py](tests/external_mcp/test_batch_lifecycle.p
 
 ### P3：菜单、命令与反馈
 
-- [ ] 裸 `/mcp` 只列服务，所有服务进入固定五动作菜单；没有 All servers 或全量动作行。
-- [ ] 实现 M1—M5，二级默认 status、父子菜单返回保留选择、确认后关闭菜单组。
-- [ ] 直接 `/mcp <action>` 只产生明确全量操作；未知动作和多余参数本地报错。
-- [ ] 复用活动区、标准页脚、Runtime Keymap 和共享 renderer；范围与服务名出现在结果中。
-- [ ] status 输出连接与配置的独立事实；配置错误、空列表、临时启用和配置删除均有正确显示。
-- [ ] 同步命令补全说明和交互文档中受影响的稳定行为，移除旧 force 和全量菜单描述。
-- [ ] 菜单、命令、活动交接及窄窗口定向测试通过。
+- [x] 裸 `/mcp` 只列服务，所有服务进入固定五动作菜单；没有 All servers 或全量动作行。
+- [x] 实现 M1—M5，二级默认 status、父子菜单返回保留选择、确认后关闭菜单组。
+- [x] 直接 `/mcp <action>` 只产生明确全量操作；未知动作和多余参数本地报错。
+- [x] 复用活动区、标准页脚、Runtime Keymap 和共享 renderer；范围与服务名出现在结果中。
+- [x] status 输出连接与配置的独立事实；配置错误、空列表、临时启用和配置删除均有正确显示。
+- [x] 同步命令补全说明和交互文档中受影响的稳定行为，移除旧 force 和全量菜单描述。
+- [x] 菜单、命令、活动交接及窄窗口定向测试通过。
 
 阶段出口：AC01、AC02、AC13—AC16；M1—M5、I1—I5 均有自动验证或明确的真机用例映射。
+
+P3 证据：[菜单与命令测试](tests/frontends/tui/features/test_tui_mcp.py)、[流式交接测试](tests/frontends/tui/runtime/test_tui_stream_commands.py)、[真实传输接线测试](tests/external_mcp/test_tui_control.py)。
+
+| 设计 | 自动验证 | 完整真机映射 |
+|---|---|---|
+| M1/M2、I1 | 共享菜单栈、原始配置键、固定五项、默认 status、自定义确认/返回键、恢复选择和滚动、确认关闭整组 | R01/R03/R13 |
+| M3/M5、I3 | disabled+ready、配置删除、零工具、空菜单 Enter/Esc、损坏配置保留连接并可停止 | R05/R06/R10 |
+| M4 | 32/60/80/120 列布局、长名称与工具名换行；复用标准页脚及 Runtime Keymap | R13；原生缩放、无色与动画关闭留 P4/P5 |
+| I2/I5 | 单服务及全量范围、忙碌/失败/取消的单次最终块、陈旧身份拒绝、沿用启动快照、真实请求与结果 schema | R03/R09/R10/R13 |
+| I4 | 流式 start/force 允许增量补启动；status 本地读取；bare/stop/restart 仍按流式策略拒绝 | R11；真实模型与终端留 P4/P5 |
 
 ### P4：完整调用链和原生终端自动验收
 
@@ -510,21 +526,21 @@ python -m tests.external_mcp.fixture_suite --directory .cache/acceptance/externa
 整张 MCP 表被替换，日常服务不会混入；用户模型等其他配置保持，客户端工作区为本次独立产物目录。
 使用 `/quit` 正常退出客户端，suite 随后回收自身创建的 H/S 进程。该入口不保证尚未实施的新菜单已可用。
 
-| 配置键 | 模式 | 默认启用 | 用途 |
-|---|---|---|---|
-| A、B | ready | 是 | 同名原始工具 `ping/block`，验证前缀、进程及连接隔离 |
-| D | ready | 否 | enabled/force 语义输入 |
-| E | empty | 是 | 握手成功且工具列表为空 |
-| Filtered | ready，`allow=[]` | 是 | 发现两工具但全部过滤 |
-| NoTools | no-tools | 是 | 服务明确不声明 tools 能力 |
-| F | startup-failure | 否 | 进程以 7 退出，不握手 |
-| DiscoveryFailure | discovery-failure | 否 | 已握手但 tools/list 返回 MCP 错误 |
-| Slow | handshake-timeout | 否 | 不回答握手，由客户端超时清理 |
-| Disconnect | disconnect | 否 | 记录一次实际工具请求后以 23 退出，用于检测重放 |
-| CloseStall | close-stall | 否 | 会话退出清理阻塞，由实际 stdio transport 回收进程 |
-| Docs API、Docs/API | ready | 否 | 规范化名称冲突，服务身份仍为原始配置键 |
-| all | ready | 否 | 真实配置键 `all` 不能成为全量哨兵 |
-| H、S | ready | 是 | HTTP/SSE 服务；客户端断开后远端进程继续接受连接 |
+| 配置键             | 模式              | 默认启用 | 用途                                                |
+|--------------------|-------------------|----------|-----------------------------------------------------|
+| A、B               | ready             | 是       | 同名原始工具 `ping/block`，验证前缀、进程及连接隔离 |
+| D                  | ready             | 否       | enabled/force 语义输入                              |
+| E                  | empty             | 是       | 握手成功且工具列表为空                              |
+| Filtered           | ready，`allow=[]` | 是       | 发现两工具但全部过滤                                |
+| NoTools            | no-tools          | 是       | 服务明确不声明 tools 能力                           |
+| F                  | startup-failure   | 否       | 进程以 7 退出，不握手                               |
+| DiscoveryFailure   | discovery-failure | 否       | 已握手但 tools/list 返回 MCP 错误                   |
+| Slow               | handshake-timeout | 否       | 不回答握手，由客户端超时清理                        |
+| Disconnect         | disconnect        | 否       | 记录一次实际工具请求后以 23 退出，用于检测重放      |
+| CloseStall         | close-stall       | 否       | 会话退出清理阻塞，由实际 stdio transport 回收进程   |
+| Docs API、Docs/API | ready             | 否       | 规范化名称冲突，服务身份仍为原始配置键              |
+| all                | ready             | 否       | 真实配置键 `all` 不能成为全量哨兵                   |
+| H、S               | ready             | 是       | HTTP/SSE 服务；客户端断开后远端进程继续接受连接     |
 
 全量 `force` 会包含故障服务；批量正常路径验收先在**专用配置副本**中去掉故障条目，required 场景在副本中明确设置 `required=true`。
 普通生成配置不会启用故障条目，不将其合入日常配置。
@@ -585,7 +601,7 @@ R12 的工作区切换以产品实际允许的时机执行；不支持并行切�
 
 Linux/macOS 使用对应仓库虚拟环境的激活脚本，随后使用相同的 `python -m ...` 命令。
 
-P0—P2 契约输入、真实 fixture、单服务和批次生命周期定向测试：
+P0—P3 契约输入、真实 fixture、单服务、批次及菜单接线定向测试：
 
 ```shell
 python -m pytest tests/external_mcp -q
@@ -605,13 +621,19 @@ P2 共享使用范围涉及 Turn、子代理、Review 和 Subscription，扩大�
 python -m pytest tests/agent/harness/execution tests/agent/harness/agents tests/agent/application/turns tests/frontends/subscription tests/integration/test_mcp_approval_gate.py tests/integration/test_mcp_approval_semantics_matrix.py tests/frontends/tui/runtime/test_tui_stream_commands.py -q
 ```
 
-菜单与实际终端链路形成后运行对应原生终端场景；已有场景通过不等于新增 MCP 场景已覆盖：
+P3 菜单、命令、活动与共享布局回归：
+
+```shell
+python -m pytest tests/frontends/tui/features/test_tui_mcp.py tests/frontends/tui/features/test_tui_commands.py tests/frontends/tui/runtime/test_tui_stream_commands.py tests/frontends/tui/core/test_tui_menu_alignment.py tests/frontends/tui/core/test_tui_command_completion.py tests/frontends/tui/core/test_tui_activity.py tests/frontends/tui/core/test_tui_keymap.py -q
+```
+
+P4 形成完整原生终端链路后运行对应场景；已有场景通过不等于新增 MCP 场景已覆盖：
 
 ```shell
 python -m pytest tests/frontends/tui/acceptance/test_pty_tui_interaction.py tests/frontends/tui/acceptance/test_pty_tui_rendering.py tests/frontends/tui/acceptance/test_pty_tui_colors.py -q
 ```
 
-P1/P2 涉及公开端口和生命周期边界，已运行架构审计；P4/P5 收口时再运行，普通局部迭代不机械重复全套：
+P1—P3 涉及公开端口和生命周期边界，已运行架构审计；P4/P5 收口时再运行，普通局部迭代不机械重复全套：
 
 ```shell
 python -m pytest tests/test_package_architecture.py tests/architecture -q
@@ -623,19 +645,23 @@ git diff --check
 
 ## 11. 验收记录与完成条件
 
-按实际测试层次记录结果。P1 已取得 R04、R06、R07、R08 的底层真实传输证据；P2 补齐 R05、R09、R11、R12 的自动化生命周期证据和观测点。R01—R14 的完整终端操作仍待执行。
+按实际测试层次记录结果。P1 已取得 R04、R06、R07、R08 的底层真实传输证据；P2 补齐 R05、R09、R11、R12 的自动化生命周期证据和观测点。P3 增加共享菜单按键、状态反馈和真实传输接线证据；R01—R14 的完整终端操作仍待执行。
 
-| 批次/阶段 | 代码版本 | 操作系统/终端/尺寸 | 用例 ID | 测试层次 | 结果   | 证据路径与缺陷 |
-|-----------|----------|--------------------|---------|----------|--------|----------------|
-| P0 | 本条引入的 P0 提交；基线 `02ae0564` | Windows build 26100 / PowerShell；非 TUI | AC01、AC02、AC07 的验收输入 | 具名契约 + 真实 MCP 子进程/网络 | 52 passed | `tests/external_mcp`；本机报告 `.cache/acceptance/external-mcp/p0-20260912/fixture-tests.xml` |
-| P0 回归 | 同上 | 同上 | 既有 MCP、菜单及启动流程 | 既有定向测试 | 54 passed | 第 10 节第一组既有模块命令；不表示新动作语义已接入 |
-| P1 | 本条引入的 P1 提交 | Windows build 26100 / PowerShell；非 TUI | AC03、AC04、AC07、AC08、AC10 底层；R04/R06/R07/R08 传输部分 | 定向回归 + 真实 MCP 进程/网络 | 181 passed | `.cache/acceptance/external-mcp/p1-20260912/targeted.xml` |
-| P1 集成 | 同上 | 同上 | 工具审批、Effect 和流式命令边界回归 | 集成/命令测试 | 38 passed | `.cache/acceptance/external-mcp/p1-20260912/integration.xml` |
-| P1 架构 | 同上 | 同上 | 公开端口、包依赖与生命周期归属 | 完整架构审计 | 138 passed | `.cache/acceptance/external-mcp/p1-20260912/architecture.xml` |
-| P2 | 本条引入的 P2 提交 | Windows build 26100 / PowerShell；非 TUI | AC05、AC06、AC09、AC11、AC12 底层；R05/R09/R11/R12 自动化部分 | 定向回归 + 真实 MCP 进程/网络 | 213 passed | `.cache/acceptance/external-mcp/p2-20260912/targeted.xml` |
-| P2 集成 | 本条引入的 P2 提交 | Windows build 26100 / PowerShell；非 TUI | Turn/子代理/Review/Subscription、审批与 Effect、流式命令 | 扩大集成回归 | 339 passed | `.cache/acceptance/external-mcp/p2-20260912/integration.xml` |
-| P2 架构 | 同上 | 同上 | 工具来源端口、引用生命周期、TUI 不读取底层连接组 | 完整架构审计 | 138 passed | `.cache/acceptance/external-mcp/p2-20260912/architecture.xml` |
-| P3—P5 / R01—R14 | — | Windows/Linux/macOS 实际终端待验收 | 后续产品及完整真机项 | 待执行 | 未执行 | 不以底层 fixture 结果替代 |
+| 批次/阶段       | 代码版本                            | 操作系统/终端/尺寸                       | 用例 ID                                                       | 测试层次                        | 结果       | 证据路径与缺陷                                                                                |
+|-----------------|-------------------------------------|------------------------------------------|---------------------------------------------------------------|---------------------------------|------------|-----------------------------------------------------------------------------------------------|
+| P0              | 本条引入的 P0 提交；基线 `02ae0564` | Windows build 26100 / PowerShell；非 TUI | AC01、AC02、AC07 的验收输入                                   | 具名契约 + 真实 MCP 子进程/网络 | 52 passed  | `tests/external_mcp`；本机报告 `.cache/acceptance/external-mcp/p0-20260912/fixture-tests.xml` |
+| P0 回归         | 同上                                | 同上                                     | 既有 MCP、菜单及启动流程                                      | 既有定向测试                    | 54 passed  | 第 10 节第一组既有模块命令；不表示新动作语义已接入                                            |
+| P1              | 本条引入的 P1 提交                  | Windows build 26100 / PowerShell；非 TUI | AC03、AC04、AC07、AC08、AC10 底层；R04/R06/R07/R08 传输部分   | 定向回归 + 真实 MCP 进程/网络   | 181 passed | `.cache/acceptance/external-mcp/p1-20260912/targeted.xml`                                     |
+| P1 集成         | 同上                                | 同上                                     | 工具审批、Effect 和流式命令边界回归                           | 集成/命令测试                   | 38 passed  | `.cache/acceptance/external-mcp/p1-20260912/integration.xml`                                  |
+| P1 架构         | 同上                                | 同上                                     | 公开端口、包依赖与生命周期归属                                | 完整架构审计                    | 138 passed | `.cache/acceptance/external-mcp/p1-20260912/architecture.xml`                                 |
+| P2              | 本条引入的 P2 提交                  | Windows build 26100 / PowerShell；非 TUI | AC05、AC06、AC09、AC11、AC12 底层；R05/R09/R11/R12 自动化部分 | 定向回归 + 真实 MCP 进程/网络   | 213 passed | `.cache/acceptance/external-mcp/p2-20260912/targeted.xml`                                     |
+| P2 集成         | 本条引入的 P2 提交                  | Windows build 26100 / PowerShell；非 TUI | Turn/子代理/Review/Subscription、审批与 Effect、流式命令      | 扩大集成回归                    | 339 passed | `.cache/acceptance/external-mcp/p2-20260912/integration.xml`                                  |
+| P2 架构         | 同上                                | 同上                                     | 工具来源端口、引用生命周期、TUI 不读取底层连接组              | 完整架构审计                    | 138 passed | `.cache/acceptance/external-mcp/p2-20260912/architecture.xml`                                 |
+| P3 | 本条引入的 P3 提交 | Windows build 26100 / PowerShell；非原生 TUI | AC01/AC02/AC07/AC13—AC15 自动化部分 | 定向回归 + 真实 MCP 进程/网络 | 462 passed | `.cache/acceptance/external-mcp/p3-20260912/targeted.xml` |
+| P3 | 同上 | 同上 | Turn/子代理/Subscription/审批与活动/keymap 回归 | 集成及共享组件 | 424 passed | `.cache/acceptance/external-mcp/p3-20260912/integration.xml` |
+| P3 | 同上 | 同上；模拟 32/60/80/120 列 | 陈旧身份、菜单确认/返回、HTTP/SSE 说明、配置损坏、活动交接 | 最终复核补测（与定向回归部分重叠） | 62 passed | `.cache/acceptance/external-mcp/p3-20260912/review.xml` |
+| P3 | 同上 | 同上 | AC16 架构边界 | 架构审计 | 138 passed | `.cache/acceptance/external-mcp/p3-20260912/architecture.xml` |
+| P4/P5 / R01—R14 | —                                   | Windows/Linux/macOS 实际终端待验收       | 后续产品及完整真机项                                          | 待执行                          | 未执行     | 不以底层 fixture 结果替代                                                                     |
 
 P0 验证环境：Python 3.11.8、MCP SDK 1.24.0、pytest 9.1.1、jsonschema 4.26.0、uvicorn 0.38.0、Starlette 0.50.0。
 新增测试最后一次运行 52 项通过，0 失败/错误/跳过；既有四个模块 54 项通过。
@@ -654,7 +680,7 @@ P2 与 P0/P1 使用相同 Python/MCP SDK 环境。定向回归沿用 P1 的完�
 
 - [ ] P0—P5 的阶段出口均满足，AC01—AC16 都有可复查证据。
 - [ ] R01—R14 完成，平台和服务覆盖符合第 9 节；未执行项保持未完成。
-- [ ] 操作范围在菜单、补全、直接命令、活动反馈和文档中一致。
-- [ ] force 隐式重启、start 全局跳过、旧全量菜单和旧配置状态投影均已删除。
+- [x] 操作范围在菜单、补全、直接命令、活动反馈和文档中一致。
+- [x] force 隐式重启、start 全局跳过、旧全量菜单和旧配置状态投影均已删除。
 - [ ] 资源泄漏、错误作用范围、冻结工具快照被破坏、跨工作区串用、凭据泄漏均无未关闭缺陷。
-- [ ] 稳定文档已描述最终行为，未将本文设计稿或示意数字当成运行事实。
+- [x] 稳定文档已描述最终行为，未将本文设计稿或示意数字当成运行事实。

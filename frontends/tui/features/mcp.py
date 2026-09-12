@@ -2,12 +2,21 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from functools import partial
 
-from prompt_toolkit.utils import get_cwidth
-
-from agent.ports.mcp_runtime import McpServicesBusy
+from agent.ports.mcp_runtime import (
+    McpAction,
+    McpAllServices,
+    McpControlRequest,
+    McpControlResult,
+    McpRuntimeSnapshot,
+    McpServiceSnapshot,
+    McpServicesBusy,
+    McpSingleService,
+)
 from agent.ports.presentation import (
     ApplicationView,
+    StyledBlock,
     TextSpan,
 )
 from frontends.terminal.mcp_status import (
@@ -16,604 +25,316 @@ from frontends.terminal.mcp_status import (
     external_mcp_status_view,
     render_mcp_status_block,
 )
-from frontends.terminal.semantic_styles import (
-    TerminalSemanticRole,
-    semantic_text_style,
-)
-from infrastructure.mcp.settings import normalize_mcp_servers
+from frontends.terminal.text import sanitize_terminal_line
+from frontends.terminal.text_layout import layout_styled_line
+from infrastructure.mcp.external_status import external_status_detail_from_exception
 from ..core.models import (
+    CLOSE_MENU_FOOTER_HINT,
+    FragmentBlock,
     MenuDescriptionLayout,
     MenuOption,
     MenuRequest,
-    STANDARD_MENU_FOOTER_HINT
+    STANDARD_MENU_FOOTER_HINT,
 )
-from ..core.runtime import TuiRuntime, require_tui_runtime
+from ..core.runtime import (
+    TuiRuntime,
+    require_tui_runtime,
+)
 from ..core.styles import (
-    ACCENT_STYLE,
     BODY_STYLE,
     BRIGHT_STYLE,
-    COMMAND_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
     fragment_block,
-    interrupted_status_block
+    interrupted_status_block,
 )
 
 if typing.TYPE_CHECKING:
     from ..application import TuiApplicationHost
 
-McpAction = typing.Literal[
-    "start",
-    "force",
-    "stop",
-    "restart",
-    "status"
-]
-
-MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
-    ("start", "start",
-     "Start configured external MCP services with enabled=true; keep already running services connected."),
-    ("force", "force",
-     "Start missing external MCP services, including enabled=false; keep current connections and configuration."),
-    ("stop", "stop",
-     "Disconnect all external MCP services. HTTP/SSE services are disconnected; stdio services close their child processes when released."),
-    ("restart", "restart",
-     "Validate the config, disconnect external MCP services, and start services with enabled=true."),
-    ("status", "status", "View status without starting or stopping services."),
+MCP_MENU_ACTIONS: tuple[tuple[McpAction, str], ...] = (
+    ("start", "Start this service if enabled; keep an existing connection."),
+    ("force", "Start this service even if disabled; keep its configuration and existing connection."),
+    ("stop", "Disconnect this service. HTTP/SSE remote services stay running; stdio child processes close."),
+    ("restart", "Validate config, disconnect this service, then start it only if enabled."),
+    ("status", "View this service's connection and configuration without connecting."),
 )
-
-MCP_DEFAULT_TERMINAL_WIDTH = 120
-MCP_ENABLED_STATUS_STYLE = semantic_text_style(
-    TerminalSemanticRole.SUCCESS,
-    dim=True,
-)
-MCP_DISABLED_STATUS_STYLE = semantic_text_style(
-    TerminalSemanticRole.FAILURE,
-    dim=True,
-)
+MCP_COMMAND_USAGE = "Usage: /mcp selects one service; /mcp <start|force|stop|restart|status> applies to all services."
 
 
 def _present(
     host: "TuiApplicationHost",
-    renderable: typing.Any = None,
+    renderable: StyledBlock | FragmentBlock | None = None,
     *,
-    view_type: str = "tui.mcp"
+    view_type: str = "tui.mcp",
 ) -> None:
     """发送一项外部 MCP 展示。"""
-    host.frontend.application.emit(ApplicationView(
-        type=view_type,
-        renderable=renderable,
-    ))
+    host.frontend.application.emit(ApplicationView(type=view_type, renderable=renderable))
 
 
-def _present_external_mcp_result(
-    host: "TuiApplicationHost",
-    view: McpStatusView
-) -> bool:
-    """提交一项外部 MCP 最终状态。"""
-    block = render_mcp_status_block(
-        view,
-        terminal_width=_mcp_terminal_width(host),
-    )
+def _mcp_terminal_width(host: "TuiApplicationHost") -> int:
+    """返回 MCP 状态块使用的有效终端宽度。"""
+    width = host.frontend.application.viewport.width
+    return width if isinstance(width, int) and width > 0 else 120
+
+
+def _present_external_mcp_result(host: "TuiApplicationHost", view: McpStatusView) -> bool:
+    """通过共享渲染器提交一项最终状态。"""
+    block = render_mcp_status_block(view, terminal_width=_mcp_terminal_width(host))
     if not block.plain_text:
         return False
-
     _present(host, block, view_type="tui.external_mcp.status")
     _present(host, view_type="tui.gap")
     return True
 
 
 def parse_mcp_command(value: str) -> tuple[bool, McpAction | None]:
-    """解析外部 MCP 命令及其可选动作。"""
-    parts = str(value or "").strip().casefold().split()
-
+    """识别 MCP 命令并拒绝未知动作和多余参数，避免落入模型输入。"""
+    parts = value.strip().casefold().split()
     if not parts or parts[0] != "/mcp":
         return False, None
     if len(parts) == 1:
         return True, None
-    if len(parts) != 2:
-        return False, None
-
-    action = parts[1]
-    if action == "start":
-        return True, "start"
-    if action == "force":
-        return True, "force"
-    if action == "stop":
-        return True, "stop"
-    if action == "restart":
-        return True, "restart"
-    if action == "status":
-        return True, "status"
-
-    return False, None
+    if len(parts) == 2:
+        for action, _ in MCP_MENU_ACTIONS:
+            if parts[1] == action:
+                return True, action
+    raise ValueError(MCP_COMMAND_USAGE)
 
 
-def summarize_external_runtime(
-    host: "TuiApplicationHost",
-) -> dict[str, typing.Any]:
-    """汇总当前外部 MCP 配置与已连接工具状态。"""
-    config_error: str = ""
-
-    try:
-        config = host.settings.config.load()
-        configured = normalize_mcp_servers(config.get("mcp_servers"))
-    except (OSError, TypeError, ValueError) as error:
-        configured = []
-        config_error = str(error)
-
-    runtime = host.execution.external_mcp.current
-    tool_groups = [
-        {
-            "server": group.server,
-            "transport": group.transport,
-            "auth": group.auth,
-            "tools": list(group.tools),
-            "discovered": group.discovered,
-            "exposed": group.exposed,
-            "filtered": group.filtered,
-        }
-        for group in runtime.tool_groups
-    ] if runtime is not None else []
-
-    return {
-        "started": runtime.started if runtime is not None else False,
-        "configured": configured,
-        "config_error": config_error,
-        "tool_groups": tool_groups,
-        "tool_count": sum(int(item["exposed"]) for item in tool_groups),
-        "filtered_count": sum(int(item["filtered"]) for item in tool_groups),
-    }
+def all_mcp_request(host: "TuiApplicationHost", action: McpAction) -> McpControlRequest:
+    """为直接命令冻结当前实例身份和显式全量目标。"""
+    snapshot = host.execution.external_mcp.snapshot
+    return McpControlRequest(snapshot.runtime_id, snapshot.workspace, action, McpAllServices())
 
 
-def _display_tool_name(name: typing.Any, server: str) -> str:
-    """移除外部工具名称中的服务前缀。"""
-    value = str(name or "").strip()
-    prefix = f"mcp__{server}__"
-    return value[len(prefix):] if value.startswith(prefix) else value
+def _scope_label(request: McpControlRequest) -> str:
+    """生成展示范围，原始配置键只在展示边界清理控制字符。"""
+    if isinstance(request.target, McpSingleService):
+        return sanitize_terminal_line(request.target.config_key)
+    return "all services"
 
 
-def _filtered_count(value: typing.Any) -> int:
-    """把过滤工具数量规范化为非负整数。"""
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError, OverflowError):
-        return 0
+def _config_label(service: McpServiceSnapshot) -> str:
+    """独立表达配置事实与禁用服务临时连接的语义。"""
+    if service.config_enabled is None:
+        return "removed from config"
+    if service.config_enabled:
+        return "enabled"
+    return "disabled (temporary connection)" if service.state == "ready" else "disabled"
 
 
-def _mcp_terminal_width(host: "TuiApplicationHost") -> int:
-    """返回 MCP 状态块使用的有效终端宽度。"""
-    width = host.frontend.application.viewport.width
-
-    if isinstance(width, int) and width > 0:
-        return width
-
-    return MCP_DEFAULT_TERMINAL_WIDTH
+def _service_detail(service: McpServiceSnapshot) -> str:
+    """提供菜单与结果共用的连接和配置摘要。"""
+    return f"{service.state} · {_config_label(service)} · {service.transport} · {len(service.tools)} tools"
 
 
-def _mcp_tool_name_lines(
-    names: typing.Iterable[typing.Any],
-    *,
-    terminal_width: int,
-) -> list[str]:
-    """把 MCP 工具名按终端宽度转换为带悬挂缩进的文本行。"""
-    visible_names = [
-        str(name).strip()
-        for name in names
-        if str(name).strip()
-    ]
-    if not visible_names:
-        return ["    • Tools: (none)"]
-
-    first_prefix = "    • Tools: "
-    continuation_prefix = "      "
-    width = max(1, int(terminal_width))
-    lines: list[str] = []
-    current_prefix = first_prefix
-    current_names: list[str] = []
-
-    for index, name in enumerate(visible_names):
-        suffix = "," if index < len(visible_names) - 1 else ""
-        token = f"{name}{suffix}"
-        candidate = f"{current_prefix}{' '.join(current_names + [token])}"
-
-        if current_names and get_cwidth(candidate) > width:
-            lines.append(f"{current_prefix}{' '.join(current_names)}")
-            current_prefix = continuation_prefix
-            current_names = []
-
-        current_names.append(token)
-
-    if current_names:
-        lines.append(f"{current_prefix}{' '.join(current_names)}")
-
-    return lines
-
-
-def _mcp_status_rows(
-    configured: typing.Any,
-    tool_groups: typing.Any,
-) -> list[dict[str, typing.Any]]:
-    """合并配置服务器与运行时工具分组为状态行。"""
-    configured_servers = [
-        item for item in configured
-        if isinstance(item, dict)
-    ] if isinstance(configured, list) else []
-    active_groups = [
-        item for item in tool_groups
-        if isinstance(item, dict)
-    ] if isinstance(tool_groups, list) else []
-    active_by_key = {
-        (
-            str(item.get("server") or "server"),
-            str(item.get("transport") or "external"),
-        ): item
-        for item in active_groups
-    }
-
-    rows: list[dict[str, typing.Any]] = []
-
-    for server in configured_servers:
-        server_name = str(server.get("name") or "server")
-        transport = str(server.get("transport") or "streamable_http")
-        key = (server_name, transport)
-        group = active_by_key.pop(key, None)
-        names = group.get("tools") if isinstance(group, dict) else ()
-        tools = sorted(
-            _display_tool_name(raw_name, server_name)
-            for raw_name in names or ()
-            if str(raw_name)
+def render_mcp_action_result(host: "TuiApplicationHost", result: McpControlResult) -> None:
+    """根据逐服务结论展示一次操作结果，不把已有连接计为本次启动。"""
+    failures = sum(item.outcome == "failed" for item in result.services)
+    busy = any(item.outcome == "busy" for item in result.services)
+    details = tuple(
+        McpStatusDetail(
+            f"  {item.config_key}: {item.outcome}"
+            + (f" · {_service_detail(item.snapshot)}" if item.snapshot is not None else "")
+            + (f" · {item.operation_error}" if item.operation_error else ""),
+            "failed" if item.outcome == "failed" else "warning" if item.outcome == "busy" else "",
         )
-        filtered = group.get("filtered", 0) if isinstance(group, dict) else 0
-
-        rows.append({
-            "name": server_name,
-            "status": "enabled" if bool(server.get("enabled", True)) else "disabled",
-            "auth": str(group.get("auth") or "Unknown") if group else "Unknown",
-            "transport": transport,
-            "tools": tools,
-            "filtered": _filtered_count(filtered),
-        })
-
-    for group in active_by_key.values():
-        names = group.get("tools") or ()
-        group_name = str(group.get("server") or "server")
-        rows.append({
-            "name": group_name,
-            "status": "connected",
-            "auth": str(group.get("auth") or "Unknown"),
-            "transport": str(group.get("transport") or "external"),
-            "tools": sorted(
-                _display_tool_name(name, group_name)
-                for name in names
-                if str(name)
-            ),
-            "filtered": _filtered_count(group.get("filtered")),
-        })
-
-    return sorted(rows, key=lambda row: (str(row["name"]), str(row["transport"])))
-
-
-def default_mcp_action_index(
-    summary: dict[str, typing.Any],
-    actions: list[tuple[McpAction, str, str]]
-) -> int:
-    """根据当前状态选择菜单默认高亮项。"""
-    configured = summary.get("configured")
-    servers = configured if isinstance(configured, list) else []
-    has_disabled = any(not bool(server.get("enabled", True)) for server in servers)
-
-    preferred: McpAction = "status"
-    if bool(summary.get("tool_count")):
-        preferred = "stop"
-    elif bool(summary.get("started")) and has_disabled:
-        preferred = "force"
-    elif not bool(summary.get("started")) and servers:
-        preferred = "start"
-    elif bool(summary.get("started")):
-        preferred = "restart"
-
-    for index, (action, _, _) in enumerate(actions):
-        if action == preferred:
-            return index
-
-    return 0
-
-
-def render_mcp_action_result(
-    host: "TuiApplicationHost",
-    action: McpAction,
-    was_started: bool
-) -> None:
-    """展示外部 MCP 操作的最终结果。"""
-    if action == "stop":
-        render_external_mcp_stop_status(
-            host,
-            already_stopped=not was_started,
-        )
-        return None
-
-    if not render_external_mcp_start_status(host):
-        render_mcp_status(host, command=None)
+        for item in result.services
+    )
+    if not details:
+        details = (McpStatusDetail("  No MCP services configured or connected."),)
+    suffix = "failed" if failures else "busy" if busy else "complete"
+    _present_external_mcp_result(host, McpStatusView(
+        summary=f"External MCP · {_scope_label(result.request)} · {result.request.action} {suffix}",
+        level="failed" if failures else "warning" if busy else "ready",
+        done=True,
+        details=details,
+    ))
 
 
 def render_mcp_action_failure(
-    host: "TuiApplicationHost",
-    action: McpAction,
-    error: BaseException
+    host: "TuiApplicationHost", request: McpControlRequest, error: BaseException,
 ) -> None:
-    """展示外部 MCP 操作失败的最终结果。"""
-    if isinstance(error, McpServicesBusy):
-        _present_external_mcp_result(host, McpStatusView(
-            summary="External MCP busy", level="warning", done=True,
-            details=(McpStatusDetail(f"  └ {error}", "warning"),),
-        ))
-        return
-    if action == "stop":
-        render_external_mcp_stop_status(host, error=error)
-    else:
-        render_external_mcp_start_status(host, error=error)
+    """展示失败范围，忙碌拒绝不改变连接事实。"""
+    busy = isinstance(error, McpServicesBusy)
+    _present_external_mcp_result(host, McpStatusView(
+        summary=f"External MCP · {_scope_label(request)} · {request.action} {'busy' if busy else 'failed'}",
+        level="warning" if busy else "failed",
+        done=True,
+        details=(McpStatusDetail(external_status_detail_from_exception(error), "warning" if busy else "failed"),),
+    ))
 
 
-def render_mcp_action_cancelled(
-    host: "TuiApplicationHost",
-    action: McpAction,
-) -> None:
-    """展示外部 MCP 操作取消后的最终结果。"""
-    render_mcp_action_interrupted(host, action)
+def render_mcp_unavailable(host: "TuiApplicationHost", error: RuntimeError) -> None:
+    """实例不可用时提交本地错误，不打开菜单或创建控制请求。"""
+    _present_external_mcp_result(host, McpStatusView(
+        summary="External MCP unavailable", level="failed", done=True,
+        details=(McpStatusDetail(external_status_detail_from_exception(error), "failed"),),
+    ))
 
 
-def render_mcp_action_interrupted(
-    host: "TuiApplicationHost",
-    action: McpAction,
-) -> None:
-    """展示外部 MCP 操作被用户中断的状态。"""
+def render_mcp_action_cancelled(host: "TuiApplicationHost", request: McpControlRequest) -> None:
+    """在生命周期清理完成后展示取消的操作范围。"""
     _present(
         host,
-        interrupted_status_block("External MCP", action=action),
+        interrupted_status_block(f"External MCP · {_scope_label(request)}", action=request.action),
         view_type="tui.external_mcp.interrupted",
     )
     _present(host, view_type="tui.gap")
 
 
 def render_external_mcp_start_status(
-    host: "TuiApplicationHost",
-    *,
-    error: BaseException | None = None,
+    host: "TuiApplicationHost", *, error: BaseException | None = None,
 ) -> bool:
-    """展示最近一次外部 MCP 启动的最终状态。"""
+    """展示应用启动阶段最近一次外部 MCP 接入的最终状态。"""
     if error is not None:
-        detail = (
-            str(getattr(error, "message", error)).strip()
-            or type(error).__name__
-        )
         view = McpStatusView(
-            summary="External MCP failed",
-            level="failed",
-            done=True,
-            details=(McpStatusDetail(f"  └ {detail}", "failed"),),
+            summary="External MCP failed", level="failed", done=True,
+            details=(McpStatusDetail(f"  └ {external_status_detail_from_exception(error)}", "failed"),),
         )
     else:
         runtime = host.execution.external_mcp.current
         snapshot = runtime.last_start_snapshot if runtime is not None else {}
-        if not isinstance(snapshot, dict) or not snapshot:
+        if not snapshot:
             return False
         view = external_mcp_status_view(snapshot, detail_limit=5)
-
     return _present_external_mcp_result(host, view)
 
 
-def render_external_mcp_stop_status(
-    host: "TuiApplicationHost",
-    *,
-    already_stopped: bool = False,
-    error: BaseException | None = None,
-) -> None:
-    """展示外部 MCP 停止后的最终状态。"""
-    if error is not None:
-        detail = (
-            str(getattr(error, "message", error)).strip()
-            or type(error).__name__
-        )
-        view = McpStatusView(
-            summary="External MCP stop failed",
-            level="failed",
-            done=True,
-            details=(McpStatusDetail(f"  └ {detail}", "failed"),),
-        )
-    else:
-        summary = (
-            "External MCP already stopped"
-            if already_stopped
-            else "External MCP stopped"
-        )
-        view = McpStatusView(summary=summary, level="ready", done=True)
-
-    _present_external_mcp_result(host, view)
-
-
-def render_mcp_status(
-    host: "TuiApplicationHost",
-    *,
-    command: str | None = "/mcp status"
-) -> None:
-    """展示外部 MCP 服务状态。"""
-    summary = summarize_external_runtime(host)
-    configured = summary["configured"]
-    tool_groups = summary["tool_groups"]
-    terminal_width = _mcp_terminal_width(host)
-    display_command = command or "/mcp"
-
-    parts = [
-        TextSpan(display_command, COMMAND_STYLE),
-        TextSpan("\n\n"),
-        TextSpan("🔌  MCP Tools", BRIGHT_STYLE),
-        TextSpan("\n\n"),
-    ]
-
-    if summary["config_error"]:
-        parts.append(TextSpan(
-            f"  ■ {summary['config_error']}",
-            FAILURE_STYLE,
-        ))
-    else:
-        rows = _mcp_status_rows(configured, tool_groups)
-
-        if not rows:
-            parts.append(TextSpan(
-                "  • No MCP servers configured.",
-                MUTED_STYLE,
-            ))
+def render_mcp_status(host: "TuiApplicationHost", request: McpControlRequest | None = None) -> None:
+    """仅读取本地类型化快照，展示连接事实和配置错误。"""
+    runtime = host.execution.external_mcp
+    try:
+        snapshot = runtime.snapshot
+    except RuntimeError as error:
+        if request is None:
+            render_mcp_unavailable(host, error)
         else:
-            if not any(row["tools"] for row in rows):
-                parts.extend([
-                    TextSpan("  • No MCP tools available.", MUTED_STYLE),
-                    TextSpan("\n\n"),
-                ])
-
-            for index, row in enumerate(rows):
-                if index:
-                    parts.append(TextSpan("\n\n"))
-
-                parts.extend([
-                    TextSpan("  • ", ACCENT_STYLE),
-                    TextSpan(row["name"], BODY_STYLE),
-                ])
-
-                status_style = (
-                    MCP_DISABLED_STATUS_STYLE
-                    if row["status"] == "disabled"
-                    else MCP_ENABLED_STATUS_STYLE
-                )
-
-                parts.extend([
-                    TextSpan("\n    • Status: ", BODY_STYLE),
-                    TextSpan(row["status"], status_style),
-                    TextSpan("\n    • Auth: ", BODY_STYLE),
-                    TextSpan(row["auth"], MUTED_STYLE),
-                    TextSpan("\n    • Transport: ", BODY_STYLE),
-                    TextSpan(row["transport"], MUTED_STYLE),
-                ])
-
-                for line_index, tool_line in enumerate(_mcp_tool_name_lines(
-                    row["tools"],
-                    terminal_width=terminal_width,
-                )):
-                    parts.append(TextSpan("\n", BODY_STYLE))
-                    if line_index == 0:
-                        tools_prefix = "    • Tools: "
-                        parts.extend([
-                            TextSpan(tools_prefix, BODY_STYLE),
-                            TextSpan(
-                                tool_line[len(tools_prefix):],
-                                MUTED_STYLE,
-                            ),
-                        ])
-                    else:
-                        parts.append(TextSpan(tool_line, MUTED_STYLE))
-
-                if row["filtered"] > 0:
-                    parts.extend([
-                        TextSpan("\n    • Filtered: ", BODY_STYLE),
-                        TextSpan(str(row["filtered"]), MUTED_STYLE),
-                    ])
-
-    block = fragment_block(*parts)
-    _present(host, block)
+            render_mcp_action_failure(host, request, error)
+        return
+    if request is None:
+        request = McpControlRequest(snapshot.runtime_id, snapshot.workspace, "status", McpAllServices())
+    if request.runtime_id != snapshot.runtime_id or request.workspace != snapshot.workspace:
+        render_mcp_action_failure(host, request, RuntimeError("MCP runtime or workspace is no longer active"))
+        return
+    services = snapshot.services
+    if isinstance(request.target, McpSingleService):
+        key = request.target.config_key
+        services = tuple(item for item in services if item.config_key == key)
+        if not services:
+            render_mcp_action_failure(host, request, RuntimeError("MCP service target no longer exists"))
+            return
+    lines = [TextSpan(f"External MCP · {_scope_label(request)} · status", BRIGHT_STYLE)]
+    if snapshot.config_error:
+        lines.append(TextSpan(f"Config error: {snapshot.config_error}", FAILURE_STYLE))
+    if not services:
+        lines.append(TextSpan("No MCP services configured or connected.", MUTED_STYLE))
+    for service in sorted(services, key=lambda item: item.config_key):
+        names = tuple(name.removeprefix(service.tool_prefix) for name in service.tools)
+        lines.extend((
+            TextSpan(service.config_key, BRIGHT_STYLE),
+            TextSpan(f"Connection: {service.state}", BODY_STYLE),
+            TextSpan(f"Config: {_config_label(service)}", BODY_STYLE),
+            TextSpan(f"Transport: {service.transport}", BODY_STYLE),
+            TextSpan(f"Tools ({len(names)}): {', '.join(names) or '(none)'}", MUTED_STYLE),
+            TextSpan(f"Discovered: {service.discovered} · Filtered: {service.filtered}", MUTED_STYLE),
+        ))
+        if service.connection_error:
+            lines.append(TextSpan(f"Connection error: {service.connection_error}", FAILURE_STYLE))
+    parts: list[TextSpan] = []
+    for index, line in enumerate(lines):
+        if index:
+            parts.append(TextSpan("\n"))
+        parts.extend(layout_styled_line(
+            [TextSpan(sanitize_terminal_line(line.text), line.style)],
+            terminal_width=_mcp_terminal_width(host),
+            hard=True,
+        ))
+    _present(host, fragment_block(*parts))
     _present(host, view_type="tui.gap")
 
 
-async def _begin_external_mcp_restart_activity(
-    host: "TuiApplicationHost",
+def _push_service_actions(
+    runtime: TuiRuntime, snapshot: McpRuntimeSnapshot, service: McpServiceSnapshot,
 ) -> None:
-    """在断开旧连接前启动外部 MCP 重启活动状态。"""
-    if not host.activity.enabled:
-        return None
-    runtime = require_tui_runtime(host.frontend.runtime)
-    await runtime.begin_external_mcp_status(
-        lambda: {
-            "summary": "External MCP restarting",
-            "done": False,
-            "items": [],
-        },
-    )
-
-
-async def choose_mcp_action(
-    runtime: "TuiRuntime",
-    host: "TuiApplicationHost",
-) -> McpAction | None:
-    """在主 TUI 中选择外部 MCP 操作。"""
-    summary = summarize_external_runtime(host)
-    actions = list(MCP_MENU_ACTIONS)
-
-    config_error = str(summary.get("config_error") or "")
-
-    return await runtime.select_menu(MenuRequest(
-        title="External MCP",
-        view_id="mcp:root",
-        status="Manage configured external MCP services.",
-        body=(config_error,) if config_error else (),
-        help_text="",
+    """把冻结的原始配置键带入共享菜单栈，返回时保留父级选择和滚动位置。"""
+    target = McpSingleService(service.config_key)
+    runtime.push_menu(MenuRequest(
+        title=f"External MCP · {sanitize_terminal_line(service.config_key)}",
+        view_id="mcp:service",
+        status=_service_detail(service),
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
+        selected=4,
         options=tuple(
-            MenuOption(value=action, label=label, detail=detail)
-            for action, label, detail in actions
+            MenuOption(
+                value=McpControlRequest(snapshot.runtime_id, snapshot.workspace, action, target),
+                label=action,
+                detail=(
+                    "Disconnect this service; the remote server keeps running."
+                    if action == "stop" and service.transport != "stdio"
+                    else "Disconnect this service and close its child processes."
+                    if action == "stop"
+                    else detail
+                ),
+            )
+            for action, detail in MCP_MENU_ACTIONS
         ),
-        selected=default_mcp_action_index(summary, actions),
     ))
 
 
-async def finish_mcp_activity(
-    host: "TuiApplicationHost",
-    action: McpAction,
-) -> None:
-    """结束外部 MCP 操作对应的活动状态。"""
-    if action == "stop":
-        runtime = require_tui_runtime(host.frontend.runtime)
-        await runtime.end_activity_status(
-            "operation",
-            settle=False,
-        )
-        return None
-
-    await host.activity.stop("external_mcp", settle=False)
-
-
-async def run_mcp_action(
-    host: "TuiApplicationHost",
-    action: McpAction | None,
-) -> bool:
-    """执行外部 MCP 动作并返回操作前是否已经启动。"""
-    if action is None:
-        return False
-
-    if action == "status":
-        return False
-
-    external_runtime = host.execution.external_mcp.current
-    was_started = external_runtime.started if external_runtime is not None else False
-
-    if action == "stop":
-        runtime = require_tui_runtime(host.frontend.runtime)
-        if host.activity.enabled:
-            await runtime.begin_operation_status(
-                lambda: {"summary": "External MCP stopping"},
+async def choose_mcp_action(runtime: TuiRuntime, host: "TuiApplicationHost") -> McpControlRequest | None:
+    """选择单服务操作；取消与空菜单不会产生全量请求。"""
+    snapshot = host.execution.external_mcp.snapshot
+    services = sorted(snapshot.services, key=lambda item: (sanitize_terminal_line(item.config_key), item.config_key))
+    body = (sanitize_terminal_line(snapshot.config_error),) if snapshot.config_error else ()
+    if not services:
+        body += ("No MCP services configured or connected.",)
+    selected = await runtime.select_menu(MenuRequest(
+        title="External MCP",
+        view_id="mcp:root",
+        status="Select one service. Direct /mcp <action> commands apply to all services.",
+        body=body,
+        body_wrap=True,
+        footer_hint=STANDARD_MENU_FOOTER_HINT if services else CLOSE_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
+        options=tuple(
+            MenuOption(
+                value=McpSingleService(service.config_key),
+                label=sanitize_terminal_line(service.config_key),
+                detail=_service_detail(service),
+                on_select=partial(_push_service_actions, runtime, snapshot, service),
+                dismiss_on_select=False,
+                dismiss_parent_on_child_accept=True,
             )
-        await host.execution.external_mcp.stop_services()
-    elif action == "force":
-        await host.execution.external_mcp.start(
-            include_disabled=True,
-            defer_activity_stop=True,
-        )
-    elif action == "start":
-        await host.execution.external_mcp.start(defer_activity_stop=True)
-    else:
-        await _begin_external_mcp_restart_activity(host)
-        await host.execution.external_mcp.restart(defer_activity_stop=True)
+            for service in services
+        ),
+    ))
+    if isinstance(selected, McpControlRequest) and isinstance(selected.target, McpSingleService):
+        return selected
+    return None
 
-    return was_started
+
+async def finish_mcp_activity(host: "TuiApplicationHost", action: McpAction) -> None:
+    """结束应用启动或操作对应的活动状态。"""
+    if action == "stop":
+        runtime = require_tui_runtime(host.frontend.runtime)
+        await runtime.end_activity_status("operation", settle=False)
+    else:
+        await host.activity.stop("external_mcp", settle=False)
+
+
+async def run_mcp_action(host: "TuiApplicationHost", request: McpControlRequest) -> McpControlResult:
+    """执行冻结目标的统一控制请求，复用前台屏障的活动交接。"""
+    if host.activity.enabled and request.action in ("stop", "restart"):
+        runtime = require_tui_runtime(host.frontend.runtime)
+        label = f"External MCP · {_scope_label(request)} · {'stopping' if request.action == 'stop' else 'restarting'}"
+        if request.action == "stop":
+            await runtime.begin_operation_status(lambda: {"summary": label})
+        else:
+            await runtime.begin_external_mcp_status(lambda: {"summary": label, "done": False, "items": []})
+    return await host.execution.external_mcp.control(request, defer_activity_stop=True)
 
 
 if __name__ == '__main__':

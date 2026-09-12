@@ -90,9 +90,11 @@ from ..features.listener import (
 from ..features.mailbox import TuiMailboxFeature
 from ..features.mcp import (
     McpAction,
+    all_mcp_request,
     choose_mcp_action,
     parse_mcp_command,
-    render_mcp_status
+    render_mcp_status,
+    render_mcp_unavailable,
 )
 from ..features.model import (
     ReasoningEffortDirection,
@@ -925,19 +927,24 @@ class TuiCommandDispatcher(object):
 
     async def _dispatch_mcp(self, mcp_action: McpAction | None) -> None:
         """执行即时 MCP 操作或建立可取消前台任务。"""
-        action = mcp_action
-        if action is None:
-            action = await choose_mcp_action(self.runtime, self.host)
-
-        if action is None:
+        try:
+            request = (
+                await choose_mcp_action(self.runtime, self.host)
+                if mcp_action is None
+                else all_mcp_request(self.host, mcp_action)
+            )
+        except RuntimeError as error:
+            render_mcp_unavailable(self.host, error)
+            return
+        if request is None:
             self._present()
             return None
 
-        if action == "status":
-            render_mcp_status(self.host)
+        if request.action == "status":
+            render_mcp_status(self.host, request)
             return None
 
-        self.foreground_tasks.start_external_mcp(action)
+        self.foreground_tasks.start_external_mcp(request)
         await self.foreground_tasks.wait()
 
     async def _resume_conversation(self) -> None:
@@ -1391,7 +1398,11 @@ class TuiCommandDispatcher(object):
             self.state.invalidate_workspace()
             return DispatchAction.HANDLED
 
-        is_mcp_command, mcp_action = parse_mcp_command(command)
+        try:
+            is_mcp_command, mcp_action = parse_mcp_command(command)
+        except ValueError as error:
+            self._present(failure_text_block(str(error)))
+            return DispatchAction.HANDLED
 
         if is_mcp_command:
             await self._dispatch_mcp(mcp_action)

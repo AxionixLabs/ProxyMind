@@ -12,6 +12,10 @@ from agent.ports import (
     OutputSurfaceContext,
     ProtocolCommandClient,
 )
+from agent.ports.mcp_runtime import (
+    McpControlResult,
+    McpRuntimeSnapshot,
+)
 from agent.domain.policies import preset_permissions
 from agent.application import TurnApplication
 from agent.harness.sessions.owner import SessionRuntimeOwner
@@ -882,15 +886,16 @@ async def test_idle_mcp_start_commits_result_before_next_query(
             coding=SimpleNamespace(reset_patch_diff=Mock()),
         ),
         execution=SimpleNamespace(
-            external_mcp=SimpleNamespace(current=None),
+            external_mcp=SimpleNamespace(current=None, snapshot=McpRuntimeSnapshot("instance", "/workspace", ())),
         ),
     )
 
-    async def run_mcp_action(_host, action) -> None:
-        assert action == command.split()[1]
+    async def run_mcp_action(_host, request) -> McpControlResult:
+        assert request.action == command.split()[1]
         mcp_started.set()
         await release_mcp.wait()
         runtime.queue_background_block(text_block("External MCP ready"))
+        return McpControlResult(request, ())
 
     def run_model_turn(_host, *_ports, message_text, **_kwargs):
         async def execute() -> RunResult:

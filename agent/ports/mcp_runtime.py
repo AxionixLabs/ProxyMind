@@ -20,12 +20,14 @@ __all__ = (
     "McpRuntimeContext",
     "McpRuntimeFactory",
     "McpRuntimeBuilder",
-    "McpToolGroupSnapshot",
     "McpAction",
     "McpConnectionState",
     "McpTransport",
     "McpSingleService",
-    "McpServiceControlRequest",
+    "McpAllServices",
+    "McpControlRequest",
+    "McpControlResult",
+    "McpRuntimeSnapshot",
     "McpServiceSnapshot",
     "McpServiceOutcome",
     "McpServicesBusy",
@@ -60,18 +62,25 @@ class McpSingleService:
 
 
 @dataclass(frozen=True, slots=True)
-class McpServiceControlRequest:
+class McpAllServices:
+    """明确选择当前实例的全部服务，不使用配置键或取消值充当全量目标。"""
+
+    scope: typing.Literal["all"] = field(default="all", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class McpControlRequest:
     """由调用方冻结目标上下文，运行时在执行前验证实例和工作区身份。"""
 
     runtime_id: str
     workspace: str
     action: McpAction
-    target: McpSingleService
+    target: McpSingleService | McpAllServices
 
     def __post_init__(self) -> None:
         """拒绝尚未解析的动作和缺少身份的控制请求。"""
-        if not isinstance(self.target, McpSingleService):
-            raise TypeError("MCP service control requires a single service target")
+        if not isinstance(self.target, (McpSingleService, McpAllServices)):
+            raise TypeError("MCP control requires an explicit service target")
         if self.action not in ("start", "force", "stop", "restart", "status"):
             raise ValueError("Unknown MCP service action")
         if not isinstance(self.runtime_id, str) or not self.runtime_id.strip() or not isinstance(self.workspace, str) or not self.workspace.strip():
@@ -103,6 +112,24 @@ class McpServiceOutcome:
     operation_error: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class McpControlResult:
+    """绑定一次已执行请求与逐服务结论，前端不读取 SDK 对象推断结果。"""
+
+    request: McpControlRequest
+    services: tuple[McpServiceOutcome, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class McpRuntimeSnapshot:
+    """投影本地配置和连接事实；配置失败时仍保留可停止的已知连接。"""
+
+    runtime_id: str
+    workspace: str
+    services: tuple[McpServiceSnapshot, ...]
+    config_error: str | None = None
+
+
 class McpRuntime(typing.Protocol):
     """定义 Harness 管理 MCP 生命周期所需的最小运行时端口。"""
 
@@ -117,12 +144,12 @@ class McpRuntime(typing.Protocol):
         ...
 
     @property
-    def service_snapshots(self) -> tuple[McpServiceSnapshot, ...]:
-        """读取配置与连接的本地投影，不探测远端健康状态。"""
+    def snapshot(self) -> McpRuntimeSnapshot:
+        """读取配置、连接及配置错误的本地投影，不探测远端健康状态。"""
         ...
 
-    async def control_service(self, request: McpServiceControlRequest) -> McpServiceOutcome:
-        """原子校验使用占用并执行单服务动作，最终释放仍由 Harness 调用 stop。"""
+    async def control(self, request: McpControlRequest, *, defer_activity_stop: bool = False) -> McpControlResult:
+        """校验冻结身份和明确目标，执行统一交互请求；最终释放仍由 Harness 调用 stop。"""
         ...
 
     def use_tools(self, server: str | None = None) -> typing.ContextManager[ExternalToolGroupPort | None]:
@@ -152,11 +179,6 @@ class McpRuntime(typing.Protocol):
         """返回最近一次启动的不可变展示快照。"""
         ...
 
-    @property
-    def tool_groups(self) -> tuple["McpToolGroupSnapshot", ...]:
-        """返回与具体 MCP SDK 对象解耦的工具分组状态。"""
-        ...
-
     async def start(
         self,
         *,
@@ -181,19 +203,6 @@ class McpRuntime(typing.Protocol):
     async def stop(self) -> None:
         """最终释放时禁止新使用并等待既有范围退出，不能按交互 busy 拒绝关闭。"""
         ...
-
-
-@dataclass(frozen=True, slots=True)
-class McpToolGroupSnapshot:
-    """描述一个外部 MCP 服务向前端暴露的稳定状态投影。"""
-
-    server: str
-    transport: str
-    auth: str
-    tools: tuple[str, ...]
-    discovered: int
-    exposed: int
-    filtered: int
 
 
 class McpConfigReader(typing.Protocol):

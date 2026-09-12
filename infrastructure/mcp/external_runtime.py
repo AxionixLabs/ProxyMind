@@ -3,22 +3,21 @@
 
 import asyncio
 import typing
-from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
-from agent.ports import (
-    McpRuntimeContext,
-    McpToolGroupSnapshot,
-)
+from agent.ports import McpRuntimeContext
 from agent.ports.mcp_runtime import (
-    McpServiceControlRequest,
+    McpControlRequest,
+    McpControlResult,
+    McpRuntimeSnapshot,
     McpServiceOutcome,
     McpServiceSnapshot,
     McpServicesBusy,
+    McpSingleService,
 )
 from agent.ports.tool_runtime import ExternalToolGroupPort
 from infrastructure.config.schema import validate_config
@@ -168,8 +167,69 @@ class ExternalMcpRuntime:
         owned = self._group.owned_keys if self._group is not None else frozenset()
         return tuple(item for item in self._snapshots() if item.config_enabled is not None or item.config_key in owned)
 
-    async def control_service(self, request: McpServiceControlRequest) -> McpServiceOutcome:
+    @property
+    def snapshot(self) -> McpRuntimeSnapshot:
+        """配置不可读时保留已持有连接，错误由适配器统一脱敏。"""
+        if not self._is_active():
+            raise RuntimeError("MCP runtime or workspace is no longer active")
+        try:
+            services = self.service_snapshots
+            error = None
+        except (ValueError, OSError, AppError) as failure:
+            group = self._group
+            services = tuple(item for item in group.service_snapshots if item.config_key in group.owned_keys) if group else ()
+            error = external_status_detail_from_exception(failure)
+        return McpRuntimeSnapshot(self._runtime_id, str(self._workspace), services, error)
+
+    async def control(self, request: McpControlRequest, *, defer_activity_stop: bool = False) -> McpControlResult:
+        """按冻结身份执行明确范围，并在同一生命周期锁内取得批次前后事实。"""
+        if isinstance(request.target, McpSingleService):
+            result = await self._control_service(request, defer_activity_stop=defer_activity_stop)
+            return McpControlResult(request, (result,))
+        if request.action == "status":
+            if not self._is_active() or request.runtime_id != self._runtime_id or request.workspace != str(self._workspace):
+                raise RuntimeError("MCP runtime or workspace is no longer active")
+            snapshot = self.snapshot
+            return McpControlResult(request, tuple(
+                McpServiceOutcome(item.config_key, "unchanged", item, snapshot.config_error)
+                for item in snapshot.services
+            ))
+        async with self._lifecycle_lock:
+            if not self._is_active() or request.runtime_id != self._runtime_id or request.workspace != str(self._workspace):
+                raise RuntimeError("MCP runtime or workspace is no longer active")
+            before = {item.config_key: item for item in self.snapshot.services}
+            action = request.action
+            if action in ("start", "force"):
+                await self._start_unlocked(self._load_servers(), include_disabled=action == "force", defer_activity_stop=defer_activity_stop)
+            elif action == "restart":
+                await self._restart_unlocked(defer_activity_stop=defer_activity_stop)
+            elif action == "stop":
+                await self._stop_services_unlocked()
+            after = {item.config_key: item for item in self.snapshot.services}
+            outcomes: list[McpServiceOutcome] = []
+            for key in before.keys() | after.keys():
+                previous = before.get(key)
+                current = after.get(key)
+                if current is None and previous is not None:
+                    current = replace(previous, state="stopped", tools=(), discovered=0, filtered=0, connection_error=None)
+                if current is None:
+                    continue
+                if action in ("start", "force") and previous is not None and previous.state == "ready" and current.state == "ready":
+                    outcome = McpServiceOutcome(key, "unchanged", current)
+                elif current.state == "failed":
+                    outcome = McpServiceOutcome(key, "failed", current, current.connection_error)
+                elif current.config_enabled is False and current.state == "stopped" and action in ("start", "restart"):
+                    outcome = McpServiceOutcome(key, "disabled", current)
+                else:
+                    changed = action == "restart" or previous != current
+                    outcome = McpServiceOutcome(key, "applied" if changed else "unchanged", current)
+                outcomes.append(outcome)
+            return McpControlResult(request, tuple(sorted(outcomes, key=lambda item: item.config_key)))
+
+    async def _control_service(self, request: McpControlRequest, *, defer_activity_stop: bool) -> McpServiceOutcome:
         """串行执行单服务生命周期动作，保留其他连接及原有启动活动展示。"""
+        if not isinstance(request.target, McpSingleService):
+            raise TypeError("Single MCP control requires a single service target")
         if request.action == "status":
             key = request.target.config_key
             if not self._is_active() or request.runtime_id != self._runtime_id or request.workspace != str(self._workspace):
@@ -178,7 +238,7 @@ class ExternalMcpRuntime:
                 self._load_servers()
             except (ValueError, OSError, AppError) as error:
                 snapshot = next((item for item in self._snapshots() if item.config_key == key), None)
-                return McpServiceOutcome(key, "failed", snapshot, external_status_detail_from_exception(error))
+                return McpServiceOutcome(key, "unchanged" if snapshot is not None else "failed", snapshot, external_status_detail_from_exception(error))
             snapshot = next((item for item in self._snapshots() if item.config_key == key), None)
             if snapshot is None:
                 return McpServiceOutcome(key, "failed", None, "MCP service target no longer exists")
@@ -230,14 +290,15 @@ class ExternalMcpRuntime:
                         return McpServiceOutcome(key, "disabled", self._service_snapshot(key))
                     effective = server.copy()
                     effective["enabled"] = True
-                    status = ExternalMcpStatus([effective])
+                    status = ExternalMcpStatus([effective], scope_label=key)
                     try:
                         await self._context.start_activity(status.snapshot)
                         connected = await group.start_service(effective, status)
                     finally:
                         status.finish_unresolved()
                         self._last_start_snapshot = status.snapshot()
-                        await self._context.await_cleanup(self._context.stop_activity("external_mcp", settle=False))
+                        if not defer_activity_stop:
+                            await self._context.await_cleanup(self._context.stop_activity("external_mcp", settle=False))
                     snapshot = self._service_snapshot(key)
                     return McpServiceOutcome(
                         key, "applied" if connected else "failed", snapshot,
@@ -271,62 +332,6 @@ class ExternalMcpRuntime:
                 if isinstance(item, dict)
             ],
         }
-
-    @property
-    def tool_groups(self) -> tuple[McpToolGroupSnapshot, ...]:
-        """把 SDK 工具和连接统计投影为稳定的前端状态。"""
-        group = self._group
-        if group is None:
-            return ()
-
-        tools_by_group: dict[tuple[str, str], list[str]] = defaultdict(list)
-        auth_by_group: dict[tuple[str, str], str] = {}
-        for name, tool in group.tools.items():
-            meta = dict(tool.meta or {})
-            server = str(meta.get("server") or "external").strip() or "external"
-            transport = (
-                str(meta.get("transport") or "external").strip()
-                or "external"
-            )
-            auth = str(meta.get("auth") or "Unknown").strip() or "Unknown"
-            key = (server, transport)
-            tools_by_group[key].append(str(name))
-            auth_by_group.setdefault(key, auth)
-
-        snapshots: list[McpToolGroupSnapshot] = []
-        for stats in group.server_stats.values():
-            server = str(stats.get("server") or "external")
-            transport = str(stats.get("transport") or "external")
-            key = (server, transport)
-            names = tuple(sorted(tools_by_group.pop(key, ())))
-            exposed = len(names)
-            discovered = max(exposed, int(stats.get("discovered") or 0))
-            snapshots.append(McpToolGroupSnapshot(
-                server=server,
-                transport=transport,
-                auth=auth_by_group.pop(key, "Unknown"),
-                tools=names,
-                discovered=discovered,
-                exposed=exposed,
-                filtered=max(0, discovered - exposed),
-            ))
-
-        for (server, transport), raw_names in tools_by_group.items():
-            names = tuple(sorted(raw_names))
-            snapshots.append(McpToolGroupSnapshot(
-                server=server,
-                transport=transport,
-                auth=auth_by_group.get((server, transport), "Unknown"),
-                tools=names,
-                discovered=len(names),
-                exposed=len(names),
-                filtered=0,
-            ))
-
-        return tuple(sorted(
-            snapshots,
-            key=lambda item: (item.server, item.transport),
-        ))
 
     async def start(
         self,
@@ -387,7 +392,7 @@ class ExternalMcpRuntime:
             configured=len(servers),
         )
 
-        status: ExternalMcpStatus = ExternalMcpStatus(servers)
+        status: ExternalMcpStatus = ExternalMcpStatus(servers, scope_label="all services")
         external_anim_started: bool = False
         group: ExternalMcpGroup | None = None
 
@@ -450,15 +455,19 @@ class ExternalMcpRuntime:
     async def stop_services(self) -> None:
         """全量交互停止在任何拆除前检查全部引用，不以最终释放绕过门禁。"""
         async with self._lifecycle_lock:
-            if not self._is_active():
-                raise RuntimeError("MCP runtime or workspace is no longer active")
-            keys = frozenset(self._users) | (self._group.owned_keys if self._group is not None else frozenset())
-            with self._block_services(keys):
-                try:
-                    await self._stop_unlocked()
-                except asyncio.CancelledError:
-                    if self._group is not None:
-                        raise
+            await self._stop_services_unlocked()
+
+    async def _stop_services_unlocked(self) -> None:
+        """在已持有管理锁时执行全停门禁和不可中途放弃的资源释放。"""
+        if not self._is_active():
+            raise RuntimeError("MCP runtime or workspace is no longer active")
+        keys = frozenset(self._users) | (self._group.owned_keys if self._group is not None else frozenset())
+        with self._block_services(keys):
+            try:
+                await self._stop_unlocked()
+            except asyncio.CancelledError:
+                if self._group is not None:
+                    raise
 
     async def _stop_unlocked(self) -> None:
         """在生命周期锁内关闭外部 MCP。"""
@@ -483,13 +492,17 @@ class ExternalMcpRuntime:
         """重新读取配置并刷新外部 MCP 连接。"""
         observe("external_mcp.restart")
         async with self._lifecycle_lock:
-            if not self._is_active():
-                raise RuntimeError("MCP runtime or workspace is no longer active")
-            servers = self._load_servers()
-            keys = frozenset(self._users) | (self._group.owned_keys if self._group is not None else frozenset())
-            with self._block_services(keys):
-                await self._stop_unlocked()
-                await self._start_unlocked(servers, defer_activity_stop=defer_activity_stop)
+            await self._restart_unlocked(defer_activity_stop=defer_activity_stop)
+
+    async def _restart_unlocked(self, *, defer_activity_stop: bool) -> None:
+        """在管理锁内先校验配置，再完整收束旧连接并重建启用服务。"""
+        if not self._is_active():
+            raise RuntimeError("MCP runtime or workspace is no longer active")
+        servers = self._load_servers()
+        keys = frozenset(self._users) | (self._group.owned_keys if self._group is not None else frozenset())
+        with self._block_services(keys):
+            await self._stop_unlocked()
+            await self._start_unlocked(servers, defer_activity_stop=defer_activity_stop)
 
 
 if __name__ == '__main__':

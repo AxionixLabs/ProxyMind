@@ -50,6 +50,7 @@ from tests.external_mcp.fixtures import (
 from tests.external_mcp.test_service_control import (
     FixtureConfig,
     cleanup,
+    single_control,
     control_runtime,
     ping,
     request,
@@ -78,7 +79,7 @@ async def test_p0_golden_p2_batches_use_real_connections(control_runtime, fixtur
         key = entry["config_key"]
         config.servers[key]["enabled"] = entry["enabled"]
         if entry["state"] == "ready":
-            await runtime.control_service(request(runtime, key, "force"))
+            await single_control(runtime, request(runtime, key, "force"))
             before[key] = await ping(runtime, f"mcp__{key.lower()}__ping")
     await runtime.start(include_disabled=case["request"]["action"] == "force")
     snapshots = {item.config_key: item for item in runtime.service_snapshots}
@@ -103,7 +104,7 @@ async def test_all_start_force_are_idempotent_and_restart_drops_temporary_connec
     await runtime.start(include_disabled=True)
     for key in config.servers:
         assert identities(await ping(runtime, f"mcp__{key.lower()}__ping")) == identities(before[key])
-    await runtime.control_service(request(runtime, "A", "stop"))
+    await single_control(runtime, request(runtime, "A", "stop"))
     await runtime.start()
     assert identities(await ping(runtime, "mcp__a__ping")) != identities(before["A"])
     assert identities(await ping(runtime, "mcp__b__ping")) == identities(before["B"])
@@ -121,7 +122,7 @@ async def test_required_failure_retires_only_uncommitted_batch(control_runtime, 
     select_servers(config, "A", "B", "Slow")
     before = None
     if operation != "cold":
-        await runtime.control_service(request(runtime, "B", "start"))
+        await single_control(runtime, request(runtime, "B", "start"))
         before = await ping(runtime, "mcp__b__ping")
     config.servers["Slow"].update(enabled=True, required=True)
     start = asyncio.create_task(runtime.restart() if operation == "restart" else runtime.start())
@@ -134,7 +135,7 @@ async def test_required_failure_retires_only_uncommitted_batch(control_runtime, 
             assert all(not name.startswith("mcp__a__") for name in view.tools)
             if operation == "incremental":
                 assert "mcp__b__ping" in view.tools
-        status = await asyncio.wait_for(runtime.control_service(request(runtime, "Slow", "status")), timeout=0.5)
+        status = await asyncio.wait_for(single_control(runtime, request(runtime, "Slow", "status")), timeout=0.5)
         assert status.snapshot.state == "starting"
         with pytest.raises(AppError, match="Required MCP"):
             await start
@@ -182,9 +183,9 @@ async def test_busy_full_operations_have_no_partial_effect_and_single_targets_ar
             assert error.value.config_keys == ("B",)
         assert {item.state for item in runtime.service_snapshots} == {"ready"}
         for action in ("stop", "restart"):
-            result = await runtime.control_service(request(runtime, "B", action))
+            result = await single_control(runtime, request(runtime, "B", action))
             assert result.outcome == "busy" and result.snapshot.state == "ready"
-        assert (await runtime.control_service(request(runtime, "A", "stop"))).outcome == "applied"
+        assert (await single_control(runtime, request(runtime, "A", "stop"))).outcome == "applied"
         assert identities(await ping(runtime, "mcp__b__ping")) == identities(before)
     await runtime.stop_services()
     with pytest.raises(RuntimeError, match="scope has ended"):
@@ -199,7 +200,7 @@ async def test_disconnected_frozen_scope_cannot_be_rebound_or_replayed(control_r
     with runtime.use_tools() as view:
         with pytest.raises(McpError):
             await view.call_tool("mcp__disconnect__ping")
-        result = await runtime.control_service(request(runtime, "Disconnect", "force"))
+        result = await single_control(runtime, request(runtime, "Disconnect", "force"))
         assert result.outcome == "busy" and result.snapshot.state == "failed"
         with pytest.raises(McpServicesBusy):
             await runtime.start(include_disabled=True)
@@ -287,7 +288,7 @@ async def test_turn_and_subscription_scopes_freeze_catalog_and_hold_gate(control
         with pytest.raises(McpServicesBusy):
             await resources.external_mcp.stop_services()
         await resources.external_mcp.start(include_disabled=True)
-        assert (await runtime.control_service(request(runtime, "A", "restart"))).outcome == "busy"
+        assert (await single_control(runtime, request(runtime, "A", "restart"))).outcome == "busy"
         release.set()
         await task
         if source == "subscription":
@@ -320,8 +321,8 @@ async def test_real_hook_holds_only_its_service_until_completion(control_runtime
     task = asyncio.create_task(runner.execute(definition, {}))
     try:
         await wait_for_fact(config.workspace / "a.jsonl", "tool.started")
-        assert (await runtime.control_service(request(runtime, "A", "stop"))).outcome == "busy"
-        assert (await runtime.control_service(request(runtime, "B", "restart"))).outcome == "applied"
+        assert (await single_control(runtime, request(runtime, "A", "stop"))).outcome == "busy"
+        assert (await single_control(runtime, request(runtime, "B", "restart"))).outcome == "applied"
         if ending == "success":
             (config.workspace / "a.release").touch()
             output = await task
@@ -333,7 +334,7 @@ async def test_real_hook_holds_only_its_service_until_completion(control_runtime
         else:
             with pytest.raises(HookMcpError, match="timed out"):
                 await task
-        assert (await runtime.control_service(request(runtime, "A", "stop"))).outcome == "applied"
+        assert (await single_control(runtime, request(runtime, "A", "stop"))).outcome == "applied"
         assert sum(fact.event == "tool.started" for fact in read_facts(config.workspace / "a.jsonl")) == 1
     finally:
         task.cancel()
@@ -346,7 +347,7 @@ async def test_real_hook_holds_only_its_service_until_completion(control_runtime
 async def test_cancelled_batch_collects_new_processes_and_preserves_only_preexisting(control_runtime, operation):
     runtime, config = control_runtime
     select_servers(config, "A", "B", "Slow")
-    await runtime.control_service(request(runtime, "B", "start"))
+    await single_control(runtime, request(runtime, "B", "start"))
     before = await ping(runtime, "mcp__b__ping")
     config.servers["Slow"]["enabled"] = True
     task = asyncio.create_task(runtime.start() if operation == "start" else runtime.restart())
@@ -406,7 +407,7 @@ async def test_old_workspace_batch_cannot_publish_after_detach(control_runtime, 
             await task
         assert runtime.group.owned_keys == frozenset() and not runtime.group.tools
         assert identities(await ping(second, "mcp__a__ping")) == identities(current)
-        assert (await second.control_service(request(runtime, "A", "stop"))).outcome == "failed"
+        assert (await single_control(second, request(runtime, "A", "stop"))).outcome == "failed"
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
@@ -431,7 +432,7 @@ async def test_no_new_scope_can_enter_between_stop_precheck_and_close(control_ru
 
     monkeypatch.setattr(group, "stop_service" if scope == "single" else "close", held_close)
     task = asyncio.create_task(
-        runtime.control_service(request(runtime, "A", "stop")) if scope == "single" else runtime.stop_services(),
+        single_control(runtime, request(runtime, "A", "stop")) if scope == "single" else runtime.stop_services(),
     )
     try:
         await asyncio.wait_for(entered.wait(), timeout=2)
@@ -459,13 +460,13 @@ async def test_tool_scope_releases_on_catalog_and_consumer_failure(control_runti
 
     async def build(**kwargs):
         if failure_phase == "catalog":
-            assert (await runtime.control_service(request(runtime, "A", "stop"))).outcome == "busy"
+            assert (await single_control(runtime, request(runtime, "A", "stop"))).outcome == "busy"
             raise ValueError("catalog failed")
         return await original_build(**kwargs)
 
     async def before_user_flow():
         if failure_phase == "before_user_flow":
-            assert (await runtime.control_service(request(runtime, "A", "stop"))).outcome == "busy"
+            assert (await single_control(runtime, request(runtime, "A", "stop"))).outcome == "busy"
             raise ValueError("before_user_flow failed")
 
     async def operation(_session, _tools):
@@ -479,14 +480,14 @@ async def test_tool_scope_releases_on_catalog_and_consumer_failure(control_runti
     try:
         if failure_phase == "cancel":
             await asyncio.wait_for(entered.wait(), timeout=2)
-            assert (await runtime.control_service(request(runtime, "A", "restart"))).outcome == "busy"
+            assert (await single_control(runtime, request(runtime, "A", "restart"))).outcome == "busy"
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
         else:
             with pytest.raises(ValueError, match=failure_phase):
                 await task
-        assert (await runtime.control_service(request(runtime, "A", "stop"))).outcome == "applied"
+        assert (await single_control(runtime, request(runtime, "A", "stop"))).outcome == "applied"
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
@@ -508,11 +509,11 @@ async def test_background_hook_and_nested_scope_release_before_final_close(contr
     try:
         await wait_for_fact(config.workspace / "a.jsonl", "tool.started")
         with resources.external_mcp.use_tools():
-            assert (await runtime.control_service(request(runtime, "A", "stop"))).outcome == "busy"
-        assert (await runtime.control_service(request(runtime, "A", "stop"))).outcome == "busy"
+            assert (await single_control(runtime, request(runtime, "A", "stop"))).outcome == "busy"
+        assert (await single_control(runtime, request(runtime, "A", "stop"))).outcome == "busy"
         (config.workspace / "a.release").touch()
         await hooks.close()
-        assert (await runtime.control_service(request(runtime, "A", "stop"))).outcome == "applied"
+        assert (await single_control(runtime, request(runtime, "A", "stop"))).outcome == "applied"
     finally:
         (config.workspace / "a.release").touch()
         await hooks.close()

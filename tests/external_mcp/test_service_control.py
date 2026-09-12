@@ -26,7 +26,8 @@ from agent.harness.mcp.owner import McpRuntimeOwner
 from agent.ports.mcp_runtime import (
     McpAction,
     McpRuntimeContext,
-    McpServiceControlRequest,
+    McpServiceOutcome,
+    McpControlRequest,
     McpSingleService,
 )
 from infrastructure.mcp.external_runtime import ExternalMcpRuntime
@@ -64,9 +65,16 @@ async def cleanup(awaitable: Awaitable[None]) -> None:
         raise
 
 
-def request(runtime: ExternalMcpRuntime, key: str, action: McpAction) -> McpServiceControlRequest:
+def request(runtime: ExternalMcpRuntime, key: str, action: McpAction) -> McpControlRequest:
     """从当前实例冻结明确的单服务请求。"""
-    return McpServiceControlRequest(runtime.runtime_id, str(runtime.workspace), action, McpSingleService(key))
+    return McpControlRequest(runtime.runtime_id, str(runtime.workspace), action, McpSingleService(key))
+
+
+async def single_control(runtime: ExternalMcpRuntime | McpRuntimeOwner, command: McpControlRequest) -> McpServiceOutcome:
+    result = await runtime.control(command)
+    assert result.request == command
+    assert len(result.services) == 1
+    return result.services[0]
 
 
 async def ping(runtime: ExternalMcpRuntime, name: str) -> FixtureReply:
@@ -95,34 +103,34 @@ async def control_runtime(tmp_path, repository_root):
 async def test_single_stop_restart_and_last_service_start_preserve_other_connection(control_runtime) -> None:
     runtime, _ = control_runtime
     for key in ("A", "B"):
-        assert (await runtime.control_service(request(runtime, key, "start"))).outcome == "applied"
+        assert (await single_control(runtime, request(runtime, key, "start"))).outcome == "applied"
     a = await ping(runtime, "mcp__a__ping")
     b = await ping(runtime, "mcp__b__ping")
-    assert (await runtime.control_service(request(runtime, "A", "stop"))).snapshot.state == "stopped"
+    assert (await single_control(runtime, request(runtime, "A", "stop"))).snapshot.state == "stopped"
     assert (await ping(runtime, "mcp__b__ping")).session_id == b.session_id
-    await runtime.control_service(request(runtime, "A", "restart"))
+    await single_control(runtime, request(runtime, "A", "restart"))
     assert (await ping(runtime, "mcp__a__ping")).instance_id != a.instance_id
     assert (await ping(runtime, "mcp__b__ping")).instance_id == b.instance_id
     for key in ("A", "B"):
-        await runtime.control_service(request(runtime, key, "stop"))
+        await single_control(runtime, request(runtime, key, "stop"))
     assert not runtime.started
     assert not runtime.group.tools
-    assert (await runtime.control_service(request(runtime, "A", "start"))).snapshot.state == "ready"
+    assert (await single_control(runtime, request(runtime, "A", "start"))).snapshot.state == "ready"
 
 
 @pytest.mark.anyio
 async def test_disabled_force_is_idempotent_and_restart_respects_configuration(control_runtime) -> None:
     runtime, config = control_runtime
     before = json.dumps(config.load(), sort_keys=True)
-    assert (await runtime.control_service(request(runtime, "D", "start"))).outcome == "disabled"
+    assert (await single_control(runtime, request(runtime, "D", "start"))).outcome == "disabled"
     assert not (config.workspace / "disabled.jsonl").exists()
-    forced = await runtime.control_service(request(runtime, "D", "force"))
+    forced = await single_control(runtime, request(runtime, "D", "force"))
     assert forced.snapshot.config_enabled is False and forced.snapshot.state == "ready"
     first = await ping(runtime, "mcp__d__ping")
-    assert (await runtime.control_service(request(runtime, "D", "force"))).outcome == "unchanged"
-    assert (await runtime.control_service(request(runtime, "D", "start"))).outcome == "unchanged"
+    assert (await single_control(runtime, request(runtime, "D", "force"))).outcome == "unchanged"
+    assert (await single_control(runtime, request(runtime, "D", "start"))).outcome == "unchanged"
     assert (await ping(runtime, "mcp__d__ping")).instance_id == first.instance_id
-    result = await runtime.control_service(request(runtime, "D", "restart"))
+    result = await single_control(runtime, request(runtime, "D", "restart"))
     assert result.outcome == "disabled" and result.snapshot.state == "stopped"
     assert json.dumps(config.load(), sort_keys=True) == before
 
@@ -131,7 +139,7 @@ async def test_disabled_force_is_idempotent_and_restart_respects_configuration(c
 @pytest.mark.parametrize("key,discovered,filtered", [("E", 0, 0), ("NoTools", 0, 0), ("Filtered", 2, 2)])
 async def test_valid_empty_catalog_is_ready_without_tools(control_runtime, key, discovered, filtered) -> None:
     runtime, _ = control_runtime
-    result = await runtime.control_service(request(runtime, key, "start"))
+    result = await single_control(runtime, request(runtime, key, "start"))
     assert result.outcome == "applied" and runtime.started
     assert result.snapshot.state == "ready"
     assert result.snapshot.tools == ()
@@ -142,107 +150,107 @@ async def test_valid_empty_catalog_is_ready_without_tools(control_runtime, key, 
 @pytest.mark.parametrize("key", ["F", "Slow", "DiscoveryFailure"])
 async def test_single_required_failure_preserves_healthy_service(control_runtime, key) -> None:
     runtime, config = control_runtime
-    await runtime.control_service(request(runtime, "B", "start"))
+    await single_control(runtime, request(runtime, "B", "start"))
     before = await ping(runtime, "mcp__b__ping")
     config.servers[key]["required"] = True
-    result = await runtime.control_service(request(runtime, key, "force"))
+    result = await single_control(runtime, request(runtime, key, "force"))
     assert result.outcome == "failed"
     assert result.snapshot.state == "failed" and result.snapshot.connection_error
     assert result.snapshot.tools == ()
     assert (await ping(runtime, "mcp__b__ping")).instance_id == before.instance_id
-    assert (await runtime.control_service(request(runtime, key, "stop"))).snapshot.state == "stopped"
+    assert (await single_control(runtime, request(runtime, key, "stop"))).snapshot.state == "stopped"
 
 
 @pytest.mark.anyio
 async def test_status_and_invalid_restart_do_not_touch_healthy_connection(control_runtime) -> None:
     runtime, config = control_runtime
-    await runtime.control_service(request(runtime, "A", "start"))
+    await single_control(runtime, request(runtime, "A", "start"))
     facts = read_facts(config.workspace / "a.jsonl")
     for _ in range(3):
-        result = await runtime.control_service(request(runtime, "A", "status"))
+        result = await single_control(runtime, request(runtime, "A", "status"))
         assert result.snapshot.state == "ready"
     assert read_facts(config.workspace / "a.jsonl") == facts
     config.servers["A"]["url"] = "https://user:secret@example.test/mcp?token=private"
-    result = await runtime.control_service(request(runtime, "A", "restart"))
+    result = await single_control(runtime, request(runtime, "A", "restart"))
     assert result.outcome == "failed" and result.snapshot.state == "ready"
     assert "secret" not in result.operation_error and "private" not in result.operation_error
-    assert (await runtime.control_service(request(runtime, "A", "stop"))).snapshot.state == "stopped"
+    assert (await single_control(runtime, request(runtime, "A", "stop"))).snapshot.state == "stopped"
 
 
 @pytest.mark.anyio
 async def test_removed_configuration_can_only_be_stopped_or_inspected(control_runtime) -> None:
     runtime, config = control_runtime
-    await runtime.control_service(request(runtime, "A", "start"))
+    await single_control(runtime, request(runtime, "A", "start"))
     del config.servers["A"]
-    result = await runtime.control_service(request(runtime, "A", "status"))
+    result = await single_control(runtime, request(runtime, "A", "status"))
     assert result.snapshot.config_enabled is None and result.snapshot.state == "ready"
     for action in ("start", "force", "restart"):
-        assert (await runtime.control_service(request(runtime, "A", action))).outcome == "failed"
-    assert (await runtime.control_service(request(runtime, "A", "stop"))).snapshot.state == "stopped"
+        assert (await single_control(runtime, request(runtime, "A", action))).outcome == "failed"
+    assert (await single_control(runtime, request(runtime, "A", "stop"))).snapshot.state == "stopped"
     assert all(item.config_key != "A" for item in runtime.service_snapshots)
 
 
 @pytest.mark.anyio
 async def test_stale_instance_workspace_and_unknown_target_cannot_expand_scope(control_runtime) -> None:
     runtime, config = control_runtime
-    await runtime.control_service(request(runtime, "B", "start"))
-    stale = McpServiceControlRequest("old-instance", str(runtime.workspace), "stop", McpSingleService("B"))
-    assert (await runtime.control_service(stale)).outcome == "failed"
-    assert (await runtime.control_service(request(runtime, "unknown", "stop"))).outcome == "failed"
+    await single_control(runtime, request(runtime, "B", "start"))
+    stale = McpControlRequest("old-instance", str(runtime.workspace), "stop", McpSingleService("B"))
+    assert (await single_control(runtime, stale)).outcome == "failed"
+    assert (await single_control(runtime, request(runtime, "unknown", "stop"))).outcome == "failed"
     old = request(runtime, "B", "stop")
     config.workspace = config.workspace / "next"
-    assert (await runtime.control_service(old)).outcome == "failed"
+    assert (await single_control(runtime, old)).outcome == "failed"
     assert runtime.started
 
 
 @pytest.mark.anyio
 async def test_prefix_collision_with_removed_live_connection_does_not_replace_routes(control_runtime) -> None:
     runtime, config = control_runtime
-    await runtime.control_service(request(runtime, "Docs API", "force"))
+    await single_control(runtime, request(runtime, "Docs API", "force"))
     before = await ping(runtime, "mcp__docs-api__ping")
     del config.servers["Docs API"]
-    result = await runtime.control_service(request(runtime, "Docs/API", "force"))
+    result = await single_control(runtime, request(runtime, "Docs/API", "force"))
     assert result.outcome == "failed"
     assert (await ping(runtime, "mcp__docs-api__ping")).instance_id == before.instance_id
-    await runtime.control_service(request(runtime, "Docs API", "stop"))
-    assert (await runtime.control_service(request(runtime, "Docs/API", "force"))).outcome == "applied"
+    await single_control(runtime, request(runtime, "Docs API", "stop"))
+    assert (await single_control(runtime, request(runtime, "Docs/API", "force"))).outcome == "applied"
 
 
 @pytest.mark.anyio
 async def test_parallel_start_is_idempotent_and_cancelled_start_releases_owner(control_runtime) -> None:
     runtime, config = control_runtime
-    first, second = await asyncio.gather(*(runtime.control_service(request(runtime, "A", "start")) for _ in range(2)))
+    first, second = await asyncio.gather(*(single_control(runtime, request(runtime, "A", "start")) for _ in range(2)))
     assert (first.outcome, second.outcome) == ("applied", "unchanged")
     assert sum(fact.event == "initialized" for fact in read_facts(config.workspace / "a.jsonl")) == 1
-    task = asyncio.create_task(runtime.control_service(request(runtime, "Slow", "force")))
+    task = asyncio.create_task(single_control(runtime, request(runtime, "Slow", "force")))
     await wait_for_fact(config.workspace / "slow.jsonl", "fault.injected")
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert (await runtime.control_service(request(runtime, "Slow", "stop"))).snapshot.state == "stopped"
+    assert (await single_control(runtime, request(runtime, "Slow", "stop"))).snapshot.state == "stopped"
     assert (await ping(runtime, "mcp__a__ping")).call_count == 1
 
 
 @pytest.mark.anyio
 async def test_real_close_stall_is_reclaimed_before_restart(control_runtime) -> None:
     runtime, _ = control_runtime
-    await runtime.control_service(request(runtime, "CloseStall", "force"))
+    await single_control(runtime, request(runtime, "CloseStall", "force"))
     async with asyncio.timeout(15):
-        result = await runtime.control_service(request(runtime, "CloseStall", "stop"))
+        result = await single_control(runtime, request(runtime, "CloseStall", "stop"))
     assert result.outcome == "applied" and result.snapshot.state == "stopped"
 
 
 @pytest.mark.anyio
 async def test_cancelled_stop_reports_confirmed_stopped_after_cleanup(control_runtime) -> None:
     runtime, config = control_runtime
-    await runtime.control_service(request(runtime, "CloseStall", "force"))
-    task = asyncio.create_task(runtime.control_service(request(runtime, "CloseStall", "stop")))
+    await single_control(runtime, request(runtime, "CloseStall", "force"))
+    task = asyncio.create_task(single_control(runtime, request(runtime, "CloseStall", "stop")))
     await wait_for_fact(config.workspace / "close-stall.jsonl", "fault.injected")
     task.cancel()
     async with asyncio.timeout(10):
         result = await task
     assert result.outcome == "applied" and result.snapshot.state == "stopped"
-    assert (await runtime.control_service(request(runtime, "CloseStall", "stop"))).outcome == "unchanged"
+    assert (await single_control(runtime, request(runtime, "CloseStall", "stop"))).outcome == "unchanged"
 
 
 @pytest.mark.anyio
@@ -252,16 +260,16 @@ async def test_runtime_remote_stop_leaves_server_alive_and_restart_gets_new_sess
     async with remote_fixture(FixtureSpec(config.workspace, "remote", transport, repository=config.repository)) as remote:
         config.servers["remote"] = {"url": remote.url}
         try:
-            await runtime.control_service(request(runtime, "remote", "start"))
+            await single_control(runtime, request(runtime, "remote", "start"))
             first = await ping(runtime, "mcp__remote__ping")
-            await runtime.control_service(request(runtime, "remote", "stop"))
+            await single_control(runtime, request(runtime, "remote", "stop"))
             assert remote.process.returncode is None
-            await runtime.control_service(request(runtime, "remote", "restart"))
+            await single_control(runtime, request(runtime, "remote", "restart"))
             second = await ping(runtime, "mcp__remote__ping")
             assert second.instance_id == first.instance_id
             assert second.session_id != first.session_id
         finally:
-            await runtime.control_service(request(runtime, "remote", "stop"))
+            await single_control(runtime, request(runtime, "remote", "stop"))
 
 
 @pytest.mark.anyio
@@ -269,13 +277,13 @@ async def test_real_eof_updates_state_without_status_probe(control_runtime) -> N
     runtime, config = control_runtime
     async with remote_fixture(FixtureSpec(config.workspace, "remote", "streamable_http", repository=config.repository)) as remote:
         config.servers["remote"] = {"url": remote.url}
-        await runtime.control_service(request(runtime, "remote", "start"))
+        await single_control(runtime, request(runtime, "remote", "start"))
         remote.process.terminate()
         await remote.process.wait()
         async with asyncio.timeout(10):
             while next(item for item in runtime.service_snapshots if item.config_key == "remote").state == "ready":
                 await asyncio.sleep(0.025)
-        result = await runtime.control_service(request(runtime, "remote", "status"))
+        result = await single_control(runtime, request(runtime, "remote", "status"))
         assert result.snapshot.state == "failed" and not result.snapshot.tools
 
 
@@ -288,26 +296,27 @@ async def test_owner_output_matches_p0_contract_and_detached_owner_rejects_reque
     await owner.start()
     config.servers = original
     command = request(runtime, "all", "force")
-    result = await owner.control_service(command)
+    result = await single_control(owner, command)
     schema = json.loads((fixtures_root / "mcp" / "control.schema.json").read_text(encoding="utf-8"))
     validator = Draft202012Validator(schema).evolve(schema={"$ref": "#/$defs/McpControlResult"})
     validator.validate(json.loads(json.dumps({"request": asdict(command), "services": [asdict(result)]})))
     assert result.snapshot.config_key == "all" and result.snapshot.state == "ready"
     assert owner.detach() is runtime
-    assert (await owner.control_service(command)).outcome == "failed"
+    with pytest.raises(RuntimeError, match="cleanup"):
+        await owner.control(command)
 
 
 @pytest.mark.anyio
 async def test_runtime_stdio_disconnect_is_failed_and_call_is_not_replayed(control_runtime) -> None:
     runtime, config = control_runtime
-    await runtime.control_service(request(runtime, "B", "start"))
-    await runtime.control_service(request(runtime, "Disconnect", "force"))
+    await single_control(runtime, request(runtime, "B", "start"))
+    await single_control(runtime, request(runtime, "Disconnect", "force"))
     async with asyncio.timeout(10):
         with pytest.raises(McpError):
             await ping(runtime, "mcp__disconnect__ping")
         while next(item for item in runtime.service_snapshots if item.config_key == "Disconnect").state == "ready":
             await asyncio.sleep(0.025)
-    snapshot = (await runtime.control_service(request(runtime, "Disconnect", "status"))).snapshot
+    snapshot = (await single_control(runtime, request(runtime, "Disconnect", "status"))).snapshot
     assert snapshot.state == "failed" and snapshot.tools == ()
     assert sum(fact.event == "tool.started" for fact in read_facts(config.workspace / "disconnect.jsonl")) == 1
     assert (await ping(runtime, "mcp__b__ping")).call_count == 1
@@ -327,10 +336,10 @@ async def test_p0_golden_p1_cases_replay_against_real_runtime(control_runtime, f
         key = entry["config_key"]
         config.servers[key]["enabled"] = entry["enabled"]
         if entry["state"] == "ready":
-            result = await runtime.control_service(request(runtime, key, "force"))
+            result = await single_control(runtime, request(runtime, key, "force"))
             before[key] = await ping(runtime, result.snapshot.tool_prefix + "ping")
     if case["request"]["target"]["scope"] == "single":
-        result = await runtime.control_service(request(runtime, case["request"]["target"]["config_key"], case["request"]["action"]))
+        result = await single_control(runtime, request(runtime, case["request"]["target"]["config_key"], case["request"]["action"]))
         assert result.outcome in ("applied", "unchanged", "disabled")
     snapshots = {item.config_key: item for item in runtime.service_snapshots}
     for key in case["expected"]["disconnect"]:
@@ -365,5 +374,5 @@ async def test_initial_start_failure_remains_visible_and_single_service_can_retr
     arguments = config.servers["A"]["args"]
     assert isinstance(arguments, list)
     config.servers["A"]["args"] = ["ready" if value == "startup-failure" else value for value in arguments]
-    result = await runtime.control_service(request(runtime, "A", "start"))
+    result = await single_control(runtime, request(runtime, "A", "start"))
     assert result.outcome == "applied" and result.snapshot.state == "ready"

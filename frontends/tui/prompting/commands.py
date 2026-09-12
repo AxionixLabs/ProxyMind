@@ -207,7 +207,7 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         stream_policy="background_barrier",
     ),
     TuiCommandSpec(
-        "mcp", "/mcp", "Manage MCP services",
+        "mcp", "/mcp", "Select one MCP service; /mcp <action> manages all services",
         subcommands=("start", "force", "stop", "restart", "status"),
         surface_on_bare=True,
         stream_subcommand_policies=(

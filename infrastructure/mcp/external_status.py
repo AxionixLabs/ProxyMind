@@ -15,11 +15,12 @@ from infrastructure.mcp.values import slugify_mcp_name
 class ExternalMcpStatus(object):
     """维护外部 MCP 启动过程的可展示状态快照。"""
 
-    def __init__(self, servers: list[dict[str, typing.Any]]) -> None:
+    def __init__(self, servers: list[dict[str, typing.Any]], *, scope_label: str | None = None) -> None:
         """根据启用的外部服务初始化状态项。"""
         self._items: dict[str, dict[str, typing.Any]] = {}
         self._updated_at = time.monotonic()
         self._done: bool = False
+        self._scope_label = scope_label
 
         for server in servers or []:
             if not bool(server.get("enabled", True)):
@@ -91,6 +92,7 @@ class ExternalMcpStatus(object):
     def snapshot(self) -> dict[str, typing.Any]:
         """返回供 UI 动画读取的状态快照。"""
         return {
+            **({"summary": f"External MCP · {self._scope_label} · starting"} if self._scope_label and not self._done else {}),
             "done": self._done,
             "updated_at": self._updated_at,
             "items": [dict(item) for item in self._items.values()]

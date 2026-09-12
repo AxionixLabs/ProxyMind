@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "External MCP acceptance contract",
-  "description": "P0 acceptance values; not a wire protocol or an implemented runtime API.",
+  "description": "Local acceptance contract for typed MCP control requests, outcomes and menu projections; not a wire protocol.",
   "$defs": {
     "McpAction": {"enum": ["start", "force", "stop", "restart", "status"]},
     "McpAllServices": {

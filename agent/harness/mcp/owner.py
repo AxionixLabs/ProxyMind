@@ -11,8 +11,9 @@ from contextlib import contextmanager
 from agent.ports.mcp_runtime import (
     McpRuntime,
     McpRuntimeFactory,
-    McpServiceControlRequest,
-    McpServiceOutcome,
+    McpControlRequest,
+    McpControlResult,
+    McpRuntimeSnapshot,
 )
 from agent.ports.tool_runtime import ExternalToolGroupPort
 
@@ -44,14 +45,23 @@ class McpRuntimeOwner:
             with runtime.use_tools(server) as tools:
                 yield tools
 
-    async def control_service(self, request: McpServiceControlRequest) -> McpServiceOutcome:
-        """把单服务请求交给仍由本 owner 持有的实例，失效目标不创建新实例。"""
+    @property
+    def snapshot(self) -> McpRuntimeSnapshot:
+        """为只读菜单建立实例身份并读取本地事实，不建立外部连接。"""
+        self._require_available()
         runtime = self._runtime
         if runtime is None:
-            return McpServiceOutcome(
-                request.target.config_key, "failed", None, "MCP runtime is no longer active",
-            )
-        return await runtime.control_service(request)
+            runtime = self._create_runtime()
+            self._runtime = runtime
+        return runtime.snapshot
+
+    async def control(self, request: McpControlRequest, *, defer_activity_stop: bool = False) -> McpControlResult:
+        """执行已冻结的单服务或全量请求，失效目标不创建新实例。"""
+        self._require_available()
+        runtime = self._runtime
+        if runtime is None:
+            raise RuntimeError("MCP runtime is no longer active")
+        return await runtime.control(request, defer_activity_stop=defer_activity_stop)
 
     async def start(
         self,

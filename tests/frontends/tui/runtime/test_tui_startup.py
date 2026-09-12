@@ -19,7 +19,6 @@ from agent.harness.process_lifecycle import ProcessLifecycle
 from infrastructure.mcp.tool_runtime import CompositeToolRuntime
 from agent.ports import (
     McpRuntimeContext,
-    McpToolGroupSnapshot,
     ProtocolCommandClient,
     ToolRuntimeSources,
 )
@@ -431,15 +430,6 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
         "filtered": 0,
         "detail": "",
     }]
-    assert runtime.tool_groups == (McpToolGroupSnapshot(
-        server="docs",
-        transport="stdio",
-        auth="None",
-        tools=("mcp__docs__read", "mcp__docs__search"),
-        discovered=3,
-        exposed=2,
-        filtered=1,
-    ),)
     assert host.stop_calls == [("external_mcp", False)]
     assert len(activity_snapshots) == 1
     assert isinstance(activity_snapshots[0](), dict)
