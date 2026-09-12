@@ -6,6 +6,7 @@ import logging
 import sys
 import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import anyio
 import pytest
@@ -41,6 +42,20 @@ def _stdio_servers(count: int) -> list[dict]:
         }
         for index in range(count)
     ]
+
+
+def _stub_connection_transport(monkeypatch):
+    async def establish(_params, _session_params, _disconnected, stack):
+        session = SimpleNamespace(
+            get_server_capabilities=lambda: mcp_types.ServerCapabilities(tools=mcp_types.ToolsCapability()),
+            list_tools=AsyncMock(return_value=mcp_types.ListToolsResult(tools=[
+                mcp_types.Tool(name="ping", inputSchema={"type": "object"}),
+            ])),
+        )
+        return mcp_types.Implementation(name="fixture", version="1"), session, stack
+
+    monkeypatch.setattr(ExternalMcpGroup, "_establish_session", staticmethod(establish))
+    return ExternalMcpGroup.connect_with_alias
 
 
 @pytest.mark.anyio
@@ -107,6 +122,7 @@ async def test_external_mcp_connects_six_servers_with_bounded_concurrency(
     servers = _servers(6)
     status = ExternalMcpStatus(servers)
     state = {"active": 0, "maximum": 0}
+    connect_owned = _stub_connection_transport(monkeypatch)
 
     async def preflight(_server) -> None:
         return None
@@ -116,7 +132,7 @@ async def test_external_mcp_connects_six_servers_with_bounded_concurrency(
         state["maximum"] = max(state["maximum"], state["active"])
         await asyncio.sleep(0.01)
         state["active"] -= 1
-        return server["name"], 1, 1
+        return await connect_owned(_group, server)
 
     monkeypatch.setattr(mcp_group, "preflight_server", preflight)
     monkeypatch.setattr(ExternalMcpGroup, "connect_with_alias", connect)
@@ -135,6 +151,7 @@ async def test_external_mcp_connects_six_servers_with_bounded_concurrency(
 async def test_external_mcp_serializes_stdio_process_startup(monkeypatch) -> None:
     servers = _stdio_servers(4)
     state = {"active": 0, "maximum": 0}
+    connect_owned = _stub_connection_transport(monkeypatch)
 
     async def preflight(_server) -> None:
         return None
@@ -144,7 +161,7 @@ async def test_external_mcp_serializes_stdio_process_startup(monkeypatch) -> Non
         state["maximum"] = max(state["maximum"], state["active"])
         await asyncio.sleep(0.01)
         state["active"] -= 1
-        return server["name"], 1, 1
+        return await connect_owned(_group, server)
 
     monkeypatch.setattr(mcp_group, "preflight_server", preflight)
     monkeypatch.setattr(ExternalMcpGroup, "connect_with_alias", connect)
@@ -166,6 +183,7 @@ async def test_queued_stdio_does_not_occupy_general_connection_slot(
         _servers(1)[0],
     ]
     remote_started = asyncio.Event()
+    connect_owned = _stub_connection_transport(monkeypatch)
 
     async def preflight(_server) -> None:
         return None
@@ -176,7 +194,7 @@ async def test_queued_stdio_does_not_occupy_general_connection_slot(
         elif server["name"] == "server-0":
             remote_started.set()
         await asyncio.sleep(0)
-        return server["name"], 1, 1
+        return await connect_owned(_group, server)
 
     monkeypatch.setattr(mcp_group, "preflight_server", preflight)
     monkeypatch.setattr(ExternalMcpGroup, "connect_with_alias", connect)
@@ -222,6 +240,7 @@ async def test_external_mcp_timeout_starts_after_concurrency_slot_is_acquired(
 ) -> None:
     servers = _servers(2, startup_timeout_sec=0.02)
     status = ExternalMcpStatus(servers)
+    connect_owned = _stub_connection_transport(monkeypatch)
 
     async def preflight(_server) -> None:
         return None
@@ -229,7 +248,7 @@ async def test_external_mcp_timeout_starts_after_concurrency_slot_is_acquired(
     async def connect(_group, server) -> tuple[str, int, int]:
         if server["name"] == "server-0":
             await asyncio.sleep(0.05)
-        return server["name"], 1, 1
+        return await connect_owned(_group, server)
 
     monkeypatch.setattr(mcp_group, "EXTERNAL_MCP_CONNECT_CONCURRENCY", 1)
     monkeypatch.setattr(mcp_group, "preflight_server", preflight)

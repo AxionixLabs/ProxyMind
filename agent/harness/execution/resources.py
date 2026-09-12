@@ -12,7 +12,6 @@ from agent.domain.tool_policy import ToolFilterMode
 from agent.harness.mcp.owner import McpRuntimeOwner
 from agent.ports import (
     BeforeToolSession,
-    ExternalToolGroupPort,
     McpRuntimeFactory,
     McpSessionPort,
     ToolRegistryPort,
@@ -98,7 +97,7 @@ class ExecutionResources:
             ToolRuntimeSources(
                 client_registry=self.client_registry,
                 builtin_registry=self.builtin_registry,
-                external_group=self._current_external_tool_group,
+                external_tools=self.external_mcp.use_tools,
                 service_linked=self.is_service_linked,
             )
         )
@@ -192,10 +191,6 @@ class ExecutionResources:
             return None
         return copy.deepcopy(environment)
 
-    def external_tool_group(self) -> ExternalToolGroupPort | None:
-        """返回当前已启动的外部 MCP 工具组供专用适配器复用。"""
-        return self._current_external_tool_group()
-
     async def with_mcp_session(
         self,
         pref_config: dict[str, typing.Any],
@@ -224,11 +219,6 @@ class ExecutionResources:
         self.unlink_service()
         await self.event_reporting.close()
         await self.external_mcp.close()
-
-    def _current_external_tool_group(self) -> ExternalToolGroupPort | None:
-        """返回当前外部 MCP 已发布的工具组。"""
-        runtime = self.external_mcp.current
-        return runtime.group if runtime is not None else None
 
 
 if __name__ == '__main__':

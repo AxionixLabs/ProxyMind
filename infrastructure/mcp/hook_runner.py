@@ -6,13 +6,12 @@ import json
 import re
 import typing
 from dataclasses import dataclass
-from collections.abc import Callable
 
 from agent.domain.hooks import (
     HookDefinitionConfig,
     McpToolHookHandlerConfig,
 )
-from agent.ports import ExternalToolGroupPort
+from agent.ports.tool_runtime import ExternalToolScope
 
 _PLACEHOLDER = re.compile(r"\$\{([^{}]+)\}")
 
@@ -34,12 +33,12 @@ class HookMcpRunner:
 
     def __init__(
         self,
-        group_provider: Callable[[], ExternalToolGroupPort | None],
+        tool_scope: ExternalToolScope,
     ) -> None:
-        """绑定当前 ExecutionResources 提供的 MCP 工具组。"""
-        if not callable(group_provider):
-            raise TypeError("MCP Hook group provider must be callable")
-        self._group_provider = group_provider
+        """绑定 Harness 统一使用范围，涵盖同步和异步 Hook 的整个调用。"""
+        if not callable(tool_scope):
+            raise TypeError("MCP Hook tool scope must be callable")
+        self._tool_scope = tool_scope
 
     async def execute(
         self,
@@ -51,24 +50,23 @@ class HookMcpRunner:
         if not isinstance(handler, McpToolHookHandlerConfig):
             raise TypeError("MCP Hook runner requires an mcp_tool handler")
 
-        group = self._group_provider()
-        if group is None:
-            raise HookMcpError("MCP runtime is not started")
-
         arguments = _expand_value(handler.input, payload)
         if not isinstance(arguments, dict):
             raise HookMcpError("MCP Hook input must be an object")
 
         try:
-            result = await asyncio.wait_for(
-                group.call_hook_tool(
-                    handler.server,
-                    handler.tool,
-                    arguments,
-                    read_timeout_seconds=None,
-                ),
-                timeout=handler.timeout_sec,
-            )
+            with self._tool_scope(handler.server) as group:
+                if group is None:
+                    raise HookMcpError("MCP runtime is not started")
+                result = await asyncio.wait_for(
+                    group.call_hook_tool(
+                        handler.server,
+                        handler.tool,
+                        arguments,
+                        read_timeout_seconds=None,
+                    ),
+                    timeout=handler.timeout_sec,
+                )
         except asyncio.TimeoutError as error:
             raise HookMcpError(
                 f"MCP Hook timed out after {handler.timeout_sec:g}s"

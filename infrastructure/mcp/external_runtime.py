@@ -4,6 +4,8 @@
 import asyncio
 import typing
 from collections import defaultdict
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
@@ -16,7 +18,9 @@ from agent.ports.mcp_runtime import (
     McpServiceControlRequest,
     McpServiceOutcome,
     McpServiceSnapshot,
+    McpServicesBusy,
 )
+from agent.ports.tool_runtime import ExternalToolGroupPort
 from infrastructure.config.schema import validate_config
 from infrastructure.errors import AppError
 from infrastructure.mcp.external_group import ExternalMcpGroup
@@ -43,6 +47,62 @@ class ExternalMcpRuntime:
         self._configured: dict[str, NormalizedMcpServer] = {}
         self._last_start_snapshot: dict[str, typing.Any] = {}
         self._lifecycle_lock: asyncio.Lock = asyncio.Lock()
+        self._accepting = True
+        self._users: dict[str, int] = {}
+        self._blocked: set[str] = set()
+        self._idle = asyncio.Event()
+        self._idle.set()
+
+    def _is_active(self) -> bool:
+        """校验此实例仍可接收使用范围和建连结果。"""
+        return self._accepting and self._context.config.workspace.resolve() == self._workspace
+
+    def retire(self) -> None:
+        """同步禁止新使用范围及迟到发布，已冻结引用继续由原消费者归还。"""
+        self._accepting = False
+
+    @contextmanager
+    def use_tools(self, server: str | None = None) -> Iterator[ExternalToolGroupPort | None]:
+        """原子冻结目录与引用；整个使用范围结束后才解除连接占用。"""
+        group = self._group
+        if not self._is_active() or group is None:
+            yield None
+            return
+        keys = frozenset(
+            item.config_key for item in group.service_snapshots
+            if item.state == "ready" and item.config_key not in self._blocked
+            and (server is None or item.tool_prefix == f"mcp__{server.strip()}__")
+        )
+        view = group.freeze_tools(keys)
+        for key in keys:
+            self._users[key] = self._users.get(key, 0) + 1
+        if keys:
+            self._idle.clear()
+        try:
+            yield view
+        finally:
+            view.release()
+            for key in keys:
+                count = self._users[key] - 1
+                if count:
+                    self._users[key] = count
+                else:
+                    del self._users[key]
+            if not self._users:
+                self._idle.set()
+
+    @contextmanager
+    def _block_services(self, keys: frozenset[str]) -> Iterator[None]:
+        """不让出执行权地检查全部目标并禁止新引用，禁止只关闭未占用的部分。"""
+        busy = tuple(sorted(key for key in keys if self._users.get(key, 0)))
+        if busy:
+            raise McpServicesBusy(busy)
+        newly_blocked = keys - self._blocked
+        self._blocked.update(newly_blocked)
+        try:
+            yield
+        finally:
+            self._blocked.difference_update(newly_blocked)
 
     @property
     def group(self) -> typing.Optional[ExternalMcpGroup]:
@@ -110,10 +170,24 @@ class ExternalMcpRuntime:
 
     async def control_service(self, request: McpServiceControlRequest) -> McpServiceOutcome:
         """串行执行单服务生命周期动作，保留其他连接及原有启动活动展示。"""
+        if request.action == "status":
+            key = request.target.config_key
+            if not self._is_active() or request.runtime_id != self._runtime_id or request.workspace != str(self._workspace):
+                return McpServiceOutcome(key, "failed", None, "MCP runtime or workspace is no longer active")
+            try:
+                self._load_servers()
+            except (ValueError, OSError, AppError) as error:
+                snapshot = next((item for item in self._snapshots() if item.config_key == key), None)
+                return McpServiceOutcome(key, "failed", snapshot, external_status_detail_from_exception(error))
+            snapshot = next((item for item in self._snapshots() if item.config_key == key), None)
+            if snapshot is None:
+                return McpServiceOutcome(key, "failed", None, "MCP service target no longer exists")
+            return McpServiceOutcome(key, "unchanged", snapshot)
         async with self._lifecycle_lock:
             key = request.target.config_key
             if (
-                request.runtime_id != self._runtime_id
+                not self._is_active()
+                or request.runtime_id != self._runtime_id
                 or request.workspace != str(self._workspace)
                 or self._context.config.workspace.resolve() != self._workspace
             ):
@@ -128,8 +202,6 @@ class ExternalMcpRuntime:
             server = self._configured.get(key)
             if snapshot is None:
                 return McpServiceOutcome(key, "failed", None, "MCP service target no longer exists")
-            if request.action == "status":
-                return McpServiceOutcome(key, "unchanged", snapshot)
             if request.action in ("start", "force", "restart") and server is None:
                 return McpServiceOutcome(key, "failed", snapshot, "MCP service is missing from configuration")
             if request.action in ("start", "force") and snapshot.state == "ready":
@@ -140,41 +212,44 @@ class ExternalMcpRuntime:
                 return McpServiceOutcome(key, "unchanged", snapshot)
             group = self._group
             if group is None:
-                group = ExternalMcpGroup()
+                group = ExternalMcpGroup(can_publish=self._is_active)
                 self._group = group
             try:
                 if server is not None and request.action in ("start", "force", "restart"):
                     prefix = f"mcp__{server['name']}__"
                     if any(item.config_key != key and item.tool_prefix == prefix and item.config_key in group.owned_keys for item in group.service_snapshots):
                         raise ValueError("MCP tool prefix conflicts with an existing service")
-                if request.action in ("stop", "restart"):
-                    await group.stop_service(key)
-                if request.action == "stop":
-                    return McpServiceOutcome(key, "applied", self._service_snapshot(key))
-                if server is None:
-                    raise ValueError("MCP service is missing from configuration")
-                if request.action == "restart" and not server["enabled"]:
-                    return McpServiceOutcome(key, "disabled", self._service_snapshot(key))
-                effective = server.copy()
-                effective["enabled"] = True
-                status = ExternalMcpStatus([effective])
-                try:
-                    await self._context.start_activity(status.snapshot)
-                    connected = await group.start_service(effective, status)
-                finally:
-                    status.finish_unresolved()
-                    self._last_start_snapshot = status.snapshot()
-                    await self._context.await_cleanup(self._context.stop_activity("external_mcp", settle=False))
-                snapshot = self._service_snapshot(key)
-                return McpServiceOutcome(
-                    key, "applied" if connected else "failed", snapshot,
-                    None if connected else snapshot.connection_error,
-                )
+                with self._block_services(frozenset({key})):
+                    if request.action in ("stop", "restart") or key in group.owned_keys:
+                        await group.stop_service(key)
+                    if request.action == "stop":
+                        return McpServiceOutcome(key, "applied", self._service_snapshot(key))
+                    if server is None:
+                        raise ValueError("MCP service is missing from configuration")
+                    if request.action == "restart" and not server["enabled"]:
+                        return McpServiceOutcome(key, "disabled", self._service_snapshot(key))
+                    effective = server.copy()
+                    effective["enabled"] = True
+                    status = ExternalMcpStatus([effective])
+                    try:
+                        await self._context.start_activity(status.snapshot)
+                        connected = await group.start_service(effective, status)
+                    finally:
+                        status.finish_unresolved()
+                        self._last_start_snapshot = status.snapshot()
+                        await self._context.await_cleanup(self._context.stop_activity("external_mcp", settle=False))
+                    snapshot = self._service_snapshot(key)
+                    return McpServiceOutcome(
+                        key, "applied" if connected else "failed", snapshot,
+                        None if connected else snapshot.connection_error,
+                    )
             except asyncio.CancelledError:
                 snapshot = self._service_snapshot(key)
                 if request.action == "stop" and snapshot.state == "stopped":
                     return McpServiceOutcome(key, "applied", snapshot)
                 raise
+            except McpServicesBusy as error:
+                return McpServiceOutcome(key, "busy", self._service_snapshot(key), str(error))
             except (ValueError, RuntimeError, OSError, AppError) as error:
                 return McpServiceOutcome(key, "failed", self._service_snapshot(key), external_status_detail_from_exception(error))
 
@@ -259,30 +334,38 @@ class ExternalMcpRuntime:
         include_disabled: bool = False,
         defer_activity_stop: bool = False,
     ) -> None:
-        """读取外部 MCP 配置并启动一次生命周期级连接。"""
+        """读取完整配置并补齐缺失连接，保持已有连接身份不变。"""
         async with self._lifecycle_lock:
+            if not self._is_active():
+                raise RuntimeError("MCP runtime or workspace is no longer active")
             await self._start_unlocked(
+                self._load_servers(),
                 include_disabled=include_disabled,
                 defer_activity_stop=defer_activity_stop,
             )
 
     async def _start_unlocked(
         self,
+        servers: list[NormalizedMcpServer],
         *,
         include_disabled: bool = False,
         defer_activity_stop: bool = False,
     ) -> None:
-        """在生命周期锁内启动外部 MCP。"""
-        if self.started:
-            observe("external_mcp.start.skipped", reason="already_started")
-            return None
-
-        self._last_start_snapshot = {}
-
-        servers = self._load_servers()
-        if self._group is not None:
-            await self._stop_unlocked()
-
+        """校验补启动目标，在批次执行期间阻止目标产生新引用。"""
+        ready = {item.config_key for item in self._snapshots() if item.state == "ready"}
+        servers = [server for server in servers if server["config_key"] not in ready and (include_disabled or server["enabled"])]
+        group = self._group
+        if group is not None:
+            for server in servers:
+                if any(
+                    item.config_key != server["config_key"]
+                    and item.tool_prefix == f"mcp__{server['name']}__"
+                    and item.config_key in group.owned_keys
+                    for item in group.service_snapshots
+                ):
+                    raise ValueError("MCP tool prefix conflicts with an existing service")
+        if not servers:
+            return
         if include_disabled:
             servers = [
                 {
@@ -291,10 +374,17 @@ class ExternalMcpRuntime:
                 }
                 for server in servers
             ]
+        with self._block_services(frozenset(server["config_key"] for server in servers)):
+            await self._start_batch(servers, defer_activity_stop=defer_activity_stop)
+
+    async def _start_batch(
+        self, servers: list[NormalizedMcpServer], *, defer_activity_stop: bool,
+    ) -> None:
+        """沿用启动活动展示，由连接组负责本批发布及失败回收。"""
+        self._last_start_snapshot = {}
         observe(
             "external_mcp.start",
             configured=len(servers),
-            include_disabled=include_disabled,
         )
 
         status: ExternalMcpStatus = ExternalMcpStatus(servers)
@@ -306,33 +396,21 @@ class ExternalMcpRuntime:
                 await self._context.start_activity(status.snapshot)
                 external_anim_started = True
 
-            group = ExternalMcpGroup()
-            self._group = group
+            group = self._group
+            if group is None:
+                group = ExternalMcpGroup(can_publish=self._is_active)
+                self._group = group
             await group.start(servers, status=status)
 
         except BaseException as exc:
             status.finish_unresolved(external_status_detail_from_exception(exc))
 
-            if group is not None:
-                await self._context.await_cleanup(group.close())
-
-            self._group = None
-
-            if isinstance(
-                exc,
-                (asyncio.CancelledError, KeyboardInterrupt, SystemExit, AppError),
-            ):
-                observe(
-                    "external_mcp.start.failed",
-                    level="ERROR",
-                    error=external_status_detail_from_exception(exc),
-                )
-                raise
             observe(
                 "external_mcp.start.failed",
                 level="WARNING",
                 error=external_status_detail_from_exception(exc),
             )
+            raise
         finally:
             if external_anim_started and not defer_activity_stop:
                 await self._context.await_cleanup(self._context.stop_activity(
@@ -359,9 +437,28 @@ class ExternalMcpRuntime:
             )
 
     async def stop(self) -> None:
-        """关闭已建立的外部 MCP 连接，并清空运行时状态。"""
+        """最终释放先拒绝新引用，再等待使用范围归还并收束连接。"""
+        self.retire()
+        await self._context.await_cleanup(self._finish_stop())
+
+    async def _finish_stop(self) -> None:
+        """在取消清理保护内等待消费者与已有管理动作完成。"""
         async with self._lifecycle_lock:
+            await self._idle.wait()
             await self._stop_unlocked()
+
+    async def stop_services(self) -> None:
+        """全量交互停止在任何拆除前检查全部引用，不以最终释放绕过门禁。"""
+        async with self._lifecycle_lock:
+            if not self._is_active():
+                raise RuntimeError("MCP runtime or workspace is no longer active")
+            keys = frozenset(self._users) | (self._group.owned_keys if self._group is not None else frozenset())
+            with self._block_services(keys):
+                try:
+                    await self._stop_unlocked()
+                except asyncio.CancelledError:
+                    if self._group is not None:
+                        raise
 
     async def _stop_unlocked(self) -> None:
         """在生命周期锁内关闭外部 MCP。"""
@@ -381,17 +478,18 @@ class ExternalMcpRuntime:
     async def restart(
         self,
         *,
-        include_disabled: bool = False,
         defer_activity_stop: bool = False
     ) -> None:
         """重新读取配置并刷新外部 MCP 连接。"""
         observe("external_mcp.restart")
         async with self._lifecycle_lock:
-            await self._stop_unlocked()
-            await self._start_unlocked(
-                include_disabled=include_disabled,
-                defer_activity_stop=defer_activity_stop,
-            )
+            if not self._is_active():
+                raise RuntimeError("MCP runtime or workspace is no longer active")
+            servers = self._load_servers()
+            keys = frozenset(self._users) | (self._group.owned_keys if self._group is not None else frozenset())
+            with self._block_services(keys):
+                await self._stop_unlocked()
+                await self._start_unlocked(servers, defer_activity_stop=defer_activity_stop)
 
 
 if __name__ == '__main__':

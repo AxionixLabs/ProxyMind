@@ -57,19 +57,20 @@ class CompositeToolRuntime(ToolRuntimePort):
         before_user_flow: BeforeToolSession | None,
     ) -> SessionResult:
         """冻结当前工具来源，构建组合会话并执行调用方用例。"""
-        tool_context = await build_tool_context(
-            service_session=service_session,
-            external_group=self._sources.external_group(),
-            client_registry=self._sources.client_registry(),
-            builtin_registry=self._sources.builtin_registry(),
-        )
+        with self._sources.external_tools(None) as external_tools:
+            tool_context = await build_tool_context(
+                service_session=service_session,
+                external_group=external_tools,
+                client_registry=self._sources.client_registry(),
+                builtin_registry=self._sources.builtin_registry(),
+            )
 
-        await self.run_before_user_flow(before_user_flow)
+            await self.run_before_user_flow(before_user_flow)
 
-        return await function(
-            tool_context.session,
-            tool_context.tools,
-        )
+            return await function(
+                tool_context.session,
+                tool_context.tools,
+            )
 
     async def with_session(
         self,

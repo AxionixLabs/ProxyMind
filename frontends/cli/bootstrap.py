@@ -739,7 +739,7 @@ async def _run_controller(
                 "startup.ready",
                 external_mcp=bool(
                     external_runtime is not None
-                    and external_runtime.group is not None
+                    and external_runtime.started
                 ),
                 helix_linked=controller.execution.is_service_linked(),
             )

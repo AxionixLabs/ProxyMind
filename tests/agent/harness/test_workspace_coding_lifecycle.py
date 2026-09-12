@@ -1,7 +1,10 @@
 import asyncio
 import pytest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import (
+    AsyncMock,
+    Mock,
+)
 
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
 from agent.harness.sessions.workspace_change import WorkspaceChange
@@ -110,7 +113,7 @@ async def test_repeated_workspace_changes_replace_mcp_and_release_resources():
     runtimes = []
 
     def create_mcp():
-        runtime = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
+        runtime = SimpleNamespace(start=AsyncMock(), stop=AsyncMock(), retire=Mock())
         runtimes.append(runtime)
         return runtime
 

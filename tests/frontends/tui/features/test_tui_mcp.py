@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from agent.ports import McpToolGroupSnapshot
+from agent.ports.mcp_runtime import McpServicesBusy
 from infrastructure.errors import AppError
 from frontends.tui.core.models import (
     MenuDescriptionLayout,
@@ -31,6 +32,7 @@ def _external_mcp_owner(runtime=None, **operations):
         "start": AsyncMock(),
         "restart": AsyncMock(),
         "close": AsyncMock(),
+        "stop_services": AsyncMock(),
     }
     methods.update(operations)
     return SimpleNamespace(current=runtime, **methods)
@@ -182,8 +184,9 @@ def test_parse_mcp_command(command, expected) -> None:
 
 
 @pytest.mark.anyio
-async def test_force_uses_start_when_runtime_is_not_running(monkeypatch) -> None:
-    owner = _external_mcp_owner()
+@pytest.mark.parametrize("started", [False, True])
+async def test_force_always_uses_incremental_start(started) -> None:
+    owner = _external_mcp_owner(SimpleNamespace(started=started))
     host = SimpleNamespace(
         execution=_execution(owner),
     )
@@ -272,7 +275,7 @@ async def test_mcp_stop_failure_has_stop_specific_status() -> None:
     views = []
     owner = _external_mcp_owner(
         SimpleNamespace(started=True),
-        close=AsyncMock(side_effect=AppError("cleanup failed")),
+        stop_services=AsyncMock(side_effect=AppError("cleanup failed")),
     )
     host = SimpleNamespace(
         activity=_activity(),
@@ -310,17 +313,16 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
         cleanup_finished.set()
 
     async def stop_runtime() -> None:
-        owner.current = None
         cleanup_task = asyncio.create_task(cleanup())
         try:
             await asyncio.shield(cleanup_task)
         except asyncio.CancelledError:
             await cleanup_task
-            raise
+        owner.current = SimpleNamespace(started=False)
 
     owner = _external_mcp_owner(
         SimpleNamespace(started=True),
-        close=stop_runtime,
+        stop_services=stop_runtime,
     )
     host = SimpleNamespace(
         activity=_activity(),
@@ -336,11 +338,9 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
     assert not task.done()
     release_cleanup.set()
 
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
+    was_started = await task
     await mcp.finish_mcp_activity(host, "stop")
-    mcp.render_mcp_action_cancelled(host, "stop")
+    mcp.render_mcp_action_result(host, "stop", was_started)
 
     assert cleanup_finished.is_set()
     status = next(
@@ -352,6 +352,16 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
         view.type == "tui.external_mcp.interrupted"
         for view in views
     )
+
+
+@pytest.mark.parametrize("action", ["stop", "restart"])
+def test_mcp_busy_feedback_keeps_connection_status_separate(action) -> None:
+    views = []
+    host = SimpleNamespace(frontend=SimpleNamespace(application=_application(views)))
+    mcp.render_mcp_action_failure(host, action, McpServicesBusy(("A",)))
+    statuses = [view for view in views if view.type == "tui.external_mcp.status"]
+    assert len(statuses) == 1
+    assert statuses[0].renderable.plain_text == "■ External MCP busy\n  └ MCP services busy: A"
 
 
 @pytest.mark.parametrize(

@@ -353,7 +353,7 @@ class ApplicationHost:
         )
         if isinstance(hook_registry, HookMcpRunnerBinder):
             hook_registry.bind_mcp_runner(
-                HookMcpRunnerAdapter(self.execution.external_tool_group)
+                HookMcpRunnerAdapter(self.execution.external_mcp.use_tools)
             )
 
         history = LocalConversationHistory(

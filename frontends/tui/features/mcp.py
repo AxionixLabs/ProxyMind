@@ -5,6 +5,7 @@ import typing
 
 from prompt_toolkit.utils import get_cwidth
 
+from agent.ports.mcp_runtime import McpServicesBusy
 from agent.ports.presentation import (
     ApplicationView,
     TextSpan,
@@ -53,11 +54,11 @@ MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
     ("start", "start",
      "Start configured external MCP services with enabled=true; keep already running services connected."),
     ("force", "force",
-     "Temporarily start all configured external MCP services for this turn, including enabled=false. Does not modify the config file."),
+     "Start missing external MCP services, including enabled=false; keep current connections and configuration."),
     ("stop", "stop",
      "Disconnect all external MCP services. HTTP/SSE services are disconnected; stdio services close their child processes when released."),
     ("restart", "restart",
-     "Disconnect external MCP services, reload the config, and start services with enabled=true."),
+     "Validate the config, disconnect external MCP services, and start services with enabled=true."),
     ("status", "status", "View status without starting or stopping services."),
 )
 
@@ -342,6 +343,12 @@ def render_mcp_action_failure(
     error: BaseException
 ) -> None:
     """展示外部 MCP 操作失败的最终结果。"""
+    if isinstance(error, McpServicesBusy):
+        _present_external_mcp_result(host, McpStatusView(
+            summary="External MCP busy", level="warning", done=True,
+            details=(McpStatusDetail(f"  └ {error}", "warning"),),
+        ))
+        return
     if action == "stop":
         render_external_mcp_stop_status(host, error=error)
     else:
@@ -353,9 +360,6 @@ def render_mcp_action_cancelled(
     action: McpAction,
 ) -> None:
     """展示外部 MCP 操作取消后的最终结果。"""
-    if action == "stop" and host.execution.external_mcp.current is None:
-        render_external_mcp_stop_status(host)
-        return None
     render_mcp_action_interrupted(host, action)
 
 
@@ -597,20 +601,12 @@ async def run_mcp_action(
             await runtime.begin_operation_status(
                 lambda: {"summary": "External MCP stopping"},
             )
-        await host.execution.external_mcp.close()
+        await host.execution.external_mcp.stop_services()
     elif action == "force":
-        runtime = host.execution.external_mcp.current
-        if runtime is not None and runtime.started:
-            await _begin_external_mcp_restart_activity(host)
-            await host.execution.external_mcp.restart(
-                include_disabled=True,
-                defer_activity_stop=True,
-            )
-        else:
-            await host.execution.external_mcp.start(
-                include_disabled=True,
-                defer_activity_stop=True,
-            )
+        await host.execution.external_mcp.start(
+            include_disabled=True,
+            defer_activity_stop=True,
+        )
     elif action == "start":
         await host.execution.external_mcp.start(defer_activity_stop=True)
     else:

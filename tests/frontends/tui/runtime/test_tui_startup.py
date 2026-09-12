@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, call
@@ -22,6 +23,7 @@ from agent.ports import (
     ProtocolCommandClient,
     ToolRuntimeSources,
 )
+from agent.ports.mcp_runtime import McpServiceSnapshot
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.features import helix
@@ -91,7 +93,7 @@ async def test_external_mcp_resolves_stdio_paths_from_configuration_workspace(tm
     target = tmp_path / "target"
     session.bind_workspace(target)
     group = SimpleNamespace(started=False, start=AsyncMock(return_value=0), close=AsyncMock())
-    monkeypatch.setattr(external, "ExternalMcpGroup", lambda: group)
+    monkeypatch.setattr(external, "ExternalMcpGroup", lambda **_kwargs: group)
     runtime = ExternalMcpRuntime(McpRuntimeContext(
         config=session, start_activity=AsyncMock(), stop_activity=AsyncMock(),
         await_cleanup=ProcessLifecycle().await_cleanup,
@@ -339,8 +341,10 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
 
     class ExternalGroup(object):
         started = True
+        service_snapshots = ()
+        owned_keys = frozenset()
 
-        def __init__(self) -> None:
+        def __init__(self, **_kwargs) -> None:
             self.tools = {
                 "mcp__docs__search": SimpleNamespace(meta={
                     "server": "docs",
@@ -365,6 +369,11 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
             start_called()
             entered.set()
             await release.wait()
+            self.service_snapshots = (McpServiceSnapshot(
+                "docs", "mcp__docs__", True, "ready", "stdio",
+                ("mcp__docs__read", "mcp__docs__search"), 3, 1,
+            ),)
+            self.owned_keys = frozenset({"docs"})
             if status is not None:
                 status.mark_ready(servers[0], "docs", 2)
                 status.finish()
@@ -444,6 +453,11 @@ async def test_external_mcp_without_ready_connections_can_retry(monkeypatch) -> 
 
     class ExternalGroup(object):
         started = False
+        service_snapshots = ()
+        owned_keys = frozenset()
+
+        def __init__(self, **_kwargs) -> None:
+            pass
 
         async def start(self, _servers, status=None):
             start_called()
@@ -513,7 +527,6 @@ async def test_external_owner_reuses_runtime_for_start_and_restart() -> None:
         call(include_disabled=False, defer_activity_stop=False),
     ]
     runtime.restart.assert_awaited_once_with(
-        include_disabled=False,
         defer_activity_stop=True,
     )
 
@@ -554,6 +567,9 @@ async def test_external_owner_waits_for_runtime_cleanup_when_cancelled() -> None
     cleanup_finished = asyncio.Event()
 
     class RuntimeStub(object):
+        def retire(self) -> None:
+            pass
+
         async def start(self, **_kwargs) -> None:
             return None
 
@@ -616,7 +632,7 @@ async def test_model_turn_keeps_external_tool_snapshot_from_session_start(
     runtime = CompositeToolRuntime(ToolRuntimeSources(
         client_registry=lambda: host.client_tools,
         builtin_registry=lambda: None,
-        external_group=lambda: initial_runtime.group,
+        external_tools=lambda _server: nullcontext(initial_runtime.group),
         service_linked=host.is_service_mcp_linked,
     ))
     turn = asyncio.create_task(runtime.with_session({}, user_flow))

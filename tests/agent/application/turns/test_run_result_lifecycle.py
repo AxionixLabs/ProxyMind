@@ -10,6 +10,7 @@ import asyncio
 import dataclasses
 import tempfile
 import typing
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import (
@@ -990,7 +991,7 @@ async def test_tool_runtime_forwards_callback_result(monkeypatch) -> None:
     runtime = tool_runtime.CompositeToolRuntime(ToolRuntimeSources(
         client_registry=lambda: host.client_tools,
         builtin_registry=lambda: None,
-        external_group=lambda: None,
+        external_tools=lambda _server: nullcontext(None),
         service_linked=host.is_service_mcp_linked,
     ))
     result = await runtime.with_session({}, user_flow)

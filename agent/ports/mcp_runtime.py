@@ -28,12 +28,22 @@ __all__ = (
     "McpServiceControlRequest",
     "McpServiceSnapshot",
     "McpServiceOutcome",
+    "McpServicesBusy",
 )
 
 
 McpAction = typing.Literal["start", "force", "stop", "restart", "status"]
 McpConnectionState = typing.Literal["stopped", "starting", "ready", "stopping", "failed"]
 McpTransport = typing.Literal["stdio", "streamable_http", "sse"]
+
+
+class McpServicesBusy(RuntimeError):
+    """报告使用范围仍占用的服务；拒绝交互关闭，不修改连接事实。"""
+
+    def __init__(self, config_keys: tuple[str, ...]) -> None:
+        """保存被占用的原始配置键以便调用方报告目标。"""
+        self.config_keys = config_keys
+        super().__init__("MCP services busy: " + ", ".join(config_keys))
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +122,19 @@ class McpRuntime(typing.Protocol):
         ...
 
     async def control_service(self, request: McpServiceControlRequest) -> McpServiceOutcome:
-        """在生命周期锁内执行单服务动作；调用方须先收束目标工具消费者，最终释放仍由 Harness 调用 stop。"""
+        """原子校验使用占用并执行单服务动作，最终释放仍由 Harness 调用 stop。"""
+        ...
+
+    def use_tools(self, server: str | None = None) -> typing.ContextManager[ExternalToolGroupPort | None]:
+        """借用冻结目录直至上下文退出；Harness 的 Turn 与 Hook 必须覆盖整个使用范围。
+
+        server 是 Hook 的既有服务别名，空值借用全部已发布服务。实现方在同一同步步骤中
+        冻结目录和记录引用，关闭检查与禁止新引用间不能让出执行权。
+        """
+        ...
+
+    def retire(self) -> None:
+        """禁止本实例接收新使用范围和发布启动结果；已借用范围由原消费者释放。"""
         ...
 
     @property
@@ -147,14 +169,17 @@ class McpRuntime(typing.Protocol):
     async def restart(
         self,
         *,
-        include_disabled: bool = False,
         defer_activity_stop: bool = False,
     ) -> None:
         """重启 MCP 连接。"""
         ...
 
+    async def stop_services(self) -> None:
+        """交互全停有占用时抛出 McpServicesBusy；关闭中取消仍等待回收，已完成则正常返回。"""
+        ...
+
     async def stop(self) -> None:
-        """停止 MCP 连接并释放资源。"""
+        """最终释放时禁止新使用并等待既有范围退出，不能按交互 busy 拒绝关闭。"""
         ...
 
 

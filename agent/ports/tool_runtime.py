@@ -20,6 +20,7 @@ if typing.TYPE_CHECKING:
 __all__ = (
     "BeforeToolSession",
     "ExternalToolGroupPort",
+    "ExternalToolScope",
     "ToolRegistryPort",
     "ToolRuntimeBuilder",
     "ToolRuntimePort",
@@ -118,17 +119,24 @@ class ToolRuntimePort(typing.Protocol):
         ...
 
 
+ExternalToolScope: typing.TypeAlias = Callable[
+    [str | None],
+    typing.ContextManager[ExternalToolGroupPort | None],
+]
+
+
 @dataclass(frozen=True, slots=True)
 class ToolRuntimeSources:
     """绑定工具运行时读取动态来源所需的最小 provider。
 
     provider 必须返回当前 Controller 生命周期内的权威实例；运行时只在一次会话开始时
-    读取一次，从而让该 Turn 使用稳定快照。
+    读取一次。external_tools 由 Harness 注入，必须在建立目录前进入、回调完成后退出，
+    让根 Turn、子代理、恢复和订阅共同持有稳定快照及其连接引用。
     """
 
     client_registry: Callable[[], ToolRegistryPort]
     builtin_registry: Callable[[], ToolRegistryPort | None]
-    external_group: Callable[[], ExternalToolGroupPort | None]
+    external_tools: ExternalToolScope
     service_linked: Callable[[], bool]
 
     def __post_init__(self) -> None:
@@ -136,7 +144,7 @@ class ToolRuntimeSources:
         providers = (
             self.client_registry,
             self.builtin_registry,
-            self.external_group,
+            self.external_tools,
             self.service_linked,
         )
         if not all(callable(provider) for provider in providers):

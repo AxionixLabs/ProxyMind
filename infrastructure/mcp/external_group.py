@@ -10,11 +10,16 @@ import typing
 import anyio
 import httpx
 
+from collections.abc import (
+    Callable,
+    Mapping,
+)
 from dataclasses import (
     dataclass,
     replace,
 )
 from datetime import timedelta
+from types import MappingProxyType
 
 from mcp import (
     ClientSession,
@@ -32,8 +37,10 @@ from mcp.client.stdio import (
 )
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
+from mcp.shared.session import ProgressFnT
 
 from agent.ports.mcp_runtime import McpServiceSnapshot
+from agent.protocol.json_value import ThawedJsonValue
 from infrastructure.errors import AppError
 from infrastructure.mcp.external_status import (
     ExternalMcpStatus,
@@ -77,6 +84,7 @@ class _ExternalMcpConnectionReady:
     session: ClientSession
     tools: dict[str, mcp_types.Tool]
     discovered_count: int
+    disconnected: asyncio.Event
 
 
 @dataclass(slots=True)
@@ -94,7 +102,7 @@ class _ExternalMcpConnection:
 class ExternalMcpGroup:
     """管理一组外部 MCP 会话，并把多个服务的工具合并成统一入口。"""
 
-    def __init__(self) -> None:
+    def __init__(self, *, can_publish: Callable[[], bool] | None = None) -> None:
         """初始化外部 MCP 工具索引和连接所有者集合。"""
         self.tools: dict[str, mcp_types.Tool] = {}
         self.server_stats: dict[str, dict[str, typing.Any]] = {}
@@ -104,6 +112,8 @@ class ExternalMcpGroup:
         self._closed: bool = False
         self._close_lock: asyncio.Lock = asyncio.Lock()
         self._service_states: dict[str, McpServiceSnapshot] = {}
+        self._staged_keys: set[str] = set()
+        self._can_publish = can_publish
 
     @property
     def started(self) -> bool:
@@ -119,6 +129,13 @@ class ExternalMcpGroup:
     def owned_keys(self) -> frozenset[str]:
         """返回仍持有资源或待确认清理结果的服务键。"""
         return frozenset(item.config_key for item in self._connections)
+
+    def freeze_tools(self, keys: frozenset[str]) -> "ExternalMcpTools":
+        """复制已发布服务的目录；调用方必须在引用存续期间阻止相应连接重建。"""
+        names = {
+            name for key in keys for name in self._service_states[key].tools
+        }
+        return ExternalMcpTools(self, {name: tool.model_copy(deep=True) for name, tool in self.tools.items() if name in names})
 
     def _remember_server(self, server: NormalizedMcpServer) -> None:
         """在预检前建立连接状态，使没有进入 SDK 的失败同样可被观察。"""
@@ -263,7 +280,7 @@ class ExternalMcpGroup:
                 # 对外展示的工具名会加服务前缀，原始名称保留给会话调用。
                 name = tool_name_hook(tool.name, server_info)
                 meta = dict(tool.meta or {})
-                meta.setdefault("server", alias)
+                meta["server"] = alias
 
                 if transport:
                     meta.setdefault("transport", str(transport).strip().lower())
@@ -350,16 +367,19 @@ class ExternalMcpGroup:
         servers: list[NormalizedMcpServer],
         status: ExternalMcpStatus | None = None
     ) -> int:
-        """并发启动已启用的外部服务，并返回成功连接数量。"""
+        """补齐缺失连接，required 判定完成后原子发布本批目录；失败只回收本批。"""
         if self._closing or self._closed:
             raise RuntimeError("External MCP group is closed")
-        if self._connections:
-            raise RuntimeError("External MCP group is already started")
-
         enabled: list[NormalizedMcpServer] = []
         for item in servers:
             if not bool(item.get("enabled", True)):
                 continue
+            key = item.get("config_key", item["name"])
+            snapshot = self._service_states.get(key)
+            if snapshot is not None and snapshot.state == "ready":
+                continue
+            if key in self.owned_keys:
+                await self.stop_service(key)
             if status is not None:
                 status.mark_linking(item)
             enabled.append(item)
@@ -371,6 +391,9 @@ class ExternalMcpGroup:
 
         limiter = asyncio.Semaphore(EXTERNAL_MCP_CONNECT_CONCURRENCY)
         stdio_limiter = asyncio.Semaphore(EXTERNAL_MCP_STDIO_CONCURRENCY)
+        batch_keys = frozenset(item.get("config_key", item["name"]) for item in enabled)
+        self._staged_keys.update(batch_keys)
+        committed = False
 
         connect_tasks = [
             asyncio.create_task(
@@ -387,17 +410,42 @@ class ExternalMcpGroup:
         ]
 
         try:
-            connection_results = await asyncio.gather(*connect_tasks)
-            connected_servers = sum(connection_results)
+            await asyncio.gather(*connect_tasks)
+            prepared = [
+                connection for connection in self._connections
+                if connection.config_key in batch_keys
+                and not connection.task.done()
+                and connection.ready.done() and not connection.ready.cancelled()
+                and connection.ready.exception() is None
+                and not connection.ready.result().disconnected.is_set()
+                and self._service_states[connection.config_key].state == "starting"
+            ]
+            prepared_keys = {connection.config_key for connection in prepared}
+            connected_servers = len(prepared)
 
             failed_required = [
                 str(server.get("name") or "server")
-                for server, connected in zip(enabled, connection_results)
-                if server.get("required") is True and not connected
+                for server in enabled
+                if server.get("required") is True
+                and server.get("config_key", server["name"]) not in prepared_keys
             ]
             if failed_required:
                 names = ", ".join(failed_required)
                 raise AppError(f"Required MCP server failed to start: {names}")
+
+            self._check_publication()
+            for connection in prepared:
+                self._publish(connection.config_key, connection.ready.result())
+            committed = True
+
+            if status is not None:
+                for server in enabled:
+                    key = server.get("config_key", server["name"])
+                    snapshot = self._service_states[key]
+                    if key in prepared_keys:
+                        status.mark_ready(server, server["name"], len(snapshot.tools), discovered_count=snapshot.discovered)
+                    else:
+                        status.mark_failed(server, snapshot.connection_error or "MCP connection closed before publication")
 
             if connected_servers <= 0:
                 observe(
@@ -410,12 +458,47 @@ class ExternalMcpGroup:
                 status.finish()
             return connected_servers
         finally:
-            for task in connect_tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*connect_tasks, return_exceptions=True)
-            if status is not None:
-                status.finish_unresolved()
+            cleanup = asyncio.create_task(self._finish_batch(connect_tasks, batch_keys, committed))
+            cancelled = False
+            try:
+                while not cleanup.done():
+                    try:
+                        await asyncio.shield(cleanup)
+                    except asyncio.CancelledError:
+                        cancelled = True
+                cleanup.result()
+            finally:
+                self._staged_keys.difference_update(batch_keys)
+                if status is not None:
+                    status.finish_unresolved()
+            if cancelled:
+                raise asyncio.CancelledError
+
+    async def _finish_batch(
+        self, tasks: list[asyncio.Task[bool]], keys: frozenset[str], committed: bool,
+    ) -> None:
+        """取消未完成启动并收束未提交批次，不触碰操作前连接。"""
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        if committed:
+            return
+        connections = tuple(item for item in self._connections if item.config_key in keys)
+        for connection in connections:
+            snapshot = self._service_states[connection.config_key]
+            if snapshot.state in ("starting", "ready"):
+                self._service_states[connection.config_key] = replace(snapshot, state="stopping")
+        results = await asyncio.gather(
+            *(self._retire_connection(item) for item in connections), return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+        for key in keys:
+            snapshot = self._service_states.get(key)
+            if snapshot is not None and snapshot.state in ("starting", "ready"):
+                self._service_states[key] = replace(snapshot, state="stopped", tools=(), discovered=0, filtered=0)
 
     async def close(self) -> None:
         """通知所有连接所有者释放资源，并在完成后清空工具索引。"""
@@ -481,7 +564,7 @@ class ExternalMcpGroup:
 
         try:
             prepared = await asyncio.shield(ready)
-            if task.done() or self._closing or self._service_states[config_key].state != "starting":
+            if task.done() or prepared.disconnected.is_set() or self._closing or self._service_states[config_key].state != "starting":
                 raise ConnectionError("MCP connection closed before publication")
             matching_tools = prepared.tools.keys() & self.tools.keys()
             if matching_tools:
@@ -493,38 +576,35 @@ class ExternalMcpGroup:
                     )
                 )
 
-            # 发布阶段不再 await，保证工具目录和路由映射一起生效。
-            self.tools.update(prepared.tools)
-
-            self._tool_to_session.update({
-                name: prepared.session
-                for name in prepared.tools
-            })
-
-            exposed_count = len(prepared.tools)
-
-            self.server_stats[prepared.alias] = {
-                "server": prepared.alias,
-                "transport": str(
-                    server.get("transport") or "streamable_http"
-                ),
-                "discovered": prepared.discovered_count,
-                "exposed": exposed_count,
-                "filtered": max(
-                    0,
-                    prepared.discovered_count - exposed_count,
-                ),
-            }
-            self._service_states[config_key] = replace(
-                self._service_states[config_key], state="ready",
-                tools=tuple(sorted(prepared.tools)), discovered=prepared.discovered_count,
-                filtered=prepared.discovered_count - exposed_count,
-            )
-            return prepared.alias, exposed_count, prepared.discovered_count
+            if config_key not in self._staged_keys:
+                self._publish(config_key, prepared)
+            return prepared.alias, len(prepared.tools), prepared.discovered_count
         except BaseException as error:
             self._mark_failed(config_key, external_status_detail_from_exception(error))
             await self._retire_connection(connection)
             raise
+
+    def _publish(self, key: str, prepared: _ExternalMcpConnectionReady) -> None:
+        """在不让出执行权的步骤中共同发布目录、路由和连接事实。"""
+        self._check_publication()
+        snapshot = self._service_states[key]
+        exposed = len(prepared.tools)
+        self.tools.update(prepared.tools)
+        self._tool_to_session.update({name: prepared.session for name in prepared.tools})
+        self.server_stats[prepared.alias] = {
+            "server": prepared.alias, "transport": snapshot.transport,
+            "discovered": prepared.discovered_count, "exposed": exposed,
+            "filtered": prepared.discovered_count - exposed,
+        }
+        self._service_states[key] = replace(
+            snapshot, state="ready", tools=tuple(sorted(prepared.tools)),
+            discovered=prepared.discovered_count, filtered=prepared.discovered_count - exposed,
+        )
+
+    def _check_publication(self) -> None:
+        """拒绝将旧工作区或已移交实例的迟到连接发布给新使用范围。"""
+        if self._closing or self._closed or (self._can_publish is not None and not self._can_publish()):
+            raise RuntimeError("MCP runtime or workspace is no longer active")
 
     def _connection_finished(self, connection: _ExternalMcpConnection, task: asyncio.Task[None]) -> None:
         """消费 owner 终态，只归约仍属于本次连接的记录，防止旧任务回写。"""
@@ -596,6 +676,7 @@ class ExternalMcpGroup:
                     session=session,
                     tools=tools,
                     discovered_count=discovered_count,
+                    disconnected=disconnected,
                 ))
             waiters = [asyncio.create_task(stop_event.wait()), asyncio.create_task(disconnected.wait())]
             await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
@@ -655,6 +736,54 @@ class ExternalMcpGroup:
             self._service_states[connection.config_key] = replace(snapshot, state="stopped", connection_error=None)
 
 
+class ExternalMcpTools:
+    """提供单次使用范围的冻结目录；引用退出后失效，不可保存到后续 Turn。
+
+    连接仍归原 group 所有，运行时门禁在此视图存续期间禁止相应服务重建。
+    断线会使原路由失败，不尝试迁移请求或重放工具调用。
+    """
+
+    def __init__(self, group: ExternalMcpGroup, tools: dict[str, mcp_types.Tool]) -> None:
+        """冻结可调用名称，不复制连接所有权。"""
+        self._group = group
+        self._tools = MappingProxyType(tools)
+        self._active = True
+
+    @property
+    def tools(self) -> Mapping[str, mcp_types.Tool]:
+        """返回本次使用范围独立持有的只读目录。"""
+        return self._tools
+
+    def release(self) -> None:
+        """在使用范围退出时使后续调用失效。"""
+        self._active = False
+
+    async def call_tool(
+        self, name: str, arguments: dict[str, ThawedJsonValue] | None = None,
+        read_timeout_seconds: timedelta | None = None,
+        progress_callback: ProgressFnT | None = None, *,
+        meta: dict[str, ThawedJsonValue] | None = None,
+    ) -> mcp_types.CallToolResult:
+        """只调用本范围公开的原连接，不接受中途加入的工具。"""
+        if not self._active:
+            raise RuntimeError("MCP tool scope has ended")
+        if name not in self._tools:
+            raise KeyError(name)
+        return await self._group.call_tool(
+            name, arguments, read_timeout_seconds, progress_callback, meta=meta,
+        )
+
+    async def call_hook_tool(
+        self, server: str, tool: str, arguments: dict[str, ThawedJsonValue] | None = None,
+        *, read_timeout_seconds: timedelta | None = None,
+    ) -> mcp_types.CallToolResult:
+        """按冻结目录中的配置别名查找 Hook 工具。"""
+        for name, descriptor in self._tools.items():
+            if (descriptor.meta or {}).get("server") == server.strip() and descriptor.name == tool.strip():
+                return await self.call_tool(name, arguments, read_timeout_seconds, meta={"hook": True})
+        raise KeyError(f"MCP Hook tool not found: {server}/{tool}")
+
+
 async def _connect_external_server(
     group: ExternalMcpGroup,
     server: NormalizedMcpServer,
@@ -693,7 +822,7 @@ async def _connect_external_server(
                         await group.connect_with_alias(server)
                     )
 
-        if status is not None:
+        if status is not None and server.get("config_key", name) not in group._staged_keys:
             status.mark_ready(
                 server,
                 alias,
@@ -711,8 +840,8 @@ async def _connect_external_server(
         return True
     except BaseException as exc:
         key = str(server.get("config_key", name))
-        group._mark_failed(key, external_status_detail_from_exception(exc))
         if should_reraise_external(exc):
+            group._mark_failed(key, external_status_detail_from_exception(exc))
             raise
 
         if isinstance(exc, asyncio.TimeoutError):
@@ -721,6 +850,7 @@ async def _connect_external_server(
         else:
             detail = external_status_detail_from_exception(exc)
 
+        group._mark_failed(key, detail)
         observe(
             "external_mcp.server.failed",
             level="WARNING",

@@ -1,6 +1,6 @@
 # 外接 MCP 单服务控制：方案评估、设计稿与分阶段验收清单
 
-状态：P0、P1 已完成。单服务控制已接入运行时端口、owner 和真实连接；P2—P5 待实施，新菜单及完整使用门禁尚未接入。
+状态：P0、P1、P2 已完成。单服务连接、全量增量语义和统一工具使用门禁已接入；P3—P5 的新菜单、展示收口和完整终端验收待实施。
 本文件统一维护方案、菜单与交互设计、分阶段清单、验收运行说明及证据；测试目录不另设验收说明文档。
 本文的阶段、自动测试和真机验收项均须凭对应证据勾选，源码阅读、测试替身或设计截图不能代替真机通过。
 
@@ -16,11 +16,11 @@
 
 | 已核对的实现                                                                                           | 当前事实及设计影响                                                                    |
 |--------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
-| [MCP 菜单](frontends/tui/features/mcp.py)                                                              | 当前菜单直接列出五个全量动作；`force` 在已有连接时调用整组重启；有工具时默认选 `stop` |
+| [MCP 菜单](frontends/tui/features/mcp.py)                                                              | 当前菜单仍列五个全量动作；force 已改为增量启动；服务选择与固定默认 status 留待 P3 |
 | [菜单契约](frontends/tui/contracts/menu.py)、[菜单行布局](frontends/tui/rendering/menu/rows.py)        | 已有标题、简短说明、编号、选择标记、标准页脚和窄屏说明换行；复用这些能力              |
 | [Review](frontends/tui/features/review.py)、[Mailbox](frontends/tui/features/mailbox.py)               | 已有压入子菜单、返回父菜单和子项确认后关闭菜单组的模式                                |
 | [MCP owner](agent/harness/mcp/owner.py)、[运行时端口](agent/ports/mcp_runtime.py)                      | Harness 持有实例；`control_service` 接收明确单目标请求，最终释放仍为全量 close |
-| [外部运行时](infrastructure/mcp/external_runtime.py)                                                   | 当前 `started` 会使整组 `start` 提前返回；整组停止会清除 group                        |
+| [外部运行时](infrastructure/mcp/external_runtime.py)                                                   | start/force 补齐缺失服务；交互全停检查引用后释放 group，保留实例身份；最终停止禁止新引用 |
 | [连接组](infrastructure/mcp/external_group.py)                                                         | 每服务独立 owner task、资源栈及状态，单服务关闭只撤下目标的工具与路由 |
 | [工具组合](infrastructure/mcp/tool_runtime.py)、[组合会话](infrastructure/mcp/composite_session.py)    | 工具来源在进入使用范围时确定；旧工具快照和底层连接的生命周期必须协调                  |
 | [流式命令策略](frontends/tui/prompting/commands.py)、[前台任务屏障](frontends/tui/session/barriers.py) | 当前运行中 `stop/restart` 被拒绝，`status` 是本地快照，部分启动操作经屏障执行         |
@@ -332,9 +332,11 @@ JSON Schema 只校验结构和局部约束；实例有效性、目标存在性�
 `discovered = len(tools) + filtered` 等关系须在 P1 的实际边界验证，不能以 schema 通过代替运行事实。
 
 [control_cases.json](tests/fixtures/mcp/control_cases.json) 保存 start 补齐、force 增量、重复 force、单停隔离、禁用目标 restart 和只读 status 的前置状态及预期连接变化。
-P0 校验这些输入及目标集合；P1 四项已通过实际 runtime 重放，并校验进程和会话身份；两项全量增量启动仍待 P2 验收。
+P0 校验这些输入及目标集合；P1 四项及 P2 两项全量增量启动均已通过实际 runtime 重放，校验进程、会话身份及禁用配置。
 生产端口的 `McpServiceControlRequest` 只接受 `McpSingleService`，对应验收 schema 的 single 分支；
-`McpServiceOutcome` 和 `McpServiceSnapshot` 输出经同一 schema 校验。全量入口沿用现有生命周期方法，批量新语义在 P2 实施。
+`McpServiceOutcome` 和 `McpServiceSnapshot` 输出经同一 schema 校验。全量 start/restart 沿用具名生命周期方法，
+交互全停使用 `stop_services`，最终释放使用 close/stop；没有以字符串 `all` 或缺失单目标推断全量的入口。
+菜单及统一交互请求的 schema 分支由 P3 接入，不能将验收 schema 的全部类型当作已实现的菜单端口。
 
 ### 6.2 工具消费者与关停入口复核
 
@@ -344,18 +346,19 @@ P0 校验这些输入及目标集合；P1 四项已通过实际 runtime 重放�
 | 子代理 | [subagent_runner.py](agent/harness/execution/subagent_runner.py) 使用 composition 注入的同一 execution 资源及 TurnRunner | 复用同一使用范围；父 Turn 返回后仍存活的子代理不能绕过占用检查 |
 | Subscription | [forwarding.py](frontends/subscription/forwarding.py) 的 `DefaultForwardHandler` 经 `RootTurnCommandExecutor`、TurnApplication 使用注入的 TurnRunner | 纳入根 Turn 路径；前台输入空闲不代表后台使用权已释放 |
 | Review 工具发现与恢复 | [reviews.py](agent/application/turns/reviews.py) 通过 `with_mcp_session` 发现工具；[observed_turn.py](agent/harness/execution/observed_turn.py) 恢复执行仍经 `execute_turn` | 短发现范围结束及时释放；实际执行重新取得使用权，不重写冻结请求中的工具身份 |
-| MCP Hook | [Hook runtime](agent/harness/hooks/runtime.py) → [HookMcpRunner](infrastructure/mcp/hook_runner.py) → `external_tool_group.call_hook_tool` | 当前绕过 `with_mcp_session`；需注入同一 owner 的使用能力，解析和调用前取得，异常/超时/取消时释放 |
+| MCP Hook | [Hook runtime](agent/harness/hooks/runtime.py) → [HookMcpRunner](infrastructure/mcp/hook_runner.py) → owner.use_tools → `call_hook_tool` | 与 Turn 使用同一 owner 门禁，按既有 Hook 服务别名取得目标引用，异常/超时/取消时释放 |
 | 异步 Hook | [async_tasks.py](agent/harness/hooks/async_tasks.py) 持有并收束 Hook 任务 | 跟随实际 MCP Hook 使用范围；退出时等待已有清理，不仅统计前台工具调用 |
 | 应用最终关闭 | [process_resources.py](agent/harness/process_resources.py) 顺序收束 Subscription、启动任务、子代理、审批、Hook 等，再关闭 execution/service | 保留现有分步关闭及失败重试语义；最终资源释放不返回交互 busy |
 | 工作区切换 | [workspace_change.py](agent/harness/sessions/workspace_change.py) 移交旧 owner、释放并重建资源 | 使用权属于原运行实例；旧连接回调不能向新工作区发布状态或工具 |
 
 门禁由现有 Harness owner 与 execution 使用范围协调，底层连接记录仍归 runtime/group。
 “获得目录及使用权”和“检查占用并禁止新增使用”必须原子衔接；不能在 TUI 自建计数器，也不能只在 `call_tool` 期间加锁。
-P0 只固定这些落点；引用记录、并发控制和实际 busy 行为在 P2 实现并验证。
+P2 已接入这些落点：Harness 持有整个使用范围，runtime 的逐服务引用检查与阻止新引用在同步步骤内完成；
+目录在任何异步发现前冻结，退出范围时使旧视图失效。工作区切换同步移出旧实例，失败清理仍留在 owner 的待释放集合。
 
 ## 7. 分阶段改造清单
 
-每阶段完成实现后先跑受影响定向测试，缺少必要证据不得勾选完成。P0/P1 的完成不代表后续菜单、门禁或真机交互已验收。
+每阶段完成实现后先跑受影响定向测试，缺少必要证据不得勾选完成。P0—P2 的完成不代表后续菜单或完整真机交互已验收。
 
 ### P0：固定边界与可复现验收输入
 
@@ -384,18 +387,25 @@ P1 证据位于 [test_service_control.py](tests/external_mcp/test_service_contro
 force 幂等且不改配置、禁用目标 restart 收束、合法零工具、required 单失败隔离、删除/陈旧目标、前缀冲突、
 启动取消、关闭中取消、stdio 断线无重放、HTTP/SSE 独立会话及断线状态。
 关闭无法确认的模拟故障保留 owner 和 failed，不标 stopped；最终 owner 清理失败可重试。
-P1 的单服务端口要求调用方先收束目标消费者；将此约束接入根 Turn、子代理、Hook 和 Subscription 的统一门禁是 P2 的出口条件。
+P2 已将单服务端口的消费者约束落实为统一使用门禁，连接占用不再依赖调用方自行检查。
 
 ### P2：全量语义与工具生命周期门禁
 
-- [ ] 全量 start/force 按服务补启动，保留已有连接；全量 restart 明确拆除并按 enabled 重建。
-- [ ] 实现 required 失败的批次收束，区分操作前连接与本批新建连接。
-- [ ] 将全部工具消费者纳入使用门禁；原子处理占用检查、新使用禁止与资源关闭。
-- [ ] 活动消费者持有的工具目录不被改写，新目录只影响后续使用范围。
-- [ ] 覆盖取消、客户端退出、工作区切换与迟到结果；未知工具结果不自动重试。
-- [ ] 检查 Hook、子代理和审批服务身份在重启前后不串用，定向集成测试通过。
+- [x] 全量 start/force 按服务补启动，保留已有连接；全量 restart 明确拆除并按 enabled 重建。
+- [x] 实现 required 失败的批次收束，区分操作前连接与本批新建连接。
+- [x] 将全部工具消费者纳入使用门禁；原子处理占用检查、新使用禁止与资源关闭。
+- [x] 活动消费者持有的工具目录不被改写，新目录只影响后续使用范围。
+- [x] 覆盖取消、客户端退出、工作区切换与迟到结果；未知工具结果不自动重试。
+- [x] 检查 Hook、子代理和审批服务身份在重启前后不串用，定向集成测试通过。
 
 阶段出口：AC05、AC06、AC09、AC11、AC12；R05、R09、R11、R12 所需观测点齐备，不能仅检查前台 UI 的 busy 标志。
+
+P2 证据见 [test_batch_lifecycle.py](tests/external_mcp/test_batch_lifecycle.py)：P0 两项批次重放、start/force 幂等、
+临时连接的 restart 收束、required 冷启动/增量/重建三种失败边界、判定前目录不可见、取消回收与旧工作区迟到发布拒绝。
+实际 TurnRunner + ExecutionResources 及 Subscription AgentExecutor 路径保持冻结目录；同步/异步 Hook 的真实阻塞调用验证单服务占用、超时与取消释放。
+并发停服测试在占用检查后暂停关闭，验证新范围不能重新取得目标；目录构建、前置回调和执行异常均释放引用。
+最终 close 等待引用结束，工作区释放失败保留重试入口；旧目录失效以及相似配置名重启后的审批服务键有独立断言。
+这些测试使用本机独立 MCP 子进程；模型 operation 和订阅上游由测试替身提供，不代表已完成真实模型与人工 TUI 的 R11/R12。
 
 ### P3：菜单、命令与反馈
 
@@ -575,7 +585,7 @@ R12 的工作区切换以产品实际允许的时机执行；不支持并行切�
 
 Linux/macOS 使用对应仓库虚拟环境的激活脚本，随后使用相同的 `python -m ...` 命令。
 
-P0/P1 契约输入、真实 fixture 和单服务运行时定向测试：
+P0—P2 契约输入、真实 fixture、单服务和批次生命周期定向测试：
 
 ```shell
 python -m pytest tests/external_mcp -q
@@ -589,13 +599,19 @@ python -m pytest tests/infrastructure/mcp/test_mcp_group.py tests/infrastructure
 python -m pytest tests/frontends/tui/runtime/test_tui_stream_commands.py tests/agent/harness/test_workspace_coding_lifecycle.py tests/infrastructure/mcp/test_hook_mcp.py tests/integration/test_mcp_approval_gate.py tests/integration/test_mcp_approval_semantics_matrix.py -q
 ```
 
+P2 共享使用范围涉及 Turn、子代理、Review 和 Subscription，扩大回归命令为：
+
+```shell
+python -m pytest tests/agent/harness/execution tests/agent/harness/agents tests/agent/application/turns tests/frontends/subscription tests/integration/test_mcp_approval_gate.py tests/integration/test_mcp_approval_semantics_matrix.py tests/frontends/tui/runtime/test_tui_stream_commands.py -q
+```
+
 菜单与实际终端链路形成后运行对应原生终端场景；已有场景通过不等于新增 MCP 场景已覆盖：
 
 ```shell
 python -m pytest tests/frontends/tui/acceptance/test_pty_tui_interaction.py tests/frontends/tui/acceptance/test_pty_tui_rendering.py tests/frontends/tui/acceptance/test_pty_tui_colors.py -q
 ```
 
-P1 涉及公开端口和生命周期边界，已运行架构审计；P4/P5 收口时再运行，普通局部迭代不机械重复全套：
+P1/P2 涉及公开端口和生命周期边界，已运行架构审计；P4/P5 收口时再运行，普通局部迭代不机械重复全套：
 
 ```shell
 python -m pytest tests/test_package_architecture.py tests/architecture -q
@@ -607,7 +623,7 @@ git diff --check
 
 ## 11. 验收记录与完成条件
 
-按实际测试层次记录结果。P1 已取得 R04、R06、R07、R08 的底层真实传输证据，R01—R14 的完整终端操作仍待执行。
+按实际测试层次记录结果。P1 已取得 R04、R06、R07、R08 的底层真实传输证据；P2 补齐 R05、R09、R11、R12 的自动化生命周期证据和观测点。R01—R14 的完整终端操作仍待执行。
 
 | 批次/阶段 | 代码版本 | 操作系统/终端/尺寸 | 用例 ID | 测试层次 | 结果   | 证据路径与缺陷 |
 |-----------|----------|--------------------|---------|----------|--------|----------------|
@@ -616,7 +632,10 @@ git diff --check
 | P1 | 本条引入的 P1 提交 | Windows build 26100 / PowerShell；非 TUI | AC03、AC04、AC07、AC08、AC10 底层；R04/R06/R07/R08 传输部分 | 定向回归 + 真实 MCP 进程/网络 | 181 passed | `.cache/acceptance/external-mcp/p1-20260912/targeted.xml` |
 | P1 集成 | 同上 | 同上 | 工具审批、Effect 和流式命令边界回归 | 集成/命令测试 | 38 passed | `.cache/acceptance/external-mcp/p1-20260912/integration.xml` |
 | P1 架构 | 同上 | 同上 | 公开端口、包依赖与生命周期归属 | 完整架构审计 | 138 passed | `.cache/acceptance/external-mcp/p1-20260912/architecture.xml` |
-| P2—P5 / R01—R14 | — | Windows/Linux/macOS 实际终端待验收 | 后续产品及完整真机项 | 待执行 | 未执行 | 不以底层 fixture 结果替代 |
+| P2 | 本条引入的 P2 提交 | Windows build 26100 / PowerShell；非 TUI | AC05、AC06、AC09、AC11、AC12 底层；R05/R09/R11/R12 自动化部分 | 定向回归 + 真实 MCP 进程/网络 | 213 passed | `.cache/acceptance/external-mcp/p2-20260912/targeted.xml` |
+| P2 集成 | 本条引入的 P2 提交 | Windows build 26100 / PowerShell；非 TUI | Turn/子代理/Review/Subscription、审批与 Effect、流式命令 | 扩大集成回归 | 339 passed | `.cache/acceptance/external-mcp/p2-20260912/integration.xml` |
+| P2 架构 | 同上 | 同上 | 工具来源端口、引用生命周期、TUI 不读取底层连接组 | 完整架构审计 | 138 passed | `.cache/acceptance/external-mcp/p2-20260912/architecture.xml` |
+| P3—P5 / R01—R14 | — | Windows/Linux/macOS 实际终端待验收 | 后续产品及完整真机项 | 待执行 | 未执行 | 不以底层 fixture 结果替代 |
 
 P0 验证环境：Python 3.11.8、MCP SDK 1.24.0、pytest 9.1.1、jsonschema 4.26.0、uvicorn 0.38.0、Starlette 0.50.0。
 新增测试最后一次运行 52 项通过，0 失败/错误/跳过；既有四个模块 54 项通过。
@@ -627,6 +646,11 @@ P1 与 P0 使用相同 Python/MCP SDK 环境。定向回归包含 `tests/externa
 `test_tui_startup.py`、`test_tui_mcp.py`、`test_workspace_coding_lifecycle.py` 和 `test_controller_runtime_cleanup.py`；
 集成回归覆盖 MCP 审批门禁、审批语义矩阵及流式命令。完整架构审计的 1 条警告来自既有 Nuitka vendored glob2 的转义弃用提示。
 编译检查覆盖 `agent protocol frontends infrastructure observability metadata tests/external_mcp`；差异和文档链接检查通过。
+
+P2 与 P0/P1 使用相同 Python/MCP SDK 环境。定向回归沿用 P1 的完整目标集合，并纳入 29 项批次与使用范围测试；
+扩大回归见第 10 节 P2 命令。三组共 690 项通过，无失败、错误或跳过；架构审计仅有上述既有 Nuitka 弃用警告。
+编译、差异、本地文档链接和 fixture 进程残留检查通过。验收说明继续统一放在本清单，不恢复测试目录 README。
+启动动画和活动组件继续复用，忙碌反馈显示 busy；关闭中取消但已实际完成回收时由运行时正常返回，TUI 不读取底层 group 推断结果。
 
 - [ ] P0—P5 的阶段出口均满足，AC01—AC16 都有可复查证据。
 - [ ] R01—R14 完成，平台和服务覆盖符合第 9 节；未执行项保持未完成。

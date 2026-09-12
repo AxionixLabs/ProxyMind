@@ -48,7 +48,7 @@ class WorkspaceChange:
         self._finished = True
         operations = [self._resources.coding.close()]
         if self._old_mcp is not None:
-            operations.append(self._old_mcp.stop())
+            operations.append(self._external_mcp.release(self._old_mcp))
         results = await asyncio.gather(*operations, return_exceptions=True)
         errors = [str(result) for result in results if isinstance(result, Exception)]
         for result in results:

@@ -12,7 +12,10 @@ from dataclasses import (
     dataclass,
 )
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import (
+    AsyncMock,
+    Mock,
+)
 
 from jsonschema import Draft202012Validator
 from mcp import types as mcp_types
@@ -340,6 +343,7 @@ async def test_p0_golden_p1_cases_replay_against_real_runtime(control_runtime, f
 @pytest.mark.anyio
 async def test_owner_retries_final_cleanup_after_failure() -> None:
     runtime = AsyncMock()
+    runtime.retire = Mock()
     runtime.stop.side_effect = [RuntimeError("cleanup failed"), None]
     owner = McpRuntimeOwner(runtime_factory=lambda: runtime)
     await owner.start()

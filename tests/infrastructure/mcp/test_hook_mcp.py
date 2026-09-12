@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from contextlib import nullcontext
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -42,7 +43,7 @@ async def test_hook_mcp_runner_expands_static_input_and_structured_output() -> N
         structuredContent={"systemMessage": "reviewed"},
         content=[],
     ))
-    runner = HookMcpRunner(lambda: group)
+    runner = HookMcpRunner(lambda _server: nullcontext(group))
 
     output = await runner.execute(
         _definition({
@@ -76,7 +77,7 @@ async def test_hook_mcp_runner_parses_json_text_and_rejects_invalid_results() ->
         structuredContent=None,
         content=[SimpleNamespace(text='{"systemMessage":"ok"}')],
     ))
-    output = await HookMcpRunner(lambda: group).execute(
+    output = await HookMcpRunner(lambda _server: nullcontext(group)).execute(
         _definition(),
         {},
     )
@@ -88,7 +89,7 @@ async def test_hook_mcp_runner_parses_json_text_and_rejects_invalid_results() ->
         content=[SimpleNamespace(text="plain text")],
     ))
     with pytest.raises(HookMcpError, match="non-JSON"):
-        await HookMcpRunner(lambda: invalid_group).execute(
+        await HookMcpRunner(lambda _server: nullcontext(invalid_group)).execute(
             _definition(),
             {},
         )
@@ -97,7 +98,7 @@ async def test_hook_mcp_runner_parses_json_text_and_rejects_invalid_results() ->
 @pytest.mark.anyio
 async def test_hook_mcp_runner_reports_unavailable_error_and_timeout() -> None:
     with pytest.raises(HookMcpError, match="not started"):
-        await HookMcpRunner(lambda: None).execute(_definition(), {})
+        await HookMcpRunner(lambda _server: nullcontext(None)).execute(_definition(), {})
 
     error_group = _Group(SimpleNamespace(
         isError=True,
@@ -105,7 +106,7 @@ async def test_hook_mcp_runner_reports_unavailable_error_and_timeout() -> None:
         content=[SimpleNamespace(text="server rejected request")],
     ))
     with pytest.raises(HookMcpError, match="server rejected"):
-        await HookMcpRunner(lambda: error_group).execute(_definition(), {})
+        await HookMcpRunner(lambda _server: nullcontext(error_group)).execute(_definition(), {})
 
     async def wait_forever(*_args, **_kwargs):
         await asyncio.sleep(10)
@@ -122,4 +123,4 @@ async def test_hook_mcp_runner_reports_unavailable_error_and_timeout() -> None:
         handler=replace(definition.handler, timeout_sec=0),
     )
     with pytest.raises(HookMcpError, match="timed out"):
-        await HookMcpRunner(lambda: timeout_group).execute(definition, {})
+        await HookMcpRunner(lambda _server: nullcontext(timeout_group)).execute(definition, {})
