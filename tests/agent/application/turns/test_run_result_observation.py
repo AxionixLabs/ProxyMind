@@ -1059,11 +1059,18 @@ async def test_observed_replay_does_not_repeat_completed_client_tool(
         entry["event"] in {"tool.started", "tool.completed"}
         for entry in host.transcripts.entries
     )
-    assert len(host.output_session.activity.batches) == 1
-    assert tuple(
-        type(item)
-        for item in host.output_session.activity.batches[0]
-    ) == (ToolCompleted, ModelWaitRequested)
+    batches = host.output_session.activity.batches
+    assert [tuple(type(item) for item in batch) for batch in batches] == [
+        (RecoveryChanged,),
+        (ToolCompleted, ModelWaitRequested),
+        (RecoveryChanged,),
+    ]
+    assert [
+        (item.mode, item.event_seq)
+        for batch in batches
+        for item in batch
+        if isinstance(item, RecoveryChanged)
+    ] == [("replaying", 0), ("caught_up", 4)]
 
 
 @pytest.mark.anyio
