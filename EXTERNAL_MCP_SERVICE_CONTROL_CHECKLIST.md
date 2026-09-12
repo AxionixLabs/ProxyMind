@@ -1,6 +1,6 @@
 # 外接 MCP 单服务控制：方案评估、设计稿与分阶段验收清单
 
-状态：P0—P3 及插入的 P0 显示层修复已完成。P4 已落地 Windows ConPTY 的真实 MCP 控制与调用自动验收；POSIX PTY 与 P5 实际客户端、实际外部服务的人工验收仍待执行，P4 尚未整体关闭。
+状态：P0—P3 及插入的 P0 显示层修复已完成。P4 Windows ConPTY 自动验收通过。P5 已取得本机 Windows 直接启动 `mind.py`、真实外部服务和实际模型调用的证据，并修复配置损坏时临时连接的配置状态显示错误；尚未覆盖的真机分支见第 11.1 节，P4/P5 跨平台发布出口仍未整体关闭。
 本文件统一维护方案、菜单与交互设计、分阶段清单、验收运行说明及证据；测试目录不另设验收说明文档。
 本文的阶段、自动测试和真机验收项均须凭对应证据勾选，源码阅读、测试替身或设计截图不能代替真机通过。
 
@@ -487,13 +487,14 @@ Windows 输出适配器预留一列防止自动折行，尺寸断言保留该既
 ### P5：真实客户端验收与发布收口
 
 - [ ] 在实际终端中运行当前客户端和发布候选入口，按 R01—R14 逐项人工验收并保存证据。
-- [ ] 在用户实际使用的外部 stdio 服务和远端 MCP 上完成真实连接/调用验证；fixture 通过不替代本项。
-- [ ] Windows、Linux、macOS 平台验收记录完整；不可用平台写待验收，不标通过。
-- [ ] 第 10 节命令、编译检查、差异检查完成；稳定文档、帮助和测试中的动作语义一致。
-- [ ] 核对无残留 MCP 子进程/连接、无未完成清理任务、无旧状态回写；确认用户原有改动未被覆盖。
+- [x] 在用户实际使用的外部 stdio 服务和远端 MCP 上完成真实连接/调用验证；fixture 通过不替代本项。
+- [x] Windows、Linux、macOS 平台验收记录完整；不可用平台写待验收，不标通过。
+- [x] 第 10 节受影响测试、编译检查、差异检查完成；稳定文档、帮助和测试中的动作语义一致。
+- [x] 本轮客户端退出后核对无残留 MCP 子进程/连接，临时凭据副本已删除；用户配置哈希及原有源码改动保持不变。
 - [ ] 第 11 节证据表填入实际版本、平台、结果及产物位置，所有发布门槛关闭。
 
 阶段出口：全部 AC、R 用例有证据；未执行或仅执行了模拟场景的条目不能作为发布通过。
+本轮按用户要求直接在本机 Windows TTY 启动当前仓库 `python mind.py`；Linux/macOS 和候选安装包不作为本轮本机验收的前置条件，不再为客户端验收登录服务器。
 
 ## 8. 验收标准与追踪矩阵
 
@@ -710,7 +711,7 @@ git diff --check
 
 ## 11. 验收记录与完成条件
 
-按实际测试层次记录结果。P1 已取得 R04、R06、R07、R08 的底层真实传输证据；P2 补齐 R05、R09、R11、R12 的自动化生命周期证据和观测点。P3 增加共享菜单按键、状态反馈和真实传输接线证据；P4 增加 Windows ConPTY 的服务控制与实际调用证据，R01—R14 的实际客户端人工验收仍待执行。
+按实际测试层次记录结果。P1 已取得 R04、R06、R07、R08 的底层真实传输证据；P2 补齐 R05、R09、R11、R12 的自动化生命周期证据和观测点。P3 增加共享菜单按键、状态反馈和真实传输接线证据；P4 增加 Windows ConPTY 的服务控制与实际调用证据；P5 本机实际客户端结果与剩余项见第 11.1 节。
 
 | 批次/阶段       | 代码版本                            | 操作系统/终端/尺寸                           | 用例 ID                                                       | 测试层次                           | 结果       | 证据路径与缺陷                                                                                |
 |-----------------|-------------------------------------|----------------------------------------------|---------------------------------------------------------------|------------------------------------|------------|-----------------------------------------------------------------------------------------------|
@@ -732,7 +733,11 @@ git diff --check
 | P4 原生 | 同上 | Windows ConPTY；28×100、15×120/80/40；有色/无色、动画开/关 | R01—R09、R11/R13/R14 的自动化部分；既有交互、渲染和颜色矩阵 | 6 组真实 MCP 控制与调用 + 94 组共享终端回归 | 99 passed，1 skipped | `.cache/acceptance/external-mcp/p4-20260912/native-verified.xml`；同目录 `native-verified/` 下配置、事实、按键、原始输出与画面；跳过项仅 POSIX 作业控制 |
 | P4 架构 | 同上 | Windows build 26100 / PowerShell | TUI owner 端口、包依赖与生命周期归属 | 完整架构审计 | 138 passed | `.cache/acceptance/external-mcp/p4-20260912/architecture.xml` |
 | P4 POSIX | — | Linux/macOS POSIX PTY | 同套原生控制、交互与显示 | 待执行 | 未执行 | 当前可用验收环境仅 Windows，保持阶段未关闭 |
-| P5 / R01—R14 | — | Windows/Linux/macOS 实际终端待验收 | 实际客户端、实际外部服务、实际模型 Turn 及完整真机项 | 待执行 | 未执行 | 不以 fixture 或最小测试宿主替代 |
+| P5 Windows 客户端 | 基线 `b8dea98c`；显示修复复验使用本条提交 | Windows build 26100 / PowerShell 7.6.6 / 工具原生 TTY 80×24；普通输出及 truecolor | R01—R14 中实际执行的步骤，逐项见第 11.1 节 | 直接 `python mind.py` + 实际模型 + 实际 stdio/远端服务；故障使用真实 fixture | 主要路径通过，部分分支待验收 | `.cache/acceptance/external-mcp/p5-20260912/windows-direct-01-complete.json` 至 `windows-direct-06-complete.json`；无宿主或 MCP 传输替换 |
+| P5 缺陷回归 | 本条提交 | 同上；pytest | 配置读取失败时保留 enabled/disabled、单服务/全量 stop；既有 MCP 控制 | 定向回归 + 真实 MCP 进程/网络 | 202 passed | `.cache/acceptance/external-mcp/p5-20260912/targeted.xml` |
+| P5 原生回归 | 同上 | Windows ConPTY | 6 组真实 MCP 控制、调用、busy、失败/取消及菜单缩放 | 原生终端自动验收 | 6 passed | `.cache/acceptance/external-mcp/p5-20260912/native.xml` |
+| P5 架构 | 同上 | Windows build 26100 / PowerShell | 包依赖和生命周期归属 | 完整架构审计 | 138 passed | `.cache/acceptance/external-mcp/p5-20260912/architecture.xml` |
+| P5 其他平台/候选包 | — | Linux/macOS、候选安装包 | 跨平台及安装入口 | 本轮未执行 | 待验收 | 本轮用户指定 Windows 仓库入口；不以服务器部署成功代替客户端验收 |
 
 P0 验证环境：Python 3.11.8、MCP SDK 1.24.0、pytest 9.1.1、jsonschema 4.26.0、uvicorn 0.38.0、Starlette 0.50.0。
 新增测试最后一次运行 52 项通过，0 失败/错误/跳过；既有四个模块 54 项通过。
@@ -764,6 +769,36 @@ P4 Windows 最终三组共 780 项通过，0 失败/错误，1 项仅适用于 P
 生产修正包括 TUI owner 的 `current/snapshot/control` 契约与实际 Harness owner 对齐、移除 restart 的旧参数，
 以及定义模块 `agent/ports/workspace.py` 补全 `WorkspaceChangePort`、`WorkspaceResources` 的公开导出；编译、导出、差异与文档链接检查通过。
 本轮没有运行 POSIX PTY、实际模型 Turn 或实际外部服务的人工验收；R11 的模型入口、R12 的实际客户端工作区流程、R14 的人工重复操作仍按 P5 执行。
+
+### 11.1 P5 Windows 实际客户端记录（2026-09-12）
+
+以下产物均相对于 `.cache/acceptance/external-mcp/p5-20260912/`。六次正式记录均由工具 TTY 直接启动 `mind.py`，通过输入框和菜单操作；
+使用用户配置的实际模型服务，未替换应用宿主、模型或 MCP SDK。日常配置只读，启用覆盖由 CLI 或专用配置副本提供；未信任或执行用户待审核的 Hooks。
+Windows 外部服务为 Playwright（24 工具）、Sbroenne.WindowsMcp（10 工具）及三个钉钉 Streamable HTTP 连接。
+实际调用只包含空白页快照、显示器列表和随机不存在关键词的联系人查询；没有发送消息、修改远端业务数据或保存截图。
+
+| 用例 | 本轮实际操作及结果 | 证据与范围 |
+|------|--------------------|------------|
+| R01—R03 | 一级只有服务；五动作顺序及默认 status 正确；连续确认只查看状态；Esc 返回恢复选择；单服务与全量范围正确；未知动作和额外参数本地拒绝。status 保持原有圆点版式，结果树形详情无多余缩进，正常正文未染红，菜单编号未继承 dim。 | `windows-direct-01-complete.json`、`windows-direct-02-complete.json`；后续故障服务使用同一菜单。 |
+| R04、R14 | Sbroenne 连续 10 轮单服务 stop → 全量 start → 单服务 restart。每轮清理旧进程，Playwright 的两个进程 PID/创建时间均不变；反向重启 Playwright 时 Sbroenne 实例保持。循环前后两者实际工具调用成功，全停、重复停止和退出后无相关进程。 | `windows-direct-02-complete.json`、`windows-cycles.json`、`windows-processes-complete.json`；进程身份以 PID 与创建时间共同核对。owner task 的进程内断言来自 P4/P5 原生回归。 |
+| R05 | 禁用 Playwright 普通 start 保持 stopped；force 临时建立连接，重复 force 不改变 PID/创建时间；全量 force 建立五个实际连接；普通 start 保留临时连接；全量 restart 按 disabled 收束。 | `windows-direct-01-complete.json`；用户配置 SHA256 前后均为 `6733625BC56F626B84D29E265BB6D89961C6E2FADA062B10389ACEE5B3C615C2`。 |
+| R06 | 空目录、无 tools 能力、全过滤服务分别 ready/0 tools；全过滤为 discovered=2、filtered=2。发现失败显示 failed。status 前后 fixture 事实文件哈希不变。 | `windows-direct-03-complete.json`、`windows-status-readonly.json`、`windows-direct-fixtures/*.jsonl`。 |
+| R07 | stdio 停止后相应进程消失；实际客户端全停和退出后，独立客户端仍可连接 HTTP/SSE 并调用 ping；远端 UUID/PID 不变，新会话 ID 与旧会话不同。最后由 fixture 创建方清理远端进程。 | `windows-http-sse-independent.json`、`windows-direct-fixtures/H.jsonl`、`windows-direct-fixtures/S.jsonl`、`windows-cleanup.json`。 |
+| R08、R11 调用不重放 | 实际模型调用 Disconnect 一次，服务记录一次 tool.started/fault.injected 后退出；客户端报告 Connection closed，status 为 failed、无工具；B 保持原 UUID 并实际调用成功。没有自动重连或重放。 | `windows-direct-06-complete.json`、`windows-disconnect-workspace.json`。随后显式工作区恢复重新建连属于新生命周期。B 的探测字符串由模型误填，但真实调用及服务隔离均已核验。 |
+| R09 已执行部分 | 启动失败、发现失败、握手期间 Esc 取消；关闭卡住时取消仍完成 transport 回收。单目标 required 失败保持其他连接；增量 required 失败回收新建 D、全部旧 PID/创建时间不变；全量 restart 的 required 失败回收整个新批次。 | `windows-direct-03-complete.json`、`windows-direct-06-complete.json`、`windows-required-processes.json`、对应 fixture 事实。冷启动 required 失败及重启中取消的实际客户端分支仍待补验。 |
+| R10 已执行部分 | 菜单打开后删除 A 配置，旧选择的 restart 明确失败，仍可单停已移出配置的 A，B 保持；配置损坏不拆除已有连接，全量 stop 仍可清理。复验临时连接在配置损坏时仍显示 disabled。 | `windows-direct-03-complete.json`、`windows-direct-05-complete.json`。专门的名称冲突变更与凭据标记注入仍只有自动化证据；本轮实际凭据扫描见 `windows-validation.json`。 |
+| R11 已执行部分 | 实际 Playwright 模型 Turn 期间 `/mcp stop`、`/mcp restart` 被前台门禁拒绝；已有进程保持，start 经现有屏障在 Turn 后处理；实际只读工具调用完成。 | `windows-direct-01-complete.json`；其中 browser_wait_for 因未打开页面失败，只用于证明真实活动 Turn 的门禁，不计作工具成功。后台消费者与当前/后续冻结目录的实际模型分支仍待补验。 |
+| R12 已执行部分 | 从工作区一的实际 `/resume` 选择工作区二会话，再选择 Use session directory；旧 A UUID 的进程关闭，新 A 的实际模型返回来自工作区二的新 UUID/PID；正常退出完成清理。 | `windows-direct-06-complete.json`、`windows-disconnect-workspace.json`。此前带 `-C` 的运行固定工作区，不计作工作区切换；启动中/菜单陈旧回调的竞态分支仍只有自动化证据。 |
+| R13 已执行部分 | 实际 80×24 普通输出与 truecolor 下检查主菜单、超过一屏的列表、审批菜单、返回、状态和活动交接；编号正常亮度，树形结果使用共享缩进及正文色。 | 六次直接 TTY 记录；120/80/40 列、低高度和动画开/关本轮由 6 组 ConPTY 回归复核，未冒充当前实际客户端的连续缩放验收。 |
+
+本轮发现并关闭一项缺陷：配置读取失败时，snapshot 原先直接读取连接组为 force 启动准备的有效配置，导致临时启用的 disabled 服务错误显示 enabled。
+修复复用 runtime 原有 `_snapshots()` 合并规则，保留最近有效配置中的启用状态，不新增渲染分支。
+回归覆盖 enabled/disabled × 单服务/全量停止四种组合；修复前两项失败，修复后全部通过，并在第五次真实客户端中复现配置损坏、正确显示及全停。
+修复后的定向、原生及架构回归合计 346 项通过，生产包编译、差异和本清单链接检查通过。
+
+剩余真机工作仍按原标准保留：R09 冷启动/重启取消，R10 名称冲突/凭据标记注入，R11 后台消费者及冻结目录，
+R12 切换时机的竞态，R13 当前实际客户端的连续缩放/改键位；其他平台和候选安装包本轮未执行。
+因此本次记录代表已完成的 Windows 实际客户端步骤及缺陷修复，不宣告 P5 全部发布门槛关闭。
 
 - [ ] P0—P5 的阶段出口均满足，AC01—AC16 都有可复查证据。
 - [ ] R01—R14 完成，平台和服务覆盖符合第 9 节；未执行项保持未完成。

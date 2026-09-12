@@ -86,19 +86,27 @@ async def test_menu_all_is_single_real_service_and_direct_start_preserves_other_
 
 
 @pytest.mark.anyio
-async def test_invalid_config_keeps_known_connections_visible_and_stoppable(control_runtime):
+@pytest.mark.parametrize("enabled", (True, False))
+@pytest.mark.parametrize("all_services", (True, False))
+async def test_invalid_config_keeps_known_connections_visible_and_stoppable(control_runtime, enabled, all_services):
     runtime, config = control_runtime
     select_servers(config, "A")
+    config.servers["A"]["enabled"] = enabled
     host, views = ui(runtime)
-    await mcp.run_mcp_action(host, mcp.all_mcp_request(host, "start"))
+    await mcp.run_mcp_action(host, mcp.all_mcp_request(host, "start" if enabled else "force"))
     before = tuple(read_facts(config.workspace / "a.jsonl"))
     with patch.object(config, "load", side_effect=ValueError("invalid config")):
         mcp.render_mcp_status(host)
         text = "".join(value for _, value in views[0].renderable.fragments)
         assert "Config error: ValueError: invalid config" in text and "Connection: ready" in text
+        expected_config = "enabled" if enabled else "disabled (temporary connection)"
+        assert f"Config: {expected_config}" in text
+        assert runtime.snapshot.services[0].config_enabled is enabled
         assert tuple(read_facts(config.workspace / "a.jsonl")) == before
-        outcome = await mcp.run_mcp_action(host, request(runtime, "A", "stop"))
+        command = mcp.all_mcp_request(host, "stop") if all_services else request(runtime, "A", "stop")
+        outcome = await mcp.run_mcp_action(host, command)
         assert outcome.services[0].snapshot.state == "stopped"
+        assert outcome.services[0].snapshot.config_enabled is enabled
         mcp.render_mcp_status(host)
     assert not runtime.started
 

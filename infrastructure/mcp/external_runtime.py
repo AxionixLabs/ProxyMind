@@ -177,7 +177,7 @@ class ExternalMcpRuntime:
             error = None
         except (ValueError, OSError, AppError) as failure:
             group = self._group
-            services = tuple(item for item in group.service_snapshots if item.config_key in group.owned_keys) if group else ()
+            services = tuple(item for item in self._snapshots() if item.config_key in group.owned_keys) if group else ()
             error = external_status_detail_from_exception(failure)
         return McpRuntimeSnapshot(self._runtime_id, str(self._workspace), services, error)
 
