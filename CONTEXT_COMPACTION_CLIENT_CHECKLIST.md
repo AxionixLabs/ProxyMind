@@ -1,8 +1,8 @@
 # 上下文压缩：客户端设计稿与分阶段验收清单
 
-本轮只修改 AppServer 服务端代码并编写本清单，不实施客户端压缩动画。
+本清单用于客户端压缩动画的分阶段开发与验收，包含服务端契约、交互设计及真机验收要求。
 客户端每阶段必须分别完成实现、定向测试和规定的真机验收才能勾选，源码复核或测试替身通过不能代替真机通过。
-原有 context left 的显示条件、右侧留白和稳定布局继续按 [CONTEXT_LEFT_ALIGNMENT_CHECKLIST.md](CONTEXT_LEFT_ALIGNMENT_CHECKLIST.md) 执行。
+原有 context left 的显示条件、右侧留白和稳定布局继续按 [上下文用量客户端契约](docs/context-usage-protocol.md) 执行。
 
 ## 依据与职责
 
@@ -34,13 +34,13 @@ context.compaction.completed     同一 item_id，completed，latency_ms
 | `phase`                              | 自动压缩为 `pre_turn` 或 `mid_turn`；手动压缩为 `standalone`               |
 | `trigger`                            | `automatic` 或 `manual`                                                    |
 | `item_status`                        | `in_progress`、`completed`、`failed`                                       |
-| `latency_ms`                         | 完成事件的非负整数毫秒；本次服务端补齐实际发送，客户端完成态与历史使用此值 |
+| `latency_ms`                         | 完成事件的非负整数毫秒；客户端完成态与历史使用服务端发送的此值             |
 | `before_items`、`after_items` 等统计 | 继续保留结构化数据，不将条目数挤入完成态主标题                             |
 
 `latency_ms` 使用服务端单调时钟，从压缩流程开始计时，覆盖摘要生成、replacement CAS 提交及用量发布，到开始提交完成事件之前结束；不包含完成通知的后续传输、客户端绘制及客户端 PostCompact Hook。
 进行态由客户端单调时钟刷新，不能使用整轮 Turn 的耗时，也不能重置整轮 Turn 的计时。
 已有历史事件未提供耗时时保持未知，只显示完成文案；不显示伪造的 `0s`，不通过日志或当前时间倒推。
-该字段已在既有协议统计字段中声明，本次服务端不改变端点、数据库结构或压缩策略。
+该字段已在既有协议统计字段中声明，客户端按正式契约读取。
 
 中断边界必须准确：
 
@@ -134,16 +134,18 @@ PreCompact Hook 尚未放行或服务端尚未确认开始时，可沿用独立�
 
 ### P0：确认服务端契约
 
-- [x] 核对自动/手动压缩的 started、completed、failed、稳定 Item 身份及用量先于 completed 的顺序。
-- [x] 服务端实际发送 `latency_ms`，完成日志使用同一取值。
-- [x] 覆盖自动 pre_turn、自动 mid_turn、手动 standalone 的计时、事件收集和协议投影；定向服务端测试通过。
-- [x] 部署服务端补丁，真实 SSE 与回放的同一完成事件均为 `latency_ms=7731`。
-- [x] Windows ConPTY 运行真实客户端 `/compact`，窗口 100000，完成事件耗时 8305 ms，19 项压缩为 6 项。
-- [x] 真实服务触发自动 pre_turn、mid_turn 压缩失败，确认失败不误发 completed，所属 Turn 仍正常完成。
-- [x] 自动压缩开始后通过正式中断接口请求停止，收到所属 Turn 的权威 `interrupted` 终态。
-- [x] 手动压缩 started 后关闭真实 SSE，服务端仍完成并在回放中提供耗时 10855 ms。
-- [x] 真客户端工具输出触发自动 mid_turn 压缩成功，完成事件耗时 14508 ms，随后 Turn 继续并完成。
-- [ ] 自动 pre_turn 成功分支的独立真机验收；已验证其真实触发、失败与中断，成功计时目前由定向测试覆盖。
+以下各项在开发者实际接入的目标环境中核验后勾选。
+
+- [ ] 核对自动/手动压缩的 started、completed、failed、稳定 Item 身份及用量先于 completed 的顺序。
+- [ ] 确认目标服务端实际发送 `latency_ms`，完成日志使用同一取值。
+- [ ] 确认服务端定向测试覆盖自动 pre_turn、自动 mid_turn、手动 standalone 的计时、事件收集和协议投影。
+- [ ] 对照真实 SSE 与回放，确认同一完成事件的 `latency_ms` 一致。
+- [ ] 在实际终端运行真实客户端 `/compact`，窗口 100000，确认压缩成功并返回真实耗时。
+- [ ] 真实服务触发自动 pre_turn、mid_turn 压缩失败，确认失败不误发 completed；允许继续时，所属 Turn 能正常完成。
+- [ ] 自动压缩开始后通过正式中断接口请求停止，确认收到所属 Turn 的权威 `interrupted` 终态。
+- [ ] 手动压缩 started 后关闭真实 SSE，确认服务端仍完成并在回放中提供真实耗时。
+- [ ] 真客户端工具输出触发自动 mid_turn 压缩成功，确认完成事件包含耗时，随后 Turn 继续并完成。
+- [ ] 独立触发自动 pre_turn 压缩成功，确认完成事件包含耗时，随后 Turn 继续并完成。
 
 ### P1：客户端类型与耗时传递
 
@@ -216,25 +218,4 @@ PreCompact Hook 尚未放行或服务端尚未确认开始时，可沿用独立�
 | [ ]  | 压缩期间退出/切换            | 无残留 timer、spinner、后台任务或下一会话污染            |
 
 验收结论必须注明实际终端、服务版本、模型、窗口/阈值、会话/Item ID 与成功/失败结果。
-服务端事件真实验收不等于客户端视觉验收；本轮未实现客户端动画，上表不能提前勾选。
-
-## 本轮服务端验证
-
-- 服务端改动位置：`services/llm/llm_flows/flow_compaction.py`；正式说明：`docs/PROTOCOL.md`。
-- 已通过 123 项压缩、上下文预算、窗口策略及 Item 状态测试。
-- 已通过 85 项事件平面、回放、事件存储及 Python 文件约定检查；编译和差异格式检查通过。
-- 真实部署版本：`20260912054730-580d1437bf59-b1449531b920`，在原部署上仅替换本次压缩流程代码并重建 HTTP/Worker 镜像，两个容器的文件 SHA-256 均为 `b1449531b9209abaea8d2afc5bdcdde2d86df4250a660e114ca0b0151e3afb08`。
-- 真实环境：Windows ConPTY + 部署服务器 `192.168.2.81`；OpenAI Profile、`gpt-5.6-sol`、`chat_completions`；上下文窗口 100000。自动失败与中断测试仅在请求副本中将阈值改为 1；真客户端自动成功测试通过启动覆盖将阈值设为 20000，未改变用户主配置。
-- 验收会话：`cid_tl8igo_5043ed82 / sid_tl8igo_mtxwgv1u_e5d787`。
-
-| 验证方式                   | Item / Turn                    | 实际结果                                                                                                                     |
-|----------------------------|--------------------------------|------------------------------------------------------------------------------------------------------------------------------|
-| 真客户端手动压缩           | `compaction_mtxyw3ms_7ce8c919` | seq 36 started → 37 usage → 38 completed；8305 ms；19→6 项                                                                   |
-| 真实 SSE 与回放对照        | `compaction_mtxyzd64_b7e953fc` | seq 39→40→41；两次读取的完成耗时均为 7731 ms                                                                                 |
-| 自动 pre_turn 失败         | `compaction_mtxz0gwk_945765d6` | `no_gain`，没有伪 completed                                                                                                  |
-| 自动 mid_turn 失败         | `compaction_mtxz0m94_284d932d` | `summary_failed`；所属 `compaction_acceptance_auto_20260912` 在 seq 50 正常完成                                              |
-| 自动压缩中断               | `compaction_mtxz1qzr_3cd62094` | started seq 52；`compaction_acceptance_interrupt_20260912` 在 seq 53 确认为 interrupted                                      |
-| 手动关闭观察连接           | `compaction_mtxz2q0v_6ef8a9de` | 关闭 started 后的 SSE，服务端仍在 seq 56 完成，耗时 10855 ms                                                                 |
-| 真客户端自动 mid_turn 成功 | `compaction_mtxz67k5_6bd9212c` | 真实 `exec_command` 输出触发，seq 64 started → 65 usage → 66 completed；14508 ms；10→8 项；Turn `aazmw2punbcq` 继续到 seq 70 |
-
-- 客户端设计及 P1–P6：待实施；不以服务端测试结果替代客户端验收。
+服务端事件真实验收不等于客户端视觉验收；客户端动画完成实现并通过对应真机验收后才能勾选。
