@@ -16,9 +16,7 @@ from agent.application.config.settings import (
     AgentSettings,
     FeatureSettings,
 )
-from agent.application.turns.foreground import (
-    ApplicationTurnForegroundLifecycle,
-)
+from agent.application.turns.foreground import ApplicationTurnForegroundLifecycle
 from agent.application.turns.commands import RemoteTurnRecovery
 from agent.application.turns.observation import TurnObservationCallbacks
 from agent.application.turns.run_result import RunResult
