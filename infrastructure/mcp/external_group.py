@@ -3,19 +3,27 @@
 
 import asyncio
 import contextlib
+import functools
 import os
 import typing
-from dataclasses import dataclass
+
+import anyio
+import httpx
+
+from dataclasses import (
+    dataclass,
+    replace,
+)
 from datetime import timedelta
 
-import httpx
 from mcp import (
     ClientSession,
     types as mcp_types,
 )
 from mcp.client.session_group import (
     ClientSessionParameters,
-    SseServerParameters
+    SseServerParameters,
+    StreamableHttpParameters,
 )
 from mcp.client.sse import sse_client
 from mcp.client.stdio import (
@@ -25,6 +33,7 @@ from mcp.client.stdio import (
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 
+from agent.ports.mcp_runtime import McpServiceSnapshot
 from infrastructure.errors import AppError
 from infrastructure.mcp.external_status import (
     ExternalMcpStatus,
@@ -32,12 +41,14 @@ from infrastructure.mcp.external_status import (
     should_reraise_external,
 )
 from infrastructure.mcp.settings import (
+    NormalizedMcpServer,
     is_mcp_tool_allowed,
     normalize_mcp_approval_mode,
     request_timeout_sec,
     startup_timeout_sec,
 )
 from infrastructure.mcp.transport import (
+    ObservedMcpReadStream,
     build_server_params,
     external_http_client,
     preflight_server,
@@ -60,7 +71,7 @@ EXTERNAL_MCP_TOOL_YIELD_INTERVAL = 32
 
 
 @dataclass(frozen=True, slots=True)
-class _ExternalMcpConnectionReady(object):
+class _ExternalMcpConnectionReady:
     """保存单个外部连接完成初始化后的可发布资源。"""
     alias: str
     session: ClientSession
@@ -69,15 +80,18 @@ class _ExternalMcpConnectionReady(object):
 
 
 @dataclass(slots=True)
-class _ExternalMcpConnection(object):
+class _ExternalMcpConnection:
     """保存单个外部连接的所有者任务和关闭信号。"""
     server: str
     stop_event: asyncio.Event
     ready: asyncio.Future[_ExternalMcpConnectionReady]
     task: asyncio.Task[None]
+    config_key: str
+    cleaned: bool = False
+    cleanup_error: str | None = None
 
 
-class ExternalMcpGroup(object):
+class ExternalMcpGroup:
     """管理一组外部 MCP 会话，并把多个服务的工具合并成统一入口。"""
 
     def __init__(self) -> None:
@@ -89,77 +103,126 @@ class ExternalMcpGroup(object):
         self._closing: bool = False
         self._closed: bool = False
         self._close_lock: asyncio.Lock = asyncio.Lock()
+        self._service_states: dict[str, McpServiceSnapshot] = {}
+
+    @property
+    def started(self) -> bool:
+        """按连接事实判断可用性，合法的零工具连接同样算已启动。"""
+        return any(item.state == "ready" for item in self._service_states.values())
+
+    @property
+    def service_snapshots(self) -> tuple[McpServiceSnapshot, ...]:
+        """返回由本连接组拥有的不可变逐服务事实。"""
+        return tuple(self._service_states.values())
+
+    @property
+    def owned_keys(self) -> frozenset[str]:
+        """返回仍持有资源或待确认清理结果的服务键。"""
+        return frozenset(item.config_key for item in self._connections)
+
+    def _remember_server(self, server: NormalizedMcpServer) -> None:
+        """在预检前建立连接状态，使没有进入 SDK 的失败同样可被观察。"""
+        key = server.get("config_key", server["name"])
+        self._service_states[key] = McpServiceSnapshot(
+            config_key=key, tool_prefix=f"mcp__{server['name']}__",
+            config_enabled=server.get("enabled", True), state="starting",
+            transport=server.get("transport", "streamable_http"),
+        )
+
+    def _withdraw(self, key: str) -> None:
+        """只撤下目标连接发布的工具和路由，不改变其他服务。"""
+        snapshot = self._service_states.get(key)
+        if snapshot is None:
+            return
+        for name in snapshot.tools:
+            self.tools.pop(name, None)
+            self._tool_to_session.pop(name, None)
+        self.server_stats.pop(snapshot.tool_prefix[5:-2], None)
+        self._service_states[key] = replace(snapshot, tools=(), discovered=0, filtered=0)
+
+    def _mark_failed(self, key: str, detail: str) -> None:
+        """记录已观察到的连接失败并撤下不可用目录。"""
+        self._withdraw(key)
+        snapshot = self._service_states.get(key)
+        if snapshot is not None:
+            self._service_states[key] = replace(snapshot, state="failed", connection_error=detail)
+
+    async def start_service(
+        self, server: NormalizedMcpServer, status: ExternalMcpStatus | None = None,
+    ) -> bool:
+        """复用现有建连时限和 owner 启动一个服务，不执行 required 全组收束。"""
+        return await _connect_external_server(
+            self, server, asyncio.Semaphore(1), asyncio.Semaphore(1), status,
+        )
+
+    async def stop_service(self, key: str) -> None:
+        """只关闭目标，调用方取消后仍等待拥有资源的任务收束。"""
+        async with self._close_lock:
+            cancelled = False
+            connection = next((item for item in self._connections if item.config_key == key), None)
+            self._withdraw(key)
+            snapshot = self._service_states.get(key)
+            if snapshot is not None:
+                self._service_states[key] = replace(snapshot, state="stopping", tools=(), discovered=0, filtered=0)
+            if connection is not None:
+                cleanup = asyncio.create_task(self._retire_connection(connection))
+                while not cleanup.done():
+                    try:
+                        await asyncio.shield(cleanup)
+                    except asyncio.CancelledError:
+                        cancelled = True
+                cleanup.result()
+            snapshot = self._service_states.get(key)
+            if snapshot is not None:
+                self._service_states[key] = replace(snapshot, state="stopped", connection_error=None)
+            if cancelled:
+                raise asyncio.CancelledError
 
     @staticmethod
     async def _establish_session(
-        server_params: typing.Any,
-        session_params: ClientSessionParameters
+        server_params: StdioServerParameters | SseServerParameters | StreamableHttpParameters,
+        session_params: ClientSessionParameters,
+        disconnected: asyncio.Event,
+        session_stack: contextlib.AsyncExitStack,
     ) -> tuple[mcp_types.Implementation, ClientSession, contextlib.AsyncExitStack]:
-        """按服务传输类型建立 MCP 会话，并返回尚未转交所有权的资源栈。"""
-        session_stack = contextlib.AsyncExitStack()
-
-        try:
-            # 各传输入口不同，但最终都产出 MCP read/write 流。
-            if isinstance(server_params, StdioServerParameters):
-                session_stack.enter_context(route_stdio_client_logs())
-                stderr_sink = session_stack.enter_context(open(
-                    os.devnull,
-                    mode="w",
-                    encoding=server_params.encoding,
-                    errors=server_params.encoding_error_handler,
-                ))
-                read, write = await session_stack.enter_async_context(
-                    stdio_client(server_params, errlog=stderr_sink)
-                )
-            elif isinstance(server_params, SseServerParameters):
-                client = sse_client(
-                    url=server_params.url,
-                    headers=server_params.headers,
-                    timeout=server_params.timeout,
-                    sse_read_timeout=server_params.sse_read_timeout,
-                    httpx_client_factory=external_http_client
-                )
-                read, write = await session_stack.enter_async_context(client)
-            else:
-                httpx_client = external_http_client(
-                    headers=server_params.headers,
-                    timeout=httpx.Timeout(
-                        server_params.timeout.total_seconds(),
-                        read=server_params.sse_read_timeout.total_seconds()
-                    )
-                )
-                await session_stack.enter_async_context(httpx_client)
-
-                client = streamable_http_client(
-                    url=server_params.url,
-                    http_client=httpx_client,
-                    terminate_on_close=server_params.terminate_on_close
-                )
-                read, write, _ = await session_stack.enter_async_context(client)
-
-            # ClientSession 进入上下文后再 initialize，避免半初始化资源泄漏。
-            session = await session_stack.enter_async_context(
-                ClientSession(
-                    read,
-                    write,
-                    read_timeout_seconds=session_params.read_timeout_seconds,
-                    sampling_callback=session_params.sampling_callback,
-                    elicitation_callback=session_params.elicitation_callback,
-                    list_roots_callback=session_params.list_roots_callback,
-                    logging_callback=session_params.logging_callback,
-                    message_handler=session_params.message_handler,
-                    client_info=session_params.client_info
-                )
+        """在 owner 提供的栈内建立会话，半初始化失败也由同一 owner 负责清理。"""
+        if isinstance(server_params, StdioServerParameters):
+            session_stack.enter_context(route_stdio_client_logs())
+            stderr_sink = session_stack.enter_context(open(
+                os.devnull, mode="w", encoding=server_params.encoding,
+                errors=server_params.encoding_error_handler,
+            ))
+            read, write = await session_stack.enter_async_context(stdio_client(server_params, errlog=stderr_sink))
+        elif isinstance(server_params, SseServerParameters):
+            client = sse_client(
+                url=server_params.url, headers=server_params.headers,
+                timeout=server_params.timeout, sse_read_timeout=server_params.sse_read_timeout,
+                httpx_client_factory=functools.partial(external_http_client, disconnected=disconnected),
             )
-
-            result = await session.initialize()
-            return result.serverInfo, session, session_stack
-
-        except BaseException:
-            # 建连过程任一步失败，都只清理本次临时栈，不影响 group 中已有连接。
-            with contextlib.suppress(BaseException):
-                await session_stack.aclose()
-            raise
+            read, write = await session_stack.enter_async_context(client)
+        else:
+            httpx_client = external_http_client(
+                disconnected=disconnected, headers=server_params.headers,
+                timeout=httpx.Timeout(server_params.timeout.total_seconds(), read=server_params.sse_read_timeout.total_seconds()),
+            )
+            await session_stack.enter_async_context(httpx_client)
+            client = streamable_http_client(
+                url=server_params.url, http_client=httpx_client,
+                terminate_on_close=server_params.terminate_on_close,
+            )
+            read, write, _ = await session_stack.enter_async_context(client)
+        session = await session_stack.enter_async_context(ClientSession(
+            ObservedMcpReadStream(read, disconnected), write,
+            read_timeout_seconds=session_params.read_timeout_seconds,
+            sampling_callback=session_params.sampling_callback,
+            elicitation_callback=session_params.elicitation_callback,
+            list_roots_callback=session_params.list_roots_callback,
+            logging_callback=session_params.logging_callback,
+            message_handler=session_params.message_handler,
+            client_info=session_params.client_info,
+        ))
+        result = await session.initialize()
+        return result.serverInfo, session, session_stack
 
     @staticmethod
     async def _collect_tools(
@@ -193,7 +256,7 @@ class ExternalMcpGroup(object):
                 server=server_info.name,
                 error=external_status_detail_from_exception(exc),
             )
-            return tools_temp, 0
+            raise
 
         for index, tool in enumerate(tools, start=1):
             if is_mcp_tool_allowed(tool.name, rules):
@@ -238,13 +301,22 @@ class ExternalMcpGroup(object):
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
 
-        return await session.call_tool(
-            session_tool_name,
-            arguments if args is None else args,
-            read_timeout_seconds=read_timeout_seconds,
-            progress_callback=progress_callback,
-            meta=meta
-        )
+        try:
+            return await session.call_tool(
+                session_tool_name,
+                arguments if args is None else args,
+                read_timeout_seconds=read_timeout_seconds,
+                progress_callback=progress_callback,
+                meta=meta,
+            )
+        except (anyio.EndOfStream, anyio.BrokenResourceError, anyio.ClosedResourceError, httpx.TransportError, McpError) as error:
+            if not isinstance(error, McpError) or error.error.code == mcp_types.CONNECTION_CLOSED:
+                for connection in tuple(self._connections):
+                    snapshot = self._service_states.get(connection.config_key)
+                    if snapshot is not None and name in snapshot.tools:
+                        self._mark_failed(connection.config_key, external_status_detail_from_exception(error))
+                        connection.stop_event.set()
+            raise
 
     async def call_hook_tool(
         self,
@@ -275,7 +347,7 @@ class ExternalMcpGroup(object):
 
     async def start(
         self,
-        servers: list[dict[str, typing.Any]],
+        servers: list[NormalizedMcpServer],
         status: ExternalMcpStatus | None = None
     ) -> int:
         """并发启动已启用的外部服务，并返回成功连接数量。"""
@@ -284,7 +356,7 @@ class ExternalMcpGroup(object):
         if self._connections:
             raise RuntimeError("External MCP group is already started")
 
-        enabled: list[dict[str, typing.Any]] = []
+        enabled: list[NormalizedMcpServer] = []
         for item in servers:
             if not bool(item.get("enabled", True)):
                 continue
@@ -363,64 +435,31 @@ class ExternalMcpGroup(object):
             if not connection.ready.done() and not connection.task.done():
                 connection.task.cancel()
 
-        tasks = tuple(connection.task for connection in connections)
-        if tasks:
-            _, pending = await asyncio.wait(
-                tasks,
-                timeout=EXTERNAL_MCP_CLOSE_TIMEOUT_SEC,
-            )
-            if pending:
-                timed_out_servers = tuple(
-                    connection.server
-                    for connection in connections
-                    if connection.task in pending
-                )
-                observe(
-                    "external_mcp.cleanup.timeout",
-                    level="WARNING",
-                    servers=timed_out_servers,
-                    timeout_sec=EXTERNAL_MCP_CLOSE_TIMEOUT_SEC,
-                )
-                for task in pending:
-                    task.cancel()
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        critical_error: BaseException | None = None
-        try:
-            for connection, result in zip(connections, results):
-                if not isinstance(result, BaseException):
-                    continue
-                if isinstance(result, asyncio.CancelledError):
-                    continue
-                if should_reraise_external(result):
-                    critical_error = result
-                    continue
-                observe(
-                    "external_mcp.cleanup.failed",
-                    level="WARNING",
-                    server=connection.server,
-                    error=external_status_detail_from_exception(result),
-                )
-        finally:
-            self._connections.clear()
-            self.tools.clear()
-            self.server_stats.clear()
-            self._tool_to_session.clear()
-            self._closed = True
-
-        if critical_error is not None:
-            raise critical_error
+        results = await asyncio.gather(
+            *(self._retire_connection(connection) for connection in connections),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+        self.tools.clear()
+        self.server_stats.clear()
+        self._tool_to_session.clear()
+        self._closed = True
 
     async def connect_with_alias(
         self,
-        server: dict[str, typing.Any]
+        server: NormalizedMcpServer
     ) -> tuple[str, int, int]:
         """启动单个连接所有者，并使用配置名作为稳定别名聚合工具。"""
         if self._closing or self._closed:
             raise RuntimeError("External MCP group is closed")
 
         server_name = str(server.get("name") or "server")
+        config_key = str(server.get("config_key", server_name))
+        if any(item.config_key == config_key or item.server == server_name for item in self._connections):
+            raise ValueError("MCP service or tool prefix is already owned by a connection")
+        self._remember_server(server)
         stop_event = asyncio.Event()
 
         ready = asyncio.get_running_loop().create_future()
@@ -435,11 +474,15 @@ class ExternalMcpGroup(object):
             stop_event=stop_event,
             ready=ready,
             task=task,
+            config_key=config_key,
         )
         self._connections.append(connection)
+        task.add_done_callback(lambda done: self._connection_finished(connection, done))
 
         try:
             prepared = await asyncio.shield(ready)
+            if task.done() or self._closing or self._service_states[config_key].state != "starting":
+                raise ConnectionError("MCP connection closed before publication")
             matching_tools = prepared.tools.keys() & self.tools.keys()
             if matching_tools:
                 # 工具名冲突会导致调用无法唯一路由，因此不提交当前连接。
@@ -472,20 +515,42 @@ class ExternalMcpGroup(object):
                     prepared.discovered_count - exposed_count,
                 ),
             }
+            self._service_states[config_key] = replace(
+                self._service_states[config_key], state="ready",
+                tools=tuple(sorted(prepared.tools)), discovered=prepared.discovered_count,
+                filtered=prepared.discovered_count - exposed_count,
+            )
             return prepared.alias, exposed_count, prepared.discovered_count
-        except BaseException:
-            with contextlib.suppress(BaseException):
-                await self._retire_connection(connection)
+        except BaseException as error:
+            self._mark_failed(config_key, external_status_detail_from_exception(error))
+            await self._retire_connection(connection)
             raise
+
+    def _connection_finished(self, connection: _ExternalMcpConnection, task: asyncio.Task[None]) -> None:
+        """消费 owner 终态，只归约仍属于本次连接的记录，防止旧任务回写。"""
+        if connection not in self._connections:
+            return
+        error = None if task.cancelled() else task.exception()
+        snapshot = self._service_states.get(connection.config_key)
+        if snapshot is not None and snapshot.state in ("ready", "starting"):
+            self._mark_failed(
+                connection.config_key,
+                external_status_detail_from_exception(error) if error else "MCP connection closed",
+            )
+        if connection.cleaned:
+            self._connections.remove(connection)
 
     async def _run_owned_connection(
         self,
-        server: dict[str, typing.Any],
+        server: NormalizedMcpServer,
         stop_event: asyncio.Event,
         ready: asyncio.Future[_ExternalMcpConnectionReady]
     ) -> None:
         """在固定任务内建立、维持并关闭单个外部连接。"""
-        session_stack: contextlib.AsyncExitStack | None = None
+        session_stack = contextlib.AsyncExitStack()
+        disconnected = asyncio.Event()
+        waiters: list[asyncio.Task[bool]] = []
+        config_key = str(server.get("config_key", server.get("name", "server")))
 
         try:
             alias = slugify_mcp_name(server.get("name"), fallback="server")
@@ -497,7 +562,9 @@ class ExternalMcpGroup(object):
                     read_timeout_seconds=timedelta(
                         seconds=request_timeout_sec(server)
                     )
-                )
+                ),
+                disconnected,
+                session_stack,
             )
             alias_info = mcp_types.Implementation(
                 name=alias,
@@ -518,9 +585,11 @@ class ExternalMcpGroup(object):
                     if isinstance(server.get("tool_approval_modes"), dict)
                     else {}
                 ),
-                config_server_key=str(server.get("config_key") or "").strip() or None,
+                config_server_key=str(server.get("config_key") or "") or None,
             )
 
+            if disconnected.is_set():
+                raise ConnectionError("MCP transport closed during initialization")
             if not ready.done():
                 ready.set_result(_ExternalMcpConnectionReady(
                     alias=alias,
@@ -528,9 +597,13 @@ class ExternalMcpGroup(object):
                     tools=tools,
                     discovered_count=discovered_count,
                 ))
-            await stop_event.wait()
+            waiters = [asyncio.create_task(stop_event.wait()), asyncio.create_task(disconnected.wait())]
+            await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+            if disconnected.is_set() and not stop_event.is_set():
+                raise ConnectionError("MCP transport closed")
 
         except BaseException as exc:
+            self._mark_failed(config_key, external_status_detail_from_exception(exc))
             if not ready.done():
                 if isinstance(exc, asyncio.CancelledError):
                     ready.cancel()
@@ -539,9 +612,22 @@ class ExternalMcpGroup(object):
             raise
 
         finally:
-            if session_stack is not None:
+            for waiter in waiters:
+                waiter.cancel()
+            connection = next((item for item in self._connections if item.task is asyncio.current_task()), None)
+            try:
                 with route_session_termination_warnings():
                     await session_stack.aclose()
+            except BaseException as error:
+                if connection is not None:
+                    connection.cleanup_error = external_status_detail_from_exception(error)
+                self._mark_failed(config_key, external_status_detail_from_exception(error))
+                raise
+            else:
+                if connection is not None:
+                    connection.cleaned = True
+            finally:
+                await asyncio.gather(*waiters, return_exceptions=True)
 
     async def _retire_connection(
         self,
@@ -552,15 +638,26 @@ class ExternalMcpGroup(object):
         if not connection.ready.done() and not connection.task.done():
             connection.task.cancel()
 
+        self._withdraw(connection.config_key)
+        _, pending = await asyncio.wait({connection.task}, timeout=EXTERNAL_MCP_CLOSE_TIMEOUT_SEC)
+        if pending:
+            connection.task.cancel()
+            _, pending = await asyncio.wait(pending, timeout=EXTERNAL_MCP_CLOSE_TIMEOUT_SEC)
+        if pending or connection.cleanup_error is not None or (not connection.cleaned and connection.ready.done()):
+            detail = connection.cleanup_error or "MCP connection cleanup timed out"
+            self._mark_failed(connection.config_key, detail)
+            raise RuntimeError(detail)
         await asyncio.gather(connection.task, return_exceptions=True)
-
-        with contextlib.suppress(ValueError):
+        if connection in self._connections:
             self._connections.remove(connection)
+        snapshot = self._service_states.get(connection.config_key)
+        if snapshot is not None and snapshot.state == "stopping":
+            self._service_states[connection.config_key] = replace(snapshot, state="stopped", connection_error=None)
 
 
 async def _connect_external_server(
     group: ExternalMcpGroup,
-    server: dict[str, typing.Any],
+    server: NormalizedMcpServer,
     limiter: asyncio.Semaphore,
     stdio_limiter: asyncio.Semaphore,
     status: ExternalMcpStatus | None
@@ -577,6 +674,7 @@ async def _connect_external_server(
 
     phase = "preflight"
     try:
+        group._remember_server(server)
         async with asyncio.timeout(preflight_limit):
             await preflight_server(server)
 
@@ -612,6 +710,8 @@ async def _connect_external_server(
         )
         return True
     except BaseException as exc:
+        key = str(server.get("config_key", name))
+        group._mark_failed(key, external_status_detail_from_exception(exc))
         if should_reraise_external(exc):
             raise
 

@@ -6,16 +6,22 @@ import contextlib
 import shutil
 import socket
 import typing
+
+import anyio
+import httpx
+
+from anyio.abc import ObjectReceiveStream
+from collections.abc import AsyncIterator
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
-import httpx
 from mcp.client.session_group import (
     SseServerParameters,
     StreamableHttpParameters,
 )
 from mcp.client.stdio import StdioServerParameters
+from mcp.shared.message import SessionMessage
 
 from .settings import (
     DEFAULT_MCP_REQ_TIMEOUT_SEC,
@@ -27,10 +33,96 @@ from .settings import (
 )
 
 
+class ObservedMcpReadStream(ObjectReceiveStream[SessionMessage | Exception]):
+    """包装 SDK 的公开接收流，将已观察到的 EOF 交还连接 owner；不主动发起探测。"""
+
+    def __init__(
+        self, stream: ObjectReceiveStream[SessionMessage | Exception], disconnected: asyncio.Event,
+    ) -> None:
+        """绑定传输流和所属连接的断开信号。"""
+        self._stream = stream
+        self._disconnected = disconnected
+
+    async def receive(self) -> SessionMessage | Exception:
+        """转交消息，在远端关闭或底层流失效时通知 owner。"""
+        try:
+            message = await self._stream.receive()
+            if isinstance(message, Exception):
+                self._disconnected.set()
+            return message
+        except (anyio.EndOfStream, anyio.ClosedResourceError, anyio.BrokenResourceError):
+            self._disconnected.set()
+            raise
+
+    async def aclose(self) -> None:
+        """释放包装的流，连接栈仍由进入它的任务关闭。"""
+        await self._stream.aclose()
+
+
+class _ObservedHttpStream(httpx.AsyncByteStream):
+    """观察已发起请求的响应流，不通过额外请求探测连接。"""
+
+    def __init__(self, stream: httpx.AsyncByteStream, disconnected: asyncio.Event, *, watch_eof: bool) -> None:
+        """绑定响应流，只有常驻 GET 事件流的正常 EOF 才代表断线。"""
+        self._stream = stream
+        self._disconnected = disconnected
+        self._watch_eof = watch_eof
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        """转发字节，在传输失败时立即唤醒 MCP owner。"""
+        try:
+            async for chunk in self._stream:
+                yield chunk
+        except httpx.TransportError:
+            self._disconnected.set()
+            raise
+        else:
+            if self._watch_eof:
+                self._disconnected.set()
+
+    async def aclose(self) -> None:
+        """释放原始响应流。"""
+        await self._stream.aclose()
+
+
+class _ObservedHttpTransport(httpx.AsyncBaseTransport):
+    """把 SDK 隐藏的 HTTP 断线交给 owner，并阻止失效连接上的后续自动请求。"""
+
+    def __init__(self, disconnected: asyncio.Event) -> None:
+        """为单连接持有独立 HTTP transport。"""
+        self._transport = httpx.AsyncHTTPTransport(trust_env=False)
+        self._disconnected = disconnected
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        """执行原请求并包装响应，关闭 DELETE 仍可完成 SDK 会话释放。"""
+        if self._disconnected.is_set() and request.method != "DELETE":
+            raise httpx.ReadError("MCP transport is disconnected", request=request)
+        try:
+            response = await self._transport.handle_async_request(request)
+        except httpx.TransportError:
+            self._disconnected.set()
+            raise
+        stream = response.stream
+        if not isinstance(stream, httpx.AsyncByteStream):
+            raise TypeError("MCP HTTP transport requires an asynchronous response stream")
+        response.stream = _ObservedHttpStream(
+            stream, self._disconnected,
+            watch_eof=(request.method == "GET" and response.status_code == 200
+                       and response.headers.get("content-type", "").startswith("text/event-stream")),
+        )
+        return response
+
+    async def aclose(self) -> None:
+        """由创建客户端的连接栈回收 HTTP transport。"""
+        await self._transport.aclose()
+
+
 def external_http_client(
     headers: dict[str, str] | None = None,
     timeout: httpx.Timeout | None = None,
     auth: httpx.Auth | None = None,
+    *,
+    disconnected: asyncio.Event | None = None,
 ) -> httpx.AsyncClient:
     """创建外部 HTTP/SSE MCP 服务使用的 HTTP 客户端。"""
     kwargs: dict[str, typing.Any] = {
@@ -45,6 +137,8 @@ def external_http_client(
         kwargs["headers"] = headers
     if auth is not None:
         kwargs["auth"] = auth
+    if disconnected is not None:
+        kwargs["transport"] = _ObservedHttpTransport(disconnected)
     return httpx.AsyncClient(**kwargs)
 
 
@@ -60,7 +154,7 @@ def _encoding_error_handler(
     return "strict"
 
 
-def build_server_params(server: dict[str, typing.Any]) -> typing.Any:
+def build_server_params(server: dict[str, typing.Any]) -> StdioServerParameters | SseServerParameters | StreamableHttpParameters:
     """按 transport 类型构造 MCP SDK 所需的服务参数对象。"""
     transport = str(
         server.get("transport") or "streamable_http"

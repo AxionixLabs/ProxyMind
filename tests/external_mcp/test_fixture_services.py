@@ -9,8 +9,6 @@ import httpx
 import pytest
 
 from collections.abc import AsyncIterator
-from pathlib import Path
-
 from mcp import (
     ClientSession,
     types as mcp_types,
@@ -48,7 +46,7 @@ async def stdio_session(spec: FixtureSpec) -> AsyncIterator[ClientSession]:
     """在真实 stdio transport 内创建和释放客户端会话。"""
     async with stdio_client(StdioServerParameters(
         command=sys.executable, args=list(spec.arguments()),
-        cwd=str(Path(__file__).resolve().parents[2]),
+        cwd=str(spec.repository),
     )) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
@@ -65,8 +63,8 @@ def reply(result: mcp_types.CallToolResult) -> FixtureReply:
 
 
 @pytest.mark.anyio
-async def test_stdio_fixture_has_real_instance_identity_and_session_cleanup(tmp_path) -> None:
-    spec = FixtureSpec(tmp_path, "stdio")
+async def test_stdio_fixture_has_real_instance_identity_and_session_cleanup(tmp_path, repository_root) -> None:
+    spec = FixtureSpec(tmp_path, "stdio", repository=repository_root)
     async with stdio_session(spec) as session:
         assert {tool.name for tool in (await session.list_tools()).tools} == {"ping", "block"}
         first = reply(await session.call_tool("ping", {"value": "first"}))
@@ -85,8 +83,8 @@ async def test_stdio_fixture_has_real_instance_identity_and_session_cleanup(tmp_
 
 
 @pytest.mark.anyio
-async def test_block_fixture_can_be_released_without_repeating_call(tmp_path) -> None:
-    spec = FixtureSpec(tmp_path, "block")
+async def test_block_fixture_can_be_released_without_repeating_call(tmp_path, repository_root) -> None:
+    spec = FixtureSpec(tmp_path, "block", repository=repository_root)
     async with stdio_session(spec) as session:
         task = asyncio.create_task(session.call_tool("block"))
         try:
@@ -103,8 +101,8 @@ async def test_block_fixture_can_be_released_without_repeating_call(tmp_path) ->
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("mode", ["empty", "no-tools", "discovery-failure"])
-async def test_zero_tools_and_failed_discovery_are_distinct_fixture_inputs(tmp_path, mode: FixtureMode) -> None:
-    spec = FixtureSpec(tmp_path, mode, mode=mode)
+async def test_zero_tools_and_failed_discovery_are_distinct_fixture_inputs(tmp_path, repository_root, mode: FixtureMode) -> None:
+    spec = FixtureSpec(tmp_path, mode, mode=mode, repository=repository_root)
     async with stdio_session(spec) as session:
         if mode == "discovery-failure":
             with pytest.raises(McpError, match="fixture tool discovery failed"):
@@ -118,8 +116,8 @@ async def test_zero_tools_and_failed_discovery_are_distinct_fixture_inputs(tmp_p
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("transport", ["streamable_http", "sse"])
-async def test_remote_fixture_survives_client_disconnect_and_records_new_sessions(tmp_path, transport: FixtureTransport) -> None:
-    spec = FixtureSpec(tmp_path, transport, transport)
+async def test_remote_fixture_survives_client_disconnect_and_records_new_sessions(tmp_path, repository_root, transport: FixtureTransport) -> None:
+    spec = FixtureSpec(tmp_path, transport, transport, repository=repository_root)
     results: list[FixtureReply] = []
     async with asyncio.timeout(20.0), remote_fixture(spec) as remote:
         for _ in range(2):
@@ -150,14 +148,14 @@ async def test_remote_fixture_survives_client_disconnect_and_records_new_session
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("mode", ["startup-failure", "handshake-timeout"])
-async def test_real_failure_fixture_cannot_be_mistaken_for_ready(tmp_path, mode: FixtureMode) -> None:
-    spec = FixtureSpec(tmp_path, mode, mode=mode)
+async def test_real_failure_fixture_cannot_be_mistaken_for_ready(tmp_path, repository_root, mode: FixtureMode) -> None:
+    spec = FixtureSpec(tmp_path, mode, mode=mode, repository=repository_root)
     group = ExternalMcpGroup()
     try:
         connected = await group.start([{
             "name": spec.name, "transport": "stdio", "command": sys.executable,
             "args": list(spec.arguments()), "startup_timeout_sec": 1.0,
-            "cwd": str(Path(__file__).resolve().parents[2]),
+            "cwd": str(repository_root),
         }])
         assert connected == 0
         assert not group.tools
@@ -166,8 +164,8 @@ async def test_real_failure_fixture_cannot_be_mistaken_for_ready(tmp_path, mode:
         await group.close()
 
 
-def test_fixture_configuration_is_isolated_reproducible_and_not_overwritten(tmp_path) -> None:
-    path = write_config(tmp_path, ())
+def test_fixture_configuration_is_isolated_reproducible_and_not_overwritten(tmp_path, repository_root) -> None:
+    path = write_config(tmp_path, (), repository=repository_root)
     before = path.read_bytes()
     config = tomllib.loads(before.decode("utf-8"))
     servers = normalize_mcp_servers(config["mcp_servers"])
@@ -178,13 +176,13 @@ def test_fixture_configuration_is_isolated_reproducible_and_not_overwritten(tmp_
     filtered = next(item for item in servers if item["config_key"] == "Filtered")
     assert filtered["tool_filter"] == {"allow": []}
     with pytest.raises(FileExistsError):
-        write_config(tmp_path, ())
+        write_config(tmp_path, (), repository=repository_root)
     assert path.read_bytes() == before
 
 
 @pytest.mark.anyio
-async def test_disconnect_fixture_exits_after_one_actual_call(tmp_path) -> None:
-    spec = FixtureSpec(tmp_path, "disconnect", mode="disconnect")
+async def test_disconnect_fixture_exits_after_one_actual_call(tmp_path, repository_root) -> None:
+    spec = FixtureSpec(tmp_path, "disconnect", mode="disconnect", repository=repository_root)
     async with asyncio.timeout(10.0), stdio_session(spec) as session:
         with pytest.raises(McpError):
             await session.call_tool("ping")
@@ -195,8 +193,8 @@ async def test_disconnect_fixture_exits_after_one_actual_call(tmp_path) -> None:
 
 
 @pytest.mark.anyio
-async def test_remote_fixture_cleanup_runs_when_consumer_fails(tmp_path) -> None:
-    spec = FixtureSpec(tmp_path, "cleanup", "streamable_http")
+async def test_remote_fixture_cleanup_runs_when_consumer_fails(tmp_path, repository_root) -> None:
+    spec = FixtureSpec(tmp_path, "cleanup", "streamable_http", repository=repository_root)
     with pytest.raises(RuntimeError, match="consumer failed"):
         async with remote_fixture(spec) as remote:
             assert remote.process.returncode is None
@@ -205,8 +203,8 @@ async def test_remote_fixture_cleanup_runs_when_consumer_fails(tmp_path) -> None
 
 
 @pytest.mark.anyio
-async def test_remote_fixture_cleanup_runs_when_consumer_is_cancelled(tmp_path) -> None:
-    spec = FixtureSpec(tmp_path, "cancelled", "sse")
+async def test_remote_fixture_cleanup_runs_when_consumer_is_cancelled(tmp_path, repository_root) -> None:
+    spec = FixtureSpec(tmp_path, "cancelled", "sse", repository=repository_root)
     with pytest.raises(TimeoutError):
         async with asyncio.timeout(10.0) as deadline:
             async with remote_fixture(spec) as remote:
@@ -216,10 +214,10 @@ async def test_remote_fixture_cleanup_runs_when_consumer_is_cancelled(tmp_path) 
 
 
 @pytest.mark.anyio
-async def test_generated_remote_configuration_uses_real_bound_endpoints(tmp_path) -> None:
-    spec = FixtureSpec(tmp_path, "H", "streamable_http")
+async def test_generated_remote_configuration_uses_real_bound_endpoints(tmp_path, repository_root) -> None:
+    spec = FixtureSpec(tmp_path, "H", "streamable_http", repository=repository_root)
     async with remote_fixture(spec) as remote:
-        path = write_config(tmp_path, (remote,))
+        path = write_config(tmp_path, (remote,), repository=repository_root)
         config = tomllib.loads(path.read_text(encoding="utf-8"))
         assert config["mcp_servers"]["H"]["url"] == remote.url
         group = ExternalMcpGroup()
@@ -235,11 +233,11 @@ async def test_generated_remote_configuration_uses_real_bound_endpoints(tmp_path
             await group.close()
 
 
-def test_real_client_arguments_replace_daily_mcp_table_without_environment_changes(tmp_path) -> None:
-    path = write_config(tmp_path, ())
-    arguments = client_arguments(path)
+def test_real_client_arguments_replace_daily_mcp_table_without_environment_changes(tmp_path, repository_root) -> None:
+    path = write_config(tmp_path, (), repository=repository_root)
+    arguments = client_arguments(path, repository=repository_root)
     assert arguments[:3] == (
-        sys.executable, str(Path(__file__).resolve().parents[2] / "mind.py"), "-c",
+        sys.executable, str(repository_root / "mind.py"), "-c",
     )
     base = {"mcp_servers": {"daily": {"command": "daily-service"}}, "model": "existing"}
     effective = apply_config_overrides(base, (parse_config_override(arguments[3]),))
@@ -250,8 +248,8 @@ def test_real_client_arguments_replace_daily_mcp_table_without_environment_chang
 
 
 @pytest.mark.anyio
-async def test_close_stall_fixture_is_reclaimed_by_real_stdio_transport(tmp_path) -> None:
-    spec = FixtureSpec(tmp_path, "close-stall", mode="close-stall")
+async def test_close_stall_fixture_is_reclaimed_by_real_stdio_transport(tmp_path, repository_root) -> None:
+    spec = FixtureSpec(tmp_path, "close-stall", mode="close-stall", repository=repository_root)
     async with asyncio.timeout(10.0):
         async with stdio_session(spec) as session:
             assert reply(await session.call_tool("ping")).call_count == 1

@@ -118,6 +118,12 @@ def test_mcp_approval_modes_are_validated_at_config_boundary() -> None:
         })
 
 
+def test_mcp_configuration_keys_preserve_whitespace_identity() -> None:
+    servers = normalize_mcp_servers({" docs ": {"command": "fixture"}, "docs": {"command": "fixture"}})
+    assert [server["config_key"] for server in servers] == [" docs ", "docs"]
+    assert len({server["name"] for server in servers}) == 2
+
+
 def test_mcp_transport_builds_validated_sdk_parameters() -> None:
     stdio = build_server_params({
         "transport": "stdio",

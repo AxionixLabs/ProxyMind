@@ -6,6 +6,7 @@ import os
 import typing
 from fnmatch import fnmatchcase
 
+from agent.ports.mcp_runtime import McpTransport
 from .values import slugify_mcp_name
 
 DEFAULT_MCP_TRANSPORT = "streamable_http"
@@ -13,6 +14,31 @@ DEFAULT_MCP_START_TIMEOUT_SEC = 10.0
 DEFAULT_MCP_REQ_TIMEOUT_SEC = 60.0
 DEFAULT_MCP_SSE_TIMEOUT_SEC = 30 * 60
 MCP_APPROVAL_MODES = frozenset({"auto", "prompt", "writes", "approve"})
+
+
+class NormalizedMcpServer(typing.TypedDict, total=False):
+    """保存配置边界已规范化的连接参数，只有传输适配器消费可选传输字段。"""
+
+    name: str
+    config_key: str
+    enabled: bool
+    required: bool
+    transport: McpTransport
+    startup_timeout_sec: float
+    timeout_sec: float
+    tool_filter: dict[str, list[str]]
+    default_tools_approval_mode: str
+    tool_approval_modes: dict[str, str]
+    command: str
+    args: list[str]
+    env: dict[str, str]
+    cwd: str
+    encoding: str
+    encoding_error_handler: str
+    url: str
+    headers: dict[str, str]
+    sse_read_timeout_sec: float
+    terminate_on_close: bool
 
 
 class McpConfigError(ValueError):
@@ -122,26 +148,28 @@ def is_mcp_tool_allowed(name: str, rules: typing.Any) -> bool:
     )
 
 
-def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
+def normalize_mcp_servers(raw: typing.Any) -> list[NormalizedMcpServer]:
     """把有效配置中的 MCP 服务表规范化为内部服务列表。"""
     if not isinstance(raw, dict):
         return []
 
-    normalized: list[dict[str, typing.Any]] = []
+    normalized: list[NormalizedMcpServer] = []
     seen_names: set[str] = set()
 
     for index, (key, item) in enumerate(raw.items(), start=1):
         if not isinstance(item, dict):
             continue
 
-        name = str(key or "").strip() or f"server-{index}"
+        name = str(key or "")
+        if not name.strip():
+            raise McpConfigError("MCP configuration key must not be empty")
         slug = slugify_mcp_name(name, fallback=f"server-{index}")
         url = str(item.get("url", "") or "").strip()
         command = str(item.get("command", "") or "").strip()
 
         if command and url:
             continue
-        transport = (
+        transport: McpTransport = (
             "stdio"
             if command
             else "sse" if url.lower().rstrip("/").endswith("/sse")
@@ -170,7 +198,7 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
             suffix += 1
         seen_names.add(unique_slug)
 
-        base = {
+        base: NormalizedMcpServer = {
             "name": unique_slug,
             "config_key": name,
             "enabled": item.get("enabled", True) is not False,

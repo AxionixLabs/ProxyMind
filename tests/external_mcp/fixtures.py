@@ -9,7 +9,10 @@ import typing
 import tomlkit
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field,
+)
 from pathlib import Path
 from uuid import UUID
 
@@ -65,6 +68,7 @@ class FixtureSpec:
     name: str
     transport: FixtureTransport = "stdio"
     mode: FixtureMode = "ready"
+    repository: Path = field(kw_only=True)
 
     @property
     def facts_path(self) -> Path:
@@ -134,7 +138,7 @@ async def remote_fixture(spec: FixtureSpec) -> AsyncIterator[RemoteFixture]:
     with log_path.open("ab") as stderr:
         process = await asyncio.create_subprocess_exec(
             sys.executable, *spec.arguments(),
-            cwd=Path(__file__).resolve().parents[2],
+            cwd=spec.repository,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=stderr,
@@ -167,7 +171,7 @@ async def close_fixture_process(process: asyncio.subprocess.Process) -> None:
         await process.wait()
 
 
-def write_config(directory: Path, remotes: tuple[RemoteFixture, ...]) -> Path:
+def write_config(directory: Path, remotes: tuple[RemoteFixture, ...], *, repository: Path) -> Path:
     """使用 TOML 序列化器创建专用服务表，不读取或修改用户配置。"""
     directory.mkdir(parents=True, exist_ok=True)
     document = tomlkit.document()
@@ -187,11 +191,11 @@ def write_config(directory: Path, remotes: tuple[RemoteFixture, ...]) -> Path:
         ("all", "named-all", "ready", False),
     )
     for key, name, mode, enabled in entries:
-        spec = FixtureSpec(directory, name, mode=mode)
+        spec = FixtureSpec(directory, name, mode=mode, repository=repository)
         item = tomlkit.table()
         item["command"] = sys.executable
         item["args"] = list(spec.arguments())
-        item["cwd"] = str(Path(__file__).resolve().parents[2])
+        item["cwd"] = str(repository)
         item["enabled"] = enabled
         item["startup_timeout_sec"] = 2.0
         item["tool_timeout_sec"] = 30.0
@@ -207,7 +211,7 @@ def write_config(directory: Path, remotes: tuple[RemoteFixture, ...]) -> Path:
     return path
 
 
-def client_arguments(path: Path) -> tuple[str, ...]:
+def client_arguments(path: Path, *, repository: Path) -> tuple[str, ...]:
     """通过既有配置覆盖替换整张 MCP 表，不合并日常服务或经 Shell 转义。"""
     servers = tomllib.loads(path.read_text(encoding="utf-8")).get("mcp_servers")
     if not isinstance(servers, dict):
@@ -215,6 +219,6 @@ def client_arguments(path: Path) -> tuple[str, ...]:
     inline = tomlkit.inline_table()
     inline.update(servers)
     return (
-        sys.executable, str(Path(__file__).resolve().parents[2] / "mind.py"),
+        sys.executable, str(repository / "mind.py"),
         "-c", "mcp_servers=" + inline.as_string(),
     )

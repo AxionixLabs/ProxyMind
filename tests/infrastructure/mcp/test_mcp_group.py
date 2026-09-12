@@ -58,7 +58,7 @@ async def test_external_mcp_close_hides_only_sdk_termination_warning(
         async def aclose(self) -> None:
             emit_close_logs()
 
-    async def establish(_params, _session_params):
+    async def establish(_params, _session_params, _disconnected, _stack):
         server_info = SimpleNamespace(version="1", websiteUrl=None, icons=None)
         return server_info, object(), SessionStack()
 
@@ -256,7 +256,7 @@ async def test_external_mcp_failed_preparation_closes_private_resources(
         async def aclose(self) -> None:
             state["closed"] += 1
 
-    async def establish(_params, _session_params):
+    async def establish(_params, _session_params, _disconnected, _stack):
         server_info = SimpleNamespace(version="1", websiteUrl=None, icons=None)
         return server_info, object(), SessionStack()
 
@@ -314,7 +314,7 @@ async def test_external_mcp_owner_closes_resources_in_entering_task(
             state["closed_task"] = asyncio.current_task()
             await self.stack.aclose()
 
-    async def establish(_params, _session_params):
+    async def establish(_params, _session_params, _disconnected, _stack):
         stack = contextlib.AsyncExitStack()
         await stack.enter_async_context(anyio.create_task_group())
         state["entered_task"] = asyncio.current_task()
@@ -381,7 +381,7 @@ async def test_external_mcp_timeout_closes_resources_in_owner_task(
     async def preflight(_server) -> None:
         return None
 
-    async def establish(_params, _session_params):
+    async def establish(_params, _session_params, _disconnected, _stack):
         stack = contextlib.AsyncExitStack()
         await stack.enter_async_context(anyio.create_task_group())
         state["entered_task"] = asyncio.current_task()
@@ -424,7 +424,7 @@ async def test_external_mcp_timeout_closes_resources_in_owner_task(
 
 
 @pytest.mark.anyio
-async def test_external_mcp_close_cancels_stalled_owner_then_is_idempotent(
+async def test_external_mcp_close_retains_owner_when_cleanup_cannot_be_confirmed(
     monkeypatch,
 ) -> None:
     close_started = asyncio.Event()
@@ -439,7 +439,7 @@ async def test_external_mcp_close_cancels_stalled_owner_then_is_idempotent(
                 close_cancelled.set()
                 raise
 
-    async def establish(_params, _session_params):
+    async def establish(_params, _session_params, _disconnected, _stack):
         server_info = SimpleNamespace(version="1", websiteUrl=None, icons=None)
         return server_info, object(), SessionStack()
 
@@ -460,7 +460,7 @@ async def test_external_mcp_close_cancels_stalled_owner_then_is_idempotent(
         "_collect_tools",
         staticmethod(collect),
     )
-    monkeypatch.setattr(mcp_group, "EXTERNAL_MCP_CLOSE_TIMEOUT_SEC", 0.01)
+    monkeypatch.setattr(mcp_group, "EXTERNAL_MCP_CLOSE_TIMEOUT_SEC", 0.1)
 
     group = ExternalMcpGroup()
     await group.connect_with_alias({
@@ -470,17 +470,20 @@ async def test_external_mcp_close_cancels_stalled_owner_then_is_idempotent(
     })
 
     first_close = asyncio.create_task(group.close())
-    await close_started.wait()
+    await asyncio.wait_for(close_started.wait(), timeout=2.0)
     second_close = asyncio.create_task(group.close())
-    await asyncio.gather(first_close, second_close)
-    await group.close()
+    results = await asyncio.gather(first_close, second_close, return_exceptions=True)
+    assert all(isinstance(result, RuntimeError) for result in results)
+    with pytest.raises(RuntimeError, match="CancelledError"):
+        await group.close()
 
     assert close_started.is_set()
     assert close_cancelled.is_set()
     assert group.tools == {}
     assert group.server_stats == {}
     assert group._tool_to_session == {}
-    assert group._connections == []
+    assert len(group._connections) == 1
+    assert group.service_snapshots[0].state == "failed"
 
 
 @pytest.mark.anyio

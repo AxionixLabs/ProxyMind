@@ -6,7 +6,10 @@ from collections.abc import (
     Awaitable,
     Callable,
 )
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field,
+)
 from pathlib import Path
 
 from .tool_runtime import ExternalToolGroupPort
@@ -18,11 +21,99 @@ __all__ = (
     "McpRuntimeFactory",
     "McpRuntimeBuilder",
     "McpToolGroupSnapshot",
+    "McpAction",
+    "McpConnectionState",
+    "McpTransport",
+    "McpSingleService",
+    "McpServiceControlRequest",
+    "McpServiceSnapshot",
+    "McpServiceOutcome",
 )
+
+
+McpAction = typing.Literal["start", "force", "stop", "restart", "status"]
+McpConnectionState = typing.Literal["stopped", "starting", "ready", "stopping", "failed"]
+McpTransport = typing.Literal["stdio", "streamable_http", "sse"]
+
+
+@dataclass(frozen=True, slots=True)
+class McpSingleService:
+    """冻结原始配置键；取消导航和全量操作不属于此目标类型。"""
+
+    config_key: str
+    scope: typing.Literal["single"] = field(default="single", init=False)
+
+    def __post_init__(self) -> None:
+        """拒绝空目标，保留配置键本身的字节语义。"""
+        if not isinstance(self.config_key, str) or not self.config_key.strip():
+            raise ValueError("MCP service requires a non-empty configuration key")
+
+
+@dataclass(frozen=True, slots=True)
+class McpServiceControlRequest:
+    """由调用方冻结目标上下文，运行时在执行前验证实例和工作区身份。"""
+
+    runtime_id: str
+    workspace: str
+    action: McpAction
+    target: McpSingleService
+
+    def __post_init__(self) -> None:
+        """拒绝尚未解析的动作和缺少身份的控制请求。"""
+        if not isinstance(self.target, McpSingleService):
+            raise TypeError("MCP service control requires a single service target")
+        if self.action not in ("start", "force", "stop", "restart", "status"):
+            raise ValueError("Unknown MCP service action")
+        if not isinstance(self.runtime_id, str) or not self.runtime_id.strip() or not isinstance(self.workspace, str) or not self.workspace.strip():
+            raise ValueError("MCP service control requires runtime and workspace identities")
+
+
+@dataclass(frozen=True, slots=True)
+class McpServiceSnapshot:
+    """投影配置和单连接事实；连接归适配器所有，前端不得据此持有 SDK 资源。"""
+
+    config_key: str
+    tool_prefix: str
+    config_enabled: bool | None
+    state: McpConnectionState
+    transport: McpTransport
+    tools: tuple[str, ...] = ()
+    discovered: int = 0
+    filtered: int = 0
+    connection_error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class McpServiceOutcome:
+    """返回单目标操作结论；操作错误不覆盖仍健康的连接状态。"""
+
+    config_key: str
+    outcome: typing.Literal["applied", "unchanged", "disabled", "busy", "failed", "interrupted"]
+    snapshot: McpServiceSnapshot | None
+    operation_error: str | None = None
 
 
 class McpRuntime(typing.Protocol):
     """定义 Harness 管理 MCP 生命周期所需的最小运行时端口。"""
+
+    @property
+    def runtime_id(self) -> str:
+        """返回本实例身份，关闭或移交后不能复用于新工作区。"""
+        ...
+
+    @property
+    def workspace(self) -> Path:
+        """返回创建运行时时冻结的工作区。"""
+        ...
+
+    @property
+    def service_snapshots(self) -> tuple[McpServiceSnapshot, ...]:
+        """读取配置与连接的本地投影，不探测远端健康状态。"""
+        ...
+
+    async def control_service(self, request: McpServiceControlRequest) -> McpServiceOutcome:
+        """在生命周期锁内执行单服务动作；调用方须先收束目标工具消费者，最终释放仍由 Harness 调用 stop。"""
+        ...
 
     @property
     def started(self) -> bool:
@@ -31,7 +122,7 @@ class McpRuntime(typing.Protocol):
 
     @property
     def group(self) -> ExternalToolGroupPort | None:
-        """返回已建立的外部工具组，尚不可用时返回空。"""
+        """返回本实例持有的工具组；组可以没有可用连接，尚未创建时返回空。"""
         ...
 
     @property

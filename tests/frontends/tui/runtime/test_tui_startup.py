@@ -90,7 +90,7 @@ async def test_external_mcp_resolves_stdio_paths_from_configuration_workspace(tm
     })
     target = tmp_path / "target"
     session.bind_workspace(target)
-    group = SimpleNamespace(start=AsyncMock(return_value=0), close=AsyncMock())
+    group = SimpleNamespace(started=False, start=AsyncMock(return_value=0), close=AsyncMock())
     monkeypatch.setattr(external, "ExternalMcpGroup", lambda: group)
     runtime = ExternalMcpRuntime(McpRuntimeContext(
         config=session, start_activity=AsyncMock(), stop_activity=AsyncMock(),
@@ -338,6 +338,8 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
     activity_snapshots = []
 
     class ExternalGroup(object):
+        started = True
+
         def __init__(self) -> None:
             self.tools = {
                 "mcp__docs__search": SimpleNamespace(meta={
@@ -437,10 +439,12 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
 
 
 @pytest.mark.anyio
-async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> None:
+async def test_external_mcp_without_ready_connections_can_retry(monkeypatch) -> None:
     start_called = Mock()
 
     class ExternalGroup(object):
+        started = False
+
         async def start(self, _servers, status=None):
             start_called()
             if status is not None:
@@ -484,7 +488,7 @@ async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> No
 
     assert start_called.call_count == 2
     assert not runtime.started
-    assert runtime.group is None
+    assert runtime.group is not None
 
 
 @pytest.mark.anyio
@@ -529,7 +533,6 @@ async def test_external_mcp_stop_finishes_cleanup_when_cancelled() -> None:
     host = SimpleNamespace(lifecycle=ProcessLifecycle())
     runtime = ExternalMcpRuntime(_mcp_runtime_context(host))
     runtime._group = ExternalGroup()
-    runtime._started = True
 
     stop_task = asyncio.create_task(runtime.stop())
     await cleanup_started.wait()
