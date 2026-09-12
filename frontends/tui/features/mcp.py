@@ -18,12 +18,17 @@ from agent.ports.presentation import (
     ApplicationView,
     StyledBlock,
     TextSpan,
+    TextStyle,
 )
 from frontends.terminal.mcp_status import (
     McpStatusDetail,
     McpStatusView,
     external_mcp_status_view,
     render_mcp_status_block,
+)
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
 )
 from frontends.terminal.text import sanitize_terminal_line
 from frontends.terminal.text_layout import layout_styled_line
@@ -41,8 +46,10 @@ from ..core.runtime import (
     require_tui_runtime,
 )
 from ..core.styles import (
+    ACCENT_STYLE,
     BODY_STYLE,
     BRIGHT_STYLE,
+    COMMAND_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
     fragment_block,
@@ -60,6 +67,8 @@ MCP_MENU_ACTIONS: tuple[tuple[McpAction, str], ...] = (
     ("status", "View this service's connection and configuration without connecting."),
 )
 MCP_COMMAND_USAGE = "Usage: /mcp selects one service; /mcp <start|force|stop|restart|status> applies to all services."
+MCP_ENABLED_STATUS_STYLE = semantic_text_style(TerminalSemanticRole.SUCCESS, dim=True)
+MCP_DISABLED_STATUS_STYLE = semantic_text_style(TerminalSemanticRole.FAILURE, dim=True)
 
 
 def _present(
@@ -135,7 +144,7 @@ def render_mcp_action_result(host: "TuiApplicationHost", result: McpControlResul
     busy = any(item.outcome == "busy" for item in result.services)
     details = tuple(
         McpStatusDetail(
-            f"  {item.config_key}: {item.outcome}"
+            f"{item.config_key}: {item.outcome}"
             + (f" · {_service_detail(item.snapshot)}" if item.snapshot is not None else "")
             + (f" · {item.operation_error}" if item.operation_error else ""),
             "failed" if item.outcome == "failed" else "warning" if item.outcome == "busy" else "",
@@ -143,7 +152,7 @@ def render_mcp_action_result(host: "TuiApplicationHost", result: McpControlResul
         for item in result.services
     )
     if not details:
-        details = (McpStatusDetail("  No MCP services configured or connected."),)
+        details = (McpStatusDetail("No MCP services configured or connected."),)
     suffix = "failed" if failures else "busy" if busy else "complete"
     _present_external_mcp_result(host, McpStatusView(
         summary=f"External MCP · {_scope_label(result.request)} · {result.request.action} {suffix}",
@@ -191,7 +200,7 @@ def render_external_mcp_start_status(
     if error is not None:
         view = McpStatusView(
             summary="External MCP failed", level="failed", done=True,
-            details=(McpStatusDetail(f"  └ {external_status_detail_from_exception(error)}", "failed"),),
+            details=(McpStatusDetail(external_status_detail_from_exception(error), "failed"),),
         )
     else:
         runtime = host.execution.external_mcp.current
@@ -200,6 +209,16 @@ def render_external_mcp_start_status(
             return False
         view = external_mcp_status_view(snapshot, detail_limit=5)
     return _present_external_mcp_result(host, view)
+
+
+def _mcp_detail_line(label: str, value: str, style: TextStyle, *, width: int) -> list[TextSpan]:
+    """沿用状态字段的圆点缩进，并让长值在续行保持层级。"""
+    return layout_styled_line(
+        [TextSpan(sanitize_terminal_line(value), style)],
+        first_prefix=TextSpan(f"    • {label}: ", BODY_STYLE),
+        continuation_prefix=TextSpan("      ", BODY_STYLE),
+        terminal_width=width,
+    )
 
 
 def render_mcp_status(host: "TuiApplicationHost", request: McpControlRequest | None = None) -> None:
@@ -225,32 +244,72 @@ def render_mcp_status(host: "TuiApplicationHost", request: McpControlRequest | N
         if not services:
             render_mcp_action_failure(host, request, RuntimeError("MCP service target no longer exists"))
             return
-    lines = [TextSpan(f"External MCP · {_scope_label(request)} · status", BRIGHT_STYLE)]
+    width = _mcp_terminal_width(host)
+    parts = [
+        TextSpan("/mcp" if isinstance(request.target, McpSingleService) else "/mcp status", COMMAND_STYLE),
+        TextSpan("\n\n"),
+        TextSpan("🔌  MCP Tools", BRIGHT_STYLE),
+        TextSpan("\n\n"),
+    ]
     if snapshot.config_error:
-        lines.append(TextSpan(f"Config error: {snapshot.config_error}", FAILURE_STYLE))
-    if not services:
-        lines.append(TextSpan("No MCP services configured or connected.", MUTED_STYLE))
-    for service in sorted(services, key=lambda item: item.config_key):
-        names = tuple(name.removeprefix(service.tool_prefix) for name in service.tools)
-        lines.extend((
-            TextSpan(service.config_key, BRIGHT_STYLE),
-            TextSpan(f"Connection: {service.state}", BODY_STYLE),
-            TextSpan(f"Config: {_config_label(service)}", BODY_STYLE),
-            TextSpan(f"Transport: {service.transport}", BODY_STYLE),
-            TextSpan(f"Tools ({len(names)}): {', '.join(names) or '(none)'}", MUTED_STYLE),
-            TextSpan(f"Discovered: {service.discovered} · Filtered: {service.filtered}", MUTED_STYLE),
-        ))
-        if service.connection_error:
-            lines.append(TextSpan(f"Connection error: {service.connection_error}", FAILURE_STYLE))
-    parts: list[TextSpan] = []
-    for index, line in enumerate(lines):
-        if index:
-            parts.append(TextSpan("\n"))
         parts.extend(layout_styled_line(
-            [TextSpan(sanitize_terminal_line(line.text), line.style)],
-            terminal_width=_mcp_terminal_width(host),
+            [TextSpan(f"Config error: {sanitize_terminal_line(snapshot.config_error)}", FAILURE_STYLE)],
+            first_prefix=TextSpan("  ■ ", FAILURE_STYLE),
+            continuation_prefix=TextSpan("    ", FAILURE_STYLE),
+            terminal_width=width,
             hard=True,
         ))
+        parts.append(TextSpan("\n\n"))
+    if not services:
+        parts.extend(layout_styled_line(
+            [TextSpan("No MCP services configured or connected.", MUTED_STYLE)],
+            first_prefix=TextSpan("  • ", MUTED_STYLE),
+            continuation_prefix=TextSpan("    ", MUTED_STYLE),
+            terminal_width=width,
+        ))
+    elif not any(service.tools for service in services):
+        parts.extend(layout_styled_line(
+            [TextSpan("No MCP tools available.", MUTED_STYLE)],
+            first_prefix=TextSpan("  • ", MUTED_STYLE),
+            continuation_prefix=TextSpan("    ", MUTED_STYLE),
+            terminal_width=width,
+        ))
+        parts.append(TextSpan("\n\n"))
+    for index, service in enumerate(sorted(services, key=lambda item: item.config_key)):
+        if index:
+            parts.append(TextSpan("\n\n"))
+        parts.extend(layout_styled_line(
+            [TextSpan(sanitize_terminal_line(service.config_key), BODY_STYLE)],
+            first_prefix=TextSpan("  • ", ACCENT_STYLE),
+            continuation_prefix=TextSpan("    ", BODY_STYLE),
+            terminal_width=width,
+            hard=True,
+        ))
+        names = tuple(name.removeprefix(service.tool_prefix) for name in service.tools)
+        connection_style = (
+            MCP_ENABLED_STATUS_STYLE if service.state == "ready"
+            else MCP_DISABLED_STATUS_STYLE if service.state == "failed"
+            else MUTED_STYLE
+        )
+        config_style = (
+            MCP_ENABLED_STATUS_STYLE if service.config_enabled is True
+            else MCP_DISABLED_STATUS_STYLE if service.config_enabled is False
+            else MUTED_STYLE
+        )
+        fields = [
+            ("Connection", service.state, connection_style),
+            ("Config", _config_label(service), config_style),
+            ("Transport", service.transport, MUTED_STYLE),
+            ("Tools", ", ".join(names) or "(none)", MUTED_STYLE),
+            ("Discovered", str(service.discovered), MUTED_STYLE),
+        ]
+        if service.filtered:
+            fields.append(("Filtered", str(service.filtered), MUTED_STYLE))
+        if service.connection_error:
+            fields.append(("Connection error", service.connection_error, FAILURE_STYLE))
+        for label, value, style in fields:
+            parts.append(TextSpan("\n"))
+            parts.extend(_mcp_detail_line(label, value, style, width=width))
     _present(host, fragment_block(*parts))
     _present(host, view_type="tui.gap")
 

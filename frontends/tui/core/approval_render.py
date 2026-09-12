@@ -337,7 +337,7 @@ def _approval_option_groups(
             else "class:approval-shortcut"
         )
 
-        prefix = (label_style, f"{'›' if active else ' '} {index}. ")
+        prefix = (f"{label_style} nodim", f"{'›' if active else ' '} {index}. ")
 
         body = _decision_parts(
             decision,

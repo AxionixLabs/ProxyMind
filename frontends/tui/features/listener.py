@@ -144,7 +144,7 @@ def render_listener_failure(
             summary=summary,
             level="failed",
             done=True,
-            details=(McpStatusDetail(f"  └ {detail}", "failed"),),
+            details=(McpStatusDetail(detail, "failed"),),
         ),
     )
 

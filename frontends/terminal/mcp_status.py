@@ -35,7 +35,7 @@ MCP_STATUS_WARNING_STYLE = semantic_text_style(TerminalSemanticRole.ATTENTION)
 
 @dataclass(frozen=True, slots=True)
 class McpStatusDetail(object):
-    """描述 MCP 状态中的一条补充信息。"""
+    """描述状态详情正文与语义；调用方不附加树形前缀或外层缩进。"""
 
     text: str
     state: str = ""
@@ -61,7 +61,7 @@ def inbuild_status_view(snapshot: dict[str, typing.Any]) -> McpStatusView:
     if state == "failed":
         detail = str(snapshot.get("error") or snapshot.get("detail") or "").strip()
         details = (
-            (McpStatusDetail(f"  └ {detail}", "failed"),)
+            (McpStatusDetail(detail, "failed"),)
             if detail
             else ()
         )
@@ -174,20 +174,18 @@ def _failure_details(
         return ()
 
     visible_limit = max(0, min(int(limit), len(failed)))
-    visible_count = visible_limit + (1 if len(failed) > visible_limit else 0)
-
     details = [
         McpStatusDetail(
-            text=f"{_detail_connector(index, visible_count)}{_item_text(item)}",
+            text=_item_text(item),
             state="failed",
         )
-        for index, item in enumerate(failed[:visible_limit])
+        for item in failed[:visible_limit]
     ]
 
     remaining = len(failed) - visible_limit
     if remaining > 0:
         details.append(McpStatusDetail(
-            text=f"{_detail_connector(visible_limit, visible_count)}... {remaining} more servers",
+            text=f"... {remaining} more servers",
             state="more",
         ))
     return tuple(details)
@@ -198,13 +196,6 @@ def _item_text(item: dict[str, typing.Any]) -> str:
     name = str(item.get("name") or "server").strip() or "server"
     detail = str(item.get("detail") or "").strip()
     return f"{name}: {detail or 'failed'}"
-
-
-def _detail_connector(index: int, count: int) -> str:
-    """返回详情行使用的树形连接符。"""
-    if count <= 1:
-        return "  └ "
-    return "  └ " if index >= count - 1 else "  ├ "
 
 
 def render_mcp_status_block(
@@ -251,19 +242,21 @@ def render_mcp_status_block(
             measure_width=measure_width,
         )
 
+    visible_details: list[tuple[McpStatusDetail, list[str]]] = []
     for detail in view.details:
-        detail_style = (
-            PREVIEW_MORE_STYLE
-            if detail.state == "more"
-            else ERROR_PREVIEW_MESSAGE_STYLE
-        )
         detail_lines = _content_lines(detail.text)
-        if not detail_lines:
-            continue
-        prefix, continuation, first = _detail_prefix(detail_lines[0])
+        if detail_lines:
+            visible_details.append((detail, detail_lines))
+    for index, (detail, detail_lines) in enumerate(visible_details):
+        detail_style = {
+            "failed": ERROR_PREVIEW_MESSAGE_STYLE,
+            "warning": MCP_STATUS_WARNING_STYLE,
+            "more": PREVIEW_MORE_STYLE,
+        }.get(detail.state, MCP_STATUS_BODY_STYLE)
+        prefix, continuation = _detail_prefix(index, len(visible_details))
         _append_line(
             parts,
-            first,
+            detail_lines[0],
             style=detail_style,
             first_prefix=prefix,
             continuation_prefix=continuation,
@@ -320,13 +313,9 @@ def _content_lines(value: typing.Any) -> list[str]:
     return lines
 
 
-def _detail_prefix(text: str) -> tuple[str, str, str]:
-    """拆分 MCP 详情中的树形前缀并返回对应续行前缀。"""
-    if text.startswith("  ├ "):
-        return "  ├ ", "  │ ", text[4:]
-    if text.startswith("  └ "):
-        return "  └ ", "    ", text[4:]
-    return "  └ ", "    ", text
+def _detail_prefix(index: int, count: int) -> tuple[str, str]:
+    """按可见详情位置统一生成树形前缀与换行缩进。"""
+    return ("  └ ", "    ") if index == count - 1 else ("  ├ ", "  │ ")
 
 
 if __name__ == '__main__':

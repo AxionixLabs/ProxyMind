@@ -49,6 +49,8 @@ def _spawn_color_scenario(
     theme: str,
     facts_path: Path,
     terminal: TerminalEnvironment,
+    *,
+    size: TerminalSize = _TERMINAL_SIZE,
 ) -> TerminalHarness:
     """在原生 PTY 中启动真实产品颜色场景。"""
     return spawn_terminal(
@@ -62,7 +64,7 @@ def _spawn_color_scenario(
         ],
         cwd=Path.cwd(),
         env=os.environ,
-        size=_TERMINAL_SIZE,
+        size=size,
         terminal=terminal,
         failure_artifact_directory=facts_path.parent / "artifacts",
     )
@@ -343,6 +345,102 @@ def test_real_tui_color_matrix_preserves_screen_and_business_facts(
             _assert_modes_restored(terminal)
         finally:
             terminal.save_failure_artifacts(artifacts)
+
+
+@pytest.mark.parametrize("columns", (100, 32))
+@pytest.mark.parametrize(
+    ("terminal_environment", "theme", "expect_color"),
+    (
+        pytest.param(_TRUECOLOR_TERMINAL, "dark", True, id="dark"),
+        pytest.param(_TRUECOLOR_TERMINAL, "light", True, id="light"),
+        pytest.param(_NO_COLOR_TERMINAL, "dark", False, id="no-color"),
+    ),
+)
+def test_real_tui_mcp_menu_prefixes_and_original_status_layout(
+    tmp_path: Path,
+    columns: int,
+    terminal_environment: TerminalEnvironment,
+    theme: str,
+    expect_color: bool,
+) -> None:
+    facts_path = tmp_path / "facts.json"
+    with _spawn_color_scenario(
+        "mcp_display",
+        theme,
+        facts_path,
+        terminal_environment,
+        size=TerminalSize(rows=28, columns=columns),
+    ) as terminal:
+        try:
+            menu_facts = _wait_for_stage(facts_path, "mcp_menu")
+            details = _details(menu_facts)
+            _assert_style_color_contract(details, expect_color=expect_color)
+            styles = details["styles_initial"]
+            assert isinstance(styles, dict)
+            for name in (
+                "tui-menu.index",
+                "tui-menu.index.active",
+                "tui-menu.index.disabled",
+                "approval-option nodim",
+                "approval-option-selected nodim",
+            ):
+                style = styles[name]
+                assert isinstance(style, dict)
+                assert style["dim"] is False
+            menu = terminal.wait_for_screen_text("2. Docs API")
+            assert "1. Alpha" in menu.visible_text
+            _acknowledge(facts_path, "mcp_menu")
+            terminal.write_user(b"\x1b[B")
+
+            _wait_for_stage(facts_path, "mcp_moved")
+            terminal.wait_for_screen_text("› 2. Docs API")
+            _acknowledge(facts_path, "mcp_moved")
+            terminal.send_key(PtyKey.ENTER)
+
+            action_facts = _wait_for_stage(facts_path, "mcp_actions")
+            assert _details(action_facts)["selected_action"] == "status"
+            terminal.wait_for_screen_text("5. status")
+            _acknowledge(facts_path, "mcp_actions")
+            terminal.send_key(PtyKey.ENTER)
+
+            status_facts = _wait_for_stage(facts_path, "mcp_status")
+            status_details = _details(status_facts)
+            status_text = status_details["mcp_status_text"]
+            assert isinstance(status_text, str)
+            compact = " ".join(status_text.split())
+            assert "/mcp" in status_text
+            assert "🔌  MCP Tools" in status_text
+            assert "  • Docs API" in status_text
+            assert "Connection: ready" in compact
+            assert "Config: disabled (temporary connection)" in compact
+            assert "Tools: ping" in compact
+            assert "Discovered: 3" in compact
+            assert "Filtered: 2" in compact
+            assert "Alpha" not in status_text
+            assert status_details["menu_active"] is False
+            snapshot = terminal.wait_for_screen_text("Filtered: 2")
+            assert "MCP Tools" in snapshot.visible_text
+            assert "• Docs API" in snapshot.visible_text
+            assert "Tools: ping" in snapshot.visible_text
+            _acknowledge(facts_path, "mcp_status")
+
+            _wait_for_stage(facts_path, "mcp_result")
+            result = terminal.wait_for_screen_text("└ Docs API: disabled")
+            row, line = next(
+                (row, line) for row, line in enumerate(result.visible_lines)
+                if "└ Docs API: disabled" in line
+            )
+            assert line.startswith("  └ Docs API: disabled")
+            for column in range(line.index("Docs API"), line.index("disabled") + len("disabled")):
+                assert terminal.screen.cell(row, column).foreground == "default"
+            _acknowledge(facts_path, "mcp_result")
+
+            assert terminal.wait_for_exit(timeout=10.0) == 0
+            assert _read_facts(facts_path)["stage"] == "complete"
+            terminal.session.wait_for_output("PTY RESET SENTINEL")
+            _assert_modes_restored(terminal)
+        finally:
+            terminal.save_failure_artifacts(tmp_path / "artifacts")
 
 
 @pytest.mark.parametrize(

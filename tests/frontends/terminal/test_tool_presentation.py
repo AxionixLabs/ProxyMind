@@ -547,8 +547,8 @@ def test_mcp_status_wraps_tree_details_under_their_connectors() -> None:
             level="failed",
             done=True,
             details=(
-                McpStatusDetail("  ├ first: " + ("detail " * 8), "failed"),
-                McpStatusDetail("  └ second: " + ("detail " * 8), "failed"),
+                McpStatusDetail("first: " + ("detail " * 8), "failed"),
+                McpStatusDetail("second: " + ("detail " * 8), "failed"),
             ),
         ),
         terminal_width=20,
@@ -563,6 +563,23 @@ def test_mcp_status_wraps_tree_details_under_their_connectors() -> None:
         if line.startswith("  └ second:")
     )
     assert lines[second_index + 1].startswith("    ")
+
+
+@pytest.mark.parametrize(
+    ("state", "foreground", "dim"),
+    (("", None, False), ("warning", "ansiyellow", False), ("failed", "ansired", False), ("more", None, True)),
+)
+def test_mcp_detail_color_uses_its_own_state(state, foreground, dim):
+    block = render_mcp_status_block(McpStatusView(
+        summary="Mixed results",
+        level="failed",
+        done=True,
+        details=(McpStatusDetail("detail", state),),
+    ))
+    detail = next(span for span in block.spans if span.text == "detail")
+    assert detail.style.foreground == foreground
+    assert detail.style.dim is dim
+    assert block.plain_text == "■ Mixed results\n  └ detail"
 
 
 def _patch_delta(*changes):

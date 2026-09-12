@@ -714,6 +714,34 @@ def test_light_menu_surface_uses_dark_cyan_selection_without_row_background() ->
         assert attrs.bgcolor == ""
 
 
+@pytest.mark.parametrize("background", [(0, 0, 0), (255, 255, 255), None])
+@pytest.mark.parametrize("color_level", [TerminalColorLevel.TRUECOLOR, TerminalColorLevel.ANSI256, TerminalColorLevel.ANSI16, TerminalColorLevel.NONE])
+def test_all_numbered_menu_prefixes_remain_bright_after_theme_composition(background, color_level):
+    runtime = TuiRuntime(terminal_capabilities=TerminalCapabilities(
+        identity=TerminalIdentity(TerminalKind.WEZTERM, "WezTerm"),
+        color_support=TerminalColorSupport.fixed(color_level),
+        theme=TerminalTheme(background=background),
+    ))
+    style = runtime.screen.application.style
+    for style_class in ("tui-menu.index", "tui-menu.index.active", "tui-menu.index.disabled", "directory-trust.option", "directory-trust.option.selected"):
+        assert not style.get_attrs_for_style_str(f"class:{style_class}").dim
+    assert style.get_attrs_for_style_str("class:tui-menu.index.active").bold
+    assert style.get_attrs_for_style_str("class:tui-menu.detail").dim
+    for selected in range(3):
+        lines = tui_approval_content_lines(
+            ["accept", "acceptForSession", "decline"],
+            approval={"tool": "shell_command", "command": "pytest -q", "show_timer": False},
+            selected_index=selected,
+            width=80,
+        )
+        prefixes = [
+            (token_style, text) for line in lines for token_style, text in line
+            if text.strip().lstrip("› ") in {"1.", "2.", "3."}
+        ]
+        assert len(prefixes) == 3
+        assert all(not style.get_attrs_for_style_str(token_style).dim for token_style, _ in prefixes)
+
+
 @pytest.mark.parametrize(
     "capabilities",
     (

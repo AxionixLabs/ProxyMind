@@ -94,7 +94,7 @@ def _present_helix_result(
         view = McpStatusView("Helix MCP stopped", "ready", True)
     elif state == "stop_failed":
         details = (
-            (McpStatusDetail(f"  └ {error}", "failed"),)
+            (McpStatusDetail(error, "failed"),)
             if error
             else ()
         )

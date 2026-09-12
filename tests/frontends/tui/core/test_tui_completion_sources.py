@@ -486,31 +486,39 @@ def test_command_completion_discards_text_after_cursor() -> None:
     assert buffer.cursor_position == len("/mcp")
 
 
-def test_completion_surface_has_no_async_footer_gap() -> None:
-    runtime = TuiRuntime()
-    buffer  = runtime.screen.input.buffer
-    buffer.document = Document("/mc", cursor_position=3)
+@pytest.mark.parametrize(("columns", "resolved_height"), [(32, 4), (80, 2), (120, 1)])
+def test_completion_surface_has_no_async_footer_gap(columns, resolved_height) -> None:
+    output = DummyOutput()
+    with patch.object(output, "get_size", return_value=Size(rows=24, columns=columns)):
+        runtime = TuiRuntime(output_obj=output)
+        buffer = runtime.screen.input.buffer
+        buffer.document = Document("/mc", cursor_position=3)
 
-    assert buffer.complete_state is None
-    assert runtime.screen._completion_visible()
-    assert runtime.screen._completion_height() == 1
-    assert runtime.screen._completion_section_height() == 1
-    assert (
-        runtime.screen._input_stack_height()
-        == runtime.screen._input_surface_height() + 1
-    )
-    assert not runtime.screen._footer_visible()
+        assert buffer.complete_state is None
+        assert runtime.screen._completion_visible()
+        assert runtime.screen._completion_height() == 1
+        assert runtime.screen._completion_section_height() == 1
+        assert (
+            runtime.screen._input_stack_height()
+            == runtime.screen._input_surface_height() + 1
+        )
+        assert not runtime.screen._footer_visible()
 
-    buffer.document = Document("/mcp", cursor_position=4)
-    runtime.input_model.refresh_completion_menu(buffer)
+        buffer.document = Document("/mcp", cursor_position=4)
+        runtime.input_model.refresh_completion_menu(buffer)
 
-    assert runtime.screen._completion_visible()
-    assert runtime.screen._completion_height() == 1
-    assert not runtime.screen._footer_visible()
-    snapshot = runtime.input_model.token_menu_snapshot(buffer)
-    assert snapshot is not None
-    assert snapshot.items[0].display_text == "/mcp"
-    assert runtime.screen._completion_fallback_fragments() == []
+        assert runtime.screen._completion_visible()
+        assert runtime.screen._completion_height() == resolved_height
+        assert runtime.screen._completion_section_height() == resolved_height
+        assert (
+            runtime.screen._input_stack_height()
+            == runtime.screen._input_surface_height() + resolved_height
+        )
+        assert not runtime.screen._footer_visible()
+        snapshot = runtime.input_model.token_menu_snapshot(buffer)
+        assert snapshot is not None
+        assert snapshot.items[0].display_text == "/mcp"
+        assert runtime.screen._completion_fallback_fragments() == []
 
 
 def test_exact_slash_completion_keeps_native_menu_when_reapplied() -> None:

@@ -1,6 +1,6 @@
 # 外接 MCP 单服务控制：方案评估、设计稿与分阶段验收清单
 
-状态：P0—P3 已完成。单服务控制、全量增量语义、工具使用门禁和两级菜单已接入；P4/P5 的原生终端自动化与完整人工验收待实施。
+状态：P0—P3 及 P4 前插入的 P0 显示层修复已完成，菜单编号亮度和 MCP status 既有样式已恢复。P4/P5 的完整调用链原生终端自动化与完整人工验收待实施。
 本文件统一维护方案、菜单与交互设计、分阶段清单、验收运行说明及证据；测试目录不另设验收说明文档。
 本文的阶段、自动测试和真机验收项均须凭对应证据勾选，源码阅读、测试替身或设计截图不能代替真机通过。
 
@@ -108,6 +108,7 @@
 
 下列是等宽设计示意；实际颜色、缩进、行间距、选择标记、序号与页脚均由现有菜单 renderer 和 Runtime Keymap 生成。
 保留英文产品文案、短标签加说明的形式，使用 `STACK_BELOW_WHEN_NARROW`，不手工拼固定列宽或新增一套面板样式。
+所有编号前缀都使用正常亮度，不设置或继承 dim；选中项保留选择标记、强调色和粗体，说明文字继续弱化。该规则同样适用于审批和目录信任菜单。
 
 ### M1：一级，只选择单个服务
 
@@ -233,47 +234,58 @@ Press enter or esc to close
 
 单服务最终态：
 ■ External MCP · github · start complete
-  github: applied · ready · enabled · stdio · 8 tools
+  └ github: applied · ready · enabled · stdio · 8 tools
 
 已连接时重复 start/force：
 ■ External MCP · github · start complete
-  github: unchanged · ready · enabled · stdio · 8 tools
+  └ github: unchanged · ready · enabled · stdio · 8 tools
 
 单服务停止成功：
 ■ External MCP · github · stop complete
-  github: applied · stopped · enabled · stdio · 0 tools
+  └ github: applied · stopped · enabled · stdio · 0 tools
 
 全量停止进行态：
 • External MCP · all services · stopping
 
 全量最终态：
 ■ External MCP · all services · stop complete
-  browser: applied · stopped · enabled · streamable_http · 0 tools
-  filesystem: applied · stopped · enabled · stdio · 0 tools
-  github: applied · stopped · enabled · stdio · 0 tools
+  ├ browser: applied · stopped · enabled · streamable_http · 0 tools
+  ├ filesystem: applied · stopped · enabled · stdio · 0 tools
+  └ github: applied · stopped · enabled · stdio · 0 tools
 
 单服务失败：
 ■ External MCP · browser · start failed
-  browser: failed · failed · enabled · streamable_http · 0 tools · startup timed out after 10s
+  └ browser: failed · failed · enabled · streamable_http · 0 tools · startup timed out after 10s
 ```
 
 标记、颜色、动画、树形详情和最终块使用现有 MCP/operation 活动区与终端样式；数字来自真实结果，不能固定。
+操作结果的树形前缀、悬挂缩进和详情颜色由共享 `render_mcp_status_block` 统一生成，调用方只提供正文与状态。
+正常结果（含配置禁用而未启动）使用正文色，busy 使用提示色，实际失败使用错误色；批量失败不把成功详情一并染红。
+共享入口的 MCP、Helix、Listener 和 Mailbox 调用方均不预先拼接空格或 `├/└`，连接符后只保留一个分隔空格。
 单服务结果必须携带服务名；全量结果显式表达全部及各项失败。一次操作只提交一次最终结果，不残留进度动画。
 动画禁用时仍输出相同的真实最终结果。异步旧结果不能覆盖新操作或新工作区的状态。
 
 ### I3：status 输出到正文
 
 ```text
-External MCP · github · status
-github
-Connection: ready
-Config: enabled
-Transport: stdio
-Tools (2): search, read
-Discovered: 4 · Filtered: 2
+/mcp status
+
+🔌  MCP Tools
+
+  • github
+    • Connection: ready
+    • Config: enabled
+    • Transport: stdio
+    • Tools: search, read
+    • Discovered: 4
+    • Filtered: 2
 ```
 
-复用现有状态输出块，按目标筛选并列出工具；不增加第三层全屏状态页。
+沿用改造前的命令行、插头标题、空行、服务圆点和字段缩进；单服务菜单进入时命令行显示 `/mcp`，只列目标服务。
+服务圆点使用强调色，服务名和字段名使用正文亮度；配置 enabled 为绿色、disabled 为红色，状态值沿用原有弱化色。
+Connection 独立展示实际连接状态，ready 为绿色、failed 为红色；临时连接和配置删除仍按事实标注。
+长名称、工具名和错误通过共享布局换行；无工具时保留 `No MCP tools available.` 提示，服务状态仍显示。
+复用正文状态输出块，不增加第三层全屏状态页。
 连接错误和本次管理操作被拒绝应分别表达；配置无效不能把仍存活的连接改写为 failed。
 stdio 可以在脱敏诊断证据中记录 PID/启动身份；不要求 HTTP/SSE 伪造 PID，也不以 PID 存在单独证明握手成功。
 
@@ -427,13 +439,33 @@ P2 证据见 [test_batch_lifecycle.py](tests/external_mcp/test_batch_lifecycle.p
 
 P3 证据：[菜单与命令测试](tests/frontends/tui/features/test_tui_mcp.py)、[流式交接测试](tests/frontends/tui/runtime/test_tui_stream_commands.py)、[真实传输接线测试](tests/external_mcp/test_tui_control.py)。
 
-| 设计 | 自动验证 | 完整真机映射 |
-|---|---|---|
-| M1/M2、I1 | 共享菜单栈、原始配置键、固定五项、默认 status、自定义确认/返回键、恢复选择和滚动、确认关闭整组 | R01/R03/R13 |
-| M3/M5、I3 | disabled+ready、配置删除、零工具、空菜单 Enter/Esc、损坏配置保留连接并可停止 | R05/R06/R10 |
-| M4 | 32/60/80/120 列布局、长名称与工具名换行；复用标准页脚及 Runtime Keymap | R13；原生缩放、无色与动画关闭留 P4/P5 |
-| I2/I5 | 单服务及全量范围、忙碌/失败/取消的单次最终块、陈旧身份拒绝、沿用启动快照、真实请求与结果 schema | R03/R09/R10/R13 |
-| I4 | 流式 start/force 允许增量补启动；status 本地读取；bare/stop/restart 仍按流式策略拒绝 | R11；真实模型与终端留 P4/P5 |
+| 设计      | 自动验证                                                                                        | 完整真机映射                          |
+|-----------|-------------------------------------------------------------------------------------------------|---------------------------------------|
+| M1/M2、I1 | 共享菜单栈、原始配置键、固定五项、默认 status、自定义确认/返回键、恢复选择和滚动、确认关闭整组  | R01/R03/R13                           |
+| M3/M5、I3 | disabled+ready、配置删除、零工具、空菜单 Enter/Esc、损坏配置保留连接并可停止                    | R05/R06/R10                           |
+| M4        | 32/60/80/120 列布局、长名称与工具名换行；复用标准页脚及 Runtime Keymap                          | R13；原生缩放、无色与动画关闭留 P4/P5 |
+| I2/I5     | 单服务及全量范围、忙碌/失败/取消的单次最终块、陈旧身份拒绝、沿用启动快照、真实请求与结果 schema | R03/R09/R10/R13                       |
+| I4        | 流式 start/force 允许增量补启动；status 本地读取；bare/stop/restart 仍按流式策略拒绝            | R11；真实模型与终端留 P4/P5           |
+
+### 插入 P0：显示层修复（P4 前优先）
+
+- [x] 排查全部编号入口：通用菜单、审批菜单、目录信任菜单；通用菜单覆盖各功能的一级和子菜单。
+- [x] 通用编号移出 dim 语义角色并显式取消 dim 继承；审批编号单独保持正常亮度，选中标记与强调色保留。
+- [x] MCP status 恢复 I3 的既有样式，保留独立连接/配置事实、单服务筛选和零工具提示。
+- [x] 操作结果的重复缩进与默认红色在共享渲染器修复；各调用方移除预拼树形前缀，不新增 MCP 专用规则或旧格式兼容分支。
+- [x] 深/浅/未知主题及 truecolor/ANSI256/ANSI16/无色的最终样式验证、共享菜单与 MCP 接线回归全部通过。
+- [x] Windows 原生 ConPTY 的 100/32 列 × 深色/浅色/无色场景通过真实按键验证，保存终端输出和样式事实。
+- [x] 复核、编译、差异检查完成，验收记录写回本清单。
+
+阶段出口：选中和未选中的数字前缀在最终合成样式中均为 `dim=false`；说明文字的层级不被抹平。
+status 的标题、服务/字段缩进、状态配色和窄屏换行有回归断言；配置无效时仍可显示已知连接。
+结果验收包含 playwright 禁用配置下 start 的原始复现、混合批次逐项着色和原生终端下正常详情的实际单元格颜色。
+
+自动证据：[菜单与审批样式](tests/frontends/tui/core/test_tui_approval.py)、[状态排版](tests/frontends/tui/features/test_tui_mcp.py)、
+[原生终端显示验收](tests/frontends/tui/acceptance/test_pty_tui_colors.py)。MCP 显示场景使用固定类型化连接快照，
+通过真实产品 renderer、菜单和 ConPTY 按键验证显示；不把它记为实际 MCP 握手、完整控制链路或人工验收通过。
+原生 Screen 检查可见文本，dim 由同一进程中 Application 最终合成样式核对；原始终端输出随报告保存。
+P4/P5 仍按后续完整链路与人工标准执行。
 
 ### P4：完整调用链和原生终端自动验收
 
@@ -627,7 +659,18 @@ P3 菜单、命令、活动与共享布局回归：
 python -m pytest tests/frontends/tui/features/test_tui_mcp.py tests/frontends/tui/features/test_tui_commands.py tests/frontends/tui/runtime/test_tui_stream_commands.py tests/frontends/tui/core/test_tui_menu_alignment.py tests/frontends/tui/core/test_tui_command_completion.py tests/frontends/tui/core/test_tui_activity.py tests/frontends/tui/core/test_tui_keymap.py -q
 ```
 
-P4 形成完整原生终端链路后运行对应场景；已有场景通过不等于新增 MCP 场景已覆盖：
+插入 P0 的共享显示回归与原生颜色/状态验收：
+
+```shell
+python -m pytest tests/frontends/tui/features tests/frontends/terminal/test_tool_presentation.py tests/frontends/tui/runtime/test_tui_startup.py tests/frontends/tui/runtime/test_tui_stream_commands.py tests/frontends/tui/core tests/external_mcp/test_tui_control.py -q
+python -m pytest tests/frontends/tui/acceptance/test_pty_tui_colors.py -q
+```
+
+原生 MCP 显示矩阵为 100/32 列 × 深色/浅色/无色；既有颜色矩阵同时覆盖 truecolor/ANSI256/ANSI16/无色、审批导航及退出模式恢复。
+全部 TUI 功能回归包含真实文件补全，测试子进程的 PATH 需能找到 `rg`；虚拟环境激活后须核对该依赖。
+使用 `--basetemp` 保存产物时，先创建其父目录，再指定本次独立运行目录；JUnit 与终端产物路径记录在第 11 节。
+
+P4 形成完整原生终端链路后运行对应场景；已有显示场景通过不等于新增 MCP 控制与调用场景已覆盖：
 
 ```shell
 python -m pytest tests/frontends/tui/acceptance/test_pty_tui_interaction.py tests/frontends/tui/acceptance/test_pty_tui_rendering.py tests/frontends/tui/acceptance/test_pty_tui_colors.py -q
@@ -647,21 +690,23 @@ git diff --check
 
 按实际测试层次记录结果。P1 已取得 R04、R06、R07、R08 的底层真实传输证据；P2 补齐 R05、R09、R11、R12 的自动化生命周期证据和观测点。P3 增加共享菜单按键、状态反馈和真实传输接线证据；R01—R14 的完整终端操作仍待执行。
 
-| 批次/阶段       | 代码版本                            | 操作系统/终端/尺寸                       | 用例 ID                                                       | 测试层次                        | 结果       | 证据路径与缺陷                                                                                |
-|-----------------|-------------------------------------|------------------------------------------|---------------------------------------------------------------|---------------------------------|------------|-----------------------------------------------------------------------------------------------|
-| P0              | 本条引入的 P0 提交；基线 `02ae0564` | Windows build 26100 / PowerShell；非 TUI | AC01、AC02、AC07 的验收输入                                   | 具名契约 + 真实 MCP 子进程/网络 | 52 passed  | `tests/external_mcp`；本机报告 `.cache/acceptance/external-mcp/p0-20260912/fixture-tests.xml` |
-| P0 回归         | 同上                                | 同上                                     | 既有 MCP、菜单及启动流程                                      | 既有定向测试                    | 54 passed  | 第 10 节第一组既有模块命令；不表示新动作语义已接入                                            |
-| P1              | 本条引入的 P1 提交                  | Windows build 26100 / PowerShell；非 TUI | AC03、AC04、AC07、AC08、AC10 底层；R04/R06/R07/R08 传输部分   | 定向回归 + 真实 MCP 进程/网络   | 181 passed | `.cache/acceptance/external-mcp/p1-20260912/targeted.xml`                                     |
-| P1 集成         | 同上                                | 同上                                     | 工具审批、Effect 和流式命令边界回归                           | 集成/命令测试                   | 38 passed  | `.cache/acceptance/external-mcp/p1-20260912/integration.xml`                                  |
-| P1 架构         | 同上                                | 同上                                     | 公开端口、包依赖与生命周期归属                                | 完整架构审计                    | 138 passed | `.cache/acceptance/external-mcp/p1-20260912/architecture.xml`                                 |
-| P2              | 本条引入的 P2 提交                  | Windows build 26100 / PowerShell；非 TUI | AC05、AC06、AC09、AC11、AC12 底层；R05/R09/R11/R12 自动化部分 | 定向回归 + 真实 MCP 进程/网络   | 213 passed | `.cache/acceptance/external-mcp/p2-20260912/targeted.xml`                                     |
-| P2 集成         | 本条引入的 P2 提交                  | Windows build 26100 / PowerShell；非 TUI | Turn/子代理/Review/Subscription、审批与 Effect、流式命令      | 扩大集成回归                    | 339 passed | `.cache/acceptance/external-mcp/p2-20260912/integration.xml`                                  |
-| P2 架构         | 同上                                | 同上                                     | 工具来源端口、引用生命周期、TUI 不读取底层连接组              | 完整架构审计                    | 138 passed | `.cache/acceptance/external-mcp/p2-20260912/architecture.xml`                                 |
-| P3 | 本条引入的 P3 提交 | Windows build 26100 / PowerShell；非原生 TUI | AC01/AC02/AC07/AC13—AC15 自动化部分 | 定向回归 + 真实 MCP 进程/网络 | 462 passed | `.cache/acceptance/external-mcp/p3-20260912/targeted.xml` |
-| P3 | 同上 | 同上 | Turn/子代理/Subscription/审批与活动/keymap 回归 | 集成及共享组件 | 424 passed | `.cache/acceptance/external-mcp/p3-20260912/integration.xml` |
-| P3 | 同上 | 同上；模拟 32/60/80/120 列 | 陈旧身份、菜单确认/返回、HTTP/SSE 说明、配置损坏、活动交接 | 最终复核补测（与定向回归部分重叠） | 62 passed | `.cache/acceptance/external-mcp/p3-20260912/review.xml` |
-| P3 | 同上 | 同上 | AC16 架构边界 | 架构审计 | 138 passed | `.cache/acceptance/external-mcp/p3-20260912/architecture.xml` |
-| P4/P5 / R01—R14 | —                                   | Windows/Linux/macOS 实际终端待验收       | 后续产品及完整真机项                                          | 待执行                          | 未执行     | 不以底层 fixture 结果替代                                                                     |
+| 批次/阶段       | 代码版本                            | 操作系统/终端/尺寸                           | 用例 ID                                                       | 测试层次                           | 结果       | 证据路径与缺陷                                                                                |
+|-----------------|-------------------------------------|----------------------------------------------|---------------------------------------------------------------|------------------------------------|------------|-----------------------------------------------------------------------------------------------|
+| P0              | 本条引入的 P0 提交；基线 `02ae0564` | Windows build 26100 / PowerShell；非 TUI     | AC01、AC02、AC07 的验收输入                                   | 具名契约 + 真实 MCP 子进程/网络    | 52 passed  | `tests/external_mcp`；本机报告 `.cache/acceptance/external-mcp/p0-20260912/fixture-tests.xml` |
+| P0 回归         | 同上                                | 同上                                         | 既有 MCP、菜单及启动流程                                      | 既有定向测试                       | 54 passed  | 第 10 节第一组既有模块命令；不表示新动作语义已接入                                            |
+| P1              | 本条引入的 P1 提交                  | Windows build 26100 / PowerShell；非 TUI     | AC03、AC04、AC07、AC08、AC10 底层；R04/R06/R07/R08 传输部分   | 定向回归 + 真实 MCP 进程/网络      | 181 passed | `.cache/acceptance/external-mcp/p1-20260912/targeted.xml`                                     |
+| P1 集成         | 同上                                | 同上                                         | 工具审批、Effect 和流式命令边界回归                           | 集成/命令测试                      | 38 passed  | `.cache/acceptance/external-mcp/p1-20260912/integration.xml`                                  |
+| P1 架构         | 同上                                | 同上                                         | 公开端口、包依赖与生命周期归属                                | 完整架构审计                       | 138 passed | `.cache/acceptance/external-mcp/p1-20260912/architecture.xml`                                 |
+| P2              | 本条引入的 P2 提交                  | Windows build 26100 / PowerShell；非 TUI     | AC05、AC06、AC09、AC11、AC12 底层；R05/R09/R11/R12 自动化部分 | 定向回归 + 真实 MCP 进程/网络      | 213 passed | `.cache/acceptance/external-mcp/p2-20260912/targeted.xml`                                     |
+| P2 集成         | 本条引入的 P2 提交                  | Windows build 26100 / PowerShell；非 TUI     | Turn/子代理/Review/Subscription、审批与 Effect、流式命令      | 扩大集成回归                       | 339 passed | `.cache/acceptance/external-mcp/p2-20260912/integration.xml`                                  |
+| P2 架构         | 同上                                | 同上                                         | 工具来源端口、引用生命周期、TUI 不读取底层连接组              | 完整架构审计                       | 138 passed | `.cache/acceptance/external-mcp/p2-20260912/architecture.xml`                                 |
+| P3              | 本条引入的 P3 提交                  | Windows build 26100 / PowerShell；非原生 TUI | AC01/AC02/AC07/AC13—AC15 自动化部分                           | 定向回归 + 真实 MCP 进程/网络      | 462 passed | `.cache/acceptance/external-mcp/p3-20260912/targeted.xml`                                     |
+| P3              | 同上                                | 同上                                         | Turn/子代理/Subscription/审批与活动/keymap 回归               | 集成及共享组件                     | 424 passed | `.cache/acceptance/external-mcp/p3-20260912/integration.xml`                                  |
+| P3              | 同上                                | 同上；模拟 32/60/80/120 列                   | 陈旧身份、菜单确认/返回、HTTP/SSE 说明、配置损坏、活动交接    | 最终复核补测（与定向回归部分重叠） | 62 passed  | `.cache/acceptance/external-mcp/p3-20260912/review.xml`                                       |
+| P3              | 同上                                | 同上                                         | AC16 架构边界                                                 | 架构审计                           | 138 passed | `.cache/acceptance/external-mcp/p3-20260912/architecture.xml`                                 |
+| 插入 P0 显示层 | 本条引入的显示修复提交 | Windows build 26100 / PowerShell | 编号最终样式、状态与结果排版、全部 TUI 功能、共享菜单/审批及 MCP 接线 | 定向回归（含实际 MCP 子进程） | 1263 passed | `.cache/acceptance/external-mcp/display-p0-20260912/targeted.xml` |
+| 插入 P0 原生显示 | 同上 | Windows ConPTY；100/32 列，深色/浅色/无色 | R01/R13 显示部分；MCP 菜单、状态与结果、既有颜色矩阵、退出恢复 | 原生终端；MCP 连接事实使用固定快照 | 16 passed | `.cache/acceptance/external-mcp/display-p0-20260912/native.xml`；同目录 `native-shared-run/` 下 facts、screen 与 raw output |
+| P4/P5 / R01—R14 | —                                   | Windows/Linux/macOS 实际终端待验收           | 后续产品及完整真机项                                          | 待执行                             | 未执行     | 不以底层 fixture 结果替代                                                                     |
 
 P0 验证环境：Python 3.11.8、MCP SDK 1.24.0、pytest 9.1.1、jsonschema 4.26.0、uvicorn 0.38.0、Starlette 0.50.0。
 新增测试最后一次运行 52 项通过，0 失败/错误/跳过；既有四个模块 54 项通过。
@@ -677,6 +722,14 @@ P2 与 P0/P1 使用相同 Python/MCP SDK 环境。定向回归沿用 P1 的完�
 扩大回归见第 10 节 P2 命令。三组共 690 项通过，无失败、错误或跳过；架构审计仅有上述既有 Nuitka 弃用警告。
 编译、差异、本地文档链接和 fixture 进程残留检查通过。验收说明继续统一放在本清单，不恢复测试目录 README。
 启动动画和活动组件继续复用，忙碌反馈显示 busy；关闭中取消但已实际完成回收时由运行时正常返回，TUI 不读取底层 group 推断结果。
+
+插入 P0 显示修复的两组最终回归共 1279 项通过，无失败、错误或跳过。编号覆盖通用菜单、审批及目录信任的最终主题合成；
+MCP status 覆盖原有版式、状态颜色、空工具、配置错误、长名称、单服务筛选和真实传输的只读性。
+补全测试按 32/80/120 列核对 P3 说明换行后的真实高度，并检查异步候选出现前后均不额外占用页脚空隙。
+原生 MCP 显示部分共 6 组，另有 10 组既有颜色和退出恢复回归；未执行 Linux/macOS 或真实外部服务的人工验收。
+共享结果 renderer 验证正文/提示/错误三类详情、单条与批量树形缩进和窄屏换行；原生场景核对禁用启动结果的正文色单元格。
+全部功能回归的启动器为子进程注入已发现 `rg` 所在目录，未修改测试代码或父进程环境。
+生产包编译、差异及本清单链接检查通过；本次仅改变显示，没有改动连接控制端口、生产包边界或启动动画，未重复完整架构审计。
 
 - [ ] P0—P5 的阶段出口均满足，AC01—AC16 都有可复查证据。
 - [ ] R01—R14 完成，平台和服务覆盖符合第 9 节；未执行项保持未完成。

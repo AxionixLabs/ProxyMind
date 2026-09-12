@@ -2,7 +2,9 @@ import argparse
 import asyncio
 import sys
 import typing
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.application.views.builders.tools import build_native_tool_result_view
@@ -10,18 +12,30 @@ from agent.application.views.builders.tools import build_tool_start_view
 from agent.protocol.json_value import ThawedJsonValue
 from agent.ports import OutputSurfaceContext
 from agent.ports import RetryChanged
+from agent.ports.mcp_runtime import (
+    McpControlResult,
+    McpRuntimeSnapshot,
+    McpServiceOutcome,
+    McpServiceSnapshot,
+)
 from frontends.interaction.contracts import PromptContext
 from frontends.terminal.capabilities import detect_terminal_capabilities
 from frontends.terminal.probe import RgbColor
 from frontends.terminal.probe import TerminalDefaultColors
 from frontends.terminal.probe import TerminalDefaultColorsCache
 from frontends.terminal.probe import TerminalProbeMethod
+from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.adapters.input import create_tui_input
 from frontends.tui.adapters.session import create_tui_output_session
 from frontends.tui.contracts.text import FragmentBlock
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.styles import failure_text_block
+from frontends.tui.features.mcp import (
+    choose_mcp_action,
+    render_mcp_action_result,
+    render_mcp_status,
+)
 from observability import reset_sinks
 from tests.pty.tui_scenario import ScenarioFacts
 
@@ -144,6 +158,11 @@ def _style_snapshot(runtime: TuiRuntime) -> dict[str, ThawedJsonValue]:
         "terminal.success",
         "approval-card",
         "approval-option-selected",
+        "approval-option nodim",
+        "approval-option-selected nodim",
+        "tui-menu.index",
+        "tui-menu.index.active",
+        "tui-menu.index.disabled",
         "approval-mcp-destructive",
         "transcript.overlay.search-query",
         "transcript.overlay.search-match",
@@ -385,6 +404,66 @@ async def _run_full(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     await _run_overlay(runtime, facts)
 
 
+async def _run_mcp_display(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """通过真实按键检查产品菜单与状态样式，连接事实由固定只读快照提供。"""
+    snapshot = McpRuntimeSnapshot(
+        runtime_id="display-fixture",
+        workspace=str(facts.path.parent),
+        services=(
+            McpServiceSnapshot("Alpha", "mcp__alpha__", True, "stopped", "stdio"),
+            McpServiceSnapshot(
+                "Docs API", "mcp__docs_api__", False, "ready", "stdio",
+                tools=("mcp__docs_api__ping",), discovered=3, filtered=2,
+            ),
+        ),
+    )
+    host = SimpleNamespace(
+        frontend=SimpleNamespace(application=TuiApplicationSink(runtime)),
+        execution=SimpleNamespace(external_mcp=SimpleNamespace(snapshot=snapshot)),
+    )
+    selection = asyncio.create_task(choose_mcp_action(runtime, host))
+    try:
+        menu = runtime.screen.menu
+        await _wait_until(lambda: menu.active, "MCP service menu")
+        await _checkpoint(runtime, facts, "mcp_menu")
+        await _wait_until(
+            lambda: menu.state is not None and menu.state.selected == 1,
+            "MCP second service selected",
+        )
+        await _checkpoint(runtime, facts, "mcp_moved")
+        await _wait_until(
+            lambda: menu.state is not None and menu.state.request.view_id == "mcp:service",
+            "MCP service actions",
+        )
+        if menu.state is None:
+            raise RuntimeError("MCP action menu disappeared")
+        facts.set_detail(
+            "selected_action",
+            menu.state.request.options[menu.state.selected].label,
+        )
+        await _checkpoint(runtime, facts, "mcp_actions")
+        request = await selection
+        if request is None:
+            raise RuntimeError("MCP status selection was cancelled")
+        render_mcp_status(host, request)
+        fragments = runtime.document.transcript_fragments(width=runtime.terminal_width)
+        facts.set_detail("mcp_status_text", "".join(text for _, text in fragments))
+        facts.set_detail("menu_active", menu.active)
+        await _checkpoint(runtime, facts, "mcp_status")
+        stopped = replace(
+            snapshot.services[1], state="stopped", tools=(), discovered=0, filtered=0,
+        )
+        render_mcp_action_result(host, McpControlResult(
+            replace(request, action="start"),
+            (McpServiceOutcome(stopped.config_key, "disabled", stopped),),
+        ))
+        await _checkpoint(runtime, facts, "mcp_result")
+    finally:
+        if not selection.done():
+            selection.cancel()
+        await asyncio.gather(selection, return_exceptions=True)
+
+
 async def _run_exit(runtime: TuiRuntime, facts: ScenarioFacts, mode: str) -> None:
     """在着色帧后触发取消或异常退出。"""
     runtime.append_block(
@@ -437,6 +516,9 @@ async def _execute(
         if scenario == "full":
             await _run_full(runtime, facts)
             facts.stage = "complete"
+        elif scenario == "mcp_display":
+            await _run_mcp_display(runtime, facts)
+            facts.stage = "complete"
         elif scenario in {"cancel", "failure"}:
             await _run_exit(runtime, facts, scenario)
         else:
@@ -452,7 +534,7 @@ async def _execute(
 def main() -> int:
     """解析真实 TUI 颜色场景入口。"""
     parser = argparse.ArgumentParser()
-    parser.add_argument("scenario", choices=("full", "cancel", "failure"))
+    parser.add_argument("scenario", choices=("full", "mcp_display", "cancel", "failure"))
     parser.add_argument("theme", choices=("dark", "light", "partial", "unknown"))
     parser.add_argument("facts", type=Path)
     arguments = parser.parse_args()

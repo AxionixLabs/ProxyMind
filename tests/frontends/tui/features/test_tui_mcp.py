@@ -206,11 +206,48 @@ def test_status_separates_connection_config_and_wraps_long_names(width):
     mcp.render_mcp_status(host)
     assert [view.type for view in views] == ["tui.mcp", "tui.gap"]
     text = "".join(value for _, value in views[0].renderable.fragments)
-    compact = text.replace("\n", "")
-    for label in ("Connection: ready", "Tools (0): (none)", "disabled (temporary connection)", "removed from config", "Connection: failed", "Config error: invalid config", "Filtered: 3"):
+    compact = " ".join(text.split())
+    for label in ("Connection: ready", "Tools: (none)", "disabled (temporary connection)", "removed from config", "Connection: failed", "Config error: invalid config", "Filtered: 3"):
         assert label in compact
     assert all(get_cwidth(line) <= width for line in text.splitlines())
     host.execution.external_mcp.control.assert_not_awaited()
+
+
+def test_status_restores_command_heading_bullets_and_semantic_colors():
+    host, views = _host([
+        _service("docs", state="ready", tools=("mcp__all__read",), discovered=3, filtered=2),
+        _service("paused", config_enabled=False),
+    ])
+    mcp.render_mcp_status(host)
+    fragments = views[0].renderable.fragments
+    assert "".join(value for _, value in fragments) == (
+        "/mcp status\n\n🔌  MCP Tools\n\n"
+        "  • docs\n"
+        "    • Connection: ready\n"
+        "    • Config: enabled\n"
+        "    • Transport: stdio\n"
+        "    • Tools: read\n"
+        "    • Discovered: 3\n"
+        "    • Filtered: 2\n\n"
+        "  • paused\n"
+        "    • Connection: stopped\n"
+        "    • Config: disabled\n"
+        "    • Transport: stdio\n"
+        "    • Tools: (none)\n"
+        "    • Discovered: 0"
+    )
+    assert ("class:terminal.success dim", "enabled") in fragments
+    assert ("class:terminal.failure dim", "disabled") in fragments
+    assert [view.type for view in views] == ["tui.mcp", "tui.gap"]
+
+
+def test_status_preserves_empty_tool_notice_with_ready_connection():
+    host, views = _host([_service("empty", state="ready")])
+    mcp.render_mcp_status(host)
+    text = "".join(value for _, value in views[0].renderable.fragments)
+    assert "  • No MCP tools available.\n\n  • empty\n" in text
+    assert "    • Connection: ready" in text
+    assert "    • Tools: (none)" in text
 
 
 def test_status_rejects_stale_identity_and_unknown_target():
@@ -235,6 +272,39 @@ def test_action_result_has_scope_and_exactly_one_final_block(outcome):
     assert "External MCP · all · force" in text
     assert f"all: {outcome}" in text
     assert "ready" in text and "temporary connection" in text
+    assert text.splitlines()[1].startswith(f"  └ all: {outcome}")
+    detail = next(span for span in views[0].renderable.spans if span.text.startswith("all:"))
+    assert detail.style.foreground == (
+        "ansired" if outcome == "failed" else "ansiyellow" if outcome == "busy" else None
+    )
+
+
+def test_disabled_start_result_has_one_connector_space_and_normal_text_color():
+    host, views = _host()
+    result = McpControlResult(_request(host, "start", "playwright"), (
+        McpServiceOutcome("playwright", "disabled", _service("playwright", config_enabled=False)),
+    ))
+    mcp.render_mcp_action_result(host, result)
+    block = views[0].renderable
+    assert block.plain_text == (
+        "■ External MCP · playwright · start complete\n"
+        "  └ playwright: disabled · stopped · disabled · stdio · 0 tools"
+    )
+    assert all(span.style.foreground != "ansired" for span in block.spans)
+
+
+def test_batch_result_uses_tree_branches_and_colors_each_outcome_separately():
+    host, views = _host()
+    result = McpControlResult(mcp.all_mcp_request(host, "start"), (
+        McpServiceOutcome("normal", "applied", _service("normal", state="ready")),
+        McpServiceOutcome("failed", "failed", _service("failed", state="failed"), "connection lost"),
+    ))
+    mcp.render_mcp_action_result(host, result)
+    block = views[0].renderable
+    assert "\n  ├ normal: applied" in block.plain_text
+    assert "\n  └ failed: failed" in block.plain_text
+    assert next(span.style.foreground for span in block.spans if span.text.startswith("normal:")) is None
+    assert next(span.style.foreground for span in block.spans if span.text.startswith("failed:")) == "ansired"
 
 
 @pytest.mark.anyio
