@@ -1,6 +1,7 @@
 # 外接 MCP 单服务控制：方案评估、设计稿与分阶段验收清单
 
-状态：设计稿，尚未实施。本文件交付整体方案、菜单和交互设计、分阶段改造清单及验收方法；不表示所描述功能已经可用。
+状态：P0 已完成边界复核、具名验收输入和真实 MCP fixture；P1—P5 尚未实施，单服务控制和新菜单尚未接入产品。
+本文件统一维护方案、菜单与交互设计、分阶段清单、验收运行说明及证据；测试目录不另设验收说明文档。
 本文的阶段、自动测试和真机验收项均须凭对应证据勾选，源码阅读、测试替身或设计截图不能代替真机通过。
 
 ## 1. 目标与依据
@@ -309,19 +310,61 @@ stdio 可以在脱敏诊断证据中记录 PID/启动身份；不要求 HTTP/SSE
 保留：直接命令的全量入口、配置字段名、工具名称契约、正式审批与 Effect 链路、应用最终 close 和工作区清理。
 不用“为兼容旧 force”保留隐藏参数或第二条重启路径；文档与契约测试一并表达最终语义。
 
+### 6.1 P0 具名验收输入
+
+[control.schema.json](tests/fixtures/mcp/control.schema.json) 固定第 3 节的输入、状态及结果结构；
+[契约测试](tests/external_mcp/test_control_contract.py) 校验以下边界。
+这些定义是测试验收值，不是线上协议，也不为生产端口增加尚无消费者的测试专用类型。P1/P3 接入实际端口和菜单后，以实际输出验证相同期望。
+
+| 具名定义 | 固定约束 |
+|---|---|
+| `McpAction` | `start/force/stop/restart/status` 五动作，不接受额外参数或未知动作作为已规范化请求 |
+| `McpAllServices`、`McpSingleService`、`McpTarget` | `scope=all` 与 `scope=single + config_key` 判别联合；真实配置键 `all` 仍为单服务 |
+| `McpControlRequest` | 必须携带运行实例、工作区、动作和明确目标；不以工具别名或显示序号寻找服务 |
+| `McpMenuSelection` | 只允许 single 请求或 null 取消；null 不是管理请求，也不代表全量 |
+| `McpServerMenu`、`McpServiceMenu` | 服务列表没有全量候选，二级五动作顺序固定、默认 status |
+| `McpServiceSnapshot` | 配置启用、连接状态、工具目录和连接错误独立；允许 ready + 0 tools、disabled + ready、配置已删除 |
+| `McpControlResult` | 每服务结果包含动作结论、快照及操作错误；busy 可以带 ready 快照，单目标只能返回一项 |
+
+服务身份是运行实例及工作区中的**原始配置键**，工具前缀仅用于工具命名和路由，不是控制目标。
+契约测试通过实际 `normalize_mcp_servers` 检查 `Docs API` / `Docs/API` 的前缀冲突和删除后的身份，禁止倒推目标。
+JSON Schema 只校验结构和局部约束；实例有效性、目标存在性、结果键与目标一致、
+`discovered = len(tools) + filtered` 等关系须在 P1 的实际边界验证，不能以 schema 通过代替运行事实。
+
+[control_cases.json](tests/fixtures/mcp/control_cases.json) 保存 start 补齐、force 增量、重复 force、单停隔离、禁用目标 restart 和只读 status 的前置状态及预期连接变化。
+P0 校验这些输入及目标集合；P1/P2 必须将它们接入实际 runtime，断言进程、握手及连接身份，不能仅重复验证 JSON 就勾选实现通过。
+
+### 6.2 工具消费者与关停入口复核
+
+| 消费者/入口 | 已核对的实际调用链 | P2 门禁与释放要求 |
+|---|---|---|
+| 根 Turn | [root_runner.py](agent/harness/execution/root_runner.py) → `execute_turn` → [ExecutionResources](agent/harness/execution/resources.py) 的 `with_mcp_session` → `CompositeToolRuntime.run_with_context` | 取得冻结工具目录时同时取得服务使用权，覆盖整个回调；成功、异常和取消均释放 |
+| 子代理 | [subagent_runner.py](agent/harness/execution/subagent_runner.py) 使用 composition 注入的同一 execution 资源及 TurnRunner | 复用同一使用范围；父 Turn 返回后仍存活的子代理不能绕过占用检查 |
+| Subscription | [forwarding.py](frontends/subscription/forwarding.py) 的 `DefaultForwardHandler` 经 `RootTurnCommandExecutor`、TurnApplication 使用注入的 TurnRunner | 纳入根 Turn 路径；前台输入空闲不代表后台使用权已释放 |
+| Review 工具发现与恢复 | [reviews.py](agent/application/turns/reviews.py) 通过 `with_mcp_session` 发现工具；[observed_turn.py](agent/harness/execution/observed_turn.py) 恢复执行仍经 `execute_turn` | 短发现范围结束及时释放；实际执行重新取得使用权，不重写冻结请求中的工具身份 |
+| MCP Hook | [Hook runtime](agent/harness/hooks/runtime.py) → [HookMcpRunner](infrastructure/mcp/hook_runner.py) → `external_tool_group.call_hook_tool` | 当前绕过 `with_mcp_session`；需注入同一 owner 的使用能力，解析和调用前取得，异常/超时/取消时释放 |
+| 异步 Hook | [async_tasks.py](agent/harness/hooks/async_tasks.py) 持有并收束 Hook 任务 | 跟随实际 MCP Hook 使用范围；退出时等待已有清理，不仅统计前台工具调用 |
+| 应用最终关闭 | [process_resources.py](agent/harness/process_resources.py) 顺序收束 Subscription、启动任务、子代理、审批、Hook 等，再关闭 execution/service | 保留现有分步关闭及失败重试语义；最终资源释放不返回交互 busy |
+| 工作区切换 | [workspace_change.py](agent/harness/sessions/workspace_change.py) 移交旧 owner、释放并重建资源 | 使用权属于原运行实例；旧连接回调不能向新工作区发布状态或工具 |
+
+门禁由现有 Harness owner 与 execution 使用范围协调，底层连接记录仍归 runtime/group。
+“获得目录及使用权”和“检查占用并禁止新增使用”必须原子衔接；不能在 TUI 自建计数器，也不能只在 `call_tool` 期间加锁。
+P0 只固定这些落点；引用记录、并发控制和实际 busy 行为在 P2 实现并验证。
+
 ## 7. 分阶段改造清单
 
-每阶段完成实现后先跑受影响定向测试，缺少必要证据不得勾选完成。下列全部为待办，不代表当前实现已满足。
+每阶段完成实现后先跑受影响定向测试，缺少必要证据不得勾选完成。P0 的完成仅表示验收基础齐备，不代表后续产品行为已实现。
 
 ### P0：固定边界与可复现验收输入
 
-- [ ] 将第 3 节动作表映射为具名目标、状态和操作结果；取消选择与全量目标严格分离。
-- [ ] 明确运行时实例、服务配置键与稳定工具前缀之间的关系，覆盖重名规范化及配置删除。
-- [ ] 盘点根 Turn、子代理、Hook、Subscription 的工具使用范围和关停入口，确定门禁落点。
-- [ ] 准备第 9 节的独立验收配置及真实 MCP 测试服务；正常 fixture 不借用用户日常连接。
-- [ ] 为语义变更建立定向契约用例，明确旧行为需要被替换，不能以旧测试通过代替新验收。
+- [x] 将第 3 节动作表映射为具名目标、状态和操作结果；取消选择与全量目标严格分离，见 6.1。
+- [x] 明确运行时实例、服务配置键与稳定工具前缀之间的关系，覆盖重名规范化及配置删除。
+- [x] 盘点根 Turn、子代理、Hook、Subscription 的工具使用范围和关停入口，确定门禁落点，见 6.2。
+- [x] 准备第 9 节的独立验收配置及真实 MCP 测试服务；正常 fixture 不借用用户日常连接。
+- [x] 为语义变更建立定向契约用例及生命周期期望输入，明确后续必须验证实际运行行为。
 
 阶段出口：动作/目标可唯一解释；fixture 有可核验的启动身份、连接记录和工具调用结果；AC01、AC02、AC07 的用例齐备。
+P0 的 schema/fixture 测试不代表 AC01、AC02、AC07 的产品链路已通过；新菜单、命令解析和逐服务状态投影仍由 P1/P3 接入后验收。
 
 ### P1：单服务连接与状态
 
@@ -425,7 +468,60 @@ fixture 是通过正式 MCP SDK 与真实进程/套接字运行的受控服务�
 记录终端产品与版本；宽度覆盖 120、80、40 列，高度覆盖正常高度与低高度，至少一次连续缩放。
 默认主题、无色及关闭动画分别检查；平台缺失就是待验收，不得用另一个平台推断通过。
 
-### 9.2 操作步骤、预期及证据
+### 9.2 P0 fixture 运行与证据
+
+实现位于 [fixture_server.py](tests/external_mcp/fixture_server.py)、[fixtures.py](tests/external_mcp/fixtures.py) 和
+[fixture_suite.py](tests/external_mcp/fixture_suite.py)，通过正式 MCP SDK 提供 stdio、Streamable HTTP、SSE 服务。
+先激活仓库虚拟环境，从仓库根目录执行；每次选择**尚不存在**的产物目录以保留旧证据：
+
+```shell
+python -m tests.external_mcp.fixture_suite --directory .cache/acceptance/external-mcp/manual-01
+```
+
+该入口启动 H/S 两个独立进程，由操作系统分配本机端口，生成 `mcp-fixture.toml` 并等待 Ctrl+C 回收。
+stdio fixture 由被验收的 MCP 客户端按配置启动，不由 suite 提前启动。
+
+要在同一实际终端启动客户端，并临时替换整张 MCP 配置表：
+
+```shell
+python -m tests.external_mcp.fixture_suite --directory .cache/acceptance/external-mcp/manual-02 --client
+```
+
+`--client` 通过既有 `-c mcp_servers=<TOML inline table>` 参数启动 `mind.py`，不经过 Shell 拼接、不修改进程环境或用户配置。
+整张 MCP 表被替换，日常服务不会混入；用户模型等其他配置保持，客户端工作区为本次独立产物目录。
+使用 `/quit` 正常退出客户端，suite 随后回收自身创建的 H/S 进程。该入口不保证尚未实施的新菜单已可用。
+
+| 配置键 | 模式 | 默认启用 | 用途 |
+|---|---|---|---|
+| A、B | ready | 是 | 同名原始工具 `ping/block`，验证前缀、进程及连接隔离 |
+| D | ready | 否 | enabled/force 语义输入 |
+| E | empty | 是 | 握手成功且工具列表为空 |
+| Filtered | ready，`allow=[]` | 是 | 发现两工具但全部过滤 |
+| NoTools | no-tools | 是 | 服务明确不声明 tools 能力 |
+| F | startup-failure | 否 | 进程以 7 退出，不握手 |
+| DiscoveryFailure | discovery-failure | 否 | 已握手但 tools/list 返回 MCP 错误 |
+| Slow | handshake-timeout | 否 | 不回答握手，由客户端超时清理 |
+| Disconnect | disconnect | 否 | 记录一次实际工具请求后以 23 退出，用于检测重放 |
+| CloseStall | close-stall | 否 | 会话退出清理阻塞，由实际 stdio transport 回收进程 |
+| Docs API、Docs/API | ready | 否 | 规范化名称冲突，服务身份仍为原始配置键 |
+| all | ready | 否 | 真实配置键 `all` 不能成为全量哨兵 |
+| H、S | ready | 是 | HTTP/SSE 服务；客户端断开后远端进程继续接受连接 |
+
+全量 `force` 会包含故障服务；批量正常路径验收先在**专用配置副本**中去掉故障条目，required 场景在副本中明确设置 `required=true`。
+普通生成配置不会启用故障条目，不将其合入日常配置。
+
+只读 `ping` 返回 `instance_id/pid/session_id/call_count/value`；`block` 使用相同返回值，但等待对应 `<fixture-name>.release` 文件出现。
+可以用 `Path.touch()` 释放 block，重复阻塞场景使用新的产物目录。
+每个服务有独立 JSONL 事实文件；远端 fixture 另有 stderr 文件。JSONL 包含进程启动 UUID、PID、创建时间、递增序号及事件；
+每次 MCP 会话另有 session_id，只有收到实际 initialized 通知才记录 `initialized`。
+工具参数及传输凭据不写入 JSONL；工具返回值只包含测试字符串及验收身份。
+强制终止的故障进程可能没有 `session.closed/process.closed`，须结合客户端 transport 回收和进程证据判断，不补写虚假的关闭事件。
+
+[真实传输测试](tests/external_mcp/test_fixture_services.py) 验证握手、实际调用、实例重建、会话隔离、可控阻塞、
+零工具/无 tools 能力/发现失败的区别、启动失败/超时/断线/关闭卡住，以及 HTTP/SSE 客户端断开后远端仍可再次连接。
+配置还经生产配置解析器和现有 group 启动验证。这些测试尚不构成新菜单人工验收、原生终端按键验收或实际外部服务兼容性验收。
+
+### 9.3 操作步骤、预期及证据
 
 | ID  | 操作步骤                                                                                            | 必须观察到的结果                                                                                           | 必须保存的证据                                        |
 |-----|-----------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|-------------------------------------------------------|
@@ -448,7 +544,7 @@ R11 中根 Turn 使用真实应用入口与实际模型服务完成至少一次�
 仅通过 mock 构造 busy 或直接调用 Python 方法，不能勾选对应的端到端真机项。
 R12 的工作区切换以产品实际允许的时机执行；不支持并行切换的入口应验证明确拒绝和无副作用，不人为绕过门禁制造“成功”。
 
-### 9.3 证据分层
+### 9.4 证据分层
 
 | 层次                                 | 能证明什么                                      | 不能代替什么                           |
 |--------------------------------------|-------------------------------------------------|----------------------------------------|
@@ -462,13 +558,20 @@ R12 的工作区切换以产品实际允许的时机执行；不支持并行切�
 
 ## 10. 自动验证执行顺序
 
-以下为实施阶段的命令，不表示本次设计交付已经执行。先激活仓库虚拟环境：
+按阶段运行对应命令；已执行范围以第 11 节记录为准，不将后续命令列出视为已通过。先激活仓库虚拟环境：
 
 ```powershell
 . .\venv\Scripts\Activate.ps1
 ```
 
 Linux/macOS 使用对应仓库虚拟环境的激活脚本，随后使用相同的 `python -m ...` 命令。
+
+P0 契约输入及真实 fixture 定向测试：
+
+```shell
+python -m pytest tests/external_mcp -q
+python -m compileall tests/external_mcp
+```
 
 优先运行受影响的既有模块，并将新增用例加入相应测试文件；新建测试文件时同步这里的实际路径：
 
@@ -495,11 +598,18 @@ git diff --check
 
 ## 11. 验收记录与完成条件
 
-以下表格由实施阶段填写；设计稿交付时留空，所有 R 项均待执行。
+按实际测试层次记录结果。P0 完成仅覆盖边界复核、验收输入与真实 fixture，所有 R 项仍待执行。
 
 | 批次/阶段 | 代码版本 | 操作系统/终端/尺寸 | 用例 ID | 测试层次 | 结果   | 证据路径与缺陷 |
 |-----------|----------|--------------------|---------|----------|--------|----------------|
-| 待执行    | —        | —                  | —       | —        | 未执行 | —              |
+| P0 | 本条引入的 P0 提交；基线 `02ae0564` | Windows build 26100 / PowerShell；非 TUI | AC01、AC02、AC07 的验收输入 | 具名契约 + 真实 MCP 子进程/网络 | 52 passed | `tests/external_mcp`；本机报告 `.cache/acceptance/external-mcp/p0-20260912/fixture-tests.xml` |
+| P0 回归 | 同上 | 同上 | 既有 MCP、菜单及启动流程 | 既有定向测试 | 54 passed | 第 10 节第一组既有模块命令；不表示新动作语义已接入 |
+| P1—P5 / R01—R14 | — | Windows/Linux/macOS 实际终端待验收 | 全部产品及真机项 | 待执行 | 未执行 | 不以 P0 fixture 结果替代 |
+
+P0 验证环境：Python 3.11.8、MCP SDK 1.24.0、pytest 9.1.1、jsonschema 4.26.0、uvicorn 0.38.0、Starlette 0.50.0。
+新增测试最后一次运行 52 项通过，0 失败/错误/跳过；既有四个模块 54 项通过。
+`python -m compileall tests/external_mcp`、fixture suite 的 `--help`、本清单本地链接检查及 `git diff --check` 通过；检查未发现遗留 fixture Python 进程。
+P0 未改生产包边界，因此未运行 P4/P5 的完整架构审计、PTY/ConPTY 或人工真机验收；启动动画继续沿用第 5 节既有方案。
 
 - [ ] P0—P5 的阶段出口均满足，AC01—AC16 都有可复查证据。
 - [ ] R01—R14 完成，平台和服务覆盖符合第 9 节；未执行项保持未完成。

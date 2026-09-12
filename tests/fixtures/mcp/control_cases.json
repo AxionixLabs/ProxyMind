@@ -1,0 +1,41 @@
+{
+  "description": "P0 golden lifecycle expectations. P1/P2 must replay these against the real runtime; P0 only validates the input contract.",
+  "cases": [
+    {
+      "id": "start-fills-missing-enabled", "phase": "P2",
+      "request": {"runtime_id": "instance-a", "workspace": "/fixture", "action": "start", "target": {"scope": "all"}},
+      "initial": [{"config_key": "A", "enabled": true, "state": "stopped"}, {"config_key": "B", "enabled": true, "state": "ready"}, {"config_key": "D", "enabled": false, "state": "stopped"}],
+      "expected": {"connect": ["A"], "disconnect": [], "preserve": ["B"], "disabled": ["D"]}
+    },
+    {
+      "id": "force-adds-disabled-without-restart", "phase": "P2",
+      "request": {"runtime_id": "instance-a", "workspace": "/fixture", "action": "force", "target": {"scope": "all"}},
+      "initial": [{"config_key": "B", "enabled": true, "state": "ready"}, {"config_key": "D", "enabled": false, "state": "stopped"}],
+      "expected": {"connect": ["D"], "disconnect": [], "preserve": ["B"], "disabled": []}
+    },
+    {
+      "id": "single-force-is-idempotent", "phase": "P1",
+      "request": {"runtime_id": "instance-a", "workspace": "/fixture", "action": "force", "target": {"scope": "single", "config_key": "D"}},
+      "initial": [{"config_key": "D", "enabled": false, "state": "ready"}],
+      "expected": {"connect": [], "disconnect": [], "preserve": ["D"], "disabled": []}
+    },
+    {
+      "id": "single-stop-keeps-other-service", "phase": "P1",
+      "request": {"runtime_id": "instance-a", "workspace": "/fixture", "action": "stop", "target": {"scope": "single", "config_key": "A"}},
+      "initial": [{"config_key": "A", "enabled": true, "state": "ready"}, {"config_key": "B", "enabled": true, "state": "ready"}],
+      "expected": {"connect": [], "disconnect": ["A"], "preserve": ["B"], "disabled": []}
+    },
+    {
+      "id": "restart-respects-disabled-configuration", "phase": "P1",
+      "request": {"runtime_id": "instance-a", "workspace": "/fixture", "action": "restart", "target": {"scope": "single", "config_key": "D"}},
+      "initial": [{"config_key": "D", "enabled": false, "state": "ready"}],
+      "expected": {"connect": [], "disconnect": ["D"], "preserve": [], "disabled": ["D"]}
+    },
+    {
+      "id": "status-has-no-network-effects", "phase": "P1",
+      "request": {"runtime_id": "instance-a", "workspace": "/fixture", "action": "status", "target": {"scope": "all"}},
+      "initial": [{"config_key": "A", "enabled": true, "state": "ready"}, {"config_key": "D", "enabled": false, "state": "stopped"}],
+      "expected": {"connect": [], "disconnect": [], "preserve": ["A"], "disabled": []}
+    }
+  ]
+}

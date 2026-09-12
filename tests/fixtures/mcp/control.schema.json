@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "External MCP acceptance contract",
+  "description": "P0 acceptance values; not a wire protocol or an implemented runtime API.",
+  "$defs": {
+    "McpAction": {"enum": ["start", "force", "stop", "restart", "status"]},
+    "McpAllServices": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scope"], "properties": {"scope": {"const": "all"}}
+    },
+    "McpSingleService": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scope", "config_key"],
+      "properties": {
+        "scope": {"const": "single"},
+        "config_key": {"type": "string", "pattern": "\\S"}
+      }
+    },
+    "McpTarget": {
+      "oneOf": [{"$ref": "#/$defs/McpAllServices"}, {"$ref": "#/$defs/McpSingleService"}]
+    },
+    "McpControlRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runtime_id", "workspace", "action", "target"],
+      "properties": {
+        "runtime_id": {"type": "string", "pattern": "\\S"},
+        "workspace": {"type": "string", "pattern": "\\S"},
+        "action": {"$ref": "#/$defs/McpAction"},
+        "target": {"$ref": "#/$defs/McpTarget"}
+      }
+    },
+    "McpMenuSelection": {
+      "description": "Null cancels navigation; a menu can only select one service.",
+      "oneOf": [
+        {"type": "null"},
+        {"allOf": [
+          {"$ref": "#/$defs/McpControlRequest"},
+          {"properties": {"target": {"$ref": "#/$defs/McpSingleService"}}}
+        ]}
+      ]
+    },
+    "McpServerMenu": {
+      "type": "object", "additionalProperties": false,
+      "required": ["services"],
+      "properties": {"services": {"type": "array", "items": {"$ref": "#/$defs/McpSingleService"}}}
+    },
+    "McpServiceMenu": {
+      "type": "object", "additionalProperties": false,
+      "required": ["target", "actions", "selected"],
+      "properties": {
+        "target": {"$ref": "#/$defs/McpSingleService"},
+        "actions": {"const": ["start", "force", "stop", "restart", "status"]},
+        "selected": {"const": "status"}
+      }
+    },
+    "McpConnectionState": {"enum": ["stopped", "starting", "ready", "stopping", "failed"]},
+    "McpServiceSnapshot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["config_key", "tool_prefix", "config_enabled", "state", "transport", "tools", "discovered", "filtered", "connection_error"],
+      "properties": {
+        "config_key": {"type": "string", "pattern": "\\S"},
+        "tool_prefix": {"type": "string", "pattern": "^mcp__.+__$"},
+        "config_enabled": {"type": ["boolean", "null"]},
+        "state": {"$ref": "#/$defs/McpConnectionState"},
+        "transport": {"enum": ["stdio", "streamable_http", "sse"]},
+        "tools": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "discovered": {"type": "integer", "minimum": 0},
+        "filtered": {"type": "integer", "minimum": 0},
+        "connection_error": {"type": ["string", "null"]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"state": {"const": "failed"}}},
+          "then": {"properties": {"connection_error": {"type": "string", "pattern": "\\S"}}}
+        },
+        {
+          "if": {"properties": {"state": {"not": {"const": "ready"}}}},
+          "then": {"properties": {"tools": {"maxItems": 0}}}
+        }
+      ]
+    },
+    "McpServiceOutcome": {
+      "type": "object", "additionalProperties": false,
+      "required": ["config_key", "outcome", "snapshot", "operation_error"],
+      "properties": {
+        "config_key": {"type": "string", "pattern": "\\S"},
+        "outcome": {"enum": ["applied", "unchanged", "disabled", "busy", "failed", "interrupted"]},
+        "snapshot": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/McpServiceSnapshot"}]},
+        "operation_error": {"type": ["string", "null"]}
+      },
+      "allOf": [{
+        "if": {"properties": {"outcome": {"enum": ["busy", "failed"]}}},
+        "then": {"properties": {"operation_error": {"type": "string", "pattern": "\\S"}}}
+      }]
+    },
+    "McpControlResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["request", "services"],
+      "properties": {
+        "request": {"$ref": "#/$defs/McpControlRequest"},
+        "services": {"type": "array", "items": {"$ref": "#/$defs/McpServiceOutcome"}}
+      },
+      "allOf": [{
+        "if": {"properties": {"request": {"properties": {"target": {"properties": {"scope": {"const": "single"}}}}}}},
+        "then": {"properties": {"services": {"minItems": 1, "maxItems": 1}}}
+      }]
+    }
+  }
+}
