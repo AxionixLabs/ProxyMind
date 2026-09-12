@@ -1,6 +1,6 @@
 # 外接 MCP 单服务控制：方案评估、设计稿与分阶段验收清单
 
-状态：P0—P3 及 P4 前插入的 P0 显示层修复已完成，菜单编号亮度和 MCP status 既有样式已恢复。P4/P5 的完整调用链原生终端自动化与完整人工验收待实施。
+状态：P0—P3 及插入的 P0 显示层修复已完成。P4 已落地 Windows ConPTY 的真实 MCP 控制与调用自动验收；POSIX PTY 与 P5 实际客户端、实际外部服务的人工验收仍待执行，P4 尚未整体关闭。
 本文件统一维护方案、菜单与交互设计、分阶段清单、验收运行说明及证据；测试目录不另设验收说明文档。
 本文的阶段、自动测试和真机验收项均须凭对应证据勾选，源码阅读、测试替身或设计截图不能代替真机通过。
 
@@ -469,12 +469,20 @@ P4/P5 仍按后续完整链路与人工标准执行。
 
 ### P4：完整调用链和原生终端自动验收
 
-- [ ] 扩展现有 `tests/pty` 场景和 TUI acceptance 用例，在 Windows ConPTY 与 POSIX PTY 上驱动真实按键。
-- [ ] 用实际 MCP SDK 和独立子进程/本机 HTTP/SSE fixture 验证从菜单选择到工具调用的完整链路。
-- [ ] 覆盖连续 Enter、Esc 返回、长列表、缩放、无色、动画关闭、失败及取消的帧与事实一致性。
-- [ ] 补齐全部 AC 项的定向或集成证据；运行受到此次端口/包边界变更影响的完整架构审计。
+- [x] 扩展现有 `tests/pty` 场景和 TUI acceptance 用例，在 Windows ConPTY 上驱动真实按键。
+- [ ] 在 Linux/macOS 的 POSIX PTY 上执行同一套场景并保存平台证据。
+- [x] 用实际 MCP SDK 和独立子进程/本机 HTTP/SSE fixture 验证从菜单选择到工具调用的完整链路（Windows）。
+- [x] 覆盖连续 Enter、Esc 返回、长列表、缩放、无色、动画关闭、失败及取消的帧与事实一致性（Windows）。
+- [x] 复核 Windows 上 AC01—AC15 的定向/集成证据，完成完整架构审计；AC16 的 POSIX 平台部分按上项继续待验收。
 
 阶段出口：AC01—AC16 自动检查通过；测试报告区分“使用替身”“真实传输”和“原生终端”，不能统称真机完成。
+
+原生场景由 [external_mcp_scenario.py](tests/pty/external_mcp_scenario.py) 持有专用配置、真实服务和终端生命周期；
+[test_pty_external_mcp.py](tests/frontends/tui/acceptance/test_pty_external_mcp.py) 只通过按键和缩放驱动产品。
+输入经过 `TuiRuntime → TuiCommandDispatcher → TuiForegroundTasks → McpRuntimeOwner`，工具探测使用 owner 的正式使用范围执行实际 MCP RPC。
+命令路由使用最小测试宿主，未使用的 AppServer 客户端是 mock，并断言本地命令从未调用它；busy 场景由测试持有真实冻结工具范围，不能替代 R11 的实际模型 Turn。
+活动展示沿用 `FrontendActivity` 和通用活动槽、结果 renderer，没有专用 MCP 动画或菜单渲染分支。
+Windows 输出适配器预留一列防止自动折行，尺寸断言保留该既有规则；缩放证据等待标题、选项和标准页脚均已到达终端。
 
 ### P5：真实客户端验收与发布收口
 
@@ -670,11 +678,25 @@ python -m pytest tests/frontends/tui/acceptance/test_pty_tui_colors.py -q
 全部 TUI 功能回归包含真实文件补全，测试子进程的 PATH 需能找到 `rg`；虚拟环境激活后须核对该依赖。
 使用 `--basetemp` 保存产物时，先创建其父目录，再指定本次独立运行目录；JUnit 与终端产物路径记录在第 11 节。
 
-P4 形成完整原生终端链路后运行对应场景；已有显示场景通过不等于新增 MCP 控制与调用场景已覆盖：
+P4 定向回归的完整目标集合（第 11 节将以下目标合并为一次 pytest 运行计数）：
 
 ```shell
+python -m pytest tests/external_mcp tests/infrastructure/mcp tests/frontends/tui/features/test_tui_mcp.py tests/frontends/tui/features/test_tui_commands.py -q
+python -m pytest tests/frontends/tui/runtime/test_tui_startup.py tests/frontends/tui/runtime/test_tui_stream_commands.py tests/frontends/tui/core/test_tui_menu_alignment.py tests/frontends/tui/core/test_tui_activity.py -q
+python -m pytest tests/agent/harness/test_workspace_coding_lifecycle.py tests/composition/test_controller_runtime_cleanup.py tests/integration/test_mcp_approval_gate.py tests/integration/test_mcp_approval_semantics_matrix.py -q
+```
+
+P4 原生 MCP 控制与既有交互、渲染、颜色回归：
+
+```shell
+python -m pytest tests/frontends/tui/acceptance/test_pty_external_mcp.py -q
 python -m pytest tests/frontends/tui/acceptance/test_pty_tui_interaction.py tests/frontends/tui/acceptance/test_pty_tui_rendering.py tests/frontends/tui/acceptance/test_pty_tui_colors.py -q
 ```
+
+第一条包含 6 组：stdio/HTTP/SSE 控制（普通、无色且关闭动画）、真实使用范围 busy、失败与取消（动画开/关）、长菜单缩放与返回。
+断言覆盖服务实例和会话隔离、零工具、过滤工具、disabled/temporary、命名为 `all` 的单服务、配置字节不变、无残留 owner task、正常 stdio 会话关闭和终端模式恢复。
+HTTP/SSE 在全量 stop 后由另一个 SDK 客户端重新连接并调用，核对远端实例不变、会话身份改变；关闭验收进程时再由 fixture 创建方回收远端进程。
+原生交互回归也包含真实文件补全，启动 pytest 的子进程 PATH 必须能找到 `rg`。验收产物包括 `facts.json`、服务 `*.jsonl`、`inputs.json`、`raw-output.bin` 和 `screen.txt`，缩放与启动中画面分别保存。
 
 P1—P3 涉及公开端口和生命周期边界，已运行架构审计；P4/P5 收口时再运行，普通局部迭代不机械重复全套：
 
@@ -688,7 +710,7 @@ git diff --check
 
 ## 11. 验收记录与完成条件
 
-按实际测试层次记录结果。P1 已取得 R04、R06、R07、R08 的底层真实传输证据；P2 补齐 R05、R09、R11、R12 的自动化生命周期证据和观测点。P3 增加共享菜单按键、状态反馈和真实传输接线证据；R01—R14 的完整终端操作仍待执行。
+按实际测试层次记录结果。P1 已取得 R04、R06、R07、R08 的底层真实传输证据；P2 补齐 R05、R09、R11、R12 的自动化生命周期证据和观测点。P3 增加共享菜单按键、状态反馈和真实传输接线证据；P4 增加 Windows ConPTY 的服务控制与实际调用证据，R01—R14 的实际客户端人工验收仍待执行。
 
 | 批次/阶段       | 代码版本                            | 操作系统/终端/尺寸                           | 用例 ID                                                       | 测试层次                           | 结果       | 证据路径与缺陷                                                                                |
 |-----------------|-------------------------------------|----------------------------------------------|---------------------------------------------------------------|------------------------------------|------------|-----------------------------------------------------------------------------------------------|
@@ -706,7 +728,11 @@ git diff --check
 | P3              | 同上                                | 同上                                         | AC16 架构边界                                                 | 架构审计                           | 138 passed | `.cache/acceptance/external-mcp/p3-20260912/architecture.xml`                                 |
 | 插入 P0 显示层 | 本条引入的显示修复提交 | Windows build 26100 / PowerShell | 编号最终样式、状态与结果排版、全部 TUI 功能、共享菜单/审批及 MCP 接线 | 定向回归（含实际 MCP 子进程） | 1263 passed | `.cache/acceptance/external-mcp/display-p0-20260912/targeted.xml` |
 | 插入 P0 原生显示 | 同上 | Windows ConPTY；100/32 列，深色/浅色/无色 | R01/R13 显示部分；MCP 菜单、状态与结果、既有颜色矩阵、退出恢复 | 原生终端；MCP 连接事实使用固定快照 | 16 passed | `.cache/acceptance/external-mcp/display-p0-20260912/native.xml`；同目录 `native-shared-run/` 下 facts、screen 与 raw output |
-| P4/P5 / R01—R14 | —                                   | Windows/Linux/macOS 实际终端待验收           | 后续产品及完整真机项                                          | 待执行                             | 未执行     | 不以底层 fixture 结果替代                                                                     |
+| P4 定向 | 本条引入的 P4 提交 | Windows build 26100 / PowerShell | AC01—AC15 的既有单元/真实传输/接线证据及工作区、审批回归 | 定向回归（层次按各测试模块区分） | 543 passed | `.cache/acceptance/external-mcp/p4-20260912/targeted.xml`；目标集合见第 10 节 |
+| P4 原生 | 同上 | Windows ConPTY；28×100、15×120/80/40；有色/无色、动画开/关 | R01—R09、R11/R13/R14 的自动化部分；既有交互、渲染和颜色矩阵 | 6 组真实 MCP 控制与调用 + 94 组共享终端回归 | 99 passed，1 skipped | `.cache/acceptance/external-mcp/p4-20260912/native-verified.xml`；同目录 `native-verified/` 下配置、事实、按键、原始输出与画面；跳过项仅 POSIX 作业控制 |
+| P4 架构 | 同上 | Windows build 26100 / PowerShell | TUI owner 端口、包依赖与生命周期归属 | 完整架构审计 | 138 passed | `.cache/acceptance/external-mcp/p4-20260912/architecture.xml` |
+| P4 POSIX | — | Linux/macOS POSIX PTY | 同套原生控制、交互与显示 | 待执行 | 未执行 | 当前可用验收环境仅 Windows，保持阶段未关闭 |
+| P5 / R01—R14 | — | Windows/Linux/macOS 实际终端待验收 | 实际客户端、实际外部服务、实际模型 Turn 及完整真机项 | 待执行 | 未执行 | 不以 fixture 或最小测试宿主替代 |
 
 P0 验证环境：Python 3.11.8、MCP SDK 1.24.0、pytest 9.1.1、jsonschema 4.26.0、uvicorn 0.38.0、Starlette 0.50.0。
 新增测试最后一次运行 52 项通过，0 失败/错误/跳过；既有四个模块 54 项通过。
@@ -730,6 +756,14 @@ MCP status 覆盖原有版式、状态颜色、空工具、配置错误、长名
 共享结果 renderer 验证正文/提示/错误三类详情、单条与批量树形缩进和窄屏换行；原生场景核对禁用启动结果的正文色单元格。
 全部功能回归的启动器为子进程注入已发现 `rg` 所在目录，未修改测试代码或父进程环境。
 生产包编译、差异及本清单链接检查通过；本次仅改变显示，没有改动连接控制端口、生产包边界或启动动画，未重复完整架构审计。
+
+P4 Windows 最终三组共 780 项通过，0 失败/错误，1 项仅适用于 POSIX 的 Ctrl+Z 作业控制测试跳过。
+新增 6 组 MCP 原生场景全部通过；实例隔离由实际工具返回的 UUID 与会话 ID 核验，状态查询前后服务事件不变。
+失败/取消场景检查既有活动槽开关和结果只提交一次，退出检查 MCP owner task、正常 stdio 会话、远端 fixture 进程和终端模式恢复。
+退出前后专用配置摘要一致，最终检查未发现遗留 fixture 进程。原生回归的文件补全由启动器向测试子进程注入已发现的 `rg` 目录。
+生产修正包括 TUI owner 的 `current/snapshot/control` 契约与实际 Harness owner 对齐、移除 restart 的旧参数，
+以及定义模块 `agent/ports/workspace.py` 补全 `WorkspaceChangePort`、`WorkspaceResources` 的公开导出；编译、导出、差异与文档链接检查通过。
+本轮没有运行 POSIX PTY、实际模型 Turn 或实际外部服务的人工验收；R11 的模型入口、R12 的实际客户端工作区流程、R14 的人工重复操作仍按 P5 执行。
 
 - [ ] P0—P5 的阶段出口均满足，AC01—AC16 都有可复查证据。
 - [ ] R01—R14 完成，平台和服务覆盖符合第 9 节；未执行项保持未完成。

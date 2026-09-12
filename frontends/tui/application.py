@@ -27,8 +27,13 @@ from agent.ports import (
     TurnObservationCapability,
     WorkspaceRuntime,
 )
-from frontends.runtime import Frontend
+from agent.ports.mcp_runtime import (
+    McpControlRequest,
+    McpControlResult,
+    McpRuntimeSnapshot,
+)
 from agent.ports.workspace import WorkspaceChangePort
+from frontends.runtime import Frontend
 from infrastructure.config.layers import ConfigResolution
 from infrastructure.config.session import ConfigSession
 from infrastructure.services.runtime_context import ServiceRuntimeContext
@@ -83,9 +88,26 @@ class TuiSettingsPort(typing.Protocol):
 
 
 class ExternalMcpOwnerPort(typing.Protocol):
-    """定义 TUI 观察外部 MCP 连接所需的 owner 边界。"""
+    """定义 TUI 的 MCP 观察与控制边界；Harness owner 持有连接并负责最终释放。"""
 
-    current: McpRuntime | None
+    @property
+    def current(self) -> McpRuntime | None:
+        """返回当前持有的实例，TUI 不取得其生命周期所有权。"""
+        ...
+
+    @property
+    def snapshot(self) -> McpRuntimeSnapshot:
+        """读取带实例身份的本地事实，不建立连接。"""
+        ...
+
+    async def control(
+        self,
+        request: McpControlRequest,
+        *,
+        defer_activity_stop: bool = False,
+    ) -> McpControlResult:
+        """按冻结目标执行控制，并拒绝已失效的实例或工作区身份。"""
+        ...
 
     async def start(
         self,
@@ -99,7 +121,6 @@ class ExternalMcpOwnerPort(typing.Protocol):
     async def restart(
         self,
         *,
-        include_disabled: bool = False,
         defer_activity_stop: bool = False,
     ) -> None:
         """重启当前 MCP 运行时。"""
