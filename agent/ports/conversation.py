@@ -18,10 +18,27 @@ if typing.TYPE_CHECKING:
     from agent.application.views.context_usage import ContextUsageView
 
 __all__ = (
+    "ContextUsageRecovery",
+    "ContextUsageRecoveryError",
     "ContextUsageFeed",
     "ConversationHistoryPort",
     "RootConversationPort",
 )
+
+
+class ContextUsageRecoveryError(RuntimeError):
+    """表示远端用量恢复未取得完整可信快照，不携带报告鉴权信息。"""
+
+
+class ContextUsageRecovery(typing.Protocol):
+    """读取远端会话的完整用量事实；实现方拥有单次请求并负责关闭传输。
+
+    返回空值表示权威未知；失败抛出 ContextUsageRecoveryError，不推进聊天确认游标。
+    """
+
+    async def load(self, cid: str, sid: str) -> ContextUsageRecord | None:
+        """完成有限回放读取后返回最新快照，不创建模型请求。"""
+        ...
 
 
 class ContextUsageFeed(typing.Protocol):

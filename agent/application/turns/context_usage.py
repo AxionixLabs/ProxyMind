@@ -91,6 +91,17 @@ class ContextUsageProjection:
             if not self._replaying:
                 self._publish_record()
 
+    def restore(self, cid: str, sid: str, record: ContextUsageRecord | None) -> None:
+        """接受完成回放后独立保留的权威快照，允许其早于历史裁剪水位。"""
+        if self._identity != (cid, sid):
+            return
+        if record is not None and (record.cid, record.sid) != (cid, sid):
+            raise ValueError("recovered context usage identity does not match")
+        if record is None or self._record is None or record.event_seq >= self._record.event_seq:
+            self._record = record
+        if not self._replaying:
+            self._publish_record()
+
     def finish_replay(self, cid: str, sid: str) -> None:
         """在恢复完成边界一次发布最终事实，缺失时保持未知。"""
         if self._identity != (cid, sid) or not self._replaying:

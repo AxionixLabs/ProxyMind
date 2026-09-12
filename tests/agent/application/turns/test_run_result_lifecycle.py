@@ -475,6 +475,7 @@ def _host(
         record_context_usage = Mock()
         context_usage_recovery = Mock()
         discard_context_usage_prefix = Mock()
+        restore_context_usage = AsyncMock()
 
         def queue_turn_context(self, contexts) -> None:
             queued_context.append(tuple(contexts))
@@ -1047,14 +1048,19 @@ async def test_context_usage_updates_session_without_content_or_wait_activity(
 ) -> None:
     usage = {
         "type": "context.usage.updated",
-        "model_context_window": 100_000,
-        "last_token_usage": {"total_tokens": 20_000},
-        "total_token_usage": {"total_tokens": 250_000},
-        "usage_source": "provider", "model": "test-model", "route": "responses",
+        "context_usage": {
+            "model_context_window": 100_000,
+            "last_token_usage": {"total_tokens": 20_000},
+            "total_token_usage": {"total_tokens": 250_000},
+            "usage_source": "provider", "model": "test-model", "route": "responses",
+        },
     }
     result, host = await _run_stream(monkeypatch, [
         usage,
-        {**usage, "last_token_usage": {"total_tokens": 13_000}, "usage_source": "estimate"},
+        {**usage, "context_usage": {
+            **usage["context_usage"],
+            "last_token_usage": {"total_tokens": 13_000}, "usage_source": "estimate",
+        }},
         {"type": "turn.completed"},
     ], child_agent=child_agent)
     assert result.status == "completed"

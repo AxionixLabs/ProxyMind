@@ -4,6 +4,7 @@
 import typing
 from pathlib import Path
 from agent.adapters.agents.execution import StreamSubagentExecution
+from agent.adapters.protocol.context_usage import ProtocolContextUsageRecovery
 from agent.adapters.protocol.subagent_stream import ProtocolSubagentStream
 from agent.application import RuntimeServices
 from agent.application.services import SubscriptionRuntimeBuilder
@@ -362,6 +363,7 @@ class ApplicationHost:
         )
         self.conversation = RootConversationSession(
             history,
+            context_usage_recovery=ProtocolContextUsageRecovery(),
             workspace=lambda: self.history_workspace,
             permissions=lambda: self.settings.permissions,
             preference_config=self.settings.preference_config,

@@ -223,12 +223,14 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
         try:
             yield parse_stream_event({
                 "type": "context.usage.updated", "proto": "mind.chat",
-                "cid": "cid", "sid": "sid", "turn_id": "compact-turn",
+                "cid": "cid", "sid": "sid", "turn_id": "",
                 "event_seq": 11, "presentation_epoch": 1,
-                "model_context_window": 100_000,
-                "last_token_usage": {"total_tokens": 13_000},
-                "total_token_usage": {"total_tokens": 250_000},
-                "usage_source": "estimate", "model": "test-model", "route": "responses",
+                "context_usage": {
+                    "model_context_window": 100_000,
+                    "last_token_usage": {"total_tokens": 13_000},
+                    "total_token_usage": {"total_tokens": 250_000},
+                    "usage_source": "estimate", "model": "test-model", "route": "responses",
+                },
             })
             yield _compact_event(before_items=18, after_items=6)
         finally:

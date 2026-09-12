@@ -463,6 +463,7 @@ async def stream_turn(
                     usage_session.discard_context_usage_prefix(
                         event.cid, event.sid, event.next_seq,
                     )
+                    await usage_session.restore_context_usage(event.cid, event.sid, publish=False)
                 gap_decision = await handle_stream_gap(
                     event,
                     activity=activity_projector,

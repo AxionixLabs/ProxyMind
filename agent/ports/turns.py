@@ -314,6 +314,10 @@ class TurnSessionStatePort(typing.Protocol):
         """作废被历史裁剪覆盖的旧缓存，不能把缺口前的占用当作恢复结果。"""
         ...
 
+    async def restore_context_usage(self, cid: str, sid: str, *, publish: bool = True) -> None:
+        """从完整权威回放恢复用量；publish 为假时等待原传输追平再显示。"""
+        ...
+
     def queue_turn_context(self, contexts: typing.Iterable[str]) -> None:
         """把未完成轮次的上下文排入下一轮。"""
         ...

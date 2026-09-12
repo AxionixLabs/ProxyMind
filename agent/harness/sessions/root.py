@@ -33,7 +33,11 @@ from agent.ports import (
 )
 from agent.protocol import AssistantReplySnapshot
 from agent.protocol.context_usage import ContextUsageRecord
-from agent.ports.conversation import ContextUsageFeed
+from agent.ports.conversation import (
+    ContextUsageFeed,
+    ContextUsageRecovery,
+    ContextUsageRecoveryError,
+)
 from agent.ports.workspace import WorkspaceChangePort
 from observability import (
     observe,
@@ -85,6 +89,7 @@ class RootConversationSession:
         self,
         history: ConversationHistoryPort,
         *,
+        context_usage_recovery: ContextUsageRecovery,
         workspace: WorkspaceProvider,
         permissions: PermissionProvider,
         preference_config: PreferenceConfigProvider,
@@ -104,6 +109,7 @@ class RootConversationSession:
         await_cleanup: CleanupWaiter,
     ) -> None:
         self._history = history
+        self._context_usage_recovery = context_usage_recovery
         self._workspace = workspace
         self._permissions = permissions
         self._preference_config = preference_config
@@ -144,6 +150,24 @@ class RootConversationSession:
         else:
             self._context_usage.finish_replay(cid, sid)
 
+    async def restore_context_usage(self, cid: str, sid: str, *, publish: bool = True) -> None:
+        """读取完整权威快照，恢复期间隐藏缓存且不推进事件确认水位。"""
+        if (self.cid, self.sid) != (cid, sid):
+            return
+        self._context_usage.begin_replay(cid, sid)
+        try:
+            record = await self._context_usage_recovery.load(cid, sid)
+        except ContextUsageRecoveryError:
+            observe("context_usage.recovery.failed", level="WARNING", cid=cid, sid=sid)
+            record = None
+        if (self.cid, self.sid) != (cid, sid):
+            return
+        self._context_usage.restore(cid, sid, record)
+        if record is not None:
+            self._history.save_context_usage(record)
+        if publish:
+            self._context_usage.finish_replay(cid, sid)
+
     def discard_context_usage_prefix(self, cid: str, sid: str, event_seq: int) -> None:
         """沿远端裁剪信号作废旧投影及缓存，禁止重启后恢复失效值。"""
         self._context_usage.discard_retained_prefix(cid, sid, event_seq)
@@ -156,7 +180,6 @@ class RootConversationSession:
             record = self._history.load_context_usage(cid, sid)
             if record is not None:
                 self._context_usage.apply(record)
-            self._context_usage.finish_replay(cid, sid)
 
     @property
     def cid(self) -> str | None:
@@ -354,6 +377,8 @@ class RootConversationSession:
             self._activate_context_usage(
                 turn.cid, turn.sid, initial=turn.session_mode == "create",
             )
+            if turn.session_mode != "create":
+                await self.restore_context_usage(turn.cid, turn.sid)
         self._context_usage.mark_started()
         observe(
             "conversation.begin",
@@ -439,6 +464,7 @@ class RootConversationSession:
         if self._state.cid == cid and self._state.sid == sid and workspace_change is None:
             if not self._state.fork_source_available:
                 self._activate_context_usage(cid, sid, initial=False)
+                await self.restore_context_usage(cid, sid)
             self._state.session_bound = True
             self._state.fork_source_available = True
             metadata = self._state.snapshot()
@@ -469,6 +495,7 @@ class RootConversationSession:
             workspace=self.workspace_root,
             source=source,
         )
+        await self.restore_context_usage(cid, sid)
         observe("conversation.bound", cid=cid, sid=sid, source=source)
         return metadata
 

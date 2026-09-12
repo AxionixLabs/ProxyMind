@@ -550,6 +550,7 @@ def _host(
         record_context_usage = Mock()
         context_usage_recovery = Mock()
         discard_context_usage_prefix = Mock()
+        restore_context_usage = AsyncMock()
 
         def queue_turn_context(self, contexts) -> None:
             queued_context.append(tuple(contexts))

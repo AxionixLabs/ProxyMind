@@ -592,7 +592,7 @@ async def test_tui_startup_warning_is_emitted_after_context_preload(
     monkeypatch.setattr(
         tui_state,
         "preload_tui_prompt_context",
-        AsyncMock(side_effect=lambda _controller: events.append("preload")),
+        AsyncMock(side_effect=lambda _controller, **_kwargs: events.append("preload")),
     )
 
     await bootstrap._run_controller(

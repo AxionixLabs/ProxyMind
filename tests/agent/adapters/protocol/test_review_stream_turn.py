@@ -169,6 +169,7 @@ class _SessionState:
         self.record_context_usage = Mock()
         self.context_usage_recovery = Mock()
         self.discard_context_usage_prefix = Mock()
+        self.restore_context_usage = AsyncMock()
 
     def remember_assistant_reply(self, text: str) -> None:
         self.replies.append(text)
@@ -468,10 +469,12 @@ async def test_review_reuses_standard_activity_and_tool_event_pump(
         "type": "context.usage.updated", "proto": "mind.chat",
         "cid": CID, "sid": SID, "turn_id": TURN_ID,
         "event_seq": 1, "presentation_epoch": 1,
-        "model_context_window": 100_000,
-        "last_token_usage": {"total_tokens": 20_000},
-        "total_token_usage": None, "usage_source": "provider",
-        "model": "review-model", "route": "responses",
+        "context_usage": {
+            "model_context_window": 100_000,
+            "last_token_usage": {"total_tokens": 20_000},
+            "total_token_usage": None, "usage_source": "provider",
+            "model": "review-model", "route": "responses",
+        },
     })
     stream = _ReviewStream((usage, *_events()))
     capability = _ReviewCapability(stream)

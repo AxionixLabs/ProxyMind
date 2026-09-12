@@ -140,6 +140,23 @@ def test_context_final_style_is_dim_and_not_bold(level) -> None:
 
 
 @pytest.mark.anyio
+async def test_cold_resume_hides_initial_until_target_snapshot_arrives() -> None:
+    with create_pipe_input() as input_obj:
+        runtime = TuiRuntime(input_obj=input_obj, output_obj=DummyOutput())
+        projection = ContextUsageProjection()
+        runtime.bind_context_usage(projection, pending=True)
+        try:
+            assert runtime.screen.context_usage_label == ""
+            projection.activate("cid", "sid", initial=False)
+            projection.apply(_record())
+            assert runtime.screen.context_usage_label == ""
+            projection.finish_replay("cid", "sid")
+            assert runtime.screen.context_usage_label == "91% context left"
+        finally:
+            await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_session_subscription_survives_turn_output_and_closes_with_runtime() -> None:
     with create_pipe_input() as input_obj:
         runtime = TuiRuntime(input_obj=input_obj, output_obj=DummyOutput())

@@ -107,3 +107,14 @@ def test_retained_prefix_does_not_restore_outdated_snapshot(record) -> None:
     assert projection.view.record == newer
     projection.activate(record.cid, "other", initial=True)
     assert projection.apply(replace(record, sid="other"))
+
+
+def test_retained_authoritative_snapshot_can_restore_before_floor(record):
+    projection = ContextUsageProjection()
+    projection.activate(record.cid, record.sid, initial=False)
+    projection.discard_retained_prefix(record.cid, record.sid, 100)
+    assert not projection.apply(record)
+    projection.restore(record.cid, record.sid, record)
+    assert projection.view.status == 'pending'
+    projection.finish_replay(record.cid, record.sid)
+    assert projection.view.record == record

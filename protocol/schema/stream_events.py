@@ -12,7 +12,6 @@ from dataclasses import (
 )
 
 from protocol.schema.context_usage import (
-    CONTEXT_USAGE_FIELDS,
     ContextUsageSnapshot,
     parse_context_usage,
 )
@@ -650,15 +649,13 @@ def parse_stream_event(
     common = _common_fields(raw, event_type)
 
     if event_type == "context.usage.updated":
-        allowed = _STREAM_EVENT_FIELDS | CONTEXT_USAGE_FIELDS
+        allowed = _STREAM_EVENT_FIELDS | {"context_usage"}
         if set(raw) - allowed or raw.get("display") is not None:
             raise ValueError("context.usage.updated contains unsupported fields or display")
-        return ContextUsageUpdatedEvent(
-            **common,
-            snapshot=parse_context_usage({
-                key: value for key, value in raw.items() if key in CONTEXT_USAGE_FIELDS
-            }),
-        )
+        snapshot = raw.get("context_usage")
+        if not isinstance(snapshot, dict):
+            raise ValueError("context.usage.updated requires context_usage")
+        return ContextUsageUpdatedEvent(**common, snapshot=parse_context_usage(snapshot))
 
     if event_type == "tool.calls.start":
         return ToolCallsStartEvent(
@@ -1082,7 +1079,7 @@ def parse_compact_event(
             "proto": proto,
             "cid": _required_text(raw.get("cid"), "cid"),
             "sid": _required_text(raw.get("sid"), "sid"),
-            "turn_id": _required_text(raw.get("turn_id"), "turn_id"),
+            "turn_id": _session_turn_id(raw.get("turn_id")),
             "event_seq": _event_sequence(raw),
             "presentation_epoch": _required_positive_int(
                 raw.get("presentation_epoch"), "presentation_epoch",
@@ -1574,7 +1571,13 @@ def _common_fields(
             raise ValueError("stream event proto must be mind.chat")
         cid = _required_text(payload.get("cid"), "cid")
         sid = _required_text(payload.get("sid"), "sid")
-        turn_id = _required_text(payload.get("turn_id"), "turn_id")
+        turn_id = (
+            _session_turn_id(payload.get("turn_id"))
+            if event_type == "context.usage.updated" or (
+                event_type.startswith("context.compaction.") and payload.get("phase") == "standalone"
+            )
+            else _required_text(payload.get("turn_id"), "turn_id")
+        )
         event_seq = _required_positive_int(payload.get("event_seq"), "event_seq")
         presentation_epoch = _required_positive_int(
             payload.get("presentation_epoch"),
@@ -1592,6 +1595,13 @@ def _common_fields(
         "presentation_epoch": presentation_epoch,
         "display": copy.deepcopy(display) if isinstance(display, dict) else None
     }
+
+
+def _session_turn_id(value: JsonValue) -> str:
+    """保留 Session 事件的空 Turn 身份，拒绝缺失、非字符串或空白别名。"""
+    if not isinstance(value, str) or value != value.strip():
+        raise ValueError("session event turn_id must be a string")
+    return value
 
 
 def _tool_fields(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:

@@ -138,10 +138,12 @@ async def test_context_usage_shares_stream_identity_and_confirmation_cursor(monk
     async def payloads():
         usage = {
             "type": "context.usage.updated", "turn_id": "turn_1", "event_seq": 3,
-            "model_context_window": 100_000,
-            "last_token_usage": {"total_tokens": 20_000},
-            "total_token_usage": {"total_tokens": 250_000},
-            "usage_source": "provider", "model": "test-model", "route": "responses",
+            "context_usage": {
+                "model_context_window": 100_000,
+                "last_token_usage": {"total_tokens": 20_000},
+                "total_token_usage": {"total_tokens": 250_000},
+                "usage_source": "provider", "model": "test-model", "route": "responses",
+            },
         }
         yield usage
         yield usage

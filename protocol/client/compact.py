@@ -57,6 +57,8 @@ async def stream_compact_events(
             event = parse_compact_event(raw)
             if event.cid != payload["cid"] or event.sid != payload["sid"]:
                 raise ValueError("compact event does not match the requested session")
+            if event.turn_id != "":
+                raise ValueError("compact event does not match the current operation session scope")
             if operation_turn_id is not None and event.turn_id != operation_turn_id:
                 raise ValueError("compact event does not match the current operation")
             operation_turn_id = event.turn_id

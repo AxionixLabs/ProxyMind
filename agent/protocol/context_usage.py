@@ -27,9 +27,11 @@ class ContextUsageRecord:
 
     def __post_init__(self) -> None:
         """校验本地持久化与传输映射共用的不变量。"""
-        for value in (self.cid, self.sid, self.turn_id, self.model, self.route):
+        for value in (self.cid, self.sid, self.model, self.route):
             if not isinstance(value, str) or not value.strip():
                 raise ValueError("context usage identity and model are required")
+        if not isinstance(self.turn_id, str) or self.turn_id != self.turn_id.strip():
+            raise ValueError("context usage turn_id must be a string")
         for value in (self.event_seq, self.presentation_epoch):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError("context usage coordinates must be positive integers")

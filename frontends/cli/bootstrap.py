@@ -687,7 +687,7 @@ async def _run_controller(
                 require_tui_runtime(
                     controller.frontend.runtime
                 ).begin_startup_gate()
-            await preload_tui_prompt_context(controller)
+            await preload_tui_prompt_context(controller, resuming=isinstance(command, ResumeCommand))
 
         _emit_startup_warnings(
             frontend,

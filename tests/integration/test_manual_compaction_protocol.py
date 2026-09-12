@@ -28,7 +28,7 @@ def _event(status: str, **fields: JsonValue) -> JsonObject:
         "type": f"context.compaction.{status}",
         "cid": "cid-1",
         "sid": "sid-1",
-        "turn_id": "compact-turn-1",
+        "turn_id": "",
         "item_id": "compaction-1",
         "item_kind": "context_compaction",
         "item_status": "in_progress" if status == "started" else status,
@@ -146,12 +146,14 @@ async def test_manual_compaction_consumes_current_server_sse_and_closes_at_termi
 async def test_manual_compaction_delivers_usage_before_closed_terminal() -> None:
     usage: JsonObject = {
         "type": "context.usage.updated", "proto": "mind.chat",
-        "cid": "cid-1", "sid": "sid-1", "turn_id": "compact-turn-1",
+        "cid": "cid-1", "sid": "sid-1", "turn_id": "",
         "event_seq": 11, "presentation_epoch": 1,
+        "context_usage": {
         "model_context_window": 100_000,
         "last_token_usage": {"total_tokens": 13_000},
         "total_token_usage": {"total_tokens": 250_000},
         "usage_source": "estimate", "model": "test-model", "route": "responses",
+        },
     }
     with _compact_http([
         _event("started", event_seq=10), usage, usage,
@@ -177,11 +179,13 @@ async def test_manual_compaction_delivers_usage_before_closed_terminal() -> None
 async def test_manual_compaction_rejects_usage_for_other_operation(field) -> None:
     usage: JsonObject = {
         "type": "context.usage.updated", "proto": "mind.chat",
-        "cid": "cid-1", "sid": "sid-1", "turn_id": "compact-turn-1",
+        "cid": "cid-1", "sid": "sid-1", "turn_id": "",
         "event_seq": 11, "presentation_epoch": 1,
+        "context_usage": {
         "model_context_window": None, "last_token_usage": None,
         "total_token_usage": None, "usage_source": "unknown",
         "model": "test-model", "route": "responses",
+        },
     }
     usage[field] = "other"
     with _compact_http([_event("started", event_seq=10), usage]) as exchange:

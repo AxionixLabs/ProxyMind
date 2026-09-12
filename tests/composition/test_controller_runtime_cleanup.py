@@ -54,6 +54,7 @@ def _root_session(
     javascript_cleanup = AsyncMock()
     command_cleanup = Mock()
     event_close = AsyncMock()
+    context_recovery = SimpleNamespace(load=AsyncMock(return_value=None))
 
     async def fresh_preferences(_ttl_sec):
         return {"primary": {"model": "test-model"}}
@@ -70,6 +71,7 @@ def _root_session(
     )
     session = RootConversationSession(
         history,
+        context_usage_recovery=context_recovery,
         workspace=lambda: "D:/workspace",
         permissions=lambda: preset_permissions("auto"),
         preference_config=lambda: {"primary": {"model": "test-model"}},
@@ -99,6 +101,7 @@ def _root_session(
         javascript_cleanup=javascript_cleanup,
         command_cleanup=command_cleanup,
         event_close=event_close,
+        context_recovery=context_recovery,
     )
 
 
@@ -124,9 +127,11 @@ async def test_root_context_usage_survives_turn_and_restores_only_target_session
     assert session.context_usage.view.status == "initial"
     assert session.context_usage.view.record is None
     resources.store.load_context_usage.return_value = record
+    resources.context_recovery.load.return_value = record
     await session.bind(record.cid, record.sid)
     assert session.context_usage.view.record == record
     assert [view.status for view in views][-2:] == ["pending", "known"]
+    resources.store.save_context_usage.reset_mock()
     session.context_usage_recovery(record.cid, record.sid, pending=True)
     session.discard_context_usage_prefix(record.cid, record.sid, record.event_seq)
     resources.store.discard_context_usage_prefix.assert_called_once_with(
@@ -135,8 +140,9 @@ async def test_root_context_usage_survives_turn_and_restores_only_target_session
     session.record_context_usage(record)
     session.context_usage_recovery(record.cid, record.sid, pending=False)
     assert session.context_usage.view.status == "unknown"
-    resources.store.save_context_usage.assert_called_once_with(record)
+    resources.store.save_context_usage.assert_not_called()
     resources.store.load_context_usage.return_value = None
+    resources.context_recovery.load.return_value = None
     await session.bind("cid_fork_12345678", "sid_fork_1_abcdef", source="fork")
     assert session.context_usage.view.status == "unknown"
     assert session.context_usage.view.record is None

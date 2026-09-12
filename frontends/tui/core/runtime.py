@@ -165,6 +165,7 @@ class TuiRuntime(object):
         self._terminal_stderr_guard = TerminalStderrGuard.install()
         self.context = PromptContext(model="")
         self._context_usage_feed: ContextUsageFeed | None = None
+        self._context_usage_pending = False
         self._unsubscribe_context_usage: typing.Callable[[], None] | None = None
         self.keymap = keymap or TuiRuntimeKeymap.defaults()
         self.input_model = input_model or TuiInputModel(keymap=self.keymap)
@@ -948,18 +949,21 @@ class TuiRuntime(object):
         if context != previous:
             self.screen.invalidate()
 
-    def bind_context_usage(self, feed: ContextUsageFeed) -> None:
+    def bind_context_usage(self, feed: ContextUsageFeed, *, pending: bool = False) -> None:
         """订阅根会话投影，并在重新绑定或运行时关闭时释放订阅。"""
         if self._context_usage_feed is feed:
             return
         if self._unsubscribe_context_usage is not None:
             self._unsubscribe_context_usage()
         self._context_usage_feed = feed
+        self._context_usage_pending = pending
         self._unsubscribe_context_usage = feed.subscribe(self.set_context_usage)
 
     def set_context_usage(self, view: ContextUsageView) -> None:
         """仅在 footer 可见文案变化时请求重绘。"""
-        label = context_usage_label(view)
+        if view.status != "initial":
+            self._context_usage_pending = False
+        label = "" if self._context_usage_pending else context_usage_label(view)
         if label != self.screen.context_usage_label:
             self.screen.context_usage_label = label
             self.screen.invalidate()
